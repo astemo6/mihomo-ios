@@ -47,11 +47,28 @@ type Overrides struct {
 	ControllerPort int    `json:"controllerPort"` // 127.0.0.1:<port>
 	Secret         string `json:"secret"`         // controller secret
 	Mode           string `json:"mode"`           // rule/global/direct ("" = keep profile)
-	MemoryLimitMB  int    `json:"memoryLimitMB"`  // soft limit for Go runtime
+	MemoryLimitMB  int    `json:"memoryLimitMB"`  // soft limit for Go runtime (GOMEMLIMIT)
+	TunnelMode     string `json:"tunnelMode"`     // "tun" (default, NEPacketTunnelFlow) | "proxy" (NEProxySettings only)
+	MixedPort      int    `json:"mixedPort"`      // local HTTP/SOCKS port for proxy-only mode / LAN sharing
+	TunMTU         int    `json:"tunMTU"`         // MTU of the packet-flow bridge (default 4064, like Hako)
+	GeoMirror      string `json:"geoMirror"`      // jsdelivr (default, testingcf CDN) / fastly / github — always replaces the profile's geox-url
+
+	GeoURLs     map[string]string `json:"geoURLs"`     // custom per-database URLs (mmdb/geoip/geosite/asn), "" = mirror default
+	MergeManual bool              `json:"mergeManual"` // add the 手动节点 profile's nodes (+ group) to every profile
+
+	DNS        *DNSOverride `json:"-"` // loaded from <home>/dns.json
+	manualPath string       // <container>/profiles/manual-nodes.yaml
 }
 
+const (
+	defaultMemoryLimitMB = 36 // 3/4 of the ~50 MB NetworkExtension jetsam budget (Hako GC pacing)
+	defaultTunMTU        = 4064
+	defaultMixedPort     = 7890
+)
+
 func defaultOverrides() Overrides {
-	return Overrides{LogLevel: "info", DNSMode: "fake-ip", Sniffer: true, ControllerPort: 9090, MemoryLimitMB: 40}
+	return Overrides{LogLevel: "info", DNSMode: "fake-ip", Sniffer: true, ControllerPort: 9090, MemoryLimitMB: defaultMemoryLimitMB,
+		TunnelMode: "tun", MixedPort: defaultMixedPort, TunMTU: defaultTunMTU}
 }
 
 func readOverrides(home string) Overrides {
@@ -66,8 +83,21 @@ func readOverrides(home string) Overrides {
 	if o.DNSMode != "redir-host" {
 		o.DNSMode = "fake-ip"
 	}
-	if o.MemoryLimitMB <= 0 {
-		o.MemoryLimitMB = 40
+	if o.MemoryLimitMB <= 0 || o.MemoryLimitMB > 45 {
+		o.MemoryLimitMB = defaultMemoryLimitMB
+	}
+	if o.TunnelMode != "proxy" {
+		o.TunnelMode = "tun"
+	}
+	if o.MixedPort <= 0 || o.MixedPort > 65535 || o.MixedPort == o.ControllerPort {
+		o.MixedPort = defaultMixedPort
+	}
+	if o.TunMTU < 1280 || o.TunMTU > 9000 {
+		o.TunMTU = defaultTunMTU
+	}
+	o.DNS = readDNSOverride(home)
+	if home != "" {
+		o.manualPath = filepath.Join(filepath.Dir(home), "profiles", "manual-nodes.yaml")
 	}
 	return o
 }
@@ -103,6 +133,9 @@ func buildRuntimeWith(profile []byte, o Overrides, fd int32, inject func(raw map
 		}
 	}
 
+	if o.MergeManual && o.manualPath != "" {
+		mergeManualNodes(raw, o.manualPath)
+	}
 	if o.LogLevel != "" {
 		raw["log-level"] = o.LogLevel
 	}
@@ -123,15 +156,26 @@ func buildRuntimeWith(profile []byte, o Overrides, fd int32, inject func(raw map
 	// Bundled geoip.metadb / GeoSite.dat / ASN.mmdb are copied into home before start, so the core
 	// never needs to download them at startup. mmdb mode (not GeoIP.dat) matches the bundled files.
 	raw["geodata-mode"] = false
-	raw["geox-url"] = geoxMirror()
+	raw["geox-url"] = geoxFor(o)
 	rewriteProviderURLs(raw)
 	// No inbound listeners on iOS except tun.
 	for _, k := range []string{"port", "socks-port", "redir-port", "tproxy-port", "mixed-port"} {
 		delete(raw, k)
 	}
 	if o.AllowLan {
-		raw["mixed-port"] = 7890
+		raw["mixed-port"] = o.MixedPort
 		raw["bind-address"] = "*"
+	} else if o.TunnelMode == "proxy" {
+		// Proxy-only mode: iOS sends HTTP/HTTPS through NEProxySettings to this local port.
+		raw["mixed-port"] = o.MixedPort
+		raw["bind-address"] = "127.0.0.1"
+	}
+	// Battery: fewer TCP keep-alive wake-ups unless the profile chose its own values.
+	if _, ok := raw["keep-alive-interval"]; !ok {
+		raw["keep-alive-interval"] = 30
+	}
+	if _, ok := raw["keep-alive-idle"]; !ok {
+		raw["keep-alive-idle"] = 300
 	}
 	delete(raw, "iptables")
 	delete(raw, "interface-name")
@@ -162,6 +206,7 @@ func buildRuntimeWith(profile []byte, o Overrides, fd int32, inject func(raw map
 	if _, ok := dns["default-nameserver"]; !ok {
 		dns["default-nameserver"] = []any{"223.5.5.5", "119.29.29.29"}
 	}
+	applyDNSOverride(dns, o.DNS, o.DNSMode)
 	raw["dns"] = dns
 
 	// Sniffer
@@ -178,7 +223,10 @@ func buildRuntimeWith(profile []byte, o Overrides, fd int32, inject func(raw map
 	}
 	raw["sniffer"] = sn
 
-	// TUN — the fd comes from NEPacketTunnelProvider's utun.
+	// TUN — fd is the core end of the PacketFlow bridge socketpair (AF_UNIX/SOCK_DGRAM, utun framing:
+	// 4-byte address family + IP packet). The Swift side moves packets with NEPacketTunnelFlow
+	// readPackets / writePackets (public API), the same design as Hako-Adapter's PacketFlowBridge.
+	// recvmsg_x / sendmsg_x and the utun-only socket options must stay off for a socketpair.
 	if fd > 0 {
 		raw["tun"] = map[string]any{
 			"enable":                true,
@@ -187,7 +235,14 @@ func buildRuntimeWith(profile []byte, o Overrides, fd int32, inject func(raw map
 			"auto-route":            false,
 			"auto-detect-interface": false,
 			"dns-hijack":            []any{"any:53"},
-			"mtu":                   1500,
+			"mtu":                   o.TunMTU,
+			"recvmsgx":              false,
+			"sendmsgx":              false,
+			"udp-timeout":           120,
+		}
+		// IPv4 tun address is derived from fake-ip-range by mihomo; IPv6 must match NEIPv6Settings.
+		if o.IPv6 {
+			raw["tun"].(map[string]any)["inet6-address"] = []any{"fdfe:dcba:9876::1/126"}
 		}
 	} else {
 		delete(raw, "tun")
@@ -236,16 +291,20 @@ func ConvertShareLinks(text string) string {
 // LastError returns the last error message produced by a string-returning helper.
 func LastError() string { return lastError }
 
+// startGC applies Hako-style GC pacing for the NetworkExtension: GOMEMLIMIT at 3/4 of the jetsam budget
+// with a normal GOGC, so the collector only works hard near the limit (less CPU = less battery than a
+// permanently low GOGC). A slow ticker returns idle spans to the OS; the Swift MemoryGuard handles
+// footprint spikes (FreeMemory / ShedConnections) using phys_footprint and memory-pressure events.
 func startGC(limitMB int) {
 	debug.SetMemoryLimit(int64(limitMB) << 20)
-	debug.SetGCPercent(10)
+	debug.SetGCPercent(100)
 	if gcStop != nil {
 		return
 	}
 	gcStop = make(chan struct{})
 	stop := gcStop
 	go func() {
-		t := time.NewTicker(10 * time.Second)
+		t := time.NewTicker(30 * time.Second)
 		defer t.Stop()
 		for {
 			select {
@@ -254,7 +313,8 @@ func startGC(limitMB int) {
 			case <-t.C:
 				var ms runtime.MemStats
 				runtime.ReadMemStats(&ms)
-				if ms.HeapAlloc > uint64(limitMB)<<20*7/10 {
+				// Lots of idle-but-retained heap: hand it back so the footprint jetsam sees stays low.
+				if ms.HeapIdle-ms.HeapReleased > 4<<20 || ms.HeapAlloc > uint64(limitMB)<<20*8/10 {
 					debug.FreeOSMemory()
 				}
 			}
@@ -311,6 +371,9 @@ func Start(homeDir, configPath string, tunFd int32) error {
 			stage("core apply failed: %s", err.Error())
 		} else {
 			stage("core apply finished: providers loaded, tunnel %s, %s", tunnel.Status().String(), memText())
+			if n := applySelections(configPath); n > 0 {
+				stage("restored %d saved group selection(s)", n)
+			}
 		}
 		done <- err
 	}()

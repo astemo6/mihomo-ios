@@ -55,14 +55,54 @@ func MemoryStats() string { return memText() }
 // geoMirrorBase is a China-reachable CDN for MetaCubeX/meta-rules-dat release files.
 const geoMirrorBase = "https://testingcf.jsdelivr.net/gh/MetaCubeX/meta-rules-dat@release/"
 
-func geoxMirror() map[string]any {
-	return map[string]any{
-		"geoip":   geoMirrorBase + "geoip.dat",
-		"geosite": geoMirrorBase + "geosite.dat",
-		"mmdb":    geoMirrorBase + "geoip.metadb",
-		"asn":     geoMirrorBase + "GeoLite2-ASN.mmdb",
+// GeoBaseURL returns the download base for meta-rules-dat files for a mirror name.
+func GeoBaseURL(mirror string) string {
+	switch mirror {
+	case "fastly":
+		return "https://fastly.jsdelivr.net/gh/MetaCubeX/meta-rules-dat@release/"
+	case "github":
+		return "https://github.com/MetaCubeX/meta-rules-dat/releases/download/latest/"
+	default:
+		return geoMirrorBase
 	}
 }
+
+func geoxMirror(mirror string) map[string]any {
+	return geoxFor(Overrides{GeoMirror: mirror})
+}
+
+// geoxFor is the geox-url the core gets: custom URLs from the 地理与规则库 page, else the mirror default.
+func geoxFor(o Overrides) map[string]any {
+	out := map[string]any{}
+	for _, g := range geoKinds {
+		out[g.Kind] = geoURL(o, g.Kind)
+	}
+	return out
+}
+
+// geoURL returns the download URL for one database kind (mmdb / geoip / geosite / asn).
+func geoURL(o Overrides, kind string) string {
+	if u := strings.TrimSpace(o.GeoURLs[kind]); u != "" {
+		return normalizeURL(u)
+	}
+	for _, g := range geoKinds {
+		if g.Kind == kind {
+			return GeoBaseURL(o.GeoMirror) + g.Remote
+		}
+	}
+	return ""
+}
+
+// normalizeURL adds https:// to "host/path" input from the URL field.
+func normalizeURL(u string) string {
+	if !strings.Contains(u, "://") {
+		return "https://" + strings.TrimLeft(u, "/")
+	}
+	return u
+}
+
+// GeoDefaultURL is the URL used for kind when no custom URL is set (mirror: "" / jsdelivr, fastly, github).
+func GeoDefaultURL(kind, mirror string) string { return geoURL(Overrides{GeoMirror: mirror}, kind) }
 
 // githubToMirror maps raw GitHub URLs to jsDelivr (reachable from mainland China):
 //

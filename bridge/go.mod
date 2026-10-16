@@ -11,6 +11,7 @@ require (
 	github.com/metacubex/chi v0.1.1
 	github.com/metacubex/http v0.1.8
 	github.com/metacubex/mihomo v1.19.32
+	github.com/oschwald/maxminddb-golang v1.12.0
 	go.yaml.in/yaml/v3 v3.0.5
 	golang.org/x/mobile v0.0.0-20261011034528-197770444867
 	software.sslmate.com/src/go-pkcs12 v0.7.4
@@ -109,7 +110,6 @@ require (
 	github.com/mroth/weightedrand/v2 v2.1.0 // indirect
 	github.com/oasisprotocol/deoxysii v0.0.0-20220228165953-2091330c22b7 // indirect
 	github.com/openacid/low v0.1.21 // indirect
-	github.com/oschwald/maxminddb-golang v1.12.0 // indirect
 	github.com/pierrec/lz4/v4 v4.1.27 // indirect
 	github.com/pires/go-proxyproto v0.8.0 // indirect
 	github.com/rasky/go-lzo v0.0.0-20200203143853-96a758eda86e // indirect

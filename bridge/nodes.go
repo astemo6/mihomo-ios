@@ -379,6 +379,12 @@ func parseSurgeLine(line string) (map[string]any, error) {
 		if v := kv["private-key"]; v != "" {
 			p["private-key"] = v
 		}
+		if v := kv["private-key-passphrase"]; v != "" {
+			p["private-key-passphrase"] = v
+		}
+		if v := firstNonEmpty(kv["server-fingerprint"], kv["host-key"]); v != "" {
+			p["host-key"] = []any{v}
+		}
 	default:
 		return nil, fmt.Errorf("surge: 不支持的类型 %s", typ)
 	}
@@ -537,6 +543,8 @@ func parseNodeText(text string) ([]map[string]any, []string) {
 			p, err = parseWireGuard(line)
 		case strings.HasPrefix(lower, "snell://"):
 			p, err = parseSnell(line)
+		case strings.HasPrefix(lower, "ssh://"):
+			p, err = parseSSH(line)
 		case strings.HasPrefix(lower, "hy2://"):
 			uris = append(uris, "hysteria2://"+line[len("hy2://"):])
 			continue
@@ -584,6 +592,69 @@ func parseNodeText(text string) ([]map[string]any, []string) {
 		p["name"] = n
 	}
 	return out, errs
+}
+
+// ssh://user[:password]@host[:port][?private-key=…&private-key-passphrase=…&host-key=…&host-key-algorithms=…]#name
+// private-key may be PEM (URL-encoded), base64 of a PEM, or a path inside the core home dir.
+// Aliases accepted: pk / privateKey / key, passphrase, hostkey / host_key / server-key, user= when not in userinfo.
+func parseSSH(line string) (map[string]any, error) {
+	u, err := url.Parse(line)
+	if err != nil {
+		return nil, err
+	}
+	if u.Hostname() == "" {
+		return nil, errors.New("ssh: 缺少服务器地址")
+	}
+	q := u.Query()
+	p := map[string]any{"type": "ssh", "server": u.Hostname(), "port": atoi(u.Port(), 22)}
+	user, pass := "", ""
+	if u.User != nil {
+		user = u.User.Username()
+		pass, _ = u.User.Password()
+	}
+	if user == "" {
+		user = firstQ(q, "user", "username")
+	}
+	if pass == "" {
+		pass = firstQ(q, "password", "pass")
+	}
+	if user == "" {
+		return nil, errors.New("ssh: 缺少用户名")
+	}
+	p["username"] = user
+	if pass != "" {
+		p["password"] = pass
+	}
+	if k := firstQ(q, "private-key", "privateKey", "private_key", "pk", "key"); k != "" {
+		if !strings.Contains(k, "-----BEGIN") {
+			if d, ok := tryB64(k); ok && strings.Contains(d, "-----BEGIN") {
+				k = d
+			}
+		}
+		p["private-key"] = k
+	}
+	if pp := firstQ(q, "private-key-passphrase", "passphrase", "privateKeyPassphrase"); pp != "" {
+		p["private-key-passphrase"] = pp
+	}
+	if hk := firstQ(q, "host-key", "hostkey", "host_key", "server-key", "serverKey"); hk != "" {
+		var keys []any
+		for _, k := range strings.Split(hk, "|") {
+			if k = strings.TrimSpace(k); k != "" {
+				keys = append(keys, k)
+			}
+		}
+		if len(keys) > 0 {
+			p["host-key"] = keys
+		}
+	}
+	if alg := firstQ(q, "host-key-algorithms", "hostKeyAlgorithms"); alg != "" {
+		p["host-key-algorithms"] = csv(alg)
+	}
+	if pass == "" && p["private-key"] == nil {
+		return nil, errors.New("ssh: 需要密码或私钥")
+	}
+	p["name"] = nameOr(u.Fragment, "ssh "+u.Hostname())
+	return p, nil
 }
 
 // socks5://[user:pass@]host:port#name, also base64("user:pass") userinfo; http(s)://user:pass@host:port#name
