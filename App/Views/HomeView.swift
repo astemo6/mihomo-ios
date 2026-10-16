@@ -28,6 +28,7 @@ struct HomeView: View {
                     ModeCard()
                     TrafficCard()
                     StatsGrid()
+                    PanelsEntry()
 
                     if let err = vpn.lastError {
                         Text(err)

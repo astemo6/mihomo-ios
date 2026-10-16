@@ -307,6 +307,26 @@ type parsedText struct {
 	Errors      []string      `json:"errors"`
 	Unsupported []string      `json:"unsupported"`
 	Arguments   []mitm.ModArg `json:"arguments"`
+	Tasks       []parsedTask  `json:"tasks"`
+	Panels      []parsedPanel `json:"panels"`
+}
+
+type parsedTask struct {
+	Kind   string `json:"kind"` // cron / event / generic
+	Name   string `json:"name"`
+	Cron   string `json:"cron,omitempty"`
+	Event  string `json:"event,omitempty"`
+	Path   string `json:"path"`
+	Format string `json:"format,omitempty"`
+	Desc   string `json:"desc"`
+	Line   string `json:"line"`
+}
+
+type parsedPanel struct {
+	Name   string `json:"name"`
+	Title  string `json:"title"`
+	Script string `json:"script,omitempty"`
+	Format string `json:"format"`
 }
 
 func toParsed(rs *mitm.Ruleset) string {
@@ -318,6 +338,20 @@ func toParsed(rs *mitm.Ruleset) string {
 			pr.Script, pr.Path = r.Script.Name, r.Script.Path
 		}
 		p.Rules = append(p.Rules, pr)
+	}
+	p.Tasks, p.Panels = []parsedTask{}, []parsedPanel{}
+	for _, t := range rs.Tasks {
+		d := "通用脚本（手动运行 / 面板）"
+		switch t.Kind {
+		case mitm.TaskCron:
+			d = "定时脚本：" + t.Cron
+		case mitm.TaskEvent:
+			d = "事件脚本：网络变化"
+		}
+		p.Tasks = append(p.Tasks, parsedTask{Kind: t.Kind, Name: t.Script.Name, Cron: t.Cron, Event: t.Event, Path: t.Script.Path, Format: t.Format, Desc: d, Line: t.Line})
+	}
+	for _, pn := range rs.Panels {
+		p.Panels = append(p.Panels, parsedPanel{Name: pn.Name, Title: pn.Title, Script: pn.Script, Format: pn.Format})
 	}
 	if p.Hostnames == nil {
 		p.Hostnames = []string{}

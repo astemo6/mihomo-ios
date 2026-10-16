@@ -311,10 +311,16 @@ func TestReplayAndCapture(t *testing.T) {
 // MitM; the script answers locally ($done({response})) and keeps its data in $persistentStore.
 const boxjsModule = `#!name=BoxJs
 #!desc=http://boxjs.com
+#!category=BoxJs
+
+[General]
+force-http-engine-hosts = %APPEND% boxjs.com, boxjs.net, *.boxjs.com, *.boxjs.net
+
 [Script]
-Rewrite: BoxJs = type=http-request,pattern=https?:\/\/boxjs\.(com|net),script-path=box.js, requires-body=true, timeout=120
+Rewrite: BoxJs = type=http-request,pattern=^https?:\/\/(.+\.)?boxjs\.(com|net),script-path=box.js, requires-body=true, timeout=120
+
 [MITM]
-hostname = %APPEND% boxjs.com, boxjs.net, *.boxjs.com, *.boxjs.net
+hostname = %INSERT% boxjs.com, boxjs.net, *.boxjs.com, *.boxjs.net
 `
 
 const boxJS = `

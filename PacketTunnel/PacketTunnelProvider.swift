@@ -24,6 +24,7 @@ final class PacketTunnelProvider: NEPacketTunnelProvider {
     private var bridge: PacketFlowBridge?
     private var memoryGuard: MemoryGuard?
     private var traffic: TrafficRecorder?
+    private var network: NetworkWatcher?
 
     override func startTunnel(options: [String: NSObject]?, completionHandler: @escaping (Error?) -> Void) {
         TunnelErrorLog.clear()
@@ -108,6 +109,9 @@ final class PacketTunnelProvider: NEPacketTunnelProvider {
                 let rec = TrafficRecorder()
                 rec.start()
                 self.traffic = rec
+                let nw = NetworkWatcher()
+                nw.start()
+                self.network = nw
                 completionHandler(nil)
                 DispatchQueue.global().asyncAfter(deadline: .now() + 15) { [weak self] in
                     StartupLog.write("+15 s: \(ProcessMemory.summary()), \(LibmihomoMemoryStats()), bridge \(self?.bridge?.stats ?? "-")")
@@ -158,6 +162,8 @@ final class PacketTunnelProvider: NEPacketTunnelProvider {
     override func stopTunnel(with reason: NEProviderStopReason, completionHandler: @escaping () -> Void) {
         StartupLog.write("stopTunnel reason=\(reason.rawValue), \(ProcessMemory.summary()), bridge \(bridge?.stats ?? "-")")
         traffic?.stop() // flushes the last delta
+        network?.stop()
+        network = nil
         memoryGuard?.stop()
         LibmihomoStop()
         bridge?.stop()

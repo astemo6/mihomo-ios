@@ -250,6 +250,29 @@ struct HTTPRequestDetail: Decodable {
     var reqBodyBinary: Int?
     var respBodyBinary: Int?
     var respEncoding: String?
+    var reqBodyLength: Int?
+    var respBodyLength: Int?
+
+    /// curl command for the captured request (headers + text body).
+    var curl: String {
+        func q(_ s: String) -> String { "'" + s.replacingOccurrences(of: "'", with: "'\\''") + "'" }
+        var parts = ["curl"]
+        if method != "GET" { parts.append("-X \(method)") }
+        parts.append(q(url))
+        for k in (reqHeaders ?? [:]).keys.sorted() {
+            let lk = k.lowercased()
+            if ["content-length", "connection", "proxy-connection", "keep-alive", "transfer-encoding"].contains(lk) { continue }
+            parts.append("-H " + q("\(k): \(reqHeaders?[k] ?? "")"))
+        }
+        if let b = reqBody, !b.isEmpty { parts.append("--data-raw " + q(b)) }
+        if (reqHeaders ?? [:]).keys.contains(where: { $0.lowercased() == "accept-encoding" }) { parts.append("--compressed") }
+        return parts.joined(separator: " \\\n  ")
+    }
+
+    /// Replay is possible when the body (if any) was captured in full as text.
+    var canReplay: Bool {
+        method != "TLS" && (reqBodyBinary ?? 0) == 0 && (reqBodyLength ?? 0) <= (reqBody?.utf8.count ?? 0)
+    }
 }
 
 struct ScriptLogLine: Decodable, Identifiable, Hashable {
@@ -288,6 +311,24 @@ struct ParsedEngineText: Decodable {
     var errors: [String]
     var unsupported: [String]
     var arguments: [Arg]
+    struct Task: Decodable, Hashable {
+        var kind: String
+        var name: String
+        var cron: String?
+        var event: String?
+        var path: String
+        var format: String?
+        var desc: String
+        var line: String
+    }
+    struct Panel: Decodable, Hashable {
+        var name: String
+        var title: String
+        var script: String?
+        var format: String
+    }
+    var tasks: [Task]?
+    var panels: [Panel]?
 
     static func parse(_ json: String) -> ParsedEngineText? {
         guard let d = json.data(using: .utf8) else { return nil }

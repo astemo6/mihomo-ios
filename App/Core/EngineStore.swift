@@ -69,6 +69,7 @@ final class EngineStore: ObservableObject {
     static func describe(_ line: String, section: String = "") -> (desc: String, kind: String, error: String?) {
         guard let p = ParsedEngineText.parse(LibmihomoEngineParseLine(line, section)) else { return ("无法解析", "", "无法解析") }
         if let r = p.rules.first { return (r.desc, r.kind, nil) }
+        if let t = p.tasks?.first { return (t.desc, t.kind, nil) }
         if let e = p.errors.first { return ("无效", "", e) }
         if !p.coreRules.isEmpty { return ("内核规则：" + p.coreRules[0], "core", nil) }
         if !p.hostnames.isEmpty { return ("MitM 主机名", "hostname", nil) }
