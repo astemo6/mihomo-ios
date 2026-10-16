@@ -41,6 +41,7 @@ type ScriptResult struct {
 	Body     []byte
 	BodySet  bool
 	Response *ScriptHTTP // request phase: answer locally
+	Abort    bool        // Egern ctx.abort(): drop the request / fail the response
 }
 
 // ScriptRunner executes scripts with goja. A fresh Runtime per run (isolation like Surge), compiled
@@ -80,7 +81,11 @@ func (s *ScriptRunner) program(sc *Script) (*goja.Program, error) {
 	}
 	code := strings.TrimPrefix(string(src), "\ufeff")
 	if egernNativeRe.MatchString(code) {
-		return nil, errors.New("Egern 原生脚本（export default + ctx API）暂不支持，只支持 Surge / QX 兼容写法的脚本")
+		adapted, err := adaptEgern(code)
+		if err != nil {
+			return nil, err
+		}
+		code = adapted
 	}
 	// Wrap so a top-level `return` (allowed by Surge/JSC scripts) does not break compilation.
 	p, err := goja.Compile(sc.Name+".js", "(function(){\n"+code+"\n}).call(this);", false)
@@ -633,6 +638,7 @@ func (rc *runCtx) installCommon(set func(string, any)) {
 		return rt.ToValue(string(rs))
 	})
 	rc.installUtils(set)
+	rc.installEgern(set)
 }
 
 func jsString(rt *goja.Runtime, v goja.Value) string {
@@ -935,6 +941,10 @@ func (rc *runCtx) parseDone(requestPhase bool) (*ScriptResult, error) {
 			return nil
 		}
 		return x
+	}
+	if a := get(o, "__egernAbort"); a != nil && a.ToBoolean() {
+		res.Abort = true
+		return res, nil
 	}
 	if requestPhase {
 		mock := get(o, "response")

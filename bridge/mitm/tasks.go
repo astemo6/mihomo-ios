@@ -86,6 +86,9 @@ func (rs *Ruleset) addTask(kind, cron, event string, sc *Script, source, line, f
 		}
 		t.cron, t.Cron = c, c.String()
 		sc.Type = "cron"
+		if sc.Cron == "" {
+			sc.Cron = cron
+		}
 	case TaskEvent:
 		if event == "" {
 			event = "network-changed"

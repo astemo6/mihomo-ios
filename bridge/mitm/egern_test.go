@@ -1,6 +1,9 @@
 package mitm
 
 import (
+	"io"
+	"os"
+	"path/filepath"
 	"strings"
 	"testing"
 )
@@ -281,22 +284,112 @@ func TestEgernRuleSetConvert(t *testing.T) {
 	}
 }
 
-func TestNativeEgernScriptRejected(t *testing.T) {
+// Native Egern scripts run through the ctx adapter (egernadapter.go).
+const egernRespJS = `export default async function (ctx) {
+  const data = await ctx.response.json();
+  data.ad = false;
+  delete data.data.ads;
+  ctx.response.headers.set('X-Egern', ctx.env.FLAG || 'none');
+  ctx.storage.setJSON('last', { status: ctx.response.status });
+  return { headers: ctx.response.headers, body: data };
+}
+`
+
+const egernReqJS = `export default async function handler(ctx) {
+  if (ctx.request.url.endsWith('/block')) return ctx.abort();
+  if (ctx.request.url.endsWith('/local')) {
+    return ctx.respond({ status: 201, headers: { 'Content-Type': 'text/plain' }, body: 'hi ' + ctx.request.headers['user-agent'] });
+  }
+  const resp = await ctx.http.get('https://api.test.com/json', { timeout: 3000, insecureTls: true });
+  const j = await resp.json();
+  const h = ctx.request.headers;
+  h.set('X-Fetched', String(j.ad));
+  h['X-Name'] = ctx.script.name;
+  return { headers: h, body: { sent: true } };
+}
+`
+
+const egernTaskJS = `export default async function (ctx) {
+  const prev = ctx.storage.get('runs');
+  ctx.storage.set('runs', String(Number(prev || 0) + 1));
+  const gz = await ctx.compress.gzip(new TextEncoder().encode('ok-gzip'));
+  const back = await ctx.compress.gunzip(gz);
+  ctx.notify({ title: 'Egern', body: new TextDecoder().decode(back), action: { type: 'openUrl', url: 'https://x' } });
+  return { type: 'widget', backgroundColor: '#112233', children: [
+    { type: 'text', text: '标题' }, { type: 'stack', children: [{ type: 'text', text: '第一行' }, { type: 'text', text: '第二行' }] } ] };
+}
+`
+
+func TestNativeEgernScripts(t *testing.T) {
 	cfg := &Config{Enabled: true, MitM: true, Hostnames: []string{"api.test.com"}, Scripts: items(
-		`native = type=http-response,pattern=^https://api\.test\.com/json,requires-body=1,script-path=native.js`)}
-	h := newHarness(t, cfg, map[string]string{"native.js": "export default async function(ctx) {\n  return ctx.respond({});\n}\n"})
-	_, body := h.get("https://api.test.com/json")
-	if !strings.Contains(body, `"ad":true`) {
-		t.Errorf("response should pass through unchanged: %s", body)
+		`req = type=http-request,pattern=^https://api\.test\.com/(echo|block|local),requires-body=1,script-path=req.js`,
+		`panel = type=generic,script-path=task.js`)}
+	h := newHarness(t, cfg, map[string]string{"resp.js": egernRespJS, "req.js": egernReqJS, "task.js": egernTaskJS})
+	// the response script comes from an Egern module with env (ctx.env)
+	mod := "name: T\nscriptings:\n  - http_response:\n      name: resp\n      match: ^https://api\\.test\\.com/json\n      script_url: resp.js\n      body_required: true\n      env:\n        FLAG: \"on\"\n"
+	if err := os.MkdirAll(filepath.Dir(ModulePath(h.home, "m1")), 0o755); err != nil {
+		t.Fatal(err)
 	}
-	found := false
-	for _, l := range h.e.Logs.List(0, "") {
-		if strings.Contains(l.Msg, "Egern 原生脚本") {
-			found = true
-		}
+	if err := os.WriteFile(ModulePath(h.home, "m1"), []byte(mod), 0o644); err != nil {
+		t.Fatal(err)
 	}
-	if !found {
-		t.Errorf("native Egern script error not logged")
+	cfg.Modules = []Module{{ID: "m1", Name: "T", Enabled: true}}
+	h.e.Reload(cfg, Build(h.home, cfg))
+	resp, body := h.get("https://api.test.com/json")
+	if !strings.Contains(body, `"ad":false`) || strings.Contains(body, `"ads"`) || !strings.Contains(body, `"keep":1`) {
+		t.Fatalf("response body: %s logs=%+v", body, h.e.Logs.List(0, ""))
+	}
+	if resp.Header.Get("X-Egern") != "on" {
+		t.Errorf("header from ctx.env: %q", resp.Header.Get("X-Egern"))
+	}
+	if v, _ := h.e.Store.Read("last"); v != `{"status":200}` {
+		t.Errorf("storage.setJSON: %q", v)
+	}
+
+	r2, err := h.client.Post("https://api.test.com/echo", "text/plain", strings.NewReader("orig"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	b2, _ := io.ReadAll(r2.Body)
+	r2.Body.Close()
+	if !strings.Contains(string(b2), `"X-Fetched":"true"`) || !strings.Contains(string(b2), `"X-Name":"req"`) || !strings.Contains(string(b2), `{\"sent\":true}`) {
+		t.Fatalf("request rewrite: %s logs=%+v", b2, h.e.Logs.List(0, ""))
+	}
+
+	r3, b3 := h.get("https://api.test.com/local")
+	if r3.StatusCode != 201 || !strings.HasPrefix(b3, "hi ") {
+		t.Errorf("ctx.respond: %d %q", r3.StatusCode, b3)
+	}
+	if _, err := h.client.Get("https://api.test.com/block"); err == nil {
+		t.Errorf("ctx.abort should drop the request")
+	}
+
+	var notes []string
+	h.e.SetNotifier(func(title, sub, body, url string) { notes = append(notes, title+"|"+body+"|"+url) })
+	rs := Build(h.home, cfg)
+	rs.Panels = append(rs.Panels, &Panel{ID: "p1", Name: "面板", Script: "panel", Source: "用户", Format: "egern"})
+	h.e.Reload(cfg, rs)
+	st, err := h.e.tasks.refreshPanel("p1")
+	if err != nil || st.Error != "" {
+		t.Fatalf("panel: %v %+v logs=%+v", err, st, h.e.Logs.List(0, ""))
+	}
+	if st.Title != "标题" || st.Content != "第一行\n第二行" || st.BGColor != "#112233" {
+		t.Errorf("widget → panel: %+v bg=%q", st.Panel, st.BGColor)
+	}
+	if len(notes) != 1 || notes[0] != "Egern|ok-gzip|https://x" {
+		t.Errorf("notify / compress: %v", notes)
+	}
+	if v, _ := h.e.Store.Read("runs"); v != "1" {
+		t.Errorf("storage: %q", v)
+	}
+}
+
+func TestAdaptEgernRejectsModules(t *testing.T) {
+	if _, err := adaptEgern("import x from './a.js'\nexport default async function(ctx) {}"); err == nil {
+		t.Fatal("import should be refused")
+	}
+	if out, err := adaptEgern("export default async (ctx) => ({ url: ctx.request.url })"); err != nil || !strings.Contains(out, "var __egernMain = async (ctx)") {
+		t.Fatalf("arrow export: %v %s", err, out)
 	}
 }
 
