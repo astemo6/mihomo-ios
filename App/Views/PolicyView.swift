@@ -88,8 +88,8 @@ struct PolicyGroupDisplay {
 
     var hint: String {
         switch kind {
-        case "url-test": return String(localized: "自动选择延迟最低的节点（当前：\(now ?? ")—")）"
-        case "fallback": return String(localized: "按顺序使用第一个可用节点（当前：\(now ?? ")—")）"
+        case "url-test": return String(localized: "自动选择延迟最低的节点（当前：\(now ?? "—")）")
+        case "fallback": return String(localized: "按顺序使用第一个可用节点（当前：\(now ?? "—")）")
         case "load-balance": return String(localized: "在节点间分配连接")
         default: return String(localized: "该策略组不可手动选择")
         }
