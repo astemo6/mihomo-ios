@@ -5,7 +5,6 @@ struct ConnectionView: View {
     @EnvironmentObject var vpn: VPNManager
     @State private var tunnelMode = CoreOverrides.load().tunnelMode
     @State private var onDemand = OnDemandSettings.load()
-    @State private var newSSID = ""
     @State private var status: String?
 
     var body: some View {
@@ -34,20 +33,12 @@ struct ConnectionView: View {
                 Picker("按需连接", selection: $onDemand.mode) {
                     ForEach(OnDemandSettings.Mode.allCases) { Text($0.title).tag($0) }
                 }
-                if onDemand.mode != .off && onDemand.mode != .cellular {
-                    ForEach(onDemand.excludedSSIDs, id: \.self) { Text($0) }
-                        .onDelete { onDemand.excludedSSIDs.remove(atOffsets: $0) }
-                    HStack {
-                        TextField("不自动连接的 Wi-Fi 名称（SSID）", text: $newSSID).autocorrectionDisabled()
-                        Button {
-                            let t = newSSID.trimmingCharacters(in: .whitespaces)
-                            if !t.isEmpty, !onDemand.excludedSSIDs.contains(t) { onDemand.excludedSSIDs.append(t) }
-                            newSSID = ""
-                        } label: { Image(systemName: "plus.circle.fill") }
-                    }
+                if vpn.onDemandPaused {
+                    Label("已暂停：你在 App 里手动断开了。下次手动连接后恢复。", systemImage: "pause.circle")
+                        .font(.footnote).foregroundStyle(Theme.warn)
                 }
             } header: { Text("按需连接") } footer: {
-                Text("由系统在网络变化时自动连接：「始终」任何网络都连接；「仅 Wi-Fi」在蜂窝网络下断开；「仅蜂窝网络」在 Wi-Fi 下断开；列出的 Wi-Fi 上不连接（例如家里）。在 App 里手动断开会暂停按需连接，直到你再次手动连接。")
+                Text("由系统在网络变化时自动连接：「始终」任何网络都连接；「仅 Wi-Fi」在蜂窝网络下断开；「仅蜂窝网络」在 Wi-Fi 下断开。在 App 里手动断开会暂停按需连接，直到你再次手动连接。")
             }
             .listRowBackground(Theme.card)
 
@@ -67,8 +58,9 @@ struct ConnectionView: View {
         let modeChanged = o.tunnelMode != tunnelMode
         o.tunnelMode = tunnelMode
         o.save()
+        let settings = onDemand
         Task {
-            if let e = await vpn.applyOnDemand(onDemand) {
+            if let e = await vpn.applyOnDemand(settings) {
                 status = "按需连接保存失败：\(e)"
             } else if modeChanged && vpn.isConnected {
                 status = "已保存。连接方式将在重新连接后生效。"

@@ -131,7 +131,6 @@ final class PacketTunnelProvider: NEPacketTunnelProvider {
             proxy.httpsServer = NEProxyServer(address: "127.0.0.1", port: o.mixedPort)
             proxy.excludeSimpleHostnames = true
             proxy.exceptionList = ["localhost", "*.local", "127.0.0.1", "10.0.0.0/8", "172.16.0.0/12", "192.168.0.0/16", "captive.apple.com"]
-            proxy.matchDomains = [""]
             settings.proxySettings = proxy
             return settings
         }
@@ -226,8 +225,8 @@ final class MemoryGuard {
 
     func start() {
         let p = DispatchSource.makeMemoryPressureSource(eventMask: [.warning, .critical], queue: queue)
-        p.setEventHandler { [weak self, weak p] in
-            guard let self, let ev = p?.data else { return }
+        p.setEventHandler { [weak self] in
+            guard let self, let ev = self.pressure?.data else { return }
             LibmihomoFreeMemory()
             if ev.contains(.critical) { self.shed(reason: "memory pressure critical") }
             StartupLog.write("memory pressure \(ev.contains(.critical) ? "critical" : "warning"): \(ProcessMemory.summary())")

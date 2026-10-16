@@ -157,6 +157,8 @@ final class VPNManager: ObservableObject {
                     throw error
                 }
             }
+            // A manual connect resumes on-demand rules paused by an earlier manual disconnect.
+            try await applyOnDemandRules(to: m, settings: OnDemandSettings.load(), enabled: true)
             userStopped = false
             TunnelErrorLog.clear()
             try m.connection.startVPNTunnel()
@@ -168,8 +170,73 @@ final class VPNManager: ObservableObject {
 
     func stop() {
         userStopped = true
-        manager?.connection.stopVPNTunnel()
+        guard let m = manager else { return }
+        if m.isOnDemandEnabled {
+            // Otherwise iOS would reconnect right away: pause on-demand until the next manual connect.
+            m.isOnDemandEnabled = false
+            OnDemandSettings.setPaused(true)
+            Task {
+                do { try await m.saveToPreferences() } catch { NSLog("[Mihomo] pause on-demand failed: %@", error.localizedDescription) }
+                m.connection.stopVPNTunnel()
+            }
+        } else {
+            m.connection.stopVPNTunnel()
+        }
     }
+
+    /// Connects (if needed) and waits up to `timeout` seconds for the connected state. Used by App Intents.
+    func connectAndWait(timeout: TimeInterval = 20) async -> Bool {
+        if manager == nil { await load() }
+        if isConnected { return true }
+        await start()
+        let deadline = Date().addingTimeInterval(timeout)
+        while Date() < deadline {
+            if isConnected { return true }
+            if lastError != nil && status == .disconnected { return false }
+            try? await Task.sleep(nanoseconds: 300_000_000)
+        }
+        return isConnected
+    }
+
+    func disconnectAndWait(timeout: TimeInterval = 10) async {
+        if manager == nil { await load() }
+        guard status != .disconnected && status != .invalid else { return }
+        stop()
+        let deadline = Date().addingTimeInterval(timeout)
+        while Date() < deadline, status != .disconnected {
+            try? await Task.sleep(nanoseconds: 200_000_000)
+        }
+    }
+
+    // MARK: On-demand
+
+    /// Saves the on-demand choice and applies it to the VPN configuration. Returns an error message or nil.
+    func applyOnDemand(_ settings: OnDemandSettings) async -> String? {
+        settings.save()
+        do {
+            let m = try await ensureManager()
+            // Turning it on while disconnected manually counts as a fresh choice: not paused.
+            try await applyOnDemandRules(to: m, settings: settings, enabled: settings.mode != .off)
+            return nil
+        } catch {
+            return error.localizedDescription
+        }
+    }
+
+    private func applyOnDemandRules(to m: NETunnelProviderManager, settings: OnDemandSettings, enabled: Bool) async throws {
+        let rules = settings.rules
+        let want = enabled && settings.mode != .off
+        let changed = m.isOnDemandEnabled != want || (m.onDemandRules?.count ?? 0) != rules.count
+            || zip(m.onDemandRules ?? [], rules).contains { a, b in ObjectIdentifier(type(of: a)) != ObjectIdentifier(type(of: b)) || a.interfaceTypeMatch != b.interfaceTypeMatch }
+        guard changed else { return }
+        m.onDemandRules = rules
+        m.isOnDemandEnabled = want
+        OnDemandSettings.setPaused(false)
+        try await m.saveToPreferences()
+        try await m.loadFromPreferences()
+    }
+
+    var onDemandPaused: Bool { OnDemandSettings.isPaused && OnDemandSettings.load().mode != .off }
 
     /// Sends a message to the running tunnel and returns its reply.
     func send(_ msg: TunnelMessage) async -> Data? {
@@ -192,5 +259,54 @@ final class VPNManager: ObservableObject {
         let msg = data.flatMap { String(data: $0, encoding: .utf8) } ?? ""
         NotificationCenter.default.post(name: .egressMayHaveChanged, object: nil)
         return msg.isEmpty ? nil : msg
+    }
+}
+
+/// 按需连接: which networks iOS connects the tunnel on automatically (NEOnDemandRules).
+struct OnDemandSettings: Codable, Equatable {
+    enum Mode: String, Codable, CaseIterable, Identifiable {
+        case off, always, wifi, cellular
+        var id: String { rawValue }
+        var title: String {
+            switch self {
+            case .off: return "关闭"
+            case .always: return "始终"
+            case .wifi: return "仅 Wi-Fi"
+            case .cellular: return "仅蜂窝网络"
+            }
+        }
+    }
+
+    var mode: Mode = .off
+
+    private static let key = "onDemandSettings"
+    private static let pausedKey = "onDemandPaused"
+
+    static func load() -> OnDemandSettings {
+        guard let d = AppShared.defaults.data(forKey: key),
+              let s = try? JSONDecoder().decode(OnDemandSettings.self, from: d) else { return OnDemandSettings() }
+        return s
+    }
+
+    func save() {
+        if let d = try? JSONEncoder().encode(self) { AppShared.defaults.set(d, forKey: Self.key) }
+    }
+
+    static var isPaused: Bool { AppShared.defaults.bool(forKey: pausedKey) }
+    static func setPaused(_ v: Bool) { AppShared.defaults.set(v, forKey: pausedKey) }
+
+    var rules: [NEOnDemandRule] {
+        func connect(_ t: NEOnDemandRuleInterfaceType) -> NEOnDemandRule {
+            let r = NEOnDemandRuleConnect(); r.interfaceTypeMatch = t; return r
+        }
+        func disconnect(_ t: NEOnDemandRuleInterfaceType) -> NEOnDemandRule {
+            let r = NEOnDemandRuleDisconnect(); r.interfaceTypeMatch = t; return r
+        }
+        switch mode {
+        case .off: return []
+        case .always: return [connect(.any)]
+        case .wifi: return [connect(.wiFi), disconnect(.cellular)]
+        case .cellular: return [connect(.cellular), disconnect(.wiFi)]
+        }
     }
 }

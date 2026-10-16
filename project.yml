@@ -13,7 +13,7 @@ settings:
     APP_BUNDLE_ID: com.astemo6.mihomo
     TUNNEL_BUNDLE_ID: com.astemo6.mihomo.tunnel
     APP_GROUP_ID: group.com.astemo6.mihomo
-    MARKETING_VERSION: "0.2.1"
+    MARKETING_VERSION: "0.3.0"
     CURRENT_PROJECT_VERSION: "1"
     SWIFT_VERSION: "5.0"
     IPHONEOS_DEPLOYMENT_TARGET: "16.0"
@@ -23,6 +23,15 @@ settings:
     CODE_SIGN_STYLE: Manual
     OTHER_LDFLAGS: ["$(inherited)", "-lresolv"]
     FRAMEWORK_SEARCH_PATHS: ["$(inherited)", "$(PROJECT_DIR)/Frameworks"]
+  configs:
+    Release:
+      # Smaller binaries: strip all symbols from the installed products (the Go archive is already built with -s -w).
+      STRIP_INSTALLED_PRODUCT: YES
+      STRIP_STYLE: all
+      COPY_PHASE_STRIP: YES
+      DEPLOYMENT_POSTPROCESSING: YES
+      DEBUG_INFORMATION_FORMAT: dwarf
+      SWIFT_OPTIMIZATION_LEVEL: "-Osize"
 
 targets:
   Mihomo:

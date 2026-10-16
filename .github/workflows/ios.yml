@@ -71,7 +71,7 @@ jobs:
 
       - name: Cache Libmihomo.xcframework
         id: fwcache
-        uses: actions/cache@v4
+        uses: actions/cache/restore@v4
         with:
           path: Frameworks/Libmihomo.xcframework
           key: libmihomo-${{ env.MIHOMO_VERSION }}-${{ hashFiles('bridge/**', '.github/workflows/ios.yml') }}
@@ -91,6 +91,14 @@ jobs:
             -o ../Frameworks/Libmihomo.xcframework . 2>&1 | tee ../gomobile.log
           ls -la ../Frameworks/Libmihomo.xcframework
           du -sh ../Frameworks/Libmihomo.xcframework
+
+      # Saved right away (not in the post step) so a later Swift compile error does not discard it.
+      - name: Save Libmihomo.xcframework cache
+        if: steps.fwcache.outputs.cache-hit != 'true'
+        uses: actions/cache/save@v4
+        with:
+          path: Frameworks/Libmihomo.xcframework
+          key: ${{ steps.fwcache.outputs.cache-primary-key }}
 
       - name: Install XcodeGen
         run: brew install xcodegen
@@ -214,6 +222,9 @@ jobs:
             echo "### $IPA"
             echo "- mihomo ${MIHOMO_VERSION}, signed=${SIGNED}"
             echo "- size: $(du -h "$IPA" | cut -f1)"
+            echo "- app binary: $(unzip -l "$IPA" | awk '$4=="Payload/Mihomo.app/Mihomo"{printf "%.1f MB", $1/1048576}')"
+            echo "- PacketTunnel binary: $(unzip -l "$IPA" | awk '$4=="Payload/Mihomo.app/PlugIns/PacketTunnel.appex/PacketTunnel"{printf "%.1f MB", $1/1048576}')"
+            echo "- PacketTunnel.appex total: $(unzip -l "$IPA" | awk '$4 ~ /PacketTunnel.appex\//{s+=$1} END{printf "%.1f MB", s/1048576}')"
           } >> "$GITHUB_STEP_SUMMARY"
 
       - uses: actions/upload-artifact@v4
