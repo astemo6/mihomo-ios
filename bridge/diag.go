@@ -40,20 +40,6 @@ func TrafficTotals() string {
 	return strconv.FormatInt(up, 10) + "," + strconv.FormatInt(down, 10)
 }
 
-// ShedConnections closes every tracked connection (memory guard, critical pressure). Returns the count.
-func ShedConnections() int {
-	n := 0
-	statistic.DefaultManager.Range(func(c statistic.Tracker) bool {
-		_ = c.Close()
-		n++
-		return true
-	})
-	if n > 0 {
-		log.Warnln("[Memory] closed %d connections under memory pressure", n)
-	}
-	return n
-}
-
 // ReloadGeo makes the core reopen geoip.metadb / ASN.mmdb on next use after the app replaced them.
 func ReloadGeo() {
 	mmdb.ReloadIP()
