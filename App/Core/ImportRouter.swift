@@ -223,7 +223,7 @@ struct ImportSheet: View {
 
     func header(_ title: String, _ icon: String, _ detail: String) -> some View {
         Section {
-            Label(title, systemImage: icon).font(.headline)
+            Label(LocalizedStringKey(title), systemImage: icon).font(.headline)
             Text(detail).font(.system(size: 11, design: .monospaced)).foregroundStyle(.secondary).lineLimit(3)
         }
         .listRowBackground(Theme.card)

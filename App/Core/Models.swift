@@ -32,11 +32,11 @@ struct ProxyItem: Decodable, Identifiable, Hashable {
 
     static func label(for type: String) -> String {
         switch type.lowercased() {
-        case "selector": return "手动"
-        case "urltest": return "自动"
-        case "fallback": return "故障转移"
-        case "loadbalance": return "负载均衡"
-        case "relay": return "链式"
+        case "selector": return String(localized: "手动")
+        case "urltest": return String(localized: "自动")
+        case "fallback": return String(localized: "故障转移")
+        case "loadbalance": return String(localized: "负载均衡")
+        case "relay": return String(localized: "链式")
         case "shadowsocks", "ss": return "SS"
         case "shadowsocksr", "ssr": return "SSR"
         case "vmess": return "VMess"
@@ -52,9 +52,9 @@ struct ProxyItem: Decodable, Identifiable, Hashable {
         case "ssh": return "SSH"
         case "socks5": return "SOCKS5"
         case "http": return "HTTP"
-        case "direct": return "直连"
-        case "reject", "rejectdrop": return "拒绝"
-        case "compatible", "pass": return "兼容"
+        case "direct": return String(localized: "直连")
+        case "reject", "rejectdrop": return String(localized: "拒绝")
+        case "compatible", "pass": return String(localized: "兼容")
         default: return type
         }
     }
@@ -250,6 +250,29 @@ struct HTTPRequestDetail: Decodable {
     var reqBodyBinary: Int?
     var respBodyBinary: Int?
     var respEncoding: String?
+    var reqBodyLength: Int?
+    var respBodyLength: Int?
+
+    /// curl command for the captured request (headers + text body).
+    var curl: String {
+        func q(_ s: String) -> String { "'" + s.replacingOccurrences(of: "'", with: "'\\''") + "'" }
+        var parts = ["curl"]
+        if method != "GET" { parts.append("-X \(method)") }
+        parts.append(q(url))
+        for k in (reqHeaders ?? [:]).keys.sorted() {
+            let lk = k.lowercased()
+            if ["content-length", "connection", "proxy-connection", "keep-alive", "transfer-encoding"].contains(lk) { continue }
+            parts.append("-H " + q("\(k): \(reqHeaders?[k] ?? "")"))
+        }
+        if let b = reqBody, !b.isEmpty { parts.append("--data-raw " + q(b)) }
+        if (reqHeaders ?? [:]).keys.contains(where: { $0.lowercased() == "accept-encoding" }) { parts.append("--compressed") }
+        return parts.joined(separator: " \\\n  ")
+    }
+
+    /// Replay is possible when the body (if any) was captured in full as text.
+    var canReplay: Bool {
+        method != "TLS" && (reqBodyBinary ?? 0) == 0 && (reqBodyLength ?? 0) <= (reqBody?.utf8.count ?? 0)
+    }
 }
 
 struct ScriptLogLine: Decodable, Identifiable, Hashable {
@@ -288,6 +311,24 @@ struct ParsedEngineText: Decodable {
     var errors: [String]
     var unsupported: [String]
     var arguments: [Arg]
+    struct Task: Decodable, Hashable {
+        var kind: String
+        var name: String
+        var cron: String?
+        var event: String?
+        var path: String
+        var format: String?
+        var desc: String
+        var line: String
+    }
+    struct Panel: Decodable, Hashable {
+        var name: String
+        var title: String
+        var script: String?
+        var format: String
+    }
+    var tasks: [Task]?
+    var panels: [Panel]?
 
     static func parse(_ json: String) -> ParsedEngineText? {
         guard let d = json.data(using: .utf8) else { return nil }

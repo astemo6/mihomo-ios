@@ -4,6 +4,7 @@ options:
   deploymentTarget:
     iOS: "16.0"
   createIntermediateGroups: true
+  developmentLanguage: zh-Hans
 
 # ──────────────────────────────────────────────────────────────
 # 唯一需要修改 Bundle ID / App Group 的地方（Info.plist 与 entitlements 都引用这里）
@@ -13,9 +14,12 @@ settings:
     APP_BUNDLE_ID: com.astemo6.mihomo
     TUNNEL_BUNDLE_ID: com.astemo6.mihomo.tunnel
     APP_GROUP_ID: group.com.astemo6.mihomo
-    MARKETING_VERSION: "0.3.0"
+    MARKETING_VERSION: "0.4.0"
     CURRENT_PROJECT_VERSION: "1"
     SWIFT_VERSION: "5.0"
+    # i18n: String Catalog (App/Localizable.xcstrings), source language zh-Hans; the compiler extracts keys.
+    SWIFT_EMIT_LOC_STRINGS: YES
+    LOCALIZATION_PREFERS_STRING_CATALOGS: YES
     IPHONEOS_DEPLOYMENT_TARGET: "16.0"
     TARGETED_DEVICE_FAMILY: "1"
     ENABLE_BITCODE: NO

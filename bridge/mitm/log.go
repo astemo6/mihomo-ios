@@ -86,6 +86,8 @@ type Entry struct {
 	ReqBodyS  string            `json:"reqBody,omitempty"`
 	RespBodyS string            `json:"respBody,omitempty"`
 	ReqBin    int               `json:"reqBodyBinary,omitempty"`  // >0: binary body of this size (not shown)
+	ReqLen    int               `json:"reqBodyLength,omitempty"`  // full request body size (captured text may be cut at 32 KB)
+	RespLen   int               `json:"respBodyLength,omitempty"` // full decoded response body size
 	RespBin   int               `json:"respBodyBinary,omitempty"` // >0: binary / compressed body
 	RespEnc   string            `json:"respEncoding,omitempty"`
 	start     time.Time
@@ -281,7 +283,7 @@ func trimPartialRune(b []byte) []byte {
 func (e *Entry) ReqBody(b []byte) {
 	s, bin := textOrBinary(b)
 	e.mu.Lock()
-	e.ReqBodyS, e.ReqBin = s, bin
+	e.ReqBodyS, e.ReqBin, e.ReqLen = s, bin, len(b)
 	e.mu.Unlock()
 }
 
@@ -294,7 +296,7 @@ func (e *Entry) RespBody(b []byte, enc string) {
 	}
 	s, bin := textOrBinary(b)
 	e.mu.Lock()
-	e.RespBodyS, e.RespBin, e.RespEnc = s, bin, enc
+	e.RespBodyS, e.RespBin, e.RespEnc, e.RespLen = s, bin, enc, len(b)
 	e.mu.Unlock()
 }
 

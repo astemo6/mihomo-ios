@@ -28,6 +28,7 @@ struct HomeView: View {
                     ModeCard()
                     TrafficCard()
                     StatsGrid()
+                    PanelsEntry()
 
                     if let err = vpn.lastError {
                         Text(err)
@@ -142,7 +143,7 @@ struct SpeedLabel: View {
             Image(systemName: icon).font(.caption.bold()).foregroundStyle(color)
                 .frame(width: 24, height: 24).background(Circle().fill(color.opacity(0.15)))
             VStack(alignment: .leading, spacing: 0) {
-                Text(title).font(.caption2).foregroundStyle(.secondary)
+                Text(LocalizedStringKey(title)).font(.caption2).foregroundStyle(.secondary)
                 Text(Fmt.speed(value)).font(.system(.headline, design: .rounded).monospacedDigit())
             }
         }
@@ -209,7 +210,7 @@ struct StatTile: View {
         HStack(spacing: 10) {
             Image(systemName: icon).font(.title3).foregroundStyle(color)
             VStack(alignment: .leading, spacing: 2) {
-                Text(title).font(.caption2).foregroundStyle(.secondary)
+                Text(LocalizedStringKey(title)).font(.caption2).foregroundStyle(.secondary)
                 Text(value).font(.system(.subheadline, design: .rounded).weight(.semibold).monospacedDigit())
             }
             Spacer(minLength: 0)

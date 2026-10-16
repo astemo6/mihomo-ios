@@ -102,6 +102,8 @@ func Build(home string, c *Config) *Ruleset {
 			sub := &Ruleset{}
 			sub.ParseText(string(b), m.Name, m.Args)
 			rs.Rules = append(rs.Rules, sub.Rules...)
+			rs.Tasks = append(rs.Tasks, sub.Tasks...)
+			rs.Panels = append(rs.Panels, sub.Panels...)
 			rs.Hostnames = append(rs.Hostnames, sub.Hostnames...)
 			for _, r := range sub.CoreRules {
 				rs.CoreRules = append(rs.CoreRules, mapPolicy(r, m.Policies))

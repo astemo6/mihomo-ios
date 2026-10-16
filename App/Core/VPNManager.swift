@@ -25,13 +25,13 @@ final class VPNManager: ObservableObject {
 
     var statusText: String {
         switch status {
-        case .connected: return "已连接"
-        case .connecting: return "连接中…"
-        case .disconnecting: return "断开中…"
-        case .reasserting: return "重连中…"
-        case .disconnected: return "未连接"
-        case .invalid: return "未配置"
-        @unknown default: return "未知"
+        case .connected: return String(localized: "已连接")
+        case .connecting: return String(localized: "连接中…")
+        case .disconnecting: return String(localized: "断开中…")
+        case .reasserting: return String(localized: "重连中…")
+        case .disconnected: return String(localized: "未连接")
+        case .invalid: return String(localized: "未配置")
+        @unknown default: return String(localized: "未知")
         }
     }
 
@@ -269,10 +269,10 @@ struct OnDemandSettings: Codable, Equatable {
         var id: String { rawValue }
         var title: String {
             switch self {
-            case .off: return "关闭"
-            case .always: return "始终"
-            case .wifi: return "仅 Wi-Fi"
-            case .cellular: return "仅蜂窝网络"
+            case .off: return String(localized: "关闭")
+            case .always: return String(localized: "始终")
+            case .wifi: return String(localized: "仅 Wi-Fi")
+            case .cellular: return String(localized: "仅蜂窝网络")
             }
         }
     }

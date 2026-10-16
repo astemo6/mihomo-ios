@@ -108,6 +108,8 @@ type Ruleset struct {
 	Desc           string   `json:"desc,omitempty"`
 	Arguments      []ModArg `json:"arguments,omitempty"`
 	Format         string   `json:"format,omitempty"` // surge / qx / loon / stash / list
+	Tasks          []*Task  `json:"tasks,omitempty"`  // cron / event / generic scripts
+	Panels         []*Panel `json:"panels,omitempty"` // Surge [Panel] / Stash tiles
 }
 
 // ModArg is a Surge #!arguments entry.
@@ -564,7 +566,6 @@ func (rs *Ruleset) ParseLine(line, section, source string) {
 		rs.Rules = append(rs.Rules, r)
 	}
 
-	low := strings.ToLower(line)
 	// MITM section / QX hostname line
 	if k, v, ok := strings.Cut(line, "="); ok {
 		key := strings.ToLower(strings.TrimSpace(k))
@@ -593,7 +594,14 @@ func (rs *Ruleset) ParseLine(line, section, source string) {
 		rs.parseCoreRule(line, add)
 		return
 	}
-	if section == "general" || section == "host" || section == "proxy" || section == "proxy group" || section == "panel" {
+	if section == "panel" {
+		rs.parsePanelLine(line, source)
+		return
+	}
+	if section == "general" || section == "host" || section == "proxy" || section == "proxy group" {
+		return
+	}
+	if rs.parseTaskLine(line, section, source) {
 		return
 	}
 	// Surge script line: name = type=..., pattern=...
@@ -606,10 +614,6 @@ func (rs *Ruleset) ParseLine(line, section, source string) {
 	if m := loonScriptRe.FindStringSubmatch(line); m != nil {
 		p := splitParams(m[3], scriptKeys)
 		add(newScriptRule(p["tag"], m[1], m[2], p))
-		return
-	}
-	if strings.HasPrefix(low, "cron ") || strings.HasPrefix(low, "generic ") || strings.HasPrefix(low, "network-changed ") {
-		rs.Unsupported = append(rs.Unsupported, line)
 		return
 	}
 	toks := tokenize(line)
@@ -997,7 +1001,7 @@ func (rs *Ruleset) ParseText(text, source string, args map[string]string) {
 			}
 			continue
 		}
-		if section == "rewrite_remote" || section == "server_local" || section == "server_remote" || section == "policy" || section == "dns" || section == "task_local" || section == "argument" {
+		if section == "rewrite_remote" || section == "server_local" || section == "server_remote" || section == "policy" || section == "dns" || section == "argument" {
 			continue
 		}
 		rs.ParseLine(t, section, source)
@@ -1010,7 +1014,7 @@ func (rs *Ruleset) ParseText(text, source string, args map[string]string) {
 func isStash(text string) bool {
 	for _, l := range strings.Split(text, "\n") {
 		t := strings.TrimRight(l, " \t")
-		if t == "http:" || strings.HasPrefix(t, "script-providers:") {
+		if t == "http:" || strings.HasPrefix(t, "script-providers:") || t == "tiles:" || t == "cron:" {
 			return true
 		}
 	}
@@ -1043,6 +1047,24 @@ type stashDoc struct {
 		Interval int    `yaml:"interval"`
 	} `yaml:"script-providers"`
 	Rules []string `yaml:"rules"`
+	Cron  struct {
+		Script []struct {
+			Name     string `yaml:"name"`
+			Cron     string `yaml:"cron"`
+			Timeout  int    `yaml:"timeout"`
+			Argument string `yaml:"argument"`
+		} `yaml:"script"`
+	} `yaml:"cron"`
+	Tiles []struct {
+		Name            string `yaml:"name"`
+		Interval        int    `yaml:"interval"`
+		Title           string `yaml:"title"`
+		Content         string `yaml:"content"`
+		Icon            string `yaml:"icon"`
+		BackgroundColor string `yaml:"backgroundColor"`
+		Timeout         int    `yaml:"timeout"`
+		Argument        string `yaml:"argument"`
+	} `yaml:"tiles"`
 }
 
 func (rs *Ruleset) parseStash(text, source string) {
@@ -1112,6 +1134,40 @@ func (rs *Ruleset) parseStash(text, source string) {
 		r.re = re
 		r.Desc = describe(r)
 		rs.Rules = append(rs.Rules, r)
+	}
+	stashScript := func(name string, timeout int, arg string) *Script {
+		prov, ok := d.ScriptProviders[name]
+		if !ok {
+			rs.Errors = append(rs.Errors, "Stash 脚本缺少 script-provider："+name)
+			return nil
+		}
+		sc := &Script{Name: name, Path: prov.URL, Timeout: timeout, UpdateInterval: 86400}
+		if prov.Interval > 0 {
+			sc.UpdateInterval = prov.Interval
+		}
+		if arg != "" {
+			sc.Argument, sc.HasArgument = arg, true
+		}
+		return sc
+	}
+	for _, c := range d.Cron.Script {
+		if sc := stashScript(c.Name, c.Timeout, c.Argument); sc != nil {
+			rs.addTask(TaskCron, c.Cron, "", sc, source, fmt.Sprintf("cron %q %s", c.Cron, c.Name), "stash")
+		}
+	}
+	for _, t := range d.Tiles {
+		sc := stashScript(t.Name, t.Timeout, t.Argument)
+		if sc == nil {
+			continue
+		}
+		rs.addTask(TaskGeneric, "", "", sc, source, "tile "+t.Name, "stash")
+		pn := &Panel{Name: t.Name, Title: t.Title, Content: t.Content, Icon: t.Icon, IconColor: t.BackgroundColor, Script: t.Name,
+			Interval: t.Interval, Source: source, Format: "stash"}
+		if pn.Title == "" {
+			pn.Title = t.Name
+		}
+		pn.ID = stableID(source, "panel", pn.Name)
+		rs.Panels = append(rs.Panels, pn)
 	}
 	for _, l := range d.Rules {
 		rs.parseCoreRule(l, func(r *Rule, err error) {

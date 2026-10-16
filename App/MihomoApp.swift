@@ -140,7 +140,7 @@ struct NotConnectedPlaceholder: View {
     var body: some View {
         VStack(spacing: 10) {
             Image(systemName: "bolt.horizontal.circle").font(.system(size: 44)).foregroundStyle(.secondary)
-            Text(text).foregroundStyle(.secondary)
+            Text(LocalizedStringKey(text)).foregroundStyle(.secondary)
         }
         .frame(maxWidth: .infinity, maxHeight: .infinity)
         .padding(.top, 80)

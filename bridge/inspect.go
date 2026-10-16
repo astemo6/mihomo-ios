@@ -304,7 +304,7 @@ func InspectProfile(homeDir, path string) string {
 		b, _ := json.Marshal(res)
 		return string(b)
 	}
-	o := readOverrides(homeDir)
+	o := overridesFor(homeDir, path)
 	rt, err := buildRuntime(profile, o, 0)
 	if err != nil {
 		res.Error = err.Error()

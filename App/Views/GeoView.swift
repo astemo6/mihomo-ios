@@ -28,10 +28,10 @@ struct GeoFileInfo: Decodable, Identifiable, Hashable {
 
     var purpose: String {
         switch kind {
-        case "mmdb": return "GEOIP 规则与 fallback-filter 使用（默认）"
-        case "geoip": return "仅在配置开启 geodata-mode 时使用"
-        case "geosite": return "GEOSITE 规则与 DNS 分流（geosite:cn 等）"
-        case "asn": return "IP-ASN 规则、请求详情里的 ASN"
+        case "mmdb": return String(localized: "GEOIP 规则与 fallback-filter 使用（默认）")
+        case "geoip": return String(localized: "仅在配置开启 geodata-mode 时使用")
+        case "geosite": return String(localized: "GEOSITE 规则与 DNS 分流（geosite:cn 等）")
+        case "asn": return String(localized: "IP-ASN 规则、请求详情里的 ASN")
         default: return ""
         }
     }
@@ -261,7 +261,7 @@ struct GeoView: View {
             if f.exists == true { return ("已安装", Theme.good) }
             return ("未安装", Theme.warn)
         }()
-        return Text(text).font(.system(size: 10, weight: .bold))
+        return Text(LocalizedStringKey(text)).font(.system(size: 10, weight: .bold))
             .padding(.horizontal, 7).padding(.vertical, 3)
             .background(Capsule().fill(color.opacity(0.18)))
             .foregroundStyle(color)
@@ -343,7 +343,7 @@ struct GeoView: View {
 
     func metric(_ title: String, _ value: String) -> some View {
         VStack(alignment: .leading, spacing: 2) {
-            Text(title).font(.caption2).foregroundStyle(.secondary)
+            Text(LocalizedStringKey(title)).font(.caption2).foregroundStyle(.secondary)
             Text(value).font(.caption.weight(.semibold).monospacedDigit()).lineLimit(1)
         }
     }

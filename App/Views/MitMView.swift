@@ -23,7 +23,7 @@ struct KindBadge: View {
     var phase: String = ""
     var body: some View {
         let (t, c) = Self.style(kind, phase)
-        Text(t)
+        Text(LocalizedStringKey(t))
             .font(.system(size: 9, weight: .bold))
             .padding(.horizontal, 5).padding(.vertical, 2)
             .background(Capsule().fill(c.opacity(0.18)))
@@ -39,6 +39,9 @@ struct KindBadge: View {
         case "script": return (phase == "response" ? "响应脚本" : "请求脚本", Theme.accent)
         case "core": return ("规则", .secondary)
         case "hostname": return ("主机", .secondary)
+        case "cron": return ("定时", Color.orange)
+        case "event": return ("事件", Color.pink)
+        case "generic": return ("通用", Color.teal)
         default: return ("?", .secondary)
         }
     }
@@ -439,7 +442,9 @@ struct ScriptsView: View {
             .listRowBackground(Theme.card)
 
             Section("工具") {
+                NavigationLink { ScriptTasksView() } label: { Label("定时与事件脚本", systemImage: "clock.arrow.circlepath") }
                 NavigationLink { ScriptLogsView() } label: { Label("运行日志", systemImage: "text.alignleft") }
+                NavigationLink { ScriptNoticesView() } label: { Label("脚本通知记录", systemImage: "bell") }
                 NavigationLink { StoreView() } label: { Label("持久化存储（$persistentStore / $prefs）", systemImage: "externaldrive") }
                 NavigationLink { LocalScriptsView() } label: { Label("本地脚本文件", systemImage: "folder") }
                 Button { store.requestNotificationPermission() } label: { Label("允许脚本通知", systemImage: "bell.badge") }
@@ -447,7 +452,7 @@ struct ScriptsView: View {
             .listRowBackground(Theme.card)
 
             Section("兼容的脚本 API") {
-                Text("$request、$response、$done、$httpClient（get/post/put/delete/head/patch，支持 policy、binary-mode）、$persistentStore、$notification.post、$script、$environment、$argument、console、setTimeout；Quantumult X：$task.fetch、$prefs、$notify；另提供 TextEncoder/TextDecoder、atob/btoa。脚本类型：http-request、http-response（requires-body、max-size、binary-body-mode、timeout）。cron / generic 脚本暂不支持。")
+                Text("$request、$response、$done、$httpClient（get/post/put/delete/head/options/patch，支持 policy、binary-mode、insecure、auto-redirect）、$persistentStore（所有脚本共享）、$notification.post、$utils（geoip / ipasn / ipaso / ungzip）、$network、$script、$environment、$argument、console、setTimeout；Quantumult X：$task.fetch、$prefs、$notify；另提供 TextEncoder/TextDecoder、atob/btoa。脚本类型：http-request、http-response、cron（定时，连接期间执行）、event（network-changed）、generic（手动运行 / 面板）。Surge、Loon、Quantumult X、Stash 的写法都能识别。")
                     .font(.caption).foregroundStyle(.secondary)
             }
             .listRowBackground(Theme.card)
@@ -785,6 +790,8 @@ struct StoreView: View {
 // MARK: - Modules
 
 struct ModulesView: View {
+    /// Official BoxJS Surge module (chavyleung/scripts): serves http(s)://boxjs.com from an http-request script.
+    static let boxJSModule = "https://raw.githubusercontent.com/chavyleung/scripts/master/box/rewrite/boxjs.rewrite.surge.sgmodule"
     @ObservedObject var store = EngineStore.shared
     @State private var adding = false
     @State private var url = ""
@@ -828,6 +835,9 @@ struct ModulesView: View {
                         adding = true
                     } label: { Label("从 URL 导入", systemImage: "link") }
                     Button { pasting = true } label: { Label("粘贴模块内容", systemImage: "doc.on.clipboard") }
+                    Divider()
+                    Button { Task { await store.addModule(url: Self.boxJSModule) } } label: { Label("添加 BoxJS（需开启 MitM 并信任证书）", systemImage: "shippingbox") }
+                        .disabled(store.config.modules.contains { $0.url == Self.boxJSModule })
                 } label: { Image(systemName: "plus") }
             }
         }
@@ -1008,6 +1018,25 @@ struct ModuleDetailView: View {
                             }
                         }
                     }.listRowBackground(Theme.card)
+                    if let tasks = info.tasks, !tasks.isEmpty {
+                        Section("定时 / 事件 / 通用脚本 \(tasks.count)") {
+                            ForEach(Array(tasks.enumerated()), id: \.offset) { e in
+                                VStack(alignment: .leading, spacing: 3) {
+                                    HStack { KindBadge(kind: e.element.kind); Text(e.element.name).font(.caption.weight(.semibold)).lineLimit(1) }
+                                    Text(e.element.desc).font(.system(size: 10, design: .monospaced)).foregroundStyle(.secondary).lineLimit(2)
+                                }
+                            }
+                            NavigationLink { ScriptTasksView() } label: { Label("查看运行状态", systemImage: "clock.arrow.circlepath").font(.caption) }
+                        }.listRowBackground(Theme.card)
+                    }
+                    if let panels = info.panels, !panels.isEmpty {
+                        Section("面板 \(panels.count)") {
+                            ForEach(Array(panels.enumerated()), id: \.offset) { e in
+                                HStack { FormatBadge(format: e.element.format); Text(e.element.title).font(.caption.weight(.semibold)).lineLimit(1) }
+                            }
+                            NavigationLink { PanelsView() } label: { Label("打开面板", systemImage: "square.grid.2x2").font(.caption) }
+                        }.listRowBackground(Theme.card)
+                    }
                     if !info.coreRules.isEmpty {
                         Section("内核规则 \(info.coreRules.count)") {
                             ForEach(info.coreRules.prefix(200), id: \.self) { Text($0).font(.system(size: 10, design: .monospaced)) }
@@ -1106,6 +1135,11 @@ struct HTTPRequestDetailView: View {
     let id: Int64
     @State private var d: HTTPRequestDetail?
     @State private var tab = 0
+    @State private var replaying = false
+    @State private var replay: ReplayResult?
+    @State private var replayError: String?
+    @State private var editing = false
+    @State private var copied = false
 
     var body: some View {
         List {
@@ -1116,6 +1150,24 @@ struct HTTPRequestDetailView: View {
                     if let du = d.duration { LabeledContent("耗时", value: "\(Int(du)) ms") }
                     LabeledContent("大小", value: Fmt.bytes(d.bytes))
                     LabeledContent("HTTPS 解密", value: d.mitm ? "是" : "否（明文 HTTP）")
+                }
+                .listRowBackground(Theme.card)
+                Section {
+                    Button { UIPasteboard.general.string = d.curl; copied = true } label: {
+                        Label(copied ? "已复制 cURL" : "复制为 cURL", systemImage: copied ? "checkmark" : "terminal")
+                    }
+                    Button { runReplay(nil) } label: { Label("重放", systemImage: "arrow.uturn.forward") }
+                        .disabled(!d.canReplay || replaying)
+                    Button { editing = true } label: { Label("编辑后重放", systemImage: "square.and.pencil") }
+                        .disabled(!d.canReplay || replaying)
+                    if !d.canReplay && d.method != "TLS" {
+                        Text("请求体是二进制或超过 32 KB，没有完整记录，无法重放。").font(.caption2).foregroundStyle(.secondary)
+                    }
+                    if replaying { HStack { ProgressView(); Text("发送中…").foregroundStyle(.secondary) } }
+                    if let e = replayError { Text(e).font(.caption).foregroundStyle(Theme.bad) }
+                    if let r = replay { ReplayResultView(r: r) }
+                } header: { Text("操作") } footer: {
+                    Text("重放经内核按你的规则与策略发出，不再经过重写与脚本；结果也会出现在请求列表里。")
                 }
                 .listRowBackground(Theme.card)
                 if let m = d.matched, !m.isEmpty {
@@ -1163,6 +1215,22 @@ struct HTTPRequestDetailView: View {
         .navigationTitle("请求详情")
         .navigationBarTitleDisplayMode(.inline)
         .task { d = try? await ControllerClient.shared.mitmRequest(id) }
+        .sheet(isPresented: $editing) {
+            if let d { ReplayEditor(detail: d) { edit in runReplay(edit) } }
+        }
+    }
+
+    func runReplay(_ edit: [String: Any]?) {
+        replaying = true; replayError = nil; replay = nil
+        Task {
+            defer { replaying = false }
+            do {
+                let r = try await ControllerClient.shared.mitmReplay(id, edit: edit)
+                if let e = r.error { replayError = e } else { replay = r }
+            } catch ControllerClient.APIError.http(_, let msg) {
+                replayError = msg.trimmingCharacters(in: .whitespacesAndNewlines)
+            } catch { replayError = error.localizedDescription }
+        }
     }
 
     static func pretty(_ s: String) -> String {
@@ -1171,6 +1239,90 @@ struct HTTPRequestDetailView: View {
               let out = try? JSONSerialization.data(withJSONObject: obj, options: [.prettyPrinted, .withoutEscapingSlashes]),
               let str = String(data: out, encoding: .utf8) else { return s }
         return str
+    }
+}
+
+struct ReplayResultView: View {
+    let r: ReplayResult
+    @State private var showBody = false
+    var body: some View {
+        VStack(alignment: .leading, spacing: 4) {
+            HStack {
+                Text("HTTP \(r.status)").font(.subheadline.weight(.bold).monospacedDigit())
+                    .foregroundStyle((200..<400).contains(r.status) ? Theme.good : Theme.bad)
+                Text("\(Int(r.duration)) ms · \(Fmt.bytes(Int64(r.length)))").font(.caption).foregroundStyle(.secondary)
+                Spacer()
+                Button(showBody ? "收起" : "查看响应") { showBody.toggle() }.font(.caption).buttonStyle(.borderless)
+            }
+            if showBody {
+                ForEach(r.headers.keys.sorted(), id: \.self) { k in
+                    Text("\(k): \(r.headers[k] ?? "")").font(.system(size: 10, design: .monospaced)).foregroundStyle(.secondary).textSelection(.enabled)
+                }
+                if let b = r.body, !b.isEmpty {
+                    Text(HTTPRequestDetailView.pretty(b)).font(.system(size: 11, design: .monospaced)).textSelection(.enabled)
+                } else if let bin = r.binary, bin > 0 {
+                    Text("二进制内容（\(Fmt.bytes(Int64(bin)))）").font(.caption).foregroundStyle(.secondary)
+                }
+            }
+        }
+    }
+}
+
+struct ReplayEditor: View {
+    let detail: HTTPRequestDetail
+    var onSend: ([String: Any]) -> Void
+    @Environment(\.dismiss) private var dismiss
+    @State private var method = ""
+    @State private var url = ""
+    @State private var headers = ""
+    @State private var bodyText = ""
+
+    var form: some View {
+        Form {
+            Section("请求行") {
+                TextField("方法", text: $method).textInputAutocapitalization(.characters).autocorrectionDisabled()
+                TextField("URL", text: $url, axis: .vertical).font(.system(size: 12, design: .monospaced))
+                    .textInputAutocapitalization(.never).autocorrectionDisabled()
+            }
+            Section {
+                TextEditor(text: $headers).font(.system(size: 11, design: .monospaced)).frame(minHeight: 140)
+                    .textInputAutocapitalization(.never).autocorrectionDisabled()
+            } header: { Text("头部（每行 名称: 值）") }
+            Section("内容") {
+                TextEditor(text: $bodyText).font(.system(size: 11, design: .monospaced)).frame(minHeight: 120)
+                    .textInputAutocapitalization(.never).autocorrectionDisabled()
+            }
+        }
+    }
+
+    var body: some View {
+        NavigationStack {
+            form
+                .navigationTitle("编辑后重放")
+                .navigationBarTitleDisplayMode(.inline)
+                .toolbar {
+                    ToolbarItem(placement: .cancellationAction) { Button("取消") { dismiss() } }
+                    ToolbarItem(placement: .confirmationAction) { Button("发送") { send() }.disabled(url.isEmpty) }
+                }
+                .onAppear {
+                    method = detail.method
+                    url = detail.url
+                    headers = (detail.reqHeaders ?? [:]).keys.sorted().map { "\($0): \(detail.reqHeaders?[$0] ?? "")" }.joined(separator: "\n")
+                    bodyText = detail.reqBody ?? ""
+                }
+        }
+    }
+
+    func send() {
+        var h: [String: String] = [:]
+        for line in headers.split(separator: "\n") {
+            guard let i = line.firstIndex(of: ":") else { continue }
+            let k = line[..<i].trimmingCharacters(in: .whitespaces)
+            let v = line[line.index(after: i)...].trimmingCharacters(in: .whitespaces)
+            if !k.isEmpty { h[k] = v }
+        }
+        onSend(["method": method.trimmingCharacters(in: .whitespaces).uppercased(), "url": url.trimmingCharacters(in: .whitespacesAndNewlines), "headers": h, "body": bodyText])
+        dismiss()
     }
 }
 

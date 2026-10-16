@@ -107,7 +107,7 @@ struct ConfReportSection: View {
     func stat(_ title: String, _ n: Int) -> some View {
         VStack(spacing: 2) {
             Text("\(n)").font(.title3.weight(.bold).monospacedDigit())
-            Text(title).font(.caption2).foregroundStyle(.secondary)
+            Text(LocalizedStringKey(title)).font(.caption2).foregroundStyle(.secondary)
         }
         .frame(maxWidth: .infinity)
         .padding(.vertical, 6)

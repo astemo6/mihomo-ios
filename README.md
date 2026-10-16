@@ -1,4 +1,4 @@
-# Mihomo iOS（v0.3）
+# Mihomo iOS（v0.4）
 
 基于开源 [mihomo](https://github.com/MetaCubeX/mihomo)（Clash Meta）内核的个人 iOS 代理客户端：深色卡片界面，首页只放最常用的东西，进阶功能按类别收在「更多」里。
 
@@ -10,7 +10,8 @@
 2. **一种设计语言**：项目自己的深色卡片（`Theme` / `Card`），新页面不照搬其他客户端的布局。
 3. **首页极简**：连接开关、出站模式、IP 卡片、流量。其他功能都在「更多」里分组：连接、规则与资源、模块重写与 MitM、工具与数据、设置。
 4. **模块只有一个入口**：所有格式的模块都在「更多 → 模块」，用角标标出来源格式。
-5. **宁缺毋滥**：做不精的功能先不做（本轮推迟：多语言、小组件、控制中心开关、Stash 磁贴、按 SSID 切策略、订阅过滤 / 重命名）。
+5. **宁缺毋滥**：做不精的功能先不做（仍推迟：主屏幕小组件、控制中心开关、实时活动、按 SSID 切策略、日 / 韩 / 俄语）。
+6. **规则、重写、脚本都接受 Surge 与 Quantumult X 写法**（以及 Loon、Stash），只在边缘翻译一次。
 
 ## 功能
 
@@ -18,15 +19,72 @@
 | --- | --- |
 | 首页 | IP / ASN 卡片（出口 + 直连）、连接开关、规则 / 全局 / 直连、当前配置与节点、实时速度曲线、本次上传 / 下载 |
 | 策略 | 已连接：实时策略组、点选切换、组测速。**未连接：「未连接 · 来自配置文件」离线策略页**——读取当前配置（含节点集缓存、合并的手动节点），可以选节点（按配置保存，下次连接时自动应用）、直接测速 |
-| 请求 | 实时连接、最近关闭、MitM 解密的 HTTP 请求 |
-| 配置 | 订阅 / 本地 YAML / 剪贴板 / 文件；**Surge / Quantumult X `.conf` 导入**（先显示转换报告：节点、策略组、规则、规则集数量与未转换项，重写部分作为模块导入）；手动节点 |
+| 请求 | 实时连接、最近关闭、MitM 解密的 HTTP 请求（头部 / 内容查看、**复制为 cURL、重放、编辑后重放**） |
+| 配置 | 订阅流量 / 到期（`subscription-userinfo`，含剩余天数）；**节点处理**（每个订阅：过滤、重命名、旗帜、去重、排序 + 实时预览）；订阅 / 本地 YAML / 剪贴板 / 文件；**Surge / Quantumult X `.conf` 导入**（先显示转换报告：节点、策略组、规则、规则集数量与未转换项，重写部分作为模块导入）；手动节点 |
 | 更多 → 连接 | 连接方式（全局隧道 / 仅代理）、按需连接（始终 / 仅 Wi-Fi / 仅蜂窝；App 内手动断开会暂停按需连接，直到下次手动连接）、DNS（国内 / 国外分流、引导 DNS、nameserver-policy、Fake-IP 过滤） |
 | 更多 → 规则与资源 | 规则（实时或离线）+ **自定义规则**（Surge / QX / Loon / mihomo 写法，输入时实时校验并显示转换结果与策略组；远程 RULE-SET / DOMAIN-SET / QX filter_remote）；提供者（实时，或离线显示 URL / 类型 / 缓存内容）；**地理与规则库**（GeoIP MMDB、GEOIP dat、GEOSITE、GeoLite2-ASN：状态、更新时间、默认地址、自定义地址、国内镜像开关、下载进度与错误） |
-| 更多 → 模块、重写与 MitM | 模块（全部格式一个入口，格式角标；参数含 Loon `[Argument]` 开关 / 选择；**策略映射**：模块规则里配置中不存在的策略名可逐个指定策略组）、重写、脚本、MitM |
+| 首页 → 面板 | 只在已连接且模块带面板时出现一行入口：Surge `[Panel]` / Stash `tiles` 合并为一个「面板」页，脚本驱动、可刷新（不是主屏幕小组件） |
+| 更多 → 模块、重写与 MitM | 模块（全部格式一个入口，格式角标；一键添加 BoxJS；参数含 Loon `[Argument]` 开关 / 选择；**策略映射**：模块规则里配置中不存在的策略名可逐个指定策略组）、重写、脚本、MitM |
 | 更多 → 工具与数据 | 网络工具（Ping / TCP / DNS，连接时经过内核规则并显示策略链）、流量统计（Swift Charts，按天保存约 120 天）、日志、备份与恢复（文件 / 分享 / iCloud） |
 | 更多 → 设置 | 内核设置（内存上限、隧道 MTU、手动节点合并进每个配置、日志、IPv6、局域网、控制器）、诊断（App Group、扩展 ID、启动日志） |
 | 快捷指令 | 连接、断开、切换连接、切换出站模式、切换节点（App Intents）；主屏幕长按图标：连接 / 断开、规则 / 全局 / 直连 |
 | 导入链接 | 只注册自己的 `mihomo://`（`mihomo://install-config?url=`、`install-module?url=`、`connect`、`disconnect`、`toggle`）。粘贴的 `loon://`、`stash://`、`surge:///`、`quantumult-x:///` 安装链接也能识别，但**不注册**这些 scheme，避免与其他客户端抢链接。可以用「文件」打开 `.sgmodule` `.plugin` `.stoverride` `.conf` `.list` `.yaml` |
+
+## v0.4 要点
+
+### 订阅管理（节点处理）
+
+配置页左滑或长按订阅 →「节点处理」。规则保存在本机覆写 `mihomo/subscriptions.json`（按配置 ID），**生成运行配置时在 Go 侧应用**，下载的订阅文件不改动，所以更新订阅后规则依然有效。顺序：过滤 → 去前缀 / 旗帜 → 重命名 → 加旗帜 → 前缀 → 去重 → 排序 → 同名自动加序号。
+
+| 项目 | 说明 |
+| --- | --- |
+| 保留 / 排除 | 关键词（`\|` 分隔，不区分大小写）或 JavaScript 正则（regexp2）；一键填入「剩余 / 到期 / 官网」等信息节点关键词 |
+| 重命名 | 多条正则替换，按顺序执行，可用 `$1`；内置几个常用模板 |
+| 前缀与旗帜 | 去掉指定前缀、去掉原有旗帜、按地区识别（中英文地名 / 城市 / 两三位代码 / 旗帜，约 45 个地区）添加旗帜 Emoji、统一添加前缀 |
+| 去重 / 排序 | 去掉类型、地址、端口、凭据都相同的节点；按名称（自然排序）或按地区（港、澳、台、日、新、韩、美…）排序 |
+| 实时预览 | 编辑时 300 ms 防抖调用 Go `SubPreview`：每个节点的原名 → 新名、地区、被移除的原因（未匹配保留 / 匹配排除 / 重复）；保存前若会移除全部节点会提示 |
+
+改名或移除节点后，策略组成员、`dialer-proxy` 和直接指向节点的规则会同步更新；某个策略组的成员被全部过滤掉时自动放入 `DIRECT`，保证配置仍然有效。节点集（`proxy-providers`）用 mihomo 原生的 `filter` / `exclude-filter` / `override.proxy-name` / `override.additional-prefix` 实现过滤与重命名；旗帜、去重、排序只作用于配置里直接列出的节点。
+
+### 脚本引擎补全
+
+| 类型 | Surge | Loon | Quantumult X | Stash |
+| --- | --- | --- | --- | --- |
+| 定时（连接期间按计划执行） | `名称 = type=cron,cronexp="0 8 * * *",script-path=…,timeout=…,argument=…` | `cron "0 8 * * *" script-path=…, tag=…` | `[task_local]` `0 8 * * * https://…/a.js, tag=…, enabled=true` | `cron: script: [{name, cron, timeout, argument}]` + `script-providers` |
+| 事件（网络变化） | `type=event,event-name=network-changed` | `network-changed script-path=…` | `event-network https://…` | — |
+| 通用（手动运行 / 面板） | `type=generic` | `generic script-path=…` | `event-interaction https://…` | `tiles` 的脚本 |
+
+- 时区：扩展启动时把设备时区（IANA 名称，内置 tzdata）交给 Go，cron 按本地时间触发（iOS 沙盒里 Go 默认是 UTC）。
+- cron 表达式：5 段，或 6 段（首段为秒，QX 写法），支持 `*` `?` 列表、范围、步长、月份 / 星期英文缩写、`@daily` 等；日与星期同时限定时任一满足即执行。
+- 调度在扩展里进行：只有隧道连接时才运行。只有定时 / 事件脚本、没有 MitM 与重写时，引擎只启动调度，不会把任何流量引到引擎。
+- 定时 / 事件 / 通用脚本单独排队（一次一个，默认超时 30 秒，最长 300 秒），不占用 HTTP 脚本的并发；HTTP 脚本超时上限提高到 120 秒（BoxJS 需要）。
+- 网络变化：扩展用 `NWPathMonitor` 监听物理网络（Wi-Fi ⇄ 蜂窝、接口变化，2 秒防抖），把 `$network`（`type`、`v4.primaryInterface`、`wifi.ssid` 恒为 null）和 `$event` 交给事件脚本。
+- 新增 API：`$utils.geoip / ipasn / ipaso`（用内置 MMDB / ASN 库）、`$utils.ungzip`（gzip / zlib / deflate）、`$network`、`$event`、面板脚本的 `$input` / `$panel`；`$argument` 未设置时为 `undefined`（不再抛 ReferenceError）。
+- `$persistentStore` 与 `$prefs` 是同一个存储（App Group 里的 `engine/store.json`），所有脚本共享，App 里可查看编辑。
+- `$notification.post` / `$notify`：扩展发本地通知，同时记录最近 100 条到 `engine/notifications.json`，在 脚本 → 脚本通知记录 查看（断开时也能看）。
+- 更多 → 脚本 → 定时与事件脚本：下次运行时间、上次结果 / 耗时、手动运行。
+
+### BoxJS
+
+模块页 + →「添加 BoxJS」导入官方 Surge 模块（chavyleung/scripts）。它把 `boxjs.com` / `boxjs.net` 加入 MitM 主机名，由 http-request 脚本在本地直接返回 BoxJS 页面（`$done({response})`），数据存进共享的 `$persistentStore`。前提：开启 HTTPS 解密并完全信任 CA 证书，然后在 Safari 打开 `https://boxjs.com`。
+
+### 面板
+
+模块里的 Surge `[Panel]`（`名称 = script-name=…,update-interval=…` 或静态 `title=…,content=…,style=…,icon=…`）和 Stash `tiles` 合并为一个「面板」页：图标（SF Symbols 名称）、标题、内容、`style`（good / info / alert / error）或 `icon-color` / `backgroundColor`。打开页面时刷新从未运行或已过期的面板，下拉全部刷新，单个也可刷新；连接期间按 `update-interval` 自动更新。首页只在有面板时显示一行入口。
+
+### 请求抓取
+
+MitM 解密的请求本来就在内存环形缓冲里（最近 200 条，头部全部记录，内容每个方向最多 32 KB）。v0.4 增加：复制为 cURL、重放、编辑后重放（方法 / URL / 头部 / 内容）。重放经内核的 inner 通道发出（仍按你的规则和策略），不再经过重写和脚本，结果显示在详情页并作为新记录（备注「重放 #id」）。二进制请求体或超过 32 KB 的请求体没有完整记录，不能重放。
+
+### 多语言
+
+String Catalog（`App/Localizable.xcstrings`），源语言简体中文，提供 English 与繁體中文（臺灣用語）。键由编译器提取（`SWIFT_EMIT_LOC_STRINGS`，CI 上传 `stringsdata` 供维护）。跟随系统语言，也可以在 iOS 设置 → Mihomo → 语言 单独切换。内核和 Go 侧返回的错误信息仍为中文。新增字符串后用 `scripts/i18n_sync.py <stringsdata 目录>` 补进目录（繁体自动转换，列出待翻译的英文）。
+
+### 未做 / 推迟
+
+- 按 SSID 切换策略：需要 `com.apple.developer.networking.wifi-info`，第三方重签的描述文件通常没有，读取 SSID 会静默失败；本轮不做，`$network.wifi.ssid` 恒为 null。
+- 主 App 去掉 Libmihomo 以缩小 IPA：离线校验 / 导入 / 离线策略页 / 预览都依赖内核解析，换成更轻的 Go 库几乎省不下（解析节点就要链接全部协议）；可行的方案是把 Libmihomo 包成一个动态库 framework 由 App 和扩展共用（IPA 预计少 40% 左右），但扩展里 Go 运行时以动态库加载无法在 CI 上验证，风险是隧道无法启动，所以留到能真机测试时再做。
+- 日 / 韩 / 俄语。
 
 ## v0.3 要点
 
@@ -57,7 +115,7 @@
 ```
 
 - `bridge/`：Go 包 `libmihomo`（gomobile）。启动时把配置与 `overrides.json`、`dns.json`、`rules.json`、模块合并为 `runtime.yaml`。
-- 设置文件（App Group 容器 `mihomo/`）：`overrides.json`（内核覆写，含 `tunnelMode` `mixedPort` `tunMTU` `geoMirror` `geoURLs` `mergeManual`，解码容错）、`dns.json`、`rules.json`、`engine/`（MitM / 重写 / 脚本 / 模块）；每个配置旁的 `<id>.selected.json` 保存离线选择的节点。
+- 设置文件（App Group 容器 `mihomo/`）：`subscriptions.json`（每个订阅的节点处理规则）、`overrides.json`（内核覆写，含 `tunnelMode` `mixedPort` `tunMTU` `geoMirror` `geoURLs` `mergeManual`，解码容错）、`dns.json`、`rules.json`、`engine/`（MitM / 重写 / 脚本 / 模块）；每个配置旁的 `<id>.selected.json` 保存离线选择的节点。
 - 工程由 XcodeGen 从 `project.yml` 生成；**Bundle ID 与 App Group 只在 `project.yml` 顶部改一处**。
 
 ## 协议支持
@@ -182,7 +240,7 @@
 - Quantumult X：`$task.fetch`（Promise，支持 `opts.policy`）、`$prefs.valueForKey/setValueForKey/removeValueForKey/removeAllValues`、`$notify`，`$done({status:"HTTP/1.1 200 OK", …})`、`bodyBytes`。
 - 二进制：`binary-body-mode` 时 body 为 `Uint8Array`（并提供 `bodyBytes`），`$done` 接受字符串 / Uint8Array / ArrayBuffer；另有 `TextEncoder`/`TextDecoder`、`atob`/`btoa`。
 - 资源限制：每次执行使用独立运行时（编译结果缓存 16 个），同时最多 2 个脚本，默认超时 10 秒（超时则保持原样），需要 body 的规则缓冲上限 2 MB（`max-size` 可更小）。远程脚本经内核下载并缓存，按 `script-update-interval`（默认 1 天）后台更新。
-- 暂不支持：cron / generic / event 脚本、`$utils`、Surge Panel、Egern 模块格式。
+- 定时 / 事件 / 通用脚本、`$utils`、面板见上方「v0.4 要点」。暂不支持：Surge `type=dns` / `type=rule` 脚本、`$httpAPI`、Egern 模块格式。
 
 ## 已知限制
 

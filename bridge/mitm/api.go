@@ -118,6 +118,82 @@ func Routes(get func() *Engine) func(r chi.Router) {
 				}
 				w.WriteHeader(http.StatusNoContent)
 			})
+			r.Post("/requests/{id}/replay", func(w http.ResponseWriter, req *http.Request) {
+				e := get()
+				id, _ := strconv.ParseInt(chi.URLParam(req, "id"), 10, 64)
+				if e == nil {
+					http.Error(w, "engine not running", http.StatusServiceUnavailable)
+					return
+				}
+				var edit *ReplayRequest
+				if req.ContentLength != 0 {
+					var x ReplayRequest
+					if err := json.NewDecoder(req.Body).Decode(&x); err == nil {
+						edit = &x
+					}
+				}
+				res, err := e.Replay(id, edit)
+				if err != nil {
+					http.Error(w, err.Error(), http.StatusBadRequest)
+					return
+				}
+				writeJSON(w, res)
+			})
+			r.Get("/tasks", func(w http.ResponseWriter, req *http.Request) {
+				e := get()
+				if e == nil {
+					writeJSON(w, []TaskState{})
+					return
+				}
+				writeJSON(w, e.tasks.list())
+			})
+			r.Post("/tasks/{id}/run", func(w http.ResponseWriter, req *http.Request) {
+				e := get()
+				if e == nil {
+					http.Error(w, "engine not running", http.StatusServiceUnavailable)
+					return
+				}
+				tk := e.tasks.find(chi.URLParam(req, "id"))
+				if tk == nil {
+					http.NotFound(w, req)
+					return
+				}
+				out, err := e.tasks.run(tk, nil)
+				if err != nil {
+					writeJSON(w, map[string]any{"ok": false, "error": err.Error()})
+					return
+				}
+				writeJSON(w, map[string]any{"ok": true, "result": out})
+			})
+			r.Get("/panels", func(w http.ResponseWriter, req *http.Request) {
+				e := get()
+				if e == nil {
+					writeJSON(w, []PanelState{})
+					return
+				}
+				writeJSON(w, e.tasks.panelList())
+			})
+			r.Post("/panels/{id}/refresh", func(w http.ResponseWriter, req *http.Request) {
+				e := get()
+				if e == nil {
+					http.Error(w, "engine not running", http.StatusServiceUnavailable)
+					return
+				}
+				st, err := e.tasks.refreshPanel(chi.URLParam(req, "id"))
+				if err != nil {
+					http.Error(w, err.Error(), http.StatusNotFound)
+					return
+				}
+				writeJSON(w, st)
+			})
+			r.Get("/notifications", func(w http.ResponseWriter, req *http.Request) {
+				e := get()
+				if e == nil {
+					writeJSON(w, []Notice{})
+					return
+				}
+				writeJSON(w, e.Notices.List())
+			})
 			r.Post("/refresh", func(w http.ResponseWriter, req *http.Request) {
 				// re-download a remote script / resource: {"url": "..."}
 				e := get()

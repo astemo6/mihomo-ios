@@ -38,7 +38,7 @@ struct IPInfo: Codable, Equatable {
     var asnText: String {
         let a = asn ?? ""
         let o = org ?? ""
-        if a.isEmpty && o.isEmpty { return "ASN 未知" }
+        if a.isEmpty && o.isEmpty { return String(localized: "ASN 未知") }
         return [a, o].filter { !$0.isEmpty }.joined(separator: " ")
     }
 

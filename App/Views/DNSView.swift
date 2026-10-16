@@ -85,7 +85,7 @@ struct LinesField: View {
 
     var body: some View {
         VStack(alignment: .leading, spacing: 4) {
-            Text(title).font(.caption.weight(.semibold)).foregroundStyle(.secondary)
+            Text(LocalizedStringKey(title)).font(.caption.weight(.semibold)).foregroundStyle(.secondary)
             TextField(placeholder, text: $text, axis: .vertical)
                 .font(.system(size: 12, design: .monospaced))
                 .textInputAutocapitalization(.never).autocorrectionDisabled()

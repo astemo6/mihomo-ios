@@ -275,7 +275,7 @@ struct ToolsView: View {
 
     func field(_ title: String, text: Binding<String>, keyboard: UIKeyboardType) -> some View {
         VStack(alignment: .leading, spacing: 4) {
-            Text(title).font(.caption2).foregroundStyle(.secondary)
+            Text(LocalizedStringKey(title)).font(.caption2).foregroundStyle(.secondary)
             TextField(title, text: text)
                 .keyboardType(keyboard)
                 .textInputAutocapitalization(.never).autocorrectionDisabled()
@@ -296,7 +296,7 @@ struct ToolsView: View {
         let ok = model.probes.filter(\.ok)
         guard !model.probes.isEmpty else { return nil }
         let loss = Double(model.probes.count - ok.count) / Double(model.probes.count) * 100
-        guard !ok.isEmpty else { return "全部失败 · 丢失 100%" }
+        guard !ok.isEmpty else { return String(localized: "全部失败 · 丢失 100%") }
         let ms = ok.map(\.ms)
         return String(format: "最小 %.0f / 平均 %.0f / 最大 %.0f ms · 丢失 %.0f%%", ms.min() ?? 0, ms.reduce(0, +) / Double(ms.count), ms.max() ?? 0, loss)
     }

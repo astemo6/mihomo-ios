@@ -65,8 +65,11 @@ type Engine struct {
 	Requests *RequestLog
 	Logs     *LogRing
 	Store    *Store
+	Notices  *NoticeLog
 	res      *Resources
 	scripts  *ScriptRunner
+	tasks    *tasker
+	geo      atomic.Pointer[GeoLookup]
 }
 
 // New creates an engine (not started).
@@ -80,6 +83,8 @@ func New(home string, dial DialFunc, logf Logger) *Engine {
 	e.Store = NewStore(home)
 	e.res = NewResources(home, e)
 	e.scripts = NewScriptRunner(e)
+	e.Notices = NewNoticeLog(home, 100)
+	e.tasks = newTasker(e)
 	e.st.Store(&state{cfg: &Config{}, rs: &Ruleset{}, hosts: NewHostMatcher(nil)})
 	return e
 }
@@ -126,6 +131,7 @@ func (e *Engine) Start() error {
 
 // Stop closes the listener and all state.
 func (e *Engine) Stop() {
+	e.tasks.shutdown()
 	if e.ln == nil {
 		return
 	}
@@ -179,7 +185,11 @@ func (e *Engine) Reload(cfg *Config, rs *Ruleset) {
 	}
 	e.logf("info", fmt.Sprintf("[MitM] 已加载：%d 条重写/脚本规则，%d 个 MitM 主机，HTTPS 解密%s", len(rs.Rules), len(rs.Hostnames), onOff(cfg.MitM && s.ca != nil)))
 	go e.res.Prefetch(rs)
+	e.tasks.reload(rs)
 }
+
+// NetworkChanged runs the event (network-changed) scripts; info becomes $network. Returns how many ran.
+func (e *Engine) NetworkChanged(info map[string]any) int { return e.tasks.networkChanged(info) }
 
 func onOff(b bool) string {
 	if b {
@@ -223,7 +233,10 @@ func (l *chanListener) Accept() (net.Conn, error) {
 	}
 	return c, nil
 }
-func (l *chanListener) Close() error   { l.once.Do(func() { defer func() { recover() }(); close(l.ch) }); return nil }
+func (l *chanListener) Close() error {
+	l.once.Do(func() { defer func() { recover() }(); close(l.ch) })
+	return nil
+}
 func (l *chanListener) Addr() net.Addr { return l.addr }
 
 func (e *Engine) acceptLoop() {
