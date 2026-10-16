@@ -1,0 +1,232 @@
+# 构建 Libmihomo.xcframework（gomobile）→ XcodeGen 生成工程 → xcodebuild archive → IPA → GitHub Release
+# 有签名 secrets 时导出已签名 IPA；否则输出带 entitlements 的未签名（伪签）IPA，供自签工具重签。
+name: iOS IPA
+
+on:
+  push:
+    branches: [main]
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+concurrency:
+  group: ios-${{ github.ref }}
+  cancel-in-progress: true
+
+env:
+  MIHOMO_VERSION: v1.19.32
+
+jobs:
+  build:
+    runs-on: macos-15
+    timeout-minutes: 60
+    env:
+      BUILD_CERTIFICATE_BASE64: ${{ secrets.BUILD_CERTIFICATE_BASE64 }}
+      P12_PASSWORD: ${{ secrets.P12_PASSWORD }}
+      APP_PROFILE_BASE64: ${{ secrets.APP_PROFILE_BASE64 }}
+      TUNNEL_PROFILE_BASE64: ${{ secrets.TUNNEL_PROFILE_BASE64 }}
+      TEAM_ID: ${{ secrets.TEAM_ID }}
+      KEYCHAIN_PASSWORD: ${{ secrets.KEYCHAIN_PASSWORD }}
+      EXPORT_METHOD: ${{ secrets.EXPORT_METHOD }}
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Select latest Xcode
+        run: |
+          XC=$(ls -d /Applications/Xcode_*.app | sed -E 's/.*Xcode_([0-9.]+)\.app/\1 &/' | grep -v -i beta | sort -V | tail -n1 | cut -d' ' -f2)
+          echo "Using $XC"
+          sudo xcode-select -s "$XC/Contents/Developer"
+          xcodebuild -version
+
+      - uses: actions/setup-go@v5
+        with:
+          go-version-file: bridge/go.mod
+          cache-dependency-path: bridge/go.sum
+
+      - name: Cache Libmihomo.xcframework
+        id: fwcache
+        uses: actions/cache@v4
+        with:
+          path: Frameworks/Libmihomo.xcframework
+          key: libmihomo-${{ env.MIHOMO_VERSION }}-${{ hashFiles('bridge/**', '.github/workflows/ios.yml') }}
+
+      - name: Build Libmihomo.xcframework (gomobile)
+        if: steps.fwcache.outputs.cache-hit != 'true'
+        working-directory: bridge
+        run: |
+          set -euo pipefail
+          MOBILE_VER=$(go list -m -f '{{.Version}}' golang.org/x/mobile)
+          go install golang.org/x/mobile/cmd/gomobile@"$MOBILE_VER" golang.org/x/mobile/cmd/gobind@"$MOBILE_VER"
+          export PATH="$(go env GOPATH)/bin:$PATH"
+          gomobile init
+          mkdir -p ../Frameworks
+          gomobile bind -target=ios/arm64 -iosversion=15.0 -tags with_gvisor -trimpath \
+            -ldflags "-s -w -buildid= -X github.com/metacubex/mihomo/constant.Version=${MIHOMO_VERSION} -X github.com/astemo6/mihomo-ios/bridge.CoreVersion=${MIHOMO_VERSION}" \
+            -o ../Frameworks/Libmihomo.xcframework . 2>&1 | tee ../gomobile.log
+          ls -la ../Frameworks/Libmihomo.xcframework
+          du -sh ../Frameworks/Libmihomo.xcframework
+
+      - name: Install XcodeGen
+        run: brew install xcodegen
+
+      - name: Read identifiers
+        run: |
+          APP_ID=$(awk '/^ *APP_BUNDLE_ID:/{print $2; exit}' project.yml)
+          TUN_ID=$(awk '/^ *TUNNEL_BUNDLE_ID:/{print $2; exit}' project.yml)
+          GROUP_ID=$(awk '/^ *APP_GROUP_ID:/{print $2; exit}' project.yml)
+          VER=$(awk -F'"' '/MARKETING_VERSION/{print $2; exit}' project.yml)
+          {
+            echo "APP_ID=$APP_ID"; echo "TUN_ID=$TUN_ID"; echo "GROUP_ID=$GROUP_ID"; echo "VER=$VER"
+            echo "TAG=v${VER}-build${{ github.run_number }}"
+            if [ -n "$BUILD_CERTIFICATE_BASE64" ] && [ -n "$APP_PROFILE_BASE64" ] && [ -n "$TUNNEL_PROFILE_BASE64" ] && [ -n "$TEAM_ID" ]; then
+              echo "SIGNED=1"
+            else
+              echo "SIGNED=0"
+            fi
+          } >> "$GITHUB_ENV"
+
+      - name: Import signing assets
+        if: env.SIGNED == '1'
+        run: |
+          set -euo pipefail
+          KC="$RUNNER_TEMP/build.keychain-db"
+          KP="${KEYCHAIN_PASSWORD:-$(uuidgen)}"
+          echo "$BUILD_CERTIFICATE_BASE64" | base64 --decode > "$RUNNER_TEMP/cert.p12"
+          security create-keychain -p "$KP" "$KC"
+          security set-keychain-settings -lut 21600 "$KC"
+          security unlock-keychain -p "$KP" "$KC"
+          security import "$RUNNER_TEMP/cert.p12" -P "$P12_PASSWORD" -A -t cert -f pkcs12 -k "$KC"
+          security set-key-partition-list -S apple-tool:,apple: -k "$KP" "$KC" >/dev/null
+          security list-keychain -d user -s "$KC" $(security list-keychains -d user | tr -d '"')
+          IDENTITY=$(security find-identity -v -p codesigning "$KC" | awk -F'"' 'NR==1{print $2}')
+          echo "Signing identity: $IDENTITY"
+          mkdir -p "$HOME/Library/MobileDevice/Provisioning Profiles" "$HOME/Library/Developer/Xcode/UserData/Provisioning Profiles"
+          install_profile() {
+            local b64="$1" out="$RUNNER_TEMP/$2.mobileprovision"
+            echo "$b64" | base64 --decode > "$out"
+            security cms -D -i "$out" > "$RUNNER_TEMP/$2.plist"
+            local uuid name
+            uuid=$(/usr/libexec/PlistBuddy -c 'Print UUID' "$RUNNER_TEMP/$2.plist")
+            name=$(/usr/libexec/PlistBuddy -c 'Print Name' "$RUNNER_TEMP/$2.plist")
+            cp "$out" "$HOME/Library/MobileDevice/Provisioning Profiles/$uuid.mobileprovision"
+            cp "$out" "$HOME/Library/Developer/Xcode/UserData/Provisioning Profiles/$uuid.mobileprovision"
+            echo "$name"
+          }
+          APP_PROFILE=$(install_profile "$APP_PROFILE_BASE64" app)
+          TUN_PROFILE=$(install_profile "$TUNNEL_PROFILE_BASE64" tunnel)
+          echo "App profile: $APP_PROFILE / Tunnel profile: $TUN_PROFILE"
+          printf 'DEVELOPMENT_TEAM = %s\nCODE_SIGN_IDENTITY = %s\nPROVISIONING_PROFILE_SPECIFIER = %s\n' "$TEAM_ID" "$IDENTITY" "$APP_PROFILE" > Config/App.signing.xcconfig
+          printf 'DEVELOPMENT_TEAM = %s\nCODE_SIGN_IDENTITY = %s\nPROVISIONING_PROFILE_SPECIFIER = %s\n' "$TEAM_ID" "$IDENTITY" "$TUN_PROFILE" > Config/Tunnel.signing.xcconfig
+          METHOD="${EXPORT_METHOD:-development}"
+          cat > "$RUNNER_TEMP/ExportOptions.plist" <<EOF
+          <?xml version="1.0" encoding="UTF-8"?>
+          <!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+          <plist version="1.0"><dict>
+            <key>method</key><string>${METHOD}</string>
+            <key>teamID</key><string>${TEAM_ID}</string>
+            <key>signingStyle</key><string>manual</string>
+            <key>stripSwiftSymbols</key><true/>
+            <key>compileBitcode</key><false/>
+            <key>provisioningProfiles</key><dict>
+              <key>${APP_ID}</key><string>${APP_PROFILE}</string>
+              <key>${TUN_ID}</key><string>${TUN_PROFILE}</string>
+            </dict>
+          </dict></plist>
+          EOF
+          cat "$RUNNER_TEMP/ExportOptions.plist"
+
+      - name: Generate Xcode project
+        run: xcodegen generate
+
+      - name: Archive
+        run: |
+          set -o pipefail
+          EXTRA=()
+          if [ "$SIGNED" != "1" ]; then
+            EXTRA=(CODE_SIGNING_ALLOWED=NO CODE_SIGNING_REQUIRED=NO CODE_SIGN_IDENTITY="" CODE_SIGN_ENTITLEMENTS="")
+          fi
+          xcodebuild -project Mihomo.xcodeproj -scheme Mihomo -configuration Release \
+            -sdk iphoneos -destination 'generic/platform=iOS' \
+            -archivePath build/Mihomo.xcarchive \
+            CURRENT_PROJECT_VERSION=${{ github.run_number }} \
+            "${EXTRA[@]}" archive 2>&1 | tee build.log | grep -E "error:|warning: .*deprecated|\*\* (ARCHIVE|BUILD)" | head -n 200 || true
+          test -d build/Mihomo.xcarchive/Products/Applications/Mihomo.app
+
+      - name: Export signed IPA
+        if: env.SIGNED == '1'
+        run: |
+          set -o pipefail
+          xcodebuild -exportArchive -archivePath build/Mihomo.xcarchive \
+            -exportOptionsPlist "$RUNNER_TEMP/ExportOptions.plist" -exportPath build/export 2>&1 | tee export.log | tail -n 40
+          IPA="Mihomo-${VER}-build${{ github.run_number }}-signed.ipa"
+          mv build/export/*.ipa "$IPA"
+          echo "IPA=$IPA" >> "$GITHUB_ENV"
+
+      - name: Package unsigned IPA (entitlements embedded via ad-hoc signature)
+        if: env.SIGNED != '1'
+        run: |
+          set -euo pipefail
+          APP=build/Mihomo.xcarchive/Products/Applications/Mihomo.app
+          sed "s/\$(APP_GROUP_ID)/${GROUP_ID}/g" PacketTunnel/PacketTunnel.entitlements > tunnel.entitlements
+          sed "s/\$(APP_GROUP_ID)/${GROUP_ID}/g" App/Mihomo.entitlements > app.entitlements
+          plutil -lint tunnel.entitlements app.entitlements
+          codesign -f -s - --entitlements tunnel.entitlements "$APP/PlugIns/PacketTunnel.appex"
+          codesign -f -s - --entitlements app.entitlements "$APP"
+          echo "--- appex entitlements ---"; codesign -d --entitlements - "$APP/PlugIns/PacketTunnel.appex" 2>&1 | tail -n 20
+          echo "--- app entitlements ---"; codesign -d --entitlements - "$APP" 2>&1 | tail -n 20
+          rm -rf Payload && mkdir Payload && cp -R "$APP" Payload/
+          IPA="Mihomo-${VER}-build${{ github.run_number }}-unsigned.ipa"
+          zip -qry "$IPA" Payload
+          echo "IPA=$IPA" >> "$GITHUB_ENV"
+
+      - name: Inspect IPA
+        run: |
+          ls -la "$IPA"
+          unzip -l "$IPA" | grep -E "Mihomo.app/(Mihomo|Info.plist)$|PacketTunnel.appex/(PacketTunnel|Info.plist)$"
+          unzip -p "$IPA" Payload/Mihomo.app/PlugIns/PacketTunnel.appex/Info.plist > /tmp/ext.plist && plutil -p /tmp/ext.plist | grep -E "NSExtension|Mihomo|CFBundleIdentifier"
+          {
+            echo "### $IPA"
+            echo "- mihomo ${MIHOMO_VERSION}, signed=${SIGNED}"
+            echo "- size: $(du -h "$IPA" | cut -f1)"
+          } >> "$GITHUB_STEP_SUMMARY"
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: Mihomo-ipa
+          path: |
+            ${{ env.IPA }}
+            app.entitlements
+            tunnel.entitlements
+          if-no-files-found: warn
+
+      - name: Publish GitHub Release
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          NOTES="$RUNNER_TEMP/notes.md"
+          {
+            echo "Mihomo iOS ${VER}（构建 #${{ github.run_number }}，提交 ${GITHUB_SHA::7}）"
+            echo
+            echo "- 内核：mihomo ${MIHOMO_VERSION}"
+            if [ "$SIGNED" = "1" ]; then
+              echo "- 已签名（${EXPORT_METHOD:-development}），可直接安装到描述文件内的设备。"
+            else
+              echo "- 未签名（已嵌入 entitlements 的伪签名），请用自己的证书和描述文件重签后安装。网络扩展需要开启了 Network Extension + App Groups 能力的描述文件。"
+            fi
+          } > "$NOTES"
+          FILES=("$IPA")
+          [ -f app.entitlements ] && FILES+=(app.entitlements tunnel.entitlements)
+          gh release create "$TAG" "${FILES[@]}" --title "Mihomo ${VER} build ${{ github.run_number }}" --notes-file "$NOTES" --target "$GITHUB_SHA" --prerelease
+
+      - name: Show build errors (on failure)
+        if: failure()
+        run: |
+          for f in gomobile.log build.log export.log; do
+            [ -f "$f" ] || continue
+            echo "===== $f ====="
+            grep -E "error:|Error|FAILED|fatal" "$f" | sort -u | head -n 150 || true
+            echo "----- tail -----"
+            tail -n 60 "$f"
+          done

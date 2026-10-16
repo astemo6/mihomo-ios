@@ -1,0 +1,11 @@
+*.xcodeproj
+Frameworks/*.xcframework
+build/
+DerivedData/
+Payload/
+*.ipa
+*.p12
+*.mobileprovision
+*.cer
+.DS_Store
+bridge/*.xcframework
