@@ -112,6 +112,30 @@ func GeoUpdate(homeDir, kind, url string) (string, error) {
 	if err != nil {
 		return "", fmt.Errorf("下载中断：%w", err)
 	}
+	return geoInstall(homeDir, *g, data)
+}
+
+// GeoInstallFile validates a database the app downloaded itself (with a progress bar) at path and moves
+// it into homeDir. kind: mmdb / geosite / asn / geoip. Returns the updated entry as JSON.
+func GeoInstallFile(homeDir, kind, path string) (string, error) {
+	var g *geoFile
+	for i := range geoKinds {
+		if geoKinds[i].Kind == kind {
+			g = &geoKinds[i]
+		}
+	}
+	if g == nil {
+		return "", fmt.Errorf("未知的数据库 %s", kind)
+	}
+	data, err := os.ReadFile(path)
+	_ = os.Remove(path)
+	if err != nil {
+		return "", err
+	}
+	return geoInstall(homeDir, *g, data)
+}
+
+func geoInstall(homeDir string, g geoFile, data []byte) (string, error) {
 	if err := geoValidate(g.File, data); err != nil {
 		return "", err
 	}
@@ -125,7 +149,7 @@ func GeoUpdate(homeDir, kind, url string) (string, error) {
 		_ = os.Remove(tmp)
 		return "", err
 	}
-	b, _ := json.Marshal(geoDescribe(homeDir, *g))
+	b, _ := json.Marshal(geoDescribe(homeDir, g))
 	return string(b), nil
 }
 

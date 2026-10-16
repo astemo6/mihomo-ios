@@ -221,3 +221,18 @@ func TestToolsTCPThroughCore(t *testing.T) {
 		t.Fatal("bad proxy should fail")
 	}
 }
+
+func TestGeoInstallFileRejectsJunk(t *testing.T) {
+	home := t.TempDir()
+	p := filepath.Join(home, "x.download")
+	_ = os.WriteFile(p, []byte("<html>blocked</html>"), 0o644)
+	if _, err := GeoInstallFile(home, "geosite", p); err == nil {
+		t.Fatal("expected error for junk file")
+	}
+	if _, err := os.Stat(p); !os.IsNotExist(err) {
+		t.Fatal("temp file should be removed")
+	}
+	if _, err := GeoInstallFile(home, "nope", p); err == nil {
+		t.Fatal("expected unknown kind error")
+	}
+}
