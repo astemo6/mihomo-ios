@@ -435,6 +435,23 @@
         }
       }
     },
+    "?": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "?"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "?"
+          }
+        }
+      }
+    },
     "A": {
       "localizations": {
         "en": {
@@ -3614,6 +3631,23 @@
           "stringUnit": {
             "state": "translated",
             "value": "包含 MitM 根證書和私鑰"
+          }
+        }
+      }
+    },
+    "匹配排除规则": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Matched by Exclude"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "匹配排除規則"
           }
         }
       }
@@ -7362,6 +7396,23 @@
           "stringUnit": {
             "state": "translated",
             "value": "未信任：請安裝描述檔案並開啟完全信任"
+          }
+        }
+      }
+    },
+    "未匹配保留规则": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Not matched by Keep"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "未匹配保留規則"
           }
         }
       }
@@ -11471,6 +11522,23 @@
           "stringUnit": {
             "state": "translated",
             "value": "重新命名（按順序執行）"
+          }
+        }
+      }
+    },
+    "重复节点": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Duplicate node"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "重複節點"
           }
         }
       }

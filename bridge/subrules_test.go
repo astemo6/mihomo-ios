@@ -6,6 +6,7 @@ import (
 	"path/filepath"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/metacubex/mihomo/hub/executor"
 	"go.yaml.in/yaml/v3"
@@ -214,5 +215,18 @@ func TestSubPreviewAndStore(t *testing.T) {
 	_ = json.Unmarshal([]byte(InspectProfile(home, pp)), &ins)
 	if len(ins.Proxies) != 9 {
 		t.Fatalf("disabled rules applied: %d", len(ins.Proxies))
+	}
+}
+
+func TestSetTimeZone(t *testing.T) {
+	old := time.Local
+	defer func() { time.Local = old }()
+	SetTimeZone("Asia/Shanghai", 8*3600)
+	if _, off := time.Now().Zone(); off != 8*3600 {
+		t.Fatalf("offset %d", off)
+	}
+	SetTimeZone("Not/AZone", -3600)
+	if _, off := time.Now().Zone(); off != -3600 {
+		t.Fatalf("fallback offset %d", off)
 	}
 }

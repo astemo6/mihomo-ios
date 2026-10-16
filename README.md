@@ -54,6 +54,7 @@
 | 事件（网络变化） | `type=event,event-name=network-changed` | `network-changed script-path=…` | `event-network https://…` | — |
 | 通用（手动运行 / 面板） | `type=generic` | `generic script-path=…` | `event-interaction https://…` | `tiles` 的脚本 |
 
+- 时区：扩展启动时把设备时区（IANA 名称，内置 tzdata）交给 Go，cron 按本地时间触发（iOS 沙盒里 Go 默认是 UTC）。
 - cron 表达式：5 段，或 6 段（首段为秒，QX 写法），支持 `*` `?` 列表、范围、步长、月份 / 星期英文缩写、`@daily` 等；日与星期同时限定时任一满足即执行。
 - 调度在扩展里进行：只有隧道连接时才运行。只有定时 / 事件脚本、没有 MitM 与重写时，引擎只启动调度，不会把任何流量引到引擎。
 - 定时 / 事件 / 通用脚本单独排队（一次一个，默认超时 30 秒，最长 300 秒），不占用 HTTP 脚本的并发；HTTP 脚本超时上限提高到 120 秒（BoxJS 需要）。
@@ -77,7 +78,7 @@ MitM 解密的请求本来就在内存环形缓冲里（最近 200 条，头部�
 
 ### 多语言
 
-String Catalog（`App/Localizable.xcstrings`），源语言简体中文，提供 English 与繁體中文（臺灣用語）。键由编译器提取（`SWIFT_EMIT_LOC_STRINGS`，CI 上传 `stringsdata` 供维护）。内核和 Go 侧返回的错误信息仍为中文。
+String Catalog（`App/Localizable.xcstrings`），源语言简体中文，提供 English 与繁體中文（臺灣用語）。键由编译器提取（`SWIFT_EMIT_LOC_STRINGS`，CI 上传 `stringsdata` 供维护）。跟随系统语言，也可以在 iOS 设置 → Mihomo → 语言 单独切换。内核和 Go 侧返回的错误信息仍为中文。新增字符串后用 `scripts/i18n_sync.py <stringsdata 目录>` 补进目录（繁体自动转换，列出待翻译的英文）。
 
 ### 未做 / 推迟
 

@@ -30,6 +30,7 @@ final class PacketTunnelProvider: NEPacketTunnelProvider {
         TunnelErrorLog.clear()
         StartupLog.begin("startTunnel")
         LibmihomoSetStageLog(StartupLog.url.path, TimeZone.current.secondsFromGMT())
+        LibmihomoSetTimeZone(TimeZone.current.identifier, TimeZone.current.secondsFromGMT())
         StartupLog.write("startTunnel called, \(ProcessMemory.summary())")
         // Exactly one completion, whichever comes first: core result, error, or the watchdog.
         let lock = NSLock()

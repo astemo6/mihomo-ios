@@ -1,6 +1,8 @@
 package libmihomo
 
 import (
+	_ "time/tzdata" // IANA zones for SetTimeZone (no zoneinfo in the iOS sandbox)
+
 	"fmt"
 	"net/url"
 	"os"
@@ -170,4 +172,15 @@ func rewriteProviderURLs(raw map[string]any) {
 			}
 		}
 	}
+}
+
+// SetTimeZone makes Go's local time match the device (the iOS sandbox gives Go no /etc/localtime, so
+// time.Local would be UTC). Cron scripts and core logs depend on it. name is an IANA id
+// (TimeZone.current.identifier); the fixed offset is the fallback.
+func SetTimeZone(name string, utcOffsetSeconds int) {
+	if loc, err := time.LoadLocation(name); err == nil && name != "" {
+		time.Local = loc
+		return
+	}
+	time.Local = time.FixedZone(name, utcOffsetSeconds)
 }
