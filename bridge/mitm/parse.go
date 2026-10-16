@@ -67,6 +67,8 @@ type Script struct {
 	Cron           string `json:"cron,omitempty"`
 	// Env is Egern's per-script `env` (ctx.env for native Egern scripts).
 	Env map[string]string `json:"env,omitempty"`
+	// Source is inline code for debug runs (脚本调试); nil = load Path.
+	Source []byte `json:"-"`
 }
 
 // Rule is one parsed rewrite / script rule.

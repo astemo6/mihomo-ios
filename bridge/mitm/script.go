@@ -70,9 +70,13 @@ func (s *ScriptRunner) Invalidate(path string) {
 }
 
 func (s *ScriptRunner) program(sc *Script) (*goja.Program, error) {
-	src, err := s.e.res.Get(sc.Path, sc.UpdateInterval)
-	if err != nil {
-		return nil, fmt.Errorf("加载脚本失败：%w", err)
+	src := sc.Source
+	if src == nil {
+		var err error
+		src, err = s.e.res.Get(sc.Path, sc.UpdateInterval)
+		if err != nil {
+			return nil, fmt.Errorf("加载脚本失败：%w", err)
+		}
 	}
 	sum := sha256.Sum256(src)
 	key := hex.EncodeToString(sum[:])
@@ -122,6 +126,10 @@ type runCtx struct {
 	ctx     context.Context
 	timers  map[int64]*time.Timer
 	timerID int64
+	// Debug runs (脚本调试): console output and notifications are captured instead of going to the
+	// engine's rings / the user's notification history.
+	onLog    func(level, msg string)
+	onNotify func(title, sub, body, url string)
 }
 
 func (rc *runCtx) post(j loopJob) {
@@ -210,7 +218,9 @@ func (s *ScriptRunner) execute(sc *Script, req, resp *ScriptHTTP, sem chan struc
 			return nil, fmt.Errorf("脚本执行超时（%s）", timeout)
 		}
 	}
-	s.e.Logs.Add(sc.Name, "debug", fmt.Sprintf("执行完成，用时 %d ms", time.Since(start).Milliseconds()))
+	if rc.onLog == nil {
+		s.e.Logs.Add(sc.Name, "debug", fmt.Sprintf("执行完成，用时 %d ms", time.Since(start).Milliseconds()))
+	}
 	return rc, nil
 }
 
@@ -450,7 +460,12 @@ func (rc *runCtx) installCommon(set func(string, any)) {
 			for _, a := range call.Arguments {
 				parts = append(parts, jsString(rt, a))
 			}
-			rc.e.Logs.Add(rc.name, level, strings.Join(parts, " "))
+			msg := strings.Join(parts, " ")
+			if rc.onLog != nil {
+				rc.onLog(level, msg)
+				return goja.Undefined()
+			}
+			rc.e.Logs.Add(rc.name, level, msg)
 			return goja.Undefined()
 		})
 	}
@@ -509,6 +524,10 @@ func (rc *runCtx) installCommon(set func(string, any)) {
 
 	// notifications
 	post := func(title, sub, body, url string) {
+		if rc.onNotify != nil {
+			rc.onNotify(title, sub, body, url)
+			return
+		}
 		rc.e.Logs.Add(rc.name, "notify", strings.TrimSpace(title+" | "+sub+" | "+body))
 		rc.e.Notices.Add(Notice{Script: rc.name, Title: title, Subtitle: sub, Body: body, URL: url})
 		if n := rc.e.notify.Load(); n != nil && *n != nil {
