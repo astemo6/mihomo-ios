@@ -310,6 +310,7 @@ struct DiagnosticsView: View {
                 let groups = AppShared.provisionedAppGroups()
                 LabeledContent("描述文件中的组", value: groups.isEmpty ? "（未找到 embedded.mobileprovision）" : groups.sorted().joined(separator: "\n"))
                 LabeledContent("VPN 状态", value: vpn.statusText)
+                LabeledContent("连接方式", value: CoreOverrides.load().isProxyOnly ? "仅代理（NEProxySettings）" : "全局隧道（PacketFlowBridge）")
             } header: { Text("签名与容器") } footer: {
                 Text("重签名后描述文件会替换 entitlements。App 与扩展会在运行时从描述文件读取 App Group 并按字母序选第一个可用的；共享容器不可用时扩展无法读取配置，连接会失败。")
             }
@@ -333,7 +334,7 @@ struct DiagnosticsView: View {
                 }
                 .buttonStyle(.borderless)
             } header: { Text("启动日志") } footer: {
-                Text("记录每次连接的阶段与耗时：网络设置、utun、内核启动开始 / 结束、内存占用和错误。连接失败时请复制发给开发者。")
+                Text("记录每次连接的阶段与耗时：网络设置、数据包桥接、内核启动开始 / 结束、内存占用和错误。连接失败时请复制发给开发者。")
             }
             .listRowBackground(Theme.card)
             Section {
@@ -344,6 +345,7 @@ struct DiagnosticsView: View {
                     group=\(group) (\(AppShared.appGroupSource)) ok=\(AppShared.containerOK)
                     provisioned=\(AppShared.provisionedAppGroups().joined(separator: ","))
                     status=\(vpn.statusText) error=\(vpn.lastError ?? "-")
+                    mode=\(CoreOverrides.load().tunnelMode) mtu=\(CoreOverrides.load().tunMTU) memlimit=\(CoreOverrides.load().memoryLimitMB)MB ondemand=\(OnDemandSettings.load().mode.rawValue) paused=\(OnDemandSettings.isPaused)
                     version=\(Bundle.main.object(forInfoDictionaryKey: "CFBundleShortVersionString") as? String ?? "?")
                     --- startup log ---
                     \(StartupLog.read())

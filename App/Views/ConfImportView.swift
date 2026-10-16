@@ -50,6 +50,11 @@ struct ConfReportSection: View {
     @Binding var result: ConfImportResult?
     @State private var showSkipped = false
 
+    init(text: String, result: Binding<ConfImportResult?>) {
+        self.text = text
+        self._result = result
+    }
+
     var body: some View {
         Group {
             if let r = result {

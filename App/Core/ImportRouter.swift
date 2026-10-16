@@ -160,6 +160,8 @@ struct ImportSheet: View {
     @State private var result: String?
     @State private var conf: ConfImportResult?
 
+    init(action: ImportAction) { self.action = action }
+
     var body: some View {
         NavigationStack {
             Form {
