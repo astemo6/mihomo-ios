@@ -55,6 +55,9 @@ type Overrides struct {
 
 	GeoURLs     map[string]string `json:"geoURLs"`     // custom per-database URLs (mmdb/geoip/geosite/asn), "" = mirror default
 	MergeManual bool              `json:"mergeManual"` // add the 手动节点 profile's nodes (+ group) to every profile
+	// SafeMode (set by the app for one connection after a failed start): the profile with our core
+	// overrides only — no modules, rewrite, scripts, MitM, custom rules or smart groups.
+	SafeMode bool `json:"safeMode"`
 
 	DNS        *DNSOverride `json:"-"` // loaded from <home>/dns.json
 	sub        *SubRules    // per-subscription node processing (subscriptions.json), set by overridesFor
@@ -256,7 +259,9 @@ func buildRuntimeWith(profile []byte, o Overrides, fd int32, inject func(raw map
 		delete(raw, "tun")
 	}
 	rewriteConvertProviders(raw, o)
-	applyCustomRules(raw, o)
+	if !o.SafeMode {
+		applyCustomRules(raw, o)
+	}
 	if inject != nil {
 		inject(raw)
 	}
@@ -342,9 +347,16 @@ func apply(home, configPath string, fd int32) error {
 	o := overridesFor(home, configPath)
 	startGC(o.MemoryLimitMB)
 	stage("config read (%d bytes), building runtime", len(profile))
-	inject, err := prepareEngine(home)
-	if err != nil {
-		log.Warnln("[MitM] %s", err.Error())
+	var inject func(raw map[string]any)
+	if o.SafeMode {
+		stopEngine()
+		stage("SAFE MODE: modules, rewrite, scripts, MitM, custom rules and smart groups are off")
+		log.Warnln("[Bridge] 安全模式：模块、重写、脚本、MitM、自定义规则与智能选择已停用")
+	} else {
+		inject, err = prepareEngine(home)
+		if err != nil {
+			log.Warnln("[MitM] %s", err.Error())
+		}
 	}
 	rt, err := buildRuntimeWith(profile, o, fd, inject)
 	if err != nil {
@@ -352,8 +364,11 @@ func apply(home, configPath string, fd int32) error {
 	}
 	_ = os.WriteFile(filepath.Join(home, "runtime.yaml"), rt, 0o644)
 	stage("runtime.yaml written, parsing")
+	if missing := missingGeo(home, rt); len(missing) > 0 {
+		stage("geo data missing for this profile: %s (the core will try to download it)", strings.Join(missing, ", "))
+	}
 	if err := hub.Parse(rt); err != nil {
-		return err
+		return friendlyError(err)
 	}
 	debug.FreeOSMemory()
 	return nil
@@ -372,11 +387,13 @@ func Start(homeDir, configPath string, tunFd int32) error {
 		return err
 	}
 	curFd, curHome = tunFd, homeDir
+	startDiagCapture(homeDir)
 	stage("core start begin (fd=%d)", tunFd)
 	tunnel.OnSuspend()
+	safe := overridesFor(homeDir, configPath).SafeMode
 	done := make(chan error, 1)
 	go func() {
-		err := apply(homeDir, configPath, tunFd)
+		err := safeApply(homeDir, configPath, tunFd)
 		if err != nil {
 			stage("core apply failed: %s", err.Error())
 		} else {
@@ -384,7 +401,9 @@ func Start(homeDir, configPath string, tunFd int32) error {
 			if n := applySelections(configPath); n > 0 {
 				stage("restored %d saved group selection(s)", n)
 			}
-			startSmart(homeDir, configPath)
+			if !safe {
+				startSmart(homeDir, configPath)
+			}
 		}
 		done <- err
 	}()
@@ -398,6 +417,7 @@ func Start(homeDir, configPath string, tunFd int32) error {
 			if err != nil {
 				lastError = err.Error()
 				log.Errorln("[Bridge] start failed: %s", err.Error())
+				DumpDiagnostics()
 				return err
 			}
 			running = true
@@ -412,6 +432,7 @@ func Start(homeDir, configPath string, tunFd int32) error {
 		case <-deadline.C:
 			msg := fmt.Sprintf("内核启动超时（%d 秒）：可能在下载 GeoIP/GeoSite 或规则集 / 节点集。请检查网络，或在 更多 → 诊断 查看启动日志", int(startTimeout/time.Second))
 			stage("core start TIMEOUT after %s, %s", startTimeout, memText())
+			DumpDiagnostics()
 			lastError = msg
 			return errors.New(msg)
 		}
@@ -425,11 +446,15 @@ func Reload(configPath string) error {
 	if curHome == "" {
 		return errors.New("core not started")
 	}
-	if err := apply(curHome, configPath, curFd); err != nil {
+	if err := safeApply(curHome, configPath, curFd); err != nil {
 		lastError = err.Error()
 		return err
 	}
-	startSmart(curHome, configPath)
+	if overridesFor(curHome, configPath).SafeMode {
+		stopSmart()
+	} else {
+		startSmart(curHome, configPath)
+	}
 	return nil
 }
 
@@ -444,6 +469,7 @@ func Stop() {
 	stopSmart()
 	executor.Shutdown()
 	running = false
+	DumpDiagnostics()
 	if gcStop != nil {
 		close(gcStop)
 		gcStop = nil

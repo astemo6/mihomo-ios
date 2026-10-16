@@ -171,6 +171,7 @@ func Routes(get func() *Engine) func(r chi.Router) {
 					writeJSON(w, []PanelState{})
 					return
 				}
+				e.tasks.markViewed()
 				writeJSON(w, e.tasks.panelList())
 			})
 			r.Post("/panels/{id}/refresh", func(w http.ResponseWriter, req *http.Request) {

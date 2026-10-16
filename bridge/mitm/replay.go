@@ -43,7 +43,7 @@ func (e *Engine) Replay(id int64, edit *ReplayRequest) (*ReplayResult, error) {
 	for k, v := range src.ReqHdr {
 		hdr[k] = v
 	}
-	bin, full := src.ReqBin, src.ReqLen
+	bin, full, dropped := src.ReqBin, src.ReqLen, src.Dropped
 	src.mu.Unlock()
 	if method == "TLS" {
 		return nil, fmt.Errorf("这条记录是握手失败，没有可重放的请求")
@@ -64,6 +64,9 @@ func (e *Engine) Replay(id int64, edit *ReplayRequest) (*ReplayResult, error) {
 	}
 	if bin > 0 {
 		return nil, fmt.Errorf("请求体是二进制数据，未被记录，无法重放")
+	}
+	if dropped && full > len(body) {
+		return nil, fmt.Errorf("请求体已因抓取内存上限从记录中移除，无法完整重放")
 	}
 	if full > len(body) {
 		return nil, fmt.Errorf("请求体超过 %d KB 记录上限，无法完整重放", captureLimit/1024)

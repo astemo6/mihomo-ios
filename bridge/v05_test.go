@@ -259,11 +259,11 @@ func TestQUICBlockAll(t *testing.T) {
 
 func TestClassifyText(t *testing.T) {
 	cases := map[string]string{
-		"proxies:\n  - {name: a, type: ss, server: 1.1.1.1, port: 1, cipher: aes-128-gcm, password: x}\n": "profile",
+		"proxies:\n  - {name: a, type: ss, server: 1.1.1.1, port: 1, cipher: aes-128-gcm, password: x}\n":        "profile",
 		"[General]\nloglevel = notify\n[Proxy]\nA = ss, 1.1.1.1, 8388, encrypt-method=aes-128-gcm, password=x\n": "conf",
-		"#!name=X\n[URL Rewrite]\n^https://a\\.com - reject\n":                                                "module:surge",
-		"[rewrite_local]\n^https://a\\.com url reject\n[mitm]\nhostname = a.com\n":                              "module:qx",
-		"name: E\nscriptings:\n  - generic:\n      name: g\n      script_url: https://x/g.js\n":                    "module:egern",
+		"#!name=X\n[URL Rewrite]\n^https://a\\.com - reject\n":                                                   "module:surge",
+		"[rewrite_local]\n^https://a\\.com url reject\n[mitm]\nhostname = a.com\n":                               "module:qx",
+		"name: E\nscriptings:\n  - generic:\n      name: g\n      script_url: https://x/g.js\n":                  "module:egern",
 		"name: S\nhttp:\n  mitm:\n    - a.com\n":                                                                 "module:stash",
 		"ss://YWVzLTEyOC1nY206eA@1.2.3.4:8388#node":                                                              "nodes",
 		"hello world": "",

@@ -15,6 +15,7 @@ import (
 	"strconv"
 	"strings"
 	"sync"
+	"sync/atomic"
 	"time"
 	"unicode/utf8"
 
@@ -96,6 +97,14 @@ func (s *ScriptRunner) program(sc *Script) (*goja.Program, error) {
 
 type loopJob func()
 
+// liveRuntimes counts goja runtimes that exist right now. Every run creates one and drops it when the
+// run returns (nothing keeps a reference: timers are stopped, late callbacks see a cancelled context),
+// so this is at most the semaphore sizes (2 HTTP + 1 task) at any moment.
+var liveRuntimes atomic.Int64
+
+// LiveRuntimes reports how many script runtimes are alive (diagnostics, memory samples, tests).
+func LiveRuntimes() int64 { return liveRuntimes.Load() }
+
 type runCtx struct {
 	rt      *goja.Runtime
 	jobs    chan loopJob
@@ -153,6 +162,8 @@ func (s *ScriptRunner) execute(sc *Script, req, resp *ScriptHTTP, sem chan struc
 	ctx, cancel := context.WithTimeout(context.Background(), timeout)
 	defer cancel()
 	rt := goja.New()
+	liveRuntimes.Add(1)
+	defer liveRuntimes.Add(-1)
 	rc := &runCtx{rt: rt, jobs: make(chan loopJob, 8), script: sc, name: sc.Name, e: s.e, ctx: ctx, timers: map[int64]*time.Timer{}}
 	defer func() {
 		for _, t := range rc.timers {
