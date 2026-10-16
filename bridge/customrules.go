@@ -285,7 +285,7 @@ func profileRaw(homeDir, profilePath string) map[string]any {
 	if err != nil {
 		return raw
 	}
-	o := readOverrides(homeDir)
+	o := overridesFor(homeDir, profilePath)
 	o.home = "" // don't recurse into custom rules
 	if rt, err := buildRuntime(b, o, 0); err == nil {
 		_ = yaml.Unmarshal(rt, &raw)

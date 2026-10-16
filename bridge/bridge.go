@@ -57,6 +57,7 @@ type Overrides struct {
 	MergeManual bool              `json:"mergeManual"` // add the 手动节点 profile's nodes (+ group) to every profile
 
 	DNS        *DNSOverride `json:"-"` // loaded from <home>/dns.json
+	sub        *SubRules    // per-subscription node processing (subscriptions.json), set by overridesFor
 	manualPath string       // <container>/profiles/manual-nodes.yaml
 	home       string
 }
@@ -135,6 +136,11 @@ func buildRuntimeWith(profile []byte, o Overrides, fd int32, inject func(raw map
 		}
 	}
 
+	if o.sub != nil {
+		for _, e := range applySubRules(raw, o.sub) {
+			log.Warnln("[Subscription] %s", e)
+		}
+	}
 	if o.MergeManual && o.manualPath != "" {
 		mergeManualNodes(raw, o.manualPath)
 	}
@@ -333,7 +339,7 @@ func apply(home, configPath string, fd int32) error {
 	if err != nil {
 		return fmt.Errorf("读取配置失败: %w", err)
 	}
-	o := readOverrides(home)
+	o := overridesFor(home, configPath)
 	startGC(o.MemoryLimitMB)
 	stage("config read (%d bytes), building runtime", len(profile))
 	inject, err := prepareEngine(home)
@@ -457,7 +463,7 @@ func ValidateConfig(path string) string {
 		home = curHome
 	}
 	C.SetHomeDir(home)
-	rt, err := buildRuntime(profile, readOverrides(home), 0)
+	rt, err := buildRuntime(profile, overridesFor(home, path), 0)
 	if err != nil {
 		return err.Error()
 	}
@@ -474,7 +480,7 @@ func ValidateConfigIn(homeDir, path string) string {
 		return err.Error()
 	}
 	C.SetHomeDir(homeDir)
-	rt, err := buildRuntime(profile, readOverrides(homeDir), 0)
+	rt, err := buildRuntime(profile, overridesFor(homeDir, path), 0)
 	if err != nil {
 		return err.Error()
 	}
