@@ -14,6 +14,8 @@ struct ManualNodesView: View {
     @State private var message: String?
     @State private var pasteText = ""
     @State private var showPasteSheet = false
+    @State private var share: ShareTarget?
+    @State private var exportSub = false
 
     struct EditTarget: Identifiable {
         let id = UUID()
@@ -56,6 +58,12 @@ struct ManualNodesView: View {
                         Button(role: .destructive) {
                             Task { await store.deleteManualNode(name); reload() }
                         } label: { Label("删除", systemImage: "trash") }
+                        Button { shareNode(n) } label: { Label("分享", systemImage: "qrcode") }.tint(Theme.accent)
+                    }
+                    .contextMenu {
+                        Button { editing = EditTarget(node: n) } label: { Label("编辑", systemImage: "pencil") }
+                        Button { shareNode(n) } label: { Label("分享链接与二维码", systemImage: "qrcode") }
+                        Button(role: .destructive) { Task { await store.deleteManualNode(name); reload() } } label: { Label("删除", systemImage: "trash") }
                     }
                 }
             }
@@ -73,10 +81,16 @@ struct ManualNodesView: View {
         .navigationTitle("手动节点")
         .toolbar {
             ToolbarItem(placement: .navigationBarTrailing) {
-                Button { showPasteSheet = true } label: { Image(systemName: "text.badge.plus") }
+                Menu {
+                    Button { showPasteSheet = true } label: { Label("粘贴节点", systemImage: "text.badge.plus") }
+                    Button { exportSub = true } label: { Label("导出为订阅文本", systemImage: "square.and.arrow.up") }
+                        .disabled(nodes.isEmpty)
+                } label: { Image(systemName: "ellipsis.circle") }
             }
         }
         .onAppear(perform: reload)
+        .sheet(item: $share) { t in NodeShareSheet(name: t.name, link: t.link) }
+        .sheet(isPresented: $exportSub) { SubscriptionExportSheet() }
         .sheet(item: $editing, onDismiss: reload) { t in NodeEditorView(node: t.node) }
         .sheet(isPresented: $showScanner) {
             QRScannerSheet { code in
@@ -131,6 +145,13 @@ struct ManualNodesView: View {
     }
 
     func reload() { nodes = store.manualNodes() }
+
+    func shareNode(_ n: [String: Any]) {
+        switch NodeShare.link(node: n) {
+        case .success(let l): share = ShareTarget(name: n["name"] as? String ?? "", link: l)
+        case .failure(let e): message = e.message
+        }
+    }
 
     func importText(_ text: String) {
         let t = text.trimmingCharacters(in: .whitespacesAndNewlines)

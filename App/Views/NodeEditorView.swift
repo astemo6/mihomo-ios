@@ -235,6 +235,7 @@ struct NodeEditorView: View {
     @State private var values: [String: String]
     @State private var error: String?
     @State private var busy = false
+    @State private var dialer: String
 
     init(node: [String: Any]?) {
         original = node
@@ -246,6 +247,16 @@ struct NodeEditorView: View {
         var flat: [String: String] = [:]
         if let node { NodeProtocols.flatten(node, into: &flat) } else { flat = NodeProtocols.defaults(for: t) }
         _values = State(initialValue: flat)
+        _dialer = State(initialValue: node?["dialer-proxy"] as? String ?? "")
+    }
+
+    /// Where the node's 前置代理 is resolved: the active profile when manual nodes are merged into it,
+    /// otherwise the 手动节点 profile itself.
+    var chainProfilePath: String {
+        if CoreOverrides.load().mergeManual, let a = AppShared.activeProfileURL, AppShared.activeProfileID != ProfileStore.manualID {
+            return a.path
+        }
+        return AppShared.profileURL(id: ProfileStore.manualID).path
     }
 
     var body: some View {
@@ -262,6 +273,17 @@ struct NodeEditorView: View {
                 .listRowBackground(Theme.card)
                 Section(protoTitle + " 参数") {
                     ForEach(NodeProtocols.fields(for: type)) { f in field(f) }
+                }
+                .listRowBackground(Theme.card)
+                Section {
+                    NavigationLink {
+                        ChainPickerView(kind: "node", name: (original?["name"] as? String) ?? name, profilePath: chainProfilePath,
+                                        selected: dialer.isEmpty ? nil : dialer) { dialer = $0 ?? "" }
+                    } label: {
+                        LabeledContent("前置代理", value: dialer.isEmpty ? String(localized: "无") : dialer)
+                    }
+                } footer: {
+                    Text("先经过另一个节点或策略组再连接这个节点（代理链）。开启「把手动节点加入每个配置」后，也可以选择当前订阅里的策略组。")
                 }
                 .listRowBackground(Theme.card)
                 if let error {
@@ -346,6 +368,8 @@ struct NodeEditorView: View {
             NodeProtocols.setNested(&d, path, v)
         }
         if (d["network"] as? String) == "tcp" { d.removeValue(forKey: "network") }
+        let via = dialer.trimmingCharacters(in: .whitespaces)
+        if via.isEmpty { d.removeValue(forKey: "dialer-proxy") } else { d["dialer-proxy"] = via }
         return d
     }
 

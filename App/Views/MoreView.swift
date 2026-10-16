@@ -211,9 +211,8 @@ struct SettingsView: View {
                 }
                 Toggle("IPv6", isOn: $o.ipv6)
                 Toggle("域名嗅探（Sniffer）", isOn: $o.sniffer)
-                Toggle("允许局域网连接（\(o.mixedPort) 端口）", isOn: $o.allowLan)
             } header: { Text("内核") } footer: {
-                Text("这些选项会覆盖配置文件里的同名字段。DNS 模式在「更多 → DNS」中设置。IPv6 变更需重新连接。")
+                Text("这些选项会覆盖配置文件里的同名字段。DNS 模式在「更多 → DNS」中设置，局域网共享在「更多 → 连接方式」中设置。IPv6 变更需重新连接。")
             }
             .listRowBackground(Theme.card)
 

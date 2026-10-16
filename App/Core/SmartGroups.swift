@@ -1,4 +1,5 @@
 import Foundation
+import Libmihomo
 
 /// 智能选择 option for url-test / fallback groups, stored per profile in <home>/groups.json
 /// ({"<profile id>": {"smart": [names]}}); the Go side scores members and pins the best (bridge/smart.go).
@@ -6,7 +7,8 @@ import Foundation
 final class SmartGroups: ObservableObject {
     static let shared = SmartGroups()
 
-    struct Settings: Codable { var smart: [String]? }
+    /// groups.json entry; `dialer` (group → 前置代理) is written by the Go side (SetGroupChain) and kept here.
+    struct Settings: Codable { var smart: [String]?; var dialer: [String: String]? }
     struct Member: Decodable, Hashable { var name: String; var score: Double; var avg: Int; var fails: Int; var count: Int; var alive: Bool }
     struct Status: Decodable, Hashable {
         var name: String
@@ -41,7 +43,10 @@ final class SmartGroups: ObservableObject {
         var list = all[id]?.smart ?? []
         list.removeAll { $0 == group }
         if on { list.append(group) }
-        all[id] = Settings(smart: list.isEmpty ? nil : list)
+        load() // pick up chain changes written by Go
+        var st = all[id] ?? Settings()
+        st.smart = list.isEmpty ? nil : list
+        all[id] = st
         let enc = JSONEncoder()
         enc.outputFormatting = [.prettyPrinted, .sortedKeys]
         if let d = try? enc.encode(all) { try? d.write(to: Self.url, options: .atomic) }
@@ -49,6 +54,23 @@ final class SmartGroups: ObservableObject {
             if VPNManager.shared.isConnected { _ = await VPNManager.shared.reload() }
             await refreshStatus()
         }
+    }
+
+    /// 前置代理 of a group in the active profile.
+    func via(_ group: String) -> String? {
+        guard let id = profileID else { return nil }
+        return all[id]?.dialer?[group]
+    }
+
+    /// Stores (or clears) a group's 前置代理 through Go (validates against loops), then reloads.
+    func setVia(_ group: String, _ via: String?) async -> String? {
+        guard let path = AppShared.activeProfileURL?.path else { return String(localized: "没有当前配置") }
+        let home = AppShared.homeURL.path
+        let err = await Task.detached { LibmihomoSetGroupChain(home, path, group, via ?? "") }.value
+        load()
+        if !err.isEmpty { return err }
+        if VPNManager.shared.isConnected { return await VPNManager.shared.reload() }
+        return nil
     }
 
     func refreshStatus() async {

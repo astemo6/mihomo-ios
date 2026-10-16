@@ -104,6 +104,26 @@ struct PolicyView: View {
     @ObservedObject private var offline = ProfileInspector.shared
     @State private var expanded: Set<String> = []
     @ObservedObject private var smart = SmartGroups.shared
+    @State private var chainGroup: ChainGroupTarget?
+    @State private var share: ShareTarget?
+    @State private var shareError: String?
+
+    struct ChainGroupTarget: Identifiable { let id = UUID(); let name: String }
+
+    /// Groups that can carry a 前置代理 (not GLOBAL; DIRECT/REJECT style built-ins have no members).
+    private func chainAction(_ name: String) -> (() -> Void)? {
+        guard name != "GLOBAL" else { return nil }
+        return { chainGroup = ChainGroupTarget(name: name) }
+    }
+
+    private func shareNode(_ name: String) {
+        Task {
+            switch await NodeShare.link(named: name) {
+            case .success(let l): share = ShareTarget(name: name, link: l)
+            case .failure(let e): shareError = e.message
+            }
+        }
+    }
 
     var body: some View {
         NavigationStack {
@@ -130,6 +150,11 @@ struct PolicyView: View {
             if vpn.isConnected { await model.load() } else { await offline.load() }
         }
         .onChange(of: store.activeID) { _ in Task { if !vpn.isConnected { await offline.load() } } }
+        .sheet(item: $chainGroup) { t in GroupChainSheet(group: t.name) }
+        .sheet(item: $share) { t in NodeShareSheet(name: t.name, link: t.link) }
+        .alert("分享节点", isPresented: Binding(get: { shareError != nil }, set: { if !$0 { shareError = nil } })) {
+            Button("好", role: .cancel) {}
+        } message: { Text(shareError ?? "") }
     }
 
     /// Only url-test / fallback groups offer 智能选择.
@@ -159,7 +184,10 @@ struct PolicyView: View {
                                     onTest: { Task { await model.test(g) } },
                                     onSelect: { n in Task { await model.select(g, n) } },
                                     smart: smartBinding(d),
-                                    smartInfo: smart.summary(g.name))
+                                    smartInfo: smart.summary(g.name),
+                                    via: smart.via(g.name),
+                                    onChain: chainAction(g.name),
+                                    onShare: { shareNode($0) })
                 }
             }
             .padding(16)
@@ -205,7 +233,10 @@ struct PolicyView: View {
                                             UISelectionFeedbackGenerator().selectionChanged()
                                         },
                                         smart: smartBinding(d),
-                                        smartInfo: smart.isSmart(g.name) ? String(localized: "连接后按延迟与失败记录自动选择") : nil)
+                                        smartInfo: smart.isSmart(g.name) ? String(localized: "连接后按延迟与失败记录自动选择") : nil,
+                                        via: smart.via(g.name),
+                                        onChain: chainAction(g.name),
+                                        onShare: { shareNode($0) })
                     }
                     if !offline.result.groups.isEmpty {
                         Text("在这里选择的节点会保存到该配置，下次连接时生效。测速直接从本机发起（不经过代理）。节点集只显示已缓存的节点。")
@@ -232,6 +263,14 @@ struct PolicyGroupCard: View {
     let onSelect: (String) -> Void
     var smart: Binding<Bool>? = nil
     var smartInfo: String? = nil
+    /// 前置代理 of the group (nil = none) and the action that opens the picker.
+    var via: String? = nil
+    var onChain: (() -> Void)? = nil
+    /// Share a member node (link + QR).
+    var onShare: ((String) -> Void)? = nil
+
+    static let nonShareable: Set<String> = ["group", "selector", "urltest", "url-test", "fallback", "loadbalance", "load-balance", "relay",
+                                            "direct", "reject", "rejectdrop", "reject-drop", "compatible", "pass", "dns"]
 
     var body: some View {
         VStack(alignment: .leading, spacing: 12) {
@@ -248,6 +287,10 @@ struct PolicyGroupCard: View {
                             .font(.caption2.weight(.semibold))
                             .padding(.horizontal, 6).padding(.vertical, 2)
                             .background(Capsule().fill(Color.white.opacity(0.1)))
+                        if via != nil {
+                            Image(systemName: "link").font(.caption2.weight(.bold)).foregroundStyle(Theme.accent)
+                                .accessibilityLabel(Text("已设置前置代理"))
+                        }
                         if smart?.wrappedValue == true {
                             Label("智能", systemImage: "sparkles")
                                 .labelStyle(.titleAndIcon)
@@ -299,6 +342,20 @@ struct PolicyGroupCard: View {
                 if !group.selectable && smart?.wrappedValue != true {
                     Text(group.hint).font(.caption2).foregroundStyle(.secondary)
                 }
+                if let onChain {
+                    Button(action: onChain) {
+                        HStack(spacing: 8) {
+                            Image(systemName: "link").font(.caption).foregroundStyle(via == nil ? Color.secondary : Theme.accent)
+                            Text("前置代理").font(.subheadline)
+                            Spacer()
+                            Text(via ?? String(localized: "无")).font(.caption).foregroundStyle(.secondary).lineLimit(1)
+                            Image(systemName: "chevron.right").font(.caption2).foregroundStyle(.tertiary)
+                        }
+                        .padding(10)
+                        .background(RoundedRectangle(cornerRadius: 12, style: .continuous).fill(Theme.cardHi))
+                    }
+                    .buttonStyle(.plain)
+                }
                 LazyVGrid(columns: [GridItem(.flexible(), spacing: 8), GridItem(.flexible(), spacing: 8)], spacing: 8) {
                     ForEach(group.members, id: \.self) { name in
                         NodeCell(name: name,
@@ -308,6 +365,11 @@ struct PolicyGroupCard: View {
                                  selected: group.now == name,
                                  enabled: group.selectable)
                         .onTapGesture { if group.selectable { onSelect(name) } }
+                        .contextMenu {
+                            if let onShare, let t = nodeType(name), !Self.nonShareable.contains(t.lowercased()) {
+                                Button { onShare(name) } label: { Label("分享节点", systemImage: "qrcode") }
+                            }
+                        }
                     }
                 }
             }
