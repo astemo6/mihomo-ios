@@ -279,7 +279,7 @@ enum TunnelStopReason {
         case 4: return String(localized: "网络发生不可恢复的变化")
         case 5: return String(localized: "扩展被停用")
         case 6: return String(localized: "认证被取消")
-        case 7: return String(localized: "配置无效")
+        case 7: return String(localized: "VPN 配置无效")
         case 8: return String(localized: "空闲超时")
         case 9: return String(localized: "VPN 配置被关闭（在 App 或系统设置里断开）")
         case 10: return String(localized: "VPN 配置被删除")
