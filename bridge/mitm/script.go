@@ -47,13 +47,14 @@ type ScriptResult struct {
 type ScriptRunner struct {
 	e     *Engine
 	progs *lru[*goja.Program]
-	sem   chan struct{}
-	mu    sync.Mutex
+	sem     chan struct{} // HTTP scripts
+	taskSem chan struct{} // cron / event / generic scripts (long running, kept apart from HTTP traffic)
+	mu      sync.Mutex
 	byURL map[string]string // script path -> program cache key
 }
 
 func NewScriptRunner(e *Engine) *ScriptRunner {
-	return &ScriptRunner{e: e, progs: newLRU[*goja.Program](16), sem: make(chan struct{}, 2), byURL: map[string]string{}}
+	return &ScriptRunner{e: e, progs: newLRU[*goja.Program](16), sem: make(chan struct{}, 2), taskSem: make(chan struct{}, 1), byURL: map[string]string{}}
 }
 
 // Reset drops compiled programs (memory).
@@ -115,21 +116,36 @@ func (rc *runCtx) post(j loopJob) {
 
 // Run executes a script rule. resp == nil means request phase.
 func (s *ScriptRunner) Run(parent context.Context, rule *Rule, req, resp *ScriptHTTP) (*ScriptResult, error) {
-	sc := rule.Script
+	rc, err := s.execute(rule.Script, req, resp, s.sem, 120*time.Second, 10*time.Second, nil)
+	if err != nil {
+		return nil, err
+	}
+	if !rc.done {
+		return &ScriptResult{}, nil
+	}
+	return rc.parseDone(resp == nil)
+}
+
+// execute compiles + runs one script in a fresh runtime and drives its event loop until $done or until
+// nothing is pending. req == nil => task script (no $request / $response).
+func (s *ScriptRunner) execute(sc *Script, req, resp *ScriptHTTP, sem chan struct{}, maxTimeout, defTimeout time.Duration, setup func(*runCtx)) (*runCtx, error) {
 	prog, err := s.program(sc)
 	if err != nil {
 		return nil, err
 	}
 	timeout := time.Duration(sc.Timeout) * time.Second
-	if timeout <= 0 || timeout > 60*time.Second {
-		timeout = 10 * time.Second
+	if timeout <= 0 {
+		timeout = defTimeout
+	}
+	if timeout > maxTimeout {
+		timeout = maxTimeout
 	}
 	select {
-	case s.sem <- struct{}{}:
+	case sem <- struct{}{}:
 	case <-time.After(timeout):
 		return nil, errors.New("脚本排队超时")
 	}
-	defer func() { <-s.sem }()
+	defer func() { <-sem }()
 
 	ctx, cancel := context.WithTimeout(context.Background(), timeout)
 	defer cancel()
@@ -141,8 +157,11 @@ func (s *ScriptRunner) Run(parent context.Context, rule *Rule, req, resp *Script
 		}
 	}()
 	start := time.Now()
-	if err := rc.install(rule, req, resp); err != nil {
+	if err := rc.install(req, resp); err != nil {
 		return nil, err
+	}
+	if setup != nil {
+		setup(rc)
 	}
 	stop := context.AfterFunc(ctx, func() { rt.Interrupt("timeout") })
 	defer stop()
@@ -173,10 +192,7 @@ func (s *ScriptRunner) Run(parent context.Context, rule *Rule, req, resp *Script
 		}
 	}
 	s.e.Logs.Add(sc.Name, "debug", fmt.Sprintf("执行完成，用时 %d ms", time.Since(start).Milliseconds()))
-	if !rc.done {
-		return &ScriptResult{}, nil
-	}
-	return rc.parseDone(resp == nil)
+	return rc, nil
 }
 
 func (s *ScriptRunner) jsErr(sc *Script, err error, timeout time.Duration) error {
@@ -328,11 +344,20 @@ func bodyString(b []byte) string {
 
 // ---- API installation ----
 
-func (rc *runCtx) install(rule *Rule, req, resp *ScriptHTTP) error {
+func (rc *runCtx) install(req, resp *ScriptHTTP) error {
+	rt := rc.rt
+	set := func(name string, v any) { _ = rt.Set(name, v) }
+	if req != nil {
+		rc.installHTTP(req, resp)
+	}
+	rc.installCommon(set)
+	return nil
+}
+
+func (rc *runCtx) installHTTP(req, resp *ScriptHTTP) {
 	rt := rc.rt
 	sc := rc.script
 	set := func(name string, v any) { _ = rt.Set(name, v) }
-
 	// $request
 	ro := rt.NewObject()
 	_ = ro.Set("url", req.URL)
@@ -363,7 +388,11 @@ func (rc *runCtx) install(rule *Rule, req, resp *ScriptHTTP) error {
 		}
 		set("$response", so)
 	}
+}
 
+func (rc *runCtx) installCommon(set func(string, any)) {
+	rt := rc.rt
+	sc := rc.script
 	// $done
 	set("$done", func(call goja.FunctionCall) goja.Value {
 		if rc.done {
@@ -376,6 +405,8 @@ func (rc *runCtx) install(rule *Rule, req, resp *ScriptHTTP) error {
 
 	if sc.HasArgument {
 		set("$argument", sc.Argument)
+	} else {
+		set("$argument", goja.Undefined()) // declared, so `if ($argument)` does not throw
 	}
 	scr := rt.NewObject()
 	_ = scr.Set("name", sc.Name)
@@ -460,6 +491,7 @@ func (rc *runCtx) install(rule *Rule, req, resp *ScriptHTTP) error {
 	// notifications
 	post := func(title, sub, body, url string) {
 		rc.e.Logs.Add(rc.name, "notify", strings.TrimSpace(title+" | "+sub+" | "+body))
+		rc.e.Notices.Add(Notice{Script: rc.name, Title: title, Subtitle: sub, Body: body, URL: url})
 		if n := rc.e.notify.Load(); n != nil && *n != nil {
 			(*n)(title, sub, body, url)
 		}
@@ -554,7 +586,7 @@ func (rc *runCtx) install(rule *Rule, req, resp *ScriptHTTP) error {
 		}
 		return rt.ToValue(string(rs))
 	})
-	return nil
+	rc.installUtils(set)
 }
 
 func jsString(rt *goja.Runtime, v goja.Value) string {

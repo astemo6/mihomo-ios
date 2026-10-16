@@ -8,11 +8,15 @@ import (
 	"fmt"
 	"net"
 	"net/http"
+	"os"
+	"strings"
 	"sync"
 	"time"
 
 	"github.com/astemo6/mihomo-ios/bridge/mitm"
 
+	"github.com/metacubex/mihomo/component/mmdb"
+	C "github.com/metacubex/mihomo/constant"
 	"github.com/metacubex/mihomo/hub/route"
 	"github.com/metacubex/mihomo/listener/inner"
 	"github.com/metacubex/mihomo/log"
@@ -84,21 +88,24 @@ func prepareEngine(home string) (func(raw map[string]any), error) {
 	cfg := mitm.LoadConfig(home)
 	rs := mitm.Build(home, cfg)
 	needListener := (cfg.MitM && len(rs.Hostnames) > 0) || (cfg.Enabled && len(rs.Rules) > 0)
+	needTasks := cfg.Enabled && (len(rs.Tasks) > 0 || len(rs.Panels) > 0) // cron / event / generic scripts, panels
+	coreOnly := func(raw map[string]any) { mitm.Inject(raw, 0, rs, cfg); addRemoteModuleRules(raw, rs.CoreRules) }
 	engMu.Lock()
 	defer engMu.Unlock()
-	if !needListener {
+	if !needListener && !needTasks {
 		if eng != nil {
 			eng.Stop()
 			eng = nil
 		}
 		if cfg.Enabled && len(rs.CoreRules) > 0 {
-			return func(raw map[string]any) { mitm.Inject(raw, 0, rs, cfg); addRemoteModuleRules(raw, rs.CoreRules) }, nil
+			return coreOnly, nil
 		}
 		return nil, nil
 	}
 	if eng == nil {
 		eng = mitm.New(home, coreDial, engineLog)
 		installNotifier(eng)
+		eng.SetGeoLookup(geoLookup)
 		eng.Logs.SetHook(func(l mitm.LogLine) {
 			if l.Level != "debug" {
 				log.Infoln("[Script] %s: %s", l.Script, l.Msg)
@@ -110,8 +117,49 @@ func prepareEngine(home string) (func(raw map[string]any), error) {
 		return nil, fmt.Errorf("引擎启动失败：%w", err)
 	}
 	eng.Reload(cfg, rs)
+	if !needListener {
+		// Only task scripts / panels: the engine runs, but no traffic is steered to it.
+		if len(rs.CoreRules) > 0 {
+			return coreOnly, nil
+		}
+		return nil, nil
+	}
 	port := eng.Port()
 	return func(raw map[string]any) { mitm.Inject(raw, port, rs, cfg); addRemoteModuleRules(raw, rs.CoreRules) }, nil
+}
+
+// geoLookup backs $utils.geoip / ipasn / ipaso with mihomo's MMDB readers. The readers log.Fatal when
+// the database file is missing, so check the files first.
+func geoLookup(ip string) (string, string, string) {
+	addr := net.ParseIP(ip)
+	if addr == nil {
+		return "", "", ""
+	}
+	country, asn, org := "", "", ""
+	if fi, err := os.Stat(C.Path.MMDB()); err == nil && fi.Size() > 1024 {
+		if codes := mmdb.IPInstance().LookupCode(addr); len(codes) > 0 {
+			country = strings.ToUpper(codes[0])
+		}
+	}
+	if fi, err := os.Stat(C.Path.ASN()); err == nil && fi.Size() > 1024 {
+		a, o := mmdb.ASNInstance().LookupASN(addr)
+		asn, org = a, o
+	}
+	return country, asn, org
+}
+
+// NotifyNetworkChanged is called by the extension when the default path changes (Wi-Fi ⇄ cellular,
+// new Wi-Fi). infoJSON becomes $network for event scripts. Returns how many event scripts were started.
+func NotifyNetworkChanged(infoJSON string) int {
+	info := map[string]any{}
+	_ = json.Unmarshal([]byte(infoJSON), &info)
+	engMu.Lock()
+	e := eng
+	engMu.Unlock()
+	if e == nil {
+		return 0
+	}
+	return e.NetworkChanged(info)
 }
 
 func stopEngine() {
