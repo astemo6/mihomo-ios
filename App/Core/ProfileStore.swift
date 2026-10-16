@@ -83,6 +83,7 @@ final class ProfileStore: ObservableObject {
 
     func delete(_ p: Profile) {
         try? FileManager.default.removeItem(at: p.fileURL)
+        SubRulesStore.set(p.id, nil)
         profiles.removeAll { $0.id == p.id }
         if activeID == p.id {
             activeID = profiles.first?.id

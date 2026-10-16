@@ -10,6 +10,7 @@ struct ProfilesView: View {
     @State private var busy = false
     @State private var editing: Profile?
     @State private var showManual = false
+    @State private var subRulesFor: Profile?
 
     var body: some View {
         NavigationStack {
@@ -39,6 +40,9 @@ struct ProfilesView: View {
                             .swipeActions(edge: .trailing) {
                                 Button(role: .destructive) { store.delete(p) } label: { Label("删除", systemImage: "trash") }
                                 Button { editing = p } label: { Label("编辑", systemImage: "pencil") }.tint(.indigo)
+                                if p.id != ProfileStore.manualID {
+                                    Button { subRulesFor = p } label: { Label("节点处理", systemImage: "line.3.horizontal.decrease.circle") }.tint(.teal)
+                                }
                             }
                             .swipeActions(edge: .leading) {
                                 if p.kind == .remote {
@@ -51,13 +55,16 @@ struct ProfilesView: View {
                                     Button { refresh(p) } label: { Label("更新订阅", systemImage: "arrow.clockwise") }
                                     Button { UIPasteboard.general.string = p.url } label: { Label("复制订阅链接", systemImage: "doc.on.doc") }
                                 }
+                                if p.id != ProfileStore.manualID {
+                                    Button { subRulesFor = p } label: { Label("节点处理（过滤 / 重命名 / 排序）", systemImage: "line.3.horizontal.decrease.circle") }
+                                }
                                 Button { editing = p } label: { Label("编辑 YAML", systemImage: "pencil") }
                                 Button(role: .destructive) { store.delete(p) } label: { Label("删除", systemImage: "trash") }
                             }
                             .listRowBackground(Theme.card)
                     }
                 } footer: {
-                    if !store.profiles.isEmpty { Text("轻点切换当前配置；左滑编辑或删除，右滑更新订阅。") }
+                    if !store.profiles.isEmpty { Text("轻点切换当前配置；左滑编辑、节点处理或删除，右滑更新订阅。") }
                 }
             }
             .listStyle(.insetGrouped)
@@ -85,6 +92,13 @@ struct ProfilesView: View {
             .sheet(isPresented: $showAddRemote) { AddRemoteSheet { msg in message = msg } }
             .sheet(isPresented: $showNewLocal) {
                 YAMLEditorView(title: "新建本地配置", initialName: "本地配置", initialText: YAMLEditorView.template, profile: nil)
+            }
+            .sheet(item: $subRulesFor) { p in
+                NavigationStack {
+                    SubscriptionRulesView(profile: p)
+                        .toolbar { ToolbarItem(placement: .cancellationAction) { Button("取消") { subRulesFor = nil } } }
+                }
+                .environmentObject(store)
             }
             .sheet(item: $editing) { p in
                 YAMLEditorView(title: "编辑配置", initialName: p.name, initialText: store.content(of: p), profile: p)
@@ -215,9 +229,20 @@ struct ProfileRow: View {
                             .font(.caption2.monospacedDigit()).foregroundStyle(.secondary)
                     }
                     if let exp = info.expireDate {
-                        Text("到期 \(exp.formatted(date: .abbreviated, time: .omitted))" + (exp < Date() ? "（已过期）" : ""))
-                            .font(.caption2).foregroundStyle(exp < Date() ? Theme.bad : .secondary)
+                        let days = Int(ceil(exp.timeIntervalSinceNow / 86400))
+                        Group {
+                            if exp < Date() {
+                                Text("到期 \(exp.formatted(date: .abbreviated, time: .omitted))（已过期）")
+                            } else {
+                                Text("到期 \(exp.formatted(date: .abbreviated, time: .omitted))  ·  还有 \(days) 天")
+                            }
+                        }
+                        .font(.caption2).foregroundStyle(exp < Date() || days <= 3 ? Theme.bad : (days <= 7 ? Theme.warn : .secondary))
                     }
+                }
+                if let r = SubRulesStore.get(profile.id), r.enabled, !r.isEmpty {
+                    Label(r.summary, systemImage: "line.3.horizontal.decrease.circle")
+                        .font(.caption2).foregroundStyle(Theme.accent)
                 }
                 if let d = profile.lastUpdated {
                     Text("更新于 \(d.formatted(.relative(presentation: .named)))")
