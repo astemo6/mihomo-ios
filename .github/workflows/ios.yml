@@ -186,6 +186,22 @@ jobs:
             "${EXTRA[@]}" archive 2>&1 | tee build.log | grep -E "error:|warning: .*deprecated|\*\* (ARCHIVE|BUILD)" | head -n 200 || true
           test -d build/Mihomo.xcarchive/Products/Applications/Mihomo.app
 
+      # i18n tooling: the compiler-extracted string tables (keys with format specifiers) for the catalog.
+      - name: Collect extracted strings
+        if: always()
+        run: |
+          mkdir -p stringsdata
+          find "$HOME/Library/Developer/Xcode/DerivedData" -name '*.stringsdata' -path '*Mihomo.build*' -exec cp {} stringsdata/ \; 2>/dev/null || true
+          ls stringsdata | wc -l
+
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: stringsdata
+          path: stringsdata
+          if-no-files-found: ignore
+          retention-days: 7
+
       - name: Export signed IPA
         if: env.SIGNED == '1'
         run: |

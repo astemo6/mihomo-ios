@@ -32,11 +32,11 @@ struct ProxyItem: Decodable, Identifiable, Hashable {
 
     static func label(for type: String) -> String {
         switch type.lowercased() {
-        case "selector": return "手动"
-        case "urltest": return "自动"
-        case "fallback": return "故障转移"
-        case "loadbalance": return "负载均衡"
-        case "relay": return "链式"
+        case "selector": return String(localized: "手动")
+        case "urltest": return String(localized: "自动")
+        case "fallback": return String(localized: "故障转移")
+        case "loadbalance": return String(localized: "负载均衡")
+        case "relay": return String(localized: "链式")
         case "shadowsocks", "ss": return "SS"
         case "shadowsocksr", "ssr": return "SSR"
         case "vmess": return "VMess"
@@ -52,9 +52,9 @@ struct ProxyItem: Decodable, Identifiable, Hashable {
         case "ssh": return "SSH"
         case "socks5": return "SOCKS5"
         case "http": return "HTTP"
-        case "direct": return "直连"
-        case "reject", "rejectdrop": return "拒绝"
-        case "compatible", "pass": return "兼容"
+        case "direct": return String(localized: "直连")
+        case "reject", "rejectdrop": return String(localized: "拒绝")
+        case "compatible", "pass": return String(localized: "兼容")
         default: return type
         }
     }

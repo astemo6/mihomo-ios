@@ -80,7 +80,7 @@ struct MoreView: View {
 
     func row(_ title: String, _ icon: String, _ value: String?) -> some View {
         HStack {
-            Label(title, systemImage: icon)
+            Label(LocalizedStringKey(title), systemImage: icon)
             Spacer()
             if let value { Text(value).font(.caption).foregroundStyle(.secondary) }
         }

@@ -23,7 +23,7 @@ struct KindBadge: View {
     var phase: String = ""
     var body: some View {
         let (t, c) = Self.style(kind, phase)
-        Text(t)
+        Text(LocalizedStringKey(t))
             .font(.system(size: 9, weight: .bold))
             .padding(.horizontal, 5).padding(.vertical, 2)
             .background(Capsule().fill(c.opacity(0.18)))

@@ -66,11 +66,11 @@ struct PolicyGroupDisplay {
 
     var label: String {
         switch kind {
-        case "select": return "手动"
-        case "url-test": return "自动"
-        case "fallback": return "故障转移"
-        case "load-balance": return "负载均衡"
-        case "relay": return "链式"
+        case "select": return String(localized: "手动")
+        case "url-test": return String(localized: "自动")
+        case "fallback": return String(localized: "故障转移")
+        case "load-balance": return String(localized: "负载均衡")
+        case "relay": return String(localized: "链式")
         default: return kind
         }
     }
@@ -88,10 +88,10 @@ struct PolicyGroupDisplay {
 
     var hint: String {
         switch kind {
-        case "url-test": return "自动选择延迟最低的节点（当前：\(now ?? "—")）"
-        case "fallback": return "按顺序使用第一个可用节点（当前：\(now ?? "—")）"
-        case "load-balance": return "在节点间分配连接"
-        default: return "该策略组不可手动选择"
+        case "url-test": return String(localized: "自动选择延迟最低的节点（当前：\(now ?? ")—")）"
+        case "fallback": return String(localized: "按顺序使用第一个可用节点（当前：\(now ?? ")—")）"
+        case "load-balance": return String(localized: "在节点间分配连接")
+        default: return String(localized: "该策略组不可手动选择")
         }
     }
 }

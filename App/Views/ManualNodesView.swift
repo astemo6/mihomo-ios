@@ -121,7 +121,7 @@ struct ManualNodesView: View {
         Button(action: action) {
             VStack(spacing: 6) {
                 Image(systemName: icon).font(.title3)
-                Text(title).font(.caption)
+                Text(LocalizedStringKey(title)).font(.caption)
             }
             .frame(maxWidth: .infinity)
             .padding(.vertical, 12)
