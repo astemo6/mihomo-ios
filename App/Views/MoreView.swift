@@ -396,6 +396,7 @@ struct SettingsView: View {
 
 struct DiagnosticsView: View {
     @EnvironmentObject var vpn: VPNManager
+    @State private var startupLog = StartupLog.read()
     var body: some View {
         let group = AppShared.appGroup
         List {
@@ -418,6 +419,25 @@ struct DiagnosticsView: View {
                 Section("最近错误") { Text(e).font(.footnote).textSelection(.enabled) }.listRowBackground(Theme.card)
             }
             Section {
+                let log = startupLog.isEmpty ? "（暂无，连接一次后生成）" : startupLog
+                ScrollView(.horizontal) {
+                    Text(log)
+                        .font(.system(size: 10, design: .monospaced))
+                        .textSelection(.enabled)
+                        .frame(maxWidth: .infinity, alignment: .leading)
+                }
+                .frame(maxHeight: 360)
+                HStack {
+                    Button("复制启动日志") { UIPasteboard.general.string = startupLog }
+                    Spacer()
+                    Button("刷新") { startupLog = StartupLog.read() }
+                }
+                .buttonStyle(.borderless)
+            } header: { Text("启动日志") } footer: {
+                Text("记录每次连接的阶段与耗时：网络设置、utun、内核启动开始 / 结束、内存占用和错误。连接失败时请复制发给开发者。")
+            }
+            .listRowBackground(Theme.card)
+            Section {
                 Button("复制诊断信息") {
                     UIPasteboard.general.string = """
                     app=\(AppShared.mainAppBundleID)
@@ -425,6 +445,9 @@ struct DiagnosticsView: View {
                     group=\(group) (\(AppShared.appGroupSource)) ok=\(AppShared.containerOK)
                     provisioned=\(AppShared.provisionedAppGroups().joined(separator: ","))
                     status=\(vpn.statusText) error=\(vpn.lastError ?? "-")
+                    version=\(Bundle.main.object(forInfoDictionaryKey: "CFBundleShortVersionString") as? String ?? "?")
+                    --- startup log ---
+                    \(StartupLog.read())
                     """
                 }
             }
@@ -434,6 +457,7 @@ struct DiagnosticsView: View {
         .scrollContentBackground(.hidden)
         .background(Theme.bg.ignoresSafeArea())
         .navigationTitle("诊断")
+        .onAppear { startupLog = StartupLog.read() }
     }
 }
 

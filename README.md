@@ -1,4 +1,4 @@
-# Mihomo iOS（v0.2）
+# Mihomo iOS（v0.2.1）
 
 基于开源 [mihomo](https://github.com/MetaCubeX/mihomo)（Clash Meta）内核的个人 iOS 代理客户端，界面参考 Quantumult X / Surge / Egern：深色优先、卡片式。
 
@@ -16,6 +16,13 @@
 | 重写 / MitM（v0.2）| HTTPS 解密（自建 CA）、URL 重写、请求/响应头与内容改写、本地映射、JS 脚本、模块；兼容 Surge / Quantumult X / Loon / Stash 的常见写法，详见下文 |
 | 更多 | 规则查看器、规则集 / 节点集提供者（含更新按钮）、日志（级别过滤、搜索、暂停、复制）、内核覆写设置、关于 / GPL 许可 |
 | 即将推出 | 小组件、控制中心开关、快捷指令、cron 定时脚本 |
+
+## v0.2.1 热修复（启动卡在「连接中…」）
+
+- **内置地理数据库**：`Geo/` 下打包 MetaCubeX/meta-rules-dat 的 `geoip.metadb`（8.4 MB）、`GeoSite.dat`（4.3 MB）、`ASN.mmdb`（GeoLite2-ASN，9.0 MB），随扩展一起安装；启动前若内核目录里缺失（或文件小于 64 KB，视为下载中断）就复制进去，启动时无需下载。
+- **国内可达的镜像**：强制 `geox-url` 指向 `https://testingcf.jsdelivr.net/gh/MetaCubeX/meta-rules-dat@release/…`，`geodata-mode: false`（使用 mmdb）、`geodata-loader: memconservative`、`geo-auto-update: false`；`raw.githubusercontent.com` / `github.com/…/raw|blob/…` 上的规则集、节点集（未指定 `proxy:` 的）自动改走 jsDelivr 镜像。
+- **启动不再被网络卡住**：内核在后台线程启动，最多等 20 秒；tun 一建立就返回成功，规则集 / 节点集在后台继续加载（加载完成前内核只放行内部请求）。超时会返回中文错误；扩展另有 30 秒看门狗，系统不会一直停在「连接中…」。
+- **启动日志**：每次连接写 `startup-log.txt`（App Group 容器，保留上一次），记录网络设置、utun fd、内核开始 / 结束、`phys_footprint` 内存与 Go 堆、错误。更多 → 内核覆写设置 → 诊断 → 启动日志，可一键复制。
 
 ## 架构
 

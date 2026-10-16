@@ -8,6 +8,11 @@ struct MihomoApp: App {
     @StateObject private var ipinfo = IPInfoModel.shared
     @Environment(\.scenePhase) private var phase
 
+    init() {
+        // Bundled geo databases → core home, so profile validation in the app never downloads them either.
+        DispatchQueue.global(qos: .utility).async { GeoBootstrap.install() }
+    }
+
     var body: some Scene {
         WindowGroup {
             RootView()

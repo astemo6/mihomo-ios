@@ -25,8 +25,23 @@ final class PacketTunnelProvider: NEPacketTunnelProvider {
 
     override func startTunnel(options: [String: NSObject]?, completionHandler: @escaping (Error?) -> Void) {
         TunnelErrorLog.clear()
+        StartupLog.begin("startTunnel")
+        LibmihomoSetStageLog(StartupLog.url.path, TimeZone.current.secondsFromGMT())
+        StartupLog.write("startTunnel called, \(ProcessMemory.summary())")
+        // Exactly one completion, whichever comes first: core result, error, or the watchdog.
+        let lock = NSLock()
+        var finished = false
         let completionHandler: (Error?) -> Void = { err in
-            if let err { TunnelErrorLog.write(err.localizedDescription) }
+            lock.lock()
+            if finished { lock.unlock(); return }
+            finished = true
+            lock.unlock()
+            if let err {
+                TunnelErrorLog.write(err.localizedDescription)
+                StartupLog.write("FAILED: \(err.localizedDescription)")
+            } else {
+                StartupLog.write("startTunnel completed OK, \(ProcessMemory.summary())")
+            }
             completionHandler(err)
         }
         guard AppShared.containerOK else {
@@ -37,6 +52,8 @@ final class PacketTunnelProvider: NEPacketTunnelProvider {
             completionHandler(Self.error("没有可用的配置，请先在「配置」中添加并选择一个配置"))
             return
         }
+        StartupLog.write("app group \(AppShared.appGroup) (\(AppShared.appGroupSource)), profile \(profile.lastPathComponent)")
+        GeoBootstrap.install { StartupLog.write($0) }
         let overrides = CoreOverrides.load()
         LibmihomoSetNotifier(notifier)
         LibmihomoSetMemoryLimit(Int32(overrides.memoryLimitMB))
@@ -62,28 +79,46 @@ final class PacketTunnelProvider: NEPacketTunnelProvider {
         dns.matchDomains = [""]
         settings.dnsSettings = dns
 
+        // Watchdog: never leave the system at "连接中…" (Go has its own 20 s bound; this covers anything else).
+        DispatchQueue.global().asyncAfter(deadline: .now() + 30) {
+            completionHandler(Self.error("启动超时（30 秒）。请到 更多 → 内核覆写设置 → 诊断 查看启动日志"))
+        }
+
+        StartupLog.write("applying tunnel network settings")
         setTunnelNetworkSettings(settings) { [weak self] error in
             guard let self else { return }
             if let error {
-                completionHandler(error)
+                completionHandler(Self.error("设置隧道网络失败：\(error.localizedDescription)"))
                 return
             }
+            StartupLog.write("settings applied")
             guard let fd = Self.findTunnelFileDescriptor(packetFlow: self.packetFlow) else {
                 completionHandler(Self.error("无法获取 utun 文件描述符"))
                 return
             }
+            StartupLog.write("fd found: \(fd)")
             self.tunFd = fd
-            var err: NSError?
-            LibmihomoStart(AppShared.homeURL.path, profile.path, fd, &err)
-            if let err {
-                completionHandler(Self.error("内核启动失败：\(err.localizedDescription)"))
-                return
+            // Off the NetworkExtension callback queue: LibmihomoStart returns within 20 s at most.
+            DispatchQueue.global(qos: .userInitiated).async {
+                StartupLog.write("core start begin")
+                var err: NSError?
+                LibmihomoStart(AppShared.homeURL.path, profile.path, fd, &err)
+                StartupLog.write("core start returned\(err.map { ": " + $0.localizedDescription } ?? " OK"), \(ProcessMemory.summary()), \(LibmihomoMemoryStats())")
+                if let err {
+                    completionHandler(Self.error("内核启动失败：\(err.localizedDescription)"))
+                    return
+                }
+                completionHandler(nil)
+                // Memory again once providers have had a moment to load.
+                DispatchQueue.global().asyncAfter(deadline: .now() + 15) {
+                    StartupLog.write("+15 s: \(ProcessMemory.summary()), \(LibmihomoMemoryStats())")
+                }
             }
-            completionHandler(nil)
         }
     }
 
     override func stopTunnel(with reason: NEProviderStopReason, completionHandler: @escaping () -> Void) {
+        StartupLog.write("stopTunnel reason=\(reason.rawValue), \(ProcessMemory.summary())")
         LibmihomoStop()
         completionHandler()
     }

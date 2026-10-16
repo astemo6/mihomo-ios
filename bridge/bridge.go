@@ -20,6 +20,7 @@ import (
 	"github.com/metacubex/mihomo/hub"
 	"github.com/metacubex/mihomo/hub/executor"
 	"github.com/metacubex/mihomo/log"
+	"github.com/metacubex/mihomo/tunnel"
 
 	"go.yaml.in/yaml/v3"
 )
@@ -119,6 +120,11 @@ func buildRuntimeWith(profile []byte, o Overrides, fd int32, inject func(raw map
 	raw["unified-delay"] = true
 	raw["geo-auto-update"] = false
 	raw["geodata-loader"] = "memconservative"
+	// Bundled geoip.metadb / GeoSite.dat / ASN.mmdb are copied into home before start, so the core
+	// never needs to download them at startup. mmdb mode (not GeoIP.dat) matches the bundled files.
+	raw["geodata-mode"] = false
+	raw["geox-url"] = geoxMirror()
+	rewriteProviderURLs(raw)
 	// No inbound listeners on iOS except tun.
 	for _, k := range []string{"port", "socks-port", "redir-port", "tproxy-port", "mixed-port"} {
 		delete(raw, k)
@@ -265,6 +271,7 @@ func apply(home, configPath string, fd int32) error {
 	}
 	o := readOverrides(home)
 	startGC(o.MemoryLimitMB)
+	stage("config read (%d bytes), building runtime", len(profile))
 	inject, err := prepareEngine(home)
 	if err != nil {
 		log.Warnln("[MitM] %s", err.Error())
@@ -274,6 +281,7 @@ func apply(home, configPath string, fd int32) error {
 		return err
 	}
 	_ = os.WriteFile(filepath.Join(home, "runtime.yaml"), rt, 0o644)
+	stage("runtime.yaml written, parsing")
 	if err := hub.Parse(rt); err != nil {
 		return err
 	}
@@ -283,6 +291,10 @@ func apply(home, configPath string, fd int32) error {
 
 // Start launches the core. homeDir is the App Group working dir (geo files, cache),
 // configPath the selected profile YAML, tunFd the utun file descriptor (0 = no tun).
+//
+// It never blocks longer than startTimeout: the config is applied in a goroutine and Start returns as
+// soon as the tun listener is up (tunnel status Inner/Running). Proxy / rule providers keep loading in
+// the background (mihomo only forwards tun traffic once they finish; INNER traffic already flows).
 func Start(homeDir, configPath string, tunFd int32) error {
 	mu.Lock()
 	defer mu.Unlock()
@@ -290,13 +302,46 @@ func Start(homeDir, configPath string, tunFd int32) error {
 		return err
 	}
 	curFd, curHome = tunFd, homeDir
-	if err := apply(homeDir, configPath, tunFd); err != nil {
-		lastError = err.Error()
-		log.Errorln("[Bridge] start failed: %s", err.Error())
-		return err
+	stage("core start begin (fd=%d)", tunFd)
+	tunnel.OnSuspend()
+	done := make(chan error, 1)
+	go func() {
+		err := apply(homeDir, configPath, tunFd)
+		if err != nil {
+			stage("core apply failed: %s", err.Error())
+		} else {
+			stage("core apply finished: providers loaded, tunnel %s, %s", tunnel.Status().String(), memText())
+		}
+		done <- err
+	}()
+	deadline := time.NewTimer(startTimeout)
+	defer deadline.Stop()
+	tick := time.NewTicker(50 * time.Millisecond)
+	defer tick.Stop()
+	for {
+		select {
+		case err := <-done:
+			if err != nil {
+				lastError = err.Error()
+				log.Errorln("[Bridge] start failed: %s", err.Error())
+				return err
+			}
+			running = true
+			stage("core start end (running), %s", memText())
+			return nil
+		case <-tick.C:
+			if st := tunnel.Status(); st == tunnel.Inner || st == tunnel.Running {
+				running = true
+				stage("core start end (tun up, status %s; providers continue in background), %s", st.String(), memText())
+				return nil
+			}
+		case <-deadline.C:
+			msg := fmt.Sprintf("内核启动超时（%d 秒）：可能在下载 GeoIP/GeoSite 或规则集 / 节点集。请检查网络，或在 更多 → 内核覆写设置 → 诊断 查看启动日志", int(startTimeout/time.Second))
+			stage("core start TIMEOUT after %s, %s", startTimeout, memText())
+			lastError = msg
+			return errors.New(msg)
+		}
 	}
-	running = true
-	return nil
 }
 
 // Reload re-reads the profile (and overrides.json) while keeping the same tun fd.

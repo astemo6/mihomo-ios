@@ -13,7 +13,7 @@ settings:
     APP_BUNDLE_ID: com.astemo6.mihomo
     TUNNEL_BUNDLE_ID: com.astemo6.mihomo.tunnel
     APP_GROUP_ID: group.com.astemo6.mihomo
-    MARKETING_VERSION: "0.2.0"
+    MARKETING_VERSION: "0.2.1"
     CURRENT_PROJECT_VERSION: "1"
     SWIFT_VERSION: "5.0"
     IPHONEOS_DEPLOYMENT_TARGET: "16.0"
@@ -57,6 +57,9 @@ targets:
       - path: PacketTunnel
         excludes: ["**/*.entitlements"]
       - path: Shared
+      # Bundled MetaCubeX/meta-rules-dat databases, copied into the core home dir before start.
+      - path: Geo
+        buildPhase: resources
     configFiles:
       Debug: Config/Tunnel.signing.xcconfig
       Release: Config/Tunnel.signing.xcconfig
