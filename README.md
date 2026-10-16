@@ -1,4 +1,4 @@
-# Mihomo iOS（v0.4）
+# Mihomo iOS（v0.5）
 
 基于开源 [mihomo](https://github.com/MetaCubeX/mihomo)（Clash Meta）内核的个人 iOS 代理客户端：深色卡片界面，首页只放最常用的东西，进阶功能按类别收在「更多」里。
 
@@ -6,29 +6,86 @@
 
 ## 设计原则
 
-1. **一个内部模型**：所有东西最终都是「mihomo 配置 + 我们自己的覆写 / 模块存储」。Surge、Quantumult X、Loon、Stash 的格式只在导入边缘做一次翻译，之后就是普通的 mihomo 配置或模块，不存在第二套运行逻辑。
+1. **一个内部模型**：所有东西最终都是「mihomo 配置 + 我们自己的覆写 / 模块存储」。Surge、Quantumult X、Loon、Stash、Egern 的格式只在导入边缘做一次翻译（每种格式一个解析器），之后就是普通的 mihomo 配置或模块，不存在第二套运行逻辑。
 2. **一种设计语言**：项目自己的深色卡片（`Theme` / `Card`），新页面不照搬其他客户端的布局。
 3. **首页极简**：连接开关、出站模式、IP 卡片、流量。其他功能都在「更多」里分组：连接、规则与资源、模块重写与 MitM、工具与数据、设置。
-4. **模块只有一个入口**：所有格式的模块都在「更多 → 模块」，用角标标出来源格式。
-5. **宁缺毋滥**：做不精的功能先不做（仍推迟：主屏幕小组件、控制中心开关、实时活动、按 SSID 切策略、日 / 韩 / 俄语）。
-6. **规则、重写、脚本都接受 Surge 与 Quantumult X 写法**（以及 Loon、Stash），只在边缘翻译一次。
+4. **模块只有一个入口**：所有格式的模块和远程资源（规则集、脚本）都在「更多 → 模块与资源」，用角标标出来源格式。
+5. **宁缺毋滥**：做不精的功能先不做（仍推迟：主屏幕小组件、控制中心开关、实时活动、按 SSID 切策略、共享动态内核库）。
+6. **规则、重写、脚本都接受 Surge 与 Quantumult X 写法**（以及 Loon、Stash、Egern），只在边缘翻译一次。
 
 ## 功能
 
 | 位置 | 内容 |
 | --- | --- |
 | 首页 | IP / ASN 卡片（出口 + 直连）、连接开关、规则 / 全局 / 直连、当前配置与节点、实时速度曲线、本次上传 / 下载 |
-| 策略 | 已连接：实时策略组、点选切换、组测速。**未连接：「未连接 · 来自配置文件」离线策略页**——读取当前配置（含节点集缓存、合并的手动节点），可以选节点（按配置保存，下次连接时自动应用）、直接测速 |
+| 策略 | 已连接：实时策略组、点选切换、组测速；自动 / 故障转移组可开「智能选择」。**未连接：「未连接 · 来自配置文件」离线策略页**——读取当前配置（含节点集缓存、合并的手动节点），可以选节点（按配置保存，下次连接时自动应用）、直接测速 |
 | 请求 | 实时连接、最近关闭、MitM 解密的 HTTP 请求（头部 / 内容查看、**复制为 cURL、重放、编辑后重放**） |
 | 配置 | 订阅流量 / 到期（`subscription-userinfo`，含剩余天数）；**节点处理**（每个订阅：过滤、重命名、旗帜、去重、排序 + 实时预览）；订阅 / 本地 YAML / 剪贴板 / 文件；**Surge / Quantumult X `.conf` 导入**（先显示转换报告：节点、策略组、规则、规则集数量与未转换项，重写部分作为模块导入）；手动节点 |
 | 更多 → 连接 | 连接方式（全局隧道 / 仅代理）、按需连接（始终 / 仅 Wi-Fi / 仅蜂窝；App 内手动断开会暂停按需连接，直到下次手动连接）、DNS（国内 / 国外分流、引导 DNS、nameserver-policy、Fake-IP 过滤） |
 | 更多 → 规则与资源 | 规则（实时或离线）+ **自定义规则**（Surge / QX / Loon / mihomo 写法，输入时实时校验并显示转换结果与策略组；远程 RULE-SET / DOMAIN-SET / QX filter_remote）；提供者（实时，或离线显示 URL / 类型 / 缓存内容）；**地理与规则库**（GeoIP MMDB、GEOIP dat、GEOSITE、GeoLite2-ASN：状态、更新时间、默认地址、自定义地址、国内镜像开关、下载进度与错误） |
 | 首页 → 面板 | 只在已连接且模块带面板时出现一行入口：Surge `[Panel]` / Stash `tiles` 合并为一个「面板」页，脚本驱动、可刷新（不是主屏幕小组件） |
-| 更多 → 模块、重写与 MitM | 模块（全部格式一个入口，格式角标；一键添加 BoxJS；参数含 Loon `[Argument]` 开关 / 选择；**策略映射**：模块规则里配置中不存在的策略名可逐个指定策略组）、重写、脚本、MitM |
+| 更多 → 模块、重写与 MitM | **模块与资源**（全部格式一个入口，格式角标；远程规则集 / 重写集 / 脚本各自的更新间隔、上次更新、开关、错误、全部更新；一键添加 BoxJS；参数含 Loon `[Argument]` 开关 / 选择；**策略映射**：模块规则里配置中不存在的策略名可逐个指定策略组）、重写、脚本、MitM |
 | 更多 → 工具与数据 | 网络工具（Ping / TCP / DNS，连接时经过内核规则并显示策略链）、流量统计（Swift Charts，按天保存约 120 天）、日志、备份与恢复（文件 / 分享 / iCloud） |
 | 更多 → 设置 | 内核设置（内存上限、隧道 MTU、手动节点合并进每个配置、日志、IPv6、局域网、控制器）、诊断（App Group、扩展 ID、启动日志） |
 | 快捷指令 | 连接、断开、切换连接、切换出站模式、切换节点（App Intents）；主屏幕长按图标：连接 / 断开、规则 / 全局 / 直连 |
-| 导入链接 | 只注册自己的 `mihomo://`（`mihomo://install-config?url=`、`install-module?url=`、`connect`、`disconnect`、`toggle`）。粘贴的 `loon://`、`stash://`、`surge:///`、`quantumult-x:///` 安装链接也能识别，但**不注册**这些 scheme，避免与其他客户端抢链接。可以用「文件」打开 `.sgmodule` `.plugin` `.stoverride` `.conf` `.list` `.yaml` |
+| 导入链接 | 只注册自己的 `mihomo://`（`mihomo://install-config?url=`、`install-module?url=`、`connect`、`disconnect`、`toggle`）。粘贴的 `loon://`、`stash://`、`surge:///`、`quantumult-x:///`、`egern:/` 安装链接也能识别，但**不注册**这些 scheme，避免与其他客户端抢链接。可以用「文件」/其他 App 的「用 Mihomo 打开」打开 `.sgmodule` `.plugin` `.stoverride` `.module` `.snippet` `.conf` `.list` `.yaml` 和纯文本；剪贴板有新内容时顶部出现「粘贴导入」横幅 |
+| iPad | 横向宽度为常规时用侧边栏（NavigationSplitView）显示五个分区，支持横竖屏与分屏；iPhone 保持底部标签栏 |
+
+## v0.5 要点
+
+### 模块与资源（更多 → 模块与资源）
+
+原来的「模块」页扩展为唯一的资源管理器（没有第二个并列页面），一个列表、按类型筛选（全部 / 模块 / 规则集 / 脚本）：
+
+| 类型 | 来源 | 存在哪里 |
+| --- | --- | --- |
+| 模块 / 重写集 | URL 或粘贴的 Surge / QX / Loon / Stash / Egern 模块、QX 重写片段、重写列表 | `engine.json` 的 modules（新增 `interval`） |
+| 规则集 | 自定义规则里的 `RULE-SET` / `DOMAIN-SET` / QX `filter_remote`，以及启用模块引用的远程规则集（只读，随模块开关） | `rules.json`（每条自带 `interval`） |
+| 脚本 | 启用的模块和脚本行引用的远程 `.js` | `engine.json` 的 `scriptResources`（停用 / 覆盖更新间隔） |
+
+每项显示格式角标、上次更新时间（缓存文件的修改时间，所以内核自己的规则集更新和引擎的脚本刷新也会反映出来）、更新间隔、开关和上次失败原因；左滑立即更新，右上角全部更新，打开 App 时自动更新到期的资源（最多每 10 分钟检查一次）。下载由 App 完成（URLSession），字节交给 Go 的 `ResourceStore` 校验后写入内核读取的同一个缓存：模块需能解析出内容、规则集转换为 mihomo 规则（Surge / Loon / Stash / QX 列表与 Egern YAML 规则集），拿到网页（失效链接 / 需要登录）时不会覆盖旧文件。停用一个脚本后，引用它的规则、定时任务和面板都不再运行，模块本身保持启用。
+
+### Egern 模块
+
+Egern YAML 模块是又一个边缘解析器（`bridge/mitm/egern.go`），翻译为与其他格式相同的内部模型：
+
+| Egern | 翻译为 |
+| --- | --- |
+| `name` / `description`、`compat_arguments`（`{{{参数}}}` 替换，布尔值显示为开关）、`compat_arguments_desc` | 模块名、说明、模块详情里的参数 |
+| `rules`（domain / domain_suffix / domain_keyword / domain_regex / domain_wildcard / ip_cidr(6) / geoip / asn / url_regex / dest_port / protocol / rule_set / and / or / not，`no_resolve`） | 内核规则（`url_regex` + REJECT 转为 URL 重写；远程 `rule_set` 进入资源管理器，Egern YAML 规则集会被转换） |
+| `url_rewrites`（重定向 / header 模式 / `http://reject-*`）、`header_rewrites`（add / replace / delete）、`body_rewrites`（request/response `_regex` / `_jq`）、`map_locals` | 重写规则 |
+| `scriptings`（http_request / http_response / schedule / generic / network，`arguments._compat.$argument`、`body_required`、`binary_body`、`max_size`、`timeout`、`update_interval`、`disabled`） | 脚本与定时 / 事件 / 通用任务 |
+| `mitm.hostnames`（列表或 includes / excludes） | MitM 主机名 |
+| `widgets` | 面板（由同名或 `script_name` 指定的通用脚本通过 `$done({title, content})` 填充） |
+
+报告为不支持：`dns`、`http_captures`、`bypass_tunnel_proxy`、`real_ip_domains`、`env_schema`、ssid / bssid / cellular / user_agent 规则，以及 Egern 原生 `export default async function(ctx)` 脚本（加载时给出明确错误）。社区里由 Surge 模块转换来的 Egern 模块用的是兼容写法（`_compat.$argument`），可以直接运行。
+
+### `$httpAPI`（Surge）
+
+脚本可调用 `$httpAPI(method, path, body, callback)`：`GET /v1/policies`、`GET /v1/policy_groups`、`GET /v1/policy_groups/select?group_name=`、`POST /v1/policy_groups/select {group_name, policy}`、`GET|POST /v1/outbound {mode: direct|proxy|rule}`、`GET /v1/profiles/current`、`POST /v1/profiles/reload`。其他路径回调 `{error}` 并记录日志。Surge `type=dns` / `type=rule` 脚本需要挂进 mihomo 的 DNS 解析和规则匹配热路径（每个连接同步跑 JS），本轮评估后不做。
+
+### 智能选择（自动 / 故障转移组）
+
+策略页展开 url-test 或 fallback 组，可打开「智能选择」（标「智能」角标）。它是组上的一个选项而不是新组类型，配置文件保持原样：组照常按配置里的 url / interval 做 mihomo 健康检查，扩展每 30 秒用最近 10 次检查结果打分（最近 5 次成功的加权平均延迟 ×（1 + 2 × 失败率），最后一次失败 ×2，不可用 ×4），通过组自身的「固定」机制选中得分最好的节点；只有新节点明显更好（低于当前 85%）才切换，节点失效时 mihomo 立即切走。设置按配置保存在 `mihomo/groups.json`，状态见控制器 `GET /smart`。
+
+### iPad
+
+`TARGETED_DEVICE_FAMILY` 改为 iPhone + iPad。常规宽度用 `NavigationSplitView`：侧边栏是首页 / 策略 / 请求 / 配置 / 更多和连接状态，右侧是同一套页面；iPad 支持四个方向和分屏。iPhone 仍是竖屏 + 底部标签栏。
+
+### 从其他 App 导入（不加分享扩展）
+
+决定：**本轮不做 Share / Action 扩展**。第三个 target 需要第三个 Bundle ID（`com.astemo6.mihomo.share`）和对应的描述文件，用户购买的描述文件通常只覆盖主程序和隧道两个 ID，重签后扩展会失效甚至导致安装失败。改为两个不需要新描述文件的入口：
+
+- 文档类型：`.sgmodule` `.plugin` `.stoverride` `.module` `.snippet` `.conf` `.list` `.yaml` 和纯文本都能「用 Mihomo 打开」/「拷贝到 Mihomo」；`.yaml` 会识别 Egern / Stash 模块，文本会识别订阅链接、配置、模块和节点链接（节点进入「手动节点」）。
+- 粘贴横幅：App 回到前台且剪贴板在别处被改过时，顶部出现一条横幅，点系统的「粘贴」按钮（`PasteButton`，iOS 不会弹出粘贴授权提示）才读取并导入；15 秒后自动消失。
+
+### QUIC / HTTP3
+
+非 MitM 流量本来就允许 QUIC。MitM 页新增「QUIC（HTTP/3）」：默认「仅阻断 MitM 主机」（回落到 TCP 才能解密），可把个别 MitM 主机加入「允许 QUIC」列表（它们的 HTTP/3 不再被解密），或选「全部阻断」让所有 App 回落 TCP（不开 MitM 也生效）。
+
+### 多语言
+
+新增日本語、한국어、Русский（共 6 种：简体中文源语言、繁體中文、English、日、韩、俄），都在 `App/Localizable.xcstrings`。`scripts/i18n_sync.py` 现在除了同步编译器提取的键外，还支持 `--export <lang> out.tsv`（导出未翻译的键和英文）与 `--import <lang> in.tsv`（导入翻译）。Go 侧返回的错误信息仍为中文。
 
 ## v0.4 要点
 
@@ -84,7 +141,7 @@ String Catalog（`App/Localizable.xcstrings`），源语言简体中文，提供
 
 - 按 SSID 切换策略：需要 `com.apple.developer.networking.wifi-info`，第三方重签的描述文件通常没有，读取 SSID 会静默失败；本轮不做，`$network.wifi.ssid` 恒为 null。
 - 主 App 去掉 Libmihomo 以缩小 IPA：离线校验 / 导入 / 离线策略页 / 预览都依赖内核解析，换成更轻的 Go 库几乎省不下（解析节点就要链接全部协议）；可行的方案是把 Libmihomo 包成一个动态库 framework 由 App 和扩展共用（IPA 预计少 40% 左右），但扩展里 Go 运行时以动态库加载无法在 CI 上验证，风险是隧道无法启动，所以留到能真机测试时再做。
-- 日 / 韩 / 俄语。
+- 日 / 韩 / 俄语（已在 v0.5 完成）。
 
 ## v0.3 要点
 
@@ -240,7 +297,7 @@ String Catalog（`App/Localizable.xcstrings`），源语言简体中文，提供
 - Quantumult X：`$task.fetch`（Promise，支持 `opts.policy`）、`$prefs.valueForKey/setValueForKey/removeValueForKey/removeAllValues`、`$notify`，`$done({status:"HTTP/1.1 200 OK", …})`、`bodyBytes`。
 - 二进制：`binary-body-mode` 时 body 为 `Uint8Array`（并提供 `bodyBytes`），`$done` 接受字符串 / Uint8Array / ArrayBuffer；另有 `TextEncoder`/`TextDecoder`、`atob`/`btoa`。
 - 资源限制：每次执行使用独立运行时（编译结果缓存 16 个），同时最多 2 个脚本，默认超时 10 秒（超时则保持原样），需要 body 的规则缓冲上限 2 MB（`max-size` 可更小）。远程脚本经内核下载并缓存，按 `script-update-interval`（默认 1 天）后台更新。
-- 定时 / 事件 / 通用脚本、`$utils`、面板见上方「v0.4 要点」。暂不支持：Surge `type=dns` / `type=rule` 脚本、`$httpAPI`、Egern 模块格式。
+- 定时 / 事件 / 通用脚本、`$utils`、面板见「v0.4 要点」；Egern 模块与 `$httpAPI` 见「v0.5 要点」。暂不支持：Surge `type=dns` / `type=rule` 脚本、Egern 原生 `ctx` 脚本。
 
 ## 已知限制
 
@@ -248,7 +305,7 @@ String Catalog（`App/Localizable.xcstrings`），源语言简体中文，提供
 - 二进制体积：内核是一个 Go 静态库（构建已用 `-s -w -trimpath`，Release 再 strip），扩展可执行文件约 73 MB。磁盘体积不等于内存占用（代码页按需映射），但主 App 也链接了同一个库（用于校验 / 离线解析），所以 IPA 较大。
 - 仅代理模式：不遵守系统代理的 App 与所有 UDP / QUIC 会直连；按 IP 的规则与 Fake-IP 不生效。
 - iCloud 备份需要签名里有 iCloud 容器权限；没有时可在「保存到文件」时选 iCloud 云盘。
-- MitM：HTTP/3（QUIC）无法解密，已对 MitM 主机阻断 UDP 443；证书固定的 App 会握手失败并被自动放行。
+- MitM：HTTP/3（QUIC）无法解密，默认对 MitM 主机阻断 UDP 443（可按主机放行，或选择全部阻断）；证书固定的 App 会握手失败并被自动放行。
 - QX `filter_remote` 没写 `force-policy` 时整份列表走 proxy（第一个手动选择组），列表内各行的策略被忽略。
 
 ## 许可与致谢

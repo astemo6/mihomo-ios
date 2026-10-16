@@ -330,3 +330,27 @@ func TestScriptResourcesAndQUIC(t *testing.T) {
 		t.Errorf("quic allow payload: %v", p)
 	}
 }
+
+func TestHTTPAPIBinding(t *testing.T) {
+	cfg := &Config{Enabled: true, MitM: true, Hostnames: []string{"api.test.com"}, Scripts: items(
+		`api = type=http-request,pattern=^https://api\.test\.com/api,script-path=api.js`)}
+	h := newHarness(t, cfg, map[string]string{"api.js": `
+$httpAPI("POST", "/v1/policy_groups/select", {group_name: "Proxy", policy: "HK"}, function (r1) {
+  $httpAPI("GET", "/v1/nope", null, function (r2) {
+    $done({response: {status: 200, body: JSON.stringify({sel: r1, err: r2.error ? "yes" : "no"})}});
+  });
+});`})
+	var got []string
+	h.e.SetAPI(func(method, path string, body any) (any, error) {
+		got = append(got, method+" "+path)
+		if path == "/v1/nope" {
+			return nil, errUnsupported
+		}
+		m := body.(map[string]any)
+		return map[string]any{"ok": m["group_name"].(string) + "→" + m["policy"].(string)}, nil
+	})
+	_, body := h.get("https://api.test.com/api")
+	if body != `{"sel":{"ok":"Proxy→HK"},"err":"yes"}` || len(got) != 2 {
+		t.Fatalf("$httpAPI: %s %v", body, got)
+	}
+}
