@@ -17,12 +17,8 @@ struct ProfilesView: View {
             List {
                 if store.profiles.isEmpty {
                     Section {
-                        VStack(alignment: .leading, spacing: 8) {
-                            Text("还没有配置").font(.headline)
-                            Text("点右上角 + 添加订阅链接，或从文件 / 剪贴板导入 mihomo（Clash Meta）YAML 配置。也支持 ss/vmess/vless/trojan/hysteria2/tuic 分享链接列表。")
-                                .font(.footnote).foregroundStyle(.secondary)
-                        }
-                        .padding(.vertical, 6)
+                        EmptyStateRow(icon: "doc.badge.plus", title: "还没有配置",
+                                      message: "点右上角 + 添加订阅链接，或从文件 / 剪贴板导入 mihomo（Clash Meta）YAML 配置。也支持 ss/vmess/vless/trojan/hysteria2/tuic 分享链接列表。")
                     }
                     .listRowBackground(Theme.card)
                 }

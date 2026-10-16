@@ -62,7 +62,10 @@ final class PacketTunnelProvider: NEPacketTunnelProvider {
         LibmihomoSetNotifier(notifier)
         LibmihomoSetMemoryLimit(Int32(overrides.memoryLimitMB))
         let proxyOnly = overrides.isProxyOnly
-        StartupLog.write("mode \(proxyOnly ? "proxy-only (NEProxySettings)" : "tun (NEPacketTunnelFlow bridge)"), mtu \(overrides.tunMTU), GOMEMLIMIT \(overrides.memoryLimitMB) MB")
+        StartupLog.write("mode \(proxyOnly ? "proxy-only (NEProxySettings)" : "tun (NEPacketTunnelFlow bridge)"), mtu \(overrides.tunMTU), GOMEMLIMIT \(overrides.memoryLimitMB) MB\(overrides.safeMode ? ", SAFE MODE" : "")")
+        if let v = Bundle.main.object(forInfoDictionaryKey: "CFBundleShortVersionString") as? String {
+            StartupLog.write("tunnel \(v) (\(Bundle.main.object(forInfoDictionaryKey: "CFBundleVersion") as? String ?? "?")), \(LibmihomoVersion())")
+        }
 
         // Watchdog: never leave the system at "连接中…" (Go has its own 20 s bound; this covers anything else).
         DispatchQueue.global().asyncAfter(deadline: .now() + 30) {
@@ -101,6 +104,7 @@ final class PacketTunnelProvider: NEPacketTunnelProvider {
                 if let err {
                     self.bridge?.stop()
                     self.bridge = nil
+                    LibmihomoDumpDiagnostics()
                     completionHandler(Self.error("内核启动失败：\(err.localizedDescription)"))
                     return
                 }
@@ -167,6 +171,7 @@ final class PacketTunnelProvider: NEPacketTunnelProvider {
         network = nil
         memoryGuard?.stop()
         LibmihomoStop()
+        LibmihomoDumpDiagnostics()
         bridge?.stop()
         bridge = nil
         completionHandler()
@@ -198,6 +203,10 @@ final class PacketTunnelProvider: NEPacketTunnelProvider {
         case .flushStats:
             traffic?.sampleNow()
             completionHandler?(nil)
+        case .dumpDiagnostics:
+            LibmihomoRecordMemorySample(Int64(ProcessMemory.footprintBytes()), Int64(ProcessMemory.availableBytes()))
+            LibmihomoDumpDiagnostics()
+            completionHandler?("\(ProcessMemory.summary()), \(LibmihomoMemoryStats())".data(using: .utf8))
         case .none:
             completionHandler?(nil)
         }
@@ -263,6 +272,7 @@ final class MemoryGuard {
     private func tick() {
         let fp = ProcessMemory.footprintBytes()
         let avail = ProcessMemory.availableBytes()
+        LibmihomoRecordMemorySample(Int64(fp), Int64(avail))
         if fp >= shedAtBytes || (avail >= 0 && avail < shedAvailableBelow) {
             LibmihomoFreeMemory()
             shed(reason: "footprint \(fp >> 20) MB, available \(avail >> 20) MB")

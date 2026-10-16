@@ -43,7 +43,9 @@ struct ModulesView: View {
 
             Section {
                 if shown.isEmpty {
-                    Text(filter == "ruleset" ? "点 + 添加远程规则集" : "点 + 通过 URL 导入模块").font(.footnote).foregroundStyle(.secondary)
+                    EmptyStateRow(icon: filter == "ruleset" ? "list.bullet.rectangle" : "puzzlepiece.extension",
+                                  title: filter == "ruleset" ? "没有规则集" : filter == "script" ? "没有远程脚本" : filter == "module" ? "没有模块" : "还没有模块或资源",
+                                  message: filter == "ruleset" ? "点 + 添加远程规则集" : filter == "script" ? "启用的模块和脚本行引用的远程脚本会出现在这里。" : "点 + 通过 URL 导入模块")
                 }
                 ForEach(shown) { it in
                     NavigationLink {

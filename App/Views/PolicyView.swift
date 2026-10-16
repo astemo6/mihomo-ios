@@ -183,7 +183,7 @@ struct PolicyView: View {
                 if AppShared.activeProfileURL == nil {
                     NotConnectedPlaceholder(text: "请先在「配置」中添加并选择一个配置")
                 } else if let e = offline.result.error, offline.result.groups.isEmpty {
-                    Text(e).font(.footnote).foregroundStyle(Theme.bad).frame(maxWidth: .infinity, alignment: .leading)
+                    ErrorRow(message: e)
                 } else {
                     let index = offline.nodeIndex
                     let groupNames = Set(offline.result.groups.map(\.name))

@@ -159,7 +159,7 @@ struct RulesView: View {
         .scrollContentBackground(.hidden)
         .searchable(text: $search, prompt: "搜索规则")
         .refreshable { await load() }
-        .overlay { if rows.isEmpty && search.isEmpty { Text(AppShared.activeProfileURL == nil ? "没有选择配置" : "没有规则").foregroundStyle(.secondary) } }
+        .overlay { if rows.isEmpty && search.isEmpty { EmptyStateView(icon: "list.bullet.rectangle", title: AppShared.activeProfileURL == nil ? "没有选择配置" : "没有规则") } }
     }
 
     var customRules: some View {

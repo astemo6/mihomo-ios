@@ -59,17 +59,9 @@ struct PanelsView: View {
         ScrollView {
             VStack(spacing: 12) {
                 if !vpn.isConnected {
-                    Card {
-                        Label("面板由模块里的脚本生成，连接后显示。", systemImage: "info.circle")
-                            .font(.footnote).foregroundStyle(.secondary)
-                    }
+                    Card { EmptyStateRow(icon: "bolt.horizontal.circle", title: "连接后可查看", message: "面板由模块里的脚本生成，连接后显示。") }
                 } else if model.panels.isEmpty {
-                    Card {
-                        VStack(alignment: .leading, spacing: 6) {
-                            Text("没有面板").font(.subheadline.weight(.semibold))
-                            Text("启用带 Surge [Panel] 或 Stash tiles 的模块后，面板会出现在这里。").font(.footnote).foregroundStyle(.secondary)
-                        }
-                    }
+                    Card { EmptyStateRow(icon: "square.grid.2x2", title: "没有面板", message: "启用带 Surge [Panel] 或 Stash tiles 的模块后，面板会出现在这里。") }
                 }
                 ForEach(model.panels) { p in
                     PanelCard(p: p, refreshing: model.refreshing.contains(p.id) || p.running) {
@@ -91,6 +83,13 @@ struct PanelsView: View {
         .task {
             await model.load()
             await model.refreshStale()
+            // While the page is visible: pick up auto-refreshed content. The extension only auto-refreshes
+            // panels the app has shown recently, so nothing runs once this page (and the app) is gone.
+            while !Task.isCancelled {
+                try? await Task.sleep(nanoseconds: 30_000_000_000)
+                if Task.isCancelled { break }
+                await model.load()
+            }
         }
     }
 }

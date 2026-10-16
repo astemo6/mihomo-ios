@@ -142,6 +142,9 @@ struct CoreOverrides: Codable, Equatable {
     var geoURLs: [String: String] = [:]
     /// Add the 手动节点 profile's nodes (and its group) to every profile.
     var mergeManual: Bool = false
+    /// 安全模式: set by the app for one connection after a failed start. The core then runs the profile
+    /// with these overrides only (no modules, rewrite, scripts, MitM, custom rules, smart groups).
+    var safeMode: Bool = false
 
     static let defaultMemoryLimitMB = 36
     static let mtuChoices = [1280, 1500, 4064, 9000]
@@ -152,7 +155,7 @@ struct CoreOverrides: Codable, Equatable {
 
     enum CodingKeys: String, CodingKey {
         case logLevel, ipv6, allowLan, dnsMode, sniffer, controllerPort, secret, mode, memoryLimitMB
-        case tunnelMode, mixedPort, tunMTU, geoMirror, geoURLs, mergeManual
+        case tunnelMode, mixedPort, tunMTU, geoMirror, geoURLs, mergeManual, safeMode
     }
 
     init(from decoder: Decoder) throws {
@@ -176,6 +179,7 @@ struct CoreOverrides: Codable, Equatable {
         geoMirror = get(.geoMirror, d.geoMirror)
         geoURLs = get(.geoURLs, d.geoURLs)
         mergeManual = get(.mergeManual, d.mergeManual)
+        safeMode = get(.safeMode, d.safeMode)
         if tunnelMode != "proxy" { tunnelMode = "tun" }
         if !(1280...9000).contains(tunMTU) { tunMTU = d.tunMTU }
         if !(1...65535).contains(mixedPort) { mixedPort = d.mixedPort }
@@ -205,7 +209,7 @@ struct CoreOverrides: Codable, Equatable {
 
     static func randomSecret() -> String {
         let chars = Array("abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789")
-        return String((0..<32).map { _ in chars.randomElement()! })
+        return String((0..<32).map { _ in chars.randomElement() ?? "x" })
     }
 }
 
@@ -217,6 +221,8 @@ enum TunnelMessage: String {
     case version
     /// Ask the tunnel to add the traffic since its last sample to TrafficHistory now.
     case flushStats
+    /// Ask the tunnel to write its core-log / memory rings to <home>/diag/ (诊断包).
+    case dumpDiagnostics
 }
 
 /// Last start error written by the extension so the app can show why the tunnel stopped.

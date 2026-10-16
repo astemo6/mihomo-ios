@@ -690,7 +690,7 @@ struct LocalScriptsView: View {
                 files = store.localScripts()
             }
             .listRowBackground(Theme.card)
-            if files.isEmpty { Text("暂无本地脚本").foregroundStyle(.secondary).listRowBackground(Theme.card) }
+            if files.isEmpty { EmptyStateRow(icon: "curlybraces", title: "暂无本地脚本").listRowBackground(Theme.card) }
         }
         .listStyle(.insetGrouped)
         .scrollContentBackground(.hidden)
@@ -787,7 +787,7 @@ struct StoreView: View {
 
     var body: some View {
         List {
-            if items.isEmpty { Text("暂无数据").foregroundStyle(.secondary).listRowBackground(Theme.card) }
+            if items.isEmpty { EmptyStateRow(icon: "tray", title: "暂无数据").listRowBackground(Theme.card) }
             ForEach(items, id: \.0) { kv in
                 let k = kv.0
                 let v = kv.1
@@ -1111,7 +1111,7 @@ struct HTTPRequestDetailView: View {
                     if !d.canReplay && d.method != "TLS" {
                         Text("请求体是二进制或超过 32 KB，没有完整记录，无法重放。").font(.caption2).foregroundStyle(.secondary)
                     }
-                    if replaying { HStack { ProgressView(); Text("发送中…").foregroundStyle(.secondary) } }
+                    if replaying { LoadingRow(text: "发送中…") }
                     if let e = replayError { Text(e).font(.caption).foregroundStyle(Theme.bad) }
                     if let r = replay { ReplayResultView(r: r) }
                 } header: { Text("操作") } footer: {

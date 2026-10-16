@@ -81,8 +81,10 @@ struct RootView: View {
     @EnvironmentObject var vpn: VPNManager
     @EnvironmentObject var dash: DashboardModel
     @EnvironmentObject var router: ImportRouter
+    @EnvironmentObject var store: ProfileStore
     @Environment(\.horizontalSizeClass) private var hSize
     @Environment(\.scenePhase) private var phase
+    @State private var showOnboarding = false
 
     var body: some View {
         Group {
@@ -97,6 +99,11 @@ struct RootView: View {
             }
         }
         .overlay(alignment: .top) { PasteBanner() }
+        .fullScreenCover(isPresented: $showOnboarding) {
+            OnboardingView { showOnboarding = false }
+                .environmentObject(vpn)
+                .environmentObject(store)
+        }
         .onChange(of: vpn.status) { s in
             if s == .connected { dash.start() } else if s == .disconnected || s == .invalid { dash.stop() }
         }
@@ -104,6 +111,10 @@ struct RootView: View {
             if p == .active { ClipboardWatcher.shared.didBecomeActive() } else if p == .background { ClipboardWatcher.shared.didLeave() }
         }
         .onAppear {
+            // First run only; people upgrading with profiles already set up never see it (更多 → 新手引导 shows it again).
+            if !Onboarding.isDone {
+                if store.profiles.isEmpty { showOnboarding = true } else { Onboarding.isDone = true }
+            }
             if vpn.isConnected { dash.start() }
             ClipboardWatcher.shared.didBecomeActive()
         }
@@ -213,11 +224,6 @@ struct ProtocolBadge: View {
 struct NotConnectedPlaceholder: View {
     var text = "连接后可查看"
     var body: some View {
-        VStack(spacing: 10) {
-            Image(systemName: "bolt.horizontal.circle").font(.system(size: 44)).foregroundStyle(.secondary)
-            Text(LocalizedStringKey(text)).foregroundStyle(.secondary)
-        }
-        .frame(maxWidth: .infinity, maxHeight: .infinity)
-        .padding(.top, 80)
+        EmptyStateView(icon: "bolt.horizontal.circle", title: text)
     }
 }

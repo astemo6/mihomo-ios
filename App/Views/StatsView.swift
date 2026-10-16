@@ -82,7 +82,7 @@ struct StatsView: View {
                         Text("明细").font(.headline)
                         let rows = Array(shown.reversed().filter { $0.total > 0 })
                         if rows.isEmpty {
-                            Text("暂无数据。连接后每 2 分钟记录一次。").font(.footnote).foregroundStyle(.secondary)
+                            EmptyStateRow(icon: "chart.bar.xaxis", title: "暂无数据", message: "连接后每 2 分钟记录一次。")
                         }
                         ForEach(rows) { d in
                             HStack {

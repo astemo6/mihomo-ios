@@ -97,7 +97,7 @@ struct ConfReportSection: View {
                     }
                 }
             } else {
-                Section { HStack { ProgressView(); Text("正在转换…").foregroundStyle(.secondary) } }
+                Section { LoadingRow(text: "正在转换…") }
                     .listRowBackground(Theme.card)
             }
         }

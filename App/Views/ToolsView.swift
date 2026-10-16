@@ -60,7 +60,12 @@ final class ToolsModel: ObservableObject {
         cfg.httpMaximumConnectionsPerHost = 1
         for i in 1...count {
             let session = URLSession(configuration: cfg)
-            var req = URLRequest(url: URL(string: target)!)
+            guard let targetURL = URL(string: target) else {
+                probes.append(ProbeResult(seq: i, ok: false, ms: 0, error: String(localized: "地址无效")))
+                session.invalidateAndCancel()
+                break
+            }
+            var req = URLRequest(url: targetURL)
             req.httpMethod = "HEAD"
             let t0 = Date()
             do {
@@ -104,7 +109,11 @@ final class ToolsModel: ObservableObject {
     nonisolated static func directConnect(host: String, port: UInt16, tls: Bool) async -> (Bool, Double, String?) {
         await withCheckedContinuation { (c: CheckedContinuation<(Bool, Double, String?), Never>) in
             let params: NWParameters = tls ? .tls : .tcp
-            let conn = NWConnection(host: NWEndpoint.Host(host), port: NWEndpoint.Port(rawValue: port)!, using: params)
+            guard let nwPort = NWEndpoint.Port(rawValue: port) else {
+                c.resume(returning: (false, 0, String(localized: "端口无效")))
+                return
+            }
+            let conn = NWConnection(host: NWEndpoint.Host(host), port: nwPort, using: params)
             let t0 = Date()
             let lock = NSLock()
             var done = false

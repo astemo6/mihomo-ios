@@ -124,10 +124,9 @@ struct ScriptTasksView: View {
             }
             if loaded && tasks.isEmpty && vpn.isConnected {
                 Section {
-                    VStack(alignment: .leading, spacing: 6) {
-                        Text("没有定时 / 事件 / 通用脚本").font(.subheadline.weight(.semibold))
-                        Text("在模块或「脚本」里添加，例如：\n签到 = type=cron,cronexp=\"0 8 * * *\",script-path=…\ncron \"0 8 * * *\" script-path=…, tag=签到\n0 8 * * * https://…/a.js, tag=签到")
-                            .font(.system(size: 11, design: .monospaced)).foregroundStyle(.secondary)
+                    EmptyStateRow(icon: "clock.arrow.circlepath", title: "没有定时 / 事件 / 通用脚本", message: "在模块或「脚本」里添加，例如：") {
+                        Text("签到 = type=cron,cronexp=\"0 8 * * *\",script-path=…\ncron \"0 8 * * *\" script-path=…, tag=签到\n0 8 * * * https://…/a.js, tag=签到")
+                            .font(.caption2.monospaced()).foregroundStyle(.secondary)
                     }
                 }
                 .listRowBackground(Theme.card)

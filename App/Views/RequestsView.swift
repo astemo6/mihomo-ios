@@ -85,8 +85,9 @@ struct RequestsView: View {
                         .listRowBackground(Color.clear)
                         if tab == 2 {
                             if http.items.isEmpty {
-                                Text("经过 MitM / 重写引擎的 HTTP(S) 请求会显示在这里。需要在 更多 → 重写 / MitM 中启用。")
-                                    .font(.footnote).foregroundStyle(.secondary).listRowBackground(Theme.card)
+                                EmptyStateRow(icon: "lock.open", title: "还没有 HTTP 请求",
+                                              message: "经过 MitM / 重写引擎的 HTTP(S) 请求会显示在这里。需要在 更多 → 重写 / MitM 中启用。")
+                                    .listRowBackground(Theme.card)
                             }
                             ForEach(httpItems) { r in
                                 NavigationLink { HTTPRequestDetailView(id: r.id) } label: { HTTPRequestRow(r: r) }
