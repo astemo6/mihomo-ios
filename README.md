@@ -1,53 +1,63 @@
-# Mihomo iOS（v0.2.1）
+# Mihomo iOS（v0.3）
 
-基于开源 [mihomo](https://github.com/MetaCubeX/mihomo)（Clash Meta）内核的个人 iOS 代理客户端，界面参考 Quantumult X / Surge / Egern：深色优先、卡片式。
+基于开源 [mihomo](https://github.com/MetaCubeX/mihomo)（Clash Meta）内核的个人 iOS 代理客户端：深色卡片界面，首页只放最常用的东西，进阶功能按类别收在「更多」里。
 
-> 本项目以 **GPL-3.0** 发布（见 `LICENSE`），与 mihomo 内核许可一致。仓库里没有任何节点、证书或密钥。
+> 本项目以 **GPL-3.0** 发布（见 `LICENSE` 与 `NOTICE`），与 mihomo 内核许可一致。仓库里没有任何节点、证书或密钥。
+
+## 设计原则
+
+1. **一个内部模型**：所有东西最终都是「mihomo 配置 + 我们自己的覆写 / 模块存储」。Surge、Quantumult X、Loon、Stash 的格式只在导入边缘做一次翻译，之后就是普通的 mihomo 配置或模块，不存在第二套运行逻辑。
+2. **一种设计语言**：项目自己的深色卡片（`Theme` / `Card`），新页面不照搬其他客户端的布局。
+3. **首页极简**：连接开关、出站模式、IP 卡片、流量。其他功能都在「更多」里分组：连接、规则与资源、模块重写与 MitM、工具与数据、设置。
+4. **模块只有一个入口**：所有格式的模块都在「更多 → 模块」，用角标标出来源格式。
+5. **宁缺毋滥**：做不精的功能先不做（本轮推迟：多语言、小组件、控制中心开关、Stash 磁贴、按 SSID 切策略、订阅过滤 / 重命名）。
 
 ## 功能
 
-| 模块 | 内容 |
+| 位置 | 内容 |
 | --- | --- |
-| 首页 | **左上角 IP / ASN 卡片**（出口 IP、国旗 + 国家/城市、ASN + 运营商；连接时第二行显示直连 IP）；轻点刷新、长按复制；连接 / 断开、切换节点、切换模式后自动刷新。大号连接开关、规则/全局/直连模式切换、当前配置与节点、实时上下行速度 + 曲线、总流量、内核内存、连接数 |
-| 策略 | Egern 风格策略组卡片、节点网格、延迟着色、点选切换（select 组）、组测速、url-test / fallback / load-balance 状态 |
-| 请求 | 实时连接列表（主机、规则、策略链、上下行、时长）、最近已关闭请求、搜索、单个 / 全部断开；经过 MitM 的连接带「MitM」标记并显示命中的规则 / 脚本；「HTTP」页签列出解密后的请求，可查看请求 / 响应头与内容（各最多 32 KB）|
-| 配置 | 订阅链接（User-Agent `clash.meta` / `mihomo`、自动更新间隔、解析 `subscription-userinfo` 显示已用 / 总量 / 到期）、剪贴板导入、文件导入、本地 YAML 编辑器、全部更新、切换配置、保存前用真实内核校验；分享链接 / base64 订阅 / Surge·Egern·QX 节点行自动转换为 mihomo 配置 |
-| 手动节点 | Shadowrocket 式添加单个节点：剪贴板粘贴、相机扫码、相册识别二维码、按协议填写的表单；节点存入本地「手动节点」配置（同名策略组）|
-| 重写 / MitM（v0.2）| HTTPS 解密（自建 CA）、URL 重写、请求/响应头与内容改写、本地映射、JS 脚本、模块；兼容 Surge / Quantumult X / Loon / Stash 的常见写法，详见下文 |
-| 更多 | 规则查看器、规则集 / 节点集提供者（含更新按钮）、日志（级别过滤、搜索、暂停、复制）、内核覆写设置、关于 / GPL 许可 |
-| 即将推出 | 小组件、控制中心开关、快捷指令、cron 定时脚本 |
+| 首页 | IP / ASN 卡片（出口 + 直连）、连接开关、规则 / 全局 / 直连、当前配置与节点、实时速度曲线、本次上传 / 下载 |
+| 策略 | 已连接：实时策略组、点选切换、组测速。**未连接：「未连接 · 来自配置文件」离线策略页**——读取当前配置（含节点集缓存、合并的手动节点），可以选节点（按配置保存，下次连接时自动应用）、直接测速 |
+| 请求 | 实时连接、最近关闭、MitM 解密的 HTTP 请求 |
+| 配置 | 订阅 / 本地 YAML / 剪贴板 / 文件；**Surge / Quantumult X `.conf` 导入**（先显示转换报告：节点、策略组、规则、规则集数量与未转换项，重写部分作为模块导入）；手动节点 |
+| 更多 → 连接 | 连接方式（全局隧道 / 仅代理）、按需连接（始终 / 仅 Wi-Fi / 仅蜂窝；App 内手动断开会暂停按需连接，直到下次手动连接）、DNS（国内 / 国外分流、引导 DNS、nameserver-policy、Fake-IP 过滤） |
+| 更多 → 规则与资源 | 规则（实时或离线）+ **自定义规则**（Surge / QX / Loon / mihomo 写法，输入时实时校验并显示转换结果与策略组；远程 RULE-SET / DOMAIN-SET / QX filter_remote）；提供者（实时，或离线显示 URL / 类型 / 缓存内容）；**地理与规则库**（GeoIP MMDB、GEOIP dat、GEOSITE、GeoLite2-ASN：状态、更新时间、默认地址、自定义地址、国内镜像开关、下载进度与错误） |
+| 更多 → 模块、重写与 MitM | 模块（全部格式一个入口，格式角标；参数含 Loon `[Argument]` 开关 / 选择；**策略映射**：模块规则里配置中不存在的策略名可逐个指定策略组）、重写、脚本、MitM |
+| 更多 → 工具与数据 | 网络工具（Ping / TCP / DNS，连接时经过内核规则并显示策略链）、流量统计（Swift Charts，按天保存约 120 天）、日志、备份与恢复（文件 / 分享 / iCloud） |
+| 更多 → 设置 | 内核设置（内存上限、隧道 MTU、手动节点合并进每个配置、日志、IPv6、局域网、控制器）、诊断（App Group、扩展 ID、启动日志） |
+| 快捷指令 | 连接、断开、切换连接、切换出站模式、切换节点（App Intents）；主屏幕长按图标：连接 / 断开、规则 / 全局 / 直连 |
+| 导入链接 | 只注册自己的 `mihomo://`（`mihomo://install-config?url=`、`install-module?url=`、`connect`、`disconnect`、`toggle`）。粘贴的 `loon://`、`stash://`、`surge:///`、`quantumult-x:///` 安装链接也能识别，但**不注册**这些 scheme，避免与其他客户端抢链接。可以用「文件」打开 `.sgmodule` `.plugin` `.stoverride` `.conf` `.list` `.yaml` |
 
-## v0.2.1 热修复（启动卡在「连接中…」）
+## v0.3 要点
 
-- **内置地理数据库**：`Geo/` 下打包 MetaCubeX/meta-rules-dat 的 `geoip.metadb`（8.4 MB）、`GeoSite.dat`（4.3 MB）、`ASN.mmdb`（GeoLite2-ASN，9.0 MB），随扩展一起安装；启动前若内核目录里缺失（或文件小于 64 KB，视为下载中断）就复制进去，启动时无需下载。
-- **国内可达的镜像**：强制 `geox-url` 指向 `https://testingcf.jsdelivr.net/gh/MetaCubeX/meta-rules-dat@release/…`，`geodata-mode: false`（使用 mmdb）、`geodata-loader: memconservative`、`geo-auto-update: false`；`raw.githubusercontent.com` / `github.com/…/raw|blob/…` 上的规则集、节点集（未指定 `proxy:` 的）自动改走 jsDelivr 镜像。
-- **启动不再被网络卡住**：内核在后台线程启动，最多等 20 秒；tun 一建立就返回成功，规则集 / 节点集在后台继续加载（加载完成前内核只放行内部请求）。超时会返回中文错误；扩展另有 30 秒看门狗，系统不会一直停在「连接中…」。
-- **启动日志**：每次连接写 `startup-log.txt`（App Group 容器，保留上一次），记录网络设置、utun fd、内核开始 / 结束、`phys_footprint` 内存与 Go 堆、错误。更多 → 内核覆写设置 → 诊断 → 启动日志，可一键复制。
+- **PacketFlowBridge**（`PacketTunnel/PacketFlowBridge.swift`）：用 `socketpair(AF_UNIX, SOCK_DGRAM)` 连接 `NEPacketTunnelFlow.readPackets / writePackets`（公开 API）与内核的 tun fd，取代 v0.2 的 utun fd 扫描。系统 → 内核方向有界队列（512 包 / 2 MB）+ 写就绪源做背压；内核 → 系统方向每批最多 64 包；`ENOBUFS` 时 1–32 ms 指数退避。思路来自 Hako-Adapter（GPL-3.0），实现独立编写。
+- **仅代理模式**：不接管路由与 DNS，只用 `NEProxySettings` 把 HTTP / HTTPS 指向扩展内 `127.0.0.1:7890` 的 mixed 端口。
+- **内存守护**：Go 软上限（默认 36 MB，可调）+ `phys_footprint` / `os_proc_available_memory` 采样（接近上限时每 2 秒）+ 内存压力事件：先 `FreeOSMemory`，再关闭全部连接，避免被系统杀掉。
+- **启动看门狗**：内核最多等 20 秒，扩展 30 秒看门狗必定回调，失败时显示中文原因，不会一直停在「连接中…」。启动日志记录每个阶段。
+- **每日流量记录**：扩展每 2 分钟把内核计数增量写入 App Group（约 120 天）。
 
 ## 架构
 
 ```
 ┌────────────── 主 App（SwiftUI，iOS 16+）──────────────┐
-│ NETunnelProviderManager 启停隧道                       │
+│ VPNManager（NETunnelProviderManager + 按需连接）        │
 │ ControllerClient ──HTTP/WebSocket──► 127.0.0.1:9090     │
-│ ProfileStore：配置存放在 App Group 容器                 │
-│ Libmihomo（仅用于配置校验 / 分享链接转换）              │
+│ ProfileStore / ProfileInspector（离线解析配置）         │
+│ ImportRouter（mihomo:// + 外部链接 + 文档）、App Intents │
+│ Libmihomo（校验、转换、离线解析、地理库安装）           │
 └──────────────────────────────┬─────────────────────────┘
-                               │ App Group: group.com.astemo6.mihomo
+                               │ App Group（运行时从描述文件解析）
 ┌──────────── PacketTunnel 扩展（NEPacketTunnelProvider）┐
-│ 设置 198.18.0.1/16、默认路由、DNS 198.18.0.2            │
-│ 扫描 fd 0…1024，getsockopt(UTUN_OPT_IFNAME) 找到 utun   │
+│ 全局隧道：198.18.0.1/16、默认路由、DNS 198.18.0.2、MTU  │
+│ 仅代理：NEProxySettings → 127.0.0.1:<mixed-port>        │
+│ PacketFlowBridge：packetFlow ⇄ socketpair ⇄ 内核 tun fd │
+│ MemoryGuard、TrafficRecorder、30 s 看门狗、启动日志     │
 │ LibmihomoStart(home, profile, fd)                       │
-│   └─ mihomo：tun.file-descriptor + gVisor 栈 + fake-ip  │
-│      external-controller 127.0.0.1:<port> + 随机密钥    │
 └────────────────────────────────────────────────────────┘
 ```
 
-- `bridge/mitm/`：HTTP 引擎（MitM / 重写 / 脚本 / 模块解析 / CA），通过 `hub/route.Register` 在控制器上挂 `/mitm/status|requests|hosts|logs` 供 App 读取。
-- `bridge/`：Go 包 `libmihomo`，`gomobile bind -target=ios/arm64 -tags with_gvisor` 生成 `Frameworks/Libmihomo.xcframework`。API：`Start / Stop / Reload / ValidateConfig / ValidateConfigIn / ConvertShareLinks / Version / FreeMemory / SetMemoryLimit`。启动时把用户配置与 `overrides.json`（设置页的覆写项）合并为 `runtime.yaml`，强制 tun fd、仅本地监听的控制器、`find-process-mode: off`、`geodata-loader: memconservative`，Go 内存软上限 40 MB + 激进 GC。
-- `PacketTunnel/`：网络扩展。`handleAppMessage` 支持 `reload`（重载配置）、`directIP`（扩展自身的请求不走隧道，用来查直连 IP）、`freeMemory`、`version`。
-- `App/`：SwiftUI 主程序。`Shared/`：两个 target 共用（App Group 路径、覆写项、IP 查询）。
-- IP 查询端点（依次回退，解析宽松）：ipinfo.io → ip-api.com → api.ip.sb → ipapi.co → ipwho.is。
+- `bridge/`：Go 包 `libmihomo`（gomobile）。启动时把配置与 `overrides.json`、`dns.json`、`rules.json`、模块合并为 `runtime.yaml`。
+- 设置文件（App Group 容器 `mihomo/`）：`overrides.json`（内核覆写，含 `tunnelMode` `mixedPort` `tunMTU` `geoMirror` `geoURLs` `mergeManual`，解码容错）、`dns.json`、`rules.json`、`engine/`（MitM / 重写 / 脚本 / 模块）；每个配置旁的 `<id>.selected.json` 保存离线选择的节点。
 - 工程由 XcodeGen 从 `project.yml` 生成；**Bundle ID 与 App Group 只在 `project.yml` 顶部改一处**。
 
 ## 协议支持
@@ -78,10 +88,10 @@
 
 ## CI
 
-`.github/workflows/ios.yml`（push 到 main 或手动运行）：setup-go → gomobile 构建 xcframework（按 bridge 源码与内核版本缓存）→ XcodeGen → `xcodebuild archive` → IPA → 上传 Artifact，并发布 GitHub Release（tag `v0.1.0-build<N>`）。
+`.github/workflows/ios.yml`（push 到 main 或手动运行）：setup-go → gomobile 构建 xcframework（按 bridge 源码与内核版本缓存）→ XcodeGen → `xcodebuild archive` → IPA → 上传 Artifact，并发布 GitHub Release（tag `v<版本>-build<N>`）。手动运行时可勾选 `build_only` 只编译不发布。
 
-- **没有签名 secrets**：`CODE_SIGNING_ALLOWED=NO` 构建，然后用 `codesign -s -`（伪签名）把 entitlements 写进 App 和扩展，打包为 `Mihomo-0.1.0-build<N>-unsigned.ipa`。Release 中同时附带 `app.entitlements` / `tunnel.entitlements`，方便重签工具使用。
-- **有签名 secrets**：导入证书和两个描述文件，导出 `Mihomo-0.1.0-build<N>-signed.ipa`。
+- **没有签名 secrets**：`CODE_SIGNING_ALLOWED=NO` 构建，然后用 `codesign -s -`（伪签名）把 entitlements 写进 App 和扩展，打包为 `Mihomo-<版本>-build<N>-unsigned.ipa`。Release 中同时附带 `app.entitlements` / `tunnel.entitlements`，方便重签工具使用。
+- **有签名 secrets**：导入证书和两个描述文件，导出 `Mihomo-<版本>-build<N>-signed.ipa`。
 
 ## 获取可安装的签名版本
 
@@ -115,7 +125,7 @@
 
 - 两个 target 都必须带 `com.apple.developer.networking.networkextension = [packet-tunnel-provider]` 和 `com.apple.security.application-groups`；
 - App Group 在运行时自动解析：App 和扩展各自读取包内 `embedded.mobileprovision` 中的 `com.apple.security.application-groups`，按字母序取第一个系统认可的组（都不可用时再回退到 Info.plist 中的值和 `group.com.astemo6.mihomo`），所以保持原 Bundle ID、用任意第三方购买的描述文件重签也能共享配置；隧道扩展 ID 从包内 PlugIns 的 packet-tunnel 扩展读取（回退为 `主程序 ID + .tunnel`），已保存的旧 VPN 配置会自动改指向新 ID；
-- 连接失败时首页会弹窗显示原因；更多 → 内核覆写设置 → 诊断 显示解析出的 App Group、扩展 ID 和共享容器是否可用；
+- 连接失败时首页会弹窗显示原因；更多 → 诊断 显示解析出的 App Group、扩展 ID 和共享容器是否可用；
 - 免费 Apple ID 证书不包含 Network Extension 能力，连接会失败。
 
 ## 使用
@@ -176,11 +186,13 @@
 
 ## 已知限制
 
-- 网络扩展内存上限约 50 MB。大型 `GEOSITE` 规则、超大订阅或大量规则集会增加内存，建议优先使用 `.mrs` 规则集；首页显示内核内存。
-- utun fd 通过扫描 fd + `getsockopt(UTUN_OPT_IFNAME)` 获取，这是社区通用做法（sing-box / Hiddify），并非 Apple 公开 API。
-- 首次使用 GEOIP / GEOSITE 规则时内核会下载地理数据库。
-- MitM：HTTP/3（QUIC）无法解密，已对 MitM 主机阻断 UDP 443；证书固定的 App 会握手失败并被自动放行；HTTP 引擎、goja 与 gojq 让 Libmihomo 体积变大，但只有启用时才分配内存。
+- 网络扩展内存上限约 50 MB。大型 `GEOSITE` 规则、超大订阅或大量规则集会增加内存，建议优先使用 `.mrs` 规则集。
+- 二进制体积：内核是一个 Go 静态库（构建已用 `-s -w -trimpath`，Release 再 strip），扩展可执行文件约 73 MB。磁盘体积不等于内存占用（代码页按需映射），但主 App 也链接了同一个库（用于校验 / 离线解析），所以 IPA 较大。
+- 仅代理模式：不遵守系统代理的 App 与所有 UDP / QUIC 会直连；按 IP 的规则与 Fake-IP 不生效。
+- iCloud 备份需要签名里有 iCloud 容器权限；没有时可在「保存到文件」时选 iCloud 云盘。
+- MitM：HTTP/3（QUIC）无法解密，已对 MitM 主机阻断 UDP 443；证书固定的 App 会握手失败并被自动放行。
+- QX `filter_remote` 没写 `force-policy` 时整份列表走 proxy（第一个手动选择组），列表内各行的策略被忽略。
 
-## 许可
+## 许可与致谢
 
-GPL-3.0。mihomo © MetaCubeX 及贡献者。
+GPL-3.0。mihomo © MetaCubeX 及贡献者。PacketFlowBridge 与内存守护参考了 [TokenPLS/Hako](https://github.com/ProjectClash/Clash-Legacy) 与 [Hako-Adapter](https://github.com/ProjectClash/Clash-Adapter-Legacy)（现由 [ProjectClash](https://github.com/ProjectClash) 维护，均为 GPL-3.0）的设计，详见 `NOTICE` 与 App 内 更多 → 关于。

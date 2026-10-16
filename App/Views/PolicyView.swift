@@ -29,6 +29,7 @@ final class PolicyModel: ObservableObject {
         do {
             try await ControllerClient.shared.select(group: group.name, node: node)
             UISelectionFeedbackGenerator().selectionChanged()
+            if group.name != "GLOBAL" { ProfileInspector.rememberLiveSelection(group: group.name, node: node) }
             await load()
             NotificationCenter.default.post(name: .egressMayHaveChanged, object: nil)
         } catch {
@@ -44,56 +45,184 @@ final class PolicyModel: ObservableObject {
     }
 }
 
+/// One policy group as the card shows it, from the live controller or from the profile file.
+struct PolicyGroupDisplay {
+    var name: String
+    var kind: String          // select / url-test / fallback / load-balance / relay / global
+    var now: String?
+    var members: [String]
+    var selectable: Bool
+
+    static func kind(live type: String) -> String {
+        switch type {
+        case "Selector": return "select"
+        case "URLTest": return "url-test"
+        case "Fallback": return "fallback"
+        case "LoadBalance": return "load-balance"
+        case "Relay": return "relay"
+        default: return type.lowercased()
+        }
+    }
+
+    var label: String {
+        switch kind {
+        case "select": return "手动"
+        case "url-test": return "自动"
+        case "fallback": return "故障转移"
+        case "load-balance": return "负载均衡"
+        case "relay": return "链式"
+        default: return kind
+        }
+    }
+
+    var icon: String {
+        switch kind {
+        case "select": return "hand.tap.fill"
+        case "url-test": return "bolt.badge.clock.fill"
+        case "fallback": return "arrow.triangle.branch"
+        case "load-balance": return "scalemass.fill"
+        case "relay": return "link"
+        default: return "globe"
+        }
+    }
+
+    var hint: String {
+        switch kind {
+        case "url-test": return "自动选择延迟最低的节点（当前：\(now ?? "—")）"
+        case "fallback": return "按顺序使用第一个可用节点（当前：\(now ?? "—")）"
+        case "load-balance": return "在节点间分配连接"
+        default: return "该策略组不可手动选择"
+        }
+    }
+}
+
 struct PolicyView: View {
     @EnvironmentObject var vpn: VPNManager
+    @EnvironmentObject var store: ProfileStore
     @StateObject private var model = PolicyModel()
+    @ObservedObject private var offline = ProfileInspector.shared
     @State private var expanded: Set<String> = []
 
     var body: some View {
         NavigationStack {
             Group {
-                if !vpn.isConnected {
-                    NotConnectedPlaceholder(text: "连接后可查看和切换策略组")
-                } else {
-                    ScrollView {
-                        LazyVStack(spacing: 12) {
-                            if let e = model.error { Text(e).font(.footnote).foregroundStyle(Theme.bad) }
-                            ForEach(model.groups) { g in
-                                GroupCard(group: g, model: model, expanded: Binding(
-                                    get: { expanded.contains(g.name) },
-                                    set: { v in if v { expanded.insert(g.name) } else { expanded.remove(g.name) } }
-                                ))
-                            }
-                        }
-                        .padding(16)
-                    }
-                    .refreshable { await model.load() }
-                }
+                if vpn.isConnected { liveList } else { offlineList }
             }
             .background(Theme.bg.ignoresSafeArea())
             .navigationTitle("策略")
             .toolbar {
                 ToolbarItem(placement: .navigationBarTrailing) {
                     Button {
-                        Task { for g in model.groups where g.name != "GLOBAL" { await model.test(g) } }
+                        Task {
+                            if vpn.isConnected {
+                                for g in model.groups where g.name != "GLOBAL" { await model.test(g) }
+                            } else {
+                                for g in offline.result.groups where g.hidden != true { await offline.test(group: g) }
+                            }
+                        }
                     } label: { Image(systemName: "bolt.fill") }
-                    .disabled(!vpn.isConnected)
                 }
             }
         }
-        .task(id: vpn.isConnected) { if vpn.isConnected { await model.load() } }
+        .task(id: vpn.isConnected) {
+            if vpn.isConnected { await model.load() } else { await offline.load() }
+        }
+        .onChange(of: store.activeID) { _ in Task { if !vpn.isConnected { await offline.load() } } }
+    }
+
+    private func binding(_ name: String) -> Binding<Bool> {
+        Binding(get: { expanded.contains(name) },
+                set: { v in if v { expanded.insert(name) } else { expanded.remove(name) } })
+    }
+
+    var liveList: some View {
+        ScrollView {
+            LazyVStack(spacing: 12) {
+                if let e = model.error { Text(e).font(.footnote).foregroundStyle(Theme.bad) }
+                ForEach(model.groups) { g in
+                    let d = PolicyGroupDisplay(name: g.name, kind: PolicyGroupDisplay.kind(live: g.type), now: g.now,
+                                               members: g.all ?? [], selectable: g.isSelectable)
+                    PolicyGroupCard(group: d,
+                                    testing: model.testing.contains(g.name),
+                                    expanded: binding(g.name),
+                                    nodeType: { model.all[$0]?.type },
+                                    nodeUDP: { model.all[$0]?.udp == true },
+                                    delay: { model.delay(of: $0) },
+                                    onTest: { Task { await model.test(g) } },
+                                    onSelect: { n in Task { await model.select(g, n) } })
+                }
+            }
+            .padding(16)
+        }
+        .refreshable { await model.load() }
+    }
+
+    var offlineList: some View {
+        ScrollView {
+            LazyVStack(spacing: 12) {
+                HStack(spacing: 6) {
+                    Image(systemName: "doc.text.magnifyingglass")
+                    Text("未连接 · 来自配置文件")
+                    Spacer()
+                    if offline.loading { ProgressView().controlSize(.small) }
+                }
+                .font(.caption.weight(.semibold))
+                .foregroundStyle(.secondary)
+                .padding(.horizontal, 4)
+
+                if AppShared.activeProfileURL == nil {
+                    NotConnectedPlaceholder(text: "请先在「配置」中添加并选择一个配置")
+                } else if let e = offline.result.error, offline.result.groups.isEmpty {
+                    Text(e).font(.footnote).foregroundStyle(Theme.bad).frame(maxWidth: .infinity, alignment: .leading)
+                } else {
+                    let index = offline.nodeIndex
+                    let groupNames = Set(offline.result.groups.map(\.name))
+                    ForEach(offline.result.groups.filter { $0.hidden != true }) { g in
+                        let d = PolicyGroupDisplay(name: g.name, kind: g.type, now: offline.current(of: g),
+                                                   members: offline.members(of: g), selectable: g.type == "select")
+                        PolicyGroupCard(group: d,
+                                        testing: offline.testing.contains(g.name),
+                                        expanded: binding("offline:" + g.name),
+                                        nodeType: { name in
+                                            if let t = index[name]?.type { return t }
+                                            return groupNames.contains(name) ? "group" : nil
+                                        },
+                                        nodeUDP: { index[$0]?.udp == true },
+                                        delay: { offline.delays[$0] },
+                                        onTest: { Task { await offline.test(group: g) } },
+                                        onSelect: { n in
+                                            offline.select(group: g.name, node: n)
+                                            UISelectionFeedbackGenerator().selectionChanged()
+                                        })
+                    }
+                    if !offline.result.groups.isEmpty {
+                        Text("在这里选择的节点会保存到该配置，下次连接时生效。测速直接从本机发起（不经过代理）。节点集只显示已缓存的节点。")
+                            .font(.caption2).foregroundStyle(.secondary)
+                            .frame(maxWidth: .infinity, alignment: .leading)
+                            .padding(.horizontal, 4)
+                    }
+                }
+            }
+            .padding(16)
+        }
+        .refreshable { await offline.load() }
     }
 }
 
-struct GroupCard: View {
-    let group: ProxyItem
-    @ObservedObject var model: PolicyModel
+struct PolicyGroupCard: View {
+    let group: PolicyGroupDisplay
+    let testing: Bool
     @Binding var expanded: Bool
+    let nodeType: (String) -> String?
+    let nodeUDP: (String) -> Bool
+    let delay: (String) -> Int?
+    let onTest: () -> Void
+    let onSelect: (String) -> Void
 
     var body: some View {
         VStack(alignment: .leading, spacing: 12) {
             HStack(spacing: 10) {
-                Image(systemName: icon)
+                Image(systemName: group.icon)
                     .font(.headline)
                     .foregroundStyle(Theme.accent)
                     .frame(width: 34, height: 34)
@@ -101,25 +230,23 @@ struct GroupCard: View {
                 VStack(alignment: .leading, spacing: 2) {
                     HStack(spacing: 6) {
                         Text(group.name).font(.headline).lineLimit(1)
-                        Text(group.typeLabel)
+                        Text(group.label)
                             .font(.caption2.weight(.semibold))
                             .padding(.horizontal, 6).padding(.vertical, 2)
                             .background(Capsule().fill(Color.white.opacity(0.1)))
                     }
                     HStack(spacing: 6) {
                         Text(group.now ?? "—").font(.caption).foregroundStyle(.secondary).lineLimit(1)
-                        if let n = group.now {
-                            Text(Theme.delayText(model.delay(of: n)))
+                        if let n = group.now, let d = delay(n) {
+                            Text(Theme.delayText(d))
                                 .font(.caption2.monospacedDigit())
-                                .foregroundStyle(Theme.delayColor(model.delay(of: n)))
+                                .foregroundStyle(Theme.delayColor(d))
                         }
                     }
                 }
                 Spacer()
-                Button {
-                    Task { await model.test(group) }
-                } label: {
-                    if model.testing.contains(group.name) {
+                Button(action: onTest) {
+                    if testing {
                         ProgressView().controlSize(.small)
                     } else {
                         Image(systemName: "speedometer").foregroundStyle(.secondary)
@@ -135,16 +262,18 @@ struct GroupCard: View {
             .onTapGesture { withAnimation(.spring(response: 0.3)) { expanded.toggle() } }
 
             if expanded {
-                if !group.isSelectable {
-                    Text(statusHint).font(.caption2).foregroundStyle(.secondary)
+                if !group.selectable {
+                    Text(group.hint).font(.caption2).foregroundStyle(.secondary)
                 }
                 LazyVGrid(columns: [GridItem(.flexible(), spacing: 8), GridItem(.flexible(), spacing: 8)], spacing: 8) {
-                    ForEach(group.all ?? [], id: \.self) { name in
+                    ForEach(group.members, id: \.self) { name in
                         NodeCell(name: name,
-                                 node: model.all[name],
+                                 type: nodeType(name),
+                                 udp: nodeUDP(name),
+                                 delay: delay(name),
                                  selected: group.now == name,
-                                 enabled: group.isSelectable)
-                        .onTapGesture { Task { await model.select(group, name) } }
+                                 enabled: group.selectable)
+                        .onTapGesture { if group.selectable { onSelect(name) } }
                     }
                 }
             }
@@ -153,50 +282,37 @@ struct GroupCard: View {
         .background(RoundedRectangle(cornerRadius: 18, style: .continuous).fill(Theme.card))
         .overlay(RoundedRectangle(cornerRadius: 18, style: .continuous).stroke(Color.white.opacity(0.06)))
     }
-
-    var icon: String {
-        switch group.type {
-        case "Selector": return "hand.tap.fill"
-        case "URLTest": return "bolt.badge.clock.fill"
-        case "Fallback": return "arrow.triangle.branch"
-        case "LoadBalance": return "scalemass.fill"
-        case "Relay": return "link"
-        default: return "globe"
-        }
-    }
-
-    var statusHint: String {
-        switch group.type {
-        case "URLTest": return "自动选择延迟最低的节点（当前：\(group.now ?? "—")）"
-        case "Fallback": return "按顺序使用第一个可用节点（当前：\(group.now ?? "—")）"
-        case "LoadBalance": return "在节点间分配连接"
-        default: return "该策略组不可手动选择"
-        }
-    }
 }
 
 struct NodeCell: View {
     let name: String
-    let node: ProxyItem?
+    let type: String?
+    let udp: Bool
+    let delay: Int?
     let selected: Bool
     let enabled: Bool
 
     var body: some View {
-        let d = node?.lastDelay
         VStack(alignment: .leading, spacing: 6) {
             Text(name)
                 .font(.footnote.weight(selected ? .semibold : .regular))
                 .lineLimit(2)
                 .frame(maxWidth: .infinity, minHeight: 34, alignment: .topLeading)
             HStack {
-                if let t = node?.type { ProtocolBadge(type: t) }
-                if node?.udp == true {
+                if let t = type {
+                    if t == "group" {
+                        Text("策略组").font(.system(size: 9, weight: .bold)).foregroundStyle(.secondary)
+                    } else {
+                        ProtocolBadge(type: t)
+                    }
+                }
+                if udp {
                     Text("UDP").font(.system(size: 9, weight: .bold)).foregroundStyle(.secondary)
                 }
                 Spacer()
-                Text(Theme.delayText(d))
+                Text(Theme.delayText(delay))
                     .font(.system(size: 11, weight: .semibold).monospacedDigit())
-                    .foregroundStyle(Theme.delayColor(d))
+                    .foregroundStyle(Theme.delayColor(delay))
             }
         }
         .padding(10)

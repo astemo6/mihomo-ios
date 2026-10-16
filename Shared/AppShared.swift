@@ -20,21 +20,25 @@ enum AppShared {
 
     static let mainAppBundleID: String = mainAppBundle.bundleIdentifier ?? "com.astemo6.mihomo"
 
-    /// Tunnel extension bundle ID. Main app: the embedded packet-tunnel appex's real id when we can
-    /// read it, otherwise <main bundle id>.tunnel, then the Info.plist value. Extension: its own id.
+    /// Tunnel extension bundle ID. Works from the main app and from any app extension: the embedded
+    /// packet-tunnel appex's real id when we can read it (re-signing may change it), otherwise our own id
+    /// when we *are* the packet tunnel, then <main bundle id>.tunnel, then the Info.plist value.
     static let tunnelBundleID: String = {
-        if isExtension, let own = Bundle.main.bundleIdentifier { return own }
-        if let plug = Bundle.main.builtInPlugInsURL,
+        func isPacketTunnel(_ b: Bundle) -> Bool {
+            let ext = b.object(forInfoDictionaryKey: "NSExtension") as? [String: Any]
+            let point = ext?["NSExtensionPointIdentifier"] as? String ?? ""
+            let cls = ext?["NSExtensionPrincipalClass"] as? String ?? ""
+            return point == "com.apple.networkextension.packet-tunnel" || cls.contains("PacketTunnelProvider")
+        }
+        if isExtension, isPacketTunnel(.main), let own = Bundle.main.bundleIdentifier { return own }
+        if let plug = mainAppBundle.builtInPlugInsURL,
            let items = try? FileManager.default.contentsOfDirectory(at: plug, includingPropertiesForKeys: nil) {
             for u in items.sorted(by: { $0.path < $1.path }) where u.pathExtension == "appex" {
-                guard let b = Bundle(url: u), let id = b.bundleIdentifier else { continue }
-                let ext = b.object(forInfoDictionaryKey: "NSExtension") as? [String: Any]
-                let point = ext?["NSExtensionPointIdentifier"] as? String ?? ""
-                let cls = ext?["NSExtensionPrincipalClass"] as? String ?? ""
-                if point == "com.apple.networkextension.packet-tunnel" || cls.contains("PacketTunnelProvider") { return id }
+                guard let b = Bundle(url: u), let id = b.bundleIdentifier, isPacketTunnel(b) else { continue }
+                return id
             }
         }
-        if let own = Bundle.main.bundleIdentifier, !own.isEmpty { return own + ".tunnel" }
+        if let own = mainAppBundle.bundleIdentifier, !own.isEmpty { return own + ".tunnel" }
         return Bundle.main.object(forInfoDictionaryKey: "MihomoTunnelBundleID") as? String ?? "com.astemo6.mihomo.tunnel"
     }()
 
@@ -113,7 +117,9 @@ enum AppShared {
     }
 }
 
-/// Options applied on top of the user's profile. Written as overrides.json; read by the Go bridge.
+/// Options applied on top of the user's profile. Written as overrides.json; read by the Go bridge
+/// (bridge/bridge.go Overrides). Decoding is tolerant: missing or mistyped keys fall back to defaults,
+/// so files written by older builds keep working.
 struct CoreOverrides: Codable, Equatable {
     var logLevel: String = "info"
     var ipv6: Bool = false
@@ -123,7 +129,58 @@ struct CoreOverrides: Codable, Equatable {
     var controllerPort: Int = 9090
     var secret: String = ""
     var mode: String = "rule"
-    var memoryLimitMB: Int = 40
+    /// Go soft memory limit (GOMEMLIMIT) in MB; the bridge clamps it to 1…45.
+    var memoryLimitMB: Int = 36
+    /// "tun" = NEPacketTunnelFlow bridge (all traffic) · "proxy" = NEProxySettings only.
+    var tunnelMode: String = "tun"
+    /// Local HTTP/SOCKS port for proxy-only mode and LAN sharing.
+    var mixedPort: Int = 7890
+    var tunMTU: Int = 4064
+    /// jsdelivr (testingcf CDN, default) · fastly · github
+    var geoMirror: String = "jsdelivr"
+    /// Custom URL per database kind (mmdb / geosite / asn / geoip); missing = mirror default.
+    var geoURLs: [String: String] = [:]
+    /// Add the 手动节点 profile's nodes (and its group) to every profile.
+    var mergeManual: Bool = false
+
+    static let defaultMemoryLimitMB = 36
+    static let mtuChoices = [1280, 1500, 4064, 9000]
+
+    var isProxyOnly: Bool { tunnelMode == "proxy" }
+
+    init() {}
+
+    enum CodingKeys: String, CodingKey {
+        case logLevel, ipv6, allowLan, dnsMode, sniffer, controllerPort, secret, mode, memoryLimitMB
+        case tunnelMode, mixedPort, tunMTU, geoMirror, geoURLs, mergeManual
+    }
+
+    init(from decoder: Decoder) throws {
+        let c = try decoder.container(keyedBy: CodingKeys.self)
+        let d = CoreOverrides()
+        func get<T: Decodable>(_ k: CodingKeys, _ fallback: T) -> T {
+            (try? c.decodeIfPresent(T.self, forKey: k)) ?? fallback
+        }
+        logLevel = get(.logLevel, d.logLevel)
+        ipv6 = get(.ipv6, d.ipv6)
+        allowLan = get(.allowLan, d.allowLan)
+        dnsMode = get(.dnsMode, d.dnsMode)
+        sniffer = get(.sniffer, d.sniffer)
+        controllerPort = get(.controllerPort, d.controllerPort)
+        secret = get(.secret, d.secret)
+        mode = get(.mode, d.mode)
+        memoryLimitMB = get(.memoryLimitMB, d.memoryLimitMB)
+        tunnelMode = get(.tunnelMode, d.tunnelMode)
+        mixedPort = get(.mixedPort, d.mixedPort)
+        tunMTU = get(.tunMTU, d.tunMTU)
+        geoMirror = get(.geoMirror, d.geoMirror)
+        geoURLs = get(.geoURLs, d.geoURLs)
+        mergeManual = get(.mergeManual, d.mergeManual)
+        if tunnelMode != "proxy" { tunnelMode = "tun" }
+        if !(1280...9000).contains(tunMTU) { tunMTU = d.tunMTU }
+        if !(1...65535).contains(mixedPort) { mixedPort = d.mixedPort }
+        if !(8...45).contains(memoryLimitMB) { memoryLimitMB = d.memoryLimitMB }
+    }
 
     static func load() -> CoreOverrides {
         var o = CoreOverrides()
@@ -139,7 +196,9 @@ struct CoreOverrides: Codable, Equatable {
     }
 
     func save() {
-        if let data = try? JSONEncoder().encode(self) {
+        let enc = JSONEncoder()
+        enc.outputFormatting = [.sortedKeys]
+        if let data = try? enc.encode(self) {
             try? data.write(to: AppShared.overridesURL, options: .atomic)
         }
     }
@@ -156,6 +215,8 @@ enum TunnelMessage: String {
     case directIP
     case freeMemory
     case version
+    /// Ask the tunnel to add the traffic since its last sample to TrafficHistory now.
+    case flushStats
 }
 
 /// Last start error written by the extension so the app can show why the tunnel stopped.

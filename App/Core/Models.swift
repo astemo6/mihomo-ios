@@ -275,6 +275,9 @@ struct ParsedEngineText: Decodable {
         var key: String
         var `default`: String
         var desc: String?
+        /// Loon [Argument]: switch / select / input / text (nil = Surge #!arguments text field).
+        var type: String?
+        var options: [String]?
     }
     var name: String
     var desc: String

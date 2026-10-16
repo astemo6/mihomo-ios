@@ -20,8 +20,10 @@ final class ScriptNotifier: NSObject, LibmihomoNotifierProtocol {
 }
 
 final class PacketTunnelProvider: NEPacketTunnelProvider {
-    private var tunFd: Int32 = 0
     private let notifier = ScriptNotifier()
+    private var bridge: PacketFlowBridge?
+    private var memoryGuard: MemoryGuard?
+    private var traffic: TrafficRecorder?
 
     override func startTunnel(options: [String: NSObject]?, completionHandler: @escaping (Error?) -> Void) {
         TunnelErrorLog.clear()
@@ -57,10 +59,82 @@ final class PacketTunnelProvider: NEPacketTunnelProvider {
         let overrides = CoreOverrides.load()
         LibmihomoSetNotifier(notifier)
         LibmihomoSetMemoryLimit(Int32(overrides.memoryLimitMB))
+        let proxyOnly = overrides.isProxyOnly
+        StartupLog.write("mode \(proxyOnly ? "proxy-only (NEProxySettings)" : "tun (NEPacketTunnelFlow bridge)"), mtu \(overrides.tunMTU), GOMEMLIMIT \(overrides.memoryLimitMB) MB")
 
+        // Watchdog: never leave the system at "连接中…" (Go has its own 20 s bound; this covers anything else).
+        DispatchQueue.global().asyncAfter(deadline: .now() + 30) {
+            completionHandler(Self.error("启动超时（30 秒）。请到 更多 → 诊断 查看启动日志"))
+        }
+
+        StartupLog.write("applying tunnel network settings")
+        setTunnelNetworkSettings(Self.networkSettings(overrides)) { [weak self] error in
+            guard let self else { return }
+            if let error {
+                completionHandler(Self.error("设置隧道网络失败：\(error.localizedDescription)"))
+                return
+            }
+            StartupLog.write("settings applied")
+            var fd: Int32 = 0
+            if !proxyOnly {
+                let b = PacketFlowBridge(flow: self.packetFlow)
+                b.onFailure = { [weak self] why in
+                    self?.cancelTunnelWithError(Self.error("数据包桥接失败：\(why)"))
+                }
+                do {
+                    fd = try b.start()
+                } catch {
+                    completionHandler(Self.error("无法创建数据包桥接：\(error.localizedDescription)"))
+                    return
+                }
+                self.bridge = b
+                StartupLog.write("packet-flow bridge up, core fd \(fd)")
+            }
+            // Off the NetworkExtension callback queue: LibmihomoStart returns within 20 s at most.
+            DispatchQueue.global(qos: .userInitiated).async {
+                StartupLog.write("core start begin")
+                var err: NSError?
+                LibmihomoStart(AppShared.homeURL.path, profile.path, fd, &err)
+                StartupLog.write("core start returned\(err.map { ": " + $0.localizedDescription } ?? " OK"), \(ProcessMemory.summary()), \(LibmihomoMemoryStats())")
+                if let err {
+                    self.bridge?.stop()
+                    self.bridge = nil
+                    completionHandler(Self.error("内核启动失败：\(err.localizedDescription)"))
+                    return
+                }
+                let guardian = MemoryGuard()
+                guardian.start()
+                self.memoryGuard = guardian
+                let rec = TrafficRecorder()
+                rec.start()
+                self.traffic = rec
+                completionHandler(nil)
+                DispatchQueue.global().asyncAfter(deadline: .now() + 15) { [weak self] in
+                    StartupLog.write("+15 s: \(ProcessMemory.summary()), \(LibmihomoMemoryStats()), bridge \(self?.bridge?.stats ?? "-")")
+                }
+            }
+        }
+    }
+
+    /// Tun mode: default route through the packet flow, DNS to the core. Proxy-only mode: no routes,
+    /// only an HTTP/HTTPS system proxy pointing at the core's local mixed port.
+    static func networkSettings(_ o: CoreOverrides) -> NEPacketTunnelNetworkSettings {
         let settings = NEPacketTunnelNetworkSettings(tunnelRemoteAddress: "127.0.0.1")
-        settings.mtu = 1500
         let ipv4 = NEIPv4Settings(addresses: ["198.18.0.1"], subnetMasks: ["255.255.0.0"])
+        if o.isProxyOnly {
+            ipv4.includedRoutes = []
+            settings.ipv4Settings = ipv4
+            let proxy = NEProxySettings()
+            proxy.httpEnabled = true
+            proxy.httpsEnabled = true
+            proxy.httpServer = NEProxyServer(address: "127.0.0.1", port: o.mixedPort)
+            proxy.httpsServer = NEProxyServer(address: "127.0.0.1", port: o.mixedPort)
+            proxy.excludeSimpleHostnames = true
+            proxy.exceptionList = ["localhost", "*.local", "127.0.0.1", "10.0.0.0/8", "172.16.0.0/12", "192.168.0.0/16", "captive.apple.com"]
+            settings.proxySettings = proxy
+            return settings
+        }
+        settings.mtu = NSNumber(value: o.tunMTU)
         ipv4.includedRoutes = [NEIPv4Route.default()]
         ipv4.excludedRoutes = [
             NEIPv4Route(destinationAddress: "10.0.0.0", subnetMask: "255.0.0.0"),
@@ -70,7 +144,7 @@ final class PacketTunnelProvider: NEPacketTunnelProvider {
             NEIPv4Route(destinationAddress: "224.0.0.0", subnetMask: "240.0.0.0"),
         ]
         settings.ipv4Settings = ipv4
-        if overrides.ipv6 {
+        if o.ipv6 {
             let ipv6 = NEIPv6Settings(addresses: ["fdfe:dcba:9876::1"], networkPrefixLengths: [126])
             ipv6.includedRoutes = [NEIPv6Route.default()]
             settings.ipv6Settings = ipv6
@@ -78,48 +152,16 @@ final class PacketTunnelProvider: NEPacketTunnelProvider {
         let dns = NEDNSSettings(servers: ["198.18.0.2"])
         dns.matchDomains = [""]
         settings.dnsSettings = dns
-
-        // Watchdog: never leave the system at "连接中…" (Go has its own 20 s bound; this covers anything else).
-        DispatchQueue.global().asyncAfter(deadline: .now() + 30) {
-            completionHandler(Self.error("启动超时（30 秒）。请到 更多 → 内核覆写设置 → 诊断 查看启动日志"))
-        }
-
-        StartupLog.write("applying tunnel network settings")
-        setTunnelNetworkSettings(settings) { [weak self] error in
-            guard let self else { return }
-            if let error {
-                completionHandler(Self.error("设置隧道网络失败：\(error.localizedDescription)"))
-                return
-            }
-            StartupLog.write("settings applied")
-            guard let fd = Self.findTunnelFileDescriptor(packetFlow: self.packetFlow) else {
-                completionHandler(Self.error("无法获取 utun 文件描述符"))
-                return
-            }
-            StartupLog.write("fd found: \(fd)")
-            self.tunFd = fd
-            // Off the NetworkExtension callback queue: LibmihomoStart returns within 20 s at most.
-            DispatchQueue.global(qos: .userInitiated).async {
-                StartupLog.write("core start begin")
-                var err: NSError?
-                LibmihomoStart(AppShared.homeURL.path, profile.path, fd, &err)
-                StartupLog.write("core start returned\(err.map { ": " + $0.localizedDescription } ?? " OK"), \(ProcessMemory.summary()), \(LibmihomoMemoryStats())")
-                if let err {
-                    completionHandler(Self.error("内核启动失败：\(err.localizedDescription)"))
-                    return
-                }
-                completionHandler(nil)
-                // Memory again once providers have had a moment to load.
-                DispatchQueue.global().asyncAfter(deadline: .now() + 15) {
-                    StartupLog.write("+15 s: \(ProcessMemory.summary()), \(LibmihomoMemoryStats())")
-                }
-            }
-        }
+        return settings
     }
 
     override func stopTunnel(with reason: NEProviderStopReason, completionHandler: @escaping () -> Void) {
-        StartupLog.write("stopTunnel reason=\(reason.rawValue), \(ProcessMemory.summary())")
+        StartupLog.write("stopTunnel reason=\(reason.rawValue), \(ProcessMemory.summary()), bridge \(bridge?.stats ?? "-")")
+        traffic?.stop() // flushes the last delta
+        memoryGuard?.stop()
         LibmihomoStop()
+        bridge?.stop()
+        bridge = nil
         completionHandler()
     }
 
@@ -146,38 +188,128 @@ final class PacketTunnelProvider: NEPacketTunnelProvider {
             completionHandler?(nil)
         case .version:
             completionHandler?(LibmihomoVersion().data(using: .utf8))
+        case .flushStats:
+            traffic?.sampleNow()
+            completionHandler?(nil)
         case .none:
             completionHandler?(nil)
         }
     }
 
     override func sleep(completionHandler: @escaping () -> Void) {
+        traffic?.sample()
         LibmihomoFreeMemory()
         completionHandler()
     }
 
     override func wake() {}
 
-    // MARK: - utun fd
-
-    /// Finds the utun control socket created by NetworkExtension.
-    /// Scans fds and asks each for UTUN_OPT_IFNAME (SYSPROTO_CONTROL=2, UTUN_OPT_IFNAME=2),
-    /// the same approach sing-box / Hiddify use.
-    static func findTunnelFileDescriptor(packetFlow: NEPacketTunnelFlow) -> Int32? {
-        var buf = [CChar](repeating: 0, count: 64)
-        for fd: Int32 in 0...1024 {
-            var len = socklen_t(buf.count)
-            if getsockopt(fd, 2 /* SYSPROTO_CONTROL */, 2 /* UTUN_OPT_IFNAME */, &buf, &len) == 0 {
-                let name = String(cString: buf)
-                if name.hasPrefix("utun") {
-                    return fd
-                }
-            }
-        }
-        return nil
-    }
-
     static func error(_ msg: String) -> NSError {
         NSError(domain: "Mihomo.PacketTunnel", code: 1, userInfo: [NSLocalizedDescriptionKey: msg])
+    }
+}
+
+/// Keeps the extension under the ~50 MB jetsam limit (Hako-style): GOMEMLIMIT does the pacing in Go;
+/// this watches phys_footprint / os_proc_available_memory and memory-pressure events, returns memory to
+/// the OS when it climbs, and closes connections as a last resort before iOS would kill the tunnel.
+final class MemoryGuard {
+    private let queue = DispatchQueue(label: "mihomo.memoryguard", qos: .utility)
+    private var timer: DispatchSourceTimer?
+    private var pressure: DispatchSourceMemoryPressure?
+    private var interval = 10
+    private var lastShed = Date.distantPast
+
+    private let freeAtBytes: UInt64 = 38 << 20
+    private let shedAtBytes: UInt64 = 45 << 20
+    private let shedAvailableBelow = 5 << 20
+
+    func start() {
+        let p = DispatchSource.makeMemoryPressureSource(eventMask: [.warning, .critical], queue: queue)
+        p.setEventHandler { [weak self] in
+            guard let self, let ev = self.pressure?.data else { return }
+            LibmihomoFreeMemory()
+            if ev.contains(.critical) { self.shed(reason: "memory pressure critical") }
+            StartupLog.write("memory pressure \(ev.contains(.critical) ? "critical" : "warning"): \(ProcessMemory.summary())")
+        }
+        p.resume()
+        pressure = p
+        schedule(10)
+    }
+
+    func stop() {
+        timer?.cancel()
+        timer = nil
+        pressure?.cancel()
+        pressure = nil
+    }
+
+    private func schedule(_ seconds: Int) {
+        interval = seconds
+        timer?.cancel()
+        let t = DispatchSource.makeTimerSource(queue: queue)
+        t.schedule(deadline: .now() + .seconds(seconds), repeating: .seconds(seconds), leeway: .seconds(max(1, seconds / 4)))
+        t.setEventHandler { [weak self] in self?.tick() }
+        t.resume()
+        timer = t
+    }
+
+    private func tick() {
+        let fp = ProcessMemory.footprintBytes()
+        let avail = ProcessMemory.availableBytes()
+        if fp >= shedAtBytes || (avail >= 0 && avail < shedAvailableBelow) {
+            LibmihomoFreeMemory()
+            shed(reason: "footprint \(fp >> 20) MB, available \(avail >> 20) MB")
+        } else if fp >= freeAtBytes {
+            LibmihomoFreeMemory()
+        }
+        // Sample faster while close to the limit, slowly otherwise (battery).
+        let want = fp >= freeAtBytes ? 2 : 10
+        if want != interval { schedule(want) }
+    }
+
+    private func shed(reason: String) {
+        guard Date().timeIntervalSince(lastShed) > 15 else { return }
+        lastShed = Date()
+        let n = LibmihomoShedConnections()
+        LibmihomoFreeMemory()
+        StartupLog.write("memory guard: closed \(n) connections (\(reason)) → \(ProcessMemory.summary())")
+    }
+}
+
+/// Adds the core's traffic counters to today's bucket in TrafficHistory every two minutes.
+final class TrafficRecorder {
+    private let queue = DispatchQueue(label: "mihomo.traffic", qos: .utility)
+    private var timer: DispatchSourceTimer?
+    private var lastUp: Int64 = 0
+    private var lastDown: Int64 = 0
+
+    func start() {
+        let t = DispatchSource.makeTimerSource(queue: queue)
+        t.schedule(deadline: .now() + .seconds(120), repeating: .seconds(120), leeway: .seconds(30))
+        t.setEventHandler { [weak self] in self?.sampleOnQueue() }
+        t.resume()
+        timer = t
+    }
+
+    func stop() {
+        timer?.cancel()
+        timer = nil
+        queue.sync { sampleOnQueue() }
+    }
+
+    func sample() { queue.async { [weak self] in self?.sampleOnQueue() } }
+
+    func sampleNow() { queue.sync { sampleOnQueue() } }
+
+    private func sampleOnQueue() {
+        let parts = LibmihomoTrafficTotals().split(separator: ",").compactMap { Int64($0) }
+        guard parts.count == 2 else { return }
+        let up = parts[0], down = parts[1]
+        // Counters restart with the core; a smaller value means a restart, count from zero.
+        let du = up >= lastUp ? up - lastUp : up
+        let dd = down >= lastDown ? down - lastDown : down
+        lastUp = up
+        lastDown = down
+        TrafficHistory.add(up: du, down: dd)
     }
 }

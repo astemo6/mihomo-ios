@@ -1,0 +1,467 @@
+package libmihomo
+
+// Full-profile import of Surge .conf and Quantumult X .conf (best effort). Translation layer only:
+// the result is an ordinary mihomo profile plus, when the file carries rewrite / MitM / script
+// sections, a module text for the shared module store. A report lists what could not be carried over.
+
+import (
+	"encoding/json"
+	"fmt"
+	"regexp"
+	"strings"
+
+	"github.com/astemo6/mihomo-ios/bridge/mitm"
+
+	"go.yaml.in/yaml/v3"
+)
+
+type confReport struct {
+	Format    string   `json:"format"` // surge | qx
+	Proxies   int      `json:"proxies"`
+	Groups    int      `json:"groups"`
+	Rules     int      `json:"rules"`
+	Providers int      `json:"providers"`
+	Module    bool     `json:"module"`
+	Skipped   []string `json:"skipped"`
+	Notes     []string `json:"notes"`
+}
+
+type confResult struct {
+	YAML   string     `json:"yaml"`
+	Module string     `json:"module,omitempty"`
+	Report confReport `json:"report"`
+	Error  string     `json:"error,omitempty"`
+}
+
+var confSectionRe = regexp.MustCompile(`^\[([^\]]+)\]\s*$`)
+
+// Convert-on-download provider URLs: buildRuntime rewrites "convert+<kind>:<url>" to /rules/convert.
+const convertScheme = "convert+"
+
+func splitSections(text string) (order []string, secs map[string][]string) {
+	secs = map[string][]string{}
+	cur := ""
+	for _, raw := range strings.Split(strings.ReplaceAll(text, "\r", ""), "\n") {
+		t := strings.TrimSpace(raw)
+		if m := confSectionRe.FindStringSubmatch(t); m != nil {
+			cur = strings.ToLower(strings.TrimSpace(m[1]))
+			if _, ok := secs[cur]; !ok {
+				order = append(order, cur)
+			}
+			secs[cur] = append(secs[cur], "")
+			continue
+		}
+		if t == "" || strings.HasPrefix(t, "#") || strings.HasPrefix(t, ";") || strings.HasPrefix(t, "//") {
+			continue
+		}
+		secs[cur] = append(secs[cur], t)
+	}
+	return
+}
+
+func nonEmpty(l []string) []string {
+	var out []string
+	for _, s := range l {
+		if s != "" {
+			out = append(out, s)
+		}
+	}
+	return out
+}
+
+func builtinPolicy(s string) string {
+	s = strings.ToUpper(strings.TrimSpace(s))
+	if strings.HasPrefix(s, "REJECT") {
+		if s == "REJECT-DROP" {
+			return s
+		}
+		return "REJECT"
+	}
+	return "DIRECT"
+}
+
+// ImportConf converts a Surge or Quantumult X profile to mihomo. Returns JSON {yaml, module, report, error}.
+func ImportConf(text string) string {
+	res := confResult{Report: confReport{Skipped: []string{}, Notes: []string{}}}
+	order, secs := splitSections(text)
+	_, isQX := secs["server_local"]
+	if _, ok := secs["policy"]; ok {
+		isQX = true
+	}
+	if _, ok := secs["filter_local"]; ok {
+		isQX = true
+	}
+	if isQX {
+		res.Report.Format = "qx"
+	} else if _, ok := secs["proxy"]; ok || secs["rule"] != nil {
+		res.Report.Format = "surge"
+	} else {
+		res.Error = "未识别为 Surge 或 Quantumult X 配置（缺少 [Proxy]/[Rule] 或 [server_local]/[policy] 段）"
+		b, _ := json.Marshal(res)
+		return string(b)
+	}
+	rep := &res.Report
+	var proxies []any
+	var groups []any
+	groupNames := map[string]bool{}
+	proxyNames := map[string]bool{}
+	skip := func(sec, line, why string) {
+		if len(rep.Skipped) < 200 {
+			rep.Skipped = append(rep.Skipped, fmt.Sprintf("[%s] %s — %s", sec, line, why))
+		}
+	}
+
+	// ---- proxies
+	proxySec := "proxy"
+	if isQX {
+		proxySec = "server_local"
+	}
+	for _, l := range nonEmpty(secs[proxySec]) {
+		var p map[string]any
+		var err error
+		if isQX {
+			p, err = parseQXLine(l)
+		} else {
+			name, rhs, _ := strings.Cut(l, "=")
+			name = strings.TrimSpace(name)
+			rhs = strings.ToLower(strings.TrimSpace(rhs))
+			if strings.HasPrefix(rhs, "direct") || strings.HasPrefix(rhs, "reject") {
+				// Surge built-in alias like "Block = reject": a one-member group.
+				groups = append(groups, map[string]any{"name": name, "type": "select", "proxies": []any{builtinPolicy(strings.SplitN(rhs, ",", 2)[0])}})
+				groupNames[name] = true
+				continue
+			}
+			p, err = parseSurgeLine(l)
+		}
+		if err != nil {
+			skip(proxySec, l, err.Error())
+			continue
+		}
+		proxies = append(proxies, p)
+		proxyNames[strOf(p["name"])] = true
+	}
+	if isQX && len(nonEmpty(secs["server_remote"])) > 0 {
+		rep.Notes = append(rep.Notes, fmt.Sprintf("[server_remote] 的 %d 个远程节点订阅未导入：请在「配置」里作为订阅单独添加", len(nonEmpty(secs["server_remote"]))))
+	}
+
+	// ---- groups
+	type pendingGroup struct {
+		name, typ string
+		members   []string
+		opts      map[string]string
+	}
+	var pg []pendingGroup
+	parseGroup := func(name, typ string, parts []string) pendingGroup {
+		g := pendingGroup{name: strings.TrimSpace(name), typ: typ, opts: map[string]string{}}
+		for _, p := range parts {
+			if kk, vv, ok := strings.Cut(p, "="); ok {
+				g.opts[strings.ToLower(strings.TrimSpace(kk))] = strings.TrimSpace(vv)
+				continue
+			}
+			g.members = append(g.members, strings.TrimSpace(p))
+		}
+		return g
+	}
+	if isQX {
+		qxGroupType := map[string]string{"static": "select", "available": "fallback", "round-robin": "load-balance", "url-latency-benchmark": "url-test", "dest-hash": "load-balance", "ssid": "select"}
+		for _, l := range nonEmpty(secs["policy"]) {
+			k, v, ok := strings.Cut(l, "=")
+			if !ok {
+				continue
+			}
+			typ, known := qxGroupType[strings.ToLower(strings.TrimSpace(k))]
+			if !known {
+				skip("policy", l, "不支持的策略类型")
+				continue
+			}
+			parts := splitParams(v)
+			if len(parts) == 0 {
+				continue
+			}
+			g := parseGroup(parts[0], typ, parts[1:])
+			if strings.HasPrefix(strings.ToLower(strings.TrimSpace(k)), "ssid") {
+				rep.Notes = append(rep.Notes, "SSID 策略组「"+g.name+"」按普通选择组导入（不随 Wi-Fi 切换）")
+			}
+			pg = append(pg, g)
+		}
+	} else {
+		for _, l := range nonEmpty(secs["proxy group"]) {
+			name, v, ok := strings.Cut(l, "=")
+			if !ok {
+				continue
+			}
+			parts := splitParams(v)
+			if len(parts) == 0 {
+				continue
+			}
+			t := strings.ToLower(strings.TrimSpace(parts[0]))
+			typ := map[string]string{"select": "select", "url-test": "url-test", "fallback": "fallback", "load-balance": "load-balance", "smart": "url-test"}[t]
+			if typ == "" {
+				skip("Proxy Group", l, "不支持的策略组类型 "+t)
+				continue
+			}
+			if t == "smart" {
+				rep.Notes = append(rep.Notes, "Surge smart 组「"+strings.TrimSpace(name)+"」转为 url-test")
+			}
+			pg = append(pg, parseGroup(name, typ, parts[1:]))
+		}
+	}
+	for _, g := range pg {
+		groupNames[g.name] = true
+	}
+	providers := map[string]any{}
+	for _, g := range pg {
+		m := map[string]any{"name": g.name, "type": g.typ}
+		var members []any
+		for _, mem := range g.members {
+			u := strings.ToUpper(mem)
+			switch {
+			case u == "DIRECT" || strings.HasPrefix(u, "REJECT"):
+				members = append(members, builtinPolicy(u))
+			case groupNames[mem] || proxyNames[mem]:
+				members = append(members, mem)
+			case u == "PROXY" && isQX:
+				skip("group "+g.name, mem, "QX 的 proxy 成员没有对应项，已忽略")
+			default:
+				skip("group "+g.name, mem, "成员不存在")
+			}
+		}
+		if pp := g.opts["policy-path"]; strings.Contains(pp, "://") {
+			rep.Notes = append(rep.Notes, "策略组「"+g.name+"」的 policy-path 远程节点列表未导入，请把该订阅作为单独配置添加")
+		}
+		if re := firstNonEmpty(g.opts["policy-regex-filter"], g.opts["server-tag-regex"]); re != "" {
+			m["filter"] = re
+			m["include-all-proxies"] = true
+		}
+		if len(members) == 0 && m["include-all-proxies"] == nil {
+			members = append(members, "DIRECT")
+		}
+		if len(members) > 0 {
+			m["proxies"] = members
+		}
+		if g.typ == "url-test" || g.typ == "fallback" || g.typ == "load-balance" {
+			m["url"] = firstNonEmpty(g.opts["url"], g.opts["check-interval-url"], "https://www.gstatic.com/generate_204")
+			m["interval"] = atoi(firstNonEmpty(g.opts["interval"], g.opts["check-interval"]), 300)
+			if tol := atoi(g.opts["tolerance"], 0); tol > 0 {
+				m["tolerance"] = tol
+			}
+		}
+		groups = append(groups, m)
+	}
+
+	// ---- rules
+	var gl, pl []string
+	firstSelect := ""
+	for _, g := range groups {
+		gm := g.(map[string]any)
+		gl = append(gl, strOf(gm["name"]))
+		if firstSelect == "" && gm["type"] == "select" {
+			firstSelect = strOf(gm["name"])
+		}
+	}
+	for n := range proxyNames {
+		pl = append(pl, n)
+	}
+	var rules []any
+	ruleSec := "rule"
+	if isQX {
+		ruleSec = "filter_local"
+	}
+	addRemote := func(u, kind, pol, line string) {
+		p, ok := mitm.ResolvePolicy(pol, gl, pl, firstSelect)
+		if !ok {
+			skip(ruleSec, line, "策略「"+pol+"」不存在")
+			return
+		}
+		name := providerNameFor(u, kind)
+		behavior := "classical"
+		if kind == "domainset" {
+			behavior = "domain"
+		}
+		providers[name] = map[string]any{"type": "http", "behavior": behavior, "format": "text", "url": convertScheme + kind + ":" + u, "path": "./ruleset/" + name + ".txt", "interval": 86400}
+		rules = append(rules, "RULE-SET,"+name+","+p)
+	}
+	var final any
+	for _, l := range nonEmpty(secs[ruleSec]) {
+		c, err := mitm.ConvertRuleLine(l)
+		if err != nil {
+			skip(ruleSec, l, err.Error())
+			continue
+		}
+		if c.RemoteURL != "" {
+			addRemote(c.RemoteURL, c.RemoteKind, c.Policy, l)
+			continue
+		}
+		if c.Rule == "" {
+			continue
+		}
+		pol, ok := mitm.ResolvePolicy(c.Policy, gl, pl, firstSelect)
+		if !ok {
+			skip(ruleSec, l, "策略「"+c.Policy+"」不存在")
+			continue
+		}
+		if c.Type == "MATCH" {
+			final = c.Format(pol)
+			continue
+		}
+		rules = append(rules, c.Format(pol))
+	}
+	if isQX {
+		for _, l := range nonEmpty(secs["filter_remote"]) {
+			sp, ok := parseQXRemote(l)
+			if !ok {
+				skip("filter_remote", l, "无效或已禁用")
+				continue
+			}
+			if !strings.Contains(strings.ToLower(l), "force-policy") {
+				rep.Notes = append(rep.Notes, "filter_remote 未指定 force-policy 的列表按 proxy 处理："+sp.URL)
+			}
+			addRemote(sp.URL, "list", sp.Policy, l)
+		}
+	}
+	if final == nil {
+		target := firstSelect
+		if target == "" {
+			target = "DIRECT"
+		}
+		final = "MATCH," + target
+		rep.Notes = append(rep.Notes, "原配置没有 FINAL 规则，已追加 MATCH,"+target)
+	}
+	rules = append(rules, final) // mihomo needs MATCH last
+
+	// ---- DNS / general (best effort)
+	cfg := map[string]any{"mode": "rule", "proxies": proxies, "proxy-groups": groups, "rules": rules}
+	if len(providers) > 0 {
+		cfg["rule-providers"] = providers
+	}
+	listOf := func(v string) []any {
+		var out []any
+		for _, s := range strings.Split(v, ",") {
+			if s = strings.TrimSpace(s); s != "" && s != "system" {
+				out = append(out, s)
+			}
+		}
+		return out
+	}
+	for _, l := range nonEmpty(secs["general"]) {
+		k, v, ok := strings.Cut(l, "=")
+		if !ok {
+			continue
+		}
+		switch strings.ToLower(strings.TrimSpace(k)) {
+		case "dns-server":
+			if ns := listOf(v); len(ns) > 0 {
+				d, _ := cfg["dns"].(map[string]any)
+				if d == nil {
+					d = map[string]any{"enable": true}
+				}
+				d["default-nameserver"] = ns
+				if d["nameserver"] == nil {
+					d["nameserver"] = ns
+				}
+				cfg["dns"] = d
+			}
+		case "encrypted-dns-server":
+			if ns := listOf(v); len(ns) > 0 {
+				d, _ := cfg["dns"].(map[string]any)
+				if d == nil {
+					d = map[string]any{"enable": true}
+				}
+				d["nameserver"] = ns
+				cfg["dns"] = d
+			}
+		case "ipv6":
+			cfg["ipv6"] = truthy(v)
+		}
+	}
+	if isQX {
+		for _, l := range nonEmpty(secs["dns"]) {
+			if k, v, ok := strings.Cut(l, "="); ok && strings.EqualFold(strings.TrimSpace(k), "server") {
+				s := strings.TrimSpace(v)
+				if strings.HasPrefix(s, "/") {
+					rep.Notes = append(rep.Notes, "[dns] 指定域名的服务器未导入，可在「DNS」页面的 nameserver-policy 中添加："+s)
+					continue
+				}
+				d, _ := cfg["dns"].(map[string]any)
+				if d == nil {
+					d = map[string]any{"enable": true}
+				}
+				d["nameserver"] = append(asList(d["nameserver"]), s)
+				cfg["dns"] = d
+			}
+		}
+	}
+
+	// ---- rewrite / MitM / scripts → one module text
+	moduleSecs := map[string]bool{"url rewrite": true, "header rewrite": true, "body rewrite": true, "map local": true, "script": true, "mitm": true,
+		"rewrite_local": true}
+	known := map[string]bool{"": true, "general": true, "proxy": true, "proxy group": true, "rule": true, "server_local": true, "server_remote": true,
+		"policy": true, "filter_local": true, "filter_remote": true, "dns": true, "replica": true, "host": true, "task_local": true}
+	var mod strings.Builder
+	for _, s := range order {
+		if !moduleSecs[s] {
+			if !known[s] {
+				rep.Notes = append(rep.Notes, "["+s+"] 段未导入")
+			}
+			continue
+		}
+		lines := nonEmpty(secs[s])
+		if len(lines) == 0 {
+			continue
+		}
+		title := s
+		if s == "mitm" && !isQX {
+			title = "MITM"
+		}
+		mod.WriteString("[" + title + "]\n" + strings.Join(lines, "\n") + "\n\n")
+	}
+	if isQX && len(nonEmpty(secs["rewrite_remote"])) > 0 {
+		rep.Notes = append(rep.Notes, "[rewrite_remote] 远程重写请在「模块」中逐个添加链接")
+	}
+	if isQX && len(nonEmpty(secs["task_local"])) > 0 {
+		rep.Notes = append(rep.Notes, "[task_local] 定时任务暂不支持")
+	}
+	if mod.Len() > 0 {
+		res.Module = mod.String()
+		rep.Module = true
+	}
+	rep.Proxies, rep.Groups, rep.Rules, rep.Providers = len(proxies), len(groups), len(rules), len(providers)
+	if len(proxies) == 0 {
+		rep.Notes = append(rep.Notes, "没有导入到节点；可以之后在「手动节点」或订阅中补充")
+	}
+	y, err := yaml.Marshal(cfg)
+	if err != nil {
+		res.Error = err.Error()
+	} else {
+		res.YAML = string(y)
+	}
+	b, _ := json.Marshal(res)
+	return string(b)
+}
+
+// rewriteConvertProviders turns "convert+<kind>:<url>" provider URLs into the local /rules/convert
+// endpoint (needs the runtime controller port + secret, so it happens in buildRuntime).
+func rewriteConvertProviders(raw map[string]any, o Overrides) {
+	rp, ok := raw["rule-providers"].(map[string]any)
+	if !ok {
+		return
+	}
+	for _, v := range rp {
+		m, ok := v.(map[string]any)
+		if !ok {
+			continue
+		}
+		u := str(m["url"])
+		if !strings.HasPrefix(u, convertScheme) {
+			continue
+		}
+		kind, src, ok := strings.Cut(strings.TrimPrefix(u, convertScheme), ":")
+		if !ok {
+			continue
+		}
+		tmp := map[string]any{}
+		name := strings.TrimPrefix(addRemoteProvider(tmp, o, remoteSpec{URL: src, Kind: kind, Interval: intOf(m["interval"])}), "RULE-SET,")
+		conv := tmp["rule-providers"].(map[string]any)[name].(map[string]any)
+		m["url"], m["header"], m["proxy"] = conv["url"], conv["header"], conv["proxy"]
+	}
+}

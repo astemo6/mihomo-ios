@@ -3,8 +3,10 @@ package libmihomo
 import (
 	"encoding/base64"
 	"encoding/json"
+	"net/url"
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
 
 	C "github.com/metacubex/mihomo/constant"
@@ -41,6 +43,9 @@ func TestParseAllProtocols(t *testing.T) {
 		"surge-tuic": "SurgeTUIC = tuic-v5, tu.example.com, 443, uuid=b831381d-6324-4d53-ad4f-8cda48b30811, password=pw, sni=tu.example.com",
 		"surge-any":  "SurgeAny = anytls, a.example.com, 443, password=pw",
 		"surge-ssh":  "SurgeSSH = ssh, 1.2.3.4, 22, username=root, password=pw",
+		"ssh":        "ssh://root:pw@1.2.3.4:2222#ssh1",
+		"ssh-key":    "ssh://deploy@ssh.example.com?private-key=" + url.QueryEscape(testSSHKey) + "&host-key=" + url.QueryEscape("ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAIDkxZiSNroRR3hdXsa26Rdvud638xLS56sL1+CNw2cz+") + "#sshkey",
+		"ssh-b64key": "ssh://deploy:pw@ssh.example.com:22?pk=" + url.QueryEscape(b64(testSSHKey)) + "#sshb64",
 		"surge-s5":   "SurgeS5 = socks5, 1.2.3.4, 1080, user, pass",
 		"surge-http": "SurgeHTTP = https, 1.2.3.4, 443, user, pass",
 		"qx-ss":      "shadowsocks=1.2.3.4:8388, method=aes-128-gcm, password=pw, obfs=http, obfs-host=bing.com, udp-relay=true, tag=QXSS",
@@ -100,3 +105,36 @@ func TestParseAllProtocols(t *testing.T) {
 }
 
 func b64(s string) string { return base64.StdEncoding.EncodeToString([]byte(s)) }
+
+// Throwaway ed25519 key generated for tests only (not used anywhere).
+const testSSHKey = `-----BEGIN OPENSSH PRIVATE KEY-----
+b3BlbnNzaC1rZXktdjEAAAAABG5vbmUAAAAEbm9uZQAAAAAAAAABAAAAMwAAAAtz
+c2gtZWQyNTUxOQAAACA5MWYkja6EUd4XV7GtukXb7net/MS0uerC9fgjcNnM/gAA
+AJjs9yrU7Pcq1AAAAAtzc2gtZWQyNTUxOQAAACA5MWYkja6EUd4XV7GtukXb7net
+/MS0uerC9fgjcNnM/gAAAEBQa8eARYOYZNKkO93T406pO5r+Vc5Fj9FgvS1SwMzJ
+yzkxZiSNroRR3hdXsa26Rdvud638xLS56sL1+CNw2cz+AAAAD3Rlc3RAbWlob21v
+LWlvcwECAwQFBg==
+-----END OPENSSH PRIVATE KEY-----`
+
+func TestSSHLinkFields(t *testing.T) {
+	p, err := parseSSH("ssh://alice@h.example.com:2200?password=p%40ss&host-key-algorithms=ssh-ed25519,rsa-sha2-256#A%20B")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if p["username"] != "alice" || p["password"] != "p@ss" || p["port"] != 2200 || p["name"] != "A B" {
+		t.Fatalf("%v", p)
+	}
+	if algs, _ := p["host-key-algorithms"].([]any); len(algs) != 2 {
+		t.Fatalf("algs %v", p["host-key-algorithms"])
+	}
+	if _, err := parseSSH("ssh://bob@h.example.com"); err == nil {
+		t.Fatal("expected error without password or key")
+	}
+	if _, err := parseSSH("ssh://:pw@h.example.com"); err == nil {
+		t.Fatal("expected error without user")
+	}
+	k, _ := parseSSH("ssh://deploy@h?pk=" + url.QueryEscape(b64(testSSHKey)))
+	if s, _ := k["private-key"].(string); !strings.Contains(s, "BEGIN OPENSSH") {
+		t.Fatalf("b64 key not decoded: %v", k["private-key"])
+	}
+}

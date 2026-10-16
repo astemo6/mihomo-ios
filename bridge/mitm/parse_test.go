@@ -140,14 +140,21 @@ hostname = %APPEND% api.a.com, *.b.com, -c.b.com, d.com:8443
 	if strings.Join(rs.Hostnames, ",") != "api.a.com,*.b.com,-c.b.com,d.com:8443" {
 		t.Errorf("hostnames: %v", rs.Hostnames)
 	}
-	if len(rs.CoreRules) != 1 || rs.CoreRules[0] != "DOMAIN-SUFFIX,ads.example.com,REJECT" {
+	if len(rs.CoreRules) != 2 || rs.CoreRules[0] != "DOMAIN-SUFFIX,ads.example.com,REJECT" || rs.CoreRules[1] != "DOMAIN,keep.com,PROXY" {
 		t.Errorf("core rules: %v", rs.CoreRules)
 	}
 	if len(rs.Rules) != 1 || rs.Rules[0].Action != "reject-img" {
 		t.Errorf("url-regex reject: %+v", rs.Rules)
 	}
-	if len(rs.Unsupported) != 1 {
-		t.Errorf("named policy rule should be unsupported: %v", rs.Unsupported)
+	// Named policies resolve against the profile at inject time; unknown ones are reported and dropped.
+	raw := map[string]any{"proxy-groups": []any{map[string]any{"name": "Proxy", "type": "select"}}}
+	unres := map[string]bool{}
+	got := ResolveCoreRules(raw, append(rs.CoreRules, "DOMAIN,x.com,Netflix"), unres)
+	if strings.Join(got, "|") != "DOMAIN-SUFFIX,ads.example.com,REJECT|DOMAIN,keep.com,Proxy" || !unres["Netflix"] {
+		t.Errorf("resolve: %v %v", got, unres)
+	}
+	if mapPolicy("DOMAIN,x.com,Netflix", map[string]string{"Netflix": "Proxy"}) != "DOMAIN,x.com,Proxy" {
+		t.Error("mapPolicy")
 	}
 	m := NewHostMatcher(rs.Hostnames)
 	for _, c := range []struct {
@@ -225,5 +232,125 @@ func TestBadRegexReported(t *testing.T) {
 	r := one(t, `^https?://(?!static\.)[\w.]+\.a\.com/ad - reject`, "")
 	if !r.match("https://img.a.com/ad") || r.match("https://static.a.com/ad") {
 		t.Error("lookahead semantics")
+	}
+}
+
+func TestLoonArgumentSection(t *testing.T) {
+	text := `#!name=Loon Arg
+[Argument]
+blockAd = switch,true,tag=去广告,desc=开关
+blockTrack = switch,false,tag=去追踪
+tgt = select,"reject-dict","reject",tag=方式
+
+[Rewrite]
+^https?:\/\/ad\.example\.com\/\d{2} {tgt}
+^https?:\/\/track\.example\.com\/ reject, enable={blockTrack}
+
+[MITM]
+hostname = ad.example.com
+`
+	rs := &Ruleset{}
+	rs.ParseText(text, "t", nil)
+	if rs.Format != "loon" || len(rs.Arguments) != 3 {
+		t.Fatalf("format %s args %+v", rs.Format, rs.Arguments)
+	}
+	if rs.Arguments[2].Type != "select" || len(rs.Arguments[2].Options) != 2 || rs.Arguments[2].Default != "reject-dict" {
+		t.Fatalf("%+v", rs.Arguments[2])
+	}
+	if len(rs.Rules) != 1 || !strings.Contains(rs.Rules[0].Pattern, `\d{2}`) {
+		t.Fatalf("rules %+v errors %v", rs.Rules, rs.Errors)
+	}
+	rs2 := &Ruleset{}
+	rs2.ParseText(text, "t", map[string]string{"blockTrack": "true", "tgt": "reject"})
+	if len(rs2.Rules) != 2 {
+		t.Fatalf("with args: %+v %v", rs2.Rules, rs2.Errors)
+	}
+}
+
+func TestConvertRuleSyntaxes(t *testing.T) {
+	cases := map[string]string{
+		"DOMAIN-SUFFIX,google.com,Proxy":                    "DOMAIN-SUFFIX,google.com,P",
+		"IP-CIDR,10.0.0.0/8,DIRECT,no-resolve":              "IP-CIDR,10.0.0.0/8,P,no-resolve",
+		"IP-CIDR6,2001:db8::/32,DIRECT":                     "IP-CIDR6,2001:db8::/32,P",
+		"GEOIP,CN,DIRECT":                                   "GEOIP,CN,P",
+		"IP-ASN,AS13335,Proxy,no-resolve":                   "IP-ASN,13335,P,no-resolve",
+		"DEST-PORT,443,Proxy":                               "DST-PORT,443,P",
+		"SRC-IP,192.168.1.2,DIRECT":                         "SRC-IP-CIDR,192.168.1.2/32,P",
+		"DOMAIN-WILDCARD,*.a?.com,Proxy":                    "DOMAIN-WILDCARD,*.a?.com,P",
+		"PROCESS-NAME,Telegram,Proxy":                       "PROCESS-NAME,Telegram,P",
+		"AND,((DOMAIN-SUFFIX,a.com),(DEST-PORT,443)),Proxy": "AND,((DOMAIN-SUFFIX,a.com),(DST-PORT,443)),P",
+		"OR,((PROTOCOL,UDP),(NOT,((DOMAIN,b.com)))),REJECT": "OR,((NETWORK,UDP),(NOT,((DOMAIN,b.com)))),P",
+		"FINAL,Proxy,dns-failed":                            "MATCH,P",
+		"host-suffix, apple.com, direct":                    "DOMAIN-SUFFIX,apple.com,P",
+		"host-keyword, ads, reject":                         "DOMAIN-KEYWORD,ads,P",
+		"host-wildcard, *.test.com, proxy":                  "DOMAIN-WILDCARD,*.test.com,P",
+		"ip6-cidr, 2001:db8::/32, proxy":                    "IP-CIDR6,2001:db8::/32,P",
+		"ip-asn, 4134, direct":                              "IP-ASN,4134,P",
+		"final, proxy":                                      "MATCH,P",
+		"RULE-SET,cn_domain,DIRECT":                         "RULE-SET,cn_domain,P",
+		"RULE-SET,LAN,DIRECT":                               "GEOIP,private,P,no-resolve",
+	}
+	for in, want := range cases {
+		c, err := ConvertRuleLine(in)
+		if err != nil {
+			t.Errorf("%s: %v", in, err)
+			continue
+		}
+		if got := c.Format("P"); got != want {
+			t.Errorf("%s -> %s (want %s)", in, got, want)
+		}
+	}
+	for _, bad := range []string{"USER-AGENT,Instagram*,Proxy", "URL-REGEX,^http://a,Proxy", "user-agent, Foo*, proxy", "CELLULAR-RADIO,LTE,DIRECT", "WEIRD,x,DIRECT"} {
+		c, err := ConvertRuleLine(bad)
+		if err == nil || c.Unsupported == "" {
+			t.Errorf("%s should be flagged unsupported", bad)
+		}
+	}
+	c, _ := ConvertRuleLine("RULE-SET,https://example.com/x.list,Proxy,no-resolve")
+	if c.RemoteURL != "https://example.com/x.list" || c.RemoteKind != "list" || c.Policy != "Proxy" {
+		t.Errorf("remote: %+v", c)
+	}
+	c, _ = ConvertRuleLine("DOMAIN-SET,https://example.com/d.txt,REJECT")
+	if c.RemoteKind != "domainset" {
+		t.Errorf("domain-set: %+v", c)
+	}
+	groups := []string{"Proxy", "Netflix"}
+	if p, ok := ResolvePolicy("proxy", groups, nil, "Proxy"); !ok || p != "Proxy" {
+		t.Error("proxy → first select")
+	}
+	if p, ok := ResolvePolicy("netflix", groups, nil, "Proxy"); !ok || p != "Netflix" {
+		t.Error("case-insensitive group")
+	}
+	if p, _ := ResolvePolicy("REJECT-TINYGIF", groups, nil, ""); p != "REJECT" {
+		t.Error(p)
+	}
+	if _, ok := ResolvePolicy("Disney", groups, nil, "Proxy"); ok {
+		t.Error("unknown should not resolve")
+	}
+}
+
+func TestConvertListLines(t *testing.T) {
+	cases := map[string]string{
+		"DOMAIN-SUFFIX,google.com":            "DOMAIN-SUFFIX,google.com",
+		"IP-CIDR,1.0.0.0/8,no-resolve":        "IP-CIDR,1.0.0.0/8,no-resolve",
+		"host-suffix, ads.com, reject":        "DOMAIN-SUFFIX,ads.com",
+		"HOST,a.com,Proxy":                    "DOMAIN,a.com",
+		"  - DOMAIN-KEYWORD,track":            "DOMAIN-KEYWORD,track",
+		"AND,((DOMAIN,a.com),(DEST-PORT,80))": "AND,((DOMAIN,a.com),(DST-PORT,80))",
+	}
+	for in, want := range cases {
+		got, ok := ConvertListLine(in, "list")
+		if !ok || got != want {
+			t.Errorf("%q -> %q %v (want %q)", in, got, ok, want)
+		}
+	}
+	if got, _ := ConvertListLine(".apple.com", "domainset"); got != "+.apple.com" {
+		t.Error(got)
+	}
+	if _, ok := ConvertListLine("# comment", "list"); ok {
+		t.Error("comment")
+	}
+	if _, ok := ConvertListLine("USER-AGENT,foo", "list"); ok {
+		t.Error("unsupported line should be dropped")
 	}
 }
