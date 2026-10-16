@@ -57,6 +57,9 @@ struct MoreView: View {
 
                 Section("设置") {
                     NavigationLink { SettingsView() } label: { row("内核设置", "slider.horizontal.3", nil) }
+                    if UIApplication.shared.supportsAlternateIcons {
+                        NavigationLink { AppIconView() } label: { row("App 图标", "app.badge", nil) }
+                    }
                     NavigationLink { DiagnosticsView() } label: {
                         HStack {
                             Label("诊断", systemImage: "waveform.path.ecg")
@@ -470,5 +473,55 @@ struct AboutView: View {
         .scrollContentBackground(.hidden)
         .background(Theme.bg.ignoresSafeArea())
         .navigationTitle("关于")
+    }
+}
+
+
+// MARK: - App icon
+
+struct AppIconView: View {
+    static let icons: [(name: String?, title: String, preview: String)] = [
+        (nil, "默认", "IconPreview-Default"),
+        ("AppIcon-Graphite", "石墨", "IconPreview-Graphite"),
+        ("AppIcon-Aurora", "极光", "IconPreview-Aurora"),
+    ]
+    @State private var current = UIApplication.shared.alternateIconName
+    @State private var error: String?
+
+    var body: some View {
+        List {
+            Section {
+                ForEach(Self.icons, id: \.preview) { icon in
+                    Button { set(icon.name) } label: {
+                        HStack(spacing: 14) {
+                            Image(icon.preview)
+                                .resizable().scaledToFit()
+                                .frame(width: 56, height: 56)
+                                .clipShape(RoundedRectangle(cornerRadius: 13, style: .continuous))
+                                .overlay(RoundedRectangle(cornerRadius: 13, style: .continuous).stroke(Color.white.opacity(0.1)))
+                            Text(LocalizedStringKey(icon.title)).foregroundStyle(.primary)
+                            Spacer()
+                            if current == icon.name { Image(systemName: "checkmark").foregroundStyle(Theme.accent) }
+                        }
+                    }
+                }
+            } footer: {
+                if let error { Text(error).foregroundStyle(Theme.bad) } else { Text("切换后系统会弹出一次确认提示。") }
+            }
+            .listRowBackground(Theme.card)
+        }
+        .listStyle(.insetGrouped)
+        .scrollContentBackground(.hidden)
+        .background(Theme.bg.ignoresSafeArea())
+        .navigationTitle("App 图标")
+    }
+
+    func set(_ name: String?) {
+        guard name != current else { return }
+        UIApplication.shared.setAlternateIconName(name) { err in
+            DispatchQueue.main.async {
+                if let err { error = err.localizedDescription } else { current = name; error = nil }
+            }
+        }
     }
 }
