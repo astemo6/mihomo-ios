@@ -62,7 +62,7 @@ final class PacketTunnelProvider: NEPacketTunnelProvider {
         LibmihomoSetNotifier(notifier)
         LibmihomoSetMemoryLimit(Int32(overrides.memoryLimitMB))
         let proxyOnly = overrides.isProxyOnly
-        StartupLog.write("mode \(proxyOnly ? "proxy-only (NEProxySettings)" : "tun (NEPacketTunnelFlow bridge)"), mtu \(overrides.tunMTU), GOMEMLIMIT \(overrides.memoryLimitMB) MB\(overrides.safeMode ? ", SAFE MODE" : "")")
+        StartupLog.write("mode \(proxyOnly ? "proxy-only (NEProxySettings)" : overrides.isMixed ? "mix (tun + system proxy)" : "tun (NEPacketTunnelFlow bridge)"), quic \(overrides.blockQUIC), routes +\(overrides.includedRoutes.count)/-\(overrides.excludedRoutes.count), mtu \(overrides.tunMTU), GOMEMLIMIT \(overrides.memoryLimitMB) MB\(overrides.safeMode ? ", SAFE MODE" : "")")
         if let v = Bundle.main.object(forInfoDictionaryKey: "CFBundleShortVersionString") as? String {
             StartupLog.write("tunnel \(v) (\(Bundle.main.object(forInfoDictionaryKey: "CFBundleVersion") as? String ?? "?")), \(LibmihomoVersion())")
         }
@@ -125,43 +125,49 @@ final class PacketTunnelProvider: NEPacketTunnelProvider {
         }
     }
 
-    /// Tun mode: default route through the packet flow, DNS to the core. Proxy-only mode: no routes,
-    /// only an HTTP/HTTPS system proxy pointing at the core's local mixed port.
+    /// 连接方式 (v0.7): tun = routes through the packet flow, DNS to the core; mix = the same plus a
+    /// system HTTP/HTTPS proxy pointing at the core's local mixed port; proxy = only that system proxy, no
+    /// routes and no DNS. Routes and the proxy skip list come from 更多 → 连接方式 (defaults = v0.6.1 values).
     static func networkSettings(_ o: CoreOverrides) -> NEPacketTunnelNetworkSettings {
         let settings = NEPacketTunnelNetworkSettings(tunnelRemoteAddress: "127.0.0.1")
         let ipv4 = NEIPv4Settings(addresses: ["198.18.0.1"], subnetMasks: ["255.255.0.0"])
         if o.isProxyOnly {
             ipv4.includedRoutes = []
             settings.ipv4Settings = ipv4
-            let proxy = NEProxySettings()
-            proxy.httpEnabled = true
-            proxy.httpsEnabled = true
-            proxy.httpServer = NEProxyServer(address: "127.0.0.1", port: o.mixedPort)
-            proxy.httpsServer = NEProxyServer(address: "127.0.0.1", port: o.mixedPort)
-            proxy.excludeSimpleHostnames = true
-            proxy.exceptionList = ["localhost", "*.local", "127.0.0.1", "10.0.0.0/8", "172.16.0.0/12", "192.168.0.0/16", "captive.apple.com"]
-            settings.proxySettings = proxy
+            settings.proxySettings = systemProxy(o)
             return settings
         }
         settings.mtu = NSNumber(value: o.tunMTU)
-        ipv4.includedRoutes = [NEIPv4Route.default()]
-        ipv4.excludedRoutes = [
-            NEIPv4Route(destinationAddress: "10.0.0.0", subnetMask: "255.0.0.0"),
-            NEIPv4Route(destinationAddress: "172.16.0.0", subnetMask: "255.240.0.0"),
-            NEIPv4Route(destinationAddress: "192.168.0.0", subnetMask: "255.255.0.0"),
-            NEIPv4Route(destinationAddress: "169.254.0.0", subnetMask: "255.255.0.0"),
-            NEIPv4Route(destinationAddress: "224.0.0.0", subnetMask: "240.0.0.0"),
-        ]
+        let inc = o.includedRoutes.compactMap(RouteSpec.init)
+        let exc = o.excludedRoutes.compactMap(RouteSpec.init)
+        let inc4 = inc.filter { !$0.isV6 }.map { NEIPv4Route(destinationAddress: $0.address, subnetMask: $0.mask) }
+        ipv4.includedRoutes = inc4.isEmpty ? [NEIPv4Route.default()] : inc4
+        ipv4.excludedRoutes = exc.filter { !$0.isV6 }.map { NEIPv4Route(destinationAddress: $0.address, subnetMask: $0.mask) }
         settings.ipv4Settings = ipv4
         if o.ipv6 {
             let ipv6 = NEIPv6Settings(addresses: ["fdfe:dcba:9876::1"], networkPrefixLengths: [126])
-            ipv6.includedRoutes = [NEIPv6Route.default()]
+            let inc6 = inc.filter(\.isV6).map { NEIPv6Route(destinationAddress: $0.address, networkPrefixLength: NSNumber(value: $0.prefix)) }
+            ipv6.includedRoutes = inc6.isEmpty ? [NEIPv6Route.default()] : inc6
+            ipv6.excludedRoutes = exc.filter(\.isV6).map { NEIPv6Route(destinationAddress: $0.address, networkPrefixLength: NSNumber(value: $0.prefix)) }
             settings.ipv6Settings = ipv6
         }
         let dns = NEDNSSettings(servers: ["198.18.0.2"])
         dns.matchDomains = [""]
         settings.dnsSettings = dns
+        if o.isMixed { settings.proxySettings = systemProxy(o) }
         return settings
+    }
+
+    private static func systemProxy(_ o: CoreOverrides) -> NEProxySettings {
+        let proxy = NEProxySettings()
+        proxy.httpEnabled = true
+        proxy.httpsEnabled = true
+        proxy.httpServer = NEProxyServer(address: "127.0.0.1", port: o.mixedPort)
+        proxy.httpsServer = NEProxyServer(address: "127.0.0.1", port: o.mixedPort)
+        proxy.excludeSimpleHostnames = true
+        let skip = o.skipProxy.map { $0.trimmingCharacters(in: .whitespaces) }.filter { !$0.isEmpty }
+        proxy.exceptionList = skip.isEmpty ? CoreOverrides.defaultSkipProxy : skip
+        return proxy
     }
 
     override func stopTunnel(with reason: NEProviderStopReason, completionHandler: @escaping () -> Void) {

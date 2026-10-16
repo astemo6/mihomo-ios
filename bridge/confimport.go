@@ -233,6 +233,11 @@ func ImportConf(text string) string {
 			m["filter"] = re
 			m["include-all-proxies"] = true
 		}
+		// Group icon (v0.7): QX img-url, Surge / Loon icon-url → mihomo `icon:` (only remote images;
+		// QX built-in icon names have no file we could show).
+		if ic := firstNonEmpty(g.opts["img-url"], g.opts["icon-url"]); strings.HasPrefix(ic, "http://") || strings.HasPrefix(ic, "https://") {
+			m["icon"] = ic
+		}
 		if len(members) == 0 && m["include-all-proxies"] == nil {
 			members = append(members, "DIRECT")
 		}

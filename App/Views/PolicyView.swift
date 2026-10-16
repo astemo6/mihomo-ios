@@ -74,6 +74,8 @@ struct PolicyGroupDisplay {
     var now: String?
     var members: [String]
     var selectable: Bool
+    /// The profile's own `icon:` (mihomo proxy-groups); the user's choice in group-icons.json wins.
+    var profileIcon: String? = nil
 
     static func kind(live type: String) -> String {
         switch type {
@@ -128,6 +130,13 @@ struct PolicyView: View {
     @State private var chainGroup: ChainGroupTarget?
     @State private var share: ShareTarget?
     @State private var shareError: String?
+    /// 排序 (v0.7): default = profile order; latency uses a snapshot so nodes don't jump while a test runs.
+    @AppStorage("policy.sort") private var sortMode = "default"
+    @AppStorage("policy.autoSort") private var autoSort = true
+    @State private var sortDelays: [String: Int] = [:]
+    @State private var iconTarget: IconTarget?
+
+    struct IconTarget: Identifiable { let id = UUID(); let name: String; let profileIcon: String? }
 
     struct ChainGroupTarget: Identifiable { let id = UUID(); let name: String }
 
@@ -146,6 +155,37 @@ struct PolicyView: View {
         }
     }
 
+    /// Takes the delays the latency sort uses (after a test when 测速后自动排序 is on, or when the sort changes).
+    private func snapshotDelays() {
+        if vpn.isConnected {
+            var d: [String: Int] = [:]
+            for g in model.groups { for m in g.all ?? [] { if let v = model.delay(of: m) { d[m] = v } } }
+            sortDelays = d
+        } else {
+            sortDelays = offline.delays
+        }
+    }
+
+    private func afterTest() { if autoSort && sortMode == "latency" { snapshotDelays() } }
+
+    private func ordered(_ members: [String]) -> [String] {
+        switch sortMode {
+        case "name":
+            return members.sorted { $0.localizedStandardCompare($1) == .orderedAscending }
+        case "latency":
+            var index: [String: Int] = [:]
+            for (i, m) in members.enumerated() where index[m] == nil { index[m] = i }
+            func key(_ m: String) -> (Int, Int, Int) {
+                let i = index[m] ?? 0
+                guard let d = sortDelays[m] else { return (2, 0, i) }
+                return d > 0 ? (0, d, i) : (1, 0, i)
+            }
+            return members.sorted { key($0) < key($1) }
+        default:
+            return members
+        }
+    }
+
     var body: some View {
         NavigationStack {
             Group {
@@ -154,7 +194,16 @@ struct PolicyView: View {
             .background(Theme.bg.ignoresSafeArea())
             .navigationTitle("策略")
             .toolbar {
-                ToolbarItem(placement: .navigationBarTrailing) {
+                ToolbarItemGroup(placement: .navigationBarTrailing) {
+                    Menu {
+                        Picker("排序", selection: $sortMode) {
+                            Label("配置顺序", systemImage: "list.number").tag("default")
+                            Label("按延迟", systemImage: "speedometer").tag("latency")
+                            Label("按名称", systemImage: "textformat").tag("name")
+                        }
+                        Toggle("测速后自动排序", isOn: $autoSort)
+                    } label: { Image(systemName: "arrow.up.arrow.down") }
+                    .accessibilityLabel(Text("排序"))
                     Button {
                         Task {
                             if vpn.isConnected {
@@ -162,14 +211,19 @@ struct PolicyView: View {
                             } else {
                                 for g in offline.result.groups where g.hidden != true { await offline.test(group: g) }
                             }
+                            afterTest()
                         }
                     } label: { Image(systemName: "bolt.fill") }
+                    .accessibilityLabel(Text("全部测速"))
                 }
             }
         }
         .task(id: vpn.isConnected) {
             if vpn.isConnected { await model.load() } else { await offline.load() }
+            snapshotDelays()
         }
+        .onChange(of: sortMode) { _ in snapshotDelays() }
+        .sheet(item: $iconTarget) { t in GroupIconPicker(group: t.name, profileIcon: t.profileIcon) }
         .onChange(of: store.activeID) { _ in Task { if !vpn.isConnected { await offline.load() } } }
         .sheet(item: $chainGroup) { t in GroupChainSheet(group: t.name) }
         .sheet(item: $share) { t in NodeShareSheet(name: t.name, link: t.link) }
@@ -196,20 +250,21 @@ struct PolicyView: View {
                 TestTargetCaption(live: true)
                 ForEach(model.groups) { g in
                     let d = PolicyGroupDisplay(name: g.name, kind: PolicyGroupDisplay.kind(live: g.type), now: g.now,
-                                               members: g.all ?? [], selectable: g.isSelectable)
+                                               members: ordered(g.all ?? []), selectable: g.isSelectable, profileIcon: g.icon)
                     PolicyGroupCard(group: d,
                                     testing: model.testing.contains(g.name),
                                     expanded: binding(g.name),
                                     nodeType: { model.all[$0]?.type },
                                     nodeUDP: { model.all[$0]?.udp == true },
                                     delay: { model.delay(of: $0) },
-                                    onTest: { Task { await model.test(g) } },
+                                    onTest: { Task { await model.test(g); afterTest() } },
                                     onSelect: { n in Task { await model.select(g, n) } },
                                     smart: smartBinding(d),
                                     smartInfo: smart.summary(g.name),
                                     via: smart.via(g.name),
                                     onChain: chainAction(g.name),
-                                    onShare: { shareNode($0) })
+                                    onShare: { shareNode($0) },
+                                    onIcon: { iconTarget = IconTarget(name: g.name, profileIcon: g.icon) })
                 }
             }
             .padding(16)
@@ -239,7 +294,7 @@ struct PolicyView: View {
                     let groupNames = Set(offline.result.groups.map(\.name))
                     ForEach(offline.result.groups.filter { $0.hidden != true }) { g in
                         let d = PolicyGroupDisplay(name: g.name, kind: g.type, now: offline.current(of: g),
-                                                   members: offline.members(of: g), selectable: g.type == "select")
+                                                   members: ordered(offline.members(of: g)), selectable: g.type == "select", profileIcon: g.icon)
                         PolicyGroupCard(group: d,
                                         testing: offline.testing.contains(g.name),
                                         expanded: binding("offline:" + g.name),
@@ -249,7 +304,7 @@ struct PolicyView: View {
                                         },
                                         nodeUDP: { index[$0]?.udp == true },
                                         delay: { offline.delays[$0] },
-                                        onTest: { Task { await offline.test(group: g) } },
+                                        onTest: { Task { await offline.test(group: g); afterTest() } },
                                         onSelect: { n in
                                             offline.select(group: g.name, node: n)
                                             UISelectionFeedbackGenerator().selectionChanged()
@@ -258,7 +313,8 @@ struct PolicyView: View {
                                         smartInfo: smart.isSmart(g.name) ? String(localized: "连接后按延迟与失败记录自动选择") : nil,
                                         via: smart.via(g.name),
                                         onChain: chainAction(g.name),
-                                        onShare: { shareNode($0) })
+                                        onShare: { shareNode($0) },
+                                        onIcon: { iconTarget = IconTarget(name: g.name, profileIcon: g.icon) })
                     }
                     if !offline.result.groups.isEmpty {
                         TestTargetCaption(live: false)
@@ -291,6 +347,8 @@ struct PolicyGroupCard: View {
     var onChain: (() -> Void)? = nil
     /// Share a member node (link + QR).
     var onShare: ((String) -> Void)? = nil
+    /// Opens the group icon picker.
+    var onIcon: (() -> Void)? = nil
 
     static let nonShareable: Set<String> = ["group", "selector", "urltest", "url-test", "fallback", "loadbalance", "load-balance", "relay",
                                             "direct", "reject", "rejectdrop", "reject-drop", "compatible", "pass", "dns"]
@@ -298,11 +356,10 @@ struct PolicyGroupCard: View {
     var body: some View {
         VStack(alignment: .leading, spacing: 12) {
             HStack(spacing: 10) {
-                Image(systemName: group.icon)
-                    .font(.headline)
-                    .foregroundStyle(Theme.accent)
-                    .frame(width: 34, height: 34)
-                    .background(RoundedRectangle(cornerRadius: 10).fill(Theme.accent.opacity(0.15)))
+                GroupIconView(group: group.name, profileIcon: group.profileIcon, fallback: group.icon, size: 34)
+                    .contextMenu {
+                        if let onIcon { Button { onIcon() } label: { Label("更换图标", systemImage: "photo") } }
+                    }
                 VStack(alignment: .leading, spacing: 2) {
                     HStack(spacing: 6) {
                         Text(group.name).font(.headline).lineLimit(1)
@@ -372,6 +429,19 @@ struct PolicyGroupCard: View {
                             Text("前置代理").font(.subheadline)
                             Spacer()
                             Text(via ?? String(localized: "无")).font(.caption).foregroundStyle(.secondary).lineLimit(1)
+                            Image(systemName: "chevron.right").font(.caption2).foregroundStyle(.tertiary)
+                        }
+                        .padding(10)
+                        .background(RoundedRectangle(cornerRadius: 12, style: .continuous).fill(Theme.cardHi))
+                    }
+                    .buttonStyle(.plain)
+                }
+                if let onIcon {
+                    Button(action: onIcon) {
+                        HStack(spacing: 8) {
+                            Image(systemName: "photo").font(.caption).foregroundStyle(.secondary)
+                            Text("图标").font(.subheadline)
+                            Spacer()
                             Image(systemName: "chevron.right").font(.caption2).foregroundStyle(.tertiary)
                         }
                         .padding(10)

@@ -13,8 +13,8 @@ struct MoreView: View {
             List {
                 Section("连接") {
                     NavigationLink { ConnectionView() } label: {
-                        row("连接方式与按需连接", "point.3.filled.connected.trianglepath.dotted",
-                            CoreOverrides.load().isProxyOnly ? "仅代理" : "全局隧道")
+                        row("连接方式", "point.3.filled.connected.trianglepath.dotted",
+                            CoreOverrides.load().isProxyOnly ? String(localized: "仅代理") : CoreOverrides.load().isMixed ? String(localized: "VPN 混合") : "TUN")
                     }
                     NavigationLink { DNSView() } label: {
                         row("DNS", "network", DNSOverrideSettings.load().enabled ? "自定义" : "配置文件")
@@ -213,10 +213,9 @@ struct SettingsView: View {
                     Text("信息").tag("info")
                     Text("调试").tag("debug")
                 }
-                Toggle("IPv6", isOn: $o.ipv6)
                 Toggle("域名嗅探（Sniffer）", isOn: $o.sniffer)
             } header: { Text("内核") } footer: {
-                Text("这些选项会覆盖配置文件里的同名字段。DNS 模式在「更多 → DNS」中设置，局域网共享在「更多 → 连接方式」中设置。IPv6 变更需重新连接。")
+                Text("这些选项会覆盖配置文件里的同名字段。DNS 模式在「更多 → DNS」中设置，IPv6 与局域网共享在「更多 → 连接方式」中设置。")
             }
             .listRowBackground(Theme.card)
 
@@ -359,7 +358,7 @@ struct DiagnosticsView: View {
                 LabeledContent("描述文件中的组", value: groups.isEmpty ? String(localized: "（未找到 embedded.mobileprovision）") : groups.sorted().joined(separator: "\n"))
                 LabeledContent("VPN 状态", value: vpn.statusText)
                 LabeledContent("上次断开原因", value: TunnelStopReason.last() ?? "—")
-                LabeledContent("连接方式", value: CoreOverrides.load().isProxyOnly ? String(localized: "仅代理（NEProxySettings）") : String(localized: "全局隧道（PacketFlowBridge）"))
+                LabeledContent("连接方式", value: CoreOverrides.load().isProxyOnly ? String(localized: "仅代理（NEProxySettings）") : CoreOverrides.load().isMixed ? String(localized: "VPN 混合（PacketFlowBridge + NEProxySettings）") : String(localized: "全局隧道（PacketFlowBridge）"))
                 if vpn.safeModeActive { LabeledContent("安全模式", value: String(localized: "开启")) }
             } header: { Text("签名与容器") } footer: {
                 Text("重签名后描述文件会替换 entitlements。App 与扩展会在运行时从描述文件读取 App Group 并按字母序选第一个可用的；共享容器不可用时扩展无法读取配置，连接会失败。")
@@ -553,7 +552,11 @@ struct SpeedTestSettingsView: View {
             Section {
                 Picker("测速地址", selection: $choice) {
                     ForEach(CoreOverrides.testURLPresets, id: \.self) { u in
-                        Text(URL(string: u)?.host ?? u).tag(u)
+                        VStack(alignment: .leading, spacing: 2) {
+                            Text(LocalizedStringKey(CoreOverrides.testURLLabels[u] ?? (URL(string: u)?.host ?? u)))
+                            Text(verbatim: u).font(.caption2.monospaced()).foregroundStyle(.secondary).lineLimit(1)
+                        }
+                        .tag(u)
                     }
                     Text("自定义").tag(Self.customTag)
                 }

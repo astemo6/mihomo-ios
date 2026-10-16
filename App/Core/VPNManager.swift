@@ -124,6 +124,7 @@ final class VPNManager: ObservableObject {
         proto.providerBundleIdentifier = AppShared.tunnelBundleID
         proto.serverAddress = "Mihomo"
         proto.disconnectOnSleep = false
+        Self.applyScope(CoreOverrides.load(), to: proto)
         m.protocolConfiguration = proto
         m.localizedDescription = "Mihomo"
         m.isEnabled = true
@@ -206,6 +207,57 @@ final class VPNManager: ObservableObject {
 
     var hasConfiguration: Bool { manager != nil && status != .invalid }
 
+    // MARK: Tunnel scope / reset (连接方式, v0.7)
+
+    /// Public NETunnelProviderProtocol scope switches; the exclude* options only matter with includeAllNetworks.
+    static func applyScope(_ o: CoreOverrides, to proto: NETunnelProviderProtocol) {
+        proto.includeAllNetworks = o.includeAllNetworks
+        proto.excludeLocalNetworks = o.excludeLocalNetworks
+        if #available(iOS 16.4, *) {
+            proto.excludeAPNs = o.excludeAPNs
+            proto.excludeCellularServices = o.excludeCellularServices
+        }
+        if #available(iOS 17.4, *) {
+            proto.excludeDeviceCommunication = o.excludeDeviceCommunication
+        }
+    }
+
+    /// Writes the scope switches into the VPN configuration. Returns an error message or nil.
+    func applyTunnelScope() async -> String? {
+        do {
+            let m = try await ensureManager()
+            guard let proto = m.protocolConfiguration as? NETunnelProviderProtocol else { return nil }
+            Self.applyScope(CoreOverrides.load(), to: proto)
+            m.protocolConfiguration = proto
+            try await m.saveToPreferences()
+            try await m.loadFromPreferences()
+            return nil
+        } catch {
+            return Self.describe(error)
+        }
+    }
+
+    /// 重置 VPN 配置: disconnects, removes this app's VPN configuration from iOS and creates a fresh one
+    /// (iOS asks for permission again). Returns an error message or nil.
+    func resetConfiguration() async -> String? {
+        await disconnectAndWait()
+        do {
+            let managers = try await NETunnelProviderManager.loadAllFromPreferences()
+            for m in managers { try await m.removeFromPreferences() }
+            manager = nil
+            status = .invalid
+            let m = try await ensureManager()
+            let od = OnDemandSettings.load()
+            if od.mode != .off {
+                try await applyOnDemandRules(to: m, settings: od, enabled: true)
+            }
+            update(from: m.connection)
+            return nil
+        } catch {
+            return Self.describe(error)
+        }
+    }
+
     /// NetworkExtension / preference errors in plain Chinese (the system text is often just a code).
     nonisolated static func describe(_ error: Error) -> String {
         let ns = error as NSError
@@ -285,8 +337,7 @@ final class VPNManager: ObservableObject {
     private func applyOnDemandRules(to m: NETunnelProviderManager, settings: OnDemandSettings, enabled: Bool) async throws {
         let rules = settings.rules
         let want = enabled && settings.mode != .off
-        let changed = m.isOnDemandEnabled != want || (m.onDemandRules?.count ?? 0) != rules.count
-            || zip(m.onDemandRules ?? [], rules).contains { a, b in ObjectIdentifier(type(of: a)) != ObjectIdentifier(type(of: b)) || a.interfaceTypeMatch != b.interfaceTypeMatch }
+        let changed = m.isOnDemandEnabled != want || OnDemandSettings.signature(m.onDemandRules ?? []) != OnDemandSettings.signature(rules)
         guard changed else { return }
         m.onDemandRules = rules
         m.isOnDemandEnabled = want
@@ -347,6 +398,21 @@ struct OnDemandSettings: Codable, Equatable {
     }
 
     var mode: Mode = .off
+    /// 受信任的 Wi-Fi (v0.7): on these SSIDs iOS disconnects instead of connecting (NEOnDemandRule ssidMatch).
+    var trustedSSIDs: [String] = []
+
+    init() {}
+    init(from decoder: Decoder) throws {
+        let c = try decoder.container(keyedBy: CodingKeys.self)
+        mode = (try? c.decodeIfPresent(Mode.self, forKey: .mode)) ?? .off
+        trustedSSIDs = (try? c.decodeIfPresent([String].self, forKey: .trustedSSIDs)) ?? []
+    }
+    enum CodingKeys: String, CodingKey { case mode, trustedSSIDs }
+
+    /// Compares rule lists by kind, interface and SSIDs (NEOnDemandRule has no useful equality).
+    static func signature(_ rules: [NEOnDemandRule]) -> String {
+        rules.map { r in "\(type(of: r)):\(r.interfaceTypeMatch.rawValue):\((r.ssidMatch ?? []).joined(separator: ","))" }.joined(separator: "|")
+    }
 
     private static let key = "onDemandSettings"
     private static let pausedKey = "onDemandPaused"
@@ -371,10 +437,18 @@ struct OnDemandSettings: Codable, Equatable {
         func disconnect(_ t: NEOnDemandRuleInterfaceType) -> NEOnDemandRule {
             let r = NEOnDemandRuleDisconnect(); r.interfaceTypeMatch = t; return r
         }
+        var trusted: [NEOnDemandRule] = []
+        let ssids = trustedSSIDs.map { $0.trimmingCharacters(in: .whitespaces) }.filter { !$0.isEmpty }
+        if !ssids.isEmpty, mode == .always || mode == .wifi {
+            let r = NEOnDemandRuleDisconnect()
+            r.interfaceTypeMatch = .wiFi
+            r.ssidMatch = ssids
+            trusted = [r]
+        }
         switch mode {
         case .off: return []
-        case .always: return [connect(.any)]
-        case .wifi: return [connect(.wiFi), disconnect(.cellular)]
+        case .always: return trusted + [connect(.any)]
+        case .wifi: return trusted + [connect(.wiFi), disconnect(.cellular)]
         case .cellular: return [connect(.cellular), disconnect(.wiFi)]
         }
     }

@@ -131,7 +131,8 @@ struct CoreOverrides: Codable, Equatable {
     var mode: String = "rule"
     /// Go soft memory limit (GOMEMLIMIT) in MB; 20…30 (v0.6.1; older values fall back to the default).
     var memoryLimitMB: Int = 26
-    /// "tun" = NEPacketTunnelFlow bridge (all traffic) · "proxy" = NEProxySettings only.
+    /// "tun" = NEPacketTunnelFlow bridge (all traffic) · "mix" = tun + system HTTP proxy to the mixed port
+    /// (Loon proxymode=mix / Surge compat) · "proxy" = NEProxySettings only.
     var tunnelMode: String = "tun"
     /// Local HTTP/SOCKS port for proxy-only mode and LAN sharing.
     var mixedPort: Int = 7890
@@ -150,6 +151,33 @@ struct CoreOverrides: Codable, Equatable {
     var testTimeoutMs: Int = 5000
     var overrideHealthCheck: Bool = false
 
+    // v0.7 连接方式
+    /// Routes sent into the tunnel / kept out of it (CIDR, IPv4 and IPv6; IPv6 entries apply only with IPv6 on).
+    var includedRoutes: [String] = CoreOverrides.defaultIncludedRoutes
+    var excludedRoutes: [String] = CoreOverrides.defaultExcludedRoutes
+    /// Hosts / CIDRs the system HTTP proxy skips (混合 and 仅代理 modes).
+    var skipProxy: [String] = CoreOverrides.defaultSkipProxy
+    /// 阻止 QUIC: "off" · "nondirect" (default, v0.6.1 behaviour) · "always".
+    var blockQUIC: String = "nondirect"
+    /// Tunnel scope (NETunnelProviderProtocol), applied to the VPN configuration by the app.
+    var includeAllNetworks: Bool = false
+    var excludeLocalNetworks: Bool = true
+    var excludeAPNs: Bool = true
+    var excludeCellularServices: Bool = true
+    var excludeDeviceCommunication: Bool = true
+    /// 局域网共享: optional username / password, and only LAN source addresses.
+    var lanAuth = LanAuth()
+    var lanLocalOnly: Bool = true
+
+    struct LanAuth: Codable, Equatable {
+        var username: String = ""
+        var password: String = ""
+    }
+
+    static let defaultIncludedRoutes = ["0.0.0.0/0", "::/0"]
+    static let defaultExcludedRoutes = ["10.0.0.0/8", "172.16.0.0/12", "192.168.0.0/16", "169.254.0.0/16", "224.0.0.0/4"]
+    static let defaultSkipProxy = ["localhost", "*.local", "127.0.0.1", "10.0.0.0/8", "172.16.0.0/12", "192.168.0.0/16", "captive.apple.com"]
+
     static let defaultMemoryLimitMB = 26
     static let memoryLimitRange = 20...30
     static let defaultTestURL = "https://www.gstatic.com/generate_204"
@@ -158,6 +186,25 @@ struct CoreOverrides: Codable, Equatable {
         "https://cp.cloudflare.com/generate_204",
         "https://www.apple.com/library/test/success.html",
         "http://connectivitycheck.platform.hicloud.com/generate_204",
+        "http://www.gstatic.com/generate_204",
+        "https://www.google.com/generate_204",
+        "http://cp.cloudflare.com/generate_204",
+        "http://captive.apple.com",
+        "http://www.msftconnecttest.com/connecttest.txt",
+        "http://wifi.vivo.com.cn/generate_204",
+    ]
+    /// Short label per preset for 更多 → 测速 (localised in the app).
+    static let testURLLabels: [String: String] = [
+        "https://www.gstatic.com/generate_204": "Google (gstatic)",
+        "https://cp.cloudflare.com/generate_204": "Cloudflare",
+        "https://www.apple.com/library/test/success.html": "Apple",
+        "http://connectivitycheck.platform.hicloud.com/generate_204": "华为 (HTTP)",
+        "http://www.gstatic.com/generate_204": "Google (HTTP)",
+        "https://www.google.com/generate_204": "Google",
+        "http://cp.cloudflare.com/generate_204": "Cloudflare (HTTP)",
+        "http://captive.apple.com": "Apple Captive",
+        "http://www.msftconnecttest.com/connecttest.txt": "Microsoft",
+        "http://wifi.vivo.com.cn/generate_204": "国内 vivo",
     ]
     static func isValidTestURL(_ s: String) -> Bool {
         guard let u = URL(string: s.trimmingCharacters(in: .whitespaces)), let sc = u.scheme?.lowercased(),
@@ -167,6 +214,7 @@ struct CoreOverrides: Codable, Equatable {
     static let mtuChoices = [1280, 1500, 4064, 9000]
 
     var isProxyOnly: Bool { tunnelMode == "proxy" }
+    var isMixed: Bool { tunnelMode == "mix" }
 
     init() {}
 
@@ -174,6 +222,9 @@ struct CoreOverrides: Codable, Equatable {
         case logLevel, ipv6, allowLan, dnsMode, sniffer, controllerPort, secret, mode, memoryLimitMB
         case tunnelMode, mixedPort, tunMTU, geoMirror, geoURLs, mergeManual, safeMode
         case testURL, testTimeoutMs, overrideHealthCheck
+        case includedRoutes, excludedRoutes, skipProxy, blockQUIC
+        case includeAllNetworks, excludeLocalNetworks, excludeAPNs, excludeCellularServices, excludeDeviceCommunication
+        case lanAuth, lanLocalOnly
     }
 
     init(from decoder: Decoder) throws {
@@ -201,9 +252,21 @@ struct CoreOverrides: Codable, Equatable {
         testURL = get(.testURL, d.testURL)
         testTimeoutMs = get(.testTimeoutMs, d.testTimeoutMs)
         overrideHealthCheck = get(.overrideHealthCheck, d.overrideHealthCheck)
+        includedRoutes = get(.includedRoutes, d.includedRoutes)
+        excludedRoutes = get(.excludedRoutes, d.excludedRoutes)
+        skipProxy = get(.skipProxy, d.skipProxy)
+        blockQUIC = get(.blockQUIC, d.blockQUIC)
+        includeAllNetworks = get(.includeAllNetworks, d.includeAllNetworks)
+        excludeLocalNetworks = get(.excludeLocalNetworks, d.excludeLocalNetworks)
+        excludeAPNs = get(.excludeAPNs, d.excludeAPNs)
+        excludeCellularServices = get(.excludeCellularServices, d.excludeCellularServices)
+        excludeDeviceCommunication = get(.excludeDeviceCommunication, d.excludeDeviceCommunication)
+        lanAuth = get(.lanAuth, d.lanAuth)
+        lanLocalOnly = get(.lanLocalOnly, d.lanLocalOnly)
+        if !["off", "nondirect", "always"].contains(blockQUIC) { blockQUIC = d.blockQUIC }
         if !Self.isValidTestURL(testURL) { testURL = d.testURL }
         if !(1000...30000).contains(testTimeoutMs) { testTimeoutMs = d.testTimeoutMs }
-        if tunnelMode != "proxy" { tunnelMode = "tun" }
+        if tunnelMode != "proxy" && tunnelMode != "mix" { tunnelMode = "tun" }
         if !(1280...9000).contains(tunMTU) { tunMTU = d.tunMTU }
         if !(1...65535).contains(mixedPort) { mixedPort = d.mixedPort }
         if !Self.memoryLimitRange.contains(memoryLimitMB) { memoryLimitMB = d.memoryLimitMB }
@@ -306,5 +369,45 @@ enum TunnelStopReason {
         guard p.count == 2, let raw = Int(p[1].trimmingCharacters(in: .whitespacesAndNewlines)) else { return nil }
         let when = ISO8601DateFormatter().date(from: p[0]).map { $0.formatted(date: .abbreviated, time: .standard) } ?? p[0]
         return "\(describe(raw))（\(when)）"
+    }
+}
+
+
+/// One CIDR entry of the 连接方式 route lists ("10.0.0.0/8", "fd00::/8", or a bare address = host route).
+struct RouteSpec: Equatable {
+    let address: String
+    let prefix: Int
+    let isV6: Bool
+
+    init?(_ text: String) {
+        let t = text.trimmingCharacters(in: .whitespaces)
+        guard !t.isEmpty else { return nil }
+        let parts = t.split(separator: "/", maxSplits: 1).map(String.init)
+        let addr = parts[0]
+        var a4 = in_addr(), a6 = in6_addr()
+        if inet_pton(AF_INET, addr, &a4) == 1 {
+            isV6 = false
+        } else if inet_pton(AF_INET6, addr, &a6) == 1 {
+            isV6 = true
+        } else { return nil }
+        let maxP = isV6 ? 128 : 32
+        if parts.count == 2 {
+            guard let p = Int(parts[1]), (0...maxP).contains(p) else { return nil }
+            prefix = p
+        } else {
+            prefix = maxP
+        }
+        address = addr
+    }
+
+    /// Dotted subnet mask for IPv4 (NEIPv4Route wants a mask, not a prefix length).
+    var mask: String {
+        let m: UInt32 = prefix == 0 ? 0 : UInt32.max << UInt32(32 - prefix)
+        return "\(m >> 24 & 255).\(m >> 16 & 255).\(m >> 8 & 255).\(m & 255)"
+    }
+
+    /// Invalid lines of a list (shown by the editor, which refuses to save them).
+    static func invalid(_ lines: [String]) -> [String] {
+        lines.filter { !$0.trimmingCharacters(in: .whitespaces).isEmpty && RouteSpec($0) == nil }
     }
 }

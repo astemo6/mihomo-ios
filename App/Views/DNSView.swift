@@ -1,4 +1,39 @@
 import SwiftUI
+import Libmihomo
+
+/// Mirrors <home>/localdns.json (bridge/localdns.go, v0.7): 本地 DNS 映射 (mihomo `hosts:`) and 真实 IP 域名
+/// (added to fake-ip-filter). Applied on top of the profile whether or not the custom DNS override is on.
+struct LocalDNSSettings: Codable, Equatable {
+    struct Host: Codable, Equatable, Identifiable {
+        var id = UUID()
+        var domain: String
+        var value: String
+        var disabled = false
+        enum CodingKeys: String, CodingKey { case domain, value, disabled }
+        init(domain: String, value: String, disabled: Bool = false) { self.domain = domain; self.value = value; self.disabled = disabled }
+        init(from d: Decoder) throws {
+            let c = try d.container(keyedBy: CodingKeys.self)
+            domain = (try? c.decode(String.self, forKey: .domain)) ?? ""
+            value = (try? c.decode(String.self, forKey: .value)) ?? ""
+            disabled = (try? c.decodeIfPresent(Bool.self, forKey: .disabled)) ?? false
+        }
+    }
+    var hosts: [Host] = []
+    var realIP: [String] = []
+
+    static var url: URL { AppShared.homeURL.appendingPathComponent("localdns.json") }
+
+    static func load() -> LocalDNSSettings {
+        guard let d = try? Data(contentsOf: url), let s = try? JSONDecoder().decode(LocalDNSSettings.self, from: d) else { return LocalDNSSettings() }
+        return s
+    }
+
+    func save() {
+        let enc = JSONEncoder()
+        enc.outputFormatting = [.prettyPrinted, .sortedKeys]
+        if let d = try? enc.encode(self) { try? d.write(to: Self.url, options: .atomic) }
+    }
+}
 
 /// Mirrors <home>/dns.json (bridge/dns.go DNSOverride). When enabled it replaces the profile's resolvers.
 struct DNSOverrideSettings: Codable, Equatable {
@@ -105,6 +140,10 @@ struct DNSView: View {
     @State private var status: String?
     @State private var newMatch = ""
     @State private var newServers = ""
+    @State private var local = LocalDNSSettings.load()
+    @State private var newHost = ""
+    @State private var newHostValue = ""
+    @State private var hostError: String?
 
     var body: some View {
         Form {
@@ -187,6 +226,18 @@ struct DNSView: View {
                 .listRowBackground(Theme.card)
             }
 
+            hostsSection
+            if dnsMode == "fake-ip" {
+                Section {
+                    LinesField(title: "真实 IP 域名", placeholder: "+.stun.example.com", lines: $local.realIP)
+                } header: { Text("真实 IP 域名") } footer: {
+                    Text(s.enabled && s.fakeIPFilterMode == "whitelist"
+                         ? "当前 Fake-IP 过滤是「仅列表内用 Fake-IP」，这里的域名不会生效。"
+                         : "这些域名解析为真实 IP 而不是 Fake-IP（加入 fake-ip-filter），适合 STUN、游戏、局域网服务或需要真实地址的 App。支持 example.com、+.后缀、*.通配，每行一个；与配置文件自带的列表合并。")
+                }
+                .listRowBackground(Theme.card)
+            }
+
             Section {
                 Button { save() } label: { HStack { Spacer(); Text(vpn.isConnected ? "保存并重载" : "保存").bold(); Spacer() } }
                 if let status { Text(status).font(.footnote).foregroundStyle(.secondary) }
@@ -198,7 +249,53 @@ struct DNSView: View {
         .navigationTitle("DNS")
     }
 
+    var hostsSection: some View {
+        Section {
+            ForEach($local.hosts) { $h in
+                HStack {
+                    VStack(alignment: .leading, spacing: 2) {
+                        Text(h.domain).scaledFont(12, design: .monospaced).strikethrough(h.disabled)
+                        Text(h.value).font(.caption2.monospaced()).foregroundStyle(.secondary)
+                    }
+                    Spacer()
+                    Toggle("", isOn: Binding(get: { !h.disabled }, set: { h.disabled = !$0 }))
+                        .labelsHidden()
+                        .accessibilityLabel(Text("启用"))
+                }
+            }
+            .onDelete { local.hosts.remove(atOffsets: $0) }
+            VStack(spacing: 6) {
+                TextField("域名，例如 router.lan 或 +.example.com", text: $newHost)
+                    .textInputAutocapitalization(.never).autocorrectionDisabled()
+                TextField("IP（多个用逗号分隔）或一个域名", text: $newHostValue)
+                    .textInputAutocapitalization(.never).autocorrectionDisabled()
+                if let hostError { Text(hostError).font(.caption).foregroundStyle(Theme.warn).frame(maxWidth: .infinity, alignment: .leading) }
+                Button("添加") { addHost() }
+                    .frame(maxWidth: .infinity, alignment: .trailing)
+            }
+        } header: { Text("本地 DNS 映射") } footer: {
+            Text("相当于 hosts：这些域名直接解析为你填的地址，不再查询 DNS。值可以是一个或多个 IP，或一个域名（按该域名解析）。与配置文件里的 hosts 合并，同名以这里为准。左滑删除。")
+        }
+        .listRowBackground(Theme.card)
+    }
+
+    func addHost() {
+        let d = newHost.trimmingCharacters(in: .whitespaces)
+        let v = newHostValue.trimmingCharacters(in: .whitespaces)
+        let err = LibmihomoValidateHostEntry(d, v)
+        guard err.isEmpty else { hostError = err; return }
+        hostError = nil
+        if let i = local.hosts.firstIndex(where: { $0.domain.lowercased() == d.lowercased() }) {
+            local.hosts[i].value = v
+            local.hosts[i].disabled = false
+        } else {
+            local.hosts.append(.init(domain: d, value: v))
+        }
+        newHost = ""; newHostValue = ""
+    }
+
     func save() {
+        local.save()
         s.save()
         var o = CoreOverrides.load()
         o.dnsMode = dnsMode
