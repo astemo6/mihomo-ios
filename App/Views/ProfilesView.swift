@@ -73,7 +73,8 @@ struct ProfilesView: View {
                     Menu {
                         Button { showAddRemote = true } label: { Label("添加订阅链接", systemImage: "link.badge.plus") }
                         Button { importClipboard() } label: { Label("从剪贴板导入", systemImage: "doc.on.clipboard") }
-                        Button { showImporter = true } label: { Label("从文件导入", systemImage: "folder") }
+                        Button { showImporter = true } label: { Label("从文件导入（YAML / Surge·QX .conf）", systemImage: "folder") }
+                        Button { importConfFromClipboard() } label: { Label("粘贴 Surge / QX 配置（.conf）", systemImage: "arrow.triangle.2.circlepath.doc.on.clipboard") }
                         Button { showNewLocal = true } label: { Label("新建本地配置", systemImage: "square.and.pencil") }
                         Button { showManual = true } label: { Label("添加单个节点", systemImage: "plus.viewfinder") }
                     } label: { Image(systemName: "plus.circle.fill").font(.title3) }
@@ -88,7 +89,7 @@ struct ProfilesView: View {
             .sheet(item: $editing) { p in
                 YAMLEditorView(title: "编辑配置", initialName: p.name, initialText: store.content(of: p), profile: p)
             }
-            .fileImporter(isPresented: $showImporter, allowedContentTypes: [UTType(filenameExtension: "yaml") ?? .plainText, UTType(filenameExtension: "yml") ?? .plainText, .plainText, .text, .data]) { result in
+            .fileImporter(isPresented: $showImporter, allowedContentTypes: [UTType(filenameExtension: "yaml") ?? .plainText, UTType(filenameExtension: "yml") ?? .plainText, UTType(filenameExtension: "conf") ?? .plainText, .plainText, .text, .data]) { result in
                 importFile(result)
             }
             .alert("提示", isPresented: Binding(get: { message != nil }, set: { if !$0 { message = nil } })) {
@@ -116,9 +117,30 @@ struct ProfilesView: View {
         }
     }
 
+    func importConfFromClipboard() {
+        guard let s = UIPasteboard.general.string, !s.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else {
+            message = "剪贴板为空"; return
+        }
+        ImportRouter.shared.pending = .confText(name: "导入的配置", text: s)
+    }
+
+    static func looksLikeConf(_ s: String) -> Bool {
+        let l = s.lowercased()
+        return (l.contains("[proxy]") && l.contains("[rule]")) || l.contains("[server_local]") || l.contains("[policy]") || l.contains("[filter_local]")
+    }
+
     func importClipboard() {
         guard let s = UIPasteboard.general.string?.trimmingCharacters(in: .whitespacesAndNewlines), !s.isEmpty else {
             message = "剪贴板为空"; return
+        }
+        // Links of our own scheme or of other clients (loon:// stash:// surge:/// quantumult-x:///).
+        if !s.contains("\n"), let a = ImportRouter.parse(s) {
+            ImportRouter.shared.run(a)
+            return
+        }
+        if Self.looksLikeConf(s) {
+            ImportRouter.shared.pending = .confText(name: "导入的配置", text: s)
+            return
         }
         busy = true
         Task {
@@ -142,9 +164,18 @@ struct ProfilesView: View {
         switch result {
         case .failure(let e): message = e.localizedDescription
         case .success(let url):
+            let ext = url.pathExtension.lowercased()
+            if ["conf", "sgmodule", "plugin", "stoverride", "list", "snippet", "lpx"].contains(ext) {
+                ImportRouter.shared.pending = ImportRouter.action(forFile: url)
+                return
+            }
             let ok = url.startAccessingSecurityScopedResource()
             defer { if ok { url.stopAccessingSecurityScopedResource() } }
             guard let text = try? String(contentsOf: url, encoding: .utf8) else { message = "无法读取文件"; return }
+            if Self.looksLikeConf(text) {
+                ImportRouter.shared.pending = .confText(name: url.deletingPathExtension().lastPathComponent, text: text)
+                return
+            }
             let name = url.deletingPathExtension().lastPathComponent
             busy = true
             Task {

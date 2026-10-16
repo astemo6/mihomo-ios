@@ -31,6 +31,8 @@ struct EngineModule: Codable, Identifiable, Hashable {
     var url: String
     var enabled: Bool = true
     var args: [String: String]? = nil
+    /// Module policy name → profile group chosen by the user (for [Rule] lines naming unknown policies).
+    var policies: [String: String]? = nil
     var updatedAt: Double? = nil
 }
 

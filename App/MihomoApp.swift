@@ -2,7 +2,9 @@ import SwiftUI
 
 @main
 struct MihomoApp: App {
+    @UIApplicationDelegateAdaptor(AppDelegate.self) private var appDelegate
     @StateObject private var vpn = VPNManager.shared
+    @StateObject private var router = ImportRouter.shared
     @StateObject private var store = ProfileStore.shared
     @StateObject private var dash = DashboardModel.shared
     @StateObject private var ipinfo = IPInfoModel.shared
@@ -20,6 +22,13 @@ struct MihomoApp: App {
                 .environmentObject(store)
                 .environmentObject(dash)
                 .environmentObject(ipinfo)
+                .environmentObject(router)
+                .onOpenURL { router.handle(url: $0) }
+                .sheet(item: $router.pending) { a in
+                    ImportSheet(action: a)
+                        .environmentObject(store)
+                        .preferredColorScheme(.dark)
+                }
                 .preferredColorScheme(.dark)
                 .tint(Theme.accent)
                 .onChange(of: phase) { p in
@@ -36,19 +45,20 @@ struct MihomoApp: App {
 struct RootView: View {
     @EnvironmentObject var vpn: VPNManager
     @EnvironmentObject var dash: DashboardModel
+    @EnvironmentObject var router: ImportRouter
 
     var body: some View {
-        TabView {
+        TabView(selection: $router.selectedTab) {
             HomeView()
-                .tabItem { Label("首页", systemImage: "gauge.with.dots.needle.67percent") }
+                .tabItem { Label("首页", systemImage: "gauge.with.dots.needle.67percent") }.tag(0)
             PolicyView()
-                .tabItem { Label("策略", systemImage: "square.grid.2x2.fill") }
+                .tabItem { Label("策略", systemImage: "square.grid.2x2.fill") }.tag(1)
             RequestsView()
-                .tabItem { Label("请求", systemImage: "arrow.left.arrow.right") }
+                .tabItem { Label("请求", systemImage: "arrow.left.arrow.right") }.tag(2)
             ProfilesView()
-                .tabItem { Label("配置", systemImage: "doc.text.fill") }
+                .tabItem { Label("配置", systemImage: "doc.text.fill") }.tag(3)
             MoreView()
-                .tabItem { Label("更多", systemImage: "ellipsis.circle.fill") }
+                .tabItem { Label("更多", systemImage: "ellipsis.circle.fill") }.tag(4)
         }
         .onChange(of: vpn.status) { s in
             if s == .connected { dash.start() } else if s == .disconnected || s == .invalid { dash.stop() }

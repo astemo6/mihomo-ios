@@ -1,0 +1,41 @@
+import UIKit
+import SwiftUI
+import NetworkExtension
+
+/// Home-screen quick actions (UIApplicationShortcutItems in Info.plist): toggle and outbound modes.
+enum QuickActions {
+    static func handle(_ type: String) {
+        let action = type.split(separator: ".").last.map(String.init) ?? type
+        Task { @MainActor in
+            switch action {
+            case "toggle":
+                let vpn = VPNManager.shared
+                await vpn.load()
+                if vpn.isConnected || vpn.status == .connecting { await vpn.disconnectAndWait() } else { _ = await vpn.connectAndWait() }
+            case "rule", "global", "direct":
+                await VPNManager.shared.load()
+                await DashboardModel.shared.setMode(action)
+            default:
+                break
+            }
+        }
+    }
+}
+
+final class AppDelegate: NSObject, UIApplicationDelegate {
+    func application(_ application: UIApplication, configurationForConnecting connectingSceneSession: UISceneSession,
+                     options: UIScene.ConnectionOptions) -> UISceneConfiguration {
+        if let item = options.shortcutItem { QuickActions.handle(item.type) }
+        let cfg = UISceneConfiguration(name: nil, sessionRole: connectingSceneSession.role)
+        cfg.delegateClass = QuickActionSceneDelegate.self
+        return cfg
+    }
+}
+
+final class QuickActionSceneDelegate: NSObject, UIWindowSceneDelegate {
+    func windowScene(_ windowScene: UIWindowScene, performActionFor shortcutItem: UIApplicationShortcutItem,
+                     completionHandler: @escaping (Bool) -> Void) {
+        QuickActions.handle(shortcutItem.type)
+        completionHandler(true)
+    }
+}

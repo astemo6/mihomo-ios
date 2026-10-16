@@ -1,6 +1,7 @@
 import SwiftUI
 import UIKit
 import UniformTypeIdentifiers
+import Libmihomo
 
 // MARK: - Shared helpers
 
@@ -796,7 +797,7 @@ struct ModulesView: View {
                     Label("启用重写与脚本", systemImage: "puzzlepiece.extension")
                 }
             } footer: {
-                Text("支持 Surge .sgmodule、Quantumult X 重写片段、Loon .plugin、Stash .stoverride 以及纯重写列表。模块中的 [Rule] 仅导入 REJECT / DIRECT 策略。")
+                Text("所有格式的模块都在这里：Surge .sgmodule、Quantumult X 重写片段、Loon .plugin、Stash .stoverride 和重写列表，角标显示来源格式。模块 [Rule] 中的策略名会对应到当前配置的策略组，找不到时可在模块详情里指定。")
             }
             .listRowBackground(Theme.card)
 
@@ -821,14 +822,23 @@ struct ModulesView: View {
             ToolbarItemGroup(placement: .navigationBarTrailing) {
                 Button { Task { await store.updateAllModules() } } label: { Image(systemName: "arrow.clockwise") }
                 Menu {
-                    Button { url = UIPasteboard.general.string?.hasPrefix("http") == true ? UIPasteboard.general.string! : ""; adding = true } label: { Label("从 URL 导入", systemImage: "link") }
+                    Button {
+                        let clip = UIPasteboard.general.string?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
+                        if case .moduleURL(let u, _)? = ImportRouter.parse(clip) { url = u } else { url = clip.hasPrefix("http") ? clip : "" }
+                        adding = true
+                    } label: { Label("从 URL 导入", systemImage: "link") }
                     Button { pasting = true } label: { Label("粘贴模块内容", systemImage: "doc.on.clipboard") }
                 } label: { Image(systemName: "plus") }
             }
         }
         .alert("导入模块", isPresented: $adding) {
             TextField("https://…/xxx.sgmodule", text: $url).textInputAutocapitalization(.never).autocorrectionDisabled()
-            Button("导入") { let u = url; Task { await store.addModule(url: u) } }
+            Button("导入") {
+                var u = url.trimmingCharacters(in: .whitespacesAndNewlines)
+                // Also accepts surge:/// loon:// stash:// quantumult-x:/// install links.
+                if case .moduleURL(let inner, _)? = ImportRouter.parse(u) { u = inner }
+                Task { await store.addModule(url: u) }
+            }
             Button("取消", role: .cancel) {}
         }
         .alert("提示", isPresented: Binding(get: { store.message != nil }, set: { if !$0 { store.message = nil } })) {
@@ -894,6 +904,41 @@ struct ModuleDetailView: View {
     @ObservedObject var store = EngineStore.shared
     @State private var showText = false
     @State private var args: [String: String] = [:]
+    @State private var unresolved: [String] = []
+    @State private var groups: [String] = []
+
+    func policyNames(_ m: EngineModule) -> [String] {
+        var out = unresolved
+        for k in (m.policies ?? [:]).keys.sorted() where !out.contains(k) { out.append(k) }
+        return out
+    }
+
+    func setPolicy(_ name: String, _ group: String) {
+        guard let i = store.config.modules.firstIndex(where: { $0.id == moduleID }) else { return }
+        var p = store.config.modules[i].policies ?? [:]
+        if group.isEmpty { p.removeValue(forKey: name) } else { p[name] = group }
+        store.config.modules[i].policies = p.isEmpty ? nil : p
+        store.save()
+    }
+
+    /// Unknown policy names in the module's [Rule] lines, and the active profile's groups to pick from.
+    func loadPolicies() {
+        guard let m = module, let profile = AppShared.activeProfileURL?.path else { unresolved = []; groups = []; return }
+        let home = AppShared.homeURL.path
+        let text = store.moduleText(m)
+        let argsJSON = (try? JSONEncoder().encode(m.args ?? [:])).flatMap { String(data: $0, encoding: .utf8) } ?? "{}"
+        Task {
+            let (u, g) = await Task.detached(priority: .userInitiated) { () -> ([String], [String]) in
+                let uj = LibmihomoModuleUnresolved(home, profile, text, argsJSON)
+                let gj = LibmihomoProfileGroups(home, profile)
+                let u = (try? JSONDecoder().decode([String].self, from: Data(uj.utf8))) ?? []
+                let g = (try? JSONDecoder().decode([String].self, from: Data(gj.utf8))) ?? []
+                return (u.sorted(), g)
+            }.value
+            unresolved = u
+            groups = g
+        }
+    }
 
     var module: EngineModule? { store.config.modules.first { $0.id == moduleID } }
 
@@ -911,16 +956,9 @@ struct ModuleDetailView: View {
                 }
                 .listRowBackground(Theme.card)
                 if let info, !info.arguments.isEmpty {
-                    Section("参数（#!arguments）") {
+                    Section(info.format == "loon" ? "参数（[Argument]）" : "参数（#!arguments）") {
                         ForEach(info.arguments, id: \.key) { a in
-                            VStack(alignment: .leading, spacing: 2) {
-                                HStack {
-                                    Text(a.key).font(.callout)
-                                    TextField(a.default, text: Binding(get: { args[a.key] ?? (m.args?[a.key] ?? a.default) }, set: { args[a.key] = $0 }))
-                                        .multilineTextAlignment(.trailing).textInputAutocapitalization(.never).autocorrectionDisabled()
-                                }
-                                if let d = a.desc, !d.isEmpty { Text(d).font(.caption2).foregroundStyle(.secondary) }
-                            }
+                            ModuleArgRow(arg: a, value: Binding(get: { args[a.key] ?? (m.args?[a.key] ?? a.default) }, set: { args[a.key] = $0 }))
                         }
                         Button("保存参数") {
                             if let i = store.config.modules.firstIndex(where: { $0.id == moduleID }) {
@@ -929,8 +967,29 @@ struct ModuleDetailView: View {
                                 store.config.modules[i].args = merged
                                 store.reparseModules()
                                 store.save()
+                                loadPolicies()
                             }
                         }
+                    }
+                    .listRowBackground(Theme.card)
+                }
+                if !unresolved.isEmpty || !(m.policies ?? [:]).isEmpty {
+                    Section {
+                        ForEach(policyNames(m), id: \.self) { name in
+                            Picker(selection: Binding(get: { m.policies?[name] ?? "" }, set: { setPolicy(name, $0) })) {
+                                Text("自动（第一个手动组）").tag("")
+                                ForEach(groups, id: \.self) { Text($0).tag($0) }
+                            } label: {
+                                HStack(spacing: 6) {
+                                    if unresolved.contains(name) && m.policies?[name] == nil {
+                                        Image(systemName: "exclamationmark.triangle.fill").foregroundStyle(Theme.warn).font(.caption)
+                                    }
+                                    Text(name).font(.callout)
+                                }
+                            }
+                        }
+                    } header: { Text("策略映射") } footer: {
+                        Text("模块规则里的这些策略名在当前配置中不存在。为每个名称选择一个策略组；未选择时使用第一个手动选择组。")
                     }
                     .listRowBackground(Theme.card)
                 }
@@ -967,6 +1026,7 @@ struct ModuleDetailView: View {
         .scrollContentBackground(.hidden)
         .background(Theme.bg.ignoresSafeArea())
         .navigationTitle(module?.name ?? "模块")
+        .onAppear { loadPolicies() }
         .sheet(isPresented: $showText) {
             NavigationStack {
                 ScrollView {
@@ -1111,5 +1171,37 @@ struct HTTPRequestDetailView: View {
               let out = try? JSONSerialization.data(withJSONObject: obj, options: [.prettyPrinted, .withoutEscapingSlashes]),
               let str = String(data: out, encoding: .utf8) else { return s }
         return str
+    }
+}
+
+/// One module argument: Loon switch → toggle, select → picker, anything else → text field.
+struct ModuleArgRow: View {
+    let arg: ParsedEngineText.Arg
+    @Binding var value: String
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 2) {
+            switch arg.type ?? "" {
+            case "switch":
+                Toggle(arg.key, isOn: Binding(get: { ["true", "1", "on", "yes"].contains(value.lowercased()) }, set: { value = $0 ? "true" : "false" }))
+            case "select":
+                Picker(arg.key, selection: $value) {
+                    ForEach(choices, id: \.self) { Text($0).tag($0) }
+                }
+            default:
+                HStack {
+                    Text(arg.key).font(.callout)
+                    TextField(arg.default, text: $value)
+                        .multilineTextAlignment(.trailing).textInputAutocapitalization(.never).autocorrectionDisabled()
+                }
+            }
+            if let d = arg.desc, !d.isEmpty { Text(d).font(.caption2).foregroundStyle(.secondary) }
+        }
+    }
+
+    var choices: [String] {
+        var c = arg.options ?? []
+        if !c.contains(value) { c.insert(value, at: 0) }
+        return c
     }
 }

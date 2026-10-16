@@ -176,13 +176,17 @@ struct PolicyView: View {
                     Text(e).font(.footnote).foregroundStyle(Theme.bad).frame(maxWidth: .infinity, alignment: .leading)
                 } else {
                     let index = offline.nodeIndex
+                    let groupNames = Set(offline.result.groups.map(\.name))
                     ForEach(offline.result.groups.filter { $0.hidden != true }) { g in
                         let d = PolicyGroupDisplay(name: g.name, kind: g.type, now: offline.current(of: g),
                                                    members: offline.members(of: g), selectable: g.type == "select")
                         PolicyGroupCard(group: d,
                                         testing: offline.testing.contains(g.name),
                                         expanded: binding("offline:" + g.name),
-                                        nodeType: { index[$0]?.type ?? (offline.result.groups.contains { x in x.name == $0 } ? "group" : nil) },
+                                        nodeType: { name in
+                                            if let t = index[name]?.type { return t }
+                                            return groupNames.contains(name) ? "group" : nil
+                                        },
                                         nodeUDP: { index[$0]?.udp == true },
                                         delay: { offline.delays[$0] },
                                         onTest: { Task { await offline.test(group: g) } },

@@ -199,8 +199,6 @@ struct StatsGrid: View {
         LazyVGrid(columns: [GridItem(.flexible(), spacing: 12), GridItem(.flexible(), spacing: 12)], spacing: 12) {
             StatTile(icon: "arrow.up.circle.fill", color: Theme.up, title: "总上传", value: Fmt.bytes(dash.uploadTotal))
             StatTile(icon: "arrow.down.circle.fill", color: Theme.down, title: "总下载", value: Fmt.bytes(dash.downloadTotal))
-            StatTile(icon: "memorychip.fill", color: .purple, title: "内核内存", value: dash.memory > 0 ? Fmt.bytes(dash.memory) : "—")
-            StatTile(icon: "link.circle.fill", color: Theme.good, title: "连接数", value: "\(dash.connectionCount)")
         }
     }
 }
