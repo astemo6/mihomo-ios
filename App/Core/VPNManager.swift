@@ -61,6 +61,7 @@ final class VPNManager: ObservableObject {
         if status == .disconnected { userStopped = false }
         if old != status, status == .connected || status == .disconnected {
             NotificationCenter.default.post(name: .egressMayHaveChanged, object: nil)
+            WidgetBridge.reload()
         }
     }
 

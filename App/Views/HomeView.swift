@@ -10,22 +10,10 @@ struct HomeView: View {
         NavigationStack {
             ScrollView {
                 VStack(spacing: 14) {
-                    // Top bar: IP / ASN badge in the top-left corner.
-                    HStack(alignment: .top) {
-                        IPInfoCard()
-                            .frame(maxWidth: 300, alignment: .leading)
-                        Spacer(minLength: 8)
-                        VStack(alignment: .trailing, spacing: 6) {
-                            Text("Mihomo").font(.headline.weight(.heavy))
-                            Text(vpn.statusText)
-                                .font(.caption)
-                                .foregroundStyle(.secondary)
-                        }
-                        .padding(.top, 6)
-                    }
-
-                    ConnectCard()
+                    // v0.7: exit-location header (QX reference, in our card style) with the plain toggle.
+                    ExitHeader()
                     if vpn.safeModeActive && vpn.status != .disconnected && vpn.status != .invalid { SafeModeCard() }
+                    if vpn.isConnected && !dash.homeGroups.isEmpty { HomePolicyCards() }
                     ModeCard()
                     TrafficCard()
                     StatsGrid()
@@ -267,5 +255,194 @@ struct StatTile: View {
         .padding(14)
         .background(RoundedRectangle(cornerRadius: 16, style: .continuous).fill(Theme.card))
         .overlay(RoundedRectangle(cornerRadius: 16, style: .continuous).stroke(Color.white.opacity(0.06)))
+    }
+}
+
+
+/// Home header (v0.7): flag + exit location large, "time zone · ASN · IP" small, a plain toggle, and one
+/// status line. Tap refreshes the exit info, long-press copies it (as the old IP card did).
+struct ExitHeader: View {
+    @EnvironmentObject var vpn: VPNManager
+    @EnvironmentObject var store: ProfileStore
+    @EnvironmentObject var ip: IPInfoModel
+    @State private var copied = false
+
+    var body: some View {
+        let on = vpn.isConnected
+        VStack(alignment: .leading, spacing: 12) {
+            HStack(alignment: .center, spacing: 12) {
+                Text(ip.exit?.flag ?? "🌐")
+                    .font(.system(size: 34))
+                    .accessibilityHidden(true)
+                VStack(alignment: .leading, spacing: 3) {
+                    Text(ip.exit?.placeText ?? (ip.loading ? String(localized: "正在查询…") : (ip.failed ? String(localized: "查询失败") : "—")))
+                        .font(.title3.weight(.bold))
+                        .lineLimit(1)
+                        .minimumScaleFactor(0.7)
+                    Text(ip.exit?.detailText ?? (on ? String(localized: "出口 · 代理") : String(localized: "出口 · 本机网络")))
+                        .font(.caption.monospacedDigit())
+                        .foregroundStyle(.secondary)
+                        .lineLimit(1)
+                        .minimumScaleFactor(0.75)
+                }
+                .contentShape(Rectangle())
+                .onTapGesture {
+                    UIImpactFeedbackGenerator(style: .light).impactOccurred()
+                    ip.scheduleRefresh()
+                }
+                .onLongPressGesture(minimumDuration: 0.45) {
+                    ip.copy()
+                    withAnimation(.spring()) { copied = true }
+                    DispatchQueue.main.asyncAfter(deadline: .now() + 1.4) { withAnimation { copied = false } }
+                }
+                .accessibilityElement(children: .combine)
+                .accessibilityHint(Text("轻点刷新，长按复制"))
+                Spacer(minLength: 8)
+                Toggle("", isOn: Binding(
+                    get: { on || vpn.status == .connecting },
+                    set: { _ in Task { await vpn.toggle() } }
+                ))
+                .labelsHidden()
+                .tint(Theme.good)
+                .disabled(vpn.isBusy || vpn.status == .disconnecting)
+                .accessibilityLabel(Text("代理"))
+            }
+            Divider().overlay(Color.white.opacity(0.08))
+            HStack(spacing: 6) {
+                Circle()
+                    .fill(on ? Theme.good : Color.secondary.opacity(0.6))
+                    .frame(width: 7, height: 7)
+                    .accessibilityHidden(true)
+                if on, let d = vpn.connectedDate {
+                    TimelineView(.periodic(from: .now, by: 1)) { ctx in
+                        Text("\(vpn.statusText) · \(Fmt.duration(ctx.date.timeIntervalSince(d)))")
+                            .font(.caption.monospacedDigit())
+                    }
+                } else {
+                    Text(vpn.statusText).font(.caption)
+                }
+                Spacer()
+                Label(store.active?.name ?? String(localized: "未选择"), systemImage: "doc.text")
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+                    .lineLimit(1)
+            }
+        }
+        .padding(16)
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .background(RoundedRectangle(cornerRadius: 18, style: .continuous).fill(Theme.card))
+        .overlay(RoundedRectangle(cornerRadius: 18, style: .continuous).stroke(Color.white.opacity(0.06)))
+        .overlay(alignment: .topTrailing) {
+            if copied {
+                Text("已复制")
+                    .font(.caption2.bold())
+                    .padding(.horizontal, 8).padding(.vertical, 3)
+                    .background(Capsule().fill(Theme.good))
+                    .foregroundStyle(.black)
+                    .offset(x: -8, y: -8)
+                    .transition(.scale.combined(with: .opacity))
+            }
+        }
+        .onAppear { if ip.exit == nil && !ip.loading { ip.scheduleRefresh() } }
+    }
+}
+
+/// Home policy cards (v0.7): icon, group name and the resolved chain (PROXY ➤ 🇯🇵 node). Tap opens a
+/// quick picker for selectable groups.
+struct HomePolicyCards: View {
+    @EnvironmentObject var dash: DashboardModel
+
+    var body: some View {
+        VStack(spacing: 0) {
+            ForEach(Array(dash.homeGroups.enumerated()), id: \.element.id) { i, g in
+                if i > 0 { Divider().overlay(Color.white.opacity(0.06)).padding(.leading, 56) }
+                NavigationLink {
+                    GroupQuickPicker(group: g.name)
+                } label: {
+                    HStack(spacing: 12) {
+                        GroupIconView(group: g.name, profileIcon: g.icon, fallback: PolicyGroupDisplay(name: g.name, kind: g.kind, now: nil, members: [], selectable: false).icon, size: 32)
+                        VStack(alignment: .leading, spacing: 3) {
+                            Text(g.name).font(.subheadline.weight(.semibold)).lineLimit(1)
+                            Text(g.chain.dropFirst().joined(separator: " ➤ "))
+                                .font(.caption)
+                                .foregroundStyle(.secondary)
+                                .lineLimit(1)
+                                .truncationMode(.middle)
+                        }
+                        Spacer(minLength: 6)
+                        if let d = g.delay {
+                            Text(Theme.delayText(d)).font(.caption2.monospacedDigit()).foregroundStyle(Theme.delayColor(d))
+                        }
+                        Image(systemName: "chevron.right").font(.caption2.weight(.semibold)).foregroundStyle(.tertiary)
+                    }
+                    .padding(.horizontal, 14).padding(.vertical, 11)
+                    .contentShape(Rectangle())
+                }
+                .buttonStyle(.plain)
+            }
+        }
+        .background(RoundedRectangle(cornerRadius: 18, style: .continuous).fill(Theme.card))
+        .overlay(RoundedRectangle(cornerRadius: 18, style: .continuous).stroke(Color.white.opacity(0.06)))
+    }
+}
+
+/// Members of one live group; selectable groups switch on tap.
+struct GroupQuickPicker: View {
+    let group: String
+    @State private var item: ProxyItem?
+    @State private var all: [String: ProxyItem] = [:]
+    @State private var error: String?
+
+    var body: some View {
+        List {
+            if let error { ErrorRow(message: error).listRowBackground(Theme.card) }
+            if let item {
+                if !item.isSelectable {
+                    Text(PolicyGroupDisplay(name: item.name, kind: PolicyGroupDisplay.kind(live: item.type), now: item.now, members: [], selectable: false).hint)
+                        .font(.footnote).foregroundStyle(.secondary).listRowBackground(Theme.card)
+                }
+                ForEach(item.all ?? [], id: \.self) { m in
+                    Button {
+                        guard item.isSelectable else { return }
+                        Task { await select(m) }
+                    } label: {
+                        HStack {
+                            Text(m).lineLimit(1)
+                            Spacer()
+                            if let d = all[m]?.lastDelay(for: ControllerClient.testSettings.url) {
+                                Text(Theme.delayText(d)).font(.caption.monospacedDigit()).foregroundStyle(Theme.delayColor(d))
+                            }
+                            if item.now == m { Image(systemName: "checkmark").foregroundStyle(Theme.accent) }
+                        }
+                    }
+                    .foregroundStyle(.primary)
+                    .listRowBackground(Theme.card)
+                }
+            }
+        }
+        .scrollContentBackground(.hidden)
+        .background(Theme.bg.ignoresSafeArea())
+        .navigationTitle(group)
+        .navigationBarTitleDisplayMode(.inline)
+        .task { await load() }
+    }
+
+    func load() async {
+        do {
+            all = try await ControllerClient.shared.proxies()
+            item = all[group]
+            error = nil
+        } catch { self.error = error.localizedDescription }
+    }
+
+    func select(_ node: String) async {
+        do {
+            try await ControllerClient.shared.select(group: group, node: node)
+            UISelectionFeedbackGenerator().selectionChanged()
+            if group != "GLOBAL" { ProfileInspector.rememberLiveSelection(group: group, node: node) }
+            NotificationCenter.default.post(name: .egressMayHaveChanged, object: nil)
+            await load()
+            await DashboardModel.shared.refreshSelectedNode()
+        } catch { self.error = error.localizedDescription }
     }
 }

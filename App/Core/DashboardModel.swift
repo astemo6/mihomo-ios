@@ -18,6 +18,18 @@ final class DashboardModel: ObservableObject {
     @Published var coreVersion: String = ""
     @Published var mode: String = CoreOverrides.load().mode
     @Published var selectedNode: String = "—"
+    /// Home policy cards (v0.7): the profile's first selectable groups with the resolved chain.
+    @Published var homeGroups: [HomeGroup] = []
+
+    struct HomeGroup: Identifiable, Equatable {
+        var id: String { name }
+        let name: String
+        let icon: String?
+        let kind: String
+        /// Group → … → leaf node, following `now`.
+        let chain: [String]
+        let delay: Int?
+    }
 
     private var tasks: [Task<Void, Never>] = []
 
@@ -44,6 +56,7 @@ final class DashboardModel: ObservableObject {
                     self?.uploadTotal = r.uploadTotal ?? 0
                     self?.downloadTotal = r.downloadTotal ?? 0
                     self?.connectionCount = r.connections?.count ?? 0
+                    ConnectionAnalytics.shared.ingest(r.connections ?? [])
                 }
                 if self?.coreVersion.isEmpty == true, let v = try? await c.version() { self?.coreVersion = v }
                 await self?.refreshSelectedNode()
@@ -57,6 +70,8 @@ final class DashboardModel: ObservableObject {
         tasks.forEach { $0.cancel() }
         tasks.removeAll()
         up = 0; down = 0; connectionCount = 0; memory = 0
+        homeGroups = []
+        if !VPNManager.shared.isConnected { ConnectionAnalytics.shared.reset() }
     }
 
     /// Follows the first group from GLOBAL's order (usually the main "节点选择") down to a leaf node.
@@ -70,6 +85,23 @@ final class DashboardModel: ObservableObject {
             name = now; hops += 1
         }
         selectedNode = name
+        WidgetSnapshot.update(node: name, policy: firstGroup)
+
+        // Home policy cards: top-level groups in GLOBAL order (hidden ones skipped), at most four.
+        let testURL = ControllerClient.testSettings.url
+        var cards: [HomeGroup] = []
+        for g in order {
+            guard let p = all[g], p.isGroup, p.hidden != true else { continue }
+            var chain = [g]
+            var cur = g
+            while let n = all[cur]?.now, !n.isEmpty, chain.count < 6, !chain.contains(n) {
+                chain.append(n); cur = n
+            }
+            cards.append(HomeGroup(name: g, icon: p.icon, kind: PolicyGroupDisplay.kind(live: p.type), chain: chain,
+                                   delay: all[cur]?.lastDelay(for: testURL)))
+            if cards.count == 4 { break }
+        }
+        if cards != homeGroups { homeGroups = cards }
     }
 
     func setMode(_ m: String) async {
