@@ -45,12 +45,12 @@ type ScriptResult struct {
 // ScriptRunner executes scripts with goja. A fresh Runtime per run (isolation like Surge), compiled
 // programs cached (LRU), and a small concurrency cap so the extension's memory stays bounded.
 type ScriptRunner struct {
-	e     *Engine
-	progs *lru[*goja.Program]
+	e       *Engine
+	progs   *lru[*goja.Program]
 	sem     chan struct{} // HTTP scripts
 	taskSem chan struct{} // cron / event / generic scripts (long running, kept apart from HTTP traffic)
 	mu      sync.Mutex
-	byURL map[string]string // script path -> program cache key
+	byURL   map[string]string // script path -> program cache key
 }
 
 func NewScriptRunner(e *Engine) *ScriptRunner {

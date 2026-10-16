@@ -233,7 +233,10 @@ func (l *chanListener) Accept() (net.Conn, error) {
 	}
 	return c, nil
 }
-func (l *chanListener) Close() error   { l.once.Do(func() { defer func() { recover() }(); close(l.ch) }); return nil }
+func (l *chanListener) Close() error {
+	l.once.Do(func() { defer func() { recover() }(); close(l.ch) })
+	return nil
+}
 func (l *chanListener) Addr() net.Addr { return l.addr }
 
 func (e *Engine) acceptLoop() {
