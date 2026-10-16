@@ -23,7 +23,13 @@ final class PolicyModel: ObservableObject {
         }
     }
 
-    func delay(of name: String) -> Int? { all[name]?.lastDelay }
+    /// Results of this session's live 测速 (0 = timeout), newest wins over the core's history.
+    @Published var liveDelays: [String: Int] = [:]
+
+    func delay(of name: String) -> Int? {
+        if let d = liveDelays[name] { return d }
+        return all[name]?.lastDelay(for: ControllerClient.testSettings.url)
+    }
 
     func select(_ group: ProxyItem, _ node: String) async {
         guard group.isSelectable else { return }
@@ -38,11 +44,26 @@ final class PolicyModel: ObservableObject {
         }
     }
 
+    /// Live 测速 through the running core (each member is dialled through its own node), with the
+    /// URL and timeout from 更多 → 测速.
     func test(_ group: ProxyItem) async {
         testing.insert(group.name)
         defer { testing.remove(group.name) }
-        _ = try? await ControllerClient.shared.groupDelay(group.name, url: group.testUrl ?? ControllerClient.testURL)
+        let members = (group.all ?? []).filter { $0 != "DIRECT" && $0 != "REJECT" && $0 != "REJECT-DROP" && $0 != "PASS" && $0 != "COMPATIBLE" }
+        var failure: String?
+        do {
+            switch try await ControllerClient.shared.groupDelay(group.name) {
+            case .measured(let got):
+                for m in members { liveDelays[m] = got[m] ?? 0 }
+            case .allTimedOut:
+                for m in members { liveDelays[m] = 0 }
+            }
+        } catch {
+            // The controller itself did not answer: say so instead of marking every node as timed out.
+            failure = String(localized: "测速失败：\(error.localizedDescription)")
+        }
         await load()
+        if let failure { self.error = failure }
     }
 }
 
@@ -172,6 +193,7 @@ struct PolicyView: View {
         ScrollView {
             LazyVStack(spacing: 12) {
                 if let e = model.error { Text(e).font(.footnote).foregroundStyle(Theme.bad) }
+                TestTargetCaption(live: true)
                 ForEach(model.groups) { g in
                     let d = PolicyGroupDisplay(name: g.name, kind: PolicyGroupDisplay.kind(live: g.type), now: g.now,
                                                members: g.all ?? [], selectable: g.isSelectable)
@@ -239,6 +261,7 @@ struct PolicyView: View {
                                         onShare: { shareNode($0) })
                     }
                     if !offline.result.groups.isEmpty {
+                        TestTargetCaption(live: false)
                         Text("在这里选择的节点会保存到该配置，下次连接时生效。测速直接从本机发起（不经过代理）。节点集只显示已缓存的节点。")
                             .font(.caption2).foregroundStyle(.secondary)
                             .frame(maxWidth: .infinity, alignment: .leading)
@@ -421,5 +444,23 @@ struct NodeCell: View {
                 .stroke(selected ? Theme.accent : Color.clear, lineWidth: 1.2)
         )
         .opacity(enabled || selected ? 1 : 0.75)
+    }
+}
+
+/// Which 测速 URL / timeout the bolt buttons use; set in 更多 → 测速.
+struct TestTargetCaption: View {
+    let live: Bool
+    var body: some View {
+        let st = ControllerClient.testSettings
+        let host = URL(string: st.url)?.host ?? st.url
+        HStack(spacing: 6) {
+            Image(systemName: "bolt.horizontal")
+            Text(live ? "测速经由内核：\(host) · \(st.timeoutMs / 1000) 秒超时" : "离线测速：\(host) · \(st.timeoutMs / 1000) 秒超时")
+                .lineLimit(1)
+            Spacer()
+        }
+        .font(.caption2)
+        .foregroundStyle(.secondary)
+        .padding(.horizontal, 4)
     }
 }

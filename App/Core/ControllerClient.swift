@@ -28,7 +28,7 @@ final class ControllerClient {
     private func request(_ path: String, method: String = "GET", query: [URLQueryItem] = [], body: Any? = nil, timeout: TimeInterval = 8) throws -> URLRequest {
         guard var comps = URLComponents(string: base) else { throw APIError.badURL }
         comps.percentEncodedPath = path
-        if !query.isEmpty { comps.queryItems = query }
+        if !query.isEmpty { comps.percentEncodedQuery = Self.query(query.map { ($0.name, $0.value ?? "") }) }
         guard let url = comps.url else { throw APIError.badURL }
         var req = URLRequest(url: url)
         req.httpMethod = method
@@ -56,10 +56,17 @@ final class ControllerClient {
         return try JSONDecoder().decode(T.self, from: data)
     }
 
+    /// RFC 3986 unreserved characters only; everything else (emoji, spaces, "/", "+", "&", "%" …) is
+    /// percent-encoded as UTF-8. The core unescapes path parameters with url.PathUnescape.
+    static let unreserved = CharacterSet(charactersIn: "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789-._~")
+
     static func enc(_ s: String) -> String {
-        var allowed = CharacterSet.urlPathAllowed
-        allowed.remove(charactersIn: "/?#%")
-        return s.addingPercentEncoding(withAllowedCharacters: allowed) ?? s
+        s.addingPercentEncoding(withAllowedCharacters: unreserved) ?? s
+    }
+
+    /// Query string with every value strictly encoded (URLQueryItem leaves "&", "+" and "=" alone).
+    static func query(_ items: [(String, String)]) -> String {
+        items.map { "\(enc($0.0))=\(enc($0.1))" }.joined(separator: "&")
     }
 
     // MARK: API
@@ -101,22 +108,51 @@ final class ControllerClient {
         try await send("/proxies/\(Self.enc(group))", method: "PUT", body: ["name": node])
     }
 
-    static let testURL = "https://www.gstatic.com/generate_204"
+    static let testURL = CoreOverrides.defaultTestURL
 
-    func groupDelay(_ group: String, url: String = testURL) async throws -> [String: Int] {
-        let data = try await send("/group/\(Self.enc(group))/delay", query: [
-            URLQueryItem(name: "url", value: url), URLQueryItem(name: "timeout", value: "5000"),
-        ], timeout: 20)
-        let obj = try JSONSerialization.jsonObject(with: data) as? [String: Any] ?? [:]
-        return obj.compactMapValues { ($0 as? NSNumber)?.intValue }
+    /// 测速 settings (更多 → 测速). Group testUrl from /proxies is NOT used: the core reports "" for
+    /// groups on the default URL, and an empty url makes every node fail (the v0.6.0 device bug).
+    static var testSettings: (url: String, timeoutMs: Int) {
+        let o = CoreOverrides.load()
+        let url = CoreOverrides.isValidTestURL(o.testURL) ? o.testURL.trimmingCharacters(in: .whitespaces) : CoreOverrides.defaultTestURL
+        return (url, min(max(o.testTimeoutMs, 1000), 30000))
     }
 
-    func proxyDelay(_ name: String, url: String = testURL) async throws -> Int {
-        let data = try await send("/proxies/\(Self.enc(name))/delay", query: [
-            URLQueryItem(name: "url", value: url), URLQueryItem(name: "timeout", value: "5000"),
-        ], timeout: 10)
-        let obj = try JSONSerialization.jsonObject(with: data) as? [String: Any]
-        return (obj?["delay"] as? NSNumber)?.intValue ?? 0
+    enum DelayResult {
+        /// name → ms for members that answered; members missing from the map timed out.
+        case measured([String: Int])
+        /// The core answered 504: every member timed out.
+        case allTimedOut
+    }
+
+    /// GET /group/{name}/delay. Tests every member in parallel inside the core (through each node).
+    func groupDelay(_ group: String, url: String? = nil, timeoutMs: Int? = nil) async throws -> DelayResult {
+        let st = Self.testSettings
+        let ms = timeoutMs ?? st.timeoutMs
+        do {
+            let data = try await send("/group/\(Self.enc(group))/delay", query: [
+                URLQueryItem(name: "url", value: url ?? st.url), URLQueryItem(name: "timeout", value: String(ms)),
+            ], timeout: TimeInterval(ms) / 1000 + 10)
+            let obj = try JSONSerialization.jsonObject(with: data) as? [String: Any] ?? [:]
+            return .measured(obj.compactMapValues { ($0 as? NSNumber)?.intValue })
+        } catch APIError.http(504, _) {
+            return .allTimedOut
+        }
+    }
+
+    /// GET /proxies/{name}/delay for one node; 0 = timeout / failure.
+    func proxyDelay(_ name: String, url: String? = nil, timeoutMs: Int? = nil) async throws -> Int {
+        let st = Self.testSettings
+        let ms = timeoutMs ?? st.timeoutMs
+        do {
+            let data = try await send("/proxies/\(Self.enc(name))/delay", query: [
+                URLQueryItem(name: "url", value: url ?? st.url), URLQueryItem(name: "timeout", value: String(ms)),
+            ], timeout: TimeInterval(ms) / 1000 + 5)
+            let obj = try JSONSerialization.jsonObject(with: data) as? [String: Any]
+            return (obj?["delay"] as? NSNumber)?.intValue ?? 0
+        } catch APIError.http(let code, _) where code == 504 || code == 503 || code == 408 {
+            return 0
+        }
     }
 
     func connections() async throws -> ConnectionsResponse {

@@ -129,8 +129,8 @@ struct CoreOverrides: Codable, Equatable {
     var controllerPort: Int = 9090
     var secret: String = ""
     var mode: String = "rule"
-    /// Go soft memory limit (GOMEMLIMIT) in MB; the bridge clamps it to 1…45.
-    var memoryLimitMB: Int = 36
+    /// Go soft memory limit (GOMEMLIMIT) in MB; 20…30 (v0.6.1; older values fall back to the default).
+    var memoryLimitMB: Int = 26
     /// "tun" = NEPacketTunnelFlow bridge (all traffic) · "proxy" = NEProxySettings only.
     var tunnelMode: String = "tun"
     /// Local HTTP/SOCKS port for proxy-only mode and LAN sharing.
@@ -145,8 +145,25 @@ struct CoreOverrides: Codable, Equatable {
     /// 安全模式: set by the app for one connection after a failed start. The core then runs the profile
     /// with these overrides only (no modules, rewrite, scripts, MitM, custom rules, smart groups).
     var safeMode: Bool = false
+    /// 测速地址 for manual latency tests (live and offline); optionally also every health check.
+    var testURL: String = CoreOverrides.defaultTestURL
+    var testTimeoutMs: Int = 5000
+    var overrideHealthCheck: Bool = false
 
-    static let defaultMemoryLimitMB = 36
+    static let defaultMemoryLimitMB = 26
+    static let memoryLimitRange = 20...30
+    static let defaultTestURL = "https://www.gstatic.com/generate_204"
+    static let testURLPresets = [
+        "https://www.gstatic.com/generate_204",
+        "https://cp.cloudflare.com/generate_204",
+        "https://www.apple.com/library/test/success.html",
+        "http://connectivitycheck.platform.hicloud.com/generate_204",
+    ]
+    static func isValidTestURL(_ s: String) -> Bool {
+        guard let u = URL(string: s.trimmingCharacters(in: .whitespaces)), let sc = u.scheme?.lowercased(),
+              sc == "http" || sc == "https", let h = u.host, !h.isEmpty else { return false }
+        return true
+    }
     static let mtuChoices = [1280, 1500, 4064, 9000]
 
     var isProxyOnly: Bool { tunnelMode == "proxy" }
@@ -156,6 +173,7 @@ struct CoreOverrides: Codable, Equatable {
     enum CodingKeys: String, CodingKey {
         case logLevel, ipv6, allowLan, dnsMode, sniffer, controllerPort, secret, mode, memoryLimitMB
         case tunnelMode, mixedPort, tunMTU, geoMirror, geoURLs, mergeManual, safeMode
+        case testURL, testTimeoutMs, overrideHealthCheck
     }
 
     init(from decoder: Decoder) throws {
@@ -180,10 +198,15 @@ struct CoreOverrides: Codable, Equatable {
         geoURLs = get(.geoURLs, d.geoURLs)
         mergeManual = get(.mergeManual, d.mergeManual)
         safeMode = get(.safeMode, d.safeMode)
+        testURL = get(.testURL, d.testURL)
+        testTimeoutMs = get(.testTimeoutMs, d.testTimeoutMs)
+        overrideHealthCheck = get(.overrideHealthCheck, d.overrideHealthCheck)
+        if !Self.isValidTestURL(testURL) { testURL = d.testURL }
+        if !(1000...30000).contains(testTimeoutMs) { testTimeoutMs = d.testTimeoutMs }
         if tunnelMode != "proxy" { tunnelMode = "tun" }
         if !(1280...9000).contains(tunMTU) { tunMTU = d.tunMTU }
         if !(1...65535).contains(mixedPort) { mixedPort = d.mixedPort }
-        if !(8...45).contains(memoryLimitMB) { memoryLimitMB = d.memoryLimitMB }
+        if !Self.memoryLimitRange.contains(memoryLimitMB) { memoryLimitMB = d.memoryLimitMB }
     }
 
     static func load() -> CoreOverrides {
@@ -239,5 +262,49 @@ enum TunnelErrorLog {
         let parts = s.split(separator: "\t", maxSplits: 1).map(String.init)
         guard parts.count == 2, let d = ISO8601DateFormatter().date(from: parts[0]), Date().timeIntervalSince(d) < within else { return nil }
         return parts[1]
+    }
+}
+
+/// Why the system stopped the tunnel last time (NEProviderStopReason), in words. Written by the
+/// extension in stopTunnel, shown in 诊断 and the diagnostic bundle. Purely informational.
+enum TunnelStopReason {
+    static var url: URL { AppShared.containerURL.appendingPathComponent("tunnel-last-stop.txt") }
+
+    static func describe(_ raw: Int) -> String {
+        switch raw {
+        case 0: return String(localized: "无原因")
+        case 1: return String(localized: "用户手动断开")
+        case 2: return String(localized: "扩展运行失败")
+        case 3: return String(localized: "没有可用网络")
+        case 4: return String(localized: "网络发生不可恢复的变化")
+        case 5: return String(localized: "扩展被停用")
+        case 6: return String(localized: "认证被取消")
+        case 7: return String(localized: "VPN 配置无效")
+        case 8: return String(localized: "空闲超时")
+        case 9: return String(localized: "VPN 配置被关闭（在 App 或系统设置里断开）")
+        case 10: return String(localized: "VPN 配置被删除")
+        case 11: return String(localized: "被其他 VPN 配置取代")
+        case 12: return String(localized: "用户注销")
+        case 13: return String(localized: "切换了用户")
+        case 14: return String(localized: "连接失败")
+        case 15: return String(localized: "设备休眠")
+        case 16: return String(localized: "App 更新")
+        case 17: return String(localized: "内部错误")
+        default: return String(localized: "未知原因（\(raw)）")
+        }
+    }
+
+    static func record(_ raw: Int) {
+        let line = "\(ISO8601DateFormatter().string(from: Date()))\t\(raw)"
+        try? line.data(using: .utf8)?.write(to: url, options: .atomic)
+    }
+
+    /// "原因（时间）" of the last stop, or nil.
+    static func last() -> String? {
+        guard let s = try? String(contentsOf: url, encoding: .utf8) else { return nil }
+        let p = s.split(separator: "\t").map(String.init)
+        guard p.count == 2, let raw = Int(p[1].trimmingCharacters(in: .whitespacesAndNewlines)) else { return nil }
+        let when = ISO8601DateFormatter().date(from: p[0]).map { $0.formatted(date: .abbreviated, time: .standard) } ?? p[0]
+        return "\(describe(raw))（\(when)）"
     }
 }

@@ -546,6 +546,40 @@
         }
       }
     },
+    "%lld 秒": {
+      "localizations": {
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%lld 秒"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%lld s"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%lld 秒"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%lld초"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%lld с"
+          }
+        }
+      }
+    },
     "%lld 项": {
       "localizations": {
         "zh-Hant": {
@@ -1396,6 +1430,40 @@
           "stringUnit": {
             "state": "translated",
             "value": "App Group в порядке"
+          }
+        }
+      }
+    },
+    "App 更新": {
+      "localizations": {
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "App 更新"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "App update"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "App のアップデート"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "앱 업데이트"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Обновление приложения"
           }
         }
       }
@@ -3182,6 +3250,40 @@
         }
       }
     },
+    "VPN 配置无效": {
+      "localizations": {
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "VPN 配置無效"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "VPN configuration invalid"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "VPN 構成が無効です"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "VPN 구성이 잘못됨"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Недопустимая конфигурация VPN"
+          }
+        }
+      }
+    },
     "VPN 配置无效（扩展 ID 可能与签名不符）。": {
       "localizations": {
         "zh-Hant": {
@@ -3212,6 +3314,74 @@
           "stringUnit": {
             "state": "translated",
             "value": "Недопустимая конфигурация VPN (ID расширения может не совпадать с подписью)."
+          }
+        }
+      }
+    },
+    "VPN 配置被关闭（在 App 或系统设置里断开）": {
+      "localizations": {
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "VPN 配置被關閉（在 App 或系統設定裡斷開）"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "VPN configuration turned off (disconnected in the app or in Settings)"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "VPN 構成がオフになりました（App または設定で切断）"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "VPN 구성이 꺼짐(앱 또는 설정에서 연결 해제)"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Конфигурация VPN выключена (отключено в приложении или в Настройках)"
+          }
+        }
+      }
+    },
+    "VPN 配置被删除": {
+      "localizations": {
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "VPN 配置被刪除"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "VPN configuration removed"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "VPN 構成が削除されました"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "VPN 구성이 삭제됨"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Конфигурация VPN удалена"
           }
         }
       }
@@ -3554,6 +3724,40 @@
           "stringUnit": {
             "state": "translated",
             "value": "http-response"
+          }
+        }
+      }
+    },
+    "https://example.com/generate_204": {
+      "localizations": {
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "https://example.com/generate_204"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "https://example.com/generate_204"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "https://example.com/generate_204"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "https://example.com/generate_204"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "https://example.com/generate_204"
           }
         }
       }
@@ -4579,6 +4783,40 @@
           "stringUnit": {
             "state": "translated",
             "value": "Последний запуск %@%@"
+          }
+        }
+      }
+    },
+    "上次断开原因": {
+      "localizations": {
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "上次斷開原因"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Last disconnect reason"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "前回の切断理由"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "마지막 연결 해제 이유"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Причина последнего отключения"
           }
         }
       }
@@ -6909,6 +7147,40 @@
         }
       }
     },
+    "健康检查也使用此地址": {
+      "localizations": {
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "健康檢查也使用此地址"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Use this URL for health checks too"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ヘルスチェックにもこの URL を使う"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "상태 확인에도 이 주소 사용"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Использовать и для проверки доступности"
+          }
+        }
+      }
+    },
     "允许 QUIC": {
       "localizations": {
         "zh-Hant": {
@@ -8108,6 +8380,40 @@
         }
       }
     },
+    "内部错误": {
+      "localizations": {
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "內部錯誤"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Internal error"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "内部エラー"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "내부 오류"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Внутренняя ошибка"
+          }
+        }
+      }
+    },
     "出口 · 代理": {
       "localizations": {
         "en": {
@@ -8310,6 +8616,40 @@
           "stringUnit": {
             "state": "translated",
             "value": "Переключить подключение Mihomo"
+          }
+        }
+      }
+    },
+    "切换了用户": {
+      "localizations": {
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "切換了使用者"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "User switched"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ユーザーが切り替わりました"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "사용자가 전환됨"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Смена пользователя"
           }
         }
       }
@@ -15088,6 +15428,74 @@
         }
       }
     },
+    "扩展被停用": {
+      "localizations": {
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "延伸功能被停用"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Extension disabled"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "拡張機能が無効化されました"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "확장 프로그램이 비활성화됨"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Расширение отключено"
+          }
+        }
+      }
+    },
+    "扩展运行失败": {
+      "localizations": {
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "延伸功能執行失敗"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Extension failed"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "拡張機能の実行に失敗"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "확장 프로그램 실행 실패"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Сбой расширения"
+          }
+        }
+      }
+    },
     "扫描二维码": {
       "localizations": {
         "en": {
@@ -16936,6 +17344,40 @@
         }
       }
     },
+    "无原因": {
+      "localizations": {
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "無原因"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "No reason"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "理由なし"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "이유 없음"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Без причины"
+          }
+        }
+      }
+    },
     "无效": {
       "localizations": {
         "en": {
@@ -18304,6 +18746,40 @@
           "stringUnit": {
             "state": "translated",
             "value": "Неизвестно"
+          }
+        }
+      }
+    },
+    "未知原因（%lld）": {
+      "localizations": {
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "未知原因（%lld）"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Unknown reason (%lld)"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "不明な理由（%lld）"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "알 수 없는 이유(%lld)"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Неизвестная причина (%lld)"
           }
         }
       }
@@ -20090,6 +20566,40 @@
         }
       }
     },
+    "没有可用网络": {
+      "localizations": {
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "沒有可用網路"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "No network available"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "利用可能なネットワークがありません"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "사용 가능한 네트워크 없음"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Нет доступной сети"
+          }
+        }
+      }
+    },
     "没有可预览的节点（节点集未下载时，连接一次后再来看）": {
       "localizations": {
         "en": {
@@ -20532,6 +21042,142 @@
           "stringUnit": {
             "state": "translated",
             "value": "Статистика трафика"
+          }
+        }
+      }
+    },
+    "测速": {
+      "localizations": {
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "測速"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Latency Test"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "遅延テスト"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "지연 테스트"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Тест задержки"
+          }
+        }
+      }
+    },
+    "测速地址": {
+      "localizations": {
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "測速地址"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Test URL"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "テスト URL"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "테스트 URL"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "URL для теста"
+          }
+        }
+      }
+    },
+    "测速失败：%@": {
+      "localizations": {
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "測速失敗：%@"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Latency test failed: %@"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "遅延テストに失敗しました：%@"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "지연 테스트 실패: %@"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Тест задержки не удался: %@"
+          }
+        }
+      }
+    },
+    "测速经由内核：%@ · %lld 秒超时": {
+      "localizations": {
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "測速經由核心：%@ · %lld 秒超時"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Tested through the core: %@ · %lld s timeout"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "コア経由でテスト：%@ · タイムアウト %lld 秒"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "코어를 통해 테스트: %@ · 시간 초과 %lld초"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Тест через ядро: %@ · тайм-аут %lld с"
           }
         }
       }
@@ -21563,6 +22209,74 @@
       },
       "extractionState": "manual"
     },
+    "用户手动断开": {
+      "localizations": {
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "使用者手動斷開"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Disconnected by the user"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ユーザーが切断"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "사용자가 연결 해제"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Отключено пользователем"
+          }
+        }
+      }
+    },
+    "用户注销": {
+      "localizations": {
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "使用者登出"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "User logged out"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ユーザーがログアウト"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "사용자 로그아웃"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Пользователь вышел"
+          }
+        }
+      }
+    },
     "由模块引用，随模块启用或停用。": {
       "localizations": {
         "zh-Hant": {
@@ -21837,6 +22551,40 @@
         }
       }
     },
+    "离线测速：%@ · %lld 秒超时": {
+      "localizations": {
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "離線測速：%@ · %lld 秒超時"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Offline test: %@ · %lld s timeout"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "オフラインテスト：%@ · タイムアウト %lld 秒"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "오프라인 테스트: %@ · 시간 초과 %lld초"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Офлайн-тест: %@ · тайм-аут %lld с"
+          }
+        }
+      }
+    },
     "私钥": {
       "localizations": {
         "en": {
@@ -21971,6 +22719,40 @@
           "stringUnit": {
             "state": "translated",
             "value": "Пустое правило"
+          }
+        }
+      }
+    },
+    "空闲超时": {
+      "localizations": {
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "空閒超時"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Idle timeout"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "アイドルタイムアウト"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "유휴 시간 초과"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Тайм-аут простоя"
           }
         }
       }
@@ -22381,6 +23163,40 @@
           "stringUnit": {
             "state": "translated",
             "value": "Группа политик (пусто = первая группа с ручным выбором)"
+          }
+        }
+      }
+    },
+    "策略页的测速都用这个地址：连接时经由内核通过各节点访问，未连接时从本机直接测试。地址应快速返回 204 或 200。": {
+      "localizations": {
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "策略頁的測速都用這個地址：連線時經由核心透過各節點訪問，未連線時從本機直接測試。地址應快速返回 204 或 200。"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "All latency tests on the Policy page use this URL: while connected the core fetches it through each node; while disconnected it is tested directly from this device. It should return 204 or 200 quickly."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ポリシー画面の遅延テストはすべてこの URL を使います。接続中はコアが各ノード経由でアクセスし、未接続時はこの端末から直接テストします。204 または 200 をすばやく返す URL を指定してください。"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "정책 화면의 지연 테스트는 모두 이 주소를 사용합니다. 연결 중에는 코어가 각 노드를 통해 접속하고, 연결되지 않았을 때는 이 기기에서 직접 테스트합니다. 204 또는 200을 빠르게 반환하는 주소여야 합니다."
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Все тесты задержки на странице «Политики» используют этот адрес: при подключении ядро обращается к нему через каждый узел, без подключения тест идёт напрямую с устройства. Адрес должен быстро отвечать 204 или 200."
           }
         }
       }
@@ -23411,6 +24227,40 @@
         }
       },
       "extractionState": "manual"
+    },
+    "网络发生不可恢复的变化": {
+      "localizations": {
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "網路發生不可恢復的變化"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Unrecoverable network change"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "回復できないネットワークの変化"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "복구할 수 없는 네트워크 변경"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Необратимое изменение сети"
+          }
+        }
+      }
     },
     "网络工具": {
       "localizations": {
@@ -24540,6 +25390,40 @@
         }
       }
     },
+    "被其他 VPN 配置取代": {
+      "localizations": {
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "被其他 VPN 配置取代"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Superseded by another VPN configuration"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "別の VPN 構成に置き換えられました"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "다른 VPN 구성으로 대체됨"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Заменено другой конфигурацией VPN"
+          }
+        }
+      }
+    },
     "要去掉的前缀，例如 [SS]": {
       "localizations": {
         "en": {
@@ -25224,6 +26108,40 @@
       },
       "extractionState": "manual"
     },
+    "认证被取消": {
+      "localizations": {
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "認證被取消"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Authentication canceled"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "認証がキャンセルされました"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "인증이 취소됨"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Аутентификация отменена"
+          }
+        }
+      }
+    },
     "记录每次连接的阶段与耗时：网络设置、数据包桥接、内核启动开始 / 结束、内存占用和错误。": {
       "localizations": {
         "zh-Hant": {
@@ -25356,6 +26274,40 @@
           "stringUnit": {
             "state": "translated",
             "value": "Сделать текущим профилем"
+          }
+        }
+      }
+    },
+    "设备休眠": {
+      "localizations": {
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "裝置休眠"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Device went to sleep"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "デバイスがスリープ"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "기기 잠자기"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Устройство в режиме сна"
           }
         }
       }
@@ -26082,6 +27034,40 @@
       },
       "extractionState": "manual"
     },
+    "请输入以 http:// 或 https:// 开头的完整地址": {
+      "localizations": {
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "請輸入以 http:// 或 https:// 開頭的完整地址"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Enter a full URL starting with http:// or https://"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "http:// または https:// で始まる完全な URL を入力してください"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "http:// 또는 https://로 시작하는 전체 주소를 입력하세요"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Введите полный адрес, начинающийся с http:// или https://"
+          }
+        }
+      }
+    },
     "读取 VPN 配置失败：": {
       "localizations": {
         "zh-Hant": {
@@ -26253,6 +27239,40 @@
         }
       },
       "extractionState": "manual"
+    },
+    "超过这个时间仍未返回的节点显示为「超时」。默认 5 秒。": {
+      "localizations": {
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "超過這個時間仍未返回的節點顯示為「超時」。預設 5 秒。"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Nodes that do not answer within this time show as “Timeout”. Default 5 s."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "この時間内に応答しないノードは「タイムアウト」と表示されます。既定は 5 秒です。"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "이 시간 안에 응답하지 않는 노드는 ‘시간 초과’로 표시됩니다. 기본값 5초."
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Узлы, не ответившие за это время, показываются как «Тайм-аут». По умолчанию 5 с."
+          }
+        }
+      }
     },
     "跳过": {
       "localizations": {
@@ -28445,6 +29465,40 @@
         }
       }
     },
+    "重载失败：%@": {
+      "localizations": {
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "過載失敗：%@"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Reload failed: %@"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "再読み込みに失敗しました：%@"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "다시 불러오기 실패: %@"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Не удалось перезагрузить: %@"
+          }
+        }
+      }
+    },
     "重连中…": {
       "localizations": {
         "en": {
@@ -28986,6 +30040,40 @@
           "stringUnit": {
             "state": "translated",
             "value": "Дополнительно"
+          }
+        }
+      }
+    },
+    "默认关闭：自动选择 / 故障转移策略组和节点集按配置文件里的地址做健康检查。开启后统一改用上面的地址，重新连接或重载后生效。": {
+      "localizations": {
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "預設關閉：自動選擇 / 故障轉移策略組和節點集按配置檔案裡的地址做健康檢查。開啟後統一改用上面的地址，重新連線或過載後生效。"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Off by default: auto-select / fallback groups and node sets run health checks with the URL in the profile. When on, they all use the URL above. Takes effect after reconnecting or reloading."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "既定ではオフ：自動選択 / フォールバックのグループとノードセットは、プロファイル内の URL でヘルスチェックします。オンにすると上の URL に統一されます。再接続または再読み込み後に有効になります。"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "기본값 꺼짐: 자동 선택 / 장애 조치 그룹과 노드 세트는 프로파일에 있는 주소로 상태를 확인합니다. 켜면 모두 위 주소를 사용하며, 다시 연결하거나 다시 불러온 뒤 적용됩니다."
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "По умолчанию выключено: группы автовыбора / резерва и наборы узлов проверяются по адресу из профиля. Если включить, все используют адрес выше. Применяется после переподключения или перезагрузки."
           }
         }
       }

@@ -59,6 +59,12 @@ type Overrides struct {
 	// overrides only — no modules, rewrite, scripts, MitM, custom rules or smart groups.
 	SafeMode bool `json:"safeMode"`
 
+	// Latency test (v0.6.1): URL used for manual 测速 (app side) and, when OverrideHealthCheck is on,
+	// for every group / provider health check of the profile.
+	TestURL             string `json:"testURL"`
+	TestTimeoutMs       int    `json:"testTimeoutMs"`
+	OverrideHealthCheck bool   `json:"overrideHealthCheck"`
+
 	DNS        *DNSOverride      `json:"-"` // loaded from <home>/dns.json
 	sub        *SubRules         // per-subscription node processing (subscriptions.json), set by overridesFor
 	chains     map[string]string // group → 前置代理 (groups.json), set by overridesFor
@@ -67,7 +73,13 @@ type Overrides struct {
 }
 
 const (
-	defaultMemoryLimitMB = 36 // 3/4 of the ~50 MB NetworkExtension jetsam budget (Hako GC pacing)
+	// GOMEMLIMIT. v0.6.1: 26 MB (was 36). The first device test sat at 38–40 MB footprint with a 40 MB
+	// limit: Go's heap plus runtime overhead, gVisor buffers and Swift leave too little headroom below the
+	// ~50 MB jetsam line. Accepted range 20–30 MB; anything else falls back to the default.
+	defaultMemoryLimitMB = 26
+	maxMemoryLimitMB     = 30
+	minMemoryLimitMB     = 20
+	defaultTestURL       = "https://www.gstatic.com/generate_204"
 	defaultTunMTU        = 4064
 	defaultMixedPort     = 7890
 )
@@ -89,8 +101,14 @@ func readOverrides(home string) Overrides {
 	if o.DNSMode != "redir-host" {
 		o.DNSMode = "fake-ip"
 	}
-	if o.MemoryLimitMB <= 0 || o.MemoryLimitMB > 45 {
+	if o.MemoryLimitMB < minMemoryLimitMB || o.MemoryLimitMB > maxMemoryLimitMB {
 		o.MemoryLimitMB = defaultMemoryLimitMB
+	}
+	if !validTestURL(o.TestURL) {
+		o.TestURL = defaultTestURL
+	}
+	if o.TestTimeoutMs < 1000 || o.TestTimeoutMs > 30000 {
+		o.TestTimeoutMs = 5000
 	}
 	if o.TunnelMode != "proxy" {
 		o.TunnelMode = "tun"
@@ -265,12 +283,16 @@ func buildRuntimeWith(profile []byte, o Overrides, fd int32, inject func(raw map
 		delete(raw, "tun")
 	}
 	rewriteConvertProviders(raw, o)
+	if o.OverrideHealthCheck {
+		overrideHealthCheckURL(raw, o.TestURL)
+	}
 	if !o.SafeMode {
 		applyCustomRules(raw, o)
 	}
 	if inject != nil {
 		inject(raw)
 	}
+	appendUDPFallback(raw)
 	return yaml.Marshal(raw)
 }
 
@@ -317,8 +339,12 @@ func LastError() string { return lastError }
 // permanently low GOGC). A slow ticker returns idle spans to the OS; the Swift MemoryGuard handles
 // footprint spikes (FreeMemory / ShedConnections) using phys_footprint and memory-pressure events.
 func startGC(limitMB int) {
+	gogc := steadyGOGC
+	if testOldPacing { // A/B measurement against v0.6.0 (tests only)
+		limitMB, gogc = 40, 100
+	}
 	debug.SetMemoryLimit(int64(limitMB) << 20)
-	debug.SetGCPercent(100)
+	debug.SetGCPercent(gogc)
 	if gcStop != nil {
 		return
 	}
@@ -352,6 +378,10 @@ func apply(home, configPath string, fd int32) error {
 	}
 	o := overridesFor(home, configPath)
 	startGC(o.MemoryLimitMB)
+	// Startup burst (rule / proxy providers parse concurrently): collect more eagerly and limit
+	// parallelism until the config is applied, then return to steady pacing and hand memory back.
+	restore := startupPacing()
+	defer restore()
 	stage("config read (%d bytes), building runtime", len(profile))
 	var inject func(raw map[string]any)
 	if o.SafeMode {

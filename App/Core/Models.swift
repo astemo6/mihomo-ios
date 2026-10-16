@@ -7,6 +7,12 @@ struct DelayHistory: Decodable, Hashable {
     var delay: Int
 }
 
+/// Per-test-URL history the core keeps next to `history` ("extra": {url: {alive, history}}).
+struct ExtraDelay: Decodable, Hashable {
+    var alive: Bool?
+    var history: [DelayHistory]?
+}
+
 struct ProxyItem: Decodable, Identifiable, Hashable {
     var id: String { name }
     var name: String
@@ -19,10 +25,17 @@ struct ProxyItem: Decodable, Identifiable, Hashable {
     var hidden: Bool?
     var icon: String?
     var testUrl: String?
+    var extra: [String: ExtraDelay]?
 
     var lastDelay: Int? {
         guard let d = history?.last?.delay else { return nil }
         return d
+    }
+
+    /// Last result for one test URL (what 测速 measured), falling back to the overall last result.
+    func lastDelay(for url: String) -> Int? {
+        if let d = extra?[url]?.history?.last?.delay { return d }
+        return lastDelay
     }
 
     var isGroup: Bool { all != nil }
