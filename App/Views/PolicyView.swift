@@ -183,7 +183,7 @@ struct PolicyView: View {
                 if AppShared.activeProfileURL == nil {
                     NotConnectedPlaceholder(text: "请先在「配置」中添加并选择一个配置")
                 } else if let e = offline.result.error, offline.result.groups.isEmpty {
-                    Text(e).font(.footnote).foregroundStyle(Theme.bad).frame(maxWidth: .infinity, alignment: .leading)
+                    ErrorRow(message: e)
                 } else {
                     let index = offline.nodeIndex
                     let groupNames = Set(offline.result.groups.map(\.name))
@@ -335,17 +335,17 @@ struct NodeCell: View {
             HStack {
                 if let t = type {
                     if t == "group" {
-                        Text("策略组").font(.system(size: 9, weight: .bold)).foregroundStyle(.secondary)
+                        Text("策略组").scaledFont(9, weight: .bold).foregroundStyle(.secondary)
                     } else {
                         ProtocolBadge(type: t)
                     }
                 }
                 if udp {
-                    Text("UDP").font(.system(size: 9, weight: .bold)).foregroundStyle(.secondary)
+                    Text("UDP").scaledFont(9, weight: .bold).foregroundStyle(.secondary)
                 }
                 Spacer()
                 Text(Theme.delayText(delay))
-                    .font(.system(size: 11, weight: .semibold).monospacedDigit())
+                    .scaledFont(11, weight: .semibold, monospacedDigit: true)
                     .foregroundStyle(Theme.delayColor(delay))
             }
         }

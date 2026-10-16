@@ -9,8 +9,8 @@ import (
 // installs it because policy groups, the outbound mode and profile reload live outside the engine.
 type APIFunc func(method, path string, body any) (any, error)
 
-// egernNativeRe detects Egern's native script shape (ES module + ctx), which the goja runtime and our
-// Surge / QX compatible globals don't provide.
+// egernNativeRe detects Egern's native script shape (ES module + ctx); such scripts run through the
+// ctx adapter in egernadapter.go.
 var egernNativeRe = regexp.MustCompile(`(?m)^\s*export\s+default\s+(async\s+)?function`)
 
 // SetAPI installs the $httpAPI handler (nil removes it).

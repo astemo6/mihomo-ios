@@ -16,16 +16,21 @@ final class ControllerClient {
 
     enum APIError: LocalizedError {
         case http(Int, String)
+        case badURL
         var errorDescription: String? {
-            switch self { case let .http(c, m): return "HTTP \(c) \(m)" }
+            switch self {
+            case let .http(c, m): return "HTTP \(c) \(m)"
+            case .badURL: return String(localized: "控制器地址无效")
+            }
         }
     }
 
     private func request(_ path: String, method: String = "GET", query: [URLQueryItem] = [], body: Any? = nil, timeout: TimeInterval = 8) throws -> URLRequest {
-        var comps = URLComponents(string: base)!
+        guard var comps = URLComponents(string: base) else { throw APIError.badURL }
         comps.percentEncodedPath = path
         if !query.isEmpty { comps.queryItems = query }
-        var req = URLRequest(url: comps.url!)
+        guard let url = comps.url else { throw APIError.badURL }
+        var req = URLRequest(url: url)
         req.httpMethod = method
         req.timeoutInterval = timeout
         req.setValue("Bearer \(overrides.secret)", forHTTPHeaderField: "Authorization")
@@ -155,10 +160,17 @@ final class ControllerClient {
     /// Streams JSON frames from a websocket endpoint (/traffic, /memory, /logs ...).
     func stream<T: Decodable>(_ path: String, query: [URLQueryItem] = [], as type: T.Type) -> AsyncStream<T> {
         AsyncStream { continuation in
-            var comps = URLComponents(string: base.replacingOccurrences(of: "http://", with: "ws://"))!
+            guard var comps = URLComponents(string: base.replacingOccurrences(of: "http://", with: "ws://")) else {
+                continuation.finish()
+                return
+            }
             comps.percentEncodedPath = path
             comps.queryItems = query + [URLQueryItem(name: "token", value: overrides.secret)]
-            let task = session.webSocketTask(with: comps.url!)
+            guard let wsURL = comps.url else {
+                continuation.finish()
+                return
+            }
+            let task = session.webSocketTask(with: wsURL)
             task.resume()
             func receive() {
                 task.receive { result in

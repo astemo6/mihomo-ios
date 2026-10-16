@@ -43,7 +43,9 @@ struct ModulesView: View {
 
             Section {
                 if shown.isEmpty {
-                    Text(filter == "ruleset" ? "点 + 添加远程规则集" : "点 + 通过 URL 导入模块").font(.footnote).foregroundStyle(.secondary)
+                    EmptyStateRow(icon: filter == "ruleset" ? "list.bullet.rectangle" : "puzzlepiece.extension",
+                                  title: filter == "ruleset" ? "没有规则集" : filter == "script" ? "没有远程脚本" : filter == "module" ? "没有模块" : "还没有模块或资源",
+                                  message: filter == "ruleset" ? "点 + 添加远程规则集" : filter == "script" ? "启用的模块和脚本行引用的远程脚本会出现在这里。" : "点 + 通过 URL 导入模块")
                 }
                 ForEach(shown) { it in
                     NavigationLink {
@@ -132,7 +134,7 @@ struct ResourceKindBadge: View {
             }
         }()
         Text(LocalizedStringKey(t))
-            .font(.system(size: 9, weight: .bold))
+            .scaledFont(9, weight: .bold)
             .padding(.horizontal, 5).padding(.vertical, 2)
             .background(Capsule().fill(c.opacity(0.18)))
             .foregroundStyle(c)
@@ -154,7 +156,7 @@ struct SourceFormatBadge: View {
             }
         }()
         Text(label)
-            .font(.system(size: 8, weight: .bold))
+            .scaledFont(8, weight: .bold)
             .padding(.horizontal, 4).padding(.vertical, 1)
             .background(Capsule().fill(Color.white.opacity(0.1)))
     }
@@ -214,7 +216,7 @@ struct ResourceUpdateSection: View {
     var body: some View {
         if let it = res.items.first(where: { $0.key == key }), it.isRemote {
             Section("更新") {
-                Text(it.url).font(.system(size: 10, design: .monospaced)).foregroundStyle(.secondary).textSelection(.enabled)
+                Text(it.url).scaledFont(10, design: .monospaced).foregroundStyle(.secondary).textSelection(.enabled)
                 if it.readOnly == true {
                     LabeledContent("更新间隔", value: ResourceDetailView.intervalText(it.interval))
                 } else {

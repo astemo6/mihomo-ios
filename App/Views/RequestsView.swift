@@ -85,8 +85,9 @@ struct RequestsView: View {
                         .listRowBackground(Color.clear)
                         if tab == 2 {
                             if http.items.isEmpty {
-                                Text("经过 MitM / 重写引擎的 HTTP(S) 请求会显示在这里。需要在 更多 → 重写 / MitM 中启用。")
-                                    .font(.footnote).foregroundStyle(.secondary).listRowBackground(Theme.card)
+                                EmptyStateRow(icon: "lock.open", title: "还没有 HTTP 请求",
+                                              message: "经过 MitM / 重写引擎的 HTTP(S) 请求会显示在这里。需要在 更多 → 重写 / MitM 中启用。")
+                                    .listRowBackground(Theme.card)
                             }
                             ForEach(httpItems) { r in
                                 NavigationLink { HTTPRequestDetailView(id: r.id) } label: { HTTPRequestRow(r: r) }
@@ -139,12 +140,12 @@ struct ConnectionRow: View {
         VStack(alignment: .leading, spacing: 5) {
             HStack(spacing: 6) {
                 Text((c.metadata.network ?? "tcp").uppercased())
-                    .font(.system(size: 9, weight: .bold))
+                    .scaledFont(9, weight: .bold)
                     .padding(.horizontal, 5).padding(.vertical, 2)
                     .background(Capsule().fill((c.metadata.network == "udp" ? Color.purple : Theme.accent).opacity(0.2)))
                 if isMitM {
                     Text(c.metadata.destinationPort == "80" ? "HTTP" : "MitM")
-                        .font(.system(size: 9, weight: .bold))
+                        .scaledFont(9, weight: .bold)
                         .padding(.horizontal, 5).padding(.vertical, 2)
                         .background(Capsule().fill(Theme.warn.opacity(0.2)))
                         .foregroundStyle(Theme.warn)

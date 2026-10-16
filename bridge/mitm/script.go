@@ -15,6 +15,7 @@ import (
 	"strconv"
 	"strings"
 	"sync"
+	"sync/atomic"
 	"time"
 	"unicode/utf8"
 
@@ -40,6 +41,7 @@ type ScriptResult struct {
 	Body     []byte
 	BodySet  bool
 	Response *ScriptHTTP // request phase: answer locally
+	Abort    bool        // Egern ctx.abort(): drop the request / fail the response
 }
 
 // ScriptRunner executes scripts with goja. A fresh Runtime per run (isolation like Surge), compiled
@@ -79,7 +81,11 @@ func (s *ScriptRunner) program(sc *Script) (*goja.Program, error) {
 	}
 	code := strings.TrimPrefix(string(src), "\ufeff")
 	if egernNativeRe.MatchString(code) {
-		return nil, errors.New("Egern 原生脚本（export default + ctx API）暂不支持，只支持 Surge / QX 兼容写法的脚本")
+		adapted, err := adaptEgern(code)
+		if err != nil {
+			return nil, err
+		}
+		code = adapted
 	}
 	// Wrap so a top-level `return` (allowed by Surge/JSC scripts) does not break compilation.
 	p, err := goja.Compile(sc.Name+".js", "(function(){\n"+code+"\n}).call(this);", false)
@@ -95,6 +101,14 @@ func (s *ScriptRunner) program(sc *Script) (*goja.Program, error) {
 }
 
 type loopJob func()
+
+// liveRuntimes counts goja runtimes that exist right now. Every run creates one and drops it when the
+// run returns (nothing keeps a reference: timers are stopped, late callbacks see a cancelled context),
+// so this is at most the semaphore sizes (2 HTTP + 1 task) at any moment.
+var liveRuntimes atomic.Int64
+
+// LiveRuntimes reports how many script runtimes are alive (diagnostics, memory samples, tests).
+func LiveRuntimes() int64 { return liveRuntimes.Load() }
 
 type runCtx struct {
 	rt      *goja.Runtime
@@ -153,6 +167,8 @@ func (s *ScriptRunner) execute(sc *Script, req, resp *ScriptHTTP, sem chan struc
 	ctx, cancel := context.WithTimeout(context.Background(), timeout)
 	defer cancel()
 	rt := goja.New()
+	liveRuntimes.Add(1)
+	defer liveRuntimes.Add(-1)
 	rc := &runCtx{rt: rt, jobs: make(chan loopJob, 8), script: sc, name: sc.Name, e: s.e, ctx: ctx, timers: map[int64]*time.Timer{}}
 	defer func() {
 		for _, t := range rc.timers {
@@ -622,6 +638,7 @@ func (rc *runCtx) installCommon(set func(string, any)) {
 		return rt.ToValue(string(rs))
 	})
 	rc.installUtils(set)
+	rc.installEgern(set)
 }
 
 func jsString(rt *goja.Runtime, v goja.Value) string {
@@ -924,6 +941,10 @@ func (rc *runCtx) parseDone(requestPhase bool) (*ScriptResult, error) {
 			return nil
 		}
 		return x
+	}
+	if a := get(o, "__egernAbort"); a != nil && a.ToBoolean() {
+		res.Abort = true
+		return res, nil
 	}
 	if requestPhase {
 		mock := get(o, "response")

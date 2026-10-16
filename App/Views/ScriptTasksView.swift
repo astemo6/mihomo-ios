@@ -124,10 +124,9 @@ struct ScriptTasksView: View {
             }
             if loaded && tasks.isEmpty && vpn.isConnected {
                 Section {
-                    VStack(alignment: .leading, spacing: 6) {
-                        Text("没有定时 / 事件 / 通用脚本").font(.subheadline.weight(.semibold))
-                        Text("在模块或「脚本」里添加，例如：\n签到 = type=cron,cronexp=\"0 8 * * *\",script-path=…\ncron \"0 8 * * *\" script-path=…, tag=签到\n0 8 * * * https://…/a.js, tag=签到")
-                            .font(.system(size: 11, design: .monospaced)).foregroundStyle(.secondary)
+                    EmptyStateRow(icon: "clock.arrow.circlepath", title: "没有定时 / 事件 / 通用脚本", message: "在模块或「脚本」里添加，例如：") {
+                        Text("签到 = type=cron,cronexp=\"0 8 * * *\",script-path=…\ncron \"0 8 * * *\" script-path=…, tag=签到\n0 8 * * * https://…/a.js, tag=签到")
+                            .font(.caption2.monospaced()).foregroundStyle(.secondary)
                     }
                 }
                 .listRowBackground(Theme.card)
@@ -176,7 +175,7 @@ struct ScriptTasksView: View {
             }
             if let c = t.cron, !c.isEmpty {
                 HStack(spacing: 8) {
-                    Text(c).font(.system(size: 11, design: .monospaced))
+                    Text(c).scaledFont(11, design: .monospaced)
                     if let n = t.nextRun, n > 0 {
                         Text("下次 \(Date(timeIntervalSince1970: n).formatted(date: .abbreviated, time: .shortened))")
                             .font(.caption2).foregroundStyle(.secondary)
@@ -191,7 +190,7 @@ struct ScriptTasksView: View {
                         .font(.caption2).foregroundStyle(.secondary)
                 }
                 if let r = t.lastResult, !r.isEmpty {
-                    Text(r).font(.system(size: 10, design: .monospaced)).foregroundStyle(t.lastOK ? Color.secondary : Theme.bad).lineLimit(3)
+                    Text(r).scaledFont(10, design: .monospaced).foregroundStyle(t.lastOK ? Color.secondary : Theme.bad).lineLimit(3)
                 }
             }
             Text(t.source).font(.caption2).foregroundStyle(.secondary)
@@ -222,7 +221,7 @@ struct FormatBadge: View {
     let format: String
     var body: some View {
         Text(format.uppercased() == "QX" ? "QX" : format.capitalized)
-            .font(.system(size: 9, weight: .bold))
+            .scaledFont(9, weight: .bold)
             .padding(.horizontal, 5).padding(.vertical, 2)
             .background(Capsule().stroke(Color.secondary.opacity(0.5)))
             .foregroundStyle(.secondary)

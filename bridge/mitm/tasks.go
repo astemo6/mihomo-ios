@@ -86,6 +86,9 @@ func (rs *Ruleset) addTask(kind, cron, event string, sc *Script, source, line, f
 		}
 		t.cron, t.Cron = c, c.String()
 		sc.Type = "cron"
+		if sc.Cron == "" {
+			sc.Cron = cron
+		}
 	case TaskEvent:
 		if event == "" {
 			event = "network-changed"
@@ -271,6 +274,27 @@ type tasker struct {
 	network map[string]any
 	lastNet string
 	now     func() time.Time
+	viewed  time.Time // last time the app showed panels (GET /mitm/panels)
+}
+
+// panelVisibleWindow: auto-refresh keeps running this long after the app last showed the panels
+// (at least two intervals). The panels page polls while open; in the background nothing runs.
+func panelVisibleWindow(interval int) time.Duration {
+	return max(3*time.Minute, 2*time.Duration(interval)*time.Second)
+}
+
+// markViewed records that the app is showing panels and wakes the scheduler if refreshes had paused.
+func (t *tasker) markViewed() {
+	t.mu.Lock()
+	paused := t.now().Sub(t.viewed) > 3*time.Minute
+	t.viewed = t.now()
+	t.mu.Unlock()
+	if paused {
+		select {
+		case t.wake <- struct{}{}:
+		default:
+		}
+	}
 }
 
 func newTasker(e *Engine) *tasker {
@@ -368,23 +392,7 @@ func (t *tasker) loop(stop chan struct{}) {
 				next = at
 			}
 		}
-		// auto-refreshing panels (update-interval / Stash interval)
-		var duePanels []string
-		for _, p := range t.panels {
-			if p.Script == "" || p.Interval <= 0 {
-				continue
-			}
-			st := t.pstates[p.ID]
-			if st == nil || st.Running || st.Updated == 0 {
-				continue // first fill happens when the app opens the panels page
-			}
-			at := time.Unix(int64(st.Updated), 0).Add(time.Duration(max(p.Interval, 60)) * time.Second)
-			if !at.After(now) {
-				duePanels = append(duePanels, p.ID)
-			} else if at.Before(next) {
-				next = at
-			}
-		}
+		duePanels := t.duePanelsLocked(now, &next)
 		t.mu.Unlock()
 		for _, tk := range due {
 			go t.run(tk, nil)
@@ -410,6 +418,31 @@ func (t *tasker) loop(stop chan struct{}) {
 		case <-timer.C:
 		}
 	}
+}
+
+// duePanelsLocked returns auto-refreshing panels (update-interval / Stash interval) that are due now,
+// and pulls next forward to the earliest future one. Only while the app is showing panels. t.mu held.
+func (t *tasker) duePanelsLocked(now time.Time, next *time.Time) []string {
+	var due []string
+	for _, p := range t.panels {
+		if p.Script == "" || p.Interval <= 0 {
+			continue
+		}
+		st := t.pstates[p.ID]
+		if st == nil || st.Running || st.Updated == 0 {
+			continue // first fill happens when the app opens the panels page
+		}
+		if now.Sub(t.viewed) > panelVisibleWindow(p.Interval) {
+			continue // nobody is looking: no script runs (battery, memory); markViewed wakes us
+		}
+		at := time.Unix(int64(st.Updated), 0).Add(time.Duration(max(p.Interval, 60)) * time.Second)
+		if !at.After(now) {
+			due = append(due, p.ID)
+		} else if next != nil && at.Before(*next) {
+			*next = at
+		}
+	}
+	return due
 }
 
 func (t *tasker) find(id string) *Task {

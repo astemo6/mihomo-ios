@@ -12,8 +12,8 @@ package mitm
 // arguments._compat.$argument), mitm.hostnames (list or includes / excludes) and widgets (as panels
 // filled by the generic script's $done({title, content})).
 // Reported as unsupported: dns, http_captures, bypass_tunnel_proxy, real_ip_domains, env_schema,
-// ssid / bssid / cellular / user_agent rules, and Egern-native `export default async function(ctx)`
-// scripts (detected when the script loads).
+// ssid / bssid / cellular / user_agent rules. Script `env` becomes ctx.env; Egern-native
+// `export default async function(ctx)` scripts run through the ctx adapter (egernadapter.go).
 
 import (
 	"encoding/base64"
@@ -512,6 +512,19 @@ func (rs *Ruleset) egernScript(m map[string]any, source string) {
 		if a, ok := egernMap(b["arguments"])["_compat.$argument"]; ok {
 			p["argument"] = egernStr(a)
 		}
+		var env map[string]string
+		if em := egernMap(b["env"]); len(em) > 0 {
+			env = map[string]string{}
+			for k, v := range em {
+				env[k] = egernStr(v)
+			}
+		}
+		withEnv := func(sc *Script) *Script {
+			if sc != nil && env != nil {
+				sc.Env = env
+			}
+			return sc
+		}
 		line := fmt.Sprintf("scriptings.%s: %s %s", typ, name, p["script-path"])
 		switch typ {
 		case "http_request", "http_response":
@@ -520,13 +533,14 @@ func (rs *Ruleset) egernScript(m map[string]any, source string) {
 				rs.Errors = append(rs.Errors, err.Error()+"："+clip(line, 120))
 				continue
 			}
+			withEnv(r.Script)
 			rs.addCompiled(r, source, line)
 		case "schedule":
-			rs.addTask(TaskCron, egernStr(b["cron"]), "", scriptFromParams(name, p), source, line, "egern")
+			rs.addTask(TaskCron, egernStr(b["cron"]), "", withEnv(scriptFromParams(name, p)), source, line, "egern")
 		case "generic":
-			rs.addTask(TaskGeneric, "", "", scriptFromParams(name, p), source, line, "egern")
+			rs.addTask(TaskGeneric, "", "", withEnv(scriptFromParams(name, p)), source, line, "egern")
 		case "network":
-			rs.addTask(TaskEvent, "", "network-changed", scriptFromParams(name, p), source, line, "egern")
+			rs.addTask(TaskEvent, "", "network-changed", withEnv(scriptFromParams(name, p)), source, line, "egern")
 		default:
 			rs.Unsupported = append(rs.Unsupported, line)
 		}

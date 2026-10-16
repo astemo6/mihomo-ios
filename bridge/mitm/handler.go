@@ -251,6 +251,10 @@ func (e *Engine) serveHTTP(w http.ResponseWriter, r *http.Request) {
 				ent.Note("脚本错误：" + rule.Script.Name)
 				continue
 			}
+			if res.Abort {
+				ent.Finish(0, "脚本中止："+rule.Script.Name)
+				panic(http.ErrAbortHandler)
+			}
 			if res.Response != nil {
 				h := res.Response.Header
 				if h == nil {
@@ -453,6 +457,10 @@ func (e *Engine) modifyResponse(f *flow, resp *http.Response) error {
 				e.Logs.Add(rule.Script.Name, "error", err.Error())
 				ent.Note("脚本错误：" + rule.Script.Name)
 				continue
+			}
+			if res.Abort {
+				ent.Note("脚本中止：" + rule.Script.Name)
+				return fmt.Errorf("脚本 %s 中止了响应", rule.Script.Name)
 			}
 			if res.Status > 0 {
 				resp.StatusCode = res.Status

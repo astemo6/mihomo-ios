@@ -75,7 +75,7 @@
         "zh-Hant": {
           "stringUnit": {
             "state": "translated",
-            "value": "$request、$response、$done、$httpClient（get/post/put/delete/head/options/patch，支援 policy、binary-mode、insecure、auto-redirect）、$persistentStore（所有指令碼共享）、$notification.post、$utils（geoip / ipasn / ipaso / ungzip）、$httpAPI（策略查詢 / 切換、出站模式、過載配置）、$network、$script、$environment、$argument、console、setTimeout；Quantumult X：$task.fetch、$prefs、$notify；另提供 TextEncoder/TextDecoder、atob/btoa。指令碼型別：http-request、http-response、cron（定時，連線期間執行）、event（network-changed）、generic（手動執行 / 面板）。Surge、Loon、Quantumult X、Stash、Egern（相容寫法）都能識別；暫不支援 Surge type=dns / type=rule 與 Egern 原生 ctx 指令碼。"
+            "value": "$request、$response、$done、$httpClient（get/post/put/delete/head/options/patch，支援 policy、binary-mode、insecure、auto-redirect）、$persistentStore（所有腳本共享）、$notification.post、$utils（geoip / ipasn / ipaso / ungzip）、$httpAPI（策略查詢 / 切換、出站模式、過載配置）、$network、$script、$environment、$argument、console、setTimeout；Quantumult X：$task.fetch、$prefs、$notify；另提供 TextEncoder/TextDecoder、atob/btoa。腳本型別：http-request、http-response、cron（定時，連線期間執行）、event（network-changed）、generic（手動執行 / 面板）。Surge、Loon、Quantumult X、Stash、Egern（相容寫法）都能識別；暫不支援 Surge type=dns / type=rule 與 Egern 原生 ctx 腳本。"
           }
         },
         "en": {
@@ -523,7 +523,7 @@
         "zh-Hant": {
           "stringUnit": {
             "state": "translated",
-            "value": "%lld 條規則/指令碼 · %lld 個主機%@"
+            "value": "%lld 條規則/腳本 · %lld 個主機%@"
           }
         },
         "ja": {
@@ -1298,6 +1298,40 @@
         }
       }
     },
+    "App Group 不可用：重签名的描述文件需要包含 App Groups，且主程序和扩展使用同一个组。详见 更多 → 诊断。": {
+      "localizations": {
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "App Group 不可用：重簽名的描述檔案需要包含 App Groups，且主程式和延伸功能使用同一個組。詳見 更多 → 診斷。"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "App Group unavailable: the re-signing profile must include App Groups, and the app and extension must share one group. See More → Diagnostics."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "App Group を利用できません：再署名のプロファイルに App Groups が含まれ、アプリと拡張が同じグループを使う必要があります。詳細は その他 → 診断。"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "App Group를 사용할 수 없습니다: 재서명 프로파일에 App Groups가 있어야 하고 앱과 확장이 같은 그룹을 써야 합니다. 더 보기 → 진단 참고."
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "App Group недоступна: профиль для переподписи должен включать App Groups, а приложение и расширение — использовать одну группу. См. Ещё → Диагностика."
+          }
+        }
+      }
+    },
     "App Group 异常": {
       "localizations": {
         "en": {
@@ -2048,6 +2082,41 @@
         }
       }
     },
+    "Mihomo 通过系统的 VPN（网络扩展）接管流量。点下面的按钮后，iOS 会询问是否「添加 VPN 配置」，选择「允许」并验证面容 / 密码。": {
+      "extractionState": "manual",
+      "localizations": {
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Mihomo 透過系統的 VPN（網路延伸功能）接管流量。點下面的按鈕後，iOS 會詢問是否「新增 VPN 配置」，選擇「允許」並驗證面容 / 密碼。"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Mihomo routes traffic through the system VPN (Network Extension). Tap the button below, choose “Allow” when iOS asks to add VPN configurations, then confirm with Face ID or your passcode."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Mihomo はシステムの VPN（ネットワーク拡張）で通信を処理します。下のボタンを押し、「VPN 構成の追加」で「許可」を選んで Face ID / パスコードで確認してください。"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Mihomo는 시스템 VPN(네트워크 확장)으로 트래픽을 처리합니다. 아래 버튼을 누르고 ‘VPN 구성 추가’에서 ‘허용’을 선택한 뒤 Face ID / 암호로 확인하세요."
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Mihomo пропускает трафик через системный VPN (Network Extension). Нажмите кнопку ниже, выберите «Разрешить» на запрос iOS о добавлении VPN и подтвердите Face ID или код."
+          }
+        }
+      }
+    },
     "MitM": {
       "localizations": {
         "en": {
@@ -2185,6 +2254,41 @@
         }
       },
       "extractionState": "manual"
+    },
+    "MitM 证书（可选）": {
+      "extractionState": "manual",
+      "localizations": {
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "MitM 證書（可選）"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "MitM Certificate (Optional)"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "MitM 証明書（任意）"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "MitM 인증서(선택)"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Сертификат MitM (необязательно)"
+          }
+        }
+      }
     },
     "PacketFlowBridge 与内存守护参考了 TokenPLS/Hako 与 Hako-Adapter（现 ProjectClash）的设计，均为 GPL-3.0；本项目的实现是独立编写的，同样以 GPL-3.0 发布。完整说明见仓库中的 NOTICE。": {
       "localizations": {
@@ -2368,7 +2472,7 @@
         "zh-Hant": {
           "stringUnit": {
             "state": "translated",
-            "value": "QX 指令碼"
+            "value": "QX 腳本"
           }
         },
         "ja": {
@@ -2560,6 +2664,41 @@
           "stringUnit": {
             "state": "translated",
             "value": "Отпечаток SHA-256"
+          }
+        }
+      }
+    },
+    "Safari 提示下载描述文件时选「允许」": {
+      "extractionState": "manual",
+      "localizations": {
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Safari 提示下載描述檔案時選「允許」"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Choose “Allow” when Safari offers to download the profile"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Safari でプロファイルのダウンロードを求められたら「許可」"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Safari가 프로파일 다운로드를 물으면 ‘허용’ 선택"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Нажмите «Разрешить», когда Safari предложит загрузить профиль"
           }
         }
       }
@@ -2975,6 +3114,108 @@
         }
       }
     },
+    "VPN 配置已停用：在 设置 → VPN 中选中 Mihomo，或重新连接。": {
+      "localizations": {
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "VPN 配置已停用：在 設定 → VPN 中選中 Mihomo，或重新連線。"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "The VPN configuration is disabled: select Mihomo in Settings → VPN, or connect again."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "VPN 構成が無効です：設定 → VPN で Mihomo を選ぶか、もう一度接続してください。"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "VPN 구성이 비활성화됨: 설정 → VPN에서 Mihomo를 선택하거나 다시 연결하세요."
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Конфигурация VPN отключена: выберите Mihomo в Настройки → VPN или подключитесь снова."
+          }
+        }
+      }
+    },
+    "VPN 配置已被其他地方修改，请重试一次。": {
+      "localizations": {
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "VPN 配置已被其他地方修改，請重試一次。"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "The VPN configuration was changed elsewhere. Please try again."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "VPN 構成が別の場所で変更されました。もう一度お試しください。"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "VPN 구성이 다른 곳에서 변경되었습니다. 다시 시도하세요."
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Конфигурация VPN изменена в другом месте. Попробуйте ещё раз."
+          }
+        }
+      }
+    },
+    "VPN 配置无效（扩展 ID 可能与签名不符）。": {
+      "localizations": {
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "VPN 配置無效（延伸功能 ID 可能與簽名不符）。"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Invalid VPN configuration (the extension ID may not match the signature)."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "VPN 構成が無効です（拡張 ID が署名と一致しない可能性）。"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "VPN 구성이 잘못되었습니다(확장 ID가 서명과 다를 수 있음)."
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Недопустимая конфигурация VPN (ID расширения может не совпадать с подписью)."
+          }
+        }
+      }
+    },
     "WS 路径": {
       "localizations": {
         "en": {
@@ -3351,6 +3592,40 @@
         }
       }
     },
+    "https://… 订阅链接": {
+      "localizations": {
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "https://… 訂閱連結"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "https://… subscription URL"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "https://… 購読 URL"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "https://… 구독 URL"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "https://… ссылка подписки"
+          }
+        }
+      }
+    },
     "https://…/rules.list": {
       "localizations": {
         "zh-Hant": {
@@ -3499,7 +3774,7 @@
         "zh-Hant": {
           "stringUnit": {
             "state": "translated",
-            "value": "iOS 限制網路擴充套件約 50 MB 記憶體。記憶體上限是 Go 執行時的軟上限（預設 %lld MB）：調低更穩但更費電，調高可容納更多連線。接近系統上限時擴充套件會先釋放記憶體，再關閉連線。MTU 預設 4064，遇到個別網路異常可改為 1500。兩項都在重新連線後生效。"
+            "value": "iOS 限制網路延伸功能約 50 MB 記憶體。記憶體上限是 Go 執行時的軟上限（預設 %lld MB）：調低更穩但更費電，調高可容納更多連線。接近系統上限時延伸功能會先釋放記憶體，再關閉連線。MTU 預設 4064，遇到個別網路異常可改為 1500。兩項都在重新連線後生效。"
           }
         },
         "ja": {
@@ -4171,6 +4446,74 @@
       },
       "extractionState": "manual"
     },
+    "一个 zip：App / 扩展 / 内核版本、App Group 状态、启动日志、内核最近日志、内存采样、实际生效的配置和启用的模块。服务器地址、密码、UUID、密钥、订阅链接和令牌都已替换，可以放心发送。": {
+      "localizations": {
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "一個 zip：App / 延伸功能 / 核心版本、App Group 狀態、啟動日誌、核心最近日誌、記憶體取樣、實際生效的配置和啟用的模組。伺服器地址、密碼、UUID、金鑰、訂閱連結和令牌都已替換，可以放心傳送。"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "One zip: app / extension / core versions, App Group status, startup log, recent core log, memory samples, the effective config and enabled modules. Server addresses, passwords, UUIDs, keys, subscription URLs and tokens are replaced, so it is safe to send."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "1 つの zip：アプリ / 拡張 / コアのバージョン、App Group の状態、起動ログ、最近のコアログ、メモリ記録、実際の設定と有効なモジュール。サーバーアドレス・パスワード・UUID・鍵・購読 URL・トークンは置き換え済みなので安心して送れます。"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "zip 하나: 앱 / 확장 / 코어 버전, App Group 상태, 시작 로그, 최근 코어 로그, 메모리 샘플, 실제 적용된 구성과 켜진 모듈. 서버 주소·비밀번호·UUID·키·구독 URL·토큰은 모두 가려져 있어 안심하고 보낼 수 있습니다."
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Один zip: версии приложения / расширения / ядра, состояние App Group, журнал запуска, последние логи ядра, замеры памяти, действующая конфигурация и включённые модули. Адреса серверов, пароли, UUID, ключи, ссылки подписок и токены заменены — отправлять безопасно."
+          }
+        }
+      }
+    },
+    "上一步": {
+      "localizations": {
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "上一步"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Back"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "戻る"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "이전"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Назад"
+          }
+        }
+      }
+    },
     "上传": {
       "localizations": {
         "en": {
@@ -4377,6 +4720,40 @@
         }
       },
       "extractionState": "manual"
+    },
+    "下一步": {
+      "localizations": {
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "下一步"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Next"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "次へ"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "다음"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Далее"
+          }
+        }
+      }
     },
     "下次 %@": {
       "localizations": {
@@ -4791,6 +5168,40 @@
       },
       "extractionState": "manual"
     },
+    "不需要的话直接点「开始使用」，以后在 更多 → MitM 设置。": {
+      "localizations": {
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "不需要的話直接點「開始使用」，以後在 更多 → MitM 設定。"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Not needed? Tap “Get Started” and set it up later in More → MitM."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "不要なら「はじめる」を押してください。あとで その他 → MitM で設定できます。"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "필요 없으면 ‘시작하기’를 누르세요. 나중에 더 보기 → MitM에서 설정할 수 있습니다."
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Не нужно? Нажмите «Начать» — настроить можно позже в Ещё → MitM."
+          }
+        }
+      }
+    },
     "主机": {
       "localizations": {
         "en": {
@@ -4940,7 +5351,7 @@
         "zh-Hant": {
           "stringUnit": {
             "state": "translated",
-            "value": "事件指令碼（網路變化）"
+            "value": "事件腳本（網路變化）"
           }
         },
         "ja": {
@@ -5749,6 +6160,40 @@
         }
       }
     },
+    "以安全模式连接": {
+      "localizations": {
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "以安全模式連線"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Connect in Safe Mode"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "セーフモードで接続"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "안전 모드로 연결"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Подключить в безопасном режиме"
+          }
+        }
+      }
+    },
     "优先 HTTP/3": {
       "localizations": {
         "en": {
@@ -6323,7 +6768,7 @@
         "ru": {
           "stringUnit": {
             "state": "translated",
-            "value": "Сведения"
+            "value": "Инфо"
           }
         }
       }
@@ -6435,7 +6880,7 @@
         "zh-Hant": {
           "stringUnit": {
             "state": "translated",
-            "value": "停用後，引用這個指令碼的所有規則、定時任務和麵板都不再執行（模組本身保持啟用）。連線期間引擎會按間隔在後臺重新整理指令碼。"
+            "value": "停用後，引用這個腳本的所有規則、定時任務和面板都不再執行（模組本身保持啟用）。連線期間引擎會按間隔在背景重新整理腳本。"
           }
         },
         "en": {
@@ -6532,6 +6977,41 @@
         }
       }
     },
+    "允许 VPN 配置": {
+      "extractionState": "manual",
+      "localizations": {
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "允許 VPN 配置"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Allow the VPN"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "VPN を許可"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "VPN 허용"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Разрешите VPN"
+          }
+        }
+      }
+    },
     "允许局域网连接（%lld 端口）": {
       "localizations": {
         "en": {
@@ -6566,6 +7046,40 @@
         }
       }
     },
+    "允许添加 VPN 配置": {
+      "localizations": {
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "允許新增 VPN 配置"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Add VPN Configuration"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "VPN 構成を追加"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "VPN 구성 추가"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Добавить конфигурацию VPN"
+          }
+        }
+      }
+    },
     "允许脚本通知": {
       "localizations": {
         "en": {
@@ -6577,7 +7091,7 @@
         "zh-Hant": {
           "stringUnit": {
             "state": "translated",
-            "value": "允許指令碼通知"
+            "value": "允許腳本通知"
           }
         },
         "ja": {
@@ -6611,7 +7125,7 @@
         "zh-Hant": {
           "stringUnit": {
             "state": "translated",
-            "value": "全域性"
+            "value": "全域"
           }
         },
         "ja": {
@@ -6645,7 +7159,7 @@
         "zh-Hant": {
           "stringUnit": {
             "state": "translated",
-            "value": "全域性隧道"
+            "value": "全域隧道"
           }
         },
         "ja": {
@@ -6680,7 +7194,7 @@
         "zh-Hant": {
           "stringUnit": {
             "state": "translated",
-            "value": "全域性隧道（PacketFlowBridge）"
+            "value": "全域隧道（PacketFlowBridge）"
           }
         },
         "ja": {
@@ -6715,7 +7229,7 @@
         "zh-Hant": {
           "stringUnit": {
             "state": "translated",
-            "value": "全域性隧道（推薦）"
+            "value": "全域隧道（推薦）"
           }
         },
         "ja": {
@@ -7193,7 +7707,7 @@
         "zh-Hant": {
           "stringUnit": {
             "state": "translated",
-            "value": "相容的指令碼 API"
+            "value": "相容的腳本 API"
           }
         },
         "ja": {
@@ -7537,7 +8051,7 @@
         "zh-Hant": {
           "stringUnit": {
             "state": "translated",
-            "value": "內建資料庫隨擴充套件安裝，首次連線無需下載。更新後 GeoIP / ASN 立即生效，GEOSITE / GEOIP(dat) 會過載配置。規則集（rule-providers）在「提供者」中更新。"
+            "value": "內建資料庫隨延伸功能安裝，首次連線無需下載。更新後 GeoIP / ASN 立即生效，GEOSITE / GEOIP(dat) 會過載配置。規則集（rule-providers）在「提供者」中更新。"
           }
         },
         "ja": {
@@ -8897,6 +9411,40 @@
         }
       }
     },
+    "反馈": {
+      "localizations": {
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "反饋"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Feedback"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "フィードバック"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "피드백"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Отзыв"
+          }
+        }
+      }
+    },
     "发送": {
       "localizations": {
         "en": {
@@ -9029,6 +9577,75 @@
           "stringUnit": {
             "state": "translated",
             "value": "Компромисс: экономит батарею и память, но приложения, игнорирующие системный прокси (многие игры, некоторые мессенджеры, весь UDP / QUIC), идут напрямую; DNS разрешает система, поэтому IP-правила и Fake-IP не работают; MitM действует только для HTTPS через прокси."
+          }
+        }
+      }
+    },
+    "只在你打开开关时连接；配置和日志都保存在本机。": {
+      "localizations": {
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "只在你開啟開關時連線；配置和日誌都儲存在本機。"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "It only connects when you turn it on; profiles and logs stay on this device."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "スイッチをオンにしたときだけ接続します。プロファイルとログは端末内に保存されます。"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "스위치를 켤 때만 연결됩니다. 프로파일과 로그는 이 기기에만 저장됩니다."
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Подключается только по вашему включению; профили и логи хранятся на устройстве."
+          }
+        }
+      }
+    },
+    "只有用到 HTTPS 重写、脚本或 BoxJS 时才需要。证书在本机生成，私钥不会离开这台设备。": {
+      "extractionState": "manual",
+      "localizations": {
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "只有用到 HTTPS 重寫、腳本或 BoxJS 時才需要。證書在本機生成，私鑰不會離開這臺裝置。"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Only needed for HTTPS rewrites, scripts or BoxJS. The certificate is generated here and its private key never leaves this device."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "HTTPS の書き換え・スクリプト・BoxJS を使うときだけ必要です。証明書は端末内で生成され、秘密鍵は外に出ません。"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "HTTPS 재작성·스크립트·BoxJS를 쓸 때만 필요합니다. 인증서는 기기에서 만들어지며 개인 키는 기기 밖으로 나가지 않습니다."
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Нужен только для перезаписи HTTPS, скриптов или BoxJS. Сертификат создаётся на устройстве, закрытый ключ его не покидает."
           }
         }
       }
@@ -9411,6 +10028,40 @@
       },
       "extractionState": "manual"
     },
+    "启动失败：": {
+      "localizations": {
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "啟動失敗："
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Start failed: "
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "起動に失敗："
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "시작 실패: "
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Ошибка запуска: "
+          }
+        }
+      }
+    },
     "启动日志": {
       "localizations": {
         "en": {
@@ -9513,6 +10164,41 @@
         }
       }
     },
+    "启用的模块和脚本行引用的远程脚本会出现在这里。": {
+      "extractionState": "manual",
+      "localizations": {
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "啟用的模組和腳本行引用的遠端腳本會出現在這裡。"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Remote scripts used by enabled modules and script lines appear here."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "有効なモジュールとスクリプト行が参照するリモートスクリプトがここに表示されます。"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "켜진 모듈과 스크립트 줄이 참조하는 원격 스크립트가 여기에 표시됩니다."
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Здесь появятся удалённые скрипты из включённых модулей и строк скриптов."
+          }
+        }
+      }
+    },
     "启用节点处理": {
       "localizations": {
         "en": {
@@ -9558,7 +10244,7 @@
         "zh-Hant": {
           "stringUnit": {
             "state": "translated",
-            "value": "啟用重寫與指令碼"
+            "value": "啟用重寫與腳本"
           }
         },
         "ja": {
@@ -9592,7 +10278,7 @@
         "zh-Hant": {
           "stringUnit": {
             "state": "translated",
-            "value": "命中規則 / 指令碼"
+            "value": "命中規則 / 腳本"
           }
         },
         "ja": {
@@ -9730,7 +10416,7 @@
         "zh-Hant": {
           "stringUnit": {
             "state": "translated",
-            "value": "響應指令碼"
+            "value": "響應腳本"
           }
         },
         "ja": {
@@ -9927,6 +10613,41 @@
       },
       "extractionState": "manual"
     },
+    "在模块或「脚本」里添加，例如：": {
+      "extractionState": "manual",
+      "localizations": {
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "在模組或「腳本」裡新增，例如："
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Add them in a module or under “Scripts”, for example:"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "モジュールまたは「スクリプト」で追加します。例："
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "모듈이나 ‘스크립트’에서 추가합니다. 예:"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Добавьте их в модуле или в «Скрипты», например:"
+          }
+        }
+      }
+    },
     "在模块或「脚本」里添加，例如：\n签到 = type=cron,cronexp=\"0 8 * * *\",script-path=…\ncron \"0 8 * * *\" script-path=…, tag=签到\n0 8 * * * https://…/a.js, tag=签到": {
       "localizations": {
         "en": {
@@ -9938,7 +10659,7 @@
         "zh-Hant": {
           "stringUnit": {
             "state": "translated",
-            "value": "在模組或「指令碼」裡新增，例如：\n簽到 = type=cron,cronexp=\"0 8 * * *\",script-path=…\ncron \"0 8 * * *\" script-path=…, tag=簽到\n0 8 * * * https://…/a.js, tag=簽到"
+            "value": "在模組或「腳本」裡新增，例如：\n簽到 = type=cron,cronexp=\"0 8 * * *\",script-path=…\ncron \"0 8 * * *\" script-path=…, tag=簽到\n0 8 * * * https://…/a.js, tag=簽到"
           }
         },
         "ja": {
@@ -10040,7 +10761,7 @@
         "zh-Hant": {
           "stringUnit": {
             "state": "translated",
-            "value": "在規則、全域性、直連之間切換。"
+            "value": "在規則、全域、直連之間切換。"
           }
         },
         "ja": {
@@ -10541,6 +11262,40 @@
         }
       }
     },
+    "复制为文本": {
+      "localizations": {
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "複製為文字"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Copy as Text"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "テキストとしてコピー"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "텍스트로 복사"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Копировать как текст"
+          }
+        }
+      }
+    },
     "复制值": {
       "localizations": {
         "en": {
@@ -10916,6 +11671,74 @@
         }
       }
     },
+    "安全模式": {
+      "localizations": {
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "安全模式"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Safe Mode"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "セーフモード"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "안전 모드"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Безопасный режим"
+          }
+        }
+      }
+    },
+    "安全模式只用配置文件本身连接：暂停模块、重写、脚本、MitM、自定义规则和智能选择，便于判断问题出在哪里。": {
+      "localizations": {
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "安全模式只用配置檔案本身連線：暫停模組、重寫、腳本、MitM、自定義規則和智慧選擇，便於判斷問題出在哪裡。"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Safe Mode connects with the profile alone: modules, rewrites, scripts, MitM, custom rules and smart selection are paused, so you can tell where the problem is."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "セーフモードはプロファイルだけで接続します。モジュール・書き換え・スクリプト・MitM・カスタムルール・スマート選択を止め、問題の場所を切り分けます。"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "안전 모드는 프로파일만으로 연결합니다. 모듈·재작성·스크립트·MitM·사용자 규칙·스마트 선택을 멈춰 문제 위치를 가려냅니다."
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Безопасный режим подключает только профиль: модули, перезапись, скрипты, MitM, свои правила и умный выбор приостановлены — так проще найти причину."
+          }
+        }
+      }
+    },
     "安装步骤": {
       "localizations": {
         "en": {
@@ -11064,7 +11887,7 @@
         "zh-Hant": {
           "stringUnit": {
             "state": "translated",
-            "value": "定時 / 事件 / 通用指令碼 %lld"
+            "value": "定時 / 事件 / 通用腳本 %lld"
           }
         },
         "ja": {
@@ -11132,7 +11955,7 @@
         "zh-Hant": {
           "stringUnit": {
             "state": "translated",
-            "value": "定時與事件指令碼"
+            "value": "定時與事件腳本"
           }
         },
         "ja": {
@@ -11166,7 +11989,7 @@
         "zh-Hant": {
           "stringUnit": {
             "state": "translated",
-            "value": "定時與事件指令碼在擴充套件裡執行：連線後按計劃執行，斷開時不執行。"
+            "value": "定時與事件腳本在延伸功能裡執行：連線後按計劃執行，斷開時不執行。"
           }
         },
         "ja": {
@@ -11200,7 +12023,7 @@
         "zh-Hant": {
           "stringUnit": {
             "state": "translated",
-            "value": "定時指令碼"
+            "value": "定時腳本"
           }
         },
         "ja": {
@@ -11531,6 +12354,41 @@
       },
       "extractionState": "manual"
     },
+    "导入配置": {
+      "extractionState": "manual",
+      "localizations": {
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "匯入配置"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Import a Profile"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "プロファイルを読み込む"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "프로파일 가져오기"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Импорт профиля"
+          }
+        }
+      }
+    },
     "导出": {
       "localizations": {
         "en": {
@@ -11663,6 +12521,74 @@
           "stringUnit": {
             "state": "translated",
             "value": "Экспорт p12 (с закрытым ключом, нужен пароль)"
+          }
+        }
+      }
+    },
+    "导出失败：": {
+      "localizations": {
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "匯出失敗："
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Export failed: "
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "書き出しに失敗："
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "내보내기 실패: "
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Ошибка экспорта: "
+          }
+        }
+      }
+    },
+    "导出诊断包": {
+      "localizations": {
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "匯出診斷包"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Export Diagnostics"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "診断パッケージを書き出す"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "진단 패키지 내보내기"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Экспорт диагностики"
           }
         }
       }
@@ -12422,6 +13348,40 @@
       },
       "extractionState": "manual"
     },
+    "已导入配置：": {
+      "localizations": {
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "已匯入配置："
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Profile imported: "
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "プロファイルを読み込みました："
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "프로파일을 가져왔습니다: "
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Профиль импортирован: "
+          }
+        }
+      }
+    },
     "已开启": {
       "localizations": {
         "en": {
@@ -12524,6 +13484,74 @@
         }
       }
     },
+    "已有配置：%@": {
+      "localizations": {
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "已有配置：%@"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Profile ready: %@"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "プロファイルあり：%@"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "프로파일 있음: %@"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Профиль есть: %@"
+          }
+        }
+      }
+    },
+    "已添加 %lld 个节点到「手动节点」": {
+      "localizations": {
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "已新增 %lld 個節點到「手動節點」"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Added %lld nodes to “Manual Nodes”"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%lld 個のノードを「手動ノード」に追加しました"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "노드 %lld개를 ‘수동 노드’에 추가했습니다"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Добавлено узлов в «Ручные узлы»: %lld"
+          }
+        }
+      }
+    },
     "已添加 %lld 个节点到手动节点": {
       "localizations": {
         "zh-Hant": {
@@ -12554,6 +13582,40 @@
           "stringUnit": {
             "state": "translated",
             "value": "Добавлено узлов в «Ручные узлы»: %lld"
+          }
+        }
+      }
+    },
+    "已添加 VPN 配置": {
+      "localizations": {
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "已新增 VPN 配置"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "VPN configuration added"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "VPN 構成を追加しました"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "VPN 구성이 추가됨"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Конфигурация VPN добавлена"
           }
         }
       }
@@ -12627,6 +13689,40 @@
         }
       },
       "extractionState": "manual"
+    },
+    "已添加订阅：": {
+      "localizations": {
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "已新增訂閱："
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Subscription added: "
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "購読を追加しました："
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "구독을 추가했습니다: "
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Подписка добавлена: "
+          }
+        }
+      }
     },
     "已用 %@ / %@": {
       "localizations": {
@@ -12901,6 +13997,40 @@
         }
       }
     },
+    "开启": {
+      "localizations": {
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "開啟"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "On"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "オン"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "켬"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Вкл."
+          }
+        }
+      }
+    },
     "开启后「手动节点」配置里的节点和同名策略组会合并进当前使用的订阅，可以在策略页直接选择。": {
       "localizations": {
         "en": {
@@ -12999,6 +14129,40 @@
           "stringUnit": {
             "state": "translated",
             "value": "Запустить"
+          }
+        }
+      }
+    },
+    "开始使用": {
+      "localizations": {
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "開始使用"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Get Started"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "はじめる"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "시작하기"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Начать"
           }
         }
       }
@@ -13516,6 +14680,40 @@
         }
       }
     },
+    "恢复正常连接": {
+      "localizations": {
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "恢復正常連線"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Reconnect Normally"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "通常の接続に戻す"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "일반 연결로 복귀"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Обычное подключение"
+          }
+        }
+      }
+    },
     "恢复默认": {
       "localizations": {
         "en": {
@@ -13623,7 +14821,7 @@
         "zh-Hant": {
           "stringUnit": {
             "state": "translated",
-            "value": "所有格式的模組都在這裡：Surge .sgmodule、Quantumult X 重寫、Loon .plugin、Stash .stoverride、Egern .yaml 模組和重寫列表，角標顯示來源格式。遠端規則集（自定義規則裡的 RULE-SET / filter_remote，以及模組引用的規則集）和模組引用的遠端指令碼也列在這裡：每項可單獨開關、設定更新間隔，失敗原因顯示在條目下方。開啟 App 時自動更新到期的資源。"
+            "value": "所有格式的模組都在這裡：Surge .sgmodule、Quantumult X 重寫、Loon .plugin、Stash .stoverride、Egern .yaml 模組和重寫列表，角標顯示來源格式。遠端規則集（自定義規則裡的 RULE-SET / filter_remote，以及模組引用的規則集）和模組引用的遠端腳本也列在這裡：每項可單獨開關、設定更新間隔，失敗原因顯示在條目下方。開啟 App 時自動更新到期的資源。"
           }
         },
         "en": {
@@ -14539,6 +15737,40 @@
         }
       }
     },
+    "控制器地址无效": {
+      "localizations": {
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "控制器地址無效"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Invalid controller address"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "コントローラーのアドレスが無効です"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "컨트롤러 주소가 잘못되었습니다"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Неверный адрес контроллера"
+          }
+        }
+      }
+    },
     "描述文件中的组": {
       "localizations": {
         "en": {
@@ -15373,7 +16605,7 @@
         "zh-Hant": {
           "stringUnit": {
             "state": "translated",
-            "value": "新建 / 匯入指令碼"
+            "value": "新建 / 匯入腳本"
           }
         },
         "ja": {
@@ -15441,7 +16673,7 @@
         "zh-Hant": {
           "stringUnit": {
             "state": "translated",
-            "value": "新建指令碼"
+            "value": "新建腳本"
           }
         },
         "ja": {
@@ -15460,6 +16692,41 @@
           "stringUnit": {
             "state": "translated",
             "value": "Новый скрипт"
+          }
+        }
+      }
+    },
+    "新手引导": {
+      "extractionState": "manual",
+      "localizations": {
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "新手引導"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Getting Started"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "はじめに"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "시작 안내"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Знакомство"
           }
         }
       }
@@ -15703,6 +16970,40 @@
         }
       },
       "extractionState": "manual"
+    },
+    "无法保存 VPN 配置：可能拒绝了「添加 VPN 配置」，或签名缺少 Network Extension 权限。": {
+      "localizations": {
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "無法儲存 VPN 配置：可能拒絕了「新增 VPN 配置」，或簽名缺少 Network Extension 許可權。"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Couldn’t save the VPN configuration: “Add VPN Configurations” may have been denied, or the signature lacks the Network Extension entitlement."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "VPN 構成を保存できません：「VPN 構成の追加」が拒否されたか、署名に Network Extension の権限がありません。"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "VPN 구성을 저장할 수 없습니다: ‘VPN 구성 추가’를 거부했거나 서명에 Network Extension 권한이 없습니다."
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Не удалось сохранить конфигурацию VPN: запрос «Добавить конфигурацию VPN» отклонён или в подписи нет права Network Extension."
+          }
+        }
+      }
     },
     "无法导入": {
       "localizations": {
@@ -16255,6 +17556,41 @@
       },
       "extractionState": "manual"
     },
+    "暂无启动日志": {
+      "extractionState": "manual",
+      "localizations": {
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "暫無啟動日誌"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "No startup log yet"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "起動ログはまだありません"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "시작 로그 없음"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Журнала запуска пока нет"
+          }
+        }
+      }
+    },
     "暂无数据": {
       "localizations": {
         "en": {
@@ -16334,7 +17670,7 @@
         "zh-Hant": {
           "stringUnit": {
             "state": "translated",
-            "value": "暫無本地指令碼"
+            "value": "暫無本地腳本"
           }
         },
         "ja": {
@@ -16972,6 +18308,40 @@
         }
       }
     },
+    "未知的 VPN 配置错误。": {
+      "localizations": {
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "未知的 VPN 配置錯誤。"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Unknown VPN configuration error."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "不明な VPN 構成エラー。"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "알 수 없는 VPN 구성 오류."
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Неизвестная ошибка конфигурации VPN."
+          }
+        }
+      }
+    },
     "未识别到可用的重写、脚本或 MitM 内容": {
       "localizations": {
         "en": {
@@ -16983,7 +18353,7 @@
         "zh-Hant": {
           "stringUnit": {
             "state": "translated",
-            "value": "未識別到可用的重寫、指令碼或 MitM 內容"
+            "value": "未識別到可用的重寫、腳本或 MitM 內容"
           }
         },
         "ja": {
@@ -17500,7 +18870,7 @@
         "zh-Hant": {
           "stringUnit": {
             "state": "translated",
-            "value": "本地指令碼"
+            "value": "本地腳本"
           }
         },
         "ja": {
@@ -17534,7 +18904,7 @@
         "zh-Hant": {
           "stringUnit": {
             "state": "translated",
-            "value": "本地指令碼檔案"
+            "value": "本地腳本檔案"
           }
         },
         "ja": {
@@ -18175,6 +19545,40 @@
         }
       }
     },
+    "模块、重写、脚本、MitM、自定义规则和智能选择已暂停。": {
+      "localizations": {
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "模組、重寫、腳本、MitM、自定義規則和智慧選擇已暫停。"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Modules, rewrites, scripts, MitM, custom rules and smart selection are paused."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "モジュール・書き換え・スクリプト・MitM・カスタムルール・スマート選択は停止中です。"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "모듈·재작성·스크립트·MitM·사용자 규칙·스마트 선택이 일시 중지됨."
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Модули, перезапись, скрипты, MitM, свои правила и умный выбор приостановлены."
+          }
+        }
+      }
+    },
     "模块、重写与 MitM": {
       "localizations": {
         "en": {
@@ -18652,6 +20056,40 @@
         }
       }
     },
+    "没有允许添加 VPN 配置。再次连接时在系统提示里选「允许」。": {
+      "localizations": {
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "沒有允許新增 VPN 配置。再次連線時在系統提示裡選「允許」。"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Adding the VPN configuration was not allowed. Choose “Allow” in the system prompt when you connect again."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "VPN 構成の追加が許可されませんでした。次の接続時にシステムの確認で「許可」を選んでください。"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "VPN 구성 추가가 허용되지 않았습니다. 다시 연결할 때 시스템 알림에서 ‘허용’을 선택하세요."
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Добавление конфигурации VPN не разрешено. При следующем подключении выберите «Разрешить» в системном запросе."
+          }
+        }
+      }
+    },
     "没有可预览的节点（节点集未下载时，连接一次后再来看）": {
       "localizations": {
         "en": {
@@ -18697,7 +20135,7 @@
         "zh-Hant": {
           "stringUnit": {
             "state": "translated",
-            "value": "沒有定時 / 事件 / 通用指令碼"
+            "value": "沒有定時 / 事件 / 通用腳本"
           }
         },
         "ja": {
@@ -18716,6 +20154,41 @@
           "stringUnit": {
             "state": "translated",
             "value": "Нет скриптов по расписанию / событиям / общих"
+          }
+        }
+      }
+    },
+    "没有模块": {
+      "extractionState": "manual",
+      "localizations": {
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "沒有模組"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "No Modules"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "モジュールなし"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "모듈 없음"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Нет модулей"
           }
         }
       }
@@ -18788,6 +20261,41 @@
         }
       }
     },
+    "没有规则集": {
+      "extractionState": "manual",
+      "localizations": {
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "沒有規則集"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "No Rule Sets"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ルールセットなし"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "규칙 세트 없음"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Нет наборов правил"
+          }
+        }
+      }
+    },
     "没有记录": {
       "localizations": {
         "en": {
@@ -18822,6 +20330,41 @@
         }
       },
       "extractionState": "manual"
+    },
+    "没有远程脚本": {
+      "extractionState": "manual",
+      "localizations": {
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "沒有遠端腳本"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "No Remote Scripts"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "リモートスクリプトなし"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "원격 스크립트 없음"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Нет удалённых скриптов"
+          }
+        }
+      }
     },
     "没有选择配置": {
       "localizations": {
@@ -19621,7 +21164,7 @@
         "zh-Hant": {
           "stringUnit": {
             "state": "translated",
-            "value": "點 + 新建本地指令碼、透過 URL 匯入，或直接貼上 Surge / QX / Loon 指令碼行。"
+            "value": "點 + 新建本地腳本、透過 URL 匯入，或直接貼上 Surge / QX / Loon 腳本行。"
           }
         },
         "ja": {
@@ -19883,6 +21426,40 @@
         }
       }
     },
+    "生成并安装证书": {
+      "localizations": {
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "生成並安裝證書"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Generate & Install Certificate"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "証明書を生成してインストール"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "인증서 생성 및 설치"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Создать и установить сертификат"
+          }
+        }
+      }
+    },
     "生成的脚本行": {
       "localizations": {
         "en": {
@@ -19894,7 +21471,7 @@
         "zh-Hant": {
           "stringUnit": {
             "state": "translated",
-            "value": "生成的指令碼行"
+            "value": "生成的腳本行"
           }
         },
         "ja": {
@@ -20466,6 +22043,40 @@
         }
       }
     },
+    "端口无效": {
+      "localizations": {
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "埠無效"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Invalid port"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ポートが無効です"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "포트가 잘못되었습니다"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Неверный порт"
+          }
+        }
+      }
+    },
     "端口范围": {
       "localizations": {
         "en": {
@@ -20535,6 +22146,40 @@
         }
       },
       "extractionState": "manual"
+    },
+    "第 %lld 步，共 %lld 步": {
+      "localizations": {
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "第 %lld 步，共 %lld 步"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Step %1$lld of %2$lld"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ステップ %1$lld / %2$lld"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%2$lld단계 중 %1$lld단계"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Шаг %1$lld из %2$lld"
+          }
+        }
+      }
     },
     "等待首次评分（使用策略组自身的健康检查结果）": {
       "localizations": {
@@ -20740,6 +22385,40 @@
         }
       }
     },
+    "签到 = type=cron,cronexp=\"0 8 * * *\",script-path=…\ncron \"0 8 * * *\" script-path=…, tag=签到\n0 8 * * * https://…/a.js, tag=签到": {
+      "localizations": {
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "簽到 = type=cron,cronexp=\"0 8 * * *\",script-path=…\ncron \"0 8 * * *\" script-path=…, tag=簽到\n0 8 * * * https://…/a.js, tag=簽到"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "签到 = type=cron,cronexp=\"0 8 * * *\",script-path=…\ncron \"0 8 * * *\" script-path=…, tag=签到\n0 8 * * * https://…/a.js, tag=签到"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "签到 = type=cron,cronexp=\"0 8 * * *\",script-path=…\ncron \"0 8 * * *\" script-path=…, tag=签到\n0 8 * * * https://…/a.js, tag=签到"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "签到 = type=cron,cronexp=\"0 8 * * *\",script-path=…\ncron \"0 8 * * *\" script-path=…, tag=签到\n0 8 * * * https://…/a.js, tag=签到"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "签到 = type=cron,cronexp=\"0 8 * * *\",script-path=…\ncron \"0 8 * * *\" script-path=…, tag=签到\n0 8 * * * https://…/a.js, tag=签到"
+          }
+        }
+      }
+    },
     "签名与容器": {
       "localizations": {
         "en": {
@@ -20910,6 +22589,41 @@
         }
       }
     },
+    "粘贴分享链接、扫描二维码或手动填写。": {
+      "extractionState": "manual",
+      "localizations": {
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "貼上分享連結、掃描二維碼或手動填寫。"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Paste share links, scan a QR code or fill in a form."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "共有リンクを貼り付け、QR コードを読み取るか、手入力します。"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "공유 링크를 붙여넣거나 QR 코드를 스캔하거나 직접 입력하세요."
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Вставьте ссылки, отсканируйте QR-код или заполните форму."
+          }
+        }
+      }
+    },
     "粘贴模块": {
       "localizations": {
         "en": {
@@ -20989,7 +22703,7 @@
         "zh-Hant": {
           "stringUnit": {
             "state": "translated",
-            "value": "貼上指令碼行"
+            "value": "貼上腳本行"
           }
         },
         "ja": {
@@ -21042,6 +22756,41 @@
           "stringUnit": {
             "state": "translated",
             "value": "Вставить узлы"
+          }
+        }
+      }
+    },
+    "粘贴订阅链接，或从剪贴板导入配置 / 节点链接。也可以稍后在「配置」页添加。": {
+      "extractionState": "manual",
+      "localizations": {
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "貼上訂閱連結，或從剪貼簿匯入配置 / 節點連結。也可以稍後在「配置」頁新增。"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Paste a subscription URL, or import a profile / node links from the clipboard. You can also do this later on the Profiles tab."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "購読 URL を貼り付けるか、クリップボードからプロファイル / ノードリンクを読み込みます。あとで「プロファイル」タブでも追加できます。"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "구독 URL을 붙여넣거나 클립보드에서 프로파일 / 노드 링크를 가져오세요. 나중에 ‘프로파일’ 탭에서도 추가할 수 있습니다."
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Вставьте ссылку подписки или импортируйте профиль / ссылки узлов из буфера. Это можно сделать и позже на вкладке «Профили»."
           }
         }
       }
@@ -21501,7 +23250,7 @@
         "zh-Hant": {
           "stringUnit": {
             "state": "translated",
-            "value": "編輯指令碼"
+            "value": "編輯腳本"
           }
         },
         "ja": {
@@ -21732,6 +23481,40 @@
       },
       "extractionState": "manual"
     },
+    "网络扩展启动后立即退出（未返回原因）。请到 更多 → 诊断 导出诊断包查看。": {
+      "localizations": {
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "網路延伸功能啟動後立即退出（未返回原因）。請到 更多 → 診斷 匯出診斷包檢視。"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "The network extension quit right after starting (no reason given). Export diagnostics in More → Diagnostics."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ネットワーク拡張が起動直後に終了しました（理由なし）。その他 → 診断 で診断パッケージを書き出してください。"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "네트워크 확장이 시작 직후 종료되었습니다(이유 없음). 더 보기 → 진단에서 진단 패키지를 내보내세요."
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Сетевое расширение завершилось сразу после запуска (без причины). Экспортируйте диагностику в Ещё → Диагностика."
+          }
+        }
+      }
+    },
     "网络扩展启动后立即退出（未返回原因）。请到 更多 → 诊断 查看 App Group 与扩展 ID。": {
       "localizations": {
         "en": {
@@ -21743,7 +23526,7 @@
         "zh-Hant": {
           "stringUnit": {
             "state": "translated",
-            "value": "網路擴充套件啟動後立即退出（未返回原因）。請到 更多 → 診斷 檢視 App Group 與擴充套件 ID。"
+            "value": "網路延伸功能啟動後立即退出（未返回原因）。請到 更多 → 診斷 檢視 App Group 與延伸功能 ID。"
           }
         },
         "ja": {
@@ -21766,6 +23549,40 @@
         }
       },
       "extractionState": "manual"
+    },
+    "网络扩展连接失败。": {
+      "localizations": {
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "網路延伸功能連線失敗。"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "The network extension failed to connect."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ネットワーク拡張の接続に失敗しました。"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "네트워크 확장 연결에 실패했습니다."
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Сетевое расширение не подключилось."
+          }
+        }
+      }
     },
     "耗时": {
       "localizations": {
@@ -21812,7 +23629,7 @@
         "zh-Hant": {
           "stringUnit": {
             "state": "translated",
-            "value": "指令碼"
+            "value": "腳本"
           }
         },
         "ja": {
@@ -21846,7 +23663,7 @@
         "zh-Hant": {
           "stringUnit": {
             "state": "translated",
-            "value": "指令碼 %lld"
+            "value": "腳本 %lld"
           }
         },
         "ja": {
@@ -21880,7 +23697,7 @@
         "zh-Hant": {
           "stringUnit": {
             "state": "translated",
-            "value": "指令碼、jq 與正則引擎"
+            "value": "腳本、jq 與正則引擎"
           }
         },
         "ja": {
@@ -21915,7 +23732,7 @@
         "zh-Hant": {
           "stringUnit": {
             "state": "translated",
-            "value": "指令碼日誌"
+            "value": "腳本日誌"
           }
         },
         "ja": {
@@ -21949,7 +23766,7 @@
         "zh-Hant": {
           "stringUnit": {
             "state": "translated",
-            "value": "指令碼來源"
+            "value": "腳本來源"
           }
         },
         "ja": {
@@ -21983,7 +23800,7 @@
         "zh-Hant": {
           "stringUnit": {
             "state": "translated",
-            "value": "指令碼行（Quantumult X / Loon 等非 Surge 語法）"
+            "value": "腳本行（Quantumult X / Loon 等非 Surge 語法）"
           }
         },
         "ja": {
@@ -22017,7 +23834,7 @@
         "zh-Hant": {
           "stringUnit": {
             "state": "translated",
-            "value": "指令碼通知"
+            "value": "腳本通知"
           }
         },
         "ja": {
@@ -22051,7 +23868,7 @@
         "zh-Hant": {
           "stringUnit": {
             "state": "translated",
-            "value": "指令碼通知記錄"
+            "value": "腳本通知記錄"
           }
         },
         "ja": {
@@ -22871,7 +24688,7 @@
         "zh-Hant": {
           "stringUnit": {
             "state": "translated",
-            "value": "規則 / 指令碼"
+            "value": "規則 / 腳本"
           }
         },
         "ja": {
@@ -22905,7 +24722,7 @@
         "zh-Hant": {
           "stringUnit": {
             "state": "translated",
-            "value": "規則 / 指令碼 %lld"
+            "value": "規則 / 腳本 %lld"
           }
         },
         "ja": {
@@ -23196,7 +25013,7 @@
         "ru": {
           "stringUnit": {
             "state": "translated",
-            "value": "Предупреждение"
+            "value": "Предупр."
           }
         }
       }
@@ -23407,6 +25224,40 @@
       },
       "extractionState": "manual"
     },
+    "记录每次连接的阶段与耗时：网络设置、数据包桥接、内核启动开始 / 结束、内存占用和错误。": {
+      "localizations": {
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "記錄每次連線的階段與耗時：網路設定、資料包橋接、核心啟動開始 / 結束、記憶體佔用和錯誤。"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Each connection’s stages and timings: network settings, packet bridge, core start / end, memory and errors."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "接続ごとの段階と所要時間：ネットワーク設定、パケットブリッジ、コアの起動開始 / 終了、メモリ使用量とエラー。"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "연결마다 단계와 소요 시간: 네트워크 설정, 패킷 브리지, 코어 시작 / 종료, 메모리와 오류."
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Этапы и время каждого подключения: сетевые настройки, мост пакетов, старт / завершение ядра, память и ошибки."
+          }
+        }
+      }
+    },
     "记录每次连接的阶段与耗时：网络设置、数据包桥接、内核启动开始 / 结束、内存占用和错误。连接失败时请复制发给开发者。": {
       "localizations": {
         "en": {
@@ -23543,6 +25394,76 @@
         }
       }
     },
+    "设置 → 已下载描述文件 → 安装": {
+      "extractionState": "manual",
+      "localizations": {
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "設定 → 已下載描述檔案 → 安裝"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Settings → Profile Downloaded → Install"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "設定 → ダウンロード済みのプロファイル → インストール"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "설정 → 프로파일이 다운로드됨 → 설치"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Настройки → Профиль загружен → Установить"
+          }
+        }
+      }
+    },
+    "设置 → 通用 → 关于本机 → 证书信任设置 → 打开完全信任": {
+      "extractionState": "manual",
+      "localizations": {
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "設定 → 通用 → 關於本機 → 證書信任設定 → 開啟完全信任"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Settings → General → About → Certificate Trust Settings → enable full trust"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "設定 → 一般 → 情報 → 証明書信頼設定 → 全面的に信頼をオン"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "설정 → 일반 → 정보 → 인증서 신뢰 설정 → 완전 신뢰 켜기"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Настройки → Основные → Об этом устройстве → Доверие сертификатам → включить полное доверие"
+          }
+        }
+      }
+    },
     "设置密码": {
       "localizations": {
         "en": {
@@ -23607,6 +25528,74 @@
           "stringUnit": {
             "state": "translated",
             "value": "Сертификат загружен"
+          }
+        }
+      }
+    },
+    "证书已安装并完全信任": {
+      "localizations": {
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "證書已安裝並完全信任"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Certificate installed and fully trusted"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "証明書はインストール済みで全面的に信頼されています"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "인증서 설치 및 완전 신뢰됨"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Сертификат установлен, полное доверие включено"
+          }
+        }
+      }
+    },
+    "证书已生成": {
+      "localizations": {
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "證書已生成"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Certificate generated"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "証明書を生成しました"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "인증서 생성됨"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Сертификат создан"
           }
         }
       }
@@ -23966,7 +25955,7 @@
         "zh-Hant": {
           "stringUnit": {
             "state": "translated",
-            "value": "請求指令碼"
+            "value": "請求腳本"
           }
         },
         "ja": {
@@ -24092,6 +26081,40 @@
         }
       },
       "extractionState": "manual"
+    },
+    "读取 VPN 配置失败：": {
+      "localizations": {
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "讀取 VPN 配置失敗："
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Couldn’t read the VPN configuration: "
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "VPN 構成を読み込めません："
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "VPN 구성을 읽지 못했습니다: "
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Не удалось прочитать конфигурацию VPN: "
+          }
+        }
+      }
     },
     "调试": {
       "localizations": {
@@ -24230,6 +26253,40 @@
         }
       },
       "extractionState": "manual"
+    },
+    "跳过": {
+      "localizations": {
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "跳過"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Skip"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "スキップ"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "건너뛰기"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Пропустить"
+          }
+        }
+      }
     },
     "跳过服务器证书校验": {
       "localizations": {
@@ -24584,7 +26641,7 @@
         "zh-Hant": {
           "stringUnit": {
             "state": "translated",
-            "value": "過濾指令碼名或內容"
+            "value": "過濾腳本名或內容"
           }
         },
         "ja": {
@@ -24710,6 +26767,76 @@
         }
       }
     },
+    "还没有 HTTP 请求": {
+      "extractionState": "manual",
+      "localizations": {
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "還沒有 HTTP 請求"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "No HTTP Requests Yet"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "HTTP リクエストはまだありません"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "아직 HTTP 요청 없음"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "HTTP-запросов пока нет"
+          }
+        }
+      }
+    },
+    "还没有模块或资源": {
+      "extractionState": "manual",
+      "localizations": {
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "還沒有模組或資源"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "No Modules or Resources Yet"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "モジュールやリソースはまだありません"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "아직 모듈이나 리소스 없음"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Модулей и ресурсов пока нет"
+          }
+        }
+      }
+    },
     "还没有缓存。连接后内核会下载；之后断开也能在这里查看内容。": {
       "localizations": {
         "en": {
@@ -24755,7 +26882,7 @@
         "zh-Hant": {
           "stringUnit": {
             "state": "translated",
-            "value": "還沒有指令碼通知。指令碼呼叫 $notification.post / $notify 時，擴充套件會彈出本地通知並記錄在這裡（最近 100 條）。"
+            "value": "還沒有腳本通知。腳本呼叫 $notification.post / $notify 時，延伸功能會彈出本地通知並記錄在這裡（最近 100 條）。"
           }
         },
         "ja": {
@@ -24982,6 +27109,41 @@
         }
       }
     },
+    "连接一次后生成。": {
+      "extractionState": "manual",
+      "localizations": {
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "連線一次後生成。"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Created after the first connection."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "一度接続すると作成されます。"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "한 번 연결하면 생성됩니다."
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Появится после первого подключения."
+          }
+        }
+      }
+    },
     "连接中…": {
       "localizations": {
         "en": {
@@ -25131,7 +27293,7 @@
         "zh-Hant": {
           "stringUnit": {
             "state": "translated",
-            "value": "連線後可檢視指令碼日誌"
+            "value": "連線後可檢視腳本日誌"
           }
         },
         "ja": {
@@ -25185,6 +27347,41 @@
           "stringUnit": {
             "state": "translated",
             "value": "После подключения выбирает по задержке и сбоям"
+          }
+        }
+      }
+    },
+    "连接后每 2 分钟记录一次。": {
+      "extractionState": "manual",
+      "localizations": {
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "連線後每 2 分鐘記錄一次。"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Recorded every 2 minutes while connected."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "接続中は 2 分ごとに記録します。"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "연결 중 2분마다 기록합니다."
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Записывается каждые 2 минуты при подключении."
           }
         }
       }
@@ -25407,7 +27604,7 @@
         "zh-Hant": {
           "stringUnit": {
             "state": "translated",
-            "value": "通用指令碼"
+            "value": "通用腳本"
           }
         },
         "ja": {
@@ -25543,7 +27740,7 @@
         "zh-Hant": {
           "stringUnit": {
             "state": "translated",
-            "value": "配置與訂閱（含離線選擇的節點）· 手動節點 · 核心覆寫 · DNS · 自定義規則 · MitM 主機名 · 重寫 · 指令碼 · 模組"
+            "value": "配置與訂閱（含離線選擇的節點）· 手動節點 · 核心覆寫 · DNS · 自定義規則 · MitM 主機名 · 重寫 · 腳本 · 模組"
           }
         },
         "ja": {
@@ -25782,7 +27979,7 @@
         "zh-Hant": {
           "stringUnit": {
             "state": "translated",
-            "value": "重寫 / MitM / 指令碼 → 作為模組匯入"
+            "value": "重寫 / MitM / 腳本 → 作為模組匯入"
           }
         },
         "ja": {
@@ -25816,7 +28013,7 @@
         "zh-Hant": {
           "stringUnit": {
             "state": "translated",
-            "value": "重寫與指令碼已啟用"
+            "value": "重寫與腳本已啟用"
           }
         },
         "ja": {
@@ -25850,7 +28047,7 @@
         "zh-Hant": {
           "stringUnit": {
             "state": "translated",
-            "value": "重寫與指令碼未啟用（在模組、重寫或指令碼頁面頂部開啟）"
+            "value": "重寫與腳本未啟用（在模組、重寫或腳本頁面頂部開啟）"
           }
         },
         "ja": {
@@ -26021,7 +28218,7 @@
         "zh-Hant": {
           "stringUnit": {
             "state": "translated",
-            "value": "重放經核心按你的規則與策略發出，不再經過重寫與指令碼；結果也會出現在請求列表裡。"
+            "value": "重放經核心按你的規則與策略發出，不再經過重寫與腳本；結果也會出現在請求列表裡。"
           }
         },
         "ja": {
@@ -26191,7 +28388,7 @@
         "zh-Hant": {
           "stringUnit": {
             "state": "translated",
-            "value": "重簽名後描述檔案會替換 entitlements。App 與擴充套件會在執行時從描述檔案讀取 App Group 並按字母序選第一個可用的；共享容器不可用時擴充套件無法讀取配置，連線會失敗。"
+            "value": "重簽名後描述檔案會替換 entitlements。App 與延伸功能會在執行時從描述檔案讀取 App Group 並按字母序選第一個可用的；共享容器不可用時延伸功能無法讀取配置，連線會失敗。"
           }
         },
         "ja": {
@@ -26210,6 +28407,40 @@
           "stringUnit": {
             "state": "translated",
             "value": "При переподписи права берутся из профиля обеспечения. Приложение и расширение во время работы читают App Group из профиля и берут первую пригодную по алфавиту; если общий контейнер недоступен, расширение не прочитает профиль и подключение не удастся."
+          }
+        }
+      }
+    },
+    "重试": {
+      "localizations": {
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "重試"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Retry"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "再試行"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "다시 시도"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Повторить"
           }
         }
       }
@@ -26463,7 +28694,7 @@
         "zh-Hant": {
           "stringUnit": {
             "state": "translated",
-            "value": "隧道擴充套件 ID"
+            "value": "隧道延伸功能 ID"
           }
         },
         "ja": {
@@ -26482,6 +28713,40 @@
           "stringUnit": {
             "state": "translated",
             "value": "ID расширения туннеля"
+          }
+        }
+      }
+    },
+    "隧道扩展版本": {
+      "localizations": {
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "隧道延伸功能版本"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Tunnel Extension Version"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "トンネル拡張のバージョン"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "터널 확장 버전"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Версия расширения туннеля"
           }
         }
       }
@@ -26599,7 +28864,7 @@
         "zh-Hant": {
           "stringUnit": {
             "state": "translated",
-            "value": "面板由模組裡的指令碼生成，連線後顯示。"
+            "value": "面板由模組裡的腳本生成，連線後顯示。"
           }
         },
         "ja": {

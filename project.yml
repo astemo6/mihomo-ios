@@ -14,7 +14,7 @@ settings:
     APP_BUNDLE_ID: com.astemo6.mihomo
     TUNNEL_BUNDLE_ID: com.astemo6.mihomo.tunnel
     APP_GROUP_ID: group.com.astemo6.mihomo
-    MARKETING_VERSION: "0.5.0"
+    MARKETING_VERSION: "0.6.0"
     CURRENT_PROJECT_VERSION: "1"
     SWIFT_VERSION: "5.0"
     # i18n: String Catalog (App/Localizable.xcstrings), source language zh-Hans; the compiler extracts keys.

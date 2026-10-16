@@ -65,6 +65,8 @@ type Script struct {
 	UpdateInterval int    `json:"updateInterval,omitempty"`
 	Echo           bool   `json:"echo,omitempty"` // QX script-echo-response: request script that answers locally
 	Cron           string `json:"cron,omitempty"`
+	// Env is Egern's per-script `env` (ctx.env for native Egern scripts).
+	Env map[string]string `json:"env,omitempty"`
 }
 
 // Rule is one parsed rewrite / script rule.

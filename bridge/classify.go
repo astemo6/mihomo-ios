@@ -8,7 +8,7 @@ import (
 )
 
 var (
-	classifyConfRe   = regexp.MustCompile(`(?mi)^\[(Proxy|Proxy Group|General|server_local|server_remote|policy|filter_local)\]\s*$`)
+	classifyConfRe  = regexp.MustCompile(`(?mi)^\[(Proxy|Proxy Group|General|server_local|server_remote|policy|filter_local)\]\s*$`)
 	moduleSectionRe = regexp.MustCompile(`(?mi)^\[(Script|URL Rewrite|Header Rewrite|Body Rewrite|Map Local|MITM|Rule|Rewrite|rewrite_local|mitm|Panel|task_local|Plugin)\]\s*$`)
 )
 

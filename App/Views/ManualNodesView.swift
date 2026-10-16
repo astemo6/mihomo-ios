@@ -36,7 +36,7 @@ struct ManualNodesView: View {
             }
             Section("手动节点 \(nodes.count)") {
                 if nodes.isEmpty {
-                    Text("还没有节点").foregroundStyle(.secondary)
+                    EmptyStateRow(icon: "plus.viewfinder", title: "还没有节点", message: "粘贴分享链接、扫描二维码或手动填写。")
                 }
                 ForEach(Array(nodes.enumerated()), id: \.offset) { _, n in
                     let name = n["name"] as? String ?? "?"
@@ -99,7 +99,7 @@ struct ManualNodesView: View {
         .sheet(isPresented: $showPasteSheet) {
             NavigationStack {
                 TextEditor(text: $pasteText)
-                    .font(.system(size: 13, design: .monospaced))
+                    .scaledFont(13, design: .monospaced)
                     .autocorrectionDisabled().textInputAutocapitalization(.never)
                     .padding(8)
                     .navigationTitle("粘贴节点")

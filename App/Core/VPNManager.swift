@@ -16,6 +16,10 @@ final class VPNManager: ObservableObject {
     @Published var lastError: String? { didSet { if lastError != nil { showErrorAlert = true } } }
     @Published var showErrorAlert = false
     @Published private(set) var isBusy = false
+    /// The last start failed in the core / extension (not a missing profile or App Group): offer 安全模式.
+    @Published private(set) var canOfferSafeMode = false
+    /// The running (or last started) connection uses 安全模式.
+    @Published private(set) var safeModeActive = CoreOverrides.load().safeMode
 
     private var manager: NETunnelProviderManager?
     private var observer: NSObjectProtocol?
@@ -71,7 +75,9 @@ final class VPNManager: ObservableObject {
         if msg == nil, !AppShared.containerOK {
             msg = "App Group 不可用（\(AppShared.appGroup)），扩展无法读取配置。请检查重签名的描述文件是否包含 App Groups。"
         }
-        lastError = "连接失败：" + (msg ?? "网络扩展启动后立即退出（未返回原因）。请到 更多 → 诊断 查看 App Group 与扩展 ID。")
+        // Safe mode helps when the core / modules failed, not when the signature or profile is missing.
+        canOfferSafeMode = AppShared.containerOK && AppShared.activeProfileURL != nil && !safeModeActive
+        lastError = String(localized: "连接失败：") + (msg ?? String(localized: "网络扩展启动后立即退出（未返回原因）。请到 更多 → 诊断 导出诊断包查看。"))
         NSLog("[Mihomo] tunnel start failed: %@", lastError ?? "")
     }
 
@@ -85,7 +91,7 @@ final class VPNManager: ObservableObject {
                 update(from: m.connection)
             } else { status = .invalid }
         } catch {
-            lastError = "读取 VPN 配置失败：\(error.localizedDescription)"
+            lastError = String(localized: "读取 VPN 配置失败：") + Self.describe(error)
             NSLog("[Mihomo] loadAllFromPreferences: %@", error.localizedDescription)
         }
     }
@@ -136,16 +142,26 @@ final class VPNManager: ObservableObject {
         if isConnected || status == .connecting { stop() } else { await start() }
     }
 
-    func start() async {
+    /// Starts the tunnel. safeMode: this connection runs the profile without modules / scripts / MitM /
+    /// custom rules (offered after a failed start); every normal start clears it again.
+    func start(safeMode: Bool = false) async {
         lastError = nil
+        canOfferSafeMode = false
+        guard AppShared.containerOK else {
+            lastError = String(localized: "App Group 不可用：重签名的描述文件需要包含 App Groups，且主程序和扩展使用同一个组。详见 更多 → 诊断。")
+            return
+        }
         guard AppShared.activeProfileURL != nil else {
-            lastError = "请先在「配置」中添加并选择一个配置"
+            lastError = String(localized: "请先在「配置」中添加并选择一个配置")
             return
         }
         isBusy = true
         defer { isBusy = false }
         do {
-            CoreOverrides.load().save()
+            var o = CoreOverrides.load()
+            o.safeMode = safeMode
+            o.save()
+            safeModeActive = safeMode
             let m = try await ensureManager()
             if !m.isEnabled {
                 m.isEnabled = true
@@ -163,9 +179,52 @@ final class VPNManager: ObservableObject {
             TunnelErrorLog.clear()
             try m.connection.startVPNTunnel()
         } catch {
-            lastError = "启动失败：\(error.localizedDescription)"
+            lastError = String(localized: "启动失败：") + Self.describe(error)
             NSLog("[Mihomo] start failed: %@", error.localizedDescription)
         }
+    }
+
+    /// Reconnects normally after a safe-mode connection (or in safe mode after a failure).
+    func restart(safeMode: Bool) async {
+        if status != .disconnected && status != .invalid {
+            await disconnectAndWait()
+        }
+        await start(safeMode: safeMode)
+    }
+
+    /// Creates the VPN configuration without connecting: iOS shows the 「添加 VPN 配置」 prompt now
+    /// (first-run onboarding). Returns an error message or nil.
+    func installConfiguration() async -> String? {
+        do {
+            _ = try await ensureManager()
+            if let m = manager { update(from: m.connection) }
+            return nil
+        } catch {
+            return Self.describe(error)
+        }
+    }
+
+    var hasConfiguration: Bool { manager != nil && status != .invalid }
+
+    /// NetworkExtension / preference errors in plain Chinese (the system text is often just a code).
+    nonisolated static func describe(_ error: Error) -> String {
+        let ns = error as NSError
+        let raw = ns.localizedDescription
+        if raw.localizedCaseInsensitiveContains("permission denied") {
+            return String(localized: "没有允许添加 VPN 配置。再次连接时在系统提示里选「允许」。")
+        }
+        if ns.domain == NEVPNErrorDomain, let code = NEVPNError.Code(rawValue: ns.code) {
+            switch code {
+            case .configurationInvalid: return String(localized: "VPN 配置无效（扩展 ID 可能与签名不符）。") + " (\(raw))"
+            case .configurationDisabled: return String(localized: "VPN 配置已停用：在 设置 → VPN 中选中 Mihomo，或重新连接。")
+            case .connectionFailed: return String(localized: "网络扩展连接失败。") + " (\(raw))"
+            case .configurationStale: return String(localized: "VPN 配置已被其他地方修改，请重试一次。")
+            case .configurationReadWriteFailed: return String(localized: "无法保存 VPN 配置：可能拒绝了「添加 VPN 配置」，或签名缺少 Network Extension 权限。")
+            case .configurationUnknown: return String(localized: "未知的 VPN 配置错误。") + " (\(raw))"
+            @unknown default: return raw
+            }
+        }
+        return raw
     }
 
     func stop() {
@@ -239,15 +298,25 @@ final class VPNManager: ObservableObject {
     var onDemandPaused: Bool { OnDemandSettings.isPaused && OnDemandSettings.load().mode != .off }
 
     /// Sends a message to the running tunnel and returns its reply.
-    func send(_ msg: TunnelMessage) async -> Data? {
+    /// The reply is nil when the tunnel is not connected, the message could not be sent, or the tunnel
+    /// did not answer within `timeout` seconds (a busy or stuck extension never blocks the UI).
+    func send(_ msg: TunnelMessage, timeout: TimeInterval = 8) async -> Data? {
         guard let session = manager?.connection as? NETunnelProviderSession, status == .connected else { return nil }
-        return await withCheckedContinuation { cont in
+        return await withCheckedContinuation { (cont: CheckedContinuation<Data?, Never>) in
+            let lock = NSLock()
+            var resumed = false
+            let finish: (Data?) -> Void = { data in
+                lock.lock()
+                defer { lock.unlock() }
+                guard !resumed else { return }
+                resumed = true
+                cont.resume(returning: data)
+            }
+            DispatchQueue.global().asyncAfter(deadline: .now() + timeout) { finish(nil) }
             do {
-                try session.sendProviderMessage(msg.rawValue.data(using: .utf8)!) { data in
-                    cont.resume(returning: data)
-                }
+                try session.sendProviderMessage(Data(msg.rawValue.utf8)) { data in finish(data) }
             } catch {
-                cont.resume(returning: nil)
+                finish(nil)
             }
         }
     }

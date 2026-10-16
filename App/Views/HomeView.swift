@@ -25,17 +25,27 @@ struct HomeView: View {
                     }
 
                     ConnectCard()
+                    if vpn.safeModeActive && vpn.status != .disconnected && vpn.status != .invalid { SafeModeCard() }
                     ModeCard()
                     TrafficCard()
                     StatsGrid()
                     PanelsEntry()
 
                     if let err = vpn.lastError {
-                        Text(err)
-                            .font(.footnote)
-                            .foregroundStyle(Theme.bad)
-                            .frame(maxWidth: .infinity, alignment: .leading)
-                            .padding(.horizontal, 4)
+                        Card {
+                            VStack(alignment: .leading, spacing: 10) {
+                                ErrorRow(message: err)
+                                if vpn.canOfferSafeMode {
+                                    Button {
+                                        Task { await vpn.restart(safeMode: true) }
+                                    } label: {
+                                        Label("以安全模式连接", systemImage: "shield.lefthalf.filled")
+                                            .font(.footnote.weight(.semibold))
+                                    }
+                                    .buttonStyle(.borderless)
+                                }
+                            }
+                        }
                     }
                 }
                 .padding(.horizontal, 16)
@@ -44,8 +54,18 @@ struct HomeView: View {
             .background(Theme.bg.ignoresSafeArea())
             .toolbar(.hidden, for: .navigationBar)
             .alert("连接失败", isPresented: Binding(get: { vpn.lastError != nil && vpn.showErrorAlert }, set: { if !$0 { vpn.showErrorAlert = false } })) {
-                Button("好") { vpn.showErrorAlert = false }
-            } message: { Text(vpn.lastError ?? "") }
+                if vpn.canOfferSafeMode {
+                    Button("以安全模式连接") {
+                        vpn.showErrorAlert = false
+                        Task { await vpn.restart(safeMode: true) }
+                    }
+                }
+                Button("好", role: .cancel) { vpn.showErrorAlert = false }
+            } message: {
+                Text(vpn.canOfferSafeMode
+                     ? (vpn.lastError ?? "") + "\n\n" + String(localized: "安全模式只用配置文件本身连接：暂停模块、重写、脚本、MitM、自定义规则和智能选择，便于判断问题出在哪里。")
+                     : (vpn.lastError ?? ""))
+            }
         }
     }
 }
@@ -99,6 +119,28 @@ struct ConnectCard: View {
         .background(RoundedRectangle(cornerRadius: 22, style: .continuous).fill(on ? Theme.connectedGradient : Theme.idleGradient))
         .shadow(color: on ? Theme.accent.opacity(0.35) : .clear, radius: 18, y: 6)
         .animation(.easeInOut(duration: 0.3), value: on)
+    }
+}
+
+/// Shown only while a safe-mode connection runs: what is off, and the way back.
+struct SafeModeCard: View {
+    @EnvironmentObject var vpn: VPNManager
+    var body: some View {
+        Card {
+            HStack(alignment: .top, spacing: 12) {
+                Image(systemName: "shield.lefthalf.filled").font(.title3).foregroundStyle(Theme.warn).accessibilityHidden(true)
+                VStack(alignment: .leading, spacing: 4) {
+                    Text("安全模式").font(.subheadline.weight(.semibold))
+                    Text("模块、重写、脚本、MitM、自定义规则和智能选择已暂停。").font(.footnote).foregroundStyle(.secondary)
+                        .fixedSize(horizontal: false, vertical: true)
+                    Button("恢复正常连接") { Task { await vpn.restart(safeMode: false) } }
+                        .font(.footnote.weight(.semibold))
+                        .buttonStyle(.borderless)
+                        .padding(.top, 2)
+                }
+                Spacer(minLength: 0)
+            }
+        }
     }
 }
 

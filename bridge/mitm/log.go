@@ -90,6 +90,8 @@ type Entry struct {
 	RespLen   int               `json:"respBodyLength,omitempty"` // full decoded response body size
 	RespBin   int               `json:"respBodyBinary,omitempty"` // >0: binary / compressed body
 	RespEnc   string            `json:"respEncoding,omitempty"`
+	Dropped   bool              `json:"bodiesDropped,omitempty"` // bodies evicted by the ring's byte budget
+	size      int               // bytes of captured body text held by this entry
 	start     time.Time
 	ring      *RequestLog
 }
@@ -111,15 +113,65 @@ type Summary struct {
 	Bytes    int64    `json:"bytes"`
 }
 
-// RequestLog is a ring of recent requests. Bodies are capped at captureLimit each.
+// RequestLog is a ring of recent requests. Bodies are capped at captureLimit each, and all captured
+// bodies together at budget bytes: past it the oldest entries lose their bodies (headers and the
+// summary stay). Without the budget 200 entries × 2 × 32 KB could hold 12.8 MB inside a ~50 MB extension.
 type RequestLog struct {
-	mu   sync.Mutex
-	max  int
-	list []*Entry
-	seq  atomic.Int64
+	mu     sync.Mutex
+	max    int
+	budget int
+	list   []*Entry
+	seq    atomic.Int64
 }
 
-func NewRequestLog(max int) *RequestLog { return &RequestLog{max: max} }
+// DefaultCaptureBudget bounds the captured body text of the whole request ring.
+const DefaultCaptureBudget = 4 << 20
+
+func NewRequestLog(max int) *RequestLog { return &RequestLog{max: max, budget: DefaultCaptureBudget} }
+
+// CapturedBytes is the body text currently held by the ring (tests, diagnostics).
+func (l *RequestLog) CapturedBytes() int {
+	l.mu.Lock()
+	defer l.mu.Unlock()
+	n := 0
+	for _, e := range l.list {
+		e.mu.Lock()
+		n += e.size
+		e.mu.Unlock()
+	}
+	return n
+}
+
+// enforceBudget drops bodies of the oldest entries until the ring is within budget. keep is never touched.
+func (l *RequestLog) enforceBudget(keep *Entry) {
+	if l == nil || l.budget <= 0 {
+		return
+	}
+	l.mu.Lock()
+	defer l.mu.Unlock()
+	total := 0
+	for _, e := range l.list {
+		e.mu.Lock()
+		total += e.size
+		e.mu.Unlock()
+	}
+	for _, e := range l.list {
+		if total <= l.budget {
+			return
+		}
+		if e == keep {
+			continue
+		}
+		e.mu.Lock()
+		if e.size > 0 {
+			total -= e.size
+			e.size = 0
+			e.ReqBodyS, e.RespBodyS = "", ""
+			e.Dropped = true
+		}
+		e.mu.Unlock()
+	}
+}
 
 func (l *RequestLog) push(e *Entry) {
 	l.mu.Lock()
@@ -283,8 +335,10 @@ func trimPartialRune(b []byte) []byte {
 func (e *Entry) ReqBody(b []byte) {
 	s, bin := textOrBinary(b)
 	e.mu.Lock()
+	e.size += len(s) - len(e.ReqBodyS)
 	e.ReqBodyS, e.ReqBin, e.ReqLen = s, bin, len(b)
 	e.mu.Unlock()
+	e.ring.enforceBudget(e)
 }
 
 func (e *Entry) RespBody(b []byte, enc string) {
@@ -296,8 +350,10 @@ func (e *Entry) RespBody(b []byte, enc string) {
 	}
 	s, bin := textOrBinary(b)
 	e.mu.Lock()
+	e.size += len(s) - len(e.RespBodyS)
 	e.RespBodyS, e.RespBin, e.RespEnc, e.RespLen = s, bin, enc, len(b)
 	e.mu.Unlock()
+	e.ring.enforceBudget(e)
 }
 
 func (e *Entry) AddBytes(n int) {

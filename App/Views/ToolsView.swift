@@ -60,7 +60,12 @@ final class ToolsModel: ObservableObject {
         cfg.httpMaximumConnectionsPerHost = 1
         for i in 1...count {
             let session = URLSession(configuration: cfg)
-            var req = URLRequest(url: URL(string: target)!)
+            guard let targetURL = URL(string: target) else {
+                probes.append(ProbeResult(seq: i, ok: false, ms: 0, error: String(localized: "地址无效")))
+                session.invalidateAndCancel()
+                break
+            }
+            var req = URLRequest(url: targetURL)
             req.httpMethod = "HEAD"
             let t0 = Date()
             do {
@@ -104,7 +109,11 @@ final class ToolsModel: ObservableObject {
     nonisolated static func directConnect(host: String, port: UInt16, tls: Bool) async -> (Bool, Double, String?) {
         await withCheckedContinuation { (c: CheckedContinuation<(Bool, Double, String?), Never>) in
             let params: NWParameters = tls ? .tls : .tcp
-            let conn = NWConnection(host: NWEndpoint.Host(host), port: NWEndpoint.Port(rawValue: port)!, using: params)
+            guard let nwPort = NWEndpoint.Port(rawValue: port) else {
+                c.resume(returning: (false, 0, String(localized: "端口无效")))
+                return
+            }
+            let conn = NWConnection(host: NWEndpoint.Host(host), port: nwPort, using: params)
             let t0 = Date()
             let lock = NSLock()
             var done = false
@@ -231,8 +240,11 @@ struct ToolsView: View {
                         case 1:
                             field("主机", text: $host, keyboard: .URL)
                             HStack {
-                                field("端口", text: $port, keyboard: .numberPad).frame(width: 110)
-                                Toggle("TLS 握手", isOn: $tls).tint(Theme.accent)
+                                field("端口", text: $port, keyboard: .numberPad).frame(minWidth: 80, maxWidth: 110)
+                                Toggle(isOn: $tls) {
+                                    Text("TLS 握手").lineLimit(2).minimumScaleFactor(0.8)
+                                }
+                                .tint(Theme.accent)
                             }
                         default:
                             field("域名", text: $domain, keyboard: .URL)
@@ -326,13 +338,13 @@ struct ToolsView: View {
                             Text(Self.routeText(chain: c, rule: p.rule, payload: p.rulePayload))
                                 .font(.caption2).foregroundStyle(.secondary).lineLimit(2)
                         }
-                        if let r = p.remote, !r.isEmpty { Text(r).font(.system(size: 10, design: .monospaced)).foregroundStyle(.secondary) }
+                        if let r = p.remote, !r.isEmpty { Text(r).scaledFont(10, design: .monospaced).foregroundStyle(.secondary) }
                     }
                     .padding(.vertical, 2)
                 }
                 ForEach(model.answers) { a in
                     HStack {
-                        Text(a.type).font(.system(size: 10, weight: .bold))
+                        Text(a.type).scaledFont(10, weight: .bold)
                             .padding(.horizontal, 5).padding(.vertical, 2)
                             .background(Capsule().fill(Theme.accent.opacity(0.18))).foregroundStyle(Theme.accent)
                         Text(a.data).font(.system(.footnote, design: .monospaced)).textSelection(.enabled)

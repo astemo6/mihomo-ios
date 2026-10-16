@@ -4,7 +4,9 @@ import Libmihomo
 
 struct MoreView: View {
     @EnvironmentObject var vpn: VPNManager
+    @EnvironmentObject var store: ProfileStore
     @ObservedObject var engine = EngineStore.shared
+    @State private var showOnboarding = false
 
     var body: some View {
         NavigationStack {
@@ -67,6 +69,8 @@ struct MoreView: View {
                 .listRowBackground(Theme.card)
 
                 Section {
+                    Button { showOnboarding = true } label: { row("新手引导", "sparkles", nil) }
+                        .foregroundStyle(.primary)
                     NavigationLink { AboutView() } label: { row("关于 / 开源许可", "info.circle", nil) }
                 }
                 .listRowBackground(Theme.card)
@@ -75,6 +79,11 @@ struct MoreView: View {
             .scrollContentBackground(.hidden)
             .background(Theme.bg.ignoresSafeArea())
             .navigationTitle("更多")
+            .fullScreenCover(isPresented: $showOnboarding) {
+                OnboardingView { showOnboarding = false }
+                    .environmentObject(vpn)
+                    .environmentObject(store)
+            }
         }
     }
 
@@ -140,10 +149,10 @@ struct LogsView: View {
                         List(shown) { l in
                             VStack(alignment: .leading, spacing: 2) {
                                 HStack {
-                                    Text(l.level.uppercased()).font(.system(size: 9, weight: .bold)).foregroundStyle(color(l.level))
-                                    Text(l.time.formatted(date: .omitted, time: .standard)).font(.system(size: 9).monospacedDigit()).foregroundStyle(.secondary)
+                                    Text(l.level.uppercased()).scaledFont(9, weight: .bold).foregroundStyle(color(l.level))
+                                    Text(l.time.formatted(date: .omitted, time: .standard)).scaledFont(9, monospacedDigit: true).foregroundStyle(.secondary)
                                 }
-                                Text(l.message).font(.system(size: 11, design: .monospaced)).textSelection(.enabled)
+                                Text(l.message).scaledFont(11, design: .monospaced).textSelection(.enabled)
                             }
                             .id(l.id)
                             .listRowBackground(Theme.card)
@@ -296,10 +305,43 @@ struct SettingsView: View {
 struct DiagnosticsView: View {
     @EnvironmentObject var vpn: VPNManager
     @State private var startupLog = StartupLog.read()
+    @State private var exporting = false
+    @State private var share: ShareItem?
+    @State private var exportError: String?
+    @State private var copied = false
+
     var body: some View {
         let group = AppShared.appGroup
         List {
             Section {
+                Button {
+                    Task { await exportBundle() }
+                } label: {
+                    HStack {
+                        Label("导出诊断包", systemImage: "square.and.arrow.up").font(.body.weight(.semibold))
+                        Spacer()
+                        if exporting { ProgressView() }
+                    }
+                }
+                .disabled(exporting)
+                Button {
+                    Task {
+                        UIPasteboard.general.string = await DiagnosticsExporter.summaryText(vpn: vpn)
+                        copied = true
+                    }
+                } label: {
+                    Label(copied ? "已复制" : "复制为文本", systemImage: copied ? "checkmark" : "doc.on.doc")
+                }
+                .disabled(exporting)
+                if let exportError { ErrorRow(message: exportError) }
+            } header: { Text("反馈") } footer: {
+                Text("一个 zip：App / 扩展 / 内核版本、App Group 状态、启动日志、内核最近日志、内存采样、实际生效的配置和启用的模块。服务器地址、密码、UUID、密钥、订阅链接和令牌都已替换，可以放心发送。")
+            }
+            .listRowBackground(Theme.card)
+
+            Section {
+                LabeledContent("应用版本", value: DiagnosticsExporter.version(of: .main))
+                LabeledContent("隧道扩展版本", value: DiagnosticsExporter.version(of: DiagnosticsExporter.tunnelBundle))
                 LabeledContent("主程序 ID", value: AppShared.mainAppBundleID)
                 LabeledContent("隧道扩展 ID", value: AppShared.tunnelBundleID)
                 LabeledContent("App Group", value: group)
@@ -308,49 +350,37 @@ struct DiagnosticsView: View {
                     Text(AppShared.containerOK ? "正常" : "不可用").foregroundStyle(AppShared.containerOK ? Theme.good : Theme.bad)
                 }
                 let groups = AppShared.provisionedAppGroups()
-                LabeledContent("描述文件中的组", value: groups.isEmpty ? "（未找到 embedded.mobileprovision）" : groups.sorted().joined(separator: "\n"))
+                LabeledContent("描述文件中的组", value: groups.isEmpty ? String(localized: "（未找到 embedded.mobileprovision）") : groups.sorted().joined(separator: "\n"))
                 LabeledContent("VPN 状态", value: vpn.statusText)
-                LabeledContent("连接方式", value: CoreOverrides.load().isProxyOnly ? "仅代理（NEProxySettings）" : "全局隧道（PacketFlowBridge）")
+                LabeledContent("连接方式", value: CoreOverrides.load().isProxyOnly ? String(localized: "仅代理（NEProxySettings）") : String(localized: "全局隧道（PacketFlowBridge）"))
+                if vpn.safeModeActive { LabeledContent("安全模式", value: String(localized: "开启")) }
             } header: { Text("签名与容器") } footer: {
                 Text("重签名后描述文件会替换 entitlements。App 与扩展会在运行时从描述文件读取 App Group 并按字母序选第一个可用的；共享容器不可用时扩展无法读取配置，连接会失败。")
             }
             .listRowBackground(Theme.card)
             if let e = vpn.lastError {
-                Section("最近错误") { Text(e).font(.footnote).textSelection(.enabled) }.listRowBackground(Theme.card)
+                Section("最近错误") { ErrorRow(message: e) }.listRowBackground(Theme.card)
             }
             Section {
-                let log = startupLog.isEmpty ? "（暂无，连接一次后生成）" : startupLog
-                ScrollView(.horizontal) {
-                    Text(log)
-                        .font(.system(size: 10, design: .monospaced))
-                        .textSelection(.enabled)
-                        .frame(maxWidth: .infinity, alignment: .leading)
+                if startupLog.isEmpty {
+                    EmptyStateRow(icon: "text.alignleft", title: "暂无启动日志", message: "连接一次后生成。")
+                } else {
+                    ScrollView(.horizontal) {
+                        Text(startupLog)
+                            .font(.caption2.monospaced())
+                            .textSelection(.enabled)
+                            .frame(maxWidth: .infinity, alignment: .leading)
+                    }
+                    .frame(maxHeight: 360)
                 }
-                .frame(maxHeight: 360)
                 HStack {
-                    Button("复制启动日志") { UIPasteboard.general.string = startupLog }
+                    Button("复制启动日志") { UIPasteboard.general.string = startupLog }.disabled(startupLog.isEmpty)
                     Spacer()
                     Button("刷新") { startupLog = StartupLog.read() }
                 }
                 .buttonStyle(.borderless)
             } header: { Text("启动日志") } footer: {
-                Text("记录每次连接的阶段与耗时：网络设置、数据包桥接、内核启动开始 / 结束、内存占用和错误。连接失败时请复制发给开发者。")
-            }
-            .listRowBackground(Theme.card)
-            Section {
-                Button("复制诊断信息") {
-                    UIPasteboard.general.string = """
-                    app=\(AppShared.mainAppBundleID)
-                    tunnel=\(AppShared.tunnelBundleID)
-                    group=\(group) (\(AppShared.appGroupSource)) ok=\(AppShared.containerOK)
-                    provisioned=\(AppShared.provisionedAppGroups().joined(separator: ","))
-                    status=\(vpn.statusText) error=\(vpn.lastError ?? "-")
-                    mode=\(CoreOverrides.load().tunnelMode) mtu=\(CoreOverrides.load().tunMTU) memlimit=\(CoreOverrides.load().memoryLimitMB)MB ondemand=\(OnDemandSettings.load().mode.rawValue) paused=\(OnDemandSettings.isPaused)
-                    version=\(Bundle.main.object(forInfoDictionaryKey: "CFBundleShortVersionString") as? String ?? "?")
-                    --- startup log ---
-                    \(StartupLog.read())
-                    """
-                }
+                Text("记录每次连接的阶段与耗时：网络设置、数据包桥接、内核启动开始 / 结束、内存占用和错误。")
             }
             .listRowBackground(Theme.card)
         }
@@ -359,6 +389,19 @@ struct DiagnosticsView: View {
         .background(Theme.bg.ignoresSafeArea())
         .navigationTitle("诊断")
         .onAppear { startupLog = StartupLog.read() }
+        .sheet(item: $share) { ActivityView(items: [$0.url]) }
+    }
+
+    private func exportBundle() async {
+        exporting = true
+        exportError = nil
+        defer { exporting = false }
+        do {
+            let url = try await DiagnosticsExporter.export(vpn: vpn)
+            share = ShareItem(url: url)
+        } catch {
+            exportError = String(localized: "导出失败：") + error.localizedDescription
+        }
     }
 }
 

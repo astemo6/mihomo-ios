@@ -252,7 +252,7 @@ struct SubscriptionRulesView: View {
                     PreviewRow(n: n)
                 }
             } else {
-                HStack { ProgressView(); Text("生成预览…").foregroundStyle(.secondary) }
+                LoadingRow(text: "生成预览…")
             }
         } header: { Text("实时预览") }
         .listRowBackground(Theme.card)
