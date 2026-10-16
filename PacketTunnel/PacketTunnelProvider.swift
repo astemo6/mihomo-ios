@@ -165,7 +165,9 @@ final class PacketTunnelProvider: NEPacketTunnelProvider {
     }
 
     override func stopTunnel(with reason: NEProviderStopReason, completionHandler: @escaping () -> Void) {
-        StartupLog.write("stopTunnel reason=\(reason.rawValue), \(ProcessMemory.summary()), bridge \(bridge?.stats ?? "-")")
+        let why = TunnelStopReason.describe(reason.rawValue)
+        StartupLog.write("stopTunnel reason=\(reason.rawValue)（\(why)）, \(ProcessMemory.summary()), bridge \(bridge?.stats ?? "-")")
+        TunnelStopReason.record(reason.rawValue)
         traffic?.stop() // flushes the last delta
         network?.stop()
         network = nil
@@ -225,27 +227,34 @@ final class PacketTunnelProvider: NEPacketTunnelProvider {
     }
 }
 
-/// Keeps the extension under the ~50 MB jetsam limit (Hako-style): GOMEMLIMIT does the pacing in Go;
-/// this watches phys_footprint / os_proc_available_memory and memory-pressure events, returns memory to
-/// the OS when it climbs, and closes connections as a last resort before iOS would kill the tunnel.
+/// Keeps the extension under the ~50 MB jetsam limit. v0.6.1, after the first device test: iOS sends
+/// "critical" pressure events constantly once the footprint is near 40 MB, and closing every connection
+/// on each event broke browsing. Now the footprint decides, with hysteresis:
+///   < 44 MB            pressure events are only logged (rate limited)
+///   ≥ 40 MB (timer) / ≥ 44 MB (event)   return memory to the OS first (FreeOSMemory)
+///   ≥ 47 MB or < 3 MB available         close the oldest 25 % of connections (50 % below 2 MB available),
+///                                       then not again until the footprint fell below 42 MB or 30 s passed.
 final class MemoryGuard {
     private let queue = DispatchQueue(label: "mihomo.memoryguard", qos: .utility)
     private var timer: DispatchSourceTimer?
     private var pressure: DispatchSourceMemoryPressure?
     private var interval = 10
     private var lastShed = Date.distantPast
+    private var lastFree = Date.distantPast
+    private var lastPressureLog = Date.distantPast
+    private var armed = true
 
-    private let freeAtBytes: UInt64 = 38 << 20
-    private let shedAtBytes: UInt64 = 45 << 20
-    private let shedAvailableBelow = 5 << 20
+    private let freeAtBytes: UInt64 = 40 << 20
+    private let pressureFreeAtBytes: UInt64 = 44 << 20
+    private let shedAtBytes: UInt64 = 47 << 20
+    private let rearmBelowBytes: UInt64 = 42 << 20
+    private let shedAvailableBelow = 3 << 20
 
     func start() {
         let p = DispatchSource.makeMemoryPressureSource(eventMask: [.warning, .critical], queue: queue)
         p.setEventHandler { [weak self] in
             guard let self, let ev = self.pressure?.data else { return }
-            LibmihomoFreeMemory()
-            if ev.contains(.critical) { self.shed(reason: "memory pressure critical") }
-            StartupLog.write("memory pressure \(ev.contains(.critical) ? "critical" : "warning"): \(ProcessMemory.summary())")
+            self.onPressure(critical: ev.contains(.critical))
         }
         p.resume()
         pressure = p
@@ -257,6 +266,15 @@ final class MemoryGuard {
         timer = nil
         pressure?.cancel()
         pressure = nil
+    }
+
+    private func onPressure(critical: Bool) {
+        let fp = ProcessMemory.footprintBytes()
+        if Date().timeIntervalSince(lastPressureLog) > 60 {
+            lastPressureLog = Date()
+            StartupLog.write("memory pressure \(critical ? "critical" : "warning") (logged at most once a minute): \(ProcessMemory.summary())")
+        }
+        evaluate(fp: fp, avail: ProcessMemory.availableBytes(), freeAt: pressureFreeAtBytes, why: "memory pressure")
     }
 
     private func schedule(_ seconds: Int) {
@@ -273,23 +291,33 @@ final class MemoryGuard {
         let fp = ProcessMemory.footprintBytes()
         let avail = ProcessMemory.availableBytes()
         LibmihomoRecordMemorySample(Int64(fp), Int64(avail))
-        if fp >= shedAtBytes || (avail >= 0 && avail < shedAvailableBelow) {
-            LibmihomoFreeMemory()
-            shed(reason: "footprint \(fp >> 20) MB, available \(avail >> 20) MB")
-        } else if fp >= freeAtBytes {
-            LibmihomoFreeMemory()
-        }
+        evaluate(fp: fp, avail: avail, freeAt: freeAtBytes, why: "timer")
         // Sample faster while close to the limit, slowly otherwise (battery).
         let want = fp >= freeAtBytes ? 2 : 10
         if want != interval { schedule(want) }
     }
 
-    private func shed(reason: String) {
-        guard Date().timeIntervalSince(lastShed) > 15 else { return }
+    private func evaluate(fp: UInt64, avail: Int, freeAt: UInt64, why: String) {
+        if fp < rearmBelowBytes || Date().timeIntervalSince(lastShed) > 30 { armed = true }
+        let lowAvail = avail >= 0 && avail < shedAvailableBelow
+        if fp >= freeAt || fp >= shedAtBytes || lowAvail {
+            if Date().timeIntervalSince(lastFree) > 3 {
+                lastFree = Date()
+                LibmihomoFreeMemory()
+            }
+        }
+        guard (fp >= shedAtBytes || lowAvail) && armed else { return }
+        // Re-check after returning memory: often that alone is enough.
+        let fp2 = ProcessMemory.footprintBytes()
+        let avail2 = ProcessMemory.availableBytes()
+        let low2 = avail2 >= 0 && avail2 < shedAvailableBelow
+        guard fp2 >= shedAtBytes || low2 else { return }
+        armed = false
         lastShed = Date()
-        let n = LibmihomoShedConnections()
+        let percent = (avail2 >= 0 && avail2 < 2 << 20) ? 50 : 25
+        let n = LibmihomoShedConnections(percent)
         LibmihomoFreeMemory()
-        StartupLog.write("memory guard: closed \(n) connections (\(reason)) → \(ProcessMemory.summary())")
+        StartupLog.write("memory guard (\(why)): closed \(n) oldest connections (\(percent) %) at footprint \(fp2 >> 20) MB → \(ProcessMemory.summary())")
     }
 }
 

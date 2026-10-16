@@ -57,6 +57,7 @@ struct MoreView: View {
 
                 Section("设置") {
                     NavigationLink { SettingsView() } label: { row("内核设置", "slider.horizontal.3", nil) }
+                    NavigationLink { SpeedTestSettingsView() } label: { row("测速", "bolt.horizontal", nil) }
                     NavigationLink { DiagnosticsView() } label: {
                         HStack {
                             Label("诊断", systemImage: "waveform.path.ecg")
@@ -225,7 +226,7 @@ struct SettingsView: View {
             .listRowBackground(Theme.card)
 
             Section {
-                Stepper(value: $o.memoryLimitMB, in: 24...45, step: 1) {
+                Stepper(value: $o.memoryLimitMB, in: CoreOverrides.memoryLimitRange, step: 1) {
                     HStack {
                         Text("内核内存上限")
                         Spacer()
@@ -281,6 +282,9 @@ struct SettingsView: View {
         o.tunnelMode = old.tunnelMode
         o.geoMirror = old.geoMirror
         o.geoURLs = old.geoURLs
+        o.testURL = old.testURL
+        o.testTimeoutMs = old.testTimeoutMs
+        o.overrideHealthCheck = old.overrideHealthCheck
         o.save()
         Task {
             if vpn.isConnected {
@@ -352,6 +356,7 @@ struct DiagnosticsView: View {
                 let groups = AppShared.provisionedAppGroups()
                 LabeledContent("描述文件中的组", value: groups.isEmpty ? String(localized: "（未找到 embedded.mobileprovision）") : groups.sorted().joined(separator: "\n"))
                 LabeledContent("VPN 状态", value: vpn.statusText)
+                LabeledContent("上次断开原因", value: TunnelStopReason.last() ?? "—")
                 LabeledContent("连接方式", value: CoreOverrides.load().isProxyOnly ? String(localized: "仅代理（NEProxySettings）") : String(localized: "全局隧道（PacketFlowBridge）"))
                 if vpn.safeModeActive { LabeledContent("安全模式", value: String(localized: "开启")) }
             } header: { Text("签名与容器") } footer: {
@@ -471,5 +476,120 @@ struct AboutView: View {
         .scrollContentBackground(.hidden)
         .background(Theme.bg.ignoresSafeArea())
         .navigationTitle("关于")
+    }
+}
+
+/// 更多 → 测速: the URL and timeout every manual latency test uses (live through the core, offline from
+/// the app), and whether the profile's group health checks should use the same URL.
+struct SpeedTestSettingsView: View {
+    @EnvironmentObject var vpn: VPNManager
+    @State private var choice = CoreOverrides.defaultTestURL
+    @State private var custom = ""
+    @State private var timeoutSec = 5
+    @State private var overrideHC = false
+    @State private var status: String?
+
+    private static let customTag = "__custom__"
+
+    private var effectiveURL: String {
+        choice == Self.customTag ? custom.trimmingCharacters(in: .whitespaces) : choice
+    }
+    private var customInvalid: Bool { choice == Self.customTag && !CoreOverrides.isValidTestURL(custom) }
+
+    var body: some View {
+        Form {
+            Section {
+                Picker("测速地址", selection: $choice) {
+                    ForEach(CoreOverrides.testURLPresets, id: \.self) { u in
+                        Text(URL(string: u)?.host ?? u).tag(u)
+                    }
+                    Text("自定义").tag(Self.customTag)
+                }
+                .pickerStyle(.inline)
+                .labelsHidden()
+                if choice == Self.customTag {
+                    TextField("https://example.com/generate_204", text: $custom)
+                        .keyboardType(.URL)
+                        .textInputAutocapitalization(.never)
+                        .autocorrectionDisabled()
+                        .font(.system(.body, design: .monospaced))
+                    if customInvalid && !custom.isEmpty {
+                        Label("请输入以 http:// 或 https:// 开头的完整地址", systemImage: "exclamationmark.triangle")
+                            .font(.footnote).foregroundStyle(Theme.warn)
+                    }
+                }
+            } header: { Text("测速地址") } footer: {
+                Text("策略页的测速都用这个地址：连接时经由内核通过各节点访问，未连接时从本机直接测试。地址应快速返回 204 或 200。")
+            }
+            .listRowBackground(Theme.card)
+
+            Section {
+                Stepper(value: $timeoutSec, in: 1...30) {
+                    HStack {
+                        Text("超时")
+                        Spacer()
+                        Text("\(timeoutSec) 秒").monospacedDigit().foregroundStyle(.secondary)
+                    }
+                }
+            } footer: { Text("超过这个时间仍未返回的节点显示为「超时」。默认 5 秒。") }
+            .listRowBackground(Theme.card)
+
+            Section {
+                Toggle("健康检查也使用此地址", isOn: $overrideHC)
+            } footer: {
+                Text("默认关闭：自动选择 / 故障转移策略组和节点集按配置文件里的地址做健康检查。开启后统一改用上面的地址，重新连接或重载后生效。")
+            }
+            .listRowBackground(Theme.card)
+
+            Section {
+                Button {
+                    save()
+                } label: {
+                    HStack { Spacer(); Text("保存").bold(); Spacer() }
+                }
+                .disabled(customInvalid)
+                if let status { Text(status).font(.footnote).foregroundStyle(.secondary) }
+            }
+            .listRowBackground(Theme.card)
+        }
+        .scrollContentBackground(.hidden)
+        .background(Theme.bg.ignoresSafeArea())
+        .navigationTitle("测速")
+        .onAppear(perform: loadValues)
+    }
+
+    private func loadValues() {
+        let o = CoreOverrides.load()
+        if CoreOverrides.testURLPresets.contains(o.testURL) {
+            choice = o.testURL
+        } else {
+            choice = Self.customTag
+            custom = o.testURL
+        }
+        timeoutSec = max(1, min(30, o.testTimeoutMs / 1000))
+        overrideHC = o.overrideHealthCheck
+    }
+
+    private func save() {
+        guard CoreOverrides.isValidTestURL(effectiveURL) else { return }
+        // Only this page's fields; everything else stays as the other pages saved it.
+        var o = CoreOverrides.load()
+        let old = o
+        o.testURL = effectiveURL
+        o.testTimeoutMs = timeoutSec * 1000
+        o.overrideHealthCheck = overrideHC
+        o.save()
+        let healthCheckChanged = old.overrideHealthCheck != o.overrideHealthCheck || (o.overrideHealthCheck && old.testURL != o.testURL)
+        guard vpn.isConnected, healthCheckChanged else {
+            status = String(localized: "已保存")
+            return
+        }
+        Task {
+            if let err = await vpn.reload() {
+                status = String(localized: "重载失败：\(err)")
+            } else {
+                status = String(localized: "已保存并重载")
+            }
+        }
     }
 }

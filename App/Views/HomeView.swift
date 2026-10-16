@@ -18,8 +18,8 @@ struct HomeView: View {
                         VStack(alignment: .trailing, spacing: 6) {
                             Text("Mihomo").font(.headline.weight(.heavy))
                             Text(vpn.statusText)
-                                .font(.caption.weight(.semibold))
-                                .foregroundStyle(vpn.isConnected ? Theme.good : .secondary)
+                                .font(.caption)
+                                .foregroundStyle(.secondary)
                         }
                         .padding(.top, 6)
                     }
@@ -80,16 +80,23 @@ struct ConnectCard: View {
         VStack(alignment: .leading, spacing: 14) {
             HStack {
                 VStack(alignment: .leading, spacing: 4) {
-                    Text(on ? "代理已开启" : "代理未开启")
-                        .font(.title3.weight(.bold))
+                    // v0.6.1: plain state text + a small dot; no accent fill or glow when connected.
+                    HStack(spacing: 6) {
+                        Circle()
+                            .fill(on ? Theme.good : Color.secondary.opacity(0.6))
+                            .frame(width: 7, height: 7)
+                            .accessibilityHidden(true)
+                        Text(on ? "代理已开启" : "代理未开启")
+                            .font(.headline)
+                    }
                     if on, let d = vpn.connectedDate {
                         TimelineView(.periodic(from: .now, by: 1)) { ctx in
                             Text("已运行 \(Fmt.duration(ctx.date.timeIntervalSince(d)))")
                                 .font(.caption.monospacedDigit())
-                                .foregroundStyle(.white.opacity(0.8))
+                                .foregroundStyle(.secondary)
                         }
                     } else {
-                        Text(vpn.statusText).font(.caption).foregroundStyle(.white.opacity(0.7))
+                        Text(vpn.statusText).font(.caption).foregroundStyle(.secondary)
                     }
                 }
                 Spacer()
@@ -102,23 +109,23 @@ struct ConnectCard: View {
                 .scaleEffect(1.25)
                 .disabled(vpn.isBusy || vpn.status == .disconnecting)
             }
-            Divider().overlay(Color.white.opacity(0.15))
+            Divider().overlay(Color.white.opacity(0.08))
             HStack(spacing: 18) {
                 VStack(alignment: .leading, spacing: 3) {
-                    Label("配置", systemImage: "doc.text").font(.caption2).foregroundStyle(.white.opacity(0.7))
+                    Label("配置", systemImage: "doc.text").font(.caption2).foregroundStyle(.secondary)
                     Text(store.active?.name ?? "未选择").font(.subheadline.weight(.semibold)).lineLimit(1)
                 }
                 Spacer()
                 VStack(alignment: .trailing, spacing: 3) {
-                    Label("当前节点", systemImage: "point.3.connected.trianglepath.dotted").font(.caption2).foregroundStyle(.white.opacity(0.7))
+                    Label("当前节点", systemImage: "point.3.connected.trianglepath.dotted").font(.caption2).foregroundStyle(.secondary)
                     Text(on ? dash.selectedNode : "—").font(.subheadline.weight(.semibold)).lineLimit(1)
                 }
             }
         }
         .padding(18)
-        .background(RoundedRectangle(cornerRadius: 22, style: .continuous).fill(on ? Theme.connectedGradient : Theme.idleGradient))
-        .shadow(color: on ? Theme.accent.opacity(0.35) : .clear, radius: 18, y: 6)
-        .animation(.easeInOut(duration: 0.3), value: on)
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .background(RoundedRectangle(cornerRadius: 18, style: .continuous).fill(Theme.card))
+        .overlay(RoundedRectangle(cornerRadius: 18, style: .continuous).stroke(Color.white.opacity(0.06)))
     }
 }
 

@@ -125,7 +125,8 @@ rule-providers:
 	if len(r.RuleProviders) != 1 || r.RuleProviders[0].Count != 2 {
 		t.Fatalf("rule providers %+v", r.RuleProviders)
 	}
-	if len(r.Rules) != 1 || r.Rules[0].Type != "MATCH" || r.Rules[0].Proxy != "PROXY" {
+	// + the UDP 443 fallback appended after MATCH (v0.6.1)
+	if len(r.Rules) != 2 || r.Rules[0].Type != "MATCH" || r.Rules[0].Proxy != "PROXY" || r.Rules[1].Proxy != "REJECT" {
 		t.Fatalf("rules %+v", r.Rules)
 	}
 	sr := splitRule("AND,((DOMAIN,a.com),(NETWORK,UDP)),REJECT")

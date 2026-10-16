@@ -125,7 +125,7 @@ func (e *Engine) Start() error {
 	}
 	e.srv.SetKeepAlivesEnabled(true)
 	go func() { _ = e.srv.Serve(&chanListener{ch: e.tlsCh, addr: ln.Addr(), closed: &e.closing}) }()
-	go e.acceptLoop()
+	go e.acceptLoop(ln)
 	e.logf("info", fmt.Sprintf("[MitM] 引擎已启动 127.0.0.1:%d", e.port))
 	return nil
 }
@@ -244,8 +244,7 @@ func (l *chanListener) Close() error {
 }
 func (l *chanListener) Addr() net.Addr { return l.addr }
 
-func (e *Engine) acceptLoop() {
-	ln := e.ln
+func (e *Engine) acceptLoop(ln net.Listener) {
 	for {
 		c, err := ln.Accept()
 		if err != nil {
