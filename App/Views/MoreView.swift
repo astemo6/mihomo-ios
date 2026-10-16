@@ -9,17 +9,30 @@ struct MoreView: View {
     var body: some View {
         NavigationStack {
             List {
-                Section("运行") {
-                    NavigationLink { RulesView() } label: { Label("规则", systemImage: "list.bullet.rectangle") }
-                    NavigationLink { ProvidersView() } label: { Label("提供者（规则集 / 节点集）", systemImage: "shippingbox") }
-                    NavigationLink { LogsView() } label: { Label("日志", systemImage: "text.alignleft") }
+                Section("连接") {
+                    NavigationLink { ConnectionView() } label: {
+                        row("连接方式与按需连接", "point.3.filled.connected.trianglepath.dotted",
+                            CoreOverrides.load().isProxyOnly ? "仅代理" : "全局隧道")
+                    }
+                    NavigationLink { DNSView() } label: {
+                        row("DNS", "network", DNSOverrideSettings.load().enabled ? "自定义" : "配置文件")
+                    }
                 }
                 .listRowBackground(Theme.card)
-                Section("设置") {
-                    NavigationLink { SettingsView() } label: { Label("内核覆写设置", systemImage: "slider.horizontal.3") }
+
+                Section("规则与资源") {
+                    NavigationLink { RulesView() } label: { row("规则", "list.bullet.rectangle", nil) }
+                    NavigationLink { ProvidersView() } label: { row("提供者（规则集 / 节点集）", "shippingbox", nil) }
+                    NavigationLink { GeoView() } label: { row("地理与规则库", "globe.asia.australia", nil) }
                 }
                 .listRowBackground(Theme.card)
+
                 Section {
+                    NavigationLink { ModulesView() } label: {
+                        row("模块", "puzzlepiece.extension", "\(engine.config.modules.filter(\.enabled).count)/\(engine.config.modules.count)")
+                    }
+                    NavigationLink { RewriteView() } label: { row("重写", "arrow.triangle.swap", "\(engine.config.rules.count)") }
+                    NavigationLink { ScriptsView() } label: { row("脚本", "curlybraces", "\(engine.config.scripts.count)") }
                     NavigationLink { MitMView() } label: {
                         HStack {
                             Label("MitM", systemImage: "lock.open")
@@ -27,32 +40,34 @@ struct MoreView: View {
                             Text(engine.config.mitm ? "已开启" : "关闭").font(.caption).foregroundStyle(engine.config.mitm ? Theme.good : .secondary)
                         }
                     }
-                    NavigationLink { RewriteView() } label: {
-                        HStack { Label("重写", systemImage: "arrow.triangle.swap"); Spacer(); Text("\(engine.config.rules.count)").font(.caption).foregroundStyle(.secondary) }
-                    }
-                    NavigationLink { ScriptsView() } label: {
-                        HStack { Label("脚本", systemImage: "curlybraces"); Spacer(); Text("\(engine.config.scripts.count)").font(.caption).foregroundStyle(.secondary) }
-                    }
-                    NavigationLink { ModulesView() } label: {
-                        HStack { Label("模块", systemImage: "puzzlepiece.extension"); Spacer(); Text("\(engine.config.modules.filter(\.enabled).count)/\(engine.config.modules.count)").font(.caption).foregroundStyle(.secondary) }
-                    }
-                } header: { Text("重写与 MitM") } footer: {
-                    Text(engine.config.enabled ? "重写与脚本已启用" : "重写与脚本未启用（在任一页面顶部开启）")
+                } header: { Text("模块、重写与 MitM") } footer: {
+                    Text(engine.config.enabled ? "重写与脚本已启用" : "重写与脚本未启用（在模块、重写或脚本页面顶部开启）")
                 }
                 .listRowBackground(Theme.card)
-                Section {
-                    ForEach(["桌面小组件", "控制中心开关", "快捷指令"], id: \.self) { f in
-                        HStack {
-                            Label(f, systemImage: "sparkles")
-                            Spacer()
-                            Text("即将推出").font(.caption).foregroundStyle(.secondary)
-                        }
-                        .foregroundStyle(.secondary)
-                    }
-                } header: { Text("即将推出") }
+
+                Section("工具与数据") {
+                    NavigationLink { ToolsView() } label: { row("网络工具（Ping / TCP / DNS）", "stethoscope.circle", nil) }
+                    NavigationLink { StatsView() } label: { row("流量统计", "chart.bar.xaxis", nil) }
+                    NavigationLink { LogsView() } label: { row("日志", "text.alignleft", nil) }
+                    NavigationLink { BackupView() } label: { row("备份与恢复", "externaldrive.badge.icloud", nil) }
+                }
                 .listRowBackground(Theme.card)
-                Section("关于") {
-                    NavigationLink { AboutView() } label: { Label("关于 / 开源许可", systemImage: "info.circle") }
+
+                Section("设置") {
+                    NavigationLink { SettingsView() } label: { row("内核设置", "slider.horizontal.3", nil) }
+                    NavigationLink { DiagnosticsView() } label: {
+                        HStack {
+                            Label("诊断", systemImage: "waveform.path.ecg")
+                            Spacer()
+                            Text(AppShared.containerOK ? "App Group 正常" : "App Group 异常")
+                                .font(.caption).foregroundStyle(AppShared.containerOK ? Theme.good : Theme.bad)
+                        }
+                    }
+                }
+                .listRowBackground(Theme.card)
+
+                Section {
+                    NavigationLink { AboutView() } label: { row("关于 / 开源许可", "info.circle", nil) }
                 }
                 .listRowBackground(Theme.card)
             }
@@ -62,142 +77,13 @@ struct MoreView: View {
             .navigationTitle("更多")
         }
     }
-}
 
-// MARK: - Rules
-
-struct RulesView: View {
-    @EnvironmentObject var vpn: VPNManager
-    @State private var rules: [RuleItem] = []
-    @State private var search = ""
-
-    var filtered: [RuleItem] {
-        guard !search.isEmpty else { return rules }
-        let q = search.lowercased()
-        return rules.filter { $0.payload.lowercased().contains(q) || $0.type.lowercased().contains(q) || $0.proxy.lowercased().contains(q) }
-    }
-
-    var body: some View {
-        Group {
-            if !vpn.isConnected { NotConnectedPlaceholder() } else {
-                List(Array(filtered.enumerated()), id: \.offset) { i, r in
-                    HStack(alignment: .top, spacing: 10) {
-                        Text("\(i + 1)").font(.caption2.monospacedDigit()).foregroundStyle(.secondary).frame(width: 30, alignment: .trailing)
-                        VStack(alignment: .leading, spacing: 3) {
-                            Text(r.payload.isEmpty ? r.type : r.payload).font(.system(.footnote, design: .monospaced)).lineLimit(2)
-                            HStack(spacing: 6) {
-                                Text(r.type).font(.caption2.weight(.semibold))
-                                    .padding(.horizontal, 5).padding(.vertical, 1)
-                                    .background(Capsule().fill(Color.white.opacity(0.1)))
-                                if let s = r.size, s > 0 { Text("\(s) 条").font(.caption2).foregroundStyle(.secondary) }
-                                Spacer()
-                                Text(r.proxy).font(.caption).foregroundStyle(Theme.accent)
-                            }
-                        }
-                    }
-                    .listRowBackground(Theme.card)
-                }
-                .listStyle(.plain)
-                .scrollContentBackground(.hidden)
-                .searchable(text: $search, prompt: "搜索规则")
-                .refreshable { await load() }
-            }
-        }
-        .background(Theme.bg.ignoresSafeArea())
-        .navigationTitle("规则 \(rules.count)")
-        .task { await load() }
-    }
-
-    func load() async { if let r = try? await ControllerClient.shared.rules() { rules = r } }
-}
-
-// MARK: - Providers
-
-struct ProvidersView: View {
-    @EnvironmentObject var vpn: VPNManager
-    @State private var proxyProviders: [ProviderItem] = []
-    @State private var ruleProviders: [ProviderItem] = []
-    @State private var updating: Set<String> = []
-    @State private var error: String?
-
-    var body: some View {
-        Group {
-            if !vpn.isConnected { NotConnectedPlaceholder() } else {
-                List {
-                    if let error { Text(error).font(.footnote).foregroundStyle(Theme.bad).listRowBackground(Theme.card) }
-                    Section("节点集 \(proxyProviders.count)") {
-                        ForEach(proxyProviders) { p in
-                            row(p, detail: "\(p.proxies?.count ?? 0) 个节点 · \(p.vehicleType ?? "")", key: "p:" + p.name) {
-                                try await ControllerClient.shared.updateProxyProvider(p.name)
-                            }
-                        }
-                    }
-                    .listRowBackground(Theme.card)
-                    Section("规则集 \(ruleProviders.count)") {
-                        ForEach(ruleProviders) { p in
-                            row(p, detail: "\(p.ruleCount ?? 0) 条 · \(p.behavior ?? "") · \(p.vehicleType ?? "")", key: "r:" + p.name) {
-                                try await ControllerClient.shared.updateRuleProvider(p.name)
-                            }
-                        }
-                    }
-                    .listRowBackground(Theme.card)
-                }
-                .listStyle(.insetGrouped)
-                .scrollContentBackground(.hidden)
-                .refreshable { await load() }
-            }
-        }
-        .background(Theme.bg.ignoresSafeArea())
-        .navigationTitle("提供者")
-        .toolbar {
-            ToolbarItem(placement: .navigationBarTrailing) {
-                Button("全部更新") {
-                    Task {
-                        for p in proxyProviders where p.vehicleType == "HTTP" { try? await ControllerClient.shared.updateProxyProvider(p.name) }
-                        for p in ruleProviders where p.vehicleType == "HTTP" { try? await ControllerClient.shared.updateRuleProvider(p.name) }
-                        await load()
-                    }
-                }
-                .disabled(!vpn.isConnected)
-            }
-        }
-        .task { await load() }
-    }
-
-    @ViewBuilder
-    func row(_ p: ProviderItem, detail: String, key: String, update: @escaping () async throws -> Void) -> some View {
+    func row(_ title: String, _ icon: String, _ value: String?) -> some View {
         HStack {
-            VStack(alignment: .leading, spacing: 3) {
-                Text(p.name).font(.subheadline.weight(.semibold))
-                Text(detail).font(.caption2).foregroundStyle(.secondary)
-                if let u = p.updatedAt, let d = ConnectionItem.iso.date(from: u) ?? ConnectionItem.isoNoFrac.date(from: u) {
-                    Text("更新于 \(d.formatted(.relative(presentation: .named)))").font(.caption2).foregroundStyle(.secondary)
-                }
-                if let s = p.subscriptionInfo, let t = s.Total, t > 0 {
-                    Text("已用 \(Fmt.bytes((s.Upload ?? 0) + (s.Download ?? 0))) / \(Fmt.bytes(t))").font(.caption2).foregroundStyle(.secondary)
-                }
-            }
+            Label(title, systemImage: icon)
             Spacer()
-            if updating.contains(key) { ProgressView() } else {
-                Button {
-                    Task {
-                        updating.insert(key)
-                        do { try await update(); error = nil } catch { self.error = error.localizedDescription }
-                        updating.remove(key)
-                        await load()
-                    }
-                } label: { Image(systemName: "arrow.clockwise") }
-                .buttonStyle(.borderless)
-                .disabled(p.vehicleType != "HTTP")
-            }
+            if let value { Text(value).font(.caption).foregroundStyle(.secondary) }
         }
-    }
-
-    func load() async {
-        do {
-            proxyProviders = try await ControllerClient.shared.proxyProviders()
-            ruleProviders = try await ControllerClient.shared.ruleProviders()
-        } catch { self.error = error.localizedDescription }
     }
 }
 
@@ -315,14 +201,33 @@ struct SettingsView: View {
                     Text("调试").tag("debug")
                 }
                 Toggle("IPv6", isOn: $o.ipv6)
-                Toggle("允许局域网连接（7890 端口）", isOn: $o.allowLan)
-                Picker("DNS 模式", selection: $o.dnsMode) {
-                    Text("Fake-IP").tag("fake-ip")
-                    Text("Redir-Host").tag("redir-host")
-                }
                 Toggle("域名嗅探（Sniffer）", isOn: $o.sniffer)
-            } header: { Text("覆写（应用在配置之上）") } footer: {
-                Text("这些选项会覆盖配置文件里的同名字段。修改 IPv6 需重新连接才能生效。")
+                Toggle("允许局域网连接（\(o.mixedPort) 端口）", isOn: $o.allowLan)
+            } header: { Text("内核") } footer: {
+                Text("这些选项会覆盖配置文件里的同名字段。DNS 模式在「更多 → DNS」中设置。IPv6 变更需重新连接。")
+            }
+            .listRowBackground(Theme.card)
+
+            Section {
+                Toggle("把手动节点加入每个配置", isOn: $o.mergeManual)
+            } header: { Text("节点") } footer: {
+                Text("开启后「手动节点」配置里的节点和同名策略组会合并进当前使用的订阅，可以在策略页直接选择。")
+            }
+            .listRowBackground(Theme.card)
+
+            Section {
+                Stepper(value: $o.memoryLimitMB, in: 24...45, step: 1) {
+                    HStack {
+                        Text("内核内存上限")
+                        Spacer()
+                        Text("\(o.memoryLimitMB) MB").monospacedDigit().foregroundStyle(.secondary)
+                    }
+                }
+                Picker("隧道 MTU", selection: $o.tunMTU) {
+                    ForEach(CoreOverrides.mtuChoices, id: \.self) { Text(String($0)).tag($0) }
+                }
+            } header: { Text("性能") } footer: {
+                Text("iOS 限制网络扩展约 50 MB 内存。内存上限是 Go 运行时的软上限（默认 \(CoreOverrides.defaultMemoryLimitMB) MB）：调低更稳但更费电，调高可容纳更多连接。接近系统上限时扩展会先释放内存，再关闭连接。MTU 默认 4064，遇到个别网络异常可改为 1500。两项都在重新连接后生效。")
             }
             .listRowBackground(Theme.card)
 
@@ -338,20 +243,7 @@ struct SettingsView: View {
                     Text(String(o.secret.prefix(6)) + "••••").font(.system(.body, design: .monospaced)).foregroundStyle(.secondary)
                 }
                 Button("重新生成密钥") { o.secret = CoreOverrides.randomSecret() }
-                Text("仅监听 127.0.0.1。内核内存上限 \(o.memoryLimitMB) MB（系统对网络扩展的限制约 50 MB）。")
-                    .font(.caption).foregroundStyle(.secondary)
-            }
-            .listRowBackground(Theme.card)
-
-            Section {
-                NavigationLink { DiagnosticsView() } label: {
-                    HStack {
-                        Label("诊断", systemImage: "stethoscope")
-                        Spacer()
-                        Text(AppShared.containerOK ? "App Group 正常" : "App Group 异常")
-                            .font(.caption).foregroundStyle(AppShared.containerOK ? Theme.good : Theme.bad)
-                    }
-                }
+                Text("仅监听 127.0.0.1。").font(.caption).foregroundStyle(.secondary)
             }
             .listRowBackground(Theme.card)
 
@@ -367,19 +259,26 @@ struct SettingsView: View {
         }
         .scrollContentBackground(.hidden)
         .background(Theme.bg.ignoresSafeArea())
-        .navigationTitle("内核覆写设置")
+        .navigationTitle("内核设置")
         .onAppear { o = CoreOverrides.load(); portText = String(o.controllerPort) }
     }
 
     func apply() {
         if let p = Int(portText), (1024...65535).contains(p) { o.controllerPort = p } else { portText = String(o.controllerPort) }
         let old = CoreOverrides.load()
+        // Fields owned by other pages: keep what they saved.
         o.mode = old.mode
+        o.dnsMode = old.dnsMode
+        o.tunnelMode = old.tunnelMode
+        o.geoMirror = old.geoMirror
+        o.geoURLs = old.geoURLs
         o.save()
         Task {
             if vpn.isConnected {
-                if old.ipv6 != o.ipv6 || old.controllerPort != o.controllerPort || old.secret != o.secret {
-                    status = "已保存。端口 / 密钥 / IPv6 变更需断开后重新连接。"
+                if old.ipv6 != o.ipv6 || old.controllerPort != o.controllerPort || old.secret != o.secret || old.tunMTU != o.tunMTU || old.memoryLimitMB != o.memoryLimitMB {
+                    if let err = await vpn.reload() { status = "重载失败：\(err)" } else {
+                        status = "已保存。端口 / 密钥 / IPv6 / MTU / 内存上限在断开后重新连接时生效。"
+                    }
                 } else if let err = await vpn.reload() {
                     status = "重载失败：\(err)"
                 } else {
@@ -470,6 +369,23 @@ struct AboutView: View {
         return "\(v) (\(b))"
     }
 
+    struct Credit: Identifiable {
+        var id: String { name }
+        let name: String
+        let note: String
+        let license: String
+        let url: String
+    }
+
+    static let credits: [Credit] = [
+        Credit(name: "mihomo", note: "代理内核（MetaCubeX）", license: "GPL-3.0", url: "https://github.com/MetaCubeX/mihomo"),
+        Credit(name: "TokenPLS/Hako", note: "iOS 客户端设计参考：NetworkExtension 内存控制与 GC 节奏（现 ProjectClash/Clash-Legacy）", license: "GPL-3.0", url: "https://github.com/ProjectClash/Clash-Legacy"),
+        Credit(name: "Hako-Adapter", note: "PacketFlowBridge 思路：socketpair 连接 NEPacketTunnelFlow 与内核（现 ProjectClash/Clash-Adapter-Legacy）", license: "GPL-3.0", url: "https://github.com/ProjectClash/Clash-Adapter-Legacy"),
+        Credit(name: "ProjectClash", note: "Hako / Hako-Adapter 的维护者，后续项目 Clash-Adapter", license: "GPL-3.0", url: "https://github.com/ProjectClash"),
+        Credit(name: "MetaCubeX/meta-rules-dat", note: "内置 GeoIP / GeoSite / ASN 数据库", license: "见上游仓库", url: "https://github.com/MetaCubeX/meta-rules-dat"),
+        Credit(name: "goja · gojq · regexp2", note: "脚本、jq 与正则引擎", license: "MIT", url: "https://github.com/dop251/goja"),
+    ]
+
     var body: some View {
         List {
             Section {
@@ -477,11 +393,28 @@ struct AboutView: View {
                 LabeledContent("内核", value: LibmihomoVersion())
             }
             .listRowBackground(Theme.card)
-            Section("开源许可") {
-                Text("本应用基于 mihomo（MetaCubeX/mihomo）内核，按 GNU General Public License v3.0 发布。你可以在 GPL-3.0 的条款下自由使用、修改和再分发本软件及其源代码。本软件不提供任何担保。")
+            Section {
+                Text("本应用以 GNU General Public License v3.0 发布，与 mihomo 内核许可一致。你可以在 GPL-3.0 的条款下自由使用、修改和再分发本软件及其源代码。本软件不提供任何担保。")
                     .font(.footnote)
-                Link("mihomo 源代码", destination: URL(string: "https://github.com/MetaCubeX/mihomo")!)
+                Link("本项目源代码", destination: URL(string: "https://github.com/astemo6/mihomo-ios")!)
                 Link("GNU GPL v3.0 全文", destination: URL(string: "https://www.gnu.org/licenses/gpl-3.0.html")!)
+            } header: { Text("开源许可") }
+            .listRowBackground(Theme.card)
+            Section {
+                ForEach(Self.credits) { c in
+                    Link(destination: URL(string: c.url)!) {
+                        VStack(alignment: .leading, spacing: 2) {
+                            HStack {
+                                Text(c.name).font(.subheadline.weight(.semibold)).foregroundStyle(.primary)
+                                Spacer()
+                                Text(c.license).font(.caption2.weight(.bold)).foregroundStyle(Theme.accent)
+                            }
+                            Text(c.note).font(.caption2).foregroundStyle(.secondary)
+                        }
+                    }
+                }
+            } header: { Text("致谢") } footer: {
+                Text("PacketFlowBridge 与内存守护参考了 TokenPLS/Hako 与 Hako-Adapter（现 ProjectClash）的设计，均为 GPL-3.0；本项目的实现是独立编写的，同样以 GPL-3.0 发布。完整说明见仓库中的 NOTICE。")
             }
             .listRowBackground(Theme.card)
             Section("说明") {

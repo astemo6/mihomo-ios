@@ -403,7 +403,7 @@ func Start(homeDir, configPath string, tunFd int32) error {
 				return nil
 			}
 		case <-deadline.C:
-			msg := fmt.Sprintf("内核启动超时（%d 秒）：可能在下载 GeoIP/GeoSite 或规则集 / 节点集。请检查网络，或在 更多 → 内核覆写设置 → 诊断 查看启动日志", int(startTimeout/time.Second))
+			msg := fmt.Sprintf("内核启动超时（%d 秒）：可能在下载 GeoIP/GeoSite 或规则集 / 节点集。请检查网络，或在 更多 → 诊断 查看启动日志", int(startTimeout/time.Second))
 			stage("core start TIMEOUT after %s, %s", startTimeout, memText())
 			lastError = msg
 			return errors.New(msg)

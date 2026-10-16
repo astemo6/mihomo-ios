@@ -71,7 +71,7 @@ final class VPNManager: ObservableObject {
         if msg == nil, !AppShared.containerOK {
             msg = "App Group 不可用（\(AppShared.appGroup)），扩展无法读取配置。请检查重签名的描述文件是否包含 App Groups。"
         }
-        lastError = "连接失败：" + (msg ?? "网络扩展启动后立即退出（未返回原因）。请到 更多 → 内核覆写设置 → 诊断 查看 App Group 与扩展 ID。")
+        lastError = "连接失败：" + (msg ?? "网络扩展启动后立即退出（未返回原因）。请到 更多 → 诊断 查看 App Group 与扩展 ID。")
         NSLog("[Mihomo] tunnel start failed: %@", lastError ?? "")
     }
 
