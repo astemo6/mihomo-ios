@@ -12,8 +12,8 @@ package mitm
 // arguments._compat.$argument), mitm.hostnames (list or includes / excludes) and widgets (as panels
 // filled by the generic script's $done({title, content})).
 // Reported as unsupported: dns, http_captures, bypass_tunnel_proxy, real_ip_domains, env_schema,
-// ssid / bssid / cellular / user_agent rules, and Egern-native `export default async function(ctx)`
-// scripts (detected when the script loads).
+// ssid / bssid / cellular / user_agent rules. Script `env` becomes ctx.env; Egern-native
+// `export default async function(ctx)` scripts run through the ctx adapter (egernadapter.go).
 
 import (
 	"encoding/base64"

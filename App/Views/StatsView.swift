@@ -64,13 +64,13 @@ struct StatsView: View {
                             AxisMarks(position: .leading) { v in
                                 AxisGridLine().foregroundStyle(Color.white.opacity(0.08))
                                 AxisValueLabel {
-                                    if let mb = v.as(Double.self) { Text(Fmt.bytes(Int64(mb * 1_048_576))).scaledFont(9) }
+                                    if let mb = v.as(Double.self) { Text(Fmt.bytes(Int64(mb * 1_048_576))).font(.system(size: 9)) }
                                 }
                             }
                         }
                         .chartXAxis {
                             AxisMarks(values: .automatic(desiredCount: range == 7 ? 7 : 5)) { _ in
-                                AxisValueLabel(format: .dateTime.month(.defaultDigits).day(), centered: true).scaledFont(9)
+                                AxisValueLabel(format: .dateTime.month(.defaultDigits).day(), centered: true).font(.system(size: 9))
                             }
                         }
                         .frame(height: 200)

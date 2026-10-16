@@ -1,4 +1,4 @@
-# Mihomo iOS（v0.5）
+# Mihomo iOS（v0.6）
 
 基于开源 [mihomo](https://github.com/MetaCubeX/mihomo)（Clash Meta）内核的个人 iOS 代理客户端：深色卡片界面，首页只放最常用的东西，进阶功能按类别收在「更多」里。
 
@@ -26,10 +26,63 @@
 | 首页 → 面板 | 只在已连接且模块带面板时出现一行入口：Surge `[Panel]` / Stash `tiles` 合并为一个「面板」页，脚本驱动、可刷新（不是主屏幕小组件） |
 | 更多 → 模块、重写与 MitM | **模块与资源**（全部格式一个入口，格式角标；远程规则集 / 重写集 / 脚本各自的更新间隔、上次更新、开关、错误、全部更新；一键添加 BoxJS；参数含 Loon `[Argument]` 开关 / 选择；**策略映射**：模块规则里配置中不存在的策略名可逐个指定策略组）、重写、脚本、MitM |
 | 更多 → 工具与数据 | 网络工具（Ping / TCP / DNS，连接时经过内核规则并显示策略链）、流量统计（Swift Charts，按天保存约 120 天）、日志、备份与恢复（文件 / 分享 / iCloud） |
-| 更多 → 设置 | 内核设置（内存上限、隧道 MTU、手动节点合并进每个配置、日志、IPv6、局域网、控制器）、诊断（App Group、扩展 ID、启动日志） |
+| 更多 → 设置 | 内核设置（内存上限、隧道 MTU、手动节点合并进每个配置、日志、IPv6、局域网、控制器）、诊断（**一键导出诊断包**、App Group、扩展 ID、启动日志） |
 | 快捷指令 | 连接、断开、切换连接、切换出站模式、切换节点（App Intents）；主屏幕长按图标：连接 / 断开、规则 / 全局 / 直连 |
 | 导入链接 | 只注册自己的 `mihomo://`（`mihomo://install-config?url=`、`install-module?url=`、`connect`、`disconnect`、`toggle`）。粘贴的 `loon://`、`stash://`、`surge:///`、`quantumult-x:///`、`egern:/` 安装链接也能识别，但**不注册**这些 scheme，避免与其他客户端抢链接。可以用「文件」/其他 App 的「用 Mihomo 打开」打开 `.sgmodule` `.plugin` `.stoverride` `.module` `.snippet` `.conf` `.list` `.yaml` 和纯文本；剪贴板有新内容时顶部出现「粘贴导入」横幅 |
 | iPad | 横向宽度为常规时用侧边栏（NavigationSplitView）显示五个分区，支持横竖屏与分屏；iPhone 保持底部标签栏 |
+
+## v0.6 要点（质量轮）
+
+这一轮不加大功能，目标是：装上就能用、出问题能马上知道为什么、真机反馈一步到位。
+
+### 导出诊断包（更多 → 诊断 → 导出诊断包）
+
+一键生成一个 zip，通过系统分享面板发出去（也可以「复制为文本」贴进聊天）：
+
+| 文件 | 内容 |
+| --- | --- |
+| `info.txt` | App / 隧道扩展 / 内核版本、iOS 与机型、语言、Bundle ID、App Group（来源、容器是否可用、描述文件里的组）、VPN 状态与最近错误、扩展当前内存、连接方式 / DNS / MTU / 内存上限 / 安全模式等开关 |
+| `startup-log.txt` | 启动阶段日志（本次 + 上一次） |
+| `last-error.txt` | 扩展最近一次写下的失败原因 |
+| `core-log.txt` | 内核最近 400 行日志（扩展里的环形缓冲，每 30 秒、停止和启动失败时落盘，所以被系统杀掉后也留得下来） |
+| `memory.txt` | 扩展内存采样：每 10 秒一条（最多 30 分钟），footprint、可用内存、Go 堆、goroutine、连接数、脚本运行时数量 |
+| `config-effective.yaml` / `config-next-start.yaml` | 上次启动实际使用的配置 / 下次连接会生成的配置 |
+| `modules.txt` | 重写与脚本、MitM 开关；每个模块的格式、启用状态、贡献的重写 / 主机名 / 定时任务 / 面板 / 内核规则数量和解析错误 |
+| `settings/` | 覆写、DNS、自定义规则、订阅处理、智能选择、资源状态、配置列表 |
+
+**全部脱敏**（Go `bridge/redact.go`，有单元测试）：服务器地址 / SNI / Host、密码、UUID、各种密钥（WireGuard、Reality、PSK）、`authentication`、控制器密钥、订阅链接和节点集 URL 整条替换；其他 URL 去掉账号、查询参数和像令牌的路径段；日志里出现过的这些值同样被替换，另外替换 UUID、`password=` / `token=` 之类、Bearer 令牌，公网 IPv4 只保留前两段。节点名、协议、端口、策略组和规则保留，方便看问题。
+
+### 启动更稳、失败说中文
+
+- 内核启动包了一层 panic 拦截：配置解析里出现的崩溃变成一条错误，扩展不会直接退出。
+- 内核的英文错误前面加上中文原因（YAML 格式、策略组引用不存在、节点参数缺失、规则集 / 节点集下载失败、地理数据库缺失、端口被占用……），原文保留在后面。
+- 启动前检查配置需要的地理数据库是否在位，缺失写进启动日志。
+- NetworkExtension 的错误码（拒绝添加 VPN、配置被停用、签名缺少权限……）翻译成中文；App Group 不可用时直接在首页说明，不再去启动必然失败的扩展。
+- App 与扩展之间的消息都有超时（扩展卡住时界面不会跟着卡住）；去掉了所有强制解包。
+- **安全模式**：启动失败后，弹窗和首页都提供「以安全模式连接」——只用配置文件本身连接，暂停模块、重写、脚本、MitM、自定义规则和智能选择，用来判断问题出在配置还是扩展功能。安全模式运行时首页有一张卡片，点「恢复正常连接」即回到正常模式；手动打开开关也总是正常模式。
+
+### 首次使用引导
+
+第一次打开（还没有任何配置时）出现三步引导，每步都可跳过：导入配置（订阅链接或剪贴板）→ 允许添加 VPN 配置 → MitM 证书（可选，生成并通过 Safari 安装，附信任步骤）。之后可在 更多 → 新手引导 再看一次。
+
+### 界面一致性
+
+- 统一的空状态（图标 + 标题 + 一句说明）、错误行和加载行，所有列表与卡片页面共用。
+- 等宽日志、角标等固定字号改为跟随「动态字体」缩放（默认大小不变）。
+- 术语统一：`scripts/term_audit.py` 检查六种语言里「配置 / 节点 / 订阅 / 重写 / 规则集」等只有一个叫法；繁体中文修正 OpenCC 的用词（腳本、延伸功能、全域、面板），`i18n_sync.py` 生成繁体时自动套用。
+- 俄语 / 日语里过长的分段标签与固定宽度控件已调整（日志级别、统计页时间范围、TCP 工具）。
+
+### 扩展内存
+
+- MitM 请求抓取：除了每条 32 KB 的上限，整个环形缓冲的内容总量限制在 4 MB；超出时最旧的记录先丢掉内容（保留请求行和头部），之前最坏情况是 12.8 MB。内容被丢弃的请求不能重放（会说明原因）。
+- 脚本运行时：每次执行一个 goja 运行时、执行完即释放（定时器停止、迟到的回调看到已取消的上下文直接退出），`memory.txt` 记录存活数量；测试确认 20 次执行后为 0 且没有泄漏 goroutine。
+- 定时脚本不会重叠：同一任务上一次还在跑时新的触发直接跳过。
+- 面板只在看得见时刷新：扩展只在 App 最近显示过面板（面板页打开期间每 30 秒拉取一次）时按 `update-interval` 自动刷新，App 在后台时不跑任何面板脚本。
+- 内核日志 / 内存采样的环形缓冲有上限（400 行 × 600 字节、180 条）。上述上限都有 Go 测试，抓取缓冲另有基准测试。
+
+### Egern 原生脚本
+
+`export default async function(ctx)` 脚本通过一层很薄的适配运行（`bridge/mitm/egernadapter.go`）：把导出改成本地函数，用现有的 Surge 兼容接口拼出 `ctx`，再把返回值交给 `$done`。支持 `ctx.request` / `ctx.response`（`text()` / `json()` / `arrayBuffer()`，大小写不敏感的 Headers）、`ctx.respond()`、`ctx.abort()`、返回 `{url, method, headers, body}` / `{status, headers, body}`、`ctx.http.*`（`timeout`、`policy`、`redirect`、`insecureTls`）、`ctx.storage`（与 `$persistentStore` 共用）、`ctx.notify`、`ctx.lookupIP`、`ctx.compress`、`ctx.env`（模块里脚本的 `env`）、`ctx.cron`、`ctx.script`、`ctx.device`（来自 `$network`）。通用脚本返回的小组件 DSL 转成面板：第一段文字为标题，其余为内容，`backgroundColor` 保留。不支持：`ctx.ssh`、Blob / FormData / ReadableStream 形式的 body、`import` 或多个导出。
 
 ## v0.5 要点
 
@@ -58,7 +111,7 @@ Egern YAML 模块是又一个边缘解析器（`bridge/mitm/egern.go`），翻�
 | `mitm.hostnames`（列表或 includes / excludes） | MitM 主机名 |
 | `widgets` | 面板（由同名或 `script_name` 指定的通用脚本通过 `$done({title, content})` 填充） |
 
-报告为不支持：`dns`、`http_captures`、`bypass_tunnel_proxy`、`real_ip_domains`、`env_schema`、ssid / bssid / cellular / user_agent 规则，以及 Egern 原生 `export default async function(ctx)` 脚本（加载时给出明确错误）。社区里由 Surge 模块转换来的 Egern 模块用的是兼容写法（`_compat.$argument`），可以直接运行。
+报告为不支持：`dns`、`http_captures`、`bypass_tunnel_proxy`、`real_ip_domains`、`env_schema`、ssid / bssid / cellular / user_agent 规则。社区里由 Surge 模块转换来的 Egern 模块用的是兼容写法（`_compat.$argument`），可以直接运行；Egern 原生 `export default async function(ctx)` 脚本从 v0.6 起通过 ctx 适配层运行（见「v0.6 要点」）。
 
 ### `$httpAPI`（Surge）
 
@@ -297,7 +350,7 @@ String Catalog（`App/Localizable.xcstrings`），源语言简体中文，提供
 - Quantumult X：`$task.fetch`（Promise，支持 `opts.policy`）、`$prefs.valueForKey/setValueForKey/removeValueForKey/removeAllValues`、`$notify`，`$done({status:"HTTP/1.1 200 OK", …})`、`bodyBytes`。
 - 二进制：`binary-body-mode` 时 body 为 `Uint8Array`（并提供 `bodyBytes`），`$done` 接受字符串 / Uint8Array / ArrayBuffer；另有 `TextEncoder`/`TextDecoder`、`atob`/`btoa`。
 - 资源限制：每次执行使用独立运行时（编译结果缓存 16 个），同时最多 2 个脚本，默认超时 10 秒（超时则保持原样），需要 body 的规则缓冲上限 2 MB（`max-size` 可更小）。远程脚本经内核下载并缓存，按 `script-update-interval`（默认 1 天）后台更新。
-- 定时 / 事件 / 通用脚本、`$utils`、面板见「v0.4 要点」；Egern 模块与 `$httpAPI` 见「v0.5 要点」。暂不支持：Surge `type=dns` / `type=rule` 脚本、Egern 原生 `ctx` 脚本。
+- 定时 / 事件 / 通用脚本、`$utils`、面板见「v0.4 要点」；Egern 模块与 `$httpAPI` 见「v0.5 要点」。暂不支持：Surge `type=dns` / `type=rule` 脚本。Egern 原生 `ctx` 脚本见「v0.6 要点」。
 
 ## 已知限制
 
