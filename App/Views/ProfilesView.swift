@@ -9,6 +9,7 @@ struct ProfilesView: View {
     @State private var message: String?
     @State private var busy = false
     @State private var editing: Profile?
+    @State private var showManual = false
 
     var body: some View {
         NavigationStack {
@@ -24,6 +25,12 @@ struct ProfilesView: View {
                     }
                     .listRowBackground(Theme.card)
                 }
+                Section {
+                    NavigationLink { ManualNodesView() } label: {
+                        Label("手动节点（粘贴链接 / 扫码 / 手动填写）", systemImage: "plus.viewfinder")
+                    }
+                }
+                .listRowBackground(Theme.card)
                 Section {
                     ForEach(store.profiles) { p in
                         ProfileRow(profile: p, active: p.id == store.activeID, updating: store.updating.contains(p.id))
@@ -68,9 +75,11 @@ struct ProfilesView: View {
                         Button { importClipboard() } label: { Label("从剪贴板导入", systemImage: "doc.on.clipboard") }
                         Button { showImporter = true } label: { Label("从文件导入", systemImage: "folder") }
                         Button { showNewLocal = true } label: { Label("新建本地配置", systemImage: "square.and.pencil") }
+                        Button { showManual = true } label: { Label("添加单个节点", systemImage: "plus.viewfinder") }
                     } label: { Image(systemName: "plus.circle.fill").font(.title3) }
                 }
             }
+            .navigationDestination(isPresented: $showManual) { ManualNodesView() }
             .overlay { if busy { ProgressView().padding(20).background(RoundedRectangle(cornerRadius: 12).fill(Theme.cardHi)) } }
             .sheet(isPresented: $showAddRemote) { AddRemoteSheet { msg in message = msg } }
             .sheet(isPresented: $showNewLocal) {
@@ -115,12 +124,15 @@ struct ProfilesView: View {
         Task {
             defer { busy = false }
             do {
-                if (s.hasPrefix("http://") || s.hasPrefix("https://")) && !s.contains("\n") {
+                if (s.hasPrefix("http://") || s.hasPrefix("https://")) && !s.contains("\n") && !s.contains("@") {
                     _ = try await store.addRemote(url: s, name: "", userAgent: "clash.meta", intervalHours: 24)
                     message = "已添加订阅"
-                } else {
+                } else if s.contains("proxies:") || s.contains("proxy-providers:") {
                     _ = try await store.addLocal(name: "剪贴板导入", text: s)
-                    message = "已导入"
+                    message = "已导入配置"
+                } else {
+                    let n = try await store.addManualNodes(text: s)
+                    message = "已添加 \(n) 个节点到「手动节点」"
                 }
             } catch { message = error.localizedDescription }
         }

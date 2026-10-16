@@ -6,16 +6,26 @@ on:
   push:
     branches: [main]
   workflow_dispatch:
+  # Called by core-update.yml to test-build a core bump on a branch before it reaches main.
+  workflow_call:
+    inputs:
+      ref:
+        description: Git ref to build
+        type: string
+        required: false
+        default: ""
+      build_only:
+        description: Skip publishing the GitHub Release
+        type: boolean
+        required: false
+        default: false
 
 permissions:
   contents: write
 
 concurrency:
-  group: ios-${{ github.ref }}
+  group: ios-${{ inputs.ref || github.ref }}-${{ inputs.build_only && 'test' || 'main' }}
   cancel-in-progress: true
-
-env:
-  MIHOMO_VERSION: v1.19.32
 
 jobs:
   build:
@@ -31,6 +41,15 @@ jobs:
       EXPORT_METHOD: ${{ secrets.EXPORT_METHOD }}
     steps:
       - uses: actions/checkout@v4
+        with:
+          ref: ${{ inputs.ref || github.ref }}
+
+      - name: Core version (from bridge/go.mod)
+        run: |
+          V=$(awk '$1=="github.com/metacubex/mihomo"{print $2; exit}' bridge/go.mod)
+          test -n "$V"
+          echo "MIHOMO_VERSION=$V" >> "$GITHUB_ENV"
+          echo "mihomo core: $V"
 
       - name: Select latest Xcode
         run: |
@@ -201,13 +220,14 @@ jobs:
           if-no-files-found: warn
 
       - name: Publish GitHub Release
+        if: ${{ !inputs.build_only }}
         env:
           GH_TOKEN: ${{ github.token }}
         run: |
           set -euo pipefail
           NOTES="$RUNNER_TEMP/notes.md"
           {
-            echo "Mihomo iOS ${VER}（构建 #${{ github.run_number }}，提交 ${GITHUB_SHA::7}）"
+            echo "Mihomo iOS ${VER}（构建 #${{ github.run_number }}，提交 $(git rev-parse --short HEAD)）"
             echo
             echo "- 内核：mihomo ${MIHOMO_VERSION}"
             if [ "$SIGNED" = "1" ]; then
@@ -218,7 +238,7 @@ jobs:
           } > "$NOTES"
           FILES=("$IPA")
           [ -f app.entitlements ] && FILES+=(app.entitlements tunnel.entitlements)
-          gh release create "$TAG" "${FILES[@]}" --title "Mihomo ${VER} build ${{ github.run_number }}" --notes-file "$NOTES" --target "$GITHUB_SHA" --prerelease
+          gh release create "$TAG" "${FILES[@]}" --title "Mihomo ${VER} build ${{ github.run_number }}" --notes-file "$NOTES" --target "$(git rev-parse HEAD)" --prerelease
 
       - name: Show build errors (on failure)
         if: failure()

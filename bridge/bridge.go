@@ -16,7 +16,6 @@ import (
 	"sync"
 	"time"
 
-	"github.com/metacubex/mihomo/common/convert"
 	C "github.com/metacubex/mihomo/constant"
 	"github.com/metacubex/mihomo/hub"
 	"github.com/metacubex/mihomo/hub/executor"
@@ -187,36 +186,26 @@ func buildRuntime(profile []byte, o Overrides, fd int32) ([]byte, error) {
 }
 
 func convertLinks(buf []byte) ([]byte, error) {
-	proxies, err := convert.ConvertsV2Ray(buf)
+	ps, errs := parseNodeText(string(buf))
+	if len(ps) == 0 && len(errs) > 0 {
+		return nil, errors.New(strings.Join(errs, "; "))
+	}
+	return buildConfigFromProxies(ps)
+}
+
+func validateBytes(profile []byte) string {
+	home := curHome
+	if home == "" {
+		home = C.Path.HomeDir()
+	}
+	rt, err := buildRuntime(profile, readOverrides(home), 0)
 	if err != nil {
-		return nil, err
+		return err.Error()
 	}
-	if len(proxies) == 0 {
-		return nil, errors.New("未识别到节点")
+	if _, err := executor.ParseWithBytes(rt); err != nil {
+		return err.Error()
 	}
-	names := make([]any, 0, len(proxies))
-	px := make([]any, 0, len(proxies))
-	for _, p := range proxies {
-		names = append(names, p["name"])
-		px = append(px, p)
-	}
-	auto := map[string]any{"name": "自动选择", "type": "url-test", "proxies": names, "url": "https://www.gstatic.com/generate_204", "interval": 300, "tolerance": 50}
-	sel := map[string]any{"name": "节点选择", "type": "select", "proxies": append([]any{"自动选择", "DIRECT"}, names...)}
-	cfg := map[string]any{
-		"mode":         "rule",
-		"proxies":      px,
-		"proxy-groups": []any{sel, auto},
-		"rules": []any{
-			"DOMAIN-SUFFIX,local,DIRECT",
-			"IP-CIDR,127.0.0.0/8,DIRECT,no-resolve",
-			"IP-CIDR,192.168.0.0/16,DIRECT,no-resolve",
-			"IP-CIDR,10.0.0.0/8,DIRECT,no-resolve",
-			"IP-CIDR,172.16.0.0/12,DIRECT,no-resolve",
-			"GEOIP,CN,DIRECT",
-			"MATCH,节点选择",
-		},
-	}
-	return yaml.Marshal(cfg)
+	return ""
 }
 
 // ConvertShareLinks turns a list of ss/vmess/vless/trojan/hysteria2/tuic URIs (optionally

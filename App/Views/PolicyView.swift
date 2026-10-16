@@ -189,9 +189,7 @@ struct NodeCell: View {
                 .lineLimit(2)
                 .frame(maxWidth: .infinity, minHeight: 34, alignment: .topLeading)
             HStack {
-                Text(node?.typeLabel ?? "")
-                    .font(.system(size: 10, weight: .medium))
-                    .foregroundStyle(.secondary)
+                if let t = node?.type { ProtocolBadge(type: t) }
                 if node?.udp == true {
                     Text("UDP").font(.system(size: 9, weight: .bold)).foregroundStyle(.secondary)
                 }

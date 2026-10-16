@@ -28,6 +28,10 @@
 	<string>$(APP_GROUP_ID)</string>
 	<key>MihomoTunnelBundleID</key>
 	<string>$(TUNNEL_BUNDLE_ID)</string>
+	<key>NSCameraUsageDescription</key>
+	<string>扫描节点二维码</string>
+	<key>NSPhotoLibraryUsageDescription</key>
+	<string>从相册识别节点二维码</string>
 	<key>NSAppTransportSecurity</key>
 	<dict>
 		<key>NSAllowsArbitraryLoads</key>

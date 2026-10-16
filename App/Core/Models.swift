@@ -28,24 +28,33 @@ struct ProxyItem: Decodable, Identifiable, Hashable {
     var isGroup: Bool { all != nil }
     var isSelectable: Bool { type == "Selector" }
 
-    var typeLabel: String {
-        switch type {
-        case "Selector": return "手动"
-        case "URLTest": return "自动"
-        case "Fallback": return "故障转移"
-        case "LoadBalance": return "负载均衡"
-        case "Relay": return "链式"
-        case "Shadowsocks": return "SS"
-        case "ShadowsocksR": return "SSR"
-        case "Vmess": return "VMess"
-        case "Vless": return "VLESS"
-        case "Trojan": return "Trojan"
-        case "Hysteria2": return "Hy2"
-        case "Hysteria": return "Hy"
-        case "Tuic": return "TUIC"
-        case "WireGuard": return "WG"
-        case "Direct": return "直连"
-        case "Reject", "RejectDrop": return "拒绝"
+    var typeLabel: String { ProxyItem.label(for: type) }
+
+    static func label(for type: String) -> String {
+        switch type.lowercased() {
+        case "selector": return "手动"
+        case "urltest": return "自动"
+        case "fallback": return "故障转移"
+        case "loadbalance": return "负载均衡"
+        case "relay": return "链式"
+        case "shadowsocks", "ss": return "SS"
+        case "shadowsocksr", "ssr": return "SSR"
+        case "vmess": return "VMess"
+        case "vless": return "VLESS"
+        case "trojan": return "Trojan"
+        case "hysteria2": return "Hy2"
+        case "hysteria": return "Hysteria"
+        case "tuic": return "TUIC"
+        case "wireguard": return "WireGuard"
+        case "snell": return "Snell"
+        case "anytls": return "AnyTLS"
+        case "mieru": return "Mieru"
+        case "ssh": return "SSH"
+        case "socks5": return "SOCKS5"
+        case "http": return "HTTP"
+        case "direct": return "直连"
+        case "reject", "rejectdrop": return "拒绝"
+        case "compatible", "pass": return "兼容"
         default: return type
         }
     }

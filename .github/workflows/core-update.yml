@@ -1,0 +1,154 @@
+# 每天检查 MetaCubeX/mihomo 的最新正式版；有新版本时：
+#   1) 在分支 core/mihomo-<tag> 上升级 bridge/go.mod 并提交 "core: mihomo <tag>"
+#   2) 调用 ios.yml 在该分支上做一次完整测试构建（不发布）
+#   3) 构建成功 → 合并到默认分支并触发 ios.yml 生成新 IPA Release；失败 → 开 issue，默认分支保持不变
+# 内核版本只记录在 bridge/go.mod（ios.yml 从 go.mod 读取），因此这里不需要改 workflow 文件
+# （GITHUB_TOKEN 没有修改 .github/workflows 的权限）。
+name: Core auto-update
+
+on:
+  schedule:
+    - cron: "0 2 * * *"   # 每天 02:00 UTC（北京时间 10:00）
+  workflow_dispatch:
+    inputs:
+      tag:
+        description: "指定 mihomo 版本（留空 = 最新正式版）"
+        required: false
+        default: ""
+
+permissions:
+  contents: write
+  actions: write
+  issues: write
+
+concurrency:
+  group: core-update
+  cancel-in-progress: false
+
+jobs:
+  check:
+    runs-on: ubuntu-latest
+    outputs:
+      updated: ${{ steps.bump.outputs.updated }}
+      tag: ${{ steps.latest.outputs.tag }}
+      branch: ${{ steps.bump.outputs.branch }}
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ github.event.repository.default_branch }}
+          fetch-depth: 0
+
+      - name: Latest mihomo release
+        id: latest
+        env:
+          GH_TOKEN: ${{ github.token }}
+          WANT: ${{ inputs.tag }}
+        run: |
+          set -euo pipefail
+          if [ -n "${WANT:-}" ]; then
+            TAG="$WANT"
+          else
+            # /releases/latest 已排除 prerelease 与 draft（如 Prerelease-Alpha）
+            TAG=$(gh api repos/MetaCubeX/mihomo/releases/latest --jq .tag_name)
+          fi
+          if ! echo "$TAG" | grep -Eq '^v[0-9]+\.[0-9]+\.[0-9]+$'; then
+            echo "Unexpected tag '$TAG', skipping"; TAG=""
+          fi
+          CUR=$(awk '$1=="github.com/metacubex/mihomo"{print $2; exit}' bridge/go.mod)
+          echo "current=$CUR latest=$TAG"
+          echo "tag=$TAG" >> "$GITHUB_OUTPUT"
+          echo "current=$CUR" >> "$GITHUB_OUTPUT"
+
+      - uses: actions/setup-go@v5
+        if: steps.latest.outputs.tag != ''
+        with:
+          go-version-file: bridge/go.mod
+          cache-dependency-path: bridge/go.sum
+
+      - name: Bump on a branch
+        id: bump
+        env:
+          TAG: ${{ steps.latest.outputs.tag }}
+          CUR: ${{ steps.latest.outputs.current }}
+        run: |
+          set -euo pipefail
+          if [ -z "$TAG" ] || [ "$TAG" = "$CUR" ] || [ "$(printf '%s\n%s\n' "$CUR" "$TAG" | sort -V | tail -n1)" != "$TAG" ]; then
+            echo "Core is up to date ($CUR)."
+            echo "updated=false" >> "$GITHUB_OUTPUT"
+            exit 0
+          fi
+          BR="core/mihomo-$TAG"
+          git checkout -B "$BR"
+          cd bridge
+          go get "github.com/metacubex/mihomo@$TAG"
+          go mod tidy
+          go vet -tags with_gvisor ./...
+          go test -tags with_gvisor ./...
+          cd ..
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add bridge/go.mod bridge/go.sum
+          git commit -m "core: mihomo $TAG"
+          git push -f origin "$BR"
+          echo "updated=true" >> "$GITHUB_OUTPUT"
+          echo "branch=$BR" >> "$GITHUB_OUTPUT"
+          echo "### mihomo $CUR → $TAG（分支 $BR）" >> "$GITHUB_STEP_SUMMARY"
+
+  test-build:
+    needs: check
+    if: needs.check.outputs.updated == 'true'
+    uses: ./.github/workflows/ios.yml
+    with:
+      ref: ${{ needs.check.outputs.branch }}
+      build_only: true
+    secrets: inherit
+
+  promote:
+    needs: [check, test-build]
+    if: needs.check.outputs.updated == 'true' && needs.test-build.result == 'success'
+    runs-on: ubuntu-latest
+    env:
+      GH_TOKEN: ${{ github.token }}
+      BR: ${{ needs.check.outputs.branch }}
+      TAG: ${{ needs.check.outputs.tag }}
+      DEFAULT: ${{ github.event.repository.default_branch }}
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ github.event.repository.default_branch }}
+          fetch-depth: 0
+      - name: Merge into default branch
+        run: |
+          set -euo pipefail
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git fetch origin "$BR"
+          git merge --ff-only "origin/$BR" || git merge --no-edit -m "core: mihomo $TAG" "origin/$BR"
+          git push origin "HEAD:$DEFAULT"
+          git push origin --delete "$BR" || true
+      - name: Trigger release build
+        run: |
+          # GITHUB_TOKEN 的 push 不会触发其他 workflow，但 workflow_dispatch 可以。
+          gh workflow run ios.yml --ref "$DEFAULT" --repo "$GITHUB_REPOSITORY"
+          echo "已触发 ios.yml（$DEFAULT）发布 mihomo $TAG 的 IPA" >> "$GITHUB_STEP_SUMMARY"
+
+  report-failure:
+    needs: [check, test-build]
+    if: always() && needs.check.outputs.updated == 'true' && needs.test-build.result != 'success'
+    runs-on: ubuntu-latest
+    env:
+      GH_TOKEN: ${{ github.token }}
+      TAG: ${{ needs.check.outputs.tag }}
+      BR: ${{ needs.check.outputs.branch }}
+    steps:
+      - name: Open issue
+        run: |
+          TITLE="内核自动升级失败：mihomo $TAG"
+          URL="$GITHUB_SERVER_URL/$GITHUB_REPOSITORY/actions/runs/$GITHUB_RUN_ID"
+          EXISTING=$(gh issue list --repo "$GITHUB_REPOSITORY" --state open --search "$TITLE in:title" --json number --jq '.[0].number' || true)
+          BODY=$(printf '自动升级到 mihomo %s 后测试构建失败，默认分支未改动。\n\n- 分支：`%s`\n- 运行：%s\n\n修复后可在该分支上推送，或删除分支后重新运行 Core auto-update。' "$TAG" "$BR" "$URL")
+          if [ -n "$EXISTING" ]; then
+            gh issue comment "$EXISTING" --repo "$GITHUB_REPOSITORY" --body "$BODY"
+          else
+            gh issue create --repo "$GITHUB_REPOSITORY" --title "$TITLE" --body "$BODY"
+          fi

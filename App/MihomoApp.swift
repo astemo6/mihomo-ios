@@ -72,6 +72,23 @@ enum Theme {
         return bad
     }
 
+    /// Colour per protocol for node badges.
+    static func protocolColor(_ type: String) -> Color {
+        switch type.lowercased() {
+        case "shadowsocks", "ss", "shadowsocksr", "ssr": return Color(red: 0.55, green: 0.45, blue: 1.0)
+        case "vmess": return Color(red: 0.25, green: 0.6, blue: 1.0)
+        case "vless": return Color(red: 0.2, green: 0.8, blue: 0.85)
+        case "trojan": return Color(red: 1.0, green: 0.45, blue: 0.45)
+        case "hysteria", "hysteria2", "tuic": return Color(red: 1.0, green: 0.62, blue: 0.2)
+        case "wireguard": return Color(red: 0.35, green: 0.85, blue: 0.45)
+        case "snell", "anytls", "mieru": return Color(red: 1.0, green: 0.4, blue: 0.75)
+        case "socks5", "http", "ssh": return Color(white: 0.7)
+        case "direct": return good
+        case "reject", "rejectdrop": return bad
+        default: return .secondary
+        }
+    }
+
     static func delayText(_ d: Int?) -> String {
         guard let d else { return "—" }
         return d > 0 ? "\(d) ms" : "超时"
@@ -87,6 +104,19 @@ struct Card<Content: View>: View {
             .frame(maxWidth: .infinity, alignment: .leading)
             .background(RoundedRectangle(cornerRadius: 18, style: .continuous).fill(Theme.card))
             .overlay(RoundedRectangle(cornerRadius: 18, style: .continuous).stroke(Color.white.opacity(0.06)))
+    }
+}
+
+struct ProtocolBadge: View {
+    let type: String
+    var body: some View {
+        let c = Theme.protocolColor(type)
+        Text(ProxyItem.label(for: type))
+            .font(.system(size: 9, weight: .bold))
+            .padding(.horizontal, 5).padding(.vertical, 2)
+            .background(Capsule().fill(c.opacity(0.18)))
+            .foregroundStyle(c)
+            .lineLimit(1)
     }
 }
 

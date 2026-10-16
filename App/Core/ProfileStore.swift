@@ -237,4 +237,55 @@ final class ProfileStore: ObservableObject {
             if due < Date() { _ = await refresh(p) }
         }
     }
+
+    // MARK: Manual nodes (Shadowrocket style) — a local profile "手动节点"
+
+    static let manualID = "manual-nodes"
+
+    var manualProfile: Profile? { profiles.first { $0.id == Self.manualID } }
+
+    @discardableResult
+    func ensureManualProfile() -> Profile {
+        if let p = manualProfile { return p }
+        let p = Profile(id: Self.manualID, name: "手动节点", kind: .local)
+        if !FileManager.default.fileExists(atPath: p.fileURL.path) {
+            _ = LibmihomoManualDelete(p.fileURL.path, "") // writes an empty manual profile
+        }
+        profiles.insert(p, at: 0)
+        persist()
+        return p
+    }
+
+    func manualNodes() -> [[String: Any]] {
+        guard let p = manualProfile else { return [] }
+        let json = LibmihomoManualList(p.fileURL.path)
+        return (try? JSONSerialization.jsonObject(with: Data(json.utf8)) as? [[String: Any]]) ?? []
+    }
+
+    /// Parses links / lines and adds them. Returns the number of nodes added.
+    func addManualNodes(text: String) async throws -> Int {
+        let p = ensureManualProfile()
+        let n = LibmihomoManualAddText(p.fileURL.path, text)
+        if n < 0 { throw StoreError.invalid(LibmihomoLastError()) }
+        objectWillChange.send()
+        if activeID == nil { _ = await setActive(p) } else if activeID == p.id { _ = await VPNManager.shared.reload() }
+        return Int(n)
+    }
+
+    func upsertManualNode(_ node: [String: Any], oldName: String?) async throws {
+        let p = ensureManualProfile()
+        let data = try JSONSerialization.data(withJSONObject: node)
+        let err = LibmihomoManualUpsert(p.fileURL.path, String(decoding: data, as: UTF8.self), oldName ?? "")
+        if !err.isEmpty { throw StoreError.invalid(err) }
+        objectWillChange.send()
+        if activeID == nil { _ = await setActive(p) } else if activeID == p.id { _ = await VPNManager.shared.reload() }
+    }
+
+    func deleteManualNode(_ name: String) async {
+        guard let p = manualProfile else { return }
+        _ = LibmihomoManualDelete(p.fileURL.path, name)
+        objectWillChange.send()
+        if activeID == p.id { _ = await VPNManager.shared.reload() }
+    }
 }
+
