@@ -78,6 +78,9 @@ func (s *ScriptRunner) program(sc *Script) (*goja.Program, error) {
 		return p, nil
 	}
 	code := strings.TrimPrefix(string(src), "\ufeff")
+	if egernNativeRe.MatchString(code) {
+		return nil, errors.New("Egern 原生脚本（export default + ctx API）暂不支持，只支持 Surge / QX 兼容写法的脚本")
+	}
 	// Wrap so a top-level `return` (allowed by Surge/JSC scripts) does not break compilation.
 	p, err := goja.Compile(sc.Name+".js", "(function(){\n"+code+"\n}).call(this);", false)
 	if err != nil {
@@ -539,6 +542,38 @@ func (rc *runCtx) installCommon(set func(string, any)) {
 		})
 	}
 	set("$httpClient", hc)
+
+	// $httpAPI (Surge): policy groups, outbound mode, profile reload — answered by the bridge.
+	set("$httpAPI", func(call goja.FunctionCall) goja.Value {
+		method := strings.ToUpper(argStr(call, 0))
+		path := argStr(call, 1)
+		var body any
+		if b := call.Argument(2); !goja.IsUndefined(b) && !goja.IsNull(b) {
+			body = b.Export()
+			if s, ok := body.(string); ok {
+				var m map[string]any
+				if json.Unmarshal([]byte(s), &m) == nil {
+					body = m
+				}
+			}
+		}
+		fn, _ := goja.AssertFunction(call.Argument(3))
+		res, err := rc.e.callAPI(method, path, body)
+		if err != nil {
+			rc.e.Logs.Add(rc.name, "warning", "$httpAPI "+method+" "+path+"："+err.Error())
+			res = map[string]any{"error": err.Error()}
+		}
+		if fn != nil {
+			rc.pending++
+			rc.post(func() {
+				rc.pending--
+				if _, e := fn(goja.Undefined(), rt.ToValue(res)); e != nil {
+					panic(e)
+				}
+			})
+		}
+		return goja.Undefined()
+	})
 
 	// $task.fetch (QX)
 	task := rt.NewObject()

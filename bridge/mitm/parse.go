@@ -107,7 +107,7 @@ type Ruleset struct {
 	Name           string   `json:"name,omitempty"`
 	Desc           string   `json:"desc,omitempty"`
 	Arguments      []ModArg `json:"arguments,omitempty"`
-	Format         string   `json:"format,omitempty"` // surge / qx / loon / stash / list
+	Format         string   `json:"format,omitempty"` // surge / qx / loon / stash / egern / list
 	Tasks          []*Task  `json:"tasks,omitempty"`  // cron / event / generic scripts
 	Panels         []*Panel `json:"panels,omitempty"` // Surge [Panel] / Stash tiles
 }
@@ -955,6 +955,10 @@ var sectionRe = regexp.MustCompile(`^\[([^\]]+)\]\s*$`)
 func (rs *Ruleset) ParseText(text, source string, args map[string]string) {
 	text = strings.TrimPrefix(text, "\ufeff")
 	text = strings.ReplaceAll(text, "\r\n", "\n")
+	if IsEgern(text) {
+		rs.parseEgern(text, source, args)
+		return
+	}
 	rs.Arguments = ParseModuleArgs(text)
 	if len(rs.Arguments) > 0 {
 		text = ApplyModuleArgs(text, args)

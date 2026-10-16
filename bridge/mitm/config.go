@@ -29,6 +29,7 @@ type Module struct {
 	Args      map[string]string `json:"args,omitempty"`
 	Policies  map[string]string `json:"policies,omitempty"` // module policy name → profile group (user's pick)
 	UpdatedAt float64           `json:"updatedAt,omitempty"`
+	Interval  int               `json:"interval,omitempty"` // auto-update interval in seconds (0 = 1 day)
 }
 
 // Config mirrors <home>/engine/engine.json written by the app.
@@ -42,6 +43,67 @@ type Config struct {
 	Rules          []Item   `json:"rules"`
 	Scripts        []Item   `json:"scripts"`
 	Modules        []Module `json:"modules"`
+	// Per remote script URL (resource manager): disable it, or override its update interval.
+	ScriptResources map[string]ScriptResource `json:"scriptResources,omitempty"`
+	// QUIC: "" / "mitm" = block UDP 443 only for MitM hosts (they fall back to TCP and can be decrypted;
+	// everything else may use HTTP/3), "all" = block QUIC for all traffic.
+	QUIC string `json:"quic,omitempty"`
+	// MitM hosts whose QUIC is NOT blocked (their HTTP/3 traffic then bypasses decryption).
+	QUICAllow []string `json:"quicAllow,omitempty"`
+}
+
+// ScriptResource is the user's per-script setting from the resource manager.
+type ScriptResource struct {
+	Disabled bool `json:"disabled,omitempty"`
+	Interval int  `json:"interval,omitempty"` // seconds, 0 = the script line's own value
+}
+
+// scriptAllowed reports whether a script path is enabled, applying an interval override to sc.
+func (c *Config) scriptAllowed(sc *Script) bool {
+	if sc == nil || c.ScriptResources == nil {
+		return true
+	}
+	r, ok := c.ScriptResources[sc.Path]
+	if !ok {
+		return true
+	}
+	if r.Interval > 0 {
+		sc.UpdateInterval = r.Interval
+	}
+	return !r.Disabled
+}
+
+// filterScripts drops rules / tasks / panels whose script the user disabled in the resource manager.
+func (c *Config) filterScripts(rs *Ruleset) {
+	if len(c.ScriptResources) == 0 {
+		return
+	}
+	rules := rs.Rules[:0]
+	for _, r := range rs.Rules {
+		if r.Kind == KindScript && !c.scriptAllowed(r.Script) {
+			continue
+		}
+		rules = append(rules, r)
+	}
+	rs.Rules = rules
+	tasks := rs.Tasks[:0]
+	off := map[string]bool{}
+	for _, t := range rs.Tasks {
+		if !c.scriptAllowed(t.Script) {
+			off[t.Script.Name] = true
+			continue
+		}
+		tasks = append(tasks, t)
+	}
+	rs.Tasks = tasks
+	panels := rs.Panels[:0]
+	for _, p := range rs.Panels {
+		if p.Script != "" && off[p.Script] {
+			continue
+		}
+		panels = append(panels, p)
+	}
+	rs.Panels = panels
 }
 
 func (c *Config) h2() bool         { return c.H2 == nil || *c.H2 }
@@ -116,6 +178,7 @@ func Build(home string, c *Config) *Ruleset {
 			}
 		}
 	}
+	c.filterScripts(rs)
 	rs.Hostnames = dedupe(rs.Hostnames)
 	return rs
 }
@@ -314,8 +377,14 @@ func Inject(raw map[string]any, listenPort int, rs *Ruleset, c *Config) {
 			ports = append(ports, strconv.Itoa(p))
 		}
 		portExpr := strings.Join(ports, "/")
-		// Block QUIC to MitM hosts so clients fall back to TCP (HTTP/3 can't be intercepted).
-		pre = append(pre, fmt.Sprintf("AND,((NETWORK,UDP),(DST-PORT,%s),(RULE-SET,__mitm_hosts)%s),REJECT", portExpr, skip))
+		// Block QUIC to MitM hosts so clients fall back to TCP (HTTP/3 can't be intercepted), except
+		// for hosts the user allowed QUIC for.
+		quicSkip := skip
+		if allow := quicAllowPayload(c.QUICAllow); len(allow) > 0 {
+			rp["__quic_allow"] = map[string]any{"type": "inline", "behavior": "classical", "payload": allow}
+			quicSkip += ",(NOT,((RULE-SET,__quic_allow)))"
+		}
+		pre = append(pre, fmt.Sprintf("AND,((NETWORK,UDP),(DST-PORT,%s),(RULE-SET,__mitm_hosts)%s),REJECT", portExpr, quicSkip))
 		pre = append(pre, fmt.Sprintf("AND,((NETWORK,TCP),(NOT,((IN-TYPE,INNER))),(DST-PORT,%s),(RULE-SET,__mitm_hosts)%s),%s", portExpr, skip, ProxyName))
 	}
 	if httpPlain {
@@ -332,6 +401,22 @@ func Inject(raw map[string]any, listenPort int, rs *Ruleset, c *Config) {
 	rules, _ := raw["rules"].([]any)
 	raw["rules"] = append(pre, rules...)
 }
+
+func quicAllowPayload(list []string) []any {
+	var out []any
+	for _, h := range list {
+		h = strings.ToLower(strings.TrimSpace(h))
+		if h == "" {
+			continue
+		}
+		host, _ := splitHostPort(h)
+		out = append(out, payloadFor(hostPat{pat: host}))
+	}
+	return out
+}
+
+// QUICBlockAllRule is prepended when the user blocks QUIC for all traffic.
+const QUICBlockAllRule = "AND,((NETWORK,UDP),(DST-PORT,443),(NOT,((IN-TYPE,INNER)))),REJECT"
 
 // mapPolicy replaces the policy of a module rule with the user's chosen group for it.
 func mapPolicy(rule string, m map[string]string) string {

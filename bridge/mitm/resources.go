@@ -33,9 +33,12 @@ func isRemote(p string) bool {
 	return strings.HasPrefix(p, "http://") || strings.HasPrefix(p, "https://")
 }
 
-func (r *Resources) cachePath(u string) string {
+func (r *Resources) cachePath(u string) string { return CachePath(r.home, u) }
+
+// CachePath is where a remote script / resource URL is cached (shared by the app's resource manager).
+func CachePath(home, u string) string {
 	h := sha1.Sum([]byte(u))
-	return filepath.Join(EngineDir(r.home), "cache", hex.EncodeToString(h[:]))
+	return filepath.Join(EngineDir(home), "cache", hex.EncodeToString(h[:]))
 }
 
 // LocalPath resolves a non-URL path: absolute, file://, or relative to the scripts dir.

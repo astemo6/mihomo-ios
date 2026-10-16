@@ -70,6 +70,7 @@ type Engine struct {
 	scripts  *ScriptRunner
 	tasks    *tasker
 	geo      atomic.Pointer[GeoLookup]
+	api      atomic.Pointer[APIFunc]
 }
 
 // New creates an engine (not started).
@@ -171,6 +172,10 @@ func (e *Engine) Reload(cfg *Config, rs *Ruleset) {
 		}
 	}
 	e.st.Store(s)
+	// The app's resource manager may have refreshed cached scripts on disk: re-read them.
+	if e.res != nil {
+		e.res.mem.Reset()
+	}
 	e.pinned = sync.Map{}
 	e.tmu.Lock()
 	skip := cfg.SkipCertVerify || (rs.SkipCertVerify != nil && *rs.SkipCertVerify)
