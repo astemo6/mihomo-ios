@@ -186,3 +186,118 @@ enum Fmt {
         return "\(s / 3600)h\(s % 3600 / 60)m"
     }
 }
+
+
+// MARK: - MitM engine
+
+struct MitMStatus: Decodable {
+    var running: Bool
+    var port: Int
+    var enabled: Bool
+    var mitm: Bool
+    var caLoaded: Bool
+    var hostnames: [String]
+    var rules: Int
+    var scripts: Int
+    var coreRules: Int
+    var errors: [String]
+    var unsupported: Int
+    var pinned: [String]
+}
+
+struct HTTPRequestSummary: Decodable, Identifiable, Hashable {
+    var id: Int64
+    var time: Double
+    var method: String
+    var url: String
+    var host: String
+    var mitm: Bool
+    var status: Int
+    var matched: [String]?
+    var notes: [String]?
+    var local: Bool?
+    var done: Bool
+    var duration: Double?
+    var bytes: Int64
+
+    var date: Date { Date(timeIntervalSince1970: time) }
+    var path: String {
+        guard let u = URL(string: url) else { return url }
+        var p = u.path.isEmpty ? "/" : u.path
+        if let q = u.query { p += "?" + q }
+        return p
+    }
+}
+
+struct HTTPRequestDetail: Decodable {
+    var id: Int64
+    var time: Double
+    var method: String
+    var url: String
+    var host: String
+    var mitm: Bool
+    var status: Int
+    var matched: [String]?
+    var notes: [String]?
+    var local: Bool?
+    var done: Bool
+    var duration: Double?
+    var bytes: Int64
+    var reqHeaders: [String: String]?
+    var respHeaders: [String: String]?
+    var reqBody: String?
+    var respBody: String?
+    var reqBodyBinary: Int?
+    var respBodyBinary: Int?
+    var respEncoding: String?
+}
+
+struct ScriptLogLine: Decodable, Identifiable, Hashable {
+    var id: Int64
+    var time: Double
+    var script: String
+    var level: String
+    var msg: String
+}
+
+/// Result of LibmihomoEngineParseText / EngineParseLine.
+struct ParsedEngineText: Decodable {
+    struct Rule: Decodable, Hashable {
+        var kind: String
+        var phase: String
+        var pattern: String
+        var desc: String
+        var line: String
+        var script: String?
+        var path: String?
+    }
+    struct Arg: Decodable, Hashable {
+        var key: String
+        var `default`: String
+        var desc: String?
+    }
+    var name: String
+    var desc: String
+    var format: String
+    var rules: [Rule]
+    var hostnames: [String]
+    var coreRules: [String]
+    var errors: [String]
+    var unsupported: [String]
+    var arguments: [Arg]
+
+    static func parse(_ json: String) -> ParsedEngineText? {
+        guard let d = json.data(using: .utf8) else { return nil }
+        return try? JSONDecoder().decode(ParsedEngineText.self, from: d)
+    }
+}
+
+struct CAInfoModel: Decodable, Equatable {
+    var exists: Bool
+    var subject: String?
+    var fingerprint: String?
+    var sha1: String?
+    var notBefore: String?
+    var notAfter: String?
+    var algorithm: String?
+}

@@ -42,6 +42,9 @@ struct HomeView: View {
             }
             .background(Theme.bg.ignoresSafeArea())
             .toolbar(.hidden, for: .navigationBar)
+            .alert("连接失败", isPresented: Binding(get: { vpn.lastError != nil && vpn.showErrorAlert }, set: { if !$0 { vpn.showErrorAlert = false } })) {
+                Button("好") { vpn.showErrorAlert = false }
+            } message: { Text(vpn.lastError ?? "") }
         }
     }
 }

@@ -1,16 +1,44 @@
 import Foundation
 import NetworkExtension
 import Libmihomo
+import UserNotifications
+
+/// Posts local notifications for scripts ($notification.post / $notify).
+final class ScriptNotifier: NSObject, LibmihomoNotifierProtocol {
+    func notify(_ payload: String?) {
+        guard let data = payload?.data(using: .utf8),
+              let n = try? JSONDecoder().decode(ScriptNotification.self, from: data) else { return }
+        let content = UNMutableNotificationContent()
+        content.title = n.title ?? ""
+        content.subtitle = n.subtitle ?? ""
+        content.body = n.body ?? ""
+        content.sound = .default
+        if let u = n.url, !u.isEmpty { content.userInfo = ["url": u] }
+        let req = UNNotificationRequest(identifier: UUID().uuidString, content: content, trigger: nil)
+        UNUserNotificationCenter.current().add(req) { _ in }
+    }
+}
 
 final class PacketTunnelProvider: NEPacketTunnelProvider {
     private var tunFd: Int32 = 0
+    private let notifier = ScriptNotifier()
 
     override func startTunnel(options: [String: NSObject]?, completionHandler: @escaping (Error?) -> Void) {
+        TunnelErrorLog.clear()
+        let completionHandler: (Error?) -> Void = { err in
+            if let err { TunnelErrorLog.write(err.localizedDescription) }
+            completionHandler(err)
+        }
+        guard AppShared.containerOK else {
+            completionHandler(Self.error("App Group 不可用（\(AppShared.appGroup)）：重签名的描述文件需要包含 App Groups，且主程序和扩展使用同一个组"))
+            return
+        }
         guard let profile = AppShared.activeProfileURL else {
             completionHandler(Self.error("没有可用的配置，请先在「配置」中添加并选择一个配置"))
             return
         }
         let overrides = CoreOverrides.load()
+        LibmihomoSetNotifier(notifier)
         LibmihomoSetMemoryLimit(Int32(overrides.memoryLimitMB))
 
         let settings = NEPacketTunnelNetworkSettings(tunnelRemoteAddress: "127.0.0.1")

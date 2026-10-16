@@ -13,7 +13,8 @@ final class VPNManager: ObservableObject {
 
     @Published private(set) var status: NEVPNStatus = .invalid
     @Published private(set) var connectedDate: Date?
-    @Published var lastError: String?
+    @Published var lastError: String? { didSet { if lastError != nil { showErrorAlert = true } } }
+    @Published var showErrorAlert = false
     @Published private(set) var isBusy = false
 
     private var manager: NETunnelProviderManager?
@@ -42,27 +43,76 @@ final class VPNManager: ObservableObject {
         Task { await load() }
     }
 
+    private var userStopped = false
+
     private func update(from conn: NEVPNConnection) {
         let old = status
         status = conn.status
         connectedDate = conn.connectedDate
+        if status == .connected { lastError = nil }
+        // Connecting -> disconnected without the user stopping: the extension failed. Never stay silent.
+        if (old == .connecting || old == .reasserting), status == .disconnected, !userStopped {
+            Task { @MainActor in await self.reportStartFailure(conn) }
+        }
+        if status == .disconnected { userStopped = false }
         if old != status, status == .connected || status == .disconnected {
             NotificationCenter.default.post(name: .egressMayHaveChanged, object: nil)
         }
     }
 
+    private func reportStartFailure(_ conn: NEVPNConnection) async {
+        var msg: String?
+        if let ext = TunnelErrorLog.recent(within: 120) { msg = ext }
+        if msg == nil {
+            msg = await withCheckedContinuation { (cont: CheckedContinuation<String?, Never>) in
+                conn.fetchLastDisconnectError { err in cont.resume(returning: err?.localizedDescription) }
+            }
+        }
+        if msg == nil, !AppShared.containerOK {
+            msg = "App Group 不可用（\(AppShared.appGroup)），扩展无法读取配置。请检查重签名的描述文件是否包含 App Groups。"
+        }
+        lastError = "连接失败：" + (msg ?? "网络扩展启动后立即退出（未返回原因）。请到 更多 → 内核覆写设置 → 诊断 查看 App Group 与扩展 ID。")
+        NSLog("[Mihomo] tunnel start failed: %@", lastError ?? "")
+    }
+
     func load() async {
         do {
             let managers = try await NETunnelProviderManager.loadAllFromPreferences()
-            manager = managers.first { ($0.protocolConfiguration as? NETunnelProviderProtocol)?.providerBundleIdentifier == AppShared.tunnelBundleID } ?? managers.first
-            if let m = manager { update(from: m.connection) } else { status = .invalid }
+            let mine = managers.first { ($0.protocolConfiguration as? NETunnelProviderProtocol)?.providerBundleIdentifier == AppShared.tunnelBundleID }
+            manager = mine ?? managers.first
+            if let m = manager {
+                try await fixStaleManager(m)
+                update(from: m.connection)
+            } else { status = .invalid }
         } catch {
-            lastError = error.localizedDescription
+            lastError = "读取 VPN 配置失败：\(error.localizedDescription)"
+            NSLog("[Mihomo] loadAllFromPreferences: %@", error.localizedDescription)
+        }
+    }
+
+    /// A manager saved by a build with another tunnel bundle id (e.g. before re-signing) would start a
+    /// non-existent extension. Point it at the current one and save again.
+    private func fixStaleManager(_ m: NETunnelProviderManager) async throws {
+        guard let proto = m.protocolConfiguration as? NETunnelProviderProtocol,
+              proto.providerBundleIdentifier != AppShared.tunnelBundleID else { return }
+        NSLog("[Mihomo] fixing providerBundleIdentifier %@ -> %@", proto.providerBundleIdentifier ?? "nil", AppShared.tunnelBundleID)
+        proto.providerBundleIdentifier = AppShared.tunnelBundleID
+        m.protocolConfiguration = proto
+        m.isEnabled = true
+        do {
+            try await m.saveToPreferences()
+            try await m.loadFromPreferences()
+        } catch {
+            NSLog("[Mihomo] saveToPreferences (fix stale) failed: %@", error.localizedDescription)
+            throw error
         }
     }
 
     private func ensureManager() async throws -> NETunnelProviderManager {
-        if let m = manager { return m }
+        if let m = manager {
+            try await fixStaleManager(m)
+            return m
+        }
         let m = NETunnelProviderManager()
         let proto = NETunnelProviderProtocol()
         proto.providerBundleIdentifier = AppShared.tunnelBundleID
@@ -71,8 +121,13 @@ final class VPNManager: ObservableObject {
         m.protocolConfiguration = proto
         m.localizedDescription = "Mihomo"
         m.isEnabled = true
-        try await m.saveToPreferences()
-        try await m.loadFromPreferences()
+        do {
+            try await m.saveToPreferences()
+            try await m.loadFromPreferences()
+        } catch {
+            NSLog("[Mihomo] saveToPreferences (create) failed: %@", error.localizedDescription)
+            throw error
+        }
         manager = m
         return m
     }
@@ -94,16 +149,25 @@ final class VPNManager: ObservableObject {
             let m = try await ensureManager()
             if !m.isEnabled {
                 m.isEnabled = true
-                try await m.saveToPreferences()
-                try await m.loadFromPreferences()
+                do {
+                    try await m.saveToPreferences()
+                    try await m.loadFromPreferences()
+                } catch {
+                    NSLog("[Mihomo] saveToPreferences (enable) failed: %@", error.localizedDescription)
+                    throw error
+                }
             }
+            userStopped = false
+            TunnelErrorLog.clear()
             try m.connection.startVPNTunnel()
         } catch {
             lastError = "启动失败：\(error.localizedDescription)"
+            NSLog("[Mihomo] start failed: %@", error.localizedDescription)
         }
     }
 
     func stop() {
+        userStopped = true
         manager?.connection.stopVPNTunnel()
     }
 

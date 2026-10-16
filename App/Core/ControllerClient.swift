@@ -66,8 +66,31 @@ final class ControllerClient {
     }
 
     func proxies() async throws -> [String: ProxyItem] {
-        try await get(ProxiesResponse.self, "/proxies").proxies
+        var p = try await get(ProxiesResponse.self, "/proxies").proxies
+        // Hide the internal MitM engine outbound.
+        p.removeValue(forKey: "__MITM__")
+        for (k, v) in p where v.all?.contains("__MITM__") == true {
+            var v2 = v
+            v2.all = v.all?.filter { $0 != "__MITM__" }
+            p[k] = v2
+        }
+        return p
     }
+
+    // MARK: MitM engine (/mitm on the same controller)
+
+    func mitmStatus() async throws -> MitMStatus { try await get(MitMStatus.self, "/mitm/status") }
+    func mitmRequests(since: Int64 = 0) async throws -> [HTTPRequestSummary] {
+        try await get([HTTPRequestSummary].self, "/mitm/requests", query: [URLQueryItem(name: "since", value: String(since))])
+    }
+    func mitmRequest(_ id: Int64) async throws -> HTTPRequestDetail { try await get(HTTPRequestDetail.self, "/mitm/requests/\(id)") }
+    func mitmClearRequests() async throws { try await send("/mitm/requests", method: "DELETE") }
+    func mitmHosts() async throws -> [String: [String]] { try await get([String: [String]].self, "/mitm/hosts") }
+    func mitmLogs(since: Int64 = 0) async throws -> [ScriptLogLine] {
+        try await get([ScriptLogLine].self, "/mitm/logs", query: [URLQueryItem(name: "since", value: String(since))])
+    }
+    func mitmClearLogs() async throws { try await send("/mitm/logs", method: "DELETE") }
+    func mitmRefresh(url: String) async throws { try await send("/mitm/refresh", method: "POST", body: ["url": url], timeout: 40) }
 
     func select(group: String, node: String) async throws {
         try await send("/proxies/\(Self.enc(group))", method: "PUT", body: ["name": node])

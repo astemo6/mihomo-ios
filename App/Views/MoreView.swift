@@ -4,6 +4,7 @@ import Libmihomo
 
 struct MoreView: View {
     @EnvironmentObject var vpn: VPNManager
+    @ObservedObject var engine = EngineStore.shared
 
     var body: some View {
         NavigationStack {
@@ -19,7 +20,28 @@ struct MoreView: View {
                 }
                 .listRowBackground(Theme.card)
                 Section {
-                    ForEach(["重写 / MitM", "脚本", "模块", "桌面小组件", "控制中心开关", "快捷指令"], id: \.self) { f in
+                    NavigationLink { MitMView() } label: {
+                        HStack {
+                            Label("MitM", systemImage: "lock.open")
+                            Spacer()
+                            Text(engine.config.mitm ? "已开启" : "关闭").font(.caption).foregroundStyle(engine.config.mitm ? Theme.good : .secondary)
+                        }
+                    }
+                    NavigationLink { RewriteView() } label: {
+                        HStack { Label("重写", systemImage: "arrow.triangle.swap"); Spacer(); Text("\(engine.config.rules.count)").font(.caption).foregroundStyle(.secondary) }
+                    }
+                    NavigationLink { ScriptsView() } label: {
+                        HStack { Label("脚本", systemImage: "curlybraces"); Spacer(); Text("\(engine.config.scripts.count)").font(.caption).foregroundStyle(.secondary) }
+                    }
+                    NavigationLink { ModulesView() } label: {
+                        HStack { Label("模块", systemImage: "puzzlepiece.extension"); Spacer(); Text("\(engine.config.modules.filter(\.enabled).count)/\(engine.config.modules.count)").font(.caption).foregroundStyle(.secondary) }
+                    }
+                } header: { Text("重写与 MitM") } footer: {
+                    Text(engine.config.enabled ? "重写与脚本已启用" : "重写与脚本未启用（在任一页面顶部开启）")
+                }
+                .listRowBackground(Theme.card)
+                Section {
+                    ForEach(["桌面小组件", "控制中心开关", "快捷指令"], id: \.self) { f in
                         HStack {
                             Label(f, systemImage: "sparkles")
                             Spacer()
@@ -27,7 +49,7 @@ struct MoreView: View {
                         }
                         .foregroundStyle(.secondary)
                     }
-                } header: { Text("高级功能") }
+                } header: { Text("即将推出") }
                 .listRowBackground(Theme.card)
                 Section("关于") {
                     NavigationLink { AboutView() } label: { Label("关于 / 开源许可", systemImage: "info.circle") }
@@ -322,6 +344,18 @@ struct SettingsView: View {
             .listRowBackground(Theme.card)
 
             Section {
+                NavigationLink { DiagnosticsView() } label: {
+                    HStack {
+                        Label("诊断", systemImage: "stethoscope")
+                        Spacer()
+                        Text(AppShared.containerOK ? "App Group 正常" : "App Group 异常")
+                            .font(.caption).foregroundStyle(AppShared.containerOK ? Theme.good : Theme.bad)
+                    }
+                }
+            }
+            .listRowBackground(Theme.card)
+
+            Section {
                 Button {
                     apply()
                 } label: {
@@ -355,6 +389,51 @@ struct SettingsView: View {
                 status = "已保存，下次连接生效"
             }
         }
+    }
+}
+
+// MARK: - Diagnostics
+
+struct DiagnosticsView: View {
+    @EnvironmentObject var vpn: VPNManager
+    var body: some View {
+        let group = AppShared.appGroup
+        List {
+            Section {
+                LabeledContent("主程序 ID", value: AppShared.mainAppBundleID)
+                LabeledContent("隧道扩展 ID", value: AppShared.tunnelBundleID)
+                LabeledContent("App Group", value: group)
+                LabeledContent("来源", value: AppShared.appGroupSource)
+                LabeledContent("共享容器") {
+                    Text(AppShared.containerOK ? "正常" : "不可用").foregroundStyle(AppShared.containerOK ? Theme.good : Theme.bad)
+                }
+                let groups = AppShared.provisionedAppGroups()
+                LabeledContent("描述文件中的组", value: groups.isEmpty ? "（未找到 embedded.mobileprovision）" : groups.sorted().joined(separator: "\n"))
+                LabeledContent("VPN 状态", value: vpn.statusText)
+            } header: { Text("签名与容器") } footer: {
+                Text("重签名后描述文件会替换 entitlements。App 与扩展会在运行时从描述文件读取 App Group 并按字母序选第一个可用的；共享容器不可用时扩展无法读取配置，连接会失败。")
+            }
+            .listRowBackground(Theme.card)
+            if let e = vpn.lastError {
+                Section("最近错误") { Text(e).font(.footnote).textSelection(.enabled) }.listRowBackground(Theme.card)
+            }
+            Section {
+                Button("复制诊断信息") {
+                    UIPasteboard.general.string = """
+                    app=\(AppShared.mainAppBundleID)
+                    tunnel=\(AppShared.tunnelBundleID)
+                    group=\(group) (\(AppShared.appGroupSource)) ok=\(AppShared.containerOK)
+                    provisioned=\(AppShared.provisionedAppGroups().joined(separator: ","))
+                    status=\(vpn.statusText) error=\(vpn.lastError ?? "-")
+                    """
+                }
+            }
+            .listRowBackground(Theme.card)
+        }
+        .listStyle(.insetGrouped)
+        .scrollContentBackground(.hidden)
+        .background(Theme.bg.ignoresSafeArea())
+        .navigationTitle("诊断")
     }
 }
 

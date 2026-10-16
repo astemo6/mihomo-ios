@@ -81,6 +81,10 @@ func asMap(v any) map[string]any {
 // BuildRuntimeConfig merges the user's profile with app overrides and the tun fd.
 // Exposed for debugging / previews ("" fd => no tun section, useful for validation).
 func buildRuntime(profile []byte, o Overrides, fd int32) ([]byte, error) {
+	return buildRuntimeWith(profile, o, fd, nil)
+}
+
+func buildRuntimeWith(profile []byte, o Overrides, fd int32, inject func(raw map[string]any)) ([]byte, error) {
 	raw := map[string]any{}
 	if err := yaml.Unmarshal(profile, &raw); err != nil {
 		return nil, fmt.Errorf("YAML 解析失败: %w", err)
@@ -182,6 +186,9 @@ func buildRuntime(profile []byte, o Overrides, fd int32) ([]byte, error) {
 	} else {
 		delete(raw, "tun")
 	}
+	if inject != nil {
+		inject(raw)
+	}
 	return yaml.Marshal(raw)
 }
 
@@ -258,7 +265,11 @@ func apply(home, configPath string, fd int32) error {
 	}
 	o := readOverrides(home)
 	startGC(o.MemoryLimitMB)
-	rt, err := buildRuntime(profile, o, fd)
+	inject, err := prepareEngine(home)
+	if err != nil {
+		log.Warnln("[MitM] %s", err.Error())
+	}
+	rt, err := buildRuntimeWith(profile, o, fd, inject)
 	if err != nil {
 		return err
 	}
@@ -309,6 +320,7 @@ func Stop() {
 	if !running {
 		return
 	}
+	stopEngine()
 	executor.Shutdown()
 	running = false
 	if gcStop != nil {
