@@ -1,5 +1,6 @@
 import SwiftUI
 import UniformTypeIdentifiers
+import Libmihomo
 
 struct ProfilesView: View {
     @EnvironmentObject var store: ProfileStore
