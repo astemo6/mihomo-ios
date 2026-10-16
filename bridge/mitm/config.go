@@ -27,6 +27,7 @@ type Module struct {
 	URL       string            `json:"url"`
 	Enabled   bool              `json:"enabled"`
 	Args      map[string]string `json:"args,omitempty"`
+	Policies  map[string]string `json:"policies,omitempty"` // module policy name → profile group (user's pick)
 	UpdatedAt float64           `json:"updatedAt,omitempty"`
 }
 
@@ -43,8 +44,8 @@ type Config struct {
 	Modules        []Module `json:"modules"`
 }
 
-func (c *Config) h2() bool        { return c.H2 == nil || *c.H2 }
-func (c *Config) capture() bool   { return c.CaptureBodies == nil || *c.CaptureBodies }
+func (c *Config) h2() bool         { return c.H2 == nil || *c.H2 }
+func (c *Config) capture() bool    { return c.CaptureBodies == nil || *c.CaptureBodies }
 func EngineDir(home string) string { return filepath.Join(home, "engine") }
 func ModulePath(home, id string) string {
 	return filepath.Join(EngineDir(home), "modules", safeName(id)+".txt")
@@ -102,7 +103,9 @@ func Build(home string, c *Config) *Ruleset {
 			sub.ParseText(string(b), m.Name, m.Args)
 			rs.Rules = append(rs.Rules, sub.Rules...)
 			rs.Hostnames = append(rs.Hostnames, sub.Hostnames...)
-			rs.CoreRules = append(rs.CoreRules, sub.CoreRules...)
+			for _, r := range sub.CoreRules {
+				rs.CoreRules = append(rs.CoreRules, mapPolicy(r, m.Policies))
+			}
 			for _, e := range sub.Errors {
 				rs.Errors = append(rs.Errors, m.Name+"："+e)
 			}
@@ -317,7 +320,7 @@ func Inject(raw map[string]any, listenPort int, rs *Ruleset, c *Config) {
 		pre = append(pre, fmt.Sprintf("AND,((NETWORK,TCP),(NOT,((IN-TYPE,INNER))),(DST-PORT,80)),%s", ProxyName))
 	}
 	if c.Enabled {
-		for _, r := range rs.CoreRules {
+		for _, r := range ResolveCoreRules(raw, rs.CoreRules, nil) {
 			pre = append(pre, r)
 		}
 	}
@@ -326,4 +329,86 @@ func Inject(raw map[string]any, listenPort int, rs *Ruleset, c *Config) {
 	}
 	rules, _ := raw["rules"].([]any)
 	raw["rules"] = append(pre, rules...)
+}
+
+// mapPolicy replaces the policy of a module rule with the user's chosen group for it.
+func mapPolicy(rule string, m map[string]string) string {
+	if len(m) == 0 {
+		return rule
+	}
+	parts := splitTop(rule)
+	idx := policyIndex(parts)
+	if idx < 0 {
+		return rule
+	}
+	if to, ok := m[parts[idx]]; ok && to != "" {
+		parts[idx] = to
+	}
+	return strings.Join(parts, ",")
+}
+
+func policyIndex(parts []string) int {
+	if len(parts) < 2 {
+		return -1
+	}
+	if strings.ToUpper(parts[0]) == "MATCH" {
+		return 1
+	}
+	if len(parts) < 3 {
+		return -1
+	}
+	return 2
+}
+
+// ResolveCoreRules maps each rule's policy onto the profile (see ResolvePolicy). Rules whose policy
+// does not exist are dropped and reported through unresolved (if non-nil). Remote RULE-SET /
+// DOMAIN-SET URLs are left for the bridge to turn into providers.
+func ResolveCoreRules(raw map[string]any, rules []string, unresolved map[string]bool) []string {
+	groups, proxies, first := ProfileNames(raw)
+	var out []string
+	for _, r := range rules {
+		parts := splitTop(r)
+		idx := policyIndex(parts)
+		if idx < 0 {
+			continue
+		}
+		if t := strings.ToUpper(parts[0]); (t == "RULE-SET" || t == "DOMAIN-SET") && strings.Contains(parts[1], "://") {
+			continue
+		}
+		pol, ok := ResolvePolicy(parts[idx], groups, proxies, first)
+		if !ok {
+			if unresolved != nil {
+				unresolved[parts[idx]] = true
+			}
+			continue
+		}
+		parts[idx] = pol
+		out = append(out, strings.Join(parts, ","))
+	}
+	return out
+}
+
+// UnresolvedPolicies lists the module policy names that have no group in raw.
+func UnresolvedPolicies(raw map[string]any, rules []string) []string {
+	un := map[string]bool{}
+	ResolveCoreRules(raw, rules, un)
+	out := []string{}
+	for k := range un {
+		out = append(out, k)
+	}
+	return out
+}
+
+// RemoteCoreRules returns module rules that reference remote Surge RULE-SET / DOMAIN-SET lists.
+func RemoteCoreRules(rules []string) []string {
+	var out []string
+	for _, r := range rules {
+		parts := splitTop(r)
+		if len(parts) >= 3 && strings.Contains(parts[1], "://") {
+			if t := strings.ToUpper(parts[0]); t == "RULE-SET" || t == "DOMAIN-SET" {
+				out = append(out, r)
+			}
+		}
+	}
+	return out
 }

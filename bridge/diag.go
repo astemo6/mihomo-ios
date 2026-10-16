@@ -11,6 +11,7 @@ import (
 	"fmt"
 	"net"
 	"net/http"
+	"os"
 	"strconv"
 	"strings"
 	"sync/atomic"
@@ -27,6 +28,8 @@ import (
 	"github.com/metacubex/mihomo/log"
 	"github.com/metacubex/mihomo/tunnel"
 	"github.com/metacubex/mihomo/tunnel/statistic"
+
+	"go.yaml.in/yaml/v3"
 )
 
 func init() { route.Register(toolsRoutes) }
@@ -338,4 +341,44 @@ func clamp(v, lo, hi int) int {
 func writeToolJSON(w mhttp.ResponseWriter, v any) {
 	w.Header().Set("Content-Type", "application/json; charset=utf-8")
 	_ = json.NewEncoder(w).Encode(v)
+}
+
+// TestDelayByName tests one node of the profile at profilePath by name (offline 策略 page). Nodes from
+// proxy providers are looked up in the providers' cached files. Returns ms or -1 (LastError has why).
+func TestDelayByName(homeDir, profilePath, name, url string, timeoutMs int) int {
+	raw := profileRaw(homeDir, profilePath)
+	for _, p := range proxiesOf(raw) {
+		if str(p["name"]) == name {
+			b, _ := json.Marshal(p)
+			return TestDelay(string(b), url, timeoutMs)
+		}
+	}
+	if pv, ok := raw["proxy-providers"].(map[string]any); ok {
+		for _, v := range pv {
+			m, ok := v.(map[string]any)
+			if !ok {
+				continue
+			}
+			var nodes []map[string]any
+			if strings.EqualFold(str(m["type"]), "inline") {
+				nodes = proxiesOf(map[string]any{"proxies": m["payload"]})
+			} else if b, err := os.ReadFile(providerCache("proxy", m)); err == nil {
+				pr := map[string]any{}
+				if yaml.Unmarshal(b, &pr) == nil && pr != nil {
+					nodes = proxiesOf(pr)
+				}
+				if len(nodes) == 0 {
+					nodes, _ = parseNodeText(string(b))
+				}
+			}
+			for _, p := range nodes {
+				if str(p["name"]) == name {
+					b, _ := json.Marshal(p)
+					return TestDelay(string(b), url, timeoutMs)
+				}
+			}
+		}
+	}
+	lastError = "未找到节点 " + name
+	return -1
 }

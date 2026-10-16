@@ -58,6 +58,7 @@ type Overrides struct {
 
 	DNS        *DNSOverride `json:"-"` // loaded from <home>/dns.json
 	manualPath string       // <container>/profiles/manual-nodes.yaml
+	home       string
 }
 
 const (
@@ -96,6 +97,7 @@ func readOverrides(home string) Overrides {
 		o.TunMTU = defaultTunMTU
 	}
 	o.DNS = readDNSOverride(home)
+	o.home = home
 	if home != "" {
 		o.manualPath = filepath.Join(filepath.Dir(home), "profiles", "manual-nodes.yaml")
 	}
@@ -247,6 +249,8 @@ func buildRuntimeWith(profile []byte, o Overrides, fd int32, inject func(raw map
 	} else {
 		delete(raw, "tun")
 	}
+	rewriteConvertProviders(raw, o)
+	applyCustomRules(raw, o)
 	if inject != nil {
 		inject(raw)
 	}

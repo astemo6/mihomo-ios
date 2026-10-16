@@ -92,7 +92,7 @@ func prepareEngine(home string) (func(raw map[string]any), error) {
 			eng = nil
 		}
 		if cfg.Enabled && len(rs.CoreRules) > 0 {
-			return func(raw map[string]any) { mitm.Inject(raw, 0, rs, cfg) }, nil
+			return func(raw map[string]any) { mitm.Inject(raw, 0, rs, cfg); addRemoteModuleRules(raw, rs.CoreRules) }, nil
 		}
 		return nil, nil
 	}
@@ -111,7 +111,7 @@ func prepareEngine(home string) (func(raw map[string]any), error) {
 	}
 	eng.Reload(cfg, rs)
 	port := eng.Port()
-	return func(raw map[string]any) { mitm.Inject(raw, port, rs, cfg) }, nil
+	return func(raw map[string]any) { mitm.Inject(raw, port, rs, cfg); addRemoteModuleRules(raw, rs.CoreRules) }, nil
 }
 
 func stopEngine() {

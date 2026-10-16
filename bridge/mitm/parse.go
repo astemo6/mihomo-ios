@@ -112,9 +112,114 @@ type Ruleset struct {
 
 // ModArg is a Surge #!arguments entry.
 type ModArg struct {
-	Key     string `json:"key"`
-	Default string `json:"default"`
-	Desc    string `json:"desc,omitempty"`
+	Key     string   `json:"key"`
+	Default string   `json:"default"`
+	Desc    string   `json:"desc,omitempty"`
+	Type    string   `json:"type,omitempty"`    // Loon [Argument]: switch / select / input / text
+	Options []string `json:"options,omitempty"` // Loon select choices
+}
+
+var loonEnableRe = regexp.MustCompile(`(?i)\s*,?\s*enable\s*=\s*(true|1)\s*`)
+
+var loonArgKeyRe = regexp.MustCompile(`^[A-Za-z_][A-Za-z0-9_\-]*$`)
+
+// parseLoonArguments reads a Loon plugin [Argument] section:
+//
+//	enableAd = switch,true,tag=去广告,desc=…
+//	policy   = select,"DIRECT","PROXY",tag=策略
+//	token    = input,"",tag=Token
+func parseLoonArguments(text string) []ModArg {
+	var out []ModArg
+	in := false
+	for _, line := range strings.Split(text, "\n") {
+		t := strings.TrimSpace(line)
+		if m := sectionRe.FindStringSubmatch(t); m != nil {
+			in = strings.EqualFold(strings.TrimSpace(m[1]), "argument")
+			continue
+		}
+		if !in || t == "" || strings.HasPrefix(t, "#") || strings.HasPrefix(t, ";") {
+			continue
+		}
+		k, v, ok := strings.Cut(t, "=")
+		k = strings.TrimSpace(k)
+		if !ok || !loonArgKeyRe.MatchString(k) {
+			continue
+		}
+		parts := splitArgList(strings.TrimSpace(v))
+		if len(parts) == 0 {
+			continue
+		}
+		a := ModArg{Key: k, Type: strings.ToLower(strings.TrimSpace(parts[0]))}
+		var vals []string
+		for _, p := range parts[1:] {
+			p = strings.TrimSpace(p)
+			if kk, vv, ok := strings.Cut(p, "="); ok && !strings.HasPrefix(p, `"`) {
+				switch strings.ToLower(strings.TrimSpace(kk)) {
+				case "tag":
+					if a.Desc == "" {
+						a.Desc = unquote(vv)
+					} else {
+						a.Desc = unquote(vv) + " · " + a.Desc
+					}
+				case "desc":
+					if a.Desc == "" {
+						a.Desc = unquote(vv)
+					} else {
+						a.Desc += " · " + unquote(vv)
+					}
+				}
+				continue
+			}
+			vals = append(vals, unquote(p))
+		}
+		switch a.Type {
+		case "switch":
+			a.Default = "false"
+			if len(vals) > 0 {
+				a.Default = strings.ToLower(vals[0])
+			}
+			a.Options = []string{"true", "false"}
+		case "select":
+			a.Options = vals
+			if len(vals) > 0 {
+				a.Default = vals[0]
+			}
+		default:
+			if len(vals) > 0 {
+				a.Default = vals[0]
+			}
+		}
+		out = append(out, a)
+	}
+	return out
+}
+
+// applyLoonArgs substitutes {key} for declared Loon arguments only (regexes keep their {n,m}) and drops
+// lines whose enable= option resolves to false.
+func applyLoonArgs(text string, args []ModArg, user map[string]string) string {
+	if len(args) == 0 {
+		return text
+	}
+	for _, a := range args {
+		v := a.Default
+		if u, ok := user[a.Key]; ok {
+			v = u
+		}
+		text = strings.ReplaceAll(text, "{"+a.Key+"}", v)
+	}
+	var out []string
+	for _, l := range strings.Split(text, "\n") {
+		low := strings.ToLower(l)
+		if i := strings.Index(low, "enable="); i >= 0 && (i == 0 || low[i-1] == ',' || low[i-1] == ' ') {
+			val := strings.TrimSpace(strings.SplitN(low[i+len("enable="):], ",", 2)[0])
+			if val == "false" || val == "0" {
+				continue
+			}
+			l = loonEnableRe.ReplaceAllString(l, "")
+		}
+		out = append(out, l)
+	}
+	return strings.Join(out, "\n")
 }
 
 func compileRe(p string) (*regexp2.Regexp, error) {
@@ -730,23 +835,13 @@ var qxFilterTypes = map[string]string{"host": "DOMAIN", "host-suffix": "DOMAIN-S
 var coreTypes = map[string]bool{"DOMAIN": true, "DOMAIN-SUFFIX": true, "DOMAIN-KEYWORD": true, "DOMAIN-WILDCARD": true,
 	"IP-CIDR": true, "IP-CIDR6": true, "GEOIP": true, "IP-ASN": true, "DST-PORT": true, "DOMAIN-REGEX": true}
 
-// parseCoreRule converts Surge [Rule] / QX filter lines. Only REJECT* / DIRECT policies are imported
-// (named policies of the source app do not exist here). URL-REGEX + REJECT becomes a URL rewrite reject.
+// parseCoreRule converts Surge [Rule] / QX filter / Loon [Rule] lines (translation in rules.go).
+// Named policies are kept and resolved against the profile's groups when injected (ResolveCoreRules);
+// URL-REGEX + REJECT becomes a URL rewrite reject.
 func (rs *Ruleset) parseCoreRule(line string, add func(*Rule, error)) {
-	parts := strings.Split(line, ",")
-	for i := range parts {
-		parts[i] = strings.TrimSpace(parts[i])
-	}
-	if len(parts) < 3 {
-		rs.Unsupported = append(rs.Unsupported, line)
-		return
-	}
-	t := strings.ToUpper(parts[0])
-	if mt, ok := qxFilterTypes[strings.ToLower(parts[0])]; ok {
-		t = mt
-	}
-	policy := strings.ToUpper(parts[2])
-	if t == "URL-REGEX" {
+	parts := splitTop(line)
+	if strings.EqualFold(parts[0], "URL-REGEX") && len(parts) >= 3 {
+		policy := strings.ToUpper(parts[2])
 		if strings.HasPrefix(policy, "REJECT") {
 			act := "reject"
 			if policy == "REJECT-TINYGIF" {
@@ -759,30 +854,17 @@ func (rs *Ruleset) parseCoreRule(line string, add func(*Rule, error)) {
 			add(&Rule{Kind: KindURL, Phase: "request", Pattern: parts[1], Action: act}, nil)
 			return
 		}
+	}
+	c, err := ConvertRuleLine(line)
+	if err != nil || c.Rule == "" && c.RemoteURL == "" {
 		rs.Unsupported = append(rs.Unsupported, line)
 		return
 	}
-	if !coreTypes[t] {
-		rs.Unsupported = append(rs.Unsupported, line)
+	if c.RemoteURL != "" {
+		rs.CoreRules = append(rs.CoreRules, fmt.Sprintf("%s,%s,%s%s", strings.ToUpper(parts[0]), c.RemoteURL, c.Policy, c.Options))
 		return
 	}
-	switch {
-	case policy == "REJECT-DROP":
-		policy = "REJECT-DROP"
-	case strings.HasPrefix(policy, "REJECT"):
-		policy = "REJECT"
-	case policy == "DIRECT":
-	default:
-		rs.Unsupported = append(rs.Unsupported, line)
-		return
-	}
-	extra := ""
-	for _, p := range parts[3:] {
-		if strings.EqualFold(p, "no-resolve") {
-			extra = ",no-resolve"
-		}
-	}
-	rs.CoreRules = append(rs.CoreRules, fmt.Sprintf("%s,%s,%s%s", t, parts[1], policy, extra))
+	rs.CoreRules = append(rs.CoreRules, c.Format(c.Policy))
 }
 
 func (rs *Ruleset) addHosts(v string) {
@@ -872,6 +954,11 @@ func (rs *Ruleset) ParseText(text, source string, args map[string]string) {
 	rs.Arguments = ParseModuleArgs(text)
 	if len(rs.Arguments) > 0 {
 		text = ApplyModuleArgs(text, args)
+	}
+	if la := parseLoonArguments(text); len(la) > 0 {
+		rs.Arguments = append(rs.Arguments, la...)
+		text = applyLoonArgs(text, la, args)
+		rs.Format = "loon"
 	}
 	for _, m := range metaRe.FindAllStringSubmatch(text, -1) {
 		if m[1] == "name" && rs.Name == "" {
