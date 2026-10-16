@@ -340,3 +340,10 @@ func decodeB64(s string) ([]byte, error) {
 	}
 	return base64.RawStdEncoding.DecodeString(strings.TrimRight(s, "="))
 }
+
+// ScriptSource returns a script's code for the workbench: local scripts from the scripts folder, remote
+// ones from the engine cache (downloaded directly when not cached yet).
+func ScriptSource(home, path string) ([]byte, error) {
+	e := New(home, directDial, func(string, string) {})
+	return e.res.Get(path, 0)
+}

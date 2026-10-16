@@ -108,7 +108,7 @@ struct MitMView: View {
                     Button("添加", action: addHost).disabled(newHost.trimmingCharacters(in: .whitespaces).isEmpty)
                 }
             } header: { Text("主机名 \(store.config.hostnames.count)") } footer: {
-                Text("支持 * 和 ? 通配、前缀 - 表示排除、:端口（默认 443）。可一次粘贴多个，用逗号分隔。")
+                Text("支持 * 和 ? 通配、前缀 - 表示排除、:端口（默认 443）。可一次粘贴多个，用逗号分隔。这里与「本地模块」里的主机名是同一份列表。")
             }
             .listRowBackground(Theme.card)
 
@@ -269,76 +269,7 @@ struct MitMView: View {
     }
 }
 
-// MARK: - Rewrite
-
-struct RewriteView: View {
-    @ObservedObject var store = EngineStore.shared
-    @State private var editing: EngineItem?
-    @State private var adding = false
-    @State private var search = ""
-
-    var items: [EngineItem] {
-        guard !search.isEmpty else { return store.config.rules }
-        return store.config.rules.filter { $0.line.localizedCaseInsensitiveContains(search) || ($0.note ?? "").localizedCaseInsensitiveContains(search) }
-    }
-
-    var body: some View {
-        List {
-            Section {
-                Toggle(isOn: Binding(get: { store.config.enabled }, set: { store.config.enabled = $0; store.save() })) {
-                    Label("启用重写与脚本", systemImage: "arrow.triangle.swap")
-                }
-            } footer: {
-                VStack(alignment: .leading, spacing: 4) {
-                    Text("HTTP 明文请求无需 MitM 即可重写；HTTPS 需要在 MitM 页添加主机名并信任证书。")
-                    EngineSwitchFooter()
-                }
-            }
-            .listRowBackground(Theme.card)
-
-            Section("规则 \(store.config.rules.count)") {
-                if store.config.rules.isEmpty {
-                    Text("点右上角 + 添加，支持 Surge / Quantumult X / Loon 语法，可一次粘贴多行。").font(.footnote).foregroundStyle(.secondary)
-                }
-                ForEach(items) { it in
-                    RuleRow(item: it) { on in
-                        if let i = store.config.rules.firstIndex(where: { $0.id == it.id }) { store.config.rules[i].enabled = on; store.save() }
-                    }
-                    .contentShape(Rectangle())
-                    .onTapGesture { editing = it }
-                }
-                .onDelete { idx in
-                    let ids = idx.map { items[$0].id }
-                    store.config.rules.removeAll { ids.contains($0.id) }
-                    store.save()
-                }
-                .onMove { from, to in
-                    guard search.isEmpty else { return }
-                    store.config.rules.move(fromOffsets: from, toOffset: to); store.save()
-                }
-            }
-            .listRowBackground(Theme.card)
-
-            Section("语法速查") {
-                SyntaxHelp()
-            }
-            .listRowBackground(Theme.card)
-        }
-        .listStyle(.insetGrouped)
-        .scrollContentBackground(.hidden)
-        .background(Theme.bg.ignoresSafeArea())
-        .navigationTitle("重写")
-        .searchable(text: $search, prompt: "搜索规则")
-        .toolbar {
-            ToolbarItemGroup(placement: .navigationBarTrailing) {
-                EditButton()
-                Button { adding = true } label: { Image(systemName: "plus") }
-            }
-        }
-        .sheet(isPresented: $adding) { LineEditorSheet(title: "添加重写", scripts: false, item: nil) }
-        .sheet(item: $editing) { LineEditorSheet(title: "编辑规则", scripts: false, item: $0) }
-    }
-}
+// MARK: - Rewrite (rows and help shared with the local module)
 
 struct RuleRow: View {
     let item: EngineItem
@@ -462,6 +393,7 @@ struct ScriptsView: View {
     @State private var adding = false
     @State private var addingRaw = false
     @State private var editing: EngineItem?
+    @State private var debugging: EngineItem?
 
     var body: some View {
         List {
@@ -482,6 +414,13 @@ struct ScriptsView: View {
                     }
                     .contentShape(Rectangle())
                     .onTapGesture { editing = it }
+                    .swipeActions(edge: .leading) {
+                        Button { debugging = it } label: { Label("调试", systemImage: "play.fill") }.tint(Theme.accent)
+                    }
+                    .contextMenu {
+                        Button { editing = it } label: { Label("编辑", systemImage: "pencil") }
+                        Button { debugging = it } label: { Label("在调试台打开", systemImage: "play.fill") }
+                    }
                 }
                 .onDelete { idx in store.config.scripts.remove(atOffsets: idx); store.save() }
                 .onMove { from, to in store.config.scripts.move(fromOffsets: from, toOffset: to); store.save() }
@@ -489,6 +428,7 @@ struct ScriptsView: View {
             .listRowBackground(Theme.card)
 
             Section("工具") {
+                NavigationLink { ScriptWorkbenchView(target: .scratch) } label: { Label("脚本调试台", systemImage: "play.rectangle") }
                 NavigationLink { ScriptTasksView() } label: { Label("定时与事件脚本", systemImage: "clock.arrow.circlepath") }
                 NavigationLink { ScriptLogsView() } label: { Label("运行日志", systemImage: "text.alignleft") }
                 NavigationLink { ScriptNoticesView() } label: { Label("脚本通知记录", systemImage: "bell") }
@@ -520,6 +460,9 @@ struct ScriptsView: View {
         .sheet(isPresented: $adding) { ScriptFormSheet(item: nil) }
         .sheet(isPresented: $addingRaw) { LineEditorSheet(title: "粘贴脚本行", scripts: true, item: nil) }
         .sheet(item: $editing) { ScriptFormSheet(item: $0) }
+        .navigationDestination(isPresented: Binding(get: { debugging != nil }, set: { if !$0 { debugging = nil } })) {
+            if let it = debugging { ScriptWorkbenchView(target: .item(it)) }
+        }
         .onAppear { if !store.config.scripts.isEmpty { store.requestNotificationPermission() } }
     }
 }
@@ -542,6 +485,7 @@ struct ScriptFormSheet: View {
     @State private var code = ""
     @State private var rawLine = ""
     @State private var rawMode = false
+    @State private var debugSample = ScriptDebugSample()
 
     var line: String {
         var parts = ["type=\(type)", "pattern=\(pattern)"]
@@ -591,9 +535,16 @@ struct ScriptFormSheet: View {
                         if source == 1 {
                             TextField("https://…/script.js", text: $path).keyboardType(.URL).textInputAutocapitalization(.never).autocorrectionDisabled()
                         } else {
-                            TextEditor(text: $code).scaledFont(12, design: .monospaced).frame(minHeight: 220)
-                                .textInputAutocapitalization(.never).autocorrectionDisabled()
+                            CodeEditor(text: $code, language: .javascript)
+                                .frame(minHeight: 260)
+                                .listRowInsets(EdgeInsets())
                             Text("保存为 \(scriptPath)").font(.caption2).foregroundStyle(.secondary)
+                            NavigationLink {
+                                ScriptDebugForm(code: code, path: nil, name: name.isEmpty ? "script" : name, sample: $debugSample)
+                                    .navigationTitle("调试运行")
+                                    .navigationBarTitleDisplayMode(.inline)
+                                    .onAppear { debugSample.type = type }
+                            } label: { Label("调试运行", systemImage: "play.fill") }
                         }
                     }
                     Section("生成的脚本行") {
@@ -683,7 +634,7 @@ struct LocalScriptsView: View {
     var body: some View {
         List {
             ForEach(files, id: \.self) { f in
-                NavigationLink { LocalScriptEditor(name: f) } label: { Text(f).font(.system(.callout, design: .monospaced)) }
+                NavigationLink { ScriptWorkbenchView(target: .local(f)) } label: { Text(f).font(.system(.callout, design: .monospaced)) }
             }
             .onDelete { idx in
                 for i in idx { try? FileManager.default.removeItem(at: EnginePaths.scriptURL(files[i])) }
@@ -697,25 +648,6 @@ struct LocalScriptsView: View {
         .background(Theme.bg.ignoresSafeArea())
         .navigationTitle("本地脚本")
         .onAppear { files = store.localScripts() }
-    }
-}
-
-struct LocalScriptEditor: View {
-    let name: String
-    @ObservedObject var store = EngineStore.shared
-    @State private var code = ""
-    @State private var saved = false
-    var body: some View {
-        TextEditor(text: $code)
-            .scaledFont(12, design: .monospaced)
-            .textInputAutocapitalization(.never).autocorrectionDisabled()
-            .scrollContentBackground(.hidden)
-            .background(Theme.card)
-            .navigationTitle(name)
-            .navigationBarTitleDisplayMode(.inline)
-            .toolbar { Button(saved ? "已保存" : "保存") { store.writeScript(name, code); saved = true } }
-            .onAppear { code = store.readScript(name) }
-            .onChange(of: code) { _ in saved = false }
     }
 }
 
@@ -1108,6 +1040,11 @@ struct HTTPRequestDetailView: View {
                         .disabled(!d.canReplay || replaying)
                     Button { editing = true } label: { Label("编辑后重放", systemImage: "square.and.pencil") }
                         .disabled(!d.canReplay || replaying)
+                    if d.method != "TLS" {
+                        NavigationLink { ScriptWorkbenchView(target: .scratch, sample: .from(d)) } label: {
+                            Label("用此请求调试脚本", systemImage: "play.rectangle")
+                        }
+                    }
                     if !d.canReplay && d.method != "TLS" {
                         Text("请求体是二进制或超过 32 KB，没有完整记录，无法重放。").font(.caption2).foregroundStyle(.secondary)
                     }

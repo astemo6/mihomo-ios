@@ -33,7 +33,7 @@ struct MoreView: View {
                     NavigationLink { ModulesView() } label: {
                         row("模块与资源", "puzzlepiece.extension", "\(engine.config.modules.filter(\.enabled).count)/\(engine.config.modules.count)")
                     }
-                    NavigationLink { RewriteView() } label: { row("重写", "arrow.triangle.swap", "\(engine.config.rules.count)") }
+                    NavigationLink { LocalModuleView() } label: { row("重写（本地模块）", "arrow.triangle.swap", "\(engine.config.rules.count)") }
                     NavigationLink { ScriptsView() } label: { row("脚本", "curlybraces", "\(engine.config.scripts.count)") }
                     NavigationLink { MitMView() } label: {
                         HStack {

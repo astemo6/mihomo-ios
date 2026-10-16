@@ -36,3 +36,13 @@ func RewriteFormFromLine(line string) string {
 	b, _ := json.Marshal(mitm.FormFromLine(line))
 	return string(b)
 }
+
+// ScriptSource returns the code of a local script or the cached copy of a remote one ("" + LastError on failure).
+func ScriptSource(homeDir, path string) string {
+	b, err := mitm.ScriptSource(homeDir, path)
+	if err != nil {
+		lastError = err.Error()
+		return ""
+	}
+	return string(b)
+}
