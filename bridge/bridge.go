@@ -59,9 +59,10 @@ type Overrides struct {
 	// overrides only — no modules, rewrite, scripts, MitM, custom rules or smart groups.
 	SafeMode bool `json:"safeMode"`
 
-	DNS        *DNSOverride `json:"-"` // loaded from <home>/dns.json
-	sub        *SubRules    // per-subscription node processing (subscriptions.json), set by overridesFor
-	manualPath string       // <container>/profiles/manual-nodes.yaml
+	DNS        *DNSOverride      `json:"-"` // loaded from <home>/dns.json
+	sub        *SubRules         // per-subscription node processing (subscriptions.json), set by overridesFor
+	chains     map[string]string // group → 前置代理 (groups.json), set by overridesFor
+	manualPath string            // <container>/profiles/manual-nodes.yaml
 	home       string
 }
 
@@ -146,6 +147,11 @@ func buildRuntimeWith(profile []byte, o Overrides, fd int32, inject func(raw map
 	}
 	if o.MergeManual && o.manualPath != "" {
 		mergeManualNodes(raw, o.manualPath)
+	}
+	if o.SafeMode {
+		applyChains(raw, nil)
+	} else {
+		applyChains(raw, o.chains)
 	}
 	if o.LogLevel != "" {
 		raw["log-level"] = o.LogLevel
