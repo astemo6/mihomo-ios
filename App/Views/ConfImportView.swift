@@ -89,7 +89,7 @@ struct ConfReportSection: View {
                     if let skipped = rep.skipped, !skipped.isEmpty {
                         Section {
                             DisclosureGroup("未转换 \(skipped.count) 项", isExpanded: $showSkipped) {
-                                ForEach(skipped, id: \.self) { Text($0).font(.system(size: 10, design: .monospaced)).foregroundStyle(.secondary) }
+                                ForEach(skipped, id: \.self) { Text($0).scaledFont(10, design: .monospaced).foregroundStyle(.secondary) }
                             }
                             .tint(Theme.warn)
                         }

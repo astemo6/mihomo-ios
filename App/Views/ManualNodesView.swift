@@ -99,7 +99,7 @@ struct ManualNodesView: View {
         .sheet(isPresented: $showPasteSheet) {
             NavigationStack {
                 TextEditor(text: $pasteText)
-                    .font(.system(size: 13, design: .monospaced))
+                    .scaledFont(13, design: .monospaced)
                     .autocorrectionDisabled().textInputAutocapitalization(.never)
                     .padding(8)
                     .navigationTitle("粘贴节点")

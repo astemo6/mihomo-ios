@@ -91,3 +91,31 @@ struct LoadingRow: View {
         }
     }
 }
+
+/// A fixed point size that still follows Dynamic Type (badges, monospaced logs). Default size looks
+/// exactly like `.system(size:)`; larger text settings scale it relative to the closest text style.
+struct ScaledSystemFont: ViewModifier {
+    @ScaledMetric private var size: CGFloat
+    let weight: Font.Weight
+    let design: Font.Design
+    let monospacedDigit: Bool
+
+    init(size: CGFloat, weight: Font.Weight, design: Font.Design, monospacedDigit: Bool) {
+        let style: Font.TextStyle = size <= 11 ? .caption2 : (size <= 13 ? .footnote : .body)
+        _size = ScaledMetric(wrappedValue: size, relativeTo: style)
+        self.weight = weight
+        self.design = design
+        self.monospacedDigit = monospacedDigit
+    }
+
+    func body(content: Content) -> some View {
+        let f = Font.system(size: size, weight: weight, design: design)
+        return content.font(monospacedDigit ? f.monospacedDigit() : f)
+    }
+}
+
+extension View {
+    func scaledFont(_ size: CGFloat, weight: Font.Weight = .regular, design: Font.Design = .default, monospacedDigit: Bool = false) -> some View {
+        modifier(ScaledSystemFont(size: size, weight: weight, design: design, monospacedDigit: monospacedDigit))
+    }
+}

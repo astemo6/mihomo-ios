@@ -140,12 +140,12 @@ struct ConnectionRow: View {
         VStack(alignment: .leading, spacing: 5) {
             HStack(spacing: 6) {
                 Text((c.metadata.network ?? "tcp").uppercased())
-                    .font(.system(size: 9, weight: .bold))
+                    .scaledFont(9, weight: .bold)
                     .padding(.horizontal, 5).padding(.vertical, 2)
                     .background(Capsule().fill((c.metadata.network == "udp" ? Color.purple : Theme.accent).opacity(0.2)))
                 if isMitM {
                     Text(c.metadata.destinationPort == "80" ? "HTTP" : "MitM")
-                        .font(.system(size: 9, weight: .bold))
+                        .scaledFont(9, weight: .bold)
                         .padding(.horizontal, 5).padding(.vertical, 2)
                         .background(Capsule().fill(Theme.warn.opacity(0.2)))
                         .foregroundStyle(Theme.warn)

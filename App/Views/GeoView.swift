@@ -261,7 +261,7 @@ struct GeoView: View {
             if f.exists == true { return ("已安装", Theme.good) }
             return ("未安装", Theme.warn)
         }()
-        return Text(LocalizedStringKey(text)).font(.system(size: 10, weight: .bold))
+        return Text(LocalizedStringKey(text)).scaledFont(10, weight: .bold)
             .padding(.horizontal, 7).padding(.vertical, 3)
             .background(Capsule().fill(color.opacity(0.18)))
             .foregroundStyle(color)
@@ -328,9 +328,9 @@ struct GeoView: View {
                     .font(.caption2.weight(.semibold))
                     .buttonStyle(.borderless)
                 }
-                Text(model.effectiveURL(f.kind)).font(.system(size: 9, design: .monospaced)).foregroundStyle(.secondary).lineLimit(2).textSelection(.enabled)
+                Text(model.effectiveURL(f.kind)).scaledFont(9, design: .monospaced).foregroundStyle(.secondary).lineLimit(2).textSelection(.enabled)
                 if custom != nil {
-                    Text("默认：\(model.defaultURL(f.kind))").font(.system(size: 9, design: .monospaced)).foregroundStyle(Color.secondary.opacity(0.7)).lineLimit(1).truncationMode(.middle)
+                    Text("默认：\(model.defaultURL(f.kind))").scaledFont(9, design: .monospaced).foregroundStyle(Color.secondary.opacity(0.7)).lineLimit(1).truncationMode(.middle)
                 }
             }
             .padding(10)

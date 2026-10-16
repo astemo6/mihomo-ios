@@ -18,11 +18,11 @@ struct IPInfoCard: View {
                 VStack(alignment: .leading, spacing: 1) {
                     HStack(spacing: 6) {
                         Text(ip.exit?.ip ?? (ip.loading ? "正在查询…" : (ip.failed ? "查询失败" : "—")))
-                            .font(.system(size: 17, weight: .semibold, design: .monospaced))
+                            .scaledFont(17, weight: .semibold, design: .monospaced)
                             .lineLimit(1)
                             .minimumScaleFactor(0.6)
                         Image(systemName: "arrow.clockwise")
-                            .font(.system(size: 11, weight: .bold))
+                            .scaledFont(11, weight: .bold)
                             .foregroundStyle(.secondary)
                             .rotationEffect(.degrees(spin ? 360 : 0))
                             .animation(ip.loading ? .linear(duration: 0.8).repeatForever(autoreverses: false) : .default, value: spin)
@@ -35,7 +35,7 @@ struct IPInfoCard: View {
             }
             HStack(spacing: 6) {
                 Text(ip.exit?.asn ?? "AS —")
-                    .font(.system(size: 11, weight: .bold, design: .monospaced))
+                    .scaledFont(11, weight: .bold, design: .monospaced)
                     .padding(.horizontal, 6).padding(.vertical, 2)
                     .background(Capsule().fill(Theme.accent.opacity(0.18)))
                     .foregroundStyle(Theme.accent)
@@ -47,13 +47,13 @@ struct IPInfoCard: View {
             if vpn.isConnected, let d = ip.direct {
                 HStack(spacing: 4) {
                     Text("直连")
-                        .font(.system(size: 10, weight: .semibold))
+                        .scaledFont(10, weight: .semibold)
                         .padding(.horizontal, 5).padding(.vertical, 1)
                         .background(Capsule().stroke(Color.secondary.opacity(0.6)))
                     Text("\(d.flag) \(d.ip)")
-                        .font(.system(size: 11, design: .monospaced))
-                    if let a = d.asn { Text(a).font(.system(size: 10, design: .monospaced)) }
-                    if let o = d.org { Text(o).font(.system(size: 10)).lineLimit(1) }
+                        .scaledFont(11, design: .monospaced)
+                    if let a = d.asn { Text(a).scaledFont(10, design: .monospaced) }
+                    if let o = d.org { Text(o).scaledFont(10).lineLimit(1) }
                 }
                 .foregroundStyle(.secondary)
             }

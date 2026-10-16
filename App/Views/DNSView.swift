@@ -87,7 +87,7 @@ struct LinesField: View {
         VStack(alignment: .leading, spacing: 4) {
             Text(LocalizedStringKey(title)).font(.caption.weight(.semibold)).foregroundStyle(.secondary)
             TextField(placeholder, text: $text, axis: .vertical)
-                .font(.system(size: 12, design: .monospaced))
+                .scaledFont(12, design: .monospaced)
                 .textInputAutocapitalization(.never).autocorrectionDisabled()
                 .lineLimit(1...8)
                 .onAppear { text = lines.joined(separator: "\n") }
@@ -145,7 +145,7 @@ struct DNSView: View {
                 Section {
                     ForEach(s.policy) { p in
                         VStack(alignment: .leading, spacing: 2) {
-                            Text(p.match).font(.system(size: 12, design: .monospaced))
+                            Text(p.match).scaledFont(12, design: .monospaced)
                             Text(p.servers.joined(separator: ", ")).font(.caption2).foregroundStyle(.secondary)
                         }
                     }

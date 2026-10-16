@@ -149,10 +149,10 @@ struct LogsView: View {
                         List(shown) { l in
                             VStack(alignment: .leading, spacing: 2) {
                                 HStack {
-                                    Text(l.level.uppercased()).font(.system(size: 9, weight: .bold)).foregroundStyle(color(l.level))
-                                    Text(l.time.formatted(date: .omitted, time: .standard)).font(.system(size: 9).monospacedDigit()).foregroundStyle(.secondary)
+                                    Text(l.level.uppercased()).scaledFont(9, weight: .bold).foregroundStyle(color(l.level))
+                                    Text(l.time.formatted(date: .omitted, time: .standard)).scaledFont(9, monospacedDigit: true).foregroundStyle(.secondary)
                                 }
-                                Text(l.message).font(.system(size: 11, design: .monospaced)).textSelection(.enabled)
+                                Text(l.message).scaledFont(11, design: .monospaced).textSelection(.enabled)
                             }
                             .id(l.id)
                             .listRowBackground(Theme.card)

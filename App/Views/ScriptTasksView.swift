@@ -175,7 +175,7 @@ struct ScriptTasksView: View {
             }
             if let c = t.cron, !c.isEmpty {
                 HStack(spacing: 8) {
-                    Text(c).font(.system(size: 11, design: .monospaced))
+                    Text(c).scaledFont(11, design: .monospaced)
                     if let n = t.nextRun, n > 0 {
                         Text("下次 \(Date(timeIntervalSince1970: n).formatted(date: .abbreviated, time: .shortened))")
                             .font(.caption2).foregroundStyle(.secondary)
@@ -190,7 +190,7 @@ struct ScriptTasksView: View {
                         .font(.caption2).foregroundStyle(.secondary)
                 }
                 if let r = t.lastResult, !r.isEmpty {
-                    Text(r).font(.system(size: 10, design: .monospaced)).foregroundStyle(t.lastOK ? Color.secondary : Theme.bad).lineLimit(3)
+                    Text(r).scaledFont(10, design: .monospaced).foregroundStyle(t.lastOK ? Color.secondary : Theme.bad).lineLimit(3)
                 }
             }
             Text(t.source).font(.caption2).foregroundStyle(.secondary)
@@ -221,7 +221,7 @@ struct FormatBadge: View {
     let format: String
     var body: some View {
         Text(format.uppercased() == "QX" ? "QX" : format.capitalized)
-            .font(.system(size: 9, weight: .bold))
+            .scaledFont(9, weight: .bold)
             .padding(.horizontal, 5).padding(.vertical, 2)
             .background(Capsule().stroke(Color.secondary.opacity(0.5)))
             .foregroundStyle(.secondary)

@@ -205,7 +205,7 @@ struct CustomRuleRow: View {
     var body: some View {
         HStack(alignment: .top) {
             VStack(alignment: .leading, spacing: 4) {
-                Text(rule.line).font(.system(size: 12, design: .monospaced)).lineLimit(3)
+                Text(rule.line).scaledFont(12, design: .monospaced).lineLimit(3)
                 RuleCheckLine(check: check)
             }
             Spacer()
@@ -224,7 +224,7 @@ struct RuleCheckLine: View {
             } else {
                 VStack(alignment: .leading, spacing: 2) {
                     if let r = c.rule, !r.isEmpty {
-                        Label(r, systemImage: "checkmark.circle.fill").font(.system(size: 10, design: .monospaced)).foregroundStyle(Theme.good).lineLimit(2)
+                        Label(r, systemImage: "checkmark.circle.fill").scaledFont(10, design: .monospaced).foregroundStyle(Theme.good).lineLimit(2)
                     }
                     if let u = c.unresolved, !u.isEmpty {
                         Label("配置里没有策略「\(u)」，改用 \(c.policy ?? "第一个手动组")", systemImage: "exclamationmark.triangle.fill").font(.caption2).foregroundStyle(Theme.warn)
@@ -259,7 +259,7 @@ struct CustomRuleEditor: View {
             Form {
                 Section {
                     TextField("规则", text: $rule.line, axis: .vertical)
-                        .font(.system(size: 13, design: .monospaced))
+                        .scaledFont(13, design: .monospaced)
                         .textInputAutocapitalization(.never).autocorrectionDisabled()
                         .lineLimit(1...5)
                     if checking { ProgressView().controlSize(.small) } else { RuleCheckLine(check: check) }
@@ -283,7 +283,7 @@ struct CustomRuleEditor: View {
                         Button {
                             rule.line = ex.components(separatedBy: "          ").first ?? ex
                         } label: {
-                            Text(ex).font(.system(size: 11, design: .monospaced)).foregroundStyle(.secondary)
+                            Text(ex).scaledFont(11, design: .monospaced).foregroundStyle(.secondary)
                         }
                     }
                 }
@@ -461,7 +461,7 @@ struct OfflineProviderRow: View {
                 Text(p.vehicle == "inline" ? "内联" : "尚未下载（连接后由内核下载）").font(.caption2).foregroundStyle(Theme.warn)
             }
             if let u = p.url, !u.isEmpty {
-                Text(u).font(.system(size: 9, design: .monospaced)).foregroundStyle(.secondary).lineLimit(1).truncationMode(.middle)
+                Text(u).scaledFont(9, design: .monospaced).foregroundStyle(.secondary).lineLimit(1).truncationMode(.middle)
             }
         }
     }
@@ -478,7 +478,7 @@ struct OfflineProviderDetail: View {
                 if let f = p.format, !f.isEmpty { LabeledContent("格式", value: f) }
                 if let i = p.interval, i > 0 { LabeledContent("更新间隔", value: "\(i / 3600) 小时") }
                 if let u = p.url, !u.isEmpty {
-                    Text(u).font(.system(size: 10, design: .monospaced)).foregroundStyle(.secondary).textSelection(.enabled)
+                    Text(u).scaledFont(10, design: .monospaced).foregroundStyle(.secondary).textSelection(.enabled)
                 }
                 if let c = p.cachePath, !c.isEmpty {
                     LabeledContent("缓存文件", value: (c as NSString).lastPathComponent)
@@ -496,7 +496,7 @@ struct OfflineProviderDetail: View {
             if let lines = p.preview, !lines.isEmpty {
                 Section("缓存内容（前 \(lines.count) 行）") {
                     ForEach(Array(lines.enumerated()), id: \.offset) { _, l in
-                        Text(l).font(.system(size: 10, design: .monospaced))
+                        Text(l).scaledFont(10, design: .monospaced)
                     }
                 }
                 .listRowBackground(Theme.card)

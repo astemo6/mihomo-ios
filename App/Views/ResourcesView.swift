@@ -134,7 +134,7 @@ struct ResourceKindBadge: View {
             }
         }()
         Text(LocalizedStringKey(t))
-            .font(.system(size: 9, weight: .bold))
+            .scaledFont(9, weight: .bold)
             .padding(.horizontal, 5).padding(.vertical, 2)
             .background(Capsule().fill(c.opacity(0.18)))
             .foregroundStyle(c)
@@ -156,7 +156,7 @@ struct SourceFormatBadge: View {
             }
         }()
         Text(label)
-            .font(.system(size: 8, weight: .bold))
+            .scaledFont(8, weight: .bold)
             .padding(.horizontal, 4).padding(.vertical, 1)
             .background(Capsule().fill(Color.white.opacity(0.1)))
     }
@@ -216,7 +216,7 @@ struct ResourceUpdateSection: View {
     var body: some View {
         if let it = res.items.first(where: { $0.key == key }), it.isRemote {
             Section("更新") {
-                Text(it.url).font(.system(size: 10, design: .monospaced)).foregroundStyle(.secondary).textSelection(.enabled)
+                Text(it.url).scaledFont(10, design: .monospaced).foregroundStyle(.secondary).textSelection(.enabled)
                 if it.readOnly == true {
                     LabeledContent("更新间隔", value: ResourceDetailView.intervalText(it.interval))
                 } else {

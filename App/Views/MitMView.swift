@@ -24,7 +24,7 @@ struct KindBadge: View {
     var body: some View {
         let (t, c) = Self.style(kind, phase)
         Text(LocalizedStringKey(t))
-            .font(.system(size: 9, weight: .bold))
+            .scaledFont(9, weight: .bold)
             .padding(.horizontal, 5).padding(.vertical, 2)
             .background(Capsule().fill(c.opacity(0.18)))
             .foregroundStyle(c)
@@ -188,7 +188,7 @@ struct MitMView: View {
                 LabeledContent("有效期至", value: store.caInfo.notAfter ?? "")
                 VStack(alignment: .leading, spacing: 2) {
                     Text("SHA-256 指纹").font(.caption).foregroundStyle(.secondary)
-                    Text(store.caInfo.fingerprint ?? "").font(.system(size: 10, design: .monospaced)).textSelection(.enabled)
+                    Text(store.caInfo.fingerprint ?? "").scaledFont(10, design: .monospaced).textSelection(.enabled)
                 }
                 Button { store.installViaSafari() } label: { Label("安装证书（通过 Safari）", systemImage: "safari") }
                 Button { if let u = store.mobileConfigFile() { share = ShareItem(url: u) } } label: {
@@ -351,7 +351,7 @@ struct RuleRow: View {
                     KindBadge(kind: d.kind, phase: item.line.lowercased().contains("response") ? "response" : "request")
                     Text(d.desc).font(.caption.weight(.semibold)).foregroundStyle(d.error == nil ? Color.primary : Theme.bad).lineLimit(1)
                 }
-                Text(item.line).font(.system(size: 11, design: .monospaced)).foregroundStyle(.secondary).lineLimit(3)
+                Text(item.line).scaledFont(11, design: .monospaced).foregroundStyle(.secondary).lineLimit(3)
                 if let e = d.error { Text(e).font(.caption2).foregroundStyle(Theme.bad) }
             }
             Spacer(minLength: 4)
@@ -377,7 +377,7 @@ struct SyntaxHelp: View {
         ForEach(samples, id: \.0) { s in
             VStack(alignment: .leading, spacing: 2) {
                 Text(s.0).font(.caption2.weight(.semibold)).foregroundStyle(.secondary)
-                Text(s.1).font(.system(size: 10, design: .monospaced)).textSelection(.enabled)
+                Text(s.1).scaledFont(10, design: .monospaced).textSelection(.enabled)
             }
         }
         Text("动作：reject / reject-200 / reject-img / reject-dict / reject-array / reject-drop / 302 / 307 / header；头部：header-add / header-del / header-replace / header-replace-regex。").font(.caption2).foregroundStyle(.secondary)
@@ -405,7 +405,7 @@ struct LineEditorSheet: View {
             Form {
                 Section {
                     TextEditor(text: $text)
-                        .font(.system(size: 12, design: .monospaced))
+                        .scaledFont(12, design: .monospaced)
                         .frame(minHeight: 160)
                         .textInputAutocapitalization(.never)
                         .autocorrectionDisabled()
@@ -561,7 +561,7 @@ struct ScriptFormSheet: View {
             Form {
                 if rawMode {
                     Section("脚本行（Quantumult X / Loon 等非 Surge 语法）") {
-                        TextEditor(text: $rawLine).font(.system(size: 12, design: .monospaced)).frame(minHeight: 120)
+                        TextEditor(text: $rawLine).scaledFont(12, design: .monospaced).frame(minHeight: 120)
                             .textInputAutocapitalization(.never).autocorrectionDisabled()
                         let d = EngineStore.describe(rawLine, section: "script")
                         Text(d.error ?? d.desc).font(.caption).foregroundStyle(d.error == nil ? Color.secondary : Theme.bad)
@@ -591,13 +591,13 @@ struct ScriptFormSheet: View {
                         if source == 1 {
                             TextField("https://…/script.js", text: $path).keyboardType(.URL).textInputAutocapitalization(.never).autocorrectionDisabled()
                         } else {
-                            TextEditor(text: $code).font(.system(size: 12, design: .monospaced)).frame(minHeight: 220)
+                            TextEditor(text: $code).scaledFont(12, design: .monospaced).frame(minHeight: 220)
                                 .textInputAutocapitalization(.never).autocorrectionDisabled()
                             Text("保存为 \(scriptPath)").font(.caption2).foregroundStyle(.secondary)
                         }
                     }
                     Section("生成的脚本行") {
-                        Text(line).font(.system(size: 10, design: .monospaced)).textSelection(.enabled)
+                        Text(line).scaledFont(10, design: .monospaced).textSelection(.enabled)
                     }
                 }
             }
@@ -707,7 +707,7 @@ struct LocalScriptEditor: View {
     @State private var saved = false
     var body: some View {
         TextEditor(text: $code)
-            .font(.system(size: 12, design: .monospaced))
+            .scaledFont(12, design: .monospaced)
             .textInputAutocapitalization(.never).autocorrectionDisabled()
             .scrollContentBackground(.hidden)
             .background(Theme.card)
@@ -736,12 +736,12 @@ struct ScriptLogsView: View {
                 List(shown.reversed()) { l in
                     VStack(alignment: .leading, spacing: 2) {
                         HStack(spacing: 6) {
-                            Text(l.level.uppercased()).font(.system(size: 9, weight: .bold)).foregroundStyle(color(l.level))
+                            Text(l.level.uppercased()).scaledFont(9, weight: .bold).foregroundStyle(color(l.level))
                             Text(l.script).font(.caption2.weight(.semibold)).foregroundStyle(Theme.accent)
                             Spacer()
-                            Text(Date(timeIntervalSince1970: l.time).formatted(date: .omitted, time: .standard)).font(.system(size: 9).monospacedDigit()).foregroundStyle(.secondary)
+                            Text(Date(timeIntervalSince1970: l.time).formatted(date: .omitted, time: .standard)).scaledFont(9, monospacedDigit: true).foregroundStyle(.secondary)
                         }
-                        Text(l.msg).font(.system(size: 11, design: .monospaced)).textSelection(.enabled)
+                        Text(l.msg).scaledFont(11, design: .monospaced).textSelection(.enabled)
                     }
                     .listRowBackground(Theme.card)
                 }
@@ -793,7 +793,7 @@ struct StoreView: View {
                 let v = kv.1
                 VStack(alignment: .leading, spacing: 3) {
                     Text(k).font(.caption.weight(.semibold))
-                    Text(v).font(.system(size: 11, design: .monospaced)).foregroundStyle(.secondary).lineLimit(4)
+                    Text(v).scaledFont(11, design: .monospaced).foregroundStyle(.secondary).lineLimit(4)
                 }
                 .contentShape(Rectangle())
                 .onTapGesture { editKey = k; editValue = v }
@@ -813,7 +813,7 @@ struct StoreView: View {
                 Form {
                     if adding { TextField("键", text: $newKey).textInputAutocapitalization(.never).autocorrectionDisabled() }
                     Section("值") {
-                        TextEditor(text: $editValue).font(.system(size: 12, design: .monospaced)).frame(minHeight: 200)
+                        TextEditor(text: $editValue).scaledFont(12, design: .monospaced).frame(minHeight: 200)
                             .textInputAutocapitalization(.never).autocorrectionDisabled()
                     }
                 }
@@ -845,7 +845,7 @@ struct PasteModuleSheet: View {
         NavigationStack {
             Form {
                 TextField("名称", text: $name)
-                TextEditor(text: $text).font(.system(size: 12, design: .monospaced)).frame(minHeight: 260)
+                TextEditor(text: $text).scaledFont(12, design: .monospaced).frame(minHeight: 260)
                     .textInputAutocapitalization(.never).autocorrectionDisabled()
             }
             .navigationTitle("粘贴模块").navigationBarTitleDisplayMode(.inline)
@@ -954,7 +954,7 @@ struct ModuleDetailView: View {
                 if let info {
                     if !info.hostnames.isEmpty {
                         Section("MitM 主机名 \(info.hostnames.count)") {
-                            Text(info.hostnames.joined(separator: ", ")).font(.system(size: 11, design: .monospaced))
+                            Text(info.hostnames.joined(separator: ", ")).scaledFont(11, design: .monospaced)
                         }.listRowBackground(Theme.card)
                     }
                     Section("规则 / 脚本 \(info.rules.count)") {
@@ -962,7 +962,7 @@ struct ModuleDetailView: View {
                             let r = e.element
                             VStack(alignment: .leading, spacing: 3) {
                                 HStack { KindBadge(kind: r.kind, phase: r.phase); Text(r.desc).font(.caption.weight(.semibold)).lineLimit(1) }
-                                Text(r.pattern).font(.system(size: 10, design: .monospaced)).foregroundStyle(.secondary).lineLimit(2)
+                                Text(r.pattern).scaledFont(10, design: .monospaced).foregroundStyle(.secondary).lineLimit(2)
                             }
                         }
                     }.listRowBackground(Theme.card)
@@ -971,7 +971,7 @@ struct ModuleDetailView: View {
                             ForEach(Array(tasks.enumerated()), id: \.offset) { e in
                                 VStack(alignment: .leading, spacing: 3) {
                                     HStack { KindBadge(kind: e.element.kind); Text(e.element.name).font(.caption.weight(.semibold)).lineLimit(1) }
-                                    Text(e.element.desc).font(.system(size: 10, design: .monospaced)).foregroundStyle(.secondary).lineLimit(2)
+                                    Text(e.element.desc).scaledFont(10, design: .monospaced).foregroundStyle(.secondary).lineLimit(2)
                                 }
                             }
                             NavigationLink { ScriptTasksView() } label: { Label("查看运行状态", systemImage: "clock.arrow.circlepath").font(.caption) }
@@ -987,13 +987,13 @@ struct ModuleDetailView: View {
                     }
                     if !info.coreRules.isEmpty {
                         Section("内核规则 \(info.coreRules.count)") {
-                            ForEach(info.coreRules.prefix(200), id: \.self) { Text($0).font(.system(size: 10, design: .monospaced)) }
+                            ForEach(info.coreRules.prefix(200), id: \.self) { Text($0).scaledFont(10, design: .monospaced) }
                         }.listRowBackground(Theme.card)
                     }
                     if !info.errors.isEmpty || !info.unsupported.isEmpty {
                         Section("未导入 \(info.errors.count + info.unsupported.count)") {
                             ForEach(info.errors, id: \.self) { Text($0).font(.caption2).foregroundStyle(Theme.bad) }
-                            ForEach(info.unsupported.prefix(100), id: \.self) { Text($0).font(.system(size: 10, design: .monospaced)).foregroundStyle(.secondary) }
+                            ForEach(info.unsupported.prefix(100), id: \.self) { Text($0).scaledFont(10, design: .monospaced).foregroundStyle(.secondary) }
                         }.listRowBackground(Theme.card)
                     }
                 }
@@ -1007,7 +1007,7 @@ struct ModuleDetailView: View {
         .sheet(isPresented: $showText) {
             NavigationStack {
                 ScrollView {
-                    Text(module.map { store.moduleText($0) } ?? "").font(.system(size: 11, design: .monospaced)).textSelection(.enabled).padding()
+                    Text(module.map { store.moduleText($0) } ?? "").scaledFont(11, design: .monospaced).textSelection(.enabled).padding()
                 }
                 .navigationTitle("内容").navigationBarTitleDisplayMode(.inline)
                 .toolbar { Button("完成") { showText = false } }
@@ -1052,17 +1052,17 @@ struct HTTPRequestRow: View {
     var body: some View {
         VStack(alignment: .leading, spacing: 4) {
             HStack(spacing: 6) {
-                Text(r.method).font(.system(size: 9, weight: .bold))
+                Text(r.method).scaledFont(9, weight: .bold)
                     .padding(.horizontal, 5).padding(.vertical, 2)
                     .background(Capsule().fill(Theme.accent.opacity(0.2)))
-                if r.mitm { Text("MitM").font(.system(size: 9, weight: .bold)).foregroundStyle(Theme.warn) }
+                if r.mitm { Text("MitM").scaledFont(9, weight: .bold).foregroundStyle(Theme.warn) }
                 Text(r.host).font(.system(.footnote, design: .monospaced)).lineLimit(1)
                 Spacer()
                 Text(r.status > 0 ? "\(r.status)" : (r.done ? "—" : "…"))
                     .font(.caption.monospacedDigit().weight(.semibold))
                     .foregroundStyle(r.status >= 400 || r.status == 0 && r.done ? Theme.bad : (r.status >= 300 ? Theme.warn : Theme.good))
             }
-            Text(r.path).font(.system(size: 11, design: .monospaced)).foregroundStyle(.secondary).lineLimit(2).truncationMode(.middle)
+            Text(r.path).scaledFont(11, design: .monospaced).foregroundStyle(.secondary).lineLimit(2).truncationMode(.middle)
             if let m = r.matched, !m.isEmpty {
                 Text(m.joined(separator: " · ")).font(.caption2).foregroundStyle(Theme.accent).lineLimit(2)
             }
@@ -1093,7 +1093,7 @@ struct HTTPRequestDetailView: View {
         List {
             if let d {
                 Section {
-                    Text(d.url).font(.system(size: 11, design: .monospaced)).textSelection(.enabled)
+                    Text(d.url).scaledFont(11, design: .monospaced).textSelection(.enabled)
                     LabeledContent("方法 / 状态", value: "\(d.method) · \(d.status)")
                     if let du = d.duration { LabeledContent("耗时", value: "\(Int(du)) ms") }
                     LabeledContent("大小", value: Fmt.bytes(d.bytes))
@@ -1135,7 +1135,7 @@ struct HTTPRequestDetailView: View {
                     ForEach(headers.keys.sorted(), id: \.self) { k in
                         VStack(alignment: .leading, spacing: 1) {
                             Text(k).font(.caption2.weight(.semibold)).foregroundStyle(.secondary)
-                            Text(headers[k] ?? "").font(.system(size: 11, design: .monospaced)).textSelection(.enabled)
+                            Text(headers[k] ?? "").scaledFont(11, design: .monospaced).textSelection(.enabled)
                         }
                     }
                 }
@@ -1144,7 +1144,7 @@ struct HTTPRequestDetailView: View {
                     let content = tab == 0 ? d.reqBody : d.respBody
                     let bin = tab == 0 ? d.reqBodyBinary : d.respBodyBinary
                     if let content, !content.isEmpty {
-                        Text(Self.pretty(content)).font(.system(size: 11, design: .monospaced)).textSelection(.enabled)
+                        Text(Self.pretty(content)).scaledFont(11, design: .monospaced).textSelection(.enabled)
                         Button { UIPasteboard.general.string = content } label: { Label("复制", systemImage: "doc.on.doc") }
                     } else if let bin, bin > 0 {
                         Text("二进制或压缩内容（\(Fmt.bytes(Int64(bin)))\(d.respEncoding.map { "，\($0)" } ?? "")）").font(.caption).foregroundStyle(.secondary)
@@ -1204,10 +1204,10 @@ struct ReplayResultView: View {
             }
             if showBody {
                 ForEach(r.headers.keys.sorted(), id: \.self) { k in
-                    Text("\(k): \(r.headers[k] ?? "")").font(.system(size: 10, design: .monospaced)).foregroundStyle(.secondary).textSelection(.enabled)
+                    Text("\(k): \(r.headers[k] ?? "")").scaledFont(10, design: .monospaced).foregroundStyle(.secondary).textSelection(.enabled)
                 }
                 if let b = r.body, !b.isEmpty {
-                    Text(HTTPRequestDetailView.pretty(b)).font(.system(size: 11, design: .monospaced)).textSelection(.enabled)
+                    Text(HTTPRequestDetailView.pretty(b)).scaledFont(11, design: .monospaced).textSelection(.enabled)
                 } else if let bin = r.binary, bin > 0 {
                     Text("二进制内容（\(Fmt.bytes(Int64(bin)))）").font(.caption).foregroundStyle(.secondary)
                 }
@@ -1229,15 +1229,15 @@ struct ReplayEditor: View {
         Form {
             Section("请求行") {
                 TextField("方法", text: $method).textInputAutocapitalization(.characters).autocorrectionDisabled()
-                TextField("URL", text: $url, axis: .vertical).font(.system(size: 12, design: .monospaced))
+                TextField("URL", text: $url, axis: .vertical).scaledFont(12, design: .monospaced)
                     .textInputAutocapitalization(.never).autocorrectionDisabled()
             }
             Section {
-                TextEditor(text: $headers).font(.system(size: 11, design: .monospaced)).frame(minHeight: 140)
+                TextEditor(text: $headers).scaledFont(11, design: .monospaced).frame(minHeight: 140)
                     .textInputAutocapitalization(.never).autocorrectionDisabled()
             } header: { Text("头部（每行 名称: 值）") }
             Section("内容") {
-                TextEditor(text: $bodyText).font(.system(size: 11, design: .monospaced)).frame(minHeight: 120)
+                TextEditor(text: $bodyText).scaledFont(11, design: .monospaced).frame(minHeight: 120)
                     .textInputAutocapitalization(.never).autocorrectionDisabled()
             }
         }

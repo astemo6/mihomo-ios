@@ -354,7 +354,7 @@ struct YAMLEditorView: View {
                         .frame(maxWidth: .infinity, alignment: .leading)
                 }
                 TextEditor(text: $text)
-                    .font(.system(size: 13, design: .monospaced))
+                    .scaledFont(13, design: .monospaced)
                     .autocorrectionDisabled()
                     .textInputAutocapitalization(.never)
                     .scrollContentBackground(.hidden)

@@ -335,17 +335,17 @@ struct NodeCell: View {
             HStack {
                 if let t = type {
                     if t == "group" {
-                        Text("策略组").font(.system(size: 9, weight: .bold)).foregroundStyle(.secondary)
+                        Text("策略组").scaledFont(9, weight: .bold).foregroundStyle(.secondary)
                     } else {
                         ProtocolBadge(type: t)
                     }
                 }
                 if udp {
-                    Text("UDP").font(.system(size: 9, weight: .bold)).foregroundStyle(.secondary)
+                    Text("UDP").scaledFont(9, weight: .bold).foregroundStyle(.secondary)
                 }
                 Spacer()
                 Text(Theme.delayText(delay))
-                    .font(.system(size: 11, weight: .semibold).monospacedDigit())
+                    .scaledFont(11, weight: .semibold, monospacedDigit: true)
                     .foregroundStyle(Theme.delayColor(delay))
             }
         }

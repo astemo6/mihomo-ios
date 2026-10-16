@@ -52,7 +52,7 @@ struct StatsView: View {
                                 Text("120 天").tag(120)
                             }
                             .pickerStyle(.segmented)
-                            .frame(width: 200)
+                            .fixedSize()
                         }
                         Chart(bars) { b in
                             BarMark(x: .value("日期", b.date, unit: .day),
@@ -64,13 +64,13 @@ struct StatsView: View {
                             AxisMarks(position: .leading) { v in
                                 AxisGridLine().foregroundStyle(Color.white.opacity(0.08))
                                 AxisValueLabel {
-                                    if let mb = v.as(Double.self) { Text(Fmt.bytes(Int64(mb * 1_048_576))).font(.system(size: 9)) }
+                                    if let mb = v.as(Double.self) { Text(Fmt.bytes(Int64(mb * 1_048_576))).scaledFont(9) }
                                 }
                             }
                         }
                         .chartXAxis {
                             AxisMarks(values: .automatic(desiredCount: range == 7 ? 7 : 5)) { _ in
-                                AxisValueLabel(format: .dateTime.month(.defaultDigits).day(), centered: true).font(.system(size: 9))
+                                AxisValueLabel(format: .dateTime.month(.defaultDigits).day(), centered: true).scaledFont(9)
                             }
                         }
                         .frame(height: 200)

@@ -213,7 +213,7 @@ struct ProtocolBadge: View {
     var body: some View {
         let c = Theme.protocolColor(type)
         Text(ProxyItem.label(for: type))
-            .font(.system(size: 9, weight: .bold))
+            .scaledFont(9, weight: .bold)
             .padding(.horizontal, 5).padding(.vertical, 2)
             .background(Capsule().fill(c.opacity(0.18)))
             .foregroundStyle(c)

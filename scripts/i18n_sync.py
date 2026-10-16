@@ -39,6 +39,17 @@ def todo(strings, lang):
     return [k for k, v in strings.items() if state(v, lang) != "translated"]
 
 
+# OpenCC s2twp picks some terms Taiwanese proxy users don't use; one name per thing (v0.6 audit).
+ZH_HANT_TERMS = [("指令碼", "腳本"), ("擴充套件", "延伸功能"), ("全域性", "全域"), ("全侷", "全域"), ("麵板", "面板"), ("後臺", "背景")]
+
+
+def hant(cc, k):
+    v = cc.convert(k)
+    for a, b in ZH_HANT_TERMS:
+        v = v.replace(a, b)
+    return v
+
+
 def sync(d):
     import opencc
     cc = opencc.OpenCC("s2twp")
@@ -53,7 +64,7 @@ def sync(d):
     for k in sorted(keys):
         if k in strings:
             continue
-        loc = {"zh-Hant": {"stringUnit": {"state": "translated", "value": cc.convert(k)}}}
+        loc = {"zh-Hant": {"stringUnit": {"state": "translated", "value": hant(cc, k)}}}
         for lang in LANGS:
             loc[lang] = {"stringUnit": {"state": "new", "value": k}}
         strings[k] = {"localizations": loc}
