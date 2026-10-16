@@ -1,0 +1,2 @@
+// 由 CI 在有签名 secrets 时覆盖（DEVELOPMENT_TEAM / PROVISIONING_PROFILE_SPECIFIER / CODE_SIGN_IDENTITY）。
+// 本地用 Xcode 构建时可在这里填你的 Team ID 和描述文件名，切勿提交证书或私钥。

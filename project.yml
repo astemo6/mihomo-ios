@@ -13,6 +13,8 @@ settings:
   base:
     APP_BUNDLE_ID: com.astemo6.mihomo
     TUNNEL_BUNDLE_ID: com.astemo6.mihomo.tunnel
+    # Widget + Control Center toggle (v0.7); only in the "-widget" IPA variant. Same convention as the tunnel.
+    WIDGET_BUNDLE_ID: com.astemo6.mihomo.widget
     APP_GROUP_ID: group.com.astemo6.mihomo
     MARKETING_VERSION: "0.7.0"
     CURRENT_PROJECT_VERSION: "1"
@@ -50,6 +52,8 @@ targets:
       Release: Config/App.signing.xcconfig
     dependencies:
       - target: PacketTunnel
+        embed: true
+      - target: MihomoWidget
         embed: true
       - framework: Frameworks/Libmihomo.xcframework
         embed: false
@@ -90,11 +94,40 @@ targets:
         APPLICATION_EXTENSION_API_ONLY: YES
         SKIP_INSTALL: YES
 
+  MihomoWidget:
+    type: app-extension
+    platform: iOS
+    deploymentTarget: "17.0"
+    sources:
+      - path: Widget
+        excludes: ["**/*.entitlements"]
+      - path: Shared
+      - path: App/Localizable.xcstrings
+        buildPhase: resources
+    configFiles:
+      Debug: Config/Widget.signing.xcconfig
+      Release: Config/Widget.signing.xcconfig
+    dependencies:
+      - sdk: WidgetKit.framework
+      - sdk: SwiftUI.framework
+      - sdk: AppIntents.framework
+      - sdk: NetworkExtension.framework
+    settings:
+      base:
+        PRODUCT_NAME: MihomoWidget
+        PRODUCT_BUNDLE_IDENTIFIER: $(WIDGET_BUNDLE_ID)
+        INFOPLIST_FILE: Widget/Info.plist
+        CODE_SIGN_ENTITLEMENTS: Widget/MihomoWidget.entitlements
+        IPHONEOS_DEPLOYMENT_TARGET: "17.0"
+        APPLICATION_EXTENSION_API_ONLY: YES
+        SKIP_INSTALL: YES
+
 schemes:
   Mihomo:
     build:
       targets:
         Mihomo: all
         PacketTunnel: all
+        MihomoWidget: all
     archive:
       config: Release
