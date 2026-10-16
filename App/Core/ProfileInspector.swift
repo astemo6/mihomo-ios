@@ -169,7 +169,10 @@ final class ProfileInspector: ObservableObject {
         testing.insert(g.name)
         defer { testing.remove(g.name) }
         let home = AppShared.homeURL.path
-        let url = g.url?.isEmpty == false ? g.url! : ControllerClient.testURL
+        // The 测速 setting, not the group's own URL: manual tests use one URL everywhere (live too).
+        let st = ControllerClient.testSettings
+        let url = st.url
+        let timeout = st.timeoutMs
         let names = members(of: g).filter { nodeIndex[$0] != nil && !["DIRECT", "REJECT"].contains($0) }
         var idx = 0
         while idx < names.count {
@@ -177,7 +180,7 @@ final class ProfileInspector: ObservableObject {
             idx += batch.count
             let got = await withTaskGroup(of: (String, Int).self, returning: [(String, Int)].self) { tg in
                 for n in batch {
-                    tg.addTask { (n, Int(LibmihomoTestDelayByName(home, path, n, url, 5000))) }
+                    tg.addTask { (n, Int(LibmihomoTestDelayByName(home, path, n, url, timeout))) }
                 }
                 var out: [(String, Int)] = []
                 for await r in tg { out.append(r) }

@@ -65,7 +65,7 @@ struct IPInfoCard: View {
         )
         .overlay(
             RoundedRectangle(cornerRadius: 16, style: .continuous)
-                .stroke(vpn.isConnected ? Theme.accent.opacity(0.45) : Color.white.opacity(0.08), lineWidth: 1)
+                .stroke(Color.white.opacity(0.08), lineWidth: 1)
         )
         .overlay(alignment: .topTrailing) {
             if copied {
