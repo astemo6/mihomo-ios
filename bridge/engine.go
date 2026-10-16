@@ -86,6 +86,21 @@ func engineLog(level, msg string) {
 // the config injector. Nothing is allocated when MitM / rewrite / scripts are all off.
 func prepareEngine(home string) (func(raw map[string]any), error) {
 	cfg := mitm.LoadConfig(home)
+	inject, err := prepareEngineWith(home, cfg)
+	if cfg.QUIC != "all" {
+		return inject, err
+	}
+	// Block QUIC for all traffic (user setting); works even when the engine is off.
+	return func(raw map[string]any) {
+		if inject != nil {
+			inject(raw)
+		}
+		rules, _ := raw["rules"].([]any)
+		raw["rules"] = append([]any{mitm.QUICBlockAllRule}, rules...)
+	}, err
+}
+
+func prepareEngineWith(home string, cfg *mitm.Config) (func(raw map[string]any), error) {
 	rs := mitm.Build(home, cfg)
 	needListener := (cfg.MitM && len(rs.Hostnames) > 0) || (cfg.Enabled && len(rs.Rules) > 0)
 	needTasks := cfg.Enabled && (len(rs.Tasks) > 0 || len(rs.Panels) > 0) // cron / event / generic scripts, panels
@@ -106,6 +121,7 @@ func prepareEngine(home string) (func(raw map[string]any), error) {
 		eng = mitm.New(home, coreDial, engineLog)
 		installNotifier(eng)
 		eng.SetGeoLookup(geoLookup)
+		eng.SetAPI(httpAPI)
 		eng.Logs.SetHook(func(l mitm.LogLine) {
 			if l.Level != "debug" {
 				log.Infoln("[Script] %s: %s", l.Script, l.Msg)

@@ -12,6 +12,7 @@ enum ImportAction: Identifiable, Equatable {
     case moduleURL(url: String, source: String)
     case moduleText(name: String, text: String, source: String)
     case confText(name: String, text: String)
+    case nodesText(text: String)
     case connect, disconnect, toggle
     case unsupported(String)
 
@@ -22,6 +23,7 @@ enum ImportAction: Identifiable, Equatable {
         case .moduleURL(let u, _): return "m:" + u
         case .moduleText(let n, _, _): return "mt:" + n
         case .confText(let n, _): return "c:" + n
+        case .nodesText(let t): return "n:" + String(t.prefix(64))
         case .connect: return "connect"
         case .disconnect: return "disconnect"
         case .toggle: return "toggle"
@@ -83,6 +85,13 @@ final class ImportRouter: ObservableObject {
             if action.contains("module"), let u = query(comps, ["url"]) { return .moduleURL(url: u, source: "Surge") }
             if action.contains("config"), let u = query(comps, ["url"]) { return .profileURL(url: u, name: "") }
             return .unsupported(s)
+        case "egern":
+            // egern:/modules/new?url=<url>  egern:/profiles/new?url=<url>  egern:/subscriptions/new?url=<url>
+            if action.hasPrefix("modules"), let u = query(comps, ["url"]) { return .moduleURL(url: u, source: "Egern") }
+            if action.hasPrefix("profiles") || action.hasPrefix("subscriptions"), let u = query(comps, ["url"]) { return .profileURL(url: u, name: query(comps, ["name"]) ?? "") }
+            if action == "start" { return .connect }
+            if action == "stop" { return .disconnect }
+            return .unsupported(s)
         case "quantumult-x":
             // quantumult-x:///add-resource?remote-resource=<url-encoded JSON {"rewrite_remote": ["url, tag=…"], …}>
             if let json = query(comps, ["remote-resource"]), let d = json.data(using: .utf8),
@@ -120,15 +129,60 @@ final class ImportRouter: ObservableObject {
         case "stoverride": return .moduleText(name: name, text: text, source: "Stash")
         case "snippet": return .moduleText(name: name, text: text, source: "Quantumult X")
         case "list": return .moduleText(name: name, text: text, source: "列表")
+        case "module": return .moduleText(name: name, text: text, source: "Surge")
         case "conf": return .confText(name: name, text: text)
-        case "yaml", "yml": return .profileText(name: name, text: text)
+        case "yaml", "yml":
+            // Egern modules and Stash overrides are YAML too.
+            let c = LibmihomoClassifyText(text)
+            if c.hasPrefix("module:") { return .moduleText(name: name, text: text, source: sourceName(c)) }
+            return .profileText(name: name, text: text)
         default:
-            if text.contains("proxies:") || text.contains("proxy-providers:") { return .profileText(name: name, text: text) }
-            return .unsupported("不支持的文件类型 .\(url.pathExtension)")
+            return route(text: text, name: name) ?? .unsupported("不支持的文件类型 .\(url.pathExtension)")
+        }
+    }
+
+    nonisolated static func sourceName(_ classification: String) -> String {
+        switch classification.replacingOccurrences(of: "module:", with: "") {
+        case "egern": return "Egern"
+        case "stash": return "Stash"
+        case "loon": return "Loon"
+        case "qx": return "Quantumult X"
+        default: return "Surge"
+        }
+    }
+
+    nonisolated static let moduleExtensions = ["sgmodule", "plugin", "lpx", "stoverride", "snippet", "module"]
+
+    /// Routes pasted or shared text into the one internal model: an import link, a profile / module URL,
+    /// a profile, a Surge / QX config, a module, or nodes. nil = nothing recognisable.
+    nonisolated static func route(text raw: String, name: String = "") -> ImportAction? {
+        let text = raw.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !text.isEmpty else { return nil }
+        if !text.contains("\n"), let a = parse(text) { return a }
+        if !text.contains("\n"), !text.contains(" "), text.hasPrefix("http://") || text.hasPrefix("https://"), let u = URL(string: text) {
+            let ext = u.pathExtension.lowercased()
+            if moduleExtensions.contains(ext) { return .moduleURL(url: text, source: "URL") }
+            if ext == "js" { return .unsupported("这是一个脚本链接：请在 更多 → 脚本 中添加脚本规则，或导入引用它的模块") }
+            if ext == "list" { return .unsupported("这是一个规则列表：请在 更多 → 模块与资源 → + → 添加远程规则集 中添加") }
+            return .profileURL(url: text, name: name)
+        }
+        let c = LibmihomoClassifyText(text)
+        switch c {
+        case "profile": return .profileText(name: name.isEmpty ? String(localized: "剪贴板配置") : name, text: text)
+        case "conf": return .confText(name: name.isEmpty ? String(localized: "导入的配置") : name, text: text)
+        case "nodes": return .nodesText(text: text)
+        default:
+            if c.hasPrefix("module:") { return .moduleText(name: name.isEmpty ? String(localized: "本地模块") : name, text: text, source: sourceName(c)) }
+            return nil
         }
     }
 
     // MARK: Routing
+
+    /// Text from the paste banner (PasteButton, so iOS shows no paste prompt).
+    func handle(pasted text: String) {
+        if let a = Self.route(text: text) { run(a) } else { pending = .unsupported(String(localized: "剪贴板内容无法识别：支持订阅 / 模块链接、配置、模块内容、节点链接")) }
+    }
 
     func handle(url: URL) {
         if url.isFileURL {
@@ -177,6 +231,8 @@ struct ImportSheet: View {
                 case .moduleText(_, let text, let source):
                     header("\(source) 模块", "puzzlepiece.extension", "\(text.split(separator: "\n").count) 行")
                     TextField("名称", text: $name).listRowBackground(Theme.card)
+                case .nodesText(let text):
+                    header("节点", "server.rack", "\(text.split(separator: "\n").count) 行 → 手动节点")
                 case .confText(_, let text):
                     ConfReportSection(text: text, result: $conf)
                     TextField("配置名称", text: $name).listRowBackground(Theme.card)
@@ -249,6 +305,9 @@ struct ImportSheet: View {
                 result = "已添加模块「\(name)」"
             case .confText(_, let text):
                 result = try await ConfImport.save(text: text, name: name, result: conf, store: store)
+            case .nodesText(let text):
+                let n = try await store.addManualNodes(text: text)
+                result = String(localized: "已添加 \(n) 个节点到手动节点")
             default:
                 break
             }

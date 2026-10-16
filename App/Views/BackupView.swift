@@ -17,7 +17,7 @@ struct BackupFile: Codable {
 enum BackupManager {
     /// Directories / files (relative to the container) that make up a backup.
     static func items(includeCA: Bool) -> [String] {
-        var out = ["profiles.json", "profiles", "mihomo/overrides.json", "mihomo/dns.json", "mihomo/rules.json", "mihomo/subscriptions.json",
+        var out = ["profiles.json", "profiles", "mihomo/overrides.json", "mihomo/dns.json", "mihomo/rules.json", "mihomo/subscriptions.json", "mihomo/groups.json",
                    "mihomo/engine/engine.json", "mihomo/engine/store.json", "mihomo/engine/modules", "mihomo/engine/scripts"]
         if includeCA { out.append("mihomo/engine/ca") }
         return out

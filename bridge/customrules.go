@@ -7,6 +7,7 @@ package libmihomo
 
 import (
 	"bufio"
+	"bytes"
 	"context"
 	"crypto/sha1"
 	"encoding/hex"
@@ -297,9 +298,17 @@ func profileRaw(homeDir, profilePath string) map[string]any {
 
 // convertListText rewrites a Surge / Loon / Stash / QX list into mihomo text for the provider.
 func convertListText(r io.Reader, kind string) (string, int, int) {
+	data, _ := io.ReadAll(r)
+	if mitm.IsEgernRuleSet(string(data)) {
+		lines, skipped := mitm.ConvertEgernRuleSet(string(data))
+		if len(lines) == 0 {
+			return "", 0, skipped
+		}
+		return strings.Join(lines, "\n") + "\n", len(lines), skipped
+	}
 	var sb strings.Builder
 	ok, skipped := 0, 0
-	sc := bufio.NewScanner(r)
+	sc := bufio.NewScanner(bytes.NewReader(data))
 	sc.Buffer(make([]byte, 64<<10), 1<<20)
 	for sc.Scan() {
 		l, good := mitm.ConvertListLine(sc.Text(), kind)

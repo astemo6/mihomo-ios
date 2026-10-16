@@ -384,6 +384,7 @@ func Start(homeDir, configPath string, tunFd int32) error {
 			if n := applySelections(configPath); n > 0 {
 				stage("restored %d saved group selection(s)", n)
 			}
+			startSmart(homeDir, configPath)
 		}
 		done <- err
 	}()
@@ -428,6 +429,7 @@ func Reload(configPath string) error {
 		lastError = err.Error()
 		return err
 	}
+	startSmart(curHome, configPath)
 	return nil
 }
 
@@ -439,6 +441,7 @@ func Stop() {
 		return
 	}
 	stopEngine()
+	stopSmart()
 	executor.Shutdown()
 	running = false
 	if gcStop != nil {

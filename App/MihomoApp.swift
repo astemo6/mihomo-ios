@@ -35,9 +35,44 @@ struct MihomoApp: App {
                     if p == .active {
                         Task { await vpn.load() }
                         Task { await store.autoUpdateIfNeeded() }
+                        Task { await ResourceStore.shared.updateDueIfNeeded() }
                         ipinfo.scheduleRefresh(after: 0.3)
                     }
                 }
+        }
+    }
+}
+
+/// The five top-level sections: a TabView on iPhone (compact width), a NavigationSplitView sidebar on
+/// iPad / regular width. Each section keeps its own NavigationStack, so the views are identical.
+enum AppSection: Int, CaseIterable, Identifiable {
+    case home, policy, requests, profiles, more
+    var id: Int { rawValue }
+    var title: String {
+        switch self {
+        case .home: return "首页"
+        case .policy: return "策略"
+        case .requests: return "请求"
+        case .profiles: return "配置"
+        case .more: return "更多"
+        }
+    }
+    var icon: String {
+        switch self {
+        case .home: return "gauge.with.dots.needle.67percent"
+        case .policy: return "square.grid.2x2.fill"
+        case .requests: return "arrow.left.arrow.right"
+        case .profiles: return "doc.text.fill"
+        case .more: return "ellipsis.circle.fill"
+        }
+    }
+    @ViewBuilder var view: some View {
+        switch self {
+        case .home: HomeView()
+        case .policy: PolicyView()
+        case .requests: RequestsView()
+        case .profiles: ProfilesView()
+        case .more: MoreView()
         }
     }
 }
@@ -46,24 +81,64 @@ struct RootView: View {
     @EnvironmentObject var vpn: VPNManager
     @EnvironmentObject var dash: DashboardModel
     @EnvironmentObject var router: ImportRouter
+    @Environment(\.horizontalSizeClass) private var hSize
+    @Environment(\.scenePhase) private var phase
 
     var body: some View {
-        TabView(selection: $router.selectedTab) {
-            HomeView()
-                .tabItem { Label("首页", systemImage: "gauge.with.dots.needle.67percent") }.tag(0)
-            PolicyView()
-                .tabItem { Label("策略", systemImage: "square.grid.2x2.fill") }.tag(1)
-            RequestsView()
-                .tabItem { Label("请求", systemImage: "arrow.left.arrow.right") }.tag(2)
-            ProfilesView()
-                .tabItem { Label("配置", systemImage: "doc.text.fill") }.tag(3)
-            MoreView()
-                .tabItem { Label("更多", systemImage: "ellipsis.circle.fill") }.tag(4)
+        Group {
+            if hSize == .regular {
+                SplitRootView()
+            } else {
+                TabView(selection: $router.selectedTab) {
+                    ForEach(AppSection.allCases) { s in
+                        s.view.tabItem { Label(LocalizedStringKey(s.title), systemImage: s.icon) }.tag(s.rawValue)
+                    }
+                }
+            }
         }
+        .overlay(alignment: .top) { PasteBanner() }
         .onChange(of: vpn.status) { s in
             if s == .connected { dash.start() } else if s == .disconnected || s == .invalid { dash.stop() }
         }
-        .onAppear { if vpn.isConnected { dash.start() } }
+        .onChange(of: phase) { p in
+            if p == .active { ClipboardWatcher.shared.didBecomeActive() } else if p == .background { ClipboardWatcher.shared.didLeave() }
+        }
+        .onAppear {
+            if vpn.isConnected { dash.start() }
+            ClipboardWatcher.shared.didBecomeActive()
+        }
+    }
+}
+
+/// iPad: sidebar with the five sections; the detail column hosts the same section views.
+struct SplitRootView: View {
+    @EnvironmentObject var router: ImportRouter
+    @EnvironmentObject var vpn: VPNManager
+
+    var body: some View {
+        NavigationSplitView {
+            List(selection: Binding<Int?>(get: { router.selectedTab }, set: { if let v = $0 { router.selectedTab = v } })) {
+                Section {
+                    ForEach(AppSection.allCases) { s in
+                        Label(LocalizedStringKey(s.title), systemImage: s.icon).tag(s.rawValue)
+                    }
+                }
+                Section {
+                    HStack(spacing: 8) {
+                        Circle().fill(vpn.isConnected ? Theme.good : Color.secondary).frame(width: 8, height: 8)
+                        Text(vpn.isConnected ? "已连接" : "未连接").font(.footnote).foregroundStyle(.secondary)
+                    }
+                }
+            }
+            .listStyle(.sidebar)
+            .scrollContentBackground(.hidden)
+            .background(Theme.bg.ignoresSafeArea())
+            .navigationTitle("Mihomo")
+        } detail: {
+            (AppSection(rawValue: router.selectedTab) ?? .home).view
+                .id(router.selectedTab)
+        }
+        .navigationSplitViewStyle(.balanced)
     }
 }
 

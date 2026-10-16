@@ -9,6 +9,9 @@
 		<string>zh-Hans</string>
 		<string>zh-Hant</string>
 		<string>en</string>
+		<string>ja</string>
+		<string>ko</string>
+		<string>ru</string>
 	</array>
 	<key>CFBundleDisplayName</key>
 	<string>Mihomo Tunnel</string>

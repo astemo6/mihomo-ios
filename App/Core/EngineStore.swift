@@ -105,7 +105,7 @@ final class EngineStore: ObservableObject {
         do {
             let text = try await Self.download(url)
             let p = ParsedEngineText.parse(LibmihomoEngineParseText(text, "{}"))
-            guard let p, !(p.rules.isEmpty && p.hostnames.isEmpty && p.coreRules.isEmpty) else {
+            guard let p, !(p.rules.isEmpty && p.hostnames.isEmpty && p.coreRules.isEmpty && (p.tasks ?? []).isEmpty && (p.panels ?? []).isEmpty) else {
                 message = "未识别到可用的重写、脚本或 MitM 内容"
                 return
             }

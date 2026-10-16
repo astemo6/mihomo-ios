@@ -29,7 +29,7 @@ struct MoreView: View {
 
                 Section {
                     NavigationLink { ModulesView() } label: {
-                        row("模块", "puzzlepiece.extension", "\(engine.config.modules.filter(\.enabled).count)/\(engine.config.modules.count)")
+                        row("模块与资源", "puzzlepiece.extension", "\(engine.config.modules.filter(\.enabled).count)/\(engine.config.modules.count)")
                     }
                     NavigationLink { RewriteView() } label: { row("重写", "arrow.triangle.swap", "\(engine.config.rules.count)") }
                     NavigationLink { ScriptsView() } label: { row("脚本", "curlybraces", "\(engine.config.scripts.count)") }
