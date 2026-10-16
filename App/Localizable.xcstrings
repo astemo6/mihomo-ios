@@ -34,22 +34,6 @@
         }
       }
     },
-    "$request、$response、$done、$httpClient（get/post/put/delete/head/options/patch，支持 policy、binary-mode、insecure、auto-redirect）、$persistentStore（所有脚本共享）、$notification.post、$utils（geoip / ipasn / ipaso / ungzip）、$network、$script、$environment、$argument、console、setTimeout；Quantumult X：$task.fetch、$prefs、$notify；另提供 TextEncoder/TextDecoder、atob/btoa。脚本类型：http-request、http-response、cron（定时，连接期间执行）、event（network-changed）、generic（手动运行 / 面板）。Surge、Loon、Quantumult X、Stash 的写法都能识别。": {
-      "localizations": {
-        "en": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "$request, $response, $done, $httpClient (get/post/put/delete/head/options/patch with policy, binary-mode, insecure, auto-redirect), $persistentStore (shared by all scripts), $notification.post, $utils (geoip / ipasn / ipaso / ungzip), $network, $script, $environment, $argument, console, setTimeout; Quantumult X: $task.fetch, $prefs, $notify; plus TextEncoder/TextDecoder and atob/btoa. Script types: http-request, http-response, cron (scheduled, runs while connected), event (network-changed), generic (run manually / panels). Surge, Loon, Quantumult X and Stash syntax are all recognised."
-          }
-        },
-        "zh-Hant": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "$request、$response、$done、$httpClient（get/post/put/delete/head/options/patch，支援 policy、binary-mode、insecure、auto-redirect）、$persistentStore（所有指令碼共享）、$notification.post、$utils（geoip / ipasn / ipaso / ungzip）、$network、$script、$environment、$argument、console、setTimeout；Quantumult X：$task.fetch、$prefs、$notify；另提供 TextEncoder/TextDecoder、atob/btoa。指令碼型別：http-request、http-response、cron（定時，連線期間執行）、event（network-changed）、generic（手動執行 / 面板）。Surge、Loon、Quantumult X、Stash 的寫法都能識別。"
-          }
-        }
-      }
-    },
     "%@": {
       "localizations": {
         "en": {

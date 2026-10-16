@@ -34,6 +34,14 @@ struct EngineModule: Codable, Identifiable, Hashable {
     /// Module policy name → profile group chosen by the user (for [Rule] lines naming unknown policies).
     var policies: [String: String]? = nil
     var updatedAt: Double? = nil
+    /// Auto-update interval in seconds (nil = 1 day).
+    var interval: Int? = nil
+}
+
+/// Per remote script URL settings from the resource manager (bridge/mitm ScriptResource).
+struct ScriptResourceSetting: Codable, Hashable {
+    var disabled: Bool? = nil
+    var interval: Int? = nil
 }
 
 /// Mirrors <home>/engine/engine.json (bridge/mitm/config.go).
@@ -47,10 +55,15 @@ struct EngineConfig: Codable, Equatable {
     var rules: [EngineItem] = []
     var scripts: [EngineItem] = []
     var modules: [EngineModule] = []
+    var scriptResources: [String: ScriptResourceSetting]? = nil
+    /// "mitm" (default: block QUIC only for MitM hosts) or "all".
+    var quic: String? = nil
+    /// MitM hosts whose QUIC is not blocked.
+    var quicAllow: [String]? = nil
 
     init() {}
 
-    enum CodingKeys: String, CodingKey { case enabled, mitm, skipCertVerify, h2, captureBodies, hostnames, rules, scripts, modules }
+    enum CodingKeys: String, CodingKey { case enabled, mitm, skipCertVerify, h2, captureBodies, hostnames, rules, scripts, modules, scriptResources, quic, quicAllow }
 
     init(from d: Decoder) throws {
         let c = try d.container(keyedBy: CodingKeys.self)
@@ -63,6 +76,9 @@ struct EngineConfig: Codable, Equatable {
         rules = try c.decodeIfPresent([EngineItem].self, forKey: .rules) ?? []
         scripts = try c.decodeIfPresent([EngineItem].self, forKey: .scripts) ?? []
         modules = try c.decodeIfPresent([EngineModule].self, forKey: .modules) ?? []
+        scriptResources = try? c.decodeIfPresent([String: ScriptResourceSetting].self, forKey: .scriptResources)
+        quic = try? c.decodeIfPresent(String.self, forKey: .quic)
+        quicAllow = try? c.decodeIfPresent([String].self, forKey: .quicAllow)
     }
 
     static func load() -> EngineConfig {

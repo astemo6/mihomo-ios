@@ -82,7 +82,7 @@ struct MitMView: View {
                 Toggle("记录请求 / 响应内容", isOn: Binding(get: { store.config.captureBodies ?? true }, set: { store.config.captureBodies = $0; store.save() }))
             } footer: {
                 VStack(alignment: .leading, spacing: 4) {
-                    Text("只解密下方主机名列表（含已启用模块）中的 HTTPS 流量；QUIC/HTTP3 会被阻断以回落到 TCP。证书固定（pinning）的 App 握手失败后会自动放行 30 分钟。")
+                    Text("只解密下方主机名列表（含已启用模块）中的 HTTPS 流量；这些主机的 QUIC/HTTP3 默认被阻断以回落到 TCP（见下方 QUIC 设置）。证书固定（pinning）的 App 握手失败后会自动放行 30 分钟。")
                     EngineSwitchFooter()
                 }
             }
@@ -111,6 +111,8 @@ struct MitMView: View {
                 Text("支持 * 和 ? 通配、前缀 - 表示排除、:端口（默认 443）。可一次粘贴多个，用逗号分隔。")
             }
             .listRowBackground(Theme.card)
+
+            quicSection
 
             if !store.moduleHostnames.isEmpty {
                 Section("来自模块 \(store.moduleHostnames.count)") {
@@ -210,6 +212,51 @@ struct MitMView: View {
                     Text("4. 回到本页，状态变为「已安装并完全信任」即可开启 HTTPS 解密。")
                 }
             }
+        }
+        .listRowBackground(Theme.card)
+    }
+
+    @State private var newQUICHost = ""
+
+    /// QUIC / HTTP/3: MitM hosts are blocked (fallback to TCP) by default; everything else may use QUIC.
+    var quicSection: some View {
+        Section {
+            Picker("QUIC（HTTP/3）", selection: Binding(get: { store.config.quic ?? "mitm" }, set: { store.config.quic = $0 == "mitm" ? nil : $0; store.save() })) {
+                Text("仅阻断 MitM 主机").tag("mitm")
+                Text("全部阻断").tag("all")
+            }
+            ForEach(store.config.quicAllow ?? [], id: \.self) { h in
+                HStack {
+                    Text(h).font(.system(.callout, design: .monospaced))
+                    Spacer()
+                    Text("允许 QUIC").font(.caption2).foregroundStyle(.secondary)
+                }
+            }
+            .onDelete { idx in
+                var l = store.config.quicAllow ?? []
+                l.remove(atOffsets: idx)
+                store.config.quicAllow = l.isEmpty ? nil : l
+                store.save()
+            }
+            if (store.config.quic ?? "mitm") == "mitm" {
+                HStack {
+                    TextField("允许 QUIC 的 MitM 主机，如 *.googlevideo.com", text: $newQUICHost)
+                        .textInputAutocapitalization(.never).autocorrectionDisabled()
+                        .font(.system(.callout, design: .monospaced))
+                    Button("添加") {
+                        let h = newQUICHost.trimmingCharacters(in: .whitespaces).lowercased()
+                        guard !h.isEmpty else { return }
+                        var l = store.config.quicAllow ?? []
+                        if !l.contains(h) { l.append(h) }
+                        store.config.quicAllow = l
+                        newQUICHost = ""
+                        store.save()
+                    }
+                    .disabled(newQUICHost.trimmingCharacters(in: .whitespaces).isEmpty)
+                }
+            }
+        } header: { Text("QUIC / HTTP3") } footer: {
+            Text("默认只阻断 MitM 主机的 UDP 443，让它们回落到 TCP 以便解密；其他流量照常使用 QUIC。「全部阻断」让所有 App 都回落到 TCP（即使没有开启 MitM）。列表中的 MitM 主机不阻断 QUIC，它们的 HTTP/3 流量不会被解密。")
         }
         .listRowBackground(Theme.card)
     }
@@ -452,7 +499,7 @@ struct ScriptsView: View {
             .listRowBackground(Theme.card)
 
             Section("兼容的脚本 API") {
-                Text("$request、$response、$done、$httpClient（get/post/put/delete/head/options/patch，支持 policy、binary-mode、insecure、auto-redirect）、$persistentStore（所有脚本共享）、$notification.post、$utils（geoip / ipasn / ipaso / ungzip）、$network、$script、$environment、$argument、console、setTimeout；Quantumult X：$task.fetch、$prefs、$notify；另提供 TextEncoder/TextDecoder、atob/btoa。脚本类型：http-request、http-response、cron（定时，连接期间执行）、event（network-changed）、generic（手动运行 / 面板）。Surge、Loon、Quantumult X、Stash 的写法都能识别。")
+                Text("$request、$response、$done、$httpClient（get/post/put/delete/head/options/patch，支持 policy、binary-mode、insecure、auto-redirect）、$persistentStore（所有脚本共享）、$notification.post、$utils（geoip / ipasn / ipaso / ungzip）、$httpAPI（策略查询 / 切换、出站模式、重载配置）、$network、$script、$environment、$argument、console、setTimeout；Quantumult X：$task.fetch、$prefs、$notify；另提供 TextEncoder/TextDecoder、atob/btoa。脚本类型：http-request、http-response、cron（定时，连接期间执行）、event（network-changed）、generic（手动运行 / 面板）。Surge、Loon、Quantumult X、Stash、Egern（兼容写法）都能识别；暂不支持 Surge type=dns / type=rule 与 Egern 原生 ctx 脚本。")
                     .font(.caption).foregroundStyle(.secondary)
             }
             .listRowBackground(Theme.card)
@@ -789,77 +836,6 @@ struct StoreView: View {
 
 // MARK: - Modules
 
-struct ModulesView: View {
-    /// Official BoxJS Surge module (chavyleung/scripts): serves http(s)://boxjs.com from an http-request script.
-    static let boxJSModule = "https://raw.githubusercontent.com/chavyleung/scripts/master/box/rewrite/boxjs.rewrite.surge.sgmodule"
-    @ObservedObject var store = EngineStore.shared
-    @State private var adding = false
-    @State private var url = ""
-    @State private var pasting = false
-
-    var body: some View {
-        List {
-            Section {
-                Toggle(isOn: Binding(get: { store.config.enabled }, set: { store.config.enabled = $0; store.save() })) {
-                    Label("启用重写与脚本", systemImage: "puzzlepiece.extension")
-                }
-            } footer: {
-                Text("所有格式的模块都在这里：Surge .sgmodule、Quantumult X 重写片段、Loon .plugin、Stash .stoverride 和重写列表，角标显示来源格式。模块 [Rule] 中的策略名会对应到当前配置的策略组，找不到时可在模块详情里指定。")
-            }
-            .listRowBackground(Theme.card)
-
-            Section("模块 \(store.config.modules.count)") {
-                if store.config.modules.isEmpty {
-                    Text("点 + 通过 URL 导入模块").font(.footnote).foregroundStyle(.secondary)
-                }
-                ForEach(store.config.modules) { m in
-                    NavigationLink { ModuleDetailView(moduleID: m.id) } label: { ModuleRow(m: m) }
-                }
-                .onDelete { idx in for i in idx { store.deleteModule(store.config.modules[i]) } }
-                .onMove { from, to in store.config.modules.move(fromOffsets: from, toOffset: to); store.save() }
-            }
-            .listRowBackground(Theme.card)
-        }
-        .listStyle(.insetGrouped)
-        .scrollContentBackground(.hidden)
-        .background(Theme.bg.ignoresSafeArea())
-        .navigationTitle("模块")
-        .refreshable { await store.updateAllModules() }
-        .toolbar {
-            ToolbarItemGroup(placement: .navigationBarTrailing) {
-                Button { Task { await store.updateAllModules() } } label: { Image(systemName: "arrow.clockwise") }
-                Menu {
-                    Button {
-                        let clip = UIPasteboard.general.string?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
-                        if case .moduleURL(let u, _)? = ImportRouter.parse(clip) { url = u } else { url = clip.hasPrefix("http") ? clip : "" }
-                        adding = true
-                    } label: { Label("从 URL 导入", systemImage: "link") }
-                    Button { pasting = true } label: { Label("粘贴模块内容", systemImage: "doc.on.clipboard") }
-                    Divider()
-                    Button { Task { await store.addModule(url: Self.boxJSModule) } } label: { Label("添加 BoxJS（需开启 MitM 并信任证书）", systemImage: "shippingbox") }
-                        .disabled(store.config.modules.contains { $0.url == Self.boxJSModule })
-                } label: { Image(systemName: "plus") }
-            }
-        }
-        .alert("导入模块", isPresented: $adding) {
-            TextField("https://…/xxx.sgmodule", text: $url).textInputAutocapitalization(.never).autocorrectionDisabled()
-            Button("导入") {
-                var u = url.trimmingCharacters(in: .whitespacesAndNewlines)
-                // Also accepts surge:/// loon:// stash:// quantumult-x:/// install links.
-                if case .moduleURL(let inner, _)? = ImportRouter.parse(u) { u = inner }
-                Task { await store.addModule(url: u) }
-            }
-            Button("取消", role: .cancel) {}
-        }
-        .alert("提示", isPresented: Binding(get: { store.message != nil }, set: { if !$0 { store.message = nil } })) {
-            Button("好") { store.message = nil }
-        } message: { Text(store.message ?? "") }
-        .onAppear { store.reparseModules() }
-        .overlay { if store.busy.contains("add") { ProgressView("下载中…").padding().background(RoundedRectangle(cornerRadius: 12).fill(Theme.cardHi)) } }
-        .sheet(isPresented: $pasting) { PasteModuleSheet() }
-    }
-}
-
 struct PasteModuleSheet: View {
     @Environment(\.dismiss) var dismiss
     @ObservedObject var store = EngineStore.shared
@@ -880,32 +856,6 @@ struct PasteModuleSheet: View {
                 }
             }
         }
-    }
-}
-
-struct ModuleRow: View {
-    @ObservedObject var store = EngineStore.shared
-    let m: EngineModule
-    var body: some View {
-        let info = store.moduleInfo[m.id]
-        HStack(alignment: .top) {
-            VStack(alignment: .leading, spacing: 3) {
-                HStack(spacing: 6) {
-                    Text(m.name).font(.subheadline.weight(.semibold)).lineLimit(1)
-                    if let f = info?.format, !f.isEmpty { Text(f.uppercased()).font(.system(size: 8, weight: .bold)).padding(.horizontal, 4).padding(.vertical, 1).background(Capsule().fill(Color.white.opacity(0.1))) }
-                }
-                if let d = info?.desc, !d.isEmpty { Text(d).font(.caption2).foregroundStyle(.secondary).lineLimit(2) }
-                Text("\(info?.rules.count ?? 0) 条规则/脚本 · \(info?.hostnames.count ?? 0) 个主机\((info?.coreRules.count ?? 0) > 0 ? " · \(info!.coreRules.count) 条内核规则" : "")")
-                    .font(.caption2).foregroundStyle(.secondary)
-                if let t = m.updatedAt { Text("更新于 \(Date(timeIntervalSince1970: t).formatted(.relative(presentation: .named)))").font(.caption2).foregroundStyle(.secondary) }
-            }
-            Spacer()
-            if store.busy.contains(m.id) { ProgressView() }
-            Toggle("", isOn: Binding(get: { m.enabled }, set: { on in
-                if let i = store.config.modules.firstIndex(where: { $0.id == m.id }) { store.config.modules[i].enabled = on; store.save() }
-            })).labelsHidden()
-        }
-        .opacity(m.enabled ? 1 : 0.55)
     }
 }
 
@@ -958,15 +908,13 @@ struct ModuleDetailView: View {
             if let m = module {
                 Section {
                     LabeledContent("名称", value: m.name)
-                    if !m.url.isEmpty {
-                        Text(m.url).font(.system(size: 10, design: .monospaced)).foregroundStyle(.secondary).textSelection(.enabled)
-                        Button { Task { await store.updateModule(m) } } label: { Label("立即更新", systemImage: "arrow.clockwise") }
-                    }
+                    if let f = info?.format, !f.isEmpty { LabeledContent("格式") { SourceFormatBadge(format: f) } }
                     Button { showText = true } label: { Label("查看内容", systemImage: "doc.text") }
                 }
                 .listRowBackground(Theme.card)
+                ResourceUpdateSection(key: "module:" + m.id)
                 if let info, !info.arguments.isEmpty {
-                    Section(info.format == "loon" ? "参数（[Argument]）" : "参数（#!arguments）") {
+                    Section(info.format == "loon" ? "参数（[Argument]）" : info.format == "egern" ? "参数（compat_arguments）" : "参数（#!arguments）") {
                         ForEach(info.arguments, id: \.key) { a in
                             ModuleArgRow(arg: a, value: Binding(get: { args[a.key] ?? (m.args?[a.key] ?? a.default) }, set: { args[a.key] = $0 }))
                         }
@@ -1055,7 +1003,7 @@ struct ModuleDetailView: View {
         .scrollContentBackground(.hidden)
         .background(Theme.bg.ignoresSafeArea())
         .navigationTitle(module?.name ?? "模块")
-        .onAppear { loadPolicies() }
+        .onAppear { loadPolicies(); ResourceStore.shared.reload() }
         .sheet(isPresented: $showText) {
             NavigationStack {
                 ScrollView {

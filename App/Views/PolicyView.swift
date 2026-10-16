@@ -9,6 +9,7 @@ final class PolicyModel: ObservableObject {
     @Published var error: String?
 
     func load() async {
+        await SmartGroups.shared.refreshStatus()
         do {
             let p = try await ControllerClient.shared.proxies()
             all = p
@@ -102,6 +103,7 @@ struct PolicyView: View {
     @StateObject private var model = PolicyModel()
     @ObservedObject private var offline = ProfileInspector.shared
     @State private var expanded: Set<String> = []
+    @ObservedObject private var smart = SmartGroups.shared
 
     var body: some View {
         NavigationStack {
@@ -130,6 +132,12 @@ struct PolicyView: View {
         .onChange(of: store.activeID) { _ in Task { if !vpn.isConnected { await offline.load() } } }
     }
 
+    /// Only url-test / fallback groups offer 智能选择.
+    private func smartBinding(_ d: PolicyGroupDisplay) -> Binding<Bool>? {
+        guard d.kind == "url-test" || d.kind == "fallback" else { return nil }
+        return Binding(get: { smart.isSmart(d.name) }, set: { smart.set(d.name, smart: $0) })
+    }
+
     private func binding(_ name: String) -> Binding<Bool> {
         Binding(get: { expanded.contains(name) },
                 set: { v in if v { expanded.insert(name) } else { expanded.remove(name) } })
@@ -149,7 +157,9 @@ struct PolicyView: View {
                                     nodeUDP: { model.all[$0]?.udp == true },
                                     delay: { model.delay(of: $0) },
                                     onTest: { Task { await model.test(g) } },
-                                    onSelect: { n in Task { await model.select(g, n) } })
+                                    onSelect: { n in Task { await model.select(g, n) } },
+                                    smart: smartBinding(d),
+                                    smartInfo: smart.summary(g.name))
                 }
             }
             .padding(16)
@@ -193,7 +203,9 @@ struct PolicyView: View {
                                         onSelect: { n in
                                             offline.select(group: g.name, node: n)
                                             UISelectionFeedbackGenerator().selectionChanged()
-                                        })
+                                        },
+                                        smart: smartBinding(d),
+                                        smartInfo: smart.isSmart(g.name) ? String(localized: "连接后按延迟与失败记录自动选择") : nil)
                     }
                     if !offline.result.groups.isEmpty {
                         Text("在这里选择的节点会保存到该配置，下次连接时生效。测速直接从本机发起（不经过代理）。节点集只显示已缓存的节点。")
@@ -218,6 +230,8 @@ struct PolicyGroupCard: View {
     let delay: (String) -> Int?
     let onTest: () -> Void
     let onSelect: (String) -> Void
+    var smart: Binding<Bool>? = nil
+    var smartInfo: String? = nil
 
     var body: some View {
         VStack(alignment: .leading, spacing: 12) {
@@ -234,6 +248,14 @@ struct PolicyGroupCard: View {
                             .font(.caption2.weight(.semibold))
                             .padding(.horizontal, 6).padding(.vertical, 2)
                             .background(Capsule().fill(Color.white.opacity(0.1)))
+                        if smart?.wrappedValue == true {
+                            Label("智能", systemImage: "sparkles")
+                                .labelStyle(.titleAndIcon)
+                                .font(.caption2.weight(.semibold))
+                                .padding(.horizontal, 6).padding(.vertical, 2)
+                                .background(Capsule().fill(Theme.accent.opacity(0.18)))
+                                .foregroundStyle(Theme.accent)
+                        }
                     }
                     HStack(spacing: 6) {
                         Text(group.now ?? "—").font(.caption).foregroundStyle(.secondary).lineLimit(1)
@@ -262,7 +284,19 @@ struct PolicyGroupCard: View {
             .onTapGesture { withAnimation(.spring(response: 0.3)) { expanded.toggle() } }
 
             if expanded {
-                if !group.selectable {
+                if let smart {
+                    VStack(alignment: .leading, spacing: 4) {
+                        Toggle(isOn: smart) {
+                            Label("智能选择", systemImage: "sparkles").font(.subheadline)
+                        }
+                        .tint(Theme.accent)
+                        Text(smartInfo ?? String(localized: "开启后按近期延迟与失败记录综合评分，自动固定到最稳的节点；节点失效时 mihomo 会立即切走。"))
+                            .font(.caption2).foregroundStyle(.secondary)
+                    }
+                    .padding(10)
+                    .background(RoundedRectangle(cornerRadius: 12, style: .continuous).fill(Theme.cardHi))
+                }
+                if !group.selectable && smart?.wrappedValue != true {
                     Text(group.hint).font(.caption2).foregroundStyle(.secondary)
                 }
                 LazyVGrid(columns: [GridItem(.flexible(), spacing: 8), GridItem(.flexible(), spacing: 8)], spacing: 8) {
