@@ -18,6 +18,7 @@ struct MihomoWidgets: WidgetBundle {
         ConnectionLiveActivity()
         if #available(iOS 18.0, *) {
             TunnelToggleControl()
+            ModeControl()
         }
     }
 }
@@ -105,6 +106,105 @@ struct SetTunnelIntent: SetValueIntent {
     }
 }
 
+// MARK: - Outbound mode (v0.13: Control Center control + widget row)
+
+/// Reads and switches the outbound mode from the widget extension: the stored mode in overrides.json
+/// (what the next start uses) and, while connected, the running core through its loopback controller.
+enum ModeControlCore {
+    static let order = ["rule", "global", "direct"]
+
+    static func title(_ m: String) -> LocalizedStringResource {
+        switch m {
+        case "global": return "全局"
+        case "direct": return "直连"
+        default: return "规则"
+        }
+    }
+
+    static func symbol(_ m: String) -> String {
+        switch m {
+        case "global": return "globe"
+        case "direct": return "arrow.right.circle"
+        default: return "arrow.triangle.branch"
+        }
+    }
+
+    private static func request(_ path: String, method: String = "GET", body: [String: Any]? = nil) -> URLRequest? {
+        let o = CoreOverrides.load()
+        let port = (1...65535).contains(o.controllerPort) ? o.controllerPort : 9090
+        guard let url = URL(string: "http://127.0.0.1:\(port)\(path)") else { return nil }
+        var r = URLRequest(url: url, timeoutInterval: 2)
+        r.httpMethod = method
+        if !o.secret.isEmpty { r.setValue("Bearer \(o.secret)", forHTTPHeaderField: "Authorization") }
+        if let body, let d = try? JSONSerialization.data(withJSONObject: body) {
+            r.httpBody = d
+            r.setValue("application/json", forHTTPHeaderField: "Content-Type")
+        }
+        return r
+    }
+
+    /// The running core's mode while connected (a network trigger may have changed it), else the stored one.
+    static func current() async -> String {
+        if await VPNControl.isOn(), let r = request("/configs"),
+           let res = try? await URLSession.shared.data(for: r),
+           let j = try? JSONSerialization.jsonObject(with: res.0) as? [String: Any], let m = (j["mode"] as? String)?.lowercased(),
+           order.contains(m) {
+            return m
+        }
+        let m = CoreOverrides.load().mode.lowercased()
+        return order.contains(m) ? m : "rule"
+    }
+
+    static func set(_ m: String) async {
+        var o = CoreOverrides.load()
+        o.mode = m
+        o.save()
+        guard await VPNControl.isOn() else { return }
+        if let r = request("/configs", method: "PATCH", body: ["mode": m]) { _ = try? await URLSession.shared.data(for: r) }
+        // Same as the app: drop existing connections so they follow the new mode.
+        if let r = request("/connections", method: "DELETE") { _ = try? await URLSession.shared.data(for: r) }
+    }
+}
+
+struct CycleModeIntent: AppIntent {
+    static var title: LocalizedStringResource = "切换出站模式"
+    static var description = IntentDescription("在 规则 → 全局 → 直连 之间切换。")
+    static var openAppWhenRun = false
+
+    func perform() async throws -> some IntentResult {
+        let cur = await ModeControlCore.current()
+        let i = ModeControlCore.order.firstIndex(of: cur) ?? 0
+        await ModeControlCore.set(ModeControlCore.order[(i + 1) % ModeControlCore.order.count])
+        WidgetCenter.shared.reloadAllTimelines()
+        if #available(iOS 18.0, *) { ControlCenter.shared.reloadAllControls() }
+        return .result()
+    }
+}
+
+@available(iOS 18.0, *)
+struct ModeControl: ControlWidget {
+    static let kind = "MihomoModeControl"
+
+    var body: some ControlWidgetConfiguration {
+        StaticControlConfiguration(kind: Self.kind, provider: Provider()) { mode in
+            ControlWidgetButton(action: CycleModeIntent()) {
+                Label {
+                    Text(ModeControlCore.title(mode))
+                } icon: {
+                    Image(systemName: ModeControlCore.symbol(mode))
+                }
+            }
+        }
+        .displayName("出站模式")
+        .description("在 规则 → 全局 → 直连 之间切换")
+    }
+
+    struct Provider: ControlValueProvider {
+        var previewValue: String { "rule" }
+        func currentValue() async throws -> String { await ModeControlCore.current() }
+    }
+}
+
 // MARK: - Control Center (iOS 18)
 
 @available(iOS 18.0, *)
@@ -134,6 +234,7 @@ struct StatusEntry: TimelineEntry {
     let status: NEVPNStatus
     let snapshot: WidgetSnapshot
     let profile: String
+    var mode: String = "rule"
 
     var on: Bool { [.connected, .connecting, .reasserting].contains(status) }
 
@@ -169,7 +270,7 @@ struct StatusProvider: TimelineProvider {
 
     private func entry() async -> StatusEntry {
         let snap = WidgetSnapshot.load()
-        return StatusEntry(date: Date(), status: await VPNControl.status(), snapshot: snap, profile: snap.profile)
+        return StatusEntry(date: Date(), status: await VPNControl.status(), snapshot: snap, profile: snap.profile, mode: await ModeControlCore.current())
     }
 }
 
@@ -183,7 +284,7 @@ struct StatusWidget: Widget {
         }
         .configurationDisplayName("Mihomo")
         .description("连接状态、当前节点和开关")
-        .supportedFamilies([.systemSmall, .systemMedium, .accessoryRectangular, .accessoryCircular])
+        .supportedFamilies([.systemSmall, .systemMedium, .accessoryRectangular, .accessoryCircular, .accessoryInline])
     }
 }
 
@@ -211,10 +312,18 @@ struct StatusWidgetView: View {
                 }
             }
             .buttonStyle(.plain)
+        case .accessoryInline:
+            // Lock Screen line above the clock: state, then the node while connected.
+            Label {
+                if entry.on && !entry.snapshot.node.isEmpty { Text(entry.snapshot.node) } else { Text(entry.statusText) }
+            } icon: {
+                Image(systemName: entry.on ? "bolt.horizontal.circle.fill" : "bolt.horizontal.circle")
+            }
         case .accessoryRectangular:
             VStack(alignment: .leading, spacing: 2) {
                 Label { Text(entry.statusText).font(.headline) } icon: { Image(systemName: entry.on ? "bolt.horizontal.circle.fill" : "bolt.horizontal.circle") }
                 Text(nodeText).font(.caption).lineLimit(1)
+                if entry.on { Text(ModeControlCore.title(entry.mode)).font(.caption2).foregroundStyle(.secondary) }
             }
         case .systemMedium:
             HStack(alignment: .top, spacing: 14) {
@@ -223,6 +332,7 @@ struct StatusWidgetView: View {
                     Spacer(minLength: 0)
                     infoRow(icon: "doc.text", text: entry.profile.isEmpty ? "—" : entry.profile)
                     infoRow(icon: "square.stack.3d.up", text: entry.snapshot.policy.isEmpty ? "—" : entry.snapshot.policy)
+                    modeRow
                     if let r = entry.snapshot.remaining, !r.isEmpty { infoRow(icon: "gauge.with.dots.needle.33percent", text: r) }
                 }
                 Spacer(minLength: 0)
@@ -254,6 +364,15 @@ struct StatusWidgetView: View {
             Circle().fill(entry.on ? WidgetTheme.good : Color.secondary.opacity(0.6)).frame(width: 7, height: 7)
             Text(entry.statusText).font(.caption.weight(.semibold))
         }
+    }
+
+    /// Tap to cycle 规则 → 全局 → 直连 (same intent as the Control Center control).
+    var modeRow: some View {
+        Button(intent: CycleModeIntent()) {
+            Label { Text(ModeControlCore.title(entry.mode)) } icon: { Image(systemName: ModeControlCore.symbol(entry.mode)) }
+                .font(.caption).foregroundStyle(.secondary).lineLimit(1)
+        }
+        .buttonStyle(.plain)
     }
 
     func infoRow(icon: String, text: String) -> some View {

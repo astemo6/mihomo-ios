@@ -2,7 +2,7 @@ import SwiftUI
 
 /// Declarative per-protocol form (Shadowrocket style). Keys are mihomo proxy keys; dots = nested maps.
 struct FieldSpec: Identifiable {
-    enum Kind { case text, secure, int, bool, choice([String]), list }
+    enum Kind { case text, secure, int, bool, choice([String]), list, pem }
     var id: String { key }
     let key: String
     let label: String
@@ -16,7 +16,26 @@ enum NodeProtocols {
         ("trojan", "Trojan"), ("hysteria2", "Hysteria2"), ("hysteria", "Hysteria"), ("tuic", "TUIC v5"),
         ("wireguard", "WireGuard"), ("snell", "Snell"), ("anytls", "AnyTLS"), ("mieru", "Mieru"),
         ("ssh", "SSH"), ("socks5", "SOCKS5"), ("http", "HTTP(S)"),
+        // v0.13: protocols added to mihomo after v1.19.0 (all in v1.19.32).
+        ("sudoku", "Sudoku"), ("masque", "MASQUE"), ("trusttunnel", "TrustTunnel"), ("shadowquic", "ShadowQUIC"),
+        ("openvpn", "OpenVPN"), ("gost-relay", "GOST Relay"),
     ]
+
+    /// Protocols that are new in this release (shown with a short note in the editor).
+    static let newer: Set<String> = ["sudoku", "masque", "trusttunnel", "shadowquic", "openvpn", "gost-relay"]
+
+    /// One-line explanation under the protocol section for the newer protocols.
+    static func note(for type: String) -> LocalizedStringKey? {
+        switch type {
+        case "sudoku": return "Sudoku：以数独编码伪装流量的 TCP 协议。密钥与服务端相同；HTTP 伪装可穿过只放行 HTTP 的网络或 CDN。"
+        case "masque": return "MASQUE：基于 HTTP/3 的隧道（如 Cloudflare WARP 的 MASQUE 模式）。私钥与对端公钥来自服务端配置。"
+        case "trusttunnel": return "TrustTunnel：AdGuard 的 HTTP/2 · HTTP/3 隧道协议，用户名与密码由服务端分配。"
+        case "shadowquic": return "ShadowQUIC：伪装成普通 QUIC（TLS 1.3）的代理协议，SNI 填被伪装的网站。"
+        case "openvpn": return "OpenVPN：由内核在用户态完成连接，不会创建系统 VPN。CA 证书必填；把 .ovpn 中 <ca> 等段的 PEM 内容粘贴进来。"
+        case "gost-relay": return "GOST Relay：GOST v3 的 relay 协议，可选 TLS 与多路复用。"
+        default: return nil
+        }
+    }
 
     static let ssCiphers = ["aes-128-gcm", "aes-192-gcm", "aes-256-gcm", "chacha20-ietf-poly1305", "xchacha20-ietf-poly1305",
                             "2022-blake3-aes-128-gcm", "2022-blake3-aes-256-gcm", "2022-blake3-chacha20-poly1305",
@@ -28,6 +47,28 @@ enum NodeProtocols {
         FieldSpec(key: "ws-opts.headers.Host", label: "WS Host"),
         FieldSpec(key: "grpc-opts.grpc-service-name", label: "gRPC 服务名"),
     ]
+
+    /// VLESS also speaks Xray's XHTTP (v0.13).
+    static let vlessTransport: [FieldSpec] = [
+        FieldSpec(key: "network", label: "传输", kind: .choice(["tcp", "ws", "grpc", "h2", "httpupgrade", "xhttp"])),
+        FieldSpec(key: "ws-opts.path", label: "WS 路径", placeholder: "/"),
+        FieldSpec(key: "ws-opts.headers.Host", label: "WS Host"),
+        FieldSpec(key: "grpc-opts.grpc-service-name", label: "gRPC 服务名"),
+        FieldSpec(key: "xhttp-opts.path", label: "XHTTP 路径", placeholder: "/"),
+        FieldSpec(key: "xhttp-opts.host", label: "XHTTP Host"),
+        FieldSpec(key: "xhttp-opts.mode", label: "XHTTP 模式", kind: .choice(["", "auto", "packet-up", "stream-up", "stream-one"])),
+    ]
+
+    /// Hides transport sub-fields that don't belong to the chosen network.
+    static func visible(_ f: FieldSpec, values: [String: String]) -> Bool {
+        let net = values["network"] ?? ""
+        if f.key.hasPrefix("ws-opts.") { return net == "ws" || net == "httpupgrade" }
+        if f.key.hasPrefix("grpc-opts.") { return net == "grpc" }
+        if f.key.hasPrefix("xhttp-opts.") { return net == "xhttp" }
+        if f.key.hasPrefix("http-mask-") || f.key == "path-root" { return (values["http-mask"] ?? "") == "true" }
+        if f.key.hasPrefix("amnezia-wg-option.") { return (values["x-awg"] ?? "") == "true" }
+        return true
+    }
 
     static let tlsCommon: [FieldSpec] = [
         FieldSpec(key: "skip-cert-verify", label: "跳过证书验证", kind: .bool),
@@ -71,12 +112,15 @@ enum NodeProtocols {
             return [
                 FieldSpec(key: "uuid", label: "UUID"),
                 FieldSpec(key: "flow", label: "Flow", kind: .choice(["", "xtls-rprx-vision"])),
+                FieldSpec(key: "encryption", label: "加密", placeholder: "none / mlkem768x25519plus…"),
                 FieldSpec(key: "tls", label: "TLS", kind: .bool),
                 FieldSpec(key: "servername", label: "SNI"),
+                FieldSpec(key: "alpn", label: "ALPN", kind: .list, placeholder: "h2,http/1.1"),
                 FieldSpec(key: "reality-opts.public-key", label: "Reality 公钥"),
                 FieldSpec(key: "reality-opts.short-id", label: "Reality Short ID"),
                 FieldSpec(key: "udp", label: "UDP", kind: .bool),
-            ] + transport + tlsCommon
+                FieldSpec(key: "packet-encoding", label: "UDP 封装", kind: .choice(["", "xudp", "packetaddr"])),
+            ] + vlessTransport + tlsCommon
         case "trojan":
             return [
                 FieldSpec(key: "password", label: "密码", kind: .secure),
@@ -90,6 +134,8 @@ enum NodeProtocols {
                 FieldSpec(key: "obfs", label: "混淆", kind: .choice(["", "salamander"])),
                 FieldSpec(key: "obfs-password", label: "混淆密码", kind: .secure),
                 FieldSpec(key: "ports", label: "端口跳跃", placeholder: "20000-30000"),
+                FieldSpec(key: "hop-interval", label: "跳跃间隔（秒）", placeholder: "30"),
+                FieldSpec(key: "alpn", label: "ALPN", kind: .list, placeholder: "h3"),
                 FieldSpec(key: "up", label: "上行带宽", placeholder: "50 Mbps"),
                 FieldSpec(key: "down", label: "下行带宽", placeholder: "200 Mbps"),
                 FieldSpec(key: "skip-cert-verify", label: "跳过证书验证", kind: .bool),
@@ -125,6 +171,16 @@ enum NodeProtocols {
                 FieldSpec(key: "reserved", label: "Reserved", placeholder: "1,2,3"),
                 FieldSpec(key: "mtu", label: "MTU", kind: .int, placeholder: "1408"),
                 FieldSpec(key: "udp", label: "UDP", kind: .bool),
+                FieldSpec(key: "x-awg", label: "AmneziaWG", kind: .bool),
+                FieldSpec(key: "amnezia-wg-option.jc", label: "Jc", kind: .int, placeholder: "4"),
+                FieldSpec(key: "amnezia-wg-option.jmin", label: "Jmin", kind: .int, placeholder: "40"),
+                FieldSpec(key: "amnezia-wg-option.jmax", label: "Jmax", kind: .int, placeholder: "70"),
+                FieldSpec(key: "amnezia-wg-option.s1", label: "S1", kind: .int, placeholder: "0"),
+                FieldSpec(key: "amnezia-wg-option.s2", label: "S2", kind: .int, placeholder: "0"),
+                FieldSpec(key: "amnezia-wg-option.h1", label: "H1", kind: .int, placeholder: "1"),
+                FieldSpec(key: "amnezia-wg-option.h2", label: "H2", kind: .int, placeholder: "2"),
+                FieldSpec(key: "amnezia-wg-option.h3", label: "H3", kind: .int, placeholder: "3"),
+                FieldSpec(key: "amnezia-wg-option.h4", label: "H4", kind: .int, placeholder: "4"),
             ]
         case "snell":
             return [
@@ -138,8 +194,93 @@ enum NodeProtocols {
             return [
                 FieldSpec(key: "password", label: "密码", kind: .secure),
                 FieldSpec(key: "sni", label: "SNI"),
+                FieldSpec(key: "alpn", label: "ALPN", kind: .list, placeholder: "h2,http/1.1"),
                 FieldSpec(key: "udp", label: "UDP", kind: .bool),
+                FieldSpec(key: "idle-session-timeout", label: "空闲会话超时（秒）", kind: .int, placeholder: "30"),
+                FieldSpec(key: "min-idle-session", label: "最少空闲会话", kind: .int, placeholder: "0"),
             ] + tlsCommon
+        case "sudoku":
+            return [
+                FieldSpec(key: "key", label: "密钥", kind: .secure),
+                FieldSpec(key: "aead-method", label: "加密", kind: .choice(["", "chacha20-poly1305", "aes-128-gcm", "none"])),
+                FieldSpec(key: "table-type", label: "编码表", kind: .choice(["", "prefer_ascii", "prefer_entropy", "up_ascii_down_entropy", "up_entropy_down_ascii"])),
+                FieldSpec(key: "padding-min", label: "最小填充", kind: .int, placeholder: "2"),
+                FieldSpec(key: "padding-max", label: "最大填充", kind: .int, placeholder: "7"),
+                FieldSpec(key: "enable-pure-downlink", label: "纯下行", kind: .bool),
+                FieldSpec(key: "multiplex", label: "多路复用", kind: .choice(["", "off", "auto", "on"])),
+                FieldSpec(key: "http-mask", label: "HTTP 伪装", kind: .bool),
+                FieldSpec(key: "http-mask-mode", label: "伪装模式", kind: .choice(["", "legacy", "stream", "poll", "auto", "ws"])),
+                FieldSpec(key: "http-mask-tls", label: "伪装使用 TLS", kind: .bool),
+                FieldSpec(key: "http-mask-host", label: "伪装 Host"),
+                FieldSpec(key: "path-root", label: "路径前缀", placeholder: "/api"),
+            ]
+        case "masque":
+            return [
+                FieldSpec(key: "private-key", label: "私钥", kind: .secure),
+                FieldSpec(key: "public-key", label: "对端公钥"),
+                FieldSpec(key: "ip", label: "本地 IPv4", placeholder: "172.16.0.2"),
+                FieldSpec(key: "ipv6", label: "本地 IPv6"),
+                FieldSpec(key: "sni", label: "SNI"),
+                FieldSpec(key: "uri", label: "URI", placeholder: "https://cloudflareaccess.com"),
+                FieldSpec(key: "mtu", label: "MTU", kind: .int, placeholder: "1280"),
+                FieldSpec(key: "udp", label: "UDP", kind: .bool),
+                FieldSpec(key: "remote-dns-resolve", label: "远端解析 DNS", kind: .bool),
+                FieldSpec(key: "dns", label: "DNS", kind: .list, placeholder: "1.1.1.1"),
+                FieldSpec(key: "congestion-controller", label: "拥塞控制", kind: .choice(["", "bbr", "cubic", "new_reno"])),
+                FieldSpec(key: "skip-cert-verify", label: "跳过证书验证", kind: .bool),
+            ]
+        case "trusttunnel":
+            return [
+                FieldSpec(key: "username", label: "用户名"),
+                FieldSpec(key: "password", label: "密码", kind: .secure),
+                FieldSpec(key: "sni", label: "SNI"),
+                FieldSpec(key: "alpn", label: "ALPN", kind: .list, placeholder: "h2"),
+                FieldSpec(key: "quic", label: "使用 HTTP/3（QUIC）", kind: .bool),
+                FieldSpec(key: "congestion-controller", label: "拥塞控制", kind: .choice(["", "bbr", "cubic", "new_reno"])),
+                FieldSpec(key: "udp", label: "UDP", kind: .bool),
+                FieldSpec(key: "health-check", label: "健康检查", kind: .bool),
+                FieldSpec(key: "max-connections", label: "最大连接数", kind: .int, placeholder: "8"),
+            ] + tlsCommon
+        case "shadowquic":
+            return [
+                FieldSpec(key: "username", label: "用户名"),
+                FieldSpec(key: "password", label: "密码", kind: .secure),
+                FieldSpec(key: "sni", label: "SNI（伪装站点）", placeholder: "www.example.com"),
+                FieldSpec(key: "alpn", label: "ALPN", kind: .list, placeholder: "h3"),
+                FieldSpec(key: "congestion-controller", label: "拥塞控制", kind: .choice(["", "bbr", "cubic", "new_reno"])),
+                FieldSpec(key: "zero-rtt", label: "0-RTT", kind: .bool),
+                FieldSpec(key: "udp-over-stream", label: "UDP 走流", kind: .bool),
+                FieldSpec(key: "up", label: "上行带宽", placeholder: "50 Mbps"),
+                FieldSpec(key: "down", label: "下行带宽", placeholder: "200 Mbps"),
+            ]
+        case "openvpn":
+            return [
+                FieldSpec(key: "proto", label: "传输", kind: .choice(["udp", "tcp"])),
+                FieldSpec(key: "username", label: "用户名"),
+                FieldSpec(key: "password", label: "密码", kind: .secure),
+                FieldSpec(key: "cipher", label: "加密", kind: .choice(["", "AES-128-GCM", "AES-256-GCM", "CHACHA20-POLY1305", "AES-256-CBC", "AES-128-CBC"])),
+                FieldSpec(key: "auth", label: "HMAC", kind: .choice(["", "SHA1", "SHA256", "SHA512"])),
+                FieldSpec(key: "ca", label: "CA 证书", kind: .pem),
+                FieldSpec(key: "cert", label: "客户端证书", kind: .pem),
+                FieldSpec(key: "key", label: "客户端私钥", kind: .pem),
+                FieldSpec(key: "tls-auth", label: "tls-auth 密钥", kind: .pem),
+                FieldSpec(key: "key-direction", label: "key-direction", kind: .choice(["", "0", "1"])),
+                FieldSpec(key: "tls-crypt", label: "tls-crypt 密钥", kind: .pem),
+                FieldSpec(key: "mtu", label: "MTU", kind: .int, placeholder: "1400"),
+                FieldSpec(key: "udp", label: "UDP", kind: .bool),
+                FieldSpec(key: "remote-dns-resolve", label: "远端解析 DNS", kind: .bool),
+                FieldSpec(key: "dns", label: "DNS", kind: .list, placeholder: "10.8.0.1"),
+            ]
+        case "gost-relay":
+            return [
+                FieldSpec(key: "username", label: "用户名"),
+                FieldSpec(key: "password", label: "密码", kind: .secure),
+                FieldSpec(key: "tls", label: "TLS", kind: .bool),
+                FieldSpec(key: "sni", label: "SNI"),
+                FieldSpec(key: "mux", label: "多路复用", kind: .bool),
+                FieldSpec(key: "udp", label: "UDP", kind: .bool),
+                FieldSpec(key: "skip-cert-verify", label: "跳过证书验证", kind: .bool),
+            ]
         case "mieru":
             return [
                 FieldSpec(key: "username", label: "用户名"),
@@ -176,11 +317,11 @@ enum NodeProtocols {
     }
 
     // v0.8 高级: only where mihomo v1.19.32 reads the key for that protocol.
-    static let echTypes: Set<String> = ["vmess", "vless", "trojan", "hysteria", "hysteria2", "tuic", "anytls"]
-    static let pinTypes: Set<String> = ["vmess", "vless", "trojan", "hysteria", "hysteria2", "tuic", "anytls", "http", "socks5"]
+    static let echTypes: Set<String> = ["vmess", "vless", "trojan", "hysteria", "hysteria2", "tuic", "anytls", "trusttunnel"]
+    static let pinTypes: Set<String> = ["vmess", "vless", "trojan", "hysteria", "hysteria2", "tuic", "anytls", "http", "socks5", "trusttunnel", "gost-relay"]
     static let smuxTypes: Set<String> = ["ss", "vmess", "vless", "trojan"]
     /// QUIC / UDP-based protocols: TCP Fast Open and MPTCP don't apply.
-    static let udpOnlyTypes: Set<String> = ["hysteria", "hysteria2", "tuic", "wireguard"]
+    static let udpOnlyTypes: Set<String> = ["hysteria", "hysteria2", "tuic", "wireguard", "masque", "shadowquic"]
 
     static func advanced(for type: String) -> [FieldSpec] {
         var f: [FieldSpec] = []
@@ -217,6 +358,12 @@ enum NodeProtocols {
         case "snell": return ["version": "4", "udp": "true"]
         case "mieru": return ["transport": "TCP"]
         case "socks5": return ["udp": "true"]
+        case "sudoku": return ["aead-method": "chacha20-poly1305", "table-type": "prefer_ascii"]
+        case "masque": return ["udp": "true", "ip": "172.16.0.2", "mtu": "1280"]
+        case "trusttunnel": return ["udp": "true", "alpn": "h2"]
+        case "shadowquic": return ["alpn": "h3", "congestion-controller": "bbr"]
+        case "openvpn": return ["proto": "udp", "udp": "true"]
+        case "gost-relay": return ["udp": "true"]
         default: return [:]
         }
     }
@@ -277,6 +424,7 @@ struct NodeEditorView: View {
         _port = State(initialValue: node.flatMap { ($0["port"] as? NSNumber)?.stringValue ?? $0["port"] as? String } ?? "")
         var flat: [String: String] = [:]
         if let node { NodeProtocols.flatten(node, into: &flat) } else { flat = NodeProtocols.defaults(for: t) }
+        if node?["amnezia-wg-option"] != nil { flat["x-awg"] = "true" }
         _values = State(initialValue: flat)
         _dialer = State(initialValue: node?["dialer-proxy"] as? String ?? "")
     }
@@ -295,15 +443,21 @@ struct NodeEditorView: View {
             Form {
                 Section("基本") {
                     Picker("协议", selection: $type) {
-                        ForEach(NodeProtocols.all, id: \.type) { Text($0.title).tag($0.type) }
+                        ForEach(NodeProtocols.all, id: \.type) { p in
+                            Text(NodeProtocols.newer.contains(p.type) ? "\(p.title) · " + String(localized: "新") : p.title).tag(p.type)
+                        }
                     }
                     TextField("名称", text: $name)
                     TextField("服务器", text: $server).textInputAutocapitalization(.never).autocorrectionDisabled().keyboardType(.URL)
                     TextField("端口", text: $port).keyboardType(.numberPad)
                 }
                 .listRowBackground(Theme.card)
-                Section(protoTitle + " 参数") {
-                    ForEach(NodeProtocols.fields(for: type)) { f in field(f) }
+                Section {
+                    ForEach(NodeProtocols.fields(for: type).filter { NodeProtocols.visible($0, values: values) }) { f in field(f) }
+                } header: {
+                    Text(protoTitle + " " + String(localized: "参数"))
+                } footer: {
+                    if let n = NodeProtocols.note(for: type) { Text(n) }
                 }
                 .listRowBackground(Theme.card)
                 Section {
@@ -360,24 +514,41 @@ struct NodeEditorView: View {
         switch f.kind {
         case .text, .list:
             HStack {
-                Text(f.label).foregroundStyle(.secondary)
+                Text(LocalizedStringKey(f.label)).foregroundStyle(.secondary)
                 TextField(f.placeholder.isEmpty ? f.label : f.placeholder, text: binding)
                     .multilineTextAlignment(.trailing).textInputAutocapitalization(.never).autocorrectionDisabled()
             }
         case .secure:
             HStack {
-                Text(f.label).foregroundStyle(.secondary)
+                Text(LocalizedStringKey(f.label)).foregroundStyle(.secondary)
                 SecureField(f.placeholder.isEmpty ? f.label : f.placeholder, text: binding).multilineTextAlignment(.trailing)
             }
         case .int:
             HStack {
-                Text(f.label).foregroundStyle(.secondary)
+                Text(LocalizedStringKey(f.label)).foregroundStyle(.secondary)
                 TextField(f.placeholder, text: binding).keyboardType(.numberPad).multilineTextAlignment(.trailing)
             }
+        case .pem:
+            VStack(alignment: .leading, spacing: 6) {
+                HStack {
+                    Text(LocalizedStringKey(f.label)).foregroundStyle(.secondary)
+                    Spacer()
+                    if !(values[f.key] ?? "").isEmpty {
+                        Text("\((values[f.key] ?? "").split(separator: "\n").count) 行").font(.caption).foregroundStyle(.secondary)
+                    }
+                    Button("粘贴") {
+                        if let s = UIPasteboard.general.string { values[f.key] = s.trimmingCharacters(in: .whitespacesAndNewlines) }
+                    }
+                    .font(.caption.weight(.semibold)).buttonStyle(.borderless)
+                }
+                TextField("-----BEGIN …-----", text: binding, axis: .vertical)
+                    .font(.caption.monospaced()).lineLimit(2...6)
+                    .textInputAutocapitalization(.never).autocorrectionDisabled()
+            }
         case .bool:
-            Toggle(f.label, isOn: Binding(get: { (values[f.key] ?? "") == "true" }, set: { values[f.key] = $0 ? "true" : "false" }))
+            Toggle(LocalizedStringKey(f.label), isOn: Binding(get: { (values[f.key] ?? "") == "true" }, set: { values[f.key] = $0 ? "true" : "false" }))
         case .choice(let opts):
-            Picker(f.label, selection: binding) {
+            Picker(LocalizedStringKey(f.label), selection: binding) {
                 ForEach(opts, id: \.self) { Text($0.isEmpty ? "无" : $0).tag($0) }
                 if let v = values[f.key], !v.isEmpty, !opts.contains(v) { Text(v).tag(v) }
             }
@@ -395,6 +566,9 @@ struct NodeEditorView: View {
         d["server"] = server.trimmingCharacters(in: .whitespaces)
         d["port"] = Int(port) ?? 0
         for f in specs {
+            if f.key == "x-awg" { continue }
+            if f.key.hasPrefix("amnezia-wg-option."), values["x-awg"] != "true" { continue }
+            if f.key.hasPrefix("xhttp-opts."), values["network"] != "xhttp" { continue }
             guard let raw = values[f.key]?.trimmingCharacters(in: .whitespaces), !raw.isEmpty else { continue }
             let path = f.key.split(separator: ".").map(String.init)
             let v: Any
