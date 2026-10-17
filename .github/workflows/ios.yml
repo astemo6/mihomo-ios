@@ -334,3 +334,93 @@ jobs:
             echo "----- tail -----"
             tail -n 60 "$f"
           done
+
+  # qx/rebuild (QX preview 6): simulator screenshots for the proportion check against the QX recording.
+  # Compile-only dispatches on qx/* refs: iPhone 16 Pro (or the nearest 402-pt Pro), light mode, demo profile
+  # via -qxDemo, one launch per page (-qxScreen). Our own screenshots, uploaded as an artifact only.
+  qx-screens:
+    if: ${{ inputs.build_only && contains(inputs.ref || github.ref, 'qx/') }}
+    runs-on: macos-15
+    timeout-minutes: 60
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ inputs.ref || github.ref }}
+      - name: Core version
+        run: echo "MIHOMO_VERSION=$(awk '$1=="github.com/metacubex/mihomo"{print $2; exit}' bridge/go.mod)" >> "$GITHUB_ENV"
+      - name: Select latest Xcode
+        run: |
+          XC=$(ls -d /Applications/Xcode_*.app | sed -E 's/.*Xcode_([0-9.]+)\.app/\1 &/' | grep -v -i beta | sort -V | tail -n1 | cut -d' ' -f2)
+          sudo xcode-select -s "$XC/Contents/Developer"
+          xcodebuild -version
+      - uses: actions/setup-go@v5
+        with:
+          go-version-file: bridge/go.mod
+          cache-dependency-path: bridge/go.sum
+      - name: Cache simulator Libmihomo
+        id: simfw
+        uses: actions/cache@v4
+        with:
+          path: Frameworks/Libmihomo.xcframework
+          key: libmihomo-sim-${{ env.MIHOMO_VERSION }}-${{ hashFiles('bridge/**') }}
+      - name: Build Libmihomo.xcframework (simulator)
+        if: steps.simfw.outputs.cache-hit != 'true'
+        working-directory: bridge
+        run: |
+          set -euo pipefail
+          MOBILE_VER=$(go list -m -f '{{.Version}}' golang.org/x/mobile)
+          go install golang.org/x/mobile/cmd/gomobile@"$MOBILE_VER" golang.org/x/mobile/cmd/gobind@"$MOBILE_VER"
+          export PATH="$(go env GOPATH)/bin:$PATH"
+          gomobile init
+          mkdir -p ../Frameworks
+          gomobile bind -target=iossimulator/arm64 -iosversion=15.0 -tags with_gvisor -trimpath \
+            -ldflags "-s -w -X github.com/metacubex/mihomo/constant.Version=${MIHOMO_VERSION} -X github.com/astemo6/mihomo-ios/bridge.CoreVersion=${MIHOMO_VERSION}" \
+            -o ../Frameworks/Libmihomo.xcframework .
+      - name: Build for the simulator
+        run: |
+          set -o pipefail
+          brew install xcodegen
+          xcodegen generate
+          xcodebuild -project Mihomo.xcodeproj -scheme Mihomo -configuration Debug -sdk iphonesimulator \
+            -destination 'generic/platform=iOS Simulator' -derivedDataPath build/sim \
+            ARCHS=arm64 ONLY_ACTIVE_ARCH=YES CODE_SIGNING_ALLOWED=NO CODE_SIGNING_REQUIRED=NO CODE_SIGN_IDENTITY="" CODE_SIGN_ENTITLEMENTS="" \
+            build 2>&1 | tee sim.log | grep -E "error:|\*\* BUILD" | head -n 100
+          ls build/sim/Build/Products/Debug-iphonesimulator/
+      - name: Screenshots
+        run: |
+          set -x
+          APP=$(ls -d build/sim/Build/Products/Debug-iphonesimulator/*.app | head -n1)
+          BID=$(/usr/libexec/PlistBuddy -c 'Print :CFBundleIdentifier' "$APP/Info.plist")
+          DEV=$(xcrun simctl list devices available -j | python3 -c "
+          import json,sys
+          d=json.load(sys.stdin)['devices']
+          devs=[(r,x) for r,l in d.items() if 'iOS' in r for x in l]
+          for want in ['iPhone 16 Pro','iPhone 17 Pro','iPhone 15 Pro']:
+              m=[x for r,x in devs if x['name']==want]
+              if m: print(m[-1]['udid']); break
+          ")
+          echo "device $DEV"
+          xcrun simctl boot "$DEV" || true
+          xcrun simctl bootstatus "$DEV" -b
+          xcrun simctl ui "$DEV" appearance light
+          xcrun simctl status_bar "$DEV" override --time "9:41" --batteryState charged --batteryLevel 100 || true
+          xcrun simctl install "$DEV" "$APP"
+          mkdir -p shots
+          xcrun simctl launch "$DEV" "$BID" -qxDemo -qxScreen home; sleep 20
+          for s in home settings nodes policy other add; do
+            xcrun simctl launch --terminate-running-process "$DEV" "$BID" -qxDemo -qxScreen $s
+            sleep 9
+            xcrun simctl io "$DEV" screenshot "shots/$s.png"
+          done
+          xcrun simctl ui "$DEV" appearance dark
+          xcrun simctl launch --terminate-running-process "$DEV" "$BID" -qxDemo -qxScreen home; sleep 9
+          xcrun simctl io "$DEV" screenshot shots/home-dark.png
+          ls -la shots
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: qx-screens
+          path: |
+            shots/
+            sim.log
+          if-no-files-found: warn

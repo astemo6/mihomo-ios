@@ -113,6 +113,7 @@ struct RootView: View {
         }
         .onAppear {
             // First run only; people upgrading with profiles already set up never see it (更多 → 新手引导 shows it again).
+            if QXDemo.enabled { Onboarding.isDone = true; Task { await QXDemo.prepare(store: store, nav: QXNavigator.shared) } }
             if !Onboarding.isDone {
                 if store.profiles.isEmpty { showOnboarding = true } else { Onboarding.isDone = true }
             }
