@@ -98,6 +98,7 @@ struct QXRouteView: View {
         case .connection(let id): QXConnectionDetailView(id: id)
         case .dest(let d): d.view
         case .zoom(let r): QXRouteView(route: r).qxZoomDestination(r)
+        case .module(let url): QXModulePreviewPage(url: url)
         }
     }
 }

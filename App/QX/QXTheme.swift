@@ -100,6 +100,25 @@ enum QXColor {
     static let lockWallpaper: [Color] = [QXPalette.dyn(0x1F4D73, 0x1F4D73), QXPalette.dyn(0x5C2E8C, 0x5C2E8C)]
 }
 
+// MARK: - Script panels (QX preview 8)
+extension QXColor {
+    /// A panel's glyph colour: the script's own icon-color when it gives one, else its style, else the
+    /// nodes colour. (The hex comes from the script's data, not from a literal in a view.)
+    static func panelAccent(hex: String?, style: String?) -> Color {
+        if let c = Color(hex: hex) { return c }
+        switch style?.lowercased() {
+        case "good": return success
+        case "alert": return warning
+        case "error": return danger
+        default: return nodes
+        }
+    }
+    /// Tint over a panel card when the script sets backgroundColor (clear otherwise).
+    static func panelBackground(hex: String?) -> Color {
+        Color(hex: hex).map { $0.opacity(0.18) } ?? .clear
+    }
+}
+
 // MARK: - Motion (QX preview 6 smoothness pass)
 // One set of interruptible springs for every QX transition (no linear / ease curves on pages or tiles).
 enum QXMotion {

@@ -132,6 +132,7 @@ enum QXDest: String, Hashable, CaseIterable {
     case taskGallery, geoChecker
     case httpBackend
     case widgets
+    case moduleLibrary
 
     @MainActor @ViewBuilder var view: some View {
         switch self {
@@ -166,7 +167,7 @@ enum QXDest: String, Hashable, CaseIterable {
         case .about: AboutView()
         case .notices: ScriptNoticesView()
         case .scriptLogs: ScriptLogsView()
-        case .panels: PanelsView()
+        case .panels: QXAllPanelsView()
         case .sessions: QXSessionListView()
         case .subscriptions: SubscriptionsView()
         case .mitmAdvanced: QXMitMAdvancedView()
@@ -182,6 +183,7 @@ enum QXDest: String, Hashable, CaseIterable {
         case .geoChecker: QXGeoCheckerView()
         case .httpBackend: QXHTTPBackendView()
         case .widgets: QXWidgetsPage()
+        case .moduleLibrary: QXModuleLibraryView()
         }
     }
 }
@@ -194,6 +196,8 @@ enum QXRoute: Hashable {
     /// QX preview 7: pushed with the iOS 18 zoom transition from a home tile / the windmill (the wrapped route
     /// is also the transition source id). Other pushes of the same page use the normal push.
     indirect case zoom(QXRoute)
+    /// QX preview 8: a 模块库 entry (by module URL) opened in main's preview.
+    case module(String)
 }
 
 /// Sheets the shell presents (pages that own a NavigationStack, and editors).

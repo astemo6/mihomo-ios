@@ -9,10 +9,22 @@ struct QXActionSpec: Identifiable {
     let id = UUID()
     let title: String
     let icon: String
+    /// QX preview 8: a button that pushes a page carries its route, so the page zooms out of the button
+    /// (iOS 18, phone) like the home tiles and the windmill; buttons that open sheets / alerts have none.
+    var route: QXRoute? = nil
     let action: () -> Void
+
+    init(title: String, icon: String, action: @escaping () -> Void) {
+        self.title = title; self.icon = icon; self.action = action
+    }
+    init(title: String, icon: String, route: QXRoute) {
+        self.title = title; self.icon = icon; self.route = route; self.action = {}
+    }
 }
 
 struct QXActionGrid: View {
+    /// Not an environment object: the grid is also used on the welcome sheet.
+    private var nav: QXNavigator { QXNavigator.shared }
     let color: Color
     let items: [QXActionSpec]
     /// 2 on iPhone (QX); 3 on iPad regular width.
@@ -21,7 +33,9 @@ struct QXActionGrid: View {
         // Frame 25: 2 columns, 61 pt capsules 13 pt apart, white glyph + 17–18 pt semibold label, soft colour shadow.
         LazyVGrid(columns: Array(repeating: GridItem(.flexible(), spacing: 13), count: columns), spacing: 13) {
             ForEach(items) { it in
-                Button(action: it.action) {
+                Button {
+                    if let r = it.route { nav.pushZoom(r) } else { it.action() }
+                } label: {
                     HStack(spacing: 10) {
                         Image(systemName: it.icon).font(.system(size: 17, weight: .medium)).frame(width: 22)
                         Text(verbatim: it.title).font(QXType.button).lineLimit(1).minimumScaleFactor(0.7)
@@ -34,8 +48,18 @@ struct QXActionGrid: View {
                     .shadow(color: QXPalette.glow(color, 0.16), radius: 5, y: 2)
                 }
                 .buttonStyle(QXPressStyle(scale: 0.96, haptic: true))
+                .modifier(QXOptionalZoomSource(route: it.route, radius: QXMetrics.settingsButton / 2))
             }
         }
+    }
+}
+
+/// Zoom source only for buttons that push.
+struct QXOptionalZoomSource: ViewModifier {
+    let route: QXRoute?
+    var radius: CGFloat
+    func body(content: Content) -> some View {
+        if let route { content.qxZoomSource(route, radius: radius) } else { content }
     }
 }
 
@@ -109,20 +133,21 @@ struct QXSettingsView: View {
                     QXSettingsSection(title: String(localized: "节点"), count: "\(nodeCount)",
                                       caption: String(localized: "网络流量可经由节点转发到最终目的地。"),
                                       color: QXColor.nodes, items: [
-                        QXActionSpec(title: String(localized: "添加"), icon: "plus.rectangle.on.rectangle") { nav.push(.dest(.addNode)) },
-                        QXActionSpec(title: String(localized: "节点资源"), icon: "link") { nav.push(.dest(.nodeResources)) },
+                        QXActionSpec(title: String(localized: "添加"), icon: "plus.rectangle.on.rectangle", route: .dest(.addNode)),
+                        QXActionSpec(title: String(localized: "节点资源"), icon: "link", route: .dest(.nodeResources)),
                     ])
                     QXSettingsSection(title: String(localized: "分流"), count: QXFmt.count(ruleCount),
                                       caption: String(localized: "规则分流模式下，网络请求的走向由分流规则中所匹配到的策略决定。靠前的规则优先级更高，可点击“分流规则”查看顺序。MATCH（FINAL）规则对应的策略会在其他规则都未命中时使用。"),
                                       color: QXColor.rules, items: [
-                        QXActionSpec(title: String(localized: "分流规则"), icon: "line.3.horizontal.decrease") { nav.push(.dest(.customRules)) },
-                        QXActionSpec(title: String(localized: "规则资源"), icon: "link") { nav.push(.dest(.filterResources)) },
+                        QXActionSpec(title: String(localized: "分流规则"), icon: "line.3.horizontal.decrease", route: .dest(.customRules)),
+                        QXActionSpec(title: String(localized: "规则资源"), icon: "link", route: .dest(.filterResources)),
                     ])
                     QXSettingsSection(title: String(localized: "重写"), count: "\(rewriteCount)",
                                       caption: String(localized: "重写用于修改 HTTP 或 HTTPS 请求与响应。该规则按加载顺序进行匹配，可点击“重写规则”查看加载顺序。"),
                                       color: QXColor.rewrite, items: [
-                        QXActionSpec(title: String(localized: "重写规则"), icon: "pencil") { nav.push(.dest(.localRewrite)) },
-                        QXActionSpec(title: String(localized: "规则资源"), icon: "link") { nav.push(.dest(.rewriteResources)) },
+                        QXActionSpec(title: String(localized: "重写规则"), icon: "pencil", route: .dest(.localRewrite)),
+                        QXActionSpec(title: String(localized: "规则资源"), icon: "link", route: .dest(.rewriteResources)),
+                        QXActionSpec(title: String(localized: "模块库"), icon: "books.vertical", route: .dest(.moduleLibrary)),
                     ]) {
                         Toggle("", isOn: Binding(get: { engine.config.enabled }, set: { engine.config.enabled = $0; engine.save() }))
                             .qxToggleHaptic(engine.config.enabled)
@@ -132,7 +157,7 @@ struct QXSettingsView: View {
                     QXSettingsSection(title: "MitM", count: "\(mitmCount)",
                                       caption: String(localized: "MitM 根证书用于 HTTPS 解析。只有配置了主机名的请求才会被 MitM 模块进行解析。主机名按加载顺序进行匹配，可点击“主机名”查看加载顺序。"),
                                       color: QXColor.mitm, items: [
-                        QXActionSpec(title: String(localized: "主机名"), icon: "at") { nav.push(.dest(.mitm)) },
+                        QXActionSpec(title: String(localized: "主机名"), icon: "at", route: .dest(.mitm)),
                         QXActionSpec(title: String(localized: "生成证书"), icon: "person.text.rectangle") { certSheet = .generate },
                         QXActionSpec(title: String(localized: "配置证书"), icon: "gearshape.2") { certSheet = .configure },
                     ]) {
@@ -144,13 +169,13 @@ struct QXSettingsView: View {
                     QXSettingsSection(title: String(localized: "工具 & 分析"),
                                       caption: String(localized: "以下 HTTP 请求相关工具大多用于 web 开发及测试；网络工具、解锁检测与连接分析是本 App 额外提供的。"),
                                       color: QXColor.tools, items: [
-                        QXActionSpec(title: String(localized: "HTTP 请求"), icon: "text.line.last.and.arrowtriangle.forward") { nav.push(.dest(.tasks)) },
-                        QXActionSpec(title: String(localized: "HTTP 抓取"), icon: "record.circle") { nav.push(.dest(.httpCapture)) },
-                        QXActionSpec(title: String(localized: "HTTP Backend"), icon: "server.rack") { nav.push(.dest(.httpBackend)) },
-                        QXActionSpec(title: String(localized: "网络工具"), icon: "stethoscope") { nav.push(.dest(.tools)) },
-                        QXActionSpec(title: String(localized: "网络测试"), icon: "speedometer") { nav.push(.dest(.netTest)) },
-                        QXActionSpec(title: String(localized: "解锁检测"), icon: "checkmark.seal") { nav.push(.dest(.unlock)) },
-                        QXActionSpec(title: String(localized: "连接分析"), icon: "chart.pie") { nav.push(.dest(.analytics)) },
+                        QXActionSpec(title: String(localized: "HTTP 请求"), icon: "text.line.last.and.arrowtriangle.forward", route: .dest(.tasks)),
+                        QXActionSpec(title: String(localized: "HTTP 抓取"), icon: "record.circle", route: .dest(.httpCapture)),
+                        QXActionSpec(title: String(localized: "HTTP Backend"), icon: "server.rack", route: .dest(.httpBackend)),
+                        QXActionSpec(title: String(localized: "网络工具"), icon: "stethoscope", route: .dest(.tools)),
+                        QXActionSpec(title: String(localized: "网络测试"), icon: "speedometer", route: .dest(.netTest)),
+                        QXActionSpec(title: String(localized: "解锁检测"), icon: "checkmark.seal", route: .dest(.unlock)),
+                        QXActionSpec(title: String(localized: "连接分析"), icon: "chart.pie", route: .dest(.analytics)),
                     ])
                     QXSettingsSection(title: String(localized: "配置文件"),
                                       caption: String(localized: "完整的配置文件（mihomo YAML）保存在本地，包含节点详情、分流规则、策略、引用链接等信息；重写与 MitM 保存在模块中。"),
@@ -161,16 +186,18 @@ struct QXSettingsView: View {
                         QXActionSpec(title: String(localized: "导出配置"), icon: "square.and.arrow.up") { exportProfile() },
                         QXActionSpec(title: String(localized: "下载配置"), icon: "tray.and.arrow.down") { nav.present(.addRemote) },
                         QXActionSpec(title: String(localized: "示例配置"), icon: "doc.text") { nav.present(.sample) },
-                        QXActionSpec(title: String(localized: "初始化"), icon: "arrow.counterclockwise") { nav.push(.dest(.reset)) },
-                        QXActionSpec(title: String(localized: "备份与恢复"), icon: "externaldrive") { nav.push(.dest(.backup)) },
-                        QXActionSpec(title: String(localized: "配置快照"), icon: "clock.arrow.circlepath") { nav.push(.dest(.snapshots)) },
-                        QXActionSpec(title: String(localized: "同步文件夹"), icon: "folder.badge.gearshape") { nav.push(.dest(.syncFolder)) },
-                        QXActionSpec(title: String(localized: "存储空间"), icon: "internaldrive") { nav.push(.dest(.storage)) },
+                        QXActionSpec(title: String(localized: "初始化"), icon: "arrow.counterclockwise", route: .dest(.reset)),
+                        QXActionSpec(title: String(localized: "备份与恢复"), icon: "externaldrive", route: .dest(.backup)),
+                        QXActionSpec(title: String(localized: "配置快照"), icon: "clock.arrow.circlepath", route: .dest(.snapshots)),
+                        QXActionSpec(title: String(localized: "同步文件夹"), icon: "folder.badge.gearshape", route: .dest(.syncFolder)),
+                        QXActionSpec(title: String(localized: "存储空间"), icon: "internaldrive", route: .dest(.storage)),
                         QXActionSpec(title: String(localized: "配置管理"), icon: "doc.text.magnifyingglass") { nav.present(.profiles) },
                     ])
                     VStack(spacing: 12) {
-                        bottomButton(String(localized: "面板 & 工具栏")) { nav.push(.panelSettings) }
-                        bottomButton(String(localized: "其他设置")) { nav.push(.otherSettings) }
+                        bottomButton(String(localized: "面板 & 工具栏")) { nav.pushZoom(.panelSettings) }
+                            .qxZoomSource(.panelSettings, radius: 30)
+                        bottomButton(String(localized: "其他设置")) { nav.pushZoom(.otherSettings) }
+                            .qxZoomSource(.otherSettings, radius: 30)
                     }
                 }
                 .padding(.horizontal, QXMetrics.inset)

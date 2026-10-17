@@ -334,6 +334,8 @@ struct QXNodesPanel: View {
                 if AppShared.activeProfileURL == nil {
                     QXEmptyProfileCard()
                 }
+                // QX preview 8: pinned script panels (main v0.15.1) as QX cards above PROXY.
+                QXHomePanelsSection(active: active)
                 QXSectionHeader(title: "PROXY", expanded: $proxyExpanded) {
                     Menu {
                         Button { Task { await testAllResources() } } label: { Label("全部测速", systemImage: "bolt.fill") }
@@ -581,6 +583,8 @@ struct QXNodeRow: View {
     let selected: Bool
     let pinned: Bool
     var enabled = true
+    /// QX preview 8: policy-detail rows are their own 64 pt cards like the home policy / resource cards.
+    var minHeight: CGFloat? = nil
     @ObservedObject private var model = QXNodesModel.shared
     @ObservedObject private var probes = ProbeStore.shared
 
@@ -617,7 +621,8 @@ struct QXNodeRow: View {
                 .frame(minWidth: 36, alignment: .trailing)
         }
         .padding(.horizontal, 16)
-        .padding(.vertical, 10)
+        .padding(.vertical, minHeight == nil ? 10 : 8)
+        .frame(minHeight: minHeight)
         .opacity(enabled || selected ? 1 : 0.6)
         .accessibilityElement(children: .combine)
         .accessibilityAddTraits(selected ? .isSelected : [])
@@ -815,16 +820,21 @@ struct QXGroupDetailView: View {
             }
         } content: {
         ScrollView {
-                LazyVStack(alignment: .leading, spacing: 12) {
+                // QX preview 8 (density): page inset 18 pt, cards 9 pt apart, each node its own 64 pt card with the
+                // policy-row title / detail type — the same rhythm as the home PROXY / 自定义策略 cards (frame 01/06).
+                LazyVStack(alignment: .leading, spacing: 9) {
                     if let e = model.error { ErrorRow(message: e) }
                     if let g = model.group(named: name) {
-                        header(g)
+                        header(g).padding(.bottom, 9)
                         let pinAction = (g.kind == "url-test" || g.kind == "fallback") && model.live && !smart.isSmart(g.name)
-                        QXCard {
-                            LazyVStack(spacing: 0) {
-                                ForEach(Array(ordered(g.members).enumerated()), id: \.element) { i, m in
-                                    if i > 0 { Divider().padding(.leading, 16) }
-                                    QXNodeRow(name: m, selected: g.now == m, pinned: g.pinned == m, enabled: g.selectable || pinAction)
+                        HStack(alignment: .firstTextBaseline, spacing: 8) {
+                            Text("节点").font(.headline)
+                            Text(verbatim: "\(g.members.count)").font(.subheadline).foregroundStyle(.secondary)
+                        }
+                        .padding(.horizontal, 4)
+                        ForEach(ordered(g.members), id: \.self) { m in
+                                QXCard {
+                                    QXNodeRow(name: m, selected: g.now == m, pinned: g.pinned == m, enabled: g.selectable || pinAction, minHeight: 64)
                                         .contentShape(Rectangle())
                                         .onTapGesture {
                                             if g.selectable { Task { await model.select(group: g.name, node: m) } }
@@ -847,7 +857,6 @@ struct QXGroupDetailView: View {
                                             }
                                         }
                                 }
-                            }
                         }
                         if !g.selectable {
                             Text(pinAction ? String(localized: "\(g.display.hint)。轻点节点可临时固定，自动选择暂停，直到解除固定。") : g.display.hint)
@@ -858,7 +867,8 @@ struct QXGroupDetailView: View {
                         EmptyStateView(icon: "questionmark.folder", title: "找不到这个策略")
                     }
                 }
-                .padding(16)
+                .padding(.horizontal, QXMetrics.inset)
+                .padding(.top, 1)
                 .padding(.bottom, 30)
             }
         }

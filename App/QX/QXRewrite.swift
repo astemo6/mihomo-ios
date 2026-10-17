@@ -191,6 +191,8 @@ struct QXRewriteResourcesView: View {
                     .accessibilityLabel(Text("重写规则"))
                 QXBarIcon(systemName: "doc.badge.gearshape") { nav.push(.dest(.allResources)) }
                     .accessibilityLabel(Text("模块与资源"))
+                QXBarIcon(systemName: "books.vertical") { nav.push(.dest(.moduleLibrary)) }
+                    .accessibilityLabel(Text("模块库"))
                 Menu {
                     Button {
                         let t = (UIPasteboard.general.string ?? "").trimmingCharacters(in: .whitespacesAndNewlines)
