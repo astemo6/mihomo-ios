@@ -1,4 +1,4 @@
-# Mihomo iOS（v0.12）
+# Mihomo iOS（v0.13）
 
 基于开源 [mihomo](https://github.com/MetaCubeX/mihomo)（Clash Meta）内核的个人 iOS 代理客户端：深色卡片界面，首页只放最常用的东西，进阶功能按类别收在「更多」里。
 
@@ -30,6 +30,14 @@
 | 快捷指令 | 连接、断开、切换连接、切换出站模式、切换节点、**查询状态、切换配置、开关模块、更新订阅、运行脚本**（App Intents）；主屏幕长按图标：连接 / 断开、规则 / 全局 / 直连 |
 | 导入链接 | 只注册自己的 `mihomo://`（`mihomo://install-config?url=`、`install-module?url=`、`connect`、`disconnect`、`toggle`）。粘贴的 `loon://`、`stash://`、`surge:///`、`quantumult-x:///`、`egern:/` 安装链接也能识别，但**不注册**这些 scheme，避免与其他客户端抢链接。可以用「文件」/其他 App 的「用 Mihomo 打开」打开 `.sgmodule` `.plugin` `.stoverride` `.module` `.snippet` `.conf` `.list` `.yaml` 和纯文本；剪贴板有新内容时顶部出现「粘贴导入」横幅 |
 | iPad | 横向宽度为常规时用侧边栏（NavigationSplitView）显示五个分区，支持横竖屏与分屏；iPhone 保持底部标签栏 |
+
+## v0.13 要点
+
+- **协议覆盖跟上内核 v1.19.32**（策略 → 手动节点 → 添加 / 编辑）：新增 Sudoku、MASQUE、TrustTunnel、ShadowQUIC、OpenVPN（CA / 证书 / 私钥 / tls-auth / tls-crypt 可直接粘贴 PEM）、GOST Relay；VLESS 增加 XHTTP 传输（路径 / Host / 模式）、`encryption`、ALPN、UDP 封装（xudp / packetaddr）；Hysteria2 增加端口跳跃间隔与 ALPN；WireGuard 增加 AmneziaWG 参数；AnyTLS 增加空闲会话设置。传输参数只显示所选传输方式需要的那几项。保存前仍由内核校验。
+- **分享链接**：VLESS XHTTP 与 Mieru（`mierus://`）可以导出并被其他客户端导入；MASQUE / OpenVPN 等没有通用链接格式的协议照旧提示。
+- **控制中心与小组件**：iOS 18 控制中心新增「出站模式」控件（规则 → 全局 → 直连 轮换，连接中立即生效）；锁屏新增单行小组件（状态 / 当前节点）；中号与锁屏矩形小组件显示当前模式，中号小组件点一下即可切换。
+- **导入边界情况**：Loon 插件 `[Argument]` 支持中文参数名、`{{{参数}}}` 写法和 `enable = {开关}`（带空格）；Stash 覆写支持 `rule-providers` 按名称引用（domain 行为 → DOMAIN-SET，mrs 二进制规则集在报告中注明不支持）、`#!replace` / `#!append` 键、只有 `rules:` 的覆写；规则列表里的纯 IP / CIDR 行按 IP-CIDR 处理。
+- **DNS 预设**（更多 → DNS）：国内 / 国外 DNS 旁的「预设」一键加入阿里、DNSPod、360、Cloudflare、Google、Quad9、AdGuard、OpenDNS 的 DoH / DoT / DoQ / UDP 服务器。
 
 ## v0.12 要点
 

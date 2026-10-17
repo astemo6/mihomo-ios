@@ -1090,6 +1090,40 @@
         }
       }
     },
+    "%lld 行": {
+      "localizations": {
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%lld 行"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%lld lines"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%lld 行"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%lld줄"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Строк: %lld"
+          }
+        }
+      }
+    },
     "%lld 项": {
       "localizations": {
         "zh-Hant": {
@@ -1256,6 +1290,40 @@
           "stringUnit": {
             "state": "translated",
             "value": "+%lldms"
+          }
+        }
+      }
+    },
+    "-----BEGIN …-----": {
+      "localizations": {
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "-----BEGIN …-----"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "-----BEGIN …-----"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "-----BEGIN …-----"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "-----BEGIN …-----"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "-----BEGIN …-----"
           }
         }
       }
@@ -1837,6 +1905,41 @@
           "stringUnit": {
             "state": "translated",
             "value": "307 с сохранением метода и тела"
+          }
+        }
+      }
+    },
+    "360 DNS": {
+      "extractionState": "manual",
+      "localizations": {
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "360 DNS"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "360 DNS"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "360 DNS"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "360 DNS"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "360 DNS"
           }
         }
       }
@@ -3003,6 +3106,40 @@
         }
       }
     },
+    "GOST Relay：GOST v3 的 relay 协议，可选 TLS 与多路复用。": {
+      "localizations": {
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "GOST Relay：GOST v3 的 relay 協議，可選 TLS 與多路複用。"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "GOST Relay: the relay protocol of GOST v3, with optional TLS and multiplexing."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "GOST Relay：GOST v3 の relay プロトコルで、TLS と多重化を選べます。"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "GOST Relay: GOST v3의 relay 프로토콜이며 TLS와 다중화를 선택할 수 있습니다."
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "GOST Relay — протокол relay из GOST v3, с необязательными TLS и мультиплексированием."
+          }
+        }
+      }
+    },
     "Google": {
       "extractionState": "manual",
       "localizations": {
@@ -3244,6 +3381,41 @@
         }
       }
     },
+    "HTTP 伪装": {
+      "extractionState": "manual",
+      "localizations": {
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "HTTP 偽裝"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "HTTP Mask"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "HTTP 偽装"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "HTTP 위장"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Маскировка под HTTP"
+          }
+        }
+      }
+    },
     "HTTP 明文请求无需 MitM 即可重写；HTTPS 需要在 MitM 页添加主机名并信任证书。": {
       "localizations": {
         "en": {
@@ -3414,6 +3586,41 @@
         }
       }
     },
+    "HTTPS（TLS）": {
+      "extractionState": "manual",
+      "localizations": {
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "HTTPS（TLS）"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "HTTPS (TLS)"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "HTTPS（TLS）"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "HTTPS(TLS)"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "HTTPS (TLS)"
+          }
+        }
+      }
+    },
     "Hako / Hako-Adapter 的维护者，后续项目 Clash-Adapter": {
       "localizations": {
         "en": {
@@ -3479,6 +3686,41 @@
           "stringUnit": {
             "state": "translated",
             "value": "Диапазон IP"
+          }
+        }
+      }
+    },
+    "IP 版本": {
+      "extractionState": "manual",
+      "localizations": {
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "IP 版本"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "IP Version"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "IP バージョン"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "IP 버전"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Версия IP"
           }
         }
       }
@@ -3649,6 +3891,41 @@
           "stringUnit": {
             "state": "translated",
             "value": "IP (через запятую) или один домен"
+          }
+        }
+      }
+    },
+    "MASQUE：基于 HTTP/3 的隧道（如 Cloudflare WARP 的 MASQUE 模式）。私钥与对端公钥来自服务端提供的参数。": {
+      "extractionState": "manual",
+      "localizations": {
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "MASQUE：基於 HTTP/3 的隧道（如 Cloudflare WARP 的 MASQUE 模式）。私鑰與對端公鑰來自服務端提供的引數。"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "MASQUE: a tunnel over HTTP/3 (e.g. Cloudflare WARP in MASQUE mode). The private key and peer public key come from the server's configuration."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "MASQUE：HTTP/3 上のトンネルです（Cloudflare WARP の MASQUE モードなど）。秘密鍵とピアの公開鍵はサーバー側の設定から取得します。"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "MASQUE: HTTP/3 기반 터널입니다(예: Cloudflare WARP의 MASQUE 모드). 개인 키와 피어 공개 키는 서버 구성에서 가져옵니다."
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "MASQUE — туннель поверх HTTP/3 (например, Cloudflare WARP в режиме MASQUE). Закрытый ключ и открытый ключ узла берутся из конфигурации сервера."
           }
         }
       }
@@ -4169,6 +4446,40 @@
         }
       }
     },
+    "OpenVPN：由内核在用户态完成连接，不会创建系统 VPN。CA 证书必填；把 .ovpn 中 <ca> 等段的 PEM 内容粘贴进来。": {
+      "localizations": {
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "OpenVPN：由核心在使用者態完成連線，不會建立系統 VPN。CA 證書必填；把 .ovpn 中 <ca> 等段的 PEM 內容貼上進來。"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "OpenVPN: the core connects in user space; no system VPN is created. A CA certificate is required — paste the PEM content of the <ca> (and other) blocks from the .ovpn file."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "OpenVPN：コアがユーザー空間で接続し、システムの VPN は作成しません。CA 証明書は必須です。.ovpn の <ca> などのブロックの PEM 内容を貼り付けてください。"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "OpenVPN: 코어가 사용자 공간에서 연결하며 시스템 VPN을 만들지 않습니다. CA 인증서는 필수입니다. .ovpn 파일의 <ca> 등 블록의 PEM 내용을 붙여 넣으세요."
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "OpenVPN — ядро подключается в пространстве пользователя, системный VPN не создаётся. Сертификат CA обязателен — вставьте PEM-содержимое блоков <ca> и других из файла .ovpn."
+          }
+        }
+      }
+    },
     "P2P 和部分游戏联机困难。节点不支持 Full Cone 时常见。": {
       "localizations": {
         "zh-Hant": {
@@ -4615,6 +4926,41 @@
         }
       }
     },
+    "SNI（伪装站点）": {
+      "extractionState": "manual",
+      "localizations": {
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "SNI（偽裝站點）"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "SNI (cover site)"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "SNI（偽装サイト）"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "SNI(위장 사이트)"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "SNI (сайт-прикрытие)"
+          }
+        }
+      }
+    },
     "STUN 服务器": {
       "localizations": {
         "zh-Hant": {
@@ -4753,6 +5099,40 @@
         }
       }
     },
+    "ShadowQUIC：伪装成普通 QUIC（TLS 1.3）的代理协议，SNI 填被伪装的网站。": {
+      "localizations": {
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ShadowQUIC：偽裝成普通 QUIC（TLS 1.3）的代理協議，SNI 填被偽裝的網站。"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ShadowQUIC: a proxy protocol that looks like ordinary QUIC (TLS 1.3). Put the site it imitates in SNI."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ShadowQUIC：通常の QUIC（TLS 1.3）に見せかけるプロキシプロトコルです。SNI には偽装先のサイトを入力します。"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ShadowQUIC: 일반 QUIC(TLS 1.3)처럼 보이는 프록시 프로토콜입니다. SNI에는 위장할 사이트를 입력하세요."
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ShadowQUIC — прокси-протокол, похожий на обычный QUIC (TLS 1.3). В SNI укажите сайт, под который он маскируется."
+          }
+        }
+      }
+    },
     "Shadowrocket": {
       "localizations": {
         "zh-Hant": {
@@ -4783,6 +5163,40 @@
           "stringUnit": {
             "state": "translated",
             "value": "Shadowrocket"
+          }
+        }
+      }
+    },
+    "Sudoku：以数独编码伪装流量的 TCP 协议。密钥与服务端相同；HTTP 伪装可穿过只放行 HTTP 的网络或 CDN。": {
+      "localizations": {
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Sudoku：以數獨編碼偽裝流量的 TCP 協議。金鑰與服務端相同；HTTP 偽裝可穿過只放行 HTTP 的網路或 CDN。"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Sudoku: a TCP protocol that disguises traffic with Sudoku-based encoding. Use the same key as the server; the HTTP mask gets through networks or CDNs that only allow HTTP."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Sudoku：数独ベースの符号化で通信を偽装する TCP プロトコルです。キーはサーバーと同じものを使います。HTTP 偽装を使うと HTTP しか通さないネットワークや CDN も通過できます。"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Sudoku: 스도쿠 기반 인코딩으로 트래픽을 위장하는 TCP 프로토콜입니다. 키는 서버와 같아야 하며, HTTP 위장을 쓰면 HTTP만 허용하는 네트워크나 CDN도 통과할 수 있습니다."
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Sudoku — TCP-протокол, маскирующий трафик кодированием на основе судоку. Ключ должен совпадать с сервером; маскировка под HTTP проходит через сети и CDN, пропускающие только HTTP."
           }
         }
       }
@@ -5095,6 +5509,40 @@
         }
       }
     },
+    "TrustTunnel：AdGuard 的 HTTP/2 · HTTP/3 隧道协议，用户名与密码由服务端分配。": {
+      "localizations": {
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "TrustTunnel：AdGuard 的 HTTP/2 · HTTP/3 隧道協議，使用者名稱與密碼由服務端分配。"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "TrustTunnel: AdGuard's HTTP/2 · HTTP/3 tunnel protocol. The server assigns the username and password."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "TrustTunnel：AdGuard の HTTP/2・HTTP/3 トンネルプロトコルです。ユーザー名とパスワードはサーバーが発行します。"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "TrustTunnel: AdGuard의 HTTP/2 · HTTP/3 터널 프로토콜입니다. 사용자 이름과 암호는 서버에서 발급합니다."
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "TrustTunnel — туннельный протокол AdGuard поверх HTTP/2 · HTTP/3. Имя пользователя и пароль выдаёт сервер."
+          }
+        }
+      }
+    },
     "UDP": {
       "localizations": {
         "en": {
@@ -5159,6 +5607,76 @@
           "stringUnit": {
             "state": "translated",
             "value": "UDP недоступен"
+          }
+        }
+      }
+    },
+    "UDP 封装": {
+      "extractionState": "manual",
+      "localizations": {
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "UDP 封裝"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "UDP Encoding"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "UDP カプセル化"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "UDP 캡슐화"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Инкапсуляция UDP"
+          }
+        }
+      }
+    },
+    "UDP 走流": {
+      "extractionState": "manual",
+      "localizations": {
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "UDP 走流"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "UDP over Stream"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "UDP をストリームで送信"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "스트림으로 UDP 전송"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "UDP через поток"
           }
         }
       }
@@ -5909,6 +6427,76 @@
           "stringUnit": {
             "state": "translated",
             "value": "Имя Wi-Fi (SSID)"
+          }
+        }
+      }
+    },
+    "XHTTP 模式": {
+      "extractionState": "manual",
+      "localizations": {
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "XHTTP 模式"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "XHTTP Mode"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "XHTTP モード"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "XHTTP 모드"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Режим XHTTP"
+          }
+        }
+      }
+    },
+    "XHTTP 路径": {
+      "extractionState": "manual",
+      "localizations": {
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "XHTTP 路徑"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "XHTTP Path"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "XHTTP パス"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "XHTTP 경로"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Путь XHTTP"
           }
         }
       }
@@ -7069,6 +7657,76 @@
           "stringUnit": {
             "state": "translated",
             "value": "timeout (секунды)"
+          }
+        }
+      }
+    },
+    "tls-auth 密钥": {
+      "extractionState": "manual",
+      "localizations": {
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "tls-auth 金鑰"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "tls-auth Key"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "tls-auth キー"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "tls-auth 키"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Ключ tls-auth"
+          }
+        }
+      }
+    },
+    "tls-crypt 密钥": {
+      "extractionState": "manual",
+      "localizations": {
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "tls-crypt 金鑰"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "tls-crypt Key"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "tls-crypt キー"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "tls-crypt 키"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Ключ tls-crypt"
           }
         }
       }
@@ -10660,6 +11318,111 @@
       },
       "extractionState": "manual"
     },
+    "伪装 Host": {
+      "extractionState": "manual",
+      "localizations": {
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "偽裝 Host"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Mask Host"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "偽装 Host"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "위장 Host"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Хост маскировки"
+          }
+        }
+      }
+    },
+    "伪装使用 TLS": {
+      "extractionState": "manual",
+      "localizations": {
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "偽裝使用 TLS"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Mask over TLS"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "偽装に TLS を使用"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "위장에 TLS 사용"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Маскировка через TLS"
+          }
+        }
+      }
+    },
+    "伪装模式": {
+      "extractionState": "manual",
+      "localizations": {
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "偽裝模式"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Mask Mode"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "偽装モード"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "위장 모드"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Режим маскировки"
+          }
+        }
+      }
+    },
     "位置权限已关闭，无法读取 Wi-Fi 名称。可在 设置 → Mihomo → 位置 中选择「使用 App 期间」并打开「精确位置」，或手动输入名称。": {
       "localizations": {
         "zh-Hant": {
@@ -10792,6 +11555,41 @@
           "stringUnit": {
             "state": "translated",
             "value": "Использовать"
+          }
+        }
+      }
+    },
+    "使用 HTTP/3（QUIC）": {
+      "extractionState": "manual",
+      "localizations": {
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "使用 HTTP/3（QUIC）"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Use HTTP/3 (QUIC)"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "HTTP/3（QUIC）を使用"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "HTTP/3(QUIC) 사용"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Использовать HTTP/3 (QUIC)"
           }
         }
       }
@@ -11814,6 +12612,41 @@
           "stringUnit": {
             "state": "translated",
             "value": "Если выключить, все правила, задачи по расписанию и панели с этим скриптом перестанут работать (сам модуль останется включён). При подключении движок обновляет скрипт в фоне с этим интервалом."
+          }
+        }
+      }
+    },
+    "健康检查": {
+      "extractionState": "manual",
+      "localizations": {
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "健康檢查"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Health Check"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ヘルスチェック"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "상태 확인"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Проверка состояния"
           }
         }
       }
@@ -16193,6 +17026,40 @@
         }
       }
     },
+    "参数": {
+      "localizations": {
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "引數"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Parameters"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "パラメーター"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "매개변수"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Параметры"
+          }
+        }
+      }
+    },
     "参数（#!arguments）": {
       "localizations": {
         "en": {
@@ -18723,6 +19590,74 @@
         }
       }
     },
+    "在 规则 → 全局 → 直连 之间切换": {
+      "localizations": {
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "在 規則 → 全域 → 直連 之間切換"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Cycle Rule → Global → Direct"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ルール → グローバル → 直接 を切り替え"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "규칙 → 전역 → 직접 전환"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "«Правила» → «Глобальный» → «Напрямую»"
+          }
+        }
+      }
+    },
+    "在 规则 → 全局 → 直连 之间切换。": {
+      "localizations": {
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "在 規則 → 全域 → 直連 之間切換。"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Cycles Rule → Global → Direct."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ルール → グローバル → 直接 を切り替えます。"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "규칙 → 전역 → 직접 순으로 전환합니다."
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Переключает «Правила» → «Глобальный» → «Напрямую»."
+          }
+        }
+      }
+    },
     "在「地理与规则库」中管理。": {
       "localizations": {
         "zh-Hant": {
@@ -19509,6 +20444,41 @@
         }
       }
     },
+    "填充": {
+      "extractionState": "manual",
+      "localizations": {
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "填充"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Padding"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "パディング"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "패딩"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Заполнение"
+          }
+        }
+      }
+    },
     "填入常见的信息节点关键词": {
       "localizations": {
         "en": {
@@ -20155,6 +21125,41 @@
         }
       }
     },
+    "复用协议": {
+      "extractionState": "manual",
+      "localizations": {
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "複用協議"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Mux Protocol"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "多重化プロトコル"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "다중화 프로토콜"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Протокол мультиплексирования"
+          }
+        }
+      }
+    },
     "外观": {
       "localizations": {
         "zh-Hant": {
@@ -20257,6 +21262,41 @@
         }
       },
       "extractionState": "manual"
+    },
+    "多路复用（smux）": {
+      "extractionState": "manual",
+      "localizations": {
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "多路複用（smux）"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Multiplexing (smux)"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "多重化（smux）"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "다중화(smux)"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Мультиплексирование (smux)"
+          }
+        }
+      }
     },
     "大多数游戏和通话可用，部分 P2P 连接需要中转。": {
       "localizations": {
@@ -21105,6 +22145,76 @@
           "stringUnit": {
             "state": "translated",
             "value": "Предпросмотр"
+          }
+        }
+      }
+    },
+    "客户端私钥": {
+      "extractionState": "manual",
+      "localizations": {
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "客戶端私鑰"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Client Key"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "クライアント秘密鍵"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "클라이언트 개인 키"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Ключ клиента"
+          }
+        }
+      }
+    },
+    "客户端证书": {
+      "extractionState": "manual",
+      "localizations": {
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "客戶端證書"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Client Certificate"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "クライアント証明書"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "클라이언트 인증서"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Сертификат клиента"
           }
         }
       }
@@ -29469,6 +30579,40 @@
         }
       }
     },
+    "新": {
+      "localizations": {
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "新"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "New"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "新規"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "신규"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Новое"
+          }
+        }
+      }
+    },
     "新建": {
       "localizations": {
         "en": {
@@ -31621,6 +32765,146 @@
           "stringUnit": {
             "state": "translated",
             "value": "Заменить на (поддерживается $1)"
+          }
+        }
+      }
+    },
+    "最大填充": {
+      "extractionState": "manual",
+      "localizations": {
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "最大填充"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Max Padding"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "最大パディング"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "최대 패딩"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Макс. заполнение"
+          }
+        }
+      }
+    },
+    "最大连接数": {
+      "extractionState": "manual",
+      "localizations": {
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "最大連線數"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Max Connections"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "最大接続数"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "최대 연결 수"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Макс. соединений"
+          }
+        }
+      }
+    },
+    "最小填充": {
+      "extractionState": "manual",
+      "localizations": {
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "最小填充"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Min Padding"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "最小パディング"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "최소 패딩"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Мин. заполнение"
+          }
+        }
+      }
+    },
+    "最少空闲会话": {
+      "extractionState": "manual",
+      "localizations": {
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "最少空閒會話"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Min Idle Sessions"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "最小アイドルセッション"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "최소 유휴 세션"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Мин. простаивающих сессий"
           }
         }
       }
@@ -40027,6 +41311,41 @@
         }
       }
     },
+    "空闲会话超时（秒）": {
+      "extractionState": "manual",
+      "localizations": {
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "空閒會話超時（秒）"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Idle Session Timeout (s)"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "アイドルセッションのタイムアウト（秒）"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "유휴 세션 시간 초과(초)"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Тайм-аут простоя сессии (с)"
+          }
+        }
+      }
+    },
     "空闲超时": {
       "localizations": {
         "zh-Hant": {
@@ -41699,6 +43018,41 @@
         }
       }
     },
+    "纯下行": {
+      "extractionState": "manual",
+      "localizations": {
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "純下行"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Pure Downlink"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "純粋なダウンリンク"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "순수 다운링크"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Чистый нисходящий канал"
+          }
+        }
+      }
+    },
     "纯域名列表（DOMAIN-SET）": {
       "localizations": {
         "zh-Hant": {
@@ -42138,6 +43492,41 @@
           "stringUnit": {
             "state": "translated",
             "value": "Узлов в кэше: %lld"
+          }
+        }
+      }
+    },
+    "编码表": {
+      "extractionState": "manual",
+      "localizations": {
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "編碼表"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Encoding Table"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "エンコード表"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "인코딩 테이블"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Таблица кодирования"
           }
         }
       }
@@ -43675,6 +45064,41 @@
           "stringUnit": {
             "state": "translated",
             "value": "История уведомлений скриптов"
+          }
+        }
+      }
+    },
+    "腾讯 DNSPod": {
+      "extractionState": "manual",
+      "localizations": {
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "騰訊 DNSPod"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Tencent DNSPod"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Tencent DNSPod"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Tencent DNSPod"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Tencent DNSPod"
           }
         }
       }
@@ -46716,6 +48140,41 @@
         }
       }
     },
+    "证书指纹": {
+      "extractionState": "manual",
+      "localizations": {
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "證書指紋"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Certificate Fingerprint"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "証明書フィンガープリント"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "인증서 지문"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Отпечаток сертификата"
+          }
+        }
+      }
+    },
     "诊断": {
       "localizations": {
         "en": {
@@ -47983,6 +49442,41 @@
       },
       "extractionState": "manual"
     },
+    "路径前缀": {
+      "extractionState": "manual",
+      "localizations": {
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "路徑字首"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Path Prefix"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "パスのプレフィックス"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "경로 접두사"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Префикс пути"
+          }
+        }
+      }
+    },
     "路由": {
       "localizations": {
         "zh-Hant": {
@@ -48047,6 +49541,41 @@
           "stringUnit": {
             "state": "translated",
             "value": "В списках маршрутов есть неверные строки, исправьте их."
+          }
+        }
+      }
+    },
+    "跳跃间隔（秒）": {
+      "extractionState": "manual",
+      "localizations": {
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "跳躍間隔（秒）"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Hop Interval (s)"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ホップ間隔（秒）"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "호핑 간격(초)"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Интервал прыжков (с)"
           }
         }
       }
@@ -49791,6 +51320,41 @@
           "stringUnit": {
             "state": "translated",
             "value": "Удалённые перезаписи"
+          }
+        }
+      }
+    },
+    "远端解析 DNS": {
+      "extractionState": "manual",
+      "localizations": {
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "遠端解析 DNS"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Resolve DNS Remotely"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "DNS をリモートで解決"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "원격에서 DNS 확인"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Разрешать DNS удалённо"
           }
         }
       }
@@ -53036,6 +54600,41 @@
         }
       }
     },
+    "阿里 DNS": {
+      "extractionState": "manual",
+      "localizations": {
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "阿里 DNS"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "AliDNS"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "AliDNS"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "AliDNS"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "AliDNS"
+          }
+        }
+      }
+    },
     "隧道 MTU": {
       "localizations": {
         "en": {
@@ -53478,6 +55077,40 @@
         }
       },
       "extractionState": "manual"
+    },
+    "预设": {
+      "localizations": {
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "預設"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Presets"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "プリセット"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "프리셋"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Пресеты"
+          }
+        }
+      }
     },
     "首页": {
       "localizations": {

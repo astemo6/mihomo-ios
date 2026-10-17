@@ -130,9 +130,10 @@ type ModArg struct {
 	Options []string `json:"options,omitempty"` // Loon select choices
 }
 
-var loonEnableRe = regexp.MustCompile(`(?i)\s*,?\s*enable\s*=\s*(true|1)\s*`)
+var loonArgKeyRe = regexp.MustCompile(`^[\p{L}_][\p{L}\p{N}_\-]*$`)
 
-var loonArgKeyRe = regexp.MustCompile(`^[A-Za-z_][A-Za-z0-9_\-]*$`)
+// loonEnableOptRe finds a Loon enable= option (any spacing, any case) after substitution.
+var loonEnableOptRe = regexp.MustCompile(`(?i)(^|[,\s])enable\s*=\s*"?([^,\s"]*)"?`)
 
 // parseLoonArguments reads a Loon plugin [Argument] section:
 //
@@ -216,17 +217,26 @@ func applyLoonArgs(text string, args []ModArg, user map[string]string) string {
 		if u, ok := user[a.Key]; ok {
 			v = u
 		}
+		// v0.13: cross-platform plugins sometimes use Surge's {{{key}}}; replace it before Loon's {key}.
+		text = strings.ReplaceAll(text, "{{{"+a.Key+"}}}", v)
 		text = strings.ReplaceAll(text, "{"+a.Key+"}", v)
 	}
 	var out []string
 	for _, l := range strings.Split(text, "\n") {
-		low := strings.ToLower(l)
-		if i := strings.Index(low, "enable="); i >= 0 && (i == 0 || low[i-1] == ',' || low[i-1] == ' ') {
-			val := strings.TrimSpace(strings.SplitN(low[i+len("enable="):], ",", 2)[0])
+		if m := loonEnableOptRe.FindStringSubmatchIndex(l); m != nil {
+			val := strings.ToLower(l[m[4]:m[5]])
 			if val == "false" || val == "0" {
 				continue
 			}
-			l = loonEnableRe.ReplaceAllString(l, "")
+			// Drop the option (and the comma that introduced it) from the line.
+			start := m[0]
+			if m[3] > m[2] && l[m[2]:m[3]] == "," {
+				start = m[2]
+			}
+			l = strings.TrimRight(l[:start]+l[m[1]:], " ,")
+			if strings.HasPrefix(strings.TrimSpace(l), ",") {
+				l = strings.TrimSpace(strings.TrimPrefix(strings.TrimSpace(l), ","))
+			}
 		}
 		out = append(out, l)
 	}
@@ -1021,7 +1031,7 @@ func (rs *Ruleset) ParseText(text, source string, args map[string]string) {
 			rs.Desc = strings.TrimSpace(m[2])
 		}
 	}
-	if isStash(text) {
+	if isStash(normalizeStashKeys(text)) {
 		rs.Format = "stash"
 		rs.parseStash(text, source)
 		return
@@ -1062,13 +1072,34 @@ func (rs *Ruleset) ParseText(text, source string, args map[string]string) {
 }
 
 func isStash(text string) bool {
+	rulesKey := false
 	for _, l := range strings.Split(text, "\n") {
 		t := strings.TrimRight(l, " \t")
-		if t == "http:" || strings.HasPrefix(t, "script-providers:") || t == "tiles:" || t == "cron:" {
+		if t == "http:" || strings.HasPrefix(t, "script-providers:") || t == "tiles:" || t == "cron:" || t == "rule-providers:" {
+			return true
+		}
+		// v0.13: a rules-only override (rules: + "- TYPE,value,POLICY" lines).
+		if t == "rules:" {
+			rulesKey = true
+		} else if rulesKey && stashRuleItemRe.MatchString(t) {
 			return true
 		}
 	}
 	return false
+}
+
+// IsStash reports whether text is a Stash override (incl. rules-only overrides) after merge markers.
+func IsStash(text string) bool { return isStash(normalizeStashKeys(text)) }
+
+var stashRuleItemRe = regexp.MustCompile(`^\s*-\s+['"]?[A-Za-z][A-Za-z0-9\-]*,`)
+
+// stashKeySuffixRe matches Stash override merge markers on keys ("rules#!replace:", "mitm#!append:").
+var stashKeySuffixRe = regexp.MustCompile(`(?m)^(\s*[A-Za-z][A-Za-z0-9_\-]*)#![A-Za-z]*\s*:`)
+
+// normalizeStashKeys drops Stash merge markers so the keys decode; a module's lists are always added
+// to the profile (never replace it), which is what #!replace means for a module anyway.
+func normalizeStashKeys(text string) string {
+	return stashKeySuffixRe.ReplaceAllString(text, "$1:")
 }
 
 type stashDoc struct {
@@ -1096,8 +1127,15 @@ type stashDoc struct {
 		URL      string `yaml:"url"`
 		Interval int    `yaml:"interval"`
 	} `yaml:"script-providers"`
-	Rules []string `yaml:"rules"`
-	Cron  struct {
+	Rules         []string `yaml:"rules"`
+	RuleProviders map[string]struct {
+		Behavior string `yaml:"behavior"`
+		Type     string `yaml:"type"`
+		URL      string `yaml:"url"`
+		Format   string `yaml:"format"`
+		Interval int    `yaml:"interval"`
+	} `yaml:"rule-providers"`
+	Cron struct {
 		Script []struct {
 			Name     string `yaml:"name"`
 			Cron     string `yaml:"cron"`
@@ -1118,6 +1156,7 @@ type stashDoc struct {
 }
 
 func (rs *Ruleset) parseStash(text, source string) {
+	text = normalizeStashKeys(text)
 	var d stashDoc
 	if err := yaml.Unmarshal([]byte(text), &d); err != nil {
 		rs.Errors = append(rs.Errors, "Stash 覆写 YAML 解析失败："+err.Error())
@@ -1220,6 +1259,24 @@ func (rs *Ruleset) parseStash(text, source string) {
 		rs.Panels = append(rs.Panels, pn)
 	}
 	for _, l := range d.Rules {
+		// v0.13: RULE-SET,<provider name>,POLICY → the provider's URL (domain behaviour → DOMAIN-SET).
+		if parts := splitTop(l); len(parts) >= 3 && strings.EqualFold(parts[0], "RULE-SET") && !strings.Contains(parts[1], "://") {
+			if p, ok := d.RuleProviders[parts[1]]; ok {
+				switch {
+				case strings.EqualFold(p.Format, "mrs"):
+					rs.Unsupported = append(rs.Unsupported, l+"（mrs 二进制规则集）")
+					continue
+				case p.URL == "":
+					rs.Unsupported = append(rs.Unsupported, l+"（规则集没有 url）")
+					continue
+				}
+				t := "RULE-SET"
+				if strings.EqualFold(p.Behavior, "domain") {
+					t = "DOMAIN-SET"
+				}
+				l = strings.Join(append([]string{t, p.URL}, parts[2:]...), ",")
+			}
+		}
 		rs.parseCoreRule(l, func(r *Rule, err error) {
 			if r != nil {
 				r.Source, r.Line = source, l

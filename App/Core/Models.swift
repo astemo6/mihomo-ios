@@ -67,6 +67,15 @@ struct ProxyItem: Decodable, Identifiable, Hashable {
         case "ssh": return "SSH"
         case "socks5": return "SOCKS5"
         case "http": return "HTTP"
+        case "sudoku": return "Sudoku"
+        case "masque": return "MASQUE"
+        case "trusttunnel": return "TrustTunnel"
+        case "shadowquic": return "ShadowQUIC"
+        case "openvpn": return "OpenVPN"
+        case "gost-relay", "gostrelay": return "GOST"
+        case "tailscale": return "Tailscale"
+        case "zerotier": return "ZeroTier"
+        case "easytier": return "EasyTier"
         case "direct": return String(localized: "直连")
         case "reject", "rejectdrop": return String(localized: "拒绝")
         case "compatible", "pass": return String(localized: "兼容")
