@@ -4,7 +4,8 @@ name: iOS IPA
 
 on:
   push:
-    branches: [main]
+    # qx/rebuild: the Quantumult X style rebuild publishes prereleases named "QX 重建预览 N".
+    branches: [main, "qx/**"]
   workflow_dispatch:
     inputs:
       build_only:
@@ -111,8 +112,17 @@ jobs:
           WID_ID=$(awk '/^ *WIDGET_BUNDLE_ID:/{print $2; exit}' project.yml)
           GROUP_ID=$(awk '/^ *APP_GROUP_ID:/{print $2; exit}' project.yml)
           VER=$(awk -F'"' '/MARKETING_VERSION/{print $2; exit}' project.yml)
+          # QX branch: version gets "-qx.<preview>" (QX_PREVIEW in project.yml), files are prefixed Mihomo-QX.
+          REF_NAME="${{ inputs.ref || github.ref_name }}"
+          QXP=$(awk -F'"' '/QX_PREVIEW:/{print $2; exit}' project.yml)
+          if [[ "$REF_NAME" == qx/* || "$REF_NAME" == refs/heads/qx/* ]] && [ -n "$QXP" ]; then
+            VER="${VER}-qx.${QXP}"; PREFIX="Mihomo-QX"; TITLE="QX 重建预览 ${QXP}（build ${{ github.run_number }}）"
+          else
+            PREFIX="Mihomo"; TITLE="Mihomo ${VER} build ${{ github.run_number }}"
+          fi
           {
             echo "APP_ID=$APP_ID"; echo "TUN_ID=$TUN_ID"; echo "WID_ID=$WID_ID"; echo "GROUP_ID=$GROUP_ID"; echo "VER=$VER"
+            echo "PREFIX=$PREFIX"; echo "TITLE=$TITLE"
             echo "TAG=v${VER}-build${{ github.run_number }}"
             if [ -n "$BUILD_CERTIFICATE_BASE64" ] && [ -n "$APP_PROFILE_BASE64" ] && [ -n "$TUNNEL_PROFILE_BASE64" ] && [ -n "$TEAM_ID" ]; then
               echo "SIGNED=1"
@@ -214,7 +224,7 @@ jobs:
           set -o pipefail
           xcodebuild -exportArchive -archivePath build/Mihomo.xcarchive \
             -exportOptionsPlist "$RUNNER_TEMP/ExportOptions.plist" -exportPath build/export 2>&1 | tee export.log | tail -n 40
-          IPA="Mihomo-${VER}-build${{ github.run_number }}-signed.ipa"
+          IPA="${PREFIX}-${VER}-build${{ github.run_number }}-signed.ipa"
           mv build/export/*.ipa "$IPA"
           echo "IPA=$IPA" >> "$GITHUB_ENV"
 
@@ -237,11 +247,11 @@ jobs:
           echo "--- widget entitlements ---"; codesign -d --entitlements - "$APP/PlugIns/MihomoWidget.appex" 2>&1 | tail -n 20
           echo "--- app entitlements ---"; codesign -d --entitlements - "$APP" 2>&1 | tail -n 20
           rm -rf Payload && mkdir Payload && cp -R "$APP" Payload/
-          IPA_WIDGET="Mihomo-${VER}-build${{ github.run_number }}-widget-unsigned.ipa"
+          IPA_WIDGET="${PREFIX}-${VER}-build${{ github.run_number }}-widget-unsigned.ipa"
           zip -qry "$IPA_WIDGET" Payload
           rm -rf Payload/Mihomo.app/PlugIns/MihomoWidget.appex
           codesign -f -s - --entitlements app.entitlements Payload/Mihomo.app
-          IPA="Mihomo-${VER}-build${{ github.run_number }}-unsigned.ipa"
+          IPA="${PREFIX}-${VER}-build${{ github.run_number }}-unsigned.ipa"
           zip -qry "$IPA" Payload
           echo "IPA=$IPA" >> "$GITHUB_ENV"
           echo "IPA_WIDGET=$IPA_WIDGET" >> "$GITHUB_ENV"
@@ -288,6 +298,11 @@ jobs:
           NOTES="$RUNNER_TEMP/notes.md"
           {
             echo "Mihomo iOS ${VER}（构建 #${{ github.run_number }}，提交 $(git rev-parse --short HEAD)）"
+            if [ "$PREFIX" = "Mihomo-QX" ]; then
+              echo
+              echo "Quantumult X 风格重建分支（qx/rebuild）的预览版；Bundle ID 与主线相同，一次只能安装其中一个。"
+              [ -f notes/qx-release.md ] && { echo; cat notes/qx-release.md; }
+            fi
             echo
             echo "- 内核：mihomo ${MIHOMO_VERSION}"
             if [ "$SIGNED" = "1" ]; then
@@ -301,7 +316,7 @@ jobs:
           [ -n "${IPA_WIDGET:-}" ] && [ -f "$IPA_WIDGET" ] && FILES+=("$IPA_WIDGET")
           [ -f app.entitlements ] && FILES+=(app.entitlements tunnel.entitlements)
           [ -f widget.entitlements ] && FILES+=(widget.entitlements)
-          gh release create "$TAG" "${FILES[@]}" --title "Mihomo ${VER} build ${{ github.run_number }}" --notes-file "$NOTES" --target "$(git rev-parse HEAD)" --prerelease
+          gh release create "$TAG" "${FILES[@]}" --title "$TITLE" --notes-file "$NOTES" --target "$(git rev-parse HEAD)" --prerelease
 
       - name: Show build errors (on failure)
         if: failure()

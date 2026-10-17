@@ -63,7 +63,7 @@ struct StatsView: View {
                         .chartForegroundStyleScale(["下载": Theme.down, "上传": Theme.up])
                         .chartYAxis {
                             AxisMarks(position: .leading) { v in
-                                AxisGridLine().foregroundStyle(Color.white.opacity(0.08))
+                                AxisGridLine().foregroundStyle(Color.primary.opacity(0.08))
                                 AxisValueLabel {
                                     if let mb = v.as(Double.self) { Text(Fmt.bytes(Int64(mb * 1_048_576))).font(.system(size: 9)) }
                                 }

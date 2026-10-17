@@ -57,6 +57,7 @@ final class DashboardModel: ObservableObject {
                     self?.downloadTotal = r.downloadTotal ?? 0
                     self?.connectionCount = r.connections?.count ?? 0
                     ConnectionAnalytics.shared.ingest(r.connections ?? [])
+                    QXActivityModel.shared.ingest(r.connections ?? [])
                 }
                 if self?.coreVersion.isEmpty == true, let v = try? await c.version() { self?.coreVersion = v }
                 await self?.refreshSelectedNode()
@@ -71,7 +72,7 @@ final class DashboardModel: ObservableObject {
         tasks.removeAll()
         up = 0; down = 0; connectionCount = 0; memory = 0
         homeGroups = []
-        if !VPNManager.shared.isConnected { ConnectionAnalytics.shared.reset() }
+        if !VPNManager.shared.isConnected { ConnectionAnalytics.shared.reset(); QXActivityModel.shared.reset() }
     }
 
     /// Follows the first group from GLOBAL's order (usually the main "节点选择") down to a leaf node.

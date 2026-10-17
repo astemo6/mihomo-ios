@@ -9,6 +9,8 @@ struct MihomoApp: App {
     @StateObject private var dash = DashboardModel.shared
     @StateObject private var ipinfo = IPInfoModel.shared
     @Environment(\.scenePhase) private var phase
+    /// QX branch: 外观 跟随系统 / 浅色 / 深色 (其他设置 → 外观).
+    @AppStorage(QXAppearance.key) private var appearance = QXAppearance.system.rawValue
 
     init() {
         // Bundled geo databases → core home, so profile validation in the app never downloads them either.
@@ -27,9 +29,9 @@ struct MihomoApp: App {
                 .sheet(item: $router.pending) { a in
                     ImportSheet(action: a)
                         .environmentObject(store)
-                        .preferredColorScheme(.dark)
+                        .preferredColorScheme(QXAppearance.scheme(appearance))
                 }
-                .preferredColorScheme(.dark)
+                .preferredColorScheme(QXAppearance.scheme(appearance))
                 .tint(Theme.accent)
                 .onChange(of: phase) { p in
                     if p == .active {
@@ -91,11 +93,8 @@ struct RootView: View {
             if hSize == .regular {
                 SplitRootView()
             } else {
-                TabView(selection: $router.selectedTab) {
-                    ForEach(AppSection.allCases) { s in
-                        s.view.tabItem { Label(LocalizedStringKey(s.title), systemImage: s.icon) }.tag(s.rawValue)
-                    }
-                }
+                // QX branch: one screen (header + panel tiles + panel content + floating toolbar), no tab bar.
+                QXShell()
             }
         }
         .overlay(alignment: .top) { PasteBanner() }
@@ -155,9 +154,12 @@ struct SplitRootView: View {
 
 enum Theme {
     static let accent = Color(red: 0.29, green: 0.78, blue: 0.96)
-    static let bg = Color(red: 0.04, green: 0.043, blue: 0.063)
-    static let card = Color(red: 0.09, green: 0.10, blue: 0.13)
-    static let cardHi = Color(red: 0.13, green: 0.14, blue: 0.18)
+    // QX branch: light / dark follow the system (or the 外观 override); dark values are the previous theme.
+    static let bg = Color.dynamic(light: (0.949, 0.949, 0.969), dark: (0.04, 0.043, 0.063))
+    static let card = Color.dynamic(light: (1, 1, 1), dark: (0.09, 0.10, 0.13))
+    static let cardHi = Color.dynamic(light: (0.925, 0.925, 0.945), dark: (0.13, 0.14, 0.18))
+    /// Header strip above the panel tiles (QX: a lighter band than the content area).
+    static let header = Color.dynamic(light: (0.985, 0.985, 0.99), dark: (0.06, 0.065, 0.09))
     static let up = Color(red: 1.0, green: 0.62, blue: 0.26)
     static let down = Color(red: 0.29, green: 0.78, blue: 0.96)
     static let good = Color(red: 0.25, green: 0.85, blue: 0.48)
@@ -204,7 +206,7 @@ struct Card<Content: View>: View {
             .padding(padding)
             .frame(maxWidth: .infinity, alignment: .leading)
             .background(RoundedRectangle(cornerRadius: 18, style: .continuous).fill(Theme.card))
-            .overlay(RoundedRectangle(cornerRadius: 18, style: .continuous).stroke(Color.white.opacity(0.06)))
+            .overlay(RoundedRectangle(cornerRadius: 18, style: .continuous).stroke(Color.primary.opacity(0.06)))
     }
 }
 

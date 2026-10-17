@@ -23,6 +23,9 @@ type inspectProxy struct {
 	Port   int    `json:"port,omitempty"`
 	UDP    bool   `json:"udp,omitempty"`
 	Source string `json:"source,omitempty"` // "" = profile, provider name otherwise
+	// QX-style feature badges (qx/rebuild): tfo, udp-over-tcp, ws, grpc, h2, http-obfs, tls, skip-cert,
+	// pin, alpn, vision, reality, aead, mux, ech.
+	Features []string `json:"features,omitempty"`
 }
 
 type inspectGroup struct {
@@ -122,7 +125,85 @@ func strList(v any) []string {
 }
 
 func toInspectProxy(m map[string]any, source string) inspectProxy {
-	return inspectProxy{Name: str(m["name"]), Type: str(m["type"]), Server: str(m["server"]), Port: intOf(m["port"]), UDP: boolOf(m["udp"]), Source: source}
+	return inspectProxy{Name: str(m["name"]), Type: str(m["type"]), Server: str(m["server"]), Port: intOf(m["port"]), UDP: boolOf(m["udp"]), Source: source, Features: proxyFeatures(m)}
+}
+
+// proxyFeatures derives the QX node badges from a mihomo proxy map (only what the config says; nothing is probed).
+func proxyFeatures(m map[string]any) []string {
+	typ := strings.ToLower(str(m["type"]))
+	out := []string{}
+	add := func(f string) {
+		for _, x := range out {
+			if x == f {
+				return
+			}
+		}
+		out = append(out, f)
+	}
+	if boolOf(m["tfo"]) || boolOf(m["fast-open"]) {
+		add("tfo")
+	}
+	if boolOf(m["udp-over-tcp"]) {
+		add("uot")
+	}
+	switch strings.ToLower(str(m["network"])) {
+	case "ws", "httpupgrade":
+		add("ws")
+	case "grpc":
+		add("grpc")
+	case "h2":
+		add("h2")
+	case "http":
+		add("http")
+	}
+	if p, ok := m["plugin"].(string); ok && p != "" {
+		opts, _ := m["plugin-opts"].(map[string]any)
+		mode := strings.ToLower(str(opts["mode"]))
+		switch {
+		case strings.Contains(p, "v2ray") || mode == "websocket":
+			add("ws")
+			if boolOf(opts["tls"]) {
+				add("tls")
+			}
+		case mode == "tls":
+			add("tls")
+		case mode == "http":
+			add("http")
+		}
+	}
+	tlsTypes := map[string]bool{"trojan": true, "hysteria": true, "hysteria2": true, "tuic": true, "anytls": true}
+	reality, _ := m["reality-opts"].(map[string]any)
+	if boolOf(m["tls"]) || tlsTypes[typ] || (typ == "http" && boolOf(m["tls"])) || len(reality) > 0 {
+		add("tls")
+	}
+	if len(reality) > 0 {
+		add("reality")
+	}
+	if boolOf(m["skip-cert-verify"]) {
+		add("skip-cert")
+	}
+	if str(m["fingerprint"]) != "" {
+		add("pin")
+	}
+	if l, ok := m["alpn"].([]any); ok && len(l) > 0 {
+		add("alpn")
+	}
+	if strings.Contains(strings.ToLower(str(m["flow"])), "vision") {
+		add("vision")
+	}
+	if typ == "vmess" && intOf(m["alterId"]) == 0 {
+		add("aead")
+	}
+	if smux, ok := m["smux"].(map[string]any); ok && boolOf(smux["enabled"]) {
+		add("mux")
+	}
+	if ech, ok := m["ech-opts"].(map[string]any); ok && boolOf(ech["enable"]) {
+		add("ech")
+	}
+	if len(out) == 0 {
+		return nil
+	}
+	return out
 }
 
 // splitRule turns "TYPE,payload,TARGET[,opts]" (and logic rules AND/OR/NOT/SUB-RULE) into fields.

@@ -258,7 +258,7 @@ struct AnalyticsView: View {
                             ForEach(list.prefix(8)) { r in
                                 VStack(alignment: .leading, spacing: 8) {
                                     ZStack {
-                                        Circle().stroke(Color.white.opacity(0.08), lineWidth: 5)
+                                        Circle().stroke(Color.primary.opacity(0.08), lineWidth: 5)
                                         Circle().trim(from: 0, to: CGFloat(Double(r.hits) / Double(maxHits)))
                                             .stroke(Theme.accent, style: StrokeStyle(lineWidth: 5, lineCap: .round))
                                             .rotationEffect(.degrees(-90))
@@ -320,7 +320,7 @@ struct SplitBar: View {
             GeometryReader { geo in
                 HStack(spacing: 2) {
                     if shown.isEmpty {
-                        Rectangle().fill(Color.white.opacity(0.06))
+                        Rectangle().fill(Color.primary.opacity(0.06))
                     }
                     ForEach(Array(shown.enumerated()), id: \.offset) { _, p in
                         Rectangle().fill(p.2).frame(width: max(2, geo.size.width * CGFloat(Double(p.1) / Double(total)) - 2))
@@ -358,7 +358,7 @@ struct HostBarRow: View {
             }
             GeometryReader { geo in
                 ZStack(alignment: .leading) {
-                    Capsule().fill(Color.white.opacity(0.06))
+                    Capsule().fill(Color.primary.opacity(0.06))
                     Capsule().fill(Theme.accent.opacity(0.8)).frame(width: max(3, geo.size.width * CGFloat(fraction)))
                 }
             }

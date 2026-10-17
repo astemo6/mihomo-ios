@@ -14,7 +14,7 @@ struct IPInfoCard: View {
                 Text(ip.exit?.flag ?? "🌐")
                     .font(.system(size: 26))
                     .frame(width: 34, height: 34)
-                    .background(Circle().fill(Color.white.opacity(0.08)))
+                    .background(Circle().fill(Color.primary.opacity(0.08)))
                 VStack(alignment: .leading, spacing: 1) {
                     HStack(spacing: 6) {
                         Text(ip.exit?.ip ?? (ip.loading ? "正在查询…" : (ip.failed ? "查询失败" : "—")))
@@ -65,7 +65,7 @@ struct IPInfoCard: View {
         )
         .overlay(
             RoundedRectangle(cornerRadius: 16, style: .continuous)
-                .stroke(Color.white.opacity(0.08), lineWidth: 1)
+                .stroke(Color.primary.opacity(0.08), lineWidth: 1)
         )
         .overlay(alignment: .topTrailing) {
             if copied {

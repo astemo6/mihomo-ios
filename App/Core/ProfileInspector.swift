@@ -11,6 +11,8 @@ struct InspectProxy: Decodable, Hashable {
     var port: Int?
     var udp: Bool?
     var source: String?
+    /// QX feature badges (qx/rebuild): tfo, uot, ws, grpc, h2, http, tls, skip-cert, pin, alpn, vision, reality, aead, mux, ech.
+    var features: [String]? = nil
 }
 
 struct InspectGroup: Decodable, Hashable, Identifiable {

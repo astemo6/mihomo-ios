@@ -504,7 +504,7 @@ struct AppIconView: View {
                                 .resizable().scaledToFit()
                                 .frame(width: 56, height: 56)
                                 .clipShape(RoundedRectangle(cornerRadius: 13, style: .continuous))
-                                .overlay(RoundedRectangle(cornerRadius: 13, style: .continuous).stroke(Color.white.opacity(0.1)))
+                                .overlay(RoundedRectangle(cornerRadius: 13, style: .continuous).stroke(Color.primary.opacity(0.1)))
                             Text(LocalizedStringKey(icon.title)).foregroundStyle(.primary)
                             Spacer()
                             if current == icon.name { Image(systemName: "checkmark").foregroundStyle(Theme.accent) }

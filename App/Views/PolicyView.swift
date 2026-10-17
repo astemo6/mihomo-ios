@@ -401,7 +401,7 @@ struct PolicyGroupCard: View {
                         Text(group.label)
                             .font(.caption2.weight(.semibold))
                             .padding(.horizontal, 6).padding(.vertical, 2)
-                            .background(Capsule().fill(Color.white.opacity(0.1)))
+                            .background(Capsule().fill(Color.primary.opacity(0.1)))
                         if via != nil {
                             Image(systemName: "link").font(.caption2.weight(.bold)).foregroundStyle(Theme.accent)
                                 .accessibilityLabel(Text("已设置前置代理"))
@@ -537,7 +537,7 @@ struct PolicyGroupCard: View {
         }
         .padding(14)
         .background(RoundedRectangle(cornerRadius: 18, style: .continuous).fill(Theme.card))
-        .overlay(RoundedRectangle(cornerRadius: 18, style: .continuous).stroke(Color.white.opacity(0.06)))
+        .overlay(RoundedRectangle(cornerRadius: 18, style: .continuous).stroke(Color.primary.opacity(0.06)))
     }
 }
 
