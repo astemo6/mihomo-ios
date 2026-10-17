@@ -31,6 +31,8 @@ android {
         versionCode = buildNumber
         versionName = appVersionName
         vectorDrawables { useSupportLibrary = true }
+        // Keep only our languages from libraries (default values/ = zh-Hans).
+        resourceConfigurations += listOf("en", "zh-rCN", "zh-rTW", "zh-rHK", "b+zh+Hant")
     }
 
     signingConfigs {
