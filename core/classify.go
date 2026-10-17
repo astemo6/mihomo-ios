@@ -21,11 +21,15 @@ var (
 // ClassifyText tells the app what pasted / opened text is, so it can route it into the one internal
 // model: "profile" (mihomo / Clash YAML), "conf" (a full Surge / QX config), "module:<format>"
 // (Surge / QX / Loon / Stash / Egern module or rewrite snippet), "nodes" (share links / proxy
-// lines) or "" (not recognised).
+// lines, or a Shadowsocks SIP008
+// JSON document) or "" (not recognised).
 func ClassifyText(text string) string {
 	t := strings.TrimSpace(strings.TrimPrefix(text, "\ufeff"))
 	if t == "" {
 		return ""
+	}
+	if looksSIP008(t) { // Shadowsocks SIP008 online config (JSON)
+		return "nodes"
 	}
 	if isQXConf(t) {
 		return "conf"

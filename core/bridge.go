@@ -374,7 +374,8 @@ func validateBytes(profile []byte) string {
 }
 
 // ConvertShareLinks turns a list of ss/vmess/vless/trojan/hysteria2/tuic URIs (optionally
-// base64 encoded, i.e. a v2rayN style subscription) into a minimal mihomo YAML config.
+// base64 encoded, i.e. a v2rayN style subscription), proxy lines or a Shadowsocks SIP008 JSON
+// document into a minimal mihomo YAML config.
 // Returns "" on failure; use LastError() for the reason.
 func ConvertShareLinks(text string) string {
 	b, err := convertLinks([]byte(text))

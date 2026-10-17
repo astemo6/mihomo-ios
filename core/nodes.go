@@ -520,6 +520,9 @@ var qxTypes = map[string]bool{"shadowsocks": true, "vmess": true, "vless": true,
 // ParseNodeText converts any supported node text into mihomo proxy maps.
 func parseNodeText(text string) ([]map[string]any, []string) {
 	text = strings.TrimSpace(strings.TrimPrefix(text, "\ufeff"))
+	if ps, errs, ok := parseSIP008(text); ok {
+		return uniqueNodeNames(ps), errs
+	}
 	if !strings.Contains(text, "://") && !strings.Contains(text, "=") {
 		if d, ok := tryB64(text); ok {
 			text = d
@@ -576,7 +579,11 @@ func parseNodeText(text string) ([]map[string]any, []string) {
 		}
 		out = append(out, conv...)
 	}
-	// unique names
+	return uniqueNodeNames(out), errs
+}
+
+// uniqueNodeNames makes proxy names unique in place ("x", "x 2", …) and returns the slice.
+func uniqueNodeNames(out []map[string]any) []map[string]any {
 	seen := map[string]int{}
 	for _, p := range out {
 		n := strOf(p["name"])
@@ -591,7 +598,7 @@ func parseNodeText(text string) ([]map[string]any, []string) {
 		}
 		p["name"] = n
 	}
-	return out, errs
+	return out
 }
 
 // ssh://user[:password]@host[:port][?private-key=…&private-key-passphrase=…&host-key=…&host-key-algorithms=…]#name
