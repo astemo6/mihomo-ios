@@ -642,9 +642,9 @@ struct QXPolicyRow: View {
             HStack(spacing: 14) {
                 Button(action: onTest) {
                     ZStack {
-                        GroupIconView(group: group.name, profileIcon: group.icon, fallback: group.display.icon, size: 44)
+                        GroupIconView(group: group.name, profileIcon: group.icon, fallback: group.display.icon, size: 40)
                         if testing {
-                            Circle().fill(.ultraThinMaterial).frame(width: 44, height: 44)
+                            Circle().fill(.ultraThinMaterial).frame(width: 40, height: 40)
                             ProgressView().controlSize(.small)
                         }
                     }

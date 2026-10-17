@@ -116,7 +116,7 @@ enum QXDest: String, Hashable, CaseIterable {
     case localRewrite, rewriteResources, scripts
     case mitm, httpCapture, tasks
     case tools, unlock, analytics, stats, trafficStats, dnsLog, blocked, logs, backup
-    case connection, dns, speedTest, coreSettings, geo, appIcon, diagnostics, about, notices, scriptLogs
+    case connection, dns, speedTest, coreSettings, geo, appIcon, diagnostics, about, notices, scriptLogs, panels
 
     @MainActor @ViewBuilder var view: some View {
         switch self {
@@ -151,6 +151,7 @@ enum QXDest: String, Hashable, CaseIterable {
         case .about: AboutView()
         case .notices: ScriptNoticesView()
         case .scriptLogs: ScriptLogsView()
+        case .panels: PanelsView()
         }
     }
 }

@@ -303,7 +303,7 @@ struct QXTile: View {
                     .frame(width: 26, height: 3)
                     .padding(.top, small ? 4 : 0)
             }
-            .frame(width: small ? 58 : 120, height: small ? 58 : 74)
+            .frame(width: small ? 58 : 120, height: small ? 58 : 72)
             .padding(.top, 2)
             if !small {
                 ZStack {
@@ -316,7 +316,7 @@ struct QXTile: View {
             }
         }
         .background(
-            RoundedRectangle(cornerRadius: small ? 18 : 24, style: .continuous)
+            RoundedRectangle(cornerRadius: small ? 18 : 22, style: .continuous)
                 .fill(LinearGradient(colors: [panel.color.opacity(0.92), panel.color], startPoint: .top, endPoint: .bottom))
         )
         .shadow(color: panel.color.opacity(selected ? 0.35 : 0.15), radius: selected ? 8 : 4, y: 3)
@@ -343,6 +343,7 @@ struct QXToolbar: View {
     private func shown(_ id: String) -> Bool { !hiddenRaw.split(separator: ",").contains(Substring(id)) }
 
     var body: some View {
+        HStack(spacing: 10) {
         HStack(spacing: 0) {
             // 1. 编辑 (网络活动 / 分流 / 重写 / 日志: 搜索)
             if shown("1") {
@@ -412,15 +413,27 @@ struct QXToolbar: View {
             .accessibilityLabel(Text("HTTP 请求"))
             }
 
-            // 6. Windmill: tap = 设置, long-press = 运行模式
+        }
+        .padding(.horizontal, 6)
+        .frame(height: 60)
+        .background(
+            RoundedRectangle(cornerRadius: toolbarStyle == "rounded" ? 30 : 16, style: .continuous)
+                .fill(Theme.card)
+                .shadow(color: .black.opacity(0.12), radius: 12, y: 4)
+        )
+                windmill
+        }
+    }
+
+    // 6. Windmill: tap = 设置, long-press = 运行模式
+    private var windmill: some View {
             QXWindmill(mode: dash.mode, size: 30)
                 .rotationEffect(.degrees(spin ? 360 : 0))
                 .animation(spin ? .linear(duration: 6).repeatForever(autoreverses: false) : .default, value: spin)
                 .onAppear { spin = vpn.isConnected }
                 .onChange(of: vpn.isConnected) { on in spin = on }
-                .frame(width: 58, height: 58)
-                .background(Circle().fill(Theme.card))
-                .overlay(Circle().stroke(Color.primary.opacity(0.06)))
+                .frame(width: 60, height: 60)
+                .background(Circle().fill(Theme.card).shadow(color: .black.opacity(0.12), radius: 12, y: 4))
                 .contentShape(Circle())
                 .onTapGesture {
                     UIImpactFeedbackGenerator(style: .light).impactOccurred()
@@ -434,15 +447,6 @@ struct QXToolbar: View {
                 .accessibilityLabel(Text("设置"))
                 .accessibilityHint(Text("长按切换运行模式"))
                 .accessibilityAddTraits(.isButton)
-        }
-        .padding(.leading, 6)
-        .padding(.trailing, 4)
-        .padding(.vertical, 4)
-        .background(
-            RoundedRectangle(cornerRadius: toolbarStyle == "rounded" ? 40 : 18, style: .continuous)
-                .fill(.regularMaterial)
-                .shadow(color: .black.opacity(0.12), radius: 12, y: 4)
-        )
     }
 
     private func icon(_ name: String) -> some View {

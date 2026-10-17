@@ -512,6 +512,40 @@
         }
       }
     },
+    "%lld 个提供者更新失败": {
+      "localizations": {
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%lld 個提供者更新失敗"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%lld providers failed to update"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%lld 件のプロバイダーの更新に失敗しました"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "제공자 %lld개 업데이트 실패"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Не удалось обновить провайдеров: %lld"
+          }
+        }
+      }
+    },
     "%lld 个节点 · %lld 个策略组 · %lld 条规则 · %lld 个节点集": {
       "localizations": {
         "zh-Hant": {
@@ -2288,6 +2322,74 @@
         }
       }
     },
+    "DNS 缓存": {
+      "localizations": {
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "DNS 快取"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "DNS Cache"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "DNS キャッシュ"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "DNS 캐시"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Кэш DNS"
+          }
+        }
+      }
+    },
+    "DNS 设置": {
+      "localizations": {
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "DNS 設定"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "DNS Settings"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "DNS 設定"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "DNS 설정"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Настройки DNS"
+          }
+        }
+      }
+    },
     "ECH 与证书指纹需要服务端配合；多路复用要求服务端开启 sing-mux。「IP 版本」留空时使用「连接方式 → 节点 IP 优先」。": {
       "localizations": {
         "zh-Hant": {
@@ -2527,6 +2629,40 @@
         }
       }
     },
+    "GeoIP 查询": {
+      "localizations": {
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "GeoIP 查詢"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "GeoIP Lookup"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "GeoIP 照会"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "GeoIP 조회"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Запрос GeoIP"
+          }
+        }
+      }
+    },
     "Google": {
       "extractionState": "manual",
       "localizations": {
@@ -2700,6 +2836,40 @@
         }
       }
     },
+    "HTTP Backend": {
+      "localizations": {
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "HTTP Backend"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "HTTP Backend"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "HTTP Backend"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "HTTP Backend"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "HTTP Backend"
+          }
+        }
+      }
+    },
     "HTTP 与 SOCKS5 代理共用此端口": {
       "localizations": {
         "zh-Hant": {
@@ -2768,6 +2938,40 @@
         }
       }
     },
+    "HTTP 抓取": {
+      "localizations": {
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "HTTP 擷取"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "HTTP Capture"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "HTTP キャプチャ"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "HTTP 캡처"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Захват HTTP"
+          }
+        }
+      }
+    },
     "HTTP 明文请求无需 MitM 即可重写；HTTPS 需要在 MitM 页添加主机名并信任证书。": {
       "localizations": {
         "en": {
@@ -2798,6 +3002,40 @@
           "stringUnit": {
             "state": "translated",
             "value": "Обычные HTTP-запросы можно переписывать без MitM; для HTTPS нужен хост на странице MitM и доверенный сертификат."
+          }
+        }
+      }
+    },
+    "HTTP 请求": {
+      "localizations": {
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "HTTP 請求"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "HTTP Requests"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "HTTP リクエスト"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "HTTP 요청"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "HTTP-запросы"
           }
         }
       }
@@ -3109,6 +3347,40 @@
         }
       }
     },
+    "IPv6、局域网共享（HTTP / SOCKS5 代理服务器）、排除路由与按需连接在「出站接口 / 连接方式」中设置。": {
+      "localizations": {
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "IPv6、區域網路共享（HTTP / SOCKS5 代理伺服器）、排除路由與按需連線在「出站介面 / 連線方式」中設定。"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "IPv6, LAN sharing (HTTP / SOCKS5 proxy server), excluded routes and on-demand are set in Outbound Interface / Connection Method."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "IPv6、LAN 共有（HTTP / SOCKS5 プロキシサーバー）、除外ルート、オンデマンドは「送信インターフェイス / 接続方式」で設定します。"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "IPv6, LAN 공유(HTTP / SOCKS5 프록시 서버), 제외 경로, 주문형 연결은 「아웃바운드 인터페이스 / 연결 방식」에서 설정합니다."
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "IPv6, общий доступ в LAN (HTTP / SOCKS5-прокси), исключённые маршруты и подключение по требованию настраиваются в «Исходящий интерфейс / Способ подключения»."
+          }
+        }
+      }
+    },
     "IP（多个用逗号分隔）或一个域名": {
       "localizations": {
         "zh-Hant": {
@@ -3384,6 +3656,40 @@
         }
       },
       "extractionState": "manual"
+    },
+    "MitM 根证书用于 HTTPS 解析。只有配置了主机名的请求才会被 MitM 模块进行解析。主机名按加载顺序进行匹配，可点击“主机名”查看加载顺序。": {
+      "localizations": {
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "MitM 根憑證用於 HTTPS 解析。只有設定了主機名稱的請求才會被 MitM 模組解析。主機名稱按載入順序比對，可點擊「主機名稱」查看載入順序。"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "The MitM root certificate is used to decrypt HTTPS. Only requests to configured hostnames are decrypted. Hostnames match in load order; tap Hostnames to see it."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "MitM ルート証明書は HTTPS の解析に使います。ホスト名を設定したリクエストだけが MitM モジュールで解析されます。ホスト名は読み込み順に照合され、「ホスト名」で順序を確認できます。"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "MitM 루트 인증서는 HTTPS 해석에 사용됩니다. 호스트 이름이 설정된 요청만 MitM 모듈이 해석합니다. 호스트 이름은 로드 순서대로 일치하며 「호스트 이름」에서 순서를 볼 수 있습니다."
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Корневой сертификат MitM нужен для расшифровки HTTPS. Расшифровываются только запросы к указанным хостам. Хосты сопоставляются в порядке загрузки — нажмите «Хосты», чтобы его увидеть."
+          }
+        }
+      }
     },
     "MitM 证书（可选）": {
       "extractionState": "manual",
@@ -4308,6 +4614,40 @@
           "stringUnit": {
             "state": "translated",
             "value": "User-Agent"
+          }
+        }
+      }
+    },
+    "VPN": {
+      "localizations": {
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "VPN"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "VPN"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "VPN"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "VPN"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "VPN"
           }
         }
       }
@@ -5847,6 +6187,40 @@
         }
       }
     },
+    "vless:// hy2:// tuic:// anytls:// ss:// …，Base64 订阅、SIP008 / sing-box JSON、Surge / QX / Loon 节点行都可以": {
+      "localizations": {
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "vless:// hy2:// tuic:// anytls:// ss:// …，Base64 訂閱、SIP008 / sing-box JSON、Surge / QX / Loon 節點行皆可"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "vless:// hy2:// tuic:// anytls:// ss:// …, Base64 subscriptions, SIP008 / sing-box JSON and Surge / QX / Loon node lines all work"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "vless:// hy2:// tuic:// anytls:// ss:// …、Base64 購読、SIP008 / sing-box JSON、Surge / QX / Loon のノード行に対応"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "vless:// hy2:// tuic:// anytls:// ss:// …, Base64 구독, SIP008 / sing-box JSON, Surge / QX / Loon 노드 줄 모두 가능"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "vless:// hy2:// tuic:// anytls:// ss:// …, подписки Base64, JSON SIP008 / sing-box и строки узлов Surge / QX / Loon"
+          }
+        }
+      }
+    },
     "{\"ok\":true}": {
       "localizations": {
         "zh-Hant": {
@@ -6354,6 +6728,40 @@
           "stringUnit": {
             "state": "translated",
             "value": "Одна строка перезаписи Surge / Quantumult X / Loon. Для нескольких строк используйте режим «Текст»."
+          }
+        }
+      }
+    },
+    "一键更新": {
+      "localizations": {
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "一鍵更新"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Update All"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "一括更新"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "모두 업데이트"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Обновить всё"
           }
         }
       }
@@ -6904,6 +7312,40 @@
           "stringUnit": {
             "state": "translated",
             "value": "Ошибка загрузки: HTTP %lld"
+          }
+        }
+      }
+    },
+    "下载配置": {
+      "localizations": {
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "下載設定檔"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Download Profile"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "プロファイルをダウンロード"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "프로파일 다운로드"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Загрузить профиль"
           }
         }
       }
@@ -7524,6 +7966,40 @@
         }
       },
       "extractionState": "manual"
+    },
+    "二进制规则集（mrs），无法展开查看。": {
+      "localizations": {
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "二進位規則集（mrs），無法展開查看。"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Binary rule set (mrs); it can't be expanded."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "バイナリのルールセット（mrs）のため展開できません。"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "바이너리 규칙 세트(mrs)라 펼쳐 볼 수 없습니다."
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Двоичный набор правил (mrs), развернуть нельзя."
+          }
+        }
+      }
     },
     "仅 IPv4": {
       "localizations": {
@@ -8442,6 +8918,40 @@
           "stringUnit": {
             "state": "translated",
             "value": "Прокси выключен"
+          }
+        }
+      }
+    },
+    "以下 HTTP 请求相关工具大多用于 web 开发及测试；网络工具、解锁检测与连接分析是本 App 额外提供的。": {
+      "localizations": {
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "以下 HTTP 請求相關工具大多用於 web 開發及測試；網路工具、解鎖檢測與連線分析是本 App 額外提供的。"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "These HTTP tools are mostly for web development and testing; Network Tools, Unlock Check and Connection Analytics are extras of this app."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "以下の HTTP 関連ツールは主に Web 開発とテスト用です。ネットワークツール、アンロック検査、接続の分析はこの App 独自の機能です。"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "아래 HTTP 도구는 주로 웹 개발과 테스트용입니다. 네트워크 도구, 잠금 해제 검사, 연결 분석은 이 앱이 추가로 제공합니다."
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Эти HTTP-инструменты в основном для веб-разработки и тестов; сетевые инструменты, проверка доступа и анализ подключений — дополнения этого приложения."
           }
         }
       }
@@ -9502,6 +10012,40 @@
         }
       }
     },
+    "停用": {
+      "localizations": {
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "停用"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Disable"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "無効にする"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "비활성화"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Отключить"
+          }
+        }
+      }
+    },
     "停用后，引用这个脚本的所有规则、定时任务和面板都不再运行（模块本身保持启用）。连接期间引擎会按间隔在后台刷新脚本。": {
       "localizations": {
         "zh-Hant": {
@@ -9843,6 +10387,74 @@
         }
       }
     },
+    "全局代理": {
+      "localizations": {
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "全域代理"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Global Proxy"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "グローバルプロキシ"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "전역 프록시"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Глобальный прокси"
+          }
+        }
+      }
+    },
+    "全局直连": {
+      "localizations": {
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "全域直連"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Global Direct"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "グローバル直接接続"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "전역 직접 연결"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Глобально напрямую"
+          }
+        }
+      }
+    },
     "全局隧道": {
       "localizations": {
         "en": {
@@ -10015,6 +10627,40 @@
         }
       }
     },
+    "全部代理": {
+      "localizations": {
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "全部代理"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "All Proxy"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "すべてプロキシ"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "모두 프록시"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Всё через прокси"
+          }
+        }
+      }
+    },
     "全部失败 · 丢失 100%": {
       "localizations": {
         "en": {
@@ -10147,6 +10793,40 @@
           "stringUnit": {
             "state": "translated",
             "value": "Проверить все"
+          }
+        }
+      }
+    },
+    "全部直连": {
+      "localizations": {
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "全部直連"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "All Direct"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "すべて直接接続"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "모두 직접 연결"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Всё напрямую"
           }
         }
       }
@@ -10561,6 +11241,40 @@
         }
       }
     },
+    "其他设置": {
+      "localizations": {
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "其他設定"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Other Settings"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "その他の設定"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "기타 설정"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Другие настройки"
+          }
+        }
+      }
+    },
     "兼容": {
       "localizations": {
         "en": {
@@ -10831,6 +11545,40 @@
           "stringUnit": {
             "state": "translated",
             "value": "Предел памяти ядра"
+          }
+        }
+      }
+    },
+    "内核日志": {
+      "localizations": {
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "核心日誌"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Core Log"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "コアのログ"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "코어 로그"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Журнал ядра"
           }
         }
       }
@@ -11247,6 +11995,108 @@
         }
       }
     },
+    "出口位置、当前策略链、今日流量和开关": {
+      "localizations": {
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "出口位置、目前策略鏈、今日流量和開關"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Exit location, current policy chain, today's traffic and the switch"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "出口の場所、現在のポリシーチェーン、今日のトラフィックとスイッチ"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "출구 위치, 현재 정책 체인, 오늘 트래픽과 스위치"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Место выхода, текущая цепочка политик, трафик за сегодня и переключатель"
+          }
+        }
+      }
+    },
+    "出口节点": {
+      "localizations": {
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "出口節點"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Exit Node"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "出口ノード"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "출구 노드"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Узел выхода"
+          }
+        }
+      }
+    },
+    "出站接口 / 连接方式": {
+      "localizations": {
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "出站介面 / 連線方式"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Outbound Interface / Connection Method"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "送信インターフェイス / 接続方式"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "아웃바운드 인터페이스 / 연결 방식"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Исходящий интерфейс / Способ подключения"
+          }
+        }
+      }
+    },
     "出站模式": {
       "localizations": {
         "en": {
@@ -11515,6 +12365,74 @@
           "stringUnit": {
             "state": "translated",
             "value": "Ссылка и QR-код"
+          }
+        }
+      }
+    },
+    "分流": {
+      "localizations": {
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "分流"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Filter"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "振り分け"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "분류"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Маршрутизация"
+          }
+        }
+      }
+    },
+    "分流规则": {
+      "localizations": {
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "分流規則"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Filter Rules"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "振り分けルール"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "분류 규칙"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Правила маршрутизации"
           }
         }
       }
@@ -12098,6 +13016,40 @@
         }
       }
     },
+    "前置：%@": {
+      "localizations": {
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "前置：%@"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Via: %@"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "前段：%@"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "앞단: %@"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Через: %@"
+          }
+        }
+      }
+    },
     "剪贴板": {
       "localizations": {
         "en": {
@@ -12404,6 +13356,40 @@
           "stringUnit": {
             "state": "translated",
             "value": "Действия: reject / reject-200 / reject-img / reject-dict / reject-array / reject-drop / 302 / 307 / header; заголовки: header-add / header-del / header-replace / header-replace-regex."
+          }
+        }
+      }
+    },
+    "勾选的是当前使用的配置；节点集（proxy-providers）属于当前配置，连接后可单独更新。本地节点在「设置 → 节点 → 添加」中管理。": {
+      "localizations": {
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "勾選的是目前使用的設定檔；節點集（proxy-providers）屬於目前設定檔，連線後可單獨更新。本機節點在「設定 → 節點 → 新增」中管理。"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "The checked one is the profile in use; node sets (proxy-providers) belong to it and can be updated one by one when connected. Local nodes are managed in Settings → Nodes → Add."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "チェックが付いているのが使用中のプロファイルです。ノードセット（proxy-providers）はそのプロファイルに属し、接続中は個別に更新できます。ローカルノードは「設定 → ノード → 追加」で管理します。"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "체크된 것이 현재 사용 중인 프로파일입니다. 노드 세트(proxy-providers)는 현재 프로파일에 속하며 연결 후 개별 업데이트할 수 있습니다. 로컬 노드는 「설정 → 노드 → 추가」에서 관리합니다."
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Отмечен используемый профиль; наборы узлов (proxy-providers) входят в него и обновляются по отдельности при подключении. Локальные узлы — в «Настройки → Узлы → Добавить»."
           }
         }
       }
@@ -13260,6 +14246,40 @@
           "stringUnit": {
             "state": "translated",
             "value": "Подключается только по вашему включению; профили и логи хранятся на устройстве."
+          }
+        }
+      }
+    },
+    "只显示前 %lld 条，共 %lld 条。": {
+      "localizations": {
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "只顯示前 %lld 條，共 %lld 條。"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Showing the first %lld of %lld."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "全 %2$lld 件中、先頭の %1$lld 件のみ表示しています。"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "전체 %2$lld개 중 처음 %1$lld개만 표시합니다."
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Показаны первые %lld из %lld."
           }
         }
       }
@@ -14739,6 +15759,40 @@
         }
       }
     },
+    "圆角": {
+      "localizations": {
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "圓角"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Rounded"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "角丸"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "둥근 모서리"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Скруглённая"
+          }
+        }
+      }
+    },
     "在本机执行一次，环境与线上相同（$httpClient 直接联网，$persistentStore 是真实存储）。通知只显示在这里，不会弹出。": {
       "localizations": {
         "zh-Hant": {
@@ -15898,6 +16952,40 @@
         }
       }
     },
+    "外观": {
+      "localizations": {
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "外觀"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Appearance"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "外観"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "모양"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Оформление"
+          }
+        }
+      }
+    },
     "外部控制器": {
       "localizations": {
         "en": {
@@ -15966,6 +17054,40 @@
         }
       },
       "extractionState": "manual"
+    },
+    "大": {
+      "localizations": {
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "大"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Large"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "大"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "크게"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Крупные"
+          }
+        }
+      }
     },
     "大小": {
       "localizations": {
@@ -16371,6 +17493,40 @@
           "stringUnit": {
             "state": "translated",
             "value": "Готово"
+          }
+        }
+      }
+    },
+    "完整的配置文件（mihomo YAML）保存在本地，包含节点详情、分流规则、策略、引用链接等信息；重写与 MitM 保存在模块中。": {
+      "localizations": {
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "完整的設定檔（mihomo YAML）儲存在本機，包含節點詳情、分流規則、策略、引用連結等資訊；重寫與 MitM 儲存在模組中。"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "The full profile (mihomo YAML) is stored locally with nodes, filter rules, policies and remote links; rewrites and MitM live in modules."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "完全なプロファイル（mihomo YAML）は端末に保存され、ノード、振り分けルール、ポリシー、参照リンクなどを含みます。書き換えと MitM はモジュールに保存されます。"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "전체 프로파일(mihomo YAML)은 기기에 저장되며 노드, 분류 규칙, 정책, 참조 링크 등을 포함합니다. 재작성과 MitM은 모듈에 저장됩니다."
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Полный профиль (mihomo YAML) хранится на устройстве: узлы, правила, политики и ссылки; переписывание и MitM хранятся в модулях."
           }
         }
       }
@@ -17263,6 +18419,40 @@
         }
       }
     },
+    "导出配置": {
+      "localizations": {
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "匯出設定檔"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Export Profile"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "プロファイルを書き出す"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "프로파일 내보내기"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Экспорт профиля"
+          }
+        }
+      }
+    },
     "将「手动节点」设为当前配置": {
       "localizations": {
         "en": {
@@ -17293,6 +18483,40 @@
           "stringUnit": {
             "state": "translated",
             "value": "Сделать «Ручные узлы» текущим профилем"
+          }
+        }
+      }
+    },
+    "小": {
+      "localizations": {
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "小"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Small"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "小"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "작게"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Мелкие"
           }
         }
       }
@@ -17467,6 +18691,74 @@
         }
       }
     },
+    "工具 %@": {
+      "localizations": {
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "工具 %@"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Tool %@"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ツール %@"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "도구 %@"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Инструмент %@"
+          }
+        }
+      }
+    },
+    "工具 & 分析": {
+      "localizations": {
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "工具 & 分析"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Tools & Analysis"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ツールと分析"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "도구 및 분석"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Инструменты и анализ"
+          }
+        }
+      }
+    },
     "工具与数据": {
       "localizations": {
         "en": {
@@ -17497,6 +18789,108 @@
           "stringUnit": {
             "state": "translated",
             "value": "Инструменты и данные"
+          }
+        }
+      }
+    },
+    "工具栏": {
+      "localizations": {
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "工具列"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Toolbar"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ツールバー"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "도구 막대"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Панель инструментов"
+          }
+        }
+      }
+    },
+    "工具栏只显示开启的工具；与工具对应的备选功能在长按时弹出。风车（设置）始终显示，长按切换运行模式。": {
+      "localizations": {
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "工具列只顯示開啟的工具；與工具對應的備選功能在長按時彈出。風車（設定）始終顯示，長按切換執行模式。"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "The toolbar shows only the tools turned on; each tool's alternate appears on long-press. The windmill (Settings) always shows; long-press it to switch the run mode."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ツールバーにはオンにしたツールだけが表示され、各ツールの代替機能は長押しで表示されます。風車（設定）は常に表示され、長押しで実行モードを切り替えます。"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "도구 막대에는 켠 도구만 표시되며, 각 도구의 대체 기능은 길게 누르면 나타납니다. 풍차(설정)는 항상 표시되며 길게 누르면 실행 모드를 바꿉니다."
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "На панели видны только включённые инструменты; альтернатива каждого — по долгому нажатию. Мельница (Настройки) видна всегда; долгое нажатие меняет режим."
+          }
+        }
+      }
+    },
+    "工具栏样式": {
+      "localizations": {
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "工具列樣式"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Toolbar Style"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ツールバーのスタイル"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "도구 막대 스타일"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Стиль панели"
           }
         }
       }
@@ -17841,6 +19235,74 @@
           "stringUnit": {
             "state": "translated",
             "value": "Сохранено: «%@» → %@ (при следующем подключении)"
+          }
+        }
+      }
+    },
+    "已停用": {
+      "localizations": {
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "已停用"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Disabled"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "無効"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "비활성화됨"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Отключено"
+          }
+        }
+      }
+    },
+    "已全部更新": {
+      "localizations": {
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "已全部更新"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Everything updated"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "すべて更新しました"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "모두 업데이트됨"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Всё обновлено"
           }
         }
       }
@@ -18494,6 +19956,40 @@
         }
       }
     },
+    "已添加 %lld 个节点": {
+      "localizations": {
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "已新增 %lld 個節點"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Added %lld nodes"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%lld 件のノードを追加しました"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "노드 %lld개 추가됨"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Добавлено узлов: %lld"
+          }
+        }
+      }
+    },
     "已添加 %lld 个节点到「手动节点」": {
       "localizations": {
         "zh-Hant": {
@@ -18592,6 +20088,40 @@
           "stringUnit": {
             "state": "translated",
             "value": "Конфигурация VPN добавлена"
+          }
+        }
+      }
+    },
+    "已添加分流规则": {
+      "localizations": {
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "已新增分流規則"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Filter rule added"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "振り分けルールを追加しました"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "분류 규칙 추가됨"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Правило добавлено"
           }
         }
       }
@@ -18696,6 +20226,40 @@
           "stringUnit": {
             "state": "translated",
             "value": "Подписка добавлена: "
+          }
+        }
+      }
+    },
+    "已清空 DNS 缓存": {
+      "localizations": {
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "已清空 DNS 快取"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "DNS cache cleared"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "DNS キャッシュを消去しました"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "DNS 캐시를 비웠습니다"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Кэш DNS очищен"
           }
         }
       }
@@ -18833,6 +20397,40 @@
           "stringUnit": {
             "state": "translated",
             "value": "Предварительный прокси задан"
+          }
+        }
+      }
+    },
+    "已运行": {
+      "localizations": {
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "已執行"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Uptime"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "稼働時間"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "실행 시간"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Время работы"
           }
         }
       }
@@ -19109,6 +20707,108 @@
         }
       }
     },
+    "已阻止": {
+      "localizations": {
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "已阻擋"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Blocked"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ブロック済み"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "차단됨"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Заблокировано"
+          }
+        }
+      }
+    },
+    "已阻止的请求": {
+      "localizations": {
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "已阻擋的請求"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Blocked Requests"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ブロックしたリクエスト"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "차단된 요청"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Заблокированные запросы"
+          }
+        }
+      }
+    },
+    "应用图标": {
+      "localizations": {
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "App 圖示"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "App Icon"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "App アイコン"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "앱 아이콘"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Значок приложения"
+          }
+        }
+      }
+    },
     "应用版本": {
       "localizations": {
         "en": {
@@ -19139,6 +20839,40 @@
           "stringUnit": {
             "state": "translated",
             "value": "Версия приложения"
+          }
+        }
+      }
+    },
+    "开": {
+      "localizations": {
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "開"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "On"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "オン"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "켬"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Вкл"
           }
         }
       }
@@ -19650,6 +21384,74 @@
           "stringUnit": {
             "state": "translated",
             "value": "Движок"
+          }
+        }
+      }
+    },
+    "引用资源 - 分流": {
+      "localizations": {
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "引用資源 - 分流"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Resources - Filter"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "参照リソース - 振り分け"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "참조 리소스 - 분류"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Ресурсы — маршрутизация"
+          }
+        }
+      }
+    },
+    "引用资源 - 节点": {
+      "localizations": {
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "引用資源 - 節點"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Resources - Nodes"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "参照リソース - ノード"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "참조 리소스 - 노드"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Ресурсы — узлы"
           }
         }
       }
@@ -20268,6 +22070,40 @@
         }
       }
     },
+    "我添加的规则集": {
+      "localizations": {
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "我新增的規則集"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "My Rule Sets"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "追加したルールセット"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "내가 추가한 규칙 세트"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Мои наборы правил"
+          }
+        }
+      }
+    },
     "所有 App 的 TCP / UDP 流量和 DNS 都经过内核（NEPacketTunnelFlow），规则、Fake-IP、MitM 全部可用。": {
       "localizations": {
         "en": {
@@ -20847,6 +22683,40 @@
         }
       }
     },
+    "找不到这个规则集的信息": {
+      "localizations": {
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "找不到這個規則集的資訊"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "No information for this rule set"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "このルールセットの情報が見つかりません"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "이 규칙 세트의 정보를 찾을 수 없음"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Нет сведений об этом наборе правил"
+          }
+        }
+      }
+    },
     "找不到配置「%@」": {
       "localizations": {
         "zh-Hant": {
@@ -21086,6 +22956,108 @@
       },
       "extractionState": "manual"
     },
+    "拷贝主机名": {
+      "localizations": {
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "拷貝主機名稱"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Copy Hostname"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ホスト名をコピー"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "호스트 이름 복사"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Скопировать хост"
+          }
+        }
+      }
+    },
+    "拷贝名称": {
+      "localizations": {
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "拷貝名稱"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Copy Name"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "名前をコピー"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "이름 복사"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Скопировать имя"
+          }
+        }
+      }
+    },
+    "拷贝链接": {
+      "localizations": {
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "拷貝連結"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Copy Link"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "リンクをコピー"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "링크 복사"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Скопировать ссылку"
+          }
+        }
+      }
+    },
     "持久化存储": {
       "localizations": {
         "en": {
@@ -21184,6 +23156,40 @@
           "stringUnit": {
             "state": "translated",
             "value": "DNS для отдельных доменов (nameserver-policy)"
+          }
+        }
+      }
+    },
+    "按出口节点统计，从本次打开 App 起累计（总量来自内核）。按日统计与连接分析在右上角。": {
+      "localizations": {
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "按出口節點統計，從本次開啟 App 起累計（總量來自核心）。按日統計與連線分析在右上角。"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Per exit node, counted since the app was opened (totals come from the core). Daily stats and analytics are at the top right."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "出口ノードごとに、App を開いてからの累計です（合計はコアから）。日別統計と接続の分析は右上にあります。"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "출구 노드별로 앱을 연 뒤부터 누적합니다(합계는 코어 기준). 일별 통계와 연결 분석은 오른쪽 위에 있습니다."
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "По узлам выхода с момента открытия приложения (итоги — из ядра). Статистика по дням и анализ — справа вверху."
           }
         }
       }
@@ -21320,6 +23326,40 @@
           "stringUnit": {
             "state": "translated",
             "value": "По задержке"
+          }
+        }
+      }
+    },
+    "按日流量": {
+      "localizations": {
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "按日流量"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Daily Traffic"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "日別トラフィック"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "일별 트래픽"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Трафик по дням"
           }
         }
       }
@@ -22216,6 +24256,40 @@
       },
       "extractionState": "manual"
     },
+    "搜索": {
+      "localizations": {
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "搜尋"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Search"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "検索"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "검색"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Поиск"
+          }
+        }
+      }
+    },
     "搜索主机、规则、策略": {
       "localizations": {
         "en": {
@@ -22624,6 +24698,40 @@
         }
       }
     },
+    "数据抓取": {
+      "localizations": {
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "資料擷取"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Data Capture"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "データキャプチャ"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "데이터 캡처"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Захват данных"
+          }
+        }
+      }
+    },
     "数据版本 %@%@": {
       "localizations": {
         "en": {
@@ -22961,6 +25069,40 @@
           "stringUnit": {
             "state": "translated",
             "value": "Закрыть все соединения?"
+          }
+        }
+      }
+    },
+    "断开连接": {
+      "localizations": {
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "中斷連線"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Close Connection"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "接続を切断"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "연결 끊기"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Закрыть соединение"
           }
         }
       }
@@ -23926,6 +26068,40 @@
         }
       }
     },
+    "时长": {
+      "localizations": {
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "時長"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Duration"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "時間"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "지속 시간"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Длительность"
+          }
+        }
+      }
+    },
     "明细": {
       "localizations": {
         "en": {
@@ -24235,6 +26411,40 @@
         }
       }
     },
+    "暂无日志": {
+      "localizations": {
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "暫無日誌"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "No logs yet"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ログはまだありません"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "아직 로그 없음"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Журнала пока нет"
+          }
+        }
+      }
+    },
     "暂无本地脚本": {
       "localizations": {
         "en": {
@@ -24337,6 +26547,40 @@
         }
       }
     },
+    "更多统计": {
+      "localizations": {
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "更多統計"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "More Stats"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "その他の統計"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "추가 통계"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Ещё статистика"
+          }
+        }
+      }
+    },
     "更换图标": {
       "localizations": {
         "zh-Hant": {
@@ -24401,6 +26645,40 @@
           "stringUnit": {
             "state": "translated",
             "value": "Обновить"
+          }
+        }
+      }
+    },
+    "更新中…": {
+      "localizations": {
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "更新中…"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Updating…"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "更新中…"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "업데이트 중…"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Обновление…"
           }
         }
       }
@@ -24470,6 +26748,74 @@
           "stringUnit": {
             "state": "translated",
             "value": "Обновлено %@"
+          }
+        }
+      }
+    },
+    "更新全部订阅、规则集、模块与节点集。": {
+      "localizations": {
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "更新全部訂閱、規則集、模組與節點集。"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Updates every subscription, rule set, module and node set."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "すべての購読、ルールセット、モジュール、ノードセットを更新します。"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "모든 구독, 규칙 세트, 모듈, 노드 세트를 업데이트합니다."
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Обновляет все подписки, наборы правил, модули и наборы узлов."
+          }
+        }
+      }
+    },
+    "更新失败：%@": {
+      "localizations": {
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "更新失敗：%@"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Update failed: %@"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "更新に失敗しました：%@"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "업데이트 실패: %@"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Ошибка обновления: %@"
           }
         }
       }
@@ -25157,6 +27503,40 @@
       },
       "extractionState": "manual"
     },
+    "未识别到节点": {
+      "localizations": {
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "未辨識到節點"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "No nodes recognised"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ノードを認識できません"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "인식된 노드 없음"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Узлы не распознаны"
+          }
+        }
+      }
+    },
     "未转换 %lld 项": {
       "localizations": {
         "en": {
@@ -25392,6 +27772,40 @@
           "stringUnit": {
             "state": "translated",
             "value": "Не подключено · профиль %@"
+          }
+        }
+      }
+    },
+    "未连接：显示的是配置文件中的内容，选择会在下次连接时生效；测速直接从本机发起。": {
+      "localizations": {
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "未連線：顯示的是設定檔中的內容，選擇會在下次連線時生效；測速直接從本機發起。"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Not connected: this is the profile's content; choices apply on the next connect and latency tests run directly from the device."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "未接続：プロファイルの内容を表示しています。選択は次回の接続で反映され、速度テストは端末から直接行います。"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "연결 안 됨: 프로파일 내용을 표시합니다. 선택은 다음 연결 때 적용되며 속도 테스트는 기기에서 직접 실행됩니다."
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Не подключено: показано содержимое профиля; выбор применится при следующем подключении, тест задержки идёт напрямую с устройства."
           }
         }
       }
@@ -25979,6 +28393,40 @@
         }
       }
     },
+    "本地规则": {
+      "localizations": {
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "本機規則"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Local Rules"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ローカルルール"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "로컬 규칙"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Локальные правила"
+          }
+        }
+      }
+    },
     "本地配置": {
       "localizations": {
         "en": {
@@ -26188,6 +28636,40 @@
       },
       "extractionState": "manual"
     },
+    "本次打开 App 以来，命中 REJECT 的连接。": {
+      "localizations": {
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "本次開啟 App 以來，命中 REJECT 的連線。"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Connections that hit REJECT since the app was opened."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "App を開いてから REJECT に一致した接続です。"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "앱을 연 뒤 REJECT에 걸린 연결입니다."
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Соединения, попавшие под REJECT с момента открытия приложения."
+          }
+        }
+      }
+    },
     "本次连接": {
       "localizations": {
         "zh-Hant": {
@@ -26218,6 +28700,40 @@
           "stringUnit": {
             "state": "translated",
             "value": "Этот сеанс"
+          }
+        }
+      }
+    },
+    "本次连接中解析过的域名与地址（来自连接记录）。使用 fake-ip 时地址为 198.18.x.x 占位地址。": {
+      "localizations": {
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "本次連線中解析過的網域與位址（來自連線記錄）。使用 fake-ip 時位址為 198.18.x.x 佔位位址。"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Domains and addresses resolved in this session (from the connection records). With fake-ip the address is a 198.18.x.x placeholder."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "今回の接続で解決したドメインとアドレスです（接続記録より）。fake-ip 使用時のアドレスは 198.18.x.x のプレースホルダーです。"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "이번 연결에서 조회한 도메인과 주소입니다(연결 기록 기준). fake-ip 사용 시 주소는 198.18.x.x 자리 표시자입니다."
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Домены и адреса, разрешённые в этом сеансе (по записям соединений). С fake-ip адрес — заглушка 198.18.x.x."
           }
         }
       }
@@ -26388,6 +28904,40 @@
           "stringUnit": {
             "state": "translated",
             "value": "Из профиля"
+          }
+        }
+      }
+    },
+    "构造请求": {
+      "localizations": {
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "建構請求"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Build Request"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "リクエスト作成"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "요청 작성"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Создать запрос"
           }
         }
       }
@@ -26729,6 +29279,40 @@
           "stringUnit": {
             "state": "translated",
             "value": "Проверить и сохранить"
+          }
+        }
+      }
+    },
+    "样式": {
+      "localizations": {
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "樣式"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Style"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "スタイル"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "스타일"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Стиль"
           }
         }
       }
@@ -27517,6 +30101,40 @@
         }
       }
     },
+    "正在读取配置…": {
+      "localizations": {
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "正在讀取設定檔…"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Reading profile…"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "プロファイルを読み込み中…"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "프로파일 읽는 중…"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Чтение профиля…"
+          }
+        }
+      }
+    },
     "正在转换…": {
       "localizations": {
         "en": {
@@ -27891,6 +30509,40 @@
         }
       }
     },
+    "没有匹配的记录": {
+      "localizations": {
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "沒有符合的記錄"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "No matching records"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "一致する記録はありません"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "일치하는 기록 없음"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Нет совпадений"
+          }
+        }
+      }
+    },
     "没有可导出的节点": {
       "localizations": {
         "zh-Hant": {
@@ -28198,6 +30850,40 @@
         }
       }
     },
+    "没有节点（节点集未下载时，连接后或在节点资源中更新）。": {
+      "localizations": {
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "沒有節點（節點集未下載時，連線後或在節點資源中更新）。"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "No nodes (if the node set isn't downloaded yet, connect or update it in Node Resources)."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ノードがありません（ノードセットが未ダウンロードの場合は、接続後またはノードリソースで更新してください）。"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "노드 없음(노드 세트를 아직 받지 않았다면 연결 후 또는 노드 리소스에서 업데이트하세요)."
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Нет узлов (если набор не загружен, подключитесь или обновите его в «Ресурсы узлов»)."
+          }
+        }
+      }
+    },
     "没有规则": {
       "localizations": {
         "en": {
@@ -28228,6 +30914,40 @@
           "stringUnit": {
             "state": "translated",
             "value": "Правил нет"
+          }
+        }
+      }
+    },
+    "没有规则。": {
+      "localizations": {
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "沒有規則。"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "No rules."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ルールはありません。"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "규칙 없음."
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Правил нет."
           }
         }
       }
@@ -28473,6 +31193,40 @@
         }
       }
     },
+    "活跃": {
+      "localizations": {
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "活躍"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Active"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "アクティブ"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "활성"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Активно"
+          }
+        }
+      }
+    },
     "活跃 %lld": {
       "localizations": {
         "en": {
@@ -28503,6 +31257,74 @@
           "stringUnit": {
             "state": "translated",
             "value": "Активных: %lld"
+          }
+        }
+      }
+    },
+    "流媒体-解锁查询": {
+      "localizations": {
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "串流-解鎖查詢"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Streaming Unlock Check"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ストリーミング-アンロック照会"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "스트리밍 잠금 해제 조회"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Проверка стриминга"
+          }
+        }
+      }
+    },
+    "流速": {
+      "localizations": {
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "流速"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Speed"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "速度"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "속도"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Скорость"
           }
         }
       }
@@ -28605,6 +31427,40 @@
           "stringUnit": {
             "state": "translated",
             "value": "Статистика трафика"
+          }
+        }
+      }
+    },
+    "浅色": {
+      "localizations": {
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "淺色"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Light"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ライト"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "라이트"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Светлое"
           }
         }
       }
@@ -28775,6 +31631,74 @@
           "stringUnit": {
             "state": "translated",
             "value": "Тест через ядро: %@ · тайм-аут %lld с"
+          }
+        }
+      }
+    },
+    "测速设置": {
+      "localizations": {
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "測速設定"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Latency Test Settings"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "速度テストの設定"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "속도 테스트 설정"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Настройки теста"
+          }
+        }
+      }
+    },
+    "深色": {
+      "localizations": {
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "深色"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Dark"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ダーク"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "다크"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Тёмное"
           }
         }
       }
@@ -28987,6 +31911,40 @@
         }
       }
     },
+    "添加中…": {
+      "localizations": {
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "新增中…"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Adding…"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "追加中…"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "추가 중…"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Добавление…"
+          }
+        }
+      }
+    },
     "添加会追加一个同名头；替换只改已有的头（没有则不加）。": {
       "localizations": {
         "zh-Hant": {
@@ -29017,6 +31975,40 @@
           "stringUnit": {
             "state": "translated",
             "value": "«Добавить» добавляет заголовок с тем же именем; «Заменить» меняет только существующий (если его нет — ничего не добавляет)."
+          }
+        }
+      }
+    },
+    "添加分流规则": {
+      "localizations": {
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "新增分流規則"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Add Filter Rule"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "振り分けルールを追加"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "분류 규칙 추가"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Добавить правило"
           }
         }
       }
@@ -29055,6 +32047,74 @@
         }
       }
     },
+    "添加模块 / 规则集": {
+      "localizations": {
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "新增模組 / 規則集"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Add Module / Rule Set"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "モジュール / ルールセットを追加"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "모듈 / 규칙 세트 추가"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Добавить модуль / набор"
+          }
+        }
+      }
+    },
+    "添加策略": {
+      "localizations": {
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "新增策略"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Add Policy"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ポリシーを追加"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "정책 추가"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Добавить политику"
+          }
+        }
+      }
+    },
     "添加节点": {
       "localizations": {
         "en": {
@@ -29085,6 +32145,40 @@
           "stringUnit": {
             "state": "translated",
             "value": "Добавить узел"
+          }
+        }
+      }
+    },
+    "添加节点 / 规则": {
+      "localizations": {
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "新增節點 / 規則"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Add Node / Rule"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ノード / ルールを追加"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "노드 / 규칙 추가"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Добавить узел / правило"
           }
         }
       }
@@ -29290,6 +32384,74 @@
           "stringUnit": {
             "state": "translated",
             "value": "Добавить правило переименования"
+          }
+        }
+      }
+    },
+    "清空": {
+      "localizations": {
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "清空"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Clear"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "消去"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "비우기"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Очистить"
+          }
+        }
+      }
+    },
+    "清空 DNS 缓存": {
+      "localizations": {
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "清空 DNS 快取"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Clear DNS Cache"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "DNS キャッシュを消去"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "DNS 캐시 비우기"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Очистить кэш DNS"
           }
         }
       }
@@ -29873,6 +33035,40 @@
       },
       "extractionState": "manual"
     },
+    "状态": {
+      "localizations": {
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "狀態"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Status"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "状態"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "상태"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Состояние"
+          }
+        }
+      }
+    },
     "状态码": {
       "localizations": {
         "zh-Hant": {
@@ -30009,6 +33205,40 @@
         }
       }
     },
+    "生成证书": {
+      "localizations": {
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "產生憑證"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Generate Certificate"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "証明書を生成"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "인증서 생성"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Создать сертификат"
+          }
+        }
+      }
+    },
     "生成预览…": {
       "localizations": {
         "en": {
@@ -30039,6 +33269,40 @@
           "stringUnit": {
             "state": "translated",
             "value": "Подготовка предпросмотра…"
+          }
+        }
+      }
+    },
+    "生效的分流规则除了下列资源外，还包含配置文件与「分流规则」中的本地规则，可点击右上方的搜索按钮查看。": {
+      "localizations": {
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "生效的分流規則除了下列資源外，還包含設定檔與「分流規則」中的本機規則，可點擊右上方的搜尋按鈕查看。"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Besides these resources, the active rules include the profile's own rules and the local ones in Filter Rules; tap search at the top right to see them."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "有効な振り分けルールには、以下のリソースに加えてプロファイルと「振り分けルール」のローカルルールが含まれます。右上の検索ボタンで確認できます。"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "적용되는 분류 규칙에는 아래 리소스 외에 프로파일과 「분류 규칙」의 로컬 규칙도 포함됩니다. 오른쪽 위 검색 버튼으로 볼 수 있습니다."
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Кроме этих ресурсов действуют правила профиля и локальные правила из «Правила маршрутизации» — нажмите поиск справа вверху."
           }
         }
       }
@@ -30384,6 +33648,74 @@
         }
       }
     },
+    "目标 IP": {
+      "localizations": {
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "目標 IP"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Destination IP"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "宛先 IP"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "대상 IP"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "IP назначения"
+          }
+        }
+      }
+    },
+    "目标地址": {
+      "localizations": {
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "目標位址"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Destination"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "宛先"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "대상 주소"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Назначение"
+          }
+        }
+      }
+    },
     "直接从 GitHub Releases 下载": {
       "localizations": {
         "en": {
@@ -30722,6 +34054,40 @@
           "stringUnit": {
             "state": "translated",
             "value": "Домены с реальным IP"
+          }
+        }
+      }
+    },
+    "示例配置": {
+      "localizations": {
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "範例設定檔"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Sample Profile"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "サンプルプロファイル"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "예제 프로파일"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Пример профиля"
           }
         }
       }
@@ -31682,6 +35048,74 @@
         }
       }
     },
+    "策略编辑器会在后续的 QX 预览中提供。现在可以在「编辑配置」里修改 proxy-groups。": {
+      "localizations": {
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "策略編輯器會在後續的 QX 預覽中提供。現在可以在「編輯設定檔」裡修改 proxy-groups。"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "The policy editor comes in a later QX preview. For now, edit proxy-groups in Edit Profile."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ポリシーエディタは今後の QX プレビューで提供します。現在は「プロファイルを編集」で proxy-groups を変更できます。"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "정책 편집기는 이후 QX 미리보기에서 제공됩니다. 지금은 「프로파일 편집」에서 proxy-groups를 수정할 수 있습니다."
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Редактор политик появится в следующих превью QX. Пока изменяйте proxy-groups в «Изменить профиль»."
+          }
+        }
+      }
+    },
+    "策略走向": {
+      "localizations": {
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "策略走向"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Policy Path"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ポリシーの経路"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "정책 경로"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Путь политики"
+          }
+        }
+      }
+    },
     "策略页的测速都用这个地址：连接时经由内核通过各节点访问，未连接时从本机直接测试。地址应快速返回 204 或 200。": {
       "localizations": {
         "zh-Hant": {
@@ -31814,6 +35248,40 @@
           "stringUnit": {
             "state": "translated",
             "value": "Алгоритм"
+          }
+        }
+      }
+    },
+    "管理配置": {
+      "localizations": {
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "管理設定檔"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Manage Profiles"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "プロファイルを管理"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "프로파일 관리"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Управление профилями"
           }
         }
       }
@@ -32332,6 +35800,40 @@
         }
       }
     },
+    "线条": {
+      "localizations": {
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "線條"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Lines"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ライン"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "선"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Линии"
+          }
+        }
+      }
+    },
     "组内节点": {
       "localizations": {
         "zh-Hant": {
@@ -32396,6 +35898,108 @@
           "stringUnit": {
             "state": "translated",
             "value": "Текущий выбор группы%@"
+          }
+        }
+      }
+    },
+    "经典策略页": {
+      "localizations": {
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "經典策略頁"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Classic Policy Page"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "クラシックのポリシーページ"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "클래식 정책 페이지"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Классическая страница политик"
+          }
+        }
+      }
+    },
+    "经典请求页": {
+      "localizations": {
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "經典請求頁"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Classic Requests Page"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "クラシックのリクエストページ"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "클래식 요청 페이지"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Классическая страница запросов"
+          }
+        }
+      }
+    },
+    "经典首页（流量图表）": {
+      "localizations": {
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "經典首頁（流量圖表）"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Classic Home (traffic chart)"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "クラシックのホーム（トラフィックグラフ）"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "클래식 홈(트래픽 차트)"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Классическая главная (график трафика)"
           }
         }
       }
@@ -32468,6 +36072,40 @@
         }
       },
       "extractionState": "manual"
+    },
+    "经过重写 / MitM 引擎的 HTTP(S) 请求会记录在这里（含请求与响应体，最多 32 KB）。HTTPS 请求需要在 MitM 主机名中添加对应域名才会被解析。被重写命中的请求记录修改后的结果。": {
+      "localizations": {
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "經過重寫 / MitM 引擎的 HTTP(S) 請求會記錄在這裡（含請求與回應主體，最多 32 KB）。HTTPS 請求需要在 MitM 主機名稱中新增對應網域才會被解析。被重寫命中的請求記錄修改後的結果。"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "HTTP(S) requests that pass the rewrite / MitM engine are recorded here (with request and response bodies, up to 32 KB). HTTPS needs the domain in the MitM hostnames. Rewritten requests are recorded as modified."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "書き換え / MitM エンジンを通った HTTP(S) リクエストをここに記録します（リクエストとレスポンスの本文を含み最大 32 KB）。HTTPS は MitM ホスト名にドメインを追加した場合のみ解析されます。書き換えに一致したリクエストは変更後の内容を記録します。"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "재작성 / MitM 엔진을 거친 HTTP(S) 요청이 여기에 기록됩니다(요청과 응답 본문 포함, 최대 32 KB). HTTPS는 MitM 호스트 이름에 도메인을 추가해야 해석됩니다. 재작성에 걸린 요청은 수정된 결과가 기록됩니다."
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Здесь записываются HTTP(S)-запросы через движок переписывания / MitM (с телами запроса и ответа до 32 КБ). HTTPS расшифровывается, только если домен есть в хостах MitM. Переписанные запросы записываются в изменённом виде."
+          }
+        }
+      }
     },
     "结果": {
       "localizations": {
@@ -32673,6 +36311,40 @@
         }
       }
     },
+    "编辑 / 搜索": {
+      "localizations": {
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "編輯 / 搜尋"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Edit / Search"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "編集 / 検索"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "편집 / 검색"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Изменить / Поиск"
+          }
+        }
+      }
+    },
     "编辑 YAML": {
       "localizations": {
         "en": {
@@ -32737,6 +36409,40 @@
           "stringUnit": {
             "state": "translated",
             "value": "Изменить и повторить"
+          }
+        }
+      }
+    },
+    "编辑本地规则": {
+      "localizations": {
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "編輯本機規則"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Edit Local Rules"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ローカルルールを編集"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "로컬 규칙 편집"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Изменить локальные правила"
           }
         }
       }
@@ -32913,6 +36619,40 @@
         }
       },
       "extractionState": "manual"
+    },
+    "网络": {
+      "localizations": {
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "網路"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Network"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ネットワーク"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "네트워크"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Сеть"
+          }
+        }
+      }
     },
     "网络发生不可恢复的变化": {
       "localizations": {
@@ -33116,6 +36856,108 @@
           "stringUnit": {
             "state": "translated",
             "value": "Сетевое расширение не подключилось."
+          }
+        }
+      }
+    },
+    "网络活动": {
+      "localizations": {
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "網路活動"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Activity"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ネットワークアクティビティ"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "네트워크 활동"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Активность"
+          }
+        }
+      }
+    },
+    "网络流量可经由节点转发到最终目的地。": {
+      "localizations": {
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "網路流量可經由節點轉發到最終目的地。"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Traffic can be forwarded through nodes to its destination."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ネットワークトラフィックはノードを経由して最終的な宛先に転送できます。"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "네트워크 트래픽은 노드를 거쳐 최종 목적지로 전달될 수 있습니다."
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Трафик может идти к цели через узлы."
+          }
+        }
+      }
+    },
+    "网络请求的处理流程由运行模式决定。长按首页右下角的风车也可以切换。": {
+      "localizations": {
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "網路請求的處理流程由執行模式決定。長按首頁右下角的風車也可以切換。"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "How requests are handled depends on the run mode. You can also long-press the windmill at the bottom right of Home."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "リクエストの処理方法は実行モードで決まります。ホーム右下の風車を長押ししても切り替えられます。"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "요청 처리 방식은 실행 모드로 결정됩니다. 홈 오른쪽 아래 풍차를 길게 눌러도 바꿀 수 있습니다."
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Обработка запросов зависит от режима. Его также можно сменить долгим нажатием на мельницу внизу справа."
           }
         }
       }
@@ -33461,6 +37303,40 @@
         }
       }
     },
+    "脚本记录": {
+      "localizations": {
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "腳本記錄"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Script Records"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "スクリプトの記録"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "스크립트 기록"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Записи скриптов"
+          }
+        }
+      }
+    },
     "脚本调试台": {
       "localizations": {
         "zh-Hant": {
@@ -33559,6 +37435,40 @@
           "stringUnit": {
             "state": "translated",
             "value": "История уведомлений скриптов"
+          }
+        }
+      }
+    },
+    "脚本面板": {
+      "localizations": {
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "腳本面板"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Script Panels"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "スクリプトパネル"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "스크립트 패널"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Панели скриптов"
           }
         }
       }
@@ -33835,6 +37745,40 @@
         }
       }
     },
+    "自定义策略": {
+      "localizations": {
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "自訂策略"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Custom Policies"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "カスタムポリシー"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "사용자 정책"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Свои политики"
+          }
+        }
+      }
+    },
     "自定义规则": {
       "localizations": {
         "en": {
@@ -34001,6 +37945,40 @@
           "stringUnit": {
             "state": "translated",
             "value": "Приоритет IP узлов"
+          }
+        }
+      }
+    },
+    "节点保存在「手动节点」中；在「其他设置 → 内核设置」打开「把手动节点加入每个配置」后，可在任何订阅的策略里选择。": {
+      "localizations": {
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "節點儲存在「手動節點」中；在「其他設定 → 核心設定」開啟「把手動節點加入每個設定檔」後，可在任何訂閱的策略裡選擇。"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Nodes are saved in Manual Nodes; turn on “Add manual nodes to every profile” in Other Settings → Core Settings to pick them in any subscription's policies."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ノードは「手動ノード」に保存されます。「その他の設定 → コア設定」で「手動ノードをすべてのプロファイルに追加」をオンにすると、どの購読のポリシーでも選べます。"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "노드는 「수동 노드」에 저장됩니다. 「기타 설정 → 코어 설정」에서 「수동 노드를 모든 프로파일에 추가」를 켜면 어느 구독의 정책에서든 선택할 수 있습니다."
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Узлы сохраняются в «Ручные узлы»; включите «Добавлять ручные узлы в каждый профиль» в «Другие настройки → Настройки ядра», чтобы выбирать их в любой подписке."
           }
         }
       }
@@ -34172,6 +38150,40 @@
           "stringUnit": {
             "state": "translated",
             "value": "Неверные данные узла"
+          }
+        }
+      }
+    },
+    "节点资源": {
+      "localizations": {
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "節點資源"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Node Resources"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ノードリソース"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "노드 리소스"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Ресурсы узлов"
           }
         }
       }
@@ -34757,6 +38769,74 @@
         }
       }
     },
+    "规则分流": {
+      "localizations": {
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "規則分流"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Rule-based"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ルール振り分け"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "규칙 분류"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "По правилам"
+          }
+        }
+      }
+    },
+    "规则分流模式下，网络请求的走向由分流规则中所匹配到的策略决定。靠前的规则优先级更高，可点击“分流规则”查看顺序。MATCH（FINAL）规则对应的策略会在其他规则都未命中时使用。": {
+      "localizations": {
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "規則分流模式下，網路請求的走向由分流規則中所比對到的策略決定。靠前的規則優先級更高，可點擊「分流規則」查看順序。MATCH（FINAL）規則對應的策略會在其他規則都未命中時使用。"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "In rule-based mode, each request goes to the policy of the first rule it matches. Earlier rules win; tap Filter Rules to see the order. The MATCH (FINAL) policy is used when no other rule matches."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ルール振り分けモードでは、リクエストは一致した振り分けルールのポリシーに従います。前のルールほど優先度が高く、「振り分けルール」で順序を確認できます。MATCH（FINAL）のポリシーは他のどのルールにも一致しないときに使われます。"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "규칙 분류 모드에서는 요청이 일치한 분류 규칙의 정책을 따릅니다. 앞쪽 규칙일수록 우선순위가 높으며 「분류 규칙」에서 순서를 볼 수 있습니다. MATCH(FINAL) 정책은 다른 규칙에 모두 일치하지 않을 때 사용됩니다."
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "В режиме по правилам запрос идёт в политику первого совпавшего правила. Ранние правила важнее — порядок см. в «Правила маршрутизации». Политика MATCH (FINAL) используется, если ничего не совпало."
+          }
+        }
+      }
+    },
     "规则只保存在本机覆写里，在生成运行配置时应用；订阅文件本身不改动，更新订阅后规则依然有效。": {
       "localizations": {
         "en": {
@@ -34855,6 +38935,40 @@
           "stringUnit": {
             "state": "translated",
             "value": "Текст правил"
+          }
+        }
+      }
+    },
+    "规则资源": {
+      "localizations": {
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "規則資源"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Rule Resources"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ルールリソース"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "규칙 리소스"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Ресурсы правил"
           }
         }
       }
@@ -34958,6 +39072,40 @@
           "stringUnit": {
             "state": "translated",
             "value": "Набор правил хранится в своих правилах («Ещё» → «Правила» → «Свои»), здесь — его загрузка и обновление. Списки Surge / Loon / QX и наборы Egern YAML преобразуются в правила mihomo; неподдерживаемые строки пропускаются. При подключении ядро тоже обновляет набор с этим интервалом."
+          }
+        }
+      }
+    },
+    "规则集尚未下载。": {
+      "localizations": {
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "規則集尚未下載。"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "The rule set isn't downloaded yet."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ルールセットはまだダウンロードされていません。"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "규칙 세트를 아직 받지 않았습니다."
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Набор правил ещё не загружен."
           }
         }
       }
@@ -35265,6 +39413,40 @@
           "stringUnit": {
             "state": "translated",
             "value": "Подписка"
+          }
+        }
+      }
+    },
+    "订阅与配置": {
+      "localizations": {
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "訂閱與設定檔"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Subscriptions & Profiles"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "購読とプロファイル"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "구독 및 프로파일"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Подписки и профили"
           }
         }
       }
@@ -35983,6 +40165,40 @@
           "stringUnit": {
             "state": "translated",
             "value": "Сертификат создан"
+          }
+        }
+      }
+    },
+    "识别到 %lld 个节点": {
+      "localizations": {
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "辨識到 %lld 個節點"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%lld nodes recognised"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%lld 件のノードを認識"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "노드 %lld개 인식됨"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Распознано узлов: %lld"
           }
         }
       }
@@ -36913,6 +41129,40 @@
         }
       }
     },
+    "跟随系统": {
+      "localizations": {
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "跟隨系統"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "System"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "システムに合わせる"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "시스템 설정"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Как в системе"
+          }
+        }
+      }
+    },
     "路由": {
       "localizations": {
         "zh-Hant": {
@@ -36977,6 +41227,40 @@
           "stringUnit": {
             "state": "translated",
             "value": "В списках маршрутов есть неверные строки, исправьте их."
+          }
+        }
+      }
+    },
+    "跳到末尾": {
+      "localizations": {
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "跳到末尾"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Jump to End"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "末尾へ移動"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "끝으로 이동"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "В конец"
           }
         }
       }
@@ -37290,6 +41574,40 @@
         }
       }
     },
+    "轻点开关连接": {
+      "localizations": {
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "輕點開關連線"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Tap the switch to connect"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "スイッチをタップして接続"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "스위치를 탭해 연결"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Нажмите переключатель"
+          }
+        }
+      }
+    },
     "输入时实时校验：显示转换后的 mihomo 规则和对应的策略组。": {
       "localizations": {
         "en": {
@@ -37597,6 +41915,40 @@
         }
       }
     },
+    "运行模式 · %@": {
+      "localizations": {
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "執行模式 · %@"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Run Mode · %@"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "実行モード · %@"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "실행 모드 · %@"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Режим · %@"
+          }
+        }
+      }
+    },
     "运行状态": {
       "localizations": {
         "en": {
@@ -37661,6 +42013,40 @@
           "stringUnit": {
             "state": "translated",
             "value": "Запустить скрипт"
+          }
+        }
+      }
+    },
+    "返回": {
+      "localizations": {
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "返回"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Back"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "戻る"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "뒤로"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Назад"
           }
         }
       }
@@ -37764,6 +42150,40 @@
           "stringUnit": {
             "state": "translated",
             "value": "HTTP-запросов пока нет"
+          }
+        }
+      }
+    },
+    "还没有。点右上角添加。": {
+      "localizations": {
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "還沒有。點右上角新增。"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "None yet. Tap the top right to add one."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "まだありません。右上で追加します。"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "아직 없습니다. 오른쪽 위에서 추가하세요."
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Пока нет. Добавьте справа вверху."
           }
         }
       }
@@ -38007,6 +42427,40 @@
         }
       }
     },
+    "还没有记录": {
+      "localizations": {
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "還沒有記錄"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "No records yet"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "まだ記録はありません"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "아직 기록 없음"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Записей пока нет"
+          }
+        }
+      }
+    },
     "还没有配置": {
       "localizations": {
         "en": {
@@ -38037,6 +42491,40 @@
           "stringUnit": {
             "state": "translated",
             "value": "Профилей пока нет"
+          }
+        }
+      }
+    },
+    "这个配置没有策略组。": {
+      "localizations": {
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "這個設定檔沒有策略組。"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "This profile has no policy groups."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "このプロファイルにはポリシーグループがありません。"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "이 프로파일에는 정책 그룹이 없습니다."
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "В этом профиле нет групп политик."
           }
         }
       }
@@ -39071,6 +43559,40 @@
         }
       }
     },
+    "选择协议填写，或粘贴分享链接 / 订阅内容。协议由 mihomo 内核 %@ 提供，内核每天自动跟进上游，新协议不用等 App 更新。": {
+      "localizations": {
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "選擇協定填寫，或貼上分享連結 / 訂閱內容。協定由 mihomo 核心 %@ 提供，核心每天自動跟進上游，新協定不用等 App 更新。"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Pick a protocol to fill in, or paste share links / subscription content. Protocols come from the mihomo core %@, which follows upstream daily — new protocols don't wait for an app update."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "プロトコルを選んで入力するか、共有リンク / 購読内容を貼り付けます。プロトコルは mihomo コア %@ が提供し、コアは毎日上流に追従するため、新しいプロトコルも App の更新を待つ必要はありません。"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "프로토콜을 골라 입력하거나 공유 링크 / 구독 내용을 붙여 넣으세요. 프로토콜은 mihomo 코어 %@가 제공하며, 코어가 매일 업스트림을 따라가므로 새 프로토콜도 앱 업데이트를 기다릴 필요가 없습니다."
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Выберите протокол или вставьте ссылки / содержимое подписки. Протоколы даёт ядро mihomo %@, которое ежедневно следует за upstream — новые протоколы не ждут обновления приложения."
+          }
+        }
+      }
+    },
     "选择只保存在本机的设置里，不会改动配置文件。": {
       "localizations": {
         "zh-Hant": {
@@ -39548,6 +44070,40 @@
         }
       }
     },
+    "配置中的规则集": {
+      "localizations": {
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "設定檔中的規則集"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Rule Sets in the Profile"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "プロファイル内のルールセット"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "프로파일의 규칙 세트"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Наборы правил профиля"
+          }
+        }
+      }
+    },
     "配置名称": {
       "localizations": {
         "en": {
@@ -39651,6 +44207,40 @@
         }
       }
     },
+    "配置片段": {
+      "localizations": {
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "設定片段"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Snippets"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "スニペット"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "스니펫"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Фрагменты"
+          }
+        }
+      }
+    },
     "配置规则": {
       "localizations": {
         "en": {
@@ -39681,6 +44271,40 @@
           "stringUnit": {
             "state": "translated",
             "value": "Правила профиля"
+          }
+        }
+      }
+    },
+    "配置证书": {
+      "localizations": {
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "設定憑證"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Configure Certificate"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "証明書を設定"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "인증서 구성"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Настроить сертификат"
           }
         }
       }
@@ -39919,6 +44543,74 @@
           "stringUnit": {
             "state": "translated",
             "value": "Перезапись и скрипты выключены (включите вверху страницы «Модули», «Перезапись» или «Скрипты»)"
+          }
+        }
+      }
+    },
+    "重写用于修改 HTTP 或 HTTPS 请求与响应。该规则按加载顺序进行匹配，可点击“重写规则”查看加载顺序。": {
+      "localizations": {
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "重寫用於修改 HTTP 或 HTTPS 請求與回應。規則按載入順序比對，可點擊「重寫規則」查看載入順序。"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Rewrites modify HTTP or HTTPS requests and responses. They match in load order; tap Rewrite Rules to see it."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "書き換えは HTTP / HTTPS のリクエストとレスポンスを変更します。読み込み順に照合され、「書き換えルール」で順序を確認できます。"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "재작성은 HTTP 또는 HTTPS 요청과 응답을 수정합니다. 로드 순서대로 일치하며 「재작성 규칙」에서 순서를 볼 수 있습니다."
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Переписывание меняет HTTP/HTTPS-запросы и ответы. Сопоставляется в порядке загрузки — см. «Правила переписывания»."
+          }
+        }
+      }
+    },
+    "重写规则": {
+      "localizations": {
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "重寫規則"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Rewrite Rules"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "書き換えルール"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "재작성 규칙"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Правила переписывания"
           }
         }
       }
@@ -40672,6 +45364,40 @@
         }
       }
     },
+    "链路": {
+      "localizations": {
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "鏈路"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Chain"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "チェーン"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "체인"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Цепочка"
+          }
+        }
+      }
+    },
     "错误": {
       "localizations": {
         "en": {
@@ -40770,6 +45496,74 @@
           "stringUnit": {
             "state": "translated",
             "value": "Зеркало"
+          }
+        }
+      }
+    },
+    "长按切换运行模式": {
+      "localizations": {
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "長按切換執行模式"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Long-press to switch the run mode"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "長押しで実行モードを切り替え"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "길게 눌러 실행 모드 전환"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Долгое нажатие — смена режима"
+          }
+        }
+      }
+    },
+    "长按打开资源页": {
+      "localizations": {
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "長按打開資源頁"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Long-press to open the resources"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "長押しでリソースを開く"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "길게 눌러 리소스 열기"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Долгое нажатие — ресурсы"
           }
         }
       }
@@ -41114,6 +45908,40 @@
         }
       }
     },
+    "需要更新": {
+      "localizations": {
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "需要更新"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Needs update"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "要更新"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "업데이트 필요"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Нужно обновить"
+          }
+        }
+      }
+    },
     "静默": {
       "localizations": {
         "en": {
@@ -41212,6 +46040,74 @@
           "stringUnit": {
             "state": "translated",
             "value": "Панелей: %lld"
+          }
+        }
+      }
+    },
+    "面板 & 工具栏": {
+      "localizations": {
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "面板 & 工具列"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Panels & Toolbar"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "パネルとツールバー"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "패널 및 도구 막대"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Панели и инструменты"
+          }
+        }
+      }
+    },
+    "面板样式": {
+      "localizations": {
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "面板樣式"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Panel Style"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "パネルのスタイル"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "패널 스타일"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Стиль панелей"
           }
         }
       }
@@ -41383,6 +46279,40 @@
           "stringUnit": {
             "state": "translated",
             "value": "Дополнительно"
+          }
+        }
+      }
+    },
+    "默认": {
+      "localizations": {
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "預設"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Default"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "デフォルト"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "기본값"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "По умолчанию"
           }
         }
       }

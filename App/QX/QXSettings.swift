@@ -21,12 +21,12 @@ struct QXActionGrid: View {
                 Button(action: it.action) {
                     HStack(spacing: 10) {
                         Image(systemName: it.icon).font(.system(size: 19, weight: .semibold))
-                        Text(verbatim: it.title).font(.system(size: 18, weight: .semibold)).lineLimit(1).minimumScaleFactor(0.7)
+                        Text(verbatim: it.title).font(.system(size: 20, weight: .semibold)).lineLimit(1).minimumScaleFactor(0.7)
                         Spacer(minLength: 0)
                     }
                     .foregroundStyle(.white)
                     .padding(.horizontal, 18)
-                    .frame(maxWidth: .infinity, minHeight: 60)
+                    .frame(maxWidth: .infinity, minHeight: 64)
                     .background(Capsule().fill(color))
                 }
                 .buttonStyle(.plain)
@@ -250,6 +250,7 @@ struct QXOtherSettingsView: View {
                     row(String(localized: "按日流量"), "chart.bar.xaxis", .stats)
                     row(String(localized: "日志"), "text.alignleft", .logs)
                     row(String(localized: "脚本通知"), "bell", .notices)
+                    row(String(localized: "脚本面板"), "rectangle.grid.2x2", .panels)
                     sheetRow(String(localized: "经典首页（流量图表）"), "gauge.with.dots.needle.67percent", .classicHome)
                     sheetRow(String(localized: "经典策略页"), "square.grid.2x2", .classicPolicy)
                     sheetRow(String(localized: "经典请求页"), "arrow.left.arrow.right", .classicRequests)

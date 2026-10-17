@@ -4,6 +4,14 @@
 
 > 本项目以 **GPL-3.0** 发布（见 `LICENSE` 与 `NOTICE`），与 mihomo 内核许可一致。仓库里没有任何节点、证书或密钥。
 
+## qx/rebuild 分支：Quantumult X 风格重建（预览）
+
+这个分支按 Quantumult X 的界面、布局和操作重做 App 的展示层，内部模型不变（mihomo YAML + 覆盖存储、App Group 运行时解析、隧道 ID 由主程序 ID 推导）。主线（main / wip / hotfix）保持原来的结构。
+
+- 发布：预发布版本，标签 `v<版本>-qx.<N>-build<构建号>`，标题「QX 重建预览 N」，IPA 名为 `Mihomo-QX-<版本>-qx.<N>-build<构建号>-unsigned.ipa` 与 `…-widget-unsigned.ipa`，Bundle ID 与主线相同（同一台设备一次装一个）。预览号在 `project.yml` 的 `QX_PREVIEW`。
+- 代码：`App/QX/`（QXShell 单页外壳、面板、设置页、资源页、添加节点）；`bridge/nativeformats.go`（SIP008 / sing-box JSON 订阅与格式识别）；`bridge/inspect.go` 的 `features`（节点特性标记）。
+- 里程碑：QX-1 单页布局 + 节点面板 + 设置页 + 小组件；后续 QX-2 网络活动 / DNS 日志 / 流量会话，QX-3 分流 / 重写资源页，QX-4 策略编辑器与节点资源，QX-5 导入完整性与 URL scheme，QX-6 任务与脚本 API，QX-7 配置文件工具，QX-8 其他设置与面板样式。
+
 ## 设计原则
 
 1. **一个内部模型**：所有东西最终都是「mihomo 配置 + 我们自己的覆写 / 模块存储」。Surge、Quantumult X、Loon、Stash、Egern 的格式只在导入边缘做一次翻译（每种格式一个解析器），之后就是普通的 mihomo 配置或模块，不存在第二套运行逻辑。
