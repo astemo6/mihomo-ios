@@ -1,0 +1,97 @@
+package mitm
+
+import (
+	"encoding/json"
+	"os"
+	"path/filepath"
+	"sync"
+	"time"
+)
+
+// Store backs $persistentStore / $prefs: a JSON map in the App Group container
+// (<home>/engine/store.json) that the app can view and edit too.
+type Store struct {
+	mu    sync.Mutex
+	path  string
+	data  map[string]string
+	mtime time.Time
+}
+
+func NewStore(home string) *Store {
+	return &Store{path: filepath.Join(EngineDir(home), "store.json")}
+}
+
+func (s *Store) loadLocked() {
+	fi, err := os.Stat(s.path)
+	if err != nil {
+		if s.data == nil {
+			s.data = map[string]string{}
+		}
+		return
+	}
+	if s.data != nil && fi.ModTime().Equal(s.mtime) {
+		return
+	}
+	m := map[string]string{}
+	if b, err := os.ReadFile(s.path); err == nil {
+		_ = json.Unmarshal(b, &m)
+	}
+	s.data, s.mtime = m, fi.ModTime()
+}
+
+func (s *Store) saveLocked() error {
+	_ = os.MkdirAll(filepath.Dir(s.path), 0o755)
+	b, _ := json.MarshalIndent(s.data, "", " ")
+	if err := writeAtomic(s.path, b, 0o644); err != nil {
+		return err
+	}
+	if fi, err := os.Stat(s.path); err == nil {
+		s.mtime = fi.ModTime()
+	}
+	return nil
+}
+
+// Read returns the value and whether it exists.
+func (s *Store) Read(key string) (string, bool) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	s.loadLocked()
+	v, ok := s.data[key]
+	return v, ok
+}
+
+// Write sets (or deletes when del) a key.
+func (s *Store) Write(key, val string, del bool) bool {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	s.loadLocked()
+	if del {
+		delete(s.data, key)
+	} else {
+		if len(val) > 1<<20 {
+			return false
+		}
+		s.data[key] = val
+	}
+	return s.saveLocked() == nil
+}
+
+// Clear removes all keys.
+func (s *Store) Clear() bool {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	s.data = map[string]string{}
+	return s.saveLocked() == nil
+}
+
+// All returns a copy of the store.
+func (s *Store) All() map[string]string {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	s.loadLocked()
+	out := make(map[string]string, len(s.data))
+	for k, v := range s.data {
+		out[k] = v
+	}
+	return out
+}

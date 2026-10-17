@@ -1,0 +1,15 @@
+# build outputs
+build/
+.gradle/
+local.properties
+*.aar
+app/libs/
+*.apk
+*.aab
+# signing material: never commit
+*.jks
+*.keystore
+keystore.properties
+# QX reference frames / user data never go in this repo
+qx-frames/
+*.mp4

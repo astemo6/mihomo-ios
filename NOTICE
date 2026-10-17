@@ -1,0 +1,11 @@
+Mihomo for Android
+Copyright (C) 2026 astemo6 and contributors
+Licensed under the GNU General Public License v3.0 (see LICENSE).
+
+Includes / derived from:
+  mihomo (MetaCubeX) — proxy core, linked via the Go bridge in core/       GPL-3.0
+    https://github.com/MetaCubeX/mihomo
+  core/ is the Go bridge of Mihomo iOS (astemo6/mihomo-ios, bridge/)        GPL-3.0
+  Design reference for the Android VpnService + socket protect hook:
+    ClashMetaForAndroid (MetaCubeX)  https://github.com/MetaCubeX/ClashMetaForAndroid  GPL-3.0
+    FlClash (chen08209)              https://github.com/chen08209/FlClash             GPL-3.0
