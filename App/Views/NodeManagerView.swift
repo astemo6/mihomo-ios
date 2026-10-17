@@ -295,6 +295,7 @@ struct NodeManagerRow: View {
     let node: ManagedNode
     let delay: Int?
     let testing: Bool
+    @ObservedObject private var nodeSettings = NodeSettingsStore.shared
 
     var body: some View {
         HStack(spacing: 10) {
@@ -304,6 +305,10 @@ struct NodeManagerRow: View {
                 .frame(width: 62, alignment: .leading)
             VStack(alignment: .leading, spacing: 2) {
                 Text(verbatim: FlagSafe.text(node.name)).font(.subheadline.weight(.semibold)).lineLimit(1)
+                if let note = nodeSettings.map[node.name]?.note, !note.isEmpty {
+                    Text(verbatim: note).font(.caption).foregroundStyle(Theme.accent).lineLimit(1)
+                        .accessibilityIdentifier("node.row.note")
+                }
                 HStack(spacing: 6) {
                     if let a = node.address {
                         Text(verbatim: a).font(.caption.monospaced()).foregroundStyle(.secondary).lineLimit(1)
@@ -351,6 +356,9 @@ struct NodeDetailView: View {
     @State private var deleteCheck: ProfileStore.NodeDeleteCheck?
     @State private var confirmProfileDelete = false
     @State private var canUndo = false
+    // v0.17 按节点设置
+    @ObservedObject private var nodeSettings = NodeSettingsStore.shared
+    @State private var editSettings = false
 
     struct ProfileEditTarget: Identifiable {
         let id = UUID()
@@ -394,9 +402,11 @@ struct NodeDetailView: View {
                 }
                 .padding(.vertical, 4)
             } footer: {
-                if canTest { TestTargetCaption(live: model.liveConnected && node.live) }
+                if canTest { TestTargetCaption(live: model.liveConnected && node.live, node: node.name) }
             }
             .listRowBackground(Theme.card)
+
+            nodeSettingsSection
 
             Section("基本") {
                 kv("协议", ProxyItem.label(for: node.type) + (info?.amnezia == true ? " · AmneziaWG" : ""))
@@ -536,6 +546,7 @@ struct NodeDetailView: View {
             }
         } message: { Text(verbatim: deleteMessage) }
         .sheet(item: $share) { t in NodeShareSheet(name: t.name, link: t.link) }
+        .sheet(isPresented: $editSettings) { NodeSettingsSheet(name: node.name) }
         // selftest: popped the detail even when the editor was cancelled; now only when the node is gone / renamed.
         .sheet(item: $editing, onDismiss: {
             Task {
@@ -550,6 +561,36 @@ struct NodeDetailView: View {
         .alert("提示", isPresented: Binding(get: { message != nil }, set: { if !$0 { message = nil } })) {
             Button("好", role: .cancel) {}
         } message: { Text(message ?? "") }
+    }
+
+    // MARK: 按节点设置 (v0.17)
+
+    @ViewBuilder var nodeSettingsSection: some View {
+        let s = nodeSettings.map[node.name]
+        Section {
+            if let note = s?.note, !note.isEmpty {
+                Text(verbatim: note).font(.subheadline)
+                    .accessibilityIdentifier("node.settings.note")
+            }
+            HStack {
+                Text("测速地址")
+                Spacer(minLength: 8)
+                if let u = NodeSettingsStore.customURL(for: node.name) {
+                    Text(verbatim: u).font(.caption.monospaced()).lineLimit(1).truncationMode(.middle)
+                } else {
+                    Text("跟随全局").foregroundStyle(.secondary)
+                }
+            }
+            .accessibilityElement(children: .combine)
+            .accessibilityIdentifier("node.settings.url")
+            Button { editSettings = true } label: { Label("编辑备注与测速地址", systemImage: "slider.horizontal.3") }
+                .accessibilityIdentifier("node.settings.edit")
+        } header: {
+            Text("节点设置")
+        } footer: {
+            Text("只保存在本机，不写入配置文件；单节点和策略组测速都会用这个地址。")
+        }
+        .listRowBackground(Theme.card)
     }
 
     func loadEntry() async {
@@ -689,6 +730,68 @@ struct NodeDetailView: View {
         switch await link() {
         case .success(let l): share = ShareTarget(name: node.name, link: l)
         case .failure(let e): message = e.message
+        }
+    }
+}
+
+/// v0.17 按节点设置 editor: remark + test URL (empty = 更多 → 测速).
+struct NodeSettingsSheet: View {
+    let name: String
+    @Environment(\.dismiss) private var dismiss
+    @State private var note = ""
+    @State private var url = ""
+    @State private var error: String?
+
+    var urlValid: Bool { url.trimmingCharacters(in: .whitespaces).isEmpty || CoreOverrides.isValidTestURL(url) }
+
+    var body: some View {
+        NavigationStack {
+            Form {
+                Section {
+                    TextField("备注", text: $note, axis: .vertical)
+                        .lineLimit(1...4)
+                        .accessibilityIdentifier("node.settings.noteField")
+                } header: { Text("备注") }
+                Section {
+                    TextField(ControllerClient.testSettings.url, text: $url)
+                        .keyboardType(.URL).textInputAutocapitalization(.never).autocorrectionDisabled()
+                        .font(.callout.monospaced())
+                        .accessibilityIdentifier("node.settings.urlField")
+                    if !urlValid {
+                        Text("请输入 http:// 或 https:// 开头的地址").font(.caption).foregroundStyle(Theme.bad)
+                    }
+                    ForEach(CoreOverrides.testURLPresets, id: \.self) { u in
+                        Button { url = u } label: {
+                            HStack {
+                                Text(LocalizedStringKey(CoreOverrides.testURLLabels[u] ?? (URL(string: u)?.host ?? u)))
+                                Spacer()
+                                if url == u { Image(systemName: "checkmark").foregroundStyle(Theme.accent) }
+                            }
+                        }
+                    }
+                } header: { Text("测速地址") } footer: { Text("留空则跟随 更多 → 测速 的全局地址。") }
+                if let error { Text(verbatim: error).foregroundStyle(Theme.bad) }
+            }
+            .navigationTitle(Text(verbatim: FlagSafe.text(name)))
+            .navigationBarTitleDisplayMode(.inline)
+            .toolbar {
+                ToolbarItem(placement: .cancellationAction) { Button("取消") { dismiss() } }
+                ToolbarItem(placement: .confirmationAction) {
+                    Button("保存") {
+                        do {
+                            try NodeSettingsStore.shared.set(NodeSetting(testURL: url, note: note), for: name)
+                            dismiss()
+                        } catch { self.error = error.localizedDescription }
+                    }
+                    .disabled(!urlValid)
+                    .accessibilityIdentifier("node.settings.save")
+                }
+            }
+            .onAppear {
+                let s = NodeSettingsStore.setting(for: name)
+                note = s?.note ?? ""
+                url = s?.testURL ?? ""
+            }
         }
     }
 }

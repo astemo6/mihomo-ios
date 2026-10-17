@@ -238,13 +238,12 @@ final class NodeManagerModel: ObservableObject {
         liveConnected = false
         if VPNManager.shared.isConnected, let proxies = try? await ControllerClient.shared.proxies() {
             liveConnected = true
-            let url = ControllerClient.testSettings.url
             for (name, p) in proxies {
                 if p.isGroup {
                     for m in p.all ?? [] { liveGroups[m, default: []].append(name) }
                 } else if !Self.isHidden(name, p.type) {
                     liveNames.insert(name)
-                    if let d = p.lastDelay(for: url) { liveHistory[name] = d }
+                    if let d = p.lastDelay(for: NodeSettingsStore.testURL(for: name)) { liveHistory[name] = d }
                 }
             }
             for k in liveGroups.keys { liveGroups[k]?.sort() }
@@ -329,7 +328,7 @@ final class NodeManagerModel: ObservableObject {
             return 0
         }
         let st = ControllerClient.testSettings
-        let url = st.url, timeout = st.timeoutMs
+        let url = NodeSettingsStore.testURL(for: n.name), timeout = st.timeoutMs
         await bindOfflineInterface()
         if n.inRuntime, let path = AppShared.activeProfileURL?.path {
             let home = AppShared.homeURL.path

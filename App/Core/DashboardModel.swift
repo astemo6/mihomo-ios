@@ -99,7 +99,6 @@ final class DashboardModel: ObservableObject {
 
         // Home policy cards (feat/home-groups): the user's chosen groups for this profile, in their order;
         // default = the first four top-level groups in GLOBAL order (hidden ones skipped).
-        let testURL = ControllerClient.testSettings.url
         let available = order.filter { all[$0]?.isGroup == true && all[$0]?.hidden != true }
         if available != availableGroups { availableGroups = available }
         var cards: [HomeGroup] = []
@@ -111,7 +110,7 @@ final class DashboardModel: ObservableObject {
                 chain.append(n); cur = n
             }
             cards.append(HomeGroup(name: g, icon: p.icon, kind: PolicyGroupDisplay.kind(live: p.type), chain: chain,
-                                   delay: all[cur]?.lastDelay(for: testURL)))
+                                   delay: all[cur]?.lastDelay(for: NodeSettingsStore.testURL(for: cur))))
         }
         if cards != homeGroups { homeGroups = cards }
     }

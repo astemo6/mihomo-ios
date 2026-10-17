@@ -515,7 +515,7 @@ struct GroupQuickPicker: View {
                         HStack {
                             Text(verbatim: FlagSafe.text(m)).lineLimit(1)
                             Spacer()
-                            if let d = all[m]?.lastDelay(for: ControllerClient.testSettings.url) {
+                            if let d = all[m]?.lastDelay(for: NodeSettingsStore.testURL(for: m)) {
                                 Text(Theme.delayText(d)).font(.caption.monospacedDigit()).foregroundStyle(Theme.delayColor(d))
                             }
                             if item.now == m { Image(systemName: "checkmark").foregroundStyle(Theme.accent) }

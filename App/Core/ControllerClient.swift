@@ -205,7 +205,8 @@ final class ControllerClient {
         var errors = 0
         let width = max(1, limit)
         let run: (String) async -> (String, Int, Error?) = { name in
-            do { return (name, try await self.proxyDelay(name, url: url, timeoutMs: timeoutMs), nil) }
+            // v0.17: a node's own test URL (按节点设置) wins unless the caller fixed one.
+            do { return (name, try await self.proxyDelay(name, url: url ?? NodeSettingsStore.testURL(for: name), timeoutMs: timeoutMs), nil) }
             catch { return (name, 0, error) }
         }
         // Sliding window: a new member starts as soon as one finishes, never more than `width` at once.
@@ -243,7 +244,7 @@ final class ControllerClient {
         let ms = timeoutMs ?? st.timeoutMs
         do {
             let data = try await send("/proxies/\(Self.enc(name))/delay", query: [
-                URLQueryItem(name: "url", value: url ?? st.url), URLQueryItem(name: "timeout", value: String(ms)),
+                URLQueryItem(name: "url", value: url ?? NodeSettingsStore.customURL(for: name) ?? st.url), URLQueryItem(name: "timeout", value: String(ms)),
             ], timeout: TimeInterval(ms) / 1000 + 5)
             let obj = try JSONSerialization.jsonObject(with: data) as? [String: Any]
             return (obj?["delay"] as? NSNumber)?.intValue ?? 0

@@ -8,6 +8,8 @@ import Libmihomo
 enum NameRefs {
     /// `new == nil` removes the references (a deleted node).
     static func rename(_ old: String, to new: String?, profileID: String, isGroup: Bool) {
+        // v0.17 按节点设置 (test URL, remark) follow the node.
+        if !isGroup { NodeSettingsStore.shared.rename(old, to: new) }
         // 策略组编辑
         var e = GroupEditStore.get(profileID)
         func fix(_ s: inout GroupSpec) {
