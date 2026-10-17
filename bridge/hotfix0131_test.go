@@ -7,6 +7,8 @@ import (
 	"strings"
 	"testing"
 	"time"
+
+	"go.yaml.in/yaml/v3"
 )
 
 // v0.13.1 hotfix: a Quantumult X config must classify as "conf" and convert (and the result must pass the
@@ -106,5 +108,80 @@ func TestSplitHostPortIPv6Bare(t *testing.T) {
 	}
 	if _, _, err := splitHostPort("example.com"); err == nil {
 		t.Fatal("missing port must fail")
+	}
+}
+
+// v0.13.1 importer fixes: QX `proxy` members → a generated "proxy" group; subscription-only node names →
+// providers + exact-name filter; enabled=false remotes listed as disabled, not as failures.
+func TestHotfix0131QXGroups(t *testing.T) {
+	conf := `[policy]
+static=节点选择, proxy, 本地节点, 订阅节点 A, 订阅节点 (B), direct
+static=回国, direct, proxy
+
+[server_local] 
+shadowsocks=203.0.113.10:8388, method=aes-128-gcm, password=x, tag=本地节点
+
+[server_remote]
+https://example.com/sub-on, tag=On, enabled=true
+https://example.com/sub-off?token=secret, tag=Off, enabled=false
+
+[filter_remote]
+https://example.com/off.list, tag=OffList, force-policy=direct, enabled=false
+
+[filter_local]
+final, 节点选择
+`
+	var r confResult
+	if err := json.Unmarshal([]byte(ImportConf(conf)), &r); err != nil {
+		t.Fatal(err)
+	}
+	if r.Error != "" {
+		t.Fatal(r.Error)
+	}
+	for _, s := range r.Report.Skipped {
+		if strings.Contains(s, "proxy") || strings.Contains(s, "成员不存在") || strings.Contains(s, "已禁用") {
+			t.Fatalf("unexpected skipped: %s", s)
+		}
+	}
+	if len(r.Report.Disabled) != 2 || strings.Contains(strings.Join(r.Report.Disabled, " "), "secret") {
+		t.Fatalf("disabled = %v", r.Report.Disabled)
+	}
+	var cfg struct {
+		Groups []map[string]any `yaml:"proxy-groups"`
+	}
+	if err := yaml.Unmarshal([]byte(r.YAML), &cfg); err != nil {
+		t.Fatal(err)
+	}
+	if len(cfg.Groups) < 3 || cfg.Groups[0]["name"] != "proxy" || cfg.Groups[0]["include-all-providers"] != true {
+		t.Fatalf("generated proxy group: %v", cfg.Groups)
+	}
+	sel := cfg.Groups[1]
+	if sel["name"] != "节点选择" {
+		t.Fatalf("order: %v", cfg.Groups)
+	}
+	members, _ := sel["proxies"].([]any)
+	if len(members) < 3 || members[0] != "proxy" || members[1] != "本地节点" {
+		t.Fatalf("members %v", members)
+	}
+	if f, _ := sel["filter"].(string); f != `^(?:订阅节点 A|订阅节点 \(B\))$` {
+		t.Fatalf("filter %q", f)
+	}
+	if use, _ := sel["use"].([]any); len(use) != 1 || use[0] != "On" {
+		t.Fatalf("use %v", sel["use"])
+	}
+	home := t.TempDir()
+	p := filepath.Join(home, "x.yaml")
+	os.WriteFile(p, []byte(r.YAML), 0o644)
+	if e := ValidateConfigIn(home, p); e != "" && !strings.Contains(strings.ToLower(e), "geo") {
+		t.Fatalf("validation: %s", e)
+	}
+}
+
+func TestHotfix0131NoProviders(t *testing.T) {
+	conf := "[policy]\nstatic=Sel, 远程节点, direct\n\n[server_local]\nshadowsocks=203.0.113.10:8388, method=aes-128-gcm, password=x, tag=L\n"
+	var r confResult
+	json.Unmarshal([]byte(ImportConf(conf)), &r)
+	if !strings.Contains(strings.Join(r.Report.Skipped, "\n"), "远程节点") {
+		t.Fatalf("without subscriptions the member must be listed as skipped: %v", r.Report.Skipped)
 	}
 }
