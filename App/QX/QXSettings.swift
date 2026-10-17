@@ -222,6 +222,7 @@ struct QXOtherSettingsView: View {
     @EnvironmentObject var dash: DashboardModel
     @EnvironmentObject var vpn: VPNManager
     @AppStorage(AppAppearance.key) private var appearance = AppAppearance.system.rawValue
+    @ObservedObject private var live = LiveActivityController.shared
 
     var body: some View {
         QXPage(title: String(localized: "其他设置")) {
@@ -246,6 +247,19 @@ struct QXOtherSettingsView: View {
                     }
                     if UIApplication.shared.supportsAlternateIcons { row(String(localized: "应用图标"), "app.badge", .appIcon) }
                 } header: { header("外观") }
+                .listRowBackground(Theme.card)
+
+                Section {
+                    Toggle(isOn: $live.enabled) {
+                        Label("实时活动与灵动岛", systemImage: "bell.badge").foregroundStyle(.primary)
+                    }
+                    .tint(QXColor.switchOn)
+                    if live.enabled && !live.systemAllowed {
+                        Text("系统设置中关闭了 Mihomo 的实时活动。").font(.caption).foregroundStyle(Theme.warn)
+                    }
+                } header: { header("通知") } footer: {
+                    Text("连接时在锁定屏幕和灵动岛显示连接状态、已连接时长、当前节点和速度。需要带小组件的 IPA（-widget）。时长一直走；速度和节点在打开 App 时刷新。")
+                }
                 .listRowBackground(Theme.card)
 
                 Section {

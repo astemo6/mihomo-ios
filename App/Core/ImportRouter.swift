@@ -18,6 +18,8 @@ enum ImportAction: Identifiable, Equatable {
     /// QX add-resource / update-configuration (and our mihomo:///add-resource mirror): every entry of
     /// server_remote / filter_remote / rewrite_remote, as full QX lines.
     case qxResources(server: [String], filter: [String], rewrite: [String])
+    /// quantumult-x:///ui?module=gallery&type=task|icon&action=add&content=<JSON array of gallery URLs>
+    case qxGallery(kind: String, urls: [String])
     case connect, disconnect, toggle
     case unsupported(String)
 
@@ -30,6 +32,7 @@ enum ImportAction: Identifiable, Equatable {
         case .confText(let n, _): return "c:" + n
         case .nodesText(let t): return "n:" + String(t.prefix(64))
         case .qxResources(let a, let b, let c): return "qx:" + String((a + b + c).joined(separator: "|").prefix(200))
+        case .qxGallery(let k, let u): return "qxg:" + k + ":" + u.joined(separator: "|")
         case .connect: return "connect"
         case .disconnect: return "disconnect"
         case .toggle: return "toggle"
@@ -84,6 +87,11 @@ final class ImportRouter: ObservableObject {
                 if let u = query(comps, ["url"]) { return .moduleURL(url: u, source: "mihomo") }
             case "add-resource", "update-configuration":
                 if let a = qxResourceAction(comps) { return a }
+            case "ui":
+                // mihomo:///ui?module=gallery&type=task|icon&content=… mirrors the QX gallery link.
+                var q = comps
+                q?.scheme = "quantumult-x"
+                if let str = q?.string { return parse(str) }
             default: break
             }
             return .unsupported(s)
@@ -116,11 +124,10 @@ final class ImportRouter: ObservableObject {
             if action == "ui" {
                 let module = query(comps, ["module"]) ?? ""
                 let type = query(comps, ["type"]) ?? ""
-                if module == "gallery" && type == "task" {
-                    return .unsupported(String(localized: "这是 Quantumult X 任务仓库链接：本 App 暂不支持任务仓库，请把任务行粘贴到「请求列表」右上角 +。"))
-                }
-                if module == "gallery" && type == "icon" {
-                    return .unsupported(String(localized: "这是 Quantumult X 图标库链接：在策略长按 → 图标 中粘贴图标库地址即可。"))
+                if module == "gallery" && (type == "task" || type == "icon") {
+                    let urls = QXGalleryStore.urls(fromContent: query(comps, ["content", "url"]) ?? "")
+                    if urls.isEmpty { return .unsupported(String(localized: "链接里没有仓库地址")) }
+                    return .qxGallery(kind: type, urls: urls)
                 }
             }
             return .unsupported(s)
@@ -421,6 +428,17 @@ struct ImportSheet: View {
                     TextField("配置名称", text: $name).listRowBackground(Theme.card)
                 case .qxResources(let server, let filter, let rewrite):
                     QXResourceImportSection(server: server, filter: filter, rewrite: rewrite)
+                case .qxGallery(let kind, let urls):
+                    Section {
+                        Label(kind == "icon" ? LocalizedStringKey("图标库") : LocalizedStringKey("任务仓库"), systemImage: kind == "icon" ? "square.grid.2x2" : "square.stack.3d.up")
+                            .font(.headline)
+                        ForEach(urls, id: \.self) { u in
+                            Text(verbatim: u).scaledFont(11, design: .monospaced).foregroundStyle(.secondary).lineLimit(2)
+                        }
+                    } footer: {
+                        Text(kind == "icon" ? LocalizedStringKey("添加后在策略编辑器「图标 → 浏览」中可选。") : LocalizedStringKey("只添加仓库地址：之后在「请求列表 → 任务仓库」里查看任务并逐条添加，不会自动运行任何脚本。"))
+                    }
+                    .listRowBackground(Theme.card)
                 case .unsupported(let s):
                     Section {
                         Label("无法导入", systemImage: "exclamationmark.triangle.fill").foregroundStyle(Theme.warn)
@@ -520,6 +538,9 @@ struct ImportSheet: View {
             case .nodesText(let text):
                 let n = try await store.addManualNodes(text: text)
                 result = String(localized: "已添加 \(n) 个节点到手动节点")
+            case .qxGallery(let kind, let urls):
+                let n = QXGalleryStore.shared.add(urls, kind: kind)
+                result = n == 0 ? String(localized: "仓库已存在") : String(localized: "已添加 \(n) 个仓库")
             case .qxResources(let server, let filter, let rewrite):
                 let r = await QXResourceImport.run(server: server, filter: filter, rewrite: rewrite)
                 failed = r.failed && r.added == 0

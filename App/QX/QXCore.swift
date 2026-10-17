@@ -98,6 +98,7 @@ enum QXDest: String, Hashable, CaseIterable {
     case connection, dns, speedTest, coreSettings, geo, appIcon, diagnostics, about, notices, scriptLogs, panels, sessions, subscriptions
     case mitmAdvanced, allResources, prefsStore, snippets, reset
     case netTest, snapshots, storage, syncFolder
+    case taskGallery
 
     @MainActor @ViewBuilder var view: some View {
         switch self {
@@ -144,6 +145,7 @@ enum QXDest: String, Hashable, CaseIterable {
         case .snapshots: QXWrappedPage(title: String(localized: "配置快照")) { SnapshotsView() }
         case .storage: QXWrappedPage(title: String(localized: "存储空间")) { StorageView() }
         case .syncFolder: QXWrappedPage(title: String(localized: "同步文件夹")) { SyncFolderView() }
+        case .taskGallery: QXTaskGalleryView()
         }
     }
 }

@@ -76,6 +76,7 @@ struct QXPolicyEditor: View {
     @State private var saving = false
     @State private var message: String?
     @State private var iconTarget: QXIconTarget?
+    @State private var browsing: QXIconBrowseTarget?
     @State private var confirmDelete = false
     @State private var showAdvanced = false
 
@@ -125,6 +126,12 @@ struct QXPolicyEditor: View {
         }
         .task { await load() }
         .sheet(item: $iconTarget) { t in GroupIconPicker(group: t.name, profileIcon: t.profileIcon) }
+        .sheet(item: $browsing) { _ in
+            QXIconBrowser { url in
+                spec.icon = url
+                if let n = groupName { GroupIconStore.shared.set(group: n, url: url) }
+            }
+        }
         .alert("提示", isPresented: Binding(get: { message != nil }, set: { if !$0 { message = nil } })) {
             Button("好", role: .cancel) {}
         } message: { Text(message ?? "") }
@@ -159,13 +166,16 @@ struct QXPolicyEditor: View {
             HStack {
                 label(String(localized: "图标"), required: false)
                 Spacer()
-                if let n = groupName {
-                    QXPill(title: String(localized: "浏览")) { iconTarget = QXIconTarget(name: n, profileIcon: spec.icon) }
-                }
+                // QX-4: 浏览 works for new policies too: the picked URL goes into the form (img-url);
+                // for an existing policy it also becomes its icon override so the home card shows it at once.
+                QXPill(title: String(localized: "浏览")) { browsing = QXIconBrowseTarget() }
             }
-            TextField("https://…/icon.png", text: Binding(get: { spec.icon ?? "" }, set: { spec.icon = $0.isEmpty ? nil : $0 }))
-                .keyboardType(.URL).textInputAutocapitalization(.never).autocorrectionDisabled()
-                .lineLimit(1)
+            HStack(spacing: 10) {
+                if let i = spec.icon, i.hasPrefix("http") { RemoteIcon(url: i, size: 28) }
+                TextField("https://…/icon.png", text: Binding(get: { spec.icon ?? "" }, set: { spec.icon = $0.isEmpty ? nil : $0 }))
+                    .keyboardType(.URL).textInputAutocapitalization(.never).autocorrectionDisabled()
+                    .lineLimit(1)
+            }
             Divider()
         }
     }

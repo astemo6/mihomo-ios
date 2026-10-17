@@ -327,8 +327,6 @@ struct QXRewriteResourcesView: View {
 /// 模块与资源 (every module, rule set and remote script with badges) in QX chrome.
 struct QXAllResourcesView: View {
     var body: some View {
-        QXPage(title: String(localized: "模块与资源")) {
-            ModulesView().toolbar(.hidden, for: .navigationBar)
-        }
+        ModulesView(qx: true)
     }
 }

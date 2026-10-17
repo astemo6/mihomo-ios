@@ -34,7 +34,7 @@ struct QXTaskListView: View {
 
     var offline: [QXTaskItem] {
         var out: [QXTaskItem] = []
-        for it in engine.config.scripts where it.enabled {
+        for it in (engine.config.scripts + engine.config.rules) where it.enabled {
             let d = EngineStore.describe(it.line, section: "script")
             guard ["cron", "event", "generic"].contains(d.kind) else { continue }
             if let p = ParsedEngineText.parse(LibmihomoEngineParseLine(it.line, "script")), let t = p.tasks?.first {
@@ -67,8 +67,8 @@ struct QXTaskListView: View {
         let list = items
         QXPage {
             QXCapsuleBar {
-                QXBarIcon(systemName: "square.3.layers.3d") { nav.push(.dest(.scripts)) }
-                    .accessibilityLabel(Text("脚本"))
+                QXBarIcon(systemName: "square.3.layers.3d") { nav.push(.dest(.taskGallery)) }
+                    .accessibilityLabel(Text("任务仓库"))
                 QXBarIcon(systemName: "externaldrive") { nav.push(.dest(.prefsStore)) }
                     .accessibilityLabel(Text("持久化存储"))
                 QXBarIcon(systemName: engine.config.enabled ? "alarm" : "zzz", tint: engine.config.enabled ? .primary : .secondary) {

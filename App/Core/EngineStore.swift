@@ -58,7 +58,8 @@ final class EngineStore: ObservableObject {
                 continue
             }
             let p = ParsedEngineText.parse(LibmihomoEngineParseLine(line, toScripts ? "script" : ""))
-            let isScript = p?.rules.first?.kind == "script"
+            // QX-4: task lines (cron / event-network / event-interaction) belong with the scripts too.
+            let isScript = p?.rules.first?.kind == "script" || !(p?.tasks ?? []).isEmpty
             if isScript { config.scripts.append(EngineItem(line: line)) } else { config.rules.append(EngineItem(line: line)) }
             n += 1
         }

@@ -16,6 +16,8 @@ struct ModulesView: View {
     @State private var url = ""
     @State private var pasting = false
     @State private var addingRuleSet = false
+    /// QX shell: the page is drawn in QX chrome (back circle + capsule [全部更新 | +]) instead of a nav bar.
+    var qx = false
 
     var shown: [ResourceItem] {
         filter == "all" ? res.items : res.items.filter { $0.kind == filter }
@@ -24,6 +26,49 @@ struct ModulesView: View {
     func count(_ kind: String) -> Int { res.items.filter { $0.kind == kind }.count }
 
     var body: some View {
+        if qx {
+            QXPage(title: String(localized: "模块与资源")) {
+                QXCapsuleBar {
+                    QXBarIcon(systemName: "arrow.triangle.2.circlepath", tint: res.updatingAll ? .secondary : .primary) {
+                        Task { await res.updateAll() }
+                    }
+                    .disabled(res.updatingAll)
+                    .accessibilityLabel(Text("全部更新"))
+                    Menu { addMenu } label: {
+                        Image(systemName: "plus").font(.system(size: 17, weight: .semibold)).foregroundStyle(.primary).frame(width: 38, height: 40)
+                    }
+                    .accessibilityLabel(Text("添加"))
+                }
+            } content: {
+                core.toolbar(.hidden, for: .navigationBar)
+            }
+        } else {
+            core.toolbar {
+                ToolbarItemGroup(placement: .navigationBarTrailing) {
+                    Button { Task { await res.updateAll() } } label: { Image(systemName: "arrow.clockwise") }
+                        .disabled(res.updatingAll)
+                        .accessibilityLabel(Text("全部更新"))
+                    Menu { addMenu } label: { Image(systemName: "plus") }
+                }
+            }
+        }
+    }
+
+    @ViewBuilder var addMenu: some View {
+        Button {
+            let clip = UIPasteboard.general.hasStrings ? (UIPasteboard.general.string ?? "") : ""
+            let t = clip.trimmingCharacters(in: .whitespacesAndNewlines)
+            if case .moduleURL(let u, _)? = ImportRouter.parse(t) { url = u } else { url = t.hasPrefix("http") ? t : "" }
+            adding = true
+        } label: { Label("从 URL 导入模块", systemImage: "link") }
+        Button { pasting = true } label: { Label("粘贴模块内容", systemImage: "doc.on.clipboard") }
+        Button { addingRuleSet = true } label: { Label("添加远程规则集", systemImage: "list.bullet.rectangle") }
+        Divider()
+        Button { Task { await store.addModule(url: Self.boxJSModule); res.reload() } } label: { Label("添加 BoxJS（需开启 MitM 并信任证书）", systemImage: "shippingbox") }
+            .disabled(store.config.modules.contains { $0.url == Self.boxJSModule })
+    }
+
+    var core: some View {
         List {
             Section {
                 Toggle(isOn: Binding(get: { store.config.enabled }, set: { store.config.enabled = $0; store.save() })) {
@@ -102,26 +147,6 @@ struct ModulesView: View {
         .background(Theme.bg.ignoresSafeArea())
         .navigationTitle("模块与资源")
         .refreshable { await res.updateAll() }
-        .toolbar {
-            ToolbarItemGroup(placement: .navigationBarTrailing) {
-                Button { Task { await res.updateAll() } } label: { Image(systemName: "arrow.clockwise") }
-                    .disabled(res.updatingAll)
-                    .accessibilityLabel(Text("全部更新"))
-                Menu {
-                    Button {
-                        let clip = UIPasteboard.general.hasStrings ? (UIPasteboard.general.string ?? "") : ""
-                        let t = clip.trimmingCharacters(in: .whitespacesAndNewlines)
-                        if case .moduleURL(let u, _)? = ImportRouter.parse(t) { url = u } else { url = t.hasPrefix("http") ? t : "" }
-                        adding = true
-                    } label: { Label("从 URL 导入模块", systemImage: "link") }
-                    Button { pasting = true } label: { Label("粘贴模块内容", systemImage: "doc.on.clipboard") }
-                    Button { addingRuleSet = true } label: { Label("添加远程规则集", systemImage: "list.bullet.rectangle") }
-                    Divider()
-                    Button { Task { await store.addModule(url: Self.boxJSModule); res.reload() } } label: { Label("添加 BoxJS（需开启 MitM 并信任证书）", systemImage: "shippingbox") }
-                        .disabled(store.config.modules.contains { $0.url == Self.boxJSModule })
-                } label: { Image(systemName: "plus") }
-            }
-        }
         .alert("导入模块", isPresented: $adding) {
             TextField("https://…/xxx.sgmodule", text: $url).textInputAutocapitalization(.never).autocorrectionDisabled()
             Button("导入") {
