@@ -6,9 +6,13 @@ package libmihomo
 
 import (
 	"encoding/json"
+	"fmt"
 	"os"
+	"path/filepath"
 	"sort"
 	"strings"
+	"sync"
+	"time"
 
 	C "github.com/metacubex/mihomo/constant"
 	"go.yaml.in/yaml/v3"
@@ -20,12 +24,12 @@ func runtimeRawWithHome(homeDir, profilePath string) map[string]any {
 	C.SetHomeDir(homeDir)
 	b, err := os.ReadFile(profilePath)
 	if err != nil {
-		lastError = err.Error()
+		setLastError(err.Error())
 		return raw
 	}
 	rt, err := buildRuntime(b, overridesFor(homeDir, profilePath), 0)
 	if err != nil {
-		lastError = err.Error()
+		setLastError(err.Error())
 		return raw
 	}
 	_ = yaml.Unmarshal(rt, &raw)
@@ -203,12 +207,62 @@ func NodeSummaryJSON(nodeJSON string) string {
 // NodeTestDelay tests one node of the profile by name without the tunnel (any source, node subscriptions
 // included). Returns ms or -1 (LastError has why).
 func NodeTestDelay(homeDir, profilePath, name, url string, timeoutMs int) int {
-	raw := runtimeRawWithHome(homeDir, profilePath)
+	raw := cachedRuntimeRaw(homeDir, profilePath)
 	m, _, ok := findRuntimeNode(raw, name)
 	if !ok {
-		lastError = "在当前配置里找不到这个节点"
+		setLastError("在当前配置里找不到这个节点")
 		return -1
 	}
 	b, _ := json.Marshal(m)
 	return TestDelay(string(b), url, timeoutMs)
+}
+
+// rtCache (selftest fix): 全部测速 in 节点管理 calls NodeTestDelay once per node, 8 at a time, and every call
+// built the whole runtime (profile parse, manual merge, node subscriptions, group edits, sub rules) again —
+// N full config builds for N nodes in the memory-capped app process. One build is now shared for 30 s as
+// long as the inputs (profile, overrides, manual nodes, node subscription list) are unchanged; concurrent
+// callers wait for the one build instead of each starting their own. The map is only read afterwards.
+var rtCache struct {
+	sync.Mutex
+	key string
+	at  time.Time
+	raw map[string]any
+}
+
+const rtCacheTTL = 30 * time.Second
+
+func runtimeCacheKey(homeDir, profilePath string) string {
+	parts := []string{homeDir, profilePath}
+	for _, p := range []string{
+		profilePath,
+		filepath.Join(homeDir, "overrides.json"),
+		filepath.Join(filepath.Dir(homeDir), "profiles", "manual-nodes.yaml"),
+		nodeSubsPath(homeDir),
+	} {
+		if fi, err := os.Stat(p); err == nil {
+			parts = append(parts, fmt.Sprintf("%d.%d", fi.Size(), fi.ModTime().UnixNano()))
+		} else {
+			parts = append(parts, "-")
+		}
+	}
+	return strings.Join(parts, "|")
+}
+
+func cachedRuntimeRaw(homeDir, profilePath string) map[string]any {
+	key := runtimeCacheKey(homeDir, profilePath)
+	rtCache.Lock()
+	defer rtCache.Unlock()
+	if rtCache.raw != nil && rtCache.key == key && time.Since(rtCache.at) < rtCacheTTL {
+		return rtCache.raw
+	}
+	raw := runtimeRawWithHome(homeDir, profilePath)
+	rtCache.key, rtCache.at, rtCache.raw = key, time.Now(), raw
+	return raw
+}
+
+// resetRuntimeCache drops the shared runtime (tests).
+func resetRuntimeCache() {
+	rtCache.Lock()
+	rtCache.raw = nil
+	rtCache.Unlock()
 }

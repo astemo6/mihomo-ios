@@ -418,12 +418,12 @@ func ShareLinkFor(m map[string]any) (string, error) {
 func NodeShareLink(nodeJSON string) string {
 	m := map[string]any{}
 	if err := json.Unmarshal([]byte(nodeJSON), &m); err != nil {
-		lastError = err.Error()
+		setLastError(err.Error())
 		return ""
 	}
 	s, err := ShareLinkFor(m)
 	if err != nil {
-		lastError = err.Error()
+		setLastError(err.Error())
 		return ""
 	}
 	return s
@@ -436,13 +436,13 @@ func NodeShareLinkByName(homeDir, profilePath, name string) string {
 		if str(p["name"]) == name {
 			s, err := ShareLinkFor(p)
 			if err != nil {
-				lastError = err.Error()
+				setLastError(err.Error())
 				return ""
 			}
 			return s
 		}
 	}
-	lastError = "在配置里找不到这个节点（节点集里的节点请到提供者页查看）"
+	setLastError("在配置里找不到这个节点（节点集里的节点请到提供者页查看）")
 	return ""
 }
 

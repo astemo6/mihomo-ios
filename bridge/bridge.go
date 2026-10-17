@@ -14,6 +14,7 @@ import (
 	"runtime/debug"
 	"strings"
 	"sync"
+	"sync/atomic"
 	"time"
 
 	C "github.com/metacubex/mihomo/constant"
@@ -29,12 +30,14 @@ import (
 var CoreVersion = "unknown"
 
 var (
-	mu        sync.Mutex
-	running   bool
-	curFd     int32
-	curHome   string
-	gcStop    chan struct{}
-	lastError string
+	mu      sync.Mutex
+	running bool
+	curFd   int32
+	curHome string
+	gcStop  chan struct{}
+	// lastError: written by helpers that run concurrently (8-way offline 测速 calls TestDelay from several
+	// threads); a plain string global was a data race (torn read in LastError). selftest fix.
+	lastError atomic.Value // string
 )
 
 // Overrides mirrors the JSON the Swift side writes to <home>/overrides.json.
@@ -382,14 +385,19 @@ func validateBytes(profile []byte) string {
 func ConvertShareLinks(text string) string {
 	b, err := convertLinks([]byte(text))
 	if err != nil {
-		lastError = err.Error()
+		setLastError(err.Error())
 		return ""
 	}
 	return string(b)
 }
 
 // LastError returns the last error message produced by a string-returning helper.
-func LastError() string { return lastError }
+func LastError() string {
+	s, _ := lastError.Load().(string)
+	return s
+}
+
+func setLastError(s string) { lastError.Store(s) }
 
 // startGC applies Hako-style GC pacing for the NetworkExtension: GOMEMLIMIT at 3/4 of the jetsam budget
 // with a normal GOGC, so the collector only works hard near the limit (less CPU = less battery than a
@@ -513,7 +521,7 @@ func Start(homeDir, configPath string, tunFd int32) error {
 		select {
 		case err := <-done:
 			if err != nil {
-				lastError = err.Error()
+				setLastError(err.Error())
 				log.Errorln("[Bridge] start failed: %s", err.Error())
 				DumpDiagnostics()
 				return err
@@ -531,7 +539,7 @@ func Start(homeDir, configPath string, tunFd int32) error {
 			msg := fmt.Sprintf("内核启动超时（%d 秒）：可能在下载 GeoIP/GeoSite 或规则集 / 节点集。请检查网络，或在 更多 → 诊断 查看启动日志", int(startTimeout/time.Second))
 			stage("core start TIMEOUT after %s, %s", startTimeout, memText())
 			DumpDiagnostics()
-			lastError = msg
+			setLastError(msg)
 			return errors.New(msg)
 		}
 	}
@@ -546,7 +554,7 @@ func Reload(configPath string) error {
 	}
 	flushRuleHits(curHome) // the new rules start counting at 0
 	if err := safeApply(curHome, configPath, curFd); err != nil {
-		lastError = err.Error()
+		setLastError(err.Error())
 		return err
 	}
 	setNetPolicyProfile(configPath)
