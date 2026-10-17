@@ -728,74 +728,76 @@ struct QXGroupDetailView: View {
     }
 
     var body: some View {
-        ScrollView {
-            VStack(alignment: .leading, spacing: 12) {
-                if let e = model.error { ErrorRow(message: e) }
-                if let g = model.group(named: name) {
-                    header(g)
-                    let pinAction = (g.kind == "url-test" || g.kind == "fallback") && model.live && !smart.isSmart(g.name)
-                    QXCard {
-                        VStack(spacing: 0) {
-                            ForEach(Array(ordered(g.members).enumerated()), id: \.element) { i, m in
-                                if i > 0 { Divider().padding(.leading, 16) }
-                                QXNodeRow(name: m, selected: g.now == m, pinned: g.pinned == m, enabled: g.selectable || pinAction)
-                                    .contentShape(Rectangle())
-                                    .onTapGesture {
-                                        if g.selectable { Task { await model.select(group: g.name, node: m) } }
-                                        else if pinAction { Task { await model.pin(group: g.name, node: g.pinned == m ? nil : m) } }
-                                    }
-                                    .contextMenu {
-                                        Button { Task { await model.test(nodes: [m], key: m) } } label: { Label("测速", systemImage: "bolt") }
-                                        if vpn.isConnected && !PolicyGroupCard.unprobeable.contains(m) {
-                                            Button { probeTarget = QXNameTarget(name: m) } label: { Label("出口与解锁检测", systemImage: "location.magnifyingglass") }
-                                        }
-                                        if pinAction {
-                                            if g.pinned == m {
-                                                Button { Task { await model.pin(group: g.name, node: nil) } } label: { Label("解除固定", systemImage: "pin.slash") }
-                                            } else {
-                                                Button { Task { await model.pin(group: g.name, node: m) } } label: { Label("固定此节点", systemImage: "pin") }
-                                            }
-                                        }
-                                        if let t = model.type(of: m), !PolicyGroupCard.nonShareable.contains(t.lowercased()) {
-                                            Button { shareNode(m) } label: { Label("分享节点", systemImage: "qrcode") }
-                                        }
-                                    }
-                            }
-                        }
-                    }
-                    if !g.selectable {
-                        Text(pinAction ? String(localized: "\(g.display.hint)。轻点节点可临时固定，自动选择暂停，直到解除固定。") : g.display.hint)
-                            .font(.caption).foregroundStyle(.secondary).padding(.horizontal, 4)
-                    }
-                    TestTargetCaption(live: vpn.isConnected)
-                } else {
-                    EmptyStateView(icon: "questionmark.folder", title: "找不到这个策略")
-                }
-            }
-            .padding(16)
-            .padding(.bottom, 30)
-        }
-        .background(Theme.bg.ignoresSafeArea())
-        .navigationTitle(name)
-        .navigationBarTitleDisplayMode(.inline)
-        .toolbar {
-            ToolbarItemGroup(placement: .navigationBarTrailing) {
+        QXPage(title: name) {
+            QXCapsuleBar {
                 Menu {
                     Picker("排序", selection: $sortMode) {
                         Label("配置顺序", systemImage: "list.number").tag("default")
                         Label("按延迟", systemImage: "speedometer").tag("latency")
                         Label("按名称", systemImage: "textformat").tag("name")
                     }
-                } label: { Image(systemName: "arrow.up.arrow.down") }
-                .accessibilityLabel(Text("排序"))
-                Button { Task { await model.test(group: name) } } label: {
-                    if model.testing.contains(name) { ProgressView() } else { Image(systemName: "bolt.fill") }
+                } label: {
+                    Image(systemName: "arrow.up.arrow.down").font(.system(size: 17, weight: .semibold)).foregroundStyle(.primary).frame(width: 38, height: 40)
                 }
-                .accessibilityLabel(Text("测速"))
+                .accessibilityLabel(Text("排序"))
+                if model.testing.contains(name) {
+                    ProgressView().frame(width: 38, height: 40)
+                } else {
+                    QXBarIcon(systemName: "bolt.fill", tint: QXColor.nodes) { Task { await model.test(group: name) } }
+                        .accessibilityLabel(Text("测速"))
+                }
                 if name != "GLOBAL" {
-                    Button { editing = QXEditTarget(name: name) } label: { Image(systemName: "square.and.pencil") }
+                    QXBarIcon(systemName: "square.and.pencil") { editing = QXEditTarget(name: name) }
                         .accessibilityLabel(Text("编辑"))
                 }
+            }
+        } content: {
+        ScrollView {
+                VStack(alignment: .leading, spacing: 12) {
+                    if let e = model.error { ErrorRow(message: e) }
+                    if let g = model.group(named: name) {
+                        header(g)
+                        let pinAction = (g.kind == "url-test" || g.kind == "fallback") && model.live && !smart.isSmart(g.name)
+                        QXCard {
+                            VStack(spacing: 0) {
+                                ForEach(Array(ordered(g.members).enumerated()), id: \.element) { i, m in
+                                    if i > 0 { Divider().padding(.leading, 16) }
+                                    QXNodeRow(name: m, selected: g.now == m, pinned: g.pinned == m, enabled: g.selectable || pinAction)
+                                        .contentShape(Rectangle())
+                                        .onTapGesture {
+                                            if g.selectable { Task { await model.select(group: g.name, node: m) } }
+                                            else if pinAction { Task { await model.pin(group: g.name, node: g.pinned == m ? nil : m) } }
+                                        }
+                                        .contextMenu {
+                                            Button { Task { await model.test(nodes: [m], key: m) } } label: { Label("测速", systemImage: "bolt") }
+                                            if vpn.isConnected && !PolicyGroupCard.unprobeable.contains(m) {
+                                                Button { probeTarget = QXNameTarget(name: m) } label: { Label("出口与解锁检测", systemImage: "location.magnifyingglass") }
+                                            }
+                                            if pinAction {
+                                                if g.pinned == m {
+                                                    Button { Task { await model.pin(group: g.name, node: nil) } } label: { Label("解除固定", systemImage: "pin.slash") }
+                                                } else {
+                                                    Button { Task { await model.pin(group: g.name, node: m) } } label: { Label("固定此节点", systemImage: "pin") }
+                                                }
+                                            }
+                                            if let t = model.type(of: m), !PolicyGroupCard.nonShareable.contains(t.lowercased()) {
+                                                Button { shareNode(m) } label: { Label("分享节点", systemImage: "qrcode") }
+                                            }
+                                        }
+                                }
+                            }
+                        }
+                        if !g.selectable {
+                            Text(pinAction ? String(localized: "\(g.display.hint)。轻点节点可临时固定，自动选择暂停，直到解除固定。") : g.display.hint)
+                                .font(.caption).foregroundStyle(.secondary).padding(.horizontal, 4)
+                        }
+                        TestTargetCaption(live: vpn.isConnected)
+                    } else {
+                        EmptyStateView(icon: "questionmark.folder", title: "找不到这个策略")
+                    }
+                }
+                .padding(16)
+                .padding(.bottom, 30)
             }
         }
         .task { if model.proxies.isEmpty && model.index.isEmpty { await model.load() } else { await model.refreshLive() } }
