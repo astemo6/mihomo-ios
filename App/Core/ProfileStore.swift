@@ -91,6 +91,7 @@ final class ProfileStore: ObservableObject {
         try? FileManager.default.removeItem(at: p.fileURL)
         SubRulesStore.set(p.id, nil)
         UsageAlerts.remove(p.id)
+        HomeGroupsStore.forget(profile: p.id) // feat/home-groups
         profiles.removeAll { $0.id == p.id }
         if activeID == p.id {
             activeID = profiles.first?.id

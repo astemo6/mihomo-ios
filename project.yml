@@ -16,7 +16,7 @@ settings:
     # Widget + Control Center toggle (v0.7); only in the "-widget" IPA variant. Same convention as the tunnel.
     WIDGET_BUNDLE_ID: com.astemo6.mihomo.widget
     APP_GROUP_ID: group.com.astemo6.mihomo
-    MARKETING_VERSION: "0.15.2"
+    MARKETING_VERSION: "0.15.3"
     CURRENT_PROJECT_VERSION: "1"
     SWIFT_VERSION: "5.0"
     # i18n: String Catalog (App/Localizable.xcstrings), source language zh-Hans; the compiler extracts keys.
