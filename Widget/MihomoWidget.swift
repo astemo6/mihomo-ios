@@ -301,12 +301,15 @@ enum WidgetTheme {
     static let card = dyn(.white, rgb(0x1C1C1E))
     static let cardHi = dyn(rgb(0xEAECF1), rgb(0x2C2C2E))
     static let hairline = dyn(UIColor.black.withAlphaComponent(0.07), UIColor.white.withAlphaComponent(0.14))
-    static let nodeTile = dyn(rgb(0x3DB5E6), rgb(0x1F86B8))
+    // The QX 节点 teal deepened to the app's dark variant in both modes: white 13 pt chain text on the
+    // recording's #3DB5E6 is only 2.35:1, on #1F86B8 it is 4.07:1 — a widget is read at a glance.
+    static let nodeTile = dyn(rgb(0x1F86B8), rgb(0x1F86B8))
     static let good = Color(red: 0.20, green: 0.70, blue: 0.29)
     static let blue = dyn(rgb(0x007AFF), rgb(0x0A84FF))
     static let accent = blue
-    static let down = dyn(rgb(0x3DB5E6), rgb(0x48B8E8))
+    static let down = dyn(rgb(0x1F86B8), rgb(0x48B8E8))   // ≥ 3:1 as a glyph on #F2F3F7 / black
     static let up = dyn(rgb(0x5E2FD0), rgb(0x9A7BF0))
+    static let bladeEdge = dyn(UIColor.black.withAlphaComponent(0.16), UIColor.clear)
     static let teal = Color(red: 0.20, green: 0.78, blue: 0.80)
     static let yellow = Color(red: 1.0, green: 0.76, blue: 0.10)
     static let red = Color(red: 0.95, green: 0.22, blue: 0.25)
@@ -332,9 +335,15 @@ struct WidgetWindmill: View {
         }
     }
     var body: some View {
-        ZStack { ForEach(0..<3, id: \.self) { i in WidgetBlade(angle: Double(i) * 120).fill(colors[i]) } }
-            .frame(width: size, height: size)
-            .accessibilityLabel(Text(ModeControlCore.title(mode)))
+        // A hairline edge keeps the yellow (全局直连) and teal blades visible on a white card (1.6–2.1:1 fill).
+        ZStack {
+            ForEach(0..<3, id: \.self) { i in
+                WidgetBlade(angle: Double(i) * 120).fill(colors[i])
+                WidgetBlade(angle: Double(i) * 120).stroke(WidgetTheme.bladeEdge, lineWidth: max(0.5, size / 40))
+            }
+        }
+        .frame(width: size, height: size)
+        .accessibilityLabel(Text(ModeControlCore.title(mode)))
     }
 }
 
@@ -442,20 +451,20 @@ struct StatusWidgetView: View {
                 }
             }
         default:
-            VStack(alignment: .leading, spacing: 5) {
+            VStack(alignment: .leading, spacing: 4) {
                 HStack(alignment: .top) {
                     Text(verbatim: entry.on ? flag : "⏻").font(.system(size: 22))
                     Spacer(minLength: 0)
                     Button(intent: CycleModeIntent()) {
-                        WidgetWindmill(mode: mode, size: 24)
-                            .padding(6)
+                        WidgetWindmill(mode: mode, size: 22)
+                            .padding(5)
                             .background(Circle().fill(WidgetTheme.card))
                             .overlay(Circle().strokeBorder(WidgetTheme.hairline, lineWidth: 1))
                     }
                     .buttonStyle(.plain)
                 }
                 Text(verbatim: place).font(.system(size: 17, weight: .bold)).lineLimit(1).minimumScaleFactor(0.7)
-                Text(verbatim: entry.on ? chainText : detailText).font(.system(size: 11, weight: .medium)).foregroundStyle(.secondary).lineLimit(2)
+                Text(verbatim: entry.on ? chainText : detailText).font(.system(size: 11, weight: .medium)).foregroundStyle(.secondary).lineLimit(1)
                 Spacer(minLength: 0)
                 HStack(alignment: .center) {
                     toggle

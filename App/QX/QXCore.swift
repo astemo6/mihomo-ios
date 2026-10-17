@@ -128,6 +128,7 @@ enum QXDest: String, Hashable, CaseIterable {
     case netTest, snapshots, storage, syncFolder
     case taskGallery, geoChecker
     case httpBackend
+    case widgets
 
     @MainActor @ViewBuilder var view: some View {
         switch self {
@@ -177,6 +178,7 @@ enum QXDest: String, Hashable, CaseIterable {
         case .taskGallery: QXTaskGalleryView()
         case .geoChecker: QXGeoCheckerView()
         case .httpBackend: QXHTTPBackendView()
+        case .widgets: QXWidgetsPage()
         }
     }
 }

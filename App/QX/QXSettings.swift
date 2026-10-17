@@ -260,6 +260,11 @@ struct QXOtherSettingsView: View {
                 .listRowBackground(QXPalette.card)
 
                 Section {
+                    row(String(localized: "小组件与控制中心"), "square.grid.2x2.fill", .widgets)
+                } header: { header("小组件") } footer: { Text("主屏幕、锁定屏幕与控制中心的 QX 风格小组件，浅色 / 深色预览与添加方法。") }
+                .listRowBackground(QXPalette.card)
+
+                Section {
                     Toggle(isOn: $live.enabled) {
                         Label("实时活动与灵动岛", systemImage: "bell.badge").foregroundStyle(.primary)
                     }

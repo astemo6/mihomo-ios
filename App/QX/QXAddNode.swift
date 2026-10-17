@@ -27,12 +27,26 @@ struct QXAddNodeView: View {
         var badge: String? = nil
     }
 
+    /// QX preview 6: the protocols main v0.13 added to the editor, shown first as large teal QX tiles
+    /// (QX itself has none of them).
+    static let featured: [Proto] = [
+        Proto(title: "VLESS XHTTP", subtitle: "XHTTP · Reality", type: "vless",
+              preset: ["network": "xhttp", "xhttp-opts.mode": "auto", "tls": "true", "client-fingerprint": "chrome"], badge: "NEW"),
+        Proto(title: "AmneziaWG", subtitle: "WireGuard · 抗识别", type: "wireguard", preset: ["x-awg": "true"], badge: "NEW"),
+        Proto(title: "Sudoku", subtitle: "TCP · HTTP 伪装", type: "sudoku", badge: "NEW"),
+        Proto(title: "MASQUE", subtitle: "HTTP/3 · WARP", type: "masque", badge: "NEW"),
+        Proto(title: "TrustTunnel", subtitle: "HTTP/2 · HTTP/3", type: "trusttunnel", badge: "NEW"),
+        Proto(title: "ShadowQUIC", subtitle: "QUIC · TLS 1.3", type: "shadowquic", badge: "NEW"),
+        Proto(title: "OpenVPN", subtitle: "用户态 · PEM", type: "openvpn", badge: "NEW"),
+        Proto(title: "GOST Relay", subtitle: "GOST v3 · TLS · Mux", type: "gost-relay", badge: "NEW"),
+    ]
+
     static let protocols: [Proto] = [
         Proto(title: "VLESS", subtitle: "Reality · XTLS-Vision", type: "vless",
-              preset: ["flow": "xtls-rprx-vision", "client-fingerprint": "chrome", "tls": "true"], badge: "NEW"),
-        Proto(title: "Hysteria2", subtitle: "QUIC · Brutal", type: "hysteria2", badge: "NEW"),
-        Proto(title: "TUIC v5", subtitle: "QUIC · BBR", type: "tuic", badge: "NEW"),
-        Proto(title: "AnyTLS", subtitle: "TLS", type: "anytls", badge: "NEW"),
+              preset: ["flow": "xtls-rprx-vision", "client-fingerprint": "chrome", "tls": "true"]),
+        Proto(title: "Hysteria2", subtitle: "QUIC · Brutal", type: "hysteria2"),
+        Proto(title: "TUIC v5", subtitle: "QUIC · BBR", type: "tuic"),
+        Proto(title: "AnyTLS", subtitle: "TLS", type: "anytls"),
         Proto(title: "ShadowTLS", subtitle: "Shadowsocks + ShadowTLS v3", type: "ss",
               preset: ["plugin": "shadow-tls", "plugin-opts.version": "3", "cipher": "2022-blake3-aes-128-gcm"]),
         Proto(title: "WireGuard", subtitle: "UDP", type: "wireguard"),
@@ -92,7 +106,44 @@ struct QXAddNodeView: View {
                     }
 
                     VStack(alignment: .leading, spacing: 10) {
-                        Text("协议").font(.system(size: 20, weight: .bold))
+                        HStack(alignment: .firstTextBaseline, spacing: 8) {
+                            Text("新协议").font(.system(size: 20, weight: .bold))
+                            Text(verbatim: "\(Self.featured.count)").font(.system(size: 17, weight: .semibold)).foregroundStyle(.secondary)
+                        }
+                        Text("Quantumult X 不支持的协议，由 mihomo 内核直接提供。")
+                            .font(.system(size: 15)).foregroundStyle(.secondary)
+                        LazyVGrid(columns: [GridItem(.flexible(), spacing: 12), GridItem(.flexible(), spacing: 12)], spacing: 12) {
+                            ForEach(Self.featured) { p in
+                                Button {
+                                    QXHaptics.tap()
+                                    target = Target(type: p.type, preset: p.preset)
+                                } label: {
+                                    VStack(alignment: .leading, spacing: 6) {
+                                        HStack(alignment: .top) {
+                                            Image(systemName: Self.symbol(p.type)).font(.system(size: 19, weight: .semibold))
+                                            Spacer(minLength: 0)
+                                            Text(verbatim: "NEW").font(.system(size: 10, weight: .heavy))
+                                                .padding(.horizontal, 6).padding(.vertical, 2)
+                                                .background(Capsule().fill(Color.white.opacity(0.25)))
+                                        }
+                                        Spacer(minLength: 0)
+                                        Text(verbatim: p.title).font(.system(size: 16, weight: .bold)).lineLimit(1).minimumScaleFactor(0.8)
+                                        Text(LocalizedStringKey(p.subtitle)).font(.system(size: 12, weight: .medium)).opacity(0.85).lineLimit(1)
+                                    }
+                                    .foregroundStyle(.white)
+                                    .padding(13)
+                                    .frame(maxWidth: .infinity, minHeight: 92, alignment: .leading)
+                                    .background(RoundedRectangle(cornerRadius: 20, style: .continuous).fill(QXColor.nodes))
+                                    .shadow(color: QXPalette.glow(QXColor.nodes), radius: 6, y: 3)
+                                }
+                                .buttonStyle(QXPressStyle())
+                                .accessibilityLabel(Text(verbatim: p.title))
+                            }
+                        }
+                    }
+
+                    VStack(alignment: .leading, spacing: 10) {
+                        Text("全部协议").font(.system(size: 20, weight: .bold))
                         LazyVGrid(columns: [GridItem(.flexible(), spacing: 12), GridItem(.flexible(), spacing: 12)], spacing: 12) {
                             ForEach(Self.protocols) { p in
                                 Button { target = Target(type: p.type, preset: p.preset) } label: {
@@ -102,7 +153,7 @@ struct QXAddNodeView: View {
                                             if let b = p.badge { QXChip(text: b, color: QXColor.nodes) }
                                             Spacer(minLength: 0)
                                         }
-                                        Text(verbatim: p.subtitle).font(.caption).foregroundStyle(.secondary).lineLimit(1)
+                                        Text(LocalizedStringKey(p.subtitle)).font(.caption).foregroundStyle(.secondary).lineLimit(1)
                                     }
                                     .padding(14)
                                     .frame(maxWidth: .infinity, alignment: .leading)
@@ -120,6 +171,20 @@ struct QXAddNodeView: View {
             }
         }
         .sheet(item: $target) { t in NodeEditorView(newType: t.type, preset: t.preset) }
+    }
+
+    static func symbol(_ type: String) -> String {
+        switch type {
+        case "vless": return "bolt.horizontal.fill"
+        case "wireguard": return "lock.shield.fill"
+        case "sudoku": return "square.grid.3x3.fill"
+        case "masque": return "theatermasks.fill"
+        case "trusttunnel": return "arrow.left.arrow.right.circle.fill"
+        case "shadowquic": return "hare.fill"
+        case "openvpn": return "key.fill"
+        case "gost-relay": return "point.3.connected.trianglepath.dotted"
+        default: return "server.rack"
+        }
     }
 
     private func detect(_ t: String) {

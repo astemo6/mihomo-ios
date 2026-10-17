@@ -13,6 +13,7 @@ struct QXShell: View {
     @EnvironmentObject var dash: DashboardModel
     @EnvironmentObject var ipinfo: IPInfoModel
     @EnvironmentObject var router: ImportRouter
+    @Environment(\.scenePhase) private var phase
 
     var body: some View {
         Group {
@@ -20,6 +21,12 @@ struct QXShell: View {
         }
         .environmentObject(nav)
         .onAppear { nav.padLayout = pad }
+        // QX preview 6: the Control Center 运行模式 control (and the widget's mode tile) can change the mode
+        // while the app is in the background; re-read it on return so the windmill colour matches at once.
+        .onChange(of: phase) { p in
+            guard p == .active else { return }
+            Task { await QXShell.syncMode(dash: dash, connected: vpn.isConnected) }
+        }
         .onChange(of: pad) { nav.padLayout = $0 }
         .sheet(item: $nav.sheet) { s in
             QXSheetView(sheet: s)
@@ -34,6 +41,15 @@ struct QXShell: View {
 }
 
 extension QXShell {
+    @MainActor
+    static func syncMode(dash: DashboardModel, connected: Bool) async {
+        var m = CoreOverrides.load().mode.lowercased()
+        if connected, let cfg = try? await ControllerClient.shared.configs(), let live = (cfg["mode"] as? String)?.lowercased() { m = live }
+        guard ["rule", "global", "direct"].contains(m), m != dash.mode else { return }
+        withAnimation(.easeInOut(duration: 0.3)) { dash.mode = m }
+        QXHaptics.select()
+    }
+
     var phoneBody: some View {
         NavigationStack(path: $nav.path) {
             QXHome()

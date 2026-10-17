@@ -15,17 +15,103 @@ struct QXWrappedPage<Content: View>: View {
 
 struct QXDNSPage: View {
     @EnvironmentObject var nav: QXNavigator
+    @EnvironmentObject var vpn: VPNManager
+    @State private var version = 0
+    @State private var pending: QXDNSPresetSet?
+    @State private var applied: String?
+
     var body: some View {
         QXPage(title: "DNS") {
             QXCapsuleBar {
+                Menu {
+                    Section(String(localized: "一键预设（覆盖解析服务器）")) {
+                        ForEach(QXDNSPresetSet.all) { p in
+                            Button { pending = p } label: { Label(p.title, systemImage: p.symbol) }
+                        }
+                    }
+                } label: {
+                    Image(systemName: "wand.and.stars").font(.system(size: 17, weight: .semibold)).foregroundStyle(.primary).frame(width: 38, height: 40)
+                }
+                .accessibilityLabel(Text("DNS 预设"))
                 QXBarIcon(systemName: "globe") { nav.push(.dest(.dnsLog)) }
                     .accessibilityLabel(Text("DNS 缓存"))
                 QXBarIcon(systemName: "network.slash") { nav.push(.dest(.blocked)) }
                     .accessibilityLabel(Text("DNS 阻止的域名"))
             }
         } content: {
-            DNSView().toolbar(.hidden, for: .navigationBar)
+            DNSView().toolbar(.hidden, for: .navigationBar).id(version)
         }
+        .alert(pending?.title ?? "", isPresented: Binding(get: { pending != nil }, set: { if !$0 { pending = nil } })) {
+            Button("取消", role: .cancel) { pending = nil }
+            Button("使用") { if let p = pending { apply(p) }; pending = nil }
+        } message: {
+            Text(pending?.summary ?? "")
+        }
+        .alert(applied ?? "", isPresented: Binding(get: { applied != nil }, set: { if !$0 { applied = nil } })) {
+            Button("好", role: .cancel) { applied = nil }
+        }
+    }
+
+    private func apply(_ p: QXDNSPresetSet) {
+        var s = DNSOverrideSettings.load()
+        s.enabled = true
+        s.split = p.split
+        s.nameserver = p.domestic
+        if p.split { s.foreign = p.foreign }
+        s.preferH3 = p.preferH3
+        s.save()
+        QXHaptics.toggle()
+        version += 1
+        Task {
+            if vpn.isConnected {
+                applied = (await vpn.reload()).map { String(localized: "重载失败：\($0)") } ?? String(localized: "已保存并重载")
+            } else {
+                applied = String(localized: "已保存，下次连接生效")
+            }
+        }
+    }
+}
+
+/// QX preview 6: whole-page DNS presets built from main v0.13's DNSPreset list (one tap sets 国内 / 国外 DNS).
+struct QXDNSPresetSet: Identifiable {
+    var id: String { title }
+    let title: String
+    let symbol: String
+    let domestic: [String]
+    let foreign: [String]
+    var split = true
+    var preferH3 = false
+
+    var summary: String {
+        var t = String(localized: "国内 DNS") + "\n" + domestic.joined(separator: "\n")
+        if split { t += "\n\n" + String(localized: "国外 DNS") + "\n" + foreign.joined(separator: "\n") }
+        if preferH3 { t += "\n\nDoH over HTTP/3" }
+        return t
+    }
+
+    static func urls(_ list: [DNSPreset], _ picks: [(String, String)]) -> [String] {
+        picks.compactMap { pick in list.first { $0.name == pick.0 && $0.kind == pick.1 }?.url }
+    }
+
+    static var all: [QXDNSPresetSet] {
+        let d = DNSPreset.domestic, f = DNSPreset.foreign
+        return [
+            QXDNSPresetSet(title: String(localized: "加密 DNS（DoH，推荐）"), symbol: "lock.shield",
+                           domestic: urls(d, [("阿里 DNS", "DoH"), ("腾讯 DNSPod", "DoH")]),
+                           foreign: urls(f, [("Cloudflare", "DoH"), ("Google", "DoH")])),
+            QXDNSPresetSet(title: String(localized: "DoT / DoQ"), symbol: "bolt.shield",
+                           domestic: urls(d, [("阿里 DNS", "DoQ"), ("腾讯 DNSPod", "DoT")]),
+                           foreign: urls(f, [("AdGuard", "DoQ"), ("Cloudflare", "DoT")])),
+            QXDNSPresetSet(title: String(localized: "HTTP/3 优先"), symbol: "hare",
+                           domestic: urls(d, [("阿里 DNS", "DoH"), ("腾讯 DNSPod", "DoH")]),
+                           foreign: urls(f, [("Cloudflare", "DoH"), ("Google", "DoH")]), preferH3: true),
+            QXDNSPresetSet(title: String(localized: "去广告（AdGuard）"), symbol: "hand.raised",
+                           domestic: urls(d, [("阿里 DNS", "DoH"), ("腾讯 DNSPod", "DoH")]),
+                           foreign: urls(f, [("AdGuard", "DoH"), ("Quad9", "DoH")])),
+            QXDNSPresetSet(title: String(localized: "仅国内 DNS（不分流）"), symbol: "house",
+                           domestic: urls(d, [("阿里 DNS", "DoH"), ("腾讯 DNSPod", "DoH"), ("阿里 DNS", "UDP")]),
+                           foreign: [], split: false),
+        ]
     }
 }
 
