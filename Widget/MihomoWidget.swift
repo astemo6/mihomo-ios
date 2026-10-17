@@ -3,6 +3,7 @@ import SwiftUI
 import UIKit
 import AppIntents
 import NetworkExtension
+import ActivityKit
 
 // Mihomo widget extension (v0.7, only in the "-widget" IPA): a Home / Lock Screen widget with the
 // connection state, current policy / node and a toggle (interactive, iOS 17+), and a Control Center toggle
@@ -14,6 +15,7 @@ import NetworkExtension
 struct MihomoWidgets: WidgetBundle {
     var body: some Widget {
         StatusWidget()
+        ConnectionLiveActivity()
         if #available(iOS 18.0, *) {
             TunnelToggleControl()
         }
@@ -267,5 +269,82 @@ struct StatusWidgetView: View {
         }
         .buttonStyle(.plain)
         .tint(WidgetTheme.accent)
+    }
+}
+
+// MARK: - v0.10 实时活动 / 灵动岛
+
+struct ConnectionLiveActivity: Widget {
+    var body: some WidgetConfiguration {
+        ActivityConfiguration(for: MihomoActivityAttributes.self) { context in
+            LiveActivityLockView(context: context)
+                .activityBackgroundTint(WidgetTheme.bg.opacity(0.85))
+                .activitySystemActionForegroundColor(WidgetTheme.accent)
+        } dynamicIsland: { context in
+            DynamicIsland {
+                DynamicIslandExpandedRegion(.leading) {
+                    Label {
+                        Text(context.state.connected ? "已连接" : "未连接").font(.caption.weight(.semibold))
+                    } icon: {
+                        Circle().fill(context.state.connected ? WidgetTheme.good : Color.secondary).frame(width: 8, height: 8)
+                    }
+                    .padding(.leading, 4)
+                }
+                DynamicIslandExpandedRegion(.trailing) {
+                    Text(timerInterval: context.state.since...Date.distantFuture, countsDown: false)
+                        .font(.caption.monospacedDigit()).multilineTextAlignment(.trailing)
+                        .frame(maxWidth: 70).padding(.trailing, 4)
+                }
+                DynamicIslandExpandedRegion(.bottom) {
+                    HStack {
+                        Label(context.state.node.isEmpty ? context.attributes.profile : context.state.node, systemImage: "point.3.connected.trianglepath.dotted")
+                            .font(.caption).lineLimit(1)
+                        Spacer()
+                        LiveSpeeds(state: context.state)
+                    }
+                    .padding(.horizontal, 4)
+                }
+            } compactLeading: {
+                Image(systemName: "network").foregroundStyle(context.state.connected ? WidgetTheme.good : .secondary)
+            } compactTrailing: {
+                Text("↓" + LiveActivityFormat.speed(context.state.down)).font(.caption2.monospacedDigit()).foregroundStyle(WidgetTheme.accent)
+            } minimal: {
+                Image(systemName: "network").foregroundStyle(context.state.connected ? WidgetTheme.good : .secondary)
+            }
+        }
+    }
+}
+
+struct LiveSpeeds: View {
+    let state: MihomoActivityAttributes.ContentState
+    var body: some View {
+        HStack(spacing: 8) {
+            Text("↑" + LiveActivityFormat.speed(state.up) + "/s").foregroundStyle(.orange)
+            Text("↓" + LiveActivityFormat.speed(state.down) + "/s").foregroundStyle(WidgetTheme.accent)
+        }
+        .font(.caption.monospacedDigit())
+    }
+}
+
+struct LiveActivityLockView: View {
+    let context: ActivityViewContext<MihomoActivityAttributes>
+    var body: some View {
+        HStack(spacing: 12) {
+            Image(systemName: "network")
+                .font(.title2)
+                .foregroundStyle(context.state.connected ? WidgetTheme.good : .secondary)
+            VStack(alignment: .leading, spacing: 3) {
+                HStack(spacing: 6) {
+                    Text(context.state.connected ? "Mihomo 已连接" : "Mihomo 未连接").font(.subheadline.weight(.semibold))
+                    Text(timerInterval: context.state.since...Date.distantFuture, countsDown: false)
+                        .font(.caption.monospacedDigit()).foregroundStyle(.secondary)
+                }
+                Text(context.state.node.isEmpty ? context.attributes.profile : context.state.node)
+                    .font(.caption).foregroundStyle(.secondary).lineLimit(1)
+            }
+            Spacer()
+            LiveSpeeds(state: context.state)
+        }
+        .padding(14)
     }
 }

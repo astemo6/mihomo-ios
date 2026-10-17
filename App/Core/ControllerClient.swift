@@ -51,6 +51,16 @@ final class ControllerClient {
         return data
     }
 
+    /// Streams a response body line by line (NDJSON endpoints such as /tools/speed).
+    func lines(_ path: String, query: [URLQueryItem] = [], timeout: TimeInterval = 120) async throws -> AsyncLineSequence<URLSession.AsyncBytes> {
+        let req = try request(path, query: query, timeout: timeout)
+        let (bytes, resp) = try await session.bytes(for: req)
+        if let http = resp as? HTTPURLResponse, !(200..<300).contains(http.statusCode) {
+            throw APIError.http(http.statusCode, "")
+        }
+        return bytes.lines
+    }
+
     func get<T: Decodable>(_ type: T.Type, _ path: String, query: [URLQueryItem] = [], timeout: TimeInterval = 8) async throws -> T {
         let data = try await send(path, query: query, timeout: timeout)
         return try JSONDecoder().decode(T.self, from: data)

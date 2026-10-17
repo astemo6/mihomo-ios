@@ -87,6 +87,7 @@ final class ProfileStore: ObservableObject {
     }
 
     func delete(_ p: Profile) {
+        SnapshotStore.shared.capture(String(localized: "删除配置「\(p.name)」前"))
         try? FileManager.default.removeItem(at: p.fileURL)
         SubRulesStore.set(p.id, nil)
         profiles.removeAll { $0.id == p.id }
@@ -139,6 +140,7 @@ final class ProfileStore: ObservableObject {
     func addLocal(name: String, text: String) async throws -> Profile {
         let yaml = Self.normalize(text)
         if let err = await Self.validate(text: yaml) { throw StoreError.invalid(err) }
+        SnapshotStore.shared.capture(String(localized: "导入配置前"))
         let p = Profile(name: name.isEmpty ? "本地配置" : name, kind: .local)
         try yaml.write(to: p.fileURL, atomically: true, encoding: .utf8)
         profiles.append(p)
@@ -149,6 +151,7 @@ final class ProfileStore: ObservableObject {
 
     func saveLocalEdit(_ p: Profile, text: String) async throws {
         if let err = await Self.validate(text: text) { throw StoreError.invalid(err) }
+        SnapshotStore.shared.capture(String(localized: "编辑配置「\(p.name)」前"))
         try text.write(to: p.fileURL, atomically: true, encoding: .utf8)
         if p.id == activeID { _ = await VPNManager.shared.reload() }
     }
@@ -156,6 +159,7 @@ final class ProfileStore: ObservableObject {
     func addRemote(url: String, name: String, userAgent: String, intervalHours: Int) async throws -> Profile {
         var p = Profile(name: name, kind: .remote, url: url.trimmingCharacters(in: .whitespacesAndNewlines),
                         userAgent: userAgent.isEmpty ? "clash.meta" : userAgent, updateIntervalHours: intervalHours)
+        SnapshotStore.shared.capture(String(localized: "添加订阅前"))
         p = try await download(p)
         profiles.append(p)
         persist()
@@ -219,6 +223,7 @@ final class ProfileStore: ObservableObject {
         updating.insert(p.id)
         defer { updating.remove(p.id) }
         do {
+            SnapshotStore.shared.capture(String(localized: "更新订阅「\(p.name)」前"))
             let np = try await download(p)
             update(np)
             if np.id == activeID { _ = await VPNManager.shared.reload() }
@@ -270,6 +275,7 @@ final class ProfileStore: ObservableObject {
 
     /// Parses links / lines and adds them. Returns the number of nodes added.
     func addManualNodes(text: String) async throws -> Int {
+        SnapshotStore.shared.capture(String(localized: "添加手动节点前"))
         let p = ensureManualProfile()
         let n = LibmihomoManualAddText(p.fileURL.path, text)
         if n < 0 { throw StoreError.invalid(LibmihomoLastError()) }
@@ -279,6 +285,7 @@ final class ProfileStore: ObservableObject {
     }
 
     func upsertManualNode(_ node: [String: Any], oldName: String?) async throws {
+        SnapshotStore.shared.capture(String(localized: "编辑手动节点前"))
         let p = ensureManualProfile()
         let data = try JSONSerialization.data(withJSONObject: node)
         let err = LibmihomoManualUpsert(p.fileURL.path, String(decoding: data, as: UTF8.self), oldName ?? "")

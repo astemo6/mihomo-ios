@@ -47,6 +47,7 @@ enum AppAppearance: String, CaseIterable, Identifiable {
 
 struct AppearanceView: View {
     @AppStorage(AppAppearance.key) private var raw = AppAppearance.system.rawValue
+    @ObservedObject private var live = LiveActivityController.shared
 
     var body: some View {
         List {
@@ -70,6 +71,15 @@ struct AppearanceView: View {
                 }
             } footer: {
                 Text("跟随系统时随 iPhone 的浅色 / 深色外观切换。小组件始终跟随系统。")
+            }
+            .listRowBackground(Theme.card)
+            Section {
+                Toggle("实时活动与灵动岛", isOn: $live.enabled).tint(Theme.accent)
+                if live.enabled && !live.systemAllowed {
+                    Text("系统设置中关闭了 Mihomo 的实时活动。").font(.caption).foregroundStyle(Theme.warn)
+                }
+            } footer: {
+                Text("连接时在锁定屏幕和灵动岛显示连接状态、已连接时长、当前节点和速度。需要带小组件的 IPA（-widget）。时长一直走；速度和节点在打开 App 时刷新。")
             }
             .listRowBackground(Theme.card)
         }

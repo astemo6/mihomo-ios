@@ -322,6 +322,7 @@ struct GroupEditorView: View {
         guard let p = profile else { return }
         let name = spec.name.trimmingCharacters(in: .whitespaces)
         if name.isEmpty { message = String(localized: "名称不能为空"); return }
+        SnapshotStore.shared.capture(String(localized: "编辑策略组前"))
         let clash = name != groupName && ((specs.groups.contains { $0.name == name } && name != originalName)
             || (edits.added ?? []).enumerated().contains { $0.element.name == name && $0.offset != addedIndex }
             || specs.proxies.contains(name))
