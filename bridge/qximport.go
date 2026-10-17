@@ -45,10 +45,30 @@ func qxPolicyDomain(d string) string {
 	switch {
 	case strings.HasPrefix(d, "*."):
 		return "+." + d[2:]
+	case qxLeadingStar(d):
+		// v0.13.1: QX "*testflight.apple.com" (star glued to the label) — mihomo only accepts "*" as a
+		// whole label, so it becomes the domain and its subdomains.
+		return "+." + strings.TrimLeft(d, "*")
 	case strings.HasPrefix(d, "+.") || strings.Contains(d, "*"):
 		return d
 	}
 	return "+." + d
+}
+
+// qxLeadingStar: "*name.tld" where the star is part of the first label.
+func qxLeadingStar(d string) bool {
+	rest := strings.TrimLeft(d, "*")
+	return rest != d && rest != "" && !strings.HasPrefix(rest, ".") && !strings.Contains(rest, "*")
+}
+
+// qxWildcardOK: every "*" occupies a whole label (what mihomo's domain trie accepts).
+func qxWildcardOK(d string) bool {
+	for _, l := range strings.Split(d, ".") {
+		if strings.Contains(l, "*") && l != "*" {
+			return false
+		}
+	}
+	return true
 }
 
 // qxHostDomain: QX address= / alias= domains match the name and its subdomains only with "*.".
@@ -56,6 +76,9 @@ func qxHostDomain(d string) string {
 	d = strings.ToLower(strings.TrimSpace(d))
 	if strings.HasPrefix(d, "*.") {
 		return "+." + d[2:]
+	}
+	if qxLeadingStar(d) {
+		return "+." + strings.TrimLeft(d, "*")
 	}
 	return d
 }
@@ -69,6 +92,10 @@ func importQXDNS(cfg map[string]any, lines []string, rep *confReport) {
 	noSystem, preferH3, noIPv6 := false, false, false
 	addPolicy := func(d, v string) {
 		k := qxPolicyDomain(d)
+		if !qxWildcardOK(k) {
+			rep.Notes = append(rep.Notes, "[dns] 通配写法 mihomo 不支持，已跳过："+d)
+			return
+		}
 		if _, ok := policy[k]; !ok {
 			policyOrder = append(policyOrder, k)
 			policy[k] = []any{}
@@ -126,7 +153,11 @@ func importQXDNS(cfg map[string]any, lines []string, rep *confReport) {
 						continue
 					}
 				}
-				hosts[qxHostDomain(d)] = val
+				if hd := qxHostDomain(d); qxWildcardOK(hd) {
+					hosts[hd] = val
+				} else {
+					rep.Notes = append(rep.Notes, "[dns] 通配写法 mihomo 不支持，已跳过："+d)
+				}
 			}
 		}
 	}
