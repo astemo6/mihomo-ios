@@ -1,0 +1,151 @@
+# libmihomo.aar（gomobile bind core/）→ Gradle assembleRelease → universal + arm64-v8a APK → GitHub prerelease
+# 签名用每次运行临时生成的 keystore（不提交、不进 Secrets）；以后要固定签名先问用户，再放进 Secrets。
+# Tag 用 android-v<version>-build<N>，与 iOS 的 v*-buildN 不冲突。
+name: Android APK
+
+on:
+  push:
+    branches: ['android/**']
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+concurrency:
+  group: android-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    timeout-minutes: 60
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Versions (core/go.mod, gradle.properties)
+        run: |
+          set -euo pipefail
+          V=$(awk '$1=="github.com/metacubex/mihomo"{print $2; exit}' core/go.mod)
+          test -n "$V"
+          APP=$(sed -n 's/^mihomo.versionName=//p' gradle.properties)
+          test -n "$APP"
+          echo "MIHOMO_VERSION=$V" >> "$GITHUB_ENV"
+          echo "APP_VERSION=$APP" >> "$GITHUB_ENV"
+          echo "BUILD_NUMBER=${{ github.run_number }}" >> "$GITHUB_ENV"
+          echo "mihomo $V, app $APP, build ${{ github.run_number }}"
+
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '17'
+
+      - uses: actions/setup-go@v5
+        with:
+          go-version-file: core/go.mod
+          cache-dependency-path: core/go.sum
+
+      - name: Cache libmihomo.aar
+        id: aarcache
+        uses: actions/cache/restore@v4
+        with:
+          path: app/libs/libmihomo.aar
+          key: libmihomo-aar-${{ env.MIHOMO_VERSION }}-${{ hashFiles('core/**') }}
+
+      - name: Build libmihomo.aar (gomobile)
+        if: steps.aarcache.outputs.cache-hit != 'true'
+        working-directory: core
+        run: |
+          set -euo pipefail
+          # The runner image ships the Android SDK + NDK; gomobile needs both.
+          export ANDROID_HOME="${ANDROID_HOME:-$ANDROID_SDK_ROOT}"
+          export ANDROID_NDK_HOME="${ANDROID_NDK_LATEST_HOME:-$ANDROID_NDK_HOME}"
+          echo "SDK $ANDROID_HOME, NDK $ANDROID_NDK_HOME"
+          MOBILE_VER=$(go list -m -f '{{.Version}}' golang.org/x/mobile)
+          go install golang.org/x/mobile/cmd/gomobile@"$MOBILE_VER" golang.org/x/mobile/cmd/gobind@"$MOBILE_VER"
+          export PATH="$(go env GOPATH)/bin:$PATH"
+          gomobile init
+          mkdir -p ../app/libs
+          gomobile bind -target=android/arm64,android/amd64 -androidapi 26 -tags with_gvisor -trimpath \
+            -ldflags "-s -w -buildid= -X github.com/metacubex/mihomo/constant.Version=${MIHOMO_VERSION} -X github.com/astemo6/mihomo-android/core.CoreVersion=${MIHOMO_VERSION}" \
+            -o ../app/libs/libmihomo.aar . 2>&1 | tee ../gomobile.log
+          rm -f ../app/libs/libmihomo-sources.jar
+          ls -la ../app/libs
+          unzip -l ../app/libs/libmihomo.aar | grep -E 'classes.jar|\.so$'
+
+      # Saved right away so a later Kotlin / Gradle failure does not discard it.
+      - name: Save libmihomo.aar cache
+        if: steps.aarcache.outputs.cache-hit != 'true'
+        uses: actions/cache/save@v4
+        with:
+          path: app/libs/libmihomo.aar
+          key: ${{ steps.aarcache.outputs.cache-primary-key }}
+
+      - uses: gradle/actions/setup-gradle@v4
+
+      - name: Temporary signing keystore (not committed)
+        run: |
+          set -euo pipefail
+          PASS=$(openssl rand -hex 16)
+          echo "::add-mask::$PASS"
+          keytool -genkeypair -noprompt -keystore "$RUNNER_TEMP/ci.jks" -storetype PKCS12 -alias mihomo \
+            -keyalg RSA -keysize 2048 -validity 3650 -storepass "$PASS" -keypass "$PASS" \
+            -dname "CN=Mihomo Android CI, O=astemo6"
+          {
+            echo "MIHOMO_KEYSTORE=$RUNNER_TEMP/ci.jks"
+            echo "MIHOMO_KEYSTORE_PASSWORD=$PASS"
+            echo "MIHOMO_KEY_ALIAS=mihomo"
+            echo "MIHOMO_KEY_PASSWORD=$PASS"
+          } >> "$GITHUB_ENV"
+
+      - name: Gradle assembleRelease
+        run: |
+          set -euo pipefail
+          chmod +x gradlew
+          ./gradlew --no-daemon --stacktrace assembleRelease 2>&1 | tee build.log
+
+      - name: Collect APKs
+        run: |
+          set -euo pipefail
+          mkdir -p dist
+          OUT=app/build/outputs/apk/release
+          ls -la "$OUT"
+          BASE="Mihomo-Android-${APP_VERSION}-build${BUILD_NUMBER}"
+          cp "$OUT/app-universal-release.apk" "dist/${BASE}-universal.apk"
+          cp "$OUT/app-arm64-v8a-release.apk" "dist/${BASE}-arm64-v8a.apk"
+          ls -la dist
+          (cd dist && sha256sum *.apk | tee SHA256SUMS.txt)
+          echo "BASE=$BASE" >> "$GITHUB_ENV"
+
+      - name: Upload build artifacts
+        uses: actions/upload-artifact@v4
+        with:
+          name: ${{ env.BASE }}
+          path: dist/*
+
+      - name: Publish prerelease android-v${{ env.APP_VERSION }}-build${{ env.BUILD_NUMBER }}
+        uses: softprops/action-gh-release@v2
+        with:
+          tag_name: android-v${{ env.APP_VERSION }}-build${{ env.BUILD_NUMBER }}
+          name: Android 预览 v${{ env.APP_VERSION }} (build${{ env.BUILD_NUMBER }})
+          target_commitish: ${{ github.sha }}
+          prerelease: true
+          make_latest: false
+          body: |
+            Mihomo for Android 预览版（mihomo ${{ env.MIHOMO_VERSION }}，commit ${{ github.sha }}）。
+            - `${{ env.BASE }}-universal.apk`：arm64-v8a + x86_64
+            - `${{ env.BASE }}-arm64-v8a.apk`：仅 arm64 手机（体积更小）
+            签名为 CI 临时生成的 keystore：每个构建签名不同，升级需先卸载旧版。
+          files: |
+            dist/${{ env.BASE }}-universal.apk
+            dist/${{ env.BASE }}-arm64-v8a.apk
+            dist/SHA256SUMS.txt
+
+      - name: Logs on failure
+        if: failure()
+        uses: actions/upload-artifact@v4
+        with:
+          name: android-logs-${{ github.run_number }}
+          path: |
+            gomobile.log
+            build.log
+          if-no-files-found: ignore
