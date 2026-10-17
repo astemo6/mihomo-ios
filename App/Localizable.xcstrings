@@ -7962,6 +7962,40 @@
       },
       "extractionState": "manual"
     },
+    "下次运行": {
+      "localizations": {
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "下次執行"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "new",
+            "value": "下次运行"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "new",
+            "value": "下次运行"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "new",
+            "value": "下次运行"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "new",
+            "value": "下次运行"
+          }
+        }
+      }
+    },
     "下次连接或更新资源时会重新下载仍需要的文件。": {
       "localizations": {
         "zh-Hant": {
@@ -9024,6 +9058,108 @@
       },
       "extractionState": "manual"
     },
+    "交互": {
+      "localizations": {
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "互動"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "new",
+            "value": "交互"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "new",
+            "value": "交互"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "new",
+            "value": "交互"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "new",
+            "value": "交互"
+          }
+        }
+      }
+    },
+    "交互脚本": {
+      "localizations": {
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "互動腳本"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "new",
+            "value": "交互脚本"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "new",
+            "value": "交互脚本"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "new",
+            "value": "交互脚本"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "new",
+            "value": "交互脚本"
+          }
+        }
+      }
+    },
+    "交互脚本在「策略」里长按节点运行，脚本收到所选节点的名称。": {
+      "localizations": {
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "互動腳本在「策略」里長按節點執行，腳本收到所選節點的名稱。"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "new",
+            "value": "交互脚本在「策略」里长按节点运行，脚本收到所选节点的名称。"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "new",
+            "value": "交互脚本在「策略」里长按节点运行，脚本收到所选节点的名称。"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "new",
+            "value": "交互脚本在「策略」里长按节点运行，脚本收到所选节点的名称。"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "new",
+            "value": "交互脚本在「策略」里长按节点运行，脚本收到所选节点的名称。"
+          }
+        }
+      }
+    },
     "仅 IPv4": {
       "localizations": {
         "zh-Hant": {
@@ -10077,6 +10213,108 @@
           "stringUnit": {
             "state": "translated",
             "value": "Подключить в безопасном режиме"
+          }
+        }
+      }
+    },
+    "任务": {
+      "localizations": {
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "任務"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "new",
+            "value": "任务"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "new",
+            "value": "任务"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "new",
+            "value": "任务"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "new",
+            "value": "任务"
+          }
+        }
+      }
+    },
+    "任务在 VPN 扩展里运行：连接后按计划执行，断开时不运行。开关和运行记录断开时也可以查看。": {
+      "localizations": {
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "任務在 VPN 延伸功能裡執行：連線後按計劃執行，斷開時不執行。開關和執行記錄斷開時也可以檢視。"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "new",
+            "value": "任务在 VPN 扩展里运行：连接后按计划执行，断开时不运行。开关和运行记录断开时也可以查看。"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "new",
+            "value": "任务在 VPN 扩展里运行：连接后按计划执行，断开时不运行。开关和运行记录断开时也可以查看。"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "new",
+            "value": "任务在 VPN 扩展里运行：连接后按计划执行，断开时不运行。开关和运行记录断开时也可以查看。"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "new",
+            "value": "任务在 VPN 扩展里运行：连接后按计划执行，断开时不运行。开关和运行记录断开时也可以查看。"
+          }
+        }
+      }
+    },
+    "任务（定时 / 网络变化 / 交互）": {
+      "localizations": {
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "任務（定時 / 網路變化 / 互動）"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "new",
+            "value": "任务（定时 / 网络变化 / 交互）"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "new",
+            "value": "任务（定时 / 网络变化 / 交互）"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "new",
+            "value": "任务（定时 / 网络变化 / 交互）"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "new",
+            "value": "任务（定时 / 网络变化 / 交互）"
           }
         }
       }
@@ -12300,6 +12538,40 @@
         }
       }
     },
+    "关闭后定时和网络变化脚本都不会自动运行，手动运行不受影响。": {
+      "localizations": {
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "關閉後定時和網路變化腳本都不會自動執行，手動執行不受影響。"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "new",
+            "value": "关闭后定时和网络变化脚本都不会自动运行，手动运行不受影响。"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "new",
+            "value": "关闭后定时和网络变化脚本都不会自动运行，手动运行不受影响。"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "new",
+            "value": "关闭后定时和网络变化脚本都不会自动运行，手动运行不受影响。"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "new",
+            "value": "关闭后定时和网络变化脚本都不会自动运行，手动运行不受影响。"
+          }
+        }
+      }
+    },
     "关闭时使用配置文件自带的 DNS 设置（没有时使用内置的国内 DoH）。": {
       "localizations": {
         "en": {
@@ -14314,6 +14586,40 @@
         }
       }
     },
+    "刷新实时活动": {
+      "localizations": {
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "重新整理實時活動"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "new",
+            "value": "刷新实时活动"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "new",
+            "value": "刷新实时活动"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "new",
+            "value": "刷新实时活动"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "new",
+            "value": "刷新实时活动"
+          }
+        }
+      }
+    },
     "前缀与旗帜": {
       "localizations": {
         "en": {
@@ -15752,6 +16058,40 @@
         }
       }
     },
+    "受信任的 Wi-Fi：%@": {
+      "localizations": {
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "受信任的 Wi-Fi：%@"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "new",
+            "value": "受信任的 Wi-Fi：%@"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "new",
+            "value": "受信任的 Wi-Fi：%@"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "new",
+            "value": "受信任的 Wi-Fi：%@"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "new",
+            "value": "受信任的 Wi-Fi：%@"
+          }
+        }
+      }
+    },
     "受限锥形（NAT2）": {
       "localizations": {
         "zh-Hant": {
@@ -16295,6 +16635,40 @@
           "stringUnit": {
             "state": "translated",
             "value": "К одинаковым именам добавляется номер. Для провайдеров узлов (proxy-providers) доступны только фильтр и переименование (родные filter / override mihomo); флаги, удаление дублей и сортировка применяются к узлам, перечисленным прямо в профиле."
+          }
+        }
+      }
+    },
+    "同时应用这些连接设置": {
+      "localizations": {
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "同時應用這些連線設定"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "new",
+            "value": "同时应用这些连接设置"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "new",
+            "value": "同时应用这些连接设置"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "new",
+            "value": "同时应用这些连接设置"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "new",
+            "value": "同时应用这些连接设置"
           }
         }
       }
@@ -22787,6 +23161,40 @@
         }
       }
     },
+    "已运行，脚本没有返回内容。": {
+      "localizations": {
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "已執行，腳本沒有返回內容。"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "new",
+            "value": "已运行，脚本没有返回内容。"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "new",
+            "value": "已运行，脚本没有返回内容。"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "new",
+            "value": "已运行，脚本没有返回内容。"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "new",
+            "value": "已运行，脚本没有返回内容。"
+          }
+        }
+      }
+    },
     "已连接": {
       "localizations": {
         "en": {
@@ -26707,6 +27115,40 @@
         }
       }
     },
+    "排除的路由：%@": {
+      "localizations": {
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "排除的路由：%@"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "new",
+            "value": "排除的路由：%@"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "new",
+            "value": "排除的路由：%@"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "new",
+            "value": "排除的路由：%@"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "new",
+            "value": "排除的路由：%@"
+          }
+        }
+      }
+    },
     "排除设备间通信（AirDrop、CarPlay 等）": {
       "localizations": {
         "zh-Hant": {
@@ -29303,6 +29745,40 @@
           "stringUnit": {
             "state": "translated",
             "value": "Журнал"
+          }
+        }
+      }
+    },
+    "日志 %lld 行": {
+      "localizations": {
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "日誌 %lld 行"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "new",
+            "value": "日志 %lld 行"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "new",
+            "value": "日志 %lld 行"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "new",
+            "value": "日志 %lld 行"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "new",
+            "value": "日志 %lld 行"
           }
         }
       }
@@ -32148,6 +32624,40 @@
         }
       }
     },
+    "来自原配置的 [general]。路由和 Wi-Fi 会追加到现有设置，下次连接时生效。": {
+      "localizations": {
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "來自原配置的 [general]。路由和 Wi-Fi 會追加到現有設定，下次連線時生效。"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "new",
+            "value": "来自原配置的 [general]。路由和 Wi-Fi 会追加到现有设置，下次连接时生效。"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "new",
+            "value": "来自原配置的 [general]。路由和 Wi-Fi 会追加到现有设置，下次连接时生效。"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "new",
+            "value": "来自原配置的 [general]。路由和 Wi-Fi 会追加到现有设置，下次连接时生效。"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "new",
+            "value": "来自原配置的 [general]。路由和 Wi-Fi 会追加到现有设置，下次连接时生效。"
+          }
+        }
+      }
+    },
     "来自当前配置的 proxy-providers（包括 Quantumult X 的 server_remote）。": {
       "localizations": {
         "zh-Hant": {
@@ -33581,6 +34091,40 @@
         }
       },
       "extractionState": "manual"
+    },
+    "正在读取节点…": {
+      "localizations": {
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "正在讀取節點…"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "new",
+            "value": "正在读取节点…"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "new",
+            "value": "正在读取节点…"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "new",
+            "value": "正在读取节点…"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "new",
+            "value": "正在读取节点…"
+          }
+        }
+      }
     },
     "正在转换…": {
       "localizations": {
@@ -35220,6 +35764,40 @@
         }
       }
     },
+    "测速地址：%@": {
+      "localizations": {
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "測速地址：%@"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "new",
+            "value": "测速地址：%@"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "new",
+            "value": "测速地址：%@"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "new",
+            "value": "测速地址：%@"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "new",
+            "value": "测速地址：%@"
+          }
+        }
+      }
+    },
     "测速失败：%@": {
       "localizations": {
         "zh-Hant": {
@@ -35284,6 +35862,40 @@
           "stringUnit": {
             "state": "translated",
             "value": "Тест через ядро: %@ · тайм-аут %lld с"
+          }
+        }
+      }
+    },
+    "测速超时：%lld ms": {
+      "localizations": {
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "測速超時：%lld ms"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "new",
+            "value": "测速超时：%lld ms"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "new",
+            "value": "测速超时：%lld ms"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "new",
+            "value": "测速超时：%lld ms"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "new",
+            "value": "测速超时：%lld ms"
           }
         }
       }
@@ -38291,6 +38903,40 @@
         }
       }
     },
+    "立即运行": {
+      "localizations": {
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "立即執行"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "new",
+            "value": "立即运行"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "new",
+            "value": "立即运行"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "new",
+            "value": "立即运行"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "new",
+            "value": "立即运行"
+          }
+        }
+      }
+    },
     "立即运行一个定时（cron）或通用脚本任务，按脚本名匹配。需要已连接。": {
       "localizations": {
         "zh-Hant": {
@@ -39173,6 +39819,40 @@
           "stringUnit": {
             "state": "translated",
             "value": "签到 = type=cron,cronexp=\"0 8 * * *\",script-path=…\ncron \"0 8 * * *\" script-path=…, tag=签到\n0 8 * * * https://…/a.js, tag=签到"
+          }
+        }
+      }
+    },
+    "签到 = type=cron,cronexp=\"0 8 * * *\",script-path=…\ncron \"0 8 * * *\" script-path=…, tag=签到\n0 8 * * * https://…/a.js, tag=签到\nevent-interaction https://…/b.js, tag=查询": {
+      "localizations": {
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "簽到 = type=cron,cronexp=\"0 8 * * *\",script-path=…\ncron \"0 8 * * *\" script-path=…, tag=簽到\n0 8 * * * https://…/a.js, tag=簽到\nevent-interaction https://…/b.js, tag=查詢"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "new",
+            "value": "签到 = type=cron,cronexp=\"0 8 * * *\",script-path=…\ncron \"0 8 * * *\" script-path=…, tag=签到\n0 8 * * * https://…/a.js, tag=签到\nevent-interaction https://…/b.js, tag=查询"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "new",
+            "value": "签到 = type=cron,cronexp=\"0 8 * * *\",script-path=…\ncron \"0 8 * * *\" script-path=…, tag=签到\n0 8 * * * https://…/a.js, tag=签到\nevent-interaction https://…/b.js, tag=查询"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "new",
+            "value": "签到 = type=cron,cronexp=\"0 8 * * *\",script-path=…\ncron \"0 8 * * *\" script-path=…, tag=签到\n0 8 * * * https://…/a.js, tag=签到\nevent-interaction https://…/b.js, tag=查询"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "new",
+            "value": "签到 = type=cron,cronexp=\"0 8 * * *\",script-path=…\ncron \"0 8 * * *\" script-path=…, tag=签到\n0 8 * * * https://…/a.js, tag=签到\nevent-interaction https://…/b.js, tag=查询"
           }
         }
       }
@@ -40783,6 +41463,74 @@
         }
       }
     },
+    "网络变化": {
+      "localizations": {
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "網路變化"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "new",
+            "value": "网络变化"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "new",
+            "value": "网络变化"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "new",
+            "value": "网络变化"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "new",
+            "value": "网络变化"
+          }
+        }
+      }
+    },
+    "网络变化时": {
+      "localizations": {
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "網路變化時"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "new",
+            "value": "网络变化时"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "new",
+            "value": "网络变化时"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "new",
+            "value": "网络变化时"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "new",
+            "value": "网络变化时"
+          }
+        }
+      }
+    },
     "网络工具": {
       "localizations": {
         "en": {
@@ -41229,6 +41977,40 @@
         }
       }
     },
+    "脚本在 VPN 扩展里运行，连接后才能运行。": {
+      "localizations": {
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "腳本在 VPN 延伸功能裡執行，連線後才能執行。"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "new",
+            "value": "脚本在 VPN 扩展里运行，连接后才能运行。"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "new",
+            "value": "脚本在 VPN 扩展里运行，连接后才能运行。"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "new",
+            "value": "脚本在 VPN 扩展里运行，连接后才能运行。"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "new",
+            "value": "脚本在 VPN 扩展里运行，连接后才能运行。"
+          }
+        }
+      }
+    },
     "脚本存储": {
       "localizations": {
         "zh-Hant": {
@@ -41633,6 +42415,40 @@
           "stringUnit": {
             "state": "translated",
             "value": "Автообновление"
+          }
+        }
+      }
+    },
+    "自动运行": {
+      "localizations": {
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "自動執行"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "new",
+            "value": "自动运行"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "new",
+            "value": "自动运行"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "new",
+            "value": "自动运行"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "new",
+            "value": "自动运行"
           }
         }
       }
@@ -43578,6 +44394,40 @@
           "stringUnit": {
             "state": "translated",
             "value": "Предупр."
+          }
+        }
+      }
+    },
+    "计划": {
+      "localizations": {
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "計劃"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "new",
+            "value": "计划"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "new",
+            "value": "计划"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "new",
+            "value": "计划"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "new",
+            "value": "计划"
           }
         }
       }
@@ -46251,6 +47101,40 @@
         }
       }
     },
+    "运行失败": {
+      "localizations": {
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "執行失敗"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "new",
+            "value": "运行失败"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "new",
+            "value": "运行失败"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "new",
+            "value": "运行失败"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "new",
+            "value": "运行失败"
+          }
+        }
+      }
+    },
     "运行日志": {
       "localizations": {
         "en": {
@@ -46349,6 +47233,40 @@
           "stringUnit": {
             "state": "translated",
             "value": "Запустить скрипт"
+          }
+        }
+      }
+    },
+    "运行记录": {
+      "localizations": {
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "執行記錄"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "new",
+            "value": "运行记录"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "new",
+            "value": "运行记录"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "new",
+            "value": "运行记录"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "new",
+            "value": "运行记录"
           }
         }
       }
@@ -46828,6 +47746,40 @@
           "stringUnit": {
             "state": "translated",
             "value": "Узлов пока нет"
+          }
+        }
+      }
+    },
+    "还没有运行记录。每个任务保留最近 10 次。": {
+      "localizations": {
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "還沒有執行記錄。每個任務保留最近 10 次。"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "new",
+            "value": "还没有运行记录。每个任务保留最近 10 次。"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "new",
+            "value": "还没有运行记录。每个任务保留最近 10 次。"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "new",
+            "value": "还没有运行记录。每个任务保留最近 10 次。"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "new",
+            "value": "还没有运行记录。每个任务保留最近 10 次。"
           }
         }
       }
@@ -47448,6 +48400,40 @@
         }
       }
     },
+    "连接后可以选择节点运行。": {
+      "localizations": {
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "連線後可以選擇節點執行。"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "new",
+            "value": "连接后可以选择节点运行。"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "new",
+            "value": "连接后可以选择节点运行。"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "new",
+            "value": "连接后可以选择节点运行。"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "new",
+            "value": "连接后可以选择节点运行。"
+          }
+        }
+      }
+    },
     "连接后可查看": {
       "localizations": {
         "en": {
@@ -47995,6 +48981,40 @@
           "stringUnit": {
             "state": "translated",
             "value": "Состояние, текущий узел и переключатель"
+          }
+        }
+      }
+    },
+    "连接设置": {
+      "localizations": {
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "連線設定"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "new",
+            "value": "连接设置"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "new",
+            "value": "连接设置"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "new",
+            "value": "连接设置"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "new",
+            "value": "连接设置"
           }
         }
       }
@@ -50280,6 +51300,40 @@
         }
       }
     },
+    "阻止 QUIC：始终": {
+      "localizations": {
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "阻止 QUIC：始終"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "new",
+            "value": "阻止 QUIC：始终"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "new",
+            "value": "阻止 QUIC：始终"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "new",
+            "value": "阻止 QUIC：始终"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "new",
+            "value": "阻止 QUIC：始终"
+          }
+        }
+      }
+    },
     "隧道 MTU": {
       "localizations": {
         "en": {
@@ -51266,6 +52320,40 @@
           "stringUnit": {
             "state": "translated",
             "value": ", а также удалённых модулей перезаписи: %lld"
+          }
+        }
+      }
+    },
+    "，已应用 %lld 项连接设置": {
+      "localizations": {
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "，已應用 %lld 項連線設定"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "new",
+            "value": "，已应用 %lld 项连接设置"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "new",
+            "value": "，已应用 %lld 项连接设置"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "new",
+            "value": "，已应用 %lld 项连接设置"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "new",
+            "value": "，已应用 %lld 项连接设置"
           }
         }
       }
