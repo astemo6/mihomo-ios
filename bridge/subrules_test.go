@@ -219,6 +219,11 @@ func TestSubPreviewAndStore(t *testing.T) {
 }
 
 func TestSetTimeZone(t *testing.T) {
+	if raceEnabled {
+		// time.Local is a plain global: writing it while the diag goroutine of an earlier test formats
+		// timestamps is a race in the test only (the tunnel calls SetTimeZone once before Start).
+		t.Skip("writes time.Local; skipped under -race")
+	}
 	old := time.Local
 	defer func() { time.Local = old }()
 	SetTimeZone("Asia/Shanghai", 8*3600)

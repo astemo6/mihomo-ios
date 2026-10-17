@@ -86,8 +86,32 @@ func (g *chainGraph) edges(key string) []string {
 			add(str(x))
 		}
 		if truthyAny(m["include-all"]) || truthyAny(m["include-all-proxies"]) {
-			for n := range g.proxies {
-				out = append(out, "p:"+n)
+			// B16: only the proxies the core really adds (filter / exclude-filter / exclude-type).
+			pm := map[string]any{}
+			for k, v := range m {
+				pm[k] = v
+			}
+			delete(pm, "use")
+			delete(pm, "include-all")
+			delete(pm, "include-all-providers")
+			pm["include-all-proxies"] = true
+			pool := &memberPool{proxies: g.order[:0:0], types: map[string]string{}, providers: map[string][]string{}}
+			for n, p := range g.proxies {
+				pool.proxies = append(pool.proxies, n)
+				pool.types[n] = str(p["type"])
+			}
+			for n, gm := range g.groups {
+				pool.types[n] = str(gm["type"])
+			}
+			ms, _, _ := pool.groupMembers(pm)
+			explicit := map[string]bool{}
+			for _, x := range asList(m["proxies"]) {
+				explicit[str(x)] = true
+			}
+			for _, n := range ms {
+				if _, ok := g.proxies[n]; ok && !explicit[n] {
+					out = append(out, "p:"+n)
+				}
 			}
 		}
 		uses := asList(m["use"])

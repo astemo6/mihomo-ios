@@ -228,10 +228,10 @@ struct NetworkPolicyView: View {
     }
 }
 
-/// 运行模式按网络切换 (v0.12).
+/// 运行模式按网络切换 (v0.12). v0.15.4: applied on change (debounced), no 保存 button.
 struct ModeTriggerEditor: View {
-    @Environment(\.dismiss) private var dismiss
     @State var trigger: ModeTrigger
+    @StateObject private var debounce = Debouncer()
     let currentSSID: String?
     let onSave: (ModeTrigger) -> Void
     @State private var newSSID = ""
@@ -287,13 +287,11 @@ struct ModeTriggerEditor: View {
             }
             .listRowBackground(Theme.card)
             .disabled(!trigger.enabled)
-            Section {
-                Button("保存") { onSave(trigger); dismiss() }
-            }
-            .listRowBackground(Theme.card)
         }
         .scrollContentBackground(.hidden)
         .background(Theme.bg.ignoresSafeArea())
+        .onChange(of: trigger) { t in debounce.schedule { onSave(t) } }
+        .onDisappear { debounce.flush() }
         .navigationTitle("运行模式")
         .navigationBarTitleDisplayMode(.inline)
     }

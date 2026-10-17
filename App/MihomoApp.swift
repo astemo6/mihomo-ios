@@ -12,6 +12,8 @@ struct MihomoApp: App {
     @Environment(\.scenePhase) private var phase
 
     init() {
+        // test/selftest: simulator UI tests only (-UITestSeed); wipes the demo container before any store loads.
+        UITestSeed.resetIfNeeded()
         // Bundled geo databases → core home, so profile validation in the app never downloads them either.
         DispatchQueue.global(qos: .utility).async { GeoBootstrap.install() }
     }
@@ -100,6 +102,7 @@ struct RootView: View {
             }
         }
         .overlay(alignment: .top) { PasteBanner() }
+        .overlay(alignment: .bottomLeading) { UITestReadyMarker() }
         .fullScreenCover(isPresented: $showOnboarding) {
             OnboardingView { showOnboarding = false }
                 .environmentObject(vpn)

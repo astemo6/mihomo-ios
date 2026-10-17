@@ -61,7 +61,9 @@ final class NodeSubStore: ObservableObject {
 
     func save(_ s: NodeSubscription) async {
         SnapshotStore.shared.capture(String(localized: "修改节点订阅前"))
+        let oldName = subs.first(where: { $0.id == s.id })?.name
         set(s)
+        if let oldName, oldName != s.name { RegionFilterStore.renameSource(oldName, to: s.name) }
         await applyChange()
     }
 
@@ -71,6 +73,7 @@ final class NodeSubStore: ObservableObject {
         UsageAlerts.remove(s.id)
         subs.removeAll { $0.id == s.id }
         persist()
+        RegionFilterStore.renameSource(s.name, to: nil)
         await applyChange()
     }
 

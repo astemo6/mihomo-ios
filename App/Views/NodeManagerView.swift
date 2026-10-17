@@ -9,6 +9,8 @@ struct NodeListScope: Hashable {
     var emptyTitle: String? = nil
     var emptyMessage: String? = nil
     var subID: String? = nil
+    /// v0.15.4: exact member names (a 筛选节点 filter as the core expands it); overrides pattern.
+    var names: Set<String>? = nil
 
     static let all = NodeListScope(title: String(localized: "全部节点"))
 
@@ -16,6 +18,7 @@ struct NodeListScope: Hashable {
     func filter(_ nodes: [ManagedNode]) -> [ManagedNode] {
         let re = pattern.flatMap { try? NSRegularExpression(pattern: $0, options: [.caseInsensitive]) }
         if pattern != nil && re == nil { return [] }
+        if let names { return nodes.filter { names.contains($0.name) && (sourceIDs?.contains($0.source.id) ?? true) } }
         return nodes.filter { n in
             if let ids = sourceIDs, !ids.contains(n.source.id) { return false }
             if let re { return re.firstMatch(in: n.name, range: NSRange(n.name.startIndex..., in: n.name)) != nil }
@@ -178,7 +181,7 @@ struct NodeListView: View {
                     if let best = shown.filter({ (model.delay(of: $0) ?? 0) > 0 }).min(by: { (model.delay(of: $0) ?? 0) < (model.delay(of: $1) ?? 0) }) {
                         VStack(alignment: .trailing, spacing: 2) {
                             Text("最快").font(.caption2).foregroundStyle(.secondary)
-                            Text(verbatim: best.name).font(.caption.weight(.semibold)).lineLimit(1)
+                            Text(verbatim: FlagSafe.text(best.name)).font(.caption.weight(.semibold)).lineLimit(1)
                         }
                     }
                 }
@@ -295,10 +298,12 @@ struct NodeManagerRow: View {
 
     var body: some View {
         HStack(spacing: 10) {
+            // selftest: fixed column so names line up (WireGuard / TrustTunnel badges pushed them right).
             ProtocolBadge(type: node.type)
-                .frame(minWidth: 44, alignment: .leading)
+                .minimumScaleFactor(0.6)
+                .frame(width: 62, alignment: .leading)
             VStack(alignment: .leading, spacing: 2) {
-                Text(verbatim: node.name).font(.subheadline.weight(.semibold)).lineLimit(1)
+                Text(verbatim: FlagSafe.text(node.name)).font(.subheadline.weight(.semibold)).lineLimit(1)
                 HStack(spacing: 6) {
                     if let a = node.address {
                         Text(verbatim: a).font(.caption.monospaced()).foregroundStyle(.secondary).lineLimit(1)
@@ -339,6 +344,21 @@ struct NodeDetailView: View {
     @State private var confirmDelete = false
     @State private var message: String?
     @State private var copied = false
+    // v0.15.4: nodes defined in the profile file are editable too.
+    @ObservedObject private var store = ProfileStore.shared
+    @State private var profileEntry: [String: Any]?
+    @State private var profileEdit: ProfileEditTarget?
+    @State private var deleteCheck: ProfileStore.NodeDeleteCheck?
+    @State private var confirmProfileDelete = false
+    @State private var canUndo = false
+
+    struct ProfileEditTarget: Identifiable {
+        let id = UUID()
+        let node: [String: Any]
+        let profile: Profile
+    }
+
+    var editableProfile: Profile? { node.source.kind == .profile && profileEntry != nil ? store.active : nil }
 
     var manual: [String: Any]? { model.manualNode(node) }
     var delay: Int? { model.delay(of: node) }
@@ -353,7 +373,7 @@ struct NodeDetailView: View {
                 HStack(spacing: 12) {
                     VStack(alignment: .leading, spacing: 6) {
                         ProtocolBadge(type: node.type)
-                        Text(verbatim: node.name).font(.title3.weight(.semibold)).lineLimit(3)
+                        Text(verbatim: FlagSafe.text(node.name)).font(.title3.weight(.semibold)).lineLimit(3)
                     }
                     Spacer()
                     VStack(alignment: .trailing, spacing: 6) {
@@ -449,9 +469,39 @@ struct NodeDetailView: View {
                     } label: { Label("复制一份", systemImage: "plus.square.on.square") }
                     Button(role: .destructive) { confirmDelete = true } label: { Label("删除", systemImage: "trash") }
                 }
+                if let p = editableProfile, let entry = profileEntry {
+                    Button { profileEdit = ProfileEditTarget(node: entry, profile: p) } label: { Label("编辑", systemImage: "pencil") }
+                        .accessibilityIdentifier("node.edit")
+                    Button {
+                        Task {
+                            do {
+                                let nn = try await store.duplicateProfileNode(p, node.name)
+                                canUndo = true
+                                await model.reload(force: true)
+                                message = String(localized: "已复制为「\(nn)」")
+                            } catch { message = error.localizedDescription }
+                        }
+                    } label: { Label("复制一份", systemImage: "plus.square.on.square") }
+                    Button(role: .destructive) {
+                        deleteCheck = ProfileStore.profileNodeDeleteCheck(p, node.name)
+                        confirmProfileDelete = true
+                    } label: { Label("删除", systemImage: "trash") }
+                    if canUndo {
+                        Button {
+                            Task {
+                                do { try await store.undoProfileNodeEdit(p); canUndo = false; await model.reload(force: true); await loadEntry() }
+                                catch { message = error.localizedDescription }
+                            }
+                        } label: { Label("撤销上次修改", systemImage: "arrow.uturn.backward") }
+                    }
+                }
             } header: { Text("操作") } footer: {
                 if node.source.kind == .subscription || node.source.kind == .provider {
                     Text("订阅里的节点是只读的，更新订阅后会被覆盖。")
+                } else if editableProfile != nil {
+                    Text(store.active?.kind == .remote
+                         ? "修改会直接写入这个配置文件（保留其他内容与注释），改名时策略组和规则里的引用一并更新。这是订阅配置：更新订阅后修改会被覆盖。"
+                         : "修改会直接写入这个配置文件（保留其他内容与注释），改名时策略组和规则里的引用一并更新。")
                 }
             }
             .listRowBackground(Theme.card)
@@ -459,14 +509,40 @@ struct NodeDetailView: View {
         .listStyle(.insetGrouped)
         .scrollContentBackground(.hidden)
         .background(Theme.bg.ignoresSafeArea())
-        .navigationTitle(Text(verbatim: node.name))
+        .navigationTitle(Text(verbatim: FlagSafe.text(node.name)))
         .navigationBarTitleDisplayMode(.inline)
         .task {
             info = await model.summary(of: node)
             loaded = true
+            await loadEntry()
         }
+        .sheet(item: $profileEdit, onDismiss: {
+            Task {
+                await model.reload(force: true)
+                guard let p = store.active else { return }
+                if ProfileStore.profileNode(p, node.name) == nil { dismiss() } else {
+                    await loadEntry()
+                    info = await model.summary(of: node)
+                }
+            }
+        }) { t in NodeEditorView(node: t.node, profile: t.profile).environmentObject(ProfileStore.shared) }
+        .confirmationDialog("删除这个节点？", isPresented: $confirmProfileDelete, titleVisibility: .visible) {
+            Button("删除", role: .destructive) {
+                guard let p = editableProfile else { return }
+                Task {
+                    do { try await store.deleteProfileNode(p, node.name); await model.reload(force: true); dismiss() }
+                    catch { message = error.localizedDescription }
+                }
+            }
+        } message: { Text(verbatim: deleteMessage) }
         .sheet(item: $share) { t in NodeShareSheet(name: t.name, link: t.link) }
-        .sheet(item: $editing, onDismiss: { Task { await model.reload(); dismiss() } }) { t in NodeEditorView(node: t.node).environmentObject(ProfileStore.shared) }
+        // selftest: popped the detail even when the editor was cancelled; now only when the node is gone / renamed.
+        .sheet(item: $editing, onDismiss: {
+            Task {
+                await model.reload()
+                if model.manualNode(node) == nil { dismiss() } else { info = await model.summary(of: node) }
+            }
+        }) { t in NodeEditorView(node: t.node).environmentObject(ProfileStore.shared) }
         .sheet(item: $editSub) { s in NodeSubEditor(sub: s).environmentObject(ProfileStore.shared) }
         .confirmationDialog("删除这个手动节点？", isPresented: $confirmDelete, titleVisibility: .visible) {
             Button("删除", role: .destructive) { Task { await model.delete(node); dismiss() } }
@@ -474,6 +550,24 @@ struct NodeDetailView: View {
         .alert("提示", isPresented: Binding(get: { message != nil }, set: { if !$0 { message = nil } })) {
             Button("好", role: .cancel) {}
         } message: { Text(message ?? "") }
+    }
+
+    func loadEntry() async {
+        guard node.source.kind == .profile, let p = store.active else { profileEntry = nil; return }
+        let name = node.name
+        profileEntry = await Task.detached(priority: .userInitiated) { ProfileStore.profileNode(p, name) }.value
+    }
+
+    /// What deleting changes, from bridge ProfileNodeDeleteCheck (shown before confirming).
+    var deleteMessage: String {
+        var lines: [String] = [String(localized: "会从配置文件里删除这个节点，并从策略组里移除。")]
+        if let g = deleteCheck?.emptyGroups, !g.isEmpty {
+            lines.append(String(localized: "这些策略组只剩这一个节点，删除后改为 DIRECT：\(g.joined(separator: "、"))"))
+        }
+        if let n = deleteCheck?.rules, n > 0 { lines.append(String(localized: "指向它的 \(n) 条规则会被删除。")) }
+        if let d = deleteCheck?.dialers, !d.isEmpty { lines.append(String(localized: "这些节点 / 策略组的前置代理会被清除：\(d.joined(separator: "、"))")) }
+        if let e = deleteCheck?.error, !e.isEmpty { lines.append(e) }
+        return lines.joined(separator: "\n")
     }
 
     var address: String? {

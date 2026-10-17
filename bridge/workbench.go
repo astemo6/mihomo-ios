@@ -41,7 +41,7 @@ func RewriteFormFromLine(line string) string {
 func ScriptSource(homeDir, path string) string {
 	b, err := mitm.ScriptSource(homeDir, path)
 	if err != nil {
-		lastError = err.Error()
+		setLastError(err.Error())
 		return ""
 	}
 	return string(b)

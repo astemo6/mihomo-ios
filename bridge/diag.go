@@ -141,7 +141,7 @@ func offlineIface() string {
 func TestDelay(proxyJSON, url string, timeoutMs int) int {
 	var m map[string]any
 	if err := json.Unmarshal([]byte(proxyJSON), &m); err != nil {
-		lastError = err.Error()
+		setLastError(err.Error())
 		return -1
 	}
 	if timeoutMs <= 0 {
@@ -162,7 +162,7 @@ func TestDelay(proxyJSON, url string, timeoutMs int) int {
 	}
 	d, err := testDelayOnce(m, url, timeoutMs)
 	if err != nil {
-		lastError = err.Error()
+		setLastError(err.Error())
 		return -1
 	}
 	return d
@@ -403,6 +403,6 @@ func TestDelayByName(homeDir, profilePath, name, url string, timeoutMs int) int 
 			}
 		}
 	}
-	lastError = "未找到节点 " + name
+	setLastError("未找到节点 " + name)
 	return -1
 }

@@ -850,9 +850,9 @@ func ParseNodes(text string) string {
 	ps, errs := parseNodeText(text)
 	if len(ps) == 0 {
 		if len(errs) > 0 {
-			lastError = strings.Join(errs, "; ")
+			setLastError(strings.Join(errs, "; "))
 		} else {
-			lastError = "未识别到节点"
+			setLastError("未识别到节点")
 		}
 		return ""
 	}
@@ -918,7 +918,7 @@ func writeManual(path string, proxies []map[string]any) error {
 func ManualList(path string) string {
 	raw, err := loadYAML(path)
 	if err != nil {
-		lastError = err.Error()
+		setLastError(err.Error())
 		return "[]"
 	}
 	ps := proxiesOf(raw)
@@ -933,15 +933,15 @@ func ManualList(path string) string {
 func ManualAddText(path, text string) int32 {
 	ps, errs := parseNodeText(text)
 	if len(ps) == 0 {
-		lastError = "未识别到节点"
+		setLastError("未识别到节点")
 		if len(errs) > 0 {
-			lastError = strings.Join(errs, "; ")
+			setLastError(strings.Join(errs, "; "))
 		}
 		return -1
 	}
 	raw, err := loadYAML(path)
 	if err != nil {
-		lastError = err.Error()
+		setLastError(err.Error())
 		return -1
 	}
 	cur := proxiesOf(raw)
@@ -961,7 +961,7 @@ func ManualAddText(path, text string) int32 {
 		cur = append(cur, p)
 	}
 	if err := writeManual(path, cur); err != nil {
-		lastError = err.Error()
+		setLastError(err.Error())
 		return -1
 	}
 	return int32(len(ps))

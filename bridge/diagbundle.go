@@ -16,6 +16,7 @@ import (
 	"sort"
 	"strings"
 	"sync"
+	"sync/atomic"
 	"time"
 
 	"github.com/astemo6/mihomo-ios/bridge/mitm"
@@ -80,6 +81,11 @@ var (
 	dumpTicker *time.Ticker
 )
 
+// diagLevel mirrors the core's log level for the capture filter (set by apply after each config).
+var diagLevel atomic.Int32
+
+func init() { diagLevel.Store(int32(log.INFO)) }
+
 // startDiagCapture subscribes to mihomo's log once per process and flushes the rings to disk every
 // 30 s when they changed, so a jetsam kill (no Stop callback) still leaves the last lines behind.
 func startDiagCapture(home string) {
@@ -90,7 +96,7 @@ func startDiagCapture(home string) {
 		sub := log.Subscribe()
 		go func() {
 			for ev := range sub {
-				if ev.LogLevel < log.Level() {
+				if ev.LogLevel < log.LogLevel(diagLevel.Load()) {
 					continue
 				}
 				coreLog.add(time.Now().Format("15:04:05.000") + " " + strings.ToUpper(ev.Type()) + " " + ev.Payload)

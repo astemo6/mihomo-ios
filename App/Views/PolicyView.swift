@@ -472,7 +472,7 @@ struct PolicyGroupCard: View {
                         }
                     }
                     HStack(spacing: 6) {
-                        Text(group.now ?? "—").font(.caption).foregroundStyle(.secondary).lineLimit(1)
+                        Text(verbatim: FlagSafe.text(group.now ?? "—")).font(.caption).foregroundStyle(.secondary).lineLimit(1)
                         if let n = group.now, let d = delay(n) {
                             Text(Theme.delayText(d))
                                 .font(.caption2.monospacedDigit())
@@ -613,7 +613,7 @@ struct NodeCell: View {
 
     var body: some View {
         VStack(alignment: .leading, spacing: 6) {
-            Text(name)
+            Text(verbatim: FlagSafe.text(name))
                 .font(.footnote.weight(selected ? .semibold : .regular))
                 .lineLimit(2)
                 .frame(maxWidth: .infinity, minHeight: 34, alignment: .topLeading)

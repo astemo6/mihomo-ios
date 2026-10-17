@@ -110,17 +110,26 @@ func (t *tasker) getPrefs() TaskPrefs {
 }
 
 // record appends a run to the task's log and saves the log. Panel refreshes are not recorded.
+//
+// selftest fix: the log map was JSON-encoded after t.mu was released while another run (an event task
+// fired by networkChanged next to a scheduled one) appended to the same map and slices — a data race,
+// and in Go a concurrent map read / write is a fatal error that kills the extension. The snapshot is now
+// encoded and written while the lock is held (the file is small: ≤ 10 runs per task), and each task's
+// slice is a fresh copy.
 func (t *tasker) record(tk *Task, rec RunRecord) {
 	if rec.Trigger == "panel" {
 		return
 	}
 	t.mu.Lock()
+	defer t.mu.Unlock()
 	if t.history == nil {
 		t.history = map[string][]RunRecord{}
 	}
-	l := append(t.history[tk.ID], rec)
+	old := t.history[tk.ID]
+	l := make([]RunRecord, 0, len(old)+1)
+	l = append(append(l, old...), rec)
 	if len(l) > historyPerTask {
-		l = append([]RunRecord(nil), l[len(l)-historyPerTask:]...)
+		l = l[len(l)-historyPerTask:]
 	}
 	t.history[tk.ID] = l
 	// drop logs of tasks that no longer exist
@@ -135,7 +144,6 @@ func (t *tasker) record(tk *Task, rec RunRecord) {
 		}
 	}
 	t.history = snap
-	t.mu.Unlock()
 	writeJSONFile(t.path(taskHistoryFile), snap)
 }
 

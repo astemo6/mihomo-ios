@@ -25,8 +25,11 @@ struct InspectGroup: Decodable, Hashable, Identifiable {
     var filter: String?
     var selected: String?
     var icon: String?
+    /// B16: members as the core lists them (bridge groupMembers: filter / exclude-filter / exclude-type /
+    /// providers / empty-fallback). nil from an older bridge.
+    var members: [String]?
 
-    enum CodingKeys: String, CodingKey { case name, type, proxies, use, url, hidden, filter, selected, icon }
+    enum CodingKeys: String, CodingKey { case name, type, proxies, use, url, hidden, filter, selected, icon, members }
     init(from d: Decoder) throws {
         let c = try d.container(keyedBy: CodingKeys.self)
         name = try c.decode(String.self, forKey: .name)
@@ -38,6 +41,7 @@ struct InspectGroup: Decodable, Hashable, Identifiable {
         filter = try? c.decodeIfPresent(String.self, forKey: .filter)
         selected = try? c.decodeIfPresent(String.self, forKey: .selected)
         icon = try? c.decodeIfPresent(String.self, forKey: .icon)
+        members = try? c.decodeIfPresent([String].self, forKey: .members)
     }
 }
 
@@ -117,6 +121,7 @@ final class ProfileInspector: ObservableObject {
 
     /// Members of a group as the core would list them: explicit proxies, then nodes from `use` providers.
     func members(of g: InspectGroup) -> [String] {
+        if let m = g.members { return m }
         var out = g.proxies
         let re = g.filter.flatMap { try? NSRegularExpression(pattern: $0) }
         for name in g.use {
@@ -127,6 +132,29 @@ final class ProfileInspector: ObservableObject {
             }
         }
         return out
+    }
+
+    struct GroupPreviewItem: Decodable {
+        var members: [String]?
+        var empty: Bool?
+        var error: String?
+    }
+    private struct GroupPreviewResult: Decodable {
+        var groups: [GroupPreviewItem]?
+        var error: String?
+    }
+
+    /// B16: members the core would give each draft group in the active profile (bridge GroupPreview, the
+    /// same expansion as the inspector), for 策略组编辑 previews and 筛选节点 counts. nil on failure.
+    func preview(_ specs: [GroupSpec]) async -> [GroupPreviewItem]? {
+        guard let url = AppShared.activeProfileURL, let data = try? JSONEncoder().encode(specs) else { return nil }
+        let json = String(decoding: data, as: UTF8.self)
+        let home = AppShared.homeURL.path
+        let path = url.path
+        let out = await Task.detached(priority: .userInitiated) { LibmihomoGroupPreview(home, path, json) }.value
+        guard let r = try? JSONDecoder().decode(GroupPreviewResult.self, from: Data(out.utf8)), r.error == nil,
+              let g = r.groups, g.count == specs.count else { return nil }
+        return g
     }
 
     func current(of g: InspectGroup) -> String? {

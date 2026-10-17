@@ -405,6 +405,8 @@ struct NodeEditorView: View {
     @Environment(\.dismiss) var dismiss
 
     let original: [String: Any]?
+    /// v0.15.4: the node lives in this profile file (节点管理 → 配置); saving writes it back there.
+    var profile: Profile? = nil
     @State private var type: String
     @State private var name: String
     @State private var server: String
@@ -428,8 +430,9 @@ struct NodeEditorView: View {
         _dialer = State(initialValue: "")
     }
 
-    init(node: [String: Any]?) {
+    init(node: [String: Any]?, profile: Profile? = nil) {
         original = node
+        self.profile = profile
         let t = node?["type"] as? String ?? "ss"
         _type = State(initialValue: t)
         _name = State(initialValue: node?["name"] as? String ?? "")
@@ -445,6 +448,7 @@ struct NodeEditorView: View {
     /// Where the node's 前置代理 is resolved: the active profile when manual nodes are merged into it,
     /// otherwise the 手动节点 profile itself.
     var chainProfilePath: String {
+        if let profile { return profile.fileURL.path }
         if CoreOverrides.load().mergeManual, let a = AppShared.activeProfileURL, AppShared.activeProfileID != ProfileStore.manualID {
             return a.path
         }
@@ -528,18 +532,18 @@ struct NodeEditorView: View {
         case .text, .list:
             HStack {
                 Text(LocalizedStringKey(f.label)).foregroundStyle(.secondary)
-                TextField(f.placeholder.isEmpty ? f.label : f.placeholder, text: binding)
+                TextField(LocalizedStringKey(f.placeholder.isEmpty ? f.label : f.placeholder), text: binding)
                     .multilineTextAlignment(.trailing).textInputAutocapitalization(.never).autocorrectionDisabled()
             }
         case .secure:
             HStack {
                 Text(LocalizedStringKey(f.label)).foregroundStyle(.secondary)
-                SecureField(f.placeholder.isEmpty ? f.label : f.placeholder, text: binding).multilineTextAlignment(.trailing)
+                SecureField(LocalizedStringKey(f.placeholder.isEmpty ? f.label : f.placeholder), text: binding).multilineTextAlignment(.trailing)
             }
         case .int:
             HStack {
                 Text(LocalizedStringKey(f.label)).foregroundStyle(.secondary)
-                TextField(f.placeholder, text: binding).keyboardType(.numberPad).multilineTextAlignment(.trailing)
+                TextField(LocalizedStringKey(f.placeholder), text: binding).keyboardType(.numberPad).multilineTextAlignment(.trailing)
             }
         case .pem:
             VStack(alignment: .leading, spacing: 6) {
@@ -562,8 +566,8 @@ struct NodeEditorView: View {
             Toggle(LocalizedStringKey(f.label), isOn: Binding(get: { (values[f.key] ?? "") == "true" }, set: { values[f.key] = $0 ? "true" : "false" }))
         case .choice(let opts):
             Picker(LocalizedStringKey(f.label), selection: binding) {
-                ForEach(opts, id: \.self) { Text($0.isEmpty ? "无" : $0).tag($0) }
-                if let v = values[f.key], !v.isEmpty, !opts.contains(v) { Text(v).tag(v) }
+                ForEach(opts, id: \.self) { o in (o.isEmpty ? Text("无") : Text(verbatim: o)).tag(o) }
+                if let v = values[f.key], !v.isEmpty, !opts.contains(v) { Text(verbatim: v).tag(v) }
             }
         }
     }
@@ -610,7 +614,11 @@ struct NodeEditorView: View {
         Task {
             defer { busy = false }
             do {
-                try await store.upsertManualNode(node, oldName: original?["name"] as? String)
+                if let profile {
+                    try await store.upsertProfileNode(profile, node, oldName: original?["name"] as? String)
+                } else {
+                    try await store.upsertManualNode(node, oldName: original?["name"] as? String)
+                }
                 dismiss()
             } catch { self.error = error.localizedDescription }
         }

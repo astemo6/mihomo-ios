@@ -455,15 +455,15 @@ struct ImportSheet: View {
                     header("订阅配置", "doc.badge.arrow.up", url)
                     TextField("名称（留空自动获取）", text: $name).listRowBackground(Theme.card)
                 case .profileText(_, let text):
-                    header("本地配置", "doc.text", "\(text.count) 字符")
+                    header("本地配置", "doc.text", String(localized: "\(text.count) 字符"))
                     TextField("名称", text: $name).listRowBackground(Theme.card)
                 case .moduleURL(let url, let source):
-                    header("\(source) 模块", "puzzlepiece.extension", url)
+                    header(String(localized: "\(source) 模块"), "puzzlepiece.extension", url)
                 case .moduleText(_, let text, let source):
-                    header("\(source) 模块", "puzzlepiece.extension", "\(text.split(separator: "\n").count) 行")
+                    header(String(localized: "\(source) 模块"), "puzzlepiece.extension", String(localized: "\(text.split(separator: "\n").count) 行"))
                     TextField("名称", text: $name).listRowBackground(Theme.card)
                 case .nodesText(let text):
-                    header("节点", "server.rack", "\(text.split(separator: "\n").count) 行 → 手动节点")
+                    header("节点", "server.rack", String(localized: "\(text.split(separator: "\n").count) 行 → 手动节点"))
                 case .confText(_, let text):
                     ConfReportSection(text: text, result: $conf)
                     TextField("配置名称", text: $name).listRowBackground(Theme.card)
@@ -599,17 +599,18 @@ struct ImportSheet: View {
             switch action {
             case .profileURL(let url, _):
                 let p = try await store.addRemote(url: url, name: name, userAgent: "clash.meta", intervalHours: 24)
-                result = "已添加配置「\(p.name)」"
+                result = String(localized: "已添加配置「\(p.name)」")
             case .profileText(_, let text):
                 let p = try await store.addLocal(name: name, text: text)
-                result = "已导入配置「\(p.name)」"
+                result = String(localized: "已导入配置「\(p.name)」")
             case .moduleURL(let url, _):
                 await engine.addModule(url: url)
-                result = engine.message ?? "已添加模块"
+                result = engine.message ?? String(localized: "已添加模块")
                 engine.message = nil
             case .moduleText(_, let text, _):
-                engine.addModule(text: text, name: name.isEmpty ? "本地模块" : name)
-                result = "已添加模块「\(name)」"
+                let moduleName = name.isEmpty ? String(localized: "本地模块") : name
+                engine.addModule(text: text, name: moduleName)
+                result = String(localized: "已添加模块「\(moduleName)」")
             case .confText(_, let text):
                 if conf == nil {
                     stage = String(localized: "正在转换配置…")

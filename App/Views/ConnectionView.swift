@@ -5,11 +5,14 @@ import Darwin
 /// routes and the proxy skip list, on-demand rules (with trusted Wi-Fi), LAN sharing, and resetting the
 /// VPN configuration. Everything is stored in overrides.json / the App Group defaults; the extension reads
 /// it at the next connect, so a change needs one reconnect.
+/// v0.15.4: no 保存 button — every change is applied 0.5 s after the last edit (invalid routes are not).
 struct ConnectionView: View {
     @EnvironmentObject var vpn: VPNManager
     @State private var o = CoreOverrides.load()
     @State private var saved = CoreOverrides.load()
     @State private var onDemand = OnDemandSettings.load()
+    @State private var savedOnDemand = OnDemandSettings.load()
+    @StateObject private var debounce = Debouncer()
     @State private var status: String?
     @State private var lanAddresses: [LANInfo.Address] = []
     @State private var lanStatus: String?
@@ -37,8 +40,12 @@ struct ConnectionView: View {
             o = CoreOverrides.load()
             saved = o
             onDemand = OnDemandSettings.load()
+            savedOnDemand = onDemand
             lanAddresses = LANInfo.addresses()
         }
+        .onChange(of: o) { _ in debounce.schedule { apply() } }
+        .onChange(of: onDemand) { _ in debounce.schedule { apply() } }
+        .onDisappear { debounce.flush() }
         .confirmationDialog("重置 VPN 配置？", isPresented: $confirmReset, titleVisibility: .visible) {
             Button("重置", role: .destructive) { reset() }
             Button("取消", role: .cancel) {}
@@ -138,7 +145,7 @@ struct ConnectionView: View {
             }
         } header: { Text("隧道范围") } footer: {
             Text(o.includeAllNetworks
-                 ? "开启后系统把几乎所有流量（包括其他 App 自行绕过 VPN 的连接）都交给隧道；连接中断时这些流量会被阻断，直到重新连接。下面的排除项保留常用的系统服务。保存时写入 VPN 配置。"
+                 ? "开启后系统把几乎所有流量（包括其他 App 自行绕过 VPN 的连接）都交给隧道；连接中断时这些流量会被阻断，直到重新连接。下面的排除项保留常用的系统服务。更改后立即写入 VPN 配置。"
                  : "关闭（默认）：按下方的路由接管流量，系统服务可以绕过隧道。")
         }
         .listRowBackground(Theme.card)
@@ -259,14 +266,13 @@ struct ConnectionView: View {
         .listRowBackground(Theme.card)
     }
 
-    var saveSection: some View {
+    @ViewBuilder var saveSection: some View {
+        if hasInvalid || status != nil || (needsReconnect && vpn.isConnected) {
         Section {
-            Button { apply() } label: { HStack { Spacer(); Text("保存").bold(); Spacer() } }
-                .disabled(hasInvalid)
             if hasInvalid {
-                Text("路由列表里有无效的行，请先修改。").font(.footnote).foregroundStyle(Theme.warn)
+                Text("路由列表里有无效的行，修改前不会应用。").font(.footnote).foregroundStyle(Theme.warn)
             }
-            if let status { Text(status).font(.footnote).foregroundStyle(.secondary) }
+            AutoApplyFooter(status: status)
             if needsReconnect && vpn.isConnected {
                 Button {
                     needsReconnect = false
@@ -275,6 +281,7 @@ struct ConnectionView: View {
             }
         }
         .listRowBackground(Theme.card)
+        }
     }
 
     var resetSection: some View {
@@ -312,7 +319,7 @@ struct ConnectionView: View {
         }
     }
 
-    /// The LAN toggle applies at once (reload) like before; the rest waits for 保存.
+    /// The LAN toggle applies at once (reload); the rest goes through apply().
     func setLan(_ on: Bool) {
         o.allowLan = on
         var cur = CoreOverrides.load()
@@ -324,7 +331,7 @@ struct ConnectionView: View {
         guard vpn.isConnected else { return }
         let port = o.mixedPort
         Task {
-            if let e = await vpn.reload() { lanStatus = String(localized: "重载失败：\(e)") }
+            if let e = await ReloadCoalescer.shared.reload(vpn) { lanStatus = String(localized: "重载失败：\(e)") }
             else { lanStatus = on ? String(localized: "已开启，正在监听 \(String(port)) 端口") : String(localized: "已关闭") }
         }
     }
@@ -349,7 +356,10 @@ struct ConnectionView: View {
         cur.allowLan = o.allowLan
         cur.lanLocalOnly = o.lanLocalOnly
         cur.lanAuth = CoreOverrides.LanAuth(username: o.lanAuth.username.trimmingCharacters(in: .whitespaces), password: o.lanAuth.password)
+        let onDemandChanged = onDemand != savedOnDemand
+        guard cur != old || onDemandChanged else { return }
         cur.save()
+        savedOnDemand = onDemand
         saved = cur
         // Needs a new tunnel (network settings / VPN configuration) vs. a core reload.
         let reconnect = old.tunnelMode != cur.tunnelMode || old.ipv6Mode != cur.ipv6Mode || old.includedRoutes != cur.includedRoutes
@@ -367,7 +377,7 @@ struct ConnectionView: View {
                 status = String(localized: "隧道范围保存失败：\(e)")
                 return
             }
-            if let e = await vpn.applyOnDemand(settings) {
+            if onDemandChanged, let e = await vpn.applyOnDemand(settings) {
                 status = String(localized: "按需连接保存失败：\(e)")
                 return
             }
@@ -375,7 +385,7 @@ struct ConnectionView: View {
                 needsReconnect = true
                 status = String(localized: "已保存。连接方式、路由和隧道范围在重新连接后生效。")
             } else if vpn.isConnected && reload {
-                status = (await vpn.reload()).map { String(localized: "重载失败：\($0)") } ?? String(localized: "已保存并重载")
+                status = (await ReloadCoalescer.shared.reload(vpn)).map { String(localized: "重载失败：\($0)") } ?? String(localized: "已保存并重载")
             } else {
                 status = String(localized: "已保存")
             }

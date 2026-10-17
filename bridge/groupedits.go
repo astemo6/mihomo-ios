@@ -20,6 +20,11 @@ type GroupSpec struct {
 	Proxies       []string `json:"proxies"`
 	Use           []string `json:"use,omitempty"`
 	IncludeAll    bool     `json:"includeAll,omitempty"`
+	// v0.15.4: kept apart from include-all (which also pulls in every provider) so a QX
+	// server-tag-regex group or a 筛选节点 group limited to some sources round-trips exactly.
+	IncludeAllProxies   bool   `json:"includeAllProxies,omitempty"`
+	IncludeAllProviders bool   `json:"includeAllProviders,omitempty"`
+	ExcludeType         string `json:"excludeType,omitempty"`
 	Filter        string   `json:"filter,omitempty"`
 	ExcludeFilter string   `json:"excludeFilter,omitempty"`
 	URL           string   `json:"url,omitempty"`
@@ -59,7 +64,8 @@ func readGroupEdits(home, profileID string) *GroupEdits {
 
 func specFromGroup(g map[string]any) GroupSpec {
 	s := GroupSpec{Name: str(g["name"]), Type: strings.ToLower(str(g["type"])), Proxies: strList(g["proxies"]), Use: strList(g["use"]),
-		IncludeAll: boolOf(g["include-all"]) || boolOf(g["include-all-proxies"]), Filter: str(g["filter"]), ExcludeFilter: str(g["exclude-filter"]),
+		IncludeAll: boolOf(g["include-all"]), IncludeAllProxies: boolOf(g["include-all-proxies"]),
+		IncludeAllProviders: boolOf(g["include-all-providers"]), ExcludeType: str(g["exclude-type"]), Filter: str(g["filter"]), ExcludeFilter: str(g["exclude-filter"]),
 		URL: str(g["url"]), Interval: intOf(g["interval"]), Tolerance: intOf(g["tolerance"]), Strategy: str(g["strategy"]), Icon: str(g["icon"]),
 		Hidden: boolOf(g["hidden"])}
 	if v, ok := g["lazy"].(bool); ok {
@@ -89,8 +95,10 @@ func writeSpec(g map[string]any, s GroupSpec) {
 		us = append(us, u)
 	}
 	set("use", us, len(us) == 0)
-	delete(g, "include-all-proxies")
 	set("include-all", true, !s.IncludeAll)
+	set("include-all-proxies", true, !s.IncludeAllProxies || s.IncludeAll)
+	set("include-all-providers", true, !s.IncludeAllProviders || s.IncludeAll)
+	set("exclude-type", s.ExcludeType, s.ExcludeType == "")
 	set("filter", s.Filter, s.Filter == "")
 	set("exclude-filter", s.ExcludeFilter, s.ExcludeFilter == "")
 	auto := s.Type != "select"

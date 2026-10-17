@@ -202,6 +202,7 @@ final class ControllerClient {
     func membersDelay(_ members: [String], limit: Int = 10, url: String? = nil, timeoutMs: Int? = nil) async throws -> [String: Int] {
         var out: [String: Int] = [:]
         var firstError: Error?
+        var errors = 0
         let width = max(1, limit)
         let run: (String) async -> (String, Int, Error?) = { name in
             do { return (name, try await self.proxyDelay(name, url: url, timeoutMs: timeoutMs), nil) }
@@ -218,7 +219,10 @@ final class ControllerClient {
             while let r = await tg.next() {
                 let (name, ms, err) = r
                 out[name] = ms
-                if let err, firstError == nil { firstError = err }
+                if let err {
+                    errors += 1
+                    if firstError == nil { firstError = err }
+                }
                 if next < members.count {
                     let n2 = members[next]
                     next += 1
@@ -227,7 +231,9 @@ final class ControllerClient {
             }
         }
         // Every request failed at the HTTP level (not a node timeout): the controller is unreachable.
-        if let firstError, out.values.allSatisfy({ $0 == 0 }) { throw firstError }
+        // selftest: before, one failed request (e.g. a node renamed since the list loaded) plus timeouts for
+        // the rest threw away every result and showed an error instead of the timeouts.
+        if let firstError, errors == members.count { throw firstError }
         return out
     }
 

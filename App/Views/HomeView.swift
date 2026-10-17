@@ -130,7 +130,7 @@ struct ConnectCard: View {
             HStack(spacing: 18) {
                 VStack(alignment: .leading, spacing: 3) {
                     Label("配置", systemImage: "doc.text").font(.caption2).foregroundStyle(.secondary)
-                    Text(store.active?.name ?? "未选择").font(.subheadline.weight(.semibold)).lineLimit(1)
+                    Text(verbatim: store.active?.displayName ?? String(localized: "未选择")).font(.subheadline.weight(.semibold)).lineLimit(1)
                 }
                 Spacer()
                 VStack(alignment: .trailing, spacing: 3) {
@@ -372,7 +372,7 @@ struct ExitHeader: View {
                     Text(vpn.statusText).font(.caption)
                 }
                 Spacer()
-                Label(store.active?.name ?? String(localized: "未选择"), systemImage: "doc.text")
+                Label(store.active?.displayName ?? String(localized: "未选择"), systemImage: "doc.text")
                     .font(.caption)
                     .foregroundStyle(.secondary)
                     .lineLimit(1)
@@ -434,6 +434,7 @@ struct HomePolicyCards: View {
                     .contentShape(Rectangle())
                 }
                 .buttonStyle(.plain)
+                .accessibilityIdentifier("home.card." + g.name)
                 .contextMenu {
                     if let onRemove {
                         Button(role: .destructive) { onRemove(g.name) } label: { Label("从首页移除", systemImage: "minus.circle") }
@@ -467,7 +468,7 @@ struct OfflineGroupPicker: View {
                             UISelectionFeedbackGenerator().selectionChanged()
                         } label: {
                             HStack {
-                                Text(m).lineLimit(1)
+                                Text(verbatim: FlagSafe.text(m)).lineLimit(1)
                                 Spacer()
                                 if let d = insp.delays[m] {
                                     Text(Theme.delayText(d)).font(.caption.monospacedDigit()).foregroundStyle(Theme.delayColor(d))
@@ -512,7 +513,7 @@ struct GroupQuickPicker: View {
                         Task { await select(m) }
                     } label: {
                         HStack {
-                            Text(m).lineLimit(1)
+                            Text(verbatim: FlagSafe.text(m)).lineLimit(1)
                             Spacer()
                             if let d = all[m]?.lastDelay(for: ControllerClient.testSettings.url) {
                                 Text(Theme.delayText(d)).font(.caption.monospacedDigit()).foregroundStyle(Theme.delayColor(d))

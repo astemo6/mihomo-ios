@@ -36,6 +36,12 @@ type inspectGroup struct {
 	Icon     string   `json:"icon,omitempty"`
 	Filter   string   `json:"filter,omitempty"`
 	Selected string   `json:"selected,omitempty"` // saved selection (select groups), else first member
+	// B16: what the core lists (groupMembers); Proxies stays the explicit list.
+	Members       []string `json:"members"`
+	MembersError  string   `json:"membersError,omitempty"`
+	ExcludeFilter string   `json:"excludeFilter,omitempty"`
+	ExcludeType   string   `json:"excludeType,omitempty"`
+	IncludeAll    bool     `json:"includeAll,omitempty"`
 }
 
 type inspectRule struct {
@@ -320,6 +326,8 @@ func InspectProfile(homeDir, path string) string {
 	for _, p := range proxiesOf(raw) {
 		res.Proxies = append(res.Proxies, toInspectProxy(p, ""))
 	}
+	res.ProxyProviders = inspectProviders("proxy", raw["proxy-providers"])
+	pool := newMemberPool(raw, res.ProxyProviders)
 	if gl, ok := raw["proxy-groups"].([]any); ok {
 		for _, x := range gl {
 			m, ok := x.(map[string]any)
@@ -328,11 +336,15 @@ func InspectProfile(homeDir, path string) string {
 			}
 			g := inspectGroup{Name: str(m["name"]), Type: strings.ToLower(str(m["type"])), Proxies: strList(m["proxies"]), Use: strList(m["use"]),
 				URL: str(m["url"]), Interval: intOf(m["interval"]), Hidden: boolOf(m["hidden"]), Icon: str(m["icon"]), Filter: str(m["filter"])}
-			if boolOf(m["include-all"]) || boolOf(m["include-all-proxies"]) {
-				for _, p := range res.Proxies {
-					g.Proxies = append(g.Proxies, p.Name)
-				}
+			// B16: members as the core lists them (filter / exclude-filter / exclude-type / providers /
+			// empty-fallback), not every proxy for include-all groups.
+			ms, _, merr := pool.groupMembers(m)
+			g.Members = ms
+			if merr != nil {
+				g.MembersError = merr.Error()
 			}
+			g.ExcludeFilter, g.ExcludeType = str(m["exclude-filter"]), str(m["exclude-type"])
+			g.IncludeAll = boolOf(m["include-all"]) || boolOf(m["include-all-proxies"])
 			if s, ok := res.Selected[g.Name]; ok && g.Type == "select" {
 				g.Selected = s
 			}
@@ -342,7 +354,6 @@ func InspectProfile(homeDir, path string) string {
 	for _, r := range strList(raw["rules"]) {
 		res.Rules = append(res.Rules, splitRule(r))
 	}
-	res.ProxyProviders = inspectProviders("proxy", raw["proxy-providers"])
 	res.RuleProviders = inspectProviders("rule", raw["rule-providers"])
 	b, _ := json.Marshal(res)
 	return string(b)
