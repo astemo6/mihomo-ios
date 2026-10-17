@@ -6,6 +6,7 @@ package libmihomo
 
 import (
 	"encoding/base64"
+	"encoding/hex"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -436,6 +437,19 @@ func parseQXLine(line string) (map[string]any, error) {
 		p["cipher"] = kv["method"]
 		p["password"] = kv["password"]
 		p["udp"] = truthy(kv["udp-relay"])
+		if proto := kv["ssr-protocol"]; proto != "" {
+			// v0.11: ShadowsocksR (QX writes it as shadowsocks + ssr-protocol).
+			p["type"] = "ssr"
+			p["protocol"] = proto
+			if pp := kv["ssr-protocol-param"]; pp != "" {
+				p["protocol-param"] = pp
+			}
+			p["obfs"] = firstNonEmpty(obfs, "plain")
+			if obfsHost != "" {
+				p["obfs-param"] = obfsHost
+			}
+			break
+		}
 		switch obfs {
 		case "http", "tls":
 			p["plugin"] = "obfs"
@@ -509,13 +523,86 @@ func parseQXLine(line string) (map[string]any, error) {
 				p["skip-cert-verify"] = true
 			}
 		}
+	case "anytls":
+		p["type"] = "anytls"
+		p["password"] = kv["password"]
+		p["udp"] = true
+		if tlsHost != "" {
+			p["sni"] = tlsHost
+		}
+		if skip {
+			p["skip-cert-verify"] = true
+		}
 	default:
 		return nil, fmt.Errorf("qx: 不支持的类型 %s", typ)
 	}
+	qxNodeExtras(p, kv, typ)
 	return p, nil
 }
 
-var qxTypes = map[string]bool{"shadowsocks": true, "vmess": true, "vless": true, "trojan": true, "http": true, "socks5": true}
+// qxNodeExtras maps the remaining QX [server_local] keys (v0.11): fast-open, tls-cert-sha256, tls-alpn,
+// udp-over-tcp, tls-host for http/socks5. tls-pubkey-sha256 / tls-no-session-* / tls13 have no mihomo
+// equivalent and are ignored.
+func qxNodeExtras(p map[string]any, kv map[string]string, typ string) {
+	if truthy(kv["fast-open"]) {
+		p["tfo"] = true
+	}
+	hasTLS := p["tls"] == true || typ == "trojan" || typ == "anytls"
+	if fp := strings.ToLower(strings.NewReplacer(":", "", " ", "").Replace(kv["tls-cert-sha256"])); len(fp) == 64 && hasTLS {
+		if _, err := hex.DecodeString(fp); err == nil {
+			p["fingerprint"] = fp
+		}
+	}
+	if a := qxALPN(kv["tls-alpn"]); len(a) > 0 && hasTLS {
+		p["alpn"] = a
+	}
+	if (typ == "http" || typ == "socks5") && p["tls"] == true {
+		if h := kv["tls-host"]; h != "" {
+			p["sni"] = h
+		}
+	}
+	if p["type"] == "ss" {
+		switch strings.ToLower(strings.TrimSpace(kv["udp-over-tcp"])) {
+		case "true", "sp.v1":
+			p["udp-over-tcp"], p["udp-over-tcp-version"] = true, 1
+		case "sp.v2":
+			p["udp-over-tcp"], p["udp-over-tcp-version"] = true, 2
+		}
+	}
+}
+
+// qxALPN reads tls-alpn: either a list ("h2:http/1.1", "h2|http/1.1", "h2 http/1.1") or the TLS wire form in
+// hex (length-prefixed protocol names, e.g. 02683208687474702f312e31).
+func qxALPN(v string) []any {
+	v = strings.TrimSpace(v)
+	if v == "" {
+		return nil
+	}
+	if b, err := hex.DecodeString(v); err == nil && len(b) > 1 {
+		var out []any
+		for i := 0; i < len(b); {
+			n := int(b[i])
+			if n == 0 || i+1+n > len(b) {
+				out = nil
+				break
+			}
+			out = append(out, string(b[i+1:i+1+n]))
+			i += 1 + n
+		}
+		if len(out) > 0 {
+			return out
+		}
+	}
+	var out []any
+	for _, s := range strings.FieldsFunc(v, func(r rune) bool { return r == ':' || r == '|' || r == ' ' || r == ';' }) {
+		if s = strings.TrimSpace(s); s != "" {
+			out = append(out, s)
+		}
+	}
+	return out
+}
+
+var qxTypes = map[string]bool{"shadowsocks": true, "vmess": true, "vless": true, "trojan": true, "http": true, "socks5": true, "anytls": true}
 
 // ParseNodeText converts any supported node text into mihomo proxy maps.
 func parseNodeText(text string) ([]map[string]any, []string) {

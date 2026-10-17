@@ -1,4 +1,4 @@
-# Mihomo iOS（v0.8）
+# Mihomo iOS（v0.11）
 
 基于开源 [mihomo](https://github.com/MetaCubeX/mihomo)（Clash Meta）内核的个人 iOS 代理客户端：深色卡片界面，首页只放最常用的东西，进阶功能按类别收在「更多」里。
 
@@ -10,7 +10,7 @@
 2. **一种设计语言**：项目自己的深色卡片（`Theme` / `Card`），新页面不照搬其他客户端的布局。
 3. **首页极简**：连接开关、出站模式、IP 卡片、流量。其他功能都在「更多」里分组：连接、规则与资源、模块重写与 MitM、工具与数据、设置。
 4. **模块只有一个入口**：所有格式的模块和远程资源（规则集、脚本）都在「更多 → 模块与资源」，用角标标出来源格式。
-5. **宁缺毋滥**：做不精的功能先不做（仍推迟：实时活动、按 SSID 切策略、共享动态内核库；小组件与控制中心开关从 v0.7 起作为单独的 IPA 提供）。
+5. **宁缺毋滥**：做不精的功能先不做（仍推迟：共享动态内核库、资源解析器；小组件、控制中心开关和实时活动作为单独的 `-widget` IPA 提供）。
 6. **规则、重写、脚本都接受 Surge 与 Quantumult X 写法**（以及 Loon、Stash、Egern），只在边缘翻译一次。
 
 ## 功能
@@ -31,6 +31,14 @@
 | 导入链接 | 只注册自己的 `mihomo://`（`mihomo://install-config?url=`、`install-module?url=`、`connect`、`disconnect`、`toggle`）。粘贴的 `loon://`、`stash://`、`surge:///`、`quantumult-x:///`、`egern:/` 安装链接也能识别，但**不注册**这些 scheme，避免与其他客户端抢链接。可以用「文件」/其他 App 的「用 Mihomo 打开」打开 `.sgmodule` `.plugin` `.stoverride` `.module` `.snippet` `.conf` `.list` `.yaml` 和纯文本；剪贴板有新内容时顶部出现「粘贴导入」横幅 |
 | iPad | 横向宽度为常规时用侧边栏（NavigationSplitView）显示五个分区，支持横竖屏与分屏；iPhone 保持底部标签栏 |
 
+## v0.11 要点
+
+- **任务**（更多 → 任务，或 脚本 → 工具）：按 Quantumult X「HTTP 请求」的方式列出所有定时、网络变化、交互和通用脚本（来自脚本列表和启用的模块，Surge / Loon / QX / Stash / Egern 写法都算）。顶部「自动运行」总开关；定时和网络变化任务各有开关（覆盖行内的 `enabled=` / `enable=`，写成 `enabled=false` 的任务也会列出、默认关闭）；`img-url` 图标；左滑立即运行。点进任务可以看计划、来源、脚本地址，以及最近 10 次运行记录（时间、触发方式、耗时、结果和 console 输出）。未连接时也能查看列表、开关和运行记录。
+- **交互脚本**（QX `event-interaction`）：在「策略」里长按节点 → 交互脚本，脚本通过 `$environment.params` 收到节点名称，`$done({title, message | htmlMessage})` 的结果以卡片显示；任务详情里也可以选节点运行。
+- **Quantumult X 配置导入补全**：`[dns]` 指定域名的服务器（`server=/域名/IP` → nameserver-policy）、`doh-server` / `doq-server`（有加密 DNS 时不再用普通 DNS 和系统 DNS，和 QX 一致）、`no-system`、`prefer-doh3`、`no-ipv6`、`address=` / `alias=`（→ 本地映射）；`[general]` 的 `dns_exclusion_list`（→ 真实 IP 域名）、`udp_drop_list` / `udp_whitelist`（→ 规则）、`fallback_udp_policy`、`server_check_url` / `server_check_timeout`；`excluded_routes`、`ssid_suspended_list`、`udp_drop_list` 里的 QUIC 在导入报告里列为「连接设置」，可一键应用到 连接方式 / 受信任 Wi-Fi / 阻止 QUIC；`[policy]` 的 `alive-checking`、`round-robin` / `dest-hash` 策略；`[server_remote]` 的 `as-policy`；`[filter_remote]` 的 `FILTER_LAN` / `FILTER_REGION` 和 `inserted-resource` 顺序；`[server_local]` 的 SSR（`ssr-protocol`）、`anytls`、`fast-open`、`tls-cert-sha256`、`tls-alpn`、`udp-over-tcp`；`[rewrite_local]` 的 `jsonjq-request-body` / `jsonjq-response-body` 和 `url-and-header`；`[mitm]` 的 `skip_validating_cert`。没有对应项的键（如 `running_mode_trigger`、`resource_parser_url`）在报告里注明。
+- **App 关闭时的实时活动**：实时活动开启时，VPN 扩展每 10 秒把速度、总流量和当前节点写到 App Group（一次内核调用，不常驻额外内存）；App 退到后台后约 25 秒内继续刷新，之后在系统允许后台刷新时更新，锁定屏幕 / 灵动岛上的刷新按钮（iOS 17+）可随时拉取最新数据。数据过时时显示「更新于 时:分」，不再停在旧速度上。
+- **错误提示**：内核接口返回的错误改为中文说明（密钥不匹配、扩展还是旧版本需重连、脚本引擎未运行、超时、连不上内核），模块下载失败显示 HTTP 状态。
+
 ## v0.10 要点
 
 - **配置快照**（更多 → 工具与数据 → 配置快照）：导入 / 编辑 / 更新 / 删除配置、添加或删除模块、编辑手动节点、策略组、节点订阅以及恢复备份之前自动保存一份（内容与上一份相同则跳过，最多 20 份，可固定）；每份快照可查看与当前配置的差异（逐文件 +行 / −行），一键恢复，恢复前再保存一份当前状态。可关闭自动快照，也可手动创建。
@@ -38,7 +46,7 @@
 - **HAR 导出**（请求 → HTTP 右上角分享按钮，或单个请求详情 → 导出 HAR）：把 MitM / 重写引擎抓到的请求导出为 HAR 1.2（请求 / 响应头、文本正文、状态、耗时；二进制或被截断的正文会在 comment 中注明），可用 Charles、Proxyman、浏览器开发者工具打开。
 - **网络测试**（更多 → 工具与数据 → 网络测试）：在内核中按当前规则运行。带宽：延迟 + 4 路并发下载 / 上传，实时曲线，显示所走的策略链（默认 speed.cloudflare.com，可改地址）。NAT 类型：RFC 5780 映射与过滤检测（完全锥形 / 受限锥形 / 端口受限锥形 / 对称型 / UDP 不通），显示公网 UDP 地址和测试步骤（默认依次尝试 stun.miwifi.com、stun.stunprotocol.org、Google、Cloudflare）。
 - **同步文件夹（iCloud 云盘）**（更多 → 备份与恢复 → 同步文件夹）：选一个「文件」里的文件夹（例如 iCloud 云盘中的 Mihomo 文件夹），上传 / 下载 `Mihomo-sync.json`（配置、手动节点、模块、脚本、覆写、DNS、规则、策略组编辑；不含 MitM 证书）。可在 App 退到后台且内容有变化时自动上传；下载需确认，覆盖前自动快照。用安全书签访问，不需要 iCloud 容器权限，重签名后也能用。
-- **实时活动 / 灵动岛**（更多 → 设置 → 外观）：连接时在锁定屏幕和灵动岛显示状态、已连接时长、当前节点和上下行速度。由现有小组件扩展绘制（只在 `-widget` IPA 中出现，不需要新的 Bundle ID）；时长持续走动，速度和节点在 App 打开时刷新。
+- **实时活动 / 灵动岛**（更多 → 设置 → 外观）：连接时在锁定屏幕和灵动岛显示状态、已连接时长、当前节点和上下行速度。由现有小组件扩展绘制（只在 `-widget` IPA 中出现，不需要新的 Bundle ID）；时长持续走动（v0.11 起 App 关闭时也会更新，见上）。
 - **订阅格式**：节点订阅 / 配置订阅支持 SIP008（Shadowsocks JSON `{"version":1,"servers":[…]}`）和 sing-box JSON outbounds，包括 Base64 包装的 JSON。
 - 备份现在也包含节点订阅和策略组编辑。
 

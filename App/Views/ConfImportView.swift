@@ -29,6 +29,47 @@ struct ConfImportResult: Decodable {
         var interval: Int?
     }
     var rewriteRemotes: [RemoteModule]? = nil
+    /// v0.11: QX [general] connection settings (excluded_routes, ssid_suspended_list, server_check_url /
+    /// timeout, udp_drop_list QUIC). Applied to the app's own settings when applySettings is not false.
+    struct Settings: Decodable, Hashable {
+        var excludedRoutes: [String]? = nil
+        var trustedSSIDs: [String]? = nil
+        var testURL: String? = nil
+        var testTimeoutMs: Int? = nil
+        var blockQUIC: Bool? = nil
+
+        var lines: [String] {
+            var out: [String] = []
+            if let r = excludedRoutes, !r.isEmpty { out.append(String(localized: "排除的路由：\(r.joined(separator: ", "))")) }
+            if let s = trustedSSIDs, !s.isEmpty { out.append(String(localized: "受信任的 Wi-Fi：\(s.joined(separator: ", "))")) }
+            if let u = testURL, !u.isEmpty { out.append(String(localized: "测速地址：\(u)")) }
+            if let t = testTimeoutMs, t > 0 { out.append(String(localized: "测速超时：\(t) ms")) }
+            if blockQUIC == true { out.append(String(localized: "阻止 QUIC：始终")) }
+            return out
+        }
+
+        /// Merges into CoreOverrides / on-demand / engine settings (routes and SSIDs are added, not replaced).
+        @MainActor func apply() {
+            var o = CoreOverrides.load()
+            if let r = excludedRoutes, !r.isEmpty {
+                for x in r where !o.excludedRoutes.contains(x) { o.excludedRoutes.append(x) }
+            }
+            if let u = testURL, CoreOverrides.isValidTestURL(u) { o.testURL = u }
+            if let t = testTimeoutMs, t > 0 { o.testTimeoutMs = min(max(t, 1000), 5000) }
+            o.save()
+            if let s = trustedSSIDs, !s.isEmpty {
+                var od = OnDemandSettings.load()
+                for x in s where !od.trustedSSIDs.contains(x) { od.trustedSSIDs.append(x) }
+                od.save()
+            }
+            if blockQUIC == true {
+                EngineStore.shared.config.quic = "all"
+                EngineStore.shared.save()
+            }
+        }
+    }
+    var settings: Settings? = nil
+    var applySettings: Bool? = nil
     var report: Report?
     var error: String?
 
@@ -65,6 +106,10 @@ enum ConfImport {
             if !failed.isEmpty {
                 msg += String(localized: "（\(failed.count) 个下载失败，可在「模块与资源」中更新）\n") + failed.joined(separator: "\n")
             }
+        }
+        if let st = r.settings, r.applySettings != false, !st.lines.isEmpty {
+            await MainActor.run { st.apply() }
+            msg += String(localized: "，已应用 \(st.lines.count) 项连接设置")
         }
         // Rule sets / node subscriptions: download them now so they work before the first connection.
         let pr = await ProviderUpdater.shared.updateAll(profile: p)
@@ -120,6 +165,17 @@ struct ConfReportSection: View {
                         }
                     } header: { Text("转换结果") }
                     .listRowBackground(Theme.card)
+                    if let st = r.settings, !st.lines.isEmpty {
+                        Section {
+                            Toggle("同时应用这些连接设置", isOn: Binding(
+                                get: { result?.applySettings != false },
+                                set: { result?.applySettings = $0 }))
+                            ForEach(st.lines, id: \.self) { Text($0).font(.caption).foregroundStyle(.secondary) }
+                        } header: { Text("连接设置") } footer: {
+                            Text("来自原配置的 [general]。路由和 Wi-Fi 会追加到现有设置，下次连接时生效。")
+                        }
+                        .listRowBackground(Theme.card)
+                    }
                     if let notes = rep.notes, !notes.isEmpty {
                         Section("说明") {
                             ForEach(notes, id: \.self) { Text($0).font(.caption) }

@@ -156,6 +156,9 @@ struct PolicyView: View {
     struct IconTarget: Identifiable { let id = UUID(); let name: String; let profileIcon: String? }
     struct ProbeTarget: Identifiable { let id = UUID(); let name: String }
     @State private var probeTarget: ProbeTarget?
+    /// v0.11: QX event-interaction scripts offered in the node menu, and the run in flight.
+    @State private var interactions: [ScriptTaskState] = []
+    @State private var interaction: InteractionRequest?
     @ObservedObject private var probes = ProbeStore.shared
 
     struct ChainGroupTarget: Identifiable { let id = UUID(); let name: String }
@@ -246,7 +249,9 @@ struct PolicyView: View {
         .task(id: vpn.isConnected) {
             if vpn.isConnected { await model.load() } else { await offline.load() }
             snapshotDelays()
+            interactions = vpn.isConnected ? await TaskCatalog.interactions() : []
         }
+        .modifier(InteractionRunner(request: $interaction))
         .onChange(of: sortMode) { _ in snapshotDelays() }
         .sheet(item: $iconTarget) { t in GroupIconPicker(group: t.name, profileIcon: t.profileIcon) }
         .onChange(of: store.activeID) { _ in Task { if !vpn.isConnected { await offline.load() } } }
@@ -301,7 +306,11 @@ struct PolicyView: View {
                                     onEdit: { editGroup = EditGroupTarget(name: g.name) },
                                     onProbe: { probeTarget = ProbeTarget(name: $0) },
                                     badge: { probes.badge(for: $0) },
-                                    onPin: pinAction)
+                                    onPin: pinAction,
+                                    interactions: interactions.map { ($0.id, $0.script.name) },
+                                    onInteract: { id, node in
+                                        if let t = interactions.first(where: { $0.id == id }) { interaction = InteractionRequest(task: t, node: node) }
+                                    })
                 }
             }
             .padding(16)
@@ -394,6 +403,9 @@ struct PolicyGroupCard: View {
     var badge: ((String) -> (ok: Int, total: Int)?)? = nil
     /// v0.8 固定 / 解除固定 (nil = not offered: not url-test / fallback, smart selection on, or offline).
     var onPin: ((String?) -> Void)? = nil
+    /// v0.11: QX interaction scripts (id, name) run on a member with $environment.params = its name.
+    var interactions: [(String, String)] = []
+    var onInteract: ((String, String) -> Void)? = nil
 
     static let unprobeable: Set<String> = ["REJECT", "REJECT-DROP", "PASS", "COMPATIBLE"]
 
@@ -547,6 +559,13 @@ struct PolicyGroupCard: View {
                             }
                             if let onShare, let t = nodeType(name), !Self.nonShareable.contains(t.lowercased()) {
                                 Button { onShare(name) } label: { Label("分享节点", systemImage: "qrcode") }
+                            }
+                            if let onInteract, !interactions.isEmpty, !Self.unprobeable.contains(name) {
+                                Menu {
+                                    ForEach(interactions, id: \.0) { it in
+                                        Button(it.1) { onInteract(it.0, name) }
+                                    }
+                                } label: { Label("交互脚本", systemImage: "hand.tap") }
                             }
                         }
                     }

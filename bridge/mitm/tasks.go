@@ -28,6 +28,9 @@ const (
 	TaskCron    = "cron"
 	TaskEvent   = "event"
 	TaskGeneric = "generic"
+	// TaskInteraction: QX event-interaction (v0.11) — a UI script run on a chosen policy / node with
+	// $environment.params = its name.
+	TaskInteraction = "interaction"
 )
 
 // Task is a cron / event / generic script.
@@ -40,7 +43,11 @@ type Task struct {
 	Source string  `json:"source"`
 	Line   string  `json:"line"`
 	Format string  `json:"format,omitempty"` // surge / loon / qx / stash
-	cron   *Cron
+	// v0.11: QX img-url, and lines written with enabled=false (kept in the list, switched off; the app's
+	// task-prefs.json can turn them on).
+	Icon           string `json:"icon,omitempty"`
+	DisabledByLine bool   `json:"disabledByLine,omitempty"`
+	cron           *Cron
 }
 
 // Panel is a Surge [Panel] entry or a Stash tile.
@@ -71,10 +78,10 @@ var (
 	cronFieldOnly = regexp.MustCompile(`^[0-9*?/,\-]+$`)
 )
 
-func (rs *Ruleset) addTask(kind, cron, event string, sc *Script, source, line, format string) {
+func (rs *Ruleset) addTask(kind, cron, event string, sc *Script, source, line, format string) *Task {
 	if sc == nil || sc.Path == "" {
 		rs.Errors = append(rs.Errors, "脚本缺少 script-path："+clip(line, 120))
-		return
+		return nil
 	}
 	t := &Task{Kind: kind, Cron: cron, Event: event, Script: sc, Source: source, Line: line, Format: format}
 	switch kind {
@@ -82,7 +89,7 @@ func (rs *Ruleset) addTask(kind, cron, event string, sc *Script, source, line, f
 		c, err := ParseCron(cron)
 		if err != nil {
 			rs.Errors = append(rs.Errors, err.Error()+"："+clip(line, 120))
-			return
+			return nil
 		}
 		t.cron, t.Cron = c, c.String()
 		sc.Type = "cron"
@@ -95,10 +102,13 @@ func (rs *Ruleset) addTask(kind, cron, event string, sc *Script, source, line, f
 		}
 		if event != "network-changed" {
 			rs.Unsupported = append(rs.Unsupported, line)
-			return
+			return nil
 		}
 		t.Event = event
 		sc.Type = "event"
+	case TaskInteraction:
+		t.Event = "interaction"
+		sc.Type = "generic"
 	default:
 		sc.Type = "generic"
 	}
@@ -108,10 +118,22 @@ func (rs *Ruleset) addTask(kind, cron, event string, sc *Script, source, line, f
 	t.ID = stableID(source, kind, sc.Name, sc.Path, t.Cron)
 	for _, o := range rs.Tasks {
 		if o.ID == t.ID {
-			return
+			return o
 		}
 	}
 	rs.Tasks = append(rs.Tasks, t)
+	return t
+}
+
+// withLineOpts records img-url and enabled=false on a parsed task.
+func withLineOpts(t *Task, p map[string]string) {
+	if t == nil {
+		return
+	}
+	if ic := p["img-url"]; strings.HasPrefix(ic, "http://") || strings.HasPrefix(ic, "https://") {
+		t.Icon = ic
+	}
+	t.DisabledByLine = disabledByParam(p)
 }
 
 func scriptFromParams(name string, p map[string]string) *Script {
@@ -153,56 +175,45 @@ func (rs *Ruleset) parseTaskLine(line, section, source string) bool {
 		default:
 			return false
 		}
-		if disabledByParam(p) {
-			return true
-		}
 		sc := scriptFromParams(m[1], p)
 		cron := p["cronexp"]
 		if cron == "" {
 			cron = p["cron"]
 		}
-		rs.addTask(typ, cron, p["event-name"], sc, source, line, "surge")
+		withLineOpts(rs.addTask(typ, cron, p["event-name"], sc, source, line, "surge"), p)
 		return true
 	}
 	// Loon
 	if m := loonCronRe.FindStringSubmatch(line); m != nil {
 		p := splitParams(m[2], scriptKeys)
-		if !disabledByParam(p) {
-			rs.addTask(TaskCron, m[1], "", scriptFromParams(p["tag"], p), source, line, "loon")
-		}
+		withLineOpts(rs.addTask(TaskCron, m[1], "", scriptFromParams(p["tag"], p), source, line, "loon"), p)
 		return true
 	}
 	if m := loonEventRe.FindStringSubmatch(line); m != nil {
 		p := splitParams(m[2], scriptKeys)
-		if !disabledByParam(p) {
-			kind := TaskGeneric
-			if strings.EqualFold(m[1], "network-changed") {
-				kind = TaskEvent
-			}
-			rs.addTask(kind, "", "network-changed", scriptFromParams(p["tag"], p), source, line, "loon")
+		kind := TaskGeneric
+		if strings.EqualFold(m[1], "network-changed") {
+			kind = TaskEvent
 		}
+		withLineOpts(rs.addTask(kind, "", "network-changed", scriptFromParams(p["tag"], p), source, line, "loon"), p)
 		return true
 	}
 	// Quantumult X task_local
 	if m := qxEventRe.FindStringSubmatch(line); m != nil {
 		p := splitParams(strings.TrimPrefix(m[3], ","), scriptKeys)
 		p["script-path"] = m[2]
-		if !disabledByParam(p) {
-			kind := TaskGeneric
-			if strings.EqualFold(m[1], "network") {
-				kind = TaskEvent
-			}
-			rs.addTask(kind, "", "network-changed", scriptFromParams(p["tag"], p), source, line, "qx")
+		kind := TaskInteraction
+		if strings.EqualFold(m[1], "network") {
+			kind = TaskEvent
 		}
+		withLineOpts(rs.addTask(kind, "", "network-changed", scriptFromParams(p["tag"], p), source, line, "qx"), p)
 		return true
 	}
 	if section == "task_local" || strings.HasPrefix(low, "0") || strings.HasPrefix(low, "*") || (len(low) > 0 && low[0] >= '0' && low[0] <= '9') {
 		if m := qxCronRe.FindStringSubmatch(line); m != nil && cronLooksValid(m[1]) && (strings.Contains(m[2], ".js") || strings.Contains(m[2], "://") || section == "task_local") {
 			p := splitParams(strings.TrimPrefix(m[3], ","), scriptKeys)
 			p["script-path"] = m[2]
-			if !disabledByParam(p) {
-				rs.addTask(TaskCron, m[1], "", scriptFromParams(p["tag"], p), source, line, "qx")
-			}
+			withLineOpts(rs.addTask(TaskCron, m[1], "", scriptFromParams(p["tag"], p), source, line, "qx"), p)
 			return true
 		}
 	}
@@ -251,6 +262,7 @@ type TaskState struct {
 	LastResult string  `json:"lastResult,omitempty"`
 	Duration   int64   `json:"duration,omitempty"` // ms
 	Running    bool    `json:"running"`
+	Enabled    bool    `json:"enabled"` // v0.11: scheduled / event runs allowed (prefs + enabled=)
 }
 
 // PanelState is a panel with its latest content.
@@ -275,6 +287,8 @@ type tasker struct {
 	lastNet string
 	now     func() time.Time
 	viewed  time.Time // last time the app showed panels (GET /mitm/panels)
+	prefs   TaskPrefs
+	history map[string][]RunRecord
 }
 
 // panelVisibleWindow: auto-refresh keeps running this long after the app last showed the panels
@@ -303,7 +317,9 @@ func newTasker(e *Engine) *tasker {
 
 func (t *tasker) reload(rs *Ruleset) {
 	t.mu.Lock()
+	t.loadPersistedLocked()
 	t.tasks = append([]*Task(nil), rs.Tasks...)
+	t.saveListLocked()
 	t.panels = append([]*Panel(nil), rs.Panels...)
 	ns := map[string]*TaskState{}
 	for _, tk := range t.tasks {
@@ -377,6 +393,15 @@ func (t *tasker) loop(stop chan struct{}) {
 			if tk.cron == nil || st == nil || st.NextRun == 0 {
 				continue
 			}
+			if !t.enabledLocked(tk) {
+				// switched off: keep the next time moving so turning it back on doesn't fire a backlog
+				if at := time.Unix(int64(st.NextRun), 0); !at.After(now) {
+					if n := tk.cron.Next(now); !n.IsZero() {
+						st.NextRun = float64(n.Unix())
+					}
+				}
+				continue
+			}
 			at := time.Unix(int64(st.NextRun), 0)
 			if !at.After(now) {
 				due = append(due, tk)
@@ -395,7 +420,7 @@ func (t *tasker) loop(stop chan struct{}) {
 		duePanels := t.duePanelsLocked(now, &next)
 		t.mu.Unlock()
 		for _, tk := range due {
-			go t.run(tk, nil)
+			go t.runAs(tk, nil, "schedule")
 		}
 		for _, id := range duePanels {
 			go t.refreshPanel(id)
@@ -456,8 +481,13 @@ func (t *tasker) find(id string) *Task {
 	return nil
 }
 
-// run executes a task now. extra installs additional globals ($event / $network).
+// run executes a task now (manual). extra installs additional globals ($event / $network).
 func (t *tasker) run(tk *Task, extra map[string]any) (map[string]any, error) {
+	return t.runAs(tk, extra, "manual")
+}
+
+// runAs executes a task and records the run in its log under trigger.
+func (t *tasker) runAs(tk *Task, extra map[string]any, trigger string) (map[string]any, error) {
 	t.mu.Lock()
 	st := t.states[tk.ID]
 	if st == nil {
@@ -472,6 +502,7 @@ func (t *tasker) run(tk *Task, extra map[string]any) (map[string]any, error) {
 	net := t.network
 	t.mu.Unlock()
 	start := time.Now()
+	seq := t.e.Logs.Seq()
 	t.e.Logs.Add(tk.Script.Name, "info", fmt.Sprintf("开始运行（%s）", kindLabel(tk.Kind)))
 	out, err := t.e.scripts.RunTask(tk, net, extra)
 	t.mu.Lock()
@@ -488,11 +519,14 @@ func (t *tasker) run(tk *Task, extra map[string]any) (map[string]any, error) {
 		st.LastResult = ""
 	}
 	t.mu.Unlock()
+	rec := RunRecord{Time: float64(start.Unix()), OK: st.LastOK, Duration: st.Duration, Trigger: trigger, Result: st.LastResult}
 	if err != nil {
 		t.e.Logs.Add(tk.Script.Name, "error", err.Error())
 	} else {
 		t.e.Logs.Add(tk.Script.Name, "info", fmt.Sprintf("运行结束，用时 %d ms", st.Duration))
 	}
+	rec.Logs = t.runLogs(tk.Script.Name, seq)
+	t.record(tk, rec)
 	return out, err
 }
 
@@ -502,6 +536,8 @@ func kindLabel(k string) string {
 		return "定时"
 	case TaskEvent:
 		return "事件"
+	case TaskInteraction:
+		return "交互"
 	}
 	return "通用"
 }
@@ -516,7 +552,7 @@ func (t *tasker) networkChanged(info map[string]any) int {
 	t.lastNet = sig
 	var list []*Task
 	for _, tk := range t.tasks {
-		if tk.Kind == TaskEvent {
+		if tk.Kind == TaskEvent && t.enabledLocked(tk) {
 			list = append(list, tk)
 		}
 	}
@@ -525,7 +561,7 @@ func (t *tasker) networkChanged(info map[string]any) int {
 		return 0
 	}
 	for _, tk := range list {
-		go t.run(tk, map[string]any{"$event": map[string]any{"name": "network-changed", "data": info}})
+		go t.runAs(tk, map[string]any{"$event": map[string]any{"name": "network-changed", "data": info}}, "event")
 	}
 	return len(list)
 }
@@ -536,7 +572,9 @@ func (t *tasker) list() []TaskState {
 	out := make([]TaskState, 0, len(t.tasks))
 	for _, tk := range t.tasks {
 		if st := t.states[tk.ID]; st != nil {
-			out = append(out, *st)
+			cp := *st
+			cp.Enabled = t.enabledLocked(tk)
+			out = append(out, cp)
 		}
 	}
 	sort.SliceStable(out, func(i, j int) bool { return out[i].Kind < out[j].Kind })
@@ -592,7 +630,7 @@ func (t *tasker) refreshPanel(id string) (*PanelState, error) {
 		err = fmt.Errorf("找不到脚本 %s", p.Script)
 	} else {
 		pin := map[string]any{"title": p.Title, "content": p.Content, "icon": p.Icon, "icon-color": p.IconColor, "style": p.Style}
-		out, err = t.run(tk, map[string]any{"$input": map[string]any{"purpose": "panel", "position": "policy-selection"}, "$panel": pin})
+		out, err = t.runAs(tk, map[string]any{"$input": map[string]any{"purpose": "panel", "position": "policy-selection"}, "$panel": pin}, "panel")
 	}
 	t.mu.Lock()
 	defer t.mu.Unlock()
@@ -648,6 +686,13 @@ func (s *ScriptRunner) RunTask(tk *Task, network map[string]any, extra map[strin
 			_ = rt.Set("$network", map[string]any{})
 		}
 		for k, v := range extra {
+			if k == "$params" {
+				// QX event-interaction: $environment.params = the chosen policy / node.
+				if env, ok := rt.Get("$environment").(*goja.Object); ok && env != nil {
+					_ = env.Set("params", v)
+				}
+				continue
+			}
 			_ = rt.Set(k, v)
 		}
 	})

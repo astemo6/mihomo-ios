@@ -24,6 +24,7 @@ final class PacketTunnelProvider: NEPacketTunnelProvider {
     private var bridge: PacketFlowBridge?
     private var memoryGuard: MemoryGuard?
     private var traffic: TrafficRecorder?
+    private var liveStats: LiveStatsSampler?
     private var network: NetworkWatcher?
 
     override func startTunnel(options: [String: NSObject]?, completionHandler: @escaping (Error?) -> Void) {
@@ -118,6 +119,9 @@ final class PacketTunnelProvider: NEPacketTunnelProvider {
                 let rec = TrafficRecorder()
                 rec.start()
                 self.traffic = rec
+                let ls = LiveStatsSampler()
+                ls.start()
+                self.liveStats = ls
                 let nw = NetworkWatcher()
                 nw.start()
                 self.network = nw
@@ -179,6 +183,8 @@ final class PacketTunnelProvider: NEPacketTunnelProvider {
         StartupLog.write("stopTunnel reason=\(reason.rawValue)（\(why)）, \(ProcessMemory.summary()), bridge \(bridge?.stats ?? "-")")
         TunnelStopReason.record(reason.rawValue)
         traffic?.stop() // flushes the last delta
+        liveStats?.stop()
+        liveStats = nil
         network?.stop()
         network = nil
         memoryGuard?.stop()
@@ -331,6 +337,30 @@ final class MemoryGuard {
         let n = LibmihomoShedConnections(percent)
         LibmihomoFreeMemory()
         StartupLog.write("memory guard (\(why)): closed \(n) oldest connections (\(percent) %) at footprint \(fp2 >> 20) MB → \(ProcessMemory.summary())")
+    }
+}
+
+/// v0.11: speed / totals / main node for the Live Activity, every 10 s and only while the app's
+/// 实时活动 switch is on (one Go call + one small App Group write; nothing allocated otherwise).
+final class LiveStatsSampler {
+    private let queue = DispatchQueue(label: "mihomo.livestats", qos: .utility)
+    private var timer: DispatchSourceTimer?
+
+    func start() {
+        let t = DispatchSource.makeTimerSource(queue: queue)
+        t.schedule(deadline: .now() + .seconds(5), repeating: .seconds(10), leeway: .seconds(3))
+        t.setEventHandler {
+            guard LiveStats.wanted else { return }
+            LiveStats(status: LibmihomoLiveStatus()).save()
+        }
+        t.resume()
+        timer = t
+    }
+
+    func stop() {
+        timer?.cancel()
+        timer = nil
+        if LiveStats.wanted { LiveStats().save() } // disconnected: no stale speed
     }
 }
 

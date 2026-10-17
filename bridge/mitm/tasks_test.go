@@ -117,25 +117,26 @@ func TestTaskSyntaxes(t *testing.T) {
 
 	rs = &Ruleset{}
 	rs.ParseText(loonTasks, "Loon插件", nil)
-	if len(rs.Tasks) != 3 {
+	// v0.11: enable=false lines stay in the list, switched off
+	if len(rs.Tasks) != 4 || !rs.Tasks[1].DisabledByLine || rs.Tasks[0].DisabledByLine {
 		t.Fatalf("loon tasks %d: %+v errors=%v", len(rs.Tasks), rs.Tasks, rs.Errors)
 	}
 	if tk := rs.Tasks[0]; tk.Kind != TaskCron || tk.Cron != "30 9 * * *" || tk.Script.Name != "Loon签到" || tk.Script.Timeout != 30 {
 		t.Errorf("loon cron: %+v", tk.Script)
 	}
-	if rs.Tasks[1].Kind != TaskEvent || rs.Tasks[2].Kind != TaskGeneric {
-		t.Errorf("loon kinds: %s %s", rs.Tasks[1].Kind, rs.Tasks[2].Kind)
+	if rs.Tasks[2].Kind != TaskEvent || rs.Tasks[3].Kind != TaskGeneric {
+		t.Errorf("loon kinds: %s %s", rs.Tasks[2].Kind, rs.Tasks[3].Kind)
 	}
 
 	rs = &Ruleset{}
 	rs.ParseText(qxTasks, "QX", nil)
-	if len(rs.Tasks) != 3 {
+	if len(rs.Tasks) != 4 {
 		t.Fatalf("qx tasks %d: %+v errors=%v", len(rs.Tasks), rs.Tasks, rs.Errors)
 	}
-	if tk := rs.Tasks[0]; tk.Kind != TaskCron || tk.Script.Path != "https://example.com/qx.js" || tk.Script.Name != "QX签到" {
+	if tk := rs.Tasks[0]; tk.Kind != TaskCron || tk.Script.Path != "https://example.com/qx.js" || tk.Script.Name != "QX签到" || tk.Icon != "https://x/y.png" {
 		t.Errorf("qx cron: %+v", tk.Script)
 	}
-	if rs.Tasks[1].Kind != TaskEvent || rs.Tasks[2].Kind != TaskGeneric {
+	if !rs.Tasks[1].DisabledByLine || rs.Tasks[2].Kind != TaskEvent || rs.Tasks[3].Kind != TaskInteraction {
 		t.Errorf("qx kinds")
 	}
 	// a QX task line typed into the user scripts list (no section)

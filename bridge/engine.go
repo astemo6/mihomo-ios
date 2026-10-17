@@ -404,3 +404,17 @@ func EngineParseLine(line, section string) string {
 	rs.ParseLine(line, section, "用户")
 	return toParsed(rs)
 }
+
+// EngineTaskList returns JSON [task, …]: the cron / event / generic / interaction tasks of the user's
+// scripts and enabled modules, parsed the same way the tunnel does (v0.11, for the app's task list
+// while disconnected). Never starts the engine.
+func EngineTaskList(home string) string {
+	cfg := mitm.LoadConfig(home)
+	rs := mitm.Build(home, cfg)
+	list := rs.Tasks
+	if list == nil {
+		list = []*mitm.Task{}
+	}
+	b, _ := json.Marshal(list)
+	return string(b)
+}

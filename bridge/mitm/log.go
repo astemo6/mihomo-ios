@@ -455,6 +455,13 @@ func (l *LogRing) List(since int64, script string) []LogLine {
 	return out
 }
 
+// Seq is the ID of the newest line (List(Seq(), …) later returns only newer lines).
+func (l *LogRing) Seq() int64 {
+	l.mu.Lock()
+	defer l.mu.Unlock()
+	return l.seq
+}
+
 func (l *LogRing) Clear() {
 	l.mu.Lock()
 	l.lines = nil
