@@ -850,3 +850,6 @@ struct QXResourceImportSection: View {
                 }
             } header: { Label(title, systemImage: icon) }
             .listRowBackground(Theme.card)
+        }
+    }
+}
