@@ -25,9 +25,9 @@ enum StartupLog {
         try? "=== \(header) \(day)\n".data(using: .utf8)?.write(to: url, options: .atomic)
     }
 
-    static func write(_ msg: String) {
+    static func write(_ msg: String, tag: String = "ext") {
         lock.lock(); defer { lock.unlock() }
-        let line = "\(fmt.string(from: Date())) [ext] \(msg)\n"
+        let line = "\(fmt.string(from: Date())) [\(tag)] \(msg)\n"
         NSLog("[Mihomo] %@", msg)
         guard let data = line.data(using: .utf8) else { return }
         if let h = try? FileHandle(forWritingTo: url) {

@@ -167,6 +167,9 @@ func rewriteProviderURLs(raw map[string]any) {
 			}
 			if s, ok := m["url"].(string); ok {
 				if n, ok := githubToMirror(s); ok {
+					if str(m["x-source"]) == "" {
+						m["x-source"] = s
+					}
 					m["url"] = n
 				}
 			}

@@ -40,13 +40,25 @@ struct MoreView: View {
                     NavigationLink { ModulesView() } label: {
                         row("模块与资源", "puzzlepiece.extension", "\(engine.config.modules.filter(\.enabled).count)/\(engine.config.modules.count)")
                     }
-                    NavigationLink { LocalModuleView() } label: { row("重写（本地模块）", "arrow.triangle.swap", "\(engine.config.rules.count)") }
-                    NavigationLink { ScriptsView() } label: { row("脚本", "curlybraces", "\(engine.config.scripts.count)") }
+                    // v0.8.1: own rules / scripts plus what the enabled modules bring, the same numbers 模块与资源 shows.
+                    let mc = engine.enabledModuleCounts
+                    NavigationLink { LocalModuleView() } label: {
+                        row("重写（本地模块）", "arrow.triangle.swap", mc.rewrites > 0 ? String(localized: "\(engine.config.rules.count) · 模块 \(mc.rewrites)") : "\(engine.config.rules.count)")
+                    }
+                    NavigationLink { ScriptsView() } label: {
+                        row("脚本", "curlybraces", mc.scripts > 0 ? String(localized: "\(engine.config.scripts.count) · 模块 \(mc.scripts)") : "\(engine.config.scripts.count)")
+                    }
                     NavigationLink { MitMView() } label: {
                         HStack {
                             Label("MitM", systemImage: "lock.open")
                             Spacer()
-                            Text(engine.config.mitm ? "已开启" : "关闭").font(.caption).foregroundStyle(engine.config.mitm ? Theme.good : .secondary)
+                            if engine.config.mitm {
+                                Text("已开启").font(.caption).foregroundStyle(Theme.good)
+                            } else if mc.hosts > 0 {
+                                Text("关闭 · 模块需要 \(mc.hosts) 个主机").font(.caption).foregroundStyle(Theme.warn)
+                            } else {
+                                Text("关闭").font(.caption).foregroundStyle(.secondary)
+                            }
                         }
                     }
                 } header: { Text("模块、重写与 MitM") } footer: {

@@ -181,7 +181,7 @@ func inspectProviders(kind string, raw any) []inspectProvider {
 			continue
 		}
 		p := inspectProvider{Name: name, Kind: kind, Vehicle: strings.ToLower(str(m["type"])), Behavior: str(m["behavior"]),
-			Format: str(m["format"]), URL: str(m["url"]), Path: str(m["path"]), Interval: intOf(m["interval"]), Count: -1}
+			Format: str(m["format"]), URL: firstNonEmpty(str(m["x-source"]), str(m["url"])), Path: str(m["path"]), Interval: intOf(m["interval"]), Count: -1}
 		if p.Vehicle == "inline" {
 			if kind == "proxy" {
 				for _, x := range proxiesOf(map[string]any{"proxies": m["payload"]}) {

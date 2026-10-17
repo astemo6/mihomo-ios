@@ -26,6 +26,11 @@ final class AppDelegate: NSObject, UIApplicationDelegate {
     func application(_ application: UIApplication, configurationForConnecting connectingSceneSession: UISceneSession,
                      options: UIScene.ConnectionOptions) -> UISceneConfiguration {
         if let item = options.shortcutItem { QuickActions.handle(item.type) }
+        // Documents / links that launched the app; onOpenURL normally delivers them, this is the fallback.
+        let urls = options.urlContexts.map(\.url)
+        if !urls.isEmpty {
+            Task { @MainActor in ImportRouter.shared.coldLaunchURLs.append(contentsOf: urls) }
+        }
         let cfg = UISceneConfiguration(name: nil, sessionRole: connectingSceneSession.role)
         cfg.delegateClass = QuickActionSceneDelegate.self
         return cfg

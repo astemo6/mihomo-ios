@@ -322,6 +322,7 @@ struct CustomRuleEditor: View {
 struct ProvidersView: View {
     @EnvironmentObject var vpn: VPNManager
     @ObservedObject private var offline = ProfileInspector.shared
+    @ObservedObject private var updater = ProviderUpdater.shared
     @State private var proxyProviders: [ProviderItem] = []
     @State private var ruleProviders: [ProviderItem] = []
     @State private var updating: Set<String> = []
@@ -335,6 +336,16 @@ struct ProvidersView: View {
         .navigationTitle("提供者")
         .toolbar {
             ToolbarItem(placement: .navigationBarTrailing) {
+                if !vpn.isConnected {
+                    if updater.running {
+                        HStack(spacing: 6) {
+                            ProgressView()
+                            Text("\(updater.done)/\(updater.total)").font(.caption.monospacedDigit()).foregroundStyle(.secondary)
+                        }
+                    } else {
+                        Button("全部更新") { Task { await updater.updateAll() } }
+                    }
+                }
                 if vpn.isConnected {
                     Button("全部更新") {
                         Task {
@@ -380,21 +391,39 @@ struct ProvidersView: View {
                 .font(.caption.weight(.semibold)).foregroundStyle(.secondary)
                 .listRowBackground(Color.clear)
             Section("节点集 \(offline.result.proxyProviders.count)") {
-                ForEach(offline.result.proxyProviders) { p in
-                    NavigationLink { OfflineProviderDetail(p: p) } label: { OfflineProviderRow(p: p) }
-                }
+                ForEach(offline.result.proxyProviders) { p in offlineRow(p) }
             }
             .listRowBackground(Theme.card)
-            Section("规则集 \(offline.result.ruleProviders.count)") {
-                ForEach(offline.result.ruleProviders) { p in
-                    NavigationLink { OfflineProviderDetail(p: p) } label: { OfflineProviderRow(p: p) }
-                }
+            Section {
+                ForEach(offline.result.ruleProviders) { p in offlineRow(p) }
+            } header: { Text("规则集 \(offline.result.ruleProviders.count)") } footer: {
+                Text("未连接时由 App 直接下载并转换（使用 GitHub 镜像设置），连接后内核会按更新间隔从源地址刷新。")
             }
             .listRowBackground(Theme.card)
         }
         .listStyle(.insetGrouped)
         .scrollContentBackground(.hidden)
         .refreshable { await offline.load() }
+    }
+
+    @ViewBuilder
+    func offlineRow(_ p: InspectProvider) -> some View {
+        let key = p.kind + ":" + p.name
+        HStack {
+            NavigationLink { OfflineProviderDetail(p: p) } label: {
+                OfflineProviderRow(p: p, error: updater.errors[key])
+            }
+            if p.vehicle == "http" {
+                if updater.busy.contains(key) {
+                    ProgressView()
+                } else {
+                    Button { Task { await updater.update(key) } } label: { Image(systemName: "arrow.clockwise") }
+                        .buttonStyle(.borderless)
+                        .disabled(updater.running)
+                        .accessibilityLabel(Text("更新"))
+                }
+            }
+        }
     }
 
     @ViewBuilder
@@ -436,6 +465,7 @@ struct ProvidersView: View {
 
 struct OfflineProviderRow: View {
     let p: InspectProvider
+    var error: String? = nil
 
     var cacheSummary: String {
         var parts: [String] = ["已缓存"]
@@ -458,7 +488,10 @@ struct OfflineProviderRow: View {
             if p.cached {
                 Text(cacheSummary).font(.caption2).foregroundStyle(.secondary)
             } else {
-                Text(p.vehicle == "inline" ? "内联" : "尚未下载（连接后由内核下载）").font(.caption2).foregroundStyle(Theme.warn)
+                Text(p.vehicle == "inline" ? "内联" : "尚未下载 · 轻点右侧按钮下载").font(.caption2).foregroundStyle(Theme.warn)
+            }
+            if let error {
+                Text(error).font(.caption2).foregroundStyle(Theme.bad).lineLimit(2)
             }
             if let u = p.url, !u.isEmpty {
                 Text(u).scaledFont(9, design: .monospaced).foregroundStyle(.secondary).lineLimit(1).truncationMode(.middle)
@@ -502,7 +535,7 @@ struct OfflineProviderDetail: View {
                 .listRowBackground(Theme.card)
             }
             if !p.cached && p.vehicle != "inline" {
-                Text("还没有缓存。连接后内核会下载；之后断开也能在这里查看内容。").font(.footnote).foregroundStyle(.secondary)
+                Text("还没有缓存。在「提供者」页点更新即可由 App 直接下载；连接后内核也会下载。").font(.footnote).foregroundStyle(.secondary)
                     .listRowBackground(Color.clear)
             }
         }
