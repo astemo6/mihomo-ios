@@ -123,11 +123,11 @@ final class VPNManager: ObservableObject {
         let m = NETunnelProviderManager()
         let proto = NETunnelProviderProtocol()
         proto.providerBundleIdentifier = AppShared.tunnelBundleID
-        proto.serverAddress = "Mihomo"
+        proto.serverAddress = "Mihomo QX"
         proto.disconnectOnSleep = false
         Self.applyScope(CoreOverrides.load(), to: proto)
         m.protocolConfiguration = proto
-        m.localizedDescription = "Mihomo"
+        m.localizedDescription = "Mihomo QX"
         m.isEnabled = true
         do {
             try await m.saveToPreferences()

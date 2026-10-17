@@ -108,15 +108,15 @@ struct SetTunnelIntent: SetValueIntent {
 
 @available(iOS 18.0, *)
 struct TunnelToggleControl: ControlWidget {
-    static let kind = "MihomoTunnelToggle"
+    static let kind = "MihomoQXTunnelToggle"   // qx/rebuild: distinct from the main-line app's widgets
 
     var body: some ControlWidgetConfiguration {
         StaticControlConfiguration(kind: Self.kind, provider: Provider()) { on in
-            ControlWidgetToggle("Mihomo", isOn: on, action: SetTunnelIntent()) { isOn in
+            ControlWidgetToggle("Mihomo QX", isOn: on, action: SetTunnelIntent()) { isOn in
                 Label(isOn ? LocalizedStringKey("已连接") : LocalizedStringKey("未连接"), systemImage: isOn ? "bolt.horizontal.circle.fill" : "bolt.horizontal.circle")
             }
         }
-        .displayName("Mihomo")
+        .displayName("Mihomo QX")
         .description("连接或断开代理")
     }
 
@@ -150,7 +150,7 @@ struct StatusEntry: TimelineEntry {
 
 struct StatusProvider: TimelineProvider {
     func placeholder(in context: Context) -> StatusEntry {
-        StatusEntry(date: Date(), status: .connected, snapshot: WidgetSnapshot(node: "🇯🇵 Tokyo 01", policy: "Proxy", profile: "Mihomo"), profile: "Mihomo")
+        StatusEntry(date: Date(), status: .connected, snapshot: WidgetSnapshot(node: "🇯🇵 Tokyo 01", policy: "Proxy", profile: "Mihomo"), profile: "Mihomo QX")
     }
 
     func getSnapshot(in context: Context, completion: @escaping (StatusEntry) -> Void) {
@@ -173,14 +173,14 @@ struct StatusProvider: TimelineProvider {
 }
 
 struct StatusWidget: Widget {
-    let kind = "MihomoStatus"
+    let kind = "MihomoQXStatus"
 
     var body: some WidgetConfiguration {
         StaticConfiguration(kind: kind, provider: StatusProvider()) { entry in
             StatusWidgetView(entry: entry)
                 .containerBackground(for: .widget) { WidgetTheme.bg }
         }
-        .configurationDisplayName("Mihomo")
+        .configurationDisplayName("Mihomo QX")
         .description("出口位置、当前策略链、今日流量和开关")
         .supportedFamilies([.systemSmall, .systemMedium, .accessoryRectangular, .accessoryCircular, .accessoryInline])
     }
@@ -252,7 +252,7 @@ struct StatusWidgetView: View {
     var body: some View {
         switch family {
         case .accessoryInline:
-            Text(verbatim: entry.on ? "\(flag) \(entry.snapshot.place ?? entry.snapshot.node)" : "Mihomo")
+            Text(verbatim: entry.on ? "\(flag) \(entry.snapshot.place ?? entry.snapshot.node)" : "Mihomo QX")
         case .accessoryCircular:
             Button(intent: ToggleTunnelIntent()) {
                 ZStack {
@@ -432,7 +432,7 @@ struct LiveActivityLockView: View {
                 .foregroundStyle(context.state.connected ? WidgetTheme.good : .secondary)
             VStack(alignment: .leading, spacing: 3) {
                 HStack(spacing: 6) {
-                    Text(context.state.connected ? "Mihomo 已连接" : "Mihomo 未连接").font(.subheadline.weight(.semibold))
+                    Text(context.state.connected ? "Mihomo QX 已连接" : "Mihomo QX 未连接").font(.subheadline.weight(.semibold))
                     Text(timerInterval: context.state.since...Date.distantFuture, countsDown: false)
                         .font(.caption.monospacedDigit()).foregroundStyle(.secondary)
                 }

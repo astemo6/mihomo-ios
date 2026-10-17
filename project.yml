@@ -11,11 +11,13 @@ options:
 # ──────────────────────────────────────────────────────────────
 settings:
   base:
-    APP_BUNDLE_ID: com.astemo6.mihomo
-    TUNNEL_BUNDLE_ID: com.astemo6.mihomo.tunnel
+    # qx/rebuild (QX preview 5): its own IDs so "Mihomo QX" installs next to the main-line app. Main keeps
+    # com.astemo6.mihomo / group.com.astemo6.mihomo; do not carry these four lines into main.
+    APP_BUNDLE_ID: com.astemo6.mihomo.qx
+    TUNNEL_BUNDLE_ID: com.astemo6.mihomo.qx.tunnel
     # Widget + Control Center toggle (v0.7); only in the "-widget" IPA variant. Same convention as the tunnel.
-    WIDGET_BUNDLE_ID: com.astemo6.mihomo.widget
-    APP_GROUP_ID: group.com.astemo6.mihomo
+    WIDGET_BUNDLE_ID: com.astemo6.mihomo.qx.widget
+    APP_GROUP_ID: group.com.astemo6.mihomo.qx
     MARKETING_VERSION: "0.12.0"
     # QX rebuild preview number (qx/rebuild only): tags v<ver>-qx.<n>-build<run>.
     QX_PREVIEW: "5"

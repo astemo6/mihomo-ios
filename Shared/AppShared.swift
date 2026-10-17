@@ -4,7 +4,7 @@ import Foundation
 /// Bundle IDs / App Group are injected from project.yml through Info.plist keys,
 /// so project.yml is the only place they are configured.
 enum AppShared {
-    static let defaultAppGroup = "group.com.astemo6.mihomo"
+    static let defaultAppGroup = "group.com.astemo6.mihomo.qx"   // qx/rebuild: own App Group (main: group.com.astemo6.mihomo)
 
     /// true inside the PacketTunnel extension (its bundle is a .appex).
     static let isExtension: Bool = Bundle.main.bundlePath.hasSuffix(".appex")
@@ -18,7 +18,7 @@ enum AppShared {
         return .main
     }
 
-    static let mainAppBundleID: String = mainAppBundle.bundleIdentifier ?? "com.astemo6.mihomo"
+    static let mainAppBundleID: String = mainAppBundle.bundleIdentifier ?? "com.astemo6.mihomo.qx"
 
     /// Tunnel extension bundle ID. Works from the main app and from any app extension: the embedded
     /// packet-tunnel appex's real id when we can read it (re-signing may change it), otherwise our own id
@@ -39,7 +39,7 @@ enum AppShared {
             }
         }
         if let own = mainAppBundle.bundleIdentifier, !own.isEmpty { return own + ".tunnel" }
-        return Bundle.main.object(forInfoDictionaryKey: "MihomoTunnelBundleID") as? String ?? "com.astemo6.mihomo.tunnel"
+        return Bundle.main.object(forInfoDictionaryKey: "MihomoTunnelBundleID") as? String ?? "com.astemo6.mihomo.qx.tunnel"
     }()
 
     /// App groups granted by the provisioning profile the IPA was (re-)signed with.
@@ -81,13 +81,35 @@ enum AppShared {
     /// true when the App Group container is really shared (false => app and extension can't see each other's files).
     static var containerOK: Bool { FileManager.default.containerURL(forSecurityApplicationGroupIdentifier: appGroup) != nil }
 
-    static var containerURL: URL {
+    /// Root of the App Group container (or, unsigned / misconfigured builds, the app's documents dir).
+    static var groupRootURL: URL {
         if let url = FileManager.default.containerURL(forSecurityApplicationGroupIdentifier: appGroup) {
             return url
         }
-        // Unsigned / misconfigured builds: fall back to the app's own documents dir.
         return FileManager.default.urls(for: .documentDirectory, in: .userDomainMask)[0]
     }
+
+    // MARK: QX namespace (qx/rebuild, QX preview 5)
+    // "Mihomo QX" has its own bundle IDs and App Group, but a re-signer may force it and the main-line app
+    // into one group. So every QX file lives under <group>/qx/ and every App Group defaults key is
+    // prefixed "qx." — the two apps can never read or overwrite each other's data.
+
+    static let namespace = "qx"
+
+    /// <group>/qx — everything the app and its extensions store (mihomo home, profiles, engine, logs…).
+    static var containerURL: URL { qxContainer }
+
+    private static let qxContainer: URL = {
+        let root = groupRootURL
+        let qx = root.appendingPathComponent(namespace, isDirectory: true)
+        QXLayoutMigration.run(root: root, qx: qx)
+        return ensureDir(qx)
+    }()
+
+    /// App Group defaults with the "qx." key prefix (see QXDefaults).
+    static var defaults: QXDefaults { QXDefaults(suite: rawDefaults) }
+    /// The unprefixed suite (migration and diagnostics only).
+    static var rawDefaults: UserDefaults { UserDefaults(suiteName: appGroup) ?? .standard }
 
     /// mihomo home dir (geo data, cache.db, runtime.yaml, overrides.json).
     static var homeURL: URL { ensureDir(containerURL.appendingPathComponent("mihomo", isDirectory: true)) }
@@ -95,7 +117,6 @@ enum AppShared {
     static var overridesURL: URL { homeURL.appendingPathComponent("overrides.json") }
     static var profilesIndexURL: URL { containerURL.appendingPathComponent("profiles.json") }
 
-    static var defaults: UserDefaults { UserDefaults(suiteName: appGroup) ?? .standard }
 
     static var activeProfileID: String? {
         get { defaults.string(forKey: "activeProfileID") }
@@ -114,6 +135,68 @@ enum AppShared {
     static func ensureDir(_ url: URL) -> URL {
         try? FileManager.default.createDirectory(at: url, withIntermediateDirectories: true)
         return url
+    }
+}
+
+/// App Group UserDefaults with every key prefixed "qx." (QX preview 5), so a main-line app forced into the
+/// same group by a re-signer cannot collide with Mihomo QX. Only the calls the code base uses.
+struct QXDefaults {
+    static let prefix = "qx."
+    let suite: UserDefaults
+    private func k(_ key: String) -> String { Self.prefix + key }
+    func object(forKey key: String) -> Any? { suite.object(forKey: k(key)) }
+    func string(forKey key: String) -> String? { suite.string(forKey: k(key)) }
+    func data(forKey key: String) -> Data? { suite.data(forKey: k(key)) }
+    func bool(forKey key: String) -> Bool { suite.bool(forKey: k(key)) }
+    func integer(forKey key: String) -> Int { suite.integer(forKey: k(key)) }
+    func double(forKey key: String) -> Double { suite.double(forKey: k(key)) }
+    func set(_ value: Any?, forKey key: String) { suite.set(value, forKey: k(key)) }
+    func removeObject(forKey key: String) { suite.removeObject(forKey: k(key)) }
+}
+
+/// One-time move to the namespaced layout. Earlier QX previews shipped with the main-line IDs and stored
+/// everything at the group root with unprefixed defaults keys. If this app's group still holds such data
+/// (only possible when a re-signer reuses the old group) and it looks like a QX preview's (qx-sessions.json
+/// or a QX-only defaults key), it is copied — never moved, so a main-line app using the same group keeps
+/// its files — into <group>/qx and the "qx." keys. A marker file makes it run once.
+enum QXLayoutMigration {
+    static let marker = ".qx-layout-v1"
+    /// Group-root entries that are not app data.
+    static let skip: Set<String> = ["qx", "Library", ".com.apple.mobile_container_manager.metadata.plist"]
+
+    static func run(root: URL, qx: URL) {
+        let fm = FileManager.default
+        let markerURL = qx.appendingPathComponent(marker)
+        if fm.fileExists(atPath: markerURL.path) { return }
+        try? fm.createDirectory(at: qx, withIntermediateDirectories: true)
+        defer { fm.createFile(atPath: markerURL.path, contents: Data("1".utf8)) }
+        // Already in use under the new layout: nothing to bring over.
+        let existing = (try? fm.contentsOfDirectory(atPath: qx.path))?.filter { $0 != marker } ?? []
+        if !existing.isEmpty { return }
+        let legacy = ((try? fm.contentsOfDirectory(atPath: root.path)) ?? []).filter { !skip.contains($0) && !$0.hasPrefix(".") }
+        guard !legacy.isEmpty, looksLikeQXPreview(root: root, legacy: legacy) else { return }
+        for name in legacy {
+            try? fm.copyItem(at: root.appendingPathComponent(name), to: qx.appendingPathComponent(name))
+        }
+        let suite = AppShared.rawDefaults
+        if let dom = suite.persistentDomain(forName: AppShared.appGroup) {
+            for (key, v) in dom where !key.hasPrefix(QXDefaults.prefix) && suite.object(forKey: QXDefaults.prefix + key) == nil {
+                suite.set(v, forKey: QXDefaults.prefix + key)
+            }
+        }
+        lastResult = legacy.count
+    }
+
+    /// Items copied by this launch's migration (0 = none), for 诊断.
+    static private(set) var lastResult = 0
+
+    /// QX-only traces: the 流量统计（已完成） file (QX previews 2–5) or an HTTP Backend block in the engine
+    /// config (the first preview 5 build). Main-line data alone is never copied.
+    private static func looksLikeQXPreview(root: URL, legacy: [String]) -> Bool {
+        if legacy.contains("qx-sessions.json") { return true }
+        let engine = root.appendingPathComponent("mihomo/engine/engine.json")
+        if let d = try? Data(contentsOf: engine), let t = String(data: d, encoding: .utf8), t.contains("\"httpBackend\"") { return true }
+        return false
     }
 }
 

@@ -76,7 +76,7 @@ final class ImportRouter: ObservableObject {
         let action = path.trimmingCharacters(in: CharacterSet(charactersIn: "/")).lowercased()
 
         switch scheme {
-        case "mihomo", "clash", "clash-meta":
+        case "mihomo", "mihomo-qx", "clash", "clash-meta":
             switch action {
             case "connect", "start": return .connect
             case "disconnect", "stop": return .disconnect

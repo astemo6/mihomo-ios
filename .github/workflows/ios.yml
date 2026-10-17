@@ -124,7 +124,11 @@ jobs:
             echo "APP_ID=$APP_ID"; echo "TUN_ID=$TUN_ID"; echo "WID_ID=$WID_ID"; echo "GROUP_ID=$GROUP_ID"; echo "VER=$VER"
             echo "PREFIX=$PREFIX"; echo "TITLE=$TITLE"
             echo "TAG=v${VER}-build${{ github.run_number }}"
-            if [ -n "$BUILD_CERTIFICATE_BASE64" ] && [ -n "$APP_PROFILE_BASE64" ] && [ -n "$TUNNEL_PROFILE_BASE64" ] && [ -n "$TEAM_ID" ]; then
+            # QX branch has its own bundle IDs (com.astemo6.mihomo.qx…); the signing secrets' profiles cover the
+            # main-line IDs only, so QX builds are always the unsigned (re-sign yourself) variant.
+            if [ "$PREFIX" = "Mihomo-QX" ]; then
+              echo "SIGNED=0"
+            elif [ -n "$BUILD_CERTIFICATE_BASE64" ] && [ -n "$APP_PROFILE_BASE64" ] && [ -n "$TUNNEL_PROFILE_BASE64" ] && [ -n "$TEAM_ID" ]; then
               echo "SIGNED=1"
             else
               echo "SIGNED=0"
@@ -266,6 +270,8 @@ jobs:
             unzip -p "$IPA_WIDGET" Payload/Mihomo.app/PlugIns/MihomoWidget.appex/Info.plist > /tmp/wid.plist && plutil -p /tmp/wid.plist | grep -E "NSExtensionPointIdentifier|CFBundleIdentifier|MinimumOSVersion"
           fi
           unzip -p "$IPA" Payload/Mihomo.app/PlugIns/PacketTunnel.appex/Info.plist > /tmp/ext.plist && plutil -p /tmp/ext.plist | grep -E "NSExtension|Mihomo|CFBundleIdentifier"
+          unzip -p "$IPA" Payload/Mihomo.app/Info.plist > /tmp/app.plist && plutil -p /tmp/app.plist | grep -E "CFBundleIdentifier|CFBundleDisplayName|MihomoAppGroup|MihomoTunnelBundleID|CFBundleURLSchemes" -A2 | head -n 20
+          grep -A3 "application-groups" app.entitlements tunnel.entitlements || true
           {
             echo "### $IPA"
             echo "- mihomo ${MIHOMO_VERSION}, signed=${SIGNED}"
@@ -300,7 +306,7 @@ jobs:
             echo "Mihomo iOS ${VER}（构建 #${{ github.run_number }}，提交 $(git rev-parse --short HEAD)）"
             if [ "$PREFIX" = "Mihomo-QX" ]; then
               echo
-              echo "Quantumult X 风格重建分支（qx/rebuild）的预览版；Bundle ID 与主线相同，一次只能安装其中一个。"
+              echo "Quantumult X 风格重建分支（qx/rebuild）的预览版。从预览 5 起作为独立的 App「Mihomo QX」安装（Bundle ID ${APP_ID}、${TUN_ID}、${WID_ID}，App Group ${GROUP_ID}，URL scheme mihomo-qx），可以和主线 Mihomo 同时安装。"
               [ -f notes/qx-release.md ] && { echo; cat notes/qx-release.md; }
             fi
             echo

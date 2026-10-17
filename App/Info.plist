@@ -21,7 +21,7 @@
 		<string>读取当前 Wi-Fi 名称需要精确位置。Mihomo 不读取、不保存你的位置。</string>
 	</dict>
 	<key>CFBundleDisplayName</key>
-	<string>Mihomo</string>
+	<string>Mihomo QX</string>
 	<key>CFBundleExecutable</key>
 	<string>$(EXECUTABLE_NAME)</string>
 	<key>CFBundleIdentifier</key>
@@ -53,7 +53,7 @@
 			<string>$(PRODUCT_BUNDLE_IDENTIFIER)</string>
 			<key>CFBundleURLSchemes</key>
 			<array>
-				<string>mihomo</string>
+				<string>mihomo-qx</string>
 			</array>
 		</dict>
 	</array>
@@ -68,13 +68,13 @@
 			<string>Alternate</string>
 			<key>LSItemContentTypes</key>
 			<array>
-				<string>com.astemo6.mihomo.sgmodule</string>
-				<string>com.astemo6.mihomo.plugin</string>
-				<string>com.astemo6.mihomo.stoverride</string>
-				<string>com.astemo6.mihomo.conf</string>
-				<string>com.astemo6.mihomo.list</string>
-				<string>com.astemo6.mihomo.module</string>
-				<string>com.astemo6.mihomo.snippet</string>
+				<string>com.astemo6.mihomo.qx.sgmodule</string>
+				<string>com.astemo6.mihomo.qx.plugin</string>
+				<string>com.astemo6.mihomo.qx.stoverride</string>
+				<string>com.astemo6.mihomo.qx.conf</string>
+				<string>com.astemo6.mihomo.qx.list</string>
+				<string>com.astemo6.mihomo.qx.module</string>
+				<string>com.astemo6.mihomo.qx.snippet</string>
 				<string>public.yaml</string>
 			</array>
 		</dict>
@@ -108,7 +108,7 @@
 	<array>
 		<dict>
 			<key>UTTypeIdentifier</key>
-			<string>com.astemo6.mihomo.module</string>
+			<string>com.astemo6.mihomo.qx.module</string>
 			<key>UTTypeDescription</key>
 			<string>Surge 模块（.module）</string>
 			<key>UTTypeConformsTo</key>
@@ -125,7 +125,7 @@
 		</dict>
 		<dict>
 			<key>UTTypeIdentifier</key>
-			<string>com.astemo6.mihomo.snippet</string>
+			<string>com.astemo6.mihomo.qx.snippet</string>
 			<key>UTTypeDescription</key>
 			<string>Quantumult X 片段</string>
 			<key>UTTypeConformsTo</key>
@@ -142,7 +142,7 @@
 		</dict>
 		<dict>
 			<key>UTTypeIdentifier</key>
-			<string>com.astemo6.mihomo.sgmodule</string>
+			<string>com.astemo6.mihomo.qx.sgmodule</string>
 			<key>UTTypeDescription</key>
 			<string>Surge 模块</string>
 			<key>UTTypeConformsTo</key>
@@ -159,7 +159,7 @@
 		</dict>
 		<dict>
 			<key>UTTypeIdentifier</key>
-			<string>com.astemo6.mihomo.plugin</string>
+			<string>com.astemo6.mihomo.qx.plugin</string>
 			<key>UTTypeDescription</key>
 			<string>Loon 插件</string>
 			<key>UTTypeConformsTo</key>
@@ -176,7 +176,7 @@
 		</dict>
 		<dict>
 			<key>UTTypeIdentifier</key>
-			<string>com.astemo6.mihomo.stoverride</string>
+			<string>com.astemo6.mihomo.qx.stoverride</string>
 			<key>UTTypeDescription</key>
 			<string>Stash 覆写</string>
 			<key>UTTypeConformsTo</key>
@@ -193,7 +193,7 @@
 		</dict>
 		<dict>
 			<key>UTTypeIdentifier</key>
-			<string>com.astemo6.mihomo.conf</string>
+			<string>com.astemo6.mihomo.qx.conf</string>
 			<key>UTTypeDescription</key>
 			<string>Surge / Quantumult X 配置</string>
 			<key>UTTypeConformsTo</key>
@@ -210,7 +210,7 @@
 		</dict>
 		<dict>
 			<key>UTTypeIdentifier</key>
-			<string>com.astemo6.mihomo.list</string>
+			<string>com.astemo6.mihomo.qx.list</string>
 			<key>UTTypeDescription</key>
 			<string>规则 / 重写列表</string>
 			<key>UTTypeConformsTo</key>
