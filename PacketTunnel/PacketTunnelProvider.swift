@@ -219,6 +219,9 @@ final class PacketTunnelProvider: NEPacketTunnelProvider {
             LibmihomoRecordMemorySample(Int64(ProcessMemory.footprintBytes()), Int64(ProcessMemory.availableBytes()))
             LibmihomoDumpDiagnostics()
             completionHandler?("\(ProcessMemory.summary()), \(LibmihomoMemoryStats())".data(using: .utf8))
+        case .applyNetworkPolicy:
+            let n = LibmihomoApplyNetworkPolicy()
+            completionHandler?("\(n)".data(using: .utf8))
         case .none:
             completionHandler?(nil)
         }

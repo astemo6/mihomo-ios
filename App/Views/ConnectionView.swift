@@ -16,6 +16,8 @@ struct ConnectionView: View {
     @State private var confirmReset = false
     @State private var resetting = false
     @State private var needsReconnect = false
+    @State private var ssidHint: String?
+    @State private var ssidAddTick = 0
 
     var body: some View {
         Form {
@@ -174,15 +176,46 @@ struct ConnectionView: View {
             }
             if onDemand.mode == .always || onDemand.mode == .wifi {
                 LinesField(title: "受信任的 Wi-Fi（在这些网络下断开）", placeholder: "Home-WiFi", lines: $onDemand.trustedSSIDs)
+                    .id("trusted-\(ssidAddTick)")
+                addCurrentSSIDButton { onDemand.trustedSSIDs.append($0) }
+            }
+            if onDemand.mode == .ssid {
+                LinesField(title: "只在这些 Wi-Fi 下连接", placeholder: "Office-WiFi", lines: $onDemand.onlySSIDs)
+                    .id("only-\(ssidAddTick)")
+                addCurrentSSIDButton { onDemand.onlySSIDs.append($0) }
+                Toggle("蜂窝网络下也连接", isOn: $onDemand.ssidCellular)
+                if onDemand.onlySSIDs.isEmpty {
+                    Text(onDemand.ssidCellular ? "还没有填写 Wi-Fi 名称：只在蜂窝网络下自动连接。" : "还没有填写 Wi-Fi 名称：不会自动连接。")
+                        .font(.caption).foregroundStyle(Theme.warn)
+                }
+            }
+            NavigationLink { NetworkPolicyView() } label: {
+                Label("按网络切换策略", systemImage: "arrow.triangle.branch")
             }
             if vpn.onDemandPaused {
                 Label("已暂停：你在 App 里手动断开了。下次手动连接后恢复。", systemImage: "pause.circle")
                     .font(.footnote).foregroundStyle(Theme.warn)
             }
         } header: { Text("按需连接") } footer: {
-            Text("由系统在网络变化时自动连接：「始终」任何网络都连接；「仅 Wi-Fi」在蜂窝网络下断开；「仅蜂窝网络」在 Wi-Fi 下断开。受信任的 Wi-Fi 按名称（SSID）匹配，区分大小写，每行一个。在 App 里手动断开会暂停按需连接，直到你再次手动连接。")
+            Text("由系统在网络变化时自动连接：「始终」任何网络都连接；「仅 Wi-Fi」在蜂窝网络下断开；「仅蜂窝网络」在 Wi-Fi 下断开；「仅指定 Wi-Fi」只在列出的 Wi-Fi 下连接，其余网络断开。Wi-Fi 名称（SSID）由系统匹配，区分大小写，每行一个。在 App 里手动断开会暂停按需连接，直到你再次手动连接。")
         }
         .listRowBackground(Theme.card)
+    }
+
+    /// 「添加当前 Wi-Fi」: reads the SSID (VPN configuration or location permission lets iOS answer).
+    @ViewBuilder func addCurrentSSIDButton(_ add: @escaping (String) -> Void) -> some View {
+        Button {
+            Task {
+                await WiFiInfo.shared.refresh()
+                if let s = WiFiInfo.shared.ssid {
+                    if !onDemand.trustedSSIDs.contains(s) && !onDemand.onlySSIDs.contains(s) { add(s); ssidAddTick += 1 }
+                    ssidHint = nil
+                } else {
+                    ssidHint = String(localized: "读不到当前 Wi-Fi 名称。请手动输入，或在「按网络切换策略」里允许读取。")
+                }
+            }
+        } label: { Label("添加当前 Wi-Fi", systemImage: "wifi") }
+        if let ssidHint { Text(ssidHint).font(.caption).foregroundStyle(Theme.warn) }
     }
 
     var lanSection: some View {

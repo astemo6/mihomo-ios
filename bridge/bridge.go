@@ -462,6 +462,7 @@ func Start(homeDir, configPath string, tunFd int32) error {
 		return err
 	}
 	curFd, curHome = tunFd, homeDir
+	setNetPolicyProfile(configPath)
 	startDiagCapture(homeDir)
 	stage("core start begin (fd=%d)", tunFd)
 	tunnel.OnSuspend()
@@ -478,6 +479,9 @@ func Start(homeDir, configPath string, tunFd int32) error {
 			}
 			if !safe {
 				startSmart(homeDir, configPath)
+				if n := applyNetPolicy(homeDir, configPath, "start"); n > 0 {
+					stage("network policy: %d group(s) switched for this network", n)
+				}
 			}
 		}
 		done <- err
@@ -525,10 +529,12 @@ func Reload(configPath string) error {
 		lastError = err.Error()
 		return err
 	}
+	setNetPolicyProfile(configPath)
 	if overridesFor(curHome, configPath).SafeMode {
 		stopSmart()
 	} else {
 		startSmart(curHome, configPath)
+		applyNetPolicy(curHome, configPath, "reload")
 	}
 	return nil
 }
