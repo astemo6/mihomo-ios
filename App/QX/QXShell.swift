@@ -66,7 +66,7 @@ struct QXSheetView: View {
                 }
             }
         case .addRemote:
-            AddRemoteSheet { _ in }
+            QXSubscriptionEditor()
         case .runMode:
             QXRunModeSheet()
                 .presentationDetents([.medium, .large])

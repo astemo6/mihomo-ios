@@ -48,8 +48,23 @@ final class QXActivityModel: ObservableObject {
     private var lastTick: Date?
     private var nextSeq = 1
     private static let recordCap = 500
+    private var sessionID = QXSessionStore.idFormatter.string(from: Date())
+    private var lastSave = Date.distantPast
+
+    /// Writes the running session to the history (throttled to every 20 s unless forced).
+    func saveSession(force: Bool = false) {
+        guard !traffic.isEmpty, force || Date().timeIntervalSince(lastSave) > 20 else { return }
+        lastSave = Date()
+        var nodes: [String: QXTrafficSession.Net] = [:]
+        for (k, v) in traffic {
+            nodes[k] = QXTrafficSession.Net(tcpUp: v.tcp.up, tcpDown: v.tcp.down, udpUp: v.udp.up, udpDown: v.udp.down)
+        }
+        QXSessionStore.upsert(QXTrafficSession(id: sessionID, start: since, end: Date(), nodes: nodes, connections: tcpCount + udpCount))
+    }
 
     func reset() {
+        saveSession(force: true)
+        sessionID = QXSessionStore.idFormatter.string(from: Date())
         records = []; tcpCount = 0; udpCount = 0; traffic = [:]; speed = [:]; maxSpeed = [:]
         seqByID = [:]; last = [:]; lastTick = nil; nextSeq = 1; since = Date()
     }
@@ -102,6 +117,7 @@ final class QXActivityModel: ObservableObject {
         records = list
         last = seen
         traffic = tr
+        saveSession()
         if dt > 0 {
             var sp: [String: NetBytes] = [:]
             var mx = maxSpeed
@@ -462,6 +478,7 @@ struct QXTrafficStatsView: View {
     var body: some View {
         QXPage(title: tab == 0 ? String(localized: "流量") : String(localized: "流速")) {
             Menu {
+                Button { nav.push(.dest(.sessions)) } label: { Label("流量统计（已完成）", systemImage: "clock.arrow.circlepath") }
                 Button { nav.push(.dest(.stats)) } label: { Label("按日流量", systemImage: "chart.bar.xaxis") }
                 Button { nav.push(.dest(.analytics)) } label: { Label("连接分析", systemImage: "chart.pie") }
             } label: {

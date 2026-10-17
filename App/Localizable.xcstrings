@@ -6835,6 +6835,40 @@
       },
       "extractionState": "manual"
     },
+    "上传（已完成）": {
+      "localizations": {
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "上傳（已完成）"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Upload (completed)"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "アップロード（完了）"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "업로드(완료)"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Отдача (завершённые)"
+          }
+        }
+      }
+    },
     "上次 %@%@": {
       "localizations": {
         "en": {
@@ -7346,6 +7380,40 @@
           "stringUnit": {
             "state": "translated",
             "value": "Загрузить профиль"
+          }
+        }
+      }
+    },
+    "下载（已完成）": {
+      "localizations": {
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "下載（已完成）"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Download (completed)"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ダウンロード（完了）"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "다운로드(완료)"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Загрузка (завершённые)"
           }
         }
       }
@@ -16370,6 +16438,40 @@
           "stringUnit": {
             "state": "translated",
             "value": "Подставить типичные слова служебных узлов"
+          }
+        }
+      }
+    },
+    "填写资源路径后自动识别": {
+      "localizations": {
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "填寫資源路徑後自動辨識"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Detected automatically once the path is filled in"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "パスを入力すると自動で判別します"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "경로를 입력하면 자동으로 인식합니다"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Определяется автоматически после ввода пути"
           }
         }
       }
@@ -25932,6 +26034,40 @@
         }
       }
     },
+    "无需资源解析器：Clash / mihomo YAML、Base64 或明文分享链接（含 VLESS Reality、Hysteria2、TUIC、AnyTLS、WireGuard 等）、SIP008 JSON、sing-box JSON、Surge / Quantumult X / Loon / Shadowrocket 节点行都由内置解析器直接转换。": {
+      "localizations": {
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "無需資源解析器：Clash / mihomo YAML、Base64 或明文分享連結（含 VLESS Reality、Hysteria2、TUIC、AnyTLS、WireGuard 等）、SIP008 JSON、sing-box JSON、Surge / Quantumult X / Loon / Shadowrocket 節點行都由內建解析器直接轉換。"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "No resource parser needed: Clash / mihomo YAML, Base64 or plain share links (incl. VLESS Reality, Hysteria2, TUIC, AnyTLS, WireGuard…), SIP008 JSON, sing-box JSON and Surge / Quantumult X / Loon / Shadowrocket node lines are converted by the built-in parsers."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "リソースパーサーは不要です。Clash / mihomo YAML、Base64 または平文の共有リンク（VLESS Reality、Hysteria2、TUIC、AnyTLS、WireGuard など）、SIP008 JSON、sing-box JSON、Surge / Quantumult X / Loon / Shadowrocket のノード行は内蔵パーサーが直接変換します。"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "리소스 파서가 필요 없습니다. Clash / mihomo YAML, Base64 또는 일반 공유 링크(VLESS Reality, Hysteria2, TUIC, AnyTLS, WireGuard 등), SIP008 JSON, sing-box JSON, Surge / Quantumult X / Loon / Shadowrocket 노드 줄은 내장 파서가 바로 변환합니다."
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Парсер ресурсов не нужен: Clash / mihomo YAML, ссылки Base64 или открытым текстом (включая VLESS Reality, Hysteria2, TUIC, AnyTLS, WireGuard…), JSON SIP008, JSON sing-box и строки узлов Surge / Quantumult X / Loon / Shadowrocket преобразуются встроенными парсерами."
+          }
+        }
+      }
+    },
     "日志": {
       "localizations": {
         "en": {
@@ -29385,6 +29521,40 @@
         }
       }
     },
+    "格式识别": {
+      "localizations": {
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "格式辨識"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Format Detection"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "形式の判別"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "형식 인식"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Определение формата"
+          }
+        }
+      }
+    },
     "检测于 %@": {
       "localizations": {
         "zh-Hant": {
@@ -30101,6 +30271,40 @@
         }
       }
     },
+    "正在识别…": {
+      "localizations": {
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "正在辨識…"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Detecting…"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "判別中…"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "인식 중…"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Определение…"
+          }
+        }
+      }
+    },
     "正在读取配置…": {
       "localizations": {
         "zh-Hant": {
@@ -30403,6 +30607,40 @@
           "stringUnit": {
             "state": "translated",
             "value": "При каждом подключении проверяет, есть ли у текущей сети Wi-Fi или сотовой публичный IPv6-адрес, и только тогда включает IPv6 в туннеле и ядре. После смены сети переподключитесь. «Приоритет IP узлов» действует только на узлы (включая провайдеры) без собственного ip-version."
+          }
+        }
+      }
+    },
+    "每次连接记录一份（App 打开期间按出口节点统计），保留最近 30 次。": {
+      "localizations": {
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "每次連線記錄一份（App 開啟期間按出口節點統計），保留最近 30 次。"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "One record per session (counted per exit node while the app is open); the last 30 are kept."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "接続ごとに 1 件記録します（App を開いている間、出口ノードごとに集計）。直近 30 件を保存します。"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "연결마다 하나씩 기록합니다(앱이 열려 있는 동안 출구 노드별 집계). 최근 30개를 보관합니다."
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Одна запись на сеанс (по узлам выхода, пока приложение открыто); хранятся последние 30."
           }
         }
       }
@@ -31431,6 +31669,40 @@
         }
       }
     },
+    "流量统计（已完成）": {
+      "localizations": {
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "流量統計（已完成）"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Traffic (Completed)"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "トラフィック統計（完了）"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "트래픽 통계(완료)"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Трафик (завершённые)"
+          }
+        }
+      }
+    },
     "浅色": {
       "localizations": {
         "zh-Hant": {
@@ -32452,6 +32724,40 @@
           "stringUnit": {
             "state": "translated",
             "value": "Очистить кэш DNS"
+          }
+        }
+      }
+    },
+    "清空流量记录？": {
+      "localizations": {
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "清空流量記錄？"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Clear traffic records?"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "トラフィック記録を消去しますか？"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "트래픽 기록을 비울까요?"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Очистить записи трафика?"
           }
         }
       }
@@ -33644,6 +33950,40 @@
           "stringUnit": {
             "state": "translated",
             "value": "Пусто — URL по умолчанию"
+          }
+        }
+      }
+    },
+    "留空则使用订阅提供的名称": {
+      "localizations": {
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "留空則使用訂閱提供的名稱"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Leave empty to use the subscription's own name"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "空欄なら購読が提供する名前を使います"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "비워 두면 구독이 제공하는 이름을 사용"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Пусто — имя из подписки"
           }
         }
       }
@@ -41060,6 +41400,142 @@
         }
       }
     },
+    "资源 - 节点": {
+      "localizations": {
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "資源 - 節點"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Resource - Nodes"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "リソース - ノード"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "리소스 - 노드"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Ресурс — узлы"
+          }
+        }
+      }
+    },
+    "资源内容包含若干节点信息，作为远程资源来引用。": {
+      "localizations": {
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "資源內容包含若干節點資訊，作為遠端資源來引用。"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "The resource contains node definitions and is referenced as a remote resource."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "リソースには複数のノード情報が含まれ、リモートリソースとして参照されます。"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "리소스에는 여러 노드 정보가 들어 있으며 원격 리소스로 참조됩니다."
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Ресурс содержит описания узлов и подключается как удалённый."
+          }
+        }
+      }
+    },
+    "资源标签": {
+      "localizations": {
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "資源標籤"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Resource Tag"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "リソースタグ"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "리소스 태그"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Метка ресурса"
+          }
+        }
+      }
+    },
+    "资源路径": {
+      "localizations": {
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "資源路徑"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Resource Path"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "リソースのパス"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "리소스 경로"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Путь ресурса"
+          }
+        }
+      }
+    },
     "超时": {
       "localizations": {
         "en": {
@@ -43418,6 +43894,40 @@
           "stringUnit": {
             "state": "translated",
             "value": "Подключить или отключить прокси"
+          }
+        }
+      }
+    },
+    "连接数 %lld": {
+      "localizations": {
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "連線數 %lld"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Connections: %lld"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "接続数 %lld"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "연결 수 %lld"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Соединений: %lld"
           }
         }
       }
