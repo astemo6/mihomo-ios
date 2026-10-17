@@ -6,12 +6,17 @@ struct HomeView: View {
     @EnvironmentObject var store: ProfileStore
     @EnvironmentObject var dash: DashboardModel
     @ObservedObject private var offline = ProfileInspector.shared
+    @ObservedObject private var homeGroups = HomeGroupsStore.shared
 
     /// v0.8: the same cards while disconnected, from the profile file (selection saved for the next connect).
+    /// feat/home-groups: the user's chosen groups for this profile (default = the first four).
+    var offlineAvailable: [String] { offline.result.groups.filter { $0.hidden != true }.map(\.name) }
+
     var offlineCards: [DashboardModel.HomeGroup] {
+        _ = homeGroups.revision
         let groups = offline.result.groups.filter { $0.hidden != true }
         let byName = Dictionary(groups.map { ($0.name, $0) }, uniquingKeysWith: { a, _ in a })
-        return groups.prefix(4).map { g -> DashboardModel.HomeGroup in
+        return homeGroups.resolved(available: groups.map(\.name)).compactMap { byName[$0] }.map { g -> DashboardModel.HomeGroup in
             var chain = [g.name]
             var cur = g
             while let n = offline.current(of: cur), chain.count < 6, !chain.contains(n) {
@@ -33,9 +38,9 @@ struct HomeView: View {
                     ExitHeader()
                     if vpn.safeModeActive && vpn.status != .disconnected && vpn.status != .invalid { SafeModeCard() }
                     if vpn.isConnected && !dash.homeGroups.isEmpty {
-                        HomePolicyCards(groups: dash.homeGroups, live: true)
+                        HomePolicySection(groups: dash.homeGroups, live: true, available: dash.availableGroups)
                     } else if disconnected && !offlineCards.isEmpty {
-                        HomePolicyCards(groups: offlineCards, live: false)
+                        HomePolicySection(groups: offlineCards, live: false, available: offlineAvailable)
                     }
                     ModeCard()
                     TrafficCard()
@@ -398,6 +403,9 @@ struct HomePolicyCards: View {
     let groups: [DashboardModel.HomeGroup]
     /// false = disconnected: cards come from the profile and the picker saves for the next connect (v0.8).
     var live = true
+    /// feat/home-groups long-press actions (nil = not offered).
+    var onRemove: ((String) -> Void)? = nil
+    var onEdit: (() -> Void)? = nil
 
     var body: some View {
         VStack(spacing: 0) {
@@ -426,6 +434,14 @@ struct HomePolicyCards: View {
                     .contentShape(Rectangle())
                 }
                 .buttonStyle(.plain)
+                .contextMenu {
+                    if let onRemove {
+                        Button(role: .destructive) { onRemove(g.name) } label: { Label("从首页移除", systemImage: "minus.circle") }
+                    }
+                    if let onEdit {
+                        Button { onEdit() } label: { Label("编辑首页策略", systemImage: "slider.horizontal.3") }
+                    }
+                }
             }
         }
         .background(RoundedRectangle(cornerRadius: 18, style: .continuous).fill(Theme.card))

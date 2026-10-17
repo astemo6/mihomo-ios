@@ -155,6 +155,7 @@ struct PolicyView: View {
     @AppStorage("policy.autoSort") private var autoSort = true
     /// v0.15: hide automatic groups (url-test / fallback / load-balance); select groups always stay. Persisted.
     @AppStorage("policy.collapseAuto") private var collapseAuto = false
+    @State private var editHome = false
     @State private var sortDelays: [String: Int] = [:]
     @State private var iconTarget: IconTarget?
 
@@ -239,6 +240,8 @@ struct PolicyView: View {
                             Label("按名称", systemImage: "textformat").tag("name")
                         }
                         Toggle("测速后自动排序", isOn: $autoSort)
+                        Divider()
+                        Button { editHome = true } label: { Label("编辑首页策略", systemImage: "house") } // feat/home-groups
                     } label: { Image(systemName: "arrow.up.arrow.down") }
                     .accessibilityLabel(Text("排序"))
                     Button {
@@ -270,6 +273,7 @@ struct PolicyView: View {
         }
         .sheet(item: $share) { t in NodeShareSheet(name: t.name, link: t.link) }
         .sheet(item: $probeTarget) { t in NodeProbeSheet(policy: t.name) }
+        .sheet(isPresented: $editHome) { HomeGroupsEditor().environmentObject(vpn) }
         .alert("分享节点", isPresented: Binding(get: { shareError != nil }, set: { if !$0 { shareError = nil } })) {
             Button("好", role: .cancel) {}
         } message: { Text(shareError ?? "") }

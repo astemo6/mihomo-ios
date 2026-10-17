@@ -18,8 +18,10 @@ final class DashboardModel: ObservableObject {
     @Published var coreVersion: String = ""
     @Published var mode: String = CoreOverrides.load().mode
     @Published var selectedNode: String = "—"
-    /// Home policy cards (v0.7): the profile's first selectable groups with the resolved chain.
+    /// Home policy cards (v0.7): the chosen groups (feat/home-groups) with the resolved chain.
     @Published var homeGroups: [HomeGroup] = []
+    /// feat/home-groups: every non-hidden top-level group in GLOBAL order (candidates for Home).
+    @Published var availableGroups: [String] = []
 
     struct HomeGroup: Identifiable, Equatable {
         var id: String { name }
@@ -78,6 +80,7 @@ final class DashboardModel: ObservableObject {
         tasks.removeAll()
         up = 0; down = 0; connectionCount = 0; memory = 0
         homeGroups = []
+        availableGroups = []
         if !VPNManager.shared.isConnected { ConnectionAnalytics.shared.reset() }
     }
 
@@ -94,11 +97,14 @@ final class DashboardModel: ObservableObject {
         selectedNode = name
         WidgetSnapshot.update(node: name, policy: firstGroup)
 
-        // Home policy cards: top-level groups in GLOBAL order (hidden ones skipped), at most four.
+        // Home policy cards (feat/home-groups): the user's chosen groups for this profile, in their order;
+        // default = the first four top-level groups in GLOBAL order (hidden ones skipped).
         let testURL = ControllerClient.testSettings.url
+        let available = order.filter { all[$0]?.isGroup == true && all[$0]?.hidden != true }
+        if available != availableGroups { availableGroups = available }
         var cards: [HomeGroup] = []
-        for g in order {
-            guard let p = all[g], p.isGroup, p.hidden != true else { continue }
+        for g in HomeGroupsStore.shared.resolved(available: available) {
+            guard let p = all[g] else { continue }
             var chain = [g]
             var cur = g
             while let n = all[cur]?.now, !n.isEmpty, chain.count < 6, !chain.contains(n) {
@@ -106,7 +112,6 @@ final class DashboardModel: ObservableObject {
             }
             cards.append(HomeGroup(name: g, icon: p.icon, kind: PolicyGroupDisplay.kind(live: p.type), chain: chain,
                                    delay: all[cur]?.lastDelay(for: testURL)))
-            if cards.count == 4 { break }
         }
         if cards != homeGroups { homeGroups = cards }
     }
