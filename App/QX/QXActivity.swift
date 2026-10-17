@@ -528,7 +528,7 @@ struct QXTrafficStatsView: View {
                 .padding(.bottom, 110)
             }
             .overlay(alignment: .bottom) {
-                QXBottomSegment(icons: ["chart.bar.fill", "gauge"], selection: $tab).padding(.bottom, 10)
+                QXBottomSegment(icons: ["chart.bar.fill", "gauge"], selection: $tab).qxBottomFloat()
             }
         }
         .task(id: vpn.isConnected) {

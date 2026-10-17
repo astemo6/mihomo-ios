@@ -154,7 +154,8 @@ struct QXHome: View {
 
     var body: some View {
         VStack(spacing: 0) {
-            VStack(spacing: 12) {
+            // Frame 01: title → tiles 43.6 pt, tiles → divider 20 pt (simulator had 48 / 18.4).
+            VStack(spacing: 9) {
                 QXHeader()
                     .padding(.horizontal, QXMetrics.inset)
                     .padding(.top, 6)
@@ -163,7 +164,7 @@ struct QXHome: View {
                     SafeModeCard().padding(.horizontal, 16)
                 }
             }
-            .padding(.bottom, 12)
+            .padding(.bottom, 14)
             .background(QXPalette.header.ignoresSafeArea(edges: .top))
             Divider()
             TabView(selection: $selectedRaw) {
@@ -380,7 +381,10 @@ struct QXTile: View {
     var body: some View {
         ZStack(alignment: .topTrailing) {
             VStack(spacing: small ? 0 : 5) {
+                // QX preview 7 (simulator vs frame 01): a fixed glyph box, so every label sits on the same line
+                // (the funnel and the SF Symbols have different heights).
                 QXPanelGlyph(panel: panel, size: 20)
+                    .frame(height: 22)
                 if !small {
                     Text(verbatim: panel.title)
                         .font(QXType.tileLabel)
@@ -396,7 +400,8 @@ struct QXTile: View {
                     .padding(.top, small ? 4 : 0)
                     .animation(QXMotion.spring, value: selected)
             }
-            .frame(width: flexible ? nil : (small ? 56 : QXMetrics.tileSize.width), height: small ? 56 : QXMetrics.tileSize.height)
+            // The 4 pt top padding below is inside the tile: 66 pt in total (was 70 pt; frame 01 = 65.6 pt).
+            .frame(width: flexible ? nil : (small ? 56 : QXMetrics.tileSize.width), height: small ? 52 : QXMetrics.tileSize.height - 4)
             .frame(maxWidth: flexible ? .infinity : nil)
             .padding(.top, 4)
             if !small {

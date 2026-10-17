@@ -369,6 +369,8 @@ struct QXNodesPanel: View {
                     }
                     .accessibilityLabel(Text("添加策略"))
                 }
+                // Frame 01: last PROXY card → 自定义策略 card 82 pt (we had 56).
+                .padding(.top, 8)
                 if policyExpanded {
                     ForEach(groups.filter { $0.name != proxyName || proxyName == "GLOBAL" }) { g in
                         QXPolicyRow(group: g,
@@ -519,7 +521,7 @@ struct QXResourceCard: View {
                 }
                 .padding(.horizontal, 16)
                 .padding(.vertical, 8)
-                .frame(minHeight: 62)
+                .frame(minHeight: 64)   // QX preview 7: 63.7–64.3 pt in frame 01 (simulator had 62)
                 .contentShape(Rectangle())
                 .onTapGesture(perform: onToggle)
                 .contextMenu {
@@ -713,7 +715,7 @@ struct QXPolicyRow: View {
             .padding(.leading, 12)
             .padding(.trailing, 16)
             .padding(.vertical, 6)
-            .frame(minHeight: 62)
+            .frame(minHeight: 64)   // QX preview 7: 63.7–64.3 pt in frame 01 (simulator had 62)
             .background {
                 if let background {
                     RoundedRectangle(cornerRadius: 20, style: .continuous)

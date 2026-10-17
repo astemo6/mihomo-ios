@@ -112,7 +112,7 @@ enum QXMetrics {
         return w?.safeAreaInsets.bottom ?? 0
     }
     /// Settings action buttons (frame 25: 94 px ≈ 63 pt high, 13 pt apart).
-    static let settingsButton: CGFloat = 62
+    static let settingsButton: CGFloat = 64   // QX preview 7: 64.3 pt measured on frame 25 vs our 60.7 on the simulator
     /// Hairline that QX draws around white chrome (circles, capsules, the toolbar).
     static let hairline = QXPalette.hairline
 }
@@ -335,7 +335,10 @@ struct QXSectionHeader<Trailing: View>: View {
             trailing
         }
         .padding(.horizontal, 4)
-        .padding(.top, 14)
+        // QX preview 7 (simulator vs frame 01): divider → PROXY 37 pt and title → first card 29 pt in the frame
+        // (we had 26 / 22).
+        .padding(.top, 25)
+        .padding(.bottom, 7)
     }
 }
 
@@ -472,8 +475,10 @@ struct QXPage<Content: View, Trailing: View>: View {
                     }
                 }
                 .padding(.horizontal, QXMetrics.inset)
-                .padding(.top, 4)
-                .padding(.bottom, 8)
+                // QX preview 7 (simulator vs frames 25 / 26): the circles sit 3.4 pt higher and page titles
+                // ~60 pt below their centre (we had 42–51 pt).
+                .padding(.top, 1)
+                .padding(.bottom, 25)
                 .background(
                     LinearGradient(colors: [QXPalette.bg, QXPalette.bg.opacity(0.92), QXPalette.bg.opacity(0)], startPoint: .top, endPoint: .bottom)
                         .ignoresSafeArea(edges: .top)
@@ -503,7 +508,8 @@ struct QXLargeTitle: View {
                 if let count { Text(verbatim: count).font(.system(size: 15)).foregroundStyle(.secondary) }
             }
             if let caption {
-                Text(verbatim: caption).font(QXType.caption).foregroundStyle(.secondary).lineSpacing(2).fixedSize(horizontal: false, vertical: true)
+                // Frame 26: 17.8 pt lines (system spacing; the extra 2 pt made 19.4).
+                Text(verbatim: caption).font(QXType.caption).foregroundStyle(.secondary).fixedSize(horizontal: false, vertical: true)
             }
         }
         .frame(maxWidth: .infinity, alignment: .leading)
@@ -535,22 +541,31 @@ enum QXPolicyColor {
     }
 }
 
+extension View {
+    /// Bottom floating capsule (QXBottomSegment): 25 pt above the screen edge as in frame 26 (was 10 pt above
+    /// the home indicator, ≈ 45 pt).
+    func qxBottomFloat() -> some View {
+        padding(.bottom, 25).offset(y: QXMetrics.windowBottomInset)
+    }
+}
+
 /// Floating segmented capsule of circles at the bottom (流量 | 流速, 节点 | 分流 | 重写).
 struct QXBottomSegment: View {
     let icons: [String]
     @Binding var selection: Int
     var body: some View {
-        // Frame 28: 183×55 pt capsule, 23 pt circles ~68 pt apart; selected = black disc, others grey rings.
-        HStack(spacing: 30) {
+        // Frame 26/28: 186×54 pt capsule, 25 pt circles 69 pt apart; selected = black disc, others grey rings.
+        // QX preview 7: was 218 pt wide with 32 pt circles; the 44 pt touch targets stay.
+        HStack(spacing: 25) {
             ForEach(Array(icons.enumerated()), id: \.offset) { i, icon in
                 Button {
                     if selection != i { QXHaptics.select() }
                     withAnimation(QXMotion.spring) { selection = i }
                 } label: {
                     Image(systemName: icon)
-                        .font(.system(size: 13, weight: .bold))
+                        .font(.system(size: 11, weight: .bold))
                         .foregroundStyle(selection == i ? Color(UIColor.systemBackground) : QXPalette.ring)
-                        .frame(width: 32, height: 32)
+                        .frame(width: 25, height: 25)
                         .background(Circle().fill(selection == i ? Color.primary : Color.clear))
                         .overlay(Circle().stroke(selection == i ? Color.clear : QXPalette.ring, lineWidth: 1.5))
                         .frame(width: 44, height: 44)
@@ -559,8 +574,8 @@ struct QXBottomSegment: View {
                 .buttonStyle(.plain)
             }
         }
-        .padding(.horizontal, 14)
-        .frame(height: 56)
+        .padding(.horizontal, 2)
+        .frame(height: 54)
         .background(Capsule().fill(QXPalette.chrome).shadow(color: QXPalette.shadow(0.06), radius: 5, y: 2))
         .overlay(Capsule().stroke(QXMetrics.hairline, lineWidth: 1))
     }

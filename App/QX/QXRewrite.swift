@@ -258,7 +258,7 @@ struct QXRewriteResourcesView: View {
                 .padding(.horizontal, QXMetrics.inset)
                 .padding(.bottom, 100)
             }
-            .overlay(alignment: .bottom) { QXResourceSwitcher(current: 2).padding(.bottom, 10) }
+            .overlay(alignment: .bottom) { QXResourceSwitcher(current: 2).qxBottomFloat() }
         }
         .onAppear { engine.reparseModules(); res.reload() }
         .alert("导入模块", isPresented: $adding) {

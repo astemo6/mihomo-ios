@@ -58,9 +58,10 @@ struct QXSettingsSection<Trailing: View>: View {
                     if let count { Text(verbatim: count).font(.subheadline).foregroundStyle(.secondary) }
                 }
                 Spacer()
-                trailing
+                // QX preview 7: the 31 pt switch no longer makes the title row taller (frame 25).
+                trailing.frame(height: 24)
             }
-            Text(verbatim: caption).font(QXType.caption).foregroundStyle(.secondary).lineSpacing(2).fixedSize(horizontal: false, vertical: true)
+            Text(verbatim: caption).font(QXType.caption).foregroundStyle(.secondary).fixedSize(horizontal: false, vertical: true)
             QXActionGrid(color: color, items: items, columns: hSize == .regular ? 3 : 2).padding(.top, 4)
         }
     }
@@ -173,7 +174,7 @@ struct QXSettingsView: View {
                     }
                 }
                 .padding(.horizontal, QXMetrics.inset)
-                .padding(.top, 8)
+                .padding(.top, 1)
                 .padding(.bottom, 50)
             }
         }, hideBack: isRoot)
@@ -252,7 +253,7 @@ struct QXOtherSettingsView: View {
                     ForEach(AppAppearance.allCases) { a in
                         Button { appearance = a.rawValue; AppAppearance.apply(a) } label: {
                             HStack {
-                                Label(a.title, systemImage: a.icon).foregroundStyle(.primary)
+                                QXListLabel(key: a.title, icon: a.icon)
                                 Spacer()
                                 if appearance == a.rawValue { Image(systemName: "checkmark").foregroundStyle(QXColor.switchOn) }
                             }
@@ -269,7 +270,7 @@ struct QXOtherSettingsView: View {
 
                 Section {
                     Toggle(isOn: $live.enabled) {
-                        Label("实时活动与灵动岛", systemImage: "bell.badge").foregroundStyle(.primary)
+                        QXListLabel(title: String(localized: "实时活动与灵动岛"), icon: "bell.badge")
                     }
                     .tint(QXColor.switchOn)
                     if live.enabled && !live.systemAllowed {
@@ -311,7 +312,7 @@ struct QXOtherSettingsView: View {
                 Section {
                     Button { nav.push(.dest(.diagnostics)) } label: {
                         HStack {
-                            Label("诊断", systemImage: "waveform.path.ecg").foregroundStyle(.primary)
+                            QXListLabel(title: String(localized: "诊断"), icon: "waveform.path.ecg")
                             Spacer()
                             Text(AppShared.containerOK ? "App Group 正常" : "App Group 异常")
                                 .font(.caption).foregroundStyle(AppShared.containerOK ? QXColor.success : QXColor.danger)
@@ -324,11 +325,14 @@ struct QXOtherSettingsView: View {
             }
             .listStyle(.insetGrouped)
             .scrollContentBackground(.hidden)
+            // QX preview 7 (simulator vs frame 43): 52 pt rows, cards 18 pt from the edges, headers on the card edge.
+            .environment(\.defaultMinListRowHeight, 52)
+            .qxListMargins()
         }
     }
 
     private func header(_ t: LocalizedStringKey) -> some View {
-        Text(t).font(.system(size: 22, weight: .bold)).foregroundStyle(.primary).textCase(nil).padding(.leading, -4)
+        Text(t).font(QXType.pageTitle).foregroundStyle(Color.primary).textCase(nil).padding(.leading, QXListMargins.headerShift)
     }
 
     private func modeRow(_ mode: String, _ title: String) -> some View {
@@ -338,7 +342,7 @@ struct QXOtherSettingsView: View {
         } label: {
             HStack(spacing: 12) {
                 QXWindmill(mode: mode, size: 22)
-                Text(verbatim: title).foregroundStyle(.primary)
+                Text(verbatim: title).foregroundStyle(Color.primary)
                 Spacer()
                 if modeModel.mode == mode { Image(systemName: "checkmark").foregroundStyle(QXColor.switchOn) }
             }
@@ -349,7 +353,7 @@ struct QXOtherSettingsView: View {
     private func row(_ title: String, _ icon: String, _ d: QXDest) -> some View {
         Button { nav.push(.dest(d)) } label: {
             HStack {
-                Label(title, systemImage: icon).foregroundStyle(.primary)
+                QXListLabel(title: title, icon: icon)
                 Spacer()
                 Image(systemName: "chevron.right").font(.caption.weight(.semibold)).foregroundStyle(.tertiary)
             }
@@ -359,7 +363,7 @@ struct QXOtherSettingsView: View {
     private func sheetRow(_ title: String, _ icon: String, _ s: QXSheet) -> some View {
         Button { nav.present(s) } label: {
             HStack {
-                Label(title, systemImage: icon).foregroundStyle(.primary)
+                QXListLabel(title: title, icon: icon)
                 Spacer()
                 Image(systemName: "chevron.up").font(.caption.weight(.semibold)).foregroundStyle(.tertiary)
             }
@@ -577,7 +581,7 @@ struct QXNodeResourcesView: View {
                 .padding(.horizontal, QXMetrics.inset)
                 .padding(.bottom, 100)
             }
-            .overlay(alignment: .bottom) { QXResourceSwitcher(current: 0).padding(.bottom, 10) }
+            .overlay(alignment: .bottom) { QXResourceSwitcher(current: 0).qxBottomFloat() }
         }
         .task { await insp.load() }
         .sheet(item: $editing, onDismiss: { Task { await insp.load() } }) { t in QXResourceEditor(target: t).environmentObject(store) }
@@ -600,7 +604,7 @@ struct QXNodeResourcesView: View {
                 Text(verbatim: subtitle).font(.caption).foregroundStyle(.secondary).lineLimit(1).truncationMode(.middle)
             }
         }
-        .padding(.horizontal, 16).padding(.vertical, 12)
+        .padding(.horizontal, 16).padding(.vertical, 13)   // 64 pt rows (frame 26)
         .contentShape(Rectangle())
     }
 
@@ -719,7 +723,7 @@ struct QXFilterResourcesView: View {
                 .padding(.horizontal, QXMetrics.inset)
                 .padding(.bottom, 100)
             }
-            .overlay(alignment: .bottom) { QXResourceSwitcher(current: 1).padding(.bottom, 10) }
+            .overlay(alignment: .bottom) { QXResourceSwitcher(current: 1).qxBottomFloat() }
         }
         .task { await insp.load(); res.reload() }
         .sheet(isPresented: $adding) { AddRuleSetSheet() }
@@ -857,4 +861,40 @@ struct QXSampleConfigView: View {
     # 重写与 MitM（QX: [rewrite_local] / [mitm]）不写在这里：
     # 在「设置 → 重写 / MitM」中添加模块（支持 QX 片段、Surge 模块、Loon 插件）。
     """
+}
+
+
+// MARK: - QX list chrome (QX preview 7)
+
+/// Row label for QX lists: tinted icon, primary text (a Button in a List otherwise tints the text blue).
+struct QXListLabel: View {
+    let title: Text
+    let icon: String
+    init(title: String, icon: String) { self.title = Text(verbatim: title); self.icon = icon }
+    init(key: LocalizedStringKey, icon: String) { self.title = Text(key); self.icon = icon }
+    var body: some View {
+        Label {
+            title.foregroundStyle(Color.primary)
+        } icon: {
+            Image(systemName: icon).foregroundStyle(QXColor.switchOn)
+        }
+    }
+}
+
+enum QXListMargins {
+    /// Header text sits on the card edge (QX), not on the row text inset; iOS 17+ with our 18 pt margins.
+    static var headerShift: CGFloat {
+        if #available(iOS 17.0, *) { return -21 } else { return -4 }
+    }
+}
+
+extension View {
+    /// Frame 43: inset-grouped cards 18 pt from the screen edges (system 20 pt). iOS 17+.
+    @ViewBuilder func qxListMargins() -> some View {
+        if #available(iOS 17.0, *) {
+            contentMargins(.horizontal, QXMetrics.inset, for: .scrollContent)
+        } else {
+            self
+        }
+    }
 }
