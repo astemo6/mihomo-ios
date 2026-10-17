@@ -1,4 +1,4 @@
-# Mihomo iOS（v0.11）
+# Mihomo iOS（v0.12）
 
 基于开源 [mihomo](https://github.com/MetaCubeX/mihomo)（Clash Meta）内核的个人 iOS 代理客户端：深色卡片界面，首页只放最常用的东西，进阶功能按类别收在「更多」里。
 
@@ -10,7 +10,7 @@
 2. **一种设计语言**：项目自己的深色卡片（`Theme` / `Card`），新页面不照搬其他客户端的布局。
 3. **首页极简**：连接开关、出站模式、IP 卡片、流量。其他功能都在「更多」里分组：连接、规则与资源、模块重写与 MitM、工具与数据、设置。
 4. **模块只有一个入口**：所有格式的模块和远程资源（规则集、脚本）都在「更多 → 模块与资源」，用角标标出来源格式。
-5. **宁缺毋滥**：做不精的功能先不做（仍推迟：共享动态内核库、资源解析器；小组件、控制中心开关和实时活动作为单独的 `-widget` IPA 提供）。
+5. **宁缺毋滥**：做不精的功能先不做（仍推迟：共享动态内核库；资源解析器只保存地址、不运行；小组件、控制中心开关和实时活动作为单独的 `-widget` IPA 提供）。
 6. **规则、重写、脚本都接受 Surge 与 Quantumult X 写法**（以及 Loon、Stash、Egern），只在边缘翻译一次。
 
 ## 功能
@@ -31,11 +31,23 @@
 | 导入链接 | 只注册自己的 `mihomo://`（`mihomo://install-config?url=`、`install-module?url=`、`connect`、`disconnect`、`toggle`）。粘贴的 `loon://`、`stash://`、`surge:///`、`quantumult-x:///`、`egern:/` 安装链接也能识别，但**不注册**这些 scheme，避免与其他客户端抢链接。可以用「文件」/其他 App 的「用 Mihomo 打开」打开 `.sgmodule` `.plugin` `.stoverride` `.module` `.snippet` `.conf` `.list` `.yaml` 和纯文本；剪贴板有新内容时顶部出现「粘贴导入」横幅 |
 | iPad | 横向宽度为常规时用侧边栏（NavigationSplitView）显示五个分区，支持横竖屏与分屏；iPhone 保持底部标签栏 |
 
+## v0.12 要点
+
+- **按网络切换运行模式**（更多 → 连接方式 → 按网络切换策略 → 运行模式；Quantumult X `running_mode_trigger`）：蜂窝、Wi-Fi 和指定 Wi-Fi（SSID）各自使用 规则 / 全局 / 直连，或不切换。VPN 扩展在连接、重载和每次网络变化时应用，和按网络切换策略组一起记录在「最近一次切换」里；首页的模式显示会跟着更新。手动切换的模式保持到下一次网络变化。读取 Wi-Fi 名称需要重签描述文件包含 wifi-info 权限，否则只按 Wi-Fi / 蜂窝匹配。
+- **出口信息查询**（更多 → 设置 → 出口信息查询；QX `geo_location_checker`）：首页出口信息可以改用自己的 JSON 接口；再填一个 QX 的 geo_location_checker 脚本时，脚本读取 `$response.body`，`$done({title, subtitle})` 决定首页标题和第二行（在 Go 脚本引擎里运行，脚本缓存一天）。关闭后不再查询出口 IP（= `disabled`）。带测试按钮。
+- **QX 远程分流不写 force-policy 时按每行自己的策略分流**：列表下载后（导入后自动下载，或 提供者 → 更新）按行里的策略拆成多个规则集，依次匹配；配置里没有的策略名自动建成手动选择组（和 QX 一样），没有策略的行仍走原来的策略（proxy）。配置文件本身不改，下载前整份列表走 proxy。
+- **资源解析器**（订阅管理 → 高级）：只保存 QX 的 `resource_parser_url`，不下载、不运行——节点、规则、重写资源都由 Mihomo 直接识别。
+- **QX 导入**：`running_mode_trigger`、`geo_location_checker`、`resource_parser_url` 在导入报告的「连接设置」里列出，一键应用。
+- **从连接添加规则**：请求页长按一条连接 → 添加规则…（域名后缀 / 完整域名 / 关键词 / IP 段 + 策略），存为自定义规则并立即重载；也可以拷贝主机名。
+- **DNS 缓存**（更多 → DNS，已连接时）：清空 DNS 缓存、清空 Fake-IP 缓存。
+- **稳定性**：滑掉的实时活动不再挡住下次连接时的新活动，重复的活动会被结束；任务页只在连接时轮询，未连接时点运行会说明原因。
+- 未做：`[http_backend]`（QX 在扩展里监听 127.0.0.1:9999；iOS 上回环地址不经过隧道，做不精，先不做）。
+
 ## v0.11 要点
 
 - **任务**（更多 → 任务，或 脚本 → 工具）：按 Quantumult X「HTTP 请求」的方式列出所有定时、网络变化、交互和通用脚本（来自脚本列表和启用的模块，Surge / Loon / QX / Stash / Egern 写法都算）。顶部「自动运行」总开关；定时和网络变化任务各有开关（覆盖行内的 `enabled=` / `enable=`，写成 `enabled=false` 的任务也会列出、默认关闭）；`img-url` 图标；左滑立即运行。点进任务可以看计划、来源、脚本地址，以及最近 10 次运行记录（时间、触发方式、耗时、结果和 console 输出）。未连接时也能查看列表、开关和运行记录。
 - **交互脚本**（QX `event-interaction`）：在「策略」里长按节点 → 交互脚本，脚本通过 `$environment.params` 收到节点名称，`$done({title, message | htmlMessage})` 的结果以卡片显示；任务详情里也可以选节点运行。
-- **Quantumult X 配置导入补全**：`[dns]` 指定域名的服务器（`server=/域名/IP` → nameserver-policy）、`doh-server` / `doq-server`（有加密 DNS 时不再用普通 DNS 和系统 DNS，和 QX 一致）、`no-system`、`prefer-doh3`、`no-ipv6`、`address=` / `alias=`（→ 本地映射）；`[general]` 的 `dns_exclusion_list`（→ 真实 IP 域名）、`udp_drop_list` / `udp_whitelist`（→ 规则）、`fallback_udp_policy`、`server_check_url` / `server_check_timeout`；`excluded_routes`、`ssid_suspended_list`、`udp_drop_list` 里的 QUIC 在导入报告里列为「连接设置」，可一键应用到 连接方式 / 受信任 Wi-Fi / 阻止 QUIC；`[policy]` 的 `alive-checking`、`round-robin` / `dest-hash` 策略；`[server_remote]` 的 `as-policy`；`[filter_remote]` 的 `FILTER_LAN` / `FILTER_REGION` 和 `inserted-resource` 顺序；`[server_local]` 的 SSR（`ssr-protocol`）、`anytls`、`fast-open`、`tls-cert-sha256`、`tls-alpn`、`udp-over-tcp`；`[rewrite_local]` 的 `jsonjq-request-body` / `jsonjq-response-body` 和 `url-and-header`；`[mitm]` 的 `skip_validating_cert`。没有对应项的键（如 `running_mode_trigger`、`resource_parser_url`）在报告里注明。
+- **Quantumult X 配置导入补全**：`[dns]` 指定域名的服务器（`server=/域名/IP` → nameserver-policy）、`doh-server` / `doq-server`（有加密 DNS 时不再用普通 DNS 和系统 DNS，和 QX 一致）、`no-system`、`prefer-doh3`、`no-ipv6`、`address=` / `alias=`（→ 本地映射）；`[general]` 的 `dns_exclusion_list`（→ 真实 IP 域名）、`udp_drop_list` / `udp_whitelist`（→ 规则）、`fallback_udp_policy`、`server_check_url` / `server_check_timeout`；`excluded_routes`、`ssid_suspended_list`、`udp_drop_list` 里的 QUIC 在导入报告里列为「连接设置」，可一键应用到 连接方式 / 受信任 Wi-Fi / 阻止 QUIC；`[policy]` 的 `alive-checking`、`round-robin` / `dest-hash` 策略；`[server_remote]` 的 `as-policy`；`[filter_remote]` 的 `FILTER_LAN` / `FILTER_REGION` 和 `inserted-resource` 顺序；`[server_local]` 的 SSR（`ssr-protocol`）、`anytls`、`fast-open`、`tls-cert-sha256`、`tls-alpn`、`udp-over-tcp`；`[rewrite_local]` 的 `jsonjq-request-body` / `jsonjq-response-body` 和 `url-and-header`；`[mitm]` 的 `skip_validating_cert`。没有对应项的键在报告里注明（v0.12 起 `running_mode_trigger`、`geo_location_checker`、`resource_parser_url` 也会导入）。
 - **App 关闭时的实时活动**：实时活动开启时，VPN 扩展每 10 秒把速度、总流量和当前节点写到 App Group（一次内核调用，不常驻额外内存）；App 退到后台后约 25 秒内继续刷新，之后在系统允许后台刷新时更新，锁定屏幕 / 灵动岛上的刷新按钮（iOS 17+）可随时拉取最新数据。数据过时时显示「更新于 时:分」，不再停在旧速度上。
 - **错误提示**：内核接口返回的错误改为中文说明（密钥不匹配、扩展还是旧版本需重连、脚本引擎未运行、超时、连不上内核），模块下载失败显示 HTTP 状态。
 
