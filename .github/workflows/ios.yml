@@ -314,11 +314,9 @@ jobs:
           echo "IPA_SHARED=$IPA_SHARED" >> "$GITHUB_ENV"
           echo "===== $IPA_SHARED ($(stat -f%z "$IPA_SHARED") B) ====="
           python3 scripts/ipa_size.py "$IPA_SHARED" --shared-core
-          {
-            echo "### $IPA_SHARED"
-            echo "- size: $(stat -f%z "$IPA_SHARED") B (static: $(stat -f%z "$IPA") B)"
-            echo "- app binary $(stat -f%z "$APP/Mihomo") B, tunnel binary $(stat -f%z "$APP/PlugIns/PacketTunnel.appex/PacketTunnel") B, Libmihomo.framework $(stat -f%z "$FW/Libmihomo") B"
-          } >> "$GITHUB_STEP_SUMMARY"
+          # Launch-crash guards (install name, rpaths, system-only deps, minos, one Go runtime per process, framework
+          # Info.plist, signatures; static IPAs still static) + the size report of BOTH variants for the step summary.
+          python3 scripts/shared_check.py "$IPA_SHARED" "$IPA" ${IPA_WIDGET:+"$IPA_WIDGET"} --summary "$GITHUB_STEP_SUMMARY"
 
       # Re-sign check: a real (self-signed, trusted for code signing) identity signs the shared-core app the way
       # one-profile re-signers do — framework without entitlements, then extension and app with theirs.
@@ -356,6 +354,15 @@ jobs:
           codesign -f -s "Mihomo Resign Test" --keychain "$KC" --entitlements "$GITHUB_WORKSPACE/app.entitlements" "$APP"
           codesign --verify --deep --strict --verbose=2 "$APP"
           codesign -dv "$APP/Frameworks/Libmihomo.framework" 2>&1 | grep -E "Identifier|Authority|TeamIdentifier|Format"
+          # dyld / AMFI only let the tunnel load an app framework signed by the same team: all three must match.
+          for b in "$APP/Frameworks/Libmihomo.framework" "$APP/PlugIns/PacketTunnel.appex" "$APP"; do
+            codesign -dv "$b" 2>&1 | grep -E "^(Authority|TeamIdentifier)=" | sort | tr '\n' ' '; echo
+          done | sort -u > signers.txt
+          cat signers.txt
+          test "$(wc -l < signers.txt)" -eq 1
+          test -z "$(codesign -d --entitlements - "$APP/Frameworks/Libmihomo.framework" 2>/dev/null | grep -F '<key>')"
+          zip -qry resigned.ipa Payload
+          python3 "$GITHUB_WORKSPACE/scripts/shared_check.py" resigned.ipa "$GITHUB_WORKSPACE/$IPA" | tail -n 1
           echo "- re-sign check: framework + tunnel + app signed with one identity, codesign --verify --deep --strict OK" >> "$GITHUB_STEP_SUMMARY"
 
       - uses: actions/upload-artifact@v4

@@ -94,6 +94,9 @@ struct PolicyGroupDisplay {
 
     var pinnable: Bool { kind == "url-test" || kind == "fallback" }
 
+    /// v0.15 (QX rule): only automatic groups (url-test / fallback / load-balance) collapse; select stays.
+    static func isAutomatic(_ kind: String) -> Bool { kind == "url-test" || kind == "fallback" || kind == "load-balance" }
+
     static func kind(live type: String) -> String {
         switch type {
         case "Selector": return "select"
@@ -150,6 +153,8 @@ struct PolicyView: View {
     /// 排序 (v0.7): default = profile order; latency uses a snapshot so nodes don't jump while a test runs.
     @AppStorage("policy.sort") private var sortMode = "default"
     @AppStorage("policy.autoSort") private var autoSort = true
+    /// v0.15: hide automatic groups (url-test / fallback / load-balance); select groups always stay. Persisted.
+    @AppStorage("policy.collapseAuto") private var collapseAuto = false
     @State private var sortDelays: [String: Int] = [:]
     @State private var iconTarget: IconTarget?
 
@@ -223,6 +228,10 @@ struct PolicyView: View {
                 ToolbarItemGroup(placement: .navigationBarTrailing) {
                     Button { editGroup = EditGroupTarget(name: nil) } label: { Image(systemName: "plus") }
                         .accessibilityLabel(Text("新建策略组"))
+                    Button { withAnimation(.spring(response: 0.3)) { collapseAuto.toggle() } } label: {
+                        Image(systemName: collapseAuto ? "rectangle.expand.vertical" : "rectangle.compress.vertical")
+                    }
+                    .accessibilityLabel(Text(collapseAuto ? "展开自动策略" : "折叠自动策略"))
                     Menu {
                         Picker("排序", selection: $sortMode) {
                             Label("配置顺序", systemImage: "list.number").tag("default")
@@ -277,12 +286,18 @@ struct PolicyView: View {
                 set: { v in if v { expanded.insert(name) } else { expanded.remove(name) } })
     }
 
+    private func expandAuto() { withAnimation(.spring(response: 0.3)) { collapseAuto = false } }
+
     var liveList: some View {
         ScrollView {
             LazyVStack(spacing: 12) {
                 if let e = model.error { Text(e).font(.footnote).foregroundStyle(Theme.bad) }
                 TestTargetCaption(live: true)
+                let liveAuto = model.groups.filter { PolicyGroupDisplay.isAutomatic(PolicyGroupDisplay.kind(live: $0.type)) }
                 ForEach(model.groups) { g in
+                  if collapseAuto && PolicyGroupDisplay.isAutomatic(PolicyGroupDisplay.kind(live: g.type)) {
+                    if g.id == liveAuto.first?.id { CollapsedAutoRow(count: liveAuto.count) { expandAuto() } }
+                  } else {
                     let fixed: String? = (g.fixed ?? "").isEmpty ? nil : g.fixed
                     let pinAction: ((String?) -> Void)? = (PolicyGroupDisplay.kind(live: g.type) == "url-test" || PolicyGroupDisplay.kind(live: g.type) == "fallback") && !smart.isSmart(g.name)
                         ? { n in Task { await model.pin(g, n) } } : nil
@@ -311,6 +326,7 @@ struct PolicyView: View {
                                     onInteract: { id, node in
                                         if let t = interactions.first(where: { $0.id == id }) { interaction = InteractionRequest(task: t, node: node) }
                                     })
+                  }
                 }
             }
             .padding(16)
@@ -338,7 +354,12 @@ struct PolicyView: View {
                 } else {
                     let index = offline.nodeIndex
                     let groupNames = Set(offline.result.groups.map(\.name))
-                    ForEach(offline.result.groups.filter { $0.hidden != true }) { g in
+                    let visible = offline.result.groups.filter { $0.hidden != true }
+                    let offAuto = visible.filter { PolicyGroupDisplay.isAutomatic($0.type) }
+                    ForEach(visible) { g in
+                      if collapseAuto && PolicyGroupDisplay.isAutomatic(g.type) {
+                        if g.id == offAuto.first?.id { CollapsedAutoRow(count: offAuto.count) { expandAuto() } }
+                      } else {
                         let d = PolicyGroupDisplay(name: g.name, kind: g.type, now: offline.current(of: g),
                                                    members: ordered(offline.members(of: g)), selectable: g.type == "select", profileIcon: g.icon)
                         PolicyGroupCard(group: d,
@@ -362,6 +383,7 @@ struct PolicyView: View {
                                         onShare: { shareNode($0) },
                                         onIcon: { iconTarget = IconTarget(name: g.name, profileIcon: g.icon) },
                                         onEdit: { editGroup = EditGroupTarget(name: g.name) })
+                      }
                     }
                     if !offline.result.groups.isEmpty {
                         TestTargetCaption(live: false)
@@ -644,5 +666,28 @@ struct TestTargetCaption: View {
         .font(.caption2)
         .foregroundStyle(.secondary)
         .padding(.horizontal, 4)
+    }
+}
+
+/// v0.15: compact stand-in for the automatic groups while 折叠自动策略 is on (tap to expand).
+struct CollapsedAutoRow: View {
+    let count: Int
+    let onExpand: () -> Void
+    var body: some View {
+        Button(action: onExpand) {
+            HStack(spacing: 10) {
+                Image(systemName: "bolt.horizontal.circle").foregroundStyle(Theme.accent)
+                Text("\(count) 个自动策略已折叠").font(.subheadline.weight(.semibold))
+                Spacer()
+                Text("展开").font(.caption).foregroundStyle(.secondary)
+                Image(systemName: "chevron.down").font(.caption).foregroundStyle(.secondary)
+            }
+            .padding(.horizontal, 16).padding(.vertical, 12)
+            .background(RoundedRectangle(cornerRadius: 18, style: .continuous).fill(Theme.card))
+            .overlay(RoundedRectangle(cornerRadius: 18, style: .continuous).stroke(Theme.ink(0.06)))
+            .contentShape(Rectangle())
+        }
+        .buttonStyle(.plain)
+        .accessibilityHint(Text("展开自动策略"))
     }
 }

@@ -10,12 +10,29 @@ struct ModuleGalleryView: View {
     @State private var query = ""
     @State private var source = "all"
     @State private var managing = false
+    /// feat/module-browser: category filter ("" = all) and 已添加 only.
+    @State private var category = ""
+    @State private var onlyAdded = false
 
-    var items: [GalleryItem] {
+    /// Items of the chosen source(s) matching the search text (before the category / 已添加 filters).
+    var searched: [GalleryItem] {
         let base = source == "all" ? gallery.allItems : (gallery.indexes[source]?.items ?? [])
         let q = query.trimmingCharacters(in: .whitespaces).lowercased()
         guard !q.isEmpty else { return base }
-        return base.filter { ($0.name + " " + $0.desc + " " + $0.category + " " + $0.author).lowercased().contains(q) }
+        return base.filter { ($0.name + " " + $0.desc + " " + $0.category + " " + $0.author + " " + $0.url).lowercased().contains(q) }
+    }
+
+    var items: [GalleryItem] {
+        searched.filter { it in
+            (category.isEmpty || it.category == category)
+                && (!onlyAdded || ModuleGallery.installed(it, in: store.config.modules) != nil)
+        }
+    }
+
+    /// Categories present in the searched items, in index order.
+    var categories: [String] {
+        var seen = Set<String>()
+        return searched.map(\.category).filter { !$0.isEmpty && seen.insert($0).inserted }
     }
 
     /// Category → items, in index order.
@@ -30,7 +47,7 @@ struct ModuleGalleryView: View {
         return order.map { ($0, map[$0]!) }
     }
 
-    func sourceName(_ id: String) -> String { gallery.sources.first { $0.id == id }?.name ?? "" }
+    func sourceName(_ id: String) -> String { gallery.sources.first { $0.id == id }.map { gallery.displayName($0) } ?? "" }
 
     var body: some View {
         List {
@@ -38,16 +55,20 @@ struct ModuleGalleryView: View {
                 if gallery.sources.count > 1 {
                     Picker("来源", selection: $source) {
                         Text("全部来源").tag("all")
-                        ForEach(gallery.sources) { s in Text(s.name).tag(s.id) }
+                        ForEach(gallery.sources) { s in Text(gallery.displayName(s)).tag(s.id) }
                     }
+                }
+                if !gallery.sources.isEmpty {
+                    GalleryFilterBar(categories: categories, category: $category, onlyAdded: $onlyAdded)
+                        .listRowInsets(EdgeInsets(top: 6, leading: 12, bottom: 6, trailing: 12))
                 }
                 ForEach(gallery.sources.filter { source == "all" || $0.id == source }) { s in
                     if let e = gallery.indexes[s.id]?.error, !e.isEmpty {
-                        Label("\(s.name)：\(e)", systemImage: "exclamationmark.triangle.fill").font(.caption).foregroundStyle(Theme.bad)
+                        Label("\(gallery.displayName(s))：\(e)", systemImage: "exclamationmark.triangle.fill").font(.caption).foregroundStyle(Theme.bad)
                     }
                 }
             } footer: {
-                Text("模块来自你添加的索引来源（GitHub 仓库或文件夹、JSON 列表、包含模块链接的网页或文本）。点模块先预览它会添加的重写、脚本和 MitM 主机名，确认后再添加。第三方模块由作者维护，请只添加信任的来源。")
+                Text("「内置精选」随 App 提供；也可以添加自己的索引来源（GitHub 仓库或文件夹、JSON 列表、包含模块链接的网页或文本）。点模块先预览它会添加的重写、脚本和 MitM 主机名，确认后再添加。第三方模块由作者维护，请只添加信任的来源。")
             }
             .listRowBackground(Theme.card)
 
@@ -63,8 +84,9 @@ struct ModuleGalleryView: View {
                     if !gallery.loading.isEmpty {
                         HStack { ProgressView(); Text("正在载入索引…").foregroundStyle(.secondary) }
                     } else {
-                        EmptyStateRow(icon: "magnifyingglass", title: query.isEmpty ? "没有模块" : "没有匹配的模块",
-                                      message: query.isEmpty ? "下拉刷新索引，或在来源管理里检查链接。" : "换个关键词试试。")
+                        let filtered = !query.isEmpty || !category.isEmpty || onlyAdded
+                        EmptyStateRow(icon: "magnifyingglass", title: filtered ? "没有匹配的模块" : "没有模块",
+                                      message: filtered ? "换个关键词或筛选条件试试。" : "下拉刷新索引，或在来源管理里检查链接。")
                     }
                 }
                 .listRowBackground(Theme.card)
@@ -101,6 +123,7 @@ struct ModuleGalleryView: View {
         .sheet(isPresented: $managing) { NavigationStack { GallerySourcesView() } }
         .task { await gallery.refreshAll(force: false) }
         .onChange(of: gallery.sources) { s in if source != "all" && !s.contains(where: { $0.id == source }) { source = "all" } }
+        .onChange(of: source) { _ in category = "" }
     }
 }
 
@@ -109,14 +132,15 @@ struct GalleryRow: View {
     let item: GalleryItem
     var sourceName = ""
 
-    var installed: EngineModule? { store.config.modules.first { $0.url == item.url } }
+    var installed: EngineModule? { ModuleGallery.installed(item, in: store.config.modules) }
 
     var body: some View {
         HStack(spacing: 10) {
             VStack(alignment: .leading, spacing: 3) {
                 HStack(spacing: 6) {
                     Text(item.name).font(.subheadline.weight(.semibold)).lineLimit(1)
-                    if !item.formatHint.isEmpty { SourceFormatBadge(format: item.formatHint) }
+                    ForEach(ModuleGallery.formats(of: item), id: \.self) { SourceFormatBadge(format: $0) }
+                    if installed != nil { AddedBadge() }
                 }
                 if !item.desc.isEmpty { Text(item.desc).font(.caption2).foregroundStyle(.secondary).lineLimit(2) }
                 let meta = [item.author, sourceName].filter { !$0.isEmpty }.joined(separator: " · ")
@@ -133,22 +157,49 @@ struct GalleryRow: View {
 struct ModulePreviewView: View {
     let item: GalleryItem
     @ObservedObject var store = EngineStore.shared
+    @ObservedObject var gallery = ModuleGallery.shared
     @State private var preview: ModuleGallery.Preview?
     @State private var error: String?
     @State private var showText = false
     @State private var added = false
+    /// feat/module-browser: format variant, enable / update interval / arguments chosen before adding.
+    @State private var selectedURL = ""
+    @State private var enableOnAdd = true
+    @State private var interval = 86400
+    @State private var args: [String: String] = [:]
 
-    var installed: EngineModule? { store.config.modules.first { $0.url == item.url } }
+    init(item: GalleryItem) {
+        self.item = item
+        _selectedURL = State(initialValue: item.url)
+    }
+
+    var installed: EngineModule? { ModuleGallery.installed(item, in: store.config.modules) }
+    var variants: [String] { ModuleGallery.urls(of: item) }
+    var sourceLabel: String { gallery.sources.first { $0.id == item.sourceID }.map { gallery.displayName($0) } ?? "" }
 
     var body: some View {
         List {
             Section {
                 LabeledContent("名称", value: preview?.parsed.name.isEmpty == false ? preview!.parsed.name : item.name)
-                if let f = preview?.parsed.format, !f.isEmpty { LabeledContent("格式") { SourceFormatBadge(format: f) } }
-                if let d = preview?.parsed.desc, !d.isEmpty { Text(d).font(.caption).foregroundStyle(.secondary) }
-                else if !item.desc.isEmpty { Text(item.desc).font(.caption).foregroundStyle(.secondary) }
+                if variants.count > 1 && installed == nil {
+                    Picker("格式", selection: $selectedURL) {
+                        ForEach(variants, id: \.self) { u in Text(ModuleGallery.formatLabel(u)).tag(u) }
+                    }
+                } else if let f = preview?.parsed.format, !f.isEmpty {
+                    LabeledContent("格式") { SourceFormatBadge(format: f) }
+                }
+                if !item.desc.isEmpty { Text(item.desc).font(.caption).foregroundStyle(.secondary) }
+                if let d = preview?.parsed.desc, !d.isEmpty, d != item.desc { Text(d).font(.caption).foregroundStyle(.secondary) }
                 if !item.author.isEmpty { LabeledContent("作者", value: item.author) }
-                Text(item.url).font(.caption2.monospaced()).foregroundStyle(.secondary).textSelection(.enabled).lineLimit(3)
+                if !sourceLabel.isEmpty { LabeledContent("索引来源", value: sourceLabel) }
+                if let h = item.homepage, let u = URL(string: h) {
+                    Link(destination: u) { Label("项目主页", systemImage: "safari") }
+                }
+                VStack(alignment: .leading, spacing: 3) {
+                    Text("模块地址").font(.caption).foregroundStyle(.secondary)
+                    Text(installed?.url ?? selectedURL).font(.caption2.monospaced()).textSelection(.enabled).lineLimit(4)
+                }
+                .contextMenu { Button { UIPasteboard.general.string = installed?.url ?? selectedURL } label: { Label("复制链接", systemImage: "doc.on.doc") } }
             }
             .listRowBackground(Theme.card)
 
@@ -161,8 +212,13 @@ struct ModulePreviewView: View {
                         Toggle("启用", isOn: Binding(get: { m.enabled }, set: { store.setModuleEnabled(m.id, $0) }))
                         NavigationLink { ModuleDetailView(moduleID: m.id) } label: { Label("模块设置", systemImage: "slider.horizontal.3") }
                     } else {
+                        Toggle("添加后启用", isOn: $enableOnAdd)
+                        Picker("更新间隔", selection: $interval) {
+                            ForEach(ResourceStore.intervals, id: \.1) { Text(LocalizedStringKey($0.0)).tag($0.1) }
+                        }
                         Button {
-                            added = store.addPreviewedModule(url: item.url, text: preview!.text, name: p.name.isEmpty ? item.name : p.name)
+                            added = store.addPreviewedModule(url: selectedURL, text: preview!.text, name: p.name.isEmpty ? item.name : p.name,
+                                                             enabled: enableOnAdd, interval: interval, args: changedArgs(p))
                             ResourceStore.shared.reload()
                         } label: { Label("添加模块", systemImage: "plus.circle.fill").font(.body.weight(.semibold)) }
                         .disabled(isEmpty(p))
@@ -173,7 +229,18 @@ struct ModulePreviewView: View {
                     else if !p.hostnames.isEmpty && store.caTrusted != true { Text("包含 HTTPS 重写或脚本：需要在 MitM 页安装并信任证书后才会生效。") }
                 }
                 .listRowBackground(Theme.card)
-                PreviewSections(parsed: p)
+                if installed == nil && !p.arguments.isEmpty {
+                    Section {
+                        ForEach(p.arguments, id: \.key) { a in
+                            ModuleArgRow(arg: a, value: Binding(get: { args[a.key] ?? a.default }, set: { args[a.key] = $0 }))
+                            if a.default.isEmpty && (args[a.key] ?? "").isEmpty {
+                                Label("需要填写", systemImage: "exclamationmark.circle").font(.caption2).foregroundStyle(Theme.warn)
+                            }
+                        }
+                    } header: { Text("参数 · \(p.arguments.count)") } footer: { Text("可以现在修改，添加后也能在模块设置里修改。") }
+                    .listRowBackground(Theme.card)
+                }
+                PreviewSections(parsed: p, showArguments: installed != nil)
             } else {
                 Section { HStack { ProgressView(); Text("正在下载模块…").foregroundStyle(.secondary) } }.listRowBackground(Theme.card)
             }
@@ -183,7 +250,7 @@ struct ModulePreviewView: View {
         .background(Theme.bg.ignoresSafeArea())
         .navigationTitle(item.name)
         .navigationBarTitleDisplayMode(.inline)
-        .task { await load() }
+        .task(id: selectedURL) { await load() }
         .refreshable { await load() }
         .sheet(isPresented: $showText) {
             NavigationStack {
@@ -193,16 +260,28 @@ struct ModulePreviewView: View {
                     .toolbar { ToolbarItem(placement: .confirmationAction) { Button("完成") { showText = false } } }
             }
         }
-        .alert("已添加", isPresented: $added) { Button("好") {} } message: { Text("「\(item.name)」已添加并启用，正在运行时会自动重载。") }
+        .alert("已添加", isPresented: $added) { Button("好") {} } message: {
+            if enableOnAdd { Text("「\(item.name)」已添加并启用，正在运行时会自动重载。") } else { Text("「\(item.name)」已添加，暂未启用。") }
+        }
     }
 
     func isEmpty(_ p: ParsedEngineText) -> Bool {
         p.rules.isEmpty && p.hostnames.isEmpty && p.coreRules.isEmpty && (p.tasks ?? []).isEmpty && (p.panels ?? []).isEmpty
     }
 
+    /// Only arguments the user changed from the module's defaults are stored.
+    func changedArgs(_ p: ParsedEngineText) -> [String: String]? {
+        var out: [String: String] = [:]
+        for a in p.arguments { if let v = args[a.key], v != a.default { out[a.key] = v } }
+        return out.isEmpty ? nil : out
+    }
+
     func load() async {
         error = nil
-        do { preview = try await ModuleGallery.preview(item.url) } catch { self.error = String(localized: "下载失败：\(error.localizedDescription)") }
+        preview = nil
+        args = [:]
+        let u = installed?.url ?? selectedURL
+        do { preview = try await ModuleGallery.preview(u) } catch { self.error = String(localized: "下载失败：\(error.localizedDescription)") }
     }
 }
 
@@ -237,6 +316,8 @@ struct PreviewSummary: View {
 /// What the module would add, section by section (first 50 lines each).
 struct PreviewSections: View {
     let parsed: ParsedEngineText
+    /// false when the preview shows the arguments as editable fields above.
+    var showArguments = true
     let cap = 50
 
     var body: some View {
@@ -284,7 +365,7 @@ struct PreviewSections: View {
                 }
             }.listRowBackground(Theme.card)
         }
-        if !parsed.arguments.isEmpty {
+        if showArguments && !parsed.arguments.isEmpty {
             Section {
                 ForEach(parsed.arguments, id: \.key) { a in LabeledContent(a.desc?.isEmpty == false ? a.desc! : a.key, value: a.default) }
             } header: { Text("参数 · \(parsed.arguments.count)") } footer: { Text("添加后可以在模块设置里修改参数。") }
@@ -328,12 +409,16 @@ struct GallerySourcesView: View {
                 ForEach(gallery.sources) { s in
                     VStack(alignment: .leading, spacing: 3) {
                         HStack {
-                            Text(s.name).font(.subheadline.weight(.semibold)).lineLimit(1)
+                            Text(gallery.displayName(s)).font(.subheadline.weight(.semibold)).lineLimit(1)
                             Spacer()
                             if gallery.loading.contains(s.id) { ProgressView() }
                             else if let i = gallery.indexes[s.id] { Text("\(i.items.count) 个模块").font(.caption).foregroundStyle(.secondary) }
                         }
-                        Text(s.url).font(.caption2.monospaced()).foregroundStyle(.secondary).lineLimit(2)
+                        if s.id == BuiltinModuleIndex.sourceID {
+                            Text("随 App 提供，离线可用").font(.caption2).foregroundStyle(.secondary)
+                        } else {
+                            Text(s.url).font(.caption2.monospaced()).foregroundStyle(.secondary).lineLimit(2)
+                        }
                         if let e = gallery.indexes[s.id]?.error, !e.isEmpty {
                             Label(e, systemImage: "exclamationmark.triangle.fill").font(.caption2).foregroundStyle(Theme.bad).lineLimit(2)
                         } else if let t = gallery.indexes[s.id]?.fetchedAt, t > 0 {
@@ -353,6 +438,24 @@ struct GallerySourcesView: View {
                 Text("支持：GitHub 仓库或文件夹链接（列出其中的 .sgmodule / .plugin / .stoverride / .snippet 文件，子文件夹作为分类）、JSON 列表（name、url、desc、category）、包含模块链接或安装链接的网页、Markdown 或文本。")
             }
             .listRowBackground(Theme.card)
+            let suggestions = ModuleGallery.suggestedSources.filter { d in !gallery.sources.contains { $0.url == d.url } }
+            if !suggestions.isEmpty {
+                Section {
+                    ForEach(suggestions) { d in
+                        Button { error = gallery.addSource(url: d.url, name: d.name) } label: {
+                            HStack {
+                                VStack(alignment: .leading, spacing: 2) {
+                                    Text(d.name).font(.subheadline.weight(.semibold)).foregroundStyle(.primary)
+                                    Text(d.url).font(.caption2.monospaced()).foregroundStyle(.secondary).lineLimit(1)
+                                }
+                                Spacer()
+                                Image(systemName: "plus.circle.fill").foregroundStyle(Theme.accent)
+                            }
+                        }
+                    }
+                } header: { Text("推荐来源") } footer: { Text("社区维护的模块仓库，内容由作者负责，添加前请确认你信任它。") }
+                .listRowBackground(Theme.card)
+            }
             Section {
                 Button { url = ""; name = ""; adding = true } label: { Label("添加来源", systemImage: "plus") }
                 Button { gallery.restoreDefaults() } label: { Label("恢复默认来源", systemImage: "arrow.uturn.backward") }
