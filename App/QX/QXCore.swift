@@ -97,6 +97,7 @@ enum QXDest: String, Hashable, CaseIterable {
     case tools, unlock, analytics, stats, trafficStats, dnsLog, blocked, logs, backup
     case connection, dns, speedTest, coreSettings, geo, appIcon, diagnostics, about, notices, scriptLogs, panels, sessions, subscriptions
     case mitmAdvanced, allResources, prefsStore, snippets, reset
+    case netTest, snapshots, storage, syncFolder
 
     @MainActor @ViewBuilder var view: some View {
         switch self {
@@ -120,7 +121,7 @@ enum QXDest: String, Hashable, CaseIterable {
         case .dnsLog: QXDNSLogView()
         case .blocked: QXBlockedView()
         case .logs: LogsView()
-        case .backup: BackupView()
+        case .backup: QXWrappedPage(title: String(localized: "备份与恢复")) { BackupView() }
         case .connection: ConnectionView()
         case .dns: QXDNSPage()
         case .speedTest: SpeedTestSettingsView()
@@ -139,6 +140,10 @@ enum QXDest: String, Hashable, CaseIterable {
         case .prefsStore: QXWrappedPage(title: String(localized: "持久化存储")) { StoreView() }
         case .snippets: QXSnippetsView()
         case .reset: QXResetView()
+        case .netTest: QXWrappedPage(title: String(localized: "网络测试")) { NetTestView() }
+        case .snapshots: QXWrappedPage(title: String(localized: "配置快照")) { SnapshotsView() }
+        case .storage: QXWrappedPage(title: String(localized: "存储空间")) { StorageView() }
+        case .syncFolder: QXWrappedPage(title: String(localized: "同步文件夹")) { SyncFolderView() }
         }
     }
 }

@@ -59,6 +59,7 @@ final class NodeSubStore: ObservableObject {
     }
 
     func save(_ s: NodeSubscription) async {
+        SnapshotStore.shared.capture(String(localized: "修改节点订阅前"))
         set(s)
         await applyChange()
     }

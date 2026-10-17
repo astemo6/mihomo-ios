@@ -134,6 +134,7 @@ struct QXSettingsView: View {
                         QXActionSpec(title: String(localized: "HTTP 抓取"), icon: "record.circle") { nav.push(.dest(.httpCapture)) },
                         QXActionSpec(title: String(localized: "HTTP Backend"), icon: "server.rack") { nav.push(.dest(.scripts)) },
                         QXActionSpec(title: String(localized: "网络工具"), icon: "stethoscope") { nav.push(.dest(.tools)) },
+                        QXActionSpec(title: String(localized: "网络测试"), icon: "speedometer") { nav.push(.dest(.netTest)) },
                         QXActionSpec(title: String(localized: "解锁检测"), icon: "checkmark.seal") { nav.push(.dest(.unlock)) },
                         QXActionSpec(title: String(localized: "连接分析"), icon: "chart.pie") { nav.push(.dest(.analytics)) },
                     ])
@@ -148,6 +149,9 @@ struct QXSettingsView: View {
                         QXActionSpec(title: String(localized: "示例配置"), icon: "doc.text") { nav.present(.sample) },
                         QXActionSpec(title: String(localized: "初始化"), icon: "arrow.counterclockwise") { nav.push(.dest(.reset)) },
                         QXActionSpec(title: String(localized: "备份与恢复"), icon: "externaldrive") { nav.push(.dest(.backup)) },
+                        QXActionSpec(title: String(localized: "配置快照"), icon: "clock.arrow.circlepath") { nav.push(.dest(.snapshots)) },
+                        QXActionSpec(title: String(localized: "同步文件夹"), icon: "folder.badge.gearshape") { nav.push(.dest(.syncFolder)) },
+                        QXActionSpec(title: String(localized: "存储空间"), icon: "internaldrive") { nav.push(.dest(.storage)) },
                         QXActionSpec(title: String(localized: "配置管理"), icon: "doc.text.magnifyingglass") { nav.present(.profiles) },
                     ])
                     VStack(spacing: 12) {

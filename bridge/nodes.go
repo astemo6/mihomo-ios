@@ -524,6 +524,12 @@ func parseNodeText(text string) ([]map[string]any, []string) {
 	if nodes, _, ok := parseJSONNodes(text); ok {
 		return uniqueNames(nodes), nil
 	}
+	// Base64-wrapped SIP008 / sing-box JSON (some panels serve the JSON encoded).
+	if d, ok := tryB64(text); ok {
+		if nodes, _, ok := parseJSONNodes(strings.TrimSpace(d)); ok {
+			return uniqueNames(nodes), nil
+		}
+	}
 	if !strings.Contains(text, "://") && !strings.Contains(text, "=") {
 		if d, ok := tryB64(text); ok {
 			text = d

@@ -1020,6 +1020,7 @@ struct HTTPRequestDetailView: View {
     @State private var replayError: String?
     @State private var editing = false
     @State private var copied = false
+    @State private var harShare: ShareItem?
 
     var body: some View {
         List {
@@ -1035,6 +1036,9 @@ struct HTTPRequestDetailView: View {
                 Section {
                     Button { UIPasteboard.general.string = d.curl; copied = true } label: {
                         Label(copied ? "已复制 cURL" : "复制为 cURL", systemImage: copied ? "checkmark" : "terminal")
+                    }
+                    if d.method != "TLS" {
+                        Button { shareHAR(d) } label: { Label("导出 HAR", systemImage: "square.and.arrow.up") }
                     }
                     Button { runReplay(nil) } label: { Label("重放", systemImage: "arrow.uturn.forward") }
                         .disabled(!d.canReplay || replaying)
@@ -1100,9 +1104,16 @@ struct HTTPRequestDetailView: View {
         .navigationTitle("请求详情")
         .navigationBarTitleDisplayMode(.inline)
         .task { d = try? await ControllerClient.shared.mitmRequest(id) }
+        .sheet(item: $harShare) { ActivityView(items: [$0.url]) }
         .sheet(isPresented: $editing) {
             if let d { ReplayEditor(detail: d) { edit in runReplay(edit) } }
         }
+    }
+
+    func shareHAR(_ d: HTTPRequestDetail) {
+        guard let data = try? HARExport.document([d]) else { return }
+        let url = FileManager.default.temporaryDirectory.appendingPathComponent("Mihomo-request-\(d.id).har")
+        if (try? data.write(to: url, options: .atomic)) != nil { harShare = ShareItem(url: url) }
     }
 
     func runReplay(_ edit: [String: Any]?) {

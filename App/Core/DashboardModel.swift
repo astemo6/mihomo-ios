@@ -40,6 +40,7 @@ final class DashboardModel: ObservableObject {
             for await s in c.stream("/traffic", as: TrafficSample.self) {
                 guard let self else { return }
                 self.up = s.up; self.down = s.down
+                LiveActivityController.shared.traffic(up: s.up, down: s.down, node: self.selectedNode)
                 self.upHistory.append(s.up); self.downHistory.append(s.down)
                 if self.upHistory.count > 60 { self.upHistory.removeFirst(self.upHistory.count - 60) }
                 if self.downHistory.count > 60 { self.downHistory.removeFirst(self.downHistory.count - 60) }
