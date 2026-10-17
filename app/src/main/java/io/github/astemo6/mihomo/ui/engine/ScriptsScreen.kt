@@ -1,5 +1,10 @@
 package io.github.astemo6.mihomo.ui.engine
 
+import androidx.activity.compose.BackHandler
+import androidx.compose.foundation.clickable
+import androidx.compose.material3.AlertDialog
+import androidx.compose.material3.OutlinedTextField
+import io.github.astemo6.mihomo.data.EngineExtras
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.PaddingValues
@@ -71,6 +76,10 @@ fun ScriptsScreen(vm: MainViewModel, onBack: () -> Unit) {
     var showAdd by remember { mutableStateOf(false) }
     var logs by remember { mutableStateOf<List<ScriptLog>>(emptyList()) }
     val scope = rememberCoroutineScope()
+    var editor by remember { mutableStateOf<ScriptTarget?>(null) }
+    var localScripts by remember { mutableStateOf(EngineStore.localScripts()) }
+    var newScript by remember { mutableStateOf(false) }
+    var deleteLocal by remember { mutableStateOf<String?>(null) }
 
     val fromModules = remember(cfg, info) {
         cfg.modules.flatMap { m ->
@@ -95,8 +104,15 @@ fun ScriptsScreen(vm: MainViewModel, onBack: () -> Unit) {
         }
     }
 
+    editor?.let { t ->
+        BackHandler { editor = null; localScripts = EngineStore.localScripts() }
+        ScriptEditorScreen(vm, t, onBack = { editor = null; localScripts = EngineStore.localScripts() })
+        return
+    }
+
     Scaffold(containerColor = c.bg, topBar = {
         BackTopBar(stringResource(R.string.scripts), onBack) {
+            if (tab == 0) TextButton(onClick = { editor = ScriptTarget.Scratch }) { Text(stringResource(R.string.e2_workbench)) }
             if (tab == 0) TextButton(onClick = { showAdd = true }) { Text(stringResource(R.string.add)) }
             else TextButton(onClick = { scope.launch { runCatching { ControllerClient.mitmClearLogs() }; logs = emptyList() } }) {
                 Text(stringResource(R.string.clear))
@@ -112,11 +128,28 @@ fun ScriptsScreen(vm: MainViewModel, onBack: () -> Unit) {
                 if (tab == 0) {
                     item { SectionTitle(stringResource(R.string.scripts_own)) }
                     if (cfg.scripts.isEmpty()) item { AppCard { EmptyHint(stringResource(R.string.scripts_own_empty)) } }
-                    items(cfg.scripts, key = { it.id }) { LineRow(it, scripts = true) }
+                    items(cfg.scripts, key = { it.id }) { LineRow(it, scripts = true, onOpen = { p -> editor = ScriptTarget.forPath(p) }) }
+                    item {
+                        Row(verticalAlignment = Alignment.CenterVertically) {
+                            SectionTitle(stringResource(R.string.e2_local_scripts), Modifier.weight(1f))
+                            TextButton(onClick = { newScript = true }) { Text(stringResource(R.string.e2_new_script)) }
+                        }
+                    }
+                    if (localScripts.isEmpty()) item { AppCard { EmptyHint(stringResource(R.string.e2_local_scripts_empty)) } }
+                    items(localScripts, key = { "f:$it" }) { n ->
+                        AppCard(Modifier.clickable { editor = ScriptTarget.Local(n) }, padding = PaddingValues(start = 12.dp, end = 4.dp, top = 2.dp, bottom = 2.dp)) {
+                            Row(verticalAlignment = Alignment.CenterVertically) {
+                                Text(n, fontFamily = FontFamily.Monospace, fontSize = 13.sp, color = c.text, modifier = Modifier.weight(1f),
+                                    maxLines = 1, overflow = TextOverflow.Ellipsis)
+                                TextButton(onClick = { deleteLocal = n }) { Text(stringResource(R.string.delete), color = c.bad) }
+                            }
+                        }
+                    }
                     item { SectionTitle(stringResource(R.string.scripts_modules)) }
                     if (fromModules.isEmpty()) item { AppCard { EmptyHint(stringResource(R.string.scripts_modules_empty)) } }
                     items(fromModules) { s ->
-                        AppCard(padding = PaddingValues(horizontal = 12.dp, vertical = 8.dp)) {
+                        AppCard(Modifier.clickable(enabled = s.path.isNotEmpty()) { editor = ScriptTarget.forPath(s.path) },
+                            padding = PaddingValues(horizontal = 12.dp, vertical = 8.dp)) {
                             Row(verticalAlignment = Alignment.CenterVertically) {
                                 Tag(s.kind, c.accent)
                                 Spacer(Modifier.width(6.dp))
@@ -151,6 +184,43 @@ fun ScriptsScreen(vm: MainViewModel, onBack: () -> Unit) {
         }
     }
 
+    if (newScript) {
+        var name by remember { mutableStateOf("") }
+        AlertDialog(
+            onDismissRequest = { newScript = false },
+            title = { Text(stringResource(R.string.e2_new_script)) },
+            text = {
+                Column {
+                    OutlinedTextField(name, { name = it }, singleLine = true, label = { Text(stringResource(R.string.e2_file_name)) },
+                        placeholder = { Text("my-script.js") })
+                    Text(stringResource(R.string.e2_local_script_hint), fontSize = 11.sp, color = c.secondary)
+                }
+            },
+            confirmButton = {
+                TextButton(onClick = {
+                    newScript = false
+                    val n = EngineExtras.saveLocalScript(name, "// ${'$'}request / ${'$'}response\n${'$'}done({});\n")
+                    localScripts = EngineStore.localScripts()
+                    editor = ScriptTarget.Local(n)
+                }, enabled = name.isNotBlank() && !name.trim().let { it.endsWith(".js") && it in localScripts || "$it.js" in localScripts }) {
+                    Text(stringResource(R.string.add))
+                }
+            },
+            dismissButton = { TextButton(onClick = { newScript = false }) { Text(stringResource(R.string.cancel)) } },
+        )
+    }
+    deleteLocal?.let { n ->
+        AlertDialog(
+            onDismissRequest = { deleteLocal = null },
+            title = { Text(stringResource(R.string.delete_profile_q, n)) },
+            confirmButton = {
+                TextButton(onClick = { EngineExtras.deleteLocalScript(n); localScripts = EngineStore.localScripts(); deleteLocal = null }) {
+                    Text(stringResource(R.string.delete), color = c.bad)
+                }
+            },
+            dismissButton = { TextButton(onClick = { deleteLocal = null }) { Text(stringResource(R.string.cancel)) } },
+        )
+    }
     if (showAdd) AddLinesDialog(scripts = true, onAdd = { text ->
         scope.launch {
             val n = withContext(Dispatchers.IO) { EngineStore.addLines(text, toScripts = true) }

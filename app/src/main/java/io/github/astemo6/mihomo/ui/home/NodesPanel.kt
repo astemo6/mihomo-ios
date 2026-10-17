@@ -6,6 +6,10 @@ import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.combinedClickable
+import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.remember
+import androidx.compose.runtime.setValue
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -47,7 +51,8 @@ import io.github.astemo6.mihomo.ui.GroupCard
 import io.github.astemo6.mihomo.ui.MainViewModel
 import io.github.astemo6.mihomo.ui.ResourceCard
 import io.github.astemo6.mihomo.ui.components.AppCard
-import io.github.astemo6.mihomo.ui.components.GroupIcon
+import io.github.astemo6.mihomo.ui.components.GroupIconPicker
+import io.github.astemo6.mihomo.ui.components.UserGroupIcon
 import io.github.astemo6.mihomo.ui.components.EmptyHint
 import io.github.astemo6.mihomo.ui.components.Tag
 import io.github.astemo6.mihomo.ui.components.delayColor
@@ -176,6 +181,7 @@ private fun ResourceCardView(d: NodesData, query: String, expanded: Boolean, onT
     }
 }
 
+@OptIn(ExperimentalFoundationApi::class)
 @Composable
 private fun GroupCardView(
     g: GroupCard, d: NodesData, query: String, expanded: Boolean,
@@ -185,9 +191,12 @@ private fun GroupCardView(
     val leaf = g.chain.lastOrNull()
     AppCard {
         Row(verticalAlignment = Alignment.CenterVertically, modifier = Modifier.clickable(onClick = onToggle)) {
-            Box(Modifier.size(34.dp), contentAlignment = Alignment.Center) {
-                GroupIcon(g.icon, 30.dp) { Avatar(g.name, PanelColors.rules) }
+            var pickIcon by remember { mutableStateOf(false) }
+            // Long-press the icon to choose a user icon (group-icons.json; never written into the profile).
+            Box(Modifier.size(34.dp).combinedClickable(onClick = onToggle, onLongClick = { pickIcon = true }), contentAlignment = Alignment.Center) {
+                UserGroupIcon(g.name, g.icon, 30.dp) { Avatar(g.name, PanelColors.rules) }
             }
+            if (pickIcon) GroupIconPicker(g.name, g.icon, onDismiss = { pickIcon = false })
             Spacer(Modifier.width(10.dp))
             Column(Modifier.weight(1f)) {
                 Row(verticalAlignment = Alignment.CenterVertically) {

@@ -73,7 +73,15 @@ data class ParsedEngineText(
     val unsupported: List<String> = emptyList(),
     val tasks: List<Task>? = null,
     val panels: List<PanelItem>? = null,
+    val arguments: List<ModArg> = emptyList(),
 ) {
+    /** Surge #!arguments / Loon [Argument] / Egern compat_arguments entry (core/mitm ModArg). */
+    @Serializable
+    data class ModArg(
+        val key: String = "", val default: String = "", val desc: String? = null,
+        val type: String? = null, val options: List<String>? = null,
+    )
+
     @Serializable
     data class Rule(
         val kind: String = "", val phase: String = "", val pattern: String = "", val desc: String = "",

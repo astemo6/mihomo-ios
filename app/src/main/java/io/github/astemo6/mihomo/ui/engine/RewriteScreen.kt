@@ -2,8 +2,10 @@ package io.github.astemo6.mihomo.ui.engine
 
 import android.content.ClipboardManager
 import android.content.Context
+import androidx.activity.compose.BackHandler
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
+import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.PaddingValues
@@ -23,6 +25,7 @@ import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Add
 import androidx.compose.material.icons.filled.Close
+import androidx.compose.material.icons.filled.Edit
 import androidx.compose.material.icons.filled.Refresh
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Button
@@ -54,7 +57,9 @@ import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import io.github.astemo6.mihomo.R
+import io.github.astemo6.mihomo.core.Core
 import io.github.astemo6.mihomo.data.EngineItem
+import io.github.astemo6.mihomo.data.ParsedEngineText
 import io.github.astemo6.mihomo.data.EngineModule
 import io.github.astemo6.mihomo.data.EngineStore
 import io.github.astemo6.mihomo.data.ImportRouter
@@ -90,6 +95,7 @@ fun RewriteScreen(vm: MainViewModel, onBack: () -> Unit, onMitm: () -> Unit, onS
     var showAddLines by remember { mutableStateOf(false) }
     var viewing by remember { mutableStateOf<EngineModule?>(null) }
     var deleting by remember { mutableStateOf<EngineModule?>(null) }
+    var detailId by remember { mutableStateOf<String?>(null) }
 
     val pickFile = rememberLauncherForActivityResult(ActivityResultContracts.OpenDocument()) { uri ->
         if (uri != null) {
@@ -100,6 +106,12 @@ fun RewriteScreen(vm: MainViewModel, onBack: () -> Unit, onMitm: () -> Unit, onS
             }
             showAdd = false
         }
+    }
+
+    detailId?.let { id ->
+        BackHandler { detailId = null }
+        ModuleDetailScreen(vm, id, onBack = { detailId = null })
+        return
     }
 
     Scaffold(containerColor = c.bg, topBar = {
@@ -129,7 +141,7 @@ fun RewriteScreen(vm: MainViewModel, onBack: () -> Unit, onMitm: () -> Unit, onS
                 val p = info[m.id]
                 AppCard(padding = PaddingValues(start = 14.dp, end = 6.dp, top = 10.dp, bottom = 10.dp)) {
                     Row(verticalAlignment = Alignment.CenterVertically) {
-                        Column(Modifier.weight(1f)) {
+                        Column(Modifier.weight(1f).clickable { detailId = m.id }) {
                             Text(m.name, fontWeight = FontWeight.SemiBold, color = c.text, maxLines = 1, overflow = TextOverflow.Ellipsis)
                             val scripts = p?.rules?.count { it.kind == "script" } ?: 0
                             val summary = if (p == null) stringResource(R.string.module_not_downloaded)
@@ -141,12 +153,19 @@ fun RewriteScreen(vm: MainViewModel, onBack: () -> Unit, onMitm: () -> Unit, onS
                                 if (m.url.isEmpty()) stringResource(R.string.kind_local) else null,
                             ).joinToString(" · ")
                             if (sub.isNotEmpty()) Text(sub, fontSize = 11.sp, color = c.secondary)
+                            val nArgs = p?.arguments?.size ?: 0
+                            if (nArgs > 0 || !m.policies.isNullOrEmpty()) Text(
+                                listOfNotNull(
+                                    if (nArgs > 0) stringResource(R.string.e2_module_args_n, nArgs) else null,
+                                    if (!m.policies.isNullOrEmpty()) stringResource(R.string.e2_module_policies_n, m.policies.size) else null,
+                                ).joinToString(" · "), fontSize = 11.sp, color = c.accent)
                             if (!p?.errors.isNullOrEmpty()) Text(p!!.errors.first(), fontSize = 11.sp, color = c.bad, maxLines = 2)
                         }
                         if (m.id in busy) CircularProgressIndicator(Modifier.size(18.dp), strokeWidth = 2.dp)
                         Switch(m.enabled, { EngineStore.setModuleEnabled(m, it) }, colors = SwitchDefaults.colors(checkedTrackColor = c.good))
                     }
                     Row {
+                        TextButton(onClick = { detailId = m.id }) { Text(stringResource(R.string.e2_details)) }
                         TextButton(onClick = { viewing = m }) { Text(stringResource(R.string.view)) }
                         if (m.url.isNotEmpty()) TextButton(onClick = {
                             scope.launch { EngineStore.updateModule(m)?.let { vm.toast(ctx.getString(R.string.msg_update_failed, it)) } }
@@ -228,7 +247,7 @@ internal fun SettingsRowLink(title: String, value: String, onClick: () -> Unit, 
 
 /** One user rewrite / script line: kind tag, description from the engine, switch and delete. */
 @Composable
-internal fun LineRow(item: EngineItem, scripts: Boolean) {
+internal fun LineRow(item: EngineItem, scripts: Boolean, onOpen: ((String) -> Unit)? = null) {
     val c = LocalAppColors.current
     val d = remember(item.line) { runCatching { EngineStore.describe(item.line, if (scripts) "script" else "") }.getOrNull() }
     AppCard(padding = PaddingValues(start = 12.dp, end = 4.dp, top = 8.dp, bottom = 8.dp)) {
@@ -241,6 +260,14 @@ internal fun LineRow(item: EngineItem, scripts: Boolean) {
                         maxLines = 1, overflow = TextOverflow.Ellipsis)
                 }
                 Text(item.line, fontFamily = FontFamily.Monospace, fontSize = 12.sp, color = c.text, maxLines = 3, overflow = TextOverflow.Ellipsis)
+            }
+            if (onOpen != null) {
+                val path = remember(item.line) {
+                    runCatching { ParsedEngineText.parse(Core.engineParseLine(item.line, "script"))?.rules?.firstOrNull()?.path }.getOrNull()
+                }
+                if (!path.isNullOrEmpty()) IconButton(onClick = { onOpen(path) }) {
+                    Icon(Icons.Filled.Edit, stringResource(R.string.e2_open_script), tint = c.accent)
+                }
             }
             Switch(item.enabled, { EngineStore.toggleItem(item.id, scripts) }, colors = SwitchDefaults.colors(checkedTrackColor = c.good))
             IconButton(onClick = { EngineStore.deleteItem(item.id) }) { Icon(Icons.Filled.Close, stringResource(R.string.delete), tint = c.secondary) }

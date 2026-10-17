@@ -108,7 +108,17 @@ Mihomo for Android 是用户 iOS 客户端（astemo6/mihomo-ios）的 Android �
 - [x] 分应用代理：允许或排除列表（Android 专属；本应用始终留在 VPN 内）
 
 ### A2 与 iOS 对齐
-- [x] 模块、重写、MitM、脚本（复用 Go 引擎 core/mitm，无需新增 Go 导出）：`data/EngineStore.kt` 写 `home/engine/engine.json` + `engine/modules/<id>.txt`（字段同 iOS EngineShared），改动后 400ms 去抖重载内核；设置 › 重写：总开关、模块（URL / 文件 / 剪贴板导入，UA Surge iOS/3000，启用/停用、更新、全部更新、查看原文、删除）、我的重写（粘贴多行，hostname= 行进 MitM 列表）；设置 › MitM：HTTPS 解密开关、跳过证书验证、全部阻止 QUIC、CA 生成/重新生成（CAGenerate/CAInfo）、导出 DER 到 下载/Mihomo-CA.crt（Android 10+ MediaStore，8–9 用 SAF CreateDocument）、手动安装说明（设置 › 安全 › 加密与凭据 › 安装证书 › CA 证书，并说明 Android 7+ 应用默认不信任用户 CA）、主机名列表（自有可删，模块来源只读）；脚本页：我的脚本、模块脚本/cron/event 任务、脚本日志（控制器 `/mitm/logs` 轮询，清空）。导入路由：ClassifyText `module:*`（粘贴/分享/文件/订阅 URL）、`.sgmodule/.plugin/.lpx/.stoverride/.snippet/.module` 链接或文件、`clash|mihomo://install-module?url=` → 模块；Surge/QX 完整配置首次导入时 ImportConf 的 `module` 和 `rewriteRemotes` 也加进引擎（同 iOS）。未做：模块参数（#!arguments）编辑、模块策略映射、脚本编辑器/调试（ScriptDebugRun）、MitM 请求查看器（/mitm/requests）、p12 导入导出、证书信任检测
+- [x] 模块、重写、MitM、脚本（复用 Go 引擎 core/mitm，无需新增 Go 导出）：`data/EngineStore.kt` 写 `home/engine/engine.json` + `engine/modules/<id>.txt`（字段同 iOS EngineShared），改动后 400ms 去抖重载内核；设置 › 重写：总开关、模块（URL / 文件 / 剪贴板导入，UA Surge iOS/3000，启用/停用、更新、全部更新、查看原文、删除）、我的重写（粘贴多行，hostname= 行进 MitM 列表）；设置 › MitM：HTTPS 解密开关、跳过证书验证、全部阻止 QUIC、CA 生成/重新生成（CAGenerate/CAInfo）、导出 DER 到 下载/Mihomo-CA.crt（Android 10+ MediaStore，8–9 用 SAF CreateDocument）、手动安装说明（设置 › 安全 › 加密与凭据 › 安装证书 › CA 证书，并说明 Android 7+ 应用默认不信任用户 CA）、主机名列表（自有可删，模块来源只读）；脚本页：我的脚本、模块脚本/cron/event 任务、脚本日志（控制器 `/mitm/logs` 轮询，清空）。导入路由：ClassifyText `module:*`（粘贴/分享/文件/订阅 URL）、`.sgmodule/.plugin/.lpx/.stoverride/.snippet/.module` 链接或文件、`clash|mihomo://install-module?url=` → 模块；Surge/QX 完整配置首次导入时 ImportConf 的 `module` 和 `rewriteRemotes` 也加进引擎（同 iOS）。引擎扩展（2026-10-17，分支 android/a2-engine）见下条
+- [x] 引擎扩展（分支 `android/a2-engine`，无 core 改动，全部用已导出的 gobind 函数）：
+  - 模块详情页 `ui/engine/ModuleDetailScreen.kt`（重写页点模块或「详情」进入，页内 BackHandler 导航）：信息、查看内容、更新；**模块参数**（Surge `#!arguments`/`#!arguments-desc`、Loon `[Argument]` switch/select、Egern compat_arguments），保存到 `engine.json` `modules[].args`（同 iOS EngineShared），重新 EngineParseText 并重载；恢复默认清空 args。
+  - **模块策略映射**：`ModuleUnresolved` + `ProfileGroups`（当前配置文件），每个未知策略名下拉选组（或“自动（第一个手动组）”），存 `modules[].policies`，core/mitm/config.go 的 mapPolicy 读取。
+  - **脚本编辑器 + 调试**（`ui/engine/ScriptEditorScreen.kt`）：本地脚本 `engine/scripts/*.js` 新建/编辑/保存/删除（脚本页「本地脚本」区）；脚本行/模块脚本点开看源码（远程脚本经 `ScriptSource` 读内核缓存副本，只读，可另存为本地）；「调试台」+「调试运行」走 `ScriptDebugRun`（http-request/http-response/generic/cron，样本请求/响应、argument、binary-body-mode、超时），显示控制台、通知、$done、处理后结果 / 本地响应。
+  - **MitM 请求查看器**（`ui/engine/RequestsScreen.kt`，MitM 页「HTTP 请求」）：`/mitm/requests` 1.5 s 轮询、筛选、清空；详情 `/mitm/requests/{id}`（头部/内容分请求/响应、JSON 美化、复制、复制为 cURL、重放与编辑后重放 `POST /mitm/requests/{id}/replay`、「用此请求调试脚本」）。API 在 `data/EngineApi.kt`（独立 OkHttp，不改共享 ControllerClient）。
+  - **p12 导入导出**（MitM 页 CA 卡片）：`CAExportP12`（密码 → SAF 保存 Mihomo-CA.p12）、`CAImportP12`（SAF 选文件 → 密码 → 替换 CA 并重载）。
+  - **CA 信任检测**：`KeyStore("AndroidCAStore")` 按 DER SHA-256 匹配，显示 用户证书 / 系统证书 / 未安装；回到前台（ON_RESUME）自动重查。
+  - **策略组图标自选**：`data/GroupIconStore.kt` 写 `<home>/group-icons.json`（同 iOS：组名 → URL，"" = 默认），节点面板长按组图标打开 `ui/components/GroupIconPicker.kt`（图片地址校验加载、3 个 QX 图标库网格 + 搜索（经 jsDelivr 镜像，索引缓存在 icon-cache/）、使用配置文件图标 / 默认图标、清除缓存）。feature2 的 GroupsScreen 未接（不改 feature2 文件）。
+  - 字符串：`res/values*/strings_engine2.xml`，由 `scripts/gen-strings-engine2.py` 生成（简体 / English / 繁體），键名 `e2_`。
+  - 仅编译检查，**未上机**：AndroidCAStore 行为、p12 与 iOS 互通、调试运行、重放均未在设备上验证。
 - [ ] 规则列表导入（QX/Surge/Clash rule list，作为远程规则集）
 - [ ] DNS 查询日志和 DNS 阻止的域名
 - [ ] 流量统计：本次会话按策略统计、历史记录、流速
@@ -138,4 +148,4 @@ Mihomo for Android 是用户 iOS 客户端（astemo6/mihomo-ios）的 Android �
 - 合并 `android/a2-data`（1ed3fb1, ffe75f6）：规则集、DNS 日志、流量统计、节点订阅、策略组编辑、手动节点、出口 IP/解锁检测、诊断包/安全模式。详见 `HANDOFF-feature2.md`。
 - 删除 `Feature2Placeholder.kt`，路由直接进入 `Feature2Router.kt`；`MihomoApp` 调用 `Feature2Hooks.onAppCreate`，`MainActivity.onResume` 调用 `Feature2Hooks.onForeground`。
 - 验证：`:app:compileDebugKotlin` BUILD SUCCESSFUL（真实 gobind 绑定）。未真机测试。
-- 待办：普通连接时清除 `safeMode`（目前只能在诊断页“正常重连”退出）；`ProfileStore` 增加固定 id 新增接口替换 `ManualNodes.ensureProfile`；二维码扫描；模块参数/策略映射、脚本编辑调试、MitM 请求查看、p12 导入导出、CA 信任检测。
+- 待办：普通连接时清除 `safeMode`（目前只能在诊断页“正常重连”退出）；`ProfileStore` 增加固定 id 新增接口替换 `ManualNodes.ensureProfile`；二维码扫描。（模块参数/策略映射、脚本编辑调试、MitM 请求查看、p12、CA 信任检测、组图标自选已在 android/a2-engine 完成）
