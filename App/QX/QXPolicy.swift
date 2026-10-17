@@ -101,7 +101,7 @@ struct QXPolicyEditor: View {
             .padding(.top, 70)
             .padding(.bottom, 50)
         }
-        .background(Theme.bg.ignoresSafeArea())
+        .background(QXPalette.bg.ignoresSafeArea())
         .overlay(alignment: .top) {
             HStack {
                 QXCircleButton(systemName: "xmark") { dismiss() }.accessibilityLabel(Text("取消"))
@@ -122,7 +122,7 @@ struct QXPolicyEditor: View {
                 }
             }
             .padding(.horizontal, 16).padding(.top, 12).padding(.bottom, 8)
-            .background(LinearGradient(colors: [Theme.bg, Theme.bg.opacity(0)], startPoint: .top, endPoint: .bottom))
+            .background(LinearGradient(colors: [QXPalette.bg, QXPalette.bg.opacity(0)], startPoint: .top, endPoint: .bottom))
         }
         .task { await load() }
         .sheet(item: $iconTarget) { t in GroupIconPicker(group: t.name, profileIcon: t.profileIcon) }
@@ -601,11 +601,11 @@ struct QXPolicySortSheet: View {
                     }
                     .onMove { order.move(fromOffsets: $0, toOffset: $1) }
                 } footer: { Text("拖动调整首页「自定义策略」的显示顺序，不改变配置文件。") }
-                .listRowBackground(Theme.card)
+                .listRowBackground(QXPalette.card)
             }
             .environment(\.editMode, .constant(.active))
             .scrollContentBackground(.hidden)
-            .background(Theme.bg.ignoresSafeArea())
+            .background(QXPalette.bg.ignoresSafeArea())
             .navigationTitle("排序").navigationBarTitleDisplayMode(.inline)
             .toolbar {
                 ToolbarItem(placement: .cancellationAction) { Button("取消") { dismiss() } }
@@ -633,13 +633,13 @@ struct QXPolicyBackgroundSheet: View {
                 VStack(alignment: .leading, spacing: 16) {
                     Text("为「\(group)」的卡片选择背景色。").font(.subheadline).foregroundStyle(.secondary)
                     LazyVGrid(columns: Array(repeating: GridItem(.flexible(), spacing: 16), count: 4), spacing: 16) {
-                        swatch(nil, Theme.card)
+                        swatch(nil, QXPalette.card)
                         ForEach(QXPolicyPrefs.palette, id: \.0) { item in swatch(item.0, item.1) }
                     }
                 }
                 .padding(20)
             }
-            .background(Theme.bg.ignoresSafeArea())
+            .background(QXPalette.bg.ignoresSafeArea())
             .navigationTitle("背景").navigationBarTitleDisplayMode(.inline)
             .toolbar {
                 ToolbarItem(placement: .confirmationAction) { Button("完成") { dismiss() } }

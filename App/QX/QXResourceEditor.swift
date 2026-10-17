@@ -160,7 +160,7 @@ struct QXResourceEditor: View {
             .padding(.top, 70)
             .padding(.bottom, 40)
         }
-        .background(Theme.bg.ignoresSafeArea())
+        .background(QXPalette.bg.ignoresSafeArea())
         .overlay(alignment: .top) {
             HStack {
                 QXCircleButton(systemName: "xmark") { dismiss() }.accessibilityLabel(Text("取消"))
@@ -176,7 +176,7 @@ struct QXResourceEditor: View {
                 }
             }
             .padding(.horizontal, 16).padding(.top, 12).padding(.bottom, 8)
-            .background(LinearGradient(colors: [Theme.bg, Theme.bg.opacity(0)], startPoint: .top, endPoint: .bottom))
+            .background(LinearGradient(colors: [QXPalette.bg, QXPalette.bg.opacity(0)], startPoint: .top, endPoint: .bottom))
         }
         .task { await load() }
     }

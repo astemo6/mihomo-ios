@@ -60,10 +60,12 @@ struct EngineConfig: Codable, Equatable {
     var quic: String? = nil
     /// MitM hosts whose QUIC is not blocked.
     var quicAllow: [String]? = nil
+    /// QX preview 5: [http_backend] local HTTP server (engine bridge/mitm/backend.go).
+    var httpBackend: HTTPBackendConfig? = nil
 
     init() {}
 
-    enum CodingKeys: String, CodingKey { case enabled, mitm, skipCertVerify, h2, captureBodies, hostnames, rules, scripts, modules, scriptResources, quic, quicAllow }
+    enum CodingKeys: String, CodingKey { case enabled, mitm, skipCertVerify, h2, captureBodies, hostnames, rules, scripts, modules, scriptResources, quic, quicAllow, httpBackend }
 
     init(from d: Decoder) throws {
         let c = try d.container(keyedBy: CodingKeys.self)
@@ -79,6 +81,7 @@ struct EngineConfig: Codable, Equatable {
         scriptResources = try? c.decodeIfPresent([String: ScriptResourceSetting].self, forKey: .scriptResources)
         quic = try? c.decodeIfPresent(String.self, forKey: .quic)
         quicAllow = try? c.decodeIfPresent([String].self, forKey: .quicAllow)
+        httpBackend = try? c.decodeIfPresent(HTTPBackendConfig.self, forKey: .httpBackend)
     }
 
     static func load() -> EngineConfig {
@@ -91,6 +94,70 @@ struct EngineConfig: Codable, Equatable {
         let enc = JSONEncoder()
         enc.outputFormatting = [.prettyPrinted, .sortedKeys]
         if let data = try? enc.encode(self) { try? data.write(to: EnginePaths.configURL, options: .atomic) }
+    }
+}
+
+/// QX [http_backend]: scripts answering http://127.0.0.1:<port>/<path> inside the tunnel.
+struct HTTPBackendConfig: Codable, Equatable {
+    var enabled = false
+    var port: Int? = nil
+    var items: [HTTPBackendItem] = []
+    static let defaultPort = 9999
+    var effectivePort: Int { (port ?? 0) > 0 && (port ?? 0) <= 65535 ? port! : Self.defaultPort }
+}
+
+struct HTTPBackendItem: Codable, Equatable, Identifiable, Hashable {
+    var id = UUID().uuidString
+    var tag: String
+    var script: String
+    var path: String
+    var imgURL: String? = nil
+    var enabled = true
+
+    enum CodingKeys: String, CodingKey { case id, tag, script, path, imgURL, enabled }
+    init(tag: String, script: String, path: String, imgURL: String? = nil, enabled: Bool = true) {
+        self.tag = tag; self.script = script; self.path = path; self.imgURL = imgURL; self.enabled = enabled
+    }
+    init(from d: Decoder) throws {
+        let c = try d.container(keyedBy: CodingKeys.self)
+        id = (try? c.decodeIfPresent(String.self, forKey: .id)) ?? UUID().uuidString
+        tag = (try? c.decodeIfPresent(String.self, forKey: .tag)) ?? ""
+        script = (try? c.decodeIfPresent(String.self, forKey: .script)) ?? ""
+        path = (try? c.decodeIfPresent(String.self, forKey: .path)) ?? ""
+        imgURL = try? c.decodeIfPresent(String.self, forKey: .imgURL)
+        enabled = (try? c.decodeIfPresent(Bool.self, forKey: .enabled)) ?? true
+    }
+
+    /// "<script>, tag=…, path=<regex>, img-url=…, enabled=…" (QX [http_backend] line).
+    static func parse(_ line: String) -> HTTPBackendItem? {
+        let l = line.trimmingCharacters(in: .whitespaces)
+        guard !l.isEmpty, !l.hasPrefix("#"), !l.hasPrefix(";"), !l.hasPrefix("//") else { return nil }
+        let parts = l.split(separator: ",", omittingEmptySubsequences: false).map { $0.trimmingCharacters(in: .whitespaces) }
+        var it = HTTPBackendItem(tag: "", script: parts[0], path: "")
+        for p in parts.dropFirst() {
+            guard let eq = p.firstIndex(of: "=") else { continue }
+            let k = p[..<eq].trimmingCharacters(in: .whitespaces).lowercased()
+            let v = p[p.index(after: eq)...].trimmingCharacters(in: .whitespaces)
+            switch k {
+            case "tag": it.tag = v
+            case "path": it.path = v
+            case "img-url": it.imgURL = v
+            case "enabled": it.enabled = v.lowercased() != "false"
+            default: break
+            }
+        }
+        guard !it.script.isEmpty, !it.path.isEmpty else { return nil }
+        if it.tag.isEmpty {
+            it.tag = (it.script.split(separator: "/").last.map(String.init) ?? it.script).replacingOccurrences(of: ".js", with: "")
+        }
+        return it
+    }
+
+    var line: String {
+        var s = "\(script), tag=\(tag), path=\(path)"
+        if let i = imgURL, !i.isEmpty { s += ", img-url=\(i)" }
+        s += ", enabled=\(enabled)"
+        return s
     }
 }
 

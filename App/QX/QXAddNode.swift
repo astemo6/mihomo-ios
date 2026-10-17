@@ -69,7 +69,7 @@ struct QXAddNodeView: View {
                             .frame(minHeight: 90)
                             .scrollContentBackground(.hidden)
                             .padding(8)
-                            .background(RoundedRectangle(cornerRadius: 16, style: .continuous).fill(Theme.card))
+                            .background(RoundedRectangle(cornerRadius: 16, style: .continuous).fill(QXPalette.card))
                             .overlay(alignment: .topLeading) {
                                 if paste.isEmpty {
                                     Text("vless:// hy2:// tuic:// anytls:// ss:// …，Base64 订阅、SIP008 / sing-box JSON、Surge / QX / Loon 节点行都可以")
@@ -106,7 +106,7 @@ struct QXAddNodeView: View {
                                     }
                                     .padding(14)
                                     .frame(maxWidth: .infinity, alignment: .leading)
-                                    .background(RoundedRectangle(cornerRadius: 20, style: .continuous).fill(Theme.card))
+                                    .background(RoundedRectangle(cornerRadius: 20, style: .continuous).fill(QXPalette.card))
                                 }
                                 .buttonStyle(.plain)
                             }

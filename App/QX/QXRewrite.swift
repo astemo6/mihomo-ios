@@ -98,7 +98,7 @@ struct QXRewriteRulesView: View {
                     if searching {
                         TextField("搜索", text: $search)
                             .textInputAutocapitalization(.never).autocorrectionDisabled()
-                            .padding(10).background(RoundedRectangle(cornerRadius: 12, style: .continuous).fill(Theme.card))
+                            .padding(10).background(RoundedRectangle(cornerRadius: 12, style: .continuous).fill(QXPalette.card))
                             .padding(.bottom, 10)
                     }
                     if list.isEmpty {

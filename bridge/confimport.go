@@ -648,7 +648,8 @@ func ImportConf(text string) string {
 	moduleSecs := map[string]bool{"url rewrite": true, "header rewrite": true, "body rewrite": true, "map local": true, "script": true, "mitm": true,
 		"rewrite_local": true, "task_local": true}
 	known := map[string]bool{"": true, "general": true, "proxy": true, "proxy group": true, "rule": true, "server_local": true, "server_remote": true,
-		"policy": true, "filter_local": true, "filter_remote": true, "dns": true, "replica": true, "host": true, "rewrite_remote": true}
+		"policy": true, "filter_local": true, "filter_remote": true, "dns": true, "replica": true, "host": true, "rewrite_remote": true,
+		"http_backend": true}
 	var mod strings.Builder
 	for _, s := range order {
 		if !moduleSecs[s] {

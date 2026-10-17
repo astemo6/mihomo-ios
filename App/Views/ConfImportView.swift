@@ -107,6 +107,9 @@ enum ConfImport {
                 msg += String(localized: "（\(failed.count) 个下载失败，可在「模块与资源」中更新）\n") + failed.joined(separator: "\n")
             }
         }
+        // QX preview 5: [http_backend] → HTTP Backend page (QX branch only).
+        let backends = await MainActor.run { QXHTTPBackendStore.importConf(text) }
+        if backends > 0 { msg += String(localized: "，另添加 \(backends) 个 HTTP Backend") }
         if let st = r.settings, r.applySettings != false, !st.lines.isEmpty {
             await MainActor.run { st.apply() }
             msg += String(localized: "，已应用 \(st.lines.count) 项连接设置")

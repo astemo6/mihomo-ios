@@ -6,61 +6,30 @@ import Libmihomo
 // bottom search capsule + log circle. Live state comes from the extension; offline the list is read
 // from the modules and local script lines.
 
-struct QXTaskItem: Identifiable, Hashable {
-    let id: String
-    let name: String
-    let kind: String          // cron | event | generic
-    let schedule: String
-    let path: String
-    let source: String
-    var lastRun: Double? = nil
-    var lastOK = true
-    var running = false
-    var lastResult: String? = nil
-}
+// QX-5: the list is main's 任务 data (ScriptTaskState live / TaskCatalog offline), with main's TaskPrefs
+// (自动运行 master switch + per-task on/off) and run history (TaskDetailView). As in QX, the tile itself
+// is the task's switch (brown with a slashed alarm = off) and the alarm in the capsule is 自动运行.
 
 struct QXTaskListView: View {
     @EnvironmentObject var vpn: VPNManager
     @EnvironmentObject var nav: QXNavigator
     @ObservedObject private var engine = EngineStore.shared
     @ObservedObject private var res = ResourceStore.shared
-    @State private var live: [ScriptTaskState] = []
+    @State private var tasks: [ScriptTaskState] = []
+    @State private var prefs = TaskPrefs.load()
     @State private var loaded = false
     @State private var runningID: String?
     @State private var message: String?
     @State private var search = ""
     @State private var adding = false
+    @State private var result: TaskResultItem?
     @FocusState private var searchFocused: Bool
 
-    var offline: [QXTaskItem] {
-        var out: [QXTaskItem] = []
-        for it in (engine.config.scripts + engine.config.rules) where it.enabled {
-            let d = EngineStore.describe(it.line, section: "script")
-            guard ["cron", "event", "generic"].contains(d.kind) else { continue }
-            if let p = ParsedEngineText.parse(LibmihomoEngineParseLine(it.line, "script")), let t = p.tasks?.first {
-                out.append(QXTaskItem(id: it.id, name: t.name, kind: t.kind, schedule: t.cron ?? t.event ?? "", path: t.path, source: String(localized: "已保存")))
-            }
-        }
-        for m in engine.config.modules where m.enabled {
-            for (i, t) in (engine.moduleInfo[m.id]?.tasks ?? []).enumerated() {
-                out.append(QXTaskItem(id: m.id + "#\(i)", name: t.name, kind: t.kind, schedule: t.cron ?? t.event ?? "", path: t.path, source: m.name))
-            }
-        }
-        return out
-    }
+    static let offBrown = QXPalette.dyn(0x785450, 0x6A4A46)
 
-    var items: [QXTaskItem] {
-        let base: [QXTaskItem]
-        if vpn.isConnected && loaded {
-            base = live.map {
-                QXTaskItem(id: $0.id, name: $0.script.name, kind: $0.kind, schedule: $0.cron ?? $0.event ?? "", path: $0.script.path,
-                           source: $0.source, lastRun: $0.lastRun, lastOK: $0.lastOK ?? true, running: $0.running ?? false, lastResult: $0.lastResult)
-            }
-        } else {
-            base = offline
-        }
-        guard !search.isEmpty else { return base }
-        return base.filter { $0.name.localizedCaseInsensitiveContains(search) || $0.path.localizedCaseInsensitiveContains(search) }
+    var items: [ScriptTaskState] {
+        guard !search.isEmpty else { return tasks }
+        return tasks.filter { $0.script.name.localizedCaseInsensitiveContains(search) || $0.script.path.localizedCaseInsensitiveContains(search) }
     }
 
     var body: some View {
@@ -71,11 +40,12 @@ struct QXTaskListView: View {
                     .accessibilityLabel(Text("任务仓库"))
                 QXBarIcon(systemName: "externaldrive") { nav.push(.dest(.prefsStore)) }
                     .accessibilityLabel(Text("持久化存储"))
-                QXBarIcon(systemName: engine.config.enabled ? "alarm" : "zzz", tint: engine.config.enabled ? .primary : .secondary) {
-                    engine.config.enabled.toggle()
-                    engine.save()
+                QXBarIcon(systemName: prefs.paused ? "alarm.waves.left.and.right" : "alarm", tint: prefs.paused ? .secondary : .primary) {
+                    setPaused(!prefs.paused)
                 }
-                .accessibilityLabel(Text(engine.config.enabled ? LocalizedStringKey("停用脚本") : LocalizedStringKey("启用脚本")))
+                .overlay { if prefs.paused { Image(systemName: "line.diagonal").font(.system(size: 22, weight: .bold)).foregroundStyle(.secondary).allowsHitTesting(false) } }
+                .accessibilityLabel(Text("自动运行"))
+                .accessibilityValue(Text(prefs.paused ? LocalizedStringKey("已关闭") : LocalizedStringKey("已开启")))
                 QXBarIcon(systemName: "plus") { adding = true }
                     .accessibilityLabel(Text("添加任务"))
             }
@@ -90,14 +60,15 @@ struct QXTaskListView: View {
                         .disabled(res.updatingAll)
                     }
                     .padding(.bottom, 10)
+                    masterRow.padding(.bottom, 8)
                     if !engine.config.enabled {
-                        Text("重写与脚本已停用，任务不会运行。点右上角的闹钟重新启用。")
+                        Text("重写与脚本已停用，任务不会运行。在设置页打开「重写」开关后恢复。")
                             .font(.footnote).foregroundStyle(Theme.warn).padding(.bottom, 8)
                     } else if !vpn.isConnected {
                         Text("任务在扩展里运行：连接后按计划执行，断开时不运行。下面是模块与本地脚本中的任务。")
                             .font(.footnote).foregroundStyle(.secondary).padding(.bottom, 8)
                     }
-                    if list.isEmpty {
+                    if list.isEmpty && loaded {
                         VStack(alignment: .leading, spacing: 6) {
                             Text(search.isEmpty ? LocalizedStringKey("没有定时 / 事件 / 通用脚本") : LocalizedStringKey("没有匹配的任务")).font(.headline)
                             if search.isEmpty {
@@ -110,12 +81,13 @@ struct QXTaskListView: View {
                     }
                     ForEach(list) { t in
                         row(t)
-                        Divider().padding(.leading, 76)
+                        Divider().overlay(QXPalette.separator).padding(.leading, 76)
                     }
                 }
                 .padding(.horizontal, QXMetrics.inset)
                 .padding(.bottom, 110)
             }
+            .refreshable { await load() }
             .overlay(alignment: .bottom) { bottomBar }
         }
         .task(id: vpn.isConnected) {
@@ -127,10 +99,38 @@ struct QXTaskListView: View {
             }
         }
         .onAppear { engine.reparseModules() }
-        .sheet(isPresented: $adding) { LineEditorSheet(title: String(localized: "添加任务"), scripts: true, item: nil) }
+        .sheet(isPresented: $adding, onDismiss: { Task { await load() } }) { LineEditorSheet(title: String(localized: "添加任务"), scripts: true, item: nil) }
+        .sheet(item: $result) { r in
+            NavigationStack {
+                ScrollView { Text(verbatim: r.message).font(.footnote.monospaced()).textSelection(.enabled).padding() }
+                    .navigationTitle(r.title).navigationBarTitleDisplayMode(.inline)
+                    .toolbar { ToolbarItem(placement: .cancellationAction) { Button("关闭") { result = nil } } }
+            }
+            .presentationDetents([.medium, .large])
+        }
         .alert("提示", isPresented: Binding(get: { message != nil }, set: { if !$0 { message = nil } })) {
             Button("好", role: .cancel) {}
         } message: { Text(message ?? "") }
+    }
+
+    /// 自动运行 (main v0.11 master switch): pauses every 定时 / 网络变化 task without touching the per-task switches.
+    var masterRow: some View {
+        HStack(spacing: 12) {
+            Image(systemName: "alarm").font(.system(size: 17, weight: .semibold)).foregroundStyle(.white)
+                .frame(width: 32, height: 32)
+                .background(RoundedRectangle(cornerRadius: 9, style: .continuous).fill(prefs.paused ? Self.offBrown : QXColor.activity))
+            VStack(alignment: .leading, spacing: 2) {
+                Text("自动运行").font(.system(size: 17, weight: .semibold))
+                Text(prefs.paused ? LocalizedStringKey("已暂停全部定时与网络变化任务") : LocalizedStringKey("按计划运行已开启的任务；轻点任务图标单独开关"))
+                    .font(.system(size: 13)).foregroundStyle(.secondary).lineLimit(2)
+            }
+            Spacer(minLength: 8)
+            Toggle("", isOn: Binding(get: { !prefs.paused }, set: { setPaused(!$0) }))
+                .labelsHidden().tint(QXColor.switchOn)
+                .accessibilityLabel(Text("自动运行"))
+        }
+        .padding(12)
+        .background(RoundedRectangle(cornerRadius: 16, style: .continuous).fill(QXPalette.card))
     }
 
     var bottomBar: some View {
@@ -145,82 +145,156 @@ struct QXTaskListView: View {
             }
             .padding(.horizontal, 18)
             .frame(height: 56)
-            .background(Capsule().fill(Theme.card).shadow(color: .black.opacity(0.12), radius: 10, y: 3))
+            .background(Capsule().fill(QXPalette.chrome).shadow(color: QXPalette.shadow(0.12), radius: 10, y: 3))
+            .overlay(Capsule().stroke(QXPalette.hairline, lineWidth: 1))
             Button { nav.push(.dest(.scriptLogs)) } label: {
                 Image(systemName: "doc.text.magnifyingglass").font(.system(size: 20, weight: .semibold)).foregroundStyle(.primary)
                     .frame(width: 56, height: 56)
-                    .background(Circle().fill(Theme.card).shadow(color: .black.opacity(0.12), radius: 10, y: 3))
+                    .background(Circle().fill(QXPalette.chrome).shadow(color: QXPalette.shadow(0.12), radius: 10, y: 3))
+                    .overlay(Circle().stroke(QXPalette.hairline, lineWidth: 1))
             }
-            .buttonStyle(.plain)
+            .buttonStyle(QXPressStyle())
             .accessibilityLabel(Text("运行日志"))
         }
         .padding(.horizontal, QXMetrics.inset)
         .padding(.bottom, 10)
     }
 
-    func tile(_ t: QXTaskItem) -> some View {
-        let failed = t.lastRun != nil && !t.lastOK
-        let off = !engine.config.enabled || !vpn.isConnected
-        let color: Color = failed ? Color(red: 0.47, green: 0.33, blue: 0.30) : (t.kind == "event" ? QXColor.rewrite : QXColor.activity)
+    func switchable(_ t: ScriptTaskState) -> Bool { t.kind == "cron" || t.kind == "event" }
+    func isOn(_ t: ScriptTaskState) -> Bool { !switchable(t) || (prefs.isOn(t) && !prefs.paused) }
+
+    func tile(_ t: ScriptTaskState) -> some View {
+        let failed = (t.lastRun ?? 0) > 0 && t.lastOK == false
+        let on = isOn(t) && engine.config.enabled
+        let color: Color = !on ? Self.offBrown : (failed ? QXColor.red : (t.kind == "event" ? QXColor.rewrite : (t.kind == "interaction" ? QXColor.nodes : QXColor.activity)))
         return ZStack {
-            RoundedRectangle(cornerRadius: 14, style: .continuous).fill(off ? Color(red: 0.47, green: 0.33, blue: 0.30) : color)
-            if t.running || runningID == t.id {
+            RoundedRectangle(cornerRadius: 14, style: .continuous).fill(color)
+            if t.running == true || runningID == t.id {
                 ProgressView().tint(.white)
+            } else if let ic = t.icon, !ic.isEmpty, on {
+                RemoteIcon(url: ic, size: 34)
             } else {
-                Image(systemName: off ? "zzz" : (failed ? "exclamationmark" : (t.kind == "event" ? "network" : (t.kind == "generic" ? "play.fill" : "minus"))))
-                    .font(.system(size: 22, weight: .heavy)).foregroundStyle(.white.opacity(off ? 0.75 : 1))
+                Image(systemName: !on ? "alarm" : (failed ? "exclamationmark" : (t.kind == "event" ? "network" : (t.kind == "interaction" ? "hand.tap.fill" : (t.kind == "generic" ? "play.fill" : "minus")))))
+                    .font(.system(size: 22, weight: .heavy)).foregroundStyle(.white.opacity(on ? 1 : 0.8))
+                    .overlay { if !on { Image(systemName: "line.diagonal").font(.system(size: 30, weight: .heavy)).foregroundStyle(.white.opacity(0.8)) } }
             }
         }
         .frame(width: 56, height: 56)
+        .animation(.spring(response: 0.3, dampingFraction: 0.75), value: on)
     }
 
-    func row(_ t: QXTaskItem) -> some View {
+    func row(_ t: ScriptTaskState) -> some View {
         HStack(alignment: .top, spacing: 16) {
-            tile(t)
-            VStack(alignment: .leading, spacing: 4) {
-                HStack {
-                    Text(verbatim: t.name).font(.system(size: 18)).lineLimit(1)
-                    Spacer()
-                    Text(verbatim: t.lastRun.map { QXNodeResourcesView.rel.localizedString(for: Date(timeIntervalSince1970: $0), relativeTo: Date()) } ?? t.source)
-                        .font(.caption).foregroundStyle(.secondary).lineLimit(1)
+            Button {
+                if switchable(t) {
+                    QXHaptics.toggle()
+                    setOn(t, !prefs.isOn(t))
+                } else if t.kind == "generic" {
+                    run(t)
                 }
-                HStack(spacing: 6) {
-                    Image(systemName: t.kind == "event" ? "network" : "clock").font(.system(size: 13))
-                    Text(verbatim: t.schedule.isEmpty ? (t.kind == "generic" ? String(localized: "手动运行") : "—") : t.schedule)
-                        .font(.system(size: 15, design: .monospaced))
+            } label: { tile(t) }
+            .buttonStyle(QXPressStyle(scale: 0.9))
+            .disabled(prefs.paused && switchable(t))
+            .accessibilityLabel(Text(verbatim: t.script.name))
+            .accessibilityValue(Text(switchable(t) ? (prefs.isOn(t) ? LocalizedStringKey("已开启") : LocalizedStringKey("已关闭")) : LocalizedStringKey("运行")))
+            NavigationLink {
+                QXWrappedPage(title: t.script.name) { TaskDetailView(task: t, prefs: $prefs) }
+            } label: {
+                VStack(alignment: .leading, spacing: 4) {
+                    HStack {
+                        Text(verbatim: t.script.name).font(.system(size: 18)).lineLimit(1).foregroundStyle(.primary)
+                        Spacer()
+                        Text(verbatim: t.lastRun.flatMap { $0 > 0 ? QXNodeResourcesView.rel.localizedString(for: Date(timeIntervalSince1970: $0), relativeTo: Date()) : nil } ?? t.source)
+                            .font(.caption).foregroundStyle(.secondary).lineLimit(1)
+                    }
+                    HStack(spacing: 6) {
+                        Image(systemName: ScriptTasksView.symbol(t.kind)).font(.system(size: 13))
+                        Text(verbatim: schedule(t)).font(.system(size: 15, design: .monospaced)).lineLimit(1)
+                    }
+                    .foregroundStyle(.secondary)
+                    Text(verbatim: t.script.path).font(.system(size: 15)).foregroundStyle(.secondary).lineLimit(1).truncationMode(.middle)
+                    if let l = t.lastRun, l > 0 {
+                        HStack(spacing: 4) {
+                            Image(systemName: t.lastOK == true ? "checkmark.circle.fill" : "xmark.octagon.fill")
+                                .foregroundStyle(t.lastOK == true ? Theme.good : Theme.bad)
+                            Text(verbatim: (t.lastOK == true ? String(localized: "上次成功") : String(localized: "上次失败")) + (t.duration.map { " · \($0) ms" } ?? ""))
+                                .foregroundStyle(.secondary)
+                            if t.lastOK != true, let r = t.lastResult, !r.isEmpty {
+                                Text(verbatim: r).foregroundStyle(Theme.bad).lineLimit(1)
+                            }
+                        }
+                        .font(.caption2)
+                    }
+                    if let n = t.nextRun, n > 0, isOn(t), switchable(t) {
+                        Text("下次 \(Date(timeIntervalSince1970: n).formatted(date: .abbreviated, time: .shortened))")
+                            .font(.caption2).foregroundStyle(.secondary)
+                    }
                 }
-                .foregroundStyle(.secondary)
-                Text(verbatim: t.path).font(.system(size: 15)).foregroundStyle(.secondary).lineLimit(1).truncationMode(.middle)
-                if let r = t.lastResult, !r.isEmpty, !t.lastOK {
-                    Text(verbatim: r).font(.caption2.monospaced()).foregroundStyle(Theme.bad).lineLimit(2)
-                }
+                .contentShape(Rectangle())
             }
+            .buttonStyle(.plain)
         }
         .padding(.vertical, 12)
-        .contentShape(Rectangle())
+        .opacity(isOn(t) ? 1 : 0.62)
         .contextMenu {
-            if vpn.isConnected && live.contains(where: { $0.id == t.id }) {
+            if vpn.isConnected && t.kind != "interaction" {
                 Button { run(t) } label: { Label("立即运行", systemImage: "play.fill") }
             }
-            Button { UIPasteboard.general.string = t.path } label: { Label("拷贝脚本地址", systemImage: "doc.on.doc") }
+            if switchable(t) {
+                Button { setOn(t, !prefs.isOn(t)) } label: {
+                    Label(prefs.isOn(t) ? LocalizedStringKey("关闭此任务") : LocalizedStringKey("开启此任务"), systemImage: prefs.isOn(t) ? "alarm.waves.left.and.right" : "alarm")
+                }
+            }
+            Button { UIPasteboard.general.string = t.script.path } label: { Label("拷贝脚本地址", systemImage: "doc.on.doc") }
+            Button { UIPasteboard.general.string = t.line } label: { Label("拷贝任务行", systemImage: "text.quote") }
             Button { nav.push(.dest(.scriptLogs)) } label: { Label("运行日志", systemImage: "text.alignleft") }
-            Button { nav.push(.dest(.scripts)) } label: { Label("编辑", systemImage: "square.and.pencil") }
         }
+    }
+
+    func schedule(_ t: ScriptTaskState) -> String {
+        if let c = t.cron, !c.isEmpty { return c }
+        switch t.kind {
+        case "event": return t.event ?? "network-changed"
+        case "interaction": return String(localized: "从节点长按菜单运行")
+        default: return String(localized: "手动运行")
+        }
+    }
+
+    func setOn(_ t: ScriptTaskState, _ on: Bool) {
+        var e = prefs.enabled ?? [:]
+        if on == (t.disabledByLine != true) { e.removeValue(forKey: t.id) } else { e[t.id] = on }
+        prefs.enabled = e.isEmpty ? nil : e
+        prefs.save(connected: vpn.isConnected)
+    }
+
+    func setPaused(_ p: Bool) {
+        QXHaptics.toggle()
+        withAnimation(.spring(response: 0.3)) { prefs.paused = p }
+        prefs.save(connected: vpn.isConnected)
     }
 
     func load() async {
-        guard vpn.isConnected else { loaded = true; return }
-        if let l = try? await ControllerClient.shared.mitmTasks() { live = l }
+        prefs = TaskPrefs.load()
+        if vpn.isConnected, let l = try? await ControllerClient.shared.mitmTasks() {
+            tasks = l
+        } else {
+            tasks = await TaskCatalog.offline()
+        }
         loaded = true
     }
 
-    func run(_ t: QXTaskItem) {
+    func run(_ t: ScriptTaskState) {
+        guard vpn.isConnected else { message = String(localized: "连接后才能运行任务。"); return }
         runningID = t.id
         Task {
             defer { runningID = nil }
             do {
                 let r = try await ControllerClient.shared.mitmRunTask(t.id)
-                if !r.ok { message = r.error }
+                if !r.ok { message = r.error ?? String(localized: "运行失败"); QXHaptics.warning() }
+                else {
+                    QXHaptics.success()
+                    result = TaskResultItem(title: t.script.name, result: r.result)
+                }
             } catch { message = error.localizedDescription }
             await load()
         }

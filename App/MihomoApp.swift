@@ -95,7 +95,8 @@ struct RootView: View {
         }
         .overlay(alignment: .top) { PasteBanner() }
         .fullScreenCover(isPresented: $showOnboarding) {
-            OnboardingView { showOnboarding = false }
+            // QX preview 5: QX-style first run (import entry points, what is new, VPN permission).
+            QXWelcomeView { showOnboarding = false }
                 .environmentObject(vpn)
                 .environmentObject(store)
         }

@@ -62,7 +62,7 @@ extension QXShell {
                 .frame(maxWidth: .infinity)
             }
         }
-        .background(Theme.bg.ignoresSafeArea())
+        .background(QXPalette.bg.ignoresSafeArea())
     }
 }
 
@@ -103,6 +103,7 @@ struct QXSheetView: View {
         case .runMode:
             QXRunModeSheet()
                 .presentationDetents([.medium, .large])
+                .presentationDragIndicator(.visible)
         case .classicHome:
             HomeView()
         case .classicPolicy:
@@ -110,7 +111,7 @@ struct QXSheetView: View {
         case .classicRequests:
             RequestsView()
         case .onboarding:
-            OnboardingView { dismiss() }
+            QXWelcomeView { dismiss() }
         case .sample:
             QXSampleConfigView()
         }
@@ -141,7 +142,7 @@ struct QXHome: View {
                 }
             }
             .padding(.bottom, 12)
-            .background(Theme.header.ignoresSafeArea(edges: .top))
+            .background(QXPalette.header.ignoresSafeArea(edges: .top))
             Divider()
             TabView(selection: $selectedRaw) {
                 ForEach(order) { p in
@@ -150,9 +151,9 @@ struct QXHome: View {
                 }
             }
             .tabViewStyle(.page(indexDisplayMode: .never))
-            .background(Theme.bg)
+            .background(QXPalette.bg)
         }
-        .background(Theme.bg.ignoresSafeArea())
+        .background(QXPalette.bg.ignoresSafeArea())
         .overlay(alignment: .bottom) {
             // Frame 01: the bar's bottom edge sits ~19 pt above the screen edge, over the home-indicator area.
             QXToolbar(panel: selected)
@@ -161,7 +162,7 @@ struct QXHome: View {
                 .ignoresSafeArea(.container, edges: .bottom)
         }
         .onChange(of: selectedRaw) { _ in
-            UISelectionFeedbackGenerator().selectionChanged()
+            QXHaptics.select()
             if selected != .activity { nav.activitySearch = false }
         }
         .alert("连接失败", isPresented: Binding(get: { vpn.lastError != nil && vpn.showErrorAlert }, set: { if !$0 { vpn.showErrorAlert = false } })) {
@@ -246,7 +247,7 @@ struct QXHeader: View {
             }
             Toggle("", isOn: Binding(
                 get: { on || vpn.status == .connecting },
-                set: { _ in Task { await vpn.toggle() } }
+                set: { _ in QXHaptics.toggle(); Task { await vpn.toggle() } }
             ))
             .labelsHidden()
             .tint(QXColor.switchOn)
@@ -281,6 +282,9 @@ struct QXPanelStrip: View {
     var grid = false
     @EnvironmentObject var nav: QXNavigator
     @AppStorage("qx.panelStyle") private var style = "large"
+    /// The tile under the finger dips (QX press feedback); driven by the long-press "pressing" callback so
+    /// the strip's scrolling and the page swipe keep working.
+    @State private var pressed: String?
 
     var body: some View {
         if grid && style != "line" {
@@ -289,7 +293,8 @@ struct QXPanelStrip: View {
                 ForEach(order) { p in
                     QXTile(panel: p, selected: p.rawValue == selected, small: style == "small", flexible: true)
                         .onTapGesture { withAnimation(.spring(response: 0.3)) { selected = p.rawValue } }
-                        .onLongPressGesture(minimumDuration: 0.4) { open(p) }
+                        .onLongPressGesture(minimumDuration: 0.4, pressing: { press(p, $0) }) { open(p) }
+                        .scaleEffect(pressed == p.rawValue ? 0.95 : 1)
                 }
             }
             .padding(.horizontal, QXMetrics.inset)
@@ -316,7 +321,8 @@ struct QXPanelStrip: View {
                             QXTile(panel: p, selected: p.rawValue == selected, small: style == "small")
                                 .id(p.rawValue)
                                 .onTapGesture { withAnimation(.spring(response: 0.3)) { selected = p.rawValue } }
-                                .onLongPressGesture(minimumDuration: 0.4) { open(p) }
+                                .onLongPressGesture(minimumDuration: 0.4, pressing: { press(p, $0) }) { open(p) }
+                                .scaleEffect(pressed == p.rawValue ? 0.95 : 1)
                         }
                     }
                     .padding(.horizontal, QXMetrics.inset)
@@ -327,8 +333,12 @@ struct QXPanelStrip: View {
         }
     }
 
+    private func press(_ p: QXPanel, _ on: Bool) {
+        withAnimation(.spring(response: 0.22, dampingFraction: 0.7)) { pressed = on ? p.rawValue : nil }
+    }
+
     private func open(_ p: QXPanel) {
-        UIImpactFeedbackGenerator(style: .medium).impactOccurred()
+        QXHaptics.longPress()
         nav.push(p.resourceRoute)
     }
 }
@@ -352,9 +362,10 @@ struct QXTile: View {
                         .minimumScaleFactor(0.7)
                 }
                 Capsule()
-                    .fill(Color.white.opacity(selected ? 0.85 : 0))
-                    .frame(width: 22, height: 3)
+                    .fill(Color.white.opacity(selected ? 0.9 : 0))
+                    .frame(width: selected ? 22 : 6, height: 3)
                     .padding(.top, small ? 4 : 0)
+                    .animation(.spring(response: 0.32, dampingFraction: 0.7), value: selected)
             }
             .frame(width: flexible ? nil : (small ? 56 : QXMetrics.tileSize.width), height: small ? 56 : QXMetrics.tileSize.height)
             .frame(maxWidth: flexible ? .infinity : nil)
@@ -374,7 +385,11 @@ struct QXTile: View {
                 .fill(panel.color)
         )
         // Frame 01: flat solid tiles with a soft drop shadow; the selected one is marked only by the underline.
-        .shadow(color: .black.opacity(0.10), radius: 6, y: 3)
+        .overlay(
+            RoundedRectangle(cornerRadius: small ? 16 : QXMetrics.tileRadius, style: .continuous)
+                .stroke(QXPalette.hairline, lineWidth: 1)
+        )
+        .shadow(color: QXPalette.shadow(0.10), radius: 6, y: 3)
         .accessibilityElement(children: .ignore)
         .accessibilityLabel(Text(panel.title))
         .accessibilityAddTraits(selected ? [.isButton, .isSelected] : .isButton)
@@ -392,7 +407,8 @@ struct QXToolbar: View {
     @EnvironmentObject var vpn: VPNManager
     @AppStorage("qx.toolbarStyle") private var toolbarStyle = "rounded"
     @AppStorage(QXToolbar.hiddenKey) private var hiddenRaw = ""
-    @State private var spin = false
+    @State private var windmillPressed = false
+    @State private var quickMenu = false
 
     private func shown(_ id: String) -> Bool { !hiddenRaw.split(separator: ",").contains(Substring(id)) }
 
@@ -474,8 +490,8 @@ struct QXToolbar: View {
         .frame(height: QXMetrics.toolbarHeight)
         .background(
             RoundedRectangle(cornerRadius: toolbarStyle == "rounded" ? QXMetrics.toolbarHeight / 2 : 16, style: .continuous)
-                .fill(Theme.card)
-                .shadow(color: .black.opacity(0.10), radius: 14, y: 4)
+                .fill(QXPalette.chrome)
+                .shadow(color: QXPalette.shadow(0.10), radius: 14, y: 4)
         )
         .overlay(
             RoundedRectangle(cornerRadius: toolbarStyle == "rounded" ? QXMetrics.toolbarHeight / 2 : 16, style: .continuous)
@@ -485,27 +501,44 @@ struct QXToolbar: View {
 
     // 6. Windmill: tap = 设置, long-press = 运行模式
     private var windmill: some View {
-            QXWindmill(mode: dash.mode, size: 30)
-                .rotationEffect(.degrees(spin ? 360 : 0))
-                .animation(spin ? .linear(duration: 6).repeatForever(autoreverses: false) : .default, value: spin)
-                .onAppear { spin = vpn.isConnected }
-                .onChange(of: vpn.isConnected) { on in spin = on }
+            // QX: the windmill turns while connected, a little faster while traffic flows; tap = 设置,
+            // long-press = 运行模式, quick swipe up = 编辑配置 / 脚本记录 / 请求列表 (spec §1 gestures).
+            QXSpinningWindmill(mode: dash.mode, size: 30, spinning: vpn.isConnected,
+                               speed: (dash.down + dash.up) > 512 * 1024 ? 0.9 : ((dash.down + dash.up) > 8 * 1024 ? 0.6 : 0.35))
                 .frame(width: QXMetrics.windmillCircle, height: QXMetrics.windmillCircle)
-                .background(Circle().fill(Theme.card))
-                .overlay(Circle().stroke(Color.primary.opacity(0.09), lineWidth: 1))
+                .background(Circle().fill(QXPalette.chrome))
+                .overlay(Circle().stroke(QXPalette.hairline, lineWidth: 1))
+                .scaleEffect(windmillPressed ? 0.9 : 1)
+                .animation(.spring(response: 0.25, dampingFraction: 0.65), value: windmillPressed)
                 .contentShape(Circle())
                 .onTapGesture {
-                    UIImpactFeedbackGenerator(style: .light).impactOccurred()
+                    QXHaptics.tap()
                     if nav.padLayout { nav.path = [] } else { nav.push(.settings) }
                 }
-                .onLongPressGesture(minimumDuration: 0.4) {
-                    UIImpactFeedbackGenerator(style: .medium).impactOccurred()
+                .onLongPressGesture(minimumDuration: 0.4, pressing: { p in windmillPressed = p }) {
+                    QXHaptics.longPress()
                     nav.present(.runMode)
+                }
+                .simultaneousGesture(
+                    DragGesture(minimumDistance: 24).onEnded { v in
+                        if v.translation.height < -36 && abs(v.translation.width) < 60 {
+                            QXHaptics.longPress()
+                            quickMenu = true
+                        }
+                    }
+                )
+                .confirmationDialog("快捷菜单", isPresented: $quickMenu, titleVisibility: .hidden) {
+                    Button("编辑配置") { nav.present(.editProfile) }
+                    Button("脚本记录") { nav.push(.dest(.scriptLogs)) }
+                    Button("请求列表") { nav.push(.dest(.tasks)) }
+                    Button("取消", role: .cancel) {}
                 }
                 .accessibilityElement()
                 .accessibilityLabel(Text("设置"))
-                .accessibilityHint(Text("长按切换运行模式"))
+                .accessibilityHint(Text("长按切换运行模式，向上轻扫打开快捷菜单"))
                 .accessibilityAddTraits(.isButton)
+                .accessibilityAction(named: Text("运行模式")) { nav.present(.runMode) }
+                .accessibilityAction(named: Text("快捷菜单")) { quickMenu = true }
     }
 
     private func icon(_ name: String) -> some View {
@@ -550,7 +583,7 @@ struct QXRunModeSheet: View {
             Text("运行模式 · \(modeName)")
                 .font(.subheadline.weight(.semibold))
                 .padding(.horizontal, 14).padding(.vertical, 7)
-                .background(Capsule().fill(Theme.cardHi))
+                .background(Capsule().fill(QXPalette.cardHi))
 
             HStack(spacing: 18) {
                 modeButton("global", String(localized: "全局代理"))
@@ -566,7 +599,7 @@ struct QXRunModeSheet: View {
                     Text("一键更新").font(.body.weight(.semibold))
                 }
                 .frame(maxWidth: .infinity, minHeight: 50)
-                .background(RoundedRectangle(cornerRadius: 25, style: .continuous).fill(Theme.cardHi))
+                .background(RoundedRectangle(cornerRadius: 25, style: .continuous).fill(QXPalette.cardHi))
             }
             .buttonStyle(.plain)
             .disabled(updating)
@@ -579,7 +612,7 @@ struct QXRunModeSheet: View {
             Spacer(minLength: 0)
         }
         .frame(maxWidth: .infinity)
-        .background(Theme.bg.ignoresSafeArea())
+        .background(QXPalette.bg.ignoresSafeArea())
     }
 
     private func chip(_ title: String, on: Bool, action: @escaping () -> Void) -> some View {
@@ -590,7 +623,7 @@ struct QXRunModeSheet: View {
             }
             .foregroundStyle(on ? Color.white : Color.primary)
             .frame(maxWidth: .infinity, minHeight: 52)
-            .background(RoundedRectangle(cornerRadius: 16, style: .continuous).fill(on ? QXColor.switchOn : Theme.cardHi))
+            .background(RoundedRectangle(cornerRadius: 16, style: .continuous).fill(on ? QXColor.switchOn : QXPalette.cardHi))
         }
         .buttonStyle(.plain)
         .padding(.horizontal, 0)
@@ -604,7 +637,7 @@ struct QXRunModeSheet: View {
             VStack(spacing: 8) {
                 QXWindmill(mode: mode, size: 34)
                     .frame(width: 72, height: 72)
-                    .background(Circle().fill(Theme.card))
+                    .background(Circle().fill(QXPalette.card))
                     .overlay(Circle().stroke(dash.mode == mode ? QXColor.switchOn : Color.primary.opacity(0.08), lineWidth: dash.mode == mode ? 2.5 : 1))
                 Text(verbatim: title).font(.footnote.weight(dash.mode == mode ? .semibold : .regular)).foregroundStyle(.primary)
             }
@@ -641,3 +674,4 @@ struct QXRunModeSheet: View {
         UINotificationFeedbackGenerator().notificationOccurred(errs.isEmpty ? .success : .warning)
     }
 }
+

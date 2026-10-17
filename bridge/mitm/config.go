@@ -50,6 +50,8 @@ type Config struct {
 	QUIC string `json:"quic,omitempty"`
 	// MitM hosts whose QUIC is NOT blocked (their HTTP/3 traffic then bypasses decryption).
 	QUICAllow []string `json:"quicAllow,omitempty"`
+	// QX [http_backend] local server (QX preview 5).
+	HTTPBackend *HTTPBackendConfig `json:"httpBackend,omitempty"`
 }
 
 // ScriptResource is the user's per-script setting from the resource manager.

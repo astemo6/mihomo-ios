@@ -176,7 +176,7 @@ struct QXActivityPanel: View {
                         }
                     }
                     .padding(10)
-                    .background(RoundedRectangle(cornerRadius: 12, style: .continuous).fill(Theme.card))
+                    .background(RoundedRectangle(cornerRadius: 12, style: .continuous).fill(QXPalette.card))
                     .padding(.horizontal, 16)
                     .padding(.top, 10)
                 }
@@ -399,7 +399,7 @@ struct QXConnectionDetailView: View {
                                 Task { try? await ControllerClient.shared.closeConnection(r.id); await model.poll() }
                             } label: {
                                 Text("断开连接").font(.body.weight(.semibold)).frame(maxWidth: .infinity, minHeight: 50)
-                                    .background(RoundedRectangle(cornerRadius: 25, style: .continuous).fill(Theme.card))
+                                    .background(RoundedRectangle(cornerRadius: 25, style: .continuous).fill(QXPalette.card))
                             }
                         }
                     }
@@ -471,7 +471,7 @@ struct QXBlockedView: View {
                         .padding(.horizontal, QXMetrics.inset).padding(.bottom, 10)
                     TextField("搜索", text: $query)
                         .textInputAutocapitalization(.never).autocorrectionDisabled()
-                        .padding(10).background(RoundedRectangle(cornerRadius: 12, style: .continuous).fill(Theme.card))
+                        .padding(10).background(RoundedRectangle(cornerRadius: 12, style: .continuous).fill(QXPalette.card))
                         .padding(.horizontal, QXMetrics.inset).padding(.bottom, 8)
                     let list = model.blocked.filter { query.isEmpty || $0.conn.metadata.displayHost.localizedCaseInsensitiveContains(query) }
                     if list.isEmpty {
@@ -515,8 +515,8 @@ struct QXTrafficStatsView: View {
                 Image(systemName: "line.3.horizontal.decrease")
                     .font(.system(size: 18, weight: .semibold)).foregroundStyle(.primary)
                     .frame(width: 44, height: 44)
-                    .background(Circle().fill(Theme.card))
-                    .shadow(color: .black.opacity(0.10), radius: 8, y: 2)
+                    .background(Circle().fill(QXPalette.card))
+                    .shadow(color: QXPalette.shadow(0.10), radius: 8, y: 2)
             }
             .accessibilityLabel(Text("更多统计"))
         } content: {
@@ -651,14 +651,14 @@ struct QXHTTPCaptureView: View {
                         .listRowInsets(EdgeInsets(top: 0, leading: 4, bottom: 8, trailing: 4))
                 }
                 if !vpn.isConnected {
-                    Text("连接后可查看").foregroundStyle(.secondary).listRowBackground(Theme.card)
+                    Text("连接后可查看").foregroundStyle(.secondary).listRowBackground(QXPalette.card)
                 } else if http.items.isEmpty {
                     EmptyStateRow(icon: "lock.open", title: "还没有 HTTP 请求", message: "需要在设置中开启重写或 MitM。")
-                        .listRowBackground(Theme.card)
+                        .listRowBackground(QXPalette.card)
                 }
                 ForEach(http.items) { r in
                     NavigationLink { HTTPRequestDetailView(id: r.id) } label: { HTTPRequestRow(r: r) }
-                        .listRowBackground(Theme.card)
+                        .listRowBackground(QXPalette.card)
                 }
             }
             .listStyle(.insetGrouped)

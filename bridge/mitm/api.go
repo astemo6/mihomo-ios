@@ -185,6 +185,14 @@ func Routes(get func() *Engine) func(r chi.Router) {
 				}
 				writeJSON(w, e.tasks.historyFor(chi.URLParam(req, "id")))
 			})
+			r.Get("/http-backend", func(w http.ResponseWriter, req *http.Request) {
+				e := get()
+				if e == nil {
+					writeJSON(w, map[string]any{"running": false})
+					return
+				}
+				writeJSON(w, e.backend.status())
+			})
 			r.Get("/tasks-prefs", func(w http.ResponseWriter, req *http.Request) {
 				e := get()
 				if e == nil {

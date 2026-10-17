@@ -63,7 +63,7 @@ struct QXTintedActionSheet: View {
                 Button(action: onCancel) {
                     Text("取消").font(.system(size: 19, weight: .semibold)).foregroundStyle(QXColor.switchOn)
                         .frame(maxWidth: .infinity, minHeight: 56)
-                        .background(RoundedRectangle(cornerRadius: 16, style: .continuous).fill(Theme.card))
+                        .background(RoundedRectangle(cornerRadius: 16, style: .continuous).fill(QXPalette.card))
                 }
                 .buttonStyle(.plain)
             }

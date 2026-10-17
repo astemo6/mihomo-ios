@@ -128,7 +128,7 @@ struct QXSnippetEditor: View {
                         .frame(minHeight: 220)
                         .scrollContentBackground(.hidden)
                         .padding(8)
-                        .background(RoundedRectangle(cornerRadius: 14, style: .continuous).fill(Theme.card))
+                        .background(RoundedRectangle(cornerRadius: 14, style: .continuous).fill(QXPalette.card))
                 }
                 VStack(alignment: .leading, spacing: 6) {
                     Text("示例").font(.system(size: 17, weight: .semibold))
@@ -142,7 +142,7 @@ struct QXSnippetEditor: View {
             .padding(.top, 70)
             .padding(.bottom, 40)
         }
-        .background(Theme.bg.ignoresSafeArea())
+        .background(QXPalette.bg.ignoresSafeArea())
         .overlay(alignment: .top) {
             HStack {
                 QXCircleButton(systemName: "xmark") { dismiss() }.accessibilityLabel(Text("取消"))
@@ -156,7 +156,7 @@ struct QXSnippetEditor: View {
                 }
             }
             .padding(.horizontal, 16).padding(.top, 12).padding(.bottom, 8)
-            .background(LinearGradient(colors: [Theme.bg, Theme.bg.opacity(0)], startPoint: .top, endPoint: .bottom))
+            .background(LinearGradient(colors: [QXPalette.bg, QXPalette.bg.opacity(0)], startPoint: .top, endPoint: .bottom))
         }
     }
 

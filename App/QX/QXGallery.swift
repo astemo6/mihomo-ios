@@ -332,10 +332,10 @@ struct QXIconBrowser: View {
                 } header: { Text("图标库") } footer: {
                     Text("图标库是 Quantumult X 格式的 JSON（name + icons）。点右上角 + 添加自己的图标库地址。")
                 }
-                .listRowBackground(Theme.card)
+                .listRowBackground(QXPalette.card)
             }
             .scrollContentBackground(.hidden)
-            .background(Theme.bg.ignoresSafeArea())
+            .background(QXPalette.bg.ignoresSafeArea())
             .navigationTitle("浏览图标")
             .navigationBarTitleDisplayMode(.inline)
             .toolbar {

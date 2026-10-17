@@ -69,6 +69,7 @@ type Engine struct {
 	res      *Resources
 	scripts  *ScriptRunner
 	tasks    *tasker
+	backend  *backendServer
 	geo      atomic.Pointer[GeoLookup]
 	api      atomic.Pointer[APIFunc]
 }
@@ -86,6 +87,7 @@ func New(home string, dial DialFunc, logf Logger) *Engine {
 	e.scripts = NewScriptRunner(e)
 	e.Notices = NewNoticeLog(home, 100)
 	e.tasks = newTasker(e)
+	e.backend = newBackendServer(e)
 	e.st.Store(&state{cfg: &Config{}, rs: &Ruleset{}, hosts: NewHostMatcher(nil)})
 	return e
 }
@@ -133,6 +135,7 @@ func (e *Engine) Start() error {
 // Stop closes the listener and all state.
 func (e *Engine) Stop() {
 	e.tasks.shutdown()
+	e.backend.stop()
 	if e.ln == nil {
 		return
 	}
@@ -191,6 +194,7 @@ func (e *Engine) Reload(cfg *Config, rs *Ruleset) {
 	e.logf("info", fmt.Sprintf("[MitM] 已加载：%d 条重写/脚本规则，%d 个 MitM 主机，HTTPS 解密%s", len(rs.Rules), len(rs.Hostnames), onOff(cfg.MitM && s.ca != nil)))
 	go e.res.Prefetch(rs)
 	e.tasks.reload(rs)
+	e.backend.reload(cfg.HTTPBackend)
 }
 
 // NetworkChanged runs the event (network-changed) scripts; info becomes $network. Returns how many ran.

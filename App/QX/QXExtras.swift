@@ -42,7 +42,7 @@ struct QXGeoCheckerView: View {
                 } header: { Text("接口") } footer: {
                     Text("自动：依次尝试内置接口，第一个成功的为准。选择某个接口时它最先尝试，失败后再用其余接口。")
                 }
-                .listRowBackground(Theme.card)
+                .listRowBackground(QXPalette.card)
 
                 if choice == "custom" {
                     Section {
@@ -55,7 +55,7 @@ struct QXGeoCheckerView: View {
                     } header: { Text("自定义 API") } footer: {
                         Text("返回 JSON 的地址即可，常见字段名（ip / query、country_code / countryCode、city、region、asn / as、org / isp）会自动识别。Quantumult X 的「API, 脚本」写法中的脚本部分不会执行，只使用 API。")
                     }
-                    .listRowBackground(Theme.card)
+                    .listRowBackground(QXPalette.card)
                 }
 
                 if choice != "disabled" {
@@ -74,7 +74,7 @@ struct QXGeoCheckerView: View {
                             Text(verbatim: result).font(.footnote.monospaced()).foregroundStyle(.secondary).textSelection(.enabled)
                         }
                     }
-                    .listRowBackground(Theme.card)
+                    .listRowBackground(QXPalette.card)
                 }
             }
             .listStyle(.insetGrouped)

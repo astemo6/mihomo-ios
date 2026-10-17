@@ -94,24 +94,26 @@ enum QXMetrics {
     static let sectionTitle: CGFloat = 20
     static let caption: CGFloat = 15
     /// Hairline that QX draws around white chrome (circles, capsules, the toolbar).
-    static let hairline = Color.primary.opacity(0.07)
+    static let hairline = QXPalette.hairline
 }
 
 enum QXColor {
-    static let nodes = Color(red: 0.239, green: 0.710, blue: 0.902)    // #3DB5E6
-    static let activity = Color(red: 0.851, green: 0.255, blue: 0.169) // #D9412B
-    static let rules = Color(red: 0.369, green: 0.184, blue: 0.816)    // #5E2FD0
-    static let rewrite = Color(red: 0.878, green: 0.098, blue: 0.478)  // #E0197A
-    static let logs = Color(red: 0.369, green: 0.373, blue: 0.400)     // #5E5F66
-    static let mitm = Color(red: 0.204, green: 0.702, blue: 0.290)     // #34B34A
-    static let tools = Color(red: 0.851, green: 0.255, blue: 0.169)    // #D9412B
-    static let profile = Color(red: 0.369, green: 0.373, blue: 0.400)  // #5E5F66
-    static let policyChip = Color(red: 0.16, green: 0.72, blue: 0.56)
-    static let teal = Color(red: 0.20, green: 0.78, blue: 0.80)
-    static let yellow = Color(red: 1.0, green: 0.76, blue: 0.10)
-    static let red = Color(red: 0.95, green: 0.22, blue: 0.25)
-    /// Switch tint in the header (QX: system blue).
-    static let switchOn = Color(red: 0.0, green: 0.48, blue: 1.0)
+    // Light = measured on the recording; dark = derived (QX preview 5): deepened so white 15–18 pt
+    // semibold labels keep ≥ 4:1 on the colour, and lifted where the colour itself would vanish on black.
+    static let nodes = QXPalette.dyn(0x3DB5E6, 0x1F86B8)      // light #3DB5E6
+    static let activity = QXPalette.dyn(0xD9412B, 0xC2382A)   // #D9412B
+    static let rules = QXPalette.dyn(0x5E2FD0, 0x6A3FE0)      // #5E2FD0
+    static let rewrite = QXPalette.dyn(0xE0197A, 0xC8156C)    // #E0197A
+    static let logs = QXPalette.dyn(0x5E5F66, 0x5A5B63)       // #5E5F66
+    static let mitm = QXPalette.dyn(0x34B34A, 0x24903A)       // #34B34A
+    static let tools = QXPalette.dyn(0xD9412B, 0xC2382A)      // #D9412B
+    static let profile = QXPalette.dyn(0x5E5F66, 0x5A5B63)    // #5E5F66
+    static let policyChip = QXPalette.dyn(0x29B88F, 0x1F9A77)
+    static let teal = QXPalette.dyn(0x33C7CC, 0x2BB5BA)
+    static let yellow = QXPalette.dyn(0xFFC21A, 0xF0B400)
+    static let red = QXPalette.dyn(0xF2383F, 0xFF453A)
+    /// Switch tint in the header (QX: system blue; iOS dark blue in dark).
+    static let switchOn = QXPalette.dyn(0x007AFF, 0x0A84FF)
 }
 
 /// Pages reachable from the settings page, tiles, toolbar and 其他设置. Existing views, re-homed.
@@ -125,6 +127,7 @@ enum QXDest: String, Hashable, CaseIterable {
     case mitmAdvanced, allResources, prefsStore, snippets, reset
     case netTest, snapshots, storage, syncFolder
     case taskGallery, geoChecker
+    case httpBackend
 
     @MainActor @ViewBuilder var view: some View {
         switch self {
@@ -173,6 +176,7 @@ enum QXDest: String, Hashable, CaseIterable {
         case .syncFolder: QXWrappedPage(title: String(localized: "同步文件夹")) { SyncFolderView() }
         case .taskGallery: QXTaskGalleryView()
         case .geoChecker: QXGeoCheckerView()
+        case .httpBackend: QXHTTPBackendView()
         }
     }
 }
@@ -283,7 +287,7 @@ struct QXCard<Content: View>: View {
     var body: some View {
         content
             .frame(maxWidth: .infinity, alignment: .leading)
-            .background(RoundedRectangle(cornerRadius: QXMetrics.cardRadius, style: .continuous).fill(Theme.card))
+            .background(RoundedRectangle(cornerRadius: QXMetrics.cardRadius, style: .continuous).fill(QXPalette.card))
     }
 }
 
@@ -310,6 +314,7 @@ struct QXSectionHeader<Trailing: View>: View {
     var body: some View {
         HStack(spacing: 8) {
             Button {
+                QXHaptics.select()
                 withAnimation(.spring(response: 0.3)) { expanded.toggle() }
             } label: {
                 HStack(spacing: 8) {
@@ -396,12 +401,12 @@ struct QXCircleButton: View {
                 .font(.system(size: 18, weight: .medium))
                 .foregroundStyle(tint)
                 .frame(width: QXMetrics.circle, height: QXMetrics.circle)
-                .background(Circle().fill(Theme.card))
+                .background(Circle().fill(QXPalette.chrome))
                 .overlay(Circle().stroke(QXMetrics.hairline, lineWidth: 1))
-                .shadow(color: .black.opacity(0.05), radius: 6, y: 2)
+                .shadow(color: QXPalette.shadow(0.05), radius: 6, y: 2)
                 .contentShape(Circle())
         }
-        .buttonStyle(.plain)
+        .buttonStyle(QXPressStyle(scale: 0.9))
     }
 }
 
@@ -412,9 +417,9 @@ struct QXCapsuleBar<Content: View>: View {
         HStack(spacing: 4) { content }
             .padding(.horizontal, 8)
             .frame(height: QXMetrics.circle)
-            .background(Capsule().fill(Theme.card))
+            .background(Capsule().fill(QXPalette.chrome))
             .overlay(Capsule().stroke(QXMetrics.hairline, lineWidth: 1))
-            .shadow(color: .black.opacity(0.05), radius: 6, y: 2)
+            .shadow(color: QXPalette.shadow(0.05), radius: 6, y: 2)
     }
 }
 
@@ -425,8 +430,9 @@ struct QXBarIcon: View {
     var body: some View {
         Button(action: action) {
             Image(systemName: systemName).font(.system(size: 18, weight: .medium)).foregroundStyle(tint).frame(width: 40, height: 40)
+                .contentShape(Rectangle())
         }
-        .buttonStyle(.plain)
+        .buttonStyle(QXPressStyle(scale: 0.86))
     }
 }
 
@@ -443,7 +449,7 @@ struct QXPage<Content: View, Trailing: View>: View {
     var body: some View {
         content
             .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .top)
-            .background(Theme.bg.ignoresSafeArea())
+            .background(QXPalette.bg.ignoresSafeArea())
             .safeAreaInset(edge: .top, spacing: 0) {
                 ZStack {
                     if let title {
@@ -462,7 +468,7 @@ struct QXPage<Content: View, Trailing: View>: View {
                 .padding(.top, 4)
                 .padding(.bottom, 8)
                 .background(
-                    LinearGradient(colors: [Theme.bg, Theme.bg.opacity(0.92), Theme.bg.opacity(0)], startPoint: .top, endPoint: .bottom)
+                    LinearGradient(colors: [QXPalette.bg, QXPalette.bg.opacity(0.92), QXPalette.bg.opacity(0)], startPoint: .top, endPoint: .bottom)
                         .ignoresSafeArea(edges: .top)
                 )
             }
@@ -505,7 +511,7 @@ struct QXPill: View {
         Button(action: action) {
             Text(verbatim: title).font(.system(size: 15, weight: .semibold)).foregroundStyle(QXColor.switchOn)
                 .padding(.horizontal, 14).padding(.vertical, 5)
-                .background(Capsule().fill(Theme.cardHi))
+                .background(Capsule().fill(QXPalette.cardHi))
         }
         .buttonStyle(.plain)
     }
@@ -530,13 +536,16 @@ struct QXBottomSegment: View {
         // Frame 28: 183×55 pt capsule, 23 pt circles ~68 pt apart; selected = black disc, others grey rings.
         HStack(spacing: 30) {
             ForEach(Array(icons.enumerated()), id: \.offset) { i, icon in
-                Button { withAnimation(.spring(response: 0.3)) { selection = i } } label: {
+                Button {
+                    if selection != i { QXHaptics.select() }
+                    withAnimation(.spring(response: 0.3, dampingFraction: 0.75)) { selection = i }
+                } label: {
                     Image(systemName: icon)
                         .font(.system(size: 13, weight: .bold))
-                        .foregroundStyle(selection == i ? Color(UIColor.systemBackground) : Color.secondary.opacity(0.7))
+                        .foregroundStyle(selection == i ? Color(UIColor.systemBackground) : QXPalette.ring)
                         .frame(width: 32, height: 32)
                         .background(Circle().fill(selection == i ? Color.primary : Color.clear))
-                        .overlay(Circle().stroke(Color.secondary.opacity(selection == i ? 0 : 0.45), lineWidth: 1.5))
+                        .overlay(Circle().stroke(selection == i ? Color.clear : QXPalette.ring, lineWidth: 1.5))
                         .frame(width: 44, height: 44)
                         .contentShape(Rectangle())
                 }
@@ -545,7 +554,7 @@ struct QXBottomSegment: View {
         }
         .padding(.horizontal, 14)
         .frame(height: 56)
-        .background(Capsule().fill(Theme.card).shadow(color: .black.opacity(0.10), radius: 12, y: 4))
+        .background(Capsule().fill(QXPalette.chrome).shadow(color: QXPalette.shadow(0.10), radius: 12, y: 4))
         .overlay(Capsule().stroke(QXMetrics.hairline, lineWidth: 1))
     }
 }

@@ -31,9 +31,10 @@ struct QXActionGrid: View {
                     .padding(.horizontal, 18)
                     .frame(maxWidth: .infinity, minHeight: 60)
                     .background(Capsule().fill(color))
-                    .shadow(color: color.opacity(0.28), radius: 8, y: 4)
+                    .overlay(Capsule().stroke(QXPalette.hairline, lineWidth: 1))
+                    .shadow(color: QXPalette.glow(color), radius: 8, y: 4)
                 }
-                .buttonStyle(.plain)
+                .buttonStyle(QXPressStyle(scale: 0.96, haptic: true))
             }
         }
     }
@@ -120,6 +121,7 @@ struct QXSettingsView: View {
                         QXActionSpec(title: String(localized: "规则资源"), icon: "link") { nav.push(.dest(.rewriteResources)) },
                     ]) {
                         Toggle("", isOn: Binding(get: { engine.config.enabled }, set: { engine.config.enabled = $0; engine.save() }))
+                            .qxToggleHaptic(engine.config.enabled)
                             .labelsHidden().tint(QXColor.rewrite)
                             .accessibilityLabel(Text("重写"))
                     }
@@ -131,6 +133,7 @@ struct QXSettingsView: View {
                         QXActionSpec(title: String(localized: "配置证书"), icon: "gearshape.2") { certSheet = .configure },
                     ]) {
                         Toggle("", isOn: Binding(get: { engine.config.mitm }, set: { engine.config.mitm = $0; engine.save() }))
+                            .qxToggleHaptic(engine.config.mitm)
                             .labelsHidden().tint(QXColor.mitm)
                             .accessibilityLabel(Text("MitM"))
                     }
@@ -139,7 +142,7 @@ struct QXSettingsView: View {
                                       color: QXColor.tools, items: [
                         QXActionSpec(title: String(localized: "HTTP 请求"), icon: "text.line.last.and.arrowtriangle.forward") { nav.push(.dest(.tasks)) },
                         QXActionSpec(title: String(localized: "HTTP 抓取"), icon: "record.circle") { nav.push(.dest(.httpCapture)) },
-                        QXActionSpec(title: String(localized: "HTTP Backend"), icon: "server.rack") { nav.push(.dest(.scripts)) },
+                        QXActionSpec(title: String(localized: "HTTP Backend"), icon: "server.rack") { nav.push(.dest(.httpBackend)) },
                         QXActionSpec(title: String(localized: "网络工具"), icon: "stethoscope") { nav.push(.dest(.tools)) },
                         QXActionSpec(title: String(localized: "网络测试"), icon: "speedometer") { nav.push(.dest(.netTest)) },
                         QXActionSpec(title: String(localized: "解锁检测"), icon: "checkmark.seal") { nav.push(.dest(.unlock)) },
@@ -197,7 +200,7 @@ struct QXSettingsView: View {
         Button(action: action) {
             Text(verbatim: title).font(.system(size: 18, weight: .semibold)).foregroundStyle(QXColor.switchOn)
                 .frame(maxWidth: .infinity, minHeight: 60)
-                .background(Capsule().fill(Theme.cardHi))
+                .background(Capsule().fill(QXPalette.cardHi))
         }
         .buttonStyle(.plain)
     }
@@ -240,7 +243,7 @@ struct QXOtherSettingsView: View {
                     modeRow("rule", String(localized: "规则分流"))
                     row(String(localized: "出站接口 / 连接方式"), "point.3.filled.connected.trianglepath.dotted", .connection)
                 } header: { header("模式") } footer: { Text("网络请求的处理流程由运行模式决定。长按首页右下角的风车也可以切换。") }
-                .listRowBackground(Theme.card)
+                .listRowBackground(QXPalette.card)
 
                 Section {
                     ForEach(AppAppearance.allCases) { a in
@@ -254,7 +257,7 @@ struct QXOtherSettingsView: View {
                     }
                     if UIApplication.shared.supportsAlternateIcons { row(String(localized: "应用图标"), "app.badge", .appIcon) }
                 } header: { header("外观") }
-                .listRowBackground(Theme.card)
+                .listRowBackground(QXPalette.card)
 
                 Section {
                     Toggle(isOn: $live.enabled) {
@@ -267,7 +270,7 @@ struct QXOtherSettingsView: View {
                 } header: { header("通知") } footer: {
                     Text("连接时在锁定屏幕和灵动岛显示连接状态、已连接时长、当前节点和速度。需要带小组件的 IPA（-widget）。时长一直走；App 关闭时，速度和节点在系统允许后台刷新时更新，也可以点实时活动上的刷新按钮（iOS 17 及以上）。")
                 }
-                .listRowBackground(Theme.card)
+                .listRowBackground(QXPalette.card)
 
                 Section {
                     row(String(localized: "DNS"), "network", .dns)
@@ -275,7 +278,7 @@ struct QXOtherSettingsView: View {
                     row(String(localized: "测速"), "bolt.horizontal", .speedTest)
                     row(String(localized: "内核设置"), "slider.horizontal.3", .coreSettings)
                 } header: { header("VPN") } footer: { Text("IPv6、局域网共享（HTTP / SOCKS5 代理服务器）、排除路由与按需连接在「出站接口 / 连接方式」中设置。") }
-                .listRowBackground(Theme.card)
+                .listRowBackground(QXPalette.card)
 
                 Section {
                     row(String(localized: "订阅管理"), "tray.full", .subscriptions)
@@ -284,7 +287,7 @@ struct QXOtherSettingsView: View {
                     row(String(localized: "脚本"), "curlybraces", .scripts)
                     row(String(localized: "地理与规则库"), "globe.asia.australia", .geo)
                 } header: { header("资源") }
-                .listRowBackground(Theme.card)
+                .listRowBackground(QXPalette.card)
 
                 Section {
                     row(String(localized: "按日流量"), "chart.bar.xaxis", .stats)
@@ -295,7 +298,7 @@ struct QXOtherSettingsView: View {
                     sheetRow(String(localized: "经典策略页"), "square.grid.2x2", .classicPolicy)
                     sheetRow(String(localized: "经典请求页"), "arrow.left.arrow.right", .classicRequests)
                 } header: { header("更多") }
-                .listRowBackground(Theme.card)
+                .listRowBackground(QXPalette.card)
 
                 Section {
                     Button { nav.push(.dest(.diagnostics)) } label: {
@@ -309,7 +312,7 @@ struct QXOtherSettingsView: View {
                     sheetRow(String(localized: "新手引导"), "sparkles", .onboarding)
                     row(String(localized: "关于 / 开源许可"), "info.circle", .about)
                 } header: { header("关于") }
-                .listRowBackground(Theme.card)
+                .listRowBackground(QXPalette.card)
             }
             .listStyle(.insetGrouped)
             .scrollContentBackground(.hidden)
@@ -387,7 +390,7 @@ struct QXPanelSettingsView: View {
                         orderRaw = order.map(\.rawValue).joined(separator: ",")
                     }
                 } header: { header("排序") }
-                .listRowBackground(Theme.card)
+                .listRowBackground(QXPalette.card)
 
                 Section {
                     Picker("面板样式", selection: $style) {
@@ -400,7 +403,7 @@ struct QXPanelSettingsView: View {
                         Text("默认").tag("square")
                     }
                 } header: { header("样式") }
-                .listRowBackground(Theme.card)
+                .listRowBackground(QXPalette.card)
 
                 Section {
                     ForEach(Self.tools, id: \.id) { t in
@@ -416,7 +419,7 @@ struct QXPanelSettingsView: View {
                 } header: { header("工具栏") } footer: {
                     Text("工具栏只显示开启的工具；与工具对应的备选功能在长按时弹出。风车（设置）始终显示，长按切换运行模式。")
                 }
-                .listRowBackground(Theme.card)
+                .listRowBackground(QXPalette.card)
             }
             .listStyle(.insetGrouped)
             .scrollContentBackground(.hidden)

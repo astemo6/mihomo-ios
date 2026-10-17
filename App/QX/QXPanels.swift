@@ -398,7 +398,7 @@ struct QXLogPanel: View {
                     Image(systemName: "chevron.down")
                         .font(.system(size: 17, weight: .semibold)).foregroundStyle(.primary)
                         .frame(width: 44, height: 44)
-                        .background(Circle().fill(Theme.card)).shadow(color: .black.opacity(0.12), radius: 8, y: 2)
+                        .background(Circle().fill(QXPalette.card)).shadow(color: QXPalette.shadow(0.12), radius: 8, y: 2)
                 }
                 .padding(.trailing, 20).padding(.bottom, 92)
                 .accessibilityLabel(Text("跳到末尾"))
@@ -488,7 +488,7 @@ struct QXDNSLogView: View {
                     if let message { Text(verbatim: message).font(.footnote).foregroundStyle(Theme.good).padding(.horizontal, QXMetrics.inset).padding(.bottom, 6) }
                     TextField("搜索", text: $query)
                         .textInputAutocapitalization(.never).autocorrectionDisabled()
-                        .padding(10).background(RoundedRectangle(cornerRadius: 12, style: .continuous).fill(Theme.card))
+                        .padding(10).background(RoundedRectangle(cornerRadius: 12, style: .continuous).fill(QXPalette.card))
                         .padding(.horizontal, QXMetrics.inset).padding(.bottom, 8)
                     if !vpn.isConnected && entries.isEmpty {
                         EmptyStateView(icon: "globe", title: "连接后可查看")

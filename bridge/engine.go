@@ -104,6 +104,7 @@ func prepareEngineWith(home string, cfg *mitm.Config) (func(raw map[string]any),
 	rs := mitm.Build(home, cfg)
 	needListener := (cfg.MitM && len(rs.Hostnames) > 0) || (cfg.Enabled && len(rs.Rules) > 0)
 	needTasks := cfg.Enabled && (len(rs.Tasks) > 0 || len(rs.Panels) > 0) // cron / event / generic scripts, panels
+	needTasks = needTasks || cfg.HTTPBackend.Active()                        // QX http_backend local server
 	coreOnly := func(raw map[string]any) { mitm.Inject(raw, 0, rs, cfg); addRemoteModuleRules(raw, rs.CoreRules) }
 	engMu.Lock()
 	defer engMu.Unlock()

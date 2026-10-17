@@ -325,10 +325,7 @@ struct QXNodesPanel: View {
                     ErrorRow(message: e).padding(.horizontal, 4)
                 }
                 if AppShared.activeProfileURL == nil {
-                    QXCard {
-                        EmptyStateRow(icon: "doc.badge.plus", title: "还没有配置", message: "点下方工具栏的 ＋ 添加订阅链接或导入配置。")
-                            .padding(14)
-                    }
+                    QXEmptyProfileCard()
                 }
                 QXSectionHeader(title: "PROXY", expanded: $proxyExpanded) {
                     Menu {
@@ -367,7 +364,7 @@ struct QXNodesPanel: View {
                             .foregroundStyle(QXColor.policyChip)
                             .overlay(alignment: .bottomTrailing) {
                                 Image(systemName: "plus.circle.fill").font(.system(size: 11)).foregroundStyle(QXColor.policyChip)
-                                    .background(Circle().fill(Theme.bg)).offset(x: 6, y: 4)
+                                    .background(Circle().fill(QXPalette.bg)).offset(x: 6, y: 4)
                             }
                     }
                     .accessibilityLabel(Text("添加策略"))
@@ -894,7 +891,7 @@ struct QXGroupDetailView: View {
                 .font(.footnote.weight(.semibold))
                 .lineLimit(1)
                 .frame(maxWidth: .infinity, minHeight: 36)
-                .background(RoundedRectangle(cornerRadius: 12, style: .continuous).fill(Theme.cardHi))
+                .background(RoundedRectangle(cornerRadius: 12, style: .continuous).fill(QXPalette.cardHi))
         }
         .buttonStyle(.plain)
     }
