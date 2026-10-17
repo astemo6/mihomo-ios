@@ -80,15 +80,15 @@ func TestShareLinkRoundTrip(t *testing.T) {
 	check("SSR", "password", "pw")
 	check("SSH", "password", "pw")
 
-	if _, err := ShareLinkFor(map[string]any{"name": "x", "type": "mieru", "server": "a", "port": 1}); err == nil {
-		t.Fatal("mieru should have no link")
+	if _, err := ShareLinkFor(map[string]any{"name": "x", "type": "masque", "server": "a", "port": 1}); err == nil {
+		t.Fatal("masque should have no link (no common format)")
 	}
 }
 
 func TestManualSubscriptionAndByName(t *testing.T) {
 	dir := t.TempDir()
 	path := filepath.Join(dir, "manual.yaml")
-	y := "proxies:\n  - {name: A, type: trojan, server: a.com, port: 443, password: x}\n  - {name: M, type: mieru, server: m.com, port: 1, username: u, password: p, transport: TCP}\n"
+	y := "proxies:\n  - {name: A, type: trojan, server: a.com, port: 443, password: x}\n  - {name: M, type: masque, server: m.com, port: 1, private-key: k, public-key: p}\n"
 	_ = os.WriteFile(path, []byte(y), 0o644)
 	var r struct {
 		Text    string   `json:"text"`

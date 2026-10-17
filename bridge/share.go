@@ -134,6 +134,13 @@ func transportQuery(m map[string]any, q *kvList, trojan bool) {
 		if h := sList(sMap(o, "headers"), "Host"); len(h) > 0 {
 			q.add("host", h[0])
 		}
+	case "xhttp":
+		// Xray share-link form: type=xhttp&path=&host=&mode= (mihomo's converter reads the same keys).
+		q.add("type", "xhttp")
+		o := sMap(m, "xhttp-opts")
+		q.add("path", sStr(o, "path"))
+		q.add("host", sStr(o, "host"))
+		q.add("mode", sStr(o, "mode"))
 	default:
 		q.add("type", netw)
 	}
@@ -376,6 +383,20 @@ func ShareLinkFor(m map[string]any) (string, error) {
 		q.add("obfs", sStr(o, "mode"))
 		q.add("obfs-host", sStr(o, "host"))
 		return "snell://" + url.PathEscape(sStr(m, "psk")) + "@" + hostPort(m) + q.String() + frag(name), nil
+	case "mieru":
+		// mierus:// as read by mihomo's converter: one port (or range) + protocol pair per link.
+		user := url.UserPassword(sStr(m, "username"), sStr(m, "password"))
+		var q kvList
+		q.add("profile", name)
+		port := sStr(m, "port-range")
+		if port == "" {
+			port = sStr(m, "port")
+		}
+		q.add("port", port)
+		q.add("protocol", strings.ToUpper(firstNonEmpty(sStr(m, "transport"), "TCP")))
+		q.add("multiplexing", sStr(m, "multiplexing"))
+		q.add("handshake-mode", sStr(m, "handshake-mode"))
+		return "mierus://" + user.String() + "@" + sStr(m, "server") + q.String() + frag(name), nil
 	case "ssh":
 		user := url.User(sStr(m, "username"))
 		if pw := sStr(m, "password"); pw != "" {
