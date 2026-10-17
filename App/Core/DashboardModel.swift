@@ -122,6 +122,7 @@ final class DashboardModel: ObservableObject {
             try? await ControllerClient.shared.closeAllConnections()
         }
         NotificationCenter.default.post(name: .egressMayHaveChanged, object: nil)
+        WidgetBridge.reload() // v0.13: widget mode row + Control Center 出站模式
     }
 }
 

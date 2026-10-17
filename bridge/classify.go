@@ -39,6 +39,9 @@ func ClassifyText(text string) string {
 	if strings.Contains(t, "proxies:") || strings.Contains(t, "proxy-providers:") || strings.Contains(t, "proxy-groups:") {
 		return "profile"
 	}
+	if mitm.IsStash(t) {
+		return "module:stash" // v0.13: rules-only / rule-providers overrides
+	}
 	if classifyConfRe.MatchString(t) {
 		return "conf"
 	}

@@ -305,6 +305,19 @@ func ConvertListLine(line, kind string) (string, bool) {
 	}
 	parts := splitTop(l)
 	if len(parts) < 2 {
+		// v0.13: Clash / Stash ipcidr providers list bare CIDRs (or addresses).
+		if pfx, err := netip.ParsePrefix(l); err == nil {
+			if pfx.Addr().Is4() {
+				return "IP-CIDR," + pfx.Masked().String() + ",no-resolve", true
+			}
+			return "IP-CIDR6," + pfx.Masked().String() + ",no-resolve", true
+		}
+		if a, err := netip.ParseAddr(l); err == nil {
+			if a.Is4() {
+				return "IP-CIDR," + a.String() + "/32,no-resolve", true
+			}
+			return "IP-CIDR6," + a.String() + "/128,no-resolve", true
+		}
 		if !strings.ContainsAny(l, " ,") && strings.Contains(l, ".") {
 			return "DOMAIN," + l, true
 		}
