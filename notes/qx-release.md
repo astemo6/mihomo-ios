@@ -1,8 +1,8 @@
 **QX 重建预览 6**：合并主线 v0.13.0（节点编辑器补全新协议、控制中心出站模式、锁屏单行小组件、Loon / Stash 导入修复、DNS 预设），并把小组件做成 QX 版的重点——Quantumult X 本身没有小组件。
 
-- **修复：Quantumult X 配置导入失败（真机反馈）。** 原因有两处：① QX 的 [dns] 里 `server=/*testflight.apple.com/…` 这类「*」不占整段的通配符被原样写进 nameserver-policy，转换出的配置通不过内核校验，导入失败，而失败原因显示在很长的转换报告最下面，看起来像「导入」按钮没反应；现在转换为 `+.testflight.apple.com`（该域名及子域名），用户的配置在本地验证通过。② 文件选择器只接受 yaml / conf / 文本 / data 类型，QX 导出的 .conf 带 QX 自己的类型时会被置灰；现在接受任意文件（public.item），按内容识别。另外：导入页把进度（检查并保存配置 → 下载远程重写 n/N → 下载规则集）和结果放在最上方，失败一律弹窗说明原因；文件在选择器回调内立即读取；同一文件 2 秒内只处理一次（原 10 秒会吞掉第二次分享）；Info.plist 文档类型增加 public.item / public.text，QX 的 UTI 同时遵循 public.plain-text 与 public.data，.conf / .cfg。
+- **修复：Quantumult X 配置导入失败（真机反馈）。** 原因有两处：① QX 的 [dns] 里 `server=/*testflight.apple.com/…` 这类「*」不占整段的通配符被原样写进 nameserver-policy，转换出的配置通不过内核校验，导入失败，而失败原因显示在很长的转换报告最下面，看起来像「导入」按钮没反应；现在转换为 `+.testflight.apple.com`（该域名及子域名），用户的配置在本地验证通过。② 文件选择器只接受 yaml / conf / 文本 / data 类型，QX 导出的 .conf 带 QX 自己的类型时会被置灰；现在接受任意文件（public.item），按内容识别。已合并主线 v0.13.1 热修复：「从文件」改用系统文件选择器（拷贝模式，任何文件都能选，读取后删除副本），导入页显示当前步骤（转换 → 检查并保存 → 下载远程重写 n/N → 下载规则集）并在内容区多一个「导入」按钮，导入中不能下滑关闭，任何失败都弹窗说明原因（可「复制错误」）；QX 内置 proxy 成员、订阅节点名作为策略成员、IPv6 节点地址、enabled=false 资源单独列为「已禁用」。QX 版另外：Info.plist 文档类型增加 public.item / public.text，QX 的 UTI 同时遵循 public.plain-text 与 public.data（.conf / .cfg），从 QX 分享的 .conf 能直接打开。
 - **比例校准：** 之前按 393 pt 宽换算录屏帧，实际是 iPhone 16 Pro（402 pt，600 px 帧 = 1.49 px/pt），且字号多用了固定大字。现在按帧重新测量并改用系统文字样式（见下表）；设置页按钮去掉描边、彩色投影减半，工具栏和胶囊的阴影变浅。
-- **流畅度：** 开启 ProMotion 120 Hz（CADisableMinimumFrameDurationOnPhone）；所有 QX 页面、磁贴、分区展开统一用可中断的弹簧动画（QXMotion：response 0.35 / damping 0.85，按下 0.24 / 0.78），不再有 ease / linear；首页外壳和工具栏不再订阅每秒的流量数据，只有风车自己随流量刷新（之前每个流量采样都会让整个首页重新计算）；触感在动作开始时触发。
+- **流畅度：** 开启 ProMotion 120 Hz（CADisableMinimumFrameDurationOnPhone）；所有 QX 页面、磁贴、分区展开统一用可中断的弹簧动画（QXMotion：response 0.35 / damping 0.85，按下 0.24 / 0.78），不再有 ease / linear；首页外壳和工具栏不再订阅每秒的流量数据，只有风车自己随流量刷新（之前每个流量采样都会让整个首页重新计算）；MitM 证书操作表改为系统弹出表（之前是 App 内自绘的动画浮层），页面跳转本来就是系统导航推入 / 弹出表，面板切换是系统分页；触感在动作开始时触发。
 - **配色是暂定的、我们自己的：** QX 页面用到的所有颜色都集中在 App/QX/QXTheme.swift 的语义色（QXPalette 背景 / 卡片 / 描边，QXColor 各功能色、策略色、流量色、状态色），页面里不再有十六进制或 RGB 颜色；之后换配色只改这一个文件（小组件在 Widget/MihomoWidget.swift 的 WidgetTheme）。比例和布局对标 QX，颜色不跟 QX。
 - **独立安装不变：** 仍是单独的「Mihomo QX」（com.astemo6.mihomo.qx / .qx.tunnel / .qx.widget，App Group group.com.astemo6.mihomo.qx，scheme mihomo-qx://，数据在 qx 子文件夹、键名 qx. 前缀）。新的控制中心「运行模式」控件同样用 QX 自己的 kind（MihomoQXModeControl），与主线 Mihomo 的控件互不干扰。
 - **QX 风格小组件：** 小号——国旗与出口位置、策略链、开关、运行模式，右上角风车轻点切换模式；中号——出口位置与 ASN、开关，青色「节点」磁贴显示当前策略链，旁边的风车卡片轻点在 规则分流 → 全局代理 → 全局直连 之间切换，底部今日流量与订阅剩余流量；锁屏单行——国旗、出口位置 · 运行模式；锁屏矩形——出口位置、策略链、风车 + 运行模式 + 今日流量；锁屏圆形——轻点连接 / 断开。小组件里的风车跟 App 一样用颜色表示模式（三色 = 规则分流，青 = 全局代理，黄 = 全局直连），读取的是内核正在用的模式。配色与 App 的 QX 浅色 / 深色一致（浅色 #F2F3F7 底白卡片，深色纯黑底 #1C1C1E 卡片 + 细描边）。
@@ -10,6 +10,7 @@
 - **小组件展示页：** 其他设置 → 小组件 → 小组件与控制中心：浅色 / 深色切换预览小号、中号、锁屏和控制中心的样子，可以切换预览的运行模式，并列出添加步骤。
 - **添加 → 节点：** 顶部新增「新协议」区，用 QX 青色大磁贴列出 Quantumult X 不支持的 8 种协议——VLESS XHTTP、AmneziaWG、Sudoku、MASQUE、TrustTunnel、ShadowQUIC、OpenVPN、GOST Relay，轻点直接打开对应的编辑器（VLESS XHTTP 预填 xhttp 传输，AmneziaWG 预先打开混淆参数）；下面「全部协议」是原来的列表。
 - **DNS 一键预设：** QX 的 DNS 页右上角新增魔杖按钮：加密 DNS（DoH，推荐）、DoT / DoQ、HTTP/3 优先、去广告（AdGuard）、仅国内 DNS（不分流）。确认后一次写入国内 / 国外解析服务器并重载；各输入框里主线的「预设」菜单也照样可用。
+- 未做：磁贴 → 页面的系统缩放转场（navigationTransition(.zoom)，需要 iOS 18 且要给每个入口登记来源，留到下一版）。iOS 26 上系统开关本身比 iOS 18 大，模拟器对比时不计入。
 - 主线 v0.13 的其他改进一并带入：编辑器里 VLESS xhttp / encryption、Hysteria2 端口跳跃、AnyTLS 空闲会话等字段，VLESS xhttp 与 Mieru 分享链接，Loon 中文 [Argument]、Stash 覆写的 rule-providers。
 
 真机测试重点：小组件（-widget IPA）——小号 / 中号在浅色与深色下的对比度（尤其黄色风车在白卡片上）、中号风车卡片与小号风车轻点切换模式（连接 / 断开两种状态）、锁屏单行 / 矩形 / 圆形；控制中心「Mihomo QX 运行模式」按钮（图标颜色、连接时立即生效、断开时下次连接生效）并与主线 Mihomo 的控件同时存在；在控制中心改模式后回到 App 看风车颜色；小组件展示页；添加 → 节点 的 8 个新协议磁贴各添加一个真实节点（OpenVPN 用 .ovpn 里的 PEM，MASQUE / WARP）；DNS 页魔杖预设（连接时重载）。
@@ -47,7 +48,8 @@
 | 卡片行高 / 间距 | 62 / 9 pt | 不变 | 01：94–96 px → 63–64 pt，间距 14 px → 9.4 pt |
 | 设置页按钮 | 60 pt，18 pt 半粗图标与文字，描边 + 28% 彩色投影 | 62 pt，图标 17 pt 中等，.headline 文字，无描边，16% 投影 | 25：94 px → 63 pt，间距 20 px → 13 pt，「添加」字距 25 px → 16.8 pt |
 | 圆形按钮 | 43 pt | 不变 | 25/28：64 px → 43 pt |
-| 工具栏 | 60 pt，阴影 14 pt / 10% | 60 pt，阴影 8 pt / 7% | 01 |
+| 工具栏 | 60 pt，底边在 Home 条上方 19 pt（离屏幕底约 53 pt），阴影 14 pt / 10% | 60 pt，底边离屏幕底 19 pt，阴影 8 pt / 7% | 01 + 模拟器截图对比 |
+| 设置页分区标题行的开关 | 掉到标题下方（按文字基线对齐） | 与标题居中对齐 | 25 + 模拟器截图对比 |
 | 胶囊 / 浮动按钮阴影 | 10–12 pt / 10–12% | 5 pt / 6% | 01/28：几乎无阴影 |
 
 测量方法：按像素扫描帧内色块边界与字形宽度（汉字字宽 = 1 em）。模拟器截图（iPhone 16 Pro，浅色，-qxDemo）由 CI 的 qx-screens 任务生成，仅作为构建产物，不进仓库。

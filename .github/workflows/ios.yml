@@ -395,9 +395,11 @@ jobs:
           import json,sys
           d=json.load(sys.stdin)['devices']
           devs=[(r,x) for r,l in d.items() if 'iOS' in r for x in l]
+          # Prefer an iOS 18 runtime (the QX recording is iOS 18; iOS 26 controls are larger).
+          devs.sort(key=lambda rx: (0 if 'iOS-18' in rx[0] else 1, rx[0]))
           for want in ['iPhone 16 Pro','iPhone 17 Pro','iPhone 15 Pro']:
-              m=[x for r,x in devs if x['name']==want]
-              if m: print(m[-1]['udid']); break
+              m=[(r,x) for r,x in devs if x['name']==want]
+              if m: print(m[0][1]['udid']); sys.stderr.write('using %s on %s\\n' % (want, m[0][0])); break
           ")
           echo "device $DEV"
           xcrun simctl boot "$DEV" || true
@@ -406,14 +408,14 @@ jobs:
           xcrun simctl status_bar "$DEV" override --time "9:41" --batteryState charged --batteryLevel 100 || true
           xcrun simctl install "$DEV" "$APP"
           mkdir -p shots
-          xcrun simctl launch "$DEV" "$BID" -qxDemo -qxScreen home; sleep 20
+          xcrun simctl launch "$DEV" "$BID" -qxDemo -qxScreen home -AppleLanguages "(zh-Hans)" -AppleLocale zh_CN; sleep 20
           for s in home settings nodes policy other add; do
-            xcrun simctl launch --terminate-running-process "$DEV" "$BID" -qxDemo -qxScreen $s
+            xcrun simctl launch --terminate-running-process "$DEV" "$BID" -qxDemo -qxScreen $s -AppleLanguages "(zh-Hans)" -AppleLocale zh_CN
             sleep 9
             xcrun simctl io "$DEV" screenshot "shots/$s.png"
           done
           xcrun simctl ui "$DEV" appearance dark
-          xcrun simctl launch --terminate-running-process "$DEV" "$BID" -qxDemo -qxScreen home; sleep 9
+          xcrun simctl launch --terminate-running-process "$DEV" "$BID" -qxDemo -qxScreen home -AppleLanguages "(zh-Hans)" -AppleLocale zh_CN; sleep 9
           xcrun simctl io "$DEV" screenshot shots/home-dark.png
           ls -la shots
       - uses: actions/upload-artifact@v4
