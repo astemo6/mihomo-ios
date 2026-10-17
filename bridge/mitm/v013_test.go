@@ -122,3 +122,9 @@ func TestV013BareCIDRListLines(t *testing.T) {
 		}
 	}
 }
+
+func TestV013IsStashExported(t *testing.T) {
+	if !IsStash("name: x\nrules#!replace:\n  - DOMAIN,a.com,REJECT\n") || IsStash("[Rule]\nDOMAIN,a.com,REJECT\n") {
+		t.Fatal("IsStash")
+	}
+}

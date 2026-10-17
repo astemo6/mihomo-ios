@@ -1088,6 +1088,9 @@ func isStash(text string) bool {
 	return false
 }
 
+// IsStash reports whether text is a Stash override (incl. rules-only overrides) after merge markers.
+func IsStash(text string) bool { return isStash(normalizeStashKeys(text)) }
+
 var stashRuleItemRe = regexp.MustCompile(`^\s*-\s+['"]?[A-Za-z][A-Za-z0-9\-]*,`)
 
 // stashKeySuffixRe matches Stash override merge markers on keys ("rules#!replace:", "mitm#!append:").
