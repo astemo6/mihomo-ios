@@ -57,6 +57,15 @@ struct ModulesView: View {
                                 .foregroundStyle(Theme.good)
                         }
                     }
+                    NavigationLink { ModuleGalleryView() } label: {
+                        HStack(spacing: 10) {
+                            Image(systemName: "books.vertical").foregroundStyle(Theme.accent)
+                            VStack(alignment: .leading, spacing: 2) {
+                                Text("模块库").font(.subheadline.weight(.semibold))
+                                Text("浏览、搜索并预览索引来源里的模块").font(.caption).foregroundStyle(.secondary)
+                            }
+                        }
+                    }
                 }
                 .listRowBackground(Theme.card)
             }

@@ -251,32 +251,7 @@ jobs:
           set -euo pipefail
           for f in "$IPA" ${IPA_WIDGET:+"$IPA_WIDGET"}; do
             echo "===== $f ($(stat -f%z "$f") B) ====="
-            python3 - "$f" <<'PY'
-          import sys, zipfile, collections
-          z = zipfile.ZipFile(sys.argv[1])
-          rows = sorted(((i.compress_size, i.file_size, i.filename) for i in z.infolist()), reverse=True)
-          print("compressed   unpacked  file (top 15)")
-          for c, u, n in rows[:15]:
-              print(f"{c:>10} {u:>10}  {n}")
-          groups = collections.defaultdict(lambda: [0, 0])
-          for c, u, n in rows:
-              base = n.rsplit("/", 1)[-1]
-              if n.endswith("Mihomo.app/Mihomo"): k = "app binary"
-              elif n.endswith("PacketTunnel.appex/PacketTunnel"): k = "tunnel binary"
-              elif n.endswith("MihomoWidget.appex/MihomoWidget"): k = "widget binary"
-              elif base.endswith((".dat", ".metadb", ".mmdb")): k = "geo databases"
-              elif base.endswith(".car") or base.endswith(".png"): k = "assets / icons"
-              elif ".lproj/" in n: k = "localizations"
-              else: k = "other"
-              groups[k][0] += c; groups[k][1] += u
-          print("--- per component (compressed / unpacked) ---")
-          for k, (c, u) in sorted(groups.items(), key=lambda x: -x[1][0]):
-              print(f"{k:16} {c:>10} {u:>10}")
-          bad = [n for _, _, n in rows if ".dSYM" in n or n.endswith((".swiftmodule", ".h", ".a")) or "/Headers/" in n or ".framework/" in n or "Libmihomo" in n]
-          if bad:
-              print("SHOULD NOT SHIP:", *bad[:20], sep="\n  "); sys.exit(1)
-          print("no dSYM / swiftmodule / headers / embedded frameworks")
-          PY
+            python3 scripts/ipa_size.py "$f"
           done
 
       - name: Inspect IPA
@@ -301,12 +276,95 @@ jobs:
             fi
           } >> "$GITHUB_STEP_SUMMARY"
 
+      # v0.15 test variant: ONE dynamic Libmihomo.framework embedded in Mihomo.app/Frameworks and loaded by the
+      # tunnel via @rpath (@executable_path/../../Frameworks). The normal IPAs above keep static linking.
+      # Unsigned flow only. No widget in this variant (the widget never links the core).
+      - name: Shared-core variant (dynamic Libmihomo.framework)
+        if: env.SIGNED != '1'
+        run: |
+          set -euo pipefail
+          bash scripts/shared_core.sh Frameworks/Libmihomo.xcframework FrameworksShared "$APP_ID" "$VER" 2>&1 | tee shared-core.log
+          python3 scripts/shared_project.py project.yml project-shared.yml
+          xcodegen generate --spec project-shared.yml
+          xcodebuild -project Mihomo.xcodeproj -scheme Mihomo -configuration Release \
+            -sdk iphoneos -destination 'generic/platform=iOS' \
+            -archivePath build/MihomoShared.xcarchive \
+            CURRENT_PROJECT_VERSION=${{ github.run_number }} \
+            CODE_SIGNING_ALLOWED=NO CODE_SIGNING_REQUIRED=NO CODE_SIGN_IDENTITY="" CODE_SIGN_ENTITLEMENTS="" \
+            archive 2>&1 | tee build-shared.log | grep -E "error:|\*\* (ARCHIVE|BUILD)" | head -n 200 || true
+          APP=build/MihomoShared.xcarchive/Products/Applications/Mihomo.app
+          FW="$APP/Frameworks/Libmihomo.framework"
+          test -f "$FW/Libmihomo"
+          rm -rf "$FW/Headers" "$FW/Modules" "$FW/_CodeSignature" "$APP/PlugIns/MihomoWidget.appex"
+          test ! -e "$APP/PlugIns/PacketTunnel.appex/Frameworks"
+          echo "--- linkage ---"
+          otool -L "$APP/Mihomo" | grep -F "@rpath/Libmihomo.framework/Libmihomo"
+          otool -L "$APP/PlugIns/PacketTunnel.appex/PacketTunnel" | grep -F "@rpath/Libmihomo.framework/Libmihomo"
+          otool -l "$APP/PlugIns/PacketTunnel.appex/PacketTunnel" | grep -A2 LC_RPATH | grep -F "@executable_path/../../Frameworks"
+          otool -l "$APP/Mihomo" | grep -A2 LC_RPATH | grep -F "@executable_path/Frameworks"
+          ls -la "$APP/Mihomo" "$APP/PlugIns/PacketTunnel.appex/PacketTunnel" "$FW/Libmihomo"
+          # Same order a re-signer uses: framework (no entitlements, no profile) → extension → app.
+          codesign -f -s - "$FW"
+          codesign -f -s - --entitlements tunnel.entitlements "$APP/PlugIns/PacketTunnel.appex"
+          codesign -f -s - --entitlements app.entitlements "$APP"
+          codesign --verify --deep --strict --verbose=2 "$APP"
+          rm -rf Payload && mkdir Payload && cp -R "$APP" Payload/
+          IPA_SHARED="Mihomo-${VER}-build${{ github.run_number }}-sharedcore-unsigned.ipa"
+          zip -qry -9 "$IPA_SHARED" Payload
+          echo "IPA_SHARED=$IPA_SHARED" >> "$GITHUB_ENV"
+          echo "===== $IPA_SHARED ($(stat -f%z "$IPA_SHARED") B) ====="
+          python3 scripts/ipa_size.py "$IPA_SHARED" --shared-core
+          {
+            echo "### $IPA_SHARED"
+            echo "- size: $(stat -f%z "$IPA_SHARED") B (static: $(stat -f%z "$IPA") B)"
+            echo "- app binary $(stat -f%z "$APP/Mihomo") B, tunnel binary $(stat -f%z "$APP/PlugIns/PacketTunnel.appex/PacketTunnel") B, Libmihomo.framework $(stat -f%z "$FW/Libmihomo") B"
+          } >> "$GITHUB_STEP_SUMMARY"
+
+      # Re-sign check: a real (self-signed, trusted for code signing) identity signs the shared-core app the way
+      # one-profile re-signers do — framework without entitlements, then extension and app with theirs.
+      - name: Shared-core re-sign check
+        if: env.SIGNED != '1' && env.IPA_SHARED != ''
+        run: |
+          set -euo pipefail
+          T="$RUNNER_TEMP/resign"; mkdir -p "$T"; cd "$T"
+          cat > cs.cnf <<'CNF'
+          [req]
+          distinguished_name = dn
+          x509_extensions = ext
+          prompt = no
+          [dn]
+          CN = Mihomo Resign Test
+          [ext]
+          basicConstraints = critical,CA:false
+          keyUsage = critical,digitalSignature
+          extendedKeyUsage = critical,codeSigning
+          CNF
+          /usr/bin/openssl req -x509 -newkey rsa:2048 -nodes -days 2 -config cs.cnf -keyout key.pem -out cert.pem
+          /usr/bin/openssl pkcs12 -export -inkey key.pem -in cert.pem -out id.p12 -passout pass:resign
+          KC="$T/resign.keychain-db"
+          security create-keychain -p resign "$KC"
+          security unlock-keychain -p resign "$KC"
+          security import id.p12 -P resign -A -t cert -f pkcs12 -k "$KC"
+          security set-key-partition-list -S apple-tool:,apple:,codesign: -s -k resign "$KC" >/dev/null
+          sudo security add-trusted-cert -d -r trustRoot -p codeSign -k /Library/Keychains/System.keychain cert.pem
+          security list-keychain -d user -s "$KC" $(security list-keychains -d user | tr -d '"')
+          security find-identity -v -p codesigning "$KC"
+          rm -rf Payload && unzip -q "$GITHUB_WORKSPACE/$IPA_SHARED"
+          APP=Payload/Mihomo.app
+          codesign -f -s "Mihomo Resign Test" --keychain "$KC" "$APP/Frameworks/Libmihomo.framework"
+          codesign -f -s "Mihomo Resign Test" --keychain "$KC" --entitlements "$GITHUB_WORKSPACE/tunnel.entitlements" "$APP/PlugIns/PacketTunnel.appex"
+          codesign -f -s "Mihomo Resign Test" --keychain "$KC" --entitlements "$GITHUB_WORKSPACE/app.entitlements" "$APP"
+          codesign --verify --deep --strict --verbose=2 "$APP"
+          codesign -dv "$APP/Frameworks/Libmihomo.framework" 2>&1 | grep -E "Identifier|Authority|TeamIdentifier|Format"
+          echo "- re-sign check: framework + tunnel + app signed with one identity, codesign --verify --deep --strict OK" >> "$GITHUB_STEP_SUMMARY"
+
       - uses: actions/upload-artifact@v4
         with:
           name: Mihomo-ipa
           path: |
             ${{ env.IPA }}
             ${{ env.IPA_WIDGET }}
+            ${{ env.IPA_SHARED }}
             app.entitlements
             tunnel.entitlements
             widget.entitlements
@@ -328,10 +386,14 @@ jobs:
             else
               echo "- 未签名（已嵌入 entitlements 的伪签名），请用自己的证书和描述文件重签后安装。网络扩展需要开启了 Network Extension + App Groups 能力的描述文件。"
               echo "- 两个版本：\`-unsigned.ipa\` 只含主程序和隧道扩展；\`-widget-unsigned.ipa\` 另含小组件 / 控制中心开关扩展（Bundle ID 为 主 ID + .widget，需要描述文件也覆盖它，例如显式 App ID 的描述文件配合能处理扩展的重签工具）。"
+              if [ -n "${IPA_SHARED:-}" ]; then
+                echo "- 测试版 \`-sharedcore-unsigned.ipa\`：内核只打包一次（Mihomo.app/Frameworks/Libmihomo.framework，隧道扩展通过 @rpath 加载），体积更小；不含小组件。重签时框架只需签名、不需要描述文件。尚待真机验证，出问题请改用普通版。"
+              fi
             fi
           } > "$NOTES"
           FILES=("$IPA")
           [ -n "${IPA_WIDGET:-}" ] && [ -f "$IPA_WIDGET" ] && FILES+=("$IPA_WIDGET")
+          [ -n "${IPA_SHARED:-}" ] && [ -f "$IPA_SHARED" ] && FILES+=("$IPA_SHARED")
           [ -f app.entitlements ] && FILES+=(app.entitlements tunnel.entitlements)
           [ -f widget.entitlements ] && FILES+=(widget.entitlements)
           gh release create "$TAG" "${FILES[@]}" --title "Mihomo ${VER} build ${{ github.run_number }}" --notes-file "$NOTES" --target "$(git rev-parse HEAD)" --prerelease
@@ -339,7 +401,7 @@ jobs:
       - name: Show build errors (on failure)
         if: failure()
         run: |
-          for f in gomobile.log build.log export.log; do
+          for f in gomobile.log build.log export.log shared-core.log build-shared.log; do
             [ -f "$f" ] || continue
             echo "===== $f ====="
             grep -E "error:|Error|FAILED|fatal" "$f" | sort -u | head -n 150 || true
