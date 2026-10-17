@@ -30,6 +30,9 @@ import androidx.compose.material.icons.filled.Public
 import androidx.compose.material.icons.filled.SettingsEthernet
 import androidx.compose.material.icons.filled.SpaceDashboard
 import androidx.compose.material.icons.filled.Folder
+import androidx.compose.material.icons.filled.PowerSettingsNew
+import androidx.compose.material.icons.filled.Router
+import androidx.compose.material.icons.filled.Wifi
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Icon
 import androidx.compose.material3.Scaffold
@@ -138,6 +141,13 @@ fun SettingsScreen(
                             AppSettings.PerAppMode.ALLOW -> R.string.per_app_allow
                             AppSettings.PerAppMode.DENY -> R.string.per_app_deny
                         }))
+                    // A3 Android extras (ui/a3).
+                    SettingsRow(stringResource(R.string.a3_net_title), stringResource(R.string.a3_net_row_desc),
+                        icon = Icons.Filled.Wifi, iconTint = Color(0xFF34C759), onClick = { navigate(io.github.astemo6.mihomo.ui.a3.A3Routes.NETWORK) })
+                    SettingsRow(stringResource(R.string.a3_lan_title), stringResource(R.string.a3_lan_row_desc),
+                        icon = Icons.Filled.Router, iconTint = Color(0xFFFF9F0A), onClick = { navigate(io.github.astemo6.mihomo.ui.a3.A3Routes.LAN) })
+                    SettingsRow(stringResource(R.string.a3_system), stringResource(R.string.a3_system_desc),
+                        icon = Icons.Filled.PowerSettingsNew, iconTint = Color(0xFF5856D6), onClick = { navigate(io.github.astemo6.mihomo.ui.a3.A3Routes.SYSTEM) })
                     SettingsRow(stringResource(R.string.appearance), icon = Icons.Filled.DarkMode, iconTint = Color(0xFF636366),
                         value = stringResource(themeLabel(theme)), onClick = { showTheme = true })
                     SettingsRow(stringResource(R.string.language), icon = Icons.Filled.Language, iconTint = Color(0xFF32ADE6),

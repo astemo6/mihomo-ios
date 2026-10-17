@@ -12,6 +12,13 @@
     <uses-permission android:name="android.permission.CAMERA" />
     <uses-feature android:name="android.hardware.camera" android:required="false" />
     <uses-feature android:name="android.hardware.camera.autofocus" android:required="false" />
+    <!-- A3: 开机自启 -->
+    <uses-permission android:name="android.permission.RECEIVE_BOOT_COMPLETED" />
+    <!-- A3: 按网络切换 — Android only reveals the Wi-Fi SSID with location granted (never used for location). -->
+    <uses-permission android:name="android.permission.ACCESS_WIFI_STATE" />
+    <uses-permission android:name="android.permission.ACCESS_COARSE_LOCATION" />
+    <uses-permission android:name="android.permission.ACCESS_FINE_LOCATION" />
+    <uses-permission android:name="android.permission.ACCESS_BACKGROUND_LOCATION" />
     <!-- 分应用代理: the app list for the allow / deny picker (sideloaded app, not on Play). -->
     <uses-permission
         android:name="android.permission.QUERY_ALL_PACKAGES"
@@ -67,7 +74,20 @@
             <intent-filter>
                 <action android:name="android.service.quicksettings.action.QS_TILE_PREFERENCES" />
             </intent-filter>
+            <!-- A3 static App Shortcuts (src/debug and src/release copies: literal application id). -->
+            <meta-data
+                android:name="android.app.shortcuts"
+                android:resource="@xml/shortcuts" />
         </activity>
+
+        <!-- A3: invisible trampoline for App Shortcuts (connect / mode / profiles). -->
+        <activity
+            android:name=".a3.ShortcutActivity"
+            android:excludeFromRecents="true"
+            android:exported="false"
+            android:noHistory="true"
+            android:taskAffinity=""
+            android:theme="@android:style/Theme.Translucent.NoTitleBar" />
 
         <service
             android:name=".vpn.MihomoVpnService"
@@ -118,6 +138,40 @@
             android:name="com.journeyapps.barcodescanner.CaptureActivity"
             android:screenOrientation="fullSensor"
             tools:replace="screenOrientation" />
+        <!-- A3 widgets: node / group switch and traffic. -->
+        <receiver
+            android:name=".widget.NodeWidget"
+            android:exported="false"
+            android:label="@string/a3_widget_node_name">
+            <intent-filter>
+                <action android:name="android.appwidget.action.APPWIDGET_UPDATE" />
+            </intent-filter>
+            <meta-data
+                android:name="android.appwidget.provider"
+                android:resource="@xml/node_widget_info" />
+        </receiver>
+        <receiver
+            android:name=".widget.TrafficWidget"
+            android:exported="false"
+            android:label="@string/a3_widget_traffic_name">
+            <intent-filter>
+                <action android:name="android.appwidget.action.APPWIDGET_UPDATE" />
+            </intent-filter>
+            <meta-data
+                android:name="android.appwidget.provider"
+                android:resource="@xml/traffic_widget_info" />
+        </receiver>
+        <!-- A3: 开机自启 (not directBootAware: profiles are in credential-encrypted storage). -->
+        <receiver
+            android:name=".a3.BootReceiver"
+            android:exported="true">
+            <intent-filter>
+                <action android:name="android.intent.action.BOOT_COMPLETED" />
+                <action android:name="android.intent.action.LOCKED_BOOT_COMPLETED" />
+                <action android:name="android.intent.action.QUICKBOOT_POWERON" />
+                <action android:name="android.intent.action.MY_PACKAGE_REPLACED" />
+            </intent-filter>
+        </receiver>
         <!-- Per-app language on Android 12 and older (AppCompatDelegate.setApplicationLocales). -->
         <service
             android:name="androidx.appcompat.app.AppLocalesMetadataHolderService"

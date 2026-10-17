@@ -103,6 +103,8 @@ class MainActivity : AppCompatActivity() {
         intent ?: return
         when (intent.action) {
             ACTION_CONNECT -> requestConnect()
+            io.github.astemo6.mihomo.a3.A3Shortcuts.ACTION_OPEN_ROUTE ->
+                io.github.astemo6.mihomo.a3.A3Shortcuts.pendingRoute.value = intent.getStringExtra(io.github.astemo6.mihomo.a3.A3Shortcuts.EXTRA_ROUTE)
             Intent.ACTION_VIEW -> {
                 val data = intent.data ?: return
                 when (data.scheme?.lowercase()) {
@@ -145,6 +147,11 @@ class MainActivity : AppCompatActivity() {
         val pop: () -> Unit = { if (stack.size > 1) stack.removeAt(stack.lastIndex) }
 
         BackHandler(enabled = stack.size > 1) { pop() }
+        // A3: route requested by an App Shortcut (e.g. 配置).
+        val shortcutRoute by io.github.astemo6.mihomo.a3.A3Shortcuts.pendingRoute.collectAsState()
+        LaunchedEffect(shortcutRoute) {
+            shortcutRoute?.let { r -> if (stack.last() != r) push(r); io.github.astemo6.mihomo.a3.A3Shortcuts.pendingRoute.value = null }
+        }
 
         when (val route = stack.last()) {
             Routes.HOME -> HomeScreen(
@@ -167,6 +174,7 @@ class MainActivity : AppCompatActivity() {
             Routes.MITM -> MitmScreen(vm, onBack = pop)
             Routes.SCRIPTS -> ScriptsScreen(vm, onBack = pop)
             in Feature2Routes.all -> Feature2Screen(route, onBack = pop)
+            in io.github.astemo6.mihomo.ui.a3.A3Routes.all -> io.github.astemo6.mihomo.ui.a3.A3Screen(route, vm, onBack = pop)
             else -> LaunchedEffect(route) { pop() }
         }
 

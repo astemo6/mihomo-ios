@@ -130,11 +130,23 @@ Mihomo for Android 是用户 iOS 客户端（astemo6/mihomo-ios）的 Android �
 - 以上 A2 数据功能都只做了编译检查（`:app:compileDebugKotlin`，真实 gobind 绑定），**未上机验证**
 
 ### A3 Android 加分项
-- [ ] 更多小组件（节点切换、流量）和 App Shortcuts
-- [ ] 始终开启 VPN、开机自启
-- [ ] 按网络切换模式（Wi-Fi / 蜂窝 / SSID）
-- [ ] 局域网共享（HTTP/SOCKS 端口）
+- [x] 更多小组件（节点切换、流量）和 App Shortcuts
+- [x] 始终开启 VPN、开机自启
+- [x] 按网络切换模式（Wi-Fi / 蜂窝 / SSID）
+- [x] 局域网共享（HTTP/SOCKS 端口）
 - [ ] 固定签名 keystore（需用户同意后放进 GitHub Secrets）
+
+#### A3 实现说明（分支 `android/a3-android`，2026-10-17）
+- 代码：`a3/`（`A3Prefs` 独立 SharedPreferences "a3"、`A3Runtime`、`NetworkModeSwitcher`、`BootReceiver`、`A3Shortcuts` + `ShortcutActivity`）、`widget/NodeWidget.kt`、`widget/TrafficWidget.kt`、`ui/a3/A3Screens.kt`（路由 `a3_system` / `a3_network` / `a3_lan`，`A3Routes`）。字符串 `res/values*/strings_a3.xml`（三语）。
+- 共享文件改动（都很小）：`MihomoApp`（1 行 `A3Runtime.init`）、`MihomoVpnService`（3 处单行：`onStartCommand` 调 `A3Runtime.onServiceStart` 记录 always-on 启动和 isAlwaysOn/isLockdownEnabled；`onRevoke` 调 `A3Runtime.onRevoked` 清 `wantRunning`；`reportNetwork` 的 `setNetworkState` 在 Wi-Fi 时带上 SSID）、`MainActivity`（`A3Routes` 分发 + 快捷方式 `OPEN_ROUTE`）、`SettingsScreen`（“其他设置”加 3 行入口）、`AndroidManifest`（权限、两个 widget、BootReceiver、ShortcutActivity、shortcuts meta-data）。未动 safe-mode 逻辑和 ProfileStore API（只调用现有 `setActive`/`profiles`/`activeId`）。
+- 小组件：节点切换（选择组 + 当前节点，◀/▶ 切换成员、⇄ 切换策略组，经控制器 PUT）；流量（实时 ↑/↓ + 本次累计，A3Runtime 每 ~3 s 刷新，仅亮屏且有该小组件时）。系统集成页可一键“添加到桌面”（requestPinAppWidget / requestPinShortcut）。
+- App Shortcuts：静态（连接/断开、切换模式 规则→全局→直连、配置）放在 `src/debug/res/xml/shortcuts.xml` 和 `src/release/res/xml/shortcuts.xml` 两份——`targetPackage` 必须是字面量，debug 有 `.debug` 后缀，**改一份要同步另一份**。动态：最近 2 个非当前配置“使用 X 并连接”。
+- 始终开启：manifest 已有 `SUPPORTS_ALWAYS_ON`；系统无界面启动（action `android.net.VpnService`）失败时（无配置等）发通知，点开进入连接流程。被其他 VPN 接管（onRevoke）后不再开机自动重连。系统集成页显示 always-on/锁定状态（API 29+，取自服务上次启动）、打开系统 VPN 设置、电池优化。
+- 开机自启：`BOOT_COMPLETED` / `LOCKED_BOOT_COMPLETED` / `MY_PACKAGE_REPLACED`（更新后仅在之前已连接时）。接收器**不是** directBootAware：配置在凭据加密存储里，解锁前无法启动，所以 LOCKED_BOOT_COMPLETED 实际只在无 FBE 设备上生效。没有 VPN 权限时发通知。
+- 按网络切换：VPN 运行时独立的 NetworkCallback（API 31+ 带 `FLAG_INCLUDE_LOCATION_INFO`），去抖 1.2 s；SSID 规则优先，其次 Wi-Fi/蜂窝/以太网；目标为模式（写 overrides.json + PATCH /configs，和首页模式切换一致）或配置（`ProfileStore.setActive` → reload）。只在网络身份变化时应用，之后手动切换保留。无匹配时可“保持不变”或指定模式。SSID 需要精确位置（+ 定位服务；后台需“始终允许”），页面里有权限状态和申请入口；拿不到 SSID 时只按 Wi-Fi 规则匹配。
+- 局域网共享：独立页面，开关 allowLan、混合端口、认证（lanAuth）、仅私有网段（lanLocalOnly），列出本机局域网 IPv4（含热点）和 `http://` / `socks5://` 地址，点击复制；保存即 `VpnController.reload`。连接设置页原有的 allowLan/端口行未改动。
+- 验证：`:app:compileDebugKotlin` BUILD SUCCESSFUL（真实 gobind 绑定）。**未真机测试**：always-on 系统启动、开机自启、SSID 读取（各 ROM 差异大）、小组件点击、静态快捷方式（非导出 ShortcutActivity 由 launcher 启动，按文档可行但未验证）。
+- 已知限制：首页 `MainViewModel.mode` 在按网络/快捷方式切换模式后要等下一次从控制器刷新才更新；未做按网络切换的“手动覆盖后暂停”提示；Release 构建（R8）未跑。
 
 ## 并行开发（2026-10-17）
 - 本工作区（分支 `android/main`）负责共享文件：`ui/MainActivity.kt` 导航（字符串路由 `Routes.*`）、`ui/settings/SettingsScreen.kt` 网格、`ui/home/HomeScreen.kt` 工具栏、`res/values*/strings.xml`。

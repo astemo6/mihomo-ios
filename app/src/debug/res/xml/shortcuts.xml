@@ -1,0 +1,38 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- A3 static App Shortcuts. One copy per build type: targetPackage must be the literal application id
+     (debug has the ".debug" suffix). Keep src/debug and src/release in sync. -->
+<shortcuts xmlns:android="http://schemas.android.com/apk/res/android">
+    <shortcut
+        android:enabled="true"
+        android:icon="@drawable/ic_sc_power"
+        android:shortcutId="toggle"
+        android:shortcutLongLabel="@string/a3_sc_toggle_long"
+        android:shortcutShortLabel="@string/a3_sc_toggle">
+        <intent
+            android:action="io.github.astemo6.mihomo.SHORTCUT_TOGGLE"
+            android:targetClass="io.github.astemo6.mihomo.a3.ShortcutActivity"
+            android:targetPackage="io.github.astemo6.mihomo.debug" />
+    </shortcut>
+    <shortcut
+        android:enabled="true"
+        android:icon="@drawable/ic_sc_mode"
+        android:shortcutId="mode"
+        android:shortcutLongLabel="@string/a3_sc_mode_long"
+        android:shortcutShortLabel="@string/a3_sc_mode">
+        <intent
+            android:action="io.github.astemo6.mihomo.SHORTCUT_MODE"
+            android:targetClass="io.github.astemo6.mihomo.a3.ShortcutActivity"
+            android:targetPackage="io.github.astemo6.mihomo.debug" />
+    </shortcut>
+    <shortcut
+        android:enabled="true"
+        android:icon="@drawable/ic_sc_profiles"
+        android:shortcutId="profiles"
+        android:shortcutLongLabel="@string/a3_sc_profiles_long"
+        android:shortcutShortLabel="@string/a3_sc_profiles">
+        <intent
+            android:action="io.github.astemo6.mihomo.SHORTCUT_PROFILES"
+            android:targetClass="io.github.astemo6.mihomo.a3.ShortcutActivity"
+            android:targetPackage="io.github.astemo6.mihomo.debug" />
+    </shortcut>
+</shortcuts>
