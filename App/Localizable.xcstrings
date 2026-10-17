@@ -444,6 +444,41 @@
         }
       }
     },
+    "%@：节点 %lld → %lld": {
+      "extractionState": "manual",
+      "localizations": {
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%@：節點 %lld → %lld"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%@: nodes %lld → %lld"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%@：ノード %lld → %lld"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%@: 노드 %lld → %lld"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%@: узлов %lld → %lld"
+          }
+        }
+      }
+    },
     "%@？": {
       "localizations": {
         "zh-Hant": {
@@ -916,6 +951,41 @@
           "stringUnit": {
             "state": "translated",
             "value": "%lld дн."
+          }
+        }
+      }
+    },
+    "%lld 天后到期（%@），记得续费。": {
+      "extractionState": "manual",
+      "localizations": {
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%lld 天后到期（%@），記得續費。"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Expires in %lld days (%@). Remember to renew."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%lld 日後に期限切れ（%@）。更新をお忘れなく。"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%lld일 후 만료(%@). 갱신을 잊지 마세요."
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Истекает через %lld дн. (%@). Не забудьте продлить."
           }
         }
       }
@@ -8139,6 +8209,41 @@
         }
       }
     },
+    "「%@」即将到期": {
+      "extractionState": "manual",
+      "localizations": {
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "「%@」即將到期"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "“%@” expires soon"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "「%@」の期限が近づいています"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "“%@” 곧 만료"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "«%@» скоро истекает"
+          }
+        }
+      }
+    },
     "「%@」已切换到 %@": {
       "localizations": {
         "en": {
@@ -8204,6 +8309,76 @@
           "stringUnit": {
             "state": "translated",
             "value": "«%@» — это папка. Выберите файл конфигурации внутри неё."
+          }
+        }
+      }
+    },
+    "「%@」流量已用 %lld%%": {
+      "extractionState": "manual",
+      "localizations": {
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "「%@」流量已用 %lld%%"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "“%@” has used %lld%% of its data"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "「%@」のデータ使用量が %lld%% に達しました"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "“%@” 데이터 %lld%% 사용"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "«%@»: израсходовано %lld%% трафика"
+          }
+        }
+      }
+    },
+    "「%@」流量已用完": {
+      "extractionState": "manual",
+      "localizations": {
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "「%@」流量已用完"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "“%@” is out of data"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "「%@」のデータを使い切りました"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "“%@” 데이터 소진"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "«%@»: трафик закончился"
           }
         }
       }
@@ -10364,6 +10539,41 @@
         }
       }
     },
+    "仅失败或节点大幅减少时": {
+      "extractionState": "manual",
+      "localizations": {
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "僅失敗或節點大幅減少時"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Only on Failures or Big Node Drops"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "失敗時またはノードが大きく減ったときのみ"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "실패하거나 노드가 크게 줄 때만"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Только при ошибках или резком сокращении узлов"
+          }
+        }
+      }
+    },
     "仅指定 Wi-Fi": {
       "localizations": {
         "zh-Hant": {
@@ -10636,6 +10846,41 @@
         }
       },
       "extractionState": "manual"
+    },
+    "今天 %@": {
+      "extractionState": "manual",
+      "localizations": {
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "今天 %@"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Today %@"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "今日 %@"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "오늘 %@"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Сегодня %@"
+          }
+        }
+      }
     },
     "从 URL 导入": {
       "localizations": {
@@ -11488,6 +11733,41 @@
           "stringUnit": {
             "state": "translated",
             "value": "Доступ к геопозиции выключен — имя Wi-Fi недоступно. Выберите «При использовании» и включите «Точная геопозиция» в Настройки → Mihomo → Геопозиция или введите имя вручную."
+          }
+        }
+      }
+    },
+    "何时通知": {
+      "extractionState": "manual",
+      "localizations": {
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "何時通知"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Notify When"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "通知のタイミング"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "알림 시점"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Когда уведомлять"
           }
         }
       }
@@ -15964,6 +16244,41 @@
         }
       }
     },
+    "到期前": {
+      "extractionState": "manual",
+      "localizations": {
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "到期前"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Before Expiry"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "期限切れの前"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "만료 전"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "До истечения"
+          }
+        }
+      }
+    },
     "刷新": {
       "localizations": {
         "en": {
@@ -16130,6 +16445,41 @@
           "stringUnit": {
             "state": "translated",
             "value": "Осталось %@"
+          }
+        }
+      }
+    },
+    "剩余 %@，共 %@": {
+      "extractionState": "manual",
+      "localizations": {
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "剩餘 %@，共 %@"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%@ left of %@"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "残り %@（合計 %@）"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%@ 남음 / 총 %@"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Осталось %@ из %@"
           }
         }
       }
@@ -18734,6 +19084,76 @@
         }
       }
     },
+    "命中最多": {
+      "extractionState": "manual",
+      "localizations": {
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "命中最多"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Most Hits"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ヒット数順"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "적중 많은 순"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Больше всего совпадений"
+          }
+        }
+      }
+    },
+    "命中统计": {
+      "extractionState": "manual",
+      "localizations": {
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "命中統計"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Hit Counts"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ヒット統計"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "적중 통계"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Статистика совпадений"
+          }
+        }
+      }
+    },
     "命中规则 / 脚本": {
       "localizations": {
         "en": {
@@ -20986,6 +21406,41 @@
           "stringUnit": {
             "state": "translated",
             "value": "Копировать журнал запуска"
+          }
+        }
+      }
+    },
+    "复制规则": {
+      "extractionState": "manual",
+      "localizations": {
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "複製規則"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Copy Rule"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ルールをコピー"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "규칙 복사"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Скопировать правило"
           }
         }
       }
@@ -24989,6 +25444,41 @@
       },
       "extractionState": "manual"
     },
+    "已自动更新 %lld 个订阅": {
+      "extractionState": "manual",
+      "localizations": {
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "已自動更新 %lld 個訂閱"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Updated %lld subscriptions automatically"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%lld 件のサブスクリプションを自動更新しました"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "구독 %lld개 자동 업데이트됨"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Автоматически обновлено подписок: %lld"
+          }
+        }
+      }
+    },
     "已设置前置代理": {
       "localizations": {
         "zh-Hant": {
@@ -28499,6 +28989,41 @@
         }
       }
     },
+    "按各订阅的更新间隔自动更新（打开 App 时，以及系统允许的后台刷新）。成功默认不打扰；失败或节点数减少三成以上时提醒。": {
+      "extractionState": "manual",
+      "localizations": {
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "按各訂閱的更新間隔自動更新（開啟 App 時，以及系統允許的背景重新整理）。成功預設不打擾；失敗或節點數減少三成以上時提醒。"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Subscriptions update at their own intervals (when you open the app, and during background refresh when iOS allows it). Successful updates stay quiet by default; you're notified about failures or when the node count drops by 30% or more."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "各サブスクリプションの更新間隔で自動更新します（App を開いたとき、および iOS が許可するバックグラウンド更新時）。成功時は通知せず、失敗やノード数が 3 割以上減ったときに通知します。"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "각 구독의 업데이트 간격에 따라 자동 업데이트합니다(앱을 열 때와 iOS가 허용하는 백그라운드 새로 고침). 성공 시에는 알리지 않고, 실패하거나 노드 수가 30% 이상 줄면 알립니다."
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Подписки обновляются по своим интервалам (при открытии приложения и при фоновом обновлении, если iOS разрешит). Об успешных обновлениях уведомлений нет; уведомляем об ошибках и о сокращении числа узлов на 30% и более."
+          }
+        }
+      }
+    },
     "按名称": {
       "localizations": {
         "en": {
@@ -29655,6 +30180,41 @@
           "stringUnit": {
             "state": "translated",
             "value": "Уведомление"
+          }
+        }
+      }
+    },
+    "提醒": {
+      "extractionState": "manual",
+      "localizations": {
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "提醒"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Alerts"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "通知"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "알림"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Напоминания"
           }
         }
       }
@@ -34762,6 +35322,41 @@
       },
       "extractionState": "manual"
     },
+    "本次 %@": {
+      "extractionState": "manual",
+      "localizations": {
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "本次 %@"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "This session %@"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "今回 %@"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "이번 세션 %@"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "За сеанс %@"
+          }
+        }
+      }
+    },
     "本次连接": {
       "localizations": {
         "zh-Hant": {
@@ -34826,6 +35421,41 @@
           "stringUnit": {
             "state": "translated",
             "value": "Исходный код проекта"
+          }
+        }
+      }
+    },
+    "条规则有命中": {
+      "extractionState": "manual",
+      "localizations": {
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "條規則有命中"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "rules with hits"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "件のルールにヒット"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "개 규칙 적중"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "правил с совпадениями"
           }
         }
       }
@@ -37051,6 +37681,41 @@
         }
       }
     },
+    "每次自动更新后": {
+      "extractionState": "manual",
+      "localizations": {
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "每次自動更新後"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "After Every Auto Update"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "自動更新のたびに"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "자동 업데이트할 때마다"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "После каждого автообновления"
+          }
+        }
+      }
+    },
     "每次连接时检查当前 Wi-Fi 或蜂窝网络是否有公网 IPv6 地址，有才给隧道和内核开启 IPv6。切换网络后需要重新连接。「节点 IP 优先」只作用于没有自己写 ip-version 的节点（含节点集）。": {
       "localizations": {
         "zh-Hant": {
@@ -38038,6 +38703,41 @@
           "stringUnit": {
             "state": "translated",
             "value": "Состав трафика"
+          }
+        }
+      }
+    },
+    "流量用到": {
+      "extractionState": "manual",
+      "localizations": {
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "流量用到"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Data Used"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "データ使用量"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "데이터 사용량"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Израсходовано трафика"
           }
         }
       }
@@ -40771,6 +41471,41 @@
         }
       }
     },
+    "用订阅返回的流量与到期信息（subscription-userinfo）发本地通知：每次更新后检查流量，用完时再提醒一次；到期提醒由系统按时送达，不需要打开 App。没有这些信息的订阅不会提醒。": {
+      "extractionState": "manual",
+      "localizations": {
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "用訂閱返回的流量與到期資訊（subscription-userinfo）發本地通知：每次更新後檢查流量，用完時再提醒一次；到期提醒由系統按時送達，不需要開啟 App。沒有這些資訊的訂閱不會提醒。"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Local notifications from the data and expiry info the subscription returns (subscription-userinfo): data is checked after every update, with one more alert when it runs out; expiry reminders are delivered by iOS on time without opening the app. Subscriptions without this info never alert."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "サブスクリプションが返すデータ量と期限（subscription-userinfo）からローカル通知を送ります。データ量は更新のたびに確認し、使い切ったときにもう一度通知します。期限の通知は App を開かなくても iOS が時間どおりに届けます。この情報がないサブスクリプションは通知しません。"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "구독이 반환하는 데이터·만료 정보(subscription-userinfo)로 로컬 알림을 보냅니다. 데이터는 업데이트할 때마다 확인하고 소진되면 한 번 더 알립니다. 만료 알림은 앱을 열지 않아도 iOS가 제때 전달합니다. 이 정보가 없는 구독은 알리지 않습니다."
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Локальные уведомления по данным о трафике и сроке из подписки (subscription-userinfo): трафик проверяется после каждого обновления и ещё раз, когда он закончится; напоминание о сроке iOS доставит вовремя, даже если приложение не открыто. Подписки без этих данных не уведомляют."
+          }
+        }
+      }
+    },
     "用这个快照覆盖当前配置？": {
       "localizations": {
         "zh-Hant": {
@@ -40801,6 +41536,41 @@
           "stringUnit": {
             "state": "translated",
             "value": "Заменить текущие настройки этим снимком?"
+          }
+        }
+      }
+    },
+    "用量提醒": {
+      "extractionState": "manual",
+      "localizations": {
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "用量提醒"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Usage Alerts"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "使用量の通知"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "사용량 알림"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Уведомления о трафике"
           }
         }
       }
@@ -43264,6 +44034,76 @@
         }
       }
     },
+    "累计": {
+      "extractionState": "manual",
+      "localizations": {
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "累計"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Total"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "累計"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "누적"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Всего"
+          }
+        }
+      }
+    },
+    "累计 %@": {
+      "extractionState": "manual",
+      "localizations": {
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "累計 %@"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Total %@"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "累計 %@"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "누적 %@"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Всего %@"
+          }
+        }
+      }
+    },
     "级别": {
       "localizations": {
         "en": {
@@ -45383,6 +46223,41 @@
         }
       }
     },
+    "自 %@ 起": {
+      "extractionState": "manual",
+      "localizations": {
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "自 %@ 起"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Since %@"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%@ から"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%@부터"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "С %@"
+          }
+        }
+      }
+    },
     "自动": {
       "localizations": {
         "en": {
@@ -45481,6 +46356,76 @@
           "stringUnit": {
             "state": "translated",
             "value": "Автообновление"
+          }
+        }
+      }
+    },
+    "自动更新后通知": {
+      "extractionState": "manual",
+      "localizations": {
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "自動更新後通知"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Notify After Auto Update"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "自動更新後に通知"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "자동 업데이트 후 알림"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Уведомлять после автообновления"
+          }
+        }
+      }
+    },
+    "自动更新：%lld 个成功，%lld 个失败": {
+      "extractionState": "manual",
+      "localizations": {
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "自動更新：%lld 個成功，%lld 個失敗"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Auto update: %lld succeeded, %lld failed"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "自動更新：成功 %lld 件、失敗 %lld 件"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "자동 업데이트: 성공 %lld개, 실패 %lld개"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Автообновление: успешно %lld, ошибок %lld"
           }
         }
       }
@@ -52532,6 +53477,41 @@
         }
       }
     },
+    "连接时每 30 秒保存一次，断开、重载配置后继续累计。长按规则可单独重置。": {
+      "extractionState": "manual",
+      "localizations": {
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "連線時每 30 秒儲存一次，斷開、過載配置後繼續累計。長按規則可單獨重置。"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Saved every 30 s while connected and kept across disconnects and profile reloads. Long-press a rule to reset it."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "接続中は 30 秒ごとに保存され、切断や設定の再読み込み後も累計されます。ルールを長押しすると個別にリセットできます。"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "연결 중 30초마다 저장되며 연결 해제·프로필 다시 불러오기 후에도 누적됩니다. 규칙을 길게 눌러 개별 초기화할 수 있습니다."
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Сохраняется каждые 30 с при подключении и накапливается после отключения и перезагрузки профиля. Удерживайте правило, чтобы сбросить его."
+          }
+        }
+      }
+    },
     "连接状态、当前节点和开关": {
       "localizations": {
         "zh-Hant": {
@@ -53043,6 +54023,41 @@
         }
       }
     },
+    "通知": {
+      "extractionState": "manual",
+      "localizations": {
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "通知"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Notifications"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "通知"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "알림"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Уведомления"
+          }
+        }
+      }
+    },
     "通知 %lld": {
       "localizations": {
         "zh-Hant": {
@@ -53073,6 +54088,41 @@
           "stringUnit": {
             "state": "translated",
             "value": "Уведомления: %lld"
+          }
+        }
+      }
+    },
+    "通知已在系统设置中关闭，轻点前往打开": {
+      "extractionState": "manual",
+      "localizations": {
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "通知已在系統設定中關閉，輕點前往開啟"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Notifications are off in Settings. Tap to turn them on."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "通知は設定でオフになっています。タップしてオンにします"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "설정에서 알림이 꺼져 있습니다. 탭하여 켜세요"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Уведомления отключены в Настройках. Нажмите, чтобы включить."
           }
         }
       }
@@ -54371,6 +55421,76 @@
         }
       }
     },
+    "重置全部命中计数": {
+      "extractionState": "manual",
+      "localizations": {
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "重置全部命中計數"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Reset All Hit Counts"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "すべてのヒット数をリセット"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "모든 적중 수 초기화"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Сбросить все счётчики"
+          }
+        }
+      }
+    },
+    "重置全部规则的命中计数？": {
+      "extractionState": "manual",
+      "localizations": {
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "重置全部規則的命中計數？"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Reset hit counts for all rules?"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "すべてのルールのヒット数をリセットしますか？"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "모든 규칙의 적중 수를 초기화할까요?"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Сбросить счётчики совпадений всех правил?"
+          }
+        }
+      }
+    },
     "重置失败：%@": {
       "localizations": {
         "zh-Hant": {
@@ -54401,6 +55521,41 @@
           "stringUnit": {
             "state": "translated",
             "value": "Не удалось сбросить: %@"
+          }
+        }
+      }
+    },
+    "重置此规则的命中计数": {
+      "extractionState": "manual",
+      "localizations": {
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "重置此規則的命中計數"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Reset This Rule's Hit Count"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "このルールのヒット数をリセット"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "이 규칙의 적중 수 초기화"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Сбросить счётчик этого правила"
           }
         }
       }
