@@ -52,6 +52,9 @@ struct RequestsView: View {
     @State private var search = ""
     @State private var tab = 0
     @State private var confirmCloseAll = false
+    @State private var harProgress: (Int, Int)?
+    @State private var harShare: ShareItem?
+    @State private var harError: String?
 
     var items: [ConnectionItem] {
         let list = tab == 0 ? model.active : model.recent
@@ -115,6 +118,9 @@ struct RequestsView: View {
                 ToolbarItemGroup(placement: .navigationBarTrailing) {
                     Button { model.paused.toggle() } label: { Image(systemName: model.paused ? "play.fill" : "pause.fill") }
                     if tab == 2 {
+                        Button { exportHAR() } label: { Image(systemName: "square.and.arrow.up") }
+                            .disabled(httpItems.isEmpty || harProgress != nil)
+                            .accessibilityLabel(Text("导出 HAR"))
                         Button(role: .destructive) { Task { await http.clear() } } label: { Image(systemName: "trash") }
                     } else {
                         Button(role: .destructive) { confirmCloseAll = true } label: { Image(systemName: "xmark.circle") }
@@ -124,10 +130,44 @@ struct RequestsView: View {
             .confirmationDialog("断开全部连接？", isPresented: $confirmCloseAll, titleVisibility: .visible) {
                 Button("全部断开", role: .destructive) { Task { await model.closeAll() } }
             }
+            .overlay(alignment: .bottom) {
+                if let p = harProgress {
+                    HStack(spacing: 10) {
+                        ProgressView()
+                        Text("正在导出 HAR \(p.0)/\(p.1)").font(.footnote.monospacedDigit())
+                    }
+                    .padding(.horizontal, 16).padding(.vertical, 10)
+                    .background(Capsule().fill(Theme.cardHi))
+                    .padding(.bottom, 12)
+                }
+            }
+            .sheet(item: $harShare) { ActivityView(items: [$0.url]) }
+            .alert("导出失败", isPresented: Binding(get: { harError != nil }, set: { if !$0 { harError = nil } })) {
+                Button("好") { harError = nil }
+            } message: { Text(harError ?? "") }
         }
         .onAppear { if vpn.isConnected { model.start(); http.start() } }
         .onDisappear { model.stop(); http.stop() }
         .onChange(of: vpn.isConnected) { on in if on { model.start(); http.start() } else { model.stop(); http.stop() } }
+    }
+}
+
+extension RequestsView {
+    /// HAR 1.2 of the HTTP requests currently listed (search filter applies).
+    func exportHAR() {
+        let ids = httpItems.filter { $0.method != "TLS" }.map(\.id)
+        guard !ids.isEmpty else { return }
+        harProgress = (0, ids.count)
+        Task {
+            do {
+                let url = try await HARExport.export(ids: ids) { done, total in harProgress = (done, total) }
+                harProgress = nil
+                harShare = ShareItem(url: url)
+            } catch {
+                harProgress = nil
+                harError = error.localizedDescription
+            }
+        }
     }
 }
 
