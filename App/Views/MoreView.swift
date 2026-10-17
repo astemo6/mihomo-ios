@@ -22,6 +22,11 @@ struct MoreView: View {
                 }
                 .listRowBackground(Theme.card)
 
+                Section("节点") {
+                    NavigationLink { NodeManagerView() } label: { row("节点管理", "server.rack", nil) }
+                }
+                .listRowBackground(Theme.card)
+
                 Section("订阅") {
                     NavigationLink { SubscriptionsView() } label: {
                         row("订阅管理", "tray.full", "\(store.profiles.filter { $0.kind == .remote }.count + NodeSubStore.shared.subs.count)")
