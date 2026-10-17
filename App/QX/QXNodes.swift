@@ -7,6 +7,10 @@ import Libmihomo
 
 struct QXGroup: Identifiable, Hashable {
     var id: String { name }
+    /// QX url-latency-benchmark family: the groups the collapsed 自定义策略 section hides.
+    static func isAutomatic(_ g: QXGroup) -> Bool {
+        ["url-test", "fallback", "load-balance", "smart", "urltest", "loadbalance"].contains(g.kind.lowercased())
+    }
     let name: String
     /// select / url-test / fallback / load-balance / relay
     let kind: String
@@ -374,8 +378,13 @@ struct QXNodesPanel: View {
                 }
                 // Frame 01: last PROXY card → 自定义策略 card 82 pt (we had 56).
                 .padding(.top, 8)
-                if policyExpanded {
-                    ForEach(groups.filter { $0.name != proxyName || proxyName == "GLOBAL" }) { g in
+                // Quantumult X: collapsing 自定义策略 hides only the automatic (url-latency-benchmark) groups —
+                // url-test, fallback, load-balance (and smart); static / select groups stay (state persisted in
+                // qx.policyExpanded).
+                let listed = groups.filter { ($0.name != proxyName || proxyName == "GLOBAL") && (policyExpanded || !QXGroup.isAutomatic($0)) }
+                let hiddenAuto = policyExpanded ? 0 : groups.filter { ($0.name != proxyName || proxyName == "GLOBAL") && QXGroup.isAutomatic($0) }.count
+                Group {
+                    ForEach(listed) { g in
                         QXPolicyRow(group: g,
                                     testing: model.testing.contains(g.name),
                                     smart: smart.isSmart(g.name),
@@ -388,6 +397,10 @@ struct QXNodesPanel: View {
                                     onSort: { sorting = true },
                                     onBackground: { bgTarget = QXNameTarget(name: g.name) },
                                     background: QXPolicyPrefs.background(g.name))
+                    }
+                    if hiddenAuto > 0 {
+                        Text("已收起 \(hiddenAuto) 个自动测速策略（url-test / fallback / load-balance），轻点 ▶ 展开。")
+                            .font(.caption2).foregroundStyle(.secondary).padding(.horizontal, 4)
                     }
                     if groups.isEmpty && AppShared.activeProfileURL != nil {
                         Text(insp.loading ? LocalizedStringKey("正在读取配置…") : LocalizedStringKey("这个配置没有策略组。"))

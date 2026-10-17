@@ -30676,6 +30676,40 @@
         }
       }
     },
+    "已收起 %lld 个自动测速策略（url-test / fallback / load-balance），轻点 ▶ 展开。": {
+      "localizations": {
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "已收起 %lld 個自動測速策略（url-test / fallback / load-balance），輕點 ▶ 展開。"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%lld automatic policies (url-test / fallback / load-balance) are collapsed; tap ▶ to show them."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "自動測定ポリシー %lld 件（url-test / fallback / load-balance）を折りたたみ中。▶ をタップで表示。"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "자동 측정 정책 %lld개(url-test / fallback / load-balance)를 접었습니다. ▶를 눌러 펼치세요."
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Свёрнуто автоматических политик: %lld (url-test / fallback / load-balance); нажмите ▶, чтобы показать."
+          }
+        }
+      }
+    },
     "已断开": {
       "localizations": {
         "en": {
