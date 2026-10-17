@@ -144,6 +144,16 @@ struct DNSView: View {
     @State private var newHost = ""
     @State private var newHostValue = ""
     @State private var hostError: String?
+    @State private var cacheMessage: String?
+
+    func flush(_ path: String, _ ok: String) async {
+        do {
+            _ = try await ControllerClient.shared.send(path, method: "POST")
+            cacheMessage = ok
+        } catch {
+            cacheMessage = error.localizedDescription
+        }
+    }
 
     var body: some View {
         Form {
@@ -227,6 +237,23 @@ struct DNSView: View {
             }
 
             hostsSection
+            if VPNManager.shared.isConnected {
+                // v0.12: mihomo /cache/dns/flush + /cache/fakeip/flush (QX dns_clear_cache).
+                Section {
+                    Button { Task { await flush("/cache/dns/flush", String(localized: "DNS 缓存已清空")) } } label: {
+                        Label("清空 DNS 缓存", systemImage: "arrow.counterclockwise")
+                    }
+                    if dnsMode == "fake-ip" {
+                        Button { Task { await flush("/cache/fakeip/flush", String(localized: "Fake-IP 缓存已清空")) } } label: {
+                            Label("清空 Fake-IP 缓存", systemImage: "arrow.counterclockwise.circle")
+                        }
+                    }
+                    if let m = cacheMessage { Text(verbatim: m).font(.footnote).foregroundStyle(.secondary) }
+                } header: { Text("缓存") } footer: {
+                    Text("修改 DNS 或 hosts 后清空缓存，新的解析结果立即生效。清空 Fake-IP 缓存会让已有连接重新解析。")
+                }
+                .listRowBackground(Theme.card)
+            }
             if dnsMode == "fake-ip" {
                 Section {
                     LinesField(title: "真实 IP 域名", placeholder: "+.stun.example.com", lines: $local.realIP)

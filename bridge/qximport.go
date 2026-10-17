@@ -218,7 +218,32 @@ func importQXGeneral(cfg map[string]any, g map[string]string, res *confResult, r
 	if n := atoi(g["server_check_timeout"], 0); n > 0 {
 		set.TestTimeoutMs = min(n, 5000)
 	}
-	for _, k := range []string{"running_mode_trigger", "enhanced_compatibility_ssid_list", "resource_parser_url", "geo_location_checker", "dns_reject_domain_behavior", "icmp_auto_reply", "server_check_user_agent", "doh_user_agent"} {
+	if v := g["running_mode_trigger"]; v != "" {
+		if mt := parseQXModeTrigger(v); mt != nil {
+			set.ModeTrigger = mt
+		} else {
+			rep.Notes = append(rep.Notes, "[general] running_mode_trigger 无法识别，已忽略")
+		}
+	}
+	if v := strings.TrimSpace(g["geo_location_checker"]); v != "" {
+		if strings.EqualFold(v, "disabled") {
+			set.GeoDisabled = true
+		} else {
+			parts := strings.SplitN(v, ",", 2)
+			if a := strings.TrimSpace(parts[0]); strings.HasPrefix(a, "http") {
+				set.GeoAPI = a
+			}
+			if len(parts) > 1 {
+				if sc := strings.TrimSpace(parts[1]); strings.HasPrefix(sc, "http") {
+					set.GeoScript = sc
+				}
+			}
+		}
+	}
+	if u := strings.TrimSpace(g["resource_parser_url"]); strings.HasPrefix(u, "http") {
+		set.ParserURL = u
+	}
+	for _, k := range []string{"enhanced_compatibility_ssid_list", "dns_reject_domain_behavior", "icmp_auto_reply", "server_check_user_agent", "doh_user_agent"} {
 		if g[k] != "" {
 			rep.Notes = append(rep.Notes, "[general] "+k+" 没有对应设置，已忽略")
 		}
@@ -226,4 +251,47 @@ func importQXGeneral(cfg map[string]any, g map[string]string, res *confResult, r
 	if !set.empty() {
 		res.Settings = set
 	}
+}
+
+// parseQXModeTrigger reads QX running_mode_trigger: "<cellular>, <wifi>, <SSID>:<mode>, …" with modes
+// filter / all_proxy / all_direct (also all-proxy / all-direct). Returns nil when nothing is usable.
+func parseQXModeTrigger(v string) *ModeTrigger {
+	mt := &ModeTrigger{Enabled: true}
+	for i, x := range strings.Split(v, ",") {
+		x = strings.TrimSpace(x)
+		if x == "" {
+			continue
+		}
+		if k, m, ok := strings.Cut(x, ":"); ok && i >= 2 {
+			if mm := qxModeName(m); mm != "" && strings.TrimSpace(k) != "" {
+				if mt.SSIDs == nil {
+					mt.SSIDs = map[string]string{}
+				}
+				mt.SSIDs[strings.TrimSpace(k)] = mm
+			}
+			continue
+		}
+		switch i {
+		case 0:
+			mt.Cellular = qxModeName(x)
+		case 1:
+			mt.WiFi = qxModeName(x)
+		}
+	}
+	if mt.Cellular == "" && mt.WiFi == "" && len(mt.SSIDs) == 0 {
+		return nil
+	}
+	return mt
+}
+
+func qxModeName(m string) string {
+	switch strings.ToLower(strings.ReplaceAll(strings.TrimSpace(m), "-", "_")) {
+	case "filter", "rule":
+		return "rule"
+	case "all_proxy", "global":
+		return "global"
+	case "all_direct", "direct":
+		return "direct"
+	}
+	return ""
 }

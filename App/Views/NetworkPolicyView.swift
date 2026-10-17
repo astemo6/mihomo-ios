@@ -12,6 +12,7 @@ struct NetworkPolicyView: View {
     @State private var rules: [NetworkPolicyRule] = []
     @State private var state: NetworkPolicyState?
     @State private var showLocationInfo = false
+    @State private var trigger = ModeTrigger.load()
 
     private var selectGroups: [InspectGroup] {
         insp.result.groups.filter { $0.type == "select" && $0.hidden != true }
@@ -20,8 +21,9 @@ struct NetworkPolicyView: View {
     var body: some View {
         Form {
             networkSection
+            modeSection
             rulesSection
-            if let state, vpn.isConnected, !state.applied.isEmpty { lastSection(state) }
+            if let state, vpn.isConnected, !state.applied.isEmpty || state.mode != nil { lastSection(state) }
         }
         .scrollContentBackground(.hidden)
         .background(Theme.bg.ignoresSafeArea())
@@ -29,6 +31,7 @@ struct NetworkPolicyView: View {
         .navigationBarTitleDisplayMode(.inline)
         .task {
             rules = NetworkPolicyStore.rules()
+            trigger = ModeTrigger.load()
             state = NetworkPolicyStore.state()
             if insp.result.groups.isEmpty { await insp.load() }
             await wifi.refresh()
@@ -76,6 +79,32 @@ struct NetworkPolicyView: View {
         .listRowBackground(Theme.card)
     }
 
+    /// v0.12: QX running_mode_trigger.
+    var modeSection: some View {
+        Section {
+            NavigationLink {
+                ModeTriggerEditor(trigger: trigger, currentSSID: wifi.ssid) { t in
+                    trigger = t
+                    t.save()
+                    persist()
+                }
+            } label: {
+                HStack {
+                    Label("运行模式", systemImage: "arrow.triangle.branch")
+                    Spacer()
+                    if trigger.enabled && !trigger.summary.isEmpty {
+                        Text(verbatim: trigger.summary).font(.caption).foregroundStyle(.secondary).lineLimit(1)
+                    } else {
+                        Text("关闭").foregroundStyle(.secondary)
+                    }
+                }
+            }
+        } header: { Text("按网络切换运行模式") } footer: {
+            Text("在不同网络下自动使用 规则 / 全局 / 直连 模式（与 Quantumult X 的 running_mode_trigger 相同）。手动切换的模式会保持到下一次网络变化。")
+        }
+        .listRowBackground(Theme.card)
+    }
+
     var rulesSection: some View {
         Section {
             if insp.result.groups.isEmpty && !insp.loading {
@@ -108,6 +137,14 @@ struct NetworkPolicyView: View {
 
     func lastSection(_ s: NetworkPolicyState) -> some View {
         Section {
+            if let m = s.mode {
+                HStack {
+                    Text("运行模式").font(.subheadline)
+                    Spacer()
+                    Text(verbatim: "➤ " + NSLocalizedString(ModeTrigger.title(m), comment: "")).font(.caption)
+                    Text(LocalizedStringKey(Self.reasonText(s.modeReason ?? ""))).font(.caption).foregroundStyle(.secondary)
+                }
+            }
             ForEach(s.applied, id: \.self) { a in
                 HStack {
                     VStack(alignment: .leading, spacing: 2) {
@@ -187,6 +224,84 @@ struct NetworkPolicyView: View {
                 try? await Task.sleep(nanoseconds: 300_000_000)
                 state = NetworkPolicyStore.state()
             }
+        }
+    }
+}
+
+/// 运行模式按网络切换 (v0.12).
+struct ModeTriggerEditor: View {
+    @Environment(\.dismiss) private var dismiss
+    @State var trigger: ModeTrigger
+    let currentSSID: String?
+    let onSave: (ModeTrigger) -> Void
+    @State private var newSSID = ""
+    @State private var newMode = "direct"
+
+    var body: some View {
+        Form {
+            Section {
+                Toggle("按网络切换运行模式", isOn: $trigger.enabled)
+            }
+            .listRowBackground(Theme.card)
+            Section {
+                modePicker("蜂窝网络", selection: Binding(get: { trigger.cellular ?? "" }, set: { trigger.cellular = $0.isEmpty ? nil : $0 }))
+                modePicker("Wi-Fi", selection: Binding(get: { trigger.wifi ?? "" }, set: { trigger.wifi = $0.isEmpty ? nil : $0 }))
+            } header: { Text("按网络类型") }
+            .listRowBackground(Theme.card)
+            .disabled(!trigger.enabled)
+            Section {
+                ForEach((trigger.ssids ?? [:]).keys.sorted(), id: \.self) { ssid in
+                    HStack {
+                        Image(systemName: "wifi").foregroundStyle(.secondary)
+                        Text(verbatim: ssid).lineLimit(1)
+                        Spacer()
+                        Text(LocalizedStringKey(ModeTrigger.title(trigger.ssids?[ssid]))).foregroundStyle(.secondary)
+                    }
+                }
+                .onDelete { idx in
+                    let keys = (trigger.ssids ?? [:]).keys.sorted()
+                    for i in idx { trigger.ssids?[keys[i]] = nil }
+                    if trigger.ssids?.isEmpty == true { trigger.ssids = nil }
+                }
+                HStack {
+                    TextField("Wi-Fi 名称（SSID）", text: $newSSID)
+                        .textInputAutocapitalization(.never).autocorrectionDisabled()
+                    if let s = currentSSID, newSSID != s {
+                        Button("当前") { newSSID = s }.buttonStyle(.borderless).font(.caption)
+                    }
+                }
+                Picker("使用", selection: $newMode) {
+                    ForEach(ModeTrigger.modes, id: \.self) { Text(LocalizedStringKey(ModeTrigger.title($0))).tag($0) }
+                }
+                Button {
+                    let s = newSSID.trimmingCharacters(in: .whitespaces)
+                    guard !s.isEmpty else { return }
+                    var m = trigger.ssids ?? [:]
+                    m[s] = newMode
+                    trigger.ssids = m
+                    newSSID = ""
+                } label: { Label("添加", systemImage: "plus") }
+                .disabled(newSSID.trimmingCharacters(in: .whitespaces).isEmpty)
+            } header: { Text("指定 Wi-Fi") } footer: {
+                Text("按名称精确匹配（区分大小写），优先于上面的「Wi-Fi」。读取 Wi-Fi 名称需要重签描述文件包含 wifi-info 权限。")
+            }
+            .listRowBackground(Theme.card)
+            .disabled(!trigger.enabled)
+            Section {
+                Button("保存") { onSave(trigger); dismiss() }
+            }
+            .listRowBackground(Theme.card)
+        }
+        .scrollContentBackground(.hidden)
+        .background(Theme.bg.ignoresSafeArea())
+        .navigationTitle("运行模式")
+        .navigationBarTitleDisplayMode(.inline)
+    }
+
+    func modePicker(_ title: String, selection: Binding<String>) -> some View {
+        Picker(LocalizedStringKey(title), selection: selection) {
+            Text("不切换").tag("")
+            ForEach(ModeTrigger.modes, id: \.self) { Text(LocalizedStringKey(ModeTrigger.title($0))).tag($0) }
         }
     }
 }

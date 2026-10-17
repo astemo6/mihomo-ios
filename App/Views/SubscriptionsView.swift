@@ -9,6 +9,7 @@ struct SubscriptionsView: View {
     @ObservedObject private var nodes = NodeSubStore.shared
     @ObservedObject private var offline = ProfileInspector.shared
     @ObservedObject private var updater = ProviderUpdater.shared
+    @State private var parserURL = ResourceParserSetting.url
     @State private var showAdd = false
     @State private var editingProfile: Profile?
     @State private var editingSub: NodeSubscription?
@@ -57,6 +58,20 @@ struct SubscriptionsView: View {
                 }
                 .listRowBackground(Theme.card)
             }
+
+            // v0.12: QX resource_parser_url, stored only (mihomo parses resources natively).
+            Section {
+                DisclosureGroup("高级") {
+                    TextField("资源解析器地址（resource_parser_url）", text: $parserURL, axis: .vertical)
+                        .font(.footnote.monospaced())
+                        .textInputAutocapitalization(.never).autocorrectionDisabled().keyboardType(.URL)
+                        .onSubmit { ResourceParserSetting.url = parserURL }
+                        .onChange(of: parserURL) { ResourceParserSetting.url = $0 }
+                }
+            } footer: {
+                Text("Mihomo 直接识别 Quantumult X / Surge / Clash / sing-box / 分享链接等格式，不需要资源解析器。这里只保存 Quantumult X 配置中的 resource_parser_url，不会下载或运行。")
+            }
+            .listRowBackground(Theme.card)
         }
         .listStyle(.insetGrouped)
         .scrollContentBackground(.hidden)

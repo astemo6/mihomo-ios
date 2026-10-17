@@ -3036,6 +3036,40 @@
         }
       }
     },
+    "DNS 缓存已清空": {
+      "localizations": {
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "DNS 快取已清空"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "DNS cache cleared"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "DNS キャッシュを消去しました"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "DNS 캐시를 지웠습니다"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Кэш DNS очищен"
+          }
+        }
+      }
+    },
     "DNS 设置": {
       "localizations": {
         "zh-Hant": {
@@ -3202,6 +3236,40 @@
           "stringUnit": {
             "state": "translated",
             "value": "Fake-IP"
+          }
+        }
+      }
+    },
+    "Fake-IP 缓存已清空": {
+      "localizations": {
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Fake-IP 快取已清空"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Fake-IP cache cleared"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Fake-IP キャッシュを消去しました"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Fake-IP 캐시를 지웠습니다"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Кэш Fake-IP очищен"
           }
         }
       }
@@ -3993,6 +4061,40 @@
         }
       }
     },
+    "IP 段": {
+      "localizations": {
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "IP 段"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "IP Range"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "IP 範囲"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "IP 대역"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Диапазон IP"
+          }
+        }
+      }
+    },
     "IP-ASN 规则、请求详情里的 ASN": {
       "localizations": {
         "en": {
@@ -4364,6 +4466,40 @@
           "stringUnit": {
             "state": "translated",
             "value": "Mihomo не подключён"
+          }
+        }
+      }
+    },
+    "Mihomo 直接识别 Quantumult X / Surge / Clash / sing-box / 分享链接等格式，不需要资源解析器。这里只保存 Quantumult X 配置中的 resource_parser_url，不会下载或运行。": {
+      "localizations": {
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Mihomo 直接識別 Quantumult X / Surge / Clash / sing-box / 分享連結等格式，不需要資源解析器。這裡只儲存 Quantumult X 配置中的 resource_parser_url，不會下載或執行。"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Mihomo reads Quantumult X, Surge, Clash, sing-box, share links and more directly, so no resource parser is needed. This only stores the resource_parser_url from a Quantumult X profile; it is never downloaded or run."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Mihomo は Quantumult X / Surge / Clash / sing-box / 共有リンクなどの形式を直接認識するため、リソースパーサーは不要です。ここには Quantumult X プロファイルの resource_parser_url を保存するだけで、ダウンロードも実行もしません。"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Mihomo는 Quantumult X / Surge / Clash / sing-box / 공유 링크 등의 형식을 직접 인식하므로 리소스 파서가 필요 없습니다. 여기에는 Quantumult X 프로파일의 resource_parser_url만 저장하며 다운로드하거나 실행하지 않습니다."
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Mihomo сам понимает форматы Quantumult X, Surge, Clash, sing-box, ссылки и др., парсер ресурсов не нужен. Здесь только хранится resource_parser_url из профиля Quantumult X — он не загружается и не запускается."
           }
         }
       }
@@ -6389,6 +6525,40 @@
       },
       "extractionState": "manual"
     },
+    "Wi-Fi %@": {
+      "localizations": {
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Wi-Fi %@"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Wi-Fi %@"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Wi-Fi %@"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Wi-Fi %@"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Wi-Fi %@"
+          }
+        }
+      }
+    },
     "Wi-Fi %@ · 蜂窝 %@": {
       "localizations": {
         "zh-Hant": {
@@ -7032,6 +7202,40 @@
           "stringUnit": {
             "state": "translated",
             "value": "http-response"
+          }
+        }
+      }
+    },
+    "http://ip-api.com/json/?lang=zh-CN": {
+      "localizations": {
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "http://ip-api.com/json/?lang=zh-CN"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "http://ip-api.com/json/?lang=en"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "http://ip-api.com/json/?lang=ja"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "http://ip-api.com/json/?lang=ko"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "http://ip-api.com/json/?lang=ru"
           }
         }
       }
@@ -12258,6 +12462,40 @@
         }
       }
     },
+    "使用": {
+      "localizations": {
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "使用"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Use"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "使用"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "사용"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Использовать"
+          }
+        }
+      }
+    },
     "使用正则（JavaScript 写法，不区分大小写）": {
       "localizations": {
         "en": {
@@ -13003,6 +13241,40 @@
           "stringUnit": {
             "state": "translated",
             "value": "Изменить"
+          }
+        }
+      }
+    },
+    "修改 DNS 或 hosts 后清空缓存，新的解析结果立即生效。清空 Fake-IP 缓存会让已有连接重新解析。": {
+      "localizations": {
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "修改 DNS 或 hosts 後清空快取，新的解析結果立即生效。清空 Fake-IP 快取會讓已有連線重新解析。"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Clear the cache after changing DNS or hosts so new answers apply at once. Clearing the Fake-IP cache makes existing connections resolve again."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "DNS や hosts を変更したらキャッシュを消去すると、新しい解決結果がすぐ反映されます。Fake-IP キャッシュを消去すると既存の接続は再解決されます。"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "DNS나 hosts를 바꾼 뒤 캐시를 지우면 새 결과가 바로 적용됩니다. Fake-IP 캐시를 지우면 기존 연결이 다시 확인됩니다."
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Очистите кэш после изменения DNS или hosts, чтобы новые ответы применились сразу. Очистка кэша Fake-IP заставит существующие соединения разрешаться заново."
           }
         }
       }
@@ -15975,6 +16247,108 @@
           "stringUnit": {
             "state": "translated",
             "value": "Определение точки выхода"
+          }
+        }
+      }
+    },
+    "出口信息查询": {
+      "localizations": {
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "出口資訊查詢"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Exit IP Lookup"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "出口情報の照会"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "출구 정보 조회"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Определение выхода"
+          }
+        }
+      }
+    },
+    "出口信息查询：%@": {
+      "localizations": {
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "出口資訊查詢：%@"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Exit IP lookup: %@"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "出口情報の照会：%@"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "출구 정보 조회: %@"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Определение выхода: %@"
+          }
+        }
+      }
+    },
+    "出口信息查询：关闭": {
+      "localizations": {
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "出口資訊查詢：關閉"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Exit IP lookup: off"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "出口情報の照会：オフ"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "출구 정보 조회: 끔"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Определение выхода: выкл."
           }
         }
       }
@@ -21409,6 +21783,40 @@
         }
       }
     },
+    "在不同网络下自动使用 规则 / 全局 / 直连 模式（与 Quantumult X 的 running_mode_trigger 相同）。手动切换的模式会保持到下一次网络变化。": {
+      "localizations": {
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "在不同網路下自動使用 規則 / 全域 / 直連 模式（與 Quantumult X 的 running_mode_trigger 相同）。手動切換的模式會保持到下一次網路變化。"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Automatically use Rule / Global / Direct mode on different networks (same as Quantumult X running_mode_trigger). A mode you pick by hand stays until the next network change."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ネットワークごとに ルール / グローバル / 直接 モードを自動で使います（Quantumult X の running_mode_trigger と同じ）。手動で切り替えたモードは次にネットワークが変わるまで維持されます。"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "네트워크마다 규칙 / 전역 / 직접 모드를 자동으로 사용합니다(Quantumult X의 running_mode_trigger와 동일). 직접 바꾼 모드는 다음 네트워크 변경 때까지 유지됩니다."
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Автоматически включает режим «Правила» / «Глобальный» / «Напрямую» в разных сетях (как running_mode_trigger в Quantumult X). Выбранный вручную режим сохраняется до следующей смены сети."
+          }
+        }
+      }
+    },
     "在本机执行一次，环境与线上相同（$httpClient 直接联网，$persistentStore 是真实存储）。通知只显示在这里，不会弹出。": {
       "localizations": {
         "zh-Hant": {
@@ -21987,6 +22395,74 @@
           "stringUnit": {
             "state": "translated",
             "value": "Домен / +.суффикс / geosite:xx"
+          }
+        }
+      }
+    },
+    "域名关键词": {
+      "localizations": {
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "域名關鍵詞"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Domain Keyword"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ドメインキーワード"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "도메인 키워드"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Ключевое слово домена"
+          }
+        }
+      }
+    },
+    "域名后缀": {
+      "localizations": {
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "域名字尾"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Domain Suffix"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ドメインサフィックス"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "도메인 접미사"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Суффикс домена"
           }
         }
       }
@@ -23450,6 +23926,40 @@
           "stringUnit": {
             "state": "translated",
             "value": "Готово"
+          }
+        }
+      }
+    },
+    "完整域名": {
+      "localizations": {
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "完整域名"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Full Domain"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "完全なドメイン"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "전체 도메인"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Полный домен"
           }
         }
       }
@@ -31228,6 +31738,40 @@
         }
       }
     },
+    "拷贝主机": {
+      "localizations": {
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "複製主機"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Copy Host"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ホストをコピー"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "호스트 복사"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Скопировать хост"
+          }
+        }
+      }
+    },
     "拷贝主机名": {
       "localizations": {
         "zh-Hant": {
@@ -31806,6 +32350,40 @@
         }
       }
     },
+    "按名称精确匹配（区分大小写），优先于上面的「Wi-Fi」。读取 Wi-Fi 名称需要重签描述文件包含 wifi-info 权限。": {
+      "localizations": {
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "按名稱精確匹配（區分大小寫），優先於上面的「Wi-Fi」。讀取 Wi-Fi 名稱需要重籤描述檔案包含 wifi-info 許可權。"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Exact, case-sensitive name match; takes precedence over \"Wi-Fi\" above. Reading the Wi-Fi name needs the wifi-info entitlement in the re-signing profile."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "名前の完全一致（大文字と小文字を区別）で、上の「Wi-Fi」より優先されます。Wi-Fi 名の取得には、再署名プロファイルに wifi-info 権限が必要です。"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "이름이 정확히 일치해야 하며(대소문자 구분) 위의 「Wi-Fi」보다 우선합니다. Wi-Fi 이름을 읽으려면 재서명 프로파일에 wifi-info 권한이 있어야 합니다."
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Точное совпадение имени с учётом регистра; важнее пункта «Wi-Fi» выше. Для чтения имени Wi-Fi профиль переподписи должен содержать право wifi-info."
+          }
+        }
+      }
+    },
     "按地区": {
       "localizations": {
         "en": {
@@ -32006,6 +32584,74 @@
           "stringUnit": {
             "state": "translated",
             "value": "Политика по сети"
+          }
+        }
+      }
+    },
+    "按网络切换运行模式": {
+      "localizations": {
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "按網路切換執行模式"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Switch Mode by Network"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ネットワークごとにモードを切り替え"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "네트워크별 모드 전환"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Режим по сети"
+          }
+        }
+      }
+    },
+    "按网络切换运行模式：%@": {
+      "localizations": {
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "按網路切換執行模式：%@"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Switch mode by network: %@"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ネットワークごとのモード切り替え：%@"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "네트워크별 모드 전환: %@"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Режим по сети: %@"
           }
         }
       }
@@ -35114,6 +35760,40 @@
           "stringUnit": {
             "state": "translated",
             "value": "Не удалось распознать «%@»: поддерживаются профили mihomo, конфиги Surge / QX, модули, списки правил и ссылки узлов"
+          }
+        }
+      }
+    },
+    "无法识别查询结果，请填写脚本": {
+      "localizations": {
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "無法識別查詢結果，請填寫腳本"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Couldn't read the result; add a script"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "結果を読み取れません。スクリプトを指定してください"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "조회 결과를 인식할 수 없습니다. 스크립트를 입력하세요"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Не удалось разобрать ответ — укажите скрипт"
           }
         }
       }
@@ -39494,6 +40174,108 @@
         }
       }
     },
+    "查询地址无效": {
+      "localizations": {
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "查詢地址無效"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Invalid lookup URL"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "照会 URL が無効です"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "조회 주소가 올바르지 않습니다"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Неверный адрес сервиса"
+          }
+        }
+      }
+    },
+    "查询地址没有响应": {
+      "localizations": {
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "查詢地址沒有響應"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "The lookup URL didn't respond"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "照会 URL から応答がありません"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "조회 주소가 응답하지 않습니다"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Сервис не ответил"
+          }
+        }
+      }
+    },
+    "查询地址返回 JSON。脚本与 Quantumult X 的 geo_location_checker 脚本相同：读取 $response.body，用 $done({title, subtitle}) 设置首页的标题和第二行。自定义接口失败时使用内置接口。": {
+      "localizations": {
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "查詢地址返回 JSON。腳本與 Quantumult X 的 geo_location_checker 腳本相同：讀取 $response.body，用 $done({title, subtitle}) 設定首頁的標題和第二行。自定義介面失敗時使用內建介面。"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "The lookup URL returns JSON. The script works like a Quantumult X geo_location_checker script: it reads $response.body and sets Home's title and second line with $done({title, subtitle}). If the custom service fails, the built-in services are used."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "照会 URL は JSON を返します。スクリプトは Quantumult X の geo_location_checker スクリプトと同じで、$response.body を読み、$done({title, subtitle}) でホームのタイトルと 2 行目を設定します。カスタムサービスが失敗した場合は内蔵のサービスを使います。"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "조회 주소는 JSON을 반환합니다. 스크립트는 Quantumult X의 geo_location_checker 스크립트와 같으며 $response.body를 읽고 $done({title, subtitle})로 홈의 제목과 두 번째 줄을 정합니다. 사용자 지정 서비스가 실패하면 내장 서비스를 사용합니다."
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Адрес возвращает JSON. Скрипт работает как geo_location_checker в Quantumult X: читает $response.body и задаёт заголовок и вторую строку главного экрана через $done({title, subtitle}). Если свой сервис не ответил, используются встроенные."
+          }
+        }
+      }
+    },
     "查询失败": {
       "localizations": {
         "en": {
@@ -39559,6 +40341,40 @@
           "stringUnit": {
             "state": "translated",
             "value": "Ошибка, повторить"
+          }
+        }
+      }
+    },
+    "查询接口": {
+      "localizations": {
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "查詢介面"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Lookup Service"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "照会サービス"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "조회 서비스"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Сервис"
           }
         }
       }
@@ -42768,6 +43584,40 @@
         }
       }
     },
+    "测试": {
+      "localizations": {
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "測試"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Test"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "テスト"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "테스트"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Проверить"
+          }
+        }
+      }
+    },
     "测试上传": {
       "localizations": {
         "zh-Hant": {
@@ -44304,6 +45154,74 @@
         }
       }
     },
+    "添加规则": {
+      "localizations": {
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "新增規則"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Add Rule"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ルールを追加"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "규칙 추가"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Добавить правило"
+          }
+        }
+      }
+    },
+    "添加规则…": {
+      "localizations": {
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "新增規則…"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Add Rule…"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ルールを追加…"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "규칙 추가…"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Добавить правило…"
+          }
+        }
+      }
+    },
     "添加规则集": {
       "localizations": {
         "zh-Hant": {
@@ -44600,13 +45518,47 @@
         "ko": {
           "stringUnit": {
             "state": "translated",
-            "value": "DNS 캐시 비우기"
+            "value": "DNS 캐시 지우기"
           }
         },
         "ru": {
           "stringUnit": {
             "state": "translated",
             "value": "Очистить кэш DNS"
+          }
+        }
+      }
+    },
+    "清空 Fake-IP 缓存": {
+      "localizations": {
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "清空 Fake-IP 快取"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Clear Fake-IP Cache"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Fake-IP キャッシュを消去"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Fake-IP 캐시 지우기"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Очистить кэш Fake-IP"
           }
         }
       }
@@ -49792,6 +50744,40 @@
         }
       }
     },
+    "缓存": {
+      "localizations": {
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "快取"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Cache"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "キャッシュ"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "캐시"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Кэш"
+          }
+        }
+      }
+    },
     "缓存内容（前 %lld 行）": {
       "localizations": {
         "en": {
@@ -51159,6 +52145,40 @@
       },
       "extractionState": "manual"
     },
+    "脚本下载失败": {
+      "localizations": {
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "腳本下載失敗"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Script download failed"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "スクリプトのダウンロードに失敗しました"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "스크립트 다운로드 실패"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Не удалось загрузить скрипт"
+          }
+        }
+      }
+    },
     "脚本名称": {
       "localizations": {
         "zh-Hant": {
@@ -51223,6 +52243,40 @@
           "stringUnit": {
             "state": "translated",
             "value": "Скрипты выполняются в расширении VPN — сначала подключитесь."
+          }
+        }
+      }
+    },
+    "脚本地址或本地脚本名（可选）": {
+      "localizations": {
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "腳本地址或本地腳本名（可選）"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Script URL or local script name (optional)"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "スクリプト URL またはローカルスクリプト名（任意）"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "스크립트 주소 또는 로컬 스크립트 이름(선택)"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "URL скрипта или имя локального скрипта (необязательно)"
           }
         }
       }
@@ -51640,7 +52694,7 @@
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "Auto"
+            "value": "Automatic"
           }
         },
         "zh-Hant": {
@@ -51664,7 +52718,7 @@
         "ru": {
           "stringUnit": {
             "state": "translated",
-            "value": "Авто"
+            "value": "Автоматически"
           }
         }
       }
@@ -52142,6 +53196,40 @@
           "stringUnit": {
             "state": "translated",
             "value": "Свой URL"
+          }
+        }
+      }
+    },
+    "自定义查询": {
+      "localizations": {
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "自定義查詢"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Custom Lookup"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "カスタム照会"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "사용자 지정 조회"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Свой сервис"
           }
         }
       }
@@ -52999,6 +54087,40 @@
         }
       }
     },
+    "蜂窝 %@": {
+      "localizations": {
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "蜂窩 %@"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Cellular %@"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "モバイル通信 %@"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "셀룰러 %@"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Сотовая %@"
+          }
+        }
+      }
+    },
     "蜂窝网络下也连接": {
       "localizations": {
         "zh-Hant": {
@@ -53608,6 +54730,40 @@
           "stringUnit": {
             "state": "translated",
             "value": "В режиме по правилам запрос идёт в политику первого совпавшего правила. Ранние правила важнее — порядок см. в «Правила маршрутизации». Политика MATCH (FINAL) используется, если ничего не совпало."
+          }
+        }
+      }
+    },
+    "规则加入「更多 → 规则 → 自定义规则」，优先于配置文件里的规则；连接中会立即重载。": {
+      "localizations": {
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "規則加入「更多 → 規則 → 自定義規則」，優先於配置檔案裡的規則；連線中會立即過載。"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "The rule goes to More → Rules → Custom Rules and is checked before the profile's rules; while connected it applies at once."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ルールは「その他 → ルール → カスタムルール」に追加され、プロファイルのルールより優先されます。接続中はすぐに再読み込みされます。"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "규칙은 「더 보기 → 규칙 → 사용자 지정 규칙」에 추가되며 프로파일의 규칙보다 우선합니다. 연결 중에는 바로 다시 불러옵니다."
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Правило попадает в «Ещё → Правила → Свои правила» и проверяется раньше правил профиля; при подключении применяется сразу."
           }
         }
       }
@@ -56617,6 +57773,74 @@
         }
       }
     },
+    "资源解析器地址（resource_parser_url）": {
+      "localizations": {
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "資源解析器地址（resource_parser_url）"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Resource parser URL (resource_parser_url)"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "リソースパーサー URL（resource_parser_url）"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "리소스 파서 주소(resource_parser_url)"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Адрес парсера ресурсов (resource_parser_url)"
+          }
+        }
+      }
+    },
+    "资源解析器（仅保存）：%@": {
+      "localizations": {
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "資源解析器（僅儲存）：%@"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Resource parser (stored only): %@"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "リソースパーサー（保存のみ）：%@"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "리소스 파서(저장만): %@"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Парсер ресурсов (только сохранён): %@"
+          }
+        }
+      }
+    },
     "资源解析器（可选）": {
       "localizations": {
         "zh-Hant": {
@@ -57775,6 +58999,40 @@
           "stringUnit": {
             "state": "translated",
             "value": "Журнал запусков"
+          }
+        }
+      }
+    },
+    "运行模式": {
+      "localizations": {
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "執行模式"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Outbound Mode"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "動作モード"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "실행 모드"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Режим работы"
           }
         }
       }
@@ -59690,6 +60948,40 @@
           "stringUnit": {
             "state": "translated",
             "value": "Доступно после подключения"
+          }
+        }
+      }
+    },
+    "连接后才能运行任务。": {
+      "localizations": {
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "連線後才能執行任務。"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Connect first to run tasks."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "タスクを実行するには先に接続してください。"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "작업을 실행하려면 먼저 연결하세요."
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Сначала подключитесь, чтобы запускать задачи."
           }
         }
       }
@@ -63811,6 +65103,40 @@
           "stringUnit": {
             "state": "translated",
             "value": "Главная"
+          }
+        }
+      }
+    },
+    "首页的国旗、地区、ASN 与 IP 来自这里选择的接口（对应 Quantumult X 的 geo_location_checker）。查询经过当前连接，所以显示的是代理出口。「关闭」不发出任何查询。": {
+      "localizations": {
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "首頁的國旗、地區、ASN 與 IP 來自這裡選擇的介面（對應 Quantumult X 的 geo_location_checker）。查詢經過當前連線，所以顯示的是代理出口。「關閉」不發出任何查詢。"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Home's flag, location, ASN and IP come from the service chosen here (Quantumult X geo_location_checker). The lookup goes through the current connection, so it shows the proxy exit. \"Off\" sends no lookups at all."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ホームの国旗・地域・ASN・IP はここで選んだサービスから取得します（Quantumult X の geo_location_checker に相当）。照会は現在の接続を通るため、プロキシの出口が表示されます。「オフ」では照会を一切行いません。"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "홈의 국기, 지역, ASN, IP는 여기서 고른 서비스에서 가져옵니다(Quantumult X의 geo_location_checker). 조회는 현재 연결을 거치므로 프록시 출구가 표시됩니다. 「끔」은 조회를 전혀 보내지 않습니다."
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Флаг, место, ASN и IP на главном экране берутся из выбранного здесь сервиса (geo_location_checker в Quantumult X). Запрос идёт через текущее подключение, поэтому показывается выход прокси. «Выкл.» — никаких запросов."
           }
         }
       }

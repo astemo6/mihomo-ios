@@ -47,6 +47,73 @@ type netPolicyState struct {
 	SSID    string             `json:"ssid,omitempty"`
 	Trigger string             `json:"trigger"`
 	Applied []netPolicyApplied `json:"applied"`
+	// v0.12 运行模式按网络切换: the mode set for this network and why ("ssid" | "wifi" | "cellular").
+	Mode       string `json:"mode,omitempty"`
+	ModeReason string `json:"modeReason,omitempty"`
+}
+
+// ModeTrigger (v0.12) is QX's running_mode_trigger: the outbound mode (rule / global / direct) per
+// network. Stored app-wide in <home>/modetrigger.json, applied with 按网络切换策略 on every network
+// change, at start and after a reload. "" = keep the current mode. An SSID entry wins over Wi-Fi.
+type ModeTrigger struct {
+	Enabled  bool              `json:"enabled"`
+	Cellular string            `json:"cellular,omitempty"`
+	WiFi     string            `json:"wifi,omitempty"`
+	SSIDs    map[string]string `json:"ssids,omitempty"`
+}
+
+func modeTriggerPath(home string) string { return filepath.Join(home, "modetrigger.json") }
+
+func readModeTrigger(home string) (mt ModeTrigger) {
+	if b, err := os.ReadFile(modeTriggerPath(home)); err == nil {
+		_ = json.Unmarshal(b, &mt)
+	}
+	return
+}
+
+// pickMode returns the mode the trigger wants for the network, and why.
+func pickMode(mt ModeTrigger, netType, ssid string) (mode, reason string) {
+	if !mt.Enabled {
+		return "", ""
+	}
+	norm := func(m string) string {
+		switch strings.ToLower(strings.TrimSpace(m)) {
+		case "rule", "global", "direct":
+			return strings.ToLower(strings.TrimSpace(m))
+		}
+		return ""
+	}
+	switch netType {
+	case "wifi":
+		if ssid != "" {
+			if m := norm(mt.SSIDs[ssid]); m != "" {
+				return m, "ssid"
+			}
+		}
+		if m := norm(mt.WiFi); m != "" {
+			return m, "wifi"
+		}
+	case "cellular":
+		if m := norm(mt.Cellular); m != "" {
+			return m, "cellular"
+		}
+	}
+	return "", ""
+}
+
+func applyModeTrigger(home, netType, ssid string, st *netPolicyState) bool {
+	m, reason := pickMode(readModeTrigger(home), netType, ssid)
+	if m == "" {
+		return false
+	}
+	st.Mode, st.ModeReason = m, reason
+	want := map[string]tunnel.TunnelMode{"rule": tunnel.Rule, "global": tunnel.Global, "direct": tunnel.Direct}[m]
+	if tunnel.Mode() == want {
+		return false
+	}
+	tunnel.SetMode(want)
+	log.Infoln("[NetPolicy] mode → %s (%s %s)", m, netType, reason)
+	return true
 }
 
 var (
@@ -106,12 +173,15 @@ func applyNetPolicy(home, profilePath, trigger string) int {
 	npMu.Unlock()
 	rules := readNetPolicy(home, profilePath)
 	st := netPolicyState{At: time.Now().Unix(), Type: netType, SSID: ssid, Trigger: trigger, Applied: []netPolicyApplied{}}
+	n := 0
+	if known && applyModeTrigger(home, netType, ssid, &st) {
+		n++
+	}
 	if !known || len(rules) == 0 {
 		writeNetPolicyState(home, st)
-		return 0
+		return n
 	}
 	proxies := tunnel.Proxies()
-	n := 0
 	for _, r := range rules {
 		node, reason := pickNetPolicy(r, netType, ssid)
 		if node == "" {
@@ -162,7 +232,7 @@ func SetNetworkState(netType, ssid string) string {
 	}
 	home := curHome
 	if n := applyNetPolicy(home, profile, "network"); n > 0 {
-		return "network policy: switched " + itoa(n) + " group(s) for " + netType
+		return "network policy: switched " + itoa(n) + " group(s)/mode for " + netType
 	}
 	return ""
 }

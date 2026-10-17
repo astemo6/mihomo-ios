@@ -84,6 +84,7 @@ struct MoreView: View {
                     NavigationLink { AppearanceView() } label: { row("外观", "circle.lefthalf.filled", nil) }
                     NavigationLink { SettingsView() } label: { row("内核设置", "slider.horizontal.3", nil) }
                     NavigationLink { SpeedTestSettingsView() } label: { row("测速", "bolt.horizontal", nil) }
+                    NavigationLink { GeoCheckerView() } label: { row("出口信息查询", "mappin.and.ellipse", nil) }
                     if UIApplication.shared.supportsAlternateIcons {
                         NavigationLink { AppIconView() } label: { row("App 图标", "app.badge", nil) }
                     }

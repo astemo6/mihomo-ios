@@ -2,11 +2,14 @@ import SwiftUI
 
 // QX-4: 出口位置查询 (QX [general] geo_location_checker): which API fills the home header, a custom API
 // (any JSON with ip / country_code / city / asn / org style fields), or disabled.
+// QX-5: one implementation — main v0.12's GeoChecker (same App Group keys + the optional QX script that
+// turns the API reply into {title, subtitle}); this page is its QX screen.
 
 struct QXGeoCheckerView: View {
     @EnvironmentObject var ip: IPInfoModel
     @State private var choice = IPInfoFetcher.checker
     @State private var url = IPInfoFetcher.checkerURL
+    @State private var script = GeoChecker.script
     @State private var testing = false
     @State private var result: String?
 
@@ -50,10 +53,14 @@ struct QXGeoCheckerView: View {
                             .keyboardType(.URL).textInputAutocapitalization(.never).autocorrectionDisabled()
                             .font(.system(.body, design: .monospaced))
                             .onSubmit { save() }
+                        TextField("脚本地址（可选，QX geo_location_checker 脚本）", text: $script)
+                            .keyboardType(.URL).textInputAutocapitalization(.never).autocorrectionDisabled()
+                            .font(.system(.footnote, design: .monospaced))
+                            .onSubmit { save() }
                         Button("保存并测试") { save(); test() }
                             .disabled(URL(string: url)?.host == nil || testing)
                     } header: { Text("自定义 API") } footer: {
-                        Text("返回 JSON 的地址即可，常见字段名（ip / query、country_code / countryCode、city、region、asn / as、org / isp）会自动识别。Quantumult X 的「API, 脚本」写法中的脚本部分不会执行，只使用 API。")
+                        Text("返回 JSON 的地址即可，常见字段名（ip / query、country_code / countryCode、city、region、asn / as、org / isp）会自动识别。填写脚本时按 Quantumult X 的「API, 脚本」写法：脚本读取 $response.body，用 $done({title, subtitle, ip}) 决定顶部显示的文字。")
                     }
                     .listRowBackground(QXPalette.card)
                 }
@@ -83,8 +90,7 @@ struct QXGeoCheckerView: View {
     }
 
     func save() {
-        AppShared.defaults.set(choice, forKey: IPInfoFetcher.checkerKey)
-        AppShared.defaults.set(url.trimmingCharacters(in: .whitespacesAndNewlines), forKey: IPInfoFetcher.checkerURLKey)
+        GeoChecker.save(checker: choice, url: url, script: script)
         ip.scheduleRefresh(after: 0.2)
     }
 
@@ -93,10 +99,13 @@ struct QXGeoCheckerView: View {
         result = nil
         Task {
             defer { testing = false }
-            if let i = await IPInfoFetcher.fetch() {
+            await MainActor.run { GeoChecker.lastError = "" }
+            let info: IPInfo?
+            if choice == "custom" { info = await GeoChecker.fetchCustom() } else { info = await IPInfoFetcher.fetch() }
+            if let i = info {
                 result = [i.flag + " " + i.placeText, i.detailText, String(localized: "来源：\(i.source ?? "—")")].joined(separator: "\n")
             } else {
-                result = String(localized: "查询失败")
+                result = GeoChecker.lastError.isEmpty ? String(localized: "查询失败") : GeoChecker.lastError
             }
         }
     }
