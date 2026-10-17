@@ -2,6 +2,7 @@ package libmihomo
 
 import (
 	"encoding/json"
+	"fmt"
 	"net/netip"
 	"os"
 	"path/filepath"
@@ -198,4 +199,61 @@ func (p *yamlOrderedPolicy) toMap() map[string]any {
 		m[k] = p.vals[k]
 	}
 	return m
+}
+
+// defaultProxyServerNameserver (v0.15.2): when neither the profile nor the DNS page names a
+// proxy-server-nameserver, node hostnames are resolved with plain UDP servers — the profile's own plain
+// nameservers (IP or "system", the QX import's system resolver) or else its default-nameserver — the
+// way QX resolves servers with the system resolver. Without it mihomo resolves node hostnames with the
+// main resolver: DoH by default (TLS + HTTP round trips before the first dial) and the nameserver-policy
+// rules. Encrypted, "#proxy" and rule-bound entries are never copied.
+func defaultProxyServerNameserver(dns map[string]any) {
+	if len(asList(dns["proxy-server-nameserver"])) > 0 || dns["proxy-server-nameserver-policy"] != nil {
+		return
+	}
+	pick := func(v any) []any {
+		var out []any
+		seen := map[string]bool{}
+		for _, e := range asList(v) {
+			s := strings.TrimSpace(fmt.Sprint(e))
+			if s == "" || seen[s] || !plainNameserver(s) {
+				continue
+			}
+			seen[s] = true
+			out = append(out, s)
+		}
+		return out
+	}
+	ps := pick(dns["nameserver"])
+	if len(ps) == 0 {
+		ps = pick(dns["default-nameserver"])
+	}
+	if len(ps) == 0 {
+		ps = []any{"223.5.5.5", "119.29.29.29"}
+	}
+	dns["proxy-server-nameserver"] = ps
+}
+
+// plainNameserver: "1.2.3.4", "1.2.3.4:53", "[::1]:53", "udp://…", "tcp://…" with an IP host, or "system".
+func plainNameserver(s string) bool {
+	if s == "system" {
+		return true
+	}
+	if strings.Contains(s, "#") {
+		return false // "#proxy", "#DIRECT", interface hints: keep the profile's routing semantics out of it
+	}
+	h := s
+	if i := strings.Index(h, "://"); i >= 0 {
+		switch strings.ToLower(h[:i]) {
+		case "udp", "tcp":
+			h = h[i+3:]
+		default:
+			return false
+		}
+	}
+	if ap, err := netip.ParseAddrPort(h); err == nil {
+		return ap.Addr().IsValid()
+	}
+	_, err := netip.ParseAddr(strings.Trim(h, "[]"))
+	return err == nil
 }

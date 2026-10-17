@@ -118,31 +118,69 @@ func mergeManualNodes(raw map[string]any, manualPath string) {
 	raw["proxy-groups"] = append(groups, mg)
 }
 
+// offlineTestIface is the physical interface (en0 / pdp_ip0) the app passes before offline tests, so the
+// test sockets skip another app's VPN (QX, Surge …) that may be up while ours is off. "" = system routing.
+var offlineTestIface atomic.Value // string
+
+// SetOfflineTestInterface sets the interface offline 测速 binds to ("" = none). v0.15.2.
+func SetOfflineTestInterface(name string) { offlineTestIface.Store(strings.TrimSpace(name)) }
+
+func offlineIface() string {
+	s, _ := offlineTestIface.Load().(string)
+	return s
+}
+
 // TestDelay measures an HTTP round trip through one node parsed from JSON (offline latency tests in
 // the app, which talks to the network directly while the tunnel is down). Returns ms, or -1.
+//
+// v0.15.2: the same "unified" measurement as the running core (unified-delay: true) and QX — the time
+// of a second HEAD over the already established connection, i.e. one round trip through the node.
+// Before, the app process never applied a config, so adapter.UnifiedDelay stayed false there and the
+// offline number was DNS + TCP + TLS + WebSocket + protocol handshake + first request (≈5× the live
+// value for a vmess+ws+tls CDN node: 880 ms vs 172 ms in the measurement on the hotfix branch).
 func TestDelay(proxyJSON, url string, timeoutMs int) int {
 	var m map[string]any
 	if err := json.Unmarshal([]byte(proxyJSON), &m); err != nil {
 		lastError = err.Error()
 		return -1
 	}
-	p, err := adapter.ParseProxy(m)
+	if timeoutMs <= 0 {
+		timeoutMs = 5000
+	}
+	adapter.UnifiedDelay.Store(true) // app process: never runs a tunnel config; the extension sets it anyway
+	iface := offlineIface()
+	if iface != "" && str(m["interface-name"]) == "" && str(m["dialer-proxy"]) == "" {
+		bound := make(map[string]any, len(m)+1)
+		for k, v := range m {
+			bound[k] = v
+		}
+		bound["interface-name"] = iface
+		if d, err := testDelayOnce(bound, url, timeoutMs); err == nil {
+			return d
+		}
+		// Interface gone / bind refused: fall back to normal routing below.
+	}
+	d, err := testDelayOnce(m, url, timeoutMs)
 	if err != nil {
 		lastError = err.Error()
 		return -1
 	}
-	defer func() { _ = p.Close() }()
-	if timeoutMs <= 0 {
-		timeoutMs = 5000
+	return d
+}
+
+func testDelayOnce(m map[string]any, url string, timeoutMs int) (int, error) {
+	p, err := adapter.ParseProxy(m)
+	if err != nil {
+		return -1, err
 	}
+	defer func() { _ = p.Close() }()
 	ctx, cancel := context.WithTimeout(context.Background(), time.Duration(timeoutMs)*time.Millisecond)
 	defer cancel()
 	d, err := p.URLTest(ctx, url, nil)
 	if err != nil {
-		lastError = err.Error()
-		return -1
+		return -1, err
 	}
-	return int(d)
+	return int(d), nil
 }
 
 // ---------------- /tools ----------------
