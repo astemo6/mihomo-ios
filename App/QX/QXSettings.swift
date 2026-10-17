@@ -94,7 +94,7 @@ struct QXSettingsView: View {
                     QXSettingsSection(title: String(localized: "节点"), count: "\(nodeCount)",
                                       caption: String(localized: "网络流量可经由节点转发到最终目的地。"),
                                       color: QXColor.nodes, items: [
-                        QXActionSpec(title: String(localized: "添加"), icon: "plus.rectangle.on.rectangle") { nav.push(.dest(.manualNodes)) },
+                        QXActionSpec(title: String(localized: "添加"), icon: "plus.rectangle.on.rectangle") { nav.push(.dest(.addNode)) },
                         QXActionSpec(title: String(localized: "节点资源"), icon: "link") { nav.push(.dest(.nodeResources)) },
                     ])
                     QXSettingsSection(title: String(localized: "分流"), count: QXFmt.count(ruleCount),

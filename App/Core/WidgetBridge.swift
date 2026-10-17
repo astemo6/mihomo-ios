@@ -19,6 +19,13 @@ extension WidgetSnapshot {
         s.node = node
         s.policy = policy ?? ""
         s.profile = ProfileStore.shared.active?.name ?? ""
+        if let e = IPInfoModel.shared.exit {
+            s.flag = e.flag; s.place = e.placeText; s.detail = e.detailText
+        }
+        if let g = DashboardModel.shared.homeGroups.first {
+            s.chain = ([g.name] + g.chain.dropFirst()).joined(separator: " ➤ ")
+        }
+        s.mode = DashboardModel.shared.mode
         s.updated = Date()
         if s.save() { WidgetBridge.reload() }
     }

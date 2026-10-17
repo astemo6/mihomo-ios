@@ -367,7 +367,7 @@ struct QXToolbar: View {
             Menu {
                 Button { nav.present(.addRemote) } label: { Label("添加订阅链接", systemImage: "link.badge.plus") }
                 Button { nav.present(.profiles) } label: { Label("导入配置", systemImage: "square.and.arrow.down") }
-                Button { nav.push(.dest(.manualNodes)) } label: { Label("添加节点", systemImage: "plus.viewfinder") }
+                Button { nav.push(.dest(.addNode)) } label: { Label("添加节点", systemImage: "plus.viewfinder") }
                 Button { nav.push(.dest(.customRules)) } label: { Label("添加分流规则", systemImage: "line.3.horizontal.decrease") }
                 Button { nav.push(.dest(.localRewrite)) } label: { Label("添加重写", systemImage: "pencil") }
                 Button { nav.push(.dest(.rewriteResources)) } label: { Label("添加模块 / 规则集", systemImage: "puzzlepiece.extension") }
@@ -375,7 +375,7 @@ struct QXToolbar: View {
                 icon("plus")
             } primaryAction: {
                 switch panel {
-                case .nodes: nav.push(.dest(.manualNodes))
+                case .nodes: nav.push(.dest(.addNode))
                 case .rules: nav.push(.dest(.customRules))
                 case .rewrite: nav.push(.dest(.localRewrite))
                 case .activity, .logs: nav.present(.profiles)

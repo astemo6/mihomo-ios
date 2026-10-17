@@ -520,6 +520,10 @@ var qxTypes = map[string]bool{"shadowsocks": true, "vmess": true, "vless": true,
 // ParseNodeText converts any supported node text into mihomo proxy maps.
 func parseNodeText(text string) ([]map[string]any, []string) {
 	text = strings.TrimSpace(strings.TrimPrefix(text, "\ufeff"))
+	// qx/rebuild: SIP008 / sing-box JSON subscriptions parse natively (no resource parser needed).
+	if nodes, _, ok := parseJSONNodes(text); ok {
+		return uniqueNames(nodes), nil
+	}
 	if !strings.Contains(text, "://") && !strings.Contains(text, "=") {
 		if d, ok := tryB64(text); ok {
 			text = d
@@ -576,7 +580,11 @@ func parseNodeText(text string) ([]map[string]any, []string) {
 		}
 		out = append(out, conv...)
 	}
-	// unique names
+	return uniqueNames(out), errs
+}
+
+// uniqueNames gives every node a non-empty, unique name ("x", "x 2", …).
+func uniqueNames(out []map[string]any) []map[string]any {
 	seen := map[string]int{}
 	for _, p := range out {
 		n := strOf(p["name"])
@@ -591,7 +599,7 @@ func parseNodeText(text string) ([]map[string]any, []string) {
 		}
 		p["name"] = n
 	}
-	return out, errs
+	return out
 }
 
 // ssh://user[:password]@host[:port][?private-key=…&private-key-passphrase=…&host-key=…&host-key-algorithms=…]#name

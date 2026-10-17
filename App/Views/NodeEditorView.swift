@@ -268,6 +268,19 @@ struct NodeEditorView: View {
     @State private var dialer: String
     @State private var showAdvanced = false
 
+    /// qx/rebuild: a new node of a given protocol, with optional preset fields (e.g. VLESS Reality Vision).
+    init(newType t: String, preset: [String: String] = [:]) {
+        original = nil
+        _type = State(initialValue: t)
+        _name = State(initialValue: "")
+        _server = State(initialValue: "")
+        _port = State(initialValue: "")
+        var flat = NodeProtocols.defaults(for: t)
+        for (k, v) in preset { flat[k] = v }
+        _values = State(initialValue: flat)
+        _dialer = State(initialValue: "")
+    }
+
     init(node: [String: Any]?) {
         original = node
         let t = node?["type"] as? String ?? "ss"

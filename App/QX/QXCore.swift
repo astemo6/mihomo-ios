@@ -111,7 +111,7 @@ enum QXColor {
 
 /// Pages reachable from the settings page, tiles, toolbar and 其他设置. Existing views, re-homed.
 enum QXDest: String, Hashable, CaseIterable {
-    case manualNodes, nodeResources, providers
+    case addNode, manualNodes, nodeResources, providers
     case customRules, filterResources
     case localRewrite, rewriteResources, scripts
     case mitm, httpCapture, tasks
@@ -120,6 +120,7 @@ enum QXDest: String, Hashable, CaseIterable {
 
     @MainActor @ViewBuilder var view: some View {
         switch self {
+        case .addNode: QXAddNodeView()
         case .manualNodes: ManualNodesView()
         case .nodeResources: QXNodeResourcesView()
         case .providers: ProvidersView()

@@ -7,6 +7,12 @@ struct WidgetSnapshot: Codable, Equatable {
     var policy: String = ""
     var profile: String = ""
     var updated: Date = .distantPast
+    // qx/rebuild: QX-style widget (exit location header, policy chain, run mode). Optional so older saves decode.
+    var flag: String? = nil
+    var place: String? = nil
+    var detail: String? = nil
+    var chain: String? = nil
+    var mode: String? = nil
 
     private static let key = "widgetSnapshot.v1"
 
@@ -19,7 +25,8 @@ struct WidgetSnapshot: Codable, Equatable {
     @discardableResult
     func save() -> Bool {
         let old = Self.load()
-        guard old.node != node || old.policy != policy || old.profile != profile else { return false }
+        guard old.node != node || old.policy != policy || old.profile != profile || old.flag != flag || old.place != place
+                || old.detail != detail || old.chain != chain || old.mode != mode else { return false }
         if let d = try? JSONEncoder().encode(self) { AppShared.defaults.set(d, forKey: Self.key) }
         return true
     }
