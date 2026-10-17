@@ -981,4 +981,59 @@ final class MihomoUITests: MihomoUITestCase {
         XCTAssertFalse(app.element(id: "node.settings.note").exists, "remark cleared")
         XCTAssertTrue(app.element(id: "node.settings.url").label.contains(L("跟随全局")))
     }
+
+    // MARK: 21. v0.17 磁贴编辑: title / icon / refresh interval as an override
+
+    func openPanelEditor(_ title: String) {
+        let card = app.staticTexts[title]
+        XCTAssertTrue(card.waitForExistence(timeout: 8), "panel \(title)")
+        card.press(forDuration: 1.2)
+        let edit = app.buttons[L("编辑面板…")]
+        XCTAssertTrue(edit.waitForExistence(timeout: 4), "编辑面板… in the context menu")
+        edit.tap()
+        XCTAssertTrue(app.navigationBars[L("编辑面板")].waitForExistence(timeout: 6), "tile editor")
+    }
+
+    func test21_TileEditing() {
+        launch(["-UITestDemoPanels", "-UITestScreen", "panels"])
+        XCTAssertTrue(app.staticTexts["Demo Script Panel"].waitForExistence(timeout: 8), "demo panels")
+        XCTAssertTrue(app.element(id: "panel.interval").label.contains(L("每小时")), "module interval shown: \(app.element(id: "panel.interval").label)")
+        snap("tiles")
+        openPanelEditor("Demo Script Panel")
+        let title = app.textFields["panel.edit.title"]
+        XCTAssertTrue(title.waitForExistence(timeout: 4))
+        title.tap()
+        title.typeText("My Speed")
+        let icon = app.element(id: "panel.edit.icon.speedometer")
+        XCTAssertTrue(scrollTo(icon), "icon grid")
+        icon.tap()
+        let five = app.buttons[L("每 5 分钟")]
+        XCTAssertTrue(scrollTo(five), "interval choices for a script panel")
+        five.tap()
+        XCTAssertTrue(app.element(id: "panel.edit.preview").label.contains("My Speed"), "preview follows the title")
+        snap("tile-editor")
+        app.buttons["panel.edit.save"].tap()
+        XCTAssertTrue(app.staticTexts["My Speed"].waitForExistence(timeout: 6), "override title shown")
+        XCTAssertFalse(app.staticTexts["Demo Script Panel"].exists, "module title replaced")
+        XCTAssertTrue(app.element(id: "panel.interval").label.contains(L("每 5 分钟")), "override interval shown")
+        snap("tiles-edited")
+        // Static Stash tile: title / icon only, no interval.
+        openPanelEditor("Demo Tile")
+        XCTAssertFalse(app.buttons[L("每 5 分钟")].exists, "no interval for a static tile")
+        let iconField = app.textFields["panel.edit.iconField"]
+        XCTAssertTrue(scrollTo(iconField))
+        iconField.tap()
+        iconField.typeText("not.a.symbol.xyz")
+        XCTAssertFalse(app.buttons["panel.edit.save"].isEnabled, "unknown SF Symbol refused")
+        app.navigationBars.buttons[L("取消")].tap()
+        usleep(600_000)
+        // Reset the script panel to the module's values.
+        openPanelEditor("My Speed")
+        XCTAssertEqual(app.textFields["panel.edit.title"].value as? String, "My Speed", "editor loads the override")
+        let reset = app.buttons["panel.edit.reset"]
+        XCTAssertTrue(scrollTo(reset))
+        reset.tap()
+        XCTAssertTrue(app.staticTexts["Demo Script Panel"].waitForExistence(timeout: 6), "module title back")
+        XCTAssertTrue(app.element(id: "panel.interval").label.contains(L("每小时")), "module interval back")
+    }
 }

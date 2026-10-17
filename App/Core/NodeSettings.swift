@@ -46,6 +46,7 @@ final class NodeSettingsStore: ObservableObject {
     // MARK: Reads (any thread)
 
     static func setting(for name: String) -> NodeSetting? {
+        _ = shared // loads node-settings.json once
         lock.lock(); defer { lock.unlock() }
         return cache[name]
     }
@@ -91,6 +92,7 @@ final class NodeSettingsStore: ObservableObject {
     }
 
     private static func snapshot() -> [String: NodeSetting] {
+        _ = shared
         lock.lock(); defer { lock.unlock() }
         return cache
     }

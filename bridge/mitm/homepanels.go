@@ -46,6 +46,9 @@ type HomePanelPin struct {
 type HomePanels struct {
 	Visible []string       `json:"visible"` // panel ids shown on Home (pinned and not hidden), in order
 	Tasks   []HomePanelPin `json:"tasks"`
+	// v0.17 磁贴编辑: the user's refresh interval per script panel (seconds, ≥ 60), replacing the module's
+	// update-interval / Stash interval. Title and icon overrides are display-only and stay in the app.
+	Intervals map[string]int `json:"intervals,omitempty"`
 }
 
 func (t *tasker) loadHomeLocked() {
@@ -88,6 +91,17 @@ func (t *tasker) withTaskPanelsLocked(base []*Panel) []*Panel {
 			out = append(out, &Panel{ID: TaskPanelPrefix + tk.ID, Name: tk.Script.Name, Title: tk.Script.Name, Icon: icon,
 				Script: tk.Script.Name, Interval: max(pin.Interval, 0), Source: tk.Source, Format: format, TaskID: tk.ID})
 			break
+		}
+	}
+	// v0.17: the user's interval wins; the module's value stays visible as DefaultInterval. Panels are
+	// copied so the parsed base keeps the module's own definition.
+	for i, p := range out {
+		if v, ok := t.home.Intervals[p.ID]; ok && v > 0 && p.Script != "" {
+			cp := *p
+			cp.DefaultInterval = p.Interval
+			cp.Interval = max(v, 60)
+			cp.IntervalOverridden = true
+			out[i] = &cp
 		}
 	}
 	return out

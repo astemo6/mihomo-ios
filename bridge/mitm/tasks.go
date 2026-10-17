@@ -64,6 +64,9 @@ type Panel struct {
 	Source    string `json:"source"`
 	Format    string `json:"format"`           // surge / stash
 	TaskID    string `json:"taskId,omitempty"` // feat/panels: a generic / interaction script pinned as a panel
+	// v0.17: set when the app's interval override replaced the module's (DefaultInterval = module value).
+	DefaultInterval    int  `json:"defaultInterval,omitempty"`
+	IntervalOverridden bool `json:"intervalOverridden,omitempty"`
 }
 
 func stableID(parts ...string) string {

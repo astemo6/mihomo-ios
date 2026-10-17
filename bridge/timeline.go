@@ -87,8 +87,8 @@ type timelineRec struct {
 	lease   time.Time
 	recs    map[string]*tlRecord
 	order   []string
-	dns     map[string]*tlDNS     // domain → newest answer
-	pending map[string]time.Time  // domain|upstream → resolve start
+	dns     map[string]*tlDNS    // domain → newest answer
+	pending map[string]time.Time // domain|upstream → resolve start
 	lastTk  time.Time
 	stop    chan struct{}
 }

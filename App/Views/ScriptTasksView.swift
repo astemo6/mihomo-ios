@@ -45,6 +45,9 @@ struct PanelItem: Decodable, Identifiable, Hashable {
     var error: String?
     var running: Bool
     var backgroundColor: String?
+    /// v0.17: the module's interval when the user's override replaced it in the engine.
+    var defaultInterval: Int? = nil
+    var intervalOverridden: Bool? = nil
 }
 
 struct ScriptNotice: Decodable, Hashable {

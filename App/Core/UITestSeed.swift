@@ -97,6 +97,19 @@ enum UITestSeed {
         return (try? JSONDecoder().decode([ConnectionItem].self, from: Data(json.utf8))) ?? []
     }
 
+    /// v0.17 磁贴编辑 demo (UI tests only): a Surge script panel and a static Stash tile.
+    static func demoPanels() -> [PanelItem] {
+        let now = Date().timeIntervalSince1970 - 120
+        return [
+            PanelItem(id: "demo-script", name: "demo-script", title: "Demo Script Panel", content: "Synthetic content", style: "info", icon: "globe",
+                      iconColor: nil, script: "demo-script-js", interval: 3600, source: "UITest Panel Module", format: "surge", updated: now,
+                      error: nil, running: false),
+            PanelItem(id: "demo-tile", name: "demo-tile", title: "Demo Tile", content: "Static tile", style: nil, icon: "info.circle",
+                      iconColor: nil, script: nil, interval: nil, source: "UITest Panel Module", format: "stash", updated: nil,
+                      error: nil, running: false),
+        ]
+    }
+
     /// v0.17 请求时间线 demo (UI tests only): passive records for d1 (proxied) and d2 (DIRECT, DNS seen).
     static func demoTimeline() -> [String: TimelineRecord] {
         let json = """
