@@ -170,3 +170,10 @@ func TestImportQXRemainingKeys(t *testing.T) {
 		t.Fatalf("core rejects imported config: %v\n%s", err, rt)
 	}
 }
+
+func TestLiveStatusShape(t *testing.T) {
+	parts := strings.Split(LiveStatus(), "\t")
+	if len(parts) != 5 {
+		t.Fatalf("LiveStatus fields: %q", parts)
+	}
+}
