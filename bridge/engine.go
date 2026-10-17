@@ -9,6 +9,7 @@ import (
 	"net"
 	"net/http"
 	"os"
+	"strconv"
 	"strings"
 	"sync"
 	"time"
@@ -21,6 +22,7 @@ import (
 	"github.com/metacubex/mihomo/listener/inner"
 	"github.com/metacubex/mihomo/log"
 	"github.com/metacubex/mihomo/tunnel"
+	"github.com/metacubex/mihomo/tunnel/statistic"
 )
 
 // Notifier is implemented on the Swift side (PacketTunnel) to post local notifications
@@ -63,6 +65,32 @@ func installNotifier(e *mitm.Engine) {
 		b, _ := json.Marshal(map[string]string{"title": title, "subtitle": subtitle, "body": body, "url": url})
 		n.Notify(string(b))
 	})
+}
+
+// mitmLoop: an INNER connection (the engine's own upstream) whose chain contains __MITM__ to the same
+// target means a proxy group picked the engine outbound → reject instead of looping.
+func mitmLoop(target string) bool {
+	found := false
+	statistic.DefaultManager.Range(func(t statistic.Tracker) bool {
+		info := t.Info()
+		if info == nil || info.Metadata == nil || info.Metadata.Type != C.INNER {
+			return true
+		}
+		for _, c := range info.Chain {
+			if c == mitm.ProxyName {
+				// The http outbound may CONNECT with the resolved IP (hosts / DNS mapping make the dial
+				// metadata "pure"), so compare both forms.
+				md := info.Metadata
+				if md.RemoteAddress() == target || (md.DstIP.IsValid() && net.JoinHostPort(md.DstIP.String(), strconv.Itoa(int(md.DstPort))) == target) {
+					found = true
+					return false
+				}
+				break
+			}
+		}
+		return true
+	})
+	return found
 }
 
 func coreDial(ctx context.Context, network, addr, policy string) (net.Conn, error) {
@@ -123,6 +151,7 @@ func prepareEngineWith(home string, cfg *mitm.Config) (func(raw map[string]any),
 		installNotifier(eng)
 		eng.SetGeoLookup(geoLookup)
 		eng.SetAPI(httpAPI)
+		eng.SetLoopCheck(mitmLoop)
 		eng.Logs.SetHook(func(l mitm.LogLine) {
 			if l.Level != "debug" {
 				log.Infoln("[Script] %s: %s", l.Script, l.Msg)

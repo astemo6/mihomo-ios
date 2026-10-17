@@ -354,6 +354,7 @@ func Inject(raw map[string]any, listenPort int, rs *Ruleset, c *Config) {
 		proxies, _ := raw["proxies"].([]any)
 		proxies = append(proxies, map[string]any{"name": ProxyName, "type": "http", "server": "127.0.0.1", "port": listenPort})
 		raw["proxies"] = proxies
+		ExcludeFromGroups(raw)
 	}
 	if mitmOn {
 		rp, _ := raw["rule-providers"].(map[string]any)
@@ -415,6 +416,64 @@ func quicAllowPayload(list []string) []any {
 		out = append(out, payloadFor(hostPat{pat: host}))
 	}
 	return out
+}
+
+// ProxyExclude is the exclude-filter pattern that keeps the engine outbound out of every group.
+const ProxyExclude = "^" + ProxyName + "$"
+
+// ExcludeFromGroups keeps the internal __MITM__ outbound out of every proxy group (v0.14.1 hotfix).
+// mihomo adds every entry of `proxies` to groups with include-all / include-all-proxies (+ filter), so
+// without this a url-test group picked the local engine as its "fastest node" and traffic looped
+// engine → tunnel → group → engine until the extension ran out of memory.
+//   - groups with include-all / include-all-proxies / filter get `exclude-filter: ^__MITM__$`, appended to
+//     an existing exclude-filter with mihomo's backtick separator (each part is its own regexp, a name
+//     matching ANY part is excluded — same as `(?:old)|^__MITM__$`, but safe when old already uses backticks);
+//   - an explicit `proxies:` member named __MITM__ is removed (a group left empty gets DIRECT).
+func ExcludeFromGroups(raw map[string]any) {
+	gl, _ := raw["proxy-groups"].([]any)
+	for _, x := range gl {
+		g, ok := x.(map[string]any)
+		if !ok {
+			continue
+		}
+		if list, ok := g["proxies"].([]any); ok {
+			kept := list[:0:0]
+			for _, m := range list {
+				if s, _ := m.(string); s == ProxyName {
+					continue
+				}
+				kept = append(kept, m)
+			}
+			if len(kept) != len(list) {
+				if len(kept) == 0 && !groupFlag(g["include-all"]) && !groupFlag(g["include-all-proxies"]) && !groupFlag(g["include-all-providers"]) && g["use"] == nil {
+					kept = append(kept, "DIRECT")
+				}
+				g["proxies"] = kept
+			}
+		}
+		filter, _ := g["filter"].(string)
+		if !groupFlag(g["include-all"]) && !groupFlag(g["include-all-proxies"]) && strings.TrimSpace(filter) == "" {
+			continue
+		}
+		old, _ := g["exclude-filter"].(string)
+		switch {
+		case strings.TrimSpace(old) == "":
+			g["exclude-filter"] = ProxyExclude
+		case strings.Contains(old, ProxyExclude):
+		default:
+			g["exclude-filter"] = old + "`" + ProxyExclude
+		}
+	}
+}
+
+func groupFlag(v any) bool {
+	switch t := v.(type) {
+	case bool:
+		return t
+	case string:
+		return strings.EqualFold(strings.TrimSpace(t), "true")
+	}
+	return false
 }
 
 // QUICBlockAllRule is prepended when the user blocks QUIC for all traffic.

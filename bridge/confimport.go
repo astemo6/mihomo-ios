@@ -678,6 +678,9 @@ func ImportConf(text string) string {
 	rules = append(rules, final) // mihomo needs MATCH last
 
 	// ---- DNS / general (best effort)
+	// v0.14.1: never emit the engine's reserved outbound name (a node called __MITM__ in the source would
+	// be shadowed by the injected one and end up in groups).
+	proxies, groups = stripReservedOutbound(proxies, groups, rep)
 	cfg := map[string]any{"mode": "rule", "proxies": proxies, "proxy-groups": groups, "rules": rules}
 	if len(providers) > 0 {
 		cfg["rule-providers"] = providers
@@ -958,4 +961,51 @@ func hadUnknown(members []string, groups, proxies map[string]bool) bool {
 		}
 	}
 	return false
+}
+
+// stripReservedOutbound drops nodes / group members named mitm.ProxyName from an imported profile.
+func stripReservedOutbound(proxies, groups []any, rep *confReport) ([]any, []any) {
+	dropped := false
+	keptP := proxies[:0:0]
+	for _, p := range proxies {
+		if m, ok := p.(map[string]any); ok {
+			if n, _ := m["name"].(string); n == mitm.ProxyName {
+				dropped = true
+				continue
+			}
+		}
+		keptP = append(keptP, p)
+	}
+	for _, g := range groups {
+		m, ok := g.(map[string]any)
+		if !ok {
+			continue
+		}
+		switch list := m["proxies"].(type) {
+		case []any:
+			kept := list[:0:0]
+			for _, x := range list {
+				if s, _ := x.(string); s == mitm.ProxyName {
+					dropped = true
+					continue
+				}
+				kept = append(kept, x)
+			}
+			m["proxies"] = kept
+		case []string:
+			kept := list[:0:0]
+			for _, x := range list {
+				if x == mitm.ProxyName {
+					dropped = true
+					continue
+				}
+				kept = append(kept, x)
+			}
+			m["proxies"] = kept
+		}
+	}
+	if dropped && rep != nil {
+		rep.Notes = append(rep.Notes, mitm.ProxyName+" 是 App 内部保留的出站名称，原配置中的同名节点 / 成员已忽略")
+	}
+	return keptP, groups
 }
