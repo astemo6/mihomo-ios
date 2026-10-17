@@ -320,7 +320,7 @@ struct QXNodesPanel: View {
         let groups = QXPolicyPrefs.sorted(model.groups(), profile: store.activeID ?? "")
         let proxyName = model.proxyGroupName
         ScrollView {
-            LazyVStack(alignment: .leading, spacing: 10) {
+            LazyVStack(alignment: .leading, spacing: 9) {
                 if let e = model.error {
                     ErrorRow(message: e).padding(.horizontal, 4)
                 }
@@ -487,14 +487,16 @@ struct QXResourceCard: View {
     var body: some View {
         QXCard {
             VStack(spacing: 0) {
-                HStack(spacing: 14) {
+                // QX-5 size check (frame 01, 600 px = 393 pt): card 62 pt high, 9 pt apart, glyph centred 31 pt
+                // from the card edge, title at 59 pt, 30 pt grey bar before the count.
+                HStack(spacing: 13) {
                     Button(action: onTest) {
                         ZStack {
                             if testing { ProgressView().controlSize(.small) } else {
-                                Image(systemName: "server.rack").font(.system(size: 20, weight: .semibold)).foregroundStyle(QXColor.nodes)
+                                Image(systemName: "server.rack").font(.system(size: 19, weight: .semibold)).foregroundStyle(QXColor.nodes)
                             }
                         }
-                        .frame(width: 36, height: 36)
+                        .frame(width: 30, height: 36)
                     }
                     .buttonStyle(.plain)
                     .accessibilityLabel(Text("测速"))
@@ -508,7 +510,7 @@ struct QXResourceCard: View {
                             Text(verbatim: Fmt.bytes(info.used)).font(.system(size: 14, weight: .semibold, design: .rounded).monospacedDigit()).foregroundStyle(.secondary)
                         }
                     }
-                    RoundedRectangle(cornerRadius: 1).fill(Color.primary.opacity(0.08)).frame(width: 3, height: 34)
+                    RoundedRectangle(cornerRadius: 1.5).fill(QXPalette.separator).frame(width: 3, height: 30)
                     Text(verbatim: "\(resource.nodes.count)").font(.system(size: 15).monospacedDigit()).foregroundStyle(.secondary)
                     Image(systemName: "chevron.right")
                         .font(.system(size: 13, weight: .semibold))
@@ -516,7 +518,8 @@ struct QXResourceCard: View {
                         .rotationEffect(.degrees(expanded ? 90 : 0))
                 }
                 .padding(.horizontal, 16)
-                .padding(.vertical, 14)
+                .padding(.vertical, 8)
+                .frame(minHeight: 62)
                 .contentShape(Rectangle())
                 .onTapGesture(perform: onToggle)
                 .contextMenu {
@@ -673,12 +676,14 @@ struct QXPolicyRow: View {
 
     var body: some View {
         QXCard {
-            HStack(spacing: 14) {
+            // QX-5 size check (frames 01 / 07): 62 pt card, 37 pt icon 12 pt from the edge, title at 59 pt
+            // (17 pt regular), 13 pt grey chain, 30 pt bar, ~18 pt grey status disc, chevron.
+            HStack(spacing: 10) {
                 Button(action: onTest) {
                     ZStack {
-                        GroupIconView(group: group.name, profileIcon: group.icon, fallback: group.display.icon, size: 40)
+                        GroupIconView(group: group.name, profileIcon: group.icon, fallback: group.display.icon, size: 37)
                         if testing {
-                            Circle().fill(.ultraThinMaterial).frame(width: 40, height: 40)
+                            Circle().fill(.ultraThinMaterial).frame(width: 37, height: 37)
                             ProgressView().controlSize(.small)
                         }
                     }
@@ -686,7 +691,7 @@ struct QXPolicyRow: View {
                 .buttonStyle(.plain)
                 .accessibilityLabel(Text("测速"))
                 VStack(alignment: .leading, spacing: 3) {
-                    Text(verbatim: group.name).font(.system(size: 17, weight: .semibold)).lineLimit(1)
+                    Text(verbatim: group.name).font(.system(size: 17, weight: .regular)).lineLimit(1)
                     Text(verbatim: group.chain.dropFirst().joined(separator: " ➤ ").isEmpty ? group.display.label : group.chain.dropFirst().joined(separator: " ➤ "))
                         .font(.system(size: 13, weight: .medium))
                         .foregroundStyle(.secondary)
@@ -694,17 +699,21 @@ struct QXPolicyRow: View {
                         .truncationMode(.middle)
                 }
                 Spacer(minLength: 6)
-                RoundedRectangle(cornerRadius: 1).fill(Color.primary.opacity(0.08)).frame(width: 3, height: 34)
+                RoundedRectangle(cornerRadius: 1.5).fill(QXPalette.separator).frame(width: 3, height: 30)
+                    .padding(.leading, 4)
                 Image(systemName: statusIcon)
-                    .font(.system(size: 10, weight: .heavy))
+                    .font(.system(size: 9, weight: .heavy))
                     .foregroundStyle(Color(UIColor.systemBackground))
-                    .frame(width: 22, height: 22)
+                    .frame(width: 18, height: 18)
+                    .padding(.horizontal, 4)
                     .background(Circle().fill(Color.secondary.opacity(0.75)))
                     .accessibilityLabel(Text(group.display.label))
                 Image(systemName: "chevron.right").font(.system(size: 13, weight: .semibold)).foregroundStyle(.secondary)
             }
-            .padding(.horizontal, 14)
-            .padding(.vertical, 12)
+            .padding(.leading, 12)
+            .padding(.trailing, 16)
+            .padding(.vertical, 6)
+            .frame(minHeight: 62)
             .background {
                 if let background {
                     RoundedRectangle(cornerRadius: 20, style: .continuous)
