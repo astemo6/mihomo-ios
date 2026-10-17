@@ -100,6 +100,7 @@ final class EngineStore: ObservableObject {
     }
 
     func addModule(url: String) async {
+        SnapshotStore.shared.capture(String(localized: "添加模块前"))
         busy.insert("add")
         defer { busy.remove("add") }
         do {
@@ -131,6 +132,7 @@ final class EngineStore: ObservableObject {
     /// 更新 can fetch it later. Returns the error text, nil on success. A URL that is already a module is skipped.
     func addRemoteModule(url: String, name: String, enabled: Bool, interval: Int) async -> String? {
         if config.modules.contains(where: { $0.url == url }) { return nil }
+        SnapshotStore.shared.capture(String(localized: "添加模块前"))
         var m = EngineModule(name: name.isEmpty ? (URL(string: url)?.deletingPathExtension().lastPathComponent ?? "模块") : name,
                              url: url, enabled: enabled, args: nil, updatedAt: nil, interval: interval > 0 ? interval : nil)
         var err: String?
@@ -164,6 +166,7 @@ final class EngineStore: ObservableObject {
     private var caTrustedOrUnknownTrue: Bool { caTrusted == true }
 
     func addModule(text: String, name: String) {
+        SnapshotStore.shared.capture(String(localized: "添加模块前"))
         let p = ParsedEngineText.parse(LibmihomoEngineParseText(text, "{}"))
         let m = EngineModule(name: (p?.name.isEmpty == false ? p!.name : name), url: "", enabled: true, args: nil, updatedAt: Date().timeIntervalSince1970)
         try? text.write(to: EnginePaths.moduleURL(m.id), atomically: true, encoding: .utf8)
@@ -193,6 +196,7 @@ final class EngineStore: ObservableObject {
     }
 
     func deleteModule(_ m: EngineModule) {
+        SnapshotStore.shared.capture(String(localized: "删除模块「\(m.name)」前"))
         config.modules.removeAll { $0.id == m.id }
         try? FileManager.default.removeItem(at: EnginePaths.moduleURL(m.id))
         reparseModules()

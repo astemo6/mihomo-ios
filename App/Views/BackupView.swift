@@ -17,7 +17,7 @@ struct BackupFile: Codable {
 enum BackupManager {
     /// Directories / files (relative to the container) that make up a backup.
     static func items(includeCA: Bool) -> [String] {
-        var out = ["profiles.json", "profiles", "mihomo/overrides.json", "mihomo/dns.json", "mihomo/localdns.json", "mihomo/group-icons.json", "mihomo/rules.json", "mihomo/subscriptions.json", "mihomo/groups.json", "mihomo/netpolicy.json",
+        var out = ["profiles.json", "profiles", "mihomo/overrides.json", "mihomo/dns.json", "mihomo/localdns.json", "mihomo/group-icons.json", "mihomo/rules.json", "mihomo/subscriptions.json", "mihomo/groups.json", "mihomo/netpolicy.json", "mihomo/node-subscriptions.json", "mihomo/group-edits.json",
                    "mihomo/engine/engine.json", "mihomo/engine/store.json", "mihomo/engine/modules", "mihomo/engine/scripts"]
         if includeCA { out.append("mihomo/engine/ca") }
         return out
@@ -207,6 +207,7 @@ struct BackupView: View {
 
     func restore(_ data: Data) {
         do {
+            SnapshotStore.shared.capture(String(localized: "恢复备份前"))
             let n = try BackupManager.restore(data)
             store.load()
             store.activeID = AppShared.activeProfileID
