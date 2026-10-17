@@ -6,9 +6,28 @@ final class RequestsModel: ObservableObject {
     @Published var active: [ConnectionItem] = []
     @Published var recent: [ConnectionItem] = []   // closed connections, newest first
     @Published var paused = false
+    /// v0.16 summary bar: core totals and the speed derived from them between polls.
+    @Published var uploadTotal: Int64 = 0
+    @Published var downloadTotal: Int64 = 0
+    @Published var upSpeed: Int64 = 0
+    @Published var downSpeed: Int64 = 0
+    private var lastSample: (Date, Int64, Int64)?
+    /// Simulator UI tests (-UITestSeed -UITestDemoConnections): synthetic connections, no controller.
+    let demo = UITestSeed.enabled && UITestSeed.args.contains("-UITestDemoConnections")
     private var task: Task<Void, Never>?
 
+    init() {
+        if demo {
+            active = UITestSeed.demoConnections()
+            uploadTotal = 12_582_912; downloadTotal = 98_566_144; upSpeed = 24_576; downSpeed = 1_310_720
+        }
+    }
+
+    var tcpCount: Int { active.filter { ($0.metadata.network ?? "tcp").lowercased() != "udp" }.count }
+    var udpCount: Int { active.filter { ($0.metadata.network ?? "").lowercased() == "udp" }.count }
+
     func start() {
+        guard !demo else { return }
         task?.cancel()
         task = Task { [weak self] in
             while !Task.isCancelled {
@@ -23,6 +42,16 @@ final class RequestsModel: ObservableObject {
     private func poll() async {
         guard let r = try? await ControllerClient.shared.connections() else { return }
         let now = r.connections ?? []
+        let up = r.uploadTotal ?? 0, down = r.downloadTotal ?? 0
+        let t = Date()
+        if let last = lastSample, t.timeIntervalSince(last.0) > 0.2 {
+            let dt = t.timeIntervalSince(last.0)
+            upSpeed = max(0, Int64(Double(up - last.1) / dt))
+            downSpeed = max(0, Int64(Double(down - last.2) / dt))
+        }
+        lastSample = (t, up, down)
+        uploadTotal = up
+        downloadTotal = down
         let ids = Set(now.map(\.id))
         let closed = active.filter { !ids.contains($0.id) }.map { c -> ConnectionItem in
             var c = c; c.closedAt = Date(); return c
@@ -35,11 +64,13 @@ final class RequestsModel: ObservableObject {
     }
 
     func close(_ c: ConnectionItem) async {
+        if demo { active.removeAll { $0.id == c.id }; return }
         try? await ControllerClient.shared.closeConnection(c.id)
         await poll()
     }
 
     func closeAll() async {
+        if demo { recent.insert(contentsOf: active, at: 0); active = []; upSpeed = 0; downSpeed = 0; return }
         try? await ControllerClient.shared.closeAllConnections()
         await poll()
     }
@@ -76,10 +107,13 @@ struct RequestsView: View {
     var body: some View {
         NavigationStack {
             Group {
-                if !vpn.isConnected {
+                if !vpn.isConnected && !model.demo {
                     NotConnectedPlaceholder(text: "连接后可查看实时请求")
                 } else {
                     List {
+                        ConnectionSummaryBar(model: model) { confirmCloseAll = true }
+                            .listRowInsets(EdgeInsets())
+                            .listRowBackground(Color.clear)
                         Picker("", selection: $tab) {
                             Text("活跃 \(model.active.count)").tag(0)
                             Text("最近 \(model.recent.count)").tag(1)
@@ -130,8 +164,6 @@ struct RequestsView: View {
                             .disabled(httpItems.isEmpty || harProgress != nil)
                             .accessibilityLabel(Text("导出 HAR"))
                         Button(role: .destructive) { Task { await http.clear() } } label: { Image(systemName: "trash") }
-                    } else {
-                        Button(role: .destructive) { confirmCloseAll = true } label: { Image(systemName: "xmark.circle") }
                     }
                 }
             }
@@ -320,5 +352,58 @@ struct QuickRuleSheet: View {
         let sld = parts[parts.count - 2]
         let n = (sld.count <= 3 && parts.last!.count == 2) ? 3 : 2
         return parts.suffix(n).joined(separator: ".")
+    }
+}
+
+/// v0.16 请求 summary: TCP / UDP counts, ↑↓ speed, session totals and 全部断开 (moved here from the toolbar).
+struct ConnectionSummaryBar: View {
+    @ObservedObject var model: RequestsModel
+    let onCloseAll: () -> Void
+
+    var body: some View {
+        Card(padding: 14) {
+            VStack(alignment: .leading, spacing: 10) {
+                HStack(alignment: .firstTextBaseline, spacing: 18) {
+                    count("TCP", model.tcpCount, Theme.accent, id: "requests.tcpCount")
+                    count("UDP", model.udpCount, Theme.tone(0.55, 0.45, 1.0), id: "requests.udpCount")
+                    Spacer(minLength: 6)
+                    Button(role: .destructive, action: onCloseAll) {
+                        Label("全部断开", systemImage: "xmark.circle")
+                            .font(.footnote.weight(.semibold))
+                    }
+                    .buttonStyle(.bordered)
+                    .tint(Theme.bad)
+                    .controlSize(.small)
+                    .disabled(model.active.isEmpty)
+                    .accessibilityIdentifier("requests.closeAll")
+                }
+                HStack(spacing: 14) {
+                    rate("arrow.up", Theme.up, model.upSpeed, model.uploadTotal)
+                    rate("arrow.down", Theme.down, model.downSpeed, model.downloadTotal)
+                    Spacer(minLength: 0)
+                }
+            }
+        }
+        .accessibilityIdentifier("requests.summary")
+    }
+
+    private func count(_ title: String, _ n: Int, _ color: Color, id: String) -> some View {
+        VStack(alignment: .leading, spacing: 0) {
+            Text(verbatim: "\(n)")
+                .font(.system(size: 26, weight: .semibold, design: .rounded).monospacedDigit())
+                .foregroundStyle(color)
+                .accessibilityIdentifier(id)
+            Text(verbatim: title).font(.caption2.weight(.semibold)).foregroundStyle(.secondary)
+        }
+    }
+
+    private func rate(_ icon: String, _ color: Color, _ speed: Int64, _ total: Int64) -> some View {
+        HStack(spacing: 6) {
+            Image(systemName: icon).font(.caption.bold()).foregroundStyle(color)
+            VStack(alignment: .leading, spacing: 0) {
+                Text(verbatim: Fmt.speed(speed)).font(.subheadline.monospacedDigit().weight(.medium))
+                Text(verbatim: "Σ " + Fmt.bytes(total)).font(.caption2.monospacedDigit()).foregroundStyle(.secondary)
+            }
+        }
     }
 }

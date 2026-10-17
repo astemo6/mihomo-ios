@@ -86,6 +86,17 @@ enum UITestSeed {
         }
     }
 
+    /// v0.16 请求 summary test: two TCP + one UDP connection (documentation addresses).
+    static func demoConnections() -> [ConnectionItem] {
+        let start = ConnectionItem.iso.string(from: Date().addingTimeInterval(-42))
+        let json = """
+        [{"id":"d1","metadata":{"network":"tcp","type":"Tun","sourceIP":"198.18.0.1","destinationIP":"192.0.2.20","sourcePort":"50001","destinationPort":"443","host":"www.example.com"},"upload":20480,"download":1048576,"start":"\(start)","chains":["🇯🇵 Tokyo 01","Proxy"],"rule":"DomainSuffix","rulePayload":"example.com"},
+         {"id":"d2","metadata":{"network":"tcp","type":"Tun","sourceIP":"198.18.0.1","destinationIP":"192.0.2.21","sourcePort":"50002","destinationPort":"443","host":"api.example.org"},"upload":4096,"download":65536,"start":"\(start)","chains":["DIRECT"],"rule":"Match","rulePayload":""},
+         {"id":"d3","metadata":{"network":"udp","type":"Tun","sourceIP":"198.18.0.1","destinationIP":"192.0.2.53","sourcePort":"50003","destinationPort":"443","host":"quic.example.net"},"upload":1024,"download":8192,"start":"\(start)","chains":["🇺🇸 San Jose 02","Auto"],"rule":"GeoIP","rulePayload":"US"}]
+        """
+        return (try? JSONDecoder().decode([ConnectionItem].self, from: Data(json.utf8))) ?? []
+    }
+
     @MainActor static func seedNodeSubscription() throws {
         let id = "uitest-sub"
         let dir = AppShared.homeURL.appendingPathComponent("nodesubs", isDirectory: true)
