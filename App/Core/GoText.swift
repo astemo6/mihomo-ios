@@ -78,6 +78,10 @@ enum GoText {
         case "Base64 分享链接": return String(localized: "Base64 分享链接")
         case "未识别": return String(localized: "未识别")
         case "不可用": return String(localized: "不可用")
+        case "没有可以撤销的修改": return String(localized: "没有可以撤销的修改")
+        case "配置文件里没有这个节点": return String(localized: "配置文件里没有这个节点")
+        case "已有同名的节点或策略组": return String(localized: "已有同名的节点或策略组")
+        case "名称、类型、服务器不能为空": return String(localized: "名称、类型、服务器不能为空")
         default: return s
         }
     }

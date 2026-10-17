@@ -506,4 +506,127 @@ final class MihomoUITests: MihomoUITestCase {
         }
         back()
     }
+
+    // MARK: 10. 节点管理: a node defined in the profile file is editable (v0.15.4)
+
+    func replaceText(_ f: XCUIElement, _ text: String) {
+        f.tap()
+        let cur = (f.value as? String) ?? ""
+        // Cursor to the end, then delete everything.
+        f.coordinate(withNormalizedOffset: CGVector(dx: 0.98, dy: 0.5)).tap()
+        if !cur.isEmpty { f.typeText(String(repeating: XCUIKeyboardKey.delete.rawValue, count: cur.count + 2)) }
+        f.typeText(text)
+    }
+
+    func openAllNodes() {
+        openMore("节点管理")
+        XCTAssertTrue(tapIfExists(app.element(label: L("全部节点")), timeout: 8), "全部节点")
+    }
+
+    func test10_ProfileNodeEdit() {
+        launch()
+        openAllNodes()
+        let node = app.element(label: "🇯🇵 Tokyo 02")
+        XCTAssertTrue(scrollTo(node), "profile node")
+        node.tap()
+        let edit = app.element(id: "node.edit")
+        XCTAssertTrue(scrollTo(edit), "编辑 offered for a node from the profile file")
+        snap("profile-node-detail")
+        edit.tap()
+        XCTAssertTrue(app.navigationBars[L("编辑节点")].waitForExistence(timeout: 6), "node editor")
+        let name = app.textFields[L("名称")]
+        XCTAssertTrue(name.waitForExistence(timeout: 4))
+        replaceText(name, "Tokyo 02 Edited")
+        let server = app.textFields[L("服务器")]
+        replaceText(server, "192.0.2.222")
+        snap("profile-node-editor")
+        app.navigationBars.buttons[L("保存")].tap()
+        let gone = NSPredicate(format: "exists == false")
+        let closed = XCTWaiter().wait(for: [XCTNSPredicateExpectation(predicate: gone, object: app.navigationBars[L("编辑节点")])], timeout: 10) == .completed
+        if !closed { snap("profile-node-editor-error"); issues.append("[\(Env.tag)] profile node did not save"); closeSheet() }
+        usleep(1_000_000)
+        // Renamed → the old detail closes; leave and come back, the list is read from the file again.
+        for _ in 0..<3 where !app.navigationBars[L("更多")].exists { back() }
+        openAllNodes()
+        let renamed = app.element(label: "Tokyo 02 Edited")
+        XCTAssertTrue(scrollTo(renamed), "renamed node listed after reopening")
+        XCTAssertFalse(app.element(label: "🇯🇵 Tokyo 02").exists, "old name still listed")
+        renamed.tap()
+        XCTAssertTrue(app.element(labelContains: "192.0.2.222").waitForExistence(timeout: 6), "edited server kept")
+        snap("profile-node-after")
+        // Group members follow the rename (offline picker of the Proxy card on Home).
+        for _ in 0..<4 where !app.navigationBars[L("更多")].exists { back() }
+        tab(0)
+        let card = app.element(id: "home.card.Proxy")
+        XCTAssertTrue(card.waitForExistence(timeout: 8))
+        card.tap()
+        XCTAssertTrue(scrollTo(app.element(label: "Tokyo 02 Edited")), "group member renamed")
+        snap("profile-node-group-member")
+        back()
+    }
+
+    // MARK: 11. 筛选节点: editable filters, rename follows the 策略组, flag fallback (v0.15.4)
+
+    func test11_RegionFilters() {
+        launch(["-UITestMissingFlags", "TW"])
+        openMore("节点管理")
+        XCTAssertTrue(tapIfExists(app.element(label: L("筛选节点")), timeout: 8))
+        let jp = app.element(id: "filter.JP")
+        XCTAssertTrue(jp.waitForExistence(timeout: 8), "JP filter")
+        // 🇹🇼 drawn as a letter badge when the system cannot draw it.
+        XCTAssertTrue(app.element(labelContains: "TW").waitForExistence(timeout: 4), "TW badge instead of the 🇹🇼 glyph")
+        XCTAssertFalse(app.element(labelContains: "🇹🇼").exists, "undrawable flag still shown")
+        snap("filters-flag-fallback")
+
+        // Rename + type
+        jp.swipeLeft()
+        XCTAssertTrue(tapIfExists(app.button(L("编辑筛选")), timeout: 3), "edit action")
+        let name = app.textFields.matching(identifier: "filter.name").firstMatch
+        XCTAssertTrue(name.waitForExistence(timeout: 5))
+        replaceText(name, "JP UI")
+        snap("filter-editor")
+        app.navigationBars.buttons[L("保存")].tap()
+        XCTAssertTrue(app.element(labelContains: "JP UI").waitForExistence(timeout: 5), "renamed filter")
+
+        // Add as a group, then rename again: the group follows.
+        jp.swipeLeft()
+        XCTAssertTrue(tapIfExists(app.button(L("加为策略组")), timeout: 3), "add as group")
+        XCTAssertTrue(app.element(label: L("已加为策略组")).waitForExistence(timeout: 10), "group added")
+        jp.swipeLeft()
+        XCTAssertTrue(tapIfExists(app.button(L("编辑筛选")), timeout: 3))
+        XCTAssertTrue(name.waitForExistence(timeout: 5))
+        replaceText(name, "JP Group 2")
+        app.navigationBars.buttons[L("保存")].tap()
+        XCTAssertTrue(app.element(labelContains: "JP Group 2").waitForExistence(timeout: 8), "renamed group filter")
+        snap("filters-renamed-group")
+        // Duplicate names are refused.
+        jp.swipeLeft()
+        XCTAssertTrue(tapIfExists(app.button(L("编辑筛选")), timeout: 3))
+        replaceText(name, "Proxy")
+        XCTAssertFalse(app.navigationBars.buttons[L("保存")].isEnabled, "duplicate group name accepted")
+        closeSheet()
+
+        // Leave and reopen: kept; 策略 shows the renamed group.
+        back()
+        XCTAssertTrue(tapIfExists(app.element(label: L("筛选节点")), timeout: 8))
+        XCTAssertTrue(app.element(labelContains: "JP Group 2").waitForExistence(timeout: 6), "filter kept after reopening")
+        for _ in 0..<3 where !app.navigationBars[L("更多")].exists { back() }
+        tab(1)
+        XCTAssertTrue(scrollTo(app.element(labelContains: "JP Group 2")), "renamed group on 策略")
+        snap("filters-group-on-policy")
+
+        // New filter via +
+        tab(4)
+        openMore("节点管理")
+        XCTAssertTrue(tapIfExists(app.element(label: L("筛选节点")), timeout: 8))
+        XCTAssertTrue(tapIfExists(app.element(id: "filters.add"), timeout: 4), "+")
+        let n2 = app.textFields.matching(identifier: "filter.name").firstMatch
+        XCTAssertTrue(n2.waitForExistence(timeout: 5))
+        n2.tap(); n2.typeText("Hy2 Nodes")
+        let pat = app.textFields.matching(identifier: "filter.pattern").firstMatch
+        pat.tap(); pat.typeText("Hy2")
+        app.navigationBars.buttons[L("保存")].tap()
+        XCTAssertTrue(scrollTo(app.element(labelContains: "Hy2 Nodes")), "custom filter listed")
+        snap("filters-custom")
+    }
 }

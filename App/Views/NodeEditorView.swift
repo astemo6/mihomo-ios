@@ -405,6 +405,8 @@ struct NodeEditorView: View {
     @Environment(\.dismiss) var dismiss
 
     let original: [String: Any]?
+    /// v0.15.4: the node lives in this profile file (节点管理 → 配置); saving writes it back there.
+    var profile: Profile? = nil
     @State private var type: String
     @State private var name: String
     @State private var server: String
@@ -428,8 +430,9 @@ struct NodeEditorView: View {
         _dialer = State(initialValue: "")
     }
 
-    init(node: [String: Any]?) {
+    init(node: [String: Any]?, profile: Profile? = nil) {
         original = node
+        self.profile = profile
         let t = node?["type"] as? String ?? "ss"
         _type = State(initialValue: t)
         _name = State(initialValue: node?["name"] as? String ?? "")
@@ -445,6 +448,7 @@ struct NodeEditorView: View {
     /// Where the node's 前置代理 is resolved: the active profile when manual nodes are merged into it,
     /// otherwise the 手动节点 profile itself.
     var chainProfilePath: String {
+        if let profile { return profile.fileURL.path }
         if CoreOverrides.load().mergeManual, let a = AppShared.activeProfileURL, AppShared.activeProfileID != ProfileStore.manualID {
             return a.path
         }
@@ -610,7 +614,11 @@ struct NodeEditorView: View {
         Task {
             defer { busy = false }
             do {
-                try await store.upsertManualNode(node, oldName: original?["name"] as? String)
+                if let profile {
+                    try await store.upsertProfileNode(profile, node, oldName: original?["name"] as? String)
+                } else {
+                    try await store.upsertManualNode(node, oldName: original?["name"] as? String)
+                }
                 dismiss()
             } catch { self.error = error.localizedDescription }
         }

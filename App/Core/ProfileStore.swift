@@ -176,7 +176,7 @@ final class ProfileStore: ObservableObject {
         case invalid(String), badURL, http(Int), empty
         var errorDescription: String? {
             switch self {
-            case .invalid(let s): return String(localized: "配置校验失败：\(s)")
+            case .invalid(let s): return String(localized: "配置校验失败：\(GoText.localize(s))")
             case .badURL: return String(localized: "订阅链接无效")
             case .http(let c): return String(localized: "下载失败：HTTP \(c)")
             case .empty: return String(localized: "订阅内容为空")
@@ -302,6 +302,77 @@ final class ProfileStore: ObservableObject {
         if !err.isEmpty { throw StoreError.invalid(err) }
         objectWillChange.send()
         if activeID == nil { _ = await setActive(p) } else if activeID == p.id { _ = await VPNManager.shared.reload() }
+    }
+
+    // MARK: v0.15.4 nodes defined in a profile file (节点管理 → 配置 · <profile>)
+
+    struct NodeDeleteCheck: Decodable {
+        var groups: [String]?
+        var emptyGroups: [String]?
+        var rules: Int?
+        var dialers: [String]?
+        var error: String?
+    }
+
+    /// The full proxy entry of `name` in the profile file, or nil (not defined there, e.g. a provider node).
+    nonisolated static func profileNode(_ p: Profile, _ name: String) -> [String: Any]? {
+        let json = LibmihomoProfileNodeGet(p.fileURL.path, name)
+        guard !json.isEmpty, let o = try? JSONSerialization.jsonObject(with: Data(json.utf8)) as? [String: Any] else { return nil }
+        return o
+    }
+
+    /// Writes `node` into the profile (in place; a new entry when oldName is nil), renames every reference on a
+    /// rename, keeps <file>.bak + a snapshot, and reloads the core when this profile is running.
+    func upsertProfileNode(_ p: Profile, _ node: [String: Any], oldName: String?) async throws {
+        SnapshotStore.shared.capture(String(localized: "编辑配置节点前"))
+        let data = try JSONSerialization.data(withJSONObject: node)
+        let json = String(decoding: data, as: UTF8.self)
+        let path = p.fileURL.path, home = AppShared.homeURL.path
+        let newName = (node["name"] as? String ?? "").trimmingCharacters(in: .whitespaces)
+        let renamed = oldName != nil && oldName != newName
+        var pinned: [String] = []
+        if renamed, p.id == activeID, let oldName { pinned = await NameRefs.selectionsUsing(oldName) }
+        let err = await Task.detached(priority: .userInitiated) { LibmihomoProfileNodeUpsert(home, path, json, oldName ?? "") }.value
+        if !err.isEmpty { throw StoreError.invalid(err) }
+        if renamed, let oldName { NameRefs.rename(oldName, to: newName, profileID: p.id, isGroup: false) }
+        objectWillChange.send()
+        if p.id == activeID {
+            _ = await ReloadCoalescer.shared.reload(VPNManager.shared, after: 0)
+            await NameRefs.reselect(pinned, newName)
+        }
+    }
+
+    func duplicateProfileNode(_ p: Profile, _ name: String) async throws -> String {
+        SnapshotStore.shared.capture(String(localized: "编辑配置节点前"))
+        let path = p.fileURL.path, home = AppShared.homeURL.path, suffix = String(localized: "副本")
+        let nn = await Task.detached(priority: .userInitiated) { LibmihomoProfileNodeDuplicate(home, path, name, suffix) }.value
+        if nn.isEmpty { throw StoreError.invalid(LibmihomoLastError()) }
+        objectWillChange.send()
+        if p.id == activeID { _ = await ReloadCoalescer.shared.reload(VPNManager.shared, after: 0) }
+        return nn
+    }
+
+    nonisolated static func profileNodeDeleteCheck(_ p: Profile, _ name: String) -> NodeDeleteCheck {
+        let json = LibmihomoProfileNodeDeleteCheck(p.fileURL.path, name)
+        return (try? JSONDecoder().decode(NodeDeleteCheck.self, from: Data(json.utf8))) ?? NodeDeleteCheck(error: json)
+    }
+
+    func deleteProfileNode(_ p: Profile, _ name: String) async throws {
+        SnapshotStore.shared.capture(String(localized: "编辑配置节点前"))
+        let path = p.fileURL.path, home = AppShared.homeURL.path
+        let err = await Task.detached(priority: .userInitiated) { LibmihomoProfileNodeDelete(home, path, name) }.value
+        if !err.isEmpty { throw StoreError.invalid(err) }
+        NameRefs.rename(name, to: nil, profileID: p.id, isGroup: false)
+        objectWillChange.send()
+        if p.id == activeID { _ = await ReloadCoalescer.shared.reload(VPNManager.shared, after: 0) }
+    }
+
+    /// One-level undo of the last profile node edit (<file>.bak).
+    func undoProfileNodeEdit(_ p: Profile) async throws {
+        let err = LibmihomoProfileNodeUndo(p.fileURL.path)
+        if !err.isEmpty { throw StoreError.invalid(err) }
+        objectWillChange.send()
+        if p.id == activeID { _ = await ReloadCoalescer.shared.reload(VPNManager.shared, after: 0) }
     }
 
     func deleteManualNode(_ name: String) async {

@@ -66681,6 +66681,1021 @@
           }
         }
       }
+    },
+    "编辑配置节点前": {
+      "extractionState": "manual",
+      "localizations": {
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "編輯配置節點前"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Before editing a profile node"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "プロファイルのノード編集前"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "프로파일 노드 편집 전"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Перед изменением узла профиля"
+          }
+        }
+      }
+    },
+    "已复制为「%@」": {
+      "extractionState": "manual",
+      "localizations": {
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "已複製為「%@」"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Duplicated as “%@”"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "「%@」として複製しました"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "\"%@\"(으)로 복제했습니다"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Скопировано как «%@»"
+          }
+        }
+      }
+    },
+    "撤销上次修改": {
+      "extractionState": "manual",
+      "localizations": {
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "撤銷上次修改"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Undo last change"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "直前の変更を取り消す"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "마지막 변경 취소"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Отменить последнее изменение"
+          }
+        }
+      }
+    },
+    "修改会直接写入这个配置文件（保留其他内容与注释），改名时策略组和规则里的引用一并更新。这是订阅配置：更新订阅后修改会被覆盖。": {
+      "extractionState": "manual",
+      "localizations": {
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "修改會直接寫入這個配置檔案（保留其他內容與註釋），改名時策略組和規則裡的引用一併更新。這是訂閱配置：更新訂閱後修改會被覆蓋。"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Changes are written into this profile file (everything else and comments are kept); a rename also updates groups and rules that use it. This is a subscription profile: updating it overwrites these changes."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "変更はこのプロファイルに直接書き込まれます（他の内容とコメントは保持）。名前を変えるとポリシーグループとルールの参照も更新されます。これは購読プロファイルです：更新すると変更は上書きされます。"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "변경 사항은 이 프로파일 파일에 바로 기록됩니다(다른 내용과 주석 유지). 이름을 바꾸면 정책 그룹과 규칙의 참조도 함께 바뀝니다. 구독 프로파일이므로 업데이트하면 변경 사항이 덮어써집니다."
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Изменения записываются прямо в файл профиля (остальное и комментарии сохраняются); при переименовании обновляются ссылки в группах и правилах. Это профиль подписки: обновление перезапишет изменения."
+          }
+        }
+      }
+    },
+    "修改会直接写入这个配置文件（保留其他内容与注释），改名时策略组和规则里的引用一并更新。": {
+      "extractionState": "manual",
+      "localizations": {
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "修改會直接寫入這個配置檔案（保留其他內容與註釋），改名時策略組和規則裡的引用一併更新。"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Changes are written into this profile file (everything else and comments are kept); a rename also updates groups and rules that use it."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "変更はこのプロファイルに直接書き込まれます（他の内容とコメントは保持）。名前を変えるとポリシーグループとルールの参照も更新されます。"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "변경 사항은 이 프로파일 파일에 바로 기록됩니다(다른 내용과 주석 유지). 이름을 바꾸면 정책 그룹과 규칙의 참조도 함께 바뀝니다."
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Изменения записываются прямо в файл профиля (остальное и комментарии сохраняются); при переименовании обновляются ссылки в группах и правилах."
+          }
+        }
+      }
+    },
+    "删除这个节点？": {
+      "extractionState": "manual",
+      "localizations": {
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "刪除這個節點？"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Delete this node?"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "このノードを削除しますか？"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "이 노드를 삭제할까요?"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Удалить этот узел?"
+          }
+        }
+      }
+    },
+    "会从配置文件里删除这个节点，并从策略组里移除。": {
+      "extractionState": "manual",
+      "localizations": {
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "會從配置檔案裡刪除這個節點，並從策略組裡移除。"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "The node is deleted from the profile file and removed from its groups."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ノードをプロファイルから削除し、ポリシーグループからも外します。"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "프로파일 파일에서 노드를 삭제하고 정책 그룹에서도 제거합니다."
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Узел будет удалён из файла профиля и из групп."
+          }
+        }
+      }
+    },
+    "这些策略组只剩这一个节点，删除后改为 DIRECT：%@": {
+      "extractionState": "manual",
+      "localizations": {
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "這些策略組只剩這一個節點，刪除後改為 DIRECT：%@"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "These groups only have this node and will use DIRECT: %@"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "次のグループはこのノードだけなので DIRECT になります：%@"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "다음 그룹은 이 노드뿐이라 DIRECT로 바뀝니다: %@"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "В этих группах только этот узел, они переключатся на DIRECT: %@"
+          }
+        }
+      }
+    },
+    "指向它的 %lld 条规则会被删除。": {
+      "extractionState": "manual",
+      "localizations": {
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "指向它的 %lld 條規則會被刪除。"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%lld rules that point to it are deleted."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "このノードを指すルール %lld 件は削除されます。"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "이 노드를 가리키는 규칙 %lld개가 삭제됩니다."
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Будут удалены правила, указывающие на него: %lld."
+          }
+        }
+      }
+    },
+    "这些节点 / 策略组的前置代理会被清除：%@": {
+      "extractionState": "manual",
+      "localizations": {
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "這些節點 / 策略組的前置代理會被清除：%@"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "The dialer proxy of these nodes / groups is cleared: %@"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "次のノード / グループの前段プロキシは解除されます：%@"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "다음 노드 / 그룹의 앞단 프록시가 해제됩니다: %@"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "У этих узлов / групп будет сброшен промежуточный прокси: %@"
+          }
+        }
+      }
+    },
+    "没有可以撤销的修改": {
+      "extractionState": "manual",
+      "localizations": {
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "沒有可以撤銷的修改"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Nothing to undo"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "取り消せる変更はありません"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "취소할 변경 사항이 없습니다"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Нечего отменять"
+          }
+        }
+      }
+    },
+    "配置文件里没有这个节点": {
+      "extractionState": "manual",
+      "localizations": {
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "配置檔案裡沒有這個節點"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "This node is not in the profile file"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "このノードはプロファイルにありません"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "프로파일 파일에 이 노드가 없습니다"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Этого узла нет в файле профиля"
+          }
+        }
+      }
+    },
+    "已有同名的节点或策略组": {
+      "extractionState": "manual",
+      "localizations": {
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "已有同名的節點或策略組"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "A node or group with this name already exists"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "同じ名前のノードまたはグループがあります"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "같은 이름의 노드나 그룹이 있습니다"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Узел или группа с таким именем уже есть"
+          }
+        }
+      }
+    },
+    "名称、类型、服务器不能为空": {
+      "extractionState": "manual",
+      "localizations": {
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "名稱、型別、伺服器不能為空"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Name, type and server are required"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "名前・種類・サーバーは必須です"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "이름, 유형, 서버는 필수입니다"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Укажите имя, тип и сервер"
+          }
+        }
+      }
+    },
+    "全部筛选": {
+      "extractionState": "manual",
+      "localizations": {
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "全部篩選"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "All filters"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "すべてのフィルタ"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "모든 필터"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Все фильтры"
+          }
+        }
+      }
+    },
+    "拖动排序，左滑删除。删除已加为策略组的筛选时，该策略组会一并移除。": {
+      "extractionState": "manual",
+      "localizations": {
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "拖動排序，左滑刪除。刪除已加為策略組的篩選時，該策略組會一併移除。"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Drag to reorder, swipe left to delete. Deleting a filter that was added as a group removes that group too."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ドラッグで並べ替え、左スワイプで削除。グループとして追加済みのフィルタを削除すると、そのグループも削除されます。"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "드래그로 순서 변경, 왼쪽으로 밀어 삭제. 그룹으로 추가한 필터를 삭제하면 그 그룹도 함께 삭제됩니다."
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Перетащите для сортировки, смахните влево для удаления. Удаление фильтра, добавленного как группа, удаляет и группу."
+          }
+        }
+      }
+    },
+    "按节点名称里的地区关键词和国旗筛选。「加为策略组」会在当前配置里新建一个策略组（默认自动选择，延迟最低），包含所有匹配的节点，可在 策略 页使用。左滑或长按可编辑名称、关键词和策略组类型。": {
+      "extractionState": "manual",
+      "localizations": {
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "按節點名稱裡的地區關鍵詞和國旗篩選。「加為策略組」會在當前配置裡新建一個策略組（預設自動選擇，延遲最低），包含所有匹配的節點，可在 策略 頁使用。左滑或長按可編輯名稱、關鍵詞和策略組型別。"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Filters by region keywords and flags in node names. “Add as group” creates a group in the current profile (automatic, lowest latency by default) with every matching node, usable on the Policy tab. Swipe left or long-press to edit the name, keywords and group type."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ノード名の地域キーワードと国旗で絞り込みます。「グループとして追加」で現在のプロファイルに一致するすべてのノードを含むグループ（既定は自動選択・最低遅延）を作り、ポリシータブで使えます。左スワイプか長押しで名前・キーワード・グループの種類を編集できます。"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "노드 이름의 지역 키워드와 국기로 걸러냅니다. \"그룹으로 추가\"하면 현재 프로파일에 일치하는 모든 노드를 담은 그룹(기본 자동 선택, 최저 지연)을 만들어 정책 탭에서 쓸 수 있습니다. 왼쪽으로 밀거나 길게 눌러 이름, 키워드, 그룹 유형을 편집합니다."
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Фильтрует по ключевым словам региона и флагам в именах узлов. «Добавить как группу» создаёт в текущем профиле группу (по умолчанию автовыбор с минимальной задержкой) со всеми подходящими узлами для вкладки «Политики». Смахните влево или нажмите и удерживайте, чтобы изменить имя, ключевые слова и тип группы."
+          }
+        }
+      }
+    },
+    "编辑筛选": {
+      "extractionState": "manual",
+      "localizations": {
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "編輯篩選"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Edit filter"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "フィルタを編集"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "필터 편집"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Изменить фильтр"
+          }
+        }
+      }
+    },
+    "添加筛选": {
+      "extractionState": "manual",
+      "localizations": {
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "新增篩選"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Add filter"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "フィルタを追加"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "필터 추가"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Добавить фильтр"
+          }
+        }
+      }
+    },
+    "已有同名的筛选": {
+      "extractionState": "manual",
+      "localizations": {
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "已有同名的篩選"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "A filter with this name already exists"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "同じ名前のフィルタがあります"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "같은 이름의 필터가 있습니다"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Фильтр с таким именем уже есть"
+          }
+        }
+      }
+    },
+    "关键词不能为空": {
+      "extractionState": "manual",
+      "localizations": {
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "關鍵詞不能為空"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Keywords are required"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "キーワードは必須です"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "키워드는 필수입니다"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Укажите ключевые слова"
+          }
+        }
+      }
+    },
+    "正则表达式无效": {
+      "extractionState": "manual",
+      "localizations": {
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "正規表示式無效"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Invalid regular expression"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "正規表現が無効です"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "정규식이 잘못되었습니다"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Неверное регулярное выражение"
+          }
+        }
+      }
+    },
+    "已加为策略组：改名会同时改策略组名称，以及策略组成员、规则、首页卡片里对它的引用。": {
+      "extractionState": "manual",
+      "localizations": {
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "已加為策略組：改名會同時改策略組名稱，以及策略組成員、規則、首頁卡片裡對它的引用。"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Added as a group: renaming also renames the group and its references in group members, rules and Home cards."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "グループとして追加済み：名前を変えるとグループ名と、グループのメンバー・ルール・ホームカードの参照も変わります。"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "그룹으로 추가됨: 이름을 바꾸면 그룹 이름과 그룹 멤버, 규칙, 홈 카드의 참조도 함께 바뀝니다."
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Добавлен как группа: переименование меняет имя группы и ссылки на неё в группах, правилах и карточках главного экрана."
+          }
+        }
+      }
+    },
+    "关键词（正则）": {
+      "extractionState": "manual",
+      "localizations": {
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "關鍵詞（正則）"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Keywords (regex)"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "キーワード（正規表現）"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "키워드(정규식)"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Ключевые слова (regex)"
+          }
+        }
+      }
+    },
+    "用 | 分隔多个关键词，不区分大小写；支持正则表达式。": {
+      "extractionState": "manual",
+      "localizations": {
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "用 | 分隔多個關鍵詞，不區分大小寫；支援正規表示式。"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Separate keywords with |, case-insensitive; regular expressions are supported."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "複数のキーワードは | で区切ります。大文字と小文字は区別せず、正規表現も使えます。"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "여러 키워드는 |로 구분하며 대소문자를 구분하지 않고 정규식을 지원합니다."
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Разделяйте ключевые слова знаком |, регистр не учитывается; поддерживаются регулярные выражения."
+          }
+        }
+      }
+    },
+    "测速间隔": {
+      "extractionState": "manual",
+      "localizations": {
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "測速間隔"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Test interval"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "テスト間隔"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "테스트 간격"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Интервал проверки"
+          }
+        }
+      }
+    },
+    "加为策略组时": {
+      "extractionState": "manual",
+      "localizations": {
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "加為策略組時"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "When added as a group"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "グループとして追加するとき"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "그룹으로 추가할 때"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "При добавлении как группы"
+          }
+        }
+      }
+    },
+    "香港|HK|Hong Kong": {
+      "extractionState": "manual",
+      "localizations": {
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "香港|HK|Hong Kong"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Hong Kong|HK"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "香港|HK|Hong Kong"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "홍콩|HK|Hong Kong"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Гонконг|HK|Hong Kong"
+          }
+        }
+      }
+    },
+    "🏳️": {
+      "extractionState": "manual",
+      "localizations": {
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "🏳️"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "🏳️"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "🏳️"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "🏳️"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "🏳️"
+          }
+        }
+      }
     }
   },
   "version": "1.0"

@@ -168,12 +168,12 @@ final class NodeManagerModel: ObservableObject {
 
     // MARK: Loading
 
-    func reload() async {
+    func reload(force: Bool = false) async {
         loading = true
         defer { loading = false }
         let store = ProfileStore.shared
         let inspector = ProfileInspector.shared
-        if inspector.profilePath != AppShared.activeProfileURL?.path || inspector.result.proxies.isEmpty {
+        if force || inspector.profilePath != AppShared.activeProfileURL?.path || inspector.result.proxies.isEmpty {
             await inspector.load()
         }
         let r = inspector.result
