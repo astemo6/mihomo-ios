@@ -221,7 +221,7 @@ struct HomePanelsSection: View {
         .sheet(item: $editPanel) { p in PanelEditSheet(p: p) }
         .task(id: vpn.isConnected) {
             home.loadCache()
-            guard vpn.isConnected else { model.panels = []; return }
+            guard vpn.isConnected else { if !model.demo { model.panels = [] }; return }
             home.sync()
             await model.load()
             home.rememberNames()

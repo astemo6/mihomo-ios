@@ -178,7 +178,6 @@ struct PanelCard: View {
             VStack(alignment: .leading, spacing: 4) {
                 HStack {
                     Text(shown.title?.isEmpty == false ? shown.title! : shown.name).font(.subheadline.weight(.semibold)).lineLimit(2)
-                        .accessibilityIdentifier("panel.title")
                     if pinned { Image(systemName: "pin.fill").font(.caption2).foregroundStyle(.secondary).accessibilityLabel(Text("已固定")) }
                     Spacer(minLength: 4)
                     if p.script != nil && !offline {

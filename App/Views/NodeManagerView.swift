@@ -771,6 +771,14 @@ struct NodeSettingsSheet: View {
                     }
                 } header: { Text("测速地址") } footer: { Text("留空则跟随 更多 → 测速 的全局地址。") }
                 if let error { Text(verbatim: error).foregroundStyle(Theme.bad) }
+                if NodeSettingsStore.setting(for: name) != nil {
+                    Section {
+                        Button(role: .destructive) {
+                            do { try NodeSettingsStore.shared.set(nil, for: name); dismiss() } catch { self.error = error.localizedDescription }
+                        } label: { Text("恢复默认") }
+                        .accessibilityIdentifier("node.settings.reset")
+                    }
+                }
             }
             .navigationTitle(Text(verbatim: FlagSafe.text(name)))
             .navigationBarTitleDisplayMode(.inline)

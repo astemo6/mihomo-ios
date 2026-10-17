@@ -974,10 +974,9 @@ final class MihomoUITests: MihomoUITestCase {
         let uf = app.textFields["node.settings.urlField"]
         XCTAssertTrue(uf.waitForExistence(timeout: 6))
         XCTAssertEqual(uf.value as? String, "https://www.gstatic.com/generate_204", "sheet loads the saved URL")
-        replaceText(uf, "")
-        let nf = app.element(id: "node.settings.noteField")
-        replaceText(nf, "")
-        app.buttons["node.settings.save"].tap()
+        let reset = app.element(id: "node.settings.reset")
+        XCTAssertTrue(scrollTo(reset), "恢复默认 offered when settings exist")
+        reset.tap()
         usleep(800_000)
         XCTAssertFalse(app.element(id: "node.settings.note").exists, "remark cleared")
         XCTAssertTrue(app.element(id: "node.settings.url").label.contains(L("跟随全局")))
@@ -986,7 +985,7 @@ final class MihomoUITests: MihomoUITestCase {
     // MARK: 21. v0.17 磁贴编辑: title / icon / refresh interval as an override
 
     func openPanelEditor(_ title: String) {
-        let card = app.staticTexts[title]
+        let card = app.staticTexts.matching(NSPredicate(format: "label == %@", title)).firstMatch
         XCTAssertTrue(card.waitForExistence(timeout: 8), "panel \(title)")
         card.press(forDuration: 1.2)
         let edit = app.buttons[L("编辑面板…")]
@@ -997,7 +996,7 @@ final class MihomoUITests: MihomoUITestCase {
 
     func test21_TileEditing() {
         launch(["-UITestDemoPanels", "-UITestScreen", "panels"])
-        XCTAssertTrue(app.staticTexts["Demo Script Panel"].waitForExistence(timeout: 8), "demo panels")
+        XCTAssertTrue(app.staticTexts.matching(NSPredicate(format: "label == %@", "Demo Script Panel")).firstMatch.waitForExistence(timeout: 8), "demo panels")
         XCTAssertTrue(app.element(id: "panel.interval").label.contains(L("每小时")), "module interval shown: \(app.element(id: "panel.interval").label)")
         snap("tiles")
         openPanelEditor("Demo Script Panel")
@@ -1014,8 +1013,8 @@ final class MihomoUITests: MihomoUITestCase {
         XCTAssertTrue(app.element(id: "panel.edit.preview").label.contains("My Speed"), "preview follows the title")
         snap("tile-editor")
         app.buttons["panel.edit.save"].tap()
-        XCTAssertTrue(app.staticTexts["My Speed"].waitForExistence(timeout: 6), "override title shown")
-        XCTAssertFalse(app.staticTexts["Demo Script Panel"].exists, "module title replaced")
+        XCTAssertTrue(app.staticTexts.matching(NSPredicate(format: "label == %@", "My Speed")).firstMatch.waitForExistence(timeout: 6), "override title shown")
+        XCTAssertFalse(app.staticTexts.matching(NSPredicate(format: "label == %@", "Demo Script Panel")).firstMatch.exists, "module title replaced")
         XCTAssertTrue(app.element(id: "panel.interval").label.contains(L("每 5 分钟")), "override interval shown")
         snap("tiles-edited")
         // Static Stash tile: title / icon only, no interval.
@@ -1034,7 +1033,7 @@ final class MihomoUITests: MihomoUITestCase {
         let reset = app.buttons["panel.edit.reset"]
         XCTAssertTrue(scrollTo(reset))
         reset.tap()
-        XCTAssertTrue(app.staticTexts["Demo Script Panel"].waitForExistence(timeout: 6), "module title back")
+        XCTAssertTrue(app.staticTexts.matching(NSPredicate(format: "label == %@", "Demo Script Panel")).firstMatch.waitForExistence(timeout: 6), "module title back")
         XCTAssertTrue(app.element(id: "panel.interval").label.contains(L("每小时")), "module interval back")
     }
 }
