@@ -62,3 +62,49 @@ func TestHotfix0131QXImportVariants(t *testing.T) {
 		})
 	}
 }
+
+// Synthetic copy of the traits of the real-world export that failed on device: "#!" header, a 4 KB
+// comment line, "[server_local] " with a trailing space, an unbracketed IPv6 vmess server, QX
+// "*testflight.apple.com" DNS / host wildcards, [http_backend]. The converted profile must pass the same
+// validation addLocal runs (that validation failure was the "导入 does nothing" on device).
+func TestHotfix0131SyntheticRealWorld(t *testing.T) {
+	b, err := os.ReadFile("testdata/qx_hotfix0131.conf")
+	if err != nil {
+		t.Fatal(err)
+	}
+	text := string(b)
+	if c := ClassifyText(text); c != "conf" {
+		t.Fatalf("classify %q", c)
+	}
+	var r confResult
+	if err := json.Unmarshal([]byte(ImportConf(text)), &r); err != nil {
+		t.Fatal(err)
+	}
+	if r.Error != "" || r.YAML == "" {
+		t.Fatalf("error %q", r.Error)
+	}
+	if r.Report.Proxies != 2 {
+		t.Fatalf("proxies = %d (IPv6 server dropped?) skipped=%v", r.Report.Proxies, r.Report.Skipped)
+	}
+	if !strings.Contains(r.YAML, "+.testflight.apple.com") || strings.Contains(r.YAML, "*testflight") {
+		t.Fatalf("testflight wildcard not normalised:\n%s", r.YAML)
+	}
+	home := t.TempDir()
+	p := filepath.Join(home, "x.yaml")
+	os.WriteFile(p, []byte(r.YAML), 0o644)
+	if e := ValidateConfigIn(home, p); e != "" && !strings.Contains(strings.ToLower(e), "geo") && !strings.Contains(strings.ToLower(e), "mmdb") {
+		t.Fatalf("validation: %s", e)
+	}
+}
+
+func TestSplitHostPortIPv6Bare(t *testing.T) {
+	for in, want := range map[string]string{"2001:db8:57::8e:889f:443": "2001:db8:57::8e:889f", "[2001:db8::1]:443": "2001:db8::1", "example.com:443": "example.com"} {
+		h, p, err := splitHostPort(in)
+		if err != nil || h != want || p != 443 {
+			t.Fatalf("%s → %q %d %v", in, h, p, err)
+		}
+	}
+	if _, _, err := splitHostPort("example.com"); err == nil {
+		t.Fatal("missing port must fail")
+	}
+}
