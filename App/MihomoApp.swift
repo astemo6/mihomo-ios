@@ -36,6 +36,7 @@ struct MihomoApp: App {
                     if p == .active {
                         Task { await vpn.load() }
                         Task { await store.autoUpdateIfNeeded() }
+                        Task { await NodeSubStore.shared.autoUpdateIfNeeded() }
                         Task { await ResourceStore.shared.updateDueIfNeeded() }
                         ipinfo.scheduleRefresh(after: 0.3)
                     }

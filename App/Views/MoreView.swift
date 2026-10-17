@@ -22,6 +22,13 @@ struct MoreView: View {
                 }
                 .listRowBackground(Theme.card)
 
+                Section("订阅") {
+                    NavigationLink { SubscriptionsView() } label: {
+                        row("订阅管理", "tray.full", "\(store.profiles.filter { $0.kind == .remote }.count + NodeSubStore.shared.subs.count)")
+                    }
+                }
+                .listRowBackground(Theme.card)
+
                 Section("规则与资源") {
                     NavigationLink { RulesView() } label: { row("规则", "list.bullet.rectangle", nil) }
                     NavigationLink { ProvidersView() } label: { row("提供者（规则集 / 节点集）", "shippingbox", nil) }

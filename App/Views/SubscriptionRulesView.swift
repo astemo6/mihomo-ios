@@ -107,6 +107,11 @@ struct SubPreviewResult: Decodable {
 
 struct SubscriptionRulesView: View {
     let profile: Profile
+    /// v0.9 订阅管理: node subscriptions store their rules under "nodesub-<id>" and preview their cache file;
+    /// saving always reloads a running tunnel (they apply to every profile).
+    var rulesKey: String? = nil
+    var previewPath: String? = nil
+    private var key: String { rulesKey ?? profile.id }
     @EnvironmentObject var store: ProfileStore
     @Environment(\.dismiss) private var dismiss
     @State private var rules = SubRules()
@@ -222,7 +227,7 @@ struct SubscriptionRulesView: View {
             }
         }
         .onAppear {
-            let r = SubRulesStore.get(profile.id)
+            let r = SubRulesStore.get(key)
             saved = r
             rules = r ?? SubRules()
             schedulePreview()
@@ -261,7 +266,7 @@ struct SubscriptionRulesView: View {
     func schedulePreview() {
         previewTask?.cancel()
         let r = rules
-        let path = profile.fileURL.path
+        let path = previewPath ?? profile.fileURL.path
         previewTask = Task {
             try? await Task.sleep(nanoseconds: 300_000_000)
             if Task.isCancelled { return }
@@ -279,10 +284,10 @@ struct SubscriptionRulesView: View {
             message = String(localized: "当前规则会移除全部节点，请调整后再保存。")
             return
         }
-        SubRulesStore.set(profile.id, rules.isEmpty ? nil : rules)
+        SubRulesStore.set(key, rules.isEmpty ? nil : rules)
         saved = rules.isEmpty ? nil : rules
         store.objectWillChange.send()
-        if profile.id == store.activeID {
+        if profile.id == store.activeID || (rulesKey != nil && VPNManager.shared.isConnected) {
             Task {
                 if let err = await VPNManager.shared.reload() { message = String(localized: "已保存，但重载失败：\(err)") }
                 else { dismiss() }
