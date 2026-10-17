@@ -91,7 +91,7 @@ func findRuntimeNode(raw map[string]any, name string) (map[string]any, string, b
 
 // credentialKeys are the secrets a node may carry; the summary only says which ones are set.
 var credentialKeys = []string{"password", "uuid", "username", "private-key", "pre-shared-key", "public-key", "psk",
-	"auth", "auth-str", "auth_str", "token", "obfs-password", "private-key-passphrase", "short-id"}
+	"auth", "auth-str", "auth_str", "token", "auth-key", "obfs-password", "private-key-passphrase", "short-id"}
 
 // nodeSummary keeps what the 节点管理 detail shows: protocol, address, transport / TLS options and which
 // credentials exist — never their values (and no paths / headers / reality keys).
@@ -158,6 +158,20 @@ func nodeSummary(m map[string]any, source string) map[string]any {
 	}
 	if _, ok := m["amnezia-wg-option"]; ok {
 		out["amnezia"] = true
+	}
+	if typ == "tailscale" {
+		ts := map[string]any{"ephemeral": boolOf(m["ephemeral"])}
+		for _, k := range []string{"hostname", "control-url", "state-dir", "exit-node"} {
+			if v := str(m[k]); v != "" {
+				ts[k] = v
+			}
+		}
+		for _, k := range []string{"accept-routes", "exit-node-allow-lan-access"} {
+			if v, ok := m[k]; ok {
+				ts[k] = boolOf(v)
+			}
+		}
+		out["tailscale"] = ts
 	}
 	var creds []string
 	for _, k := range credentialKeys {

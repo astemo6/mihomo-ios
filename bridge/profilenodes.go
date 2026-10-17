@@ -455,7 +455,7 @@ func ProfileNodeUpsert(homeDir, path, nodeJSON, oldName string) string {
 	}
 	node = normalizeJSON(node).(map[string]any)
 	name := strings.TrimSpace(strOf(node["name"]))
-	if name == "" || strOf(node["type"]) == "" || strOf(node["server"]) == "" {
+	if name == "" || strOf(node["type"]) == "" || (strOf(node["server"]) == "" && !serverlessType(strOf(node["type"]))) {
 		return "名称、类型、服务器不能为空"
 	}
 	node["name"] = name
