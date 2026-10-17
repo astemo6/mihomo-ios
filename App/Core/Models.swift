@@ -155,6 +155,13 @@ struct RuleItem: Decodable, Identifiable, Hashable {
     var payload: String
     var proxy: String
     var size: Int?
+    /// v0.14: mihomo's per-rule counters for the running session (top-level rules only).
+    var extra: RuleExtraItem?
+}
+
+struct RuleExtraItem: Decodable, Hashable {
+    var disabled: Bool?
+    var hitCount: Int?
 }
 
 struct RulesResponse: Decodable { var rules: [RuleItem] }
@@ -203,6 +210,8 @@ enum Fmt {
         return i == 0 ? "\(Int(d)) B" : String(format: d >= 100 ? "%.0f %@" : "%.1f %@", d, units[i])
     }
     static func speed(_ v: Int64) -> String { bytes(v) + "/s" }
+    /// v0.14: compact counts (1234 → 1.2K) in the user's locale.
+    static func count(_ v: Int) -> String { v.formatted(.number.notation(.compactName)) }
     static func duration(_ t: TimeInterval) -> String {
         let s = Int(max(t, 0))
         if s < 60 { return "\(s)s" }

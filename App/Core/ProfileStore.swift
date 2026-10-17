@@ -90,6 +90,7 @@ final class ProfileStore: ObservableObject {
         SnapshotStore.shared.capture(String(localized: "删除配置「\(p.name)」前"))
         try? FileManager.default.removeItem(at: p.fileURL)
         SubRulesStore.set(p.id, nil)
+        UsageAlerts.remove(p.id)
         profiles.removeAll { $0.id == p.id }
         if activeID == p.id {
             activeID = profiles.first?.id
@@ -226,6 +227,7 @@ final class ProfileStore: ObservableObject {
             SnapshotStore.shared.capture(String(localized: "更新订阅「\(p.name)」前"))
             let np = try await download(p)
             update(np)
+            UsageAlerts.evaluate(id: np.id, name: np.name, info: np.userInfo)
             if np.id == activeID { _ = await VPNManager.shared.reload() }
             return nil
         } catch {
@@ -241,12 +243,16 @@ final class ProfileStore: ObservableObject {
         return errors
     }
 
-    /// Updates remote profiles whose interval has elapsed (called on foreground).
-    func autoUpdateIfNeeded() async {
+    /// Updates remote profiles whose interval has elapsed (foreground + background refresh, v0.14 results
+    /// for the update notification).
+    @discardableResult
+    func autoUpdateIfNeeded() async -> [SubUpdateResult] {
+        var out: [SubUpdateResult] = []
         for p in profiles where p.kind == .remote && p.updateIntervalHours > 0 {
             let due = (p.lastUpdated ?? .distantPast).addingTimeInterval(TimeInterval(p.updateIntervalHours * 3600))
-            if due < Date() { _ = await refresh(p) }
+            if due < Date() { out.append(SubUpdateResult(name: p.name, error: await refresh(p))) }
         }
+        return out
     }
 
     // MARK: Manual nodes (Shadowrocket style) — a local profile "手动节点"

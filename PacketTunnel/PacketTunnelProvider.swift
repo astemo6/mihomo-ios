@@ -220,6 +220,7 @@ final class PacketTunnelProvider: NEPacketTunnelProvider {
             completionHandler?(LibmihomoVersion().data(using: .utf8))
         case .flushStats:
             traffic?.sampleNow()
+            LibmihomoFlushRuleHits()
             completionHandler?(nil)
         case .dumpDiagnostics:
             LibmihomoRecordMemorySample(Int64(ProcessMemory.footprintBytes()), Int64(ProcessMemory.availableBytes()))
@@ -235,6 +236,7 @@ final class PacketTunnelProvider: NEPacketTunnelProvider {
 
     override func sleep(completionHandler: @escaping () -> Void) {
         traffic?.sample()
+        LibmihomoFlushRuleHits()
         LibmihomoFreeMemory()
         completionHandler()
     }
