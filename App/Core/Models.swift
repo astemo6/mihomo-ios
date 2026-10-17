@@ -25,6 +25,8 @@ struct ProxyItem: Decodable, Identifiable, Hashable {
     var hidden: Bool?
     var icon: String?
     var testUrl: String?
+    /// url-test / fallback: the member pinned with PUT /proxies/{group} ("" = not pinned).
+    var fixed: String?
     var extra: [String: ExtraDelay]?
 
     var lastDelay: Int? {

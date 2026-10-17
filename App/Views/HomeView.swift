@@ -5,6 +5,25 @@ struct HomeView: View {
     @EnvironmentObject var vpn: VPNManager
     @EnvironmentObject var store: ProfileStore
     @EnvironmentObject var dash: DashboardModel
+    @ObservedObject private var offline = ProfileInspector.shared
+
+    /// v0.8: the same cards while disconnected, from the profile file (selection saved for the next connect).
+    var offlineCards: [DashboardModel.HomeGroup] {
+        let groups = offline.result.groups.filter { $0.hidden != true }
+        let byName = Dictionary(groups.map { ($0.name, $0) }, uniquingKeysWith: { a, _ in a })
+        return groups.prefix(4).map { g -> DashboardModel.HomeGroup in
+            var chain = [g.name]
+            var cur = g
+            while let n = offline.current(of: cur), chain.count < 6, !chain.contains(n) {
+                chain.append(n)
+                guard let next = byName[n] else { break }
+                cur = next
+            }
+            return DashboardModel.HomeGroup(name: g.name, icon: g.icon, kind: g.type, chain: chain, delay: chain.last.flatMap { offline.delays[$0] })
+        }
+    }
+
+    var disconnected: Bool { vpn.status == .disconnected || vpn.status == .invalid }
 
     var body: some View {
         NavigationStack {
@@ -13,7 +32,11 @@ struct HomeView: View {
                     // v0.7: exit-location header (QX reference, in our card style) with the plain toggle.
                     ExitHeader()
                     if vpn.safeModeActive && vpn.status != .disconnected && vpn.status != .invalid { SafeModeCard() }
-                    if vpn.isConnected && !dash.homeGroups.isEmpty { HomePolicyCards() }
+                    if vpn.isConnected && !dash.homeGroups.isEmpty {
+                        HomePolicyCards(groups: dash.homeGroups, live: true)
+                    } else if disconnected && !offlineCards.isEmpty {
+                        HomePolicyCards(groups: offlineCards, live: false)
+                    }
                     ModeCard()
                     TrafficCard()
                     StatsGrid()
@@ -41,6 +64,7 @@ struct HomeView: View {
             }
             .background(Theme.bg.ignoresSafeArea())
             .toolbar(.hidden, for: .navigationBar)
+            .task(id: "\(store.activeID ?? "")|\(disconnected)") { if disconnected { await offline.load() } }
             .alert("连接失败", isPresented: Binding(get: { vpn.lastError != nil && vpn.showErrorAlert }, set: { if !$0 { vpn.showErrorAlert = false } })) {
                 if vpn.canOfferSafeMode {
                     Button("以安全模式连接") {
@@ -259,6 +283,39 @@ struct StatTile: View {
 }
 
 
+/// Flag + exit location large, "time zone · ASN · IP" small. Shared by the Home header and 节点探测 (v0.8).
+struct ExitInfoRow: View {
+    let info: IPInfo?
+    let loading: Bool
+    let failed: Bool
+    let placeholder: String
+    /// Third line with the operator (节点探测 shows it; Home keeps two lines).
+    var showOrg = false
+
+    var body: some View {
+        HStack(alignment: .center, spacing: 12) {
+            Text(info?.flag ?? "🌐")
+                .font(.system(size: 34))
+                .accessibilityHidden(true)
+            VStack(alignment: .leading, spacing: 3) {
+                Text(info?.placeText ?? (loading ? String(localized: "正在查询…") : (failed ? String(localized: "查询失败") : "—")))
+                    .font(.title3.weight(.bold))
+                    .lineLimit(1)
+                    .minimumScaleFactor(0.7)
+                Text(info?.detailText ?? placeholder)
+                    .font(.caption.monospacedDigit())
+                    .foregroundStyle(.secondary)
+                    .lineLimit(1)
+                    .minimumScaleFactor(0.75)
+                if showOrg, let org = info?.org, !org.isEmpty {
+                    Text(org).font(.caption).foregroundStyle(.secondary).lineLimit(1)
+                }
+            }
+            Spacer(minLength: 0)
+        }
+    }
+}
+
 /// Home header (v0.7): flag + exit location large, "time zone · ASN · IP" small, a plain toggle, and one
 /// status line. Tap refreshes the exit info, long-press copies it (as the old IP card did).
 struct ExitHeader: View {
@@ -271,20 +328,8 @@ struct ExitHeader: View {
         let on = vpn.isConnected
         VStack(alignment: .leading, spacing: 12) {
             HStack(alignment: .center, spacing: 12) {
-                Text(ip.exit?.flag ?? "🌐")
-                    .font(.system(size: 34))
-                    .accessibilityHidden(true)
-                VStack(alignment: .leading, spacing: 3) {
-                    Text(ip.exit?.placeText ?? (ip.loading ? String(localized: "正在查询…") : (ip.failed ? String(localized: "查询失败") : "—")))
-                        .font(.title3.weight(.bold))
-                        .lineLimit(1)
-                        .minimumScaleFactor(0.7)
-                    Text(ip.exit?.detailText ?? (on ? String(localized: "出口 · 代理") : String(localized: "出口 · 本机网络")))
-                        .font(.caption.monospacedDigit())
-                        .foregroundStyle(.secondary)
-                        .lineLimit(1)
-                        .minimumScaleFactor(0.75)
-                }
+                ExitInfoRow(info: ip.exit, loading: ip.loading, failed: ip.failed,
+                            placeholder: on ? String(localized: "出口 · 代理") : String(localized: "出口 · 本机网络"))
                 .contentShape(Rectangle())
                 .onTapGesture {
                     UIImpactFeedbackGenerator(style: .light).impactOccurred()
@@ -350,14 +395,16 @@ struct ExitHeader: View {
 /// Home policy cards (v0.7): icon, group name and the resolved chain (PROXY ➤ 🇯🇵 node). Tap opens a
 /// quick picker for selectable groups.
 struct HomePolicyCards: View {
-    @EnvironmentObject var dash: DashboardModel
+    let groups: [DashboardModel.HomeGroup]
+    /// false = disconnected: cards come from the profile and the picker saves for the next connect (v0.8).
+    var live = true
 
     var body: some View {
         VStack(spacing: 0) {
-            ForEach(Array(dash.homeGroups.enumerated()), id: \.element.id) { i, g in
+            ForEach(Array(groups.enumerated()), id: \.element.id) { i, g in
                 if i > 0 { Divider().overlay(Color.white.opacity(0.06)).padding(.leading, 56) }
                 NavigationLink {
-                    GroupQuickPicker(group: g.name)
+                    if live { GroupQuickPicker(group: g.name) } else { OfflineGroupPicker(group: g.name) }
                 } label: {
                     HStack(spacing: 12) {
                         GroupIconView(group: g.name, profileIcon: g.icon, fallback: PolicyGroupDisplay(name: g.name, kind: g.kind, now: nil, members: [], selectable: false).icon, size: 32)
@@ -383,6 +430,48 @@ struct HomePolicyCards: View {
         }
         .background(RoundedRectangle(cornerRadius: 18, style: .continuous).fill(Theme.card))
         .overlay(RoundedRectangle(cornerRadius: 18, style: .continuous).stroke(Color.white.opacity(0.06)))
+    }
+}
+
+/// Members of one group from the profile file while disconnected; select groups save the choice for the next
+/// connect (the same store as 策略's offline list).
+struct OfflineGroupPicker: View {
+    let group: String
+    @ObservedObject private var insp = ProfileInspector.shared
+
+    var body: some View {
+        List {
+            if let g = insp.result.groups.first(where: { $0.name == group }) {
+                let selectable = g.type == "select"
+                Section {
+                    ForEach(insp.members(of: g), id: \.self) { m in
+                        Button {
+                            guard selectable else { return }
+                            insp.select(group: g.name, node: m)
+                            UISelectionFeedbackGenerator().selectionChanged()
+                        } label: {
+                            HStack {
+                                Text(m).lineLimit(1)
+                                Spacer()
+                                if let d = insp.delays[m] {
+                                    Text(Theme.delayText(d)).font(.caption.monospacedDigit()).foregroundStyle(Theme.delayColor(d))
+                                }
+                                if insp.current(of: g) == m { Image(systemName: "checkmark").foregroundStyle(Theme.accent) }
+                            }
+                        }
+                        .foregroundStyle(.primary)
+                    }
+                } footer: {
+                    Text(selectable ? String(localized: "未连接：选择会保存到该配置，下次连接时生效。")
+                                    : PolicyGroupDisplay(name: g.name, kind: g.type, now: insp.current(of: g), members: [], selectable: false).hint)
+                }
+                .listRowBackground(Theme.card)
+            }
+        }
+        .scrollContentBackground(.hidden)
+        .background(Theme.bg.ignoresSafeArea())
+        .navigationTitle(group)
+        .navigationBarTitleDisplayMode(.inline)
     }
 }
 

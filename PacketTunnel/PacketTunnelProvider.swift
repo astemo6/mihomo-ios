@@ -58,7 +58,11 @@ final class PacketTunnelProvider: NEPacketTunnelProvider {
         }
         StartupLog.write("app group \(AppShared.appGroup) (\(AppShared.appGroupSource)), profile \(profile.lastPathComponent)")
         GeoBootstrap.install { StartupLog.write($0) }
-        let overrides = CoreOverrides.load()
+        var overrides = CoreOverrides.load()
+        // v0.8 IPv6 自动: decided once per start from the physical network; Go gets the same answer.
+        overrides.ipv6 = overrides.resolvedIPv6()
+        LibmihomoSetNetworkIPv6(overrides.ipv6)
+        StartupLog.write("ipv6 mode \(overrides.ipv6Mode) → \(overrides.ipv6 ? "on" : "off"), ip preference \(overrides.ipPreference)")
         LibmihomoSetNotifier(notifier)
         LibmihomoSetMemoryLimit(Int32(overrides.memoryLimitMB))
         let proxyOnly = overrides.isProxyOnly
@@ -361,6 +365,6 @@ final class TrafficRecorder {
         let dd = down >= lastDown ? down - lastDown : down
         lastUp = up
         lastDown = down
-        TrafficHistory.add(up: du, down: dd)
+        TrafficHistory.add(up: du, down: dd, iface: NetworkWatcher.currentType)
     }
 }

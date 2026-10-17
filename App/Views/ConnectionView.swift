@@ -72,14 +72,13 @@ struct ConnectionView: View {
         .listRowBackground(Theme.card)
     }
 
-    var trafficSection: some View {
+    @ViewBuilder var trafficSection: some View {
         Section {
             Picker("阻止 QUIC", selection: $o.blockQUIC) {
                 Text("关").tag("off")
                 Text("仅非直连").tag("nondirect")
                 Text("始终").tag("always")
             }
-            Toggle("IPv6", isOn: $o.ipv6)
         } header: { Text("流量") } footer: {
             switch o.blockQUIC {
             case "off":
@@ -88,6 +87,35 @@ struct ConnectionView: View {
                 Text("拒绝所有 QUIC（UDP 443），App 自动改用 TCP，规则与 MitM 对它们都生效。")
             default:
                 Text("默认。规则选择直连、或节点支持 UDP 时 QUIC 照常可用；本该走代理但节点不支持 UDP 的 QUIC 被拒绝，App 改用 TCP 并按规则走代理，不会偷偷直连。")
+            }
+        }
+        .listRowBackground(Theme.card)
+        ipv6Section
+    }
+
+    /// v0.8: IPv6 关 / 自动 / 总是 + IP 优先级 for nodes.
+    var ipv6Section: some View {
+        Section {
+            Picker("IPv6", selection: $o.ipv6Mode) {
+                Text("关").tag("off")
+                Text("自动").tag("auto")
+                Text("总是").tag("always")
+            }
+            Picker("节点 IP 优先", selection: $o.ipPreference) {
+                Text("默认（双栈）").tag("dual")
+                Text("IPv4 优先").tag("ipv4-prefer")
+                Text("IPv6 优先").tag("ipv6-prefer")
+                Text("仅 IPv4").tag("ipv4")
+                Text("仅 IPv6").tag("ipv6")
+            }
+        } header: { Text("IPv6") } footer: {
+            switch o.ipv6Mode {
+            case "auto":
+                Text("每次连接时检查当前 Wi-Fi 或蜂窝网络是否有公网 IPv6 地址，有才给隧道和内核开启 IPv6。切换网络后需要重新连接。「节点 IP 优先」只作用于没有自己写 ip-version 的节点（含节点集）。")
+            case "always":
+                Text("隧道和内核始终开启 IPv6（AAAA 解析与 IPv6 路由）。当前网络没有 IPv6 时，可能出现部分连接变慢。「节点 IP 优先」只作用于没有自己写 ip-version 的节点（含节点集）。")
+            default:
+                Text("隧道只接管 IPv4，内核不解析 AAAA。「节点 IP 优先」只作用于没有自己写 ip-version 的节点（含节点集）。")
             }
         }
         .listRowBackground(Theme.card)
@@ -275,7 +303,8 @@ struct ConnectionView: View {
         let old = cur
         cur.tunnelMode = o.tunnelMode
         cur.blockQUIC = o.blockQUIC
-        cur.ipv6 = o.ipv6
+        cur.ipv6Mode = o.ipv6Mode
+        cur.ipPreference = o.ipPreference
         cur.includeAllNetworks = o.includeAllNetworks
         cur.excludeLocalNetworks = o.excludeLocalNetworks
         cur.excludeAPNs = o.excludeAPNs
@@ -290,7 +319,7 @@ struct ConnectionView: View {
         cur.save()
         saved = cur
         // Needs a new tunnel (network settings / VPN configuration) vs. a core reload.
-        let reconnect = old.tunnelMode != cur.tunnelMode || old.ipv6 != cur.ipv6 || old.includedRoutes != cur.includedRoutes
+        let reconnect = old.tunnelMode != cur.tunnelMode || old.ipv6Mode != cur.ipv6Mode || old.includedRoutes != cur.includedRoutes
             || old.excludedRoutes != cur.excludedRoutes || old.skipProxy != cur.skipProxy
             || old.includeAllNetworks != cur.includeAllNetworks || old.excludeLocalNetworks != cur.excludeLocalNetworks
             || old.excludeAPNs != cur.excludeAPNs || old.excludeCellularServices != cur.excludeCellularServices
@@ -298,7 +327,7 @@ struct ConnectionView: View {
         let scopeChanged = old.includeAllNetworks != cur.includeAllNetworks || old.excludeLocalNetworks != cur.excludeLocalNetworks
             || old.excludeAPNs != cur.excludeAPNs || old.excludeCellularServices != cur.excludeCellularServices
             || old.excludeDeviceCommunication != cur.excludeDeviceCommunication
-        let reload = old.blockQUIC != cur.blockQUIC || old.lanLocalOnly != cur.lanLocalOnly || old.lanAuth != cur.lanAuth
+        let reload = old.blockQUIC != cur.blockQUIC || old.ipPreference != cur.ipPreference || old.lanLocalOnly != cur.lanLocalOnly || old.lanAuth != cur.lanAuth
         let settings = onDemand
         Task {
             if scopeChanged, let e = await vpn.applyTunnelScope() {
