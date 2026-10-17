@@ -70,6 +70,8 @@ class MihomoUITestCase: XCTestCase {
     var issues: [String] = []
     var warnings: [String] = []
     var screens: [String] = []
+    /// v0.18: screens that show user content in Chinese on purpose (示例配置 text) skip the untranslated check.
+    var allowHan = false
 
     override func setUp() {
         continueAfterFailure = true
@@ -144,7 +146,7 @@ class MihomoUITestCase: XCTestCase {
                 if Self.specifier.firstMatch(in: text, range: r) != nil {
                     issues.append("[\(Env.tag)] \(screen): unformatted specifier in “\(text)”")
                 }
-                if Env.isEnglish, Self.han.firstMatch(in: text, range: r) != nil,
+                if Env.isEnglish, !allowHan, Self.han.firstMatch(in: text, range: r) != nil,
                    !Self.allowedHan.contains(where: { text.contains($0) }) {
                     let msg = "[\(Env.tag)] \(screen): untranslated “\(text)”"
                     if !issues.contains(msg) { issues.append(msg) }

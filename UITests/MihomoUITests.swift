@@ -170,6 +170,9 @@ final class MihomoUITests: MihomoUITestCase {
         if tapIfExists(hy2, timeout: 3) {
             usleep(700_000)
             XCTAssertTrue(app.element(label: "🇸🇬 Singapore Hy2").exists, "hy2 node after filter")
+            // The list re-renders after the menu closes; give it a moment (en-dark flake, v0.18).
+            let hidden = NSPredicate(format: "exists == false")
+            _ = XCTWaiter().wait(for: [XCTNSPredicateExpectation(predicate: hidden, object: app.element(label: "🇯🇵 Tokyo 01"))], timeout: 4)
             XCTAssertFalse(app.element(label: "🇯🇵 Tokyo 01").exists, "ss node hidden by filter")
             snap("nodes-filter-hy2")
         } else { issues.append("[\(Env.tag)] protocol Hy2 not in the filter menu") }
@@ -1071,7 +1074,7 @@ final class MihomoUITests: MihomoUITestCase {
         sec.typeText("tskey-auth-uitest-xxxx")
         snap("tailscale-editor")
         app.swipeUp()
-        XCTAssertTrue(scrollTo(app.staticTexts[L("接受子网路由")]), "accept-routes toggle")
+        XCTAssertTrue(scrollTo(app.element(label: L("接受子网路由"))), "accept-routes toggle")
         snap("tailscale-editor-bottom")
         let save = app.navigationBars.buttons[L("保存")]
         XCTAssertTrue(save.waitHittable(), "保存 enabled without server / port")
@@ -1097,7 +1100,9 @@ final class MihomoUITests: MihomoUITestCase {
         snap("tailscale-detail")
         mem.tap()
         XCTAssertTrue(app.navigationBars[L("诊断")].waitForExistence(timeout: 6), "opens 诊断")
-        XCTAssertTrue(app.staticTexts[L("隧道内存")].waitForExistence(timeout: 4) || app.otherElements[L("隧道内存")].exists, "隧道内存 section")
+        // Section headers are upper-cased in English; check the section's content instead (no tunnel in the simulator).
+        let memRow = app.element(labelContains: L("暂无内存数据"))
+        XCTAssertTrue(memRow.waitForExistence(timeout: 4) || app.element(id: "diag.memory.current").exists, "隧道内存 section")
         snap("tailscale-diagnostics")
     }
 
@@ -1140,6 +1145,8 @@ final class MihomoUITests: MihomoUITestCase {
         for k in ["proxy-groups:", "rule-providers:", "type: tailscale", "[rewrite_local]", "MATCH,"] {
             XCTAssertTrue(text.contains(k), "sample contains \(k)")
         }
+        // The profile text itself is Chinese by design (comments); only the UI around it is localized.
+        allowHan = true
         snap("sample-profile")
         app.element(id: "sample.copy").tap()
         XCTAssertTrue(app.button(L("已复制")).waitForExistence(timeout: 3), "copied")
@@ -1148,6 +1155,7 @@ final class MihomoUITests: MihomoUITestCase {
         XCTAssertTrue(msg.waitForExistence(timeout: 15), "create result")
         XCTAssertTrue(msg.label.contains(L("示例配置")), "created: \(msg.label)")
         snap("sample-profile-created")
+        allowHan = false
         back()
         let rows = app.descendants(matching: .any).matching(NSPredicate(format: "label CONTAINS %@", L("示例配置")))
         XCTAssertTrue(rows.count >= 2, "new profile listed next to the entry")

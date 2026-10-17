@@ -39,6 +39,7 @@ struct SampleProfileView: View {
                     .frame(maxWidth: .infinity, alignment: .leading)
                     .padding(.horizontal, 16).padding(.vertical, 8)
                     .background(Theme.card)
+                    .accessibilityElement(children: .combine)
                     .accessibilityIdentifier("sample.message")
             }
             HStack(spacing: 12) {
