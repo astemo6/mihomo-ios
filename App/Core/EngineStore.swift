@@ -133,15 +133,17 @@ final class EngineStore: ObservableObject {
 
     /// v0.15 模块库: add a module whose text was already downloaded for the preview (no second download).
     /// Returns false when the URL is already a module.
+    /// feat/module-browser: `enabled`, `interval` (seconds, nil = 1 day) and `args` chosen in the preview.
     @discardableResult
-    func addPreviewedModule(url: String, text: String, name: String) -> Bool {
+    func addPreviewedModule(url: String, text: String, name: String, enabled: Bool = true, interval: Int? = nil, args: [String: String]? = nil) -> Bool {
         if config.modules.contains(where: { $0.url == url }) { return false }
         SnapshotStore.shared.capture(String(localized: "添加模块前"))
         let m = EngineModule(name: name.isEmpty ? (URL(string: url)?.deletingPathExtension().lastPathComponent ?? "模块") : name,
-                             url: url, enabled: true, args: nil, updatedAt: Date().timeIntervalSince1970)
+                             url: url, enabled: enabled, args: args?.isEmpty == false ? args : nil, updatedAt: Date().timeIntervalSince1970,
+                             interval: interval)
         guard (try? text.write(to: EnginePaths.moduleURL(m.id), atomically: true, encoding: .utf8)) != nil else { return false }
         config.modules.append(m)
-        if !config.enabled { config.enabled = true }
+        if enabled && !config.enabled { config.enabled = true }
         reparseModules()
         save()
         return true
