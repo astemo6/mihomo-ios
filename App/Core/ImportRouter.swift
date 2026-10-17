@@ -15,6 +15,9 @@ enum ImportAction: Identifiable, Equatable {
     case moduleText(name: String, text: String, source: String)
     case confText(name: String, text: String)
     case nodesText(text: String)
+    /// QX add-resource / update-configuration (and our mihomo:///add-resource mirror): every entry of
+    /// server_remote / filter_remote / rewrite_remote, as full QX lines.
+    case qxResources(server: [String], filter: [String], rewrite: [String])
     case connect, disconnect, toggle
     case unsupported(String)
 
@@ -26,6 +29,7 @@ enum ImportAction: Identifiable, Equatable {
         case .moduleText(let n, _, _): return "mt:" + n
         case .confText(let n, _): return "c:" + n
         case .nodesText(let t): return "n:" + String(t.prefix(64))
+        case .qxResources(let a, let b, let c): return "qx:" + String((a + b + c).joined(separator: "|").prefix(200))
         case .connect: return "connect"
         case .disconnect: return "disconnect"
         case .toggle: return "toggle"
@@ -78,6 +82,8 @@ final class ImportRouter: ObservableObject {
                 if let u = query(comps, ["url"]) { return .profileURL(url: u, name: query(comps, ["name"]) ?? "") }
             case "install-module", "install-plugin", "install-override", "import-module":
                 if let u = query(comps, ["url"]) { return .moduleURL(url: u, source: "mihomo") }
+            case "add-resource", "update-configuration":
+                if let a = qxResourceAction(comps) { return a }
             default: break
             }
             return .unsupported(s)
@@ -104,23 +110,51 @@ final class ImportRouter: ObservableObject {
             if action == "stop" { return .disconnect }
             return .unsupported(s)
         case "quantumult-x":
-            // quantumult-x:///add-resource?remote-resource=<url-encoded JSON {"rewrite_remote": ["url, tag=…"], …}>
-            if let json = query(comps, ["remote-resource"]), let d = json.data(using: .utf8),
-               let obj = try? JSONSerialization.jsonObject(with: d) as? [String: Any] {
-                if let first = (obj["rewrite_remote"] as? [String])?.first, let u = firstURL(first) {
-                    return .moduleURL(url: u, source: "Quantumult X")
+            // quantumult-x:///add-resource?remote-resource=<url-encoded JSON {"server_remote":[…],"filter_remote":[…],"rewrite_remote":[…]}>
+            // quantumult-x:///update-configuration?remote-resource=… (handled as add: existing resources are kept)
+            if action == "add-resource" || action == "update-configuration", let a = qxResourceAction(comps) { return a }
+            if action == "ui" {
+                let module = query(comps, ["module"]) ?? ""
+                let type = query(comps, ["type"]) ?? ""
+                if module == "gallery" && type == "task" {
+                    return .unsupported(String(localized: "这是 Quantumult X 任务仓库链接：本 App 暂不支持任务仓库，请把任务行粘贴到「请求列表」右上角 +。"))
                 }
-                if let first = (obj["server_remote"] as? [String])?.first, let u = firstURL(first) {
-                    return .profileURL(url: u, name: "")
-                }
-                if obj["filter_remote"] != nil {
-                    return .unsupported("Quantumult X 远程分流请在 更多 → 规则 → 自定义 中添加（filter_remote 行）")
+                if module == "gallery" && type == "icon" {
+                    return .unsupported(String(localized: "这是 Quantumult X 图标库链接：在策略长按 → 图标 中粘贴图标库地址即可。"))
                 }
             }
             return .unsupported(s)
+        case "https", "http":
+            // Universal link: https://quantumult.app/x/open-app/<same path as quantumult-x:///>
+            if let c = comps, c.host?.lowercased() == "quantumult.app", c.path.lowercased().hasPrefix("/x/open-app/") {
+                var q = c
+                q.scheme = "quantumult-x"
+                q.host = nil
+                q.path = "/" + String(c.path.dropFirst("/x/open-app/".count))
+                if let str = q.string, str != s { return parse(str) }
+            }
+            return nil
         default:
             return nil
         }
+    }
+
+    /// Reads remote-resource (url-encoded JSON). Each list may be an array of QX lines or one line; a bare
+    /// URL in the parameter is treated as one rewrite_remote (QX accepts that for rewrite links).
+    nonisolated static func qxResourceAction(_ comps: URLComponents?) -> ImportAction? {
+        guard let raw = query(comps, ["remote-resource"]) else { return nil }
+        func list(_ v: Any?) -> [String] {
+            if let a = v as? [String] { return a.map { $0.trimmingCharacters(in: .whitespacesAndNewlines) }.filter { !$0.isEmpty } }
+            if let s = v as? String, !s.isEmpty { return [s.trimmingCharacters(in: .whitespacesAndNewlines)] }
+            return []
+        }
+        if let d = raw.data(using: .utf8), let obj = try? JSONSerialization.jsonObject(with: d) as? [String: Any] {
+            let a = ImportAction.qxResources(server: list(obj["server_remote"]), filter: list(obj["filter_remote"]), rewrite: list(obj["rewrite_remote"]))
+            if case .qxResources(let x, let y, let z) = a, x.isEmpty && y.isEmpty && z.isEmpty { return .unsupported(String(localized: "链接里没有可导入的资源")) }
+            return a
+        }
+        if raw.hasPrefix("http") { return .qxResources(server: [], filter: [], rewrite: [raw]) }
+        return .unsupported(String(localized: "无法解析 remote-resource 参数"))
     }
 
     nonisolated static func firstURL(_ qxLine: String) -> String? {
@@ -385,6 +419,8 @@ struct ImportSheet: View {
                 case .confText(_, let text):
                     ConfReportSection(text: text, result: $conf)
                     TextField("配置名称", text: $name).listRowBackground(Theme.card)
+                case .qxResources(let server, let filter, let rewrite):
+                    QXResourceImportSection(server: server, filter: filter, rewrite: rewrite)
                 case .unsupported(let s):
                     Section {
                         Label("无法导入", systemImage: "exclamationmark.triangle.fill").foregroundStyle(Theme.warn)
@@ -484,12 +520,162 @@ struct ImportSheet: View {
             case .nodesText(let text):
                 let n = try await store.addManualNodes(text: text)
                 result = String(localized: "已添加 \(n) 个节点到手动节点")
+            case .qxResources(let server, let filter, let rewrite):
+                let r = await QXResourceImport.run(server: server, filter: filter, rewrite: rewrite)
+                failed = r.failed && r.added == 0
+                result = r.text
             default:
                 break
             }
         } catch {
             failed = true
             result = error.localizedDescription
+        }
+    }
+}
+
+
+// MARK: - QX remote resources (add-resource)
+
+/// One QX remote line: "<url>, tag=…, update-interval=…, enabled=…, force-policy=…, opt-parser=…".
+struct QXRemoteLine: Hashable {
+    var url: String
+    var tag: String = ""
+    var interval: Int? = nil
+    var enabled = true
+    var forcePolicy: String? = nil
+    var parser = false
+
+    init?(_ line: String) {
+        let parts = line.split(separator: ",").map { $0.trimmingCharacters(in: .whitespaces) }
+        guard let u = parts.first, u.hasPrefix("http") || u.uppercased().hasPrefix("FILTER_") else { return nil }
+        url = u
+        for p in parts.dropFirst() {
+            let kv = p.split(separator: "=", maxSplits: 1).map { $0.trimmingCharacters(in: .whitespaces) }
+            guard kv.count == 2 else { continue }
+            switch kv[0].lowercased() {
+            case "tag": tag = kv[1]
+            case "update-interval": interval = Int(kv[1])
+            case "enabled": enabled = !["false", "0", "no"].contains(kv[1].lowercased())
+            case "force-policy": forcePolicy = kv[1]
+            case "opt-parser": parser = ["true", "1", "yes"].contains(kv[1].lowercased())
+            default: break
+            }
+        }
+    }
+
+    /// The same line without enabled= (our rule store keeps that flag itself).
+    static func withoutEnabled(_ line: String) -> String {
+        line.split(separator: ",").map { $0.trimmingCharacters(in: .whitespaces) }
+            .filter { !$0.lowercased().hasPrefix("enabled") }.joined(separator: ", ")
+    }
+
+    var displayName: String {
+        if !tag.isEmpty { return tag }
+        return URL(string: url)?.deletingPathExtension().lastPathComponent ?? url
+    }
+}
+
+enum QXResourceImport {
+    struct Result { var added = 0; var failed = false; var text = "" }
+
+    @MainActor
+    static func run(server: [String], filter: [String], rewrite: [String]) async -> Result {
+        var r = Result()
+        var lines: [String] = []
+        var errors: [String] = []
+        var parserNote = false
+
+        var subsAdded = 0
+        for l in server {
+            guard let q = QXRemoteLine(l), q.url.hasPrefix("http") else { errors.append(String(localized: "无效：\(l)")); continue }
+            if NodeSubStore.shared.subs.contains(where: { $0.url == q.url }) { continue }
+            if q.parser { parserNote = true }
+            let hours = max(1, (q.interval ?? 86400) / 3600)
+            do {
+                var s = try await NodeSubStore.shared.add(url: q.url, name: q.tag, userAgent: "clash.meta", intervalHours: hours, groups: nil)
+                if !q.enabled { s.enabled = false; await NodeSubStore.shared.save(s) }
+                subsAdded += 1
+            } catch {
+                errors.append("\(q.displayName)：\(error.localizedDescription)")
+            }
+        }
+        if subsAdded > 0 { lines.append(String(localized: "节点订阅 \(subsAdded) 个（订阅管理）")) }
+
+        var rulesAdded = 0
+        let rs = CustomRulesStore.shared
+        for l in filter {
+            guard let q = QXRemoteLine(l) else { errors.append(String(localized: "无效：\(l)")); continue }
+            if rs.rules.contains(where: { $0.line.contains(q.url) }) { continue }
+            if q.parser { parserNote = true }
+            rs.rules.insert(CustomRule(line: QXRemoteLine.withoutEnabled(l), enabled: q.enabled, interval: q.interval), at: rulesAdded)
+            rulesAdded += 1
+        }
+        if rulesAdded > 0 {
+            rs.save()
+            ResourceStore.shared.reload()
+            for it in ResourceStore.shared.items where it.kind == "ruleset" && it.enabled && it.updatedAt == 0 {
+                _ = await ResourceStore.shared.download(it)
+            }
+            ResourceStore.shared.reload()
+            lines.append(String(localized: "分流资源 \(rulesAdded) 个（规则资源，置于本地规则之前）"))
+        }
+
+        var modsAdded = 0
+        for l in rewrite {
+            guard let q = QXRemoteLine(l), q.url.hasPrefix("http") else { errors.append(String(localized: "无效：\(l)")); continue }
+            if EngineStore.shared.config.modules.contains(where: { $0.url == q.url }) { continue }
+            if q.parser { parserNote = true }
+            if let e = await EngineStore.shared.addRemoteModule(url: q.url, name: q.tag, enabled: q.enabled, interval: q.interval ?? 86400) {
+                errors.append("\(q.displayName)：\(e)")
+            }
+            modsAdded += 1
+        }
+        if modsAdded > 0 { lines.append(String(localized: "重写资源 \(modsAdded) 个（规则资源）")) }
+
+        r.added = subsAdded + rulesAdded + modsAdded
+        if r.added > 0, VPNManager.shared.isConnected, let e = await VPNManager.shared.reload() { errors.append(String(localized: "重载失败：\(e)")) }
+        var text = r.added == 0 && errors.isEmpty ? String(localized: "这些资源都已存在，没有新增。") : String(localized: "已添加：") + lines.joined(separator: "，")
+        if parserNote { text += "\n" + String(localized: "opt-parser（资源解析器）已忽略：内置解析器直接识别这些格式。") }
+        if !errors.isEmpty { text += "\n" + errors.joined(separator: "\n") }
+        r.failed = !errors.isEmpty
+        r.text = text
+        return r
+    }
+}
+
+struct QXResourceImportSection: View {
+    let server: [String]
+    let filter: [String]
+    let rewrite: [String]
+
+    var body: some View {
+        Section {
+            Label("Quantumult X 资源", systemImage: "link.badge.plus").font(.headline)
+            Text("链接中的每一项都会导入；已存在的资源跳过，现有资源不会被删除。").font(.footnote).foregroundStyle(.secondary)
+        }
+        .listRowBackground(Theme.card)
+        group(String(localized: "节点资源 → 节点订阅"), server, "server.rack")
+        group(String(localized: "分流资源 → 规则资源"), filter, "line.3.horizontal.decrease")
+        group(String(localized: "重写资源 → 模块"), rewrite, "pencil")
+    }
+
+    @ViewBuilder func group(_ title: String, _ lines: [String], _ icon: String) -> some View {
+        if !lines.isEmpty {
+            Section {
+                ForEach(Array(lines.enumerated()), id: \.offset) { _, l in
+                    let q = QXRemoteLine(l)
+                    VStack(alignment: .leading, spacing: 3) {
+                        HStack(spacing: 6) {
+                            Text(verbatim: q?.displayName ?? l).font(.subheadline.weight(.semibold)).lineLimit(1)
+                            if let p = q?.forcePolicy { Text(verbatim: p).font(.caption2.weight(.bold)).foregroundStyle(.secondary) }
+                            if q?.enabled == false { Text("停用").font(.caption2).foregroundStyle(.secondary) }
+                        }
+                        Text(verbatim: q?.url ?? l).font(.caption2.monospaced()).foregroundStyle(.secondary).lineLimit(1).truncationMode(.middle)
+                    }
+                }
+            } header: { Label(title, systemImage: icon) }
+            .listRowBackground(Theme.card)
         }
     }
 }
