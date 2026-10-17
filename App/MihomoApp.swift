@@ -108,7 +108,10 @@ struct RootView: View {
             if s == .connected { dash.start() } else if s == .disconnected || s == .invalid { dash.stop() }
         }
         .onChange(of: phase) { p in
-            if p == .active { ClipboardWatcher.shared.didBecomeActive() } else if p == .background { ClipboardWatcher.shared.didLeave() }
+            if p == .active { ClipboardWatcher.shared.didBecomeActive() } else if p == .background {
+                ClipboardWatcher.shared.didLeave()
+                SyncFolder.shared.autoPushIfNeeded()
+            }
         }
         .onAppear {
             // First run only; people upgrading with profiles already set up never see it (更多 → 新手引导 shows it again).

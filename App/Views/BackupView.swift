@@ -123,6 +123,15 @@ struct BackupView: View {
             }
             .listRowBackground(Theme.card)
 
+            Section {
+                NavigationLink { SyncFolderView() } label: {
+                    Label("同步文件夹（iCloud 云盘）", systemImage: "arrow.triangle.2.circlepath.icloud")
+                }
+            } footer: {
+                Text("选一个 iCloud 云盘文件夹，在多台设备间同步配置、模块和覆写。")
+            }
+            .listRowBackground(Theme.card)
+
             Section("导出") {
                 Button { export(toFiles: true) } label: { Label("保存到「文件」（可选 iCloud 云盘）", systemImage: "folder") }
                 Button { export(toFiles: false) } label: { Label("分享…", systemImage: "square.and.arrow.up") }
