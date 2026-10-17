@@ -65,12 +65,9 @@ final class PolicyModel: ObservableObject {
         let members = (group.all ?? []).filter { $0 != "DIRECT" && $0 != "REJECT" && $0 != "REJECT-DROP" && $0 != "PASS" && $0 != "COMPATIBLE" }
         var failure: String?
         do {
-            switch try await ControllerClient.shared.groupDelay(group.name) {
-            case .measured(let got):
-                for m in members { liveDelays[m] = got[m] ?? 0 }
-            case .allTimedOut:
-                for m in members { liveDelays[m] = 0 }
-            }
+            // v0.15.2: bounded concurrency (10 at a time) instead of /group/delay firing every member at once.
+            let got = try await ControllerClient.shared.membersDelay(members)
+            for m in members { liveDelays[m] = got[m] ?? 0 }
         } catch {
             // The controller itself did not answer: say so instead of marking every node as timed out.
             failure = String(localized: "测速失败：\(error.localizedDescription)")
