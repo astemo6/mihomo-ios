@@ -528,18 +528,18 @@ struct NodeEditorView: View {
         case .text, .list:
             HStack {
                 Text(LocalizedStringKey(f.label)).foregroundStyle(.secondary)
-                TextField(f.placeholder.isEmpty ? f.label : f.placeholder, text: binding)
+                TextField(LocalizedStringKey(f.placeholder.isEmpty ? f.label : f.placeholder), text: binding)
                     .multilineTextAlignment(.trailing).textInputAutocapitalization(.never).autocorrectionDisabled()
             }
         case .secure:
             HStack {
                 Text(LocalizedStringKey(f.label)).foregroundStyle(.secondary)
-                SecureField(f.placeholder.isEmpty ? f.label : f.placeholder, text: binding).multilineTextAlignment(.trailing)
+                SecureField(LocalizedStringKey(f.placeholder.isEmpty ? f.label : f.placeholder), text: binding).multilineTextAlignment(.trailing)
             }
         case .int:
             HStack {
                 Text(LocalizedStringKey(f.label)).foregroundStyle(.secondary)
-                TextField(f.placeholder, text: binding).keyboardType(.numberPad).multilineTextAlignment(.trailing)
+                TextField(LocalizedStringKey(f.placeholder), text: binding).keyboardType(.numberPad).multilineTextAlignment(.trailing)
             }
         case .pem:
             VStack(alignment: .leading, spacing: 6) {
@@ -562,8 +562,8 @@ struct NodeEditorView: View {
             Toggle(LocalizedStringKey(f.label), isOn: Binding(get: { (values[f.key] ?? "") == "true" }, set: { values[f.key] = $0 ? "true" : "false" }))
         case .choice(let opts):
             Picker(LocalizedStringKey(f.label), selection: binding) {
-                ForEach(opts, id: \.self) { Text($0.isEmpty ? "无" : $0).tag($0) }
-                if let v = values[f.key], !v.isEmpty, !opts.contains(v) { Text(v).tag(v) }
+                ForEach(opts, id: \.self) { o in (o.isEmpty ? Text("无") : Text(verbatim: o)).tag(o) }
+                if let v = values[f.key], !v.isEmpty, !opts.contains(v) { Text(verbatim: v).tag(v) }
             }
         }
     }

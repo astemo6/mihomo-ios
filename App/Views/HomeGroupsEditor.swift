@@ -136,6 +136,7 @@ struct HomeGroupsEditor: View {
             .contentShape(Rectangle())
         }
         .buttonStyle(.plain)
+        .accessibilityIdentifier("homegroups.row." + r.name)
         .opacity(full ? 0.5 : 1)
         .accessibilityAddTraits(on ? .isSelected : [])
     }
@@ -172,7 +173,8 @@ struct HomeGroupsEditor: View {
         }
         if !fromCore {
             let insp = ProfileInspector.shared
-            if insp.result.groups.isEmpty { await insp.load() }
+            // selftest: also reload when the inspector still holds another profile (switched since).
+            if insp.result.groups.isEmpty || insp.profilePath != AppShared.activeProfileURL?.path { await insp.load() }
             all = insp.result.groups.filter { $0.hidden != true }.map { Row(name: $0.name, kind: $0.type, icon: $0.icon) }
         }
         let shown = store.resolved(available: all.map(\.name))

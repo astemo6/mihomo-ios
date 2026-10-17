@@ -17,7 +17,7 @@ struct MoreView: View {
                             CoreOverrides.load().isProxyOnly ? String(localized: "仅代理") : CoreOverrides.load().isMixed ? String(localized: "VPN 混合") : "TUN")
                     }
                     NavigationLink { DNSView() } label: {
-                        row("DNS", "network", DNSOverrideSettings.load().enabled ? "自定义" : "配置文件")
+                        row("DNS", "network", DNSOverrideSettings.load().enabled ? String(localized: "自定义") : String(localized: "配置文件"))
                     }
                 }
                 .listRowBackground(Theme.card)
@@ -66,6 +66,7 @@ struct MoreView: View {
                                 Text("关闭").font(.caption).foregroundStyle(.secondary)
                             }
                         }
+                        .accessibilityIdentifier("more.MitM")
                     }
                 } header: { Text("模块、重写与 MitM") } footer: {
                     Text(engine.config.enabled ? "重写与脚本已启用" : "重写与脚本未启用（在模块、重写或脚本页面顶部开启）")
@@ -100,6 +101,7 @@ struct MoreView: View {
                             Text(AppShared.containerOK ? "App Group 正常" : "App Group 异常")
                                 .font(.caption).foregroundStyle(AppShared.containerOK ? Theme.good : Theme.bad)
                         }
+                        .accessibilityIdentifier("more.诊断")
                     }
                 }
                 .listRowBackground(Theme.card)
@@ -129,6 +131,9 @@ struct MoreView: View {
             Spacer()
             if let value { Text(value).font(.caption).foregroundStyle(.secondary) }
         }
+        // UI tests (test/selftest): the zh-Hans key is the stable id in every language.
+        .accessibilityElement(children: .combine)
+        .accessibilityIdentifier("more." + title)
     }
 }
 

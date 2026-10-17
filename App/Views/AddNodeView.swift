@@ -18,6 +18,7 @@ struct AddNodeView: View {
     @State private var scanning = false
     @State private var photoItem: PhotosPickerItem?
     @State private var showPhotoPicker = false
+    @State private var detectTask: Task<Void, Never>?
     @FocusState private var focused: Bool
 
     struct Target: Identifiable {
@@ -226,12 +227,23 @@ struct AddNodeView: View {
         withAnimation(.easeOut(duration: 0.2)) { message = t; isError = error }
     }
 
+    /// selftest: detection ran LibmihomoDetectNodeFormat on the main thread on every keystroke, which parses
+    /// the whole text (a pasted Base64 subscription or a file of several MB froze the editor). Now debounced
+    /// and off the main thread; a newer edit cancels an older result.
     func detect(_ t: String) {
+        detectTask?.cancel()
         let s = t.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !s.isEmpty else { detected = nil; return }
-        let json = LibmihomoDetectNodeFormat(s)
-        if let d = json.data(using: .utf8), let o = try? JSONSerialization.jsonObject(with: d) as? [String: Any] {
-            detected = (o["format"] as? String ?? "", (o["count"] as? NSNumber)?.intValue ?? 0)
+        detectTask = Task {
+            try? await Task.sleep(nanoseconds: 200_000_000)
+            guard !Task.isCancelled else { return }
+            let json = await Task.detached(priority: .userInitiated) { LibmihomoDetectNodeFormat(s) }.value
+            guard !Task.isCancelled else { return }
+            if let d = json.data(using: .utf8), let o = try? JSONSerialization.jsonObject(with: d) as? [String: Any] {
+                detected = (o["format"] as? String ?? "", (o["count"] as? NSNumber)?.intValue ?? 0)
+            } else {
+                detected = ("", 0)
+            }
         }
     }
 
