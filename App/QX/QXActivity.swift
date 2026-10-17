@@ -481,7 +481,7 @@ struct QXBlockedView: View {
                         VStack(alignment: .leading, spacing: 3) {
                             HStack(spacing: 8) {
                                 if let d = r.conn.startDate { Text(verbatim: QXFmt.stamp.string(from: d)).font(.system(size: 14).monospacedDigit()).foregroundStyle(.secondary) }
-                                Text(verbatim: r.conn.metadata.host ?? r.conn.metadata.displayHost).font(.system(size: 17)).foregroundStyle(QXColor.red).lineLimit(1)
+                                Text(verbatim: r.conn.metadata.host ?? r.conn.metadata.displayHost).font(QXType.rowTitle).foregroundStyle(QXColor.red).lineLimit(1)
                             }
                             Text(verbatim: r.ruleLine).font(.system(size: 12, weight: .medium)).foregroundStyle(.secondary)
                             Text(verbatim: "➤ " + r.leaf).font(.system(size: 13)).foregroundStyle(.secondary)

@@ -3377,6 +3377,40 @@
         }
       }
     },
+    "DNS 预设": {
+      "localizations": {
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "DNS 預設"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "DNS Presets"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "DNS プリセット"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "DNS 프리셋"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Пресеты DNS"
+          }
+        }
+      }
+    },
     "DOMAIN-SET 列表没有标签": {
       "localizations": {
         "zh-Hant": {
@@ -3407,6 +3441,40 @@
           "stringUnit": {
             "state": "translated",
             "value": "У списков DOMAIN-SET нет тега"
+          }
+        }
+      }
+    },
+    "DoT / DoQ": {
+      "localizations": {
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "DoT / DoQ"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "DoT / DoQ"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "DoT / DoQ"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "DoT / DoQ"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "DoT / DoQ"
           }
         }
       }
@@ -4232,6 +4300,40 @@
         }
       }
     },
+    "HTTP/3 优先": {
+      "localizations": {
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "HTTP/3 優先"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Prefer HTTP/3"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "HTTP/3 優先"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "HTTP/3 우선"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Сначала HTTP/3"
+          }
+        }
+      }
+    },
     "HTTPS 解密": {
       "localizations": {
         "en": {
@@ -4947,6 +5049,40 @@
           "stringUnit": {
             "state": "translated",
             "value": "Mihomo QX не подключён"
+          }
+        }
+      }
+    },
+    "Mihomo QX 运行模式": {
+      "localizations": {
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Mihomo QX 執行模式"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Mihomo QX Run Mode"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Mihomo QX 動作モード"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Mihomo QX 실행 모드"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Режим Mihomo QX"
           }
         }
       }
@@ -5842,6 +5978,40 @@
         }
       }
     },
+    "Quantumult X 不支持的协议，由 mihomo 内核直接提供。": {
+      "localizations": {
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Quantumult X 不支援的協議，由 mihomo 核心直接提供。"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Protocols Quantumult X does not support, provided directly by the mihomo core."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Quantumult X が対応していないプロトコルを mihomo コアが直接提供します。"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Quantumult X가 지원하지 않는 프로토콜을 mihomo 코어가 직접 제공합니다."
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Протоколы, которых нет в Quantumult X, — напрямую из ядра mihomo."
+          }
+        }
+      }
+    },
     "Quantumult X 的界面，mihomo 内核。下面三点是和 QX 不一样的地方。": {
       "localizations": {
         "zh-Hant": {
@@ -6456,6 +6626,40 @@
           "stringUnit": {
             "state": "translated",
             "value": "TCP"
+          }
+        }
+      }
+    },
+    "TCP · HTTP 伪装": {
+      "localizations": {
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "TCP · HTTP 偽裝"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "TCP · HTTP disguise"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "TCP · HTTP 偽装"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "TCP · HTTP 위장"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "TCP · маскировка под HTTP"
           }
         }
       }
@@ -7651,6 +7855,40 @@
           "stringUnit": {
             "state": "translated",
             "value": "Имя Wi-Fi (SSID)"
+          }
+        }
+      }
+    },
+    "WireGuard · 抗识别": {
+      "localizations": {
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "WireGuard · 抗識別"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "WireGuard · anti-detection"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "WireGuard · 検出回避"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "WireGuard · 탐지 회피"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "WireGuard · защита от обнаружения"
           }
         }
       }
@@ -9738,6 +9976,40 @@
       },
       "extractionState": "manual"
     },
+    "「Mihomo QX」开关连接 / 断开；「Mihomo QX 运行模式」按 规则分流 → 全局代理 → 全局直连 循环，图标颜色与风车一致。连接时立即生效，断开时下次连接使用。": {
+      "localizations": {
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "「Mihomo QX」開關連線 / 中斷；「Mihomo QX 執行模式」按 規則分流 → 全域代理 → 全域直連 循環，圖示顏色與風車一致。連線時立即生效，中斷時下次連線使用。"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "“Mihomo QX” connects or disconnects; “Mihomo QX Run Mode” cycles Rule-based → Global Proxy → Global Direct, its icon colour matching the windmill. Takes effect at once while connected, otherwise on the next connection."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "「Mihomo QX」で接続／切断、「Mihomo QX 動作モード」で ルール振り分け → グローバルプロキシ → グローバル直接接続 を順に切り替えます。アイコンの色は風車と同じです。接続中はすぐに、切断中は次回の接続から反映されます。"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "‘Mihomo QX’는 연결 / 해제, ‘Mihomo QX 실행 모드’는 규칙 분류 → 전역 프록시 → 전역 직접 연결 순으로 바꾸며 아이콘 색은 풍차와 같습니다. 연결 중에는 바로, 해제 중에는 다음 연결부터 적용됩니다."
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "«Mihomo QX» подключает и отключает; «Режим Mihomo QX» переключает По правилам → Глобальный прокси → Глобально напрямую, цвет значка как у вертушки. Применяется сразу при подключении, иначе — при следующем подключении."
+          }
+        }
+      }
+    },
     "一个 zip：App / 扩展 / 内核版本、App Group 状态、启动日志、内核最近日志、内存采样、实际生效的配置和启用的模块。服务器地址、密码、UUID、密钥、订阅链接和令牌都已替换，可以放心发送。": {
       "localizations": {
         "zh-Hant": {
@@ -9904,6 +10176,40 @@
           "stringUnit": {
             "state": "translated",
             "value": "Обновить всё"
+          }
+        }
+      }
+    },
+    "一键预设（覆盖解析服务器）": {
+      "localizations": {
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "一鍵預設（覆蓋解析伺服器）"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "One-tap presets (replace the resolvers)"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ワンタッププリセット（リゾルバを置き換え）"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "원탭 프리셋(확인 서버 교체)"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Пресеты в одно касание (заменяют серверы)"
           }
         }
       }
@@ -11515,6 +11821,40 @@
         }
       }
     },
+    "中号：出口位置与 ASN、开关；青色「节点」磁贴是当前策略链，旁边的风车卡片轻点切换运行模式；底部是今日流量与订阅剩余流量。": {
+      "localizations": {
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "中號：出口位置與 ASN、開關；青色「節點」磁貼是目前策略鏈，旁邊的風車卡片輕點切換執行模式；底部是今日流量與訂閱剩餘流量。"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Medium: exit location and ASN with the switch; the teal Nodes tile shows the current policy chain, tap the windmill card next to it to switch the run mode; today's traffic and the subscription's remaining data at the bottom."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "中：出口の場所と ASN、スイッチ。青緑の「ノード」タイルは現在のポリシーチェーン、隣の風車カードをタップで動作モードを切り替え。下部に今日の通信量と購読の残りデータ量。"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "중간: 출구 위치와 ASN, 스위치. 청록색 ‘노드’ 타일은 현재 정책 체인이고 옆의 풍차 카드를 누르면 실행 모드가 바뀝니다. 아래쪽은 오늘 트래픽과 구독 잔여 데이터입니다."
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Средний: место выхода и ASN, переключатель; бирюзовая плитка «Узлы» — текущая цепочка политик, нажатие на карточку с вертушкой меняет режим; внизу — трафик за сегодня и остаток подписки."
+          }
+        }
+      }
+    },
     "临时文件": {
       "localizations": {
         "zh-Hant": {
@@ -11583,6 +11923,108 @@
         }
       }
     },
+    "主屏幕": {
+      "localizations": {
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "主螢幕"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Home Screen"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ホーム画面"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "홈 화면"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Экран «Домой»"
+          }
+        }
+      }
+    },
+    "主屏幕、锁定屏幕与控制中心的 QX 风格小组件，浅色 / 深色预览与添加方法。": {
+      "localizations": {
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "主螢幕、鎖定螢幕與控制中心的 QX 風格小元件，淺色 / 深色預覽與新增方法。"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "QX-style widgets for the Home Screen, Lock Screen and Control Center: light / dark previews and how to add them."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ホーム画面・ロック画面・コントロールセンター用の QX スタイルのウィジェット。ライト／ダークのプレビューと追加方法。"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "홈 화면, 잠금 화면, 제어 센터용 QX 스타일 위젯: 라이트 / 다크 미리보기와 추가 방법."
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Виджеты в стиле QX для экрана «Домой», экрана блокировки и Пункта управления: светлый / тёмный предпросмотр и как добавить."
+          }
+        }
+      }
+    },
+    "主屏幕、锁定屏幕和控制中心都能看到出口位置、策略链和运行模式；风车颜色就是运行模式：三色 = 规则分流，青色 = 全局代理，黄色 = 全局直连。需要带小组件的 IPA（-widget）。": {
+      "localizations": {
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "主螢幕、鎖定螢幕和控制中心都能看到出口位置、策略鏈和執行模式；風車顏色就是執行模式：三色 = 規則分流，青色 = 全域代理，黃色 = 全域直連。需要帶小元件的 IPA（-widget）。"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "See the exit location, policy chain and run mode on the Home Screen, Lock Screen and in Control Center. The windmill colour is the run mode: three colours = Rule-based, teal = Global Proxy, yellow = Global Direct. Needs the IPA with widgets (-widget)."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ホーム画面・ロック画面・コントロールセンターで出口の場所、ポリシーチェーン、動作モードを確認できます。風車の色が動作モードです：3 色 = ルール振り分け、青緑 = グローバルプロキシ、黄 = グローバル直接接続。ウィジェット付き IPA（-widget）が必要です。"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "홈 화면, 잠금 화면, 제어 센터에서 출구 위치, 정책 체인, 실행 모드를 볼 수 있습니다. 풍차 색이 실행 모드입니다: 세 가지 색 = 규칙 분류, 청록 = 전역 프록시, 노랑 = 전역 직접 연결. 위젯이 포함된 IPA(-widget)가 필요합니다."
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Место выхода, цепочка политик и режим видны на экране «Домой», экране блокировки и в Пункте управления. Цвет вертушки — это режим: три цвета = По правилам, бирюзовый = Глобальный прокси, жёлтый = Глобально напрямую. Нужна IPA с виджетами (-widget)."
+          }
+        }
+      }
+    },
     "主屏幕、锁屏、控制中心开关和灵动岛：长按主屏幕 → 左上角 ＋ → 搜索 Mihomo；实时活动在 设置 → 其他设置 → 通知 中打开。": {
       "localizations": {
         "zh-Hant": {
@@ -11613,6 +12055,40 @@
           "stringUnit": {
             "state": "translated",
             "value": "Экран «Домой», экран блокировки, переключатель в Пункте управления и Dynamic Island: долгое нажатие на экран «Домой» → + слева вверху → найдите Mihomo. Live Activity включается в Настройки → Другие настройки → Уведомления."
+          }
+        }
+      }
+    },
+    "主屏幕：长按空白处 → 左上角「编辑」→「添加小组件」→ 搜索「Mihomo QX」。": {
+      "localizations": {
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "主螢幕：長按空白處 → 左上角「編輯」→「新增小元件」→ 搜尋「Mihomo QX」。"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Home Screen: long-press an empty area → Edit at the top left → Add Widget → search for “Mihomo QX”."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ホーム画面：空いている場所を長押し → 左上の「編集」→「ウィジェットを追加」→「Mihomo QX」を検索。"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "홈 화면: 빈 곳을 길게 누르기 → 왼쪽 위 ‘편집’ → ‘위젯 추가’ → ‘Mihomo QX’ 검색."
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Экран «Домой»: долгое нажатие на пустое место → «Изменить» слева вверху → «Добавить виджет» → найдите «Mihomo QX»."
           }
         }
       }
@@ -12369,6 +12845,40 @@
         }
       }
     },
+    "仅国内 DNS（不分流）": {
+      "localizations": {
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "僅國內 DNS（不分流）"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Domestic DNS only (no split)"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "国内 DNS のみ（振り分けなし）"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "국내 DNS만(분리 안 함)"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Только внутренний DNS (без разделения)"
+          }
+        }
+      }
+    },
     "仅在配置开启 geodata-mode 时使用": {
       "localizations": {
         "en": {
@@ -12675,6 +13185,40 @@
         }
       },
       "extractionState": "manual"
+    },
+    "今日流量": {
+      "localizations": {
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "今日流量"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Today's traffic"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "今日の通信量"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "오늘 트래픽"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Трафик за сегодня"
+          }
+        }
+      }
     },
     "从 URL 导入": {
       "localizations": {
@@ -15782,6 +16326,40 @@
         }
       }
     },
+    "全部协议": {
+      "localizations": {
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "全部協議"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "All Protocols"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "すべてのプロトコル"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "모든 프로토콜"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Все протоколы"
+          }
+        }
+      }
+    },
     "全部失败 · 丢失 100%": {
       "localizations": {
         "en": {
@@ -17764,6 +18342,40 @@
         }
       }
     },
+    "出口位置、当前策略链、运行模式、今日流量和开关": {
+      "localizations": {
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "出口位置、目前策略鏈、執行模式、今日流量和開關"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Exit location, current policy chain, run mode, today's traffic and the switch"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "出口の場所、現在のポリシーチェーン、動作モード、今日の通信量とスイッチ"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "출구 위치, 현재 정책 체인, 실행 모드, 오늘 트래픽과 스위치"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Место выхода, текущая цепочка политик, режим, трафик за сегодня и переключатель"
+          }
+        }
+      }
+    },
     "出口位置查询": {
       "localizations": {
         "zh-Hant": {
@@ -18716,6 +19328,40 @@
         }
       }
     },
+    "切换运行模式": {
+      "localizations": {
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "切換執行模式"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Switch Run Mode"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "動作モードを切り替え"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "실행 모드 전환"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Сменить режим"
+          }
+        }
+      }
+    },
     "切换配置": {
       "localizations": {
         "zh-Hant": {
@@ -18746,6 +19392,40 @@
           "stringUnit": {
             "state": "translated",
             "value": "Сменить профиль"
+          }
+        }
+      }
+    },
+    "切换预览的运行模式": {
+      "localizations": {
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "切換預覽的執行模式"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Switch the preview's run mode"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "プレビューの動作モードを切り替え"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "미리보기 실행 모드 전환"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Сменить режим в предпросмотре"
           }
         }
       }
@@ -19775,6 +20455,40 @@
       },
       "extractionState": "manual"
     },
+    "加密 DNS（DoH，推荐）": {
+      "localizations": {
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "加密 DNS（DoH，推薦）"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Encrypted DNS (DoH, recommended)"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "暗号化 DNS（DoH、推奨）"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "암호화 DNS(DoH, 권장)"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Шифрованный DNS (DoH, рекомендуется)"
+          }
+        }
+      }
+    },
     "动作": {
       "localizations": {
         "zh-Hant": {
@@ -20219,6 +20933,74 @@
         }
       },
       "extractionState": "manual"
+    },
+    "单行（时间上方）：国旗、出口位置与运行模式。矩形：出口位置、策略链、风车与今日流量。圆形：轻点连接 / 断开。": {
+      "localizations": {
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "單行（時間上方）：國旗、出口位置與執行模式。矩形：出口位置、策略鏈、風車與今日流量。圓形：輕點連線 / 中斷。"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Inline (above the time): flag, exit location and run mode. Rectangular: exit location, policy chain, windmill and today's traffic. Circular: tap to connect / disconnect."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "1 行（時刻の上）：国旗、出口の場所と動作モード。長方形：出口の場所、ポリシーチェーン、風車と今日の通信量。円形：タップで接続／切断。"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "한 줄(시간 위): 국기, 출구 위치와 실행 모드. 직사각형: 출구 위치, 정책 체인, 풍차와 오늘 트래픽. 원형: 눌러서 연결 / 해제."
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Строка (над временем): флаг, место выхода и режим. Прямоугольный: место выхода, цепочка политик, вертушка и трафик за сегодня. Круглый: нажмите, чтобы подключить / отключить."
+          }
+        }
+      }
+    },
+    "去广告（AdGuard）": {
+      "localizations": {
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "去廣告（AdGuard）"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Ad blocking (AdGuard)"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "広告ブロック（AdGuard）"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "광고 차단(AdGuard)"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Блокировка рекламы (AdGuard)"
+          }
+        }
+      }
     },
     "去掉「| 倍率」等后缀": {
       "localizations": {
@@ -22955,6 +23737,40 @@
       },
       "extractionState": "manual"
     },
+    "国旗与出口位置、策略链、开关；轻点风车切换运行模式。": {
+      "localizations": {
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "國旗與出口位置、策略鏈、開關；輕點風車切換執行模式。"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Flag and exit location, policy chain and the switch; tap the windmill to switch the run mode."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "国旗と出口の場所、ポリシーチェーン、スイッチ。風車をタップで動作モードを切り替え。"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "국기와 출구 위치, 정책 체인, 스위치. 풍차를 누르면 실행 모드가 바뀝니다."
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Флаг и место выхода, цепочка политик и переключатель; нажмите на вертушку, чтобы сменить режим."
+          }
+        }
+      }
+    },
     "图标": {
       "localizations": {
         "zh-Hant": {
@@ -23394,6 +24210,74 @@
           "stringUnit": {
             "state": "translated",
             "value": "Переключает «Правила» → «Глобальный» → «Напрямую»."
+          }
+        }
+      }
+    },
+    "在 规则分流 → 全局代理 → 全局直连 之间切换": {
+      "localizations": {
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "在 規則分流 → 全域代理 → 全域直連 之間切換"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Cycles Rule-based → Global Proxy → Global Direct"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ルール振り分け → グローバルプロキシ → グローバル直接接続 を切り替え"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "규칙 분류 → 전역 프록시 → 전역 직접 연결 사이를 전환"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Переключает По правилам → Глобальный прокси → Глобально напрямую"
+          }
+        }
+      }
+    },
+    "在 规则分流 → 全局代理 → 全局直连 之间切换。": {
+      "localizations": {
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "在 規則分流 → 全域代理 → 全域直連 之間切換。"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Cycles Rule-based → Global Proxy → Global Direct."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ルール振り分け → グローバルプロキシ → グローバル直接接続 を切り替えます。"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "규칙 분류 → 전역 프록시 → 전역 직접 연결 사이를 전환합니다."
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Переключает По правилам → Глобальный прокси → Глобально напрямую."
           }
         }
       }
@@ -25446,6 +26330,40 @@
         }
       }
     },
+    "如何添加": {
+      "localizations": {
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "如何新增"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "How to Add"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "追加方法"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "추가 방법"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Как добавить"
+          }
+        }
+      }
+    },
     "始终": {
       "localizations": {
         "en": {
@@ -26093,6 +27011,40 @@
         }
       }
     },
+    "实时活动与灵动岛在「其他设置 → 通知」中开启。": {
+      "localizations": {
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "實時活動與靈動島在「其他設定 → 通知」中開啟。"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Turn on Live Activity and Dynamic Island in Other Settings → Notifications."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ライブアクティビティとダイナミックアイランドは「その他の設定 → 通知」でオンにします。"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "실시간 현황 및 Dynamic Island는 ‘기타 설정 → 알림’에서 켭니다."
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Live Activity и Dynamic Island включаются в «Другие настройки → Уведомления»."
+          }
+        }
+      }
+    },
     "实时预览": {
       "localizations": {
         "en": {
@@ -26295,6 +27247,40 @@
           "stringUnit": {
             "state": "translated",
             "value": "Пароль"
+          }
+        }
+      }
+    },
+    "密码 / 私钥": {
+      "localizations": {
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "密碼 / 私鑰"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Password / private key"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "パスワード／秘密鍵"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "비밀번호 / 개인 키"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Пароль / закрытый ключ"
           }
         }
       }
@@ -26670,6 +27656,40 @@
           "stringUnit": {
             "state": "translated",
             "value": "Импорт модуля"
+          }
+        }
+      }
+    },
+    "导入没有完成，也没有返回原因": {
+      "localizations": {
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "匯入沒有完成，也沒有返回原因"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "The import did not finish and gave no reason"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "読み込みが完了せず、理由も返されませんでした"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "가져오기가 완료되지 않았고 이유도 반환되지 않았습니다"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Импорт не завершился, причина не получена"
           }
         }
       }
@@ -27390,6 +28410,74 @@
         }
       }
     },
+    "小号": {
+      "localizations": {
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "小號"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Small"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "小"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "작게"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Маленький"
+          }
+        }
+      }
+    },
+    "小组件": {
+      "localizations": {
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "小元件"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Widgets"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ウィジェット"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "위젯"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Виджеты"
+          }
+        }
+      }
+    },
     "小组件与实时活动": {
       "localizations": {
         "zh-Hant": {
@@ -27420,6 +28508,40 @@
           "stringUnit": {
             "state": "translated",
             "value": "Виджеты и Live Activity"
+          }
+        }
+      }
+    },
+    "小组件与控制中心": {
+      "localizations": {
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "小元件與控制中心"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Widgets & Control Center"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ウィジェットとコントロールセンター"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "위젯과 제어 센터"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Виджеты и Пункт управления"
           }
         }
       }
@@ -28151,7 +29273,7 @@
         "zh-Hant": {
           "stringUnit": {
             "state": "translated",
-            "value": "已儲存並過載"
+            "value": "已儲存並重新載入"
           }
         },
         "ja": {
@@ -35469,6 +36591,74 @@
         }
       }
     },
+    "控制中心（iOS 18）": {
+      "localizations": {
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "控制中心（iOS 18）"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Control Center (iOS 18)"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "コントロールセンター（iOS 18）"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "제어 센터(iOS 18)"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Пункт управления (iOS 18)"
+          }
+        }
+      }
+    },
+    "控制中心：从右上角下滑 → 左上角「+」→「添加控制」→ 搜索「Mihomo QX」。": {
+      "localizations": {
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "控制中心：從右上角下滑 → 左上角「+」→「新增控制項目」→ 搜尋「Mihomo QX」。"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Control Center: swipe down from the top right → + at the top left → Add a Control → search for “Mihomo QX”."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "コントロールセンター：右上から下にスワイプ → 左上の「+」→「コントロールを追加」→「Mihomo QX」を検索。"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "제어 센터: 오른쪽 위에서 아래로 쓸기 → 왼쪽 위 ‘+’ → ‘제어 항목 추가’ → ‘Mihomo QX’ 검색."
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Пункт управления: смахните вниз от правого верхнего угла → «+» слева вверху → «Добавить элемент» → найдите «Mihomo QX»."
+          }
+        }
+      }
+    },
     "控制台 %lld": {
       "localizations": {
         "zh-Hant": {
@@ -36971,6 +38161,40 @@
         }
       }
     },
+    "新协议": {
+      "localizations": {
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "新協議"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "New Protocols"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "新しいプロトコル"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "새 프로토콜"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Новые протоколы"
+          }
+        }
+      }
+    },
     "新协议优先": {
       "localizations": {
         "zh-Hant": {
@@ -37821,6 +39045,40 @@
           "stringUnit": {
             "state": "translated",
             "value": "Импорт невозможен"
+          }
+        }
+      }
+    },
+    "无法打开所选文件：%@": {
+      "localizations": {
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "無法開啟所選檔案：%@"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Cannot open the selected file: %@"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "選択したファイルを開けません：%@"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "선택한 파일을 열 수 없습니다: %@"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Не удалось открыть выбранный файл: %@"
           }
         }
       }
@@ -43805,6 +45063,74 @@
         }
       }
     },
+    "正在下载规则集与节点集…": {
+      "localizations": {
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "正在下載規則集與節點集…"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Downloading rule sets and node sets…"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ルールセットとノードセットをダウンロード中…"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "규칙 세트와 노드 세트 다운로드 중…"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Загрузка наборов правил и узлов…"
+          }
+        }
+      }
+    },
+    "正在下载远程重写 %lld/%lld…": {
+      "localizations": {
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "正在下載遠端重寫 %lld/%lld…"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Downloading remote rewrites %lld/%lld…"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "リモート書き換えをダウンロード中 %lld/%lld…"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "원격 재작성 다운로드 중 %lld/%lld…"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Загрузка удалённых перезаписей %lld/%lld…"
+          }
+        }
+      }
+    },
     "正在加载图标库…": {
       "extractionState": "manual",
       "localizations": {
@@ -43942,6 +45268,40 @@
         }
       },
       "extractionState": "manual"
+    },
+    "正在检查并保存配置…": {
+      "localizations": {
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "正在檢查並儲存配置…"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Checking and saving the profile…"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "プロファイルを確認して保存しています…"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "프로파일을 확인하고 저장하는 중…"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Проверка и сохранение профиля…"
+          }
+        }
+      }
     },
     "正在检测…": {
       "localizations": {
@@ -49565,6 +50925,40 @@
           "stringUnit": {
             "state": "translated",
             "value": "Имя пользователя (необязательно)"
+          }
+        }
+      }
+    },
+    "用户态 · PEM": {
+      "localizations": {
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "使用者態 · PEM"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Userspace · PEM"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ユーザー空間 · PEM"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "사용자 공간 · PEM"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Пространство пользователя · PEM"
           }
         }
       }
@@ -63562,6 +64956,40 @@
         }
       }
     },
+    "这类内容不能在这里导入": {
+      "localizations": {
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "這類內容不能在這裡匯入"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "This kind of content cannot be imported here"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "この種類の内容はここでは読み込めません"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "이런 내용은 여기서 가져올 수 없습니다"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Такое содержимое здесь не импортируется"
+          }
+        }
+      }
+    },
     "进入隧道的目标网段。IPv6 网段只在开启 IPv6 时生效。留空等于全部（0.0.0.0/0 与 ::/0）。": {
       "extractionState": "manual",
       "localizations": {
@@ -67414,6 +68842,74 @@
           "stringUnit": {
             "state": "translated",
             "value": "Цепочка"
+          }
+        }
+      }
+    },
+    "锁定屏幕": {
+      "localizations": {
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "鎖定螢幕"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Lock Screen"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ロック画面"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "잠금 화면"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Экран блокировки"
+          }
+        }
+      }
+    },
+    "锁定屏幕：长按锁定屏幕 →「自定」→ 锁定屏幕 → 轻点时间上方或下方的小组件区域。": {
+      "localizations": {
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "鎖定螢幕：長按鎖定螢幕 →「自訂」→ 鎖定螢幕 → 輕點時間上方或下方的小元件區域。"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Lock Screen: long-press the Lock Screen → Customise → Lock Screen → tap the widget area above or below the time."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ロック画面：ロック画面を長押し →「カスタマイズ」→ ロック画面 → 時刻の上または下のウィジェット領域をタップ。"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "잠금 화면: 잠금 화면 길게 누르기 → ‘사용자화’ → 잠금 화면 → 시간 위나 아래 위젯 영역 누르기."
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Экран блокировки: долгое нажатие → «Настроить» → экран блокировки → нажмите область виджетов над или под временем."
           }
         }
       }

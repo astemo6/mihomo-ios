@@ -100,6 +100,17 @@ enum QXColor {
     static let lockWallpaper: [Color] = [QXPalette.dyn(0x1F4D73, 0x1F4D73), QXPalette.dyn(0x5C2E8C, 0x5C2E8C)]
 }
 
+// MARK: - Motion (QX preview 6 smoothness pass)
+// One set of interruptible springs for every QX transition (no linear / ease curves on pages or tiles).
+enum QXMotion {
+    /// Page-level and content changes: panels, sections, expand / collapse, mode colour.
+    static let spring = Animation.spring(response: 0.35, dampingFraction: 0.85)
+    /// Small state flips (chips, toggles, list edits).
+    static let snappy = Animation.spring(response: 0.28, dampingFraction: 0.86)
+    /// Press feedback on buttons and tiles.
+    static let press = Animation.spring(response: 0.24, dampingFraction: 0.78)
+}
+
 // MARK: - Haptics
 
 enum QXHaptics {
@@ -119,7 +130,7 @@ struct QXPressStyle: ButtonStyle {
         configuration.label
             .scaleEffect(configuration.isPressed ? scale : 1)
             .opacity(configuration.isPressed ? 0.82 : 1)
-            .animation(.spring(response: 0.22, dampingFraction: 0.7), value: configuration.isPressed)
+            .animation(QXMotion.press, value: configuration.isPressed)
             .onChange(of: configuration.isPressed) { p in
                 if p && haptic { QXHaptics.tap() }
             }

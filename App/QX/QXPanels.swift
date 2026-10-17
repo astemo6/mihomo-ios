@@ -133,7 +133,7 @@ struct QXRulesPanel: View {
             LazyVStack(alignment: .leading, spacing: 10) {
                 HStack(alignment: .firstTextBaseline, spacing: 10) {
                     Text("分流规则").font(.system(size: 22, weight: .bold))
-                    Text(verbatim: QXFmt.count(model.total)).font(.system(size: 17)).foregroundStyle(.secondary)
+                    Text(verbatim: QXFmt.count(model.total)).font(QXType.rowTitle).foregroundStyle(.secondary)
                     Spacer()
                     if model.loading { ProgressView().controlSize(.small) }
                 }
@@ -143,7 +143,7 @@ struct QXRulesPanel: View {
                 }
                 ForEach(model.blocks) { b in
                     QXRuleBlockCard(block: b, expanded: expanded.contains(b.id), rules: rules(for: b), note: model.expandedNote[b.id]) {
-                        withAnimation(.spring(response: 0.3)) {
+                        withAnimation(QXMotion.spring) {
                             if expanded.contains(b.id) { expanded.remove(b.id) } else { expanded.insert(b.id); model.expand(b) }
                         }
                     }
@@ -190,7 +190,7 @@ struct QXRuleBlockCard: View {
             VStack(spacing: 0) {
                 HStack(spacing: 14) {
                     QXFunnel().fill(QXColor.rules).frame(width: 20, height: 20).frame(width: 30)
-                    Text(verbatim: block.name).font(.system(size: 17)).lineLimit(1)
+                    Text(verbatim: block.name).font(QXType.rowTitle).lineLimit(1)
                     Spacer(minLength: 6)
                     if expanded && !block.policy.isEmpty {
                         QXChip(text: block.policy, color: QXPolicyColor.color(block.policy))
@@ -269,7 +269,7 @@ struct QXRewritePanel: View {
             LazyVStack(alignment: .leading, spacing: 10) {
                 HStack(alignment: .firstTextBaseline, spacing: 10) {
                     Text("重写规则").font(.system(size: 22, weight: .bold))
-                    Text(verbatim: QXFmt.count(list.filter(\.enabled).reduce(0) { $0 + $1.lines.count })).font(.system(size: 17)).foregroundStyle(.secondary)
+                    Text(verbatim: QXFmt.count(list.filter(\.enabled).reduce(0) { $0 + $1.lines.count })).font(QXType.rowTitle).foregroundStyle(.secondary)
                     Spacer()
                     Toggle("", isOn: Binding(get: { engine.config.enabled }, set: { engine.config.enabled = $0; engine.save() }))
                         .labelsHidden().tint(QXColor.rewrite)
@@ -287,7 +287,7 @@ struct QXRewritePanel: View {
                         VStack(spacing: 0) {
                             HStack(spacing: 14) {
                                 Image(systemName: "pencil").font(.system(size: 20, weight: .semibold)).foregroundStyle(QXColor.rewrite).frame(width: 30)
-                                Text(verbatim: b.name).font(.system(size: 17)).lineLimit(1)
+                                Text(verbatim: b.name).font(QXType.rowTitle).lineLimit(1)
                                     .foregroundStyle(b.enabled ? Color.primary : Color.secondary)
                                 if !b.enabled { Text("已停用").font(.caption2).foregroundStyle(.secondary) }
                                 Spacer(minLength: 6)
@@ -299,7 +299,7 @@ struct QXRewritePanel: View {
                             .padding(.horizontal, 16).padding(.vertical, 15)
                             .contentShape(Rectangle())
                             .onTapGesture {
-                                withAnimation(.spring(response: 0.3)) {
+                                withAnimation(QXMotion.spring) {
                                     if expanded.contains(b.id) { expanded.remove(b.id) } else { expanded.insert(b.id) }
                                 }
                             }
@@ -394,11 +394,11 @@ struct QXLogPanel: View {
                 .padding(.bottom, 110)
             }
             .overlay(alignment: .bottomTrailing) {
-                Button { withAnimation { proxy.scrollTo("qx-log-end", anchor: .bottom) } } label: {
+                Button { withAnimation(QXMotion.snappy) { proxy.scrollTo("qx-log-end", anchor: .bottom) } } label: {
                     Image(systemName: "chevron.down")
                         .font(.system(size: 17, weight: .semibold)).foregroundStyle(.primary)
                         .frame(width: 44, height: 44)
-                        .background(Circle().fill(QXPalette.card)).shadow(color: QXPalette.shadow(0.12), radius: 8, y: 2)
+                        .background(Circle().fill(QXPalette.card)).shadow(color: QXPalette.shadow(0.07), radius: 5, y: 2)
                 }
                 .padding(.trailing, 20).padding(.bottom, 92)
                 .accessibilityLabel(Text("跳到末尾"))

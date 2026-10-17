@@ -226,7 +226,7 @@ struct QXTaskGalleryRepoView: View {
         HStack(alignment: .top, spacing: 14) {
             QXTaskIcon(icon: t.icon, kind: t.kind)
             VStack(alignment: .leading, spacing: 4) {
-                Text(verbatim: t.name).font(.system(size: 17)).lineLimit(1)
+                Text(verbatim: t.name).font(QXType.rowTitle).lineLimit(1)
                 HStack(spacing: 6) {
                     Image(systemName: t.kind == "event" ? "network" : (t.kind == "generic" ? "hand.tap" : "clock")).font(.system(size: 12))
                     Text(verbatim: t.error ?? (t.schedule.isEmpty ? (t.kind == "generic" ? String(localized: "手动运行") : "—") : t.schedule))

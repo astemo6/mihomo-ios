@@ -433,7 +433,7 @@ struct QXNodesPanel: View {
     }
 
     private func toggle(_ id: String) {
-        withAnimation(.spring(response: 0.3)) {
+        withAnimation(QXMotion.spring) {
             if expanded.contains(id) { expanded.remove(id) } else { expanded.insert(id) }
         }
     }
@@ -500,7 +500,7 @@ struct QXResourceCard: View {
                     }
                     .buttonStyle(.plain)
                     .accessibilityLabel(Text("测速"))
-                    Text(verbatim: resource.name).font(.system(size: 17)).lineLimit(1)
+                    Text(verbatim: resource.name).font(QXType.rowTitle).lineLimit(1)
                     Spacer(minLength: 6)
                     if let info = resource.info {
                         VStack(alignment: .trailing, spacing: 1) {
@@ -572,7 +572,7 @@ struct QXNodeRow: View {
         HStack(spacing: 10) {
             VStack(alignment: .leading, spacing: 4) {
                 Text(verbatim: name)
-                    .font(.system(size: 16, weight: selected ? .semibold : .regular))
+                    .font(QXType.rowTitle.weight(selected ? .semibold : .regular))
                     .foregroundStyle(selected ? QXColor.switchOn : Color.primary)
                     .lineLimit(1)
                 HStack(spacing: 4) {
@@ -691,9 +691,9 @@ struct QXPolicyRow: View {
                 .buttonStyle(.plain)
                 .accessibilityLabel(Text("测速"))
                 VStack(alignment: .leading, spacing: 3) {
-                    Text(verbatim: group.name).font(.system(size: 17, weight: .regular)).lineLimit(1)
+                    Text(verbatim: group.name).font(QXType.rowTitle).lineLimit(1)
                     Text(verbatim: group.chain.dropFirst().joined(separator: " ➤ ").isEmpty ? group.display.label : group.chain.dropFirst().joined(separator: " ➤ "))
-                        .font(.system(size: 13, weight: .medium))
+                        .font(QXType.rowDetail)
                         .foregroundStyle(.secondary)
                         .lineLimit(1)
                         .truncationMode(.middle)

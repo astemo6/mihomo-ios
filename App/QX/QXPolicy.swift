@@ -109,7 +109,7 @@ struct QXPolicyEditor: View {
                 QXCapsuleBar {
                     QXBarIcon(systemName: manual ? "chevron.left.forwardslash.chevron.right" : "hand.point.up.left",
                               tint: qxType == .staticP || manual ? .primary : .secondary) {
-                        withAnimation(.spring(response: 0.3)) { manual.toggle() }
+                        withAnimation(QXMotion.spring) { manual.toggle() }
                     }
                     .accessibilityLabel(Text(manual ? LocalizedStringKey("正则筛选") : LocalizedStringKey("手动引用")))
                     if saving {
@@ -207,7 +207,7 @@ struct QXPolicyEditor: View {
         return VStack(alignment: .leading, spacing: 0) {
             HStack(alignment: .firstTextBaseline, spacing: 10) {
                 Text("结果").font(.system(size: QXMetrics.largeTitle, weight: .bold))
-                Text(verbatim: "\(members.count + nodes.count)").font(.system(size: 17)).foregroundStyle(.secondary)
+                Text(verbatim: "\(members.count + nodes.count)").font(QXType.rowTitle).foregroundStyle(.secondary)
             }
             .padding(.bottom, 10)
             if let e = regexError {
@@ -230,7 +230,7 @@ struct QXPolicyEditor: View {
     func resultRow(_ name: String, note: String?) -> some View {
         VStack(spacing: 0) {
             HStack {
-                Text(verbatim: name).font(.system(size: 17)).lineLimit(1)
+                Text(verbatim: name).font(QXType.rowTitle).lineLimit(1)
                 Spacer()
                 if let note { Text(verbatim: note).font(.caption2).foregroundStyle(.secondary) }
             }
@@ -252,12 +252,12 @@ struct QXPolicyEditor: View {
                 }
                 ForEach(Array(spec.proxies.enumerated()), id: \.element) { i, m in
                     HStack(spacing: 12) {
-                        Button { _ = withAnimation { spec.proxies.remove(at: i) } } label: {
+                        Button { _ = withAnimation(QXMotion.snappy) { spec.proxies.remove(at: i) } } label: {
                             Image(systemName: "minus.circle.fill").font(.system(size: 22)).foregroundStyle(QXColor.red)
                         }
                         .buttonStyle(.plain)
                         .accessibilityLabel(Text("移除"))
-                        Text(verbatim: m).font(.system(size: 17)).lineLimit(1)
+                        Text(verbatim: m).font(QXType.rowTitle).lineLimit(1)
                         Spacer()
                         Text(LocalizedStringKey(memberKindKey(m))).font(.caption2).foregroundStyle(.secondary)
                         Button { move(i, -1) } label: { Image(systemName: "chevron.up") }.buttonStyle(.plain).disabled(i == 0)
@@ -274,12 +274,12 @@ struct QXPolicyEditor: View {
                 Text("更多").font(.system(size: 22, weight: .bold)).padding(.bottom, 6)
                 ForEach(candidates.filter { !spec.proxies.contains($0) }, id: \.self) { c in
                     HStack(spacing: 12) {
-                        Button { withAnimation { spec.proxies.append(c) } } label: {
+                        Button { withAnimation(QXMotion.snappy) { spec.proxies.append(c) } } label: {
                             Image(systemName: "plus.circle.fill").font(.system(size: 22)).foregroundStyle(QXColor.mitm)
                         }
                         .buttonStyle(.plain)
                         .accessibilityLabel(Text("添加"))
-                        Text(verbatim: c).font(.system(size: 17)).lineLimit(1)
+                        Text(verbatim: c).font(QXType.rowTitle).lineLimit(1)
                         Spacer()
                         Text(LocalizedStringKey(memberKindKey(c))).font(.caption2).foregroundStyle(.secondary)
                     }
@@ -292,7 +292,7 @@ struct QXPolicyEditor: View {
 
     var advancedSection: some View {
         VStack(alignment: .leading, spacing: 14) {
-            Button { withAnimation(.spring(response: 0.3)) { showAdvanced.toggle() } } label: {
+            Button { withAnimation(QXMotion.spring) { showAdvanced.toggle() } } label: {
                 HStack(spacing: 8) {
                     Text("高级").font(.system(size: 20, weight: .bold)).foregroundStyle(.primary)
                     Image(systemName: showAdvanced ? "arrowtriangle.down.fill" : "arrowtriangle.right.fill")
@@ -422,7 +422,7 @@ struct QXPolicyEditor: View {
     private func move(_ i: Int, _ d: Int) {
         let j = i + d
         guard spec.proxies.indices.contains(j) else { return }
-        withAnimation { spec.proxies.swapAt(i, j) }
+        withAnimation(QXMotion.snappy) { spec.proxies.swapAt(i, j) }
     }
 
     func load() async {

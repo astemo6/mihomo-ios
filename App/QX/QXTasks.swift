@@ -145,12 +145,12 @@ struct QXTaskListView: View {
             }
             .padding(.horizontal, 18)
             .frame(height: 56)
-            .background(Capsule().fill(QXPalette.chrome).shadow(color: QXPalette.shadow(0.12), radius: 10, y: 3))
+            .background(Capsule().fill(QXPalette.chrome).shadow(color: QXPalette.shadow(0.06), radius: 5, y: 2))
             .overlay(Capsule().stroke(QXPalette.hairline, lineWidth: 1))
             Button { nav.push(.dest(.scriptLogs)) } label: {
                 Image(systemName: "doc.text.magnifyingglass").font(.system(size: 20, weight: .semibold)).foregroundStyle(.primary)
                     .frame(width: 56, height: 56)
-                    .background(Circle().fill(QXPalette.chrome).shadow(color: QXPalette.shadow(0.12), radius: 10, y: 3))
+                    .background(Circle().fill(QXPalette.chrome).shadow(color: QXPalette.shadow(0.06), radius: 5, y: 2))
                     .overlay(Circle().stroke(QXPalette.hairline, lineWidth: 1))
             }
             .buttonStyle(QXPressStyle())
@@ -180,7 +180,7 @@ struct QXTaskListView: View {
             }
         }
         .frame(width: 56, height: 56)
-        .animation(.spring(response: 0.3, dampingFraction: 0.75), value: on)
+        .animation(QXMotion.spring, value: on)
     }
 
     func row(_ t: ScriptTaskState) -> some View {
@@ -269,7 +269,7 @@ struct QXTaskListView: View {
 
     func setPaused(_ p: Bool) {
         QXHaptics.toggle()
-        withAnimation(.spring(response: 0.3)) { prefs.paused = p }
+        withAnimation(QXMotion.spring) { prefs.paused = p }
         prefs.save(connected: vpn.isConnected)
     }
 

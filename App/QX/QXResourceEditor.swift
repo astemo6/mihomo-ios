@@ -216,7 +216,7 @@ struct QXResourceEditor: View {
 
     var advancedSection: some View {
         VStack(alignment: .leading, spacing: 12) {
-            Button { withAnimation(.spring(response: 0.3)) { showAdvanced.toggle() } } label: {
+            Button { withAnimation(QXMotion.spring) { showAdvanced.toggle() } } label: {
                 HStack(spacing: 8) {
                     Text("高级").font(.system(size: 20, weight: .bold)).foregroundStyle(.primary)
                     Image(systemName: showAdvanced ? "arrowtriangle.down.fill" : "arrowtriangle.right.fill")

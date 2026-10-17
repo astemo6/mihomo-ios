@@ -100,7 +100,7 @@ struct QXCertSheets: ViewModifier {
                     sheetView(s).zIndex(10)
                 }
             }
-            .animation(.spring(response: 0.32, dampingFraction: 0.9), value: sheet)
+            .animation(QXMotion.spring, value: sheet)
             .sheet(item: $share) { ActivityView(items: [$0.url]) }
             .alert("导出 p12", isPresented: $askP12) {
                 SecureField("设置密码", text: $p12Password)
@@ -207,7 +207,7 @@ struct QXMitMView: View {
                 VStack(alignment: .leading, spacing: 18) {
                     HStack(alignment: .firstTextBaseline, spacing: 10) {
                         Text(verbatim: "MitM").font(.system(size: QXMetrics.largeTitle, weight: .bold))
-                        Text(verbatim: "\(store.config.hostnames.count + store.moduleHostnames.count)").font(.system(size: 17)).foregroundStyle(.secondary)
+                        Text(verbatim: "\(store.config.hostnames.count + store.moduleHostnames.count)").font(QXType.rowTitle).foregroundStyle(.secondary)
                         Spacer()
                         Toggle("", isOn: Binding(get: { store.config.mitm }, set: { store.config.mitm = $0; store.save() }))
                             .labelsHidden().tint(QXColor.mitm)
@@ -326,7 +326,7 @@ struct QXMitMView: View {
 
     var moduleHostSection: some View {
         VStack(alignment: .leading, spacing: 10) {
-            Button { withAnimation(.spring(response: 0.3)) { showModuleHosts.toggle() } } label: {
+            Button { withAnimation(QXMotion.spring) { showModuleHosts.toggle() } } label: {
                 HStack(alignment: .firstTextBaseline, spacing: 8) {
                     Text("来自模块").font(.system(size: 24, weight: .bold)).foregroundStyle(.primary)
                     Text(verbatim: "\(store.moduleHostnames.count)").font(.system(size: 15)).foregroundStyle(.secondary)

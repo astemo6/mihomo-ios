@@ -88,7 +88,7 @@ struct QXImportEntries: View {
     }
 
     private func show(_ t: String, error: Bool) {
-        withAnimation { message = t; isError = error }
+        withAnimation(QXMotion.snappy) { message = t; isError = error }
     }
 }
 

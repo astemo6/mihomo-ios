@@ -10,7 +10,9 @@ struct QXShell: View {
     @StateObject private var nav = QXNavigator.shared
     @EnvironmentObject var vpn: VPNManager
     @EnvironmentObject var store: ProfileStore
-    @EnvironmentObject var dash: DashboardModel
+    // Not observed: DashboardModel publishes traffic every second; observing it here re-rendered the whole
+    // shell (navigation stack, home, toolbar) on each sample (QX preview 6 smoothness pass).
+    private var dash: DashboardModel { DashboardModel.shared }
     @EnvironmentObject var ipinfo: IPInfoModel
     @EnvironmentObject var router: ImportRouter
     @Environment(\.scenePhase) private var phase
@@ -46,7 +48,7 @@ extension QXShell {
         var m = CoreOverrides.load().mode.lowercased()
         if connected, let cfg = try? await ControllerClient.shared.configs(), let live = (cfg["mode"] as? String)?.lowercased() { m = live }
         guard ["rule", "global", "direct"].contains(m), m != dash.mode else { return }
-        withAnimation(.easeInOut(duration: 0.3)) { dash.mode = m }
+        withAnimation(QXMotion.spring) { dash.mode = m }
         QXHaptics.select()
     }
 
@@ -226,10 +228,10 @@ struct QXHeader: View {
         HStack(alignment: .center, spacing: 12) {
             VStack(alignment: .leading, spacing: 3) {
                 HStack(spacing: 8) {
-                    Text(verbatim: ip.exit?.flag ?? "🌐").font(.system(size: 24))
+                    Text(verbatim: ip.exit?.flag ?? "🌐").font(.title2)
                     Text(verbatim: ip.exit?.placeText ?? (IPInfoFetcher.disabled ? (on ? String(localized: "已连接") : String(localized: "未连接"))
                                                           : (ip.loading ? String(localized: "正在查询…") : (ip.failed ? String(localized: "查询失败") : "—"))))
-                        .font(.system(size: 24, weight: .bold))
+                        .font(QXType.header)
                         .lineLimit(1)
                         .minimumScaleFactor(0.6)
                 }
@@ -246,8 +248,8 @@ struct QXHeader: View {
             }
             .onLongPressGesture(minimumDuration: 0.45) {
                 ip.copy()
-                withAnimation(.spring()) { copied = true }
-                DispatchQueue.main.asyncAfter(deadline: .now() + 1.4) { withAnimation { copied = false } }
+                withAnimation(QXMotion.snappy) { copied = true }
+                DispatchQueue.main.asyncAfter(deadline: .now() + 1.4) { withAnimation(QXMotion.snappy) { copied = false } }
             }
             .accessibilityElement(children: .combine)
             .accessibilityHint(Text("轻点刷新，长按复制"))
@@ -308,7 +310,7 @@ struct QXPanelStrip: View {
                       spacing: QXMetrics.tileGap) {
                 ForEach(order) { p in
                     QXTile(panel: p, selected: p.rawValue == selected, small: style == "small", flexible: true)
-                        .onTapGesture { withAnimation(.spring(response: 0.3)) { selected = p.rawValue } }
+                        .onTapGesture { withAnimation(QXMotion.spring) { selected = p.rawValue } }
                         .onLongPressGesture(minimumDuration: 0.4, pressing: { press(p, $0) }) { open(p) }
                         .scaleEffect(pressed == p.rawValue ? 0.95 : 1)
                 }
@@ -322,7 +324,7 @@ struct QXPanelStrip: View {
                         .fill(p.color.opacity(p.rawValue == selected ? 1 : 0.45))
                         .frame(height: p.rawValue == selected ? 10 : 7)
                         .contentShape(Rectangle().inset(by: -10))
-                        .onTapGesture { withAnimation(.spring(response: 0.3)) { selected = p.rawValue } }
+                        .onTapGesture { withAnimation(QXMotion.spring) { selected = p.rawValue } }
                         .onLongPressGesture(minimumDuration: 0.4) { open(p) }
                         .accessibilityLabel(Text(p.title))
                 }
@@ -336,7 +338,7 @@ struct QXPanelStrip: View {
                         ForEach(order) { p in
                             QXTile(panel: p, selected: p.rawValue == selected, small: style == "small")
                                 .id(p.rawValue)
-                                .onTapGesture { withAnimation(.spring(response: 0.3)) { selected = p.rawValue } }
+                                .onTapGesture { withAnimation(QXMotion.spring) { selected = p.rawValue } }
                                 .onLongPressGesture(minimumDuration: 0.4, pressing: { press(p, $0) }) { open(p) }
                                 .scaleEffect(pressed == p.rawValue ? 0.95 : 1)
                         }
@@ -344,13 +346,13 @@ struct QXPanelStrip: View {
                     .padding(.horizontal, QXMetrics.inset)
                     .padding(.vertical, 6)
                 }
-                .onChange(of: selected) { s in withAnimation { proxy.scrollTo(s, anchor: .center) } }
+                .onChange(of: selected) { s in withAnimation(QXMotion.snappy) { proxy.scrollTo(s, anchor: .center) } }
             }
         }
     }
 
     private func press(_ p: QXPanel, _ on: Bool) {
-        withAnimation(.spring(response: 0.22, dampingFraction: 0.7)) { pressed = on ? p.rawValue : nil }
+        withAnimation(QXMotion.press) { pressed = on ? p.rawValue : nil }
     }
 
     private func open(_ p: QXPanel) {
@@ -372,7 +374,7 @@ struct QXTile: View {
                 QXPanelGlyph(panel: panel, size: 20)
                 if !small {
                     Text(verbatim: panel.title)
-                        .font(.system(size: 15, weight: .semibold))
+                        .font(QXType.tileLabel)
                         .foregroundStyle(.white)
                         .lineLimit(1)
                         .minimumScaleFactor(0.7)
@@ -381,7 +383,7 @@ struct QXTile: View {
                     .fill(Color.white.opacity(selected ? 0.9 : 0))
                     .frame(width: selected ? 22 : 6, height: 3)
                     .padding(.top, small ? 4 : 0)
-                    .animation(.spring(response: 0.32, dampingFraction: 0.7), value: selected)
+                    .animation(QXMotion.spring, value: selected)
             }
             .frame(width: flexible ? nil : (small ? 56 : QXMetrics.tileSize.width), height: small ? 56 : QXMetrics.tileSize.height)
             .frame(maxWidth: flexible ? .infinity : nil)
@@ -405,7 +407,7 @@ struct QXTile: View {
             RoundedRectangle(cornerRadius: small ? 16 : QXMetrics.tileRadius, style: .continuous)
                 .stroke(QXPalette.hairline, lineWidth: 1)
         )
-        .shadow(color: QXPalette.shadow(0.10), radius: 6, y: 3)
+        .shadow(color: QXPalette.shadow(0.06), radius: 4, y: 2)
         .accessibilityElement(children: .ignore)
         .accessibilityLabel(Text(panel.title))
         .accessibilityAddTraits(selected ? [.isButton, .isSelected] : .isButton)
@@ -419,7 +421,6 @@ struct QXToolbar: View {
     static let hiddenKey = "qx.hiddenTools"
     let panel: QXPanel
     @EnvironmentObject var nav: QXNavigator
-    @EnvironmentObject var dash: DashboardModel
     @EnvironmentObject var vpn: VPNManager
     @AppStorage("qx.toolbarStyle") private var toolbarStyle = "rounded"
     @AppStorage(QXToolbar.hiddenKey) private var hiddenRaw = ""
@@ -434,7 +435,7 @@ struct QXToolbar: View {
             if shown("1") {
             Button {
                 if panel == .activity {
-                    withAnimation { nav.activitySearch.toggle() }
+                    withAnimation(QXMotion.snappy) { nav.activitySearch.toggle() }
                 } else if panel == .rules {
                     nav.push(.dest(.customRules))
                 } else if panel == .rewrite {
@@ -507,7 +508,7 @@ struct QXToolbar: View {
         .background(
             RoundedRectangle(cornerRadius: toolbarStyle == "rounded" ? QXMetrics.toolbarHeight / 2 : 16, style: .continuous)
                 .fill(QXPalette.chrome)
-                .shadow(color: QXPalette.shadow(0.10), radius: 14, y: 4)
+                .shadow(color: QXPalette.shadow(0.07), radius: 8, y: 2)
         )
         .overlay(
             RoundedRectangle(cornerRadius: toolbarStyle == "rounded" ? QXMetrics.toolbarHeight / 2 : 16, style: .continuous)
@@ -519,13 +520,12 @@ struct QXToolbar: View {
     private var windmill: some View {
             // QX: the windmill turns while connected, a little faster while traffic flows; tap = 设置,
             // long-press = 运行模式, quick swipe up = 编辑配置 / 脚本记录 / 请求列表 (spec §1 gestures).
-            QXSpinningWindmill(mode: dash.mode, size: 30, spinning: vpn.isConnected,
-                               speed: (dash.down + dash.up) > 512 * 1024 ? 0.9 : ((dash.down + dash.up) > 8 * 1024 ? 0.6 : 0.35))
+            QXLiveWindmill(connected: vpn.isConnected)
                 .frame(width: QXMetrics.windmillCircle, height: QXMetrics.windmillCircle)
                 .background(Circle().fill(QXPalette.chrome))
                 .overlay(Circle().stroke(QXPalette.hairline, lineWidth: 1))
                 .scaleEffect(windmillPressed ? 0.9 : 1)
-                .animation(.spring(response: 0.25, dampingFraction: 0.65), value: windmillPressed)
+                .animation(QXMotion.press, value: windmillPressed)
                 .contentShape(Circle())
                 .onTapGesture {
                     QXHaptics.tap()
@@ -691,3 +691,19 @@ struct QXRunModeSheet: View {
     }
 }
 
+
+
+/// The toolbar windmill is the only home element that follows the per-second traffic; it observes
+/// DashboardModel on its own so a traffic sample re-renders this one view, not the toolbar or home.
+struct QXLiveWindmill: View {
+    @ObservedObject private var dash = DashboardModel.shared
+    let connected: Bool
+    private var speed: Double {
+        let t = dash.down + dash.up
+        return t > 512 * 1024 ? 0.9 : (t > 8 * 1024 ? 0.6 : 0.35)
+    }
+    var body: some View {
+        QXSpinningWindmill(mode: dash.mode, size: 30, spinning: connected, speed: speed)
+            .animation(QXMotion.spring, value: dash.mode)
+    }
+}

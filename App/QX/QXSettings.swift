@@ -23,16 +23,15 @@ struct QXActionGrid: View {
             ForEach(items) { it in
                 Button(action: it.action) {
                     HStack(spacing: 10) {
-                        Image(systemName: it.icon).font(.system(size: 18, weight: .semibold)).frame(width: 24)
-                        Text(verbatim: it.title).font(.system(size: 18, weight: .semibold)).lineLimit(1).minimumScaleFactor(0.7)
+                        Image(systemName: it.icon).font(.system(size: 17, weight: .medium)).frame(width: 22)
+                        Text(verbatim: it.title).font(QXType.button).lineLimit(1).minimumScaleFactor(0.7)
                         Spacer(minLength: 0)
                     }
                     .foregroundStyle(.white)
                     .padding(.horizontal, 18)
-                    .frame(maxWidth: .infinity, minHeight: 60)
+                    .frame(maxWidth: .infinity, minHeight: QXMetrics.settingsButton)
                     .background(Capsule().fill(color))
-                    .overlay(Capsule().stroke(QXPalette.hairline, lineWidth: 1))
-                    .shadow(color: QXPalette.glow(color), radius: 8, y: 4)
+                    .shadow(color: QXPalette.glow(color, 0.16), radius: 5, y: 2)
                 }
                 .buttonStyle(QXPressStyle(scale: 0.96, haptic: true))
             }
@@ -52,12 +51,12 @@ struct QXSettingsSection<Trailing: View>: View {
     var body: some View {
         VStack(alignment: .leading, spacing: 12) {
             HStack(alignment: .firstTextBaseline, spacing: 10) {
-                Text(verbatim: title).font(.system(size: QXMetrics.largeTitle + 2, weight: .bold))
+                Text(verbatim: title).font(QXType.pageTitle)
                 if let count { Text(verbatim: count).font(.system(size: 15)).foregroundStyle(.secondary) }
                 Spacer()
                 trailing
             }
-            Text(verbatim: caption).font(.system(size: QXMetrics.caption)).foregroundStyle(.secondary).lineSpacing(3).fixedSize(horizontal: false, vertical: true)
+            Text(verbatim: caption).font(QXType.caption).foregroundStyle(.secondary).lineSpacing(2).fixedSize(horizontal: false, vertical: true)
             QXActionGrid(color: color, items: items, columns: hSize == .regular ? 3 : 2).padding(.top, 6)
         }
     }

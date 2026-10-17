@@ -62,6 +62,27 @@ enum QXPanel: String, CaseIterable, Identifiable {
 }
 
 /// QX-4 visual pass: metrics measured on the recording (600 px frame = 393 pt, 1 pt ≈ 1.53 px).
+/// QX preview 6: text styles measured on the frames (CJK advance = 1 em, so a 21 px glyph pitch = 14 pt).
+/// Dynamic Type styles where one is within 1 pt of the measurement.
+enum QXType {
+    /// Page titles (引用资源 - 分流, settings sections): ≈ 21–22 pt bold → .title2.
+    static let pageTitle = Font.title2.weight(.bold)
+    /// Home section titles (PROXY, 自定义策略): ≈ 20 pt bold → .title3.
+    static let sectionTitle = Font.title3.weight(.bold)
+    /// Card / row titles (已保存, 回国, WhatsApp): ≈ 14.5–15 pt → .subheadline (was 17).
+    static let rowTitle = Font.subheadline
+    /// Row second lines (SZ CN, resource URLs, chains): ≈ 12 pt → .caption.
+    static let rowDetail = Font.caption.weight(.medium)
+    /// Explanations under titles: ≈ 14.5 pt → .subheadline.
+    static let caption = Font.subheadline
+    /// Tile labels (节点, 网络活动): ≈ 14 pt semibold → .subheadline semibold (was 15 fixed).
+    static let tileLabel = Font.subheadline.weight(.semibold)
+    /// Settings button labels (添加, 节点资源): ≈ 17 pt semibold → .headline (was 18).
+    static let button = Font.headline
+    /// Exit location in the header: ≈ 22 pt bold → .title2 (was 24).
+    static let header = Font.title2.weight(.bold)
+}
+
 enum QXMetrics {
     /// Side inset of every QX list, page and the tile strip (frames 01/25/28: 28 px ≈ 18 pt).
     static let inset: CGFloat = 18
@@ -80,9 +101,13 @@ enum QXMetrics {
     /// Page chrome circles and capsules (frame 28: 65 px ≈ 43 pt).
     static let circle: CGFloat = 43
     /// In-content large titles (frame 28: ≈ 24 pt bold) and section headers on Home (≈ 20 pt bold).
-    static let largeTitle: CGFloat = 24
+    // QX preview 6 scale pass: frames are 600 px for 402 pt (1.49 px/pt, iPhone 16 Pro), not 393 pt.
+    // Page titles measure ≈ 21–22 pt (frames 25/28), Home section titles ≈ 20 pt (frame 01).
+    static let largeTitle: CGFloat = 22
     static let sectionTitle: CGFloat = 20
     static let caption: CGFloat = 15
+    /// Settings action buttons (frame 25: 94 px ≈ 63 pt high, 13 pt apart).
+    static let settingsButton: CGFloat = 62
     /// Hairline that QX draws around white chrome (circles, capsules, the toolbar).
     static let hairline = QXPalette.hairline
 }
@@ -289,10 +314,10 @@ struct QXSectionHeader<Trailing: View>: View {
         HStack(spacing: 8) {
             Button {
                 QXHaptics.select()
-                withAnimation(.spring(response: 0.3)) { expanded.toggle() }
+                withAnimation(QXMotion.spring) { expanded.toggle() }
             } label: {
                 HStack(spacing: 8) {
-                    Text(verbatim: title).font(.system(size: QXMetrics.sectionTitle, weight: .bold)).foregroundStyle(.primary)
+                    Text(verbatim: title).font(QXType.sectionTitle).foregroundStyle(.primary)
                     Image(systemName: expanded ? "arrowtriangle.down.fill" : "arrowtriangle.right.fill")
                         .font(.system(size: 11, weight: .bold)).foregroundStyle(.primary)
                 }
@@ -466,11 +491,11 @@ struct QXLargeTitle: View {
     var body: some View {
         VStack(alignment: .leading, spacing: 8) {
             HStack(alignment: .firstTextBaseline, spacing: 10) {
-                Text(verbatim: title).font(.system(size: QXMetrics.largeTitle, weight: .bold))
+                Text(verbatim: title).font(QXType.pageTitle)
                 if let count { Text(verbatim: count).font(.system(size: 15)).foregroundStyle(.secondary) }
             }
             if let caption {
-                Text(verbatim: caption).font(.system(size: QXMetrics.caption)).foregroundStyle(.secondary).lineSpacing(3).fixedSize(horizontal: false, vertical: true)
+                Text(verbatim: caption).font(QXType.caption).foregroundStyle(.secondary).lineSpacing(2).fixedSize(horizontal: false, vertical: true)
             }
         }
         .frame(maxWidth: .infinity, alignment: .leading)
@@ -512,7 +537,7 @@ struct QXBottomSegment: View {
             ForEach(Array(icons.enumerated()), id: \.offset) { i, icon in
                 Button {
                     if selection != i { QXHaptics.select() }
-                    withAnimation(.spring(response: 0.3, dampingFraction: 0.75)) { selection = i }
+                    withAnimation(QXMotion.spring) { selection = i }
                 } label: {
                     Image(systemName: icon)
                         .font(.system(size: 13, weight: .bold))
@@ -528,7 +553,7 @@ struct QXBottomSegment: View {
         }
         .padding(.horizontal, 14)
         .frame(height: 56)
-        .background(Capsule().fill(QXPalette.chrome).shadow(color: QXPalette.shadow(0.10), radius: 12, y: 4))
+        .background(Capsule().fill(QXPalette.chrome).shadow(color: QXPalette.shadow(0.06), radius: 5, y: 2))
         .overlay(Capsule().stroke(QXMetrics.hairline, lineWidth: 1))
     }
 }

@@ -134,7 +134,7 @@ struct QXAddNodeView: View {
                                     .padding(13)
                                     .frame(maxWidth: .infinity, minHeight: 92, alignment: .leading)
                                     .background(RoundedRectangle(cornerRadius: 20, style: .continuous).fill(QXColor.nodes))
-                                    .shadow(color: QXPalette.glow(QXColor.nodes), radius: 6, y: 3)
+                                    .shadow(color: QXPalette.glow(QXColor.nodes, 0.14), radius: 4, y: 2)
                                 }
                                 .buttonStyle(QXPressStyle())
                                 .accessibilityLabel(Text(verbatim: p.title))

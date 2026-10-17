@@ -118,7 +118,7 @@ struct QXRewriteRulesView: View {
             }
             .overlay(alignment: .bottomTrailing) {
                 QXCircleButton(systemName: searching ? "xmark" : "magnifyingglass") {
-                    withAnimation { searching.toggle(); if !searching { search = "" } }
+                    withAnimation(QXMotion.snappy) { searching.toggle(); if !searching { search = "" } }
                 }
                 .padding(.trailing, 20).padding(.bottom, 16)
                 .accessibilityLabel(Text("搜索"))
