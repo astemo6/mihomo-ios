@@ -19,6 +19,11 @@ extension WidgetSnapshot {
         s.node = node
         s.policy = policy ?? ""
         s.profile = ProfileStore.shared.active?.name ?? ""
+        if let i = ProfileStore.shared.active?.userInfo, i.total > 0 {
+            s.remaining = String(localized: "剩余 \(Fmt.bytes(max(i.total - i.used, 0)))")
+        } else {
+            s.remaining = nil
+        }
         if let e = IPInfoModel.shared.exit {
             s.flag = e.flag; s.place = e.placeText; s.detail = e.detailText
         }

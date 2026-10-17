@@ -276,7 +276,12 @@ struct StatusWidgetView: View {
                 HStack(alignment: .top) {
                     locationHeader
                     Spacer(minLength: 8)
-                    toggle
+                    VStack(alignment: .trailing, spacing: 6) {
+                        toggle
+                        if let r = entry.snapshot.remaining, !r.isEmpty {
+                            Text(verbatim: r).font(.system(size: 11, weight: .medium).monospacedDigit()).foregroundStyle(.secondary).lineLimit(1)
+                        }
+                    }
                 }
                 Spacer(minLength: 0)
                 HStack(spacing: 10) {

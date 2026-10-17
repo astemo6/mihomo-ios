@@ -159,6 +159,9 @@ struct PolicyView: View {
     @ObservedObject private var probes = ProbeStore.shared
 
     struct ChainGroupTarget: Identifiable { let id = UUID(); let name: String }
+    /// v0.9 策略组编辑 (name nil = new group).
+    struct EditGroupTarget: Identifiable { let id = UUID(); let name: String? }
+    @State private var editGroup: EditGroupTarget?
 
     /// Groups that can carry a 前置代理 (not GLOBAL; DIRECT/REJECT style built-ins have no members).
     private func chainAction(_ name: String) -> (() -> Void)? {
@@ -215,6 +218,8 @@ struct PolicyView: View {
             .navigationTitle("策略")
             .toolbar {
                 ToolbarItemGroup(placement: .navigationBarTrailing) {
+                    Button { editGroup = EditGroupTarget(name: nil) } label: { Image(systemName: "plus") }
+                        .accessibilityLabel(Text("新建策略组"))
                     Menu {
                         Picker("排序", selection: $sortMode) {
                             Label("配置顺序", systemImage: "list.number").tag("default")
@@ -246,6 +251,9 @@ struct PolicyView: View {
         .sheet(item: $iconTarget) { t in GroupIconPicker(group: t.name, profileIcon: t.profileIcon) }
         .onChange(of: store.activeID) { _ in Task { if !vpn.isConnected { await offline.load() } } }
         .sheet(item: $chainGroup) { t in GroupChainSheet(group: t.name) }
+        .sheet(item: $editGroup) { t in
+            GroupEditorView(groupName: t.name).environmentObject(store).environmentObject(vpn)
+        }
         .sheet(item: $share) { t in NodeShareSheet(name: t.name, link: t.link) }
         .sheet(item: $probeTarget) { t in NodeProbeSheet(policy: t.name) }
         .alert("分享节点", isPresented: Binding(get: { shareError != nil }, set: { if !$0 { shareError = nil } })) {
@@ -290,6 +298,7 @@ struct PolicyView: View {
                                     onChain: chainAction(g.name),
                                     onShare: { shareNode($0) },
                                     onIcon: { iconTarget = IconTarget(name: g.name, profileIcon: g.icon) },
+                                    onEdit: { editGroup = EditGroupTarget(name: g.name) },
                                     onProbe: { probeTarget = ProbeTarget(name: $0) },
                                     badge: { probes.badge(for: $0) },
                                     onPin: pinAction)
@@ -342,7 +351,8 @@ struct PolicyView: View {
                                         via: smart.via(g.name),
                                         onChain: chainAction(g.name),
                                         onShare: { shareNode($0) },
-                                        onIcon: { iconTarget = IconTarget(name: g.name, profileIcon: g.icon) })
+                                        onIcon: { iconTarget = IconTarget(name: g.name, profileIcon: g.icon) },
+                                        onEdit: { editGroup = EditGroupTarget(name: g.name) })
                     }
                     if !offline.result.groups.isEmpty {
                         TestTargetCaption(live: false)
@@ -377,6 +387,8 @@ struct PolicyGroupCard: View {
     var onShare: ((String) -> Void)? = nil
     /// Opens the group icon picker.
     var onIcon: (() -> Void)? = nil
+    /// v0.9: opens the group editor.
+    var onEdit: (() -> Void)? = nil
     /// v0.8 节点探测 sheet for a member (live only), and the 解锁 badge per member.
     var onProbe: ((String) -> Void)? = nil
     var badge: ((String) -> (ok: Int, total: Int)?)? = nil
@@ -393,6 +405,7 @@ struct PolicyGroupCard: View {
             HStack(spacing: 10) {
                 GroupIconView(group: group.name, profileIcon: group.profileIcon, fallback: group.icon, size: 34)
                     .contextMenu {
+                        if let onEdit { Button { onEdit() } label: { Label("编辑策略组", systemImage: "slider.horizontal.3") } }
                         if let onIcon { Button { onIcon() } label: { Label("更换图标", systemImage: "photo") } }
                     }
                 VStack(alignment: .leading, spacing: 2) {
@@ -401,7 +414,7 @@ struct PolicyGroupCard: View {
                         Text(group.label)
                             .font(.caption2.weight(.semibold))
                             .padding(.horizontal, 6).padding(.vertical, 2)
-                            .background(Capsule().fill(Color.primary.opacity(0.1)))
+                            .background(Capsule().fill(Theme.ink(0.1)))
                         if via != nil {
                             Image(systemName: "link").font(.caption2.weight(.bold)).foregroundStyle(Theme.accent)
                                 .accessibilityLabel(Text("已设置前置代理"))
@@ -433,6 +446,11 @@ struct PolicyGroupCard: View {
                     }
                 }
                 Spacer()
+                if let onEdit {
+                    Button(action: onEdit) { Image(systemName: "slider.horizontal.3").foregroundStyle(.secondary) }
+                        .buttonStyle(.plain)
+                        .accessibilityLabel(Text("编辑策略组"))
+                }
                 Button(action: onTest) {
                     if testing {
                         ProgressView().controlSize(.small)
@@ -537,7 +555,7 @@ struct PolicyGroupCard: View {
         }
         .padding(14)
         .background(RoundedRectangle(cornerRadius: 18, style: .continuous).fill(Theme.card))
-        .overlay(RoundedRectangle(cornerRadius: 18, style: .continuous).stroke(Color.primary.opacity(0.06)))
+        .overlay(RoundedRectangle(cornerRadius: 18, style: .continuous).stroke(Theme.ink(0.06)))
     }
 }
 

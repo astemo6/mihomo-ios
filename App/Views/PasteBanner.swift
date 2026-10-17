@@ -71,7 +71,7 @@ struct PasteBanner: View {
             }
             .padding(.horizontal, 14).padding(.vertical, 10)
             .background(RoundedRectangle(cornerRadius: 16, style: .continuous).fill(Theme.cardHi))
-            .overlay(RoundedRectangle(cornerRadius: 16, style: .continuous).stroke(Color.primary.opacity(0.08)))
+            .overlay(RoundedRectangle(cornerRadius: 16, style: .continuous).stroke(Theme.ink(0.08)))
             .shadow(color: .black.opacity(0.4), radius: 12, y: 4)
             .padding(.horizontal, 12)
             .frame(maxWidth: 560)

@@ -12,6 +12,7 @@ struct ProfilesView: View {
     @State private var editing: Profile?
     @State private var showManual = false
     @State private var subRulesFor: Profile?
+    @State private var showSubs = false
 
     var body: some View {
         NavigationStack {
@@ -69,9 +70,10 @@ struct ProfilesView: View {
             .background(Theme.bg.ignoresSafeArea())
             .navigationTitle("配置")
             .toolbar {
-                ToolbarItem(placement: .navigationBarLeading) {
+                ToolbarItemGroup(placement: .navigationBarLeading) {
                     Button { updateAll() } label: { Label("全部更新", systemImage: "arrow.triangle.2.circlepath") }
                         .disabled(busy || !store.profiles.contains { $0.kind == .remote })
+                    Button { showSubs = true } label: { Label("订阅管理", systemImage: "tray.full") }
                 }
                 ToolbarItem(placement: .navigationBarTrailing) {
                     Menu {
@@ -85,6 +87,7 @@ struct ProfilesView: View {
                 }
             }
             .navigationDestination(isPresented: $showManual) { ManualNodesView() }
+            .navigationDestination(isPresented: $showSubs) { SubscriptionsView() }
             .overlay { if busy { ProgressView().padding(20).background(RoundedRectangle(cornerRadius: 12).fill(Theme.cardHi)) } }
             .sheet(isPresented: $showAddRemote) { AddRemoteSheet { msg in message = msg } }
             .sheet(isPresented: $showNewLocal) {
@@ -132,12 +135,12 @@ struct ProfilesView: View {
         guard let s = UIPasteboard.general.string, !s.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else {
             message = "剪贴板为空"; return
         }
-        ImportRouter.shared.pending = .confText(name: "导入的配置", text: s)
+        ImportRouter.shared.present(.confText(name: String(localized: "导入的配置"), text: s))
     }
 
     static func looksLikeConf(_ s: String) -> Bool {
         let l = s.lowercased()
-        return (l.contains("[proxy]") && l.contains("[rule]")) || l.contains("[server_local]") || l.contains("[policy]") || l.contains("[filter_local]")
+        return (l.contains("[proxy]") && l.contains("[rule]")) || l.contains("[server_local]") || l.contains("[server_remote]") || l.contains("[policy]") || l.contains("[filter_local]") || l.contains("[filter_remote]")
     }
 
     func importClipboard() {
@@ -150,7 +153,7 @@ struct ProfilesView: View {
             return
         }
         if Self.looksLikeConf(s) {
-            ImportRouter.shared.pending = .confText(name: "导入的配置", text: s)
+            ImportRouter.shared.present(.confText(name: String(localized: "导入的配置"), text: s))
             return
         }
         busy = true
@@ -171,29 +174,13 @@ struct ProfilesView: View {
         }
     }
 
+    /// 从文件导入: read inside the security scope right away, then present through the shared presenter
+    /// (which waits for the file picker to finish dismissing). Every outcome is visible.
     func importFile(_ result: Result<URL, Error>) {
         switch result {
         case .failure(let e): message = e.localizedDescription
         case .success(let url):
-            let ext = url.pathExtension.lowercased()
-            if ["conf", "sgmodule", "plugin", "stoverride", "list", "snippet", "lpx"].contains(ext) {
-                ImportRouter.shared.pending = ImportRouter.action(forFile: url)
-                return
-            }
-            let ok = url.startAccessingSecurityScopedResource()
-            defer { if ok { url.stopAccessingSecurityScopedResource() } }
-            guard let text = try? String(contentsOf: url, encoding: .utf8) else { message = "无法读取文件"; return }
-            if Self.looksLikeConf(text) {
-                ImportRouter.shared.pending = .confText(name: url.deletingPathExtension().lastPathComponent, text: text)
-                return
-            }
-            let name = url.deletingPathExtension().lastPathComponent
-            busy = true
-            Task {
-                defer { busy = false }
-                do { _ = try await store.addLocal(name: name, text: text); message = "已导入 \(name)" }
-                catch { message = error.localizedDescription }
-            }
+            ImportRouter.shared.present(ImportRouter.action(forFile: url))
         }
     }
 }

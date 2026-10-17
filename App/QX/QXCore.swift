@@ -13,27 +13,6 @@ extension Color {
     }
 }
 
-/// 外观: follow the system, or force light / dark.
-enum QXAppearance: String, CaseIterable, Identifiable {
-    case system, light, dark
-    static let key = "ui.appearance"
-    var id: String { rawValue }
-    var title: String {
-        switch self {
-        case .system: return String(localized: "跟随系统")
-        case .light: return String(localized: "浅色")
-        case .dark: return String(localized: "深色")
-        }
-    }
-    static func scheme(_ raw: String) -> ColorScheme? {
-        switch QXAppearance(rawValue: raw) ?? .system {
-        case .system: return nil
-        case .light: return .light
-        case .dark: return .dark
-        }
-    }
-}
-
 /// The five panel tiles (QX: 节点 / 网络活动 / 分流规则 / 重写规则 / 日志).
 enum QXPanel: String, CaseIterable, Identifiable {
     case nodes, activity, rules, rewrite, logs
@@ -116,7 +95,7 @@ enum QXDest: String, Hashable, CaseIterable {
     case localRewrite, rewriteResources, scripts
     case mitm, httpCapture, tasks
     case tools, unlock, analytics, stats, trafficStats, dnsLog, blocked, logs, backup
-    case connection, dns, speedTest, coreSettings, geo, appIcon, diagnostics, about, notices, scriptLogs, panels, sessions
+    case connection, dns, speedTest, coreSettings, geo, appIcon, diagnostics, about, notices, scriptLogs, panels, sessions, subscriptions
 
     @MainActor @ViewBuilder var view: some View {
         switch self {
@@ -153,6 +132,7 @@ enum QXDest: String, Hashable, CaseIterable {
         case .scriptLogs: ScriptLogsView()
         case .panels: PanelsView()
         case .sessions: QXSessionListView()
+        case .subscriptions: SubscriptionsView()
         }
     }
 }

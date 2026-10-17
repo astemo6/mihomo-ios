@@ -121,7 +121,7 @@ struct ConnectCard: View {
                 .scaleEffect(1.25)
                 .disabled(vpn.isBusy || vpn.status == .disconnecting)
             }
-            Divider().overlay(Color.primary.opacity(0.08))
+            Divider().overlay(Theme.ink(0.08))
             HStack(spacing: 18) {
                 VStack(alignment: .leading, spacing: 3) {
                     Label("配置", systemImage: "doc.text").font(.caption2).foregroundStyle(.secondary)
@@ -137,7 +137,7 @@ struct ConnectCard: View {
         .padding(18)
         .frame(maxWidth: .infinity, alignment: .leading)
         .background(RoundedRectangle(cornerRadius: 18, style: .continuous).fill(Theme.card))
-        .overlay(RoundedRectangle(cornerRadius: 18, style: .continuous).stroke(Color.primary.opacity(0.06)))
+        .overlay(RoundedRectangle(cornerRadius: 18, style: .continuous).stroke(Theme.ink(0.06)))
     }
 }
 
@@ -278,7 +278,7 @@ struct StatTile: View {
         }
         .padding(14)
         .background(RoundedRectangle(cornerRadius: 16, style: .continuous).fill(Theme.card))
-        .overlay(RoundedRectangle(cornerRadius: 16, style: .continuous).stroke(Color.primary.opacity(0.06)))
+        .overlay(RoundedRectangle(cornerRadius: 16, style: .continuous).stroke(Theme.ink(0.06)))
     }
 }
 
@@ -352,7 +352,7 @@ struct ExitHeader: View {
                 .disabled(vpn.isBusy || vpn.status == .disconnecting)
                 .accessibilityLabel(Text("代理"))
             }
-            Divider().overlay(Color.primary.opacity(0.08))
+            Divider().overlay(Theme.ink(0.08))
             HStack(spacing: 6) {
                 Circle()
                     .fill(on ? Theme.good : Color.secondary.opacity(0.6))
@@ -376,14 +376,14 @@ struct ExitHeader: View {
         .padding(16)
         .frame(maxWidth: .infinity, alignment: .leading)
         .background(RoundedRectangle(cornerRadius: 18, style: .continuous).fill(Theme.card))
-        .overlay(RoundedRectangle(cornerRadius: 18, style: .continuous).stroke(Color.primary.opacity(0.06)))
+        .overlay(RoundedRectangle(cornerRadius: 18, style: .continuous).stroke(Theme.ink(0.06)))
         .overlay(alignment: .topTrailing) {
             if copied {
                 Text("已复制")
                     .font(.caption2.bold())
                     .padding(.horizontal, 8).padding(.vertical, 3)
                     .background(Capsule().fill(Theme.good))
-                    .foregroundStyle(.black)
+                    .foregroundStyle(Theme.onAccent)
                     .offset(x: -8, y: -8)
                     .transition(.scale.combined(with: .opacity))
             }
@@ -402,7 +402,7 @@ struct HomePolicyCards: View {
     var body: some View {
         VStack(spacing: 0) {
             ForEach(Array(groups.enumerated()), id: \.element.id) { i, g in
-                if i > 0 { Divider().overlay(Color.primary.opacity(0.06)).padding(.leading, 56) }
+                if i > 0 { Divider().overlay(Theme.ink(0.06)).padding(.leading, 56) }
                 NavigationLink {
                     if live { GroupQuickPicker(group: g.name) } else { OfflineGroupPicker(group: g.name) }
                 } label: {
@@ -429,7 +429,7 @@ struct HomePolicyCards: View {
             }
         }
         .background(RoundedRectangle(cornerRadius: 18, style: .continuous).fill(Theme.card))
-        .overlay(RoundedRectangle(cornerRadius: 18, style: .continuous).stroke(Color.primary.opacity(0.06)))
+        .overlay(RoundedRectangle(cornerRadius: 18, style: .continuous).stroke(Theme.ink(0.06)))
     }
 }
 

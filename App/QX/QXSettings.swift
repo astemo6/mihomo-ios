@@ -204,7 +204,7 @@ struct QXOtherSettingsView: View {
     @EnvironmentObject var nav: QXNavigator
     @EnvironmentObject var dash: DashboardModel
     @EnvironmentObject var vpn: VPNManager
-    @AppStorage(QXAppearance.key) private var appearance = QXAppearance.system.rawValue
+    @AppStorage(AppAppearance.key) private var appearance = AppAppearance.system.rawValue
 
     var body: some View {
         QXPage(title: String(localized: "其他设置")) {
@@ -218,10 +218,10 @@ struct QXOtherSettingsView: View {
                 .listRowBackground(Theme.card)
 
                 Section {
-                    ForEach(QXAppearance.allCases) { a in
-                        Button { appearance = a.rawValue } label: {
+                    ForEach(AppAppearance.allCases) { a in
+                        Button { appearance = a.rawValue; AppAppearance.apply(a) } label: {
                             HStack {
-                                Text(verbatim: a.title).foregroundStyle(.primary)
+                                Label(a.title, systemImage: a.icon).foregroundStyle(.primary)
                                 Spacer()
                                 if appearance == a.rawValue { Image(systemName: "checkmark").foregroundStyle(QXColor.switchOn) }
                             }
@@ -239,6 +239,7 @@ struct QXOtherSettingsView: View {
                 .listRowBackground(Theme.card)
 
                 Section {
+                    row(String(localized: "订阅管理"), "tray.full", .subscriptions)
                     row(String(localized: "提供者（规则集 / 节点集）"), "shippingbox", .providers)
                     row(String(localized: "模块与资源"), "puzzlepiece.extension", .rewriteResources)
                     row(String(localized: "脚本"), "curlybraces", .scripts)
@@ -428,8 +429,8 @@ struct QXNodeResourcesView: View {
     var body: some View {
         QXPage {
             QXCapsuleBar {
-                QXBarIcon(systemName: "doc.badge.gearshape") { nav.present(.profiles) }
-                    .accessibilityLabel(Text("配置"))
+                QXBarIcon(systemName: "doc.badge.gearshape") { nav.push(.dest(.subscriptions)) }
+                    .accessibilityLabel(Text("订阅管理"))
                 QXBarIcon(systemName: "link.badge.plus") { nav.present(.addRemote) }
                     .accessibilityLabel(Text("添加订阅链接"))
             }

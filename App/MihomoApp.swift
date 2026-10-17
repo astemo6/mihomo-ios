@@ -1,4 +1,5 @@
 import SwiftUI
+import UIKit
 
 @main
 struct MihomoApp: App {
@@ -9,8 +10,6 @@ struct MihomoApp: App {
     @StateObject private var dash = DashboardModel.shared
     @StateObject private var ipinfo = IPInfoModel.shared
     @Environment(\.scenePhase) private var phase
-    /// QX branch: 外观 跟随系统 / 浅色 / 深色 (其他设置 → 外观).
-    @AppStorage(QXAppearance.key) private var appearance = QXAppearance.system.rawValue
 
     init() {
         // Bundled geo databases → core home, so profile validation in the app never downloads them either.
@@ -25,18 +24,17 @@ struct MihomoApp: App {
                 .environmentObject(dash)
                 .environmentObject(ipinfo)
                 .environmentObject(router)
+                // Imports are presented by ImportRouter from the topmost view controller (v0.8.1): a root
+                // .sheet was silently dropped while onboarding, another sheet or the file picker was up.
                 .onOpenURL { router.handle(url: $0) }
-                .sheet(item: $router.pending) { a in
-                    ImportSheet(action: a)
-                        .environmentObject(store)
-                        .preferredColorScheme(QXAppearance.scheme(appearance))
-                }
-                .preferredColorScheme(QXAppearance.scheme(appearance))
                 .tint(Theme.accent)
+                // v0.9: 更多 → 设置 → 外观 (跟随系统 / 浅色 / 深色), applied to every window.
+                .onAppear { AppAppearance.apply() }
                 .onChange(of: phase) { p in
                     if p == .active {
                         Task { await vpn.load() }
                         Task { await store.autoUpdateIfNeeded() }
+                        Task { await NodeSubStore.shared.autoUpdateIfNeeded() }
                         Task { await ResourceStore.shared.updateDueIfNeeded() }
                         ipinfo.scheduleRefresh(after: 0.3)
                     }
@@ -116,6 +114,8 @@ struct RootView: View {
             }
             if vpn.isConnected { dash.start() }
             ClipboardWatcher.shared.didBecomeActive()
+            // Cold launch from 「用 Mihomo 打开」: if onOpenURL did not deliver the document, do it now.
+            DispatchQueue.main.asyncAfter(deadline: .now() + 1.0) { router.drainColdLaunchURLs() }
         }
     }
 }
@@ -153,20 +153,40 @@ struct SplitRootView: View {
 }
 
 enum Theme {
-    static let accent = Color(red: 0.29, green: 0.78, blue: 0.96)
-    // QX branch: light / dark follow the system (or the 外观 override); dark values are the previous theme.
-    static let bg = Color.dynamic(light: (0.949, 0.949, 0.969), dark: (0.04, 0.043, 0.063))
-    static let card = Color.dynamic(light: (1, 1, 1), dark: (0.09, 0.10, 0.13))
-    static let cardHi = Color.dynamic(light: (0.925, 0.925, 0.945), dark: (0.13, 0.14, 0.18))
-    /// Header strip above the panel tiles (QX: a lighter band than the content area).
-    static let header = Color.dynamic(light: (0.985, 0.985, 0.99), dark: (0.06, 0.065, 0.09))
-    static let up = Color(red: 1.0, green: 0.62, blue: 0.26)
-    static let down = Color(red: 0.29, green: 0.78, blue: 0.96)
-    static let good = Color(red: 0.25, green: 0.85, blue: 0.48)
-    static let warn = Color(red: 1.0, green: 0.78, blue: 0.2)
-    static let bad = Color(red: 1.0, green: 0.36, blue: 0.36)
+    // v0.9: every colour adapts to light / dark (更多 → 设置 → 外观). Dark values are the v0.1–v0.8 palette;
+    // light values keep the same hues, darkened where they carry text or thin strokes on white (≥ 3:1).
+    static func dyn(_ light: UIColor, _ dark: UIColor) -> Color {
+        Color(UIColor { $0.userInterfaceStyle == .dark ? dark : light })
+    }
+    static func rgb(_ r: CGFloat, _ g: CGFloat, _ b: CGFloat, _ a: CGFloat = 1) -> UIColor {
+        UIColor(red: r, green: g, blue: b, alpha: a)
+    }
+    /// Same hue for both modes, darkened in light mode (badges, chart series).
+    static func tone(_ r: CGFloat, _ g: CGFloat, _ b: CGFloat) -> Color {
+        dyn(rgb(r * 0.78, g * 0.78, b * 0.78), rgb(r, g, b))
+    }
+
+    static let accent = dyn(rgb(0.0, 0.47, 0.78), rgb(0.29, 0.78, 0.96))
+    static let bg = dyn(rgb(0.949, 0.953, 0.969), rgb(0.04, 0.043, 0.063))
+    static let card = dyn(rgb(1, 1, 1), rgb(0.09, 0.10, 0.13))
+    static let cardHi = dyn(rgb(0.918, 0.925, 0.945), rgb(0.13, 0.14, 0.18))
+    static let up = dyn(rgb(0.86, 0.42, 0.0), rgb(1.0, 0.62, 0.26))
+    static let down = accent
+    static let good = dyn(rgb(0.09, 0.60, 0.29), rgb(0.25, 0.85, 0.48))
+    static let warn = dyn(rgb(0.78, 0.50, 0.0), rgb(1.0, 0.78, 0.2))
+    static let bad = dyn(rgb(0.84, 0.19, 0.19), rgb(1.0, 0.36, 0.36))
+    /// Hairline strokes, tracks and chip fills: white on dark, black on light (`Theme.ink(0.06)`).
+    static func ink(_ alpha: Double) -> Color {
+        dyn(UIColor(white: 0, alpha: alpha * 0.9), UIColor(white: 1, alpha: alpha))
+    }
+    /// Neutral grey for "other" chart series.
+    static let neutral = dyn(UIColor(white: 0.60, alpha: 1), UIColor(white: 0.45, alpha: 1))
+    /// Text on a filled accent / status capsule.
+    static let onAccent = dyn(.white, .black)
+    /// QX branch: header strip above the panel tiles (a lighter band than the content area).
+    static let header = dyn(rgb(0.985, 0.985, 0.99), rgb(0.06, 0.065, 0.09))
     static let connectedGradient = LinearGradient(colors: [Color(red: 0.16, green: 0.52, blue: 0.98), Color(red: 0.36, green: 0.86, blue: 0.95)], startPoint: .topLeading, endPoint: .bottomTrailing)
-    static let idleGradient = LinearGradient(colors: [Color(white: 0.16), Color(white: 0.12)], startPoint: .topLeading, endPoint: .bottomTrailing)
+    static let idleGradient = LinearGradient(colors: [cardHi, card], startPoint: .topLeading, endPoint: .bottomTrailing)
 
     static func delayColor(_ d: Int?) -> Color {
         guard let d, d > 0 else { return .secondary }
@@ -178,14 +198,14 @@ enum Theme {
     /// Colour per protocol for node badges.
     static func protocolColor(_ type: String) -> Color {
         switch type.lowercased() {
-        case "shadowsocks", "ss", "shadowsocksr", "ssr": return Color(red: 0.55, green: 0.45, blue: 1.0)
-        case "vmess": return Color(red: 0.25, green: 0.6, blue: 1.0)
-        case "vless": return Color(red: 0.2, green: 0.8, blue: 0.85)
-        case "trojan": return Color(red: 1.0, green: 0.45, blue: 0.45)
-        case "hysteria", "hysteria2", "tuic": return Color(red: 1.0, green: 0.62, blue: 0.2)
-        case "wireguard": return Color(red: 0.35, green: 0.85, blue: 0.45)
-        case "snell", "anytls", "mieru": return Color(red: 1.0, green: 0.4, blue: 0.75)
-        case "socks5", "http", "ssh": return Color(white: 0.7)
+        case "shadowsocks", "ss", "shadowsocksr", "ssr": return tone(0.55, 0.45, 1.0)
+        case "vmess": return tone(0.25, 0.6, 1.0)
+        case "vless": return tone(0.2, 0.8, 0.85)
+        case "trojan": return tone(1.0, 0.45, 0.45)
+        case "hysteria", "hysteria2", "tuic": return tone(1.0, 0.62, 0.2)
+        case "wireguard": return tone(0.35, 0.85, 0.45)
+        case "snell", "anytls", "mieru": return tone(1.0, 0.4, 0.75)
+        case "socks5", "http", "ssh": return neutral
         case "direct": return good
         case "reject", "rejectdrop": return bad
         default: return .secondary
@@ -206,7 +226,7 @@ struct Card<Content: View>: View {
             .padding(padding)
             .frame(maxWidth: .infinity, alignment: .leading)
             .background(RoundedRectangle(cornerRadius: 18, style: .continuous).fill(Theme.card))
-            .overlay(RoundedRectangle(cornerRadius: 18, style: .continuous).stroke(Color.primary.opacity(0.06)))
+            .overlay(RoundedRectangle(cornerRadius: 18, style: .continuous).stroke(Theme.ink(0.06)))
     }
 }
 

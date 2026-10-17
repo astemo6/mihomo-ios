@@ -83,6 +83,7 @@ type Overrides struct {
 	chains     map[string]string // group → 前置代理 (groups.json), set by overridesFor
 	manualPath string            // <container>/profiles/manual-nodes.yaml
 	home       string
+	profileID  string // v0.9: group edits are per profile
 }
 
 const (
@@ -208,6 +209,19 @@ func buildRuntimeWith(profile []byte, o Overrides, fd int32, inject func(raw map
 	}
 	if o.MergeManual && o.manualPath != "" {
 		mergeManualNodes(raw, o.manualPath)
+	}
+	// v0.9 订阅管理: node subscriptions from the override store, then the user's group edits.
+	if o.home != "" && !o.SafeMode {
+		all := readAllSubRules(o.home)
+		mergeNodeSubs(raw, o.home, func(k string) *SubRules {
+			if r, ok := all[k]; ok {
+				return &r
+			}
+			return nil
+		})
+		for _, e := range applyGroupEdits(raw, readGroupEdits(o.home, o.profileID)) {
+			log.Warnln("[Groups] %s", e)
+		}
 	}
 	if o.SafeMode {
 		applyChains(raw, nil)
@@ -462,6 +476,7 @@ func Start(homeDir, configPath string, tunFd int32) error {
 		return err
 	}
 	curFd, curHome = tunFd, homeDir
+	setNetPolicyProfile(configPath)
 	startDiagCapture(homeDir)
 	stage("core start begin (fd=%d)", tunFd)
 	tunnel.OnSuspend()
@@ -478,6 +493,9 @@ func Start(homeDir, configPath string, tunFd int32) error {
 			}
 			if !safe {
 				startSmart(homeDir, configPath)
+				if n := applyNetPolicy(homeDir, configPath, "start"); n > 0 {
+					stage("network policy: %d group(s) switched for this network", n)
+				}
 			}
 		}
 		done <- err
@@ -525,10 +543,12 @@ func Reload(configPath string) error {
 		lastError = err.Error()
 		return err
 	}
+	setNetPolicyProfile(configPath)
 	if overridesFor(curHome, configPath).SafeMode {
 		stopSmart()
 	} else {
 		startSmart(curHome, configPath)
+		applyNetPolicy(curHome, configPath, "reload")
 	}
 	return nil
 }

@@ -386,7 +386,7 @@ final class VPNManager: ObservableObject {
 /// 按需连接: which networks iOS connects the tunnel on automatically (NEOnDemandRules).
 struct OnDemandSettings: Codable, Equatable {
     enum Mode: String, Codable, CaseIterable, Identifiable {
-        case off, always, wifi, cellular
+        case off, always, wifi, cellular, ssid
         var id: String { rawValue }
         var title: String {
             switch self {
@@ -394,6 +394,7 @@ struct OnDemandSettings: Codable, Equatable {
             case .always: return String(localized: "始终")
             case .wifi: return String(localized: "仅 Wi-Fi")
             case .cellular: return String(localized: "仅蜂窝网络")
+            case .ssid: return String(localized: "仅指定 Wi-Fi")
             }
         }
     }
@@ -401,14 +402,20 @@ struct OnDemandSettings: Codable, Equatable {
     var mode: Mode = .off
     /// 受信任的 Wi-Fi (v0.7): on these SSIDs iOS disconnects instead of connecting (NEOnDemandRule ssidMatch).
     var trustedSSIDs: [String] = []
+    /// 仅指定 Wi-Fi (v0.9): connect only on these SSIDs (system-matched, no SSID reading needed).
+    var onlySSIDs: [String] = []
+    /// 仅指定 Wi-Fi: also connect on cellular.
+    var ssidCellular = false
 
     init() {}
     init(from decoder: Decoder) throws {
         let c = try decoder.container(keyedBy: CodingKeys.self)
         mode = (try? c.decodeIfPresent(Mode.self, forKey: .mode)) ?? .off
         trustedSSIDs = (try? c.decodeIfPresent([String].self, forKey: .trustedSSIDs)) ?? []
+        onlySSIDs = (try? c.decodeIfPresent([String].self, forKey: .onlySSIDs)) ?? []
+        ssidCellular = (try? c.decodeIfPresent(Bool.self, forKey: .ssidCellular)) ?? false
     }
-    enum CodingKeys: String, CodingKey { case mode, trustedSSIDs }
+    enum CodingKeys: String, CodingKey { case mode, trustedSSIDs, onlySSIDs, ssidCellular }
 
     /// Compares rule lists by kind, interface and SSIDs (NEOnDemandRule has no useful equality).
     static func signature(_ rules: [NEOnDemandRule]) -> String {
@@ -451,6 +458,19 @@ struct OnDemandSettings: Codable, Equatable {
         case .always: return trusted + [connect(.any)]
         case .wifi: return trusted + [connect(.wiFi), disconnect(.cellular)]
         case .cellular: return [connect(.cellular), disconnect(.wiFi)]
+        case .ssid:
+            // iOS evaluates the rules in order: the listed Wi-Fi (and cellular if wanted) connect, everything
+            // else disconnects. With no names only cellular (or nothing) connects.
+            var out: [NEOnDemandRule] = []
+            let only = onlySSIDs.map { $0.trimmingCharacters(in: .whitespaces) }.filter { !$0.isEmpty }
+            if !only.isEmpty {
+                let r = NEOnDemandRuleConnect()
+                r.interfaceTypeMatch = .wiFi
+                r.ssidMatch = only
+                out.append(r)
+            }
+            if ssidCellular { out.append(connect(.cellular)) }
+            return out + [disconnect(.any)]
         }
     }
 }

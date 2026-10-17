@@ -97,8 +97,8 @@ struct AnalyticsView: View {
     @State private var netDays: [TrafficDay] = []
     @State private var confirmClear = false
 
-    static let palette: [Color] = [Theme.accent, Theme.up, Theme.good, Color(red: 0.62, green: 0.48, blue: 1.0),
-                                   Color(red: 1.0, green: 0.42, blue: 0.62), Theme.warn, Color(white: 0.55)]
+    static let palette: [Color] = [Theme.accent, Theme.up, Theme.good, Theme.tone(0.62, 0.48, 1.0),
+                                   Theme.tone(1.0, 0.42, 0.62), Theme.warn, Theme.neutral]
 
     var body: some View {
         ScrollView {
@@ -176,7 +176,7 @@ struct AnalyticsView: View {
                 SplitBar(title: String(localized: "直连 / 代理"),
                          parts: [(String(localized: "直连"), direct, Theme.good), (String(localized: "代理"), proxy, Theme.accent)])
                 SplitBar(title: range == 0 ? String(localized: "Wi-Fi / 蜂窝（今天）") : String(localized: "Wi-Fi / 蜂窝"),
-                         parts: [("Wi-Fi", wifi, Theme.accent), (String(localized: "蜂窝"), cell, Theme.up), (String(localized: "其他 / 未区分"), other, Color(white: 0.45))])
+                         parts: [("Wi-Fi", wifi, Theme.accent), (String(localized: "蜂窝"), cell, Theme.up), (String(localized: "其他 / 未区分"), other, Theme.neutral)])
             }
         }
     }
@@ -258,7 +258,7 @@ struct AnalyticsView: View {
                             ForEach(list.prefix(8)) { r in
                                 VStack(alignment: .leading, spacing: 8) {
                                     ZStack {
-                                        Circle().stroke(Color.primary.opacity(0.08), lineWidth: 5)
+                                        Circle().stroke(Theme.ink(0.08), lineWidth: 5)
                                         Circle().trim(from: 0, to: CGFloat(Double(r.hits) / Double(maxHits)))
                                             .stroke(Theme.accent, style: StrokeStyle(lineWidth: 5, lineCap: .round))
                                             .rotationEffect(.degrees(-90))
@@ -320,7 +320,7 @@ struct SplitBar: View {
             GeometryReader { geo in
                 HStack(spacing: 2) {
                     if shown.isEmpty {
-                        Rectangle().fill(Color.primary.opacity(0.06))
+                        Rectangle().fill(Theme.ink(0.06))
                     }
                     ForEach(Array(shown.enumerated()), id: \.offset) { _, p in
                         Rectangle().fill(p.2).frame(width: max(2, geo.size.width * CGFloat(Double(p.1) / Double(total)) - 2))
@@ -358,7 +358,7 @@ struct HostBarRow: View {
             }
             GeometryReader { geo in
                 ZStack(alignment: .leading) {
-                    Capsule().fill(Color.primary.opacity(0.06))
+                    Capsule().fill(Theme.ink(0.06))
                     Capsule().fill(Theme.accent.opacity(0.8)).frame(width: max(3, geo.size.width * CGFloat(fraction)))
                 }
             }

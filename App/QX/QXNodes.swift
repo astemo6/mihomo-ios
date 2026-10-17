@@ -308,7 +308,7 @@ struct QXNodesPanel: View {
     @State private var chainTarget: QXNameTarget?
     @State private var probeTarget: QXNameTarget?
     @State private var share: ShareTarget?
-    @State private var showPolicyInfo = false
+    @State private var editTarget: QXEditTarget?
 
     var body: some View {
         let groups = model.groups()
@@ -353,7 +353,7 @@ struct QXNodesPanel: View {
                 }
 
                 QXSectionHeader(title: String(localized: "自定义策略"), expanded: $policyExpanded) {
-                    Button { showPolicyInfo = true } label: {
+                    Button { editTarget = QXEditTarget(name: nil) } label: {
                         Image(systemName: "sum")
                             .font(.system(size: 22, weight: .semibold))
                             .foregroundStyle(QXColor.policyChip)
@@ -371,6 +371,7 @@ struct QXNodesPanel: View {
                                     smart: smart.isSmart(g.name),
                                     onTest: { Task { await model.test(group: g.name) } },
                                     onOpen: { nav.push(.group(g.name)) },
+                                    onEdit: g.name == "GLOBAL" ? nil : { editTarget = QXEditTarget(name: g.name) },
                                     onIcon: { iconTarget = QXIconTarget(name: g.name, profileIcon: g.icon) },
                                     onChain: g.name == "GLOBAL" ? nil : { chainTarget = QXNameTarget(name: g.name) },
                                     onProbe: vpn.isConnected ? { probeTarget = QXNameTarget(name: g.name) } : nil)
@@ -403,11 +404,8 @@ struct QXNodesPanel: View {
         .sheet(item: $chainTarget) { t in GroupChainSheet(group: t.name) }
         .sheet(item: $probeTarget) { t in NodeProbeSheet(policy: t.name) }
         .sheet(item: $share) { t in NodeShareSheet(name: t.name, link: t.link) }
-        .alert("添加策略", isPresented: $showPolicyInfo) {
-            Button("编辑配置") { nav.present(.editProfile) }
-            Button("好", role: .cancel) {}
-        } message: {
-            Text("策略编辑器会在后续的 QX 预览中提供。现在可以在「编辑配置」里修改 proxy-groups。")
+        .sheet(item: $editTarget, onDismiss: { Task { await model.load() } }) { t in
+            GroupEditorView(groupName: t.name).environmentObject(store).environmentObject(vpn)
         }
     }
 
@@ -442,6 +440,8 @@ struct QXNodesPanel: View {
 
 struct QXIconTarget: Identifiable { let id = UUID(); let name: String; let profileIcon: String? }
 struct QXNameTarget: Identifiable { let id = UUID(); let name: String }
+/// Policy editor target (nil name = new policy, QX Σ+).
+struct QXEditTarget: Identifiable { let id = UUID(); let name: String? }
 
 // MARK: - Resource card
 
@@ -621,6 +621,7 @@ struct QXPolicyRow: View {
     let smart: Bool
     let onTest: () -> Void
     let onOpen: () -> Void
+    var onEdit: (() -> Void)? = nil
     let onIcon: () -> Void
     var onChain: (() -> Void)? = nil
     var onProbe: (() -> Void)? = nil
@@ -674,7 +675,8 @@ struct QXPolicyRow: View {
             .contentShape(Rectangle())
             .onTapGesture(perform: onOpen)
             .contextMenu {
-                Button(action: onOpen) { Label("编辑", systemImage: "square.and.pencil") }
+                if let onEdit { Button(action: onEdit) { Label("编辑", systemImage: "square.and.pencil") } }
+                Button(action: onOpen) { Label("节点", systemImage: "list.bullet") }
                 Button(action: onTest) { Label("测速", systemImage: "bolt") }
                 Button(action: onIcon) { Label("图标", systemImage: "square.grid.2x2") }
                 if let onChain { Button(action: onChain) { Label("前置代理", systemImage: "link") } }
@@ -700,6 +702,8 @@ struct QXGroupDetailView: View {
     @State private var chainTarget: QXNameTarget?
     @State private var probeTarget: QXNameTarget?
     @State private var share: ShareTarget?
+    @State private var editing: QXEditTarget?
+    @EnvironmentObject var store: ProfileStore
 
     func ordered(_ members: [String]) -> [String] {
         switch sortMode {
@@ -782,6 +786,10 @@ struct QXGroupDetailView: View {
                     if model.testing.contains(name) { ProgressView() } else { Image(systemName: "bolt.fill") }
                 }
                 .accessibilityLabel(Text("测速"))
+                if name != "GLOBAL" {
+                    Button { editing = QXEditTarget(name: name) } label: { Image(systemName: "square.and.pencil") }
+                        .accessibilityLabel(Text("编辑"))
+                }
             }
         }
         .task { if model.proxies.isEmpty && model.index.isEmpty { await model.load() } else { await model.refreshLive() } }
@@ -790,6 +798,9 @@ struct QXGroupDetailView: View {
         .sheet(item: $chainTarget) { t in GroupChainSheet(group: t.name) }
         .sheet(item: $probeTarget) { t in NodeProbeSheet(policy: t.name) }
         .sheet(item: $share) { t in NodeShareSheet(name: t.name, link: t.link) }
+        .sheet(item: $editing, onDismiss: { Task { await model.load() } }) { t in
+            GroupEditorView(groupName: t.name).environmentObject(store).environmentObject(vpn)
+        }
     }
 
     @ViewBuilder func header(_ g: QXGroup) -> some View {

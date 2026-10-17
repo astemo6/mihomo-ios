@@ -73,7 +73,6 @@ struct OnboardingView: View {
             .frame(maxWidth: 560)
         }
         .background(Theme.bg.ignoresSafeArea())
-        .preferredColorScheme(.dark)
         .tint(Theme.accent)
         .interactiveDismissDisabled(busy)
     }
@@ -213,6 +212,16 @@ struct OnboardingView: View {
             await addURL()
             return
         }
+        // Surge / QX configs, modules and import links go through the shared import sheet (v0.8.1), which
+        // presents over this onboarding cover and explains anything it cannot import.
+        if let a = ImportRouter.route(text: s) {
+            switch a {
+            case .nodesText, .profileURL: break
+            default:
+                await MainActor.run { ImportRouter.shared.run(a) }
+                return
+            }
+        }
         busy = true
         defer { busy = false }
         do {
@@ -268,7 +277,7 @@ private struct StepDots: View {
         HStack(spacing: 6) {
             ForEach(0..<count, id: \.self) { i in
                 Capsule()
-                    .fill(i == current ? Theme.accent : Color.primary.opacity(0.2))
+                    .fill(i == current ? Theme.accent : Theme.ink(0.2))
                     .frame(width: i == current ? 22 : 8, height: 8)
             }
         }

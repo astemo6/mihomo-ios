@@ -65,6 +65,7 @@ func profileIDFromPath(path string) string {
 // overridesFor reads overrides and attaches the subscription rules of the profile at path.
 func overridesFor(home, path string) Overrides {
 	o := readOverrides(home)
+	o.profileID = profileIDFromPath(path)
 	if r, ok := readAllSubRules(home)[profileIDFromPath(path)]; ok && r.Enabled {
 		rr := r
 		o.sub = &rr
