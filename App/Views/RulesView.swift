@@ -170,7 +170,7 @@ struct RulesView: View {
                     VStack(alignment: .leading, spacing: 3) {
                         Text(r.payload.isEmpty ? r.type : r.payload).font(.system(.footnote, design: .monospaced)).lineLimit(2)
                         HStack(spacing: 6) {
-                            RuleTypeTag(type: r.type)
+                            RuleTypeTag(type: Theme.ruleTypeName(r.type))
                             if let s = r.size, s > 0 { Text("\(s) 条").font(.caption2).foregroundStyle(.secondary) }
                             Spacer()
                             if !r.proxy.isEmpty { PolicyChip(name: r.proxy) }
@@ -265,7 +265,7 @@ struct CustomRuleRow: View {
                 Text(rule.line).scaledFont(12, design: .monospaced).lineLimit(3)
                 if let c = check, (c.error ?? "").isEmpty, let r = c.rule, !r.isEmpty {
                     HStack(spacing: 6) {
-                        RuleTypeTag(type: String(r.split(separator: ",").first ?? Substring(r)).trimmingCharacters(in: .whitespaces))
+                        RuleTypeTag(type: Theme.ruleTypeName(String(r.split(separator: ",").first ?? Substring(r)).trimmingCharacters(in: .whitespaces)))
                         Spacer(minLength: 4)
                         if let p = c.policy, !p.isEmpty { PolicyChip(name: p) }
                     }

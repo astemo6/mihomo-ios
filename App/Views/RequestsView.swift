@@ -384,7 +384,6 @@ struct ConnectionSummaryBar: View {
                 }
             }
         }
-        .accessibilityIdentifier("requests.summary")
     }
 
     private func count(_ title: String, _ n: Int, _ color: Color, id: String) -> some View {

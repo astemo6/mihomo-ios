@@ -199,6 +199,7 @@ struct ConnectionView: View {
             NavigationLink { NetworkPolicyView() } label: {
                 Label("按网络切换策略", systemImage: "arrow.triangle.branch")
             }
+            .accessibilityIdentifier("connection.networkPolicy")
             if vpn.onDemandPaused {
                 Label("已暂停：你在 App 里手动断开了。下次手动连接后恢复。", systemImage: "pause.circle")
                     .font(.footnote).foregroundStyle(Theme.warn)
