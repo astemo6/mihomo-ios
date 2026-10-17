@@ -230,6 +230,21 @@ struct QXHeader: View {
     @EnvironmentObject var nav: QXNavigator
     @State private var copied = false
     @State private var showError = false
+    /// QX preview 7: the switch is on but the controller does not answer (extension died) — device report.
+    @State private var coreDown = false
+    /// A query that has run for 8 s is shown as failed instead of an endless 正在查询….
+    @State private var queryStale = false
+
+    /// Title when there is no exit result: never an endless 正在查询… while the core is unreachable.
+    private var statusText: String {
+        let on = vpn.isConnected
+        if vpn.lastError != nil && !on { return String(localized: "连接失败") }
+        if on && coreDown { return String(localized: "连不上内核") }
+        if IPInfoFetcher.disabled { return on ? String(localized: "已连接") : String(localized: "未连接") }
+        if ip.loading && !queryStale { return on ? String(localized: "正在查询…") : String(localized: "未连接") }
+        if ip.failed || queryStale { return on ? String(localized: "查询失败") : String(localized: "未连接") }
+        return on ? "—" : String(localized: "未连接")
+    }
 
     var body: some View {
         let on = vpn.isConnected
@@ -237,8 +252,7 @@ struct QXHeader: View {
             VStack(alignment: .leading, spacing: 3) {
                 HStack(spacing: 8) {
                     Text(verbatim: ip.exit?.flag ?? "🌐").font(.title2)
-                    Text(verbatim: ip.exit?.placeText ?? (IPInfoFetcher.disabled ? (on ? String(localized: "已连接") : String(localized: "未连接"))
-                                                          : (ip.loading ? String(localized: "正在查询…") : (ip.failed ? String(localized: "查询失败") : "—"))))
+                    Text(verbatim: (on && coreDown) ? statusText : (ip.exit?.placeText ?? statusText))
                         .font(QXType.header)
                         .lineLimit(1)
                         .minimumScaleFactor(0.6)
@@ -296,6 +310,23 @@ struct QXHeader: View {
             Button("好", role: .cancel) {}
         } message: { Text(vpn.lastError ?? "") }
         .onAppear { if ip.exit == nil && !ip.loading { ip.scheduleRefresh() } }
+        .task(id: ip.loading) {
+            queryStale = false
+            guard ip.loading else { return }
+            try? await Task.sleep(nanoseconds: 8_000_000_000)
+            if !Task.isCancelled && ip.loading { queryStale = true }
+        }
+        .task(id: on) {
+            coreDown = false
+            guard on else { return }
+            // Light liveness check of the controller while connected (local HTTP, every 10 s).
+            try? await Task.sleep(nanoseconds: 3_000_000_000)
+            while !Task.isCancelled {
+                let ok = (try? await ControllerClient.shared.version()) != nil
+                if ok != !coreDown { withAnimation(QXMotion.snappy) { coreDown = !ok } }
+                try? await Task.sleep(nanoseconds: 10_000_000_000)
+            }
+        }
     }
 }
 

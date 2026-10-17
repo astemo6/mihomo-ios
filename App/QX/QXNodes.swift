@@ -52,8 +52,8 @@ final class QXNodesModel: ObservableObject {
     func load() async {
         if VPNManager.shared.isConnected {
             do {
-                proxies = try await ControllerClient.shared.proxies()
-                providers = (try? await ControllerClient.shared.proxyProviders()) ?? []
+                proxies = QXHidden.clean(try await ControllerClient.shared.proxies())
+                providers = QXHidden.clean((try? await ControllerClient.shared.proxyProviders()) ?? [])
                 error = nil
             } catch {
                 self.error = error.localizedDescription
@@ -69,7 +69,8 @@ final class QXNodesModel: ObservableObject {
 
     /// Live refresh of selections only (no inspector reload).
     func refreshLive() async {
-        guard VPNManager.shared.isConnected, let p = try? await ControllerClient.shared.proxies() else { return }
+        guard VPNManager.shared.isConnected, let raw = try? await ControllerClient.shared.proxies() else { return }
+        let p = QXHidden.clean(raw)
         if p != proxies { proxies = p }
     }
 
@@ -108,9 +109,9 @@ final class QXNodesModel: ObservableObject {
     }
 
     var proxySelection: String? {
-        if live { return proxies[proxyGroupName]?.now }
-        if let g = insp.result.groups.first(where: { $0.name == proxyGroupName }) { return insp.current(of: g) }
-        return insp.result.selected[proxyGroupName]
+        if live { return QXHidden.visible(proxies[proxyGroupName]?.now) }
+        if let g = insp.result.groups.first(where: { $0.name == proxyGroupName }) { return QXHidden.visible(insp.current(of: g)) }
+        return QXHidden.visible(insp.result.selected[proxyGroupName])
     }
 
     // MARK: groups
@@ -139,9 +140,10 @@ final class QXNodesModel: ObservableObject {
     private func liveGroup(_ p: ProxyItem) -> QXGroup {
         var chain = [p.name]
         var cur = p.name
-        while let n = proxies[cur]?.now, !n.isEmpty, chain.count < 6, !chain.contains(n) { chain.append(n); cur = n }
+        while let n = QXHidden.visible(proxies[cur]?.now), chain.count < 6, !chain.contains(n) { chain.append(n); cur = n }
         let fixed: String? = (p.fixed ?? "").isEmpty ? nil : p.fixed
-        return QXGroup(name: p.name, kind: PolicyGroupDisplay.kind(live: p.type), icon: p.icon, now: p.now, members: p.all ?? [],
+        return QXGroup(name: p.name, kind: PolicyGroupDisplay.kind(live: p.type), icon: p.icon, now: QXHidden.visible(p.now),
+                       members: (p.all ?? []).filter { !QXHidden.names.contains($0) },
                        selectable: p.isSelectable, pinned: fixed, chain: chain)
     }
 
@@ -149,12 +151,13 @@ final class QXNodesModel: ObservableObject {
         let byName = Dictionary(insp.result.groups.map { ($0.name, $0) }, uniquingKeysWith: { a, _ in a })
         var chain = [g.name]
         var cur = g
-        while let n = insp.current(of: cur), chain.count < 6, !chain.contains(n) {
+        while let n = QXHidden.visible(insp.current(of: cur)), chain.count < 6, !chain.contains(n) {
             chain.append(n)
             guard let next = byName[n] else { break }
             cur = next
         }
-        return QXGroup(name: g.name, kind: g.type, icon: g.icon, now: insp.current(of: g), members: insp.members(of: g),
+        return QXGroup(name: g.name, kind: g.type, icon: g.icon, now: QXHidden.visible(insp.current(of: g)),
+                       members: insp.members(of: g).filter { !QXHidden.names.contains($0) },
                        selectable: g.type == "select", pinned: nil, chain: chain)
     }
 
@@ -913,6 +916,38 @@ struct QXGroupDetailView: View {
             case .success(let l): share = ShareTarget(name: name, link: l)
             case .failure(let e): model.error = e.message
             }
+        }
+    }
+}
+
+
+/// QX preview 7: internal outbounds never appear as a node or a selection in QX rows / subtitles. The core
+/// fix for groups picking up __MITM__ (include-all / filter) is in bridge (hotfix v0.14.1); this only keeps
+/// the UI clean when a core still reports it (ControllerClient.proxies() hides it from `all`, not from `now`).
+enum QXHidden {
+    static let names: Set<String> = ["__MITM__", PolicyProbe.group]
+    static func visible(_ n: String?) -> String? {
+        guard let n, !n.isEmpty, !names.contains(n) else { return nil }
+        return n
+    }
+    static func clean(_ p: [String: ProxyItem]) -> [String: ProxyItem] {
+        var out = p
+        for n in names { out.removeValue(forKey: n) }
+        for (k, v) in out {
+            var v2 = v
+            var changed = false
+            if let now = v.now, names.contains(now) { v2.now = nil; changed = true }
+            if v.all?.contains(where: { names.contains($0) }) == true { v2.all = v.all?.filter { !names.contains($0) }; changed = true }
+            if changed { out[k] = v2 }
+        }
+        return out
+    }
+    static func clean(_ p: [ProviderItem]) -> [ProviderItem] {
+        p.map { pv in
+            guard pv.proxies?.contains(where: { names.contains($0.name) }) == true else { return pv }
+            var x = pv
+            x.proxies = pv.proxies?.filter { !names.contains($0.name) }
+            return x
         }
     }
 }
