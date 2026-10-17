@@ -9,7 +9,11 @@ import androidx.core.content.ContextCompat
 object VpnController {
     fun needsPermission(context: Context): Boolean = VpnService.prepare(context) != null
 
-    fun start(context: Context) = send(context, MihomoVpnService.ACTION_START)
+    /**
+     * Connects. A normal connect ([safeMode] = false: main switch, tile, widget, shortcut) clears
+     * overrides.safeMode like iOS; only the diagnostics safe-mode connect passes true.
+     */
+    fun start(context: Context, safeMode: Boolean = false) = send(context, MihomoVpnService.ACTION_START, safeMode)
     fun stop(context: Context) = send(context, MihomoVpnService.ACTION_STOP)
     fun reload(context: Context) {
         if (VpnState.info.value.isRunning) send(context, MihomoVpnService.ACTION_RELOAD)
@@ -20,8 +24,9 @@ object VpnController {
         if (s == VpnStatus.RUNNING || s == VpnStatus.CONNECTING) stop(context) else start(context)
     }
 
-    private fun send(context: Context, action: String) {
+    private fun send(context: Context, action: String, safeMode: Boolean = false) {
         val i = Intent(context, MihomoVpnService::class.java).setAction(action)
+        if (action == MihomoVpnService.ACTION_START) i.putExtra(MihomoVpnService.EXTRA_SAFE_MODE, safeMode)
         if (action == MihomoVpnService.ACTION_START) {
             ContextCompat.startForegroundService(context, i)
         } else if (VpnState.info.value.status != VpnStatus.STOPPED) {

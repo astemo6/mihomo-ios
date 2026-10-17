@@ -54,6 +54,12 @@ class MihomoVpnService : VpnService() {
         const val ACTION_STOP = "io.github.astemo6.mihomo.STOP"
         const val ACTION_RELOAD = "io.github.astemo6.mihomo.RELOAD"
         const val ACTION_TOGGLE = "io.github.astemo6.mihomo.TOGGLE"
+        /**
+         * Boolean extra on ACTION_START / ACTION_TOGGLE: the overrides.safeMode value to connect with.
+         * Absent = a normal user connect (switch, tile, widget, shortcut), which clears safe mode like iOS.
+         * Only the diagnostics "safe-mode connect" passes true.
+         */
+        const val EXTRA_SAFE_MODE = "io.github.astemo6.mihomo.SAFE_MODE"
         const val CHANNEL = "vpn"
         private const val NOTIFICATION_ID = 1
         private const val TAG = "MihomoVpn"
@@ -87,23 +93,32 @@ class MihomoVpnService : VpnService() {
         when (intent?.action) {
             ACTION_STOP -> scope.launch { stopVpn(null) }
             ACTION_RELOAD -> scope.launch { reload() }
-            ACTION_TOGGLE -> scope.launch { if (coreUp) stopVpn(null) else startVpn() }
-            // ACTION_START, null (sticky restart) and "android.net.VpnService" (always-on) all start.
-            else -> scope.launch { startVpn() }
+            ACTION_TOGGLE -> {
+                val safe = intent.getBooleanExtra(EXTRA_SAFE_MODE, false)
+                scope.launch { if (coreUp) stopVpn(null) else startVpn(safe) }
+            }
+            ACTION_START -> {
+                val safe = intent.getBooleanExtra(EXTRA_SAFE_MODE, false)
+                scope.launch { startVpn(safe) }
+            }
+            // null (sticky restart) and "android.net.VpnService" (always-on) start with the stored safeMode.
+            else -> scope.launch { startVpn(null) }
         }
         return START_NOT_STICKY
     }
 
     // ---- start / stop -------------------------------------------------------------------------
 
-    private suspend fun startVpn() = lock.withLock {
+    /** [safeMode]: value written to overrides.safeMode before starting; null keeps the stored value (system restarts). */
+    private suspend fun startVpn(safeMode: Boolean?) = lock.withLock {
         if (coreUp) return@withLock
         VpnState.update { it.copy(status = VpnStatus.CONNECTING, error = null) }
         try {
             if (VpnService.prepare(this) != null) throw IllegalStateException(getString(R.string.err_vpn_permission))
             val profile = ProfileStore.active ?: throw IllegalStateException(getString(R.string.err_no_profile))
             if (!profile.file.exists()) throw IllegalStateException(getString(R.string.err_profile_missing))
-            val o = Overrides.load()
+            var o = Overrides.load()
+            if (safeMode != null && o.safeMode != safeMode) o = Overrides.update { it.copy(safeMode = safeMode) }
 
             refreshPhysicalNetworks()
             val v6 = when (o.ipv6Mode) {
