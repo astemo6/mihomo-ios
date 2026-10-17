@@ -151,7 +151,7 @@ struct PanelCard: View {
             RoundedRectangle(cornerRadius: 18, style: .continuous)
                 .fill(Color(hex: p.backgroundColor).map { $0.opacity(0.22) } ?? Theme.card)
         )
-        .overlay(RoundedRectangle(cornerRadius: 18, style: .continuous).stroke(Color.white.opacity(0.06)))
+        .overlay(RoundedRectangle(cornerRadius: 18, style: .continuous).stroke(Theme.ink(0.06)))
     }
 
     /// Panel icons are SF Symbol names; fall back for empty / unknown names.
@@ -183,7 +183,7 @@ struct PanelsEntry: View {
                     }
                     .padding(.horizontal, 16).padding(.vertical, 12)
                     .background(RoundedRectangle(cornerRadius: 18, style: .continuous).fill(Theme.card))
-                    .overlay(RoundedRectangle(cornerRadius: 18, style: .continuous).stroke(Color.white.opacity(0.06)))
+                    .overlay(RoundedRectangle(cornerRadius: 18, style: .continuous).stroke(Theme.ink(0.06)))
                 }
                 .buttonStyle(.plain)
             }

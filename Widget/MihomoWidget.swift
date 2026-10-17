@@ -1,5 +1,6 @@
 import WidgetKit
 import SwiftUI
+import UIKit
 import AppIntents
 import NetworkExtension
 
@@ -184,10 +185,14 @@ struct StatusWidget: Widget {
     }
 }
 
+/// Follows the system appearance (v0.9); same values as the app's Theme.
 enum WidgetTheme {
-    static let bg = Color(red: 0.06, green: 0.065, blue: 0.09)
-    static let good = Color(red: 0.25, green: 0.85, blue: 0.48)
-    static let accent = Color(red: 0.29, green: 0.78, blue: 0.96)
+    static func dyn(_ l: (CGFloat, CGFloat, CGFloat), _ d: (CGFloat, CGFloat, CGFloat)) -> Color {
+        Color(UIColor { $0.userInterfaceStyle == .dark ? UIColor(red: d.0, green: d.1, blue: d.2, alpha: 1) : UIColor(red: l.0, green: l.1, blue: l.2, alpha: 1) })
+    }
+    static let bg = dyn((1, 1, 1), (0.06, 0.065, 0.09))
+    static let good = dyn((0.09, 0.60, 0.29), (0.25, 0.85, 0.48))
+    static let accent = dyn((0.0, 0.47, 0.78), (0.29, 0.78, 0.96))
 }
 
 struct StatusWidgetView: View {
@@ -257,7 +262,7 @@ struct StatusWidgetView: View {
             Label(entry.on ? "断开" : "连接", systemImage: entry.on ? "stop.fill" : "play.fill")
                 .font(.caption.weight(.semibold))
                 .padding(.horizontal, 10).padding(.vertical, 6)
-                .background(Capsule().fill(Color.white.opacity(0.1)))
+                .background(Capsule().fill(Color.primary.opacity(0.1)))
         }
         .buttonStyle(.plain)
         .tint(WidgetTheme.accent)

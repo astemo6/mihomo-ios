@@ -193,7 +193,7 @@ struct RuleTypeTag: View {
     var body: some View {
         Text(type).font(.caption2.weight(.semibold))
             .padding(.horizontal, 5).padding(.vertical, 1)
-            .background(Capsule().fill(Color.white.opacity(0.1)))
+            .background(Capsule().fill(Theme.ink(0.1)))
     }
 }
 

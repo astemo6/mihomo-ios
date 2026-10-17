@@ -39,16 +39,19 @@ enum CodeLanguage {
 }
 
 enum CodeTheme {
-    static let text = UIColor(white: 0.90, alpha: 1)
-    static let comment = UIColor(red: 0.45, green: 0.50, blue: 0.56, alpha: 1)
-    static let string = UIColor(red: 0.98, green: 0.72, blue: 0.42, alpha: 1)
-    static let keyword = UIColor(red: 0.78, green: 0.55, blue: 0.98, alpha: 1)
-    static let api = UIColor(red: 0.29, green: 0.78, blue: 0.96, alpha: 1) // Theme.accent
-    static let number = UIColor(red: 0.55, green: 0.88, blue: 0.60, alpha: 1)
-    static let key = UIColor(red: 0.45, green: 0.75, blue: 1.0, alpha: 1)
-    static let section = UIColor(red: 1.0, green: 0.78, blue: 0.2, alpha: 1)
-    static let errorLine = UIColor(red: 1.0, green: 0.36, blue: 0.36, alpha: 0.22)
-    static let background = UIColor(red: 0.04, green: 0.043, blue: 0.063, alpha: 1) // Theme.bg
+    // v0.9: light / dark pairs (dark = the original One-Dark-ish palette, light = same hues for white).
+    static func dyn(_ l: UIColor, _ d: UIColor) -> UIColor { UIColor { $0.userInterfaceStyle == .dark ? d : l } }
+    static func c(_ r: CGFloat, _ g: CGFloat, _ b: CGFloat, _ a: CGFloat = 1) -> UIColor { UIColor(red: r, green: g, blue: b, alpha: a) }
+    static let text = dyn(UIColor(white: 0.12, alpha: 1), UIColor(white: 0.90, alpha: 1))
+    static let comment = dyn(c(0.42, 0.46, 0.52), c(0.45, 0.50, 0.56))
+    static let string = dyn(c(0.72, 0.38, 0.05), c(0.98, 0.72, 0.42))
+    static let keyword = dyn(c(0.55, 0.25, 0.80), c(0.78, 0.55, 0.98))
+    static let api = dyn(c(0.0, 0.47, 0.78), c(0.29, 0.78, 0.96)) // Theme.accent
+    static let number = dyn(c(0.12, 0.55, 0.25), c(0.55, 0.88, 0.60))
+    static let key = dyn(c(0.10, 0.40, 0.78), c(0.45, 0.75, 1.0))
+    static let section = dyn(c(0.70, 0.45, 0.0), c(1.0, 0.78, 0.2))
+    static let errorLine = dyn(c(0.84, 0.19, 0.19, 0.16), c(1.0, 0.36, 0.36, 0.22))
+    static let background = dyn(c(1, 1, 1), c(0.04, 0.043, 0.063)) // Theme.card / Theme.bg
 }
 
 struct CodeEditor: UIViewRepresentable {
@@ -222,7 +225,7 @@ struct CodeEditor: UIViewRepresentable {
                 let b = UIButton(type: .system)
                 b.setTitle(s, for: .normal)
                 b.titleLabel?.font = .monospacedSystemFont(ofSize: 17, weight: .medium)
-                b.backgroundColor = UIColor(white: 1, alpha: 0.12)
+                b.backgroundColor = UIColor { $0.userInterfaceStyle == .dark ? UIColor(white: 1, alpha: 0.12) : UIColor(white: 0, alpha: 0.08) }
                 b.layer.cornerRadius = 6
                 b.tintColor = .label
                 b.widthAnchor.constraint(greaterThanOrEqualToConstant: 34).isActive = true

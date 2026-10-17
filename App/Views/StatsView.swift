@@ -63,7 +63,7 @@ struct StatsView: View {
                         .chartForegroundStyleScale(["下载": Theme.down, "上传": Theme.up])
                         .chartYAxis {
                             AxisMarks(position: .leading) { v in
-                                AxisGridLine().foregroundStyle(Color.white.opacity(0.08))
+                                AxisGridLine().foregroundStyle(Theme.ink(0.08))
                                 AxisValueLabel {
                                     if let mb = v.as(Double.self) { Text(Fmt.bytes(Int64(mb * 1_048_576))).font(.system(size: 9)) }
                                 }
@@ -86,7 +86,7 @@ struct StatsView: View {
                         SplitBar(title: String(localized: "Wi-Fi / 蜂窝"),
                                  parts: [("Wi-Fi", net.reduce(Int64(0)) { $0 + ($1.wifi ?? 0) }, Theme.accent),
                                          (String(localized: "蜂窝"), net.reduce(Int64(0)) { $0 + ($1.cell ?? 0) }, Theme.up),
-                                         (String(localized: "其他 / 未区分"), net.reduce(Int64(0)) { $0 + $1.otherNet }, Color(white: 0.45))])
+                                         (String(localized: "其他 / 未区分"), net.reduce(Int64(0)) { $0 + $1.otherNet }, Theme.neutral)])
                         SplitBar(title: String(localized: "直连 / 代理（App 打开期间）"),
                                  parts: [(String(localized: "直连"), split.direct.total, Theme.good),
                                          (String(localized: "代理"), split.proxy.total, Theme.accent)])

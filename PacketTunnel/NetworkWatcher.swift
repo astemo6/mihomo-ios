@@ -33,7 +33,7 @@ final class NetworkWatcher {
         pending?.cancel()
     }
 
-    private func update(_ path: NWPath) {
+    private func update(_ path: Network.NWPath) {
         guard path.status == .satisfied else { return }
         let iface = path.availableInterfaces.first
         let type: String
@@ -59,7 +59,7 @@ final class NetworkWatcher {
     private func handle(type: String, ssid: String?, bssid: String?, iface: String, expensive: Bool, constrained: Bool) {
         let info: [String: Any] = [
             "type": type,
-            "wifi": ["ssid": ssid ?? NSNull(), "bssid": bssid ?? NSNull()],
+            "wifi": ["ssid": ssid.map { $0 as Any } ?? NSNull(), "bssid": bssid.map { $0 as Any } ?? NSNull()],
             "v4": ["primaryInterface": iface],
             "cellular-data": ["carrier": NSNull(), "radio": NSNull()],
             "expensive": expensive,

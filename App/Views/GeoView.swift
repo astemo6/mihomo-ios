@@ -252,7 +252,7 @@ struct GeoView: View {
         }
         .padding(16)
         .background(RoundedRectangle(cornerRadius: 18, style: .continuous).fill(Theme.card))
-        .overlay(RoundedRectangle(cornerRadius: 18, style: .continuous).stroke(Color.white.opacity(0.06)))
+        .overlay(RoundedRectangle(cornerRadius: 18, style: .continuous).stroke(Theme.ink(0.06)))
     }
 
     func statusChip(_ f: GeoFileInfo) -> some View {
@@ -338,7 +338,7 @@ struct GeoView: View {
         }
         .padding(16)
         .background(RoundedRectangle(cornerRadius: 18, style: .continuous).fill(Theme.card))
-        .overlay(RoundedRectangle(cornerRadius: 18, style: .continuous).stroke(Color.white.opacity(0.06)))
+        .overlay(RoundedRectangle(cornerRadius: 18, style: .continuous).stroke(Theme.ink(0.06)))
     }
 
     func metric(_ title: String, _ value: String) -> some View {
