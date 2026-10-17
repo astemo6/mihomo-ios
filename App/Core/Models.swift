@@ -34,10 +34,13 @@ struct ProxyItem: Decodable, Identifiable, Hashable {
         return d
     }
 
-    /// Last result for one test URL (what 测速 measured), falling back to the overall last result.
+    /// Last result for one test URL (what 测速 measured). v0.15.2: no fallback to the overall history when
+    /// the core keeps per-URL results — that history mixes other URLs (a group's own health check, an
+    /// earlier 测速 URL) and showed numbers that were never measured with the current URL. Only a core
+    /// that reports no "extra" at all falls back.
     func lastDelay(for url: String) -> Int? {
-        if let d = extra?[url]?.history?.last?.delay { return d }
-        return lastDelay
+        guard let extra, !extra.isEmpty else { return lastDelay }
+        return extra[url]?.history?.last?.delay
     }
 
     var isGroup: Bool { all != nil }

@@ -1,4 +1,5 @@
 import Foundation
+import Network
 import Libmihomo
 
 // Offline view of the active profile (bridge/inspect.go): what 策略 / 规则 / 提供者 show while the
@@ -176,6 +177,10 @@ final class ProfileInspector: ObservableObject {
         let url = st.url
         let timeout = st.timeoutMs
         let names = members(of: g).filter { nodeIndex[$0] != nil && !["DIRECT", "REJECT"].contains($0) }
+        // v0.15.2: bind the test sockets to Wi-Fi / cellular so another app's VPN (QX, Surge …) that is up
+        // while ours is off does not carry the test through its own node too. The core falls back to
+        // normal routing when the bind fails.
+        LibmihomoSetOfflineTestInterface(await PhysicalInterface.current() ?? "")
         var idx = 0
         while idx < names.count {
             let batch = Array(names[idx..<min(idx + 6, names.count)])
@@ -196,5 +201,30 @@ final class ProfileInspector: ObservableObject {
     static func rememberLiveSelection(group: String, node: String) {
         guard let path = AppShared.activeProfileURL?.path else { return }
         _ = LibmihomoSaveSelection(path, group, node)
+    }
+}
+
+/// The physical interface (en0 / pdp_ip0 …) the system would use, ignoring VPN tunnels (v0.15.2).
+enum PhysicalInterface {
+    static func current() async -> String? {
+        await withCheckedContinuation { (cont: CheckedContinuation<String?, Never>) in
+            let monitor = NWPathMonitor(prohibitedInterfaceTypes: [.other, .loopback])
+            let lock = NSLock()
+            var done = false
+            func finish(_ v: String?) {
+                lock.lock()
+                defer { lock.unlock() }
+                guard !done else { return }
+                done = true
+                monitor.cancel()
+                cont.resume(returning: v)
+            }
+            monitor.pathUpdateHandler = { path in
+                let iface = path.availableInterfaces.first { $0.type == .wifi || $0.type == .cellular || $0.type == .wiredEthernet }
+                finish(path.status == .satisfied ? iface?.name : nil)
+            }
+            monitor.start(queue: DispatchQueue(label: "mihomo.physical-interface"))
+            DispatchQueue.global().asyncAfter(deadline: .now() + 1) { finish(nil) }
+        }
     }
 }
