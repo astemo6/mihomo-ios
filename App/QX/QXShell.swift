@@ -174,10 +174,13 @@ struct QXHome: View {
         .background(QXPalette.bg.ignoresSafeArea())
         .overlay(alignment: .bottom) {
             // Frame 01: the bar's bottom edge sits ~19 pt above the screen edge, over the home-indicator area.
+            // QX preview 6: the overlay ends at the safe area, so the old padding put the bar 19 pt above the
+            // home indicator (≈ 53 pt from the edge; simulator vs frame 01). Offset by the window's bottom inset
+            // so the bar's edge is 19 pt above the screen edge as in the recording.
             QXToolbar(panel: selected)
                 .padding(.horizontal, QXMetrics.toolbarInset)
                 .padding(.bottom, QXMetrics.toolbarBottom)
-                .ignoresSafeArea(.container, edges: .bottom)
+                .offset(y: pad ? 0 : QXMetrics.windowBottomInset)
         }
         .onChange(of: selectedRaw) { _ in
             QXHaptics.select()

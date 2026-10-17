@@ -106,6 +106,11 @@ enum QXMetrics {
     static let largeTitle: CGFloat = 22
     static let sectionTitle: CGFloat = 20
     static let caption: CGFloat = 15
+    /// Bottom safe-area inset of the key window (home indicator), for chrome placed from the screen edge.
+    @MainActor static var windowBottomInset: CGFloat {
+        let w = UIApplication.shared.connectedScenes.compactMap { $0 as? UIWindowScene }.flatMap(\.windows).first { $0.isKeyWindow }
+        return w?.safeAreaInsets.bottom ?? 0
+    }
     /// Settings action buttons (frame 25: 94 px ≈ 63 pt high, 13 pt apart).
     static let settingsButton: CGFloat = 62
     /// Hairline that QX draws around white chrome (circles, capsules, the toolbar).

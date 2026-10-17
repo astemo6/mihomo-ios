@@ -49,15 +49,19 @@ struct QXSettingsSection<Trailing: View>: View {
     @Environment(\.horizontalSizeClass) private var hSize
 
     var body: some View {
-        VStack(alignment: .leading, spacing: 12) {
-            HStack(alignment: .firstTextBaseline, spacing: 10) {
-                Text(verbatim: title).font(QXType.pageTitle)
-                if let count { Text(verbatim: count).font(.system(size: 15)).foregroundStyle(.secondary) }
+        VStack(alignment: .leading, spacing: 10) {
+            // Centre alignment: a Toggle has no text baseline, so .firstTextBaseline pushed the 重写 / MitM
+            // switch below the title (simulator screenshot vs frame 25).
+            HStack(alignment: .center, spacing: 8) {
+                HStack(alignment: .firstTextBaseline, spacing: 8) {
+                    Text(verbatim: title).font(QXType.pageTitle)
+                    if let count { Text(verbatim: count).font(.subheadline).foregroundStyle(.secondary) }
+                }
                 Spacer()
                 trailing
             }
             Text(verbatim: caption).font(QXType.caption).foregroundStyle(.secondary).lineSpacing(2).fixedSize(horizontal: false, vertical: true)
-            QXActionGrid(color: color, items: items, columns: hSize == .regular ? 3 : 2).padding(.top, 6)
+            QXActionGrid(color: color, items: items, columns: hSize == .regular ? 3 : 2).padding(.top, 4)
         }
     }
 }
