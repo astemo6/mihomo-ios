@@ -90,12 +90,16 @@ final class EngineStore: ObservableObject {
     }
 
     static func download(_ url: String) async throws -> String {
-        guard let u = URL(string: url.trimmingCharacters(in: .whitespacesAndNewlines)) else { throw URLError(.badURL) }
+        guard let u = URL(string: url.trimmingCharacters(in: .whitespacesAndNewlines)), u.scheme?.hasPrefix("http") == true else {
+            throw ProfileStore.StoreError.badURL
+        }
         var req = URLRequest(url: u, timeoutInterval: 30)
         req.setValue("Surge iOS/3000", forHTTPHeaderField: "User-Agent")
         let (data, resp) = try await URLSession.shared.data(for: req)
-        if let h = resp as? HTTPURLResponse, !(200..<300).contains(h.statusCode) { throw URLError(.badServerResponse) }
-        guard let s = String(data: data, encoding: .utf8) else { throw URLError(.cannotDecodeContentData) }
+        // v0.11: readable reasons (was a generic system error).
+        if let h = resp as? HTTPURLResponse, !(200..<300).contains(h.statusCode) { throw ProfileStore.StoreError.http(h.statusCode) }
+        if data.isEmpty { throw ProfileStore.StoreError.empty }
+        guard let s = String(data: data, encoding: .utf8) ?? String(data: data, encoding: .isoLatin1) else { throw ProfileStore.StoreError.empty }
         return s
     }
 
