@@ -221,6 +221,7 @@ struct StatusWidgetView: View {
                     Spacer(minLength: 0)
                     infoRow(icon: "doc.text", text: entry.profile.isEmpty ? "—" : entry.profile)
                     infoRow(icon: "square.stack.3d.up", text: entry.snapshot.policy.isEmpty ? "—" : entry.snapshot.policy)
+                    if let r = entry.snapshot.remaining, !r.isEmpty { infoRow(icon: "gauge.with.dots.needle.33percent", text: r) }
                 }
                 Spacer(minLength: 0)
                 VStack(alignment: .trailing) {
