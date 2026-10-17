@@ -8,8 +8,8 @@ enum QXRewriteStyle {
     static func color(_ kind: String) -> Color {
         let k = kind.uppercased()
         if k.hasPrefix("SCRIPT") || k == "SCRIPT" { return QXColor.rewrite }
-        if k.hasPrefix("REJECT") { return Color(red: 0.96, green: 0.55, blue: 0.70) }
-        return Color(red: 0.80, green: 0.25, blue: 0.55)
+        if k.hasPrefix("REJECT") { return QXColor.rewriteReject }
+        return QXColor.rewriteOther
     }
 
     static func label(_ line: String) -> String {

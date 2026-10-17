@@ -379,7 +379,7 @@ struct QXLogPanel: View {
                         ForEach(model.lines) { l in
                             Text(verbatim: "\(Self.time.string(from: l.time)) <\(l.level)> \(l.message)")
                                 .font(.system(size: 12, design: .monospaced))
-                                .foregroundStyle(l.level == "error" ? Theme.bad : (l.level == "warning" ? Theme.warn : Color.primary))
+                                .foregroundStyle(l.level == "error" ? QXColor.danger : (l.level == "warning" ? QXColor.warning : Color.primary))
                                 .textSelection(.enabled)
                                 .id(l.id)
                         }
@@ -485,7 +485,7 @@ struct QXDNSLogView: View {
                     QXLargeTitle(title: String(localized: "DNS 缓存"), count: "\(entries.count)",
                                  caption: String(localized: "本次连接中解析过的域名与地址（来自连接记录）。使用 fake-ip 时地址为 198.18.x.x 占位地址。"))
                         .padding(.horizontal, QXMetrics.inset).padding(.bottom, 10)
-                    if let message { Text(verbatim: message).font(.footnote).foregroundStyle(Theme.good).padding(.horizontal, QXMetrics.inset).padding(.bottom, 6) }
+                    if let message { Text(verbatim: message).font(.footnote).foregroundStyle(QXColor.success).padding(.horizontal, QXMetrics.inset).padding(.bottom, 6) }
                     TextField("搜索", text: $query)
                         .textInputAutocapitalization(.never).autocorrectionDisabled()
                         .padding(10).background(RoundedRectangle(cornerRadius: 12, style: .continuous).fill(QXPalette.card))

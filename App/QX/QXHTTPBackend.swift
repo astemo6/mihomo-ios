@@ -115,13 +115,13 @@ struct QXHTTPBackendView: View {
         let running = status?.running == true
         let url = "http://127.0.0.1:\(status?.port ?? cfg.effectivePort)/"
         return HStack(spacing: 12) {
-            Circle().fill(running ? Theme.good : (cfg.enabled && vpn.isConnected ? Theme.warn : Color.secondary.opacity(0.5)))
+            Circle().fill(running ? QXColor.success : (cfg.enabled && vpn.isConnected ? QXColor.warning : Color.secondary.opacity(0.5)))
                 .frame(width: 10, height: 10)
             VStack(alignment: .leading, spacing: 2) {
                 Text(running ? LocalizedStringKey("正在运行") : (!cfg.enabled ? LocalizedStringKey("已关闭") : (vpn.isConnected ? LocalizedStringKey("未运行") : LocalizedStringKey("连接后运行"))))
                     .font(.system(size: 16, weight: .semibold))
                 Text(verbatim: running ? url + " · " + String(localized: "\(status?.backends ?? 0) 个后端") : (status?.error?.isEmpty == false ? status!.error! : url))
-                    .font(.system(size: 13).monospaced()).foregroundStyle(status?.error?.isEmpty == false ? Theme.bad : .secondary).lineLimit(2)
+                    .font(.system(size: 13).monospaced()).foregroundStyle(status?.error?.isEmpty == false ? QXColor.danger : .secondary).lineLimit(2)
             }
             Spacer(minLength: 6)
             if running, let u = URL(string: url) {
@@ -265,7 +265,7 @@ struct QXHTTPBackendEditor: View {
                         .textInputAutocapitalization(.never).autocorrectionDisabled().keyboardType(.URL)
                     Toggle("启用", isOn: $enabled)
                 } footer: {
-                    if let error { Text(verbatim: error).foregroundStyle(Theme.bad) }
+                    if let error { Text(verbatim: error).foregroundStyle(QXColor.danger) }
                 }
             }
             .scrollContentBackground(.hidden)
@@ -313,7 +313,7 @@ struct QXHTTPBackendPortSheet: View {
                     TextField("9999", text: $port).keyboardType(.numberPad).font(.body.monospacedDigit())
                 } header: { Text("监听端口（127.0.0.1）") } footer: {
                     Text(invalid ? LocalizedStringKey("端口无效") : LocalizedStringKey("默认 9999，与 Quantumult X 相同。只监听本机地址，其他设备无法访问。"))
-                        .foregroundStyle(invalid ? Theme.bad : .secondary)
+                        .foregroundStyle(invalid ? QXColor.danger : .secondary)
                 }
             }
             .scrollContentBackground(.hidden)

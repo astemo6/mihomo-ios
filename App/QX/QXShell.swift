@@ -254,7 +254,7 @@ struct QXHeader: View {
             Spacer(minLength: 8)
             if vpn.lastError != nil {
                 Button { showError = true } label: {
-                    Image(systemName: "exclamationmark.triangle.fill").foregroundStyle(Theme.warn)
+                    Image(systemName: "exclamationmark.triangle.fill").foregroundStyle(QXColor.warning)
                 }
                 .accessibilityLabel(Text("连接失败"))
             }
@@ -275,7 +275,7 @@ struct QXHeader: View {
                 Text("已复制")
                     .font(.caption2.bold())
                     .padding(.horizontal, 8).padding(.vertical, 3)
-                    .background(Capsule().fill(Theme.good))
+                    .background(Capsule().fill(QXColor.success))
                     .foregroundStyle(.black)
                     .offset(y: -10)
                     .transition(.scale.combined(with: .opacity))

@@ -204,7 +204,7 @@ struct QXResourceEditor: View {
                     QXChip(text: d, color: accent)
                     if let c = detectedCount { Text(verbatim: c).font(.subheadline) }
                 } else if let detectError {
-                    Text(verbatim: detectError).font(.subheadline).foregroundStyle(Theme.bad)
+                    Text(verbatim: detectError).font(.subheadline).foregroundStyle(QXColor.danger)
                 } else {
                     Text("填写资源路径后自动识别").font(.subheadline).foregroundStyle(.secondary)
                 }

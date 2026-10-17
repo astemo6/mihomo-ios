@@ -31,7 +31,7 @@ struct QXImportEntries: View {
                 HStack(spacing: 8) { ProgressView(); Text("正在导入…").font(.footnote).foregroundStyle(.secondary) }
             } else if let message {
                 Label(message, systemImage: isError ? "exclamationmark.triangle.fill" : "checkmark.circle.fill")
-                    .font(.footnote).foregroundStyle(isError ? Theme.bad : Theme.good)
+                    .font(.footnote).foregroundStyle(isError ? QXColor.danger : QXColor.success)
             }
         }
         .alert("订阅链接", isPresented: $askURL) {
@@ -152,7 +152,7 @@ struct QXWelcomeView: View {
                 VStack(alignment: .leading, spacing: 10) {
                     Text("导入配置").font(.system(size: QXMetrics.largeTitle, weight: .bold))
                     if let p = store.active ?? store.profiles.first {
-                        Label { Text("已有配置：\(p.name)") } icon: { Image(systemName: "checkmark.circle.fill").foregroundStyle(Theme.good) }
+                        Label { Text("已有配置：\(p.name)") } icon: { Image(systemName: "checkmark.circle.fill").foregroundStyle(QXColor.success) }
                             .font(.system(size: 15))
                     }
                     QXImportEntries(columns: hSize == .regular ? 4 : 2)
@@ -162,7 +162,7 @@ struct QXWelcomeView: View {
                     Text("Mihomo 通过系统的 VPN（网络扩展）接管流量。点下面的按钮后，iOS 会询问是否「添加 VPN 配置」，选择「允许」。")
                         .font(.system(size: QXMetrics.caption)).foregroundStyle(.secondary).lineSpacing(3)
                     if vpn.hasConfiguration {
-                        Label("已添加 VPN 配置", systemImage: "checkmark.circle.fill").foregroundStyle(Theme.good).font(.system(size: 15))
+                        Label("已添加 VPN 配置", systemImage: "checkmark.circle.fill").foregroundStyle(QXColor.success).font(.system(size: 15))
                     } else {
                         QXActionGrid(color: QXColor.switchOn, items: [
                             QXActionSpec(title: vpnBusy ? String(localized: "请稍候…") : String(localized: "允许添加 VPN 配置"), icon: "lock.shield") {
@@ -174,7 +174,7 @@ struct QXWelcomeView: View {
                                 }
                             },
                         ], columns: 1)
-                        if let vpnMessage { Text(verbatim: vpnMessage).font(.footnote).foregroundStyle(Theme.bad) }
+                        if let vpnMessage { Text(verbatim: vpnMessage).font(.footnote).foregroundStyle(QXColor.danger) }
                     }
                 }
                 Button { finish() } label: {

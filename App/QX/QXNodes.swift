@@ -584,7 +584,7 @@ struct QXNodeRow: View {
                     QXFeatureBadges(features: model.features(of: name), udp: model.udp(of: name))
                     if let b = probes.badge(for: name) { UnlockBadge(ok: b.ok, total: b.total) }
                     if pinned {
-                        Image(systemName: "pin.fill").scaledFont(10, weight: .bold).foregroundStyle(Theme.warn)
+                        Image(systemName: "pin.fill").scaledFont(10, weight: .bold).foregroundStyle(QXColor.warning)
                             .accessibilityLabel(Text("已固定"))
                     }
                 }
@@ -595,7 +595,7 @@ struct QXNodeRow: View {
             }
             Text(verbatim: d.map { $0 > 0 ? "\($0)" : String(localized: "超时") } ?? "—")
                 .font(.system(size: 14, weight: .semibold, design: .rounded).monospacedDigit())
-                .foregroundStyle(Theme.delayColor(d))
+                .foregroundStyle(QXColor.delay(d))
                 .frame(minWidth: 36, alignment: .trailing)
         }
         .padding(.horizontal, 16)

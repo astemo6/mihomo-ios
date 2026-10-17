@@ -221,7 +221,7 @@ struct QXSnippetEditor: View {
                     Text(verbatim: kind.sample).font(.caption.monospaced()).foregroundStyle(.secondary).textSelection(.enabled)
                 }
                 if let result {
-                    Text(verbatim: result).font(.footnote).foregroundStyle(failed ? Theme.bad : QXColor.mitm)
+                    Text(verbatim: result).font(.footnote).foregroundStyle(failed ? QXColor.danger : QXColor.mitm)
                 }
             }
             .padding(.horizontal, 24)

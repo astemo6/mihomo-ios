@@ -25,7 +25,7 @@ struct QXTaskListView: View {
     @State private var result: TaskResultItem?
     @FocusState private var searchFocused: Bool
 
-    static let offBrown = QXPalette.dyn(0x785450, 0x6A4A46)
+    static let offBrown = QXColor.taskOff
 
     var items: [ScriptTaskState] {
         guard !search.isEmpty else { return tasks }
@@ -63,7 +63,7 @@ struct QXTaskListView: View {
                     masterRow.padding(.bottom, 8)
                     if !engine.config.enabled {
                         Text("重写与脚本已停用，任务不会运行。在设置页打开「重写」开关后恢复。")
-                            .font(.footnote).foregroundStyle(Theme.warn).padding(.bottom, 8)
+                            .font(.footnote).foregroundStyle(QXColor.warning).padding(.bottom, 8)
                     } else if !vpn.isConnected {
                         Text("任务在扩展里运行：连接后按计划执行，断开时不运行。下面是模块与本地脚本中的任务。")
                             .font(.footnote).foregroundStyle(.secondary).padding(.bottom, 8)
@@ -216,11 +216,11 @@ struct QXTaskListView: View {
                     if let l = t.lastRun, l > 0 {
                         HStack(spacing: 4) {
                             Image(systemName: t.lastOK == true ? "checkmark.circle.fill" : "xmark.octagon.fill")
-                                .foregroundStyle(t.lastOK == true ? Theme.good : Theme.bad)
+                                .foregroundStyle(t.lastOK == true ? QXColor.success : QXColor.danger)
                             Text(verbatim: (t.lastOK == true ? String(localized: "上次成功") : String(localized: "上次失败")) + (t.duration.map { " · \($0) ms" } ?? ""))
                                 .foregroundStyle(.secondary)
                             if t.lastOK != true, let r = t.lastResult, !r.isEmpty {
-                                Text(verbatim: r).foregroundStyle(Theme.bad).lineLimit(1)
+                                Text(verbatim: r).foregroundStyle(QXColor.danger).lineLimit(1)
                             }
                         }
                         .font(.caption2)

@@ -62,7 +62,7 @@ struct QXSubscriptionEditor: View {
                             QXChip(text: d.format, color: d.count > 0 ? QXColor.nodes : Color.secondary)
                             Text(d.count > 0 ? String(localized: "识别到 \(d.count) 个节点") : String(localized: "未识别到节点")).font(.subheadline)
                         } else if let detectError {
-                            Text(verbatim: detectError).font(.subheadline).foregroundStyle(Theme.bad)
+                            Text(verbatim: detectError).font(.subheadline).foregroundStyle(QXColor.danger)
                         } else {
                             Text("填写资源路径后自动识别").font(.subheadline).foregroundStyle(.secondary)
                         }

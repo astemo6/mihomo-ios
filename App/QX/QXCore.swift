@@ -3,16 +3,6 @@ import SwiftUI
 // QX rebuild (branch qx/rebuild): shared types for the Quantumult X style single-screen layout.
 // The internal model is unchanged (mihomo YAML + override stores); this is presentation only.
 
-extension Color {
-    /// A colour that follows light / dark (system or the in-app 外观 override).
-    static func dynamic(light: (Double, Double, Double), dark: (Double, Double, Double)) -> Color {
-        Color(UIColor { t in
-            let c = t.userInterfaceStyle == .dark ? dark : light
-            return UIColor(red: c.0, green: c.1, blue: c.2, alpha: 1)
-        })
-    }
-}
-
 /// The five panel tiles (QX: 节点 / 网络活动 / 分流规则 / 重写规则 / 日志).
 enum QXPanel: String, CaseIterable, Identifiable {
     case nodes, activity, rules, rewrite, logs
@@ -97,24 +87,6 @@ enum QXMetrics {
     static let hairline = QXPalette.hairline
 }
 
-enum QXColor {
-    // Light = measured on the recording; dark = derived (QX preview 5): deepened so white 15–18 pt
-    // semibold labels keep ≥ 4:1 on the colour, and lifted where the colour itself would vanish on black.
-    static let nodes = QXPalette.dyn(0x3DB5E6, 0x1F86B8)      // light #3DB5E6
-    static let activity = QXPalette.dyn(0xD9412B, 0xC2382A)   // #D9412B
-    static let rules = QXPalette.dyn(0x5E2FD0, 0x6A3FE0)      // #5E2FD0
-    static let rewrite = QXPalette.dyn(0xE0197A, 0xC8156C)    // #E0197A
-    static let logs = QXPalette.dyn(0x5E5F66, 0x5A5B63)       // #5E5F66
-    static let mitm = QXPalette.dyn(0x34B34A, 0x24903A)       // #34B34A
-    static let tools = QXPalette.dyn(0xD9412B, 0xC2382A)      // #D9412B
-    static let profile = QXPalette.dyn(0x5E5F66, 0x5A5B63)    // #5E5F66
-    static let policyChip = QXPalette.dyn(0x29B88F, 0x1F9A77)
-    static let teal = QXPalette.dyn(0x33C7CC, 0x2BB5BA)
-    static let yellow = QXPalette.dyn(0xFFC21A, 0xF0B400)
-    static let red = QXPalette.dyn(0xF2383F, 0xFF453A)
-    /// Switch tint in the header (QX: system blue; iOS dark blue in dark).
-    static let switchOn = QXPalette.dyn(0x007AFF, 0x0A84FF)
-}
 
 /// Pages reachable from the settings page, tiles, toolbar and 其他设置. Existing views, re-homed.
 enum QXDest: String, Hashable, CaseIterable {
@@ -524,8 +496,8 @@ enum QXPolicyColor {
     static func color(_ policy: String) -> Color {
         let p = policy.uppercased()
         if p.hasPrefix("REJECT") { return QXColor.red }
-        if p == "DIRECT" { return Color(red: 0.98, green: 0.58, blue: 0.13) }
-        if p.isEmpty { return Color.secondary.opacity(0.4) }
+        if p == "DIRECT" { return QXColor.policyDirect }
+        if p.isEmpty { return QXColor.policyNone }
         return QXColor.policyChip
     }
 }

@@ -51,6 +51,55 @@ enum QXPalette {
     })
 }
 
+// MARK: - Feature / semantic colours
+//
+// QX preview 6: the palette is provisional and our own (the user will retune it; QX's colours are not the
+// target — only its proportions and layout). Views never use hex or RGB literals: add a token here instead.
+
+enum QXColor {
+    // Light = measured on the recording; dark = derived (QX preview 5): deepened so white 15–18 pt
+    // semibold labels keep ≥ 4:1 on the colour, and lifted where the colour itself would vanish on black.
+    static let nodes = QXPalette.dyn(0x3DB5E6, 0x1F86B8)      // light #3DB5E6
+    static let activity = QXPalette.dyn(0xD9412B, 0xC2382A)   // #D9412B
+    static let rules = QXPalette.dyn(0x5E2FD0, 0x6A3FE0)      // #5E2FD0
+    static let rewrite = QXPalette.dyn(0xE0197A, 0xC8156C)    // #E0197A
+    static let logs = QXPalette.dyn(0x5E5F66, 0x5A5B63)       // #5E5F66
+    static let mitm = QXPalette.dyn(0x34B34A, 0x24903A)       // #34B34A
+    static let tools = QXPalette.dyn(0xD9412B, 0xC2382A)      // #D9412B
+    static let profile = QXPalette.dyn(0x5E5F66, 0x5A5B63)    // #5E5F66
+    static let policyChip = QXPalette.dyn(0x29B88F, 0x1F9A77)
+    static let teal = QXPalette.dyn(0x33C7CC, 0x2BB5BA)
+    static let yellow = QXPalette.dyn(0xFFC21A, 0xF0B400)
+    static let red = QXPalette.dyn(0xF2383F, 0xFF453A)
+    /// Switch tint in the header (QX: system blue; iOS dark blue in dark).
+    static let switchOn = QXPalette.dyn(0x007AFF, 0x0A84FF)
+
+    // MARK: Semantic tokens added in QX preview 6 (every colour a QX screen uses lives in this file)
+    /// Status colours on QX pages (mapped to the app-wide Theme so main and QX agree on meaning).
+    static let success = Theme.good
+    static let danger = Theme.bad
+    static let warning = Theme.warn
+    static func delay(_ ms: Int?) -> Color { Theme.delayColor(ms) }
+    /// Traffic glyphs / chips: download and upload.
+    static let trafficDown = QXPalette.dyn(0x408CFF, 0x5A9CFF)
+    static let trafficUp = QXPalette.dyn(0x9E59F2, 0xAE74F5)
+    /// Policy chips: DIRECT and an empty policy (REJECT uses `red`, others `policyChip`).
+    static let policyDirect = QXPalette.dyn(0xFA9421, 0xFF9F2E)
+    static let policyNone = Color.secondary.opacity(0.4)
+    /// Policy-card background choices (策略 → 背景).
+    static let cardOrange = policyDirect
+    /// Rewrite type tags: reject* and the rest (scripts use `rewrite`).
+    static let rewriteReject = QXPalette.dyn(0xF58CB3, 0xE07AA0)
+    static let rewriteOther = QXPalette.dyn(0xCC408C, 0xD45597)
+    /// 请求列表 task tile when the task is switched off.
+    static let taskOff = QXPalette.dyn(0x785450, 0x6A4A46)
+    /// Widget previews (mirror WidgetTheme in Widget/MihomoWidget.swift): the chain tile and download glyph.
+    static let widgetChainTile = QXPalette.dyn(0x1F86B8, 0x1F86B8)
+    static let widgetDown = QXPalette.dyn(0x1F86B8, 0x48B8E8)
+    /// Lock Screen preview wallpaper.
+    static let lockWallpaper: [Color] = [QXPalette.dyn(0x1F4D73, 0x1F4D73), QXPalette.dyn(0x5C2E8C, 0x5C2E8C)]
+}
+
 // MARK: - Haptics
 
 enum QXHaptics {

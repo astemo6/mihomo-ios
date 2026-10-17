@@ -439,6 +439,7 @@ struct ImportSheet: View {
     @State private var failed = false
     @State private var conf: ConfImportResult?
     @State private var alertText: String?
+    @State private var progressText: String?
 
     /// Set when presented through UIKit (ImportRouter.present); SwiftUI's dismiss is the fallback.
     var onClose: (() -> Void)? = nil
@@ -453,6 +454,22 @@ struct ImportSheet: View {
     var body: some View {
         NavigationStack {
             Form {
+                // QX preview 6: the outcome and progress sit at the top — a long conversion report used to
+                // push the error below the fold, so 导入 looked like it did nothing.
+                if busy, let progressText {
+                    Section { LoadingRow(text: progressText) }.listRowBackground(Theme.card)
+                }
+                if let result {
+                    if failed {
+                        Section {
+                            Label("导入失败", systemImage: "exclamationmark.triangle.fill").foregroundStyle(Theme.warn)
+                            Text(result).font(.footnote).textSelection(.enabled)
+                        }
+                        .listRowBackground(Theme.card)
+                    } else {
+                        Text(result).font(.footnote).foregroundStyle(.secondary).listRowBackground(Theme.card)
+                    }
+                }
                 switch action {
                 case .profileURL(let url, _):
                     header("订阅配置", "doc.badge.arrow.up", url)
@@ -501,17 +518,6 @@ struct ImportSheet: View {
                         Text("导入的重写和脚本需要解密这些主机的 HTTPS 才能生效。MitM 当前未开启或证书未信任。")
                     }
                     .listRowBackground(Theme.card)
-                }
-                if let result {
-                    if failed {
-                        Section {
-                            Label("导入失败", systemImage: "exclamationmark.triangle.fill").foregroundStyle(Theme.warn)
-                            Text(result).font(.footnote).textSelection(.enabled)
-                        }
-                        .listRowBackground(Theme.card)
-                    } else {
-                        Text(result).font(.footnote).foregroundStyle(.secondary).listRowBackground(Theme.card)
-                    }
                 }
             }
             .scrollContentBackground(.hidden)
@@ -575,8 +581,10 @@ struct ImportSheet: View {
         busy = true
         failed = false
         result = nil
+        progressText = String(localized: "正在导入…")
         defer {
             busy = false
+            progressText = nil
             if failed, let r = result { alertText = r }
             StartupLog.write("import sheet: \(failed ? "failed" : "done")\(failed ? " – " + (result ?? "") : "")", tag: "app")
         }
@@ -596,7 +604,7 @@ struct ImportSheet: View {
                 engine.addModule(text: text, name: name.isEmpty ? "本地模块" : name)
                 result = "已添加模块「\(name)」"
             case .confText(_, let text):
-                result = try await ConfImport.save(text: text, name: name, result: conf, store: store)
+                result = try await ConfImport.save(text: text, name: name, result: conf, store: store) { progressText = $0 }
             case .nodesText(let text):
                 let n = try await store.addManualNodes(text: text)
                 result = String(localized: "已添加 \(n) 个节点到手动节点")

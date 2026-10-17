@@ -216,7 +216,7 @@ struct QXMediumWidgetPreview: View {
                 .foregroundStyle(.white)
                 .padding(.horizontal, 11)
                 .frame(maxWidth: .infinity, minHeight: 46, maxHeight: 46)
-                .background(RoundedRectangle(cornerRadius: 14, style: .continuous).fill(QXPalette.dyn(0x1F86B8, 0x1F86B8)))
+                .background(RoundedRectangle(cornerRadius: 14, style: .continuous).fill(QXColor.widgetChainTile))
                 HStack(spacing: 7) {
                     QXWindmill(mode: mode, size: 22)
                     Text(verbatim: QXWidgetSample.modeTitle(mode)).font(.system(size: 13, weight: .semibold)).lineLimit(1).minimumScaleFactor(0.7)
@@ -227,7 +227,7 @@ struct QXMediumWidgetPreview: View {
                 .overlay(RoundedRectangle(cornerRadius: 14, style: .continuous).strokeBorder(QXPalette.hairline, lineWidth: 1))
             }
             HStack(spacing: 10) {
-                traffic("chevron.down.circle.fill", QXPalette.dyn(0x1F86B8, 0x48B8E8), QXWidgetSample.down)
+                traffic("chevron.down.circle.fill", QXColor.widgetDown, QXWidgetSample.down)
                 traffic("chevron.up.circle.fill", QXColor.rules, QXWidgetSample.up)
                 Spacer(minLength: 4)
                 Label { Text(verbatim: QXWidgetSample.remaining) } icon: { Image(systemName: "gauge.with.dots.needle.33percent") }
@@ -287,7 +287,7 @@ struct QXLockScreenPreview: View {
         .padding(.vertical, 20)
         .background(
             RoundedRectangle(cornerRadius: 26, style: .continuous)
-                .fill(LinearGradient(colors: [Color(red: 0.12, green: 0.30, blue: 0.45), Color(red: 0.36, green: 0.18, blue: 0.55)], startPoint: .topLeading, endPoint: .bottomTrailing))
+                .fill(LinearGradient(colors: QXColor.lockWallpaper, startPoint: .topLeading, endPoint: .bottomTrailing))
         )
         .accessibilityElement(children: .combine)
     }

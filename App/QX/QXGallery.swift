@@ -209,7 +209,7 @@ struct QXTaskGalleryRepoView: View {
                                  caption: gallery?.description)
                         .padding(.bottom, 10)
                     if loading && tasks.isEmpty { ProgressView().frame(maxWidth: .infinity).padding(.vertical, 30) }
-                    if let error { Text(verbatim: error).font(.footnote).foregroundStyle(Theme.bad).padding(.vertical, 8) }
+                    if let error { Text(verbatim: error).font(.footnote).foregroundStyle(QXColor.danger).padding(.vertical, 8) }
                     ForEach(tasks) { t in
                         row(t)
                         Divider().padding(.leading, 70)
@@ -232,7 +232,7 @@ struct QXTaskGalleryRepoView: View {
                     Text(verbatim: t.error ?? (t.schedule.isEmpty ? (t.kind == "generic" ? String(localized: "手动运行") : "—") : t.schedule))
                         .font(.system(size: 14, design: .monospaced))
                 }
-                .foregroundStyle(t.error == nil ? Color.secondary : Theme.bad)
+                .foregroundStyle(t.error == nil ? Color.secondary : QXColor.danger)
                 if !t.path.isEmpty {
                     Text(verbatim: t.path).font(.caption).foregroundStyle(.secondary).lineLimit(1).truncationMode(.middle)
                 }

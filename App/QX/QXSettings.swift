@@ -267,7 +267,7 @@ struct QXOtherSettingsView: View {
                     }
                     .tint(QXColor.switchOn)
                     if live.enabled && !live.systemAllowed {
-                        Text("系统设置中关闭了 Mihomo 的实时活动。").font(.caption).foregroundStyle(Theme.warn)
+                        Text("系统设置中关闭了 Mihomo 的实时活动。").font(.caption).foregroundStyle(QXColor.warning)
                     }
                 } header: { header("通知") } footer: {
                     Text("连接时在锁定屏幕和灵动岛显示连接状态、已连接时长、当前节点和速度。需要带小组件的 IPA（-widget）。时长一直走；App 关闭时，速度和节点在系统允许后台刷新时更新，也可以点实时活动上的刷新按钮（iOS 17 及以上）。")
@@ -308,7 +308,7 @@ struct QXOtherSettingsView: View {
                             Label("诊断", systemImage: "waveform.path.ecg").foregroundStyle(.primary)
                             Spacer()
                             Text(AppShared.containerOK ? "App Group 正常" : "App Group 异常")
-                                .font(.caption).foregroundStyle(AppShared.containerOK ? Theme.good : Theme.bad)
+                                .font(.caption).foregroundStyle(AppShared.containerOK ? QXColor.success : QXColor.danger)
                         }
                     }
                     sheetRow(String(localized: "新手引导"), "sparkles", .onboarding)

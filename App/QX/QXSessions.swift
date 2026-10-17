@@ -147,10 +147,10 @@ struct QXSessionDetailView: View {
     private func row(_ title: String, _ down: Int64, _ up: Int64) -> some View {
         HStack {
             Text(verbatim: title).font(.body.weight(.medium)).frame(width: 50, alignment: .leading)
-            Image(systemName: "chevron.down.circle.fill").foregroundStyle(Color(red: 0.25, green: 0.55, blue: 1.0))
+            Image(systemName: "chevron.down.circle.fill").foregroundStyle(QXColor.trafficDown)
             Text(verbatim: Fmt.bytes(down)).monospacedDigit()
             Spacer()
-            Image(systemName: "chevron.up.circle.fill").foregroundStyle(Color(red: 0.62, green: 0.35, blue: 0.95))
+            Image(systemName: "chevron.up.circle.fill").foregroundStyle(QXColor.trafficUp)
             Text(verbatim: Fmt.bytes(up)).monospacedDigit().frame(minWidth: 80, alignment: .leading)
         }
         .padding(.horizontal, 16).padding(.vertical, 12)

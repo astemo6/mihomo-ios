@@ -211,7 +211,7 @@ struct QXPolicyEditor: View {
             }
             .padding(.bottom, 10)
             if let e = regexError {
-                Text(verbatim: e).font(.footnote).foregroundStyle(Theme.bad).padding(.bottom, 8)
+                Text(verbatim: e).font(.footnote).foregroundStyle(QXColor.danger).padding(.bottom, 8)
             }
             ForEach(members, id: \.self) { m in
                 resultRow(m, note: NSLocalizedString(memberKindKey(m), comment: ""))
@@ -565,7 +565,7 @@ enum QXPolicyPrefs {
 
     static let palette: [(String, Color)] = [
         ("blue", QXColor.nodes), ("purple", QXColor.rules), ("pink", QXColor.rewrite), ("green", QXColor.mitm),
-        ("orange", Color(red: 0.98, green: 0.58, blue: 0.13)), ("red", QXColor.red), ("teal", QXColor.teal), ("gray", QXColor.logs),
+        ("orange", QXColor.cardOrange), ("red", QXColor.red), ("teal", QXColor.teal), ("gray", QXColor.logs),
     ]
 
     static func background(_ group: String) -> Color? {

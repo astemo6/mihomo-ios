@@ -150,7 +150,7 @@ struct QXCertSheets: ViewModifier {
         case .configure:
             if !store.caInfo.exists {
                 QXTintedActionSheet(
-                    tint: Theme.warn, title: String(localized: "尚未生成证书"),
+                    tint: QXColor.warning, title: String(localized: "尚未生成证书"),
                     message: String(localized: "请先生成证书，再安装并信任。"),
                     actions: [.init(title: String(localized: "生成证书")) { store.generateCA(); sheet = .configure }],
                     onCancel: close)
@@ -166,7 +166,7 @@ struct QXCertSheets: ViewModifier {
                     onCancel: close)
             } else {
                 QXTintedActionSheet(
-                    tint: Theme.warn, title: caTitle,
+                    tint: QXColor.warning, title: caTitle,
                     message: String(localized: "1、点「下载证书」，在 Safari 中允许下载描述文件，然后打开 设置 → 已下载描述文件 → 安装。\n2、打开 设置 → 通用 → 关于本机 → 证书信任设置，打开此证书的完全信任。\n\n完成后回到本页，状态会变为已信任。"),
                     actions: [
                         .init(title: String(localized: "下载证书")) { store.installViaSafari() },
@@ -240,7 +240,7 @@ struct QXMitMView: View {
 
     var certCard: some View {
         let trusted = store.caTrusted == true
-        let tint: Color = !store.caInfo.exists ? Color.secondary : (trusted ? QXColor.mitm : Theme.warn)
+        let tint: Color = !store.caInfo.exists ? Color.secondary : (trusted ? QXColor.mitm : QXColor.warning)
         return QXCard {
             HStack(spacing: 14) {
                 Image(systemName: !store.caInfo.exists ? "seal" : (trusted ? "checkmark.seal.fill" : "exclamationmark.triangle.fill"))
@@ -284,7 +284,7 @@ struct QXMitMView: View {
                                 .foregroundStyle(h.hasPrefix("-") ? Color.secondary : Color.primary)
                             Spacer()
                             if h.hasPrefix("-") { QXChip(text: String(localized: "排除"), color: Color.secondary, filled: false) }
-                            if h == "*" { QXChip(text: String(localized: "全部"), color: Theme.warn, filled: false) }
+                            if h == "*" { QXChip(text: String(localized: "全部"), color: QXColor.warning, filled: false) }
                         }
                         .padding(.horizontal, 16).padding(.vertical, 13)
                         .contentShape(Rectangle())
@@ -389,7 +389,7 @@ struct QXMitMView: View {
                 if !s.pinned.isEmpty {
                     Text("已临时放行（握手失败）：\(s.pinned.joined(separator: ", "))").font(.caption).foregroundStyle(.secondary).lineLimit(3)
                 }
-                ForEach(s.errors, id: \.self) { e in Text(verbatim: e).font(.caption).foregroundStyle(Theme.warn) }
+                ForEach(s.errors, id: \.self) { e in Text(verbatim: e).font(.caption).foregroundStyle(QXColor.warning) }
             }
             .padding(16)
         }

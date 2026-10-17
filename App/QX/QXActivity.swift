@@ -371,7 +371,7 @@ struct QXConnectionDetailView: View {
                 if let r = model.record(id) {
                     VStack(alignment: .leading, spacing: 16) {
                         QXLargeTitle(title: r.conn.metadata.displayHost)
-                        if let message { Text(verbatim: message).font(.footnote).foregroundStyle(Theme.good) }
+                        if let message { Text(verbatim: message).font(.footnote).foregroundStyle(QXColor.success) }
                         section(String(localized: "目标地址"), [
                             (String(localized: "主机"), r.conn.metadata.displayHost),
                             (String(localized: "目标 IP"), (r.conn.metadata.destinationIP ?? "—") + (r.conn.metadata.destinationPort.map { ":" + $0 } ?? "")),
@@ -574,8 +574,8 @@ struct QXTrafficStatsView: View {
                 netCard(k, tcp: s.tcp, udp: s.udp, suffix: "/s")
                 if let m = model.maxSpeed[k] {
                     HStack(spacing: 8) {
-                        QXChip(text: "max ↓ " + Fmt.speed(m.down), color: Color(red: 0.25, green: 0.55, blue: 1.0))
-                        QXChip(text: "max ↑ " + Fmt.speed(m.up), color: Color(red: 0.62, green: 0.35, blue: 0.95))
+                        QXChip(text: "max ↓ " + Fmt.speed(m.down), color: QXColor.trafficDown)
+                        QXChip(text: "max ↑ " + Fmt.speed(m.up), color: QXColor.trafficUp)
                     }
                     .padding(.leading, 4)
                 }
@@ -607,10 +607,10 @@ struct QXTrafficStatsView: View {
     private func netRow(_ title: String, _ b: QXActivityModel.Bytes, _ suffix: String) -> some View {
         HStack {
             Text(verbatim: title).font(.body.weight(.medium)).frame(width: 50, alignment: .leading)
-            Image(systemName: "chevron.down.circle.fill").foregroundStyle(Color(red: 0.25, green: 0.55, blue: 1.0))
+            Image(systemName: "chevron.down.circle.fill").foregroundStyle(QXColor.trafficDown)
             Text(verbatim: Fmt.bytes(b.down) + suffix).monospacedDigit()
             Spacer()
-            Image(systemName: "chevron.up.circle.fill").foregroundStyle(Color(red: 0.62, green: 0.35, blue: 0.95))
+            Image(systemName: "chevron.up.circle.fill").foregroundStyle(QXColor.trafficUp)
             Text(verbatim: Fmt.bytes(b.up) + suffix).monospacedDigit()
                 .frame(minWidth: 80, alignment: .leading)
         }
