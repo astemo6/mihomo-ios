@@ -11,6 +11,7 @@ struct IPInfo: Codable, Equatable {
     var org: String?      // "Cloudflare, Inc."
     var source: String?
     var timezone: String? = nil   // "Asia/Tokyo" (v0.7 Home header)
+    var customTitle: String? = nil   // v0.12 geo_location_checker script title (replaces the place text)
 
     var flag: String {
         guard let cc = countryCode?.uppercased(), cc.count == 2 else { return "🌐" }
@@ -29,6 +30,7 @@ struct IPInfo: Codable, Equatable {
     }
 
     var locationText: String {
+        if let t = customTitle, !t.isEmpty { return t }
         var parts: [String] = []
         if let c = countryName, !c.isEmpty { parts.append(c) }
         if let city = city, !city.isEmpty, city != parts.first { parts.append(city) }
@@ -45,6 +47,7 @@ struct IPInfo: Codable, Equatable {
 
     /// Header title: "日本 东京" (country + city, no separator dot).
     var placeText: String {
+        if let t = customTitle, !t.isEmpty { return t }
         var parts: [String] = []
         if let c = countryName, !c.isEmpty { parts.append(c) }
         if let city = city, !city.isEmpty, city != parts.first { parts.append(city) }

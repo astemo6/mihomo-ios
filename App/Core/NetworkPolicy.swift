@@ -25,6 +25,50 @@ struct NetworkPolicyState: Decodable {
     var ssid: String?
     var trigger: String
     var applied: [Applied]
+    var mode: String?        // v0.12 运行模式按网络切换
+    var modeReason: String?
+}
+
+/// 运行模式按网络切换 (v0.12, QX running_mode_trigger): rule / global / direct per cellular, Wi-Fi and named
+/// Wi-Fi network. App-wide, stored in <home>/modetrigger.json and applied by the extension together with
+/// 按网络切换策略 (bridge/netpolicy.go). nil / "" = keep the current mode.
+struct ModeTrigger: Codable, Hashable {
+    var enabled: Bool = false
+    var cellular: String? = nil
+    var wifi: String? = nil
+    var ssids: [String: String]? = nil
+
+    static var url: URL { AppShared.homeURL.appendingPathComponent("modetrigger.json") }
+
+    static func load() -> ModeTrigger {
+        guard let d = try? Data(contentsOf: url), let m = try? JSONDecoder().decode(ModeTrigger.self, from: d) else { return ModeTrigger() }
+        return m
+    }
+
+    func save() {
+        let enc = JSONEncoder()
+        enc.outputFormatting = [.prettyPrinted, .sortedKeys]
+        if let d = try? enc.encode(self) { try? d.write(to: Self.url, options: .atomic) }
+    }
+
+    static let modes = ["rule", "global", "direct"]
+
+    static func title(_ m: String?) -> String {
+        switch m {
+        case "rule": return "规则"
+        case "global": return "全局"
+        case "direct": return "直连"
+        default: return "不切换"
+        }
+    }
+
+    var summary: String {
+        var parts: [String] = []
+        if let c = cellular, !c.isEmpty { parts.append(String(localized: "蜂窝 \(NSLocalizedString(Self.title(c), comment: ""))")) }
+        if let w = wifi, !w.isEmpty { parts.append(String(localized: "Wi-Fi \(NSLocalizedString(Self.title(w), comment: ""))")) }
+        if let n = ssids?.count, n > 0 { parts.append(String(localized: "\(n) 个指定 Wi-Fi")) }
+        return parts.joined(separator: " · ")
+    }
 }
 
 enum NetworkPolicyStore {
