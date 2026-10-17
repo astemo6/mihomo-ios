@@ -96,7 +96,12 @@ type Rule struct {
 	Line   string `json:"line"`
 	Desc   string `json:"desc"` // short Chinese description for the UI
 
-	re *regexp2.Regexp
+	// HeaderPattern: QX url-and-header (v0.11) — the rule also needs this regex to match the request
+	// line + headers ("GET /path HTTP/1.1\r\nHost: …\r\n…").
+	HeaderPattern string `json:"headerPattern,omitempty"`
+
+	re  *regexp2.Regexp
+	hre *regexp2.Regexp
 }
 
 // Ruleset is the merged result of parsing user rules and modules.
@@ -548,6 +553,14 @@ func (rs *Ruleset) ParseLine(line, section, source string) {
 			}
 			r.re = re
 		}
+		if r.HeaderPattern != "" {
+			re, err := compileRe(r.HeaderPattern)
+			if err != nil {
+				rs.Errors = append(rs.Errors, fmt.Sprintf("正则无效（%s）：%s", err.Error(), clip(line, 120)))
+				return
+			}
+			r.hre = re
+		}
 		for i := range r.Headers {
 			if r.Headers[i].Regex != "" {
 				re, err := compileRe(r.Headers[i].Regex)
@@ -666,6 +679,16 @@ func (rs *Ruleset) ParseLine(line, section, source string) {
 			r.Body = append(r.Body, BodyOp{Regex: rest[i], Repl: rest[i+1]})
 		}
 		add(r, nil)
+		return
+	}
+	// Quantumult X: <regex> <header-regex> url-and-header <action> [args] (v0.11)
+	if len(toks) >= 4 && strings.ToLower(toks[2]) == "url-and-header" {
+		qt := append([]string{toks[0], "url"}, toks[3:]...)
+		r, err := parseQX(qt, line)
+		if r != nil {
+			r.HeaderPattern = toks[1]
+		}
+		add(r, err)
 		return
 	}
 	// Quantumult X: <regex> url <action> [args]
@@ -822,6 +845,25 @@ func parseQX(toks []string, line string) (*Rule, error) {
 		default:
 			sc.Type, sc.Echo, r.Phase = "http-request", true, "request"
 			sc.RequiresBody = act == "script-analyze-echo-response"
+		}
+		return r, nil
+	case "jsonjq-response-body", "jsonjq-request-body":
+		// v0.11: regex url jsonjq-response-body <jq expression> | jq-path=<url>. The expression is the rest
+		// of the line (it usually contains spaces), quotes optional.
+		phase := strings.TrimSuffix(strings.TrimPrefix(act, "jsonjq-"), "-body")
+		i := strings.Index(strings.ToLower(line), act)
+		rest := ""
+		if i >= 0 {
+			rest = strings.TrimSpace(line[i+len(act):])
+		}
+		if rest == "" {
+			return nil, fmt.Errorf("%s 缺少 jq 表达式", act)
+		}
+		r := &Rule{Kind: KindJQ, Phase: phase, Pattern: pattern}
+		if strings.HasPrefix(rest, "jq-path=") {
+			r.Data = unquote(strings.TrimPrefix(rest, "jq-path="))
+		} else {
+			r.JQ = unquote(rest)
 		}
 		return r, nil
 	case "echo-response":

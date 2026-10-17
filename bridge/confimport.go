@@ -707,7 +707,11 @@ func ImportConf(text string) string {
 				rep.Rewrites++
 			}
 		}
-		rep.Tasks = len(rs.Tasks)
+		for _, tk := range rs.Tasks {
+			if !tk.DisabledByLine { // v0.11: enabled=false tasks are kept (off) but not counted
+				rep.Tasks++
+			}
+		}
 		for _, h := range rs.Hostnames {
 			if !strings.HasPrefix(h, "-") {
 				rep.Hostnames++
