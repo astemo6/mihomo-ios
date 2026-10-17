@@ -328,6 +328,8 @@ struct QXOtherSettingsView: View {
             // QX preview 7 (simulator vs frame 43): 52 pt rows, cards 18 pt from the edges, headers on the card edge.
             .environment(\.defaultMinListRowHeight, 52)
             .qxListMargins()
+            // The QX page band already spaces the content; the list's own top margin put 模式 16 pt low (frame 43).
+            .padding(.top, -16)
         }
     }
 
@@ -342,7 +344,7 @@ struct QXOtherSettingsView: View {
         } label: {
             HStack(spacing: 12) {
                 QXWindmill(mode: mode, size: 22)
-                Text(verbatim: title).foregroundStyle(Color.primary)
+                Text(verbatim: title).font(QXType.rowTitle).foregroundStyle(Color.primary)
                 Spacer()
                 if modeModel.mode == mode { Image(systemName: "checkmark").foregroundStyle(QXColor.switchOn) }
             }
@@ -499,7 +501,8 @@ struct QXNodeResourcesView: View {
                             .disabled(busy)
                     }
                     Text("勾选的是当前使用的配置；节点集（proxy-providers）属于当前配置，连接后可单独更新。本地节点在「设置 → 节点 → 添加」中管理。")
-                        .font(.system(size: 16)).foregroundStyle(.secondary)
+                        .font(QXType.caption).foregroundStyle(.secondary)
+                        .padding(.top, -6)   // frame 26: title → caption 31.5 pt (we had 40)
                     if let message { Text(verbatim: message).font(.footnote).foregroundStyle(.secondary) }
 
                     Text("订阅与配置").font(.headline).padding(.top, 6)
@@ -874,7 +877,7 @@ struct QXListLabel: View {
     init(key: LocalizedStringKey, icon: String) { self.title = Text(key); self.icon = icon }
     var body: some View {
         Label {
-            title.foregroundStyle(Color.primary)
+            title.font(QXType.rowTitle).foregroundStyle(Color.primary)
         } icon: {
             Image(systemName: icon).foregroundStyle(QXColor.switchOn)
         }

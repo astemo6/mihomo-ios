@@ -411,7 +411,7 @@ struct QXTile: View {
 
     var body: some View {
         ZStack(alignment: .topTrailing) {
-            VStack(spacing: small ? 0 : 5) {
+            VStack(spacing: small ? 0 : 7) {   // frame 01: glyph → label 28 pt centre to centre
                 // QX preview 7 (simulator vs frame 01): a fixed glyph box, so every label sits on the same line
                 // (the funnel and the SF Symbols have different heights).
                 QXPanelGlyph(panel: panel, size: 20)

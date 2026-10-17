@@ -74,7 +74,8 @@ enum QXType {
     /// Row second lines (SZ CN, resource URLs, chains): ≈ 12 pt → .caption.
     static let rowDetail = Font.caption.weight(.medium)
     /// Explanations under titles: ≈ 14.5 pt → .subheadline.
-    static let caption = Font.subheadline
+    // QX preview 7: tight leading — frames 25/26 have 17.4–17.8 pt lines, the system 15 pt CJK line is ~20 pt.
+    static let caption = Font.subheadline.leading(.tight)
     /// Tile labels (节点, 网络活动): ≈ 14 pt semibold → .subheadline semibold (was 15 fixed).
     static let tileLabel = Font.subheadline.weight(.semibold)
     /// Settings button labels (添加, 节点资源): ≈ 17 pt semibold → .headline (was 18).
