@@ -917,7 +917,8 @@ final class MihomoUITests: MihomoUITestCase {
         XCTAssertTrue(h.label.contains("DNS 24 ms"), "host DNS median: \(h.label)")
         snap("timeline-hosts")
         h.tap()
-        XCTAssertTrue(app.navigationBars["api.example.org"].waitForExistence(timeout: 6), "host detail")
+        let median = app.element(labelContains: L("DNS 中位数"))
+        XCTAssertTrue(median.waitForExistence(timeout: 6), "host detail with the DNS median")
         snap("timeline-host-detail")
     }
 
