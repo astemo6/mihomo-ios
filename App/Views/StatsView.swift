@@ -7,6 +7,7 @@ struct StatsView: View {
     @State private var days: [TrafficDay] = []
     @State private var range = 7
     @State private var confirmClear = false
+    @ObservedObject private var history = AnalyticsHistory.shared
 
     struct Bar: Identifiable {
         let id = UUID()
@@ -78,6 +79,23 @@ struct StatsView: View {
                 }
 
                 Card {
+                    let net = shown
+                    let split = history.summary(lastDays: range)
+                    VStack(alignment: .leading, spacing: 14) {
+                        Text("流量构成").font(.headline)
+                        SplitBar(title: String(localized: "Wi-Fi / 蜂窝"),
+                                 parts: [("Wi-Fi", net.reduce(Int64(0)) { $0 + ($1.wifi ?? 0) }, Theme.accent),
+                                         (String(localized: "蜂窝"), net.reduce(Int64(0)) { $0 + ($1.cell ?? 0) }, Theme.up),
+                                         (String(localized: "其他 / 未区分"), net.reduce(Int64(0)) { $0 + $1.otherNet }, Color(white: 0.45))])
+                        SplitBar(title: String(localized: "直连 / 代理（App 打开期间）"),
+                                 parts: [(String(localized: "直连"), split.direct.total, Theme.good),
+                                         (String(localized: "代理"), split.proxy.total, Theme.accent)])
+                        Text("Wi-Fi / 蜂窝按隧道每 2 分钟记录时所用的网络归类（v0.8 起）；直连 / 代理来自 App 打开期间对连接的采样，详见「连接分析」。")
+                            .font(.caption2).foregroundStyle(.secondary)
+                    }
+                }
+
+                Card {
                     VStack(alignment: .leading, spacing: 8) {
                         Text("明细").font(.headline)
                         let rows = Array(shown.reversed().filter { $0.total > 0 })
@@ -85,12 +103,18 @@ struct StatsView: View {
                             EmptyStateRow(icon: "chart.bar.xaxis", title: "暂无数据", message: "连接后每 2 分钟记录一次。")
                         }
                         ForEach(rows) { d in
-                            HStack {
-                                Text(d.date.formatted(.dateTime.month().day().weekday(.abbreviated))).font(.footnote)
-                                Spacer()
-                                Text("↑ \(Fmt.bytes(d.up))").font(.caption.monospacedDigit()).foregroundStyle(Theme.up)
-                                Text("↓ \(Fmt.bytes(d.down))").font(.caption.monospacedDigit()).foregroundStyle(Theme.down)
-                                    .frame(minWidth: 80, alignment: .trailing)
+                            VStack(alignment: .leading, spacing: 2) {
+                                HStack {
+                                    Text(d.date.formatted(.dateTime.month().day().weekday(.abbreviated))).font(.footnote)
+                                    Spacer()
+                                    Text("↑ \(Fmt.bytes(d.up))").font(.caption.monospacedDigit()).foregroundStyle(Theme.up)
+                                    Text("↓ \(Fmt.bytes(d.down))").font(.caption.monospacedDigit()).foregroundStyle(Theme.down)
+                                        .frame(minWidth: 80, alignment: .trailing)
+                                }
+                                if d.wifi != nil || d.cell != nil {
+                                    Text("Wi-Fi \(Fmt.bytes(d.wifi ?? 0)) · 蜂窝 \(Fmt.bytes(d.cell ?? 0))")
+                                        .font(.caption2.monospacedDigit()).foregroundStyle(.secondary)
+                                }
                             }
                         }
                     }

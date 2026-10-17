@@ -37,6 +37,7 @@ final class ConnectionAnalytics: ObservableObject {
         seen.reserveCapacity(conns.count)
         var pol = policies, hs = hosts, rs = rules
         var newCount = 0
+        var stepPol: [String: Bytes] = [:], stepHost: [String: Bytes] = [:]
         for c in conns {
             let policy = c.chains?.last ?? "DIRECT"
             let prev = last[c.id]
@@ -54,6 +55,10 @@ final class ConnectionAnalytics: ObservableObject {
                 let h = Self.hostName(c.metadata)
                 hs[h, default: Bytes()].up += du
                 hs[h, default: Bytes()].down += dd
+                stepPol[policy, default: Bytes()].up += du
+                stepPol[policy, default: Bytes()].down += dd
+                stepHost[h, default: Bytes()].up += du
+                stepHost[h, default: Bytes()].down += dd
             }
             seen[c.id] = (c.upload, c.download)
         }
@@ -63,6 +68,7 @@ final class ConnectionAnalytics: ObservableObject {
         }
         last = seen
         policies = pol; hosts = hs; rules = rs
+        AnalyticsHistory.shared.add(policies: stepPol, hosts: stepHost)
         totalConnections += newCount
         activeConnections = conns.count
     }
@@ -85,6 +91,11 @@ final class ConnectionAnalytics: ObservableObject {
 struct AnalyticsView: View {
     @EnvironmentObject var vpn: VPNManager
     @ObservedObject private var a = ConnectionAnalytics.shared
+    @ObservedObject private var history = AnalyticsHistory.shared
+    /// 0 = 本次连接 (session), otherwise the last N days from the saved history (v0.8).
+    @AppStorage("analytics.range") private var range = 0
+    @State private var netDays: [TrafficDay] = []
+    @State private var confirmClear = false
 
     static let palette: [Color] = [Theme.accent, Theme.up, Theme.good, Color(red: 0.62, green: 0.48, blue: 1.0),
                                    Color(red: 1.0, green: 0.42, blue: 0.62), Theme.warn, Color(white: 0.55)]
@@ -92,14 +103,24 @@ struct AnalyticsView: View {
     var body: some View {
         ScrollView {
             VStack(spacing: 14) {
-                if !vpn.isConnected && a.totalConnections == 0 {
+                Picker("范围", selection: $range) {
+                    Text("本次连接").tag(0)
+                    Text("今天").tag(1)
+                    Text("7 天").tag(7)
+                    Text("30 天").tag(30)
+                }
+                .pickerStyle(.segmented)
+                if range == 0 && !vpn.isConnected && a.totalConnections == 0 {
                     NotConnectedPlaceholder(text: "连接后开始统计")
                 } else {
-                    tiles
+                    if range == 0 { tiles }
+                    splitCard
                     policyCard
-                    rulesCard
+                    if range == 0 { rulesCard }
                     hostsCard
-                    Text("从本次连接开始（\(a.since.formatted(date: .omitted, time: .shortened))）统计，数据只在 App 打开时采样，断开后清零。")
+                    Text(range == 0
+                         ? String(localized: "从本次连接开始（\(a.since.formatted(date: .omitted, time: .shortened))）统计，数据只在 App 打开时采样，断开后清零。")
+                         : String(localized: "直连 / 代理、策略与主机名来自 App 打开期间的采样，按天保存（最多 90 天）；Wi-Fi / 蜂窝来自隧道每 2 分钟记录的全部流量。规则命中只统计本次连接。"))
                         .font(.caption2).foregroundStyle(.secondary)
                         .frame(maxWidth: .infinity, alignment: .leading)
                         .padding(.horizontal, 4)
@@ -111,8 +132,51 @@ struct AnalyticsView: View {
         .navigationTitle("连接分析")
         .toolbar {
             ToolbarItem(placement: .navigationBarTrailing) {
-                Button { a.reset() } label: { Image(systemName: "arrow.counterclockwise") }
-                    .accessibilityLabel(Text("清零"))
+                Menu {
+                    Button { a.reset() } label: { Label("清零本次连接", systemImage: "arrow.counterclockwise") }
+                    Button(role: .destructive) { confirmClear = true } label: { Label("清除历史", systemImage: "trash") }
+                } label: { Image(systemName: "arrow.counterclockwise") }
+                .accessibilityLabel(Text("清零"))
+            }
+        }
+        .confirmationDialog("清除保存的连接分析历史？", isPresented: $confirmClear, titleVisibility: .visible) {
+            Button("清除历史", role: .destructive) { history.clear() }
+        }
+        .onAppear { netDays = TrafficHistory.load() }
+    }
+
+    /// Policy usage for the chosen range.
+    var policyUsages: [ConnectionAnalytics.Usage] {
+        if range == 0 { return a.policyList }
+        return history.summary(lastDays: range).policies
+            .map { ConnectionAnalytics.Usage(name: $0.key, bytes: ConnectionAnalytics.Bytes(up: $0.value.up, down: $0.value.down)) }
+            .filter { $0.bytes.total > 0 }.sorted { $0.bytes.total > $1.bytes.total }
+    }
+
+    var hostUsages: [ConnectionAnalytics.Usage] {
+        if range == 0 { return a.hostList }
+        return history.summary(lastDays: range).hosts
+            .map { ConnectionAnalytics.Usage(name: $0.key, bytes: ConnectionAnalytics.Bytes(up: $0.value.up, down: $0.value.down)) }
+            .sorted { $0.bytes.total > $1.bytes.total }
+    }
+
+    /// 直连 vs 代理 (from the policy usage) and Wi-Fi vs 蜂窝 (from the tunnel's daily totals).
+    var splitCard: some View {
+        var direct: Int64 = 0, proxy: Int64 = 0
+        for u in policyUsages where !AnalyticsHistory.skipNames.contains(u.name) {
+            if AnalyticsHistory.directNames.contains(u.name) { direct += u.bytes.total } else { proxy += u.bytes.total }
+        }
+        let net = TrafficHistory.recent(max(range, 1), from: netDays)
+        let wifi = net.reduce(Int64(0)) { $0 + ($1.wifi ?? 0) }
+        let cell = net.reduce(Int64(0)) { $0 + ($1.cell ?? 0) }
+        let other = net.reduce(Int64(0)) { $0 + $1.otherNet }
+        return Card {
+            VStack(alignment: .leading, spacing: 14) {
+                Text("流量构成").font(.headline)
+                SplitBar(title: String(localized: "直连 / 代理"),
+                         parts: [(String(localized: "直连"), direct, Theme.good), (String(localized: "代理"), proxy, Theme.accent)])
+                SplitBar(title: range == 0 ? String(localized: "Wi-Fi / 蜂窝（今天）") : String(localized: "Wi-Fi / 蜂窝"),
+                         parts: [("Wi-Fi", wifi, Theme.accent), (String(localized: "蜂窝"), cell, Theme.up), (String(localized: "其他 / 未区分"), other, Color(white: 0.45))])
             }
         }
     }
@@ -125,7 +189,7 @@ struct AnalyticsView: View {
     }
 
     var policyCard: some View {
-        let list = a.policyList
+        let list = policyUsages
         let total = max(list.reduce(Int64(0)) { $0 + $1.bytes.total }, 1)
         let shown = Array(list.prefix(6))
         let rest = list.dropFirst(6).reduce(Int64(0)) { $0 + $1.bytes.total }
@@ -216,7 +280,7 @@ struct AnalyticsView: View {
     }
 
     var hostsCard: some View {
-        let list = a.hostList
+        let list = hostUsages
         let maxB = max(list.first?.bytes.total ?? 1, 1)
         return Card {
             VStack(alignment: .leading, spacing: 12) {
@@ -224,7 +288,7 @@ struct AnalyticsView: View {
                     Text("主机名").font(.headline)
                     Spacer()
                     if list.count > 10 {
-                        NavigationLink { HostTrafficList() } label: { Text("查看全部").font(.caption) }
+                        NavigationLink { HostTrafficList(list: list) } label: { Text("查看全部").font(.caption) }
                     }
                 }
                 if list.isEmpty {
@@ -233,6 +297,48 @@ struct AnalyticsView: View {
                     ForEach(list.prefix(10)) { h in
                         HostBarRow(name: h.name, bytes: h.bytes.total, fraction: Double(h.bytes.total) / Double(maxB))
                     }
+                }
+            }
+        }
+    }
+}
+
+/// One labelled stacked bar with a legend (流量构成, v0.8).
+struct SplitBar: View {
+    let title: String
+    let parts: [(String, Int64, Color)]
+
+    var body: some View {
+        let shown = parts.filter { $0.1 > 0 }
+        let total = max(shown.reduce(Int64(0)) { $0 + $1.1 }, 1)
+        VStack(alignment: .leading, spacing: 6) {
+            HStack {
+                Text(title).font(.subheadline)
+                Spacer()
+                Text(Fmt.bytes(shown.reduce(Int64(0)) { $0 + $1.1 })).font(.caption.monospacedDigit()).foregroundStyle(.secondary)
+            }
+            GeometryReader { geo in
+                HStack(spacing: 2) {
+                    if shown.isEmpty {
+                        Rectangle().fill(Color.white.opacity(0.06))
+                    }
+                    ForEach(Array(shown.enumerated()), id: \.offset) { _, p in
+                        Rectangle().fill(p.2).frame(width: max(2, geo.size.width * CGFloat(Double(p.1) / Double(total)) - 2))
+                    }
+                }
+                .clipShape(RoundedRectangle(cornerRadius: 5, style: .continuous))
+            }
+            .frame(height: 10)
+            .accessibilityHidden(true)
+            HStack(spacing: 12) {
+                ForEach(Array(parts.enumerated()), id: \.offset) { _, p in
+                    HStack(spacing: 4) {
+                        Circle().fill(p.2).frame(width: 7, height: 7)
+                        Text(p.0).font(.caption2)
+                        Text(Double(p.1) / Double(total), format: .percent.precision(.fractionLength(0)))
+                            .font(.caption2.monospacedDigit()).foregroundStyle(.secondary)
+                    }
+                    .accessibilityElement(children: .combine)
                 }
             }
         }
@@ -283,10 +389,9 @@ struct RuleHitsList: View {
 }
 
 struct HostTrafficList: View {
-    @ObservedObject private var a = ConnectionAnalytics.shared
+    let list: [ConnectionAnalytics.Usage]
     @State private var search = ""
     var body: some View {
-        let list = a.hostList
         let maxB = max(list.first?.bytes.total ?? 1, 1)
         let shown = search.isEmpty ? list : list.filter { $0.name.localizedCaseInsensitiveContains(search) }
         List(shown) { h in

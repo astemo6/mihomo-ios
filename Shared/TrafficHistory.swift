@@ -6,8 +6,14 @@ struct TrafficDay: Codable, Hashable, Identifiable {
     var day: String   // yyyy-MM-dd in the device's time zone
     var up: Int64
     var down: Int64
+    /// v0.8: bytes (up + down) while the physical network was Wi-Fi / cellular, sampled by the tunnel every
+    /// two minutes (each delta goes to the interface in use at the sample). nil in days before v0.8.
+    var wifi: Int64? = nil
+    var cell: Int64? = nil
 
     var id: String { day }
+    /// Bytes on neither (wired, other, or before v0.8 split tracking).
+    var otherNet: Int64 { max(0, total - (wifi ?? 0) - (cell ?? 0)) }
     var total: Int64 { up + down }
     var date: Date { TrafficHistory.dayFormatter.date(from: day) ?? Date.distantPast }
 }
@@ -36,16 +42,25 @@ enum TrafficHistory {
     }
 
     /// Adds bytes to today's bucket and drops days older than keepDays.
-    static func add(up: Int64, down: Int64, at date: Date = Date()) {
+    static func add(up: Int64, down: Int64, iface: String? = nil, at date: Date = Date()) {
         guard up > 0 || down > 0 else { return }
         lock.lock(); defer { lock.unlock() }
         var days = load()
         let key = dayFormatter.string(from: date)
-        if let i = days.firstIndex(where: { $0.day == key }) {
-            days[i].up += max(up, 0)
-            days[i].down += max(down, 0)
+        let i: Int
+        if let found = days.firstIndex(where: { $0.day == key }) {
+            i = found
         } else {
-            days.append(TrafficDay(day: key, up: max(up, 0), down: max(down, 0)))
+            days.append(TrafficDay(day: key, up: 0, down: 0))
+            i = days.count - 1
+        }
+        days[i].up += max(up, 0)
+        days[i].down += max(down, 0)
+        let both = max(up, 0) + max(down, 0)
+        switch iface {
+        case "wifi": days[i].wifi = (days[i].wifi ?? 0) + both
+        case "cellular": days[i].cell = (days[i].cell ?? 0) + both
+        default: break
         }
         if let cutoff = Calendar.current.date(byAdding: .day, value: -keepDays, to: date) {
             let c = dayFormatter.string(from: cutoff)
@@ -68,7 +83,8 @@ enum TrafficHistory {
     /// Last `count` days ending today, with empty days filled in (for charts).
     static func recent(_ count: Int, from days: [TrafficDay]) -> [TrafficDay] {
         let byDay = Dictionary(days.map { ($0.day, $0) }, uniquingKeysWith: { a, b in
-            TrafficDay(day: a.day, up: a.up + b.up, down: a.down + b.down)
+            TrafficDay(day: a.day, up: a.up + b.up, down: a.down + b.down,
+                       wifi: (a.wifi ?? 0) + (b.wifi ?? 0), cell: (a.cell ?? 0) + (b.cell ?? 0))
         })
         let cal = Calendar.current
         let today = cal.startOfDay(for: Date())

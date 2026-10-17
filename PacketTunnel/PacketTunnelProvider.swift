@@ -361,6 +361,6 @@ final class TrafficRecorder {
         let dd = down >= lastDown ? down - lastDown : down
         lastUp = up
         lastDown = down
-        TrafficHistory.add(up: du, down: dd)
+        TrafficHistory.add(up: du, down: dd, iface: NetworkWatcher.currentType)
     }
 }

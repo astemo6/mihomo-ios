@@ -5,6 +5,14 @@ import Libmihomo
 /// Watches the physical network (Wi-Fi ⇄ cellular, interface changes) and runs the engine's
 /// network-changed event scripts. The first path update (tunnel start) is the baseline, not an event.
 final class NetworkWatcher {
+    /// v0.8: physical interface type for TrafficRecorder's Wi-Fi / cellular split ("wifi" / "cellular" / …).
+    private static let typeLock = NSLock()
+    private static var _currentType: String?
+    static var currentType: String? {
+        typeLock.lock(); defer { typeLock.unlock() }
+        return _currentType
+    }
+
     private let monitor = NWPathMonitor(prohibitedInterfaceTypes: [.other, .loopback])
     private let queue = DispatchQueue(label: "mihomo.network-watcher")
     private var last: String?
@@ -28,6 +36,7 @@ final class NetworkWatcher {
         else if path.usesInterfaceType(.cellular) { type = "cellular" }
         else if path.usesInterfaceType(.wiredEthernet) { type = "wired" }
         else { type = "other" }
+        Self.typeLock.lock(); Self._currentType = type; Self.typeLock.unlock()
         // SSID needs the Wi-Fi-info entitlement, which re-signed profiles usually lack → always null.
         let info: [String: Any] = [
             "type": type,
