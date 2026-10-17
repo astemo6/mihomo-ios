@@ -5,10 +5,7 @@ import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.res.stringResource
 import io.github.astemo6.mihomo.R
-import io.github.astemo6.mihomo.data.feature2.DnsLog
-import io.github.astemo6.mihomo.data.feature2.NodeSubStore
-import io.github.astemo6.mihomo.data.feature2.ProbeStore
-import io.github.astemo6.mihomo.data.feature2.TrafficStats
+import io.github.astemo6.mihomo.data.feature2.Feature2Hooks
 import io.github.astemo6.mihomo.ui.components.BackTopBar
 import io.github.astemo6.mihomo.ui.components.EmptyHint
 
@@ -46,10 +43,7 @@ fun Feature2Screen(route: String, onBack: () -> Unit) {
     val context = LocalContext.current
     LaunchedEffect(Unit) {
         // Process-lifetime collectors (same process as the VPN service); idempotent.
-        TrafficStats.ensureStarted(context)
-        DnsLog.ensureStarted()
-        ProbeStore.load()
-        if (NodeSubStore.subs.value.isEmpty()) NodeSubStore.load()
+        Feature2Hooks.onAppCreate(context)
     }
     when (route) {
         Feature2Routes.RULESETS -> RuleSetsScreen(onBack)

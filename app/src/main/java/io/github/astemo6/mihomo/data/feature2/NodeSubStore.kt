@@ -65,6 +65,8 @@ object NodeSubStore {
         OkHttpClient.Builder().connectTimeout(15, TimeUnit.SECONDS).readTimeout(30, TimeUnit.SECONDS).followRedirects(true).build()
     }
 
+    init { runCatching { load() } }
+
     fun load() { _subs.value = JsonFiles.read(file, ser) ?: emptyList() }
 
     private fun persist() = JsonFiles.write(file, ser, _subs.value)
