@@ -603,7 +603,7 @@ final class RuleHitsStore: ObservableObject {
 
     static var url: URL { AppShared.homeURL.appendingPathComponent("rule-hits.json") }
 
-    static func dayString(_ d: Date) -> String {
+    nonisolated static func dayString(_ d: Date) -> String {
         let f = DateFormatter()
         f.calendar = Calendar(identifier: .gregorian)
         f.locale = Locale(identifier: "en_US_POSIX")
@@ -612,7 +612,7 @@ final class RuleHitsStore: ObservableObject {
     }
 
     /// Live rules say "DomainSuffix", the offline inspector may say "DOMAIN-SUFFIX": compare without case / dashes.
-    static func norm(_ t: String, _ p: String, _ x: String) -> String {
+    nonisolated static func norm(_ t: String, _ p: String, _ x: String) -> String {
         t.lowercased().filter { $0.isLetter || $0.isNumber } + "\u{1}" + p + "\u{1}" + x
     }
 
