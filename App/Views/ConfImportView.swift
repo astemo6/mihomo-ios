@@ -19,6 +19,8 @@ struct ConfImportResult: Decodable {
         var remotes: Int?
         var skipped: [String]?
         var notes: [String]?
+        /// v0.13.1: remote entries switched off in the original config (not failures).
+        var disabled: [String]?
     }
     var yaml: String?
     var module: String?
@@ -152,6 +154,7 @@ struct ConfReportSection: View {
     let text: String
     @Binding var result: ConfImportResult?
     @State private var showSkipped = false
+    @State private var showDisabled = false
 
     init(text: String, result: Binding<ConfImportResult?>) {
         self.text = text
@@ -206,6 +209,14 @@ struct ConfReportSection: View {
                     if let notes = rep.notes, !notes.isEmpty {
                         Section("说明") {
                             ForEach(notes, id: \.self) { Text($0).font(.caption) }
+                        }
+                        .listRowBackground(Theme.card)
+                    }
+                    if let off = rep.disabled, !off.isEmpty {
+                        Section {
+                            DisclosureGroup("已禁用（原配置中关闭）\(off.count) 项", isExpanded: $showDisabled) {
+                                ForEach(off, id: \.self) { Text($0).scaledFont(10, design: .monospaced).foregroundStyle(.secondary) }
+                            }
                         }
                         .listRowBackground(Theme.card)
                     }

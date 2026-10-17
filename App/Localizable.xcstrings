@@ -24919,6 +24919,41 @@
         }
       }
     },
+    "已禁用（原配置中关闭）%lld 项": {
+      "extractionState": "manual",
+      "localizations": {
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "已禁用（原配置中關閉）%lld 項"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Disabled in the original config: %lld"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "元の設定で無効：%lld 件"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "원래 구성에서 비활성화됨: %lld개"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Отключено в исходной конфигурации: %lld"
+          }
+        }
+      }
+    },
     "已缓存": {
       "localizations": {
         "en": {
