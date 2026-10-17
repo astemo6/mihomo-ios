@@ -19,8 +19,51 @@ struct RegionFilter: Codable, Hashable, Identifiable {
     var interval: Int = 300
     var tolerance: Int = 50
 
-    /// mihomo `filter` (regexp2) and NSRegularExpression both understand this syntax.
-    var filter: String { "(?i)" + pattern }
+    /// v0.15.4 节点来源 (Loon-style): every proxy-provider (配置里的订阅 / 节点订阅), or only the chosen
+    /// ones by provider name, and / or the profile's own nodes. Default = everything (include-all).
+    var allSubscriptions: Bool = true
+    var subscriptions: [String] = []
+    var includeLocal: Bool = true
+    /// "regex" (built-in regions, filters saved before v0.15.4) or "keywords" (包含任一, matched literally).
+    var kind: String = "regex"
+    /// 排除关键词 (| separated, literal) → exclude-filter.
+    var exclude: String = ""
+
+    static func keywords(_ s: String) -> [String] {
+        s.split(separator: "|").map { $0.trimmingCharacters(in: .whitespaces) }.filter { !$0.isEmpty }
+    }
+
+    /// mihomo `filter` (regexp2): exactly what the generated group gets, so preview == core.
+    var filter: String {
+        if kind == "keywords" { return "(?i)" + Self.keywords(pattern).map { NSRegularExpression.escapedPattern(for: $0) }.joined(separator: "|") }
+        return "(?i)" + pattern
+    }
+
+    var excludeFilter: String? {
+        let k = Self.keywords(exclude)
+        return k.isEmpty ? nil : "(?i)" + k.map { NSRegularExpression.escapedPattern(for: $0) }.joined(separator: "|")
+    }
+
+    var hasSources: Bool { includeLocal || allSubscriptions || !subscriptions.isEmpty }
+
+    /// Sources → mihomo keys: all + local = include-all; all only = include-all-providers; chosen providers =
+    /// use (+ include-all-proxies with local). Never include-all when only some subscriptions are chosen.
+    func applySources(to spec: inout GroupSpec) {
+        spec.filter = filter
+        spec.excludeFilter = excludeFilter
+        spec.includeAll = nil
+        spec.includeAllProxies = nil
+        spec.includeAllProviders = nil
+        spec.use = nil
+        if allSubscriptions && includeLocal {
+            spec.includeAll = true
+        } else if allSubscriptions {
+            spec.includeAllProviders = true
+        } else {
+            if !subscriptions.isEmpty { spec.use = subscriptions }
+            if includeLocal { spec.includeAllProxies = true }
+        }
+    }
 
     static let types = ["url-test", "fallback", "load-balance", "select"]
 
@@ -31,6 +74,29 @@ struct RegionFilter: Codable, Hashable, Identifiable {
         case "load-balance": return String(localized: "负载均衡")
         default: return String(localized: "手动选择")
         }
+    }
+}
+
+extension RegionFilter {
+    enum CodingKeys: String, CodingKey {
+        case id, name, flag, pattern, type, interval, tolerance, allSubscriptions, subscriptions, includeLocal, kind, exclude
+    }
+
+    /// Filters saved before v0.15.4 have no source / kind keys.
+    init(from d: Decoder) throws {
+        let c = try d.container(keyedBy: CodingKeys.self)
+        id = try c.decode(String.self, forKey: .id)
+        name = try c.decode(String.self, forKey: .name)
+        flag = (try? c.decodeIfPresent(String.self, forKey: .flag)) ?? "🏳️"
+        pattern = (try? c.decodeIfPresent(String.self, forKey: .pattern)) ?? ""
+        type = (try? c.decodeIfPresent(String.self, forKey: .type)) ?? "url-test"
+        interval = (try? c.decodeIfPresent(Int.self, forKey: .interval)) ?? 300
+        tolerance = (try? c.decodeIfPresent(Int.self, forKey: .tolerance)) ?? 50
+        allSubscriptions = (try? c.decodeIfPresent(Bool.self, forKey: .allSubscriptions)) ?? true
+        subscriptions = (try? c.decodeIfPresent([String].self, forKey: .subscriptions)) ?? []
+        includeLocal = (try? c.decodeIfPresent(Bool.self, forKey: .includeLocal)) ?? true
+        kind = (try? c.decodeIfPresent(String.self, forKey: .kind)) ?? "regex"
+        exclude = (try? c.decodeIfPresent(String.self, forKey: .exclude)) ?? ""
     }
 }
 
@@ -52,6 +118,47 @@ enum RegionFilterStore {
     static func save(_ l: [RegionFilter], _ profileID: String?) {
         if let d = try? JSONEncoder().encode(l) { AppShared.defaults.set(d, forKey: key(profileID)) }
     }
+
+    /// A subscription (proxy-provider) was renamed (`new`) or removed (nil): filters of every profile that
+    /// chose it, and groups that `use` it (策略组编辑 / 筛选节点 groups), follow.
+    @MainActor
+    static func renameSource(_ old: String, to new: String?) {
+        guard old != new else { return }
+        for (k, v) in AppShared.defaults.dictionaryRepresentation() where k.hasPrefix(prefix) {
+            guard let d = v as? Data, var l = try? JSONDecoder().decode([RegionFilter].self, from: d) else { continue }
+            var changed = false
+            for i in l.indices where l[i].subscriptions.contains(old) {
+                l[i].subscriptions = l[i].subscriptions.compactMap { $0 == old ? new : $0 }
+                if !l[i].hasSources { l[i].allSubscriptions = true }
+                changed = true
+            }
+            if changed, let nd = try? JSONEncoder().encode(l) { AppShared.defaults.set(nd, forKey: k) }
+        }
+        func fix(_ g: inout GroupSpec) -> Bool {
+            guard let u = g.use, u.contains(old) else { return false }
+            let nu = u.compactMap { $0 == old ? new : $0 }
+            g.use = nu.isEmpty ? nil : nu
+            if g.use == nil, g.proxies.isEmpty, g.includeAll != true, g.includeAllProxies != true, g.includeAllProviders != true {
+                g.proxies = ["DIRECT"] // mihomo refuses a group with nothing in it
+            }
+            return true
+        }
+        for (pid, saved) in GroupEditStore.all() {
+            var e = saved
+            var changed = false
+            if var a = e.added {
+                for i in a.indices where fix(&a[i]) { changed = true }
+                e.added = a
+            }
+            if var ed = e.edits {
+                for key in Array(ed.keys) {
+                    if var sp = ed[key]?.spec, fix(&sp) { ed[key]?.spec = sp; changed = true }
+                }
+                e.edits = ed
+            }
+            if changed { GroupEditStore.set(pid, e) }
+        }
+    }
 }
 
 struct NodeFilterView: View {
@@ -65,6 +172,7 @@ struct NodeFilterView: View {
     @State private var message: String?
     @State private var editing: RegionFilter?
     @State private var creating = false
+    @State private var previewMembers: [String: [String]] = [:]
     @Environment(\.editMode) private var editMode
 
     struct Region: Identifiable {
@@ -107,8 +215,20 @@ struct NodeFilterView: View {
         Region(code: "RU", flag: "🇷🇺", pattern: #"俄罗斯|俄羅斯|莫斯科|🇷🇺|Russia|Moscow|(?<![A-Za-z])RUS?(?![A-Za-z])"#),
     ]
 
+    /// Until the core-side preview arrives (B16: bridge GroupPreview = what the group will contain).
     func count(_ f: RegionFilter) -> Int {
-        NodeListScope(title: f.name, pattern: f.filter).filter(model.nodes).count
+        if let n = previewMembers[f.id] { return n.count }
+        return f.hasSources ? NodeListScope(title: f.name, pattern: f.filter).filter(model.nodes).count : 0
+    }
+
+    func refreshPreview() async {
+        let list = filters
+        guard !list.isEmpty, let r = await offline.preview(list.map { spec(for: $0) }) else { return }
+        var m: [String: [String]] = [:]
+        for (f, it) in zip(list, r) where it.error == nil {
+            m[f.id] = (it.empty == true || !f.hasSources) ? [] : (it.members ?? [])
+        }
+        previewMembers = m
     }
 
     var editingList: Bool { editMode?.wrappedValue.isEditing == true }
@@ -182,13 +302,14 @@ struct NodeFilterView: View {
             filters = RegionFilterStore.load(store.activeID)
             loadAdded()
         }
+        .task(id: filters) { await refreshPreview() }
         .sheet(item: $editing) { f in
             RegionFilterEditor(filter: f, isNew: false, others: filters.filter { $0.id != f.id }, isGroup: added.contains(f.name)) { new in
                 Task { await apply(old: f, new: new) }
             }
         }
         .sheet(isPresented: $creating) {
-            RegionFilterEditor(filter: RegionFilter(id: UUID().uuidString, name: "", flag: "🏳️", pattern: ""), isNew: true, others: filters, isGroup: false) { new in
+            RegionFilterEditor(filter: RegionFilter(id: UUID().uuidString, name: "", flag: "🏳️", pattern: "", kind: "keywords"), isNew: true, others: filters, isGroup: false) { new in
                 filters.append(new)
                 persistFilters()
             }
@@ -201,7 +322,8 @@ struct NodeFilterView: View {
     func regionRow(_ f: RegionFilter, count: Int) -> some View {
         HStack(spacing: 12) {
             NavigationLink {
-                NodeListView(scope: NodeListScope(title: f.name, pattern: f.filter))
+                NodeListView(scope: previewMembers[f.id].map { NodeListScope(title: f.name, names: Set($0)) }
+                             ?? NodeListScope(title: f.name, pattern: f.filter))
             } label: {
                 HStack(spacing: 12) {
                     FlagGlyph(flag: f.flag)
@@ -251,8 +373,7 @@ struct NodeFilterView: View {
 
     func spec(for f: RegionFilter) -> GroupSpec {
         var spec = GroupSpec(name: f.name, type: f.type)
-        spec.includeAll = true
-        spec.filter = f.filter
+        f.applySources(to: &spec)
         if f.type != "select" {
             spec.url = ControllerClient.testSettings.url
             spec.interval = f.interval
@@ -359,6 +480,7 @@ struct RegionFilterEditor: View {
     let isGroup: Bool
     let onSave: (RegionFilter) -> Void
     @State private var originalName = ""
+    @State private var matchCount: Int?
 
     var trimmedName: String { filter.name.trimmingCharacters(in: .whitespaces) }
 
@@ -373,13 +495,26 @@ struct RegionFilterEditor: View {
     }
 
     var patternError: String? {
-        if filter.pattern.trimmingCharacters(in: .whitespaces).isEmpty { return String(localized: "关键词不能为空") }
+        if filter.kind == "keywords" ? RegionFilter.keywords(filter.pattern).isEmpty : filter.pattern.trimmingCharacters(in: .whitespaces).isEmpty {
+            return String(localized: "关键词不能为空")
+        }
         if (try? NSRegularExpression(pattern: filter.filter)) == nil { return String(localized: "正则表达式无效") }
+        if !filter.hasSources { return String(localized: "至少选择一个节点来源") }
         return nil
     }
 
-    var matches: [ManagedNode] {
-        patternError == nil ? NodeListScope(title: "", pattern: filter.filter).filter(model.nodes) : []
+    /// Profile proxy-providers + node subscriptions as the runtime names them (the names `use:` takes).
+    var providerNames: [String] {
+        var out = offline.result.proxyProviders.map(\.name)
+        for n in filter.subscriptions where !out.contains(n) { out.append(n) }
+        return out
+    }
+
+    func subscriptionBinding(_ name: String) -> Binding<Bool> {
+        Binding(get: { filter.subscriptions.contains(name) }, set: { on in
+            filter.subscriptions.removeAll { $0 == name }
+            if on { filter.subscriptions.append(name) }
+        })
     }
 
     var body: some View {
@@ -404,17 +539,60 @@ struct RegionFilterEditor: View {
                 }
                 .listRowBackground(Theme.card)
                 Section {
+                    Toggle("本地节点", isOn: $filter.includeLocal)
+                        .accessibilityIdentifier("filter.src.local")
+                    Toggle("全部订阅", isOn: $filter.allSubscriptions)
+                        .accessibilityIdentifier("filter.src.all")
+                    if !filter.allSubscriptions {
+                        if providerNames.isEmpty {
+                            Text("当前配置没有订阅").font(.footnote).foregroundStyle(.secondary)
+                        }
+                        ForEach(providerNames, id: \.self) { n in
+                            Toggle(isOn: subscriptionBinding(n)) { Text(verbatim: n) }
+                                .accessibilityIdentifier("filter.src." + n)
+                        }
+                    }
+                } header: { Text("节点来源") } footer: {
+                    Text("本地节点 = 配置文件里的节点；订阅 = 配置里的节点集和节点订阅。只选部分订阅时，策略组用 use 只引用这些订阅。")
+                }
+                .listRowBackground(Theme.card)
+                Section {
+                    Picker("筛选方式", selection: $filter.kind) {
+                        Text("关键词").tag("keywords")
+                        Text("正则").tag("regex")
+                    }
+                    .pickerStyle(.segmented)
+                    .accessibilityIdentifier("filter.kind")
                     TextField("香港|HK|Hong Kong", text: $filter.pattern, axis: .vertical)
                         .font(.footnote.monospaced())
                         .textInputAutocapitalization(.never).autocorrectionDisabled()
                         .lineLimit(2...6)
                         .accessibilityIdentifier("filter.pattern")
+                    TextField("排除关键词，例如 过期|剩余", text: $filter.exclude)
+                        .font(.footnote.monospaced())
+                        .textInputAutocapitalization(.never).autocorrectionDisabled()
+                        .accessibilityIdentifier("filter.exclude")
                     if let e = patternError { Text(e).font(.footnote).foregroundStyle(Theme.warn) }
-                    else {
-                        Text("匹配 \(matches.count) 个节点").font(.footnote).foregroundStyle(.secondary)
+                    else if let n = matchCount {
+                        Text("匹配 \(n) 个节点").font(.footnote).foregroundStyle(.secondary)
+                            .accessibilityIdentifier("filter.matches")
                     }
-                } header: { Text("关键词（正则）") } footer: {
-                    Text("用 | 分隔多个关键词，不区分大小写；支持正则表达式。")
+                } header: { Text("筛选条件") } footer: {
+                    Text(filter.kind == "keywords"
+                         ? "节点名称包含任一关键词即匹配（用 | 分隔，不区分大小写）；包含任一排除关键词的节点不要。"
+                         : "正则表达式，不区分大小写；包含任一排除关键词的节点不要。")
+                }
+                .task(id: filter) {
+                    try? await Task.sleep(nanoseconds: 300_000_000)
+                    guard !Task.isCancelled else { return }
+                    guard patternError == nil else { matchCount = nil; return }
+                    var spec = GroupSpec(name: "preview", type: "select")
+                    filter.applySources(to: &spec)
+                    if let r = await offline.preview([spec])?.first, r.error == nil {
+                        matchCount = r.empty == true ? 0 : (r.members ?? []).count
+                    } else {
+                        matchCount = NodeListScope(title: "", pattern: filter.filter).filter(model.nodes).count
+                    }
                 }
                 .listRowBackground(Theme.card)
                 Section {

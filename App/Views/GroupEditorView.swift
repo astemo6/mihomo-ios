@@ -10,8 +10,12 @@ struct GroupSpec: Codable, Hashable {
     var proxies: [String] = []
     var use: [String]? = nil
     var includeAll: Bool? = nil
+    /// v0.15.4: include-all-proxies / include-all-providers kept apart from include-all (bridge GroupSpec).
+    var includeAllProxies: Bool? = nil
+    var includeAllProviders: Bool? = nil
     var filter: String? = nil
     var excludeFilter: String? = nil
+    var excludeType: String? = nil
     var url: String? = nil
     var interval: Int? = nil
     var tolerance: Int? = nil
@@ -73,6 +77,7 @@ struct GroupEditorView: View {
     @EnvironmentObject var store: ProfileStore
     @EnvironmentObject var vpn: VPNManager
     @ObservedObject private var offline = ProfileInspector.shared
+    @State private var corePreview: [String]?
     @Environment(\.dismiss) private var dismiss
 
     @State private var specs = GroupSpecsResult()
@@ -226,11 +231,23 @@ struct GroupEditorView: View {
     }
 
     var filterPreview: some View {
-        let names = previewNodes
+        let names = corePreview ?? previewNodes
         return VStack(alignment: .leading, spacing: 4) {
             Text("匹配 \(names.count) 个节点").font(.caption.weight(.semibold))
             if !names.isEmpty {
                 Text(names.prefix(12).joined(separator: " · ")).font(.caption2).foregroundStyle(.secondary).lineLimit(3)
+            }
+        }
+        // B16: the same expansion the core does (bridge groupMembers), explicit members left out.
+        .task(id: spec) {
+            try? await Task.sleep(nanoseconds: 300_000_000)
+            guard !Task.isCancelled else { return }
+            var s = spec
+            s.proxies = []
+            if let r = await offline.preview([s])?.first, r.error == nil {
+                corePreview = r.empty == true ? [] : (r.members ?? [])
+            } else {
+                corePreview = nil
             }
         }
     }

@@ -111,3 +111,35 @@ func TestV0154RegionFilterCaseInsensitive(t *testing.T) {
 		t.Fatalf("use subA: %v", got)
 	}
 }
+
+// 筛选节点 节点来源 → GroupSpec → YAML keys (writeSpec) → members: chosen providers = use, local = include-all-proxies.
+func TestV0154FilterSourcesSpec(t *testing.T) {
+	pool, _ := b16Pool(t)
+	run := func(s GroupSpec) []string {
+		g := map[string]any{}
+		writeSpec(g, s)
+		ms, _, err := pool.groupMembers(g)
+		if err != nil {
+			t.Fatal(err)
+		}
+		return ms
+	}
+	f := `(?i)新加坡|Singapore`
+	if got := run(GroupSpec{Name: "a", Type: "select", Use: []string{"subA"}, Filter: f}); !reflect.DeepEqual(got, []string{"SubA Singapore 1"}) {
+		t.Errorf("subA only: %v", got)
+	}
+	if got := run(GroupSpec{Name: "b", Type: "select", Use: []string{"subB"}, IncludeAllProxies: true, Filter: f}); !reflect.DeepEqual(got, []string{"🇸🇬 新加坡 01", "SubB 新加坡 2"}) {
+		t.Errorf("local + subB: %v", got)
+	}
+	if got := run(GroupSpec{Name: "c", Type: "select", IncludeAllProviders: true, Filter: f, ExcludeFilter: "(?i)SubA"}); !reflect.DeepEqual(got, []string{"SubB 新加坡 2"}) {
+		t.Errorf("all subscriptions minus SubA: %v", got)
+	}
+	g := map[string]any{}
+	writeSpec(g, GroupSpec{Name: "d", Type: "select", Use: []string{"subA"}, IncludeAllProxies: true})
+	if _, ok := g["include-all"]; ok {
+		t.Error("include-all written for a partial source choice")
+	}
+	if g["include-all-proxies"] != true {
+		t.Error("include-all-proxies missing")
+	}
+}

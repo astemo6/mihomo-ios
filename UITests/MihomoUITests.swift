@@ -631,4 +631,55 @@ final class MihomoUITests: MihomoUITestCase {
         XCTAssertTrue(scrollTo(app.element(labelContains: "Hy2 Nodes")), "custom filter listed")
         snap("filters-custom")
     }
+
+    // v0.15.4: Loon-style 节点来源 per filter (本地节点 / 全部订阅 / chosen subscriptions) + 关键词 / 排除关键词.
+    func test12_FilterSources() {
+        launch()
+        openMore("节点管理")
+        XCTAssertTrue(tapIfExists(app.element(label: L("筛选节点")), timeout: 8))
+        XCTAssertTrue(tapIfExists(app.element(id: "filters.add"), timeout: 4), "+")
+        let name = app.textFields.matching(identifier: "filter.name").firstMatch
+        XCTAssertTrue(name.waitForExistence(timeout: 5))
+        name.tap(); name.typeText("Sub Only")
+        let pat = app.textFields.matching(identifier: "filter.pattern").firstMatch
+        pat.tap(); pat.typeText("Seoul|Tokyo")
+        func flip(_ id: String) -> XCUIElement {
+            let sw = app.switches.matching(identifier: id).firstMatch
+            if scrollTo(sw, maxSwipes: 4) { sw.coordinate(withNormalizedOffset: CGVector(dx: 0.93, dy: 0.5)).tap() }
+            usleep(400_000)
+            return sw
+        }
+        let local = flip("filter.src.local")
+        XCTAssertEqual(local.value as? String, "0", "本地节点 off")
+        let all = flip("filter.src.all")
+        XCTAssertEqual(all.value as? String, "0", "全部订阅 off")
+        // Nothing chosen → not savable.
+        XCTAssertFalse(app.navigationBars.buttons[L("保存")].isEnabled, "saved without a node source")
+        // The seed's node subscription appears as a source once 全部订阅 is off.
+        let demo = app.switches.matching(identifier: "filter.src.Demo Sub").firstMatch
+        if demo.waitForExistence(timeout: 3) {
+            _ = flip("filter.src.Demo Sub")
+        } else {
+            _ = flip("filter.src.local") // no provider offline: local only still exercises the mapping
+        }
+        let exclude = app.textFields.matching(identifier: "filter.exclude").firstMatch
+        if scrollTo(exclude, maxSwipes: 4) { exclude.tap(); exclude.typeText("02") }
+        usleep(900_000)
+        snap("filter-sources")
+        XCTAssertTrue(app.navigationBars.buttons[L("保存")].isEnabled, "save enabled with a source")
+        app.navigationBars.buttons[L("保存")].tap()
+        XCTAssertTrue(scrollTo(app.element(labelContains: "Sub Only")), "filter with sources listed")
+        // Reopen: the sources were kept.
+        back()
+        XCTAssertTrue(tapIfExists(app.element(label: L("筛选节点")), timeout: 8))
+        let row = app.element(labelContains: "Sub Only")
+        XCTAssertTrue(scrollTo(row), "kept after reopening")
+        row.press(forDuration: 1.0)
+        XCTAssertTrue(tapIfExists(app.button(L("编辑筛选")), timeout: 3), "edit from the context menu")
+        let local2 = app.switches.matching(identifier: "filter.src.local").firstMatch
+        XCTAssertTrue(local2.waitForExistence(timeout: 5))
+        XCTAssertEqual(app.switches.matching(identifier: "filter.src.all").firstMatch.value as? String, "0", "全部订阅 stays off")
+        snap("filter-sources-reopened")
+        closeSheet()
+    }
 }

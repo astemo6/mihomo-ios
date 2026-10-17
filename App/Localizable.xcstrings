@@ -67696,6 +67696,391 @@
           }
         }
       }
+    },
+    "节点来源": {
+      "extractionState": "manual",
+      "localizations": {
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "節點來源"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Node sources"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ノードのソース"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "노드 출처"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Источники узлов"
+          }
+        }
+      }
+    },
+    "全部订阅": {
+      "extractionState": "manual",
+      "localizations": {
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "全部訂閱"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "All subscriptions"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "すべての購読"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "모든 구독"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Все подписки"
+          }
+        }
+      }
+    },
+    "当前配置没有订阅": {
+      "extractionState": "manual",
+      "localizations": {
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "當前配置沒有訂閱"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "This profile has no subscriptions"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "このプロファイルには購読がありません"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "이 프로파일에는 구독이 없습니다"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "В этом профиле нет подписок"
+          }
+        }
+      }
+    },
+    "本地节点 = 配置文件里的节点；订阅 = 配置里的节点集和节点订阅。只选部分订阅时，策略组用 use 只引用这些订阅。": {
+      "extractionState": "manual",
+      "localizations": {
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "本地節點 = 配置檔案裡的節點；訂閱 = 配置裡的節點集和節點訂閱。只選部分訂閱時，策略組用 use 只引用這些訂閱。"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Local nodes = nodes in the profile file; subscriptions = the profile's proxy providers and node subscriptions. With only some subscriptions chosen, the group references just those through use."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ローカルノード = プロファイル内のノード、購読 = プロファイルのプロキシプロバイダとノード購読。一部の購読だけを選ぶと、グループは use でそれらだけを参照します。"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "로컬 노드 = 프로파일 파일의 노드, 구독 = 프로파일의 프록시 공급자와 노드 구독. 일부 구독만 고르면 그룹은 use로 그 구독만 참조합니다."
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Локальные узлы — узлы в файле профиля; подписки — провайдеры прокси профиля и подписки на узлы. Если выбраны только некоторые подписки, группа ссылается лишь на них через use."
+          }
+        }
+      }
+    },
+    "筛选方式": {
+      "extractionState": "manual",
+      "localizations": {
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "篩選方式"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Match by"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "絞り込み方法"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "필터 방식"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Способ отбора"
+          }
+        }
+      }
+    },
+    "关键词": {
+      "extractionState": "manual",
+      "localizations": {
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "關鍵詞"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Keywords"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "キーワード"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "키워드"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Ключевые слова"
+          }
+        }
+      }
+    },
+    "排除关键词，例如 过期|剩余": {
+      "extractionState": "manual",
+      "localizations": {
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "排除關鍵詞，例如 過期|剩餘"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Exclude keywords, e.g. expired|remaining"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "除外キーワード（例：期限|残り）"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "제외 키워드, 예: 만료|남은"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Исключить слова, напр. истёк|осталось"
+          }
+        }
+      }
+    },
+    "筛选条件": {
+      "extractionState": "manual",
+      "localizations": {
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "篩選條件"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Filter"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "条件"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "필터 조건"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Условия отбора"
+          }
+        }
+      }
+    },
+    "节点名称包含任一关键词即匹配（用 | 分隔，不区分大小写）；包含任一排除关键词的节点不要。": {
+      "extractionState": "manual",
+      "localizations": {
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "節點名稱包含任一關鍵詞即匹配（用 | 分隔，不區分大小寫）；包含任一排除關鍵詞的節點不要。"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "A node matches when its name contains any keyword (separated by |, case-insensitive); nodes containing any exclude keyword are left out."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ノード名にいずれかのキーワードが含まれれば一致します（| 区切り、大文字小文字を区別しない）。除外キーワードを含むノードは除きます。"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "노드 이름에 키워드 중 하나라도 있으면 일치합니다(| 로 구분, 대소문자 무시). 제외 키워드가 있는 노드는 뺍니다."
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Узел подходит, если его имя содержит любое из слов (через |, без учёта регистра); узлы с исключёнными словами отбрасываются."
+          }
+        }
+      }
+    },
+    "正则表达式，不区分大小写；包含任一排除关键词的节点不要。": {
+      "extractionState": "manual",
+      "localizations": {
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "正規表示式，不區分大小寫；包含任一排除關鍵詞的節點不要。"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Regular expression, case-insensitive; nodes containing any exclude keyword are left out."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "正規表現（大文字小文字を区別しない）。除外キーワードを含むノードは除きます。"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "정규식(대소문자 무시). 제외 키워드가 있는 노드는 뺍니다."
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Регулярное выражение без учёта регистра; узлы с исключёнными словами отбрасываются."
+          }
+        }
+      }
+    },
+    "至少选择一个节点来源": {
+      "extractionState": "manual",
+      "localizations": {
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "至少選擇一個節點來源"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Choose at least one node source"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ノードのソースを1つ以上選んでください"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "노드 출처를 하나 이상 고르세요"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Выберите хотя бы один источник узлов"
+          }
+        }
+      }
     }
   },
   "version": "1.0"

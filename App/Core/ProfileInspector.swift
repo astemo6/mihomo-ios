@@ -134,6 +134,29 @@ final class ProfileInspector: ObservableObject {
         return out
     }
 
+    struct GroupPreviewItem: Decodable {
+        var members: [String]?
+        var empty: Bool?
+        var error: String?
+    }
+    private struct GroupPreviewResult: Decodable {
+        var groups: [GroupPreviewItem]?
+        var error: String?
+    }
+
+    /// B16: members the core would give each draft group in the active profile (bridge GroupPreview, the
+    /// same expansion as the inspector), for 策略组编辑 previews and 筛选节点 counts. nil on failure.
+    func preview(_ specs: [GroupSpec]) async -> [GroupPreviewItem]? {
+        guard let url = AppShared.activeProfileURL, let data = try? JSONEncoder().encode(specs) else { return nil }
+        let json = String(decoding: data, as: UTF8.self)
+        let home = AppShared.homeURL.path
+        let path = url.path
+        let out = await Task.detached(priority: .userInitiated) { LibmihomoGroupPreview(home, path, json) }.value
+        guard let r = try? JSONDecoder().decode(GroupPreviewResult.self, from: Data(out.utf8)), r.error == nil,
+              let g = r.groups, g.count == specs.count else { return nil }
+        return g
+    }
+
     func current(of g: InspectGroup) -> String? {
         if let s = g.selected ?? result.selected[g.name], members(of: g).contains(s) { return s }
         return members(of: g).first

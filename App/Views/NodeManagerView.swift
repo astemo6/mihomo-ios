@@ -9,6 +9,8 @@ struct NodeListScope: Hashable {
     var emptyTitle: String? = nil
     var emptyMessage: String? = nil
     var subID: String? = nil
+    /// v0.15.4: exact member names (a 筛选节点 filter as the core expands it); overrides pattern.
+    var names: Set<String>? = nil
 
     static let all = NodeListScope(title: String(localized: "全部节点"))
 
@@ -16,6 +18,7 @@ struct NodeListScope: Hashable {
     func filter(_ nodes: [ManagedNode]) -> [ManagedNode] {
         let re = pattern.flatMap { try? NSRegularExpression(pattern: $0, options: [.caseInsensitive]) }
         if pattern != nil && re == nil { return [] }
+        if let names { return nodes.filter { names.contains($0.name) && (sourceIDs?.contains($0.source.id) ?? true) } }
         return nodes.filter { n in
             if let ids = sourceIDs, !ids.contains(n.source.id) { return false }
             if let re { return re.firstMatch(in: n.name, range: NSRange(n.name.startIndex..., in: n.name)) != nil }
