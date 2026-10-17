@@ -6,6 +6,27 @@ final class PanelsModel: ObservableObject {
     static let shared = PanelsModel()
     @Published var panels: [PanelItem] = []
     @Published var refreshing: Set<String> = []
+    /// v0.15: panel ids pinned to Home (ids are stable hashes of module + panel name), in pin order.
+    @Published var pinned: [String] = UserDefaults.standard.stringArray(forKey: "panels.pinned") ?? []
+
+    var pinnedPanels: [PanelItem] { pinned.compactMap { id in panels.first { $0.id == id } } }
+
+    func isPinned(_ p: PanelItem) -> Bool { pinned.contains(p.id) }
+
+    func togglePin(_ p: PanelItem) {
+        if let i = pinned.firstIndex(of: p.id) { pinned.remove(at: i) } else { pinned.append(p.id) }
+        UserDefaults.standard.set(pinned, forKey: "panels.pinned")
+        HomePanelStore.shared.sync() // feat/panels: hidden / pinned scripts / engine config
+    }
+
+    /// Refreshes pinned script panels that were never run or whose interval passed (Home only).
+    func refreshStalePinned() async {
+        let now = Date().timeIntervalSince1970
+        for p in pinnedPanels where p.script != nil {
+            let interval = Double(max(p.interval ?? 0, 60))
+            if (p.updated ?? 0) == 0 || now - (p.updated ?? 0) > interval { await refresh(p) }
+        }
+    }
 
     func load() async {
         guard VPNManager.shared.isConnected else { panels = []; return }
@@ -64,9 +85,13 @@ struct PanelsView: View {
                     Card { EmptyStateRow(icon: "square.grid.2x2", title: "没有面板", message: "启用带 Surge [Panel] 或 Stash tiles 的模块后，面板会出现在这里。") }
                 }
                 ForEach(model.panels) { p in
-                    PanelCard(p: p, refreshing: model.refreshing.contains(p.id) || p.running) {
+                    PanelCard(p: p, refreshing: model.refreshing.contains(p.id) || p.running, pinned: model.isPinned(p)) {
                         Task { await model.refresh(p) }
                     }
+                    .contextMenu { PanelPinButton(p: p) }
+                }
+                if vpn.isConnected && !model.panels.isEmpty {
+                    Text("长按面板可以固定到首页。").font(.caption2).foregroundStyle(.secondary).frame(maxWidth: .infinity, alignment: .leading)
                 }
             }
             .padding(16)
@@ -97,6 +122,9 @@ struct PanelsView: View {
 struct PanelCard: View {
     let p: PanelItem
     let refreshing: Bool
+    var pinned = false
+    /// feat/panels: last result shown while disconnected (no refresh button).
+    var offline = false
     let onRefresh: () -> Void
 
     var accent: Color {
@@ -119,8 +147,9 @@ struct PanelCard: View {
             VStack(alignment: .leading, spacing: 4) {
                 HStack {
                     Text(p.title?.isEmpty == false ? p.title! : p.name).font(.subheadline.weight(.semibold)).lineLimit(2)
+                    if pinned { Image(systemName: "pin.fill").font(.caption2).foregroundStyle(.secondary).accessibilityLabel(Text("已固定")) }
                     Spacer(minLength: 4)
-                    if p.script != nil {
+                    if p.script != nil && !offline {
                         if refreshing {
                             ProgressView().controlSize(.small)
                         } else {
@@ -140,6 +169,7 @@ struct PanelCard: View {
                     Text(p.source).font(.caption2).foregroundStyle(.secondary).lineLimit(1)
                     Spacer()
                     if let u = p.updated, u > 0 {
+                        if offline { Image(systemName: "clock").font(.caption2).foregroundStyle(.secondary).accessibilityLabel(Text("上次结果")) }
                         Text(Date(timeIntervalSince1970: u).formatted(.relative(presentation: .named))).font(.caption2).foregroundStyle(.secondary)
                     }
                 }
@@ -161,33 +191,15 @@ struct PanelCard: View {
     }
 }
 
-/// Compact Home entry: one slim row, only when the running engine has panels (keeps Home minimal).
-struct PanelsEntry: View {
-    @EnvironmentObject var vpn: VPNManager
+/// Context-menu item shared by the 面板 page and Home.
+struct PanelPinButton: View {
     @ObservedObject var model = PanelsModel.shared
-
+    let p: PanelItem
     var body: some View {
-        VStack(spacing: 0) {
-            if vpn.isConnected && !model.panels.isEmpty {
-                NavigationLink { PanelsView() } label: {
-                    HStack(spacing: 10) {
-                        Image(systemName: "square.grid.2x2").foregroundStyle(Theme.accent)
-                        Text("面板").font(.subheadline.weight(.semibold))
-                        Text("\(model.panels.count)").font(.caption.monospacedDigit()).foregroundStyle(.secondary)
-                        if let first = model.panels.first(where: { ($0.content ?? "").isEmpty == false }) {
-                            Text(first.content!.split(separator: "\n").first.map(String.init) ?? "")
-                                .font(.caption).foregroundStyle(.secondary).lineLimit(1)
-                        }
-                        Spacer()
-                        Image(systemName: "chevron.right").font(.caption).foregroundStyle(.secondary)
-                    }
-                    .padding(.horizontal, 16).padding(.vertical, 12)
-                    .background(RoundedRectangle(cornerRadius: 18, style: .continuous).fill(Theme.card))
-                    .overlay(RoundedRectangle(cornerRadius: 18, style: .continuous).stroke(Theme.ink(0.06)))
-                }
-                .buttonStyle(.plain)
-            }
+        if model.isPinned(p) {
+            Button { model.togglePin(p) } label: { Label("取消固定", systemImage: "pin.slash") }
+        } else {
+            Button { model.togglePin(p) } label: { Label("固定到首页", systemImage: "pin") }
         }
-        .task(id: vpn.isConnected) { await model.load() }
     }
 }

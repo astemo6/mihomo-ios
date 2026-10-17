@@ -1,0 +1,335 @@
+{
+ "comment": "Mihomo built-in curated module index. Links only; every module is maintained by its author. Schema: id, name{lang}, category (adblock|subtitles|enhance|tools), author, homepage, url (preferred), alternates (same module in other formats), desc{lang}. Langs: zh-Hans zh-Hant en ja ko ru.",
+ "version": 1,
+ "updated": "2026-10-17",
+ "categories": [
+  {
+   "id": "adblock"
+  },
+  {
+   "id": "subtitles"
+  },
+  {
+   "id": "enhance"
+  },
+  {
+   "id": "tools"
+  }
+ ],
+ "modules": [
+  {
+   "id": "youtube-enhance",
+   "name": {
+    "zh-Hans": "YouTube 增强",
+    "zh-Hant": "YouTube 增強",
+    "en": "YouTube Enhance",
+    "ja": "YouTube 強化",
+    "ko": "YouTube 강화",
+    "ru": "YouTube: улучшения"
+   },
+   "category": "adblock",
+   "author": "Maasea",
+   "homepage": "https://github.com/Maasea/sgmodule",
+   "url": "https://raw.githubusercontent.com/Maasea/sgmodule/master/YouTube.Enhance.sgmodule",
+   "desc": {
+    "zh-Hans": "去除 YouTube 与 YouTube Music 的广告，可按参数隐藏上传、选段、Shorts 按钮并翻译字幕。",
+    "zh-Hant": "移除 YouTube 與 YouTube Music 的廣告，可依參數隱藏上傳、選段、Shorts 按鈕並翻譯字幕。",
+    "en": "Removes ads in YouTube and YouTube Music; arguments hide the upload, clip and Shorts buttons and translate captions.",
+    "ja": "YouTube と YouTube Music の広告を除去。引数でアップロード・クリップ・Shorts ボタンを隠し、字幕を翻訳できます。",
+    "ko": "YouTube와 YouTube Music 광고를 제거합니다. 매개변수로 업로드·클립·Shorts 버튼을 숨기고 자막을 번역할 수 있습니다.",
+    "ru": "Убирает рекламу в YouTube и YouTube Music; аргументы скрывают кнопки загрузки, клипов и Shorts и переводят субтитры."
+   }
+  },
+  {
+   "id": "bilibili-adblock",
+   "name": {
+    "zh-Hans": "哔哩哔哩去广告",
+    "zh-Hant": "嗶哩嗶哩去廣告",
+    "en": "bilibili Ad Block",
+    "ja": "bilibili 広告ブロック",
+    "ko": "bilibili 광고 차단",
+    "ru": "bilibili: без рекламы"
+   },
+   "category": "adblock",
+   "author": "BiliUniverse",
+   "homepage": "https://biliverse.github.io/guide/ad-block",
+   "url": "https://github.com/BiliUniverse/ADBlock/releases/latest/download/BiliBili.ADBlock.sgmodule",
+   "alternates": [
+    "https://github.com/BiliUniverse/ADBlock/releases/latest/download/BiliBili.ADBlock.plugin",
+    "https://github.com/BiliUniverse/ADBlock/releases/latest/download/BiliBili.ADBlock.stoverride",
+    "https://github.com/BiliUniverse/ADBlock/releases/latest/download/BiliBili.ADBlock.snippet"
+   ],
+   "desc": {
+    "zh-Hans": "去除哔哩哔哩 App 的开屏、信息流与直播间广告，可自定义隐藏界面元素。",
+    "zh-Hant": "移除嗶哩嗶哩 App 的開屏、資訊流與直播間廣告，可自訂隱藏介面元素。",
+    "en": "Removes splash, feed and live-room ads in the bilibili app; interface elements can be hidden individually.",
+    "ja": "bilibili アプリの起動広告・フィード広告・ライブ広告を除去し、画面要素を個別に非表示にできます。",
+    "ko": "bilibili 앱의 시작 광고, 피드 광고, 라이브 광고를 제거하고 화면 요소를 골라 숨길 수 있습니다.",
+    "ru": "Убирает заставки, рекламу в ленте и в эфирах в приложении bilibili; элементы интерфейса можно скрывать по отдельности."
+   }
+  },
+  {
+   "id": "bilibili-helper",
+   "name": {
+    "zh-Hans": "哔哩哔哩助手",
+    "zh-Hant": "嗶哩嗶哩助手",
+    "en": "bilibili Helper",
+    "ja": "bilibili ヘルパー",
+    "ko": "bilibili 도우미",
+    "ru": "bilibili: помощник"
+   },
+   "category": "adblock",
+   "author": "Maasea",
+   "homepage": "https://github.com/Maasea/sgmodule",
+   "url": "https://raw.githubusercontent.com/Maasea/sgmodule/master/Bilibili.Helper.sgmodule",
+   "desc": {
+    "zh-Hans": "去除哔哩哔哩的扰人内容，并禁用 P2P 上传连接。",
+    "zh-Hant": "移除嗶哩嗶哩的擾人內容，並停用 P2P 上傳連線。",
+    "en": "Removes distracting content in bilibili and disables P2P upload connections.",
+    "ja": "bilibili の煩わしいコンテンツを除去し、P2P のアップロード接続を無効にします。",
+    "ko": "bilibili의 방해 요소를 제거하고 P2P 업로드 연결을 끕니다.",
+    "ru": "Убирает навязчивый контент в bilibili и отключает P2P-раздачу."
+   }
+  },
+  {
+   "id": "tieba-adblock",
+   "name": {
+    "zh-Hans": "百度贴吧去广告",
+    "zh-Hant": "百度貼吧去廣告",
+    "en": "Baidu Tieba Ad Block",
+    "ja": "百度貼吧 広告ブロック",
+    "ko": "바이두 티에바 광고 차단",
+    "ru": "Baidu Tieba: без рекламы"
+   },
+   "category": "adblock",
+   "author": "app2smile",
+   "homepage": "https://github.com/app2smile/rules",
+   "url": "https://raw.githubusercontent.com/app2smile/rules/master/module/tieba.sgmodule",
+   "desc": {
+    "zh-Hans": "去除贴吧开屏、帖子列表与详情页广告、直播和悬浮广告（iOS 15 及以上）。",
+    "zh-Hant": "移除貼吧開屏、貼文列表與詳情頁廣告、直播和懸浮廣告（iOS 15 以上）。",
+    "en": "Removes splash, list, detail-page, live and floating ads in Baidu Tieba (iOS 15 or later).",
+    "ja": "百度貼吧の起動広告、一覧・詳細ページ広告、ライブ・フローティング広告を除去します（iOS 15 以降）。",
+    "ko": "바이두 티에바의 시작 광고, 목록·상세 페이지 광고, 라이브·플로팅 광고를 제거합니다(iOS 15 이상).",
+    "ru": "Убирает заставки, рекламу в списках и на страницах, эфиры и плавающую рекламу в Baidu Tieba (iOS 15+)."
+   }
+  },
+  {
+   "id": "weread-lite",
+   "name": {
+    "zh-Hans": "微信读书精简",
+    "zh-Hant": "微信讀書精簡",
+    "en": "WeChat Read Lite",
+    "ja": "微信読書 シンプル",
+    "ko": "WeChat 독서 간소화",
+    "ru": "WeChat Read: без лишнего"
+   },
+   "category": "adblock",
+   "author": "Maasea",
+   "homepage": "https://github.com/Maasea/sgmodule",
+   "url": "https://raw.githubusercontent.com/Maasea/sgmodule/master/WeRead.sgmodule",
+   "desc": {
+    "zh-Hans": "去除微信读书里的扰人提示（测试版）。",
+    "zh-Hant": "移除微信讀書裡的擾人提示（測試版）。",
+    "en": "Removes nagging prompts in WeChat Read (beta).",
+    "ja": "微信読書の煩わしい通知を除去します（ベータ）。",
+    "ko": "WeChat 독서(微信读书)의 성가신 안내를 제거합니다(베타).",
+    "ru": "Убирает навязчивые подсказки в WeChat Read (бета)."
+   }
+  },
+  {
+   "id": "dualsubs-youtube",
+   "name": {
+    "zh-Hans": "DualSubs：YouTube 双语字幕",
+    "zh-Hant": "DualSubs：YouTube 雙語字幕",
+    "en": "DualSubs: YouTube",
+    "ja": "DualSubs：YouTube 二言語字幕",
+    "ko": "DualSubs: YouTube 이중 자막",
+    "ru": "DualSubs: YouTube"
+   },
+   "category": "subtitles",
+   "author": "DualSubs",
+   "homepage": "https://dualsubs.github.io/guide/youtube",
+   "url": "https://github.com/DualSubs/YouTube/releases/latest/download/DualSubs.YouTube.sgmodule",
+   "alternates": [
+    "https://github.com/DualSubs/YouTube/releases/latest/download/DualSubs.YouTube.plugin",
+    "https://github.com/DualSubs/YouTube/releases/latest/download/DualSubs.YouTube.stoverride",
+    "https://github.com/DualSubs/YouTube/releases/latest/download/DualSubs.YouTube.snippet"
+   ],
+   "desc": {
+    "zh-Hans": "为 YouTube 与 YouTube Music 提供双语字幕和歌词翻译。",
+    "zh-Hant": "為 YouTube 與 YouTube Music 提供雙語字幕和歌詞翻譯。",
+    "en": "Dual-language captions and lyric translation for YouTube and YouTube Music.",
+    "ja": "YouTube と YouTube Music に二言語字幕と歌詞の翻訳を追加します。",
+    "ko": "YouTube와 YouTube Music에 이중 언어 자막과 가사 번역을 제공합니다.",
+    "ru": "Двуязычные субтитры и перевод текстов песен для YouTube и YouTube Music."
+   }
+  },
+  {
+   "id": "dualsubs-universal",
+   "name": {
+    "zh-Hans": "DualSubs：流媒体双语字幕",
+    "zh-Hant": "DualSubs：串流雙語字幕",
+    "en": "DualSubs: Streaming",
+    "ja": "DualSubs：配信サービス二言語字幕",
+    "ko": "DualSubs: 스트리밍 이중 자막",
+    "ru": "DualSubs: стриминг"
+   },
+   "category": "subtitles",
+   "author": "DualSubs",
+   "homepage": "https://dualsubs.github.io/guide/universal",
+   "url": "https://github.com/DualSubs/Universal/releases/latest/download/DualSubs.Universal.sgmodule",
+   "alternates": [
+    "https://github.com/DualSubs/Universal/releases/latest/download/DualSubs.Universal.plugin",
+    "https://github.com/DualSubs/Universal/releases/latest/download/DualSubs.Universal.stoverride",
+    "https://github.com/DualSubs/Universal/releases/latest/download/DualSubs.Universal.snippet"
+   ],
+   "desc": {
+    "zh-Hans": "为 Netflix、Disney+、Prime Video 等流媒体平台增强字幕并提供双语字幕。",
+    "zh-Hant": "為 Netflix、Disney+、Prime Video 等串流平台增強字幕並提供雙語字幕。",
+    "en": "Enhanced and dual-language subtitles for streaming services such as Netflix, Disney+ and Prime Video.",
+    "ja": "Netflix、Disney+、Prime Video などの配信サービスで字幕を強化し、二言語字幕を表示します。",
+    "ko": "Netflix, Disney+, Prime Video 등 스트리밍 서비스의 자막을 강화하고 이중 언어 자막을 제공합니다.",
+    "ru": "Улучшенные и двуязычные субтитры для Netflix, Disney+, Prime Video и других сервисов."
+   }
+  },
+  {
+   "id": "bilibili-global",
+   "name": {
+    "zh-Hans": "哔哩哔哩全球模式",
+    "zh-Hant": "嗶哩嗶哩全球模式",
+    "en": "bilibili Global",
+    "ja": "bilibili グローバル",
+    "ko": "bilibili 글로벌",
+    "ru": "bilibili: глобальный режим"
+   },
+   "category": "enhance",
+   "author": "BiliUniverse",
+   "homepage": "https://biliverse.github.io/guide/global",
+   "url": "https://github.com/BiliUniverse/Global/releases/latest/download/BiliBili.Global.sgmodule",
+   "alternates": [
+    "https://github.com/BiliUniverse/Global/releases/latest/download/BiliBili.Global.plugin",
+    "https://github.com/BiliUniverse/Global/releases/latest/download/BiliBili.Global.stoverride",
+    "https://github.com/BiliUniverse/Global/releases/latest/download/BiliBili.Global.snippet"
+   ],
+   "desc": {
+    "zh-Hans": "哔哩哔哩自动选择地区线路，并支持全地区搜索。",
+    "zh-Hant": "嗶哩嗶哩自動選擇地區線路，並支援全地區搜尋。",
+    "en": "Picks bilibili's regional line automatically and searches across all regions.",
+    "ja": "bilibili の地域回線を自動で選び、全地域を検索できるようにします。",
+    "ko": "bilibili의 지역 회선을 자동으로 고르고 모든 지역 검색을 지원합니다.",
+    "ru": "Автоматически выбирает региональную линию bilibili и ищет по всем регионам."
+   }
+  },
+  {
+   "id": "iringo-weatherkit",
+   "name": {
+    "zh-Hans": "iRingo：天气",
+    "zh-Hant": "iRingo：天氣",
+    "en": "iRingo: Weather",
+    "ja": "iRingo：天気",
+    "ko": "iRingo: 날씨",
+    "ru": "iRingo: Погода"
+   },
+   "category": "enhance",
+   "author": "NSRingo",
+   "homepage": "https://nsringo.github.io/guide/Weather/weather-kit",
+   "url": "https://github.com/NSRingo/WeatherKit/releases/latest/download/iRingo.WeatherKit.sgmodule",
+   "alternates": [
+    "https://github.com/NSRingo/WeatherKit/releases/latest/download/iRingo.WeatherKit.stoverride",
+    "https://github.com/NSRingo/WeatherKit/releases/latest/download/iRingo.WeatherKit.snippet"
+   ],
+   "desc": {
+    "zh-Hans": "解锁「天气」App 的全部功能，可替换空气质量、降水和天气预警数据（iOS 18）。",
+    "zh-Hant": "解鎖「天氣」App 的全部功能，可替換空氣品質、降水和天氣警報資料（iOS 18）。",
+    "en": "Unlocks every feature of the Weather app and can replace air-quality, precipitation and alert data (iOS 18).",
+    "ja": "「天気」アプリの全機能を有効にし、大気質・降水・気象警報のデータを置き換えられます（iOS 18）。",
+    "ko": "날씨 앱의 모든 기능을 열고 대기질, 강수, 기상 특보 데이터를 바꿀 수 있습니다(iOS 18).",
+    "ru": "Открывает все функции приложения «Погода» и подменяет данные о качестве воздуха, осадках и предупреждениях (iOS 18)."
+   }
+  },
+  {
+   "id": "boxjs",
+   "name": {
+    "zh-Hans": "BoxJs",
+    "zh-Hant": "BoxJs",
+    "en": "BoxJs",
+    "ja": "BoxJs",
+    "ko": "BoxJs",
+    "ru": "BoxJs"
+   },
+   "category": "tools",
+   "author": "chavyleung",
+   "homepage": "https://docs.boxjs.app/",
+   "url": "https://raw.githubusercontent.com/chavyleung/scripts/master/box/rewrite/boxjs.rewrite.surge.sgmodule",
+   "alternates": [
+    "https://raw.githubusercontent.com/chavyleung/scripts/master/box/rewrite/boxjs.rewrite.loon.plugin",
+    "https://raw.githubusercontent.com/chavyleung/scripts/master/box/rewrite/boxjs.rewrite.stash.stoverride",
+    "https://raw.githubusercontent.com/chavyleung/scripts/master/box/rewrite/boxjs.rewrite.quanx.conf"
+   ],
+   "desc": {
+    "zh-Hans": "脚本数据管理面板：在 boxjs.com 查看和修改脚本保存的设置。",
+    "zh-Hant": "腳本資料管理面板：在 boxjs.com 檢視和修改腳本儲存的設定。",
+    "en": "Script data manager: view and edit the settings scripts store, at boxjs.com.",
+    "ja": "スクリプトのデータ管理画面。boxjs.com でスクリプトの設定を確認・変更できます。",
+    "ko": "스크립트 데이터 관리 화면: boxjs.com에서 스크립트가 저장한 설정을 보고 바꿉니다.",
+    "ru": "Менеджер данных скриптов: просмотр и правка их настроек на boxjs.com."
+   }
+  },
+  {
+   "id": "sub-store",
+   "name": {
+    "zh-Hans": "Sub-Store",
+    "zh-Hant": "Sub-Store",
+    "en": "Sub-Store",
+    "ja": "Sub-Store",
+    "ko": "Sub-Store",
+    "ru": "Sub-Store"
+   },
+   "category": "tools",
+   "author": "sub-store-org",
+   "homepage": "https://github.com/sub-store-org/Sub-Store",
+   "url": "https://raw.githubusercontent.com/sub-store-org/Sub-Store/master/config/Surge.sgmodule",
+   "alternates": [
+    "https://raw.githubusercontent.com/sub-store-org/Sub-Store/master/config/Loon.plugin",
+    "https://raw.githubusercontent.com/sub-store-org/Sub-Store/master/config/Stash.stoverride",
+    "https://raw.githubusercontent.com/sub-store-org/Sub-Store/master/config/QX.snippet"
+   ],
+   "desc": {
+    "zh-Hans": "订阅管理工具：合并、筛选、重命名节点并转换订阅格式。",
+    "zh-Hant": "訂閱管理工具：合併、篩選、重新命名節點並轉換訂閱格式。",
+    "en": "Subscription manager: merge, filter and rename nodes and convert subscription formats.",
+    "ja": "サブスクリプション管理ツール。ノードの統合・絞り込み・名前変更と形式変換ができます。",
+    "ko": "구독 관리 도구: 노드를 합치고, 거르고, 이름을 바꾸며 구독 형식을 변환합니다.",
+    "ru": "Менеджер подписок: объединение, фильтрация и переименование узлов, конвертация форматов."
+   }
+  },
+  {
+   "id": "script-hub",
+   "name": {
+    "zh-Hans": "Script Hub",
+    "zh-Hant": "Script Hub",
+    "en": "Script Hub",
+    "ja": "Script Hub",
+    "ko": "Script Hub",
+    "ru": "Script Hub"
+   },
+   "category": "tools",
+   "author": "Script-Hub-Org",
+   "homepage": "https://github.com/Script-Hub-Org/Script-Hub",
+   "url": "https://raw.githubusercontent.com/Script-Hub-Org/Script-Hub/main/modules/script-hub.surge.sgmodule",
+   "alternates": [
+    "https://raw.githubusercontent.com/Script-Hub-Org/Script-Hub/main/modules/script-hub.loon.plugin",
+    "https://raw.githubusercontent.com/Script-Hub-Org/Script-Hub/main/modules/script-hub.stash.stoverride"
+   ],
+   "desc": {
+    "zh-Hans": "在 script.hub 转换重写与规则集的格式，方便在不同客户端之间使用。",
+    "zh-Hant": "在 script.hub 轉換重寫與規則集的格式，方便在不同用戶端之間使用。",
+    "en": "Converts rewrites and rule sets between client formats, at script.hub.",
+    "ja": "script.hub で書き換えとルールセットの形式をクライアント間で変換します。",
+    "ko": "script.hub에서 재작성과 규칙 세트 형식을 클라이언트 간에 변환합니다.",
+    "ru": "Конвертирует перезаписи и наборы правил между форматами клиентов на script.hub."
+   }
+  }
+ ]
+}

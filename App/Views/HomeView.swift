@@ -40,7 +40,7 @@ struct HomeView: View {
                     ModeCard()
                     TrafficCard()
                     StatsGrid()
-                    PanelsEntry()
+                    HomePanelsSection() // feat/panels
 
                     if let err = vpn.lastError {
                         Card {
