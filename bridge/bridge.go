@@ -48,7 +48,7 @@ type Overrides struct {
 	Secret         string `json:"secret"`         // controller secret
 	Mode           string `json:"mode"`           // rule/global/direct ("" = keep profile)
 	MemoryLimitMB  int    `json:"memoryLimitMB"`  // soft limit for Go runtime (GOMEMLIMIT)
-	TunnelMode     string `json:"tunnelMode"`     // "tun" (default, NEPacketTunnelFlow) | "proxy" (NEProxySettings only)
+	TunnelMode     string `json:"tunnelMode"`     // "tun" (default, NEPacketTunnelFlow) | "mix" (tun + system HTTP proxy) | "proxy" (NEProxySettings only)
 	MixedPort      int    `json:"mixedPort"`      // local HTTP/SOCKS port for proxy-only mode / LAN sharing
 	TunMTU         int    `json:"tunMTU"`         // MTU of the packet-flow bridge (default 4064, like Hako)
 	GeoMirror      string `json:"geoMirror"`      // jsdelivr (default, testingcf CDN) / fastly / github — always replaces the profile's geox-url
@@ -65,9 +65,17 @@ type Overrides struct {
 	TestTimeoutMs       int    `json:"testTimeoutMs"`
 	OverrideHealthCheck bool   `json:"overrideHealthCheck"`
 
-	DNS        *DNSOverride `json:"-"` // loaded from <home>/dns.json
-	sub        *SubRules    // per-subscription node processing (subscriptions.json), set by overridesFor
-	manualPath string       // <container>/profiles/manual-nodes.yaml
+	// v0.7 连接方式: 阻止 QUIC — "off" | "nondirect" (default, the v0.6.1 UDP 443 fallback REJECT) | "always".
+	BlockQUIC string `json:"blockQUIC"`
+	// v0.7 局域网共享: optional username / password for the mixed port, and LAN-only source addresses.
+	LanAuth      LanAuth `json:"lanAuth"`
+	LanLocalOnly bool    `json:"lanLocalOnly"`
+
+	DNS        *DNSOverride      `json:"-"` // loaded from <home>/dns.json
+	Local      *LocalDNS         `json:"-"` // loaded from <home>/localdns.json (hosts + 真实 IP 域名)
+	sub        *SubRules         // per-subscription node processing (subscriptions.json), set by overridesFor
+	chains     map[string]string // group → 前置代理 (groups.json), set by overridesFor
+	manualPath string            // <container>/profiles/manual-nodes.yaml
 	home       string
 }
 
@@ -83,9 +91,21 @@ const (
 	defaultMixedPort     = 7890
 )
 
+// LanAuth protects the shared mixed port (mihomo `authentication`). Both fields empty = no auth.
+type LanAuth struct {
+	Username string `json:"username"`
+	Password string `json:"password"`
+}
+
+// lanPrivatePrefixes = 仅允许局域网: RFC 1918, link-local, CGNAT-free hotspot ranges, ULA and loopback
+// (loopback so proxy-only / 混合 mode keeps working on the same port).
+var lanPrivatePrefixes = []any{"10.0.0.0/8", "172.16.0.0/12", "192.168.0.0/16", "169.254.0.0/16", "127.0.0.0/8", "fc00::/7", "fe80::/10", "::1/128"}
+
+var loopbackPrefixes = []any{"127.0.0.0/8", "::1/128"}
+
 func defaultOverrides() Overrides {
 	return Overrides{LogLevel: "info", DNSMode: "fake-ip", Sniffer: true, ControllerPort: 9090, MemoryLimitMB: defaultMemoryLimitMB,
-		TunnelMode: "tun", MixedPort: defaultMixedPort, TunMTU: defaultTunMTU}
+		TunnelMode: "tun", MixedPort: defaultMixedPort, TunMTU: defaultTunMTU, BlockQUIC: "nondirect", LanLocalOnly: true}
 }
 
 func readOverrides(home string) Overrides {
@@ -109,9 +129,13 @@ func readOverrides(home string) Overrides {
 	if o.TestTimeoutMs < 1000 || o.TestTimeoutMs > 30000 {
 		o.TestTimeoutMs = 5000
 	}
-	if o.TunnelMode != "proxy" {
+	if o.TunnelMode != "proxy" && o.TunnelMode != "mix" {
 		o.TunnelMode = "tun"
 	}
+	if o.BlockQUIC != "off" && o.BlockQUIC != "always" {
+		o.BlockQUIC = "nondirect"
+	}
+	o.LanAuth.Username = strings.TrimSpace(o.LanAuth.Username)
 	if o.MixedPort <= 0 || o.MixedPort > 65535 || o.MixedPort == o.ControllerPort {
 		o.MixedPort = defaultMixedPort
 	}
@@ -119,6 +143,7 @@ func readOverrides(home string) Overrides {
 		o.TunMTU = defaultTunMTU
 	}
 	o.DNS = readDNSOverride(home)
+	o.Local = readLocalDNS(home)
 	o.home = home
 	if home != "" {
 		o.manualPath = filepath.Join(filepath.Dir(home), "profiles", "manual-nodes.yaml")
@@ -165,6 +190,11 @@ func buildRuntimeWith(profile []byte, o Overrides, fd int32, inject func(raw map
 	if o.MergeManual && o.manualPath != "" {
 		mergeManualNodes(raw, o.manualPath)
 	}
+	if o.SafeMode {
+		applyChains(raw, nil)
+	} else {
+		applyChains(raw, o.chains)
+	}
 	if o.LogLevel != "" {
 		raw["log-level"] = o.LogLevel
 	}
@@ -191,14 +221,7 @@ func buildRuntimeWith(profile []byte, o Overrides, fd int32, inject func(raw map
 	for _, k := range []string{"port", "socks-port", "redir-port", "tproxy-port", "mixed-port"} {
 		delete(raw, k)
 	}
-	if o.AllowLan {
-		raw["mixed-port"] = o.MixedPort
-		raw["bind-address"] = "*"
-	} else if o.TunnelMode == "proxy" {
-		// Proxy-only mode: iOS sends HTTP/HTTPS through NEProxySettings to this local port.
-		raw["mixed-port"] = o.MixedPort
-		raw["bind-address"] = "127.0.0.1"
-	}
+	applyInbound(raw, o)
 	// Battery: fewer TCP keep-alive wake-ups unless the profile chose its own values.
 	if _, ok := raw["keep-alive-interval"]; !ok {
 		raw["keep-alive-interval"] = 30
@@ -236,6 +259,7 @@ func buildRuntimeWith(profile []byte, o Overrides, fd int32, inject func(raw map
 		dns["default-nameserver"] = []any{"223.5.5.5", "119.29.29.29"}
 	}
 	applyDNSOverride(dns, o.DNS, o.DNSMode)
+	applyLocalDNS(raw, dns, o.Local, o.DNSMode)
 	raw["dns"] = dns
 
 	// Sniffer
@@ -286,7 +310,7 @@ func buildRuntimeWith(profile []byte, o Overrides, fd int32, inject func(raw map
 	if inject != nil {
 		inject(raw)
 	}
-	appendUDPFallback(raw)
+	applyQUICBlock(raw, o.BlockQUIC)
 	return yaml.Marshal(raw)
 }
 

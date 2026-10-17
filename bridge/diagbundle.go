@@ -238,7 +238,7 @@ func diagnosticFiles(home, profilePath, appInfo string) (map[string]string, erro
 	}
 	out["config-effective.yaml"] = effective
 	out["config-next-start.yaml"] = nextRun
-	for _, f := range []string{"overrides.json", "dns.json", "rules.json", "subscriptions.json", "groups.json", "resources-state.json"} {
+	for _, f := range []string{"overrides.json", "dns.json", "localdns.json", "group-icons.json", "rules.json", "subscriptions.json", "groups.json", "resources-state.json"} {
 		if b, err := os.ReadFile(filepath.Join(home, f)); err == nil {
 			out["settings/"+f] = r.jsonText(b, "")
 		}

@@ -69,6 +69,12 @@ func overridesFor(home, path string) Overrides {
 		rr := r
 		o.sub = &rr
 	}
+	if c := readGroupChains(home, path); len(c) > 0 {
+		o.chains = map[string]string{}
+		for k, v := range c {
+			o.chains[k] = v
+		}
+	}
 	return o
 }
 

@@ -42,6 +42,7 @@ jobs:
       P12_PASSWORD: ${{ secrets.P12_PASSWORD }}
       APP_PROFILE_BASE64: ${{ secrets.APP_PROFILE_BASE64 }}
       TUNNEL_PROFILE_BASE64: ${{ secrets.TUNNEL_PROFILE_BASE64 }}
+      WIDGET_PROFILE_BASE64: ${{ secrets.WIDGET_PROFILE_BASE64 }}
       TEAM_ID: ${{ secrets.TEAM_ID }}
       KEYCHAIN_PASSWORD: ${{ secrets.KEYCHAIN_PASSWORD }}
       EXPORT_METHOD: ${{ secrets.EXPORT_METHOD }}
@@ -107,10 +108,11 @@ jobs:
         run: |
           APP_ID=$(awk '/^ *APP_BUNDLE_ID:/{print $2; exit}' project.yml)
           TUN_ID=$(awk '/^ *TUNNEL_BUNDLE_ID:/{print $2; exit}' project.yml)
+          WID_ID=$(awk '/^ *WIDGET_BUNDLE_ID:/{print $2; exit}' project.yml)
           GROUP_ID=$(awk '/^ *APP_GROUP_ID:/{print $2; exit}' project.yml)
           VER=$(awk -F'"' '/MARKETING_VERSION/{print $2; exit}' project.yml)
           {
-            echo "APP_ID=$APP_ID"; echo "TUN_ID=$TUN_ID"; echo "GROUP_ID=$GROUP_ID"; echo "VER=$VER"
+            echo "APP_ID=$APP_ID"; echo "TUN_ID=$TUN_ID"; echo "WID_ID=$WID_ID"; echo "GROUP_ID=$GROUP_ID"; echo "VER=$VER"
             echo "TAG=v${VER}-build${{ github.run_number }}"
             if [ -n "$BUILD_CERTIFICATE_BASE64" ] && [ -n "$APP_PROFILE_BASE64" ] && [ -n "$TUNNEL_PROFILE_BASE64" ] && [ -n "$TEAM_ID" ]; then
               echo "SIGNED=1"
@@ -149,8 +151,11 @@ jobs:
           APP_PROFILE=$(install_profile "$APP_PROFILE_BASE64" app)
           TUN_PROFILE=$(install_profile "$TUNNEL_PROFILE_BASE64" tunnel)
           echo "App profile: $APP_PROFILE / Tunnel profile: $TUN_PROFILE"
+          # The widget extension needs its own profile (WIDGET_PROFILE_BASE64); without it reuse the app's.
+          if [ -n "$WIDGET_PROFILE_BASE64" ]; then WID_PROFILE=$(install_profile "$WIDGET_PROFILE_BASE64" widget); else WID_PROFILE="$APP_PROFILE"; fi
           printf 'DEVELOPMENT_TEAM = %s\nCODE_SIGN_IDENTITY = %s\nPROVISIONING_PROFILE_SPECIFIER = %s\n' "$TEAM_ID" "$IDENTITY" "$APP_PROFILE" > Config/App.signing.xcconfig
           printf 'DEVELOPMENT_TEAM = %s\nCODE_SIGN_IDENTITY = %s\nPROVISIONING_PROFILE_SPECIFIER = %s\n' "$TEAM_ID" "$IDENTITY" "$TUN_PROFILE" > Config/Tunnel.signing.xcconfig
+          printf 'DEVELOPMENT_TEAM = %s\nCODE_SIGN_IDENTITY = %s\nPROVISIONING_PROFILE_SPECIFIER = %s\n' "$TEAM_ID" "$IDENTITY" "$WID_PROFILE" > Config/Widget.signing.xcconfig
           METHOD="${EXPORT_METHOD:-development}"
           cat > "$RUNNER_TEMP/ExportOptions.plist" <<EOF
           <?xml version="1.0" encoding="UTF-8"?>
@@ -164,6 +169,7 @@ jobs:
             <key>provisioningProfiles</key><dict>
               <key>${APP_ID}</key><string>${APP_PROFILE}</string>
               <key>${TUN_ID}</key><string>${TUN_PROFILE}</string>
+              <key>${WID_ID}</key><string>${WID_PROFILE}</string>
             </dict>
           </dict></plist>
           EOF
@@ -212,27 +218,43 @@ jobs:
           mv build/export/*.ipa "$IPA"
           echo "IPA=$IPA" >> "$GITHUB_ENV"
 
-      - name: Package unsigned IPA (entitlements embedded via ad-hoc signature)
+      # Two variants from one archive: "-widget" keeps the widget / Control Center extension, the plain IPA
+      # (as before v0.7) drops it so a profile covering only the app + tunnel still works.
+      - name: Package unsigned IPAs (entitlements embedded via ad-hoc signature)
         if: env.SIGNED != '1'
         run: |
           set -euo pipefail
           APP=build/Mihomo.xcarchive/Products/Applications/Mihomo.app
           sed "s/\$(APP_GROUP_ID)/${GROUP_ID}/g" PacketTunnel/PacketTunnel.entitlements > tunnel.entitlements
           sed "s/\$(APP_GROUP_ID)/${GROUP_ID}/g" App/Mihomo.entitlements > app.entitlements
-          plutil -lint tunnel.entitlements app.entitlements
+          sed "s/\$(APP_GROUP_ID)/${GROUP_ID}/g" Widget/MihomoWidget.entitlements > widget.entitlements
+          plutil -lint tunnel.entitlements app.entitlements widget.entitlements
+          test -d "$APP/PlugIns/MihomoWidget.appex"
           codesign -f -s - --entitlements tunnel.entitlements "$APP/PlugIns/PacketTunnel.appex"
+          codesign -f -s - --entitlements widget.entitlements "$APP/PlugIns/MihomoWidget.appex"
           codesign -f -s - --entitlements app.entitlements "$APP"
           echo "--- appex entitlements ---"; codesign -d --entitlements - "$APP/PlugIns/PacketTunnel.appex" 2>&1 | tail -n 20
+          echo "--- widget entitlements ---"; codesign -d --entitlements - "$APP/PlugIns/MihomoWidget.appex" 2>&1 | tail -n 20
           echo "--- app entitlements ---"; codesign -d --entitlements - "$APP" 2>&1 | tail -n 20
           rm -rf Payload && mkdir Payload && cp -R "$APP" Payload/
+          IPA_WIDGET="Mihomo-${VER}-build${{ github.run_number }}-widget-unsigned.ipa"
+          zip -qry "$IPA_WIDGET" Payload
+          rm -rf Payload/Mihomo.app/PlugIns/MihomoWidget.appex
+          codesign -f -s - --entitlements app.entitlements Payload/Mihomo.app
           IPA="Mihomo-${VER}-build${{ github.run_number }}-unsigned.ipa"
           zip -qry "$IPA" Payload
           echo "IPA=$IPA" >> "$GITHUB_ENV"
+          echo "IPA_WIDGET=$IPA_WIDGET" >> "$GITHUB_ENV"
 
       - name: Inspect IPA
         run: |
-          ls -la "$IPA"
+          ls -la "$IPA" ${IPA_WIDGET:+"$IPA_WIDGET"}
           unzip -l "$IPA" | grep -E "Mihomo.app/(Mihomo|Info.plist)$|PacketTunnel.appex/(PacketTunnel|Info.plist)$"
+          if [ "$SIGNED" != "1" ] && unzip -l "$IPA" | grep -q "MihomoWidget.appex/"; then echo "plain IPA must not contain the widget"; exit 1; fi
+          if [ -n "${IPA_WIDGET:-}" ]; then
+            unzip -l "$IPA_WIDGET" | grep -E "MihomoWidget.appex/(MihomoWidget|Info.plist)$"
+            unzip -p "$IPA_WIDGET" Payload/Mihomo.app/PlugIns/MihomoWidget.appex/Info.plist > /tmp/wid.plist && plutil -p /tmp/wid.plist | grep -E "NSExtensionPointIdentifier|CFBundleIdentifier|MinimumOSVersion"
+          fi
           unzip -p "$IPA" Payload/Mihomo.app/PlugIns/PacketTunnel.appex/Info.plist > /tmp/ext.plist && plutil -p /tmp/ext.plist | grep -E "NSExtension|Mihomo|CFBundleIdentifier"
           {
             echo "### $IPA"
@@ -241,6 +263,9 @@ jobs:
             echo "- app binary: $(unzip -l "$IPA" | awk '$4=="Payload/Mihomo.app/Mihomo"{printf "%.1f MB", $1/1048576}')"
             echo "- PacketTunnel binary: $(unzip -l "$IPA" | awk '$4=="Payload/Mihomo.app/PlugIns/PacketTunnel.appex/PacketTunnel"{printf "%.1f MB", $1/1048576}')"
             echo "- PacketTunnel.appex total: $(unzip -l "$IPA" | awk '$4 ~ /PacketTunnel.appex\//{s+=$1} END{printf "%.1f MB", s/1048576}')"
+            if [ -n "${IPA_WIDGET:-}" ]; then
+              echo "- $IPA_WIDGET: $(du -h "$IPA_WIDGET" | cut -f1), MihomoWidget.appex $(unzip -l "$IPA_WIDGET" | awk '$4 ~ /MihomoWidget.appex\//{s+=$1} END{printf "%.1f MB", s/1048576}')"
+            fi
           } >> "$GITHUB_STEP_SUMMARY"
 
       - uses: actions/upload-artifact@v4
@@ -248,8 +273,10 @@ jobs:
           name: Mihomo-ipa
           path: |
             ${{ env.IPA }}
+            ${{ env.IPA_WIDGET }}
             app.entitlements
             tunnel.entitlements
+            widget.entitlements
           if-no-files-found: warn
 
       - name: Publish GitHub Release
@@ -267,10 +294,13 @@ jobs:
               echo "- 已签名（${EXPORT_METHOD:-development}），可直接安装到描述文件内的设备。"
             else
               echo "- 未签名（已嵌入 entitlements 的伪签名），请用自己的证书和描述文件重签后安装。网络扩展需要开启了 Network Extension + App Groups 能力的描述文件。"
+              echo "- 两个版本：\`-unsigned.ipa\` 只含主程序和隧道扩展；\`-widget-unsigned.ipa\` 另含小组件 / 控制中心开关扩展（Bundle ID 为 主 ID + .widget，需要描述文件也覆盖它，例如显式 App ID 的描述文件配合能处理扩展的重签工具）。"
             fi
           } > "$NOTES"
           FILES=("$IPA")
+          [ -n "${IPA_WIDGET:-}" ] && [ -f "$IPA_WIDGET" ] && FILES+=("$IPA_WIDGET")
           [ -f app.entitlements ] && FILES+=(app.entitlements tunnel.entitlements)
+          [ -f widget.entitlements ] && FILES+=(widget.entitlements)
           gh release create "$TAG" "${FILES[@]}" --title "Mihomo ${VER} build ${{ github.run_number }}" --notes-file "$NOTES" --target "$(git rev-parse HEAD)" --prerelease
 
       - name: Show build errors (on failure)

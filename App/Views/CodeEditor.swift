@@ -1,0 +1,261 @@
+import SwiftUI
+import UIKit
+
+/// Lightweight code editor (UITextView + regex highlighter, no dependencies) for scripts, profiles and the
+/// local module's text view. Highlighting is incremental: after an edit only the touched paragraphs are
+/// re-coloured (whole text when small), so large profiles stay responsive.
+enum CodeLanguage {
+    case javascript, yaml, conf
+
+    /// One alternation per language; the first group that matches wins, scanning left to right, so a
+    /// "//" inside a string literal is never taken for a comment.
+    var regex: NSRegularExpression {
+        switch self {
+        case .javascript: return Self.js
+        case .yaml: return Self.yml
+        case .conf: return Self.cnf
+        }
+    }
+
+    /// Colour per capture group (1-based).
+    var colors: [UIColor] {
+        switch self {
+        case .javascript: return [CodeTheme.comment, CodeTheme.string, CodeTheme.keyword, CodeTheme.api, CodeTheme.number]
+        case .yaml: return [CodeTheme.comment, CodeTheme.string, CodeTheme.key, CodeTheme.number, CodeTheme.keyword]
+        case .conf: return [CodeTheme.comment, CodeTheme.section, CodeTheme.string, CodeTheme.keyword, CodeTheme.api]
+        }
+    }
+
+    private static let jsKeywords = "break|case|catch|class|const|continue|default|delete|do|else|export|extends|finally|for|function|if|import|in|instanceof|let|new|of|return|switch|this|throw|try|typeof|var|void|while|yield|async|await|true|false|null|undefined"
+    private static let js = try! NSRegularExpression(pattern:
+        #"(//[^\n]*|/\*[\s\S]*?(?:\*/|$))|("(?:\\.|[^"\\\n])*"?|'(?:\\.|[^'\\\n])*'?|`(?:\\.|[^`\\])*`?)|\b("# + jsKeywords + #")\b|(\$[A-Za-z_][A-Za-z0-9_]*|\bctx\b|\bconsole\b)|(\b\d+(?:\.\d+)?\b)"#,
+        options: [])
+    private static let yml = try! NSRegularExpression(pattern:
+        #"((?:^|(?<=\s))#[^\n]*)|("(?:\\.|[^"\\\n])*"?|'[^'\n]*'?)|(^[ \t]*(?:- +)?[^\s#'"\-][^:#\n]*?:(?=[ \t]|$))|(\b(?:true|false|null|yes|no)\b|(?<![\w.])-?\d+(?:\.\d+)?\b)|(\b[A-Z][A-Z0-9]*(?:-[A-Z0-9]+)+\b|\b(?:DOMAIN|GEOIP|GEOSITE|MATCH|FINAL|DIRECT|REJECT|AND|OR|NOT)\b)"#,
+        options: [.anchorsMatchLines])
+    private static let cnf = try! NSRegularExpression(pattern:
+        #"((?:^|(?<=\s))(?:#|;|//)[^\n]*)|(^[ \t]*\[[^\]\n]+\])|("(?:\\.|[^"\\\n])*"?)|(\b(?:reject(?:-[a-z0-9]+)?|302|307|header-(?:add|del|replace(?:-regex)?)|http-(?:request|response)(?:-jq)?|data-type|data|status-code|hostname|url|script-path|type|pattern|requires-body)\b)|(\^[^\s]*)"#,
+        options: [.anchorsMatchLines])
+}
+
+enum CodeTheme {
+    static let text = UIColor(white: 0.90, alpha: 1)
+    static let comment = UIColor(red: 0.45, green: 0.50, blue: 0.56, alpha: 1)
+    static let string = UIColor(red: 0.98, green: 0.72, blue: 0.42, alpha: 1)
+    static let keyword = UIColor(red: 0.78, green: 0.55, blue: 0.98, alpha: 1)
+    static let api = UIColor(red: 0.29, green: 0.78, blue: 0.96, alpha: 1) // Theme.accent
+    static let number = UIColor(red: 0.55, green: 0.88, blue: 0.60, alpha: 1)
+    static let key = UIColor(red: 0.45, green: 0.75, blue: 1.0, alpha: 1)
+    static let section = UIColor(red: 1.0, green: 0.78, blue: 0.2, alpha: 1)
+    static let errorLine = UIColor(red: 1.0, green: 0.36, blue: 0.36, alpha: 0.22)
+    static let background = UIColor(red: 0.04, green: 0.043, blue: 0.063, alpha: 1) // Theme.bg
+}
+
+struct CodeEditor: UIViewRepresentable {
+    @Binding var text: String
+    var language: CodeLanguage
+    var editable: Bool = true
+    /// 1-based line to mark as the error (nil = none).
+    var errorLine: Int? = nil
+    /// Change this value to scroll to `errorLine`.
+    var scrollToken: Int = 0
+
+    /// Above this size highlighting is skipped (the editor stays plain and fast).
+    static let highlightLimit = 400_000
+
+    func makeCoordinator() -> Coordinator { Coordinator(self) }
+
+    func makeUIView(context: Context) -> UITextView {
+        let tv = UITextView()
+        tv.backgroundColor = CodeTheme.background
+        tv.textColor = CodeTheme.text
+        tv.font = Coordinator.font
+        tv.autocorrectionType = .no
+        tv.autocapitalizationType = .none
+        tv.smartQuotesType = .no
+        tv.smartDashesType = .no
+        tv.smartInsertDeleteType = .no
+        tv.spellCheckingType = .no
+        tv.keyboardType = .asciiCapable
+        tv.keyboardDismissMode = .interactive
+        tv.alwaysBounceVertical = true
+        tv.textContainerInset = UIEdgeInsets(top: 10, left: 8, bottom: 40, right: 8)
+        tv.adjustsFontForContentSizeCategory = true
+        tv.isEditable = editable
+        tv.delegate = context.coordinator
+        tv.textStorage.delegate = context.coordinator
+        if editable { tv.inputAccessoryView = context.coordinator.accessory(for: tv) }
+        tv.text = text
+        context.coordinator.highlightAll(tv.textStorage)
+        return tv
+    }
+
+    func updateUIView(_ tv: UITextView, context: Context) {
+        let c = context.coordinator
+        c.parent = self
+        if tv.text != text {
+            let sel = tv.selectedRange
+            tv.text = text
+            c.highlightAll(tv.textStorage)
+            let n = (text as NSString).length
+            tv.selectedRange = NSRange(location: min(sel.location, n), length: 0)
+        }
+        tv.isEditable = editable
+        if c.markedLine != errorLine {
+            c.mark(line: errorLine, in: tv)
+        }
+        if c.lastScrollToken != scrollToken {
+            c.lastScrollToken = scrollToken
+            if let l = errorLine { c.scroll(to: l, in: tv) }
+        }
+    }
+
+    final class Coordinator: NSObject, UITextViewDelegate, NSTextStorageDelegate {
+        var parent: CodeEditor
+        var markedLine: Int?
+        var markedRange: NSRange?
+        var lastScrollToken = 0
+        private var inHighlight = false
+
+        static var font: UIFont {
+            UIFontMetrics(forTextStyle: .footnote).scaledFont(for: .monospacedSystemFont(ofSize: 13, weight: .regular))
+        }
+
+        init(_ p: CodeEditor) { parent = p }
+
+        func textViewDidChange(_ tv: UITextView) {
+            parent.text = tv.text
+        }
+
+        // Re-colour the edited paragraphs after every edit.
+        func textStorage(_ ts: NSTextStorage, didProcessEditing editedMask: NSTextStorage.EditActions, range editedRange: NSRange, changeInLength delta: Int) {
+            guard editedMask.contains(.editedCharacters), !inHighlight else { return }
+            let s = ts.string as NSString
+            guard s.length <= CodeEditor.highlightLimit else { return }
+            // Block comments / template strings can span lines: re-colour everything while small.
+            let range = s.length < 30_000 ? NSRange(location: 0, length: s.length) : s.paragraphRange(for: editedRange)
+            DispatchQueue.main.async { [weak self, weak ts] in
+                guard let self, let ts else { return }
+                self.highlight(ts, in: range)
+            }
+        }
+
+        func highlightAll(_ ts: NSTextStorage) {
+            highlight(ts, in: NSRange(location: 0, length: (ts.string as NSString).length))
+        }
+
+        func highlight(_ ts: NSTextStorage, in r: NSRange) {
+            let len = (ts.string as NSString).length
+            let range = NSIntersectionRange(r, NSRange(location: 0, length: len))
+            guard range.length > 0 || len == 0 else { return }
+            inHighlight = true
+            defer { inHighlight = false }
+            ts.beginEditing()
+            ts.addAttributes([.foregroundColor: CodeTheme.text, .font: Self.font], range: range)
+            if len <= CodeEditor.highlightLimit {
+                let colors = parent.language.colors
+                parent.language.regex.enumerateMatches(in: ts.string, options: [], range: range) { m, _, _ in
+                    guard let m else { return }
+                    for g in 1..<m.numberOfRanges where m.range(at: g).location != NSNotFound {
+                        if g - 1 < colors.count { ts.addAttribute(.foregroundColor, value: colors[g - 1], range: m.range(at: g)) }
+                        break
+                    }
+                }
+            }
+            ts.endEditing()
+        }
+
+        /// NSRange of a 1-based line.
+        func range(ofLine line: Int, in s: NSString) -> NSRange? {
+            guard line >= 1 else { return nil }
+            var current = 1
+            var loc = 0
+            while current < line {
+                let r = s.range(of: "\n", options: [], range: NSRange(location: loc, length: s.length - loc))
+                if r.location == NSNotFound { return nil }
+                loc = r.location + 1
+                current += 1
+            }
+            return s.lineRange(for: NSRange(location: min(loc, s.length), length: 0))
+        }
+
+        func mark(line: Int?, in tv: UITextView) {
+            let ts = tv.textStorage
+            let s = ts.string as NSString
+            inHighlight = true
+            defer { inHighlight = false }
+            if let old = markedRange, NSMaxRange(old) <= s.length {
+                ts.removeAttribute(.backgroundColor, range: old)
+            }
+            markedRange = nil
+            markedLine = line
+            if let line, let r = range(ofLine: line, in: s) {
+                ts.addAttribute(.backgroundColor, value: CodeTheme.errorLine, range: r)
+                markedRange = r
+            }
+        }
+
+        func scroll(to line: Int, in tv: UITextView) {
+            guard let r = range(ofLine: line, in: tv.text as NSString) else { return }
+            tv.scrollRangeToVisible(r)
+            if tv.isEditable { tv.selectedRange = NSRange(location: r.location, length: 0) }
+        }
+
+        // MARK: keyboard accessory (symbols that are slow to reach on the iOS keyboard)
+
+        weak var textView: UITextView?
+
+        func accessory(for tv: UITextView) -> UIView {
+            textView = tv
+            let bar = UIInputView(frame: CGRect(x: 0, y: 0, width: 320, height: 40), inputViewStyle: .keyboard)
+            let scroll = UIScrollView()
+            scroll.showsHorizontalScrollIndicator = false
+            scroll.translatesAutoresizingMaskIntoConstraints = false
+            let stack = UIStackView()
+            stack.axis = .horizontal
+            stack.spacing = 6
+            stack.translatesAutoresizingMaskIntoConstraints = false
+            let symbols = parent.language == .yaml
+                ? ["⇥", "-", ":", "\"", "'", "[", "]", "{", "}", ",", "#", "|", "*"]
+                : ["⇥", "{", "}", "(", ")", "[", "]", ";", "=", "\"", "'", "`", "$", ".", "/", "\\", "^", "*"]
+            for s in symbols {
+                let b = UIButton(type: .system)
+                b.setTitle(s, for: .normal)
+                b.titleLabel?.font = .monospacedSystemFont(ofSize: 17, weight: .medium)
+                b.backgroundColor = UIColor(white: 1, alpha: 0.12)
+                b.layer.cornerRadius = 6
+                b.tintColor = .label
+                b.widthAnchor.constraint(greaterThanOrEqualToConstant: 34).isActive = true
+                b.addAction(UIAction { [weak self] _ in self?.insert(s == "⇥" ? "  " : s) }, for: .touchUpInside)
+                stack.addArrangedSubview(b)
+            }
+            let done = UIButton(type: .system)
+            done.setImage(UIImage(systemName: "keyboard.chevron.compact.down"), for: .normal)
+            done.translatesAutoresizingMaskIntoConstraints = false
+            done.addAction(UIAction { [weak self] _ in self?.textView?.resignFirstResponder() }, for: .touchUpInside)
+            scroll.addSubview(stack)
+            bar.addSubview(scroll)
+            bar.addSubview(done)
+            NSLayoutConstraint.activate([
+                done.trailingAnchor.constraint(equalTo: bar.trailingAnchor, constant: -8),
+                done.centerYAnchor.constraint(equalTo: bar.centerYAnchor),
+                done.widthAnchor.constraint(equalToConstant: 40),
+                scroll.leadingAnchor.constraint(equalTo: bar.leadingAnchor, constant: 6),
+                scroll.trailingAnchor.constraint(equalTo: done.leadingAnchor, constant: -4),
+                scroll.topAnchor.constraint(equalTo: bar.topAnchor, constant: 4),
+                scroll.bottomAnchor.constraint(equalTo: bar.bottomAnchor, constant: -4),
+                stack.leadingAnchor.constraint(equalTo: scroll.contentLayoutGuide.leadingAnchor),
+                stack.trailingAnchor.constraint(equalTo: scroll.contentLayoutGuide.trailingAnchor),
+                stack.topAnchor.constraint(equalTo: scroll.contentLayoutGuide.topAnchor),
+                stack.bottomAnchor.constraint(equalTo: scroll.contentLayoutGuide.bottomAnchor),
+                stack.heightAnchor.constraint(equalTo: scroll.frameLayoutGuide.heightAnchor),
+            ])
+            return bar
+        }
+
+        private func insert(_ s: String) {
+            guard let tv = textView, tv.isEditable else { return }
+            tv.insertText(s)
+        }
+    }
+}

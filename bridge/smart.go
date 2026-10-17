@@ -30,7 +30,8 @@ import (
 )
 
 type groupSettings struct {
-	Smart []string `json:"smart,omitempty"`
+	Smart  []string          `json:"smart,omitempty"`
+	Dialer map[string]string `json:"dialer,omitempty"` // group → 前置代理 (chain.go)
 }
 
 func groupSettingsPath(home string) string { return filepath.Join(home, "groups.json") }

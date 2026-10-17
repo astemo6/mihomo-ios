@@ -10,6 +10,7 @@ struct IPInfo: Codable, Equatable {
     var asn: String?      // "AS13335"
     var org: String?      // "Cloudflare, Inc."
     var source: String?
+    var timezone: String? = nil   // "Asia/Tokyo" (v0.7 Home header)
 
     var flag: String {
         guard let cc = countryCode?.uppercased(), cc.count == 2 else { return "🌐" }
@@ -40,6 +41,20 @@ struct IPInfo: Codable, Equatable {
         let o = org ?? ""
         if a.isEmpty && o.isEmpty { return String(localized: "ASN 未知") }
         return [a, o].filter { !$0.isEmpty }.joined(separator: " ")
+    }
+
+    /// Header title: "日本 东京" (country + city, no separator dot).
+    var placeText: String {
+        var parts: [String] = []
+        if let c = countryName, !c.isEmpty { parts.append(c) }
+        if let city = city, !city.isEmpty, city != parts.first { parts.append(city) }
+        else if let r = region, !r.isEmpty, r != parts.first { parts.append(r) }
+        return parts.isEmpty ? String(localized: "未知位置") : parts.joined(separator: " ")
+    }
+
+    /// Header detail line: time zone · ASN · IP.
+    var detailText: String {
+        [timezone, asn, ip].compactMap { $0 }.filter { !$0.isEmpty }.joined(separator: " · ")
     }
 
     var copyText: String {
@@ -89,7 +104,7 @@ enum IPInfoFetcher {
             return IPInfo(ip: ip, countryCode: IPInfoFetcher.str(d, "country"), country: nil, region: IPInfoFetcher.str(d, "region"),
                           city: IPInfoFetcher.str(d, "city"), asn: a, org: o, source: "ipinfo.io")
         },
-        Endpoint(name: "ip-api.com", url: "http://ip-api.com/json/?fields=status,message,query,country,countryCode,regionName,city,isp,org,as,asname&lang=en") { d in
+        Endpoint(name: "ip-api.com", url: "http://ip-api.com/json/?fields=status,message,query,country,countryCode,regionName,city,timezone,isp,org,as,asname&lang=en") { d in
             guard let ip = IPInfoFetcher.str(d, "query") else { return nil }
             let (a, o) = IPInfoFetcher.splitASOrg(IPInfoFetcher.str(d, "as"))
             return IPInfo(ip: ip, countryCode: IPInfoFetcher.str(d, "countryCode"), country: IPInfoFetcher.str(d, "country"),
@@ -142,6 +157,9 @@ enum IPInfoFetcher {
                 if let success = obj["success"] as? Bool, success == false { continue }
                 if var info = ep.parse(obj) {
                     info.source = ep.name
+                    if info.timezone == nil {
+                        info.timezone = str(obj, "timezone", "time_zone") ?? (obj["timezone"] as? [String: Any]).flatMap { str($0, "id") }
+                    }
                     return info
                 }
             } catch {

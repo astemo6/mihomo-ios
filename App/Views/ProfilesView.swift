@@ -1,5 +1,6 @@
 import SwiftUI
 import UniformTypeIdentifiers
+import Libmihomo
 
 struct ProfilesView: View {
     @EnvironmentObject var store: ProfileStore
@@ -35,7 +36,7 @@ struct ProfilesView: View {
                             .onTapGesture { select(p) }
                             .swipeActions(edge: .trailing) {
                                 Button(role: .destructive) { store.delete(p) } label: { Label("删除", systemImage: "trash") }
-                                Button { editing = p } label: { Label("编辑", systemImage: "pencil") }.tint(.indigo)
+                                Button { editing = p } label: { Label(LocalizedStringKey(p.kind == .remote ? "查看" : "编辑"), systemImage: p.kind == .remote ? "doc.text" : "pencil") }.tint(.indigo)
                                 if p.id != ProfileStore.manualID {
                                     Button { subRulesFor = p } label: { Label("节点处理", systemImage: "line.3.horizontal.decrease.circle") }.tint(.teal)
                                 }
@@ -54,7 +55,7 @@ struct ProfilesView: View {
                                 if p.id != ProfileStore.manualID {
                                     Button { subRulesFor = p } label: { Label("节点处理（过滤 / 重命名 / 排序）", systemImage: "line.3.horizontal.decrease.circle") }
                                 }
-                                Button { editing = p } label: { Label("编辑 YAML", systemImage: "pencil") }
+                                Button { editing = p } label: { Label(LocalizedStringKey(p.kind == .remote ? "查看 YAML" : "编辑 YAML"), systemImage: p.kind == .remote ? "doc.text" : "pencil") }
                                 Button(role: .destructive) { store.delete(p) } label: { Label("删除", systemImage: "trash") }
                             }
                             .listRowBackground(Theme.card)
@@ -97,7 +98,7 @@ struct ProfilesView: View {
                 .environmentObject(store)
             }
             .sheet(item: $editing) { p in
-                YAMLEditorView(title: "编辑配置", initialName: p.name, initialText: store.content(of: p), profile: p)
+                YAMLEditorView(title: p.kind == .remote ? "查看配置" : "编辑配置", initialName: p.name, initialText: store.content(of: p), profile: p)
             }
             .fileImporter(isPresented: $showImporter, allowedContentTypes: [UTType(filenameExtension: "yaml") ?? .plainText, UTType(filenameExtension: "yml") ?? .plainText, UTType(filenameExtension: "conf") ?? .plainText, .plainText, .text, .data]) { result in
                 importFile(result)
@@ -314,6 +315,8 @@ struct AddRemoteSheet: View {
     }
 }
 
+/// Profile editor: YAML with highlighting and live validation through the core parser (line / column of
+/// the error). Local profiles save and reload; remote ones open read-only with 复制为本地配置.
 struct YAMLEditorView: View {
     @EnvironmentObject var store: ProfileStore
     @Environment(\.dismiss) var dismiss
@@ -323,6 +326,21 @@ struct YAMLEditorView: View {
     let profile: Profile?
     @State private var error: String?
     @State private var busy = false
+    @State private var check: ProfileCheckResult?
+    @State private var checking = false
+    @State private var checkTask: Task<Void, Never>?
+    @State private var scrollToken = 0
+
+    struct ProfileCheckResult: Decodable, Equatable {
+        var ok: Bool
+        var error: String?
+        var line: Int?
+        var column: Int?
+        var nodes: Int
+        var groups: Int
+        var rules: Int
+        var providers: Int
+    }
 
     init(title: String, initialName: String, initialText: String, profile: Profile?) {
         self.title = title
@@ -330,6 +348,8 @@ struct YAMLEditorView: View {
         _text = State(initialValue: initialText)
         self.profile = profile
     }
+
+    var readOnly: Bool { profile?.kind == .remote }
 
     static let template = """
     # mihomo 配置示例（请替换为你自己的节点）
@@ -346,27 +366,96 @@ struct YAMLEditorView: View {
     var body: some View {
         NavigationStack {
             VStack(spacing: 0) {
-                TextField("名称", text: $name)
-                    .padding(12)
+                if readOnly {
+                    HStack(spacing: 8) {
+                        Image(systemName: "lock.fill")
+                        Text("订阅配置只读：更新订阅时会被覆盖。需要修改请复制为本地配置。")
+                    }
+                    .font(.caption).foregroundStyle(.secondary)
+                    .frame(maxWidth: .infinity, alignment: .leading)
+                    .padding(10)
                     .background(Theme.cardHi)
+                } else {
+                    TextField("名称", text: $name)
+                        .padding(12)
+                        .background(Theme.cardHi)
+                }
                 if let error {
                     Text(error).font(.caption).foregroundStyle(Theme.bad).padding(8)
                         .frame(maxWidth: .infinity, alignment: .leading)
                 }
-                TextEditor(text: $text)
-                    .scaledFont(13, design: .monospaced)
-                    .autocorrectionDisabled()
-                    .textInputAutocapitalization(.never)
-                    .scrollContentBackground(.hidden)
-                    .background(Theme.bg)
+                CodeEditor(text: $text, language: .yaml, editable: !readOnly,
+                           errorLine: check?.ok == false ? check?.line : nil, scrollToken: scrollToken)
+                statusBar
             }
+            .background(Theme.bg.ignoresSafeArea())
             .navigationTitle(title)
             .navigationBarTitleDisplayMode(.inline)
             .toolbar {
-                ToolbarItem(placement: .cancellationAction) { Button("取消") { dismiss() } }
+                ToolbarItem(placement: .cancellationAction) { Button(readOnly ? "关闭" : "取消") { dismiss() } }
                 ToolbarItem(placement: .confirmationAction) {
-                    if busy { ProgressView() } else { Button("校验并保存") { save() } }
+                    if busy { ProgressView() }
+                    else if readOnly { Button("复制为本地配置") { copyAsLocal() } }
+                    else { Button(profile == nil ? "校验并保存" : "保存并重载") { save() }.disabled(check?.ok == false) }
                 }
+            }
+            .onAppear { scheduleCheck(delay: 0) }
+            .onChange(of: text) { _ in scheduleCheck(delay: 700_000_000) }
+            .onDisappear { checkTask?.cancel() }
+        }
+    }
+
+    var statusBar: some View {
+        HStack(spacing: 8) {
+            if checking {
+                ProgressView().controlSize(.mini)
+                Text("校验中…").font(.caption2).foregroundStyle(.secondary)
+            } else if let c = check {
+                if c.ok {
+                    Image(systemName: "checkmark.circle.fill").foregroundStyle(Theme.good)
+                    Text("\(c.nodes) 个节点 · \(c.groups) 个策略组 · \(c.rules) 条规则 · \(c.providers) 个节点集")
+                        .font(.caption2.monospacedDigit()).foregroundStyle(.secondary).lineLimit(1)
+                } else {
+                    Image(systemName: "xmark.octagon.fill").foregroundStyle(Theme.bad)
+                    Text(c.error ?? "").font(.caption2).foregroundStyle(Theme.bad).lineLimit(3)
+                }
+            }
+            Spacer(minLength: 4)
+            if let c = check, !c.ok, let l = c.line, l > 0 {
+                Button { scrollToken += 1 } label: {
+                    lineLabel(l, c.column ?? 0)
+                        .font(.caption2.weight(.semibold))
+                        .padding(.horizontal, 8).padding(.vertical, 4)
+                        .background(Capsule().fill(Theme.bad.opacity(0.18)))
+                        .foregroundStyle(Theme.bad)
+                }
+            }
+        }
+        .padding(.horizontal, 12).padding(.vertical, 8)
+        .frame(minHeight: 36)
+        .background(Theme.card)
+    }
+
+    func lineLabel(_ l: Int, _ col: Int) -> Text {
+        col > 0 ? Text("第 \(l) 行 \(col) 列") : Text("第 \(l) 行")
+    }
+
+    func scheduleCheck(delay: UInt64) {
+        checkTask?.cancel()
+        let t = text
+        let path = profile?.fileURL.path ?? AppShared.homeURL.appendingPathComponent("new-profile.yaml").path
+        let home = AppShared.homeURL.path
+        checkTask = Task {
+            if delay > 0 { try? await Task.sleep(nanoseconds: delay) }
+            guard !Task.isCancelled else { return }
+            checking = true
+            let json = await Task.detached(priority: .userInitiated) { LibmihomoProfileCheck(home, path, t) }.value
+            guard !Task.isCancelled else { return }
+            checking = false
+            if let d = json.data(using: .utf8), let r = try? JSONDecoder().decode(ProfileCheckResult.self, from: d) {
+                let jump = check?.line != r.line && r.ok == false
+                check = r
+                if jump && delay == 0 { scrollToken += 1 }
             }
         }
     }
@@ -382,6 +471,18 @@ struct YAMLEditorView: View {
                 } else {
                     _ = try await store.addLocal(name: name, text: text)
                 }
+                dismiss()
+            } catch { self.error = error.localizedDescription }
+        }
+    }
+
+    func copyAsLocal() {
+        busy = true; error = nil
+        let base = profile?.name ?? name
+        Task {
+            defer { busy = false }
+            do {
+                _ = try await store.addLocal(name: String(localized: "\(base) 副本"), text: text)
                 dismiss()
             } catch { self.error = error.localizedDescription }
         }

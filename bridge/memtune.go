@@ -9,6 +9,7 @@ import (
 	"sort"
 	"strings"
 
+	"github.com/astemo6/mihomo-ios/bridge/mitm"
 	"github.com/metacubex/mihomo/log"
 	"github.com/metacubex/mihomo/tunnel/statistic"
 )
@@ -73,6 +74,34 @@ func overrideHealthCheckURL(raw map[string]any, testURL string) {
 // (fails or leaks in China). Rejecting UDP 443 instead makes the app fall back to TCP, which follows
 // the rules through the proxy. Other UDP keeps mihomo's behaviour.
 const UDPFallbackRule = "AND,((NETWORK,UDP),(DST-PORT,443)),REJECT"
+
+// applyQUICBlock implements 连接方式 → 阻止 QUIC:
+//   - "off": mihomo's own behaviour (no rule added);
+//   - "nondirect" (default, = v0.6.1): UDP 443 that would otherwise fall back to DIRECT because the chosen
+//     proxy has no UDP is rejected, so it never bypasses the rules; QUIC the rules send DIRECT, or through a
+//     UDP-capable node, still works;
+//   - "always": all QUIC is rejected up front (except the engine's own INNER traffic), apps use TCP.
+func applyQUICBlock(raw map[string]any, mode string) {
+	switch mode {
+	case "off":
+		return
+	case "always":
+		rules := asList(raw["rules"])
+		if len(rules) == 0 {
+			return
+		}
+		for _, r := range rules {
+			if s, ok := r.(string); ok && s == mitm.QUICBlockAllRule {
+				appendUDPFallback(raw)
+				return
+			}
+		}
+		raw["rules"] = append([]any{mitm.QUICBlockAllRule}, rules...)
+		appendUDPFallback(raw)
+	default:
+		appendUDPFallback(raw)
+	}
+}
 
 func appendUDPFallback(raw map[string]any) {
 	rules := asList(raw["rules"])

@@ -23,8 +23,9 @@ struct InspectGroup: Decodable, Hashable, Identifiable {
     var hidden: Bool?
     var filter: String?
     var selected: String?
+    var icon: String?
 
-    enum CodingKeys: String, CodingKey { case name, type, proxies, use, url, hidden, filter, selected }
+    enum CodingKeys: String, CodingKey { case name, type, proxies, use, url, hidden, filter, selected, icon }
     init(from d: Decoder) throws {
         let c = try d.container(keyedBy: CodingKeys.self)
         name = try c.decode(String.self, forKey: .name)
@@ -35,6 +36,7 @@ struct InspectGroup: Decodable, Hashable, Identifiable {
         hidden = try? c.decodeIfPresent(Bool.self, forKey: .hidden)
         filter = try? c.decodeIfPresent(String.self, forKey: .filter)
         selected = try? c.decodeIfPresent(String.self, forKey: .selected)
+        icon = try? c.decodeIfPresent(String.self, forKey: .icon)
     }
 }
 

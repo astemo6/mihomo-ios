@@ -13,8 +13,8 @@ struct MoreView: View {
             List {
                 Section("连接") {
                     NavigationLink { ConnectionView() } label: {
-                        row("连接方式与按需连接", "point.3.filled.connected.trianglepath.dotted",
-                            CoreOverrides.load().isProxyOnly ? "仅代理" : "全局隧道")
+                        row("连接方式", "point.3.filled.connected.trianglepath.dotted",
+                            CoreOverrides.load().isProxyOnly ? String(localized: "仅代理") : CoreOverrides.load().isMixed ? String(localized: "VPN 混合") : "TUN")
                     }
                     NavigationLink { DNSView() } label: {
                         row("DNS", "network", DNSOverrideSettings.load().enabled ? "自定义" : "配置文件")
@@ -33,7 +33,7 @@ struct MoreView: View {
                     NavigationLink { ModulesView() } label: {
                         row("模块与资源", "puzzlepiece.extension", "\(engine.config.modules.filter(\.enabled).count)/\(engine.config.modules.count)")
                     }
-                    NavigationLink { RewriteView() } label: { row("重写", "arrow.triangle.swap", "\(engine.config.rules.count)") }
+                    NavigationLink { LocalModuleView() } label: { row("重写（本地模块）", "arrow.triangle.swap", "\(engine.config.rules.count)") }
                     NavigationLink { ScriptsView() } label: { row("脚本", "curlybraces", "\(engine.config.scripts.count)") }
                     NavigationLink { MitMView() } label: {
                         HStack {
@@ -49,6 +49,7 @@ struct MoreView: View {
 
                 Section("工具与数据") {
                     NavigationLink { ToolsView() } label: { row("网络工具（Ping / TCP / DNS）", "stethoscope.circle", nil) }
+                    NavigationLink { AnalyticsView() } label: { row("连接分析", "chart.pie", nil) }
                     NavigationLink { StatsView() } label: { row("流量统计", "chart.bar.xaxis", nil) }
                     NavigationLink { LogsView() } label: { row("日志", "text.alignleft", nil) }
                     NavigationLink { BackupView() } label: { row("备份与恢复", "externaldrive.badge.icloud", nil) }
@@ -58,6 +59,9 @@ struct MoreView: View {
                 Section("设置") {
                     NavigationLink { SettingsView() } label: { row("内核设置", "slider.horizontal.3", nil) }
                     NavigationLink { SpeedTestSettingsView() } label: { row("测速", "bolt.horizontal", nil) }
+                    if UIApplication.shared.supportsAlternateIcons {
+                        NavigationLink { AppIconView() } label: { row("App 图标", "app.badge", nil) }
+                    }
                     NavigationLink { DiagnosticsView() } label: {
                         HStack {
                             Label("诊断", systemImage: "waveform.path.ecg")
@@ -210,11 +214,9 @@ struct SettingsView: View {
                     Text("信息").tag("info")
                     Text("调试").tag("debug")
                 }
-                Toggle("IPv6", isOn: $o.ipv6)
                 Toggle("域名嗅探（Sniffer）", isOn: $o.sniffer)
-                Toggle("允许局域网连接（\(o.mixedPort) 端口）", isOn: $o.allowLan)
             } header: { Text("内核") } footer: {
-                Text("这些选项会覆盖配置文件里的同名字段。DNS 模式在「更多 → DNS」中设置。IPv6 变更需重新连接。")
+                Text("这些选项会覆盖配置文件里的同名字段。DNS 模式在「更多 → DNS」中设置，IPv6 与局域网共享在「更多 → 连接方式」中设置。")
             }
             .listRowBackground(Theme.card)
 
@@ -357,7 +359,7 @@ struct DiagnosticsView: View {
                 LabeledContent("描述文件中的组", value: groups.isEmpty ? String(localized: "（未找到 embedded.mobileprovision）") : groups.sorted().joined(separator: "\n"))
                 LabeledContent("VPN 状态", value: vpn.statusText)
                 LabeledContent("上次断开原因", value: TunnelStopReason.last() ?? "—")
-                LabeledContent("连接方式", value: CoreOverrides.load().isProxyOnly ? String(localized: "仅代理（NEProxySettings）") : String(localized: "全局隧道（PacketFlowBridge）"))
+                LabeledContent("连接方式", value: CoreOverrides.load().isProxyOnly ? String(localized: "仅代理（NEProxySettings）") : CoreOverrides.load().isMixed ? String(localized: "VPN 混合（PacketFlowBridge + NEProxySettings）") : String(localized: "全局隧道（PacketFlowBridge）"))
                 if vpn.safeModeActive { LabeledContent("安全模式", value: String(localized: "开启")) }
             } header: { Text("签名与容器") } footer: {
                 Text("重签名后描述文件会替换 entitlements。App 与扩展会在运行时从描述文件读取 App Group 并按字母序选第一个可用的；共享容器不可用时扩展无法读取配置，连接会失败。")
@@ -479,6 +481,56 @@ struct AboutView: View {
     }
 }
 
+
+// MARK: - App icon
+
+struct AppIconView: View {
+    static let icons: [(name: String?, title: String, preview: String)] = [
+        (nil, "默认", "IconPreview-Default"),
+        ("AppIcon-Graphite", "石墨", "IconPreview-Graphite"),
+        ("AppIcon-Aurora", "极光", "IconPreview-Aurora"),
+    ]
+    @State private var current = UIApplication.shared.alternateIconName
+    @State private var error: String?
+
+    var body: some View {
+        List {
+            Section {
+                ForEach(Self.icons, id: \.preview) { icon in
+                    Button { set(icon.name) } label: {
+                        HStack(spacing: 14) {
+                            Image(icon.preview)
+                                .resizable().scaledToFit()
+                                .frame(width: 56, height: 56)
+                                .clipShape(RoundedRectangle(cornerRadius: 13, style: .continuous))
+                                .overlay(RoundedRectangle(cornerRadius: 13, style: .continuous).stroke(Color.white.opacity(0.1)))
+                            Text(LocalizedStringKey(icon.title)).foregroundStyle(.primary)
+                            Spacer()
+                            if current == icon.name { Image(systemName: "checkmark").foregroundStyle(Theme.accent) }
+                        }
+                    }
+                }
+            } footer: {
+                if let error { Text(error).foregroundStyle(Theme.bad) } else { Text("切换后系统会弹出一次确认提示。") }
+            }
+            .listRowBackground(Theme.card)
+        }
+        .listStyle(.insetGrouped)
+        .scrollContentBackground(.hidden)
+        .background(Theme.bg.ignoresSafeArea())
+        .navigationTitle("App 图标")
+    }
+
+    func set(_ name: String?) {
+        guard name != current else { return }
+        UIApplication.shared.setAlternateIconName(name) { err in
+            DispatchQueue.main.async {
+                if let err { error = err.localizedDescription } else { current = name; error = nil }
+            }
+        }
+    }
+}
+
 /// 更多 → 测速: the URL and timeout every manual latency test uses (live through the core, offline from
 /// the app), and whether the profile's group health checks should use the same URL.
 struct SpeedTestSettingsView: View {
@@ -501,7 +553,11 @@ struct SpeedTestSettingsView: View {
             Section {
                 Picker("测速地址", selection: $choice) {
                     ForEach(CoreOverrides.testURLPresets, id: \.self) { u in
-                        Text(URL(string: u)?.host ?? u).tag(u)
+                        VStack(alignment: .leading, spacing: 2) {
+                            Text(LocalizedStringKey(CoreOverrides.testURLLabels[u] ?? (URL(string: u)?.host ?? u)))
+                            Text(verbatim: u).font(.caption2.monospaced()).foregroundStyle(.secondary).lineLimit(1)
+                        }
+                        .tag(u)
                     }
                     Text("自定义").tag(Self.customTag)
                 }

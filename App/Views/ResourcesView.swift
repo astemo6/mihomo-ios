@@ -41,6 +41,26 @@ struct ModulesView: View {
             }
             .listRowBackground(Theme.card)
 
+            if filter == "all" || filter == "module" {
+                Section {
+                    NavigationLink { LocalModuleView() } label: {
+                        HStack(spacing: 10) {
+                            Image(systemName: "person.crop.square").foregroundStyle(Theme.accent)
+                            VStack(alignment: .leading, spacing: 2) {
+                                Text("本地模块").font(.subheadline.weight(.semibold))
+                                Text("\(store.config.rules.count) 条重写 · \(store.config.hostnames.count) 个 MitM 主机名").font(.caption).foregroundStyle(.secondary)
+                            }
+                            Spacer()
+                            Text("本地").scaledFont(9, weight: .bold)
+                                .padding(.horizontal, 5).padding(.vertical, 2)
+                                .background(Capsule().fill(Theme.good.opacity(0.18)))
+                                .foregroundStyle(Theme.good)
+                        }
+                    }
+                }
+                .listRowBackground(Theme.card)
+            }
+
             Section {
                 if shown.isEmpty {
                     EmptyStateRow(icon: filter == "ruleset" ? "list.bullet.rectangle" : "puzzlepiece.extension",
