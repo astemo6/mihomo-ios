@@ -21,6 +21,7 @@ struct NetworkPolicyView: View {
     var body: some View {
         Form {
             networkSection
+            permissionSection
             modeSection
             rulesSection
             if let state, vpn.isConnected, !state.applied.isEmpty || state.mode != nil { lastSection(state) }
@@ -34,9 +35,13 @@ struct NetworkPolicyView: View {
             trigger = ModeTrigger.load()
             state = NetworkPolicyStore.state()
             if insp.result.groups.isEmpty { await insp.load() }
+            await wifi.refreshServices()
             await wifi.refresh()
         }
         .onChange(of: path.type) { _ in Task { await wifi.refresh() } }
+        .onReceive(NotificationCenter.default.publisher(for: UIApplication.didBecomeActiveNotification)) { _ in
+            Task { await wifi.refreshServices(); await wifi.refresh() }
+        }
         .alert("读取 Wi-Fi 名称", isPresented: $showLocationInfo) {
             Button("继续") { wifi.requestLocation() }
             Button("取消", role: .cancel) {}
@@ -77,6 +82,56 @@ struct NetworkPolicyView: View {
             Text("连接后，网络扩展在每次网络变化时读取网络类型和 Wi-Fi 名称（读不到名称时只按 Wi-Fi / 蜂窝匹配）。")
         }
         .listRowBackground(Theme.card)
+    }
+
+    /// v0.16: what reading the Wi-Fi name depends on, inline; a tap asks for what is missing.
+    var permissionSection: some View {
+        Section {
+            PermissionStatusRow(title: "定位服务", icon: "location.circle",
+                                value: wifi.servicesEnabled.map { $0 ? "开启" : "关闭" } ?? "读取中…",
+                                tone: wifi.servicesEnabled == false ? .bad : (wifi.servicesEnabled == true ? .good : .neutral),
+                                action: wifi.servicesEnabled == false ? { openSettings() } : nil)
+                .accessibilityIdentifier("ssid.perm.services")
+            PermissionStatusRow(title: "位置权限", icon: "location", value: locationText, tone: locationTone, action: locationAction)
+                .accessibilityIdentifier("ssid.perm.location")
+            PermissionStatusRow(title: "Wi-Fi 信息权限", icon: "wifi",
+                                value: WiFiInfo.wifiInfoEntitlement.map { $0 ? "描述文件已包含" : "描述文件未包含" } ?? "无描述文件",
+                                tone: WiFiInfo.wifiInfoEntitlement == false ? .bad : (WiFiInfo.wifiInfoEntitlement == true ? .good : .neutral),
+                                action: nil)
+                .accessibilityIdentifier("ssid.perm.wifiinfo")
+        } header: { Text("读取 Wi-Fi 名称所需") } footer: {
+            Text("三项都满足时才能按 Wi-Fi 名称切换：定位服务开启、位置权限为「使用 App 期间」且打开精确位置、重签描述文件包含 wifi-info。轻点未满足的一项去开启。")
+        }
+        .listRowBackground(Theme.card)
+    }
+
+    private var locationText: String {
+        switch wifi.authorization {
+        case .notDetermined: return "未请求"
+        case .denied: return "已拒绝"
+        case .restricted: return "受限制"
+        case .authorizedAlways, .authorizedWhenInUse:
+            if wifi.authorization == .authorizedAlways { return wifi.precise ? "始终" : "始终 · 非精确位置" }
+            return wifi.precise ? "使用 App 期间" : "使用 App 期间 · 非精确位置"
+        @unknown default: return "未知"
+        }
+    }
+
+    private var locationTone: PermissionStatusRow.Tone {
+        if wifi.locationDenied { return .bad }
+        if wifi.locationGranted { return wifi.precise ? .good : .warn }
+        return .warn
+    }
+
+    private var locationAction: (() -> Void)? {
+        if wifi.authorization == .notDetermined { return { showLocationInfo = true } }
+        if wifi.locationDenied { return { openSettings() } }
+        if wifi.locationGranted && !wifi.precise { return { wifi.requestLocation() } }
+        return nil
+    }
+
+    private func openSettings() {
+        if let u = URL(string: UIApplication.openSettingsURLString) { UIApplication.shared.open(u) }
     }
 
     /// v0.12: QX running_mode_trigger.
@@ -422,5 +477,36 @@ final class PathTypeWatcher: ObservableObject {
         case "none": return "无网络"
         default: return "其他"
         }
+    }
+}
+
+/// v0.16: one permission / capability line: title, status in a status colour, chevron when a tap can fix it.
+struct PermissionStatusRow: View {
+    enum Tone { case good, warn, bad, neutral }
+    let title: String
+    let icon: String
+    let value: String
+    let tone: Tone
+    let action: (() -> Void)?
+
+    private var color: Color {
+        switch tone {
+        case .good: return Theme.good
+        case .warn: return Theme.warn
+        case .bad: return Theme.bad
+        case .neutral: return .secondary
+        }
+    }
+
+    var body: some View {
+        Button { action?() } label: {
+            HStack {
+                Label(LocalizedStringKey(title), systemImage: icon).foregroundStyle(Color.primary)
+                Spacer()
+                Text(LocalizedStringKey(value)).foregroundStyle(color)
+                if action != nil { Image(systemName: "chevron.right").font(.caption.weight(.semibold)).foregroundStyle(.tertiary) }
+            }
+        }
+        .accessibilityElement(children: .combine)
     }
 }

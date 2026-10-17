@@ -170,10 +170,10 @@ struct RulesView: View {
                     VStack(alignment: .leading, spacing: 3) {
                         Text(r.payload.isEmpty ? r.type : r.payload).font(.system(.footnote, design: .monospaced)).lineLimit(2)
                         HStack(spacing: 6) {
-                            RuleTypeTag(type: r.type)
+                            RuleTypeTag(type: Theme.ruleTypeName(r.type))
                             if let s = r.size, s > 0 { Text("\(s) 条").font(.caption2).foregroundStyle(.secondary) }
                             Spacer()
-                            Text(r.proxy).font(.caption).foregroundStyle(Theme.accent).lineLimit(1)
+                            if !r.proxy.isEmpty { PolicyChip(name: r.proxy) }
                         }
                         if h != nil || (r.session ?? 0) > 0 { RuleHitLine(entry: h, session: r.session) }
                     }
@@ -220,12 +220,37 @@ struct RulesView: View {
     }
 }
 
+/// v0.16: rule types are tinted by category (Theme.ruleTypeColor); other tags (provider vehicle / behavior) stay neutral.
 struct RuleTypeTag: View {
     let type: String
     var body: some View {
-        Text(type).font(.caption2.weight(.semibold))
-            .padding(.horizontal, 5).padding(.vertical, 1)
-            .background(Capsule().fill(Theme.ink(0.1)))
+        if let c = Theme.ruleTypeColor(type) {
+            Text(verbatim: type).font(.caption2.weight(.semibold))
+                .padding(.horizontal, 5).padding(.vertical, 1)
+                .background(Capsule().fill(c.opacity(0.16)))
+                .foregroundStyle(c)
+                .lineLimit(1).fixedSize()
+                .accessibilityIdentifier("ruletype." + type)
+        } else {
+            Text(verbatim: type).font(.caption2.weight(.semibold))
+                .padding(.horizontal, 5).padding(.vertical, 1)
+                .background(Capsule().fill(Theme.ink(0.1)))
+                .lineLimit(1).fixedSize()
+        }
+    }
+}
+
+/// v0.16: the policy a rule sends traffic to, as a chip on the right of the row.
+struct PolicyChip: View {
+    let name: String
+    var body: some View {
+        let c = Theme.policyColor(name)
+        Text(verbatim: name).font(.caption.weight(.medium))
+            .padding(.horizontal, 7).padding(.vertical, 2)
+            .background(Capsule().fill(c.opacity(0.14)))
+            .foregroundStyle(c)
+            .lineLimit(1).truncationMode(.middle)
+            .accessibilityIdentifier("policychip." + name)
     }
 }
 
@@ -238,6 +263,13 @@ struct CustomRuleRow: View {
         HStack(alignment: .top) {
             VStack(alignment: .leading, spacing: 4) {
                 Text(rule.line).scaledFont(12, design: .monospaced).lineLimit(3)
+                if let c = check, (c.error ?? "").isEmpty, let r = c.rule, !r.isEmpty {
+                    HStack(spacing: 6) {
+                        RuleTypeTag(type: Theme.ruleTypeName(String(r.split(separator: ",").first ?? Substring(r)).trimmingCharacters(in: .whitespaces)))
+                        Spacer(minLength: 4)
+                        if let p = c.policy, !p.isEmpty { PolicyChip(name: p) }
+                    }
+                }
                 RuleCheckLine(check: check)
             }
             Spacer()

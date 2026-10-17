@@ -66,6 +66,16 @@ struct ModulesView: View {
                             }
                         }
                     }
+                    NavigationLink { AllRewritesView() } label: {
+                        HStack(spacing: 10) {
+                            Image(systemName: "list.bullet.rectangle.portrait").foregroundStyle(Theme.accent)
+                            VStack(alignment: .leading, spacing: 2) {
+                                Text("全部重写规则").font(.subheadline.weight(.semibold))
+                                Text("所有模块的重写和脚本规则，平铺可搜索").font(.caption).foregroundStyle(.secondary)
+                            }
+                        }
+                    }
+                    .accessibilityIdentifier("modules.allRewrites")
                 }
                 .listRowBackground(Theme.card)
             }

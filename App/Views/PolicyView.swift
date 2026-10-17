@@ -292,6 +292,7 @@ struct PolicyView: View {
     var liveList: some View {
         ScrollView {
             LazyVStack(spacing: 12) {
+                PolicyModeBar()
                 if let e = model.error { Text(e).font(.footnote).foregroundStyle(Theme.bad) }
                 TestTargetCaption(live: true)
                 let liveAuto = model.groups.filter { PolicyGroupDisplay.isAutomatic(PolicyGroupDisplay.kind(live: $0.type)) }
@@ -338,6 +339,7 @@ struct PolicyView: View {
     var offlineList: some View {
         ScrollView {
             LazyVStack(spacing: 12) {
+                PolicyModeBar()
                 HStack(spacing: 6) {
                     Image(systemName: "doc.text.magnifyingglass")
                     Text("未连接 · 来自配置文件")
@@ -690,5 +692,20 @@ struct CollapsedAutoRow: View {
         }
         .buttonStyle(.plain)
         .accessibilityHint(Text("展开自动策略"))
+    }
+}
+
+/// v0.16: 规则 / 全局 / 直连 right above the policy cards, the same switch as Home's 出站模式 (DashboardModel.setMode:
+/// saved in the overrides, applied live and connections reset while connected). Selection only, not a connection state.
+struct PolicyModeBar: View {
+    @ObservedObject private var dash = DashboardModel.shared
+    var body: some View {
+        Picker("出站模式", selection: Binding(get: { dash.mode }, set: { m in Task { await dash.setMode(m) } })) {
+            Text("规则").tag("rule")
+            Text("全局").tag("global")
+            Text("直连").tag("direct")
+        }
+        .pickerStyle(.segmented)
+        .accessibilityIdentifier("policy.mode")
     }
 }

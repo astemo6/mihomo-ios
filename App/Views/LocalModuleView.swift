@@ -108,6 +108,10 @@ struct LocalModuleView: View {
                 Toggle(isOn: Binding(get: { store.config.enabled }, set: { store.config.enabled = $0; store.save() })) {
                     Label("启用重写与脚本", systemImage: "arrow.triangle.swap")
                 }
+                NavigationLink { AllRewritesView() } label: {
+                    Label("全部重写规则（含模块）", systemImage: "list.bullet.rectangle.portrait")
+                }
+                .accessibilityIdentifier("localmodule.allRewrites")
             } footer: {
                 VStack(alignment: .leading, spacing: 4) {
                     Text("本地模块是你自己的重写规则和 MitM 主机名，与导入的模块一起生效、优先于它们。点 + 用表单添加，或点「文本」直接编辑；Surge、Quantumult X、Loon 写法都能识别。")

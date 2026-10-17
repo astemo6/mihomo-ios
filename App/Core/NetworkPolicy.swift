@@ -126,6 +126,27 @@ final class WiFiInfo: NSObject, ObservableObject, CLLocationManagerDelegate {
         precise = manager.accuracyAuthorization == .fullAccuracy
     }
 
+    /// v0.16: 定位服务 (system-wide switch); nil until read (CLLocationManager asks for it off the main thread).
+    @Published private(set) var servicesEnabled: Bool?
+
+    func refreshServices() async {
+        servicesEnabled = await Task.detached(priority: .utility) { CLLocationManager.locationServicesEnabled() }.value
+        authorization = manager.authorizationStatus
+        precise = manager.accuracyAuthorization == .fullAccuracy
+    }
+
+    /// v0.16: whether the provisioning profile the app was (re-)signed with grants wifi-info
+    /// (nil = no embedded.mobileprovision, e.g. the simulator or an unsigned build).
+    static let wifiInfoEntitlement: Bool? = {
+        guard let url = Bundle.main.url(forResource: "embedded", withExtension: "mobileprovision"),
+              let data = try? Data(contentsOf: url),
+              let start = data.range(of: Data("<?xml".utf8)),
+              let end = data.range(of: Data("</plist>".utf8), in: start.lowerBound..<data.endIndex),
+              let plist = try? PropertyListSerialization.propertyList(from: data.subdata(in: start.lowerBound..<end.upperBound), format: nil) as? [String: Any],
+              let ent = plist["Entitlements"] as? [String: Any] else { return nil }
+        return (ent["com.apple.developer.networking.wifi-info"] as? Bool) == true
+    }()
+
     var locationGranted: Bool { authorization == .authorizedWhenInUse || authorization == .authorizedAlways }
     var locationDenied: Bool { authorization == .denied || authorization == .restricted }
 

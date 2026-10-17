@@ -55,12 +55,14 @@ final class MihomoUITests: MihomoUITestCase {
         edit.tap()
         for g in ["Proxy", "Auto", "Fallback", "Streaming", "Apple", "Final"] {
             let r = app.element(id: "homegroups.row." + g)
-            if r.exists && r.isSelected { r.tap() }
+            // A lazy row can vanish between exists and isSelected; read both from one snapshot.
+            if let snap = try? r.snapshot(), snap.isSelected { r.tap() }
         }
         // Rows report selection through the trait; tap any still selected one again.
         for g in ["Proxy", "Auto", "Fallback", "Streaming", "Apple", "Final"] {
             let r = app.element(id: "homegroups.row." + g)
-            if r.exists && r.isSelected { r.tap() }
+            // A lazy row can vanish between exists and isSelected; read both from one snapshot.
+            if let snap = try? r.snapshot(), snap.isSelected { r.tap() }
         }
         snap("home-groups-none")
         closeSheet()
@@ -91,7 +93,7 @@ final class MihomoUITests: MihomoUITestCase {
     static let moreRows = [
         "连接方式", "DNS", "节点管理", "订阅管理", "规则", "提供者（规则集 / 节点集）", "地理与规则库", "模块与资源",
         "重写（本地模块）", "脚本", "任务", "MitM", "网络工具（Ping / TCP / DNS）", "网络测试（带宽 / NAT 类型）", "解锁检测",
-        "连接分析", "流量统计", "日志", "备份与恢复", "配置快照", "存储空间", "外观", "内核设置", "测速", "出口信息查询",
+        "连接分析", "流量统计", "日志", "DNS 日志", "备份与恢复", "配置快照", "存储空间", "外观", "内核设置", "测速", "出口信息查询",
         "App 图标", "诊断", "关于 / 开源许可",
     ]
 
@@ -681,5 +683,174 @@ final class MihomoUITests: MihomoUITestCase {
         XCTAssertEqual(app.switches.matching(identifier: "filter.src.all").firstMatch.value as? String, "0", "全部订阅 stays off")
         snap("filter-sources-reopened")
         closeSheet()
+    }
+
+    // MARK: 13. v0.16 rule chips: coloured type chip + policy chip in 规则
+
+    func test13_RuleChips() {
+        launch()
+        openMore("规则")
+        XCTAssertTrue(app.element(id: "ruletype.DOMAIN-SUFFIX").waitForExistence(timeout: 10), "DOMAIN-SUFFIX chip")
+        XCTAssertTrue(app.element(id: "policychip.Apple").exists, "policy chip Apple")
+        XCTAssertTrue(app.element(id: "ruletype.DOMAIN-KEYWORD").exists, "DOMAIN-KEYWORD chip")
+        XCTAssertTrue(app.element(id: "policychip.Streaming").exists, "policy chip Streaming")
+        XCTAssertTrue(app.element(id: "ruletype.IP-CIDR").exists, "IP-CIDR chip")
+        XCTAssertTrue(app.element(id: "policychip.DIRECT").exists, "policy chip DIRECT")
+        let match = app.element(id: "ruletype.MATCH")
+        if !match.exists { app.swipeUp() }
+        XCTAssertTrue(match.waitForExistence(timeout: 5), "MATCH chip")
+        snap("rules-chips")
+    }
+
+    // MARK: 14. v0.16 DNS 日志 (seeded through the real log-line parser)
+
+    func test14_DNSLog() {
+        launch()
+        openMore("DNS 日志")
+        XCTAssertTrue(app.element(labelContains: "www.example.com").waitForExistence(timeout: 8), "parsed query")
+        XCTAssertTrue(app.element(labelContains: "api.example.org").exists, "parsed cache hit")
+        XCTAssertTrue(app.element(labelContains: "broken.example.invalid").exists, "parsed resolve error")
+        snap("dnslog-queries")
+        let search = app.searchFields.firstMatch
+        for _ in 0..<6 where !search.exists { app.swipeDown(velocity: .fast) }
+        if search.waitForExistence(timeout: 4) {
+            search.tap()
+            search.typeText("v6.example")
+            usleep(800_000)
+            XCTAssertTrue(app.element(labelContains: "v6.example.net").exists, "search hit")
+            XCTAssertFalse(app.element(labelContains: "www.example.com").exists, "search filters others")
+            snap("dnslog-search")
+            let cancel = app.buttons[L("取消")].exists ? app.buttons[L("取消")] : app.buttons["Cancel"]
+            if cancel.exists { cancel.tap() }
+            usleep(500_000)
+        } else { issues.append("[\(Env.tag)] DNS 日志: no search field") }
+        let blockedTab = app.buttons[L10n.f("拦截 %lld", 3)].firstMatch
+        XCTAssertTrue(blockedTab.waitForExistence(timeout: 5), "拦截 3 tab")
+        blockedTab.tap()
+        let ads = app.element(labelContains: "ads.example.com")
+        XCTAssertTrue(ads.waitForExistence(timeout: 5), "blocked domain listed")
+        XCTAssertTrue(ads.label.contains("2"), "tally 2 for ads.example.com: \(ads.label)")
+        XCTAssertTrue(app.element(labelContains: "tracker.example.net").exists, "REJECT-DROP via group counted")
+        snap("dnslog-blocked")
+        XCTAssertTrue(tapIfExists(app.element(id: "dnslog.clear")), "清空")
+        XCTAssertTrue(app.element(label: L("没有被拦截的域名")).waitForExistence(timeout: 5), "cleared")
+        snap("dnslog-cleared")
+    }
+
+    // MARK: 15. v0.16 全部重写规则 (flat list from 模块与资源 and 本地模块)
+
+    func test15_AllRewrites() {
+        launch()
+        openMore("模块与资源")
+        let entry = app.element(id: "modules.allRewrites")
+        XCTAssertTrue(scrollTo(entry), "全部重写规则 entry")
+        entry.tap()
+        XCTAssertTrue(app.navigationBars[L("全部重写规则")].waitForExistence(timeout: 6), "page opens")
+        let row = app.element(labelContains: "UITest Panel Module")
+        XCTAssertTrue(row.waitForExistence(timeout: 6), "module rewrite listed with its source")
+        // (the row label carries the pattern, kind, phase and source)
+        snap("all-rewrites")
+        let search = app.searchFields.firstMatch
+        for _ in 0..<6 where !search.exists { app.swipeDown(velocity: .fast) }
+        if search.waitForExistence(timeout: 4) {
+            search.tap()
+            search.typeText("nomatch-uitest")
+            usleep(700_000)
+            XCTAssertFalse(app.element(labelContains: "UITest Panel Module").exists, "search filters")
+            snap("all-rewrites-search")
+            let cancel = app.buttons[L("取消")].exists ? app.buttons[L("取消")] : app.buttons["Cancel"]
+            if cancel.exists { cancel.tap() }
+        } else { issues.append("[\(Env.tag)] 全部重写规则: no search field") }
+        back()
+        back()
+        // Also reachable from 本地模块.
+        openMore("重写（本地模块）")
+        let local = app.element(id: "localmodule.allRewrites")
+        XCTAssertTrue(local.waitForExistence(timeout: 6), "entry in 本地模块")
+        local.tap()
+        XCTAssertTrue(app.navigationBars[L("全部重写规则")].waitForExistence(timeout: 6), "page opens from 本地模块")
+    }
+
+    // MARK: 16. v0.16 策略 mode control drives the same mode as Home
+
+    func test16_PolicyModeControl() {
+        launch()
+        tab(1)
+        let seg = app.segmentedControls.matching(identifier: "policy.mode").firstMatch
+        XCTAssertTrue(seg.waitForExistence(timeout: 8), "mode control above the policy cards")
+        let global = seg.buttons[L("全局")]
+        XCTAssertTrue(global.exists, "全局 segment")
+        global.tap()
+        usleep(600_000)
+        XCTAssertTrue(global.isSelected, "全局 selected")
+        snap("policy-mode-global")
+        tab(0)
+        let homeGlobal = app.segmentedControls.buttons.matching(NSPredicate(format: "label == %@", L("全局"))).firstMatch
+        for _ in 0..<4 where !(homeGlobal.exists && homeGlobal.isHittable) { app.swipeUp(velocity: .slow) }
+        if homeGlobal.exists { XCTAssertTrue(homeGlobal.isSelected, "Home 出站模式 follows") } else { warnings.append("Home 出站模式 not on screen") }
+        tab(1)
+        let rule = seg.buttons[L("规则")]
+        rule.tap()
+        usleep(600_000)
+        XCTAssertTrue(rule.isSelected, "back to 规则")
+        // Survives a relaunch (saved in the overrides).
+        global.tap()
+        usleep(600_000)
+        app.terminate()
+        let a = XCUIApplication()
+        a.launchArguments = ["-AppleLanguages", "(\(Env.lang))", "-appearance", Env.style]
+        a.launch()
+        app = a
+        tab(1)
+        let seg2 = app.segmentedControls.matching(identifier: "policy.mode").firstMatch
+        XCTAssertTrue(seg2.waitForExistence(timeout: 10))
+        XCTAssertTrue(seg2.buttons[L("全局")].isSelected, "mode persisted")
+        seg2.buttons[L("规则")].tap()
+    }
+
+    // MARK: 17. v0.16 请求 summary bar (synthetic connections)
+
+    func test17_RequestsSummary() {
+        launch(["-UITestDemoConnections"])
+        tab(2)
+        XCTAssertTrue(app.element(id: "requests.tcpCount").waitForExistence(timeout: 8), "summary bar")
+        XCTAssertEqual(app.element(id: "requests.tcpCount").label, "2", "TCP count")
+        XCTAssertEqual(app.element(id: "requests.udpCount").label, "1", "UDP count")
+        XCTAssertTrue(app.element(labelContains: "/s").exists, "speed shown")
+        XCTAssertTrue(app.element(id: "ruletype.DOMAIN-SUFFIX").exists, "connection rule chip")
+        snap("requests-summary")
+        let closeAll = app.element(id: "requests.closeAll")
+        XCTAssertTrue(closeAll.waitHittable(), "全部断开")
+        closeAll.tap()
+        let confirm = app.sheets.buttons[L("全部断开")].exists ? app.sheets.buttons[L("全部断开")]
+            : app.buttons.matching(NSPredicate(format: "label == %@", L("全部断开"))).element(boundBy: 1)
+        XCTAssertTrue(confirm.waitForExistence(timeout: 4), "confirmation")
+        confirm.tap()
+        usleep(700_000)
+        XCTAssertEqual(app.element(id: "requests.tcpCount").label, "0", "closed")
+        snap("requests-summary-closed")
+    }
+
+    // MARK: 18. v0.16 按网络切换策略: permission status inline
+
+    func test18_SSIDPermissions() {
+        launch()
+        openMore("连接方式")
+        let link = app.element(id: "connection.networkPolicy")
+        XCTAssertTrue(scrollTo(link), "按网络切换策略 link")
+        link.tap()
+        XCTAssertTrue(app.navigationBars[L("按网络切换策略")].waitForExistence(timeout: 6))
+        for id in ["ssid.perm.services", "ssid.perm.location", "ssid.perm.wifiinfo"] {
+            XCTAssertTrue(app.element(id: id).waitForExistence(timeout: 6), id)
+        }
+        let loc = app.element(id: "ssid.perm.location")
+        XCTAssertTrue(loc.label.contains(L("未请求")), "simulator starts not requested: \(loc.label)")
+        XCTAssertTrue(app.element(id: "ssid.perm.wifiinfo").label.contains(L("无描述文件")), "no profile on the simulator")
+        snap("ssid-permissions")
+        loc.tap()
+        let alert = app.alerts.firstMatch
+        XCTAssertTrue(alert.waitForExistence(timeout: 4), "explanation before the system prompt")
+        snap("ssid-permission-explain")
+        alert.buttons[L("取消")].tap()
     }
 }
