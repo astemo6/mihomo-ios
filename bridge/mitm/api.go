@@ -216,6 +216,7 @@ func Routes(get func() *Engine) func(r chi.Router) {
 				e.tasks.markViewed()
 				writeJSON(w, e.tasks.panelList())
 			})
+			homePanelRoutes(r, get) // feat/panels: GET / PUT /mitm/panels-home
 			r.Post("/panels/{id}/refresh", func(w http.ResponseWriter, req *http.Request) {
 				e := get()
 				if e == nil {

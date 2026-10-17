@@ -62,7 +62,8 @@ type Panel struct {
 	Script    string `json:"script,omitempty"`   // generic task name that fills it
 	Interval  int    `json:"interval,omitempty"` // seconds
 	Source    string `json:"source"`
-	Format    string `json:"format"` // surge / stash
+	Format    string `json:"format"`           // surge / stash
+	TaskID    string `json:"taskId,omitempty"` // feat/panels: a generic / interaction script pinned as a panel
 }
 
 func stableID(parts ...string) string {
@@ -289,6 +290,10 @@ type tasker struct {
 	viewed  time.Time // last time the app showed panels (GET /mitm/panels)
 	prefs   TaskPrefs
 	history map[string][]RunRecord
+	// feat/panels (homepanels.go)
+	base  []*Panel              // panels from modules; t.panels = base + pinned scripts
+	home  HomePanels            // home-panels.json
+	cache map[string]PanelState // panel-cache.json
 }
 
 // panelVisibleWindow: auto-refresh keeps running this long after the app last showed the panels
@@ -320,7 +325,9 @@ func (t *tasker) reload(rs *Ruleset) {
 	t.loadPersistedLocked()
 	t.tasks = append([]*Task(nil), rs.Tasks...)
 	t.saveListLocked()
-	t.panels = append([]*Panel(nil), rs.Panels...)
+	t.loadHomeLocked()
+	t.base = append([]*Panel(nil), rs.Panels...)
+	t.panels = t.withTaskPanelsLocked(t.base)
 	ns := map[string]*TaskState{}
 	for _, tk := range t.tasks {
 		st := t.states[tk.ID]
@@ -337,25 +344,7 @@ func (t *tasker) reload(rs *Ruleset) {
 		ns[tk.ID] = st
 	}
 	t.states = ns
-	ps := map[string]*PanelState{}
-	for _, p := range t.panels {
-		st := t.pstates[p.ID]
-		if st == nil {
-			st = &PanelState{}
-			cp := *p
-			st.Panel = &cp
-		} else {
-			// keep script output, refresh the static definition
-			old := st.Panel
-			cp := *p
-			if old != nil && p.Script != "" {
-				cp.Title, cp.Content, cp.Icon, cp.IconColor, cp.Style = old.Title, old.Content, old.Icon, old.IconColor, old.Style
-			}
-			st.Panel = &cp
-		}
-		ps[p.ID] = st
-	}
-	t.pstates = ps
+	t.syncPanelStatesLocked()
 	start := t.stop == nil && (len(t.tasks) > 0 || len(t.panels) > 0)
 	if start {
 		t.stop = make(chan struct{})
@@ -450,17 +439,31 @@ func (t *tasker) loop(stop chan struct{}) {
 func (t *tasker) duePanelsLocked(now time.Time, next *time.Time) []string {
 	var due []string
 	for _, p := range t.panels {
-		if p.Script == "" || p.Interval <= 0 {
+		st := t.pstates[p.ID]
+		if p.Script == "" || st == nil || st.Running {
 			continue
 		}
-		st := t.pstates[p.ID]
-		if st == nil || st.Running || st.Updated == 0 {
+		// feat/panels: panels shown on Home refresh while connected (first fill right after connect,
+		// then on their interval, at least homeBackgroundFloor apart while the app is not showing panels).
+		home := t.homeVisibleLocked(p.ID)
+		if p.Interval <= 0 {
+			if home && st.Updated == 0 {
+				due = append(due, p.ID)
+			}
+			continue
+		}
+		if st.Updated == 0 && !home {
 			continue // first fill happens when the app opens the panels page
 		}
-		if now.Sub(t.viewed) > panelVisibleWindow(p.Interval) {
+		viewed := now.Sub(t.viewed) <= panelVisibleWindow(p.Interval)
+		if !viewed && !home {
 			continue // nobody is looking: no script runs (battery, memory); markViewed wakes us
 		}
-		at := time.Unix(int64(st.Updated), 0).Add(time.Duration(max(p.Interval, 60)) * time.Second)
+		every := time.Duration(max(p.Interval, 60)) * time.Second
+		if !viewed {
+			every = max(every, homeBackgroundFloor)
+		}
+		at := time.Unix(int64(st.Updated), 0).Add(every)
 		if !at.After(now) {
 			due = append(due, p.ID)
 		} else if next != nil && at.Before(*next) {
@@ -617,12 +620,8 @@ func (t *tasker) refreshPanel(id string) (*PanelState, error) {
 		return &cp, nil
 	}
 	st.Running = true
-	var tk *Task
-	for _, x := range t.tasks {
-		if x.Script.Name == p.Script && (x.Source == p.Source || tk == nil) {
-			tk = x
-		}
-	}
+	tk := t.panelTaskLocked(p)
+	params := t.panelParamsLocked(p)
 	t.mu.Unlock()
 	var out map[string]any
 	var err error
@@ -630,7 +629,12 @@ func (t *tasker) refreshPanel(id string) (*PanelState, error) {
 		err = fmt.Errorf("找不到脚本 %s", p.Script)
 	} else {
 		pin := map[string]any{"title": p.Title, "content": p.Content, "icon": p.Icon, "icon-color": p.IconColor, "style": p.Style}
-		out, err = t.runAs(tk, map[string]any{"$input": map[string]any{"purpose": "panel", "position": "policy-selection"}, "$panel": pin}, "panel")
+		extra := map[string]any{"$input": map[string]any{"purpose": "panel", "position": "policy-selection"}, "$panel": pin}
+		if params != nil {
+			extra["$params"] = *params
+		}
+		out, err = t.runAs(tk, extra, "panel")
+		out = normalizePanelResult(out)
 	}
 	t.mu.Lock()
 	defer t.mu.Unlock()
@@ -669,6 +673,7 @@ func (t *tasker) refreshPanel(id string) (*PanelState, error) {
 		}
 		st.Panel = &np
 	}
+	t.saveCacheLocked()
 	cp := *st
 	return &cp, nil
 }
