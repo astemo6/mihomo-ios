@@ -131,6 +131,29 @@ final class EngineStore: ObservableObject {
         }
     }
 
+    /// v0.15 模块库: add a module whose text was already downloaded for the preview (no second download).
+    /// Returns false when the URL is already a module.
+    @discardableResult
+    func addPreviewedModule(url: String, text: String, name: String) -> Bool {
+        if config.modules.contains(where: { $0.url == url }) { return false }
+        SnapshotStore.shared.capture(String(localized: "添加模块前"))
+        let m = EngineModule(name: name.isEmpty ? (URL(string: url)?.deletingPathExtension().lastPathComponent ?? "模块") : name,
+                             url: url, enabled: true, args: nil, updatedAt: Date().timeIntervalSince1970)
+        guard (try? text.write(to: EnginePaths.moduleURL(m.id), atomically: true, encoding: .utf8)) != nil else { return false }
+        config.modules.append(m)
+        if !config.enabled { config.enabled = true }
+        reparseModules()
+        save()
+        return true
+    }
+
+    func setModuleEnabled(_ id: String, _ on: Bool) {
+        guard let i = config.modules.firstIndex(where: { $0.id == id }) else { return }
+        config.modules[i].enabled = on
+        if on && !config.enabled { config.enabled = true }
+        save()
+    }
+
     /// QX [rewrite_remote] (v0.8.1): one module per line, named from tag= or the file name, enabled= kept.
     /// Downloaded by the app right away (works while disconnected); a failed download keeps the module so
     /// 更新 can fetch it later. Returns the error text, nil on success. A URL that is already a module is skipped.
