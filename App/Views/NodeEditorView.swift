@@ -28,7 +28,7 @@ enum NodeProtocols {
     static func note(for type: String) -> LocalizedStringKey? {
         switch type {
         case "sudoku": return "Sudoku：以数独编码伪装流量的 TCP 协议。密钥与服务端相同；HTTP 伪装可穿过只放行 HTTP 的网络或 CDN。"
-        case "masque": return "MASQUE：基于 HTTP/3 的隧道（如 Cloudflare WARP 的 MASQUE 模式）。私钥与对端公钥来自服务端配置。"
+        case "masque": return "MASQUE：基于 HTTP/3 的隧道（如 Cloudflare WARP 的 MASQUE 模式）。私钥与对端公钥来自服务端提供的参数。"
         case "trusttunnel": return "TrustTunnel：AdGuard 的 HTTP/2 · HTTP/3 隧道协议，用户名与密码由服务端分配。"
         case "shadowquic": return "ShadowQUIC：伪装成普通 QUIC（TLS 1.3）的代理协议，SNI 填被伪装的网站。"
         case "openvpn": return "OpenVPN：由内核在用户态完成连接，不会创建系统 VPN。CA 证书必填；把 .ovpn 中 <ca> 等段的 PEM 内容粘贴进来。"
@@ -327,7 +327,7 @@ enum NodeProtocols {
         var f: [FieldSpec] = []
         if echTypes.contains(type) {
             f.append(FieldSpec(key: "ech-opts.enable", label: "ECH", kind: .bool))
-            f.append(FieldSpec(key: "ech-opts.config", label: "ECH 配置", placeholder: "Base64（留空则查询 DNS）"))
+            f.append(FieldSpec(key: "ech-opts.config", label: "ECHConfig", placeholder: "Base64（留空则查询 DNS）"))
         }
         if pinTypes.contains(type) {
             f.append(FieldSpec(key: "fingerprint", label: "证书指纹", placeholder: "SHA-256（十六进制）"))
