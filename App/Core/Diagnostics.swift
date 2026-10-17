@@ -85,7 +85,7 @@ enum DiagnosticsExporter {
             "vpn.lastError=\(vpn.lastError ?? "-")",
             "tunnel.lastStop=\(TunnelStopReason.last() ?? "-")",
             "tunnel.memory=\(tunnelReply ?? "-（未连接或扩展无响应）")",
-            "mode=\(o.tunnelMode) dns=\(o.dnsMode) ipv6=\(o.ipv6) mtu=\(o.tunMTU) memlimit=\(o.memoryLimitMB)MB testURL=\(o.testURL) hcOverride=\(o.overrideHealthCheck) loglevel=\(o.logLevel) sniffer=\(o.sniffer) allowLan=\(o.allowLan) mergeManual=\(o.mergeManual) safeMode=\(o.safeMode)",
+            "mode=\(o.tunnelMode) dns=\(o.dnsMode) ipv6=\(o.ipv6Mode) ipPref=\(o.ipPreference) mtu=\(o.tunMTU) memlimit=\(o.memoryLimitMB)MB testURL=\(o.testURL) hcOverride=\(o.overrideHealthCheck) loglevel=\(o.logLevel) sniffer=\(o.sniffer) allowLan=\(o.allowLan) mergeManual=\(o.mergeManual) safeMode=\(o.safeMode)",
             "ondemand=\(OnDemandSettings.load().mode.rawValue) paused=\(OnDemandSettings.isPaused)",
             "engine.enabled=\(engine.enabled) mitm=\(engine.mitm) modules=\(engine.modules.filter(\.enabled).count)/\(engine.modules.count)",
             "profiles=\(ProfileStore.shared.profiles.count) active=\(ProfileStore.shared.active?.kind.rawValue ?? "none")",

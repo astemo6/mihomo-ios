@@ -70,6 +70,12 @@ type Overrides struct {
 	// v0.7 局域网共享: optional username / password for the mixed port, and LAN-only source addresses.
 	LanAuth      LanAuth `json:"lanAuth"`
 	LanLocalOnly bool    `json:"lanLocalOnly"`
+	// v0.8 IPv6: "off" | "auto" (IPv6 only when the physical network has a global IPv6 address at start,
+	// reported by the extension through SetNetworkIPv6) | "always". "" = older builds: the IPv6 bool decides.
+	IPv6Mode string `json:"ipv6Mode"`
+	// v0.8 IP preference for nodes without their own ip-version: "" / "dual" (mihomo default) | "ipv4-prefer" |
+	// "ipv6-prefer" | "ipv4" | "ipv6". Written into proxies and proxy-provider overrides.
+	IPPreference string `json:"ipPreference"`
 
 	DNS        *DNSOverride      `json:"-"` // loaded from <home>/dns.json
 	Local      *LocalDNS         `json:"-"` // loaded from <home>/localdns.json (hosts + 真实 IP 域名)
@@ -134,6 +140,19 @@ func readOverrides(home string) Overrides {
 	}
 	if o.BlockQUIC != "off" && o.BlockQUIC != "always" {
 		o.BlockQUIC = "nondirect"
+	}
+	switch o.IPv6Mode {
+	case "always":
+		o.IPv6 = true
+	case "off":
+		o.IPv6 = false
+	case "auto":
+		o.IPv6 = networkHasIPv6.Load()
+	}
+	switch o.IPPreference {
+	case "ipv4-prefer", "ipv6-prefer", "ipv4", "ipv6":
+	default:
+		o.IPPreference = ""
 	}
 	o.LanAuth.Username = strings.TrimSpace(o.LanAuth.Username)
 	if o.MixedPort <= 0 || o.MixedPort > 65535 || o.MixedPort == o.ControllerPort {
@@ -310,6 +329,7 @@ func buildRuntimeWith(profile []byte, o Overrides, fd int32, inject func(raw map
 	if inject != nil {
 		inject(raw)
 	}
+	applyIPPreference(raw, o.IPPreference)
 	applyProbe(raw, o)
 	applyQUICBlock(raw, o.BlockQUIC)
 	return yaml.Marshal(raw)

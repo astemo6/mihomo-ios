@@ -168,6 +168,12 @@ struct CoreOverrides: Codable, Equatable {
     /// 局域网共享: optional username / password, and only LAN source addresses.
     var lanAuth = LanAuth()
     var lanLocalOnly: Bool = true
+    /// v0.8 IPv6: "off" · "auto" (only when the physical network has a global IPv6 address at start) · "always".
+    /// `ipv6` stays as the value older builds read (and the extension's resolved value in memory).
+    var ipv6Mode: String = "off"
+    /// v0.8 IP preference for nodes without their own ip-version: "dual" (mihomo default) · "ipv4-prefer" ·
+    /// "ipv6-prefer" · "ipv4" · "ipv6".
+    var ipPreference: String = "dual"
 
     struct LanAuth: Codable, Equatable {
         var username: String = ""
@@ -223,6 +229,15 @@ struct CoreOverrides: Codable, Equatable {
         return p
     }
 
+    /// IPv6 for this start: "auto" asks the physical network (extension, before the core starts).
+    func resolvedIPv6() -> Bool {
+        switch ipv6Mode {
+        case "always": return true
+        case "auto": return NetIPv6.physicalNetworkHasGlobalIPv6()
+        default: return false
+        }
+    }
+
     var isProxyOnly: Bool { tunnelMode == "proxy" }
     var isMixed: Bool { tunnelMode == "mix" }
 
@@ -234,7 +249,7 @@ struct CoreOverrides: Codable, Equatable {
         case testURL, testTimeoutMs, overrideHealthCheck
         case includedRoutes, excludedRoutes, skipProxy, blockQUIC
         case includeAllNetworks, excludeLocalNetworks, excludeAPNs, excludeCellularServices, excludeDeviceCommunication
-        case lanAuth, lanLocalOnly
+        case lanAuth, lanLocalOnly, ipv6Mode, ipPreference
     }
 
     init(from decoder: Decoder) throws {
@@ -273,6 +288,11 @@ struct CoreOverrides: Codable, Equatable {
         excludeDeviceCommunication = get(.excludeDeviceCommunication, d.excludeDeviceCommunication)
         lanAuth = get(.lanAuth, d.lanAuth)
         lanLocalOnly = get(.lanLocalOnly, d.lanLocalOnly)
+        // Files from before v0.8 have only the bool.
+        ipv6Mode = get(.ipv6Mode, ipv6 ? "always" : "off")
+        if !["off", "auto", "always"].contains(ipv6Mode) { ipv6Mode = ipv6 ? "always" : "off" }
+        ipPreference = get(.ipPreference, d.ipPreference)
+        if !["dual", "ipv4-prefer", "ipv6-prefer", "ipv4", "ipv6"].contains(ipPreference) { ipPreference = d.ipPreference }
         if !["off", "nondirect", "always"].contains(blockQUIC) { blockQUIC = d.blockQUIC }
         if !Self.isValidTestURL(testURL) { testURL = d.testURL }
         if !(1000...30000).contains(testTimeoutMs) { testTimeoutMs = d.testTimeoutMs }
@@ -296,9 +316,11 @@ struct CoreOverrides: Codable, Equatable {
     }
 
     func save() {
+        var me = self
+        me.ipv6 = ipv6Mode != "off"
         let enc = JSONEncoder()
         enc.outputFormatting = [.sortedKeys]
-        if let data = try? enc.encode(self) {
+        if let data = try? enc.encode(me) {
             try? data.write(to: AppShared.overridesURL, options: .atomic)
         }
     }
@@ -419,5 +441,32 @@ struct RouteSpec: Equatable {
     /// Invalid lines of a list (shown by the editor, which refuses to save them).
     static func invalid(_ lines: [String]) -> [String] {
         lines.filter { !$0.trimmingCharacters(in: .whitespaces).isEmpty && RouteSpec($0) == nil }
+    }
+}
+
+/// v0.8 IPv6 "自动": does a physical interface (Wi-Fi en*, cellular pdp_ip*) have a global IPv6 address?
+/// Link-local (fe80::/10), ULA (fc00::/7) and loopback don't count; the tunnel's own utun is skipped.
+enum NetIPv6 {
+    static func physicalNetworkHasGlobalIPv6() -> Bool {
+        var head: UnsafeMutablePointer<ifaddrs>?
+        guard getifaddrs(&head) == 0, let first = head else { return false }
+        defer { freeifaddrs(head) }
+        var cur: UnsafeMutablePointer<ifaddrs>? = first
+        while let p = cur {
+            defer { cur = p.pointee.ifa_next }
+            let name = String(cString: p.pointee.ifa_name)
+            guard name.hasPrefix("en") || name.hasPrefix("pdp_ip"),
+                  (p.pointee.ifa_flags & UInt32(IFF_UP)) != 0,
+                  let sa = p.pointee.ifa_addr, sa.pointee.sa_family == UInt8(AF_INET6) else { continue }
+            let bytes: [UInt8] = sa.withMemoryRebound(to: sockaddr_in6.self, capacity: 1) { s6 in
+                withUnsafeBytes(of: s6.pointee.sin6_addr) { Array($0) }
+            }
+            guard bytes.count == 16 else { continue }
+            if bytes[0] == 0xfe && (bytes[1] & 0xc0) == 0x80 { continue }   // fe80::/10
+            if (bytes[0] & 0xfe) == 0xfc { continue }                        // fc00::/7
+            if bytes.allSatisfy({ $0 == 0 }) || (bytes[0..<15].allSatisfy { $0 == 0 } && bytes[15] == 1) { continue }
+            return true
+        }
+        return false
     }
 }

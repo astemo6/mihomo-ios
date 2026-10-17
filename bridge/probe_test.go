@@ -1,6 +1,8 @@
 package libmihomo
 
 import (
+	"os"
+	"path/filepath"
 	"testing"
 
 	"github.com/metacubex/mihomo/hub/executor"
@@ -71,5 +73,51 @@ func TestProbePortAvoidsOtherPorts(t *testing.T) {
 	o.ControllerPort = 7898
 	if p := probePort(o); p != 7897 {
 		t.Fatalf("probe port %d", p)
+	}
+}
+
+func TestIPv6ModeAndPreference(t *testing.T) {
+	home := t.TempDir()
+	write := func(s string) {
+		if err := os.WriteFile(filepath.Join(home, "overrides.json"), []byte(s), 0o644); err != nil {
+			t.Fatal(err)
+		}
+	}
+	write(`{"ipv6":true,"ipv6Mode":"off"}`)
+	if readOverrides(home).IPv6 {
+		t.Fatal("off must win over the legacy bool")
+	}
+	write(`{"ipv6":true}`)
+	if !readOverrides(home).IPv6 {
+		t.Fatal("legacy bool kept when no mode")
+	}
+	write(`{"ipv6Mode":"auto"}`)
+	SetNetworkIPv6(false)
+	if readOverrides(home).IPv6 {
+		t.Fatal("auto without network IPv6")
+	}
+	SetNetworkIPv6(true)
+	if !readOverrides(home).IPv6 {
+		t.Fatal("auto with network IPv6")
+	}
+	SetNetworkIPv6(false)
+	write(`{"ipPreference":"ipv4-prefer"}`)
+	prof := "proxies:\n  - {name: A, type: socks5, server: 127.0.0.1, port: 1}\n  - {name: B, type: socks5, server: 127.0.0.1, port: 2, ip-version: ipv6}\nproxy-groups:\n  - {name: P, type: select, proxies: [A, B]}\nrules:\n  - MATCH,P\n"
+	rt, err := buildRuntime([]byte(prof), readOverrides(home), 0)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := executor.ParseWithBytes(rt); err != nil {
+		t.Fatalf("rejected: %v", err)
+	}
+	raw := map[string]any{}
+	_ = yaml.Unmarshal(rt, &raw)
+	ps := asList(raw["proxies"])
+	if asMap(ps[0])["ip-version"] != "ipv4-prefer" || asMap(ps[1])["ip-version"] != "ipv6" {
+		t.Fatalf("ip-version: %v", ps)
+	}
+	write(`{"ipPreference":"bogus"}`)
+	if readOverrides(home).IPPreference != "" {
+		t.Fatal("bogus preference must be dropped")
 	}
 }
