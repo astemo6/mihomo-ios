@@ -84,6 +84,7 @@ class MihomoVpnService : VpnService() {
     override fun onStartCommand(intent: Intent?, flags: Int, startId: Int): Int {
         // Always enter the foreground first: the system requires it for startForegroundService().
         goForeground()
+        io.github.astemo6.mihomo.a3.A3Runtime.onServiceStart(this, intent) // A3: always-on start / state
         when (intent?.action) {
             ACTION_STOP -> scope.launch { stopVpn(null) }
             ACTION_RELOAD -> scope.launch { reload() }
@@ -221,6 +222,7 @@ class MihomoVpnService : VpnService() {
 
     override fun onRevoke() {
         // Another VPN app took over, or the user revoked the permission in system settings.
+        io.github.astemo6.mihomo.a3.A3Runtime.onRevoked() // A3: no auto-reconnect on boot after a takeover
         scope.launch { stopVpn(getString(R.string.stop_revoked)) }
     }
 
@@ -400,7 +402,7 @@ class MihomoVpnService : VpnService() {
             else -> "other"
         }
         scope.launch {
-            runCatching { Core.setNetworkState(type, "") }
+            runCatching { Core.setNetworkState(type, if (type == "wifi") io.github.astemo6.mihomo.a3.NetworkModeSwitcher.ssid.orEmpty() else "") }
             runCatching { Core.notifyNetworkChanged("{\"type\":\"$type\"}") }
         }
     }

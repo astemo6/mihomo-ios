@@ -31,6 +31,7 @@ class MihomoApp : Application() {
         val main = Handler(Looper.getMainLooper())
         val reload = Runnable { VpnController.reload(this) }
         EngineStore.onChanged = { main.removeCallbacks(reload); main.postDelayed(reload, 400) }
+        io.github.astemo6.mihomo.a3.A3Runtime.init(this)
         VpnState.listener = {
             MihomoTileService.requestUpdate(this)
             runCatching { StatusWidget.updateAll(this) }
