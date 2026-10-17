@@ -71,6 +71,24 @@ type Engine struct {
 	tasks    *tasker
 	geo      atomic.Pointer[GeoLookup]
 	api      atomic.Pointer[APIFunc]
+
+	loop     atomic.Pointer[LoopFunc]
+	loopLog  atomic.Int64 // unix seconds of the last loop warning
+	LoopHits atomic.Int64
+}
+
+// LoopFunc reports whether a CONNECT to target (host:port as mihomo's http outbound sends it) is the
+// engine's own upstream coming back: the core already tracks an INNER connection to that target whose
+// chain ends at __MITM__ (only a proxy group selecting __MITM__ can produce one).
+type LoopFunc func(target string) bool
+
+// SetLoopCheck installs the loop detector (v0.14.1 hotfix defence).
+func (e *Engine) SetLoopCheck(f LoopFunc) {
+	if f == nil {
+		e.loop.Store(nil)
+		return
+	}
+	e.loop.Store(&f)
 }
 
 // New creates an engine (not started).
@@ -279,6 +297,15 @@ func (e *Engine) handleConn(c net.Conn) {
 		host, ps = target, "443"
 	}
 	port, _ := strconv.Atoi(ps)
+	if lf := e.loop.Load(); lf != nil && (*lf)(target) {
+		e.LoopHits.Add(1)
+		if now := time.Now().Unix(); e.loopLog.Swap(now) < now-30 {
+			e.logf("warning", fmt.Sprintf("[MitM] 已拒绝回环连接 %s：有策略组选中了内部出站 %s，请检查策略组", target, ProxyName))
+		}
+		_, _ = io.WriteString(c, "HTTP/1.1 508 Loop Detected\r\nConnection: close\r\n\r\n")
+		_ = c.Close()
+		return
+	}
 	if _, err := io.WriteString(c, "HTTP/1.1 200 Connection established\r\n\r\n"); err != nil {
 		_ = c.Close()
 		return
