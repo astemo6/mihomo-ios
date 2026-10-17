@@ -491,6 +491,7 @@ func Start(homeDir, configPath string, tunFd int32) error {
 			stage("core apply failed: %s", err.Error())
 		} else {
 			stage("core apply finished: providers loaded, tunnel %s, %s", tunnel.Status().String(), memText())
+			startRuleHits(homeDir)
 			if n := applySelections(configPath); n > 0 {
 				stage("restored %d saved group selection(s)", n)
 			}
@@ -542,6 +543,7 @@ func Reload(configPath string) error {
 	if curHome == "" {
 		return errors.New("core not started")
 	}
+	flushRuleHits(curHome) // the new rules start counting at 0
 	if err := safeApply(curHome, configPath, curFd); err != nil {
 		lastError = err.Error()
 		return err
@@ -563,6 +565,7 @@ func Stop() {
 	if !running {
 		return
 	}
+	stopRuleHits(curHome)
 	stopEngine()
 	stopSmart()
 	executor.Shutdown()

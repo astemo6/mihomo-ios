@@ -54,6 +54,7 @@ final class NodeSubStore: ObservableObject {
                                  groups: groups, userAgent: userAgent.isEmpty ? "clash.meta" : userAgent, updateIntervalHours: intervalHours)
         s = try await download(s)
         set(s)
+        UsageAlerts.evaluate(id: s.id, name: s.name, info: s.userInfo)
         await applyChange()
         return s
     }
@@ -67,6 +68,7 @@ final class NodeSubStore: ObservableObject {
     func delete(_ s: NodeSubscription) async {
         try? FileManager.default.removeItem(at: s.cacheURL)
         SubRulesStore.set(s.rulesKey, nil)
+        UsageAlerts.remove(s.id)
         subs.removeAll { $0.id == s.id }
         persist()
         await applyChange()
@@ -80,6 +82,7 @@ final class NodeSubStore: ObservableObject {
         do {
             let n = try await download(s)
             set(n)
+            UsageAlerts.evaluate(id: n.id, name: n.name, info: n.userInfo)
             if reload { await applyChange() }
             return nil
         } catch {
@@ -99,13 +102,19 @@ final class NodeSubStore: ObservableObject {
         return errs
     }
 
-    func autoUpdateIfNeeded() async {
+    @discardableResult
+    func autoUpdateIfNeeded() async -> [SubUpdateResult] {
         var changed = false
+        var out: [SubUpdateResult] = []
         for s in subs where s.enabled && s.updateIntervalHours > 0 {
             let due = (s.lastUpdated ?? .distantPast).addingTimeInterval(TimeInterval(s.updateIntervalHours * 3600))
-            if due < Date(), await refresh(s, reload: false) == nil { changed = true }
+            guard due < Date() else { continue }
+            let e = await refresh(s, reload: false)
+            if e == nil { changed = true }
+            out.append(SubUpdateResult(name: s.name, error: e, oldCount: s.count, newCount: subs.first { $0.id == s.id }?.count))
         }
         if changed { await applyChange() }
+        return out
     }
 
     private func download(_ input: NodeSubscription) async throws -> NodeSubscription {

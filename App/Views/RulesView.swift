@@ -84,13 +84,19 @@ struct RulesView: View {
     @State private var tab = 0
     @State private var editing: CustomRule?
     @State private var adding = false
+    @ObservedObject private var hits = RuleHitsStore.shared
+    @AppStorage("rules.sortByHits") private var sortByHits = false
+    @State private var confirmReset = false
 
-    struct Row: Hashable { var type: String; var payload: String; var proxy: String; var size: Int? }
+    struct Row: Hashable { var index: Int; var type: String; var payload: String; var proxy: String; var size: Int?; var session: Int? }
 
     var rows: [Row] {
-        let all: [Row] = vpn.isConnected
-            ? live.map { Row(type: $0.type, payload: $0.payload, proxy: $0.proxy, size: $0.size) }
-            : offline.result.rules.map { Row(type: $0.type, payload: $0.payload, proxy: $0.proxy, size: nil) }
+        var all: [Row] = vpn.isConnected
+            ? live.enumerated().map { Row(index: $0.offset, type: $0.element.type, payload: $0.element.payload, proxy: $0.element.proxy, size: $0.element.size, session: $0.element.extra?.hitCount) }
+            : offline.result.rules.enumerated().map { Row(index: $0.offset, type: $0.element.type, payload: $0.element.payload, proxy: $0.element.proxy, size: nil, session: nil) }
+        if sortByHits {
+            all.sort { (hits.entry($0.type, $0.payload, $0.proxy)?.total ?? 0) > (hits.entry($1.type, $1.payload, $1.proxy)?.total ?? 0) }
+        }
         guard !search.isEmpty else { return all }
         let q = search.lowercased()
         return all.filter { $0.payload.lowercased().contains(q) || $0.type.lowercased().contains(q) || $0.proxy.lowercased().contains(q) }
@@ -112,6 +118,16 @@ struct RulesView: View {
             ToolbarItem(placement: .navigationBarTrailing) {
                 if tab == 1 {
                     Button { adding = true } label: { Image(systemName: "plus") }
+                } else {
+                    Menu {
+                        Picker("排序", selection: $sortByHits) {
+                            Label("配置顺序", systemImage: "list.number").tag(false)
+                            Label("命中最多", systemImage: "chart.bar.fill").tag(true)
+                        }
+                        Button(role: .destructive) { confirmReset = true } label: { Label("重置全部命中计数", systemImage: "arrow.counterclockwise") }
+                            .disabled(hits.entries.isEmpty)
+                    } label: { Image(systemName: "chart.bar.xaxis") }
+                    .accessibilityLabel(Text("命中统计"))
                 }
             }
         }
@@ -122,6 +138,9 @@ struct RulesView: View {
                 if let i = custom.rules.firstIndex(where: { $0.id == nr.id }) { custom.rules[i] = nr; custom.save() }
             }
         }
+        .confirmationDialog("重置全部规则的命中计数？", isPresented: $confirmReset, titleVisibility: .visible) {
+            Button("重置", role: .destructive) { hits.reset(nil) }
+        }
         .alert("提示", isPresented: Binding(get: { custom.message != nil }, set: { if !$0 { custom.message = nil } })) {
             Button("好") { custom.message = nil }
         } message: { Text(custom.message ?? "") }
@@ -129,6 +148,7 @@ struct RulesView: View {
 
     func load() async {
         if vpn.isConnected, let r = try? await ControllerClient.shared.rules() { live = r } else { await offline.load() }
+        await hits.refresh()
         await custom.recheck()
     }
 
@@ -139,9 +159,13 @@ struct RulesView: View {
                     .font(.caption.weight(.semibold)).foregroundStyle(.secondary)
                     .listRowBackground(Color.clear)
             }
-            ForEach(Array(rows.enumerated()), id: \.offset) { i, r in
+            if !hits.entries.isEmpty, search.isEmpty {
+                RuleHitsSummary(store: hits).listRowBackground(Color.clear)
+            }
+            ForEach(rows, id: \.index) { r in
+                let h = hits.entry(r.type, r.payload, r.proxy)
                 HStack(alignment: .top, spacing: 10) {
-                    Text("\(i + 1)").font(.caption2.monospacedDigit()).foregroundStyle(.secondary).frame(width: 30, alignment: .trailing)
+                    Text("\(r.index + 1)").font(.caption2.monospacedDigit()).foregroundStyle(.secondary).frame(width: 30, alignment: .trailing)
                     VStack(alignment: .leading, spacing: 3) {
                         Text(r.payload.isEmpty ? r.type : r.payload).font(.system(.footnote, design: .monospaced)).lineLimit(2)
                         HStack(spacing: 6) {
@@ -150,9 +174,16 @@ struct RulesView: View {
                             Spacer()
                             Text(r.proxy).font(.caption).foregroundStyle(Theme.accent).lineLimit(1)
                         }
+                        if h != nil || (r.session ?? 0) > 0 { RuleHitLine(entry: h, session: r.session) }
                     }
                 }
                 .listRowBackground(Theme.card)
+                .contextMenu {
+                    if h != nil {
+                        Button(role: .destructive) { hits.reset(h?.key) } label: { Label("重置此规则的命中计数", systemImage: "arrow.counterclockwise") }
+                    }
+                    Button { UIPasteboard.general.string = [r.type, r.payload, r.proxy].filter { !$0.isEmpty }.joined(separator: ",") } label: { Label("复制规则", systemImage: "doc.on.doc") }
+                }
             }
         }
         .listStyle(.plain)
@@ -543,5 +574,125 @@ struct OfflineProviderDetail: View {
         .scrollContentBackground(.hidden)
         .background(Theme.bg.ignoresSafeArea())
         .navigationTitle(p.name)
+    }
+}
+
+// MARK: - v0.14 rule hit counters (saved by the extension in <home>/rule-hits.json)
+
+@MainActor
+final class RuleHitsStore: ObservableObject {
+    static let shared = RuleHitsStore()
+
+    struct Entry: Decodable, Hashable {
+        var type: String
+        var payload: String
+        var proxy: String
+        var total: Int
+        var day: String?
+        var today: Int?
+        var lastHit: Int64?
+        var key: String { "\(type),\(payload),\(proxy)" }
+        var todayCount: Int { day == RuleHitsStore.dayString(Date()) ? (today ?? 0) : 0 }
+        var lastHitDate: Date? { (lastHit ?? 0) > 0 ? Date(timeIntervalSince1970: TimeInterval(lastHit!)) : nil }
+    }
+    private struct File: Decodable { var since: Int64?; var rules: [String: Entry]? }
+
+    @Published private(set) var entries: [String: Entry] = [:]
+    @Published private(set) var since: Date?
+    private var byNorm: [String: Entry] = [:]
+
+    static var url: URL { AppShared.homeURL.appendingPathComponent("rule-hits.json") }
+
+    nonisolated static func dayString(_ d: Date) -> String {
+        let f = DateFormatter()
+        f.calendar = Calendar(identifier: .gregorian)
+        f.locale = Locale(identifier: "en_US_POSIX")
+        f.dateFormat = "yyyy-MM-dd"
+        return f.string(from: d)
+    }
+
+    /// Live rules say "DomainSuffix", the offline inspector may say "DOMAIN-SUFFIX": compare without case / dashes.
+    nonisolated static func norm(_ t: String, _ p: String, _ x: String) -> String {
+        t.lowercased().filter { $0.isLetter || $0.isNumber } + "\u{1}" + p + "\u{1}" + x
+    }
+
+    func entry(_ type: String, _ payload: String, _ proxy: String) -> Entry? { byNorm[Self.norm(type, payload, proxy)] }
+
+    var total: Int { entries.values.reduce(0) { $0 + $1.total } }
+    var today: Int { entries.values.reduce(0) { $0 + $1.todayCount } }
+    var top: [Entry] { entries.values.sorted { $0.total > $1.total }.prefix(5).map { $0 } }
+
+    /// Asks a running tunnel to save its counters first, then reads the file.
+    func refresh() async {
+        if VPNManager.shared.isConnected { _ = await VPNManager.shared.send(.flushStats, timeout: 3) }
+        load()
+    }
+
+    func load() {
+        guard let d = try? Data(contentsOf: Self.url), let f = try? JSONDecoder().decode(File.self, from: d) else {
+            entries = [:]; byNorm = [:]; since = nil; return
+        }
+        entries = f.rules ?? [:]
+        var m: [String: Entry] = [:]
+        for e in entries.values { m[Self.norm(e.type, e.payload, e.proxy)] = e }
+        byNorm = m
+        since = (f.since ?? 0) > 0 ? Date(timeIntervalSince1970: TimeInterval(f.since!)) : nil
+    }
+
+    /// key nil = all rules.
+    func reset(_ key: String?) {
+        let err = LibmihomoResetRuleHits(AppShared.homeURL.path, key ?? "")
+        if !err.isEmpty { return }
+        load()
+    }
+}
+
+struct RuleHitLine: View {
+    let entry: RuleHitsStore.Entry?
+    let session: Int?
+
+    var body: some View {
+        HStack(spacing: 8) {
+            if let e = entry {
+                Label("累计 \(Fmt.count(e.total))", systemImage: "chart.bar.fill")
+                if e.todayCount > 0 { Text("今天 \(Fmt.count(e.todayCount))") }
+                if let d = e.lastHitDate { Text(d.formatted(.relative(presentation: .named))) }
+            }
+            if let s = session, s > 0 { Text("本次 \(Fmt.count(s))") }
+        }
+        .font(.caption2.monospacedDigit()).foregroundStyle(.secondary).labelStyle(.titleAndIcon).lineLimit(1)
+    }
+}
+
+struct RuleHitsSummary: View {
+    @ObservedObject var store: RuleHitsStore
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 8) {
+            HStack {
+                Label("命中统计", systemImage: "chart.bar.xaxis").font(.caption.weight(.semibold))
+                Spacer()
+                if let d = store.since { Text("自 \(d.formatted(date: .abbreviated, time: .omitted)) 起").font(.caption2).foregroundStyle(.secondary) }
+            }
+            HStack(spacing: 16) {
+                VStack(alignment: .leading) { Text(Fmt.count(store.total)).font(.headline.monospacedDigit()); Text("累计").font(.caption2).foregroundStyle(.secondary) }
+                VStack(alignment: .leading) { Text(Fmt.count(store.today)).font(.headline.monospacedDigit()); Text("今天").font(.caption2).foregroundStyle(.secondary) }
+                VStack(alignment: .leading) { Text("\(store.entries.count)").font(.headline.monospacedDigit()); Text("条规则有命中").font(.caption2).foregroundStyle(.secondary) }
+            }
+            let maxTotal = max(store.top.first?.total ?? 1, 1)
+            ForEach(store.top, id: \.key) { e in
+                HStack(spacing: 8) {
+                    Text(e.payload.isEmpty ? e.type : e.payload).font(.caption2.monospaced()).lineLimit(1).frame(maxWidth: .infinity, alignment: .leading)
+                    GeometryReader { g in
+                        Capsule().fill(Theme.accent.opacity(0.7)).frame(width: max(g.size.width * CGFloat(e.total) / CGFloat(maxTotal), 3))
+                    }
+                    .frame(width: 70, height: 5)
+                    Text(Fmt.count(e.total)).font(.caption2.monospacedDigit()).foregroundStyle(.secondary).frame(width: 44, alignment: .trailing)
+                }
+            }
+            Text("连接时每 30 秒保存一次，断开、重载配置后继续累计。长按规则可单独重置。").font(.caption2).foregroundStyle(.secondary)
+        }
+        .padding(12)
+        .background(RoundedRectangle(cornerRadius: 14).fill(Theme.card))
     }
 }

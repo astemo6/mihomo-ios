@@ -59,6 +59,8 @@ struct SubscriptionsView: View {
                 .listRowBackground(Theme.card)
             }
 
+            UpdateNotifySection()
+
             // v0.12: QX resource_parser_url, stored only (mihomo parses resources natively).
             Section {
                 DisclosureGroup("高级") {
@@ -111,7 +113,7 @@ struct SubscriptionsView: View {
         let count = active ? offline.result.proxies.count + offline.result.proxyProviders.reduce(0) { $0 + max($1.count, 0) } : nil
         return SubscriptionCard(name: p.name, badge: "配置", active: active, enabled: true, count: count,
                                 info: p.userInfo, updated: p.lastUpdated, intervalHours: p.updateIntervalHours,
-                                updating: store.updating.contains(p.id), error: nil)
+                                updating: store.updating.contains(p.id), error: nil, alerts: UsageAlerts.rule(for: p.id).enabled)
             .contentShape(Rectangle())
             .onTapGesture { if !active { Task { if let e = await store.setActive(p) { message = e } } } }
             .swipeActions(edge: .trailing) {
@@ -131,7 +133,7 @@ struct SubscriptionsView: View {
     func nodeSubCard(_ s: NodeSubscription) -> some View {
         SubscriptionCard(name: s.name, badge: "节点", active: false, enabled: s.enabled, count: s.count,
                          info: s.userInfo, updated: s.lastUpdated, intervalHours: s.updateIntervalHours,
-                         updating: nodes.updating.contains(s.id), error: s.lastError)
+                         updating: nodes.updating.contains(s.id), error: s.lastError, alerts: UsageAlerts.rule(for: s.id).enabled)
             .swipeActions(edge: .trailing) {
                 Button(role: .destructive) { Task { await nodes.delete(s) } } label: { Label("删除", systemImage: "trash") }
                 Button { editingSub = s } label: { Label("编辑", systemImage: "pencil") }.tint(.indigo)
@@ -193,6 +195,7 @@ struct SubscriptionCard: View {
     let updating: Bool
     let error: String?
     var note: String? = nil
+    var alerts = false
 
     var body: some View {
         VStack(alignment: .leading, spacing: 8) {
@@ -205,6 +208,7 @@ struct SubscriptionCard: View {
                     .foregroundStyle(badge == "配置" ? Theme.accent : Theme.good)
                 if active { Image(systemName: "checkmark.circle.fill").font(.caption).foregroundStyle(Theme.accent).accessibilityLabel(Text("当前配置")) }
                 if !enabled { Text("已停用").font(.caption2).foregroundStyle(.secondary) }
+                if alerts { Image(systemName: "bell.fill").font(.caption2).foregroundStyle(.secondary).accessibilityLabel(Text("用量提醒")) }
                 Spacer()
                 if updating { ProgressView().controlSize(.small) }
                 else if let count { Text("\(count) 个节点").font(.caption.monospacedDigit()).foregroundStyle(.secondary) }
@@ -248,6 +252,7 @@ struct NodeSubEditor: View {
     @State private var interval = 24
     @State private var customGroups = false
     @State private var groups: Set<String> = []
+    @State private var alert = UsageAlertRule()
     @State private var busy = false
     @State private var error: String?
 
@@ -289,6 +294,7 @@ struct NodeSubEditor: View {
                     Text("默认加入含节点的手动选择组和自动选择（url-test）组；这些组在别的配置中不存在时也按默认处理。")
                 }
                 .listRowBackground(Theme.card)
+                UsageAlertSection(rule: $alert)
                 if let error { Section { Text(error).foregroundStyle(Theme.bad).font(.footnote) }.listRowBackground(Theme.card) }
             }
             .scrollContentBackground(.hidden)
@@ -307,6 +313,7 @@ struct NodeSubEditor: View {
             .onAppear {
                 if let s = sub {
                     url = s.url; name = s.name; ua = s.userAgent; interval = s.updateIntervalHours
+                    alert = UsageAlerts.rule(for: s.id)
                     if let g = s.groups, !g.isEmpty { customGroups = true; groups = Set(g) }
                 }
             }
@@ -320,12 +327,15 @@ struct NodeSubEditor: View {
         if var s = sub {
             let urlChanged = s.url != url || s.userAgent != ua
             s.url = url; s.name = name; s.userAgent = ua; s.updateIntervalHours = interval; s.groups = g
+            UsageAlerts.setRule(alert, for: s.id)
             await nodes.save(s)
             if urlChanged, let e = await nodes.refresh(s) { error = e; return }
             dismiss()
         } else {
             do {
-                _ = try await nodes.add(url: url, name: name, userAgent: ua, intervalHours: interval, groups: g)
+                let s = try await nodes.add(url: url, name: name, userAgent: ua, intervalHours: interval, groups: g)
+                UsageAlerts.setRule(alert, for: s.id)
+                UsageAlerts.evaluate(id: s.id, name: s.name, info: s.userInfo)
                 dismiss()
             } catch {
                 self.error = error.localizedDescription
@@ -343,6 +353,7 @@ struct ProfileSubEditor: View {
     @State private var name = ""
     @State private var ua = "clash.meta"
     @State private var interval = 24
+    @State private var alert = UsageAlertRule()
     @State private var error: String?
     @State private var busy = false
 
@@ -370,6 +381,7 @@ struct ProfileSubEditor: View {
                     }
                 }
                 .listRowBackground(Theme.card)
+                UsageAlertSection(rule: $alert)
                 if let error { Section { Text(error).foregroundStyle(Theme.bad).font(.footnote) }.listRowBackground(Theme.card) }
             }
             .scrollContentBackground(.hidden)
@@ -381,7 +393,10 @@ struct ProfileSubEditor: View {
                     if busy { ProgressView() } else { Button("保存") { Task { await save() } }.disabled(!url.hasPrefix("http") || name.isEmpty) }
                 }
             }
-            .onAppear { url = profile.url ?? ""; name = profile.name; ua = profile.userAgent; interval = profile.updateIntervalHours }
+            .onAppear {
+                url = profile.url ?? ""; name = profile.name; ua = profile.userAgent; interval = profile.updateIntervalHours
+                alert = UsageAlerts.rule(for: profile.id)
+            }
         }
     }
 
@@ -392,7 +407,71 @@ struct ProfileSubEditor: View {
         let changed = p.url != url || p.userAgent != ua
         p.url = url; p.name = name; p.userAgent = ua; p.updateIntervalHours = interval
         store.update(p)
+        UsageAlerts.setRule(alert, for: p.id)
+        UsageAlerts.evaluate(id: p.id, name: p.name, info: p.userInfo)
         if changed, let e = await store.refresh(p) { error = e; return }
         dismiss()
+    }
+}
+
+// MARK: - v0.14 notifications
+
+/// 用量提醒 in both subscription editors: quota threshold + days before expiry.
+struct UsageAlertSection: View {
+    @Binding var rule: UsageAlertRule
+
+    var body: some View {
+        Section {
+            Toggle("用量提醒", isOn: $rule.enabled)
+            if rule.enabled {
+                Picker("流量用到", selection: $rule.quotaPercent) {
+                    Text("关闭").tag(0)
+                    ForEach(UsageAlertRule.quotaChoices, id: \.self) { Text("\($0)%").tag($0) }
+                }
+                Picker("到期前", selection: $rule.expiryDays) {
+                    Text("关闭").tag(0)
+                    ForEach(UsageAlertRule.expiryChoices, id: \.self) { Text("\($0) 天").tag($0) }
+                }
+            }
+        } header: { Text("提醒") } footer: {
+            Text("用订阅返回的流量与到期信息（subscription-userinfo）发本地通知：每次更新后检查流量，用完时再提醒一次；到期提醒由系统按时送达，不需要打开 App。没有这些信息的订阅不会提醒。")
+        }
+        .listRowBackground(Theme.card)
+    }
+}
+
+/// 订阅管理 → 通知: opt-in summary after automatic updates.
+struct UpdateNotifySection: View {
+    @State private var on = ScheduledUpdates.notifyEnabled
+    @State private var mode = ScheduledUpdates.mode
+    @State private var denied = false
+
+    var body: some View {
+        Section {
+            Toggle("自动更新后通知", isOn: $on)
+                .onChange(of: on) { ScheduledUpdates.notifyEnabled = $0 }
+            if on {
+                Picker("何时通知", selection: $mode) {
+                    ForEach(UpdateNotifyMode.allCases) { Text(LocalizedStringKey($0.title)).tag($0) }
+                }
+                .onChange(of: mode) { ScheduledUpdates.mode = $0 }
+            }
+            if denied && (on || hasAlerts) {
+                Button {
+                    if let u = URL(string: UIApplication.openSettingsURLString) { UIApplication.shared.open(u) }
+                } label: {
+                    Label("通知已在系统设置中关闭，轻点前往打开", systemImage: "bell.slash").font(.footnote).foregroundStyle(Theme.warn)
+                }
+            }
+        } header: { Text("通知") } footer: {
+            Text("按各订阅的更新间隔自动更新（打开 App 时，以及系统允许的后台刷新）。成功默认不打扰；失败或节点数减少三成以上时提醒。")
+        }
+        .listRowBackground(Theme.card)
+        .task { denied = await NotificationAuth.allowed() == false }
+    }
+
+    var hasAlerts: Bool {
+        ProfileStore.shared.profiles.contains { UsageAlerts.rule(for: $0.id).enabled }
+            || NodeSubStore.shared.subs.contains { UsageAlerts.rule(for: $0.id).enabled }
     }
 }

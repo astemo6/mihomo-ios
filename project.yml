@@ -18,9 +18,9 @@ settings:
     # Widget + Control Center toggle (v0.7); only in the "-widget" IPA variant. Same convention as the tunnel.
     WIDGET_BUNDLE_ID: com.astemo6.mihomo.qx.widget
     APP_GROUP_ID: group.com.astemo6.mihomo.qx
-    MARKETING_VERSION: "0.13.1"
+    MARKETING_VERSION: "0.14.0"
     # QX rebuild preview number (qx/rebuild only): tags v<ver>-qx.<n>-build<run>.
-    QX_PREVIEW: "6"
+    QX_PREVIEW: "7"
     CURRENT_PROJECT_VERSION: "1"
     SWIFT_VERSION: "5.0"
     # i18n: String Catalog (App/Localizable.xcstrings), source language zh-Hans; the compiler extracts keys.
@@ -42,6 +42,11 @@ settings:
       DEPLOYMENT_POSTPROCESSING: YES
       DEBUG_INFORMATION_FORMAT: dwarf
       SWIFT_OPTIMIZATION_LEVEL: "-Osize"
+      # v0.14 size pass
+      GCC_OPTIMIZATION_LEVEL: s
+      ASSETCATALOG_COMPILER_OPTIMIZATION: space
+      STRIP_SWIFT_SYMBOLS: YES
+      SWIFT_COMPILATION_MODE: wholemodule
 
 targets:
   Mihomo:
@@ -84,6 +89,8 @@ targets:
       # Bundled MetaCubeX/meta-rules-dat databases, copied into the core home dir before start.
       - path: Geo
         buildPhase: resources
+        # v0.14 size pass: ASN.mmdb (8.6 MB, only for IP-ASN rules / $utils.ipasn) is downloaded on demand.
+        excludes: ["ASN.mmdb"]
     configFiles:
       Debug: Config/Tunnel.signing.xcconfig
       Release: Config/Tunnel.signing.xcconfig

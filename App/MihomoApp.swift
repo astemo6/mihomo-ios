@@ -31,11 +31,11 @@ struct MihomoApp: App {
                 // v0.9: 更多 → 设置 → 外观 (跟随系统 / 浅色 / 深色), applied to every window.
                 .onAppear { AppAppearance.apply() }
                 .onChange(of: phase) { p in
-                    if p == .background { LiveActivityController.shared.didEnterBackground() }
+                    if p == .background { LiveActivityController.shared.didEnterBackground(); ScheduledUpdates.scheduleBackground() }
                     if p == .active {
                         Task { await vpn.load() }
-                        Task { await store.autoUpdateIfNeeded() }
-                        Task { await NodeSubStore.shared.autoUpdateIfNeeded() }
+                        // v0.14: due subscriptions + usage alerts + the opt-in update notification.
+                        Task { await ScheduledUpdates.run() }
                         Task { await ResourceStore.shared.updateDueIfNeeded() }
                         ipinfo.scheduleRefresh(after: 0.3)
                     }
