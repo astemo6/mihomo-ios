@@ -500,11 +500,11 @@ struct OfflineProviderRow: View {
     var error: String? = nil
 
     var cacheSummary: String {
-        var parts: [String] = ["已缓存"]
+        var parts: [String] = [String(localized: "已缓存")]
         if p.count >= 0 {
-            parts.append(p.kind == "proxy" ? "\(p.count) 个节点" : "\(p.count) 条")
+            parts.append(p.kind == "proxy" ? String(localized: "\(p.count) 个节点") : String(localized: "\(p.count) 条"))
         } else {
-            parts.append("二进制格式")
+            parts.append(String(localized: "二进制格式"))
         }
         if let s = p.size { parts.append(Fmt.bytes(s)) }
         if let d = p.cachedDate { parts.append(d.formatted(.relative(presentation: .named))) }

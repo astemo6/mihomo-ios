@@ -288,7 +288,7 @@ struct ToolsView: View {
     func field(_ title: String, text: Binding<String>, keyboard: UIKeyboardType) -> some View {
         VStack(alignment: .leading, spacing: 4) {
             Text(LocalizedStringKey(title)).font(.caption2).foregroundStyle(.secondary)
-            TextField(title, text: text)
+            TextField(LocalizedStringKey(title), text: text)
                 .keyboardType(keyboard)
                 .textInputAutocapitalization(.never).autocorrectionDisabled()
                 .font(.system(.body, design: .monospaced))

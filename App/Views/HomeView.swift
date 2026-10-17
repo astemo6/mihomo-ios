@@ -468,7 +468,7 @@ struct OfflineGroupPicker: View {
                             UISelectionFeedbackGenerator().selectionChanged()
                         } label: {
                             HStack {
-                                Text(m).lineLimit(1)
+                                Text(verbatim: FlagSafe.text(m)).lineLimit(1)
                                 Spacer()
                                 if let d = insp.delays[m] {
                                     Text(Theme.delayText(d)).font(.caption.monospacedDigit()).foregroundStyle(Theme.delayColor(d))
@@ -513,7 +513,7 @@ struct GroupQuickPicker: View {
                         Task { await select(m) }
                     } label: {
                         HStack {
-                            Text(m).lineLimit(1)
+                            Text(verbatim: FlagSafe.text(m)).lineLimit(1)
                             Spacer()
                             if let d = all[m]?.lastDelay(for: ControllerClient.testSettings.url) {
                                 Text(Theme.delayText(d)).font(.caption.monospacedDigit()).foregroundStyle(Theme.delayColor(d))

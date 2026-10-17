@@ -90,7 +90,7 @@ struct AddNodeView: View {
                 .onChange(of: paste) { t in detect(t) }
                 HStack(spacing: 8) {
                     if let d = detected {
-                        Text(verbatim: d.format)
+                        Text(verbatim: GoText.localize(d.format))
                             .scaledFont(10, weight: .bold)
                             .padding(.horizontal, 6).padding(.vertical, 2)
                             .background(Capsule().fill((d.count > 0 ? Theme.accent : Color.secondary).opacity(0.16)))

@@ -178,7 +178,7 @@ struct NodeListView: View {
                     if let best = shown.filter({ (model.delay(of: $0) ?? 0) > 0 }).min(by: { (model.delay(of: $0) ?? 0) < (model.delay(of: $1) ?? 0) }) {
                         VStack(alignment: .trailing, spacing: 2) {
                             Text("最快").font(.caption2).foregroundStyle(.secondary)
-                            Text(verbatim: best.name).font(.caption.weight(.semibold)).lineLimit(1)
+                            Text(verbatim: FlagSafe.text(best.name)).font(.caption.weight(.semibold)).lineLimit(1)
                         }
                     }
                 }
@@ -295,10 +295,12 @@ struct NodeManagerRow: View {
 
     var body: some View {
         HStack(spacing: 10) {
+            // selftest: fixed column so names line up (WireGuard / TrustTunnel badges pushed them right).
             ProtocolBadge(type: node.type)
-                .frame(minWidth: 44, alignment: .leading)
+                .minimumScaleFactor(0.6)
+                .frame(width: 62, alignment: .leading)
             VStack(alignment: .leading, spacing: 2) {
-                Text(verbatim: node.name).font(.subheadline.weight(.semibold)).lineLimit(1)
+                Text(verbatim: FlagSafe.text(node.name)).font(.subheadline.weight(.semibold)).lineLimit(1)
                 HStack(spacing: 6) {
                     if let a = node.address {
                         Text(verbatim: a).font(.caption.monospaced()).foregroundStyle(.secondary).lineLimit(1)
@@ -353,7 +355,7 @@ struct NodeDetailView: View {
                 HStack(spacing: 12) {
                     VStack(alignment: .leading, spacing: 6) {
                         ProtocolBadge(type: node.type)
-                        Text(verbatim: node.name).font(.title3.weight(.semibold)).lineLimit(3)
+                        Text(verbatim: FlagSafe.text(node.name)).font(.title3.weight(.semibold)).lineLimit(3)
                     }
                     Spacer()
                     VStack(alignment: .trailing, spacing: 6) {
@@ -459,7 +461,7 @@ struct NodeDetailView: View {
         .listStyle(.insetGrouped)
         .scrollContentBackground(.hidden)
         .background(Theme.bg.ignoresSafeArea())
-        .navigationTitle(Text(verbatim: node.name))
+        .navigationTitle(Text(verbatim: FlagSafe.text(node.name)))
         .navigationBarTitleDisplayMode(.inline)
         .task {
             info = await model.summary(of: node)

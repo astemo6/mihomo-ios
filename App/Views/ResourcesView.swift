@@ -213,7 +213,7 @@ struct ResourceRow: View {
                 if item.kind == "module", let d = item.refId.flatMap({ store.moduleInfo[$0]?.desc }), !d.isEmpty {
                     Text(d).font(.caption2).foregroundStyle(.secondary).lineLimit(2)
                 }
-                if let d = item.detail, !d.isEmpty { Text(d).font(.caption2).foregroundStyle(.secondary).lineLimit(1) }
+                if let d = item.detail, !d.isEmpty { Text(verbatim: GoText.localize(d)).font(.caption2).foregroundStyle(.secondary).lineLimit(1) }
                 if let o = item.owner, !o.isEmpty { Text("来自 \(o)").font(.caption2).foregroundStyle(.secondary).lineLimit(1) }
                 HStack(spacing: 6) {
                     Text(updatedText)
@@ -294,7 +294,7 @@ struct ResourceDetailView: View {
                         Text(it.name).font(.headline)
                         if let f = it.format { SourceFormatBadge(format: f) }
                     }
-                    if let d = it.detail, !d.isEmpty { LabeledContent("内容", value: d) }
+                    if let d = it.detail, !d.isEmpty { LabeledContent("内容", value: GoText.localize(d)) }
                     if let o = it.owner, !o.isEmpty { LabeledContent("使用者", value: o) }
                     if it.readOnly != true {
                         Toggle("启用", isOn: Binding(get: { it.enabled }, set: { res.setEnabled(it, $0) }))

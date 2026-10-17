@@ -281,7 +281,7 @@ struct RuleRow: View {
             VStack(alignment: .leading, spacing: 4) {
                 HStack(spacing: 6) {
                     KindBadge(kind: d.kind, phase: item.line.lowercased().contains("response") ? "response" : "request")
-                    Text(d.desc).font(.caption.weight(.semibold)).foregroundStyle(d.error == nil ? Color.primary : Theme.bad).lineLimit(1)
+                    Text(verbatim: GoText.localize(d.desc)).font(.caption.weight(.semibold)).foregroundStyle(d.error == nil ? Color.primary : Theme.bad).lineLimit(1)
                 }
                 Text(item.line).scaledFont(11, design: .monospaced).foregroundStyle(.secondary).lineLimit(3)
                 if let e = d.error { Text(e).font(.caption2).foregroundStyle(Theme.bad) }
@@ -308,7 +308,7 @@ struct SyntaxHelp: View {
     var body: some View {
         ForEach(samples, id: \.0) { s in
             VStack(alignment: .leading, spacing: 2) {
-                Text(s.0).font(.caption2.weight(.semibold)).foregroundStyle(.secondary)
+                Text(LocalizedStringKey(s.0)).font(.caption2.weight(.semibold)).foregroundStyle(.secondary)
                 Text(s.1).scaledFont(10, design: .monospaced).textSelection(.enabled)
             }
         }
@@ -800,6 +800,19 @@ struct ModuleDetailView: View {
     @State private var args: [String: String] = [:]
     @State private var unresolved: [String] = []
     @State private var groups: [String] = []
+    @StateObject private var debounce = Debouncer()
+
+    /// v0.15.4: module arguments apply on change (debounced) instead of a 保存参数 button.
+    func applyArgs() {
+        guard !args.isEmpty, let i = store.config.modules.firstIndex(where: { $0.id == moduleID }) else { return }
+        var merged = store.config.modules[i].args ?? [:]
+        for (k, v) in args { merged[k] = v }
+        guard merged != (store.config.modules[i].args ?? [:]) else { return }
+        store.config.modules[i].args = merged
+        store.reparseModules()
+        store.save()
+        loadPolicies()
+    }
 
     func policyNames(_ m: EngineModule) -> [String] {
         var out = unresolved
@@ -852,16 +865,7 @@ struct ModuleDetailView: View {
                         ForEach(info.arguments, id: \.key) { a in
                             ModuleArgRow(arg: a, value: Binding(get: { args[a.key] ?? (m.args?[a.key] ?? a.default) }, set: { args[a.key] = $0 }))
                         }
-                        Button("保存参数") {
-                            if let i = store.config.modules.firstIndex(where: { $0.id == moduleID }) {
-                                var merged = store.config.modules[i].args ?? [:]
-                                for (k, v) in args { merged[k] = v }
-                                store.config.modules[i].args = merged
-                                store.reparseModules()
-                                store.save()
-                                loadPolicies()
-                            }
-                        }
+                        // v0.15.4: 参数 apply on change (debounced), no 保存参数 button.
                     }
                     .listRowBackground(Theme.card)
                 }
@@ -938,6 +942,8 @@ struct ModuleDetailView: View {
         .background(Theme.bg.ignoresSafeArea())
         .navigationTitle(module?.name ?? "模块")
         .onAppear { loadPolicies(); ResourceStore.shared.reload() }
+        .onChange(of: args) { _ in debounce.schedule { applyArgs() } }
+        .onDisappear { debounce.flush() }
         .sheet(isPresented: $showText) {
             NavigationStack {
                 ScrollView {

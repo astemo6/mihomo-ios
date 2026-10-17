@@ -77,7 +77,7 @@ struct NodeFilterView: View {
                 Section("没有节点的地区") {
                     ForEach(without) { r in
                         HStack(spacing: 12) {
-                            Text(verbatim: r.flag).font(.title3)
+                            FlagGlyph(flag: r.flag)
                             Text(verbatim: r.title).foregroundStyle(.secondary)
                             Spacer()
                             Text(verbatim: "0").font(.subheadline.monospacedDigit()).foregroundStyle(.tertiary)
@@ -106,7 +106,7 @@ struct NodeFilterView: View {
                 NodeListView(scope: NodeListScope(title: r.title, pattern: r.filter))
             } label: {
                 HStack(spacing: 12) {
-                    Text(verbatim: r.flag).font(.title3)
+                    FlagGlyph(flag: r.flag)
                     VStack(alignment: .leading, spacing: 2) {
                         Text(verbatim: r.title).font(.subheadline.weight(.semibold))
                         Text("\(count) 个节点").font(.caption).foregroundStyle(.secondary)

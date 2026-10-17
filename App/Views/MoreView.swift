@@ -239,6 +239,9 @@ struct SettingsView: View {
     @State private var o = CoreOverrides.load()
     @State private var portText = ""
     @State private var status: String?
+    @StateObject private var debounce = Debouncer()
+
+    private var portInvalid: Bool { Int(portText).map { !(1024...65535).contains($0) } ?? true }
 
     var body: some View {
         Form {
@@ -284,6 +287,11 @@ struct SettingsView: View {
                     Text("端口")
                     Spacer()
                     TextField("9090", text: $portText).keyboardType(.numberPad).multilineTextAlignment(.trailing).frame(width: 90)
+                        .accessibilityIdentifier("settings.port")
+                }
+                if portInvalid {
+                    Label("端口应为 1024–65535，修改前不会应用。", systemImage: "exclamationmark.triangle")
+                        .font(.footnote).foregroundStyle(Theme.warn)
                 }
                 HStack {
                     Text("密钥")
@@ -295,48 +303,42 @@ struct SettingsView: View {
             }
             .listRowBackground(Theme.card)
 
-            Section {
-                Button {
-                    apply()
-                } label: {
-                    HStack { Spacer(); Text(vpn.isConnected ? "保存并重载内核" : "保存").bold(); Spacer() }
-                }
-                if let status { Text(status).font(.footnote).foregroundStyle(.secondary) }
+            if status != nil {
+                Section { AutoApplyFooter(status: status) }
+                    .listRowBackground(Theme.card)
             }
-            .listRowBackground(Theme.card)
         }
         .scrollContentBackground(.hidden)
         .background(Theme.bg.ignoresSafeArea())
         .navigationTitle("内核设置")
         .onAppear { o = CoreOverrides.load(); portText = String(o.controllerPort) }
+        // v0.15.4: applied on change (debounced), no 保存 button.
+        .onChange(of: o) { _ in debounce.schedule { apply() } }
+        .onChange(of: portText) { _ in debounce.schedule { apply() } }
+        .onDisappear { debounce.flush() }
     }
 
     func apply() {
-        if let p = Int(portText), (1024...65535).contains(p) { o.controllerPort = p } else { portText = String(o.controllerPort) }
+        // Only this page's fields; everything else stays as the other pages saved it.
         let old = CoreOverrides.load()
-        // Fields owned by other pages: keep what they saved.
-        o.mode = old.mode
-        o.dnsMode = old.dnsMode
-        o.tunnelMode = old.tunnelMode
-        o.geoMirror = old.geoMirror
-        o.geoURLs = old.geoURLs
-        o.testURL = old.testURL
-        o.testTimeoutMs = old.testTimeoutMs
-        o.overrideHealthCheck = old.overrideHealthCheck
-        o.save()
+        var cur = old
+        cur.logLevel = o.logLevel
+        cur.sniffer = o.sniffer
+        cur.mergeManual = o.mergeManual
+        cur.memoryLimitMB = o.memoryLimitMB
+        cur.tunMTU = o.tunMTU
+        cur.secret = o.secret
+        if !portInvalid, let p = Int(portText) { cur.controllerPort = p }
+        guard cur != old else { return }
+        cur.save()
         Task {
             if vpn.isConnected {
-                if old.ipv6 != o.ipv6 || old.controllerPort != o.controllerPort || old.secret != o.secret || old.tunMTU != o.tunMTU || old.memoryLimitMB != o.memoryLimitMB {
-                    if let err = await vpn.reload() { status = "重载失败：\(err)" } else {
-                        status = "已保存。端口 / 密钥 / IPv6 / MTU / 内存上限在断开后重新连接时生效。"
-                    }
-                } else if let err = await vpn.reload() {
-                    status = "重载失败：\(err)"
-                } else {
-                    status = "已保存并重载"
-                }
+                let reconnect = old.controllerPort != cur.controllerPort || old.secret != cur.secret || old.tunMTU != cur.tunMTU || old.memoryLimitMB != cur.memoryLimitMB
+                if let err = await ReloadCoalescer.shared.reload(vpn) { status = String(localized: "重载失败：\(err)") }
+                else if reconnect { status = String(localized: "已保存。端口 / 密钥 / IPv6 / MTU / 内存上限在断开后重新连接时生效。") }
+                else { status = String(localized: "已保存并重载") }
             } else {
-                status = "已保存，下次连接生效"
+                status = String(localized: "已保存，下次连接生效")
             }
         }
     }
@@ -388,7 +390,7 @@ struct DiagnosticsView: View {
                 LabeledContent("隧道扩展 ID", value: AppShared.tunnelBundleID)
                 LabeledContent("内核打包方式", value: FileManager.default.fileExists(atPath: Bundle.main.bundleURL.appendingPathComponent("Frameworks/Libmihomo.framework/Libmihomo").path) ? String(localized: "共享框架（测试版）") : String(localized: "静态链接"))
                 LabeledContent("App Group", value: group)
-                LabeledContent("来源", value: AppShared.appGroupSource)
+                LabeledContent("来源", value: GoText.localize(AppShared.appGroupSource))
                 LabeledContent("共享容器") {
                     Text(AppShared.containerOK ? "正常" : "不可用").foregroundStyle(AppShared.containerOK ? Theme.good : Theme.bad)
                 }
@@ -496,9 +498,9 @@ struct AboutView: View {
                             HStack {
                                 Text(c.name).font(.subheadline.weight(.semibold)).foregroundStyle(.primary)
                                 Spacer()
-                                Text(c.license).font(.caption2.weight(.bold)).foregroundStyle(Theme.accent)
+                                Text(LocalizedStringKey(c.license)).font(.caption2.weight(.bold)).foregroundStyle(Theme.accent)
                             }
-                            Text(c.note).font(.caption2).foregroundStyle(.secondary)
+                            Text(LocalizedStringKey(c.note)).font(.caption2).foregroundStyle(.secondary)
                         }
                     }
                 }
@@ -577,6 +579,7 @@ struct SpeedTestSettingsView: View {
     @State private var timeoutSec = 5
     @State private var overrideHC = false
     @State private var status: String?
+    @StateObject private var debounce = Debouncer()
 
     private static let customTag = "__custom__"
 
@@ -634,21 +637,21 @@ struct SpeedTestSettingsView: View {
             }
             .listRowBackground(Theme.card)
 
-            Section {
-                Button {
-                    save()
-                } label: {
-                    HStack { Spacer(); Text("保存").bold(); Spacer() }
-                }
-                .disabled(customInvalid)
-                if let status { Text(status).font(.footnote).foregroundStyle(.secondary) }
+            if status != nil {
+                Section { AutoApplyFooter(status: status) }
+                    .listRowBackground(Theme.card)
             }
-            .listRowBackground(Theme.card)
         }
         .scrollContentBackground(.hidden)
         .background(Theme.bg.ignoresSafeArea())
         .navigationTitle("测速")
         .onAppear(perform: loadValues)
+        // v0.15.4: applied on change (debounced), no 保存 button; an invalid custom URL is not applied.
+        .onChange(of: choice) { _ in debounce.schedule { save() } }
+        .onChange(of: custom) { _ in debounce.schedule { save() } }
+        .onChange(of: timeoutSec) { _ in debounce.schedule { save() } }
+        .onChange(of: overrideHC) { _ in debounce.schedule { save() } }
+        .onDisappear { debounce.flush() }
     }
 
     private func loadValues() {
@@ -671,6 +674,7 @@ struct SpeedTestSettingsView: View {
         o.testURL = effectiveURL
         o.testTimeoutMs = timeoutSec * 1000
         o.overrideHealthCheck = overrideHC
+        guard o != old else { return }
         o.save()
         let healthCheckChanged = old.overrideHealthCheck != o.overrideHealthCheck || (o.overrideHealthCheck && old.testURL != o.testURL)
         guard vpn.isConnected, healthCheckChanged else {
@@ -678,7 +682,7 @@ struct SpeedTestSettingsView: View {
             return
         }
         Task {
-            if let err = await vpn.reload() {
+            if let err = await ReloadCoalescer.shared.reload(vpn) {
                 status = String(localized: "重载失败：\(err)")
             } else {
                 status = String(localized: "已保存并重载")

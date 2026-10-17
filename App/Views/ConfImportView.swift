@@ -115,10 +115,10 @@ enum ConfImport {
         guard let yaml = r.yaml, !yaml.isEmpty else { throw ProfileStore.StoreError.empty }
         await progress(String(localized: "正在校验配置…"))
         let p = try await store.addLocal(name: name.isEmpty ? "导入的配置" : name, text: yaml)
-        var msg = "已导入配置「\(p.name)」"
+        var msg = String(localized: "已导入配置「\(p.name)」")
         if let m = r.module, !m.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
             await MainActor.run { EngineStore.shared.addModule(text: m, name: p.name + "（重写）") }
-            msg += "，重写 / MitM / 脚本已作为模块「\(p.name)（重写）」添加"
+            msg += String(localized: "，重写 / MitM / 脚本已作为模块「\(p.name)（重写）」添加")
         }
         // QX [rewrite_remote] (v0.8.1): one module per line (tag / file name, enabled= kept), downloaded now.
         let remotes = r.rewriteRemotes ?? []

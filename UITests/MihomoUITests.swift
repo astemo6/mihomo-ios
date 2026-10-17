@@ -138,12 +138,14 @@ final class MihomoUITests: MihomoUITestCase {
         // 全部节点
         XCTAssertTrue(tapIfExists(app.element(label: L("全部节点"))))
         XCTAssertTrue(app.element(label: "🇯🇵 Tokyo 01").waitForExistence(timeout: 10), "profile node listed")
-        XCTAssertTrue(app.element(label: "🇰🇷 Seoul Sub 01").waitForExistence(timeout: 5), "subscription node listed")
-        XCTAssertTrue(app.element(label: "Manual SS").waitForExistence(timeout: 5), "manual node listed")
         snap("nodes-all")
+        // selftest: the list is lazy — rows further down only exist once scrolled to.
+        XCTAssertTrue(scrollTo(app.element(label: "🇰🇷 Seoul Sub 01")), "subscription node listed")
+        XCTAssertTrue(scrollTo(app.element(label: "Manual SS")), "manual node listed")
 
-        // Search
+        // Search (the field appears when the list is pulled down to the top)
         let search = app.searchFields.firstMatch
+        for _ in 0..<8 where !search.exists { app.swipeDown(velocity: .fast) }
         XCTAssertTrue(search.waitForExistence(timeout: 5))
         search.tap()
         search.typeText("Tokyo")
@@ -275,15 +277,24 @@ final class MihomoUITests: MihomoUITestCase {
             fill(L("名称"), e.1)
             fill(L("服务器"), e.2)
             fill(L("端口"), "443")
+            // Required protocol fields, so the editor can save.
+            if e.0 == "VLESS XHTTP" { fill("UUID", "11111111-2222-4333-8444-555555555555") }
+            if e.0 == "AmneziaWG" { fill(L("对端公钥"), "VlZWVlZWVlZWVlZWVlZWVlZWVlZWVlZWVlZWVlZWVlY=") }
             // Protocol credentials (best effort: the first secure field).
             let sec = app.secureTextFields.firstMatch
-            if sec.exists { sec.tap(); sec.typeText("uitest-secret-form") }
+            if sec.exists {
+                sec.tap()
+                sec.typeText(e.0 == "AmneziaWG" ? "VVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVU=" : "uitest-secret-form")
+            }
             app.swipeUp()
             snap(String(format: "editor-%d-bottom", i))
             let save = app.navigationBars.buttons[L("保存")]
             XCTAssertTrue(save.waitHittable(), "保存 \(e.0)")
             save.tap()
-            if app.navigationBars[L("添加节点")].waitForExistence(timeout: 1.5) && app.navigationBars.buttons[L("保存")].exists {
+            // Saving validates in Go; give it time before calling it a failure (the page below is also 添加节点).
+            let gone = NSPredicate(format: "exists == false")
+            let closed = XCTWaiter().wait(for: [XCTNSPredicateExpectation(predicate: gone, object: app.navigationBars.buttons[L("保存")])], timeout: 6) == .completed
+            if !closed {
                 // Still open: an error is shown; screenshot it and cancel.
                 snap(String(format: "editor-%d-error", i))
                 issues.append("[\(Env.tag)] editor \(e.0) did not save")
@@ -294,7 +305,7 @@ final class MihomoUITests: MihomoUITestCase {
         back()
         XCTAssertTrue(tapIfExists(app.element(label: L("本地节点"))))
         for n in ["Typed Hy2", "UITest XHTTP", "UITest Hy2 Form"] {
-            XCTAssertTrue(app.element(label: n).waitForExistence(timeout: 6), "saved node \(n)")
+            XCTAssertTrue(app.element(label: L("本地节点")).waitForExistence(timeout: 6) && scrollTo(app.element(label: n)), "saved node \(n)")
         }
         snap("nodes-local-after-add")
     }
@@ -441,5 +452,58 @@ final class MihomoUITests: MihomoUITestCase {
         XCTAssertTrue(app.navigationBars.firstMatch.waitForExistence(timeout: 8), "panels page")
         usleep(1_000_000)
         snap("panels-page")
+    }
+
+    // MARK: 9. 更多 settings apply on change (v0.15.4): no 保存 button, the change survives leaving the page.
+
+    func switchValue(_ sw: XCUIElement) -> String { (sw.value as? String) ?? "" }
+
+    func toggleSwitch(_ sw: XCUIElement) {
+        sw.coordinate(withNormalizedOffset: CGVector(dx: 0.93, dy: 0.5)).tap()
+    }
+
+    func test09_AutoApplySettings() {
+        launch()
+        let pages: [(String, String)] = [("内核设置", "域名嗅探（Sniffer）"), ("测速", "健康检查也使用此地址"),
+                                         ("DNS", "使用自定义 DNS"), ("连接方式", "接管所有网络流量")]
+        for (page, toggle) in pages {
+            openMore(page)
+            for k in ["保存", "保存并重载", "保存并重载内核"] {
+                XCTAssertFalse(app.buttons.matching(NSPredicate(format: "label == %@", L(k))).firstMatch.exists, "\(page): 保存 button still there (\(k))")
+            }
+            let sw = app.switches[L(toggle)]
+            guard scrollTo(sw) else { back(); continue }
+            let before = switchValue(sw)
+            toggleSwitch(sw)
+            usleep(300_000)
+            XCTAssertNotEqual(switchValue(sw), before, "\(page): \(toggle) did not toggle")
+            snap("autoapply-\(page)")
+            usleep(1_200_000)   // debounce 0.5 s + write
+            back()
+            openMore(page)
+            let again = app.switches[L(toggle)]
+            XCTAssertTrue(scrollTo(again), "\(page) reopened")
+            XCTAssertNotEqual(switchValue(again), before, "\(page): \(toggle) not kept after leaving the page")
+            // Put it back (also exercises a second apply).
+            toggleSwitch(again)
+            usleep(1_200_000)
+            back()
+        }
+        // Text field: an invalid controller port shows the inline error and is not applied.
+        openMore("内核设置")
+        let port = app.textFields.matching(identifier: "settings.port").firstMatch
+        if scrollTo(port) {
+            port.tap()
+            port.press(forDuration: 1.0)
+            if tapIfExists(app.menuItems.matching(NSPredicate(format: "label IN %@", ["Select All", "全选"])).firstMatch, timeout: 2) {
+                port.typeText(XCUIKeyboardKey.delete.rawValue)
+            } else {
+                port.typeText(String(repeating: XCUIKeyboardKey.delete.rawValue, count: 6))
+            }
+            port.typeText("80")
+            XCTAssertTrue(app.element(labelContains: L("端口应为 1024–65535，修改前不会应用。")).waitForExistence(timeout: 3), "invalid port error")
+            snap("autoapply-port-invalid")
+        }
+        back()
     }
 }

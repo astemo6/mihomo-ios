@@ -1,4 +1,5 @@
 import SwiftUI
+import Darwin
 import Libmihomo
 
 /// Mirrors <home>/localdns.json (bridge/localdns.go, v0.7): 本地 DNS 映射 (mihomo `hosts:`) and 真实 IP 域名
@@ -194,6 +195,11 @@ struct DNSView: View {
     @State private var newHostValue = ""
     @State private var hostError: String?
     @State private var cacheMessage: String?
+    // v0.15.4: applied on change (debounced), no 保存 button. What was last written, to skip no-op applies.
+    @State private var savedS = DNSOverrideSettings.load()
+    @State private var savedLocal = LocalDNSSettings.load()
+    @State private var savedMode = CoreOverrides.load().dnsMode
+    @StateObject private var debounce = Debouncer()
 
     func flush(_ path: String, _ ok: String) async {
         do {
@@ -314,15 +320,35 @@ struct DNSView: View {
                 .listRowBackground(Theme.card)
             }
 
-            Section {
-                Button { save() } label: { HStack { Spacer(); Text(vpn.isConnected ? "保存并重载" : "保存").bold(); Spacer() } }
-                if let status { Text(status).font(.footnote).foregroundStyle(.secondary) }
+            if !invalidEntries.isEmpty || status != nil {
+                Section {
+                    if !invalidEntries.isEmpty {
+                        Label("无效：\(invalidEntries.joined(separator: ", "))", systemImage: "exclamationmark.triangle")
+                            .font(.footnote).foregroundStyle(Theme.warn)
+                        Text("修改前不会应用。").font(.footnote).foregroundStyle(Theme.warn)
+                    }
+                    AutoApplyFooter(status: status)
+                }
+                .listRowBackground(Theme.card)
             }
-            .listRowBackground(Theme.card)
         }
         .scrollContentBackground(.hidden)
         .background(Theme.bg.ignoresSafeArea())
         .navigationTitle("DNS")
+        .onChange(of: s) { _ in debounce.schedule { save() } }
+        .onChange(of: local) { _ in debounce.schedule { save() } }
+        .onChange(of: dnsMode) { _ in debounce.schedule { save() } }
+        .onDisappear { debounce.flush() }
+    }
+
+    /// Entries the core would reject; while any exist nothing is applied.
+    var invalidEntries: [String] {
+        guard s.enabled else { return [] }
+        var bad: [String] = []
+        for e in s.nameserver + (s.split ? s.foreign : []) + s.proxyNameserver + s.directNameserver + s.policy.flatMap(\.servers)
+        where !DNSServerSpec.isValidServer(e) { bad.append(e) }
+        for e in s.defaultNameserver where !DNSServerSpec.isValidBootstrap(e) { bad.append(e) }
+        return bad
     }
 
     var hostsSection: some View {
@@ -371,17 +397,69 @@ struct DNSView: View {
     }
 
     func save() {
+        guard s != savedS || local != savedLocal || dnsMode != savedMode else { return }
+        guard invalidEntries.isEmpty else { return }
         local.save()
         s.save()
         var o = CoreOverrides.load()
         o.dnsMode = dnsMode
         o.save()
+        savedS = s; savedLocal = local; savedMode = dnsMode
         Task {
             if vpn.isConnected {
-                status = (await vpn.reload()).map { "重载失败：\($0)" } ?? "已保存并重载"
+                status = (await ReloadCoalescer.shared.reload(vpn)).map { String(localized: "重载失败：\($0)") } ?? String(localized: "已保存并重载")
             } else {
-                status = "已保存，下次连接生效"
+                status = String(localized: "已保存，下次连接生效")
             }
         }
+    }
+}
+
+/// v0.15.4: light validation for the DNS lists (applied on change, so a half-typed entry must not reach the core).
+enum DNSServerSpec {
+    static let schemes = ["udp", "tcp", "tls", "https", "quic", "h3", "dhcp", "system", "rcode"]
+
+    static func isValidServer(_ e: String) -> Bool {
+        let v = e.trimmingCharacters(in: .whitespaces)
+        if v.isEmpty || v.contains(" ") { return false }
+        if v == "system" || v == "dhcp://system" { return true }
+        if let r = v.range(of: "://") {
+            let scheme = v[..<r.lowerBound].lowercased()
+            let rest = v[r.upperBound...]
+            return schemes.contains(scheme) && !rest.isEmpty
+        }
+        return isHostPort(String(v.split(separator: "#").first ?? ""))
+    }
+
+    /// default-nameserver must be IP based (it resolves the DoH / DoT hosts).
+    static func isValidBootstrap(_ e: String) -> Bool {
+        var v = e.trimmingCharacters(in: .whitespaces)
+        if let r = v.range(of: "://") {
+            guard ["udp", "tcp", "tls", "dhcp"].contains(v[..<r.lowerBound].lowercased()) else { return false }
+            v = String(v[r.upperBound...])
+            if v == "system" { return true }
+        }
+        v = String(v.split(separator: "#").first ?? "")
+        v = String(v.split(separator: "/").first ?? "")
+        return isIP(stripPort(v))
+    }
+
+    static func stripPort(_ v: String) -> String {
+        if v.hasPrefix("["), let close = v.firstIndex(of: "]") { return String(v[v.index(after: v.startIndex)..<close]) }
+        let parts = v.split(separator: ":", omittingEmptySubsequences: false)
+        if parts.count == 2, Int(parts[1]) != nil { return String(parts[0]) }
+        return v
+    }
+
+    static func isIP(_ v: String) -> Bool {
+        var a4 = in_addr(), a6 = in6_addr()
+        return inet_pton(AF_INET, v, &a4) == 1 || inet_pton(AF_INET6, v, &a6) == 1
+    }
+
+    static func isHostPort(_ v: String) -> Bool {
+        let h = stripPort(v)
+        if isIP(h) { return true }
+        let allowed = CharacterSet.alphanumerics.union(CharacterSet(charactersIn: ".-_"))
+        return !h.isEmpty && h.contains(".") && h.unicodeScalars.allSatisfy { allowed.contains($0) }
     }
 }

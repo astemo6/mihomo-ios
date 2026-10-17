@@ -122,9 +122,9 @@ final class EngineStore: ObservableObject {
             if !config.enabled { config.enabled = true }
             reparseModules()
             save()
-            var msg = "已添加「\(name)」：\(p.rules.count) 条规则/脚本，\(p.hostnames.count) 个 MitM 主机"
-            if !p.unsupported.isEmpty { msg += "，\(p.unsupported.count) 行暂不支持" }
-            if !p.hostnames.isEmpty && !caTrustedOrUnknownTrue { msg += "。HTTPS 规则需要先在 MitM 页安装并信任证书" }
+            var msg = String(localized: "已添加「\(name)」：\(p.rules.count) 条规则/脚本，\(p.hostnames.count) 个 MitM 主机")
+            if !p.unsupported.isEmpty { msg += String(localized: "，\(p.unsupported.count) 行暂不支持") }
+            if !p.hostnames.isEmpty && !caTrustedOrUnknownTrue { msg += String(localized: "。HTTPS 规则需要先在 MitM 页安装并信任证书") }
             message = msg
         } catch {
             message = "下载失败：\(error.localizedDescription)"
