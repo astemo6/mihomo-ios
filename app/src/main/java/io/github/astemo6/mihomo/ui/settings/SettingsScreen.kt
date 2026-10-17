@@ -57,6 +57,17 @@ import io.github.astemo6.mihomo.R
 import io.github.astemo6.mihomo.core.Core
 import io.github.astemo6.mihomo.data.AppSettings
 import io.github.astemo6.mihomo.ui.MainViewModel
+import io.github.astemo6.mihomo.ui.Routes
+import io.github.astemo6.mihomo.ui.feature2.Feature2Routes
+import androidx.compose.material.icons.automirrored.filled.ListAlt
+import androidx.compose.material.icons.filled.AccountTree
+import androidx.compose.material.icons.filled.BarChart
+import androidx.compose.material.icons.filled.CloudSync
+import androidx.compose.material.icons.filled.Code
+import androidx.compose.material.icons.filled.Dns
+import androidx.compose.material.icons.filled.EditNote
+import androidx.compose.material.icons.automirrored.filled.ManageSearch
+import androidx.compose.material.icons.filled.MedicalServices
 import io.github.astemo6.mihomo.ui.Panel
 import io.github.astemo6.mihomo.ui.components.SectionTitle
 import io.github.astemo6.mihomo.ui.components.SettingsGroup
@@ -72,66 +83,56 @@ private data class GridItem(val label: Int, val icon: ImageVector, val color: Co
 fun SettingsScreen(
     vm: MainViewModel,
     onBack: () -> Unit,
-    onProfiles: () -> Unit,
-    onConnection: () -> Unit,
-    onPerApp: () -> Unit,
+    navigate: (String) -> Unit,
 ) {
     val c = LocalAppColors.current
     val theme by AppSettings.theme.collectAsState()
     var showTheme by remember { mutableStateOf(false) }
     var showLang by remember { mutableStateOf(false) }
-    var showLater by remember { mutableStateOf<Int?>(null) }
     var showAbout by remember { mutableStateOf(false) }
 
     val goPanel: (Panel) -> Unit = { p -> vm.setPanel(p); onBack() }
     val grid = listOf(
         GridItem(R.string.sec_nodes, Icons.Filled.Public, PanelColors.nodes) { goPanel(Panel.NODES) },
         GridItem(R.string.sec_rules, Icons.AutoMirrored.Filled.AltRoute, PanelColors.rules) { goPanel(Panel.RULES) },
-        GridItem(R.string.sec_rewrite, Icons.Filled.AutoFixHigh, PanelColors.rewrite) { showLater = R.string.sec_rewrite },
-        GridItem(R.string.sec_mitm, Icons.Filled.Lock, Color(0xFFFF2D55)) { showLater = R.string.sec_mitm },
+        GridItem(R.string.sec_rewrite, Icons.Filled.AutoFixHigh, PanelColors.rewrite) { navigate(Routes.REWRITE) },
+        GridItem(R.string.sec_mitm, Icons.Filled.Lock, Color(0xFFFF2D55)) { navigate(Routes.MITM) },
         GridItem(R.string.sec_tools, Icons.Filled.Build, PanelColors.logs) { goPanel(Panel.LOGS) },
-        GridItem(R.string.sec_profiles, Icons.Filled.Folder, Color(0xFF5856D6), onProfiles),
+        GridItem(R.string.sec_profiles, Icons.Filled.Folder, Color(0xFF5856D6)) { navigate(Routes.PROFILES) },
+    )
+    // 数据 & 工具: DNS / scripts here, the rest are the A2 data screens (ui/feature2, routes are plain strings).
+    val grid2 = listOf(
+        GridItem(R.string.dns, Icons.Filled.Dns, Color(0xFF32ADE6)) { navigate(Routes.DNS) },
+        GridItem(R.string.scripts, Icons.Filled.Code, PanelColors.rewrite) { navigate(Routes.SCRIPTS) },
+        GridItem(R.string.f2_rulesets, Icons.AutoMirrored.Filled.ListAlt, PanelColors.rules) { navigate(Feature2Routes.RULESETS) },
+        GridItem(R.string.f2_dnslog, Icons.AutoMirrored.Filled.ManageSearch, Color(0xFF5AC8FA)) { navigate(Feature2Routes.DNSLOG) },
+        GridItem(R.string.f2_traffic, Icons.Filled.BarChart, PanelColors.activity) { navigate(Feature2Routes.TRAFFIC) },
+        GridItem(R.string.f2_nodesubs, Icons.Filled.CloudSync, PanelColors.nodes) { navigate(Feature2Routes.NODESUBS) },
+        GridItem(R.string.f2_groups, Icons.Filled.AccountTree, Color(0xFFFF9F0A)) { navigate(Feature2Routes.GROUPS) },
+        GridItem(R.string.f2_manualnodes, Icons.Filled.EditNote, Color(0xFF30B0C7)) { navigate(Feature2Routes.MANUALNODES) },
+        GridItem(R.string.f2_diagnostics, Icons.Filled.MedicalServices, Color(0xFF8E8E93)) { navigate(Feature2Routes.DIAGNOSTICS) },
     )
 
     Scaffold(containerColor = c.bg, topBar = { BackTopBar(stringResource(R.string.settings), onBack) }) { pad ->
         LazyColumn(Modifier.fillMaxSize().padding(pad), contentPadding = PaddingValues(16.dp, 4.dp, 16.dp, 32.dp)) {
-            item {
-                Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
-                    grid.chunked(3).forEach { row ->
-                        Row(horizontalArrangement = Arrangement.spacedBy(10.dp)) {
-                            row.forEach { g ->
-                                Column(
-                                    Modifier.weight(1f).aspectRatio(1.15f).clip(RoundedCornerShape(14.dp)).background(c.card)
-                                        .clickable(onClick = g.onClick).padding(10.dp),
-                                    verticalArrangement = Arrangement.Center,
-                                    horizontalAlignment = Alignment.CenterHorizontally,
-                                ) {
-                                    Box(Modifier.size(38.dp).clip(RoundedCornerShape(10.dp)).background(g.color), contentAlignment = Alignment.Center) {
-                                        Icon(g.icon, null, tint = Color.White, modifier = Modifier.size(22.dp))
-                                    }
-                                    Spacer(Modifier.height(8.dp))
-                                    Text(stringResource(g.label), fontSize = 13.sp, color = c.text, textAlign = TextAlign.Center, maxLines = 2)
-                                }
-                            }
-                        }
-                    }
-                }
-            }
+            item { ButtonGrid(grid) }
+            item { SectionTitle(stringResource(R.string.sec_data_tools)) }
+            item { ButtonGrid(grid2) }
             item { SectionTitle(stringResource(R.string.sec_panels_toolbar)) }
             item {
                 SettingsGroup {
                     SettingsRow(stringResource(R.string.panels_toolbar), stringResource(R.string.panels_toolbar_desc),
                         icon = Icons.Filled.SpaceDashboard, iconTint = PanelColors.activity, showDivider = false,
-                        onClick = { showLater = R.string.panels_toolbar })
+                        onClick = { navigate(Routes.PANELS) })
                 }
             }
             item { SectionTitle(stringResource(R.string.sec_other)) }
             item {
                 SettingsGroup {
                     SettingsRow(stringResource(R.string.connection), stringResource(R.string.connection_desc),
-                        icon = Icons.Filled.SettingsEthernet, iconTint = PanelColors.nodes, onClick = onConnection)
+                        icon = Icons.Filled.SettingsEthernet, iconTint = PanelColors.nodes, onClick = { navigate(Routes.CONNECTION) })
                     SettingsRow(stringResource(R.string.per_app), stringResource(R.string.per_app_desc),
-                        icon = Icons.Filled.Apps, iconTint = PanelColors.rules, onClick = onPerApp,
+                        icon = Icons.Filled.Apps, iconTint = PanelColors.rules, onClick = { navigate(Routes.PER_APP) },
                         value = stringResource(when (AppSettings.perAppMode) {
                             AppSettings.PerAppMode.OFF -> R.string.off
                             AppSettings.PerAppMode.ALLOW -> R.string.per_app_allow
@@ -170,14 +171,6 @@ fun SettingsScreen(
             onDismiss = { showLang = false },
         )
     }
-    showLater?.let { label ->
-        AlertDialog(
-            onDismissRequest = { showLater = null },
-            title = { Text(stringResource(label)) },
-            text = { Text(stringResource(R.string.coming_a2)) },
-            confirmButton = { TextButton(onClick = { showLater = null }) { Text(stringResource(R.string.ok)) } },
-        )
-    }
     if (showAbout) {
         val core = remember { Core.version }
         AlertDialog(
@@ -192,6 +185,32 @@ fun SettingsScreen(
             },
             confirmButton = { TextButton(onClick = { showAbout = false }) { Text(stringResource(R.string.ok)) } },
         )
+    }
+}
+
+@Composable
+private fun ButtonGrid(items: List<GridItem>) {
+    val c = LocalAppColors.current
+    Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
+        items.chunked(3).forEach { row ->
+            Row(horizontalArrangement = Arrangement.spacedBy(10.dp)) {
+                row.forEach { g ->
+                    Column(
+                        Modifier.weight(1f).aspectRatio(1.15f).clip(RoundedCornerShape(14.dp)).background(c.card)
+                            .clickable(onClick = g.onClick).padding(10.dp),
+                        verticalArrangement = Arrangement.Center,
+                        horizontalAlignment = Alignment.CenterHorizontally,
+                    ) {
+                        Box(Modifier.size(38.dp).clip(RoundedCornerShape(10.dp)).background(g.color), contentAlignment = Alignment.Center) {
+                            Icon(g.icon, null, tint = Color.White, modifier = Modifier.size(22.dp))
+                        }
+                        Spacer(Modifier.height(8.dp))
+                        Text(stringResource(g.label), fontSize = 13.sp, color = c.text, textAlign = TextAlign.Center, maxLines = 2)
+                    }
+                }
+                repeat(3 - row.size) { Spacer(Modifier.weight(1f)) }
+            }
+        }
     }
 }
 

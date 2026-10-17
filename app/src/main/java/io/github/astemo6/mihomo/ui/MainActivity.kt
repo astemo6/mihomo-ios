@@ -32,7 +32,14 @@ import io.github.astemo6.mihomo.R
 import io.github.astemo6.mihomo.data.AppSettings
 import io.github.astemo6.mihomo.data.ImportRouter
 import io.github.astemo6.mihomo.data.ProfileStore
+import io.github.astemo6.mihomo.ui.engine.MitmScreen
+import io.github.astemo6.mihomo.ui.engine.RewriteScreen
+import io.github.astemo6.mihomo.ui.engine.ScriptsScreen
+import io.github.astemo6.mihomo.ui.feature2.Feature2Routes
+import io.github.astemo6.mihomo.ui.feature2.Feature2Screen
 import io.github.astemo6.mihomo.ui.home.HomeScreen
+import io.github.astemo6.mihomo.ui.settings.PanelsToolbarScreen
+import io.github.astemo6.mihomo.ui.tools.DnsScreen
 import io.github.astemo6.mihomo.ui.profiles.AddProfileSheet
 import io.github.astemo6.mihomo.ui.profiles.ProfilesScreen
 import io.github.astemo6.mihomo.ui.profiles.readDocument
@@ -43,7 +50,19 @@ import io.github.astemo6.mihomo.ui.theme.MihomoTheme
 import io.github.astemo6.mihomo.vpn.VpnController
 import kotlinx.coroutines.launch
 
-enum class Screen { HOME, PROFILES, SETTINGS, CONNECTION, PER_APP }
+/** Navigation routes (plain strings; the A2 data screens use [Feature2Routes]). */
+object Routes {
+    const val HOME = "home"
+    const val PROFILES = "profiles"
+    const val SETTINGS = "settings"
+    const val CONNECTION = "connection"
+    const val PER_APP = "perapp"
+    const val DNS = "dns"
+    const val PANELS = "panels"
+    const val REWRITE = "rewrite"
+    const val MITM = "mitm"
+    const val SCRIPTS = "scripts"
+}
 
 class MainActivity : AppCompatActivity() {
     companion object {
@@ -118,28 +137,37 @@ class MainActivity : AppCompatActivity() {
 
     @Composable
     private fun AppRoot() {
-        val stack = remember { mutableStateListOf(Screen.HOME) }
+        val stack = remember { mutableStateListOf(Routes.HOME) }
         var showAdd by remember { mutableStateOf(false) }
         val message by vm.message.collectAsState()
         val pending by vm.pendingImport.collectAsState()
-        val push: (Screen) -> Unit = { stack.add(it) }
+        val push: (String) -> Unit = { stack.add(it) }
         val pop: () -> Unit = { if (stack.size > 1) stack.removeAt(stack.lastIndex) }
 
         BackHandler(enabled = stack.size > 1) { pop() }
 
-        when (stack.last()) {
-            Screen.HOME -> HomeScreen(
+        when (val route = stack.last()) {
+            Routes.HOME -> HomeScreen(
                 vm,
                 onToggle = { on -> if (on) requestConnect() else VpnController.stop(this) },
-                onOpenSettings = { push(Screen.SETTINGS) },
+                onOpenSettings = { push(Routes.SETTINGS) },
                 onAdd = { showAdd = true },
-                onOpenProfiles = { push(Screen.PROFILES) },
+                onOpenProfiles = { push(Routes.PROFILES) },
+                onOpenDns = { push(Routes.DNS) },
+                onOpenLayout = { push(Routes.PANELS) },
+                onOpenRewrite = { push(Routes.REWRITE) },
             )
-            Screen.PROFILES -> ProfilesScreen(vm, onBack = pop, onAdd = { showAdd = true })
-            Screen.SETTINGS -> SettingsScreen(vm, onBack = pop, onProfiles = { push(Screen.PROFILES) },
-                onConnection = { push(Screen.CONNECTION) }, onPerApp = { push(Screen.PER_APP) })
-            Screen.CONNECTION -> ConnectionScreen(vm, onBack = pop)
-            Screen.PER_APP -> PerAppScreen(vm, onBack = pop)
+            Routes.PROFILES -> ProfilesScreen(vm, onBack = pop, onAdd = { showAdd = true })
+            Routes.SETTINGS -> SettingsScreen(vm, onBack = pop, navigate = push)
+            Routes.CONNECTION -> ConnectionScreen(vm, onBack = pop)
+            Routes.PER_APP -> PerAppScreen(vm, onBack = pop)
+            Routes.DNS -> DnsScreen(vm, onBack = pop)
+            Routes.PANELS -> PanelsToolbarScreen(onBack = pop)
+            Routes.REWRITE -> RewriteScreen(vm, onBack = pop, onMitm = { push(Routes.MITM) }, onScripts = { push(Routes.SCRIPTS) })
+            Routes.MITM -> MitmScreen(vm, onBack = pop)
+            Routes.SCRIPTS -> ScriptsScreen(vm, onBack = pop)
+            in Feature2Routes.all -> Feature2Screen(route, onBack = pop)
+            else -> LaunchedEffect(route) { pop() }
         }
 
         if (showAdd) AddProfileSheet(vm) { showAdd = false }
@@ -152,6 +180,8 @@ class MainActivity : AppCompatActivity() {
                     Text(when (req) {
                         is ImportRouter.Request.Remote -> req.url
                         is ImportRouter.Request.Text -> req.name.ifEmpty { req.text.take(200) }
+                        is ImportRouter.Request.ModuleUrl -> getString(R.string.module) + "\n" + req.url
+                        is ImportRouter.Request.ModuleText -> getString(R.string.module) + "\n" + req.name.ifEmpty { req.text.take(200) }
                     })
                 },
                 confirmButton = { TextButton(onClick = { vm.import(req) }) { Text(stringResource(R.string.import_)) } },

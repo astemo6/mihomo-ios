@@ -104,7 +104,11 @@ object ProfileStore {
 
     // ---- conversion / validation -------------------------------------------------------------
 
-    data class Normalized(val yaml: String, val note: String? = null)
+    /** A remote rewrite module listed in a converted config ([rewrite_remote] / #!include). */
+    data class RemoteModule(val url: String, val name: String, val enabled: Boolean, val interval: Int)
+
+    /** [module] = the config's own rewrite / MitM / script part (ImportConf), added to the engine on first import. */
+    data class Normalized(val yaml: String, val note: String? = null, val module: String = "", val remotes: List<RemoteModule> = emptyList())
 
     /**
      * Routes any text into a mihomo profile, without an external parser: ClassifyText decides,
@@ -130,7 +134,14 @@ object ProfileStore {
                     val rules = it["rules"]?.jsonPrimitive?.intOrNull ?: 0
                     "$fmt → mihomo: $proxies / $groups / $rules"
                 }
-                Normalized(yaml, note)
+                val module = obj["module"]?.jsonPrimitive?.content.orEmpty()
+                val remotes = (obj["rewriteRemotes"] as? kotlinx.serialization.json.JsonArray).orEmpty().mapNotNull { e ->
+                    val o = e as? kotlinx.serialization.json.JsonObject ?: return@mapNotNull null
+                    val u = o["url"]?.jsonPrimitive?.content.orEmpty()
+                    if (u.isEmpty()) null else RemoteModule(u, o["name"]?.jsonPrimitive?.content.orEmpty(),
+                        o["enabled"]?.jsonPrimitive?.content != "false", o["interval"]?.jsonPrimitive?.intOrNull ?: 0)
+                }
+                Normalized(yaml, note, module, remotes)
             }
             kind.startsWith("module:") -> throw ImportException("MODULE:" + kind.removePrefix("module:"))
             else -> {
@@ -162,7 +173,7 @@ object ProfileStore {
         _profiles.update { it + p }
         persist()
         if (_activeId.value == null) setActive(p)
-        p to n.note
+        p to listOfNotNull(n.note, addConfModules(p.name, n)).joinToString("\n").ifEmpty { null }
     }
 
     suspend fun saveLocalEdit(p: Profile, text: String) = withContext(Dispatchers.IO) {
@@ -175,15 +186,27 @@ object ProfileStore {
         withContext(Dispatchers.IO) {
             var p = Profile(name = name, kind = Profile.Kind.remote, url = url.trim(),
                 userAgent = userAgent.ifBlank { "clash.meta" }, updateIntervalHours = intervalHours)
-            p = download(p)
+            val (np, n) = download(p)
+            p = np
             _profiles.update { it + p }
             persist()
             if (_activeId.value == null) setActive(p)
+            addConfModules(p.name, n)
             p
         }
 
     /** Downloads a remote profile (UA clash.meta), parses subscription-userinfo, validates and writes it. */
-    private fun download(input: Profile): Profile {
+    /** First import of a Surge / QX config: its rewrite part and remote modules go to the HTTP engine (iOS does the same). */
+    private suspend fun addConfModules(name: String, n: Normalized): String? {
+        var added = 0
+        if (n.module.isNotBlank()) {
+            runCatching { EngineStore.addModuleText(n.module, "$name · rewrite") }.onSuccess { added++ }
+        }
+        n.remotes.forEach { r -> EngineStore.addRemoteModule(r.url, r.name, r.enabled, r.interval); added++ }
+        return if (added > 0) "+ $added module(s)" else null
+    }
+
+    private fun download(input: Profile): Pair<Profile, Normalized> {
         val s = input.url ?: throw ImportException("BAD_URL")
         val uri = runCatching { URI(s) }.getOrNull()
         if (uri == null || (uri.scheme != "http" && uri.scheme != "https")) throw ImportException("BAD_URL")
@@ -204,7 +227,7 @@ object ProfileStore {
                 userInfo = info,
                 lastUpdated = System.currentTimeMillis(),
                 updateIntervalHours = if (input.lastUpdated == null && interval != null && interval > 0) interval else input.updateIntervalHours,
-            )
+            ) to n
         }
     }
 
@@ -232,7 +255,7 @@ object ProfileStore {
         if (!p.isRemote) return@withContext null
         _updating.update { it + p.id }
         try {
-            val np = download(p)
+            val np = download(p).first
             replace(np)
             if (np.id == _activeId.value) onActiveChanged?.invoke()
             null

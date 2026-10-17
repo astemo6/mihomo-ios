@@ -43,6 +43,7 @@ import io.github.astemo6.mihomo.R
 import io.github.astemo6.mihomo.api.ConnectionItem
 import io.github.astemo6.mihomo.api.LogLine
 import io.github.astemo6.mihomo.api.RuleItem
+import io.github.astemo6.mihomo.data.RewriteEntry
 import io.github.astemo6.mihomo.ui.Fmt
 import io.github.astemo6.mihomo.ui.MainViewModel
 import io.github.astemo6.mihomo.ui.components.AppCard
@@ -167,15 +168,47 @@ fun LazyListScope.rulesPanel(rules: List<RuleItem>, query: String) {
     }
 }
 
-// ---- 重写规则 (A1: placeholder) ------------------------------------------------------------------
+// ---- 重写规则 -------------------------------------------------------------------------------------
 
-fun LazyListScope.rewritePanel() {
-    item(key = "rewrite") {
+private fun rewriteKindColor(kind: String): Color = when (kind) {
+    "script" -> Color(0xFFAF52DE)
+    "url" -> Color(0xFFFF3B30)
+    "header" -> Color(0xFFFF9500)
+    "body", "jq", "json" -> Color(0xFF34C759)
+    "maplocal" -> Color(0xFF2F7BF6)
+    else -> Color(0xFF5AC8FA)
+}
+
+/** Rewrite rules of the user lines and every module (parsed by the Go engine), off ones dimmed. */
+fun LazyListScope.rewritePanel(entries: List<RewriteEntry>, engineOn: Boolean, query: String, onManage: () -> Unit) {
+    val list = if (query.isEmpty()) entries else entries.filter {
+        it.rule.pattern.contains(query, true) || it.rule.desc.contains(query, true) || it.source.contains(query, true) || it.rule.kind.contains(query, true)
+    }
+    item(key = "rw-head") {
         val c = LocalAppColors.current
-        AppCard {
-            Text(stringResource(R.string.panel_rewrite), fontWeight = FontWeight.SemiBold, color = c.text)
-            Spacer(Modifier.height(6.dp))
-            Text(stringResource(R.string.rewrite_later), fontSize = 13.sp, color = c.secondary)
+        Row(verticalAlignment = Alignment.CenterVertically, modifier = Modifier.fillMaxWidth()) {
+            Text(stringResource(R.string.rules_count, list.size) + if (!engineOn) " · " + stringResource(R.string.rewrite_off) else "",
+                fontSize = 12.sp, color = c.secondary, modifier = Modifier.padding(start = 6.dp).weight(1f))
+            TextButton(onClick = onManage) { Text(stringResource(R.string.manage)) }
+        }
+    }
+    if (list.isEmpty()) item(key = "rw-empty") { EmptyHint(stringResource(R.string.rewrite_empty)) }
+    itemsIndexed(list, key = { i, _ -> "rw:$i" }) { _, e ->
+        val c = LocalAppColors.current
+        val alpha = if (e.enabled) 1f else 0.45f
+        AppCard(padding = PaddingValues(horizontal = 12.dp, vertical = 9.dp)) {
+            Row(verticalAlignment = Alignment.CenterVertically) {
+                Tag(e.rule.kind.ifEmpty { "?" }, rewriteKindColor(e.rule.kind).copy(alpha = alpha))
+                if (e.rule.phase.isNotEmpty()) {
+                    Spacer(Modifier.width(4.dp))
+                    Tag(e.rule.phase, c.secondary.copy(alpha = alpha))
+                }
+                Spacer(Modifier.width(8.dp))
+                Text(e.rule.pattern.ifEmpty { e.rule.line }, fontSize = 13.sp, color = c.text.copy(alpha = alpha), maxLines = 1,
+                    overflow = TextOverflow.Ellipsis, fontFamily = FontFamily.Monospace, modifier = Modifier.weight(1f))
+            }
+            val sub = listOf(e.rule.desc, e.source).filter { it.isNotEmpty() }.joinToString(" · ")
+            if (sub.isNotEmpty()) Text(sub, fontSize = 11.sp, color = c.secondary, maxLines = 2, overflow = TextOverflow.Ellipsis)
         }
     }
 }

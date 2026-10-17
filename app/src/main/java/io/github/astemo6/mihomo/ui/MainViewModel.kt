@@ -13,6 +13,10 @@ import io.github.astemo6.mihomo.api.RuleItem
 import io.github.astemo6.mihomo.core.Core
 import io.github.astemo6.mihomo.data.AppJson
 import io.github.astemo6.mihomo.data.AppSettings
+import io.github.astemo6.mihomo.data.EngineException
+import io.github.astemo6.mihomo.data.EngineModule
+import io.github.astemo6.mihomo.data.EngineStore
+import io.github.astemo6.mihomo.data.ParsedEngineText
 import io.github.astemo6.mihomo.data.ImportException
 import io.github.astemo6.mihomo.data.ImportRouter
 import io.github.astemo6.mihomo.data.Overrides
@@ -466,10 +470,20 @@ class MainViewModel(app: Application) : AndroidViewModel(app) {
                         val (p, note) = ProfileStore.addLocal(req.name, req.text)
                         toast(ctx.getString(R.string.msg_imported, p.name) + (note?.let { "\n$it" } ?: ""))
                     }
+                    is ImportRouter.Request.ModuleUrl -> importModule { EngineStore.addModule(req.url) }
+                    is ImportRouter.Request.ModuleText -> importModule { EngineStore.addModuleText(req.text, req.name) }
                 }
                 if (!running.value) loadOffline()
             } catch (e: ImportException) {
-                toast(ctx.getString(R.string.msg_import_failed, describe(e.message ?: "")))
+                // ClassifyText said module:* (pasted text, a shared file or a URL that turned out to be a module).
+                val msg = e.message.orEmpty()
+                if (msg.startsWith("MODULE:")) {
+                    when (req) {
+                        is ImportRouter.Request.Remote -> importModule { EngineStore.addModule(req.url) }
+                        is ImportRouter.Request.Text -> importModule { EngineStore.addModuleText(req.text, req.name) }
+                        else -> toast(ctx.getString(R.string.msg_import_failed, describe(msg)))
+                    }
+                } else toast(ctx.getString(R.string.msg_import_failed, describe(msg)))
             } catch (e: Exception) {
                 toast(ctx.getString(R.string.msg_import_failed, e.message ?: e.toString()))
             } finally {
@@ -478,12 +492,29 @@ class MainViewModel(app: Application) : AndroidViewModel(app) {
         }
     }
 
+    private suspend fun importModule(block: suspend () -> Pair<EngineModule, ParsedEngineText>) {
+        try {
+            val (m, p) = block()
+            val scripts = p.rules.count { it.kind == "script" }
+            var msg = ctx.getString(R.string.msg_module_added, m.name, p.rules.size - scripts, scripts, p.hostnames.size)
+            if (p.unsupported.isNotEmpty()) msg += "\n" + ctx.getString(R.string.msg_module_unsupported, p.unsupported.size)
+            if (p.hostnames.isNotEmpty() && !EngineStore.ca.value.exists) msg += "\n" + ctx.getString(R.string.msg_module_needs_ca)
+            toast(msg)
+        } catch (e: EngineException) {
+            toast(ctx.getString(R.string.msg_import_failed, describe(e.message ?: "")))
+        } catch (e: Exception) {
+            toast(ctx.getString(R.string.msg_import_failed, e.message ?: e.toString()))
+        }
+    }
+
     /** Maps the store's error codes to localized text. */
     fun describe(code: String): String = when {
         code == "BAD_URL" -> ctx.getString(R.string.err_bad_url)
         code == "EMPTY" -> ctx.getString(R.string.err_empty)
         code == "UNRECOGNIZED" -> ctx.getString(R.string.err_unrecognized)
-        code.startsWith("MODULE:") -> ctx.getString(R.string.err_module_later)
+        code.startsWith("MODULE:") -> ctx.getString(R.string.err_unrecognized)
+        code == "EMPTY_MODULE" -> ctx.getString(R.string.err_empty_module)
+        code == "DUPLICATE" -> ctx.getString(R.string.err_duplicate_module)
         else -> code
     }
 }

@@ -47,6 +47,7 @@ import io.github.astemo6.mihomo.ui.GroupCard
 import io.github.astemo6.mihomo.ui.MainViewModel
 import io.github.astemo6.mihomo.ui.ResourceCard
 import io.github.astemo6.mihomo.ui.components.AppCard
+import io.github.astemo6.mihomo.ui.components.GroupIcon
 import io.github.astemo6.mihomo.ui.components.EmptyHint
 import io.github.astemo6.mihomo.ui.components.Tag
 import io.github.astemo6.mihomo.ui.components.delayColor
@@ -184,7 +185,9 @@ private fun GroupCardView(
     val leaf = g.chain.lastOrNull()
     AppCard {
         Row(verticalAlignment = Alignment.CenterVertically, modifier = Modifier.clickable(onClick = onToggle)) {
-            Avatar(g.name, PanelColors.rules)
+            Box(Modifier.size(34.dp), contentAlignment = Alignment.Center) {
+                GroupIcon(g.icon, 30.dp) { Avatar(g.name, PanelColors.rules) }
+            }
             Spacer(Modifier.width(10.dp))
             Column(Modifier.weight(1f)) {
                 Row(verticalAlignment = Alignment.CenterVertically) {

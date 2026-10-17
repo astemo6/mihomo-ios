@@ -76,6 +76,22 @@ import io.github.astemo6.mihomo.ui.theme.LocalAppColors
 import io.github.astemo6.mihomo.ui.theme.PanelColors
 import io.github.astemo6.mihomo.vpn.VpnStatus
 import kotlinx.coroutines.delay
+import androidx.compose.foundation.layout.imePadding
+import androidx.compose.foundation.text.BasicTextField
+import androidx.compose.material.icons.automirrored.filled.KeyboardArrowLeft
+import androidx.compose.material.icons.automirrored.filled.KeyboardArrowRight
+import androidx.compose.material.icons.filled.Check
+import androidx.compose.runtime.produceState
+import androidx.compose.ui.focus.FocusRequester
+import androidx.compose.ui.focus.focusRequester
+import androidx.compose.ui.graphics.SolidColor
+import androidx.compose.ui.text.TextStyle
+import io.github.astemo6.mihomo.data.EngineStore
+import io.github.astemo6.mihomo.data.RewriteEntry
+import io.github.astemo6.mihomo.data.ToolbarItem
+import io.github.astemo6.mihomo.data.UiLayout
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.withContext
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
@@ -85,14 +101,27 @@ fun HomeScreen(
     onOpenSettings: () -> Unit,
     onAdd: () -> Unit,
     onOpenProfiles: () -> Unit,
+    onOpenDns: () -> Unit,
+    onOpenLayout: () -> Unit,
+    onOpenRewrite: () -> Unit,
 ) {
     val c = LocalAppColors.current
     val panel by vm.panel.collectAsState()
+    val panelOrder by UiLayout.panelOrder.collectAsState()
+    val hiddenPanels by UiLayout.hiddenPanels.collectAsState()
+    val visiblePanels = remember(panelOrder, hiddenPanels) {
+        UiLayout.orderedPanels(Panel.entries.toList()) { it.name }.filter { it.name !in hiddenPanels }.ifEmpty { listOf(Panel.NODES) }
+    }
+    val shownPanel = if (panel in visiblePanels) panel else visiblePanels.first()
+    val engineCfg by EngineStore.config.collectAsState()
+    val moduleInfo by EngineStore.moduleInfo.collectAsState()
+    val rewrite by produceState(emptyList<RewriteEntry>(), engineCfg, moduleInfo) {
+        value = withContext(Dispatchers.IO) { runCatching { EngineStore.rewriteEntries() }.getOrDefault(emptyList()) }
+    }
     var searching by rememberSaveable { mutableStateOf(false) }
     var query by rememberSaveable { mutableStateOf("") }
     var showModeSheet by remember { mutableStateOf(false) }
     var showStats by remember { mutableStateOf(false) }
-    var showDns by remember { mutableStateOf(false) }
     val listState = rememberLazyListState()
     val groups by vm.groups.collectAsState()
     val resource by vm.resource.collectAsState()
@@ -119,40 +148,35 @@ fun HomeScreen(
             verticalArrangement = Arrangement.spacedBy(10.dp),
         ) {
             item(key = "header") { Header(vm, onToggle, onOpenProfiles) }
-            item(key = "strip") { PanelStrip(panel) { vm.setPanel(it) } }
-            if (searching) {
-                item(key = "search") {
-                    OutlinedTextField(
-                        value = query, onValueChange = { query = it },
-                        modifier = Modifier.fillMaxWidth(), singleLine = true,
-                        placeholder = { Text(stringResource(R.string.search)) },
-                        leadingIcon = { Icon(Icons.Filled.Search, null) },
-                        trailingIcon = {
-                            IconButton(onClick = { query = ""; searching = false }) { Icon(Icons.Filled.Close, null) }
-                        },
-                        shape = RoundedCornerShape(12.dp),
-                    )
-                }
-            }
+            item(key = "strip") { PanelStrip(visiblePanels, shownPanel) { vm.setPanel(it) } }
             val q = if (searching) query.trim() else ""
-            when (panel) {
+            when (shownPanel) {
                 Panel.NODES -> nodesPanel(vm, NodesData(groups, resource, delays, testing, nodeTypes, mode, running, expanded), q, toggleExpanded)
                 Panel.ACTIVITY -> activityPanel(vm, connections, totals, speed, running, q)
                 Panel.RULES -> rulesPanel(rules, q)
-                Panel.REWRITE -> rewritePanel()
+                Panel.REWRITE -> rewritePanel(rewrite, engineCfg.enabled, q, onOpenRewrite)
                 Panel.LOGS -> logsPanel(vm, logs, logLevel, logsPaused, running, q)
             }
         }
 
         FloatingToolbar(
-            modifier = Modifier.align(Alignment.BottomCenter).navigationBarsPadding().padding(bottom = 14.dp),
-            onSearch = { searching = !searching; if (!searching) query = "" },
-            onAdd = onAdd,
-            onStats = { showStats = true },
-            onDns = { showDns = true },
-            onRequests = { vm.setPanel(Panel.ACTIVITY) },
+            modifier = Modifier.align(Alignment.BottomCenter).navigationBarsPadding().imePadding().padding(bottom = 14.dp),
+            searching = searching,
+            query = query,
+            onQuery = { query = it },
+            onCloseSearch = { searching = false; query = "" },
+            onAction = { item ->
+                when (item) {
+                    ToolbarItem.SEARCH -> searching = true
+                    ToolbarItem.ADD -> onAdd()
+                    ToolbarItem.STATS -> showStats = true
+                    ToolbarItem.DNS -> onOpenDns()
+                    ToolbarItem.REQUESTS -> vm.setPanel(Panel.ACTIVITY)
+                }
+            },
             onWindmill = onOpenSettings,
             onWindmillLong = { showModeSheet = true },
+            onOpenLayout = onOpenLayout,
         )
     }
 
@@ -162,14 +186,6 @@ fun HomeScreen(
         }
     }
     if (showStats) StatsDialog(vm) { showStats = false }
-    if (showDns) {
-        AlertDialog(
-            onDismissRequest = { showDns = false },
-            confirmButton = { TextButton(onClick = { showDns = false }) { Text(stringResource(R.string.ok)) } },
-            title = { Text(stringResource(R.string.dns)) },
-            text = { Text(stringResource(R.string.dns_later)) },
-        )
-    }
 }
 
 // ---- header -----------------------------------------------------------------------------------
@@ -246,22 +262,32 @@ private fun Header(vm: MainViewModel, onToggle: (Boolean) -> Unit, onOpenProfile
 
 // ---- panel strip ------------------------------------------------------------------------------
 
-private data class PanelSpec(val panel: Panel, val label: Int, val icon: ImageVector, val color: Color)
+data class PanelSpec(val panel: Panel, val label: Int, val icon: ImageVector, val color: Color)
 
-private val panelSpecs = listOf(
-    PanelSpec(Panel.NODES, R.string.panel_nodes, Icons.Filled.Public, PanelColors.nodes),
-    PanelSpec(Panel.ACTIVITY, R.string.panel_activity, Icons.Filled.Timeline, PanelColors.activity),
-    PanelSpec(Panel.RULES, R.string.panel_rules, Icons.AutoMirrored.Filled.AltRoute, PanelColors.rules),
-    PanelSpec(Panel.REWRITE, R.string.panel_rewrite, Icons.Filled.AutoFixHigh, PanelColors.rewrite),
-    PanelSpec(Panel.LOGS, R.string.panel_logs, Icons.Filled.Description, PanelColors.logs),
-)
+fun panelSpec(p: Panel): PanelSpec = when (p) {
+    Panel.NODES -> PanelSpec(p, R.string.panel_nodes, Icons.Filled.Public, PanelColors.nodes)
+    Panel.ACTIVITY -> PanelSpec(p, R.string.panel_activity, Icons.Filled.Timeline, PanelColors.activity)
+    Panel.RULES -> PanelSpec(p, R.string.panel_rules, Icons.AutoMirrored.Filled.AltRoute, PanelColors.rules)
+    Panel.REWRITE -> PanelSpec(p, R.string.panel_rewrite, Icons.Filled.AutoFixHigh, PanelColors.rewrite)
+    Panel.LOGS -> PanelSpec(p, R.string.panel_logs, Icons.Filled.Description, PanelColors.logs)
+}
+
+data class ToolbarSpec(val item: ToolbarItem, val label: Int, val icon: ImageVector)
+
+fun toolbarSpec(t: ToolbarItem): ToolbarSpec = when (t) {
+    ToolbarItem.SEARCH -> ToolbarSpec(t, R.string.tb_search, Icons.Filled.Search)
+    ToolbarItem.ADD -> ToolbarSpec(t, R.string.tb_add, Icons.Filled.Add)
+    ToolbarItem.STATS -> ToolbarSpec(t, R.string.tb_stats, Icons.Filled.BarChart)
+    ToolbarItem.DNS -> ToolbarSpec(t, R.string.dns, Icons.Filled.Dns)
+    ToolbarItem.REQUESTS -> ToolbarSpec(t, R.string.tb_requests, Icons.Filled.SwapVert)
+}
 
 @Composable
-private fun PanelStrip(selected: Panel, onSelect: (Panel) -> Unit) {
+private fun PanelStrip(panels: List<Panel>, selected: Panel, onSelect: (Panel) -> Unit) {
     val c = LocalAppColors.current
     AppCard(padding = PaddingValues(horizontal = 6.dp, vertical = 10.dp)) {
         Row(Modifier.fillMaxWidth()) {
-            panelSpecs.forEach { s ->
+            panels.map { panelSpec(it) }.forEach { s ->
                 val sel = s.panel == selected
                 Column(
                     Modifier.weight(1f).clip(RoundedCornerShape(10.dp)).clickable { onSelect(s.panel) }.padding(vertical = 4.dp),
@@ -285,43 +311,115 @@ private fun PanelStrip(selected: Panel, onSelect: (Panel) -> Unit) {
 
 // ---- floating toolbar -------------------------------------------------------------------------
 
+/**
+ * QX floating toolbar. Three states:
+ *  - normal: the visible buttons in the user's order + the windmill (tap = settings, long = run mode);
+ *  - search: the capsule turns into a search field that filters the current panel;
+ *  - edit (long-press any button): every button is shown (hidden ones dimmed); tap one to pick it, then
+ *    move it left / right or hide / show it from the bar above; ✓ leaves edit mode. The same settings are
+ *    in 设置 › 面板 & 工具栏 (also linked from the edit bar).
+ */
 @OptIn(ExperimentalFoundationApi::class)
 @Composable
 private fun FloatingToolbar(
     modifier: Modifier,
-    onSearch: () -> Unit,
-    onAdd: () -> Unit,
-    onStats: () -> Unit,
-    onDns: () -> Unit,
-    onRequests: () -> Unit,
+    searching: Boolean,
+    query: String,
+    onQuery: (String) -> Unit,
+    onCloseSearch: () -> Unit,
+    onAction: (ToolbarItem) -> Unit,
     onWindmill: () -> Unit,
     onWindmillLong: () -> Unit,
+    onOpenLayout: () -> Unit,
 ) {
     val c = LocalAppColors.current
-    Surface(
-        modifier = modifier.shadow(10.dp, RoundedCornerShape(26.dp)),
-        shape = RoundedCornerShape(26.dp),
-        color = c.card,
-    ) {
-        Row(Modifier.padding(horizontal = 8.dp, vertical = 4.dp), verticalAlignment = Alignment.CenterVertically) {
-            ToolbarButton(Icons.Filled.Search, stringResource(R.string.tb_search), onSearch)
-            ToolbarButton(Icons.Filled.Add, stringResource(R.string.tb_add), onAdd)
-            ToolbarButton(Icons.Filled.BarChart, stringResource(R.string.tb_stats), onStats)
-            ToolbarButton(Icons.Filled.Dns, stringResource(R.string.dns), onDns)
-            ToolbarButton(Icons.Filled.SwapVert, stringResource(R.string.tb_requests), onRequests)
-            Box(
-                Modifier.size(44.dp).clip(CircleShape)
-                    .combinedClickable(onClick = onWindmill, onLongClick = onWindmillLong),
-                contentAlignment = Alignment.Center,
-            ) { Icon(Icons.Filled.Toys, stringResource(R.string.settings), tint = c.accent) }
-        }
-    }
-}
+    val order by UiLayout.toolbarOrder.collectAsState()
+    val hidden by UiLayout.hiddenToolbar.collectAsState()
+    var editing by rememberSaveable { mutableStateOf(false) }
+    var picked by remember { mutableStateOf<ToolbarItem?>(null) }
+    val focus = remember { FocusRequester() }
 
-@Composable
-private fun ToolbarButton(icon: ImageVector, label: String, onClick: () -> Unit) {
-    IconButton(onClick = onClick, modifier = Modifier.size(44.dp)) {
-        Icon(icon, label, tint = LocalAppColors.current.text)
+    Column(modifier, horizontalAlignment = Alignment.CenterHorizontally) {
+        if (editing) {
+            Surface(Modifier.padding(bottom = 8.dp).shadow(6.dp, RoundedCornerShape(16.dp)), shape = RoundedCornerShape(16.dp), color = c.card) {
+                Row(Modifier.padding(horizontal = 6.dp, vertical = 2.dp), verticalAlignment = Alignment.CenterVertically) {
+                    val p = picked
+                    if (p == null) {
+                        Text(stringResource(R.string.tb_edit_hint), fontSize = 12.sp, color = c.secondary, modifier = Modifier.padding(horizontal = 8.dp))
+                    } else {
+                        IconButton(onClick = { UiLayout.moveToolbar(p, -1) }, enabled = order.indexOf(p) > 0) {
+                            Icon(Icons.AutoMirrored.Filled.KeyboardArrowLeft, stringResource(R.string.move_up))
+                        }
+                        TextButton(onClick = { UiLayout.setToolbarHidden(p, p !in hidden) }) {
+                            Text(stringResource(if (p in hidden) R.string.show else R.string.hide))
+                        }
+                        IconButton(onClick = { UiLayout.moveToolbar(p, 1) }, enabled = order.indexOf(p) < order.lastIndex) {
+                            Icon(Icons.AutoMirrored.Filled.KeyboardArrowRight, stringResource(R.string.move_down))
+                        }
+                    }
+                    TextButton(onClick = { editing = false; picked = null; onOpenLayout() }) {
+                        Text(stringResource(R.string.more), fontSize = 13.sp)
+                    }
+                }
+            }
+        }
+        Surface(
+            modifier = Modifier.shadow(10.dp, RoundedCornerShape(26.dp)),
+            shape = RoundedCornerShape(26.dp),
+            color = c.card,
+        ) {
+            if (searching) {
+                LaunchedEffect(Unit) { runCatching { focus.requestFocus() } }
+                Row(Modifier.padding(start = 14.dp, end = 4.dp, top = 2.dp, bottom = 2.dp).width(300.dp), verticalAlignment = Alignment.CenterVertically) {
+                    Icon(Icons.Filled.Search, null, tint = c.secondary, modifier = Modifier.size(20.dp))
+                    Spacer(Modifier.width(8.dp))
+                    Box(Modifier.weight(1f), contentAlignment = Alignment.CenterStart) {
+                        if (query.isEmpty()) Text(stringResource(R.string.search), color = c.secondary, fontSize = 15.sp)
+                        BasicTextField(
+                            value = query, onValueChange = onQuery, singleLine = true,
+                            textStyle = TextStyle(color = c.text, fontSize = 15.sp),
+                            cursorBrush = SolidColor(c.accent),
+                            modifier = Modifier.fillMaxWidth().focusRequester(focus),
+                        )
+                    }
+                    IconButton(onClick = onCloseSearch, modifier = Modifier.size(44.dp)) {
+                        Icon(Icons.Filled.Close, stringResource(R.string.cancel), tint = c.text)
+                    }
+                }
+            } else {
+                Row(Modifier.padding(horizontal = 8.dp, vertical = 4.dp), verticalAlignment = Alignment.CenterVertically) {
+                    val items = if (editing) order else order.filter { it !in hidden }
+                    items.forEach { t ->
+                        val spec = toolbarSpec(t)
+                        val isHidden = t in hidden
+                        val sel = editing && picked == t
+                        Box(
+                            Modifier.size(44.dp).clip(CircleShape)
+                                .background(if (sel) c.accent.copy(alpha = 0.18f) else Color.Transparent)
+                                .combinedClickable(
+                                    onClick = { if (editing) picked = t else onAction(t) },
+                                    onLongClick = { editing = true; picked = t },
+                                ),
+                            contentAlignment = Alignment.Center,
+                        ) {
+                            Icon(spec.icon, stringResource(spec.label),
+                                tint = if (editing && isHidden) c.secondary.copy(alpha = 0.4f) else c.text)
+                        }
+                    }
+                    if (editing) {
+                        IconButton(onClick = { editing = false; picked = null }, modifier = Modifier.size(44.dp)) {
+                            Icon(Icons.Filled.Check, stringResource(R.string.done), tint = c.accent)
+                        }
+                    } else {
+                        Box(
+                            Modifier.size(44.dp).clip(CircleShape)
+                                .combinedClickable(onClick = onWindmill, onLongClick = onWindmillLong),
+                            contentAlignment = Alignment.Center,
+                        ) { Icon(Icons.Filled.Toys, stringResource(R.string.settings), tint = c.accent) }
+                    }
+                }
+            }
+        }
     }
 }
 

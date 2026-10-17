@@ -156,6 +156,17 @@ object ControllerClient {
         send(listOf("configs"), "PATCH", body = buildJsonObject { put("log-level", level) })
     }
 
+    /** GET /dns/query?name=&type= (mihomo's resolver, follows the profile's DNS): raw JSON {Status, Answer:[{name,type,TTL,data}]}. */
+    suspend fun dnsQuery(name: String, type: String): JsonObject =
+        AppJson.parseToJsonElement(send(listOf("dns", "query"), query = mapOf("name" to name, "type" to type), timeoutMs = 15_000)).jsonObject
+
+    /** GET /mitm/status of the HTTP engine (core/mitm/api.go). */
+    suspend fun mitmStatus(): JsonObject = AppJson.parseToJsonElement(send(listOf("mitm", "status"))).jsonObject
+
+    /** GET /mitm/logs?since=: script console lines [{id, time, level, script, msg}]. */
+    suspend fun mitmLogs(since: Long = 0): String = send(listOf("mitm", "logs"), query = mapOf("since" to since.toString()))
+    suspend fun mitmClearLogs() { send(listOf("mitm", "logs"), "DELETE") }
+
     // ---- websocket streams --------------------------------------------------------------------
 
     /** Streams decoded JSON frames from a websocket endpoint; the flow ends when the socket closes. */

@@ -228,11 +228,14 @@ private fun displayName(context: Context, uri: Uri): String? = runCatching {
 }.getOrNull()
 
 /** Reads an opened / shared document (SAF) as text. */
-fun readDocument(context: Context, uri: Uri): ImportRouter.Request.Text? {
+fun readDocument(context: Context, uri: Uri): ImportRouter.Request? {
     val text = runCatching {
         context.contentResolver.openInputStream(uri)?.use { it.readBytes().toString(Charsets.UTF_8) }
     }.getOrNull() ?: return null
-    val name = displayName(context, uri)?.substringBeforeLast('.') ?: ""
+    val file = displayName(context, uri).orEmpty()
+    val name = file.substringBeforeLast('.')
+    // .sgmodule / .plugin / .stoverride / .snippet … are modules; other text is routed by ClassifyText on import.
+    if (file.substringAfterLast('.', "").lowercase() in ImportRouter.moduleExtensions) return ImportRouter.Request.ModuleText(text, name)
     return ImportRouter.Request.Text(text, name)
 }
 
@@ -271,6 +274,7 @@ fun AddProfileSheet(vm: MainViewModel, onDismiss: () -> Unit) {
                             is ImportRouter.Request.Remote -> { vm.import(req.copy(name = name.ifBlank { req.name })); onDismiss() }
                             is ImportRouter.Request.Text -> { vm.import(req.copy(name = name)); onDismiss() }
                             null -> vm.toast(context.getString(R.string.err_bad_url))
+                            else -> { vm.import(req); onDismiss() }
                         }
                     },
                     enabled = url.isNotBlank() && !importing,

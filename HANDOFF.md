@@ -1,6 +1,8 @@
 # Mihomo for Android — 暂停交接 (HANDOFF)
 
 **状态：已暂停（HOLD）**，用户 2026-10-17 10:53 CST：「先优先跑原先的跟ios qx，android qx暂时hold」。
+
+2026-10-17 下午：按派发指示恢复本地开发（A1 收尾 + A2 模块/重写/MitM/脚本），只本地提交、未推送。
 Mihomo for Android 是用户 iOS 客户端（astemo6/mihomo-ios）的 Android 版本，界面沿用 QX 风格重做的设计。
 
 - 分支：这个仓库目前作为 **astemo6/mihomo-ios 上的孤立分支 `android/main`** 推送（与 iOS 历史无关）。等新仓库 astemo6/mihomo-android 建好后，直接 `git push <new> android/main:main` 即可迁移。
@@ -89,14 +91,16 @@ Mihomo for Android 是用户 iOS 客户端（astemo6/mihomo-ios）的 Android �
 - [x] external-controller 客户端（REST + 流式接口 logs/traffic/connections/memory，OkHttp websocket）
 - [x] QX 头部：出口国旗、位置、ASN、IP（ipinfo.io / ip-api / ipwho.is / ip.sb 轮询），加上总开关和运行时长
 - [x] 面板条：节点 / 网络活动 / 分流规则 / 重写规则 / 日志（彩色瓷砖，选中的瓷砖下方有下划线）
-- [x] 节点面板：PROXY 资源卡片（订阅信息、节点数、展开、全部测速），自定义策略卡片（解析出的 ➤ 链路、展开后选择；未连接时用 InspectProfile + SaveSelection 离线选择/测速），点图标测速，长按单个节点测速（策略组 icon 图片未加载，用首字母头像代替）
+- [x] 节点面板：PROXY 资源卡片（订阅信息、节点数、展开、全部测速），自定义策略卡片（解析出的 ➤ 链路、展开后选择；未连接时用 InspectProfile + SaveSelection 离线选择/测速），点图标测速，长按单个节点测速；策略组图标取配置的 `icon:`（`ui/components/GroupIcon.kt`：OkHttp + 内存 LRU + `filesDir/icon-cache/` 磁盘缓存，缩到 128px，raw.githubusercontent 走 jsDelivr 镜像，失败回落首字母头像；iOS 的用户自选图标 group-icons.json 未做）
 - [x] 模式切换（规则 / 全局 / 直连），风车长按弹出运行模式面板（节点面板顶部也有分段切换）
 - [x] 网络活动面板：TCP/UDP 计数，记录行包含规则、策略链和流量，可关闭单个/全部连接
 - [x] 分流规则面板：生效规则列表，带类型和策略标签（未连接时显示配置文件里的规则）
-- [x] 重写规则面板（A1 先只读或占位）：占位
+- [x] 重写规则面板：列出「我的重写」+ 各模块经 Go 引擎解析的规则（类型/阶段/模式/来源，停用的变灰，可搜索），“管理”进 设置 › 重写
 - [x] 日志面板：实时日志、级别切换（debug/info/warning/error）、暂停、清空
-- [~] 浮动工具栏：搜索（过滤当前面板）、＋（添加配置）、流量统计（简单弹窗）、DNS（占位）、请求（跳到网络活动），风车点按进设置、长按运行模式；“编辑”模式未做
-- [~] 设置页：QX 式分区按钮网格（节点 / 分流 / 工具 & 分析 / 配置文件 可用；重写、MitM 为 A2 占位），“面板 & 工具栏”占位；其他设置：连接与内核（日志级别、DNS 模式、嗅探、IPv6 off/auto/always、IP 偏好、阻止 QUIC、协议栈、测速地址/超时、健康检查覆盖、局域网共享、混合/控制器端口）、分应用代理、外观、语言、关于
+- [x] 浮动工具栏：搜索模式（工具栏变为搜索框，过滤当前面板）、＋、流量统计（简单弹窗；完整统计见 A2 traffic）、DNS（进 DNS 工具页）、请求；长按任一按钮进入编辑模式（点选按钮后左移/右移/隐藏，✓ 完成，“更多”进面板 & 工具栏页）；风车固定最右（点按设置、长按运行模式）
+- [x] DNS 工具（`ui/tools/DnsScreen.kt`）：查询测试（已连接走控制器 `/dns/query`，类型 A/AAAA/CNAME/HTTPS/TXT，显示 TTL 和耗时；未连接用系统解析）+ DNS 设置（同 iOS DNSView：`dns.json` 自定义 DNS/分流/引导/policy/Fake-IP 过滤，overrides.dnsMode，`localdns.json` 本地映射（ValidateHostEntry 校验）和真实 IP 域名），保存并重载
+- [x] 面板 & 工具栏（`ui/settings/PanelsToolbarScreen.kt`，存 `UiLayout` SharedPreferences `ui_layout`）：面板排序/隐藏（至少留一个），工具栏按钮排序/隐藏，恢复默认
+- [x] 设置页：QX 式分区按钮网格（节点 / 分流 / 重写 / MitM / 工具 & 分析 / 配置文件），第二组「数据 & 工具」：DNS、脚本、规则集、DNS 日志、流量统计、订阅管理、策略组、手动节点、诊断（后 7 项进 `ui/feature2/Feature2Placeholder.kt`，见下方“并行开发”）；“面板 & 工具栏”可用；其他设置：连接与内核（日志级别、DNS 模式、嗅探、IPv6 off/auto/always、IP 偏好、阻止 QUIC、协议栈、测速地址/超时、健康检查覆盖、局域网共享、混合/控制器端口）、分应用代理、外观、语言、关于
 - [x] 浅色、深色、跟随系统（默认跟随系统）；浅灰底白卡片，深色主题也同样适配
 - [x] Quick Settings 磁贴（开关，未授权时打开应用）
 - [x] 桌面小组件 ×1（状态、开关、当前节点和模式；RemoteViews）
@@ -104,7 +108,7 @@ Mihomo for Android 是用户 iOS 客户端（astemo6/mihomo-ios）的 Android �
 - [x] 分应用代理：允许或排除列表（Android 专属；本应用始终留在 VPN 内）
 
 ### A2 与 iOS 对齐
-- [ ] 模块、重写、MitM、脚本（复用 Go 引擎 mitm/：模块导入、启用和停用、CA 生成与导出，Android 上需要用户手动安装 CA 证书）
+- [x] 模块、重写、MitM、脚本（复用 Go 引擎 core/mitm，无需新增 Go 导出）：`data/EngineStore.kt` 写 `home/engine/engine.json` + `engine/modules/<id>.txt`（字段同 iOS EngineShared），改动后 400ms 去抖重载内核；设置 › 重写：总开关、模块（URL / 文件 / 剪贴板导入，UA Surge iOS/3000，启用/停用、更新、全部更新、查看原文、删除）、我的重写（粘贴多行，hostname= 行进 MitM 列表）；设置 › MitM：HTTPS 解密开关、跳过证书验证、全部阻止 QUIC、CA 生成/重新生成（CAGenerate/CAInfo）、导出 DER 到 下载/Mihomo-CA.crt（Android 10+ MediaStore，8–9 用 SAF CreateDocument）、手动安装说明（设置 › 安全 › 加密与凭据 › 安装证书 › CA 证书，并说明 Android 7+ 应用默认不信任用户 CA）、主机名列表（自有可删，模块来源只读）；脚本页：我的脚本、模块脚本/cron/event 任务、脚本日志（控制器 `/mitm/logs` 轮询，清空）。导入路由：ClassifyText `module:*`（粘贴/分享/文件/订阅 URL）、`.sgmodule/.plugin/.lpx/.stoverride/.snippet/.module` 链接或文件、`clash|mihomo://install-module?url=` → 模块；Surge/QX 完整配置首次导入时 ImportConf 的 `module` 和 `rewriteRemotes` 也加进引擎（同 iOS）。未做：模块参数（#!arguments）编辑、模块策略映射、脚本编辑器/调试（ScriptDebugRun）、MitM 请求查看器（/mitm/requests）、p12 导入导出、证书信任检测
 - [ ] 规则列表导入（QX/Surge/Clash rule list，作为远程规则集）
 - [ ] DNS 查询日志和 DNS 阻止的域名
 - [ ] 流量统计：本次会话按策略统计、历史记录、流速
@@ -121,6 +125,11 @@ Mihomo for Android 是用户 iOS 客户端（astemo6/mihomo-ios）的 Android �
 - [ ] 局域网共享（HTTP/SOCKS 端口）
 - [ ] 固定签名 keystore（需用户同意后放进 GitHub Secrets）
 
+## 并行开发（2026-10-17）
+- 本工作区（分支 `android/main`）负责共享文件：`ui/MainActivity.kt` 导航（字符串路由 `Routes.*`）、`ui/settings/SettingsScreen.kt` 网格、`ui/home/HomeScreen.kt` 工具栏、`res/values*/strings.xml`。
+- 另一 agent 在 worktree `../mihomo-android-a2data`（分支 `android/a2-data`）做 A2 数据功能，代码放 `ui/feature2/`（和 `data/feature2/`）。入口路由是纯字符串：`rulesets`、`dnslog`、`traffic`、`nodesubs`、`groups`、`manualnodes`、`diagnostics`（`ui/feature2/Feature2Placeholder.kt` 的 `Feature2Routes`）。MainActivity 对这些路由调用 `Feature2Screen(route, onBack)`；合并时只需把 `Feature2Screen` 的函数体换成按 route 分发到真实页面（若需要 vm，可改签名并同步改 MainActivity 那一行）。标题字符串 `f2_*` 已在 strings.xml。
+
 ## 本地验证记录（2026-10-17 12:30 CST）
 - `app/` 的 Kotlin 已对照**真实 gobind 生成的 Java 绑定**（`gobind -lang=java -tags android,with_gvisor`，javac 编成 classes.jar 放进占位 AAR）跑过 `:app:compileDebugKotlin`，BUILD SUCCESSFUL。`Core.kt` 的签名已确认，无需再猜。
 - 仍未验证：真实 `gomobile bind` 产出的 .so、R8 release 构建（沙箱内存不足）、真机运行。
+- 2026-10-17 13:xx CST：A1 补全（工具栏编辑/搜索模式、DNS 工具、面板 & 工具栏、策略组图标）+ A2 模块/重写/MitM/脚本 + feature2 入口，`:app:compileDebugKotlin` 对真实 gobind 绑定 BUILD SUCCESSFUL。未上机：MediaStore 导出、证书安装流程、MitM 实际解密、图标加载均未在设备上验证。

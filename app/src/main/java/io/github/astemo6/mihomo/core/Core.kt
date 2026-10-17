@@ -56,5 +56,17 @@ object Core {
         Libmihomo.testDelayByName(Paths.home.absolutePath, profilePath, name, url, timeoutMs.toLong()).toInt()
 
     fun migrateProfileProviders(path: String) { Libmihomo.migrateProfileProviders(path) }
+    // ---- HTTP engine (core/mitm): modules, rewrite, scripts, MitM CA ----
+    /** JSON ParsedEngineText for a whole module / snippet; argsJSON = module arguments. */
+    fun engineParseText(text: String, argsJson: String): String = Libmihomo.engineParseText(text, argsJson)
+    /** JSON ParsedEngineText for one line; section "script" forces the script reading. */
+    fun engineParseLine(line: String, section: String): String = Libmihomo.engineParseLine(line, section)
+    fun caInfo(): String = Libmihomo.caInfo(Paths.home.absolutePath)
+    fun caGenerate(): String = Libmihomo.caGenerate(Paths.home.absolutePath)
+    fun caCertDer(): ByteArray = Libmihomo.caCertDER(Paths.home.absolutePath)
+    fun caExportP12(password: String): ByteArray = Libmihomo.caExportP12(Paths.home.absolutePath, password)
+    /** "" when the hosts entry is valid, otherwise the reason. */
+    fun validateHostEntry(domain: String, value: String): String = Libmihomo.validateHostEntry(domain, value)
+
     fun friendlyError(msg: String): String = runCatching { Libmihomo.friendlyError(msg) }.getOrDefault(msg).ifEmpty { msg }
 }

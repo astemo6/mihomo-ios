@@ -10,7 +10,13 @@ object ImportRouter {
     sealed interface Request {
         data class Remote(val url: String, val name: String = "") : Request
         data class Text(val text: String, val name: String = "") : Request
+        /** A rewrite / MitM / script module (.sgmodule, .plugin, .stoverride, QX snippet …) → EngineStore (A2). */
+        data class ModuleUrl(val url: String) : Request
+        data class ModuleText(val text: String, val name: String = "") : Request
     }
+
+    private val moduleHosts = setOf("install-module", "install-plugin", "install-override", "import-module")
+    val moduleExtensions = setOf("sgmodule", "plugin", "lpx", "stoverride", "snippet", "module")
 
     private val installHosts = setOf("install-config", "install-profile", "import-profile", "subscribe")
 
@@ -19,9 +25,10 @@ object ImportRouter {
         val scheme = uri.scheme?.lowercase() ?: return null
         if (scheme !in setOf("clash", "clashmeta", "mihomo")) return null
         val host = uri.host?.lowercase().orEmpty()
-        if (host !in installHosts) return null
+        if (host !in installHosts && host !in moduleHosts) return null
         val url = uri.getQueryParameter("url")?.trim().orEmpty()
         if (!url.startsWith("http://", true) && !url.startsWith("https://", true)) return null
+        if (host in moduleHosts) return Request.ModuleUrl(url)
         return Request.Remote(url, uri.getQueryParameter("name").orEmpty())
     }
 
@@ -34,7 +41,10 @@ object ImportRouter {
             if (t.startsWith("clash://", true) || t.startsWith("mihomo://", true) || t.startsWith("clashmeta://", true)) {
                 return fromUri(Uri.parse(t))
             }
-            if (t.startsWith("http://", true) || t.startsWith("https://", true)) return Request.Remote(t)
+            if (t.startsWith("http://", true) || t.startsWith("https://", true)) {
+                val ext = Uri.parse(t).lastPathSegment?.substringAfterLast('.', "")?.lowercase().orEmpty()
+                return if (ext in moduleExtensions) Request.ModuleUrl(t) else Request.Remote(t)
+            }
         }
         return Request.Text(t)
     }
