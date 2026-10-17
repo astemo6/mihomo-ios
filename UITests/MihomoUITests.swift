@@ -189,8 +189,13 @@ final class MihomoUITests: MihomoUITestCase {
         let node = app.element(label: "🇭🇰 Hong Kong 01")
         XCTAssertTrue(scrollTo(node))
         node.tap()
-        XCTAssertTrue(app.element(label: L("凭据")).waitForExistence(timeout: 10) || app.element(label: "••••••").waitForExistence(timeout: 2),
-                      "credentials section")
+        // v0.17: the 节点设置 section sits above 基本, so 凭据 can be below the fold (lazy List, en is taller).
+        let cred = app.element(label: L("凭据"))
+        if !cred.waitForExistence(timeout: 4) {
+            usleep(1_500_000)
+            _ = scrollTo(cred)
+        }
+        XCTAssertTrue(cred.exists || app.element(label: "••••••").exists, "credentials section")
         let tree = app.debugDescription
         for secret in ["uitest-secret", "00000000-0000-4000-8000", "AAAAAAAAAAAAAAAA"] {
             XCTAssertFalse(tree.contains(secret), "secret visible in node detail: \(secret)")
