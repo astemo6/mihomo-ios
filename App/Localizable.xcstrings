@@ -1,6 +1,40 @@
 {
   "sourceLanguage": "zh-Hans",
   "strings": {
+    "\n规则集 / 节点集：%lld 个已下载，%lld 个失败（可在「更多 → 提供者」中重试）": {
+      "localizations": {
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "\n規則集 / 節點集：%lld 個已下載，%lld 個失敗（可在「更多 → 提供者」中重試）"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "\nRule sets / node providers: %lld downloaded, %lld failed (retry in More → Providers)"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "\nルールセット / ノードセット：%lld 件ダウンロード、%lld 件失敗（「その他 → プロバイダ」で再試行）"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "\n규칙 세트 / 노드 세트: %lld개 다운로드, %lld개 실패 (「더 보기 → 제공자」에서 다시 시도)"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "\nНаборы правил / узлов: загружено %lld, ошибок %lld (повторите в «Ещё → Провайдеры»)"
+          }
+        }
+      }
+    },
     " 参数": {
       "localizations": {
         "en": {
@@ -512,6 +546,40 @@
         }
       }
     },
+    "%lld · 模块 %lld": {
+      "localizations": {
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%lld · 模組 %lld"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%lld · modules %lld"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%lld · モジュール %lld"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%lld · 모듈 %lld"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%lld · модули %lld"
+          }
+        }
+      }
+    },
     "%lld 个节点 · %lld 个策略组 · %lld 条规则 · %lld 个节点集": {
       "localizations": {
         "zh-Hant": {
@@ -814,6 +882,40 @@
           "stringUnit": {
             "state": "translated",
             "value": "Элементов: %lld"
+          }
+        }
+      }
+    },
+    "%lld/%lld": {
+      "localizations": {
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%lld/%lld"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%lld/%lld"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%lld/%lld"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%lld/%lld"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%lld/%lld"
           }
         }
       }
@@ -3277,6 +3379,41 @@
           "stringUnit": {
             "state": "translated",
             "value": "MitM"
+          }
+        }
+      }
+    },
+    "MitM 主机": {
+      "extractionState": "manual",
+      "localizations": {
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "MitM 主機"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "MitM Hosts"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "MitM ホスト"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "MitM 호스트"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Хосты MitM"
           }
         }
       }
@@ -6149,6 +6286,40 @@
           "stringUnit": {
             "state": "translated",
             "value": "↓ %@"
+          }
+        }
+      }
+    },
+    "「%@」不是文本文件，无法导入": {
+      "localizations": {
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "「%@」不是文字檔案，無法匯入"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "“%@” is not a text file and cannot be imported"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "「%@」はテキストファイルではないため読み込めません"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "「%@」은(는) 텍스트 파일이 아니어서 가져올 수 없습니다"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "«%@» — не текстовый файл, импорт невозможен"
           }
         }
       }
@@ -10391,6 +10562,40 @@
         }
       }
     },
+    "关闭 · 模块需要 %lld 个主机": {
+      "localizations": {
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "關閉 · 模組需要 %lld 個主機"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Off · modules need %lld hosts"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "オフ · モジュールに %lld 件のホストが必要"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "끔 · 모듈에 호스트 %lld개 필요"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Выкл. · модулям нужно хостов: %lld"
+          }
+        }
+      }
+    },
     "关闭时使用配置文件自带的 DNS 设置（没有时使用内置的国内 DoH）。": {
       "localizations": {
         "en": {
@@ -11071,6 +11276,40 @@
           "stringUnit": {
             "state": "translated",
             "value": "Внутренняя ошибка"
+          }
+        }
+      }
+    },
+    "写入失败": {
+      "localizations": {
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "寫入失敗"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Write failed"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "書き込みに失敗しました"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "쓰기 실패"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Ошибка записи"
           }
         }
       }
@@ -16546,6 +16785,40 @@
         }
       }
     },
+    "定时任务 %lld 个": {
+      "localizations": {
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "定時任務 %lld 個"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%lld scheduled tasks"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "定期タスク %lld 件"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "예약 작업 %lld개"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Задач по расписанию: %lld"
+          }
+        }
+      }
+    },
     "定时脚本": {
       "localizations": {
         "en": {
@@ -16887,6 +17160,40 @@
         }
       }
     },
+    "导入失败": {
+      "localizations": {
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "匯入失敗"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Import Failed"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "読み込みに失敗しました"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "가져오기 실패"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Ошибка импорта"
+          }
+        }
+      }
+    },
     "导入模块": {
       "localizations": {
         "en": {
@@ -16955,6 +17262,40 @@
         }
       },
       "extractionState": "manual"
+    },
+    "导入的重写和脚本需要解密这些主机的 HTTPS 才能生效。MitM 当前未开启或证书未信任。": {
+      "localizations": {
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "匯入的重寫和腳本需要解密這些主機的 HTTPS 才能生效。MitM 當前未開啟或證書未信任。"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "The imported rewrites and scripts need HTTPS decryption for these hosts. MitM is off or the certificate is not trusted."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "読み込んだ書き換えとスクリプトを有効にするには、これらのホストの HTTPS を復号する必要があります。MitM がオフか、証明書が信頼されていません。"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "가져온 재작성과 스크립트가 작동하려면 이 호스트들의 HTTPS 복호화가 필요합니다. MitM이 꺼져 있거나 인증서가 신뢰되지 않았습니다."
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Импортированным перезаписям и скриптам нужна расшифровка HTTPS этих хостов. MitM выключен или сертификат не доверен."
+          }
+        }
+      }
     },
     "导入配置": {
       "extractionState": "manual",
@@ -17327,6 +17668,40 @@
           "stringUnit": {
             "state": "translated",
             "value": "Ещё не загружено"
+          }
+        }
+      }
+    },
+    "尚未下载 · 轻点右侧按钮下载": {
+      "localizations": {
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "尚未下載 · 輕點右側按鈕下載"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Not downloaded · tap the button on the right"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "未ダウンロード · 右のボタンでダウンロード"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "다운로드 안 됨 · 오른쪽 버튼을 탭하세요"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Не загружено · нажмите кнопку справа"
           }
         }
       }
@@ -19207,6 +19582,40 @@
           "stringUnit": {
             "state": "translated",
             "value": "Вкл."
+          }
+        }
+      }
+    },
+    "开启 MitM 并安装证书": {
+      "localizations": {
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "開啟 MitM 並安裝證書"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Turn On MitM & Install Certificate"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "MitM をオンにして証明書をインストール"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "MitM 켜기 및 인증서 설치"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Включить MitM и установить сертификат"
           }
         }
       }
@@ -22727,6 +23136,40 @@
         }
       }
     },
+    "文件「%@」是空的": {
+      "localizations": {
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "檔案「%@」是空的"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "The file “%@” is empty"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ファイル「%@」は空です"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "파일 「%@」이(가) 비어 있습니다"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Файл «%@» пуст"
+          }
+        }
+      }
+    },
     "文件名.js": {
       "localizations": {
         "zh-Hant": {
@@ -22757,6 +23200,40 @@
           "stringUnit": {
             "state": "translated",
             "value": "имя_файла.js"
+          }
+        }
+      }
+    },
+    "文件太大（超过 16 MB），不是配置或模块": {
+      "localizations": {
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "檔案太大（超過 16 MB），不是配置或模組"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "The file is too large (over 16 MB) to be a profile or module"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ファイルが大きすぎます（16 MB 超）。プロファイルやモジュールではありません"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "파일이 너무 큽니다(16MB 초과). 프로파일이나 모듈이 아닙니다"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Файл слишком большой (более 16 МБ) — это не профиль и не модуль"
           }
         }
       }
@@ -23616,6 +24093,74 @@
       },
       "extractionState": "manual"
     },
+    "无法识别「%@」的内容：支持 mihomo 配置、Surge / QX 配置、模块、规则列表和节点链接": {
+      "localizations": {
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "無法識別「%@」的內容：支援 mihomo 配置、Surge / QX 配置、模組、規則列表和節點連結"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Can't recognise “%@”: supported are mihomo profiles, Surge / QX configs, modules, rule lists and node links"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "「%@」の内容を認識できません：mihomo プロファイル、Surge / QX 設定、モジュール、ルールリスト、ノードリンクに対応"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "「%@」의 내용을 인식할 수 없습니다: mihomo 프로파일, Surge / QX 설정, 모듈, 규칙 목록, 노드 링크를 지원합니다"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Не удалось распознать «%@»: поддерживаются профили mihomo, конфиги Surge / QX, модули, списки правил и ссылки узлов"
+          }
+        }
+      }
+    },
+    "无法识别的链接：%@://…": {
+      "localizations": {
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "無法識別的連結：%@://…"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Unrecognised link: %@://…"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "認識できないリンク：%@://…"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "인식할 수 없는 링크: %@://…"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Нераспознанная ссылка: %@://…"
+          }
+        }
+      }
+    },
     "无法读取 iCloud 文件（可能尚未下载）": {
       "localizations": {
         "en": {
@@ -23720,6 +24265,40 @@
         }
       },
       "extractionState": "manual"
+    },
+    "无法读取文件「%@」：%@": {
+      "localizations": {
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "無法讀取檔案「%@」：%@"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Can't read the file “%@”: %@"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ファイル「%@」を読み込めません：%@"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "파일 「%@」을(를) 읽을 수 없습니다: %@"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Не удалось прочитать файл «%@»: %@"
+          }
+        }
+      }
     },
     "无法读取配置": {
       "localizations": {
@@ -25122,6 +25701,40 @@
         }
       }
     },
+    "未知错误": {
+      "localizations": {
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "未知錯誤"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Unknown error"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "不明なエラー"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "알 수 없는 오류"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Неизвестная ошибка"
+          }
+        }
+      }
+    },
     "未识别到可用的重写、脚本或 MitM 内容": {
       "localizations": {
         "en": {
@@ -25392,6 +26005,40 @@
           "stringUnit": {
             "state": "translated",
             "value": "Не подключено · профиль %@"
+          }
+        }
+      }
+    },
+    "未连接时由 App 直接下载并转换（使用 GitHub 镜像设置），连接后内核会按更新间隔从源地址刷新。": {
+      "localizations": {
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "未連線時由 App 直接下載並轉換（使用 GitHub 映象設定），連線後核心會按更新間隔從源地址重新整理。"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "While disconnected the app downloads and converts them itself (using the GitHub mirror setting); when connected the core refreshes them from the source on their interval."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "未接続時は App が直接ダウンロードして変換します（GitHub ミラー設定を使用）。接続中はコアが更新間隔ごとに元の URL から更新します。"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "연결되지 않았을 때는 앱이 직접 다운로드하고 변환합니다(GitHub 미러 설정 사용). 연결되면 코어가 업데이트 간격마다 원본 주소에서 새로 고칩니다."
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Без подключения приложение само загружает и конвертирует их (с учётом зеркала GitHub); при подключении ядро обновляет их из источника по интервалу."
           }
         }
       }
@@ -37905,6 +38552,40 @@
         }
       }
     },
+    "还没有缓存。在「提供者」页点更新即可由 App 直接下载；连接后内核也会下载。": {
+      "localizations": {
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "還沒有快取。在「提供者」頁點更新即可由 App 直接下載；連線後核心也會下載。"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Not cached yet. Tap update on the Providers page to download it in the app; the core also downloads it when connected."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "まだキャッシュがありません。「プロバイダ」で更新をタップすると App が直接ダウンロードします。接続中はコアもダウンロードします。"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "아직 캐시가 없습니다. 「제공자」 페이지에서 업데이트를 탭하면 앱이 직접 다운로드합니다. 연결되면 코어도 다운로드합니다."
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Кэша ещё нет. Нажмите «Обновить» на странице «Провайдеры», чтобы приложение загрузило его; при подключении загрузит и ядро."
+          }
+        }
+      }
+    },
     "还没有缓存。连接后内核会下载；之后断开也能在这里查看内容。": {
       "localizations": {
         "en": {
@@ -38345,6 +39026,41 @@
           "stringUnit": {
             "state": "translated",
             "value": "Удалённые скрипты (кешированная копия) только для чтения; отлаживайте здесь или сохраните как локальный скрипт для правки."
+          }
+        }
+      }
+    },
+    "远程重写": {
+      "extractionState": "manual",
+      "localizations": {
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "遠端重寫"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Remote Rewrites"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "リモート書き換え"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "원격 재작성"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Удалённые перезаписи"
           }
         }
       }
@@ -39855,6 +40571,40 @@
         }
       }
     },
+    "重写 / MitM / 脚本 → 作为模块导入，每个远程重写单独成为一个模块": {
+      "localizations": {
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "重寫 / MitM / 腳本 → 作為模組匯入，每個遠端重寫單獨成為一個模組"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Rewrites / MitM / scripts → imported as a module; each remote rewrite becomes its own module"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "書き換え / MitM / スクリプト → モジュールとして読み込み、リモート書き換えはそれぞれ個別のモジュールになります"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "재작성 / MitM / 스크립트 → 모듈로 가져오며, 원격 재작성은 각각 별도 모듈이 됩니다"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Перезаписи / MitM / скрипты → импорт как модуль; каждая удалённая перезапись — отдельный модуль"
+          }
+        }
+      }
+    },
     "重写与脚本已启用": {
       "localizations": {
         "en": {
@@ -40634,6 +41384,40 @@
           "stringUnit": {
             "state": "translated",
             "value": "Ссылка слишком длинная для QR-кода"
+          }
+        }
+      }
+    },
+    "链接无效": {
+      "localizations": {
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "連結無效"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Invalid link"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "無効なリンク"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "잘못된 링크"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Недопустимая ссылка"
           }
         }
       }
@@ -41659,6 +42443,40 @@
         }
       }
     },
+    "（%lld 个下载失败，可在「模块与资源」中更新）\n": {
+      "localizations": {
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "（%lld 個下載失敗，可在「模組與資源」中更新）\n"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": " (%lld failed to download; update them in Modules & Resources)\n"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "（%lld 件のダウンロードに失敗。「モジュールとリソース」で更新できます）\n"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": " (%lld개 다운로드 실패, 「모듈 및 리소스」에서 업데이트 가능)\n"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": " (не загружено: %lld; обновите в «Модули и ресурсы»)\n"
+          }
+        }
+      }
+    },
     "（暂无，连接一次后生成）": {
       "localizations": {
         "en": {
@@ -41763,6 +42581,40 @@
         }
       },
       "extractionState": "manual"
+    },
+    "，另添加 %lld 个远程重写模块": {
+      "localizations": {
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "，另新增 %lld 個遠端重寫模組"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": ", plus %lld remote rewrite modules"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "、さらにリモート書き換えモジュール %lld 件を追加"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": ", 원격 재작성 모듈 %lld개 추가"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": ", а также удалённых модулей перезаписи: %lld"
+          }
+        }
+      }
     }
   },
   "version": "1.0"

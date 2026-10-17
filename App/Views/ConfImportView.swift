@@ -12,18 +12,30 @@ struct ConfImportResult: Decodable {
         var rules: Int?
         var providers: Int?
         var module: Bool?
+        var rewrites: Int?
+        var scripts: Int?
+        var tasks: Int?
+        var hostnames: Int?
+        var remotes: Int?
         var skipped: [String]?
         var notes: [String]?
     }
     var yaml: String?
     var module: String?
+    struct RemoteModule: Decodable, Hashable {
+        var url: String
+        var name: String
+        var enabled: Bool
+        var interval: Int?
+    }
+    var rewriteRemotes: [RemoteModule]? = nil
     var report: Report?
     var error: String?
 
     static func convert(_ text: String) async -> ConfImportResult {
         let json = await Task.detached(priority: .userInitiated) { LibmihomoImportConf(text) }.value
         return (try? JSONDecoder().decode(ConfImportResult.self, from: Data(json.utf8)))
-            ?? ConfImportResult(yaml: nil, module: nil, report: nil, error: "转换失败")
+            ?? ConfImportResult(yaml: nil, module: nil, report: nil, error: String(localized: "转换失败"))
     }
 }
 
@@ -39,6 +51,25 @@ enum ConfImport {
         if let m = r.module, !m.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
             await MainActor.run { EngineStore.shared.addModule(text: m, name: p.name + "（重写）") }
             msg += "，重写 / MitM / 脚本已作为模块「\(p.name)（重写）」添加"
+        }
+        // QX [rewrite_remote] (v0.8.1): one module per line (tag / file name, enabled= kept), downloaded now.
+        let remotes = r.rewriteRemotes ?? []
+        if !remotes.isEmpty {
+            var failed: [String] = []
+            for m in remotes {
+                if let e = await EngineStore.shared.addRemoteModule(url: m.url, name: m.name, enabled: m.enabled, interval: m.interval ?? 86400) {
+                    failed.append("\(m.name)：\(e)")
+                }
+            }
+            msg += String(localized: "，另添加 \(remotes.count) 个远程重写模块")
+            if !failed.isEmpty {
+                msg += String(localized: "（\(failed.count) 个下载失败，可在「模块与资源」中更新）\n") + failed.joined(separator: "\n")
+            }
+        }
+        // Rule sets / node subscriptions: download them now so they work before the first connection.
+        let pr = await ProviderUpdater.shared.updateAll(profile: p)
+        if pr.failed > 0 {
+            msg += String(localized: "\n规则集 / 节点集：\(pr.ok) 个已下载，\(pr.failed) 个失败（可在「更多 → 提供者」中重试）")
         }
         return msg
     }
@@ -75,8 +106,17 @@ struct ConfReportSection: View {
                             stat("规则", rep.rules ?? 0)
                             stat("规则集", rep.providers ?? 0)
                         }
-                        if rep.module == true {
-                            Label("重写 / MitM / 脚本 → 作为模块导入", systemImage: "puzzlepiece.extension").font(.footnote)
+                        if rep.module == true || (rep.remotes ?? 0) > 0 {
+                            LazyVGrid(columns: [GridItem(.flexible()), GridItem(.flexible()), GridItem(.flexible()), GridItem(.flexible())], spacing: 8) {
+                                stat("重写", rep.rewrites ?? 0)
+                                stat("脚本", rep.scripts ?? 0)
+                                stat("MitM 主机", rep.hostnames ?? 0)
+                                stat("远程重写", rep.remotes ?? 0)
+                            }
+                            if (rep.tasks ?? 0) > 0 {
+                                Label("定时任务 \(rep.tasks ?? 0) 个", systemImage: "clock").font(.footnote)
+                            }
+                            Label("重写 / MitM / 脚本 → 作为模块导入，每个远程重写单独成为一个模块", systemImage: "puzzlepiece.extension").font(.footnote)
                         }
                     } header: { Text("转换结果") }
                     .listRowBackground(Theme.card)

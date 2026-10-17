@@ -67,6 +67,11 @@ final class ProfileStore: ObservableObject {
             activeID = profiles.first?.id
             AppShared.activeProfileID = activeID
         }
+        // v0.8.1: profiles converted by v0.8.0 and earlier get source URLs and readable provider names.
+        let paths = profiles.filter { $0.kind == .local }.map { $0.fileURL.path }
+        Task.detached(priority: .utility) {
+            for path in paths { _ = LibmihomoMigrateProfileProviders(path) }
+        }
     }
 
     private func persist() {

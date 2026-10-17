@@ -126,6 +126,41 @@ final class EngineStore: ObservableObject {
         }
     }
 
+    /// QX [rewrite_remote] (v0.8.1): one module per line, named from tag= or the file name, enabled= kept.
+    /// Downloaded by the app right away (works while disconnected); a failed download keeps the module so
+    /// 更新 can fetch it later. Returns the error text, nil on success. A URL that is already a module is skipped.
+    func addRemoteModule(url: String, name: String, enabled: Bool, interval: Int) async -> String? {
+        if config.modules.contains(where: { $0.url == url }) { return nil }
+        var m = EngineModule(name: name.isEmpty ? (URL(string: url)?.deletingPathExtension().lastPathComponent ?? "模块") : name,
+                             url: url, enabled: enabled, args: nil, updatedAt: nil, interval: interval > 0 ? interval : nil)
+        var err: String?
+        do {
+            let text = try await Self.download(url)
+            try text.write(to: EnginePaths.moduleURL(m.id), atomically: true, encoding: .utf8)
+            m.updatedAt = Date().timeIntervalSince1970
+        } catch {
+            err = error.localizedDescription
+            try? "".write(to: EnginePaths.moduleURL(m.id), atomically: true, encoding: .utf8)
+        }
+        config.modules.append(m)
+        if enabled && !config.enabled { config.enabled = true }
+        reparseModules()
+        save()
+        return err
+    }
+
+    /// Rewrites / scripts / MitM hosts of the enabled modules (更多 shows the same numbers as 模块与资源).
+    var enabledModuleCounts: (rewrites: Int, scripts: Int, hosts: Int) {
+        var r = 0, s = 0, h = 0
+        for m in config.modules where m.enabled {
+            guard let p = moduleInfo[m.id] else { continue }
+            s += p.rules.filter { $0.kind == "script" }.count
+            r += p.rules.filter { $0.kind != "script" }.count
+            h += p.hostnames.filter { !$0.hasPrefix("-") }.count
+        }
+        return (r, s, h)
+    }
+
     private var caTrustedOrUnknownTrue: Bool { caTrusted == true }
 
     func addModule(text: String, name: String) {

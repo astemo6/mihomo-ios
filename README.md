@@ -31,6 +31,16 @@
 | 导入链接 | 只注册自己的 `mihomo://`（`mihomo://install-config?url=`、`install-module?url=`、`connect`、`disconnect`、`toggle`）。粘贴的 `loon://`、`stash://`、`surge:///`、`quantumult-x:///`、`egern:/` 安装链接也能识别，但**不注册**这些 scheme，避免与其他客户端抢链接。可以用「文件」/其他 App 的「用 Mihomo 打开」打开 `.sgmodule` `.plugin` `.stoverride` `.module` `.snippet` `.conf` `.list` `.yaml` 和纯文本；剪贴板有新内容时顶部出现「粘贴导入」横幅 |
 | iPad | 横向宽度为常规时用侧边栏（NavigationSplitView）显示五个分区，支持横竖屏与分屏；iPhone 保持底部标签栏 |
 
+## v0.8.1 要点（真机测试修复：导入 Quantumult X 配置）
+
+- **「用 Mihomo 打开」/ 分享 / 从文件导入都会有反馈**：导入确认页改由最上层的界面弹出（等文件选择器或其他弹窗关闭后再弹），以前在新手引导、设置弹窗或文件选择器还没收起时会被系统静默丢弃。冷启动时打开的文件也会补发。任何打开的文件或链接都会显示导入页，或说明无法导入的原因。
+- **读取更稳**：在安全作用域内立即读取（协调读取，iCloud 文件会先下载），支持 UTF-8（含 BOM）、UTF-16、GB18030；`.conf` / `.txt` / `.snippet` / 无扩展名 / 其他 App 自定义类型都按内容识别（增加 public.data 作为备选文档类型）。每次打开都记入诊断启动日志（扩展名、类型、字节数）。
+- **完整的 QX 配置识别为配置**：含 `[server_local]` / `[server_remote]` / `[policy]` / `[filter_local]` / `[filter_remote]` 的文本一律走配置转换（以前 `http://` 开头的远程行可能被误认成 Stash 覆写）。
+- **QX 转换补全**：`[server_remote]` 订阅转为 mihomo 节点集（经本地 `/nodes/convert` 下载，支持 QX / Surge 行、分享链接、Base64 和 Clash YAML）；`server-tag-regex` 组包含全部节点集再过滤，`resource-tag-regex` 只用匹配的订阅，成员是远程节点名的组改用订阅；`[rewrite_remote]` 中启用的链接导入时逐个添加为远程模块。
+- 粘贴 Surge / QX 配置、从文件导入、「用 Mihomo 打开」共用同一个弹出方式和同一个 QX 转换器。
+- **QX 重写完整导入**：`[rewrite_remote]` 每一行成为一个独立的远程模块（名称取 `tag=` 或文件名，保留 `enabled=`、更新间隔和源地址，导入时由 App 直接下载，失败的可在「模块与资源」中更新）；`[rewrite_local]` 全部类型（reject 系列、302/307、请求/响应头和体改写、各类脚本、echo-response、url-and-header）与 `[task_local]` 定时任务进入导入模块；`[mitm]` 主机名保留，CA 的 passphrase / p12 不会被复制。导入页按「重写 / 脚本 / MitM 主机 / 远程重写 / 定时任务」分别计数，并列出每一行不支持的内容；需要 MitM 时提示一键前往开启并安装证书。「更多」中的重写、脚本数量包含已启用模块的内容，与「模块与资源」一致。
+- **规则集保留源地址，App 可直接下载**：导入后的规则集 / 节点订阅在配置里保留原始 URL（不再显示 `127.0.0.1` 转换地址），名称取 QX `tag=` 或文件名（如 YouTube、Privacy、Unbreak，重名自动加序号）。未连接时可在「更多 → 提供者」点「全部更新」或单个更新，由 App 下载并转换到内核读取的缓存文件（遵循 GitHub 镜像设置），显示进度、错误、更新时间与条数；连接后内核按更新间隔从源地址刷新。旧版本导入的 `custom-<hash>` 名称在启动时自动迁移，规则引用随之更新。
+
 ## v0.8 要点
 
 ### 节点出口与解锁检测（策略页长按节点；更多 → 工具与数据 → 解锁检测）

@@ -7,6 +7,7 @@ package libmihomo
 import (
 	"encoding/json"
 	"fmt"
+	"net/url"
 	"regexp"
 	"strings"
 
@@ -22,15 +23,62 @@ type confReport struct {
 	Rules     int      `json:"rules"`
 	Providers int      `json:"providers"`
 	Module    bool     `json:"module"`
+	// v0.8.1: what the module part holds, so the sheet can show counts per section.
+	Rewrites  int      `json:"rewrites"`  // rewrite / map-local / header / body lines
+	Scripts   int      `json:"scripts"`   // script rewrites
+	Tasks     int      `json:"tasks"`     // cron / event tasks
+	Hostnames int      `json:"hostnames"` // MitM hostnames
+	Remotes   int      `json:"remotes"`   // rewrite_remote modules (incl. disabled)
 	Skipped   []string `json:"skipped"`
 	Notes     []string `json:"notes"`
 }
 
+type remoteModule struct {
+	URL      string `json:"url"`
+	Name     string `json:"name"`
+	Enabled  bool   `json:"enabled"`
+	Interval int    `json:"interval"`
+}
+
+// parseQXRewriteRemote reads "<url>, tag=…, update-interval=…, opt-parser=…, enabled=…" (disabled lines too).
+func parseQXRewriteRemote(line string) (remoteModule, bool) {
+	parts := strings.Split(line, ",")
+	u := strings.TrimSpace(parts[0])
+	if !strings.HasPrefix(u, "http://") && !strings.HasPrefix(u, "https://") {
+		return remoteModule{}, false
+	}
+	m := remoteModule{URL: u, Enabled: true, Interval: 86400}
+	for _, p := range parts[1:] {
+		k, v, ok := strings.Cut(strings.TrimSpace(p), "=")
+		if !ok {
+			continue
+		}
+		v = strings.TrimSpace(v)
+		switch strings.ToLower(strings.TrimSpace(k)) {
+		case "tag":
+			m.Name = v
+		case "update-interval":
+			if n := atoi(v, 0); n > 0 {
+				m.Interval = n
+			}
+		case "enabled":
+			m.Enabled = truthy(v)
+		}
+	}
+	if m.Name == "" {
+		m.Name = prettyProviderName(u, "")
+	}
+	return m, true
+}
+
 type confResult struct {
-	YAML   string     `json:"yaml"`
-	Module string     `json:"module,omitempty"`
-	Report confReport `json:"report"`
-	Error  string     `json:"error,omitempty"`
+	YAML   string `json:"yaml"`
+	Module string `json:"module,omitempty"`
+	// RewriteRemotes: QX [rewrite_remote] lines; the app adds each as its own remote module (name from
+	// tag= or the file name, enabled= respected, downloaded by the app).
+	RewriteRemotes []remoteModule `json:"rewriteRemotes,omitempty"`
+	Report        confReport `json:"report"`
+	Error         string     `json:"error,omitempty"`
 }
 
 var confSectionRe = regexp.MustCompile(`^\[([^\]]+)\]\s*$`)
@@ -88,8 +136,10 @@ func ImportConf(text string) string {
 	if _, ok := secs["policy"]; ok {
 		isQX = true
 	}
-	if _, ok := secs["filter_local"]; ok {
-		isQX = true
+	for _, k := range []string{"filter_local", "server_remote", "filter_remote"} {
+		if _, ok := secs[k]; ok {
+			isQX = true
+		}
 	}
 	if isQX {
 		res.Report.Format = "qx"
@@ -140,8 +190,29 @@ func ImportConf(text string) string {
 		proxies = append(proxies, p)
 		proxyNames[strOf(p["name"])] = true
 	}
-	if isQX && len(nonEmpty(secs["server_remote"])) > 0 {
-		rep.Notes = append(rep.Notes, fmt.Sprintf("[server_remote] 的 %d 个远程节点订阅未导入：请在「配置」里作为订阅单独添加", len(nonEmpty(secs["server_remote"]))))
+	// [server_remote] (v0.8.1): each subscription becomes a mihomo proxy-provider, downloaded through the
+	// local /nodes/convert endpoint (QX / Surge lines, share links, base64 or Clash YAML → proxies).
+	proxyProviders := map[string]any{}
+	var providerTags []string // provider names in file order
+	if isQX {
+		for _, l := range nonEmpty(secs["server_remote"]) {
+			sp, ok := parseQXServerRemote(l)
+			if !ok {
+				skip("server_remote", l, "无效或已禁用")
+				continue
+			}
+			name := sp.Tag
+			if name == "" {
+				name = prettyProviderName(sp.URL, "")
+			}
+			name = uniqueProviderName(name, func(n string) bool { return proxyProviders[n] != nil })
+			proxyProviders[name] = map[string]any{
+				"type": "http", "url": sp.URL, "x-convert": "nodes", "path": "./proxies/" + providerNameFor(sp.URL, "nodes") + ".yaml",
+				"interval":     sp.Interval,
+				"health-check": map[string]any{"enable": true, "url": "https://www.gstatic.com/generate_204", "interval": 600, "lazy": true},
+			}
+			providerTags = append(providerTags, name)
+		}
 	}
 
 	// ---- groups
@@ -231,14 +302,40 @@ func ImportConf(text string) string {
 		}
 		if re := firstNonEmpty(g.opts["policy-regex-filter"], g.opts["server-tag-regex"]); re != "" {
 			m["filter"] = re
-			m["include-all-proxies"] = true
+			if len(providerTags) > 0 {
+				m["include-all"] = true // inline proxies + every provider
+			} else {
+				m["include-all-proxies"] = true
+			}
+		}
+		if re := g.opts["resource-tag-regex"]; re != "" && len(providerTags) > 0 {
+			var use []any
+			if rx, err := regexp.Compile(re); err == nil {
+				for _, t := range providerTags {
+					if rx.MatchString(t) {
+						use = append(use, t)
+					}
+				}
+			}
+			if len(use) > 0 {
+				m["use"] = use
+				delete(m, "include-all")
+			}
+		}
+		// A QX group whose members are remote servers (not known here) uses the subscriptions instead.
+		if len(members) == 0 && m["include-all"] == nil && m["include-all-proxies"] == nil && m["use"] == nil && len(providerTags) > 0 && hadUnknown(g.members, groupNames, proxyNames) {
+			var use []any
+			for _, t := range providerTags {
+				use = append(use, t)
+			}
+			m["use"] = use
 		}
 		// Group icon (v0.7): QX img-url, Surge / Loon icon-url → mihomo `icon:` (only remote images;
 		// QX built-in icon names have no file we could show).
 		if ic := firstNonEmpty(g.opts["img-url"], g.opts["icon-url"]); strings.HasPrefix(ic, "http://") || strings.HasPrefix(ic, "https://") {
 			m["icon"] = ic
 		}
-		if len(members) == 0 && m["include-all-proxies"] == nil {
+		if len(members) == 0 && m["include-all-proxies"] == nil && m["include-all"] == nil && m["use"] == nil {
 			members = append(members, "DIRECT")
 		}
 		if len(members) > 0 {
@@ -272,18 +369,26 @@ func ImportConf(text string) string {
 	if isQX {
 		ruleSec = "filter_local"
 	}
-	addRemote := func(u, kind, pol, line string) {
+	// v0.8.1: readable provider names (QX tag or file name, de-duplicated), source URL kept in `url`,
+	// conversion recorded as x-convert; the cache file name stays hash-based.
+	byList := map[string]string{}
+	addRemote := func(u, kind, pol, line, tag string) {
 		p, ok := mitm.ResolvePolicy(pol, gl, pl, firstSelect)
 		if !ok {
 			skip(ruleSec, line, "策略「"+pol+"」不存在")
 			return
 		}
-		name := providerNameFor(u, kind)
-		behavior := "classical"
-		if kind == "domainset" {
-			behavior = "domain"
+		name, seen := byList[kind+"|"+u]
+		if !seen {
+			name = uniqueProviderName(prettyProviderName(u, tag), func(n string) bool { _, ok := providers[n]; return ok })
+			byList[kind+"|"+u] = name
+			behavior := "classical"
+			if kind == "domainset" {
+				behavior = "domain"
+			}
+			providers[name] = map[string]any{"type": "http", "behavior": behavior, "format": "text", "url": u, "x-convert": kind,
+				"path": "./ruleset/" + providerNameFor(u, kind) + ".txt", "interval": 86400}
 		}
-		providers[name] = map[string]any{"type": "http", "behavior": behavior, "format": "text", "url": convertScheme + kind + ":" + u, "path": "./ruleset/" + name + ".txt", "interval": 86400}
 		rules = append(rules, "RULE-SET,"+name+","+p)
 	}
 	var final any
@@ -294,7 +399,7 @@ func ImportConf(text string) string {
 			continue
 		}
 		if c.RemoteURL != "" {
-			addRemote(c.RemoteURL, c.RemoteKind, c.Policy, l)
+			addRemote(c.RemoteURL, c.RemoteKind, c.Policy, l, "")
 			continue
 		}
 		if c.Rule == "" {
@@ -321,7 +426,7 @@ func ImportConf(text string) string {
 			if !strings.Contains(strings.ToLower(l), "force-policy") {
 				rep.Notes = append(rep.Notes, "filter_remote 未指定 force-policy 的列表按 proxy 处理："+sp.URL)
 			}
-			addRemote(sp.URL, "list", sp.Policy, l)
+			addRemote(sp.URL, "list", sp.Policy, l, sp.Tag)
 		}
 	}
 	if final == nil {
@@ -338,6 +443,9 @@ func ImportConf(text string) string {
 	cfg := map[string]any{"mode": "rule", "proxies": proxies, "proxy-groups": groups, "rules": rules}
 	if len(providers) > 0 {
 		cfg["rule-providers"] = providers
+	}
+	if len(proxyProviders) > 0 {
+		cfg["proxy-providers"] = proxyProviders
 	}
 	listOf := func(v string) []any {
 		var out []any
@@ -399,9 +507,9 @@ func ImportConf(text string) string {
 
 	// ---- rewrite / MitM / scripts → one module text
 	moduleSecs := map[string]bool{"url rewrite": true, "header rewrite": true, "body rewrite": true, "map local": true, "script": true, "mitm": true,
-		"rewrite_local": true}
+		"rewrite_local": true, "task_local": true}
 	known := map[string]bool{"": true, "general": true, "proxy": true, "proxy group": true, "rule": true, "server_local": true, "server_remote": true,
-		"policy": true, "filter_local": true, "filter_remote": true, "dns": true, "replica": true, "host": true, "task_local": true}
+		"policy": true, "filter_local": true, "filter_remote": true, "dns": true, "replica": true, "host": true, "rewrite_remote": true}
 	var mod strings.Builder
 	for _, s := range order {
 		if !moduleSecs[s] {
@@ -418,20 +526,66 @@ func ImportConf(text string) string {
 		if s == "mitm" && !isQX {
 			title = "MITM"
 		}
+		if s == "mitm" {
+			// Never copy the user's CA (passphrase / p12) into a module: our MitM uses its own CA.
+			var kept []string
+			for _, l := range lines {
+				k, _, _ := strings.Cut(strings.ToLower(l), "=")
+				switch strings.TrimSpace(k) {
+				case "passphrase", "p12", "ca-passphrase", "ca-p12":
+					continue
+				}
+				kept = append(kept, l)
+			}
+			lines = kept
+			if len(lines) == 0 {
+				continue
+			}
+		}
 		mod.WriteString("[" + title + "]\n" + strings.Join(lines, "\n") + "\n\n")
 	}
-	if isQX && len(nonEmpty(secs["rewrite_remote"])) > 0 {
-		rep.Notes = append(rep.Notes, "[rewrite_remote] 远程重写请在「模块」中逐个添加链接")
-	}
-	if isQX && len(nonEmpty(secs["task_local"])) > 0 {
-		rep.Notes = append(rep.Notes, "[task_local] 定时任务暂不支持")
+	if isQX {
+		for _, l := range nonEmpty(secs["rewrite_remote"]) {
+			if m, ok := parseQXRewriteRemote(l); ok {
+				res.RewriteRemotes = append(res.RewriteRemotes, m)
+			} else {
+				skip("rewrite_remote", l, "不是有效的远程重写链接")
+			}
+		}
+		rep.Remotes = len(res.RewriteRemotes)
 	}
 	if mod.Len() > 0 {
 		res.Module = mod.String()
 		rep.Module = true
+		// Parse the module part with the engine's own parser so the report shows exactly what the module
+		// store will hold, and every line it cannot use (instead of dropping it silently).
+		rs := &mitm.Ruleset{}
+		rs.ParseText(res.Module, "导入", nil)
+		for _, r := range rs.Rules {
+			if r.Kind == mitm.KindScript {
+				rep.Scripts++
+			} else {
+				rep.Rewrites++
+			}
+		}
+		rep.Tasks = len(rs.Tasks)
+		for _, h := range rs.Hostnames {
+			if !strings.HasPrefix(h, "-") {
+				rep.Hostnames++
+			}
+		}
+		for _, l := range rs.Unsupported {
+			skip("重写", l, "不支持")
+		}
+		for _, e := range rs.Errors {
+			rep.Skipped = append(rep.Skipped, "[重写] "+e)
+		}
 	}
-	rep.Proxies, rep.Groups, rep.Rules, rep.Providers = len(proxies), len(groups), len(rules), len(providers)
-	if len(proxies) == 0 {
+	rep.Proxies, rep.Groups, rep.Rules, rep.Providers = len(proxies), len(groups), len(rules), len(providers)+len(proxyProviders)
+	if len(proxyProviders) > 0 {
+		rep.Notes = append(rep.Notes, fmt.Sprintf("[server_remote] 的 %d 个节点订阅已转为节点集（连接时下载）", len(proxyProviders)))
+	}
+	if len(proxies) == 0 && len(proxyProviders) == 0 {
 		rep.Notes = append(rep.Notes, "没有导入到节点；可以之后在「手动节点」或订阅中补充")
 	}
 	y, err := yaml.Marshal(cfg)
@@ -444,29 +598,106 @@ func ImportConf(text string) string {
 	return string(b)
 }
 
-// rewriteConvertProviders turns "convert+<kind>:<url>" provider URLs into the local /rules/convert
-// endpoint (needs the runtime controller port + secret, so it happens in buildRuntime).
+// rewriteConvertProviders points providers that need a format conversion at the local converter for the
+// core's own refreshes. v0.8.1: profiles keep the source URL in `url` plus `x-convert: <kind>`
+// (list | domainset | nodes); the legacy "convert+<kind>:<url>" form is still accepted. The source is kept
+// in x-source (ignored by mihomo, read by the inspector) so the UI never shows 127.0.0.1. The app
+// downloads and converts the same lists into the same `path` (ProviderStore), so the core starts from
+// the local file even before its first refresh.
 func rewriteConvertProviders(raw map[string]any, o Overrides) {
-	rp, ok := raw["rule-providers"].(map[string]any)
-	if !ok {
-		return
-	}
-	for _, v := range rp {
-		m, ok := v.(map[string]any)
+	for _, key := range []string{"proxy-providers", "rule-providers"} {
+		pv, ok := raw[key].(map[string]any)
 		if !ok {
 			continue
 		}
-		u := str(m["url"])
-		if !strings.HasPrefix(u, convertScheme) {
-			continue
+		for _, v := range pv {
+			m, ok := v.(map[string]any)
+			if !ok {
+				continue
+			}
+			kind, src := providerConvert(m)
+			delete(m, "x-convert")
+			if kind == "" || !strings.HasPrefix(src, "http") {
+				continue
+			}
+			if str(m["x-source"]) == "" {
+				m["x-source"] = src
+			}
+			if kind == "nodes" {
+				m["url"] = fmt.Sprintf("http://127.0.0.1:%d/nodes/convert?%s", o.ControllerPort, url.Values{"url": {src}}.Encode())
+			} else {
+				m["url"] = ruleConvertURL(o, src, kind)
+			}
+			m["header"] = map[string]any{"Authorization": []any{"Bearer " + o.Secret}}
+			m["proxy"] = "DIRECT"
 		}
-		kind, src, ok := strings.Cut(strings.TrimPrefix(u, convertScheme), ":")
+	}
+}
+
+// providerConvert returns the conversion kind and source URL of a provider ("" when none is needed).
+func providerConvert(m map[string]any) (kind, src string) {
+	u := str(m["url"])
+	if strings.HasPrefix(u, convertScheme) {
+		k, s, ok := strings.Cut(strings.TrimPrefix(u, convertScheme), ":")
+		if ok {
+			return k, s
+		}
+		return "", u
+	}
+	return str(m["x-convert"]), u
+}
+
+type qxServerRemote struct {
+	URL      string
+	Tag      string
+	Interval int
+}
+
+// parseQXServerRemote reads a QX [server_remote] line: "<url>, tag=…, update-interval=…, enabled=…".
+func parseQXServerRemote(line string) (qxServerRemote, bool) {
+	parts := strings.Split(line, ",")
+	u := strings.TrimSpace(parts[0])
+	if !strings.HasPrefix(u, "http://") && !strings.HasPrefix(u, "https://") {
+		return qxServerRemote{}, false
+	}
+	sp := qxServerRemote{URL: u, Interval: 86400}
+	for _, p := range parts[1:] {
+		k, v, ok := strings.Cut(strings.TrimSpace(p), "=")
 		if !ok {
 			continue
 		}
-		tmp := map[string]any{}
-		name := strings.TrimPrefix(addRemoteProvider(tmp, o, remoteSpec{URL: src, Kind: kind, Interval: intOf(m["interval"])}), "RULE-SET,")
-		conv := tmp["rule-providers"].(map[string]any)[name].(map[string]any)
-		m["url"], m["header"], m["proxy"] = conv["url"], conv["header"], conv["proxy"]
+		switch strings.ToLower(strings.TrimSpace(k)) {
+		case "tag":
+			sp.Tag = strings.TrimSpace(v)
+		case "update-interval":
+			if n := atoi(v, 0); n > 0 {
+				sp.Interval = n
+			}
+		case "enabled":
+			if !truthy(v) {
+				return qxServerRemote{}, false
+			}
+		}
 	}
+	return sp, true
+}
+
+// qxRemoteURL returns the URL of an enabled QX remote line (rewrite_remote etc.).
+func qxRemoteURL(line string) (string, bool) {
+	sp, ok := parseQXServerRemote(line)
+	return sp.URL, ok
+}
+
+// hadUnknown: the group listed members that are neither groups nor proxies of this file (remote servers).
+func hadUnknown(members []string, groups, proxies map[string]bool) bool {
+	for _, m := range members {
+		u := strings.ToUpper(m)
+		if u == "DIRECT" || strings.HasPrefix(u, "REJECT") || u == "PROXY" {
+			continue
+		}
+		if !groups[m] && !proxies[m] {
+			return true
+		}
+	}
+	return false
 }

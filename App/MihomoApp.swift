@@ -23,12 +23,9 @@ struct MihomoApp: App {
                 .environmentObject(dash)
                 .environmentObject(ipinfo)
                 .environmentObject(router)
+                // Imports are presented by ImportRouter from the topmost view controller (v0.8.1): a root
+                // .sheet was silently dropped while onboarding, another sheet or the file picker was up.
                 .onOpenURL { router.handle(url: $0) }
-                .sheet(item: $router.pending) { a in
-                    ImportSheet(action: a)
-                        .environmentObject(store)
-                        .preferredColorScheme(.dark)
-                }
                 .preferredColorScheme(.dark)
                 .tint(Theme.accent)
                 .onChange(of: phase) { p in
@@ -117,6 +114,8 @@ struct RootView: View {
             }
             if vpn.isConnected { dash.start() }
             ClipboardWatcher.shared.didBecomeActive()
+            // Cold launch from 「用 Mihomo 打开」: if onOpenURL did not deliver the document, do it now.
+            DispatchQueue.main.asyncAfter(deadline: .now() + 1.0) { router.drainColdLaunchURLs() }
         }
     }
 }

@@ -213,6 +213,16 @@ struct OnboardingView: View {
             await addURL()
             return
         }
+        // Surge / QX configs, modules and import links go through the shared import sheet (v0.8.1), which
+        // presents over this onboarding cover and explains anything it cannot import.
+        if let a = ImportRouter.route(text: s) {
+            switch a {
+            case .nodesText, .profileURL: break
+            default:
+                await MainActor.run { ImportRouter.shared.run(a) }
+                return
+            }
+        }
         busy = true
         defer { busy = false }
         do {
