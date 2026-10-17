@@ -120,3 +120,7 @@ Mihomo for Android 是用户 iOS 客户端（astemo6/mihomo-ios）的 Android �
 - [ ] 按网络切换模式（Wi-Fi / 蜂窝 / SSID）
 - [ ] 局域网共享（HTTP/SOCKS 端口）
 - [ ] 固定签名 keystore（需用户同意后放进 GitHub Secrets）
+
+## 本地验证记录（2026-10-17 12:30 CST）
+- `app/` 的 Kotlin 已对照**真实 gobind 生成的 Java 绑定**（`gobind -lang=java -tags android,with_gvisor`，javac 编成 classes.jar 放进占位 AAR）跑过 `:app:compileDebugKotlin`，BUILD SUCCESSFUL。`Core.kt` 的签名已确认，无需再猜。
+- 仍未验证：真实 `gomobile bind` 产出的 .so、R8 release 构建（沙箱内存不足）、真机运行。
