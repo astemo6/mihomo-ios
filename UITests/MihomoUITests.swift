@@ -162,17 +162,18 @@ final class MihomoUITests: MihomoUITestCase {
         XCTAssertTrue(menu.waitForExistence(timeout: 5), "排序与筛选 menu")
         menu.tap()
         snap("nodes-menu")
-        if tapIfExists(app.button(L("协议")), timeout: 3) {
-            snap("nodes-protocols")
-            if tapIfExists(app.button("Hysteria2"), timeout: 3) {
-                usleep(700_000)
-                XCTAssertTrue(app.element(label: "🇸🇬 Singapore Hy2").exists, "hy2 node after filter")
-                XCTAssertFalse(app.element(label: "🇯🇵 Tokyo 01").exists, "ss node hidden by filter")
-                snap("nodes-filter-hy2")
-            } else { issues.append("[\(Env.tag)] protocol Hysteria2 not in the filter menu") }
-        } else { issues.append("[\(Env.tag)] 协议 submenu missing") }
+        // The protocol filter is inline in the menu (badge names: Hy2, SS, …); older builds had a 协议 submenu.
+        if tapIfExists(app.button(L("协议")), timeout: 2) { snap("nodes-protocols") }
+        let hy2 = app.button("Hy2").exists ? app.button("Hy2") : app.button("Hysteria2")
+        if tapIfExists(hy2, timeout: 3) {
+            usleep(700_000)
+            XCTAssertTrue(app.element(label: "🇸🇬 Singapore Hy2").exists, "hy2 node after filter")
+            XCTAssertFalse(app.element(label: "🇯🇵 Tokyo 01").exists, "ss node hidden by filter")
+            snap("nodes-filter-hy2")
+        } else { issues.append("[\(Env.tag)] protocol Hy2 not in the filter menu") }
         menu.tap()
-        if tapIfExists(app.button(L("协议")), timeout: 3) { _ = tapIfExists(app.button(L("全部协议")), timeout: 3) }
+        _ = tapIfExists(app.button(L("协议")), timeout: 2)
+        _ = tapIfExists(app.button(L("全部协议")), timeout: 3)
         menu.tap()
         if tapIfExists(app.button(L("排序")), timeout: 3) {
             _ = tapIfExists(app.button(L("名称")), timeout: 3)
@@ -227,12 +228,13 @@ final class MihomoUITests: MihomoUITestCase {
 
         // Node subscription list
         XCTAssertTrue(tapIfExists(app.element(label: "Demo Sub")))
-        XCTAssertTrue(app.element(label: "🇹🇼 Taipei Sub").waitForExistence(timeout: 8), "subscription nodes")
+        // B13: 🇹🇼 is drawn as a TW badge where the system can't render it (the name's flag is replaced in the row).
+        XCTAssertTrue(app.element(labelContains: "Taipei Sub").waitForExistence(timeout: 8), "subscription nodes")
         snap("nodes-sub")
         back()
         // 本地节点
         XCTAssertTrue(tapIfExists(app.element(label: L("本地节点"))))
-        XCTAssertTrue(app.element(label: "Manual Hy2").waitForExistence(timeout: 8), "local nodes")
+        XCTAssertTrue(scrollTo(app.element(label: "Manual Hy2")), "local nodes")
         snap("nodes-local")
     }
 

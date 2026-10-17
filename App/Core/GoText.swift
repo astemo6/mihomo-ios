@@ -19,6 +19,9 @@ enum GoText {
     private static let mapLocal = re("本地映射（(.*)）")
     private static let core = re("内核规则：(.*)")
     private static let rulesHosts = re("(\\d+) 条规则/脚本 · (\\d+) 个主机")
+    private static let rulesOnly = re("(\\d+) 条规则/脚本")
+    private static let hostsOnly = re("(\\d+) 个主机")
+    private static let rulesHostsComma = re("(\\d+) 条规则/脚本，(\\d+) 个主机")
     private static let nodes = re("(\\d+) 个节点")
     private static let entries = re("(\\d+) 条")
 
@@ -51,6 +54,12 @@ enum GoText {
         if let g = groups(core, s) { return String(localized: "内核规则：\(g[0])") }
         if let g = groups(rulesHosts, s), let a = Int(g[0]), let b = Int(g[1]) {
             return String(localized: "\(a) 条规则/脚本") + " · " + String(localized: "\(b) 个主机")
+        }
+        // localize() splits on " · " first, so the halves of "n 条规则/脚本 · m 个主机" arrive one by one.
+        if let g = groups(rulesOnly, s), let n = Int(g[0]) { return String(localized: "\(n) 条规则/脚本") }
+        if let g = groups(hostsOnly, s), let n = Int(g[0]) { return String(localized: "\(n) 个主机") }
+        if let g = groups(rulesHostsComma, s), let a = Int(g[0]), let b = Int(g[1]) {
+            return String(localized: "\(a) 条规则/脚本") + ", " + String(localized: "\(b) 个主机")
         }
         if let g = groups(nodes, s), let n = Int(g[0]) { return String(localized: "\(n) 个节点") }
         if let g = groups(entries, s), let n = Int(g[0]) { return String(localized: "\(n) 条") }
