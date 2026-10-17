@@ -155,7 +155,7 @@ struct NodeListView: View {
     }
 
     /// Empty sections worth showing: 手动 (with a hint) and providers that are not downloaded yet; not an empty 配置.
-    func showsEmpty(_ src: NodeSource, hasNodes: Bool) -> Bool { (src.kind != .profile && hasNodes) || scope.sourceIDs?.count == 1 }
+    func showsEmpty(_ src: NodeSource, hasNodes: Bool) -> Bool { src.kind != .profile && hasNodes }
 
     // MARK: Sections
 
