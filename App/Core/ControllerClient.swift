@@ -79,7 +79,7 @@ final class ControllerClient {
 
     func proxies() async throws -> [String: ProxyItem] {
         var p = try await get(ProxiesResponse.self, "/proxies").proxies
-        // Hide the hiddenNames MitM engine outbound and the v0.8 节点探测 group.
+        // Hide the internal MitM engine outbound and the v0.8 节点探测 group.
         let hiddenNames: Set<String> = ["__MITM__", PolicyProbe.group]
         for n in hiddenNames { p.removeValue(forKey: n) }
         for (k, v) in p where v.all?.contains(where: { hiddenNames.contains($0) }) == true {

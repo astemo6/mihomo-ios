@@ -175,6 +175,36 @@ enum NodeProtocols {
         }
     }
 
+    // v0.8 高级: only where mihomo v1.19.32 reads the key for that protocol.
+    static let echTypes: Set<String> = ["vmess", "vless", "trojan", "hysteria", "hysteria2", "tuic", "anytls"]
+    static let pinTypes: Set<String> = ["vmess", "vless", "trojan", "hysteria", "hysteria2", "tuic", "anytls", "http", "socks5"]
+    static let smuxTypes: Set<String> = ["ss", "vmess", "vless", "trojan"]
+    /// QUIC / UDP-based protocols: TCP Fast Open and MPTCP don't apply.
+    static let udpOnlyTypes: Set<String> = ["hysteria", "hysteria2", "tuic", "wireguard"]
+
+    static func advanced(for type: String) -> [FieldSpec] {
+        var f: [FieldSpec] = []
+        if echTypes.contains(type) {
+            f.append(FieldSpec(key: "ech-opts.enable", label: "ECH", kind: .bool))
+            f.append(FieldSpec(key: "ech-opts.config", label: "ECH 配置", placeholder: "Base64（留空则查询 DNS）"))
+        }
+        if pinTypes.contains(type) {
+            f.append(FieldSpec(key: "fingerprint", label: "证书指纹", placeholder: "SHA-256（十六进制）"))
+        }
+        if smuxTypes.contains(type) {
+            f.append(FieldSpec(key: "smux.enabled", label: "多路复用（smux）", kind: .bool))
+            f.append(FieldSpec(key: "smux.protocol", label: "复用协议", kind: .choice(["", "h2mux", "smux", "yamux"])))
+            f.append(FieldSpec(key: "smux.max-connections", label: "最大连接数", kind: .int, placeholder: "4"))
+            f.append(FieldSpec(key: "smux.padding", label: "填充", kind: .bool))
+        }
+        if !udpOnlyTypes.contains(type) {
+            f.append(FieldSpec(key: "tfo", label: "TCP Fast Open", kind: .bool))
+            f.append(FieldSpec(key: "mptcp", label: "MPTCP", kind: .bool))
+        }
+        f.append(FieldSpec(key: "ip-version", label: "IP 版本", kind: .choice(["", "dual", "ipv4", "ipv6", "ipv4-prefer", "ipv6-prefer"])))
+        return f
+    }
+
     static func defaults(for type: String) -> [String: String] {
         switch type {
         case "ss": return ["cipher": "aes-128-gcm", "udp": "true"]
@@ -236,6 +266,7 @@ struct NodeEditorView: View {
     @State private var error: String?
     @State private var busy = false
     @State private var dialer: String
+    @State private var showAdvanced = false
 
     init(node: [String: Any]?) {
         original = node
@@ -276,6 +307,16 @@ struct NodeEditorView: View {
                 }
                 .listRowBackground(Theme.card)
                 Section {
+                    DisclosureGroup("高级", isExpanded: $showAdvanced) {
+                        ForEach(NodeProtocols.advanced(for: type)) { f in field(f) }
+                    }
+                } footer: {
+                    if showAdvanced {
+                        Text("ECH 与证书指纹需要服务端配合；多路复用要求服务端开启 sing-mux。「IP 版本」留空时使用「连接方式 → 节点 IP 优先」。")
+                    }
+                }
+                .listRowBackground(Theme.card)
+                Section {
                     NavigationLink {
                         ChainPickerView(kind: "node", name: (original?["name"] as? String) ?? name, profilePath: chainProfilePath,
                                         selected: dialer.isEmpty ? nil : dialer) { dialer = $0 ?? "" }
@@ -304,6 +345,9 @@ struct NodeEditorView: View {
                 if (original?["type"] as? String) != t {
                     values = NodeProtocols.defaults(for: t)
                 }
+            }
+            .onAppear {
+                showAdvanced = NodeProtocols.advanced(for: type).contains { !(values[$0.key] ?? "").isEmpty && values[$0.key] != "false" }
             }
         }
     }
@@ -344,7 +388,7 @@ struct NodeEditorView: View {
         var d: [String: Any] = [:]
         // Keep keys the form does not know about when editing the same protocol.
         if let o = original, (o["type"] as? String) == type { d = o }
-        let specs = NodeProtocols.fields(for: type)
+        let specs = NodeProtocols.fields(for: type) + NodeProtocols.advanced(for: type)
         for f in specs { NodeProtocols.removeNested(&d, f.key.split(separator: ".").map(String.init)) }
         d["type"] = type
         d["name"] = name.trimmingCharacters(in: .whitespaces).isEmpty ? "\(ProxyItem.label(for: type)) \(server)" : name.trimmingCharacters(in: .whitespaces)

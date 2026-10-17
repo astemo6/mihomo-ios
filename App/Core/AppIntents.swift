@@ -2,7 +2,8 @@ import AppIntents
 import NetworkExtension
 import Foundation
 
-// Shortcuts / Siri actions: connect, disconnect, toggle, switch outbound mode, switch node.
+// Shortcuts / Siri actions: connect, disconnect, toggle, switch outbound mode, switch node; v0.8 adds status,
+// switch profile, toggle module, update subscriptions and run a script.
 // They run in the app process without opening the UI.
 
 enum OutboundModeOption: String, AppEnum {
@@ -124,10 +125,181 @@ struct SwitchNodeIntent: AppIntent {
     }
 }
 
+// MARK: - v0.8 Shortcuts: status, profile, module, subscriptions, script
+
+struct StatusIntent: AppIntent {
+    static var title: LocalizedStringResource = "查询 Mihomo 状态"
+    static var description = IntentDescription("返回连接状态、出站模式、当前节点与配置，可在快捷指令中继续使用。")
+    static var openAppWhenRun = false
+
+    @MainActor
+    func perform() async throws -> some IntentResult & ReturnsValue<String> & ProvidesDialog {
+        let vpn = VPNManager.shared
+        await vpn.load()
+        let profile = ProfileStore.shared.active?.name ?? String(localized: "未选择")
+        guard vpn.isConnected else {
+            let text = String(localized: "未连接 · 配置 \(profile)")
+            return .result(value: text, dialog: "\(text)")
+        }
+        let mode = (try? await ControllerClient.shared.configs())?["mode"] as? String ?? CoreOverrides.load().mode
+        let modeName = ["rule": String(localized: "规则"), "global": String(localized: "全局"), "direct": String(localized: "直连")][mode.lowercased()] ?? mode
+        await DashboardModel.shared.refreshSelectedNode()
+        let node = DashboardModel.shared.selectedNode
+        let text = String(localized: "已连接 · \(modeName)模式 · 节点 \(node) · 配置 \(profile)")
+        return .result(value: text, dialog: "\(text)")
+    }
+}
+
+struct ProfileEntity: AppEntity {
+    static var typeDisplayRepresentation: TypeDisplayRepresentation = "配置"
+    static var defaultQuery = ProfileEntityQuery()
+    var id: String
+    var name: String
+    var displayRepresentation: DisplayRepresentation { DisplayRepresentation(title: "\(name)") }
+}
+
+struct ProfileEntityQuery: EntityQuery {
+    @MainActor
+    func entities(for identifiers: [String]) async throws -> [ProfileEntity] {
+        ProfileStore.shared.profiles.filter { identifiers.contains($0.id) }.map { ProfileEntity(id: $0.id, name: $0.name) }
+    }
+
+    @MainActor
+    func suggestedEntities() async throws -> [ProfileEntity] {
+        ProfileStore.shared.profiles.map { ProfileEntity(id: $0.id, name: $0.name) }
+    }
+}
+
+struct SwitchProfileIntent: AppIntent {
+    static var title: LocalizedStringResource = "切换配置"
+    static var description = IntentDescription("把当前配置切换为所选配置；已连接时立即重载。")
+    static var openAppWhenRun = false
+
+    @Parameter(title: "配置")
+    var profile: ProfileEntity
+
+    @MainActor
+    func perform() async throws -> some IntentResult & ProvidesDialog {
+        await VPNManager.shared.load()
+        guard let p = ProfileStore.shared.profiles.first(where: { $0.id == profile.id }) else {
+            return .result(dialog: "找不到配置「\(profile.name)」")
+        }
+        if let e = await ProfileStore.shared.setActive(p) { return .result(dialog: "已切换到「\(p.name)」，但重载失败：\(e)") }
+        NotificationCenter.default.post(name: .egressMayHaveChanged, object: nil)
+        return .result(dialog: "已切换到「\(p.name)」")
+    }
+}
+
+struct ModuleEntity: AppEntity {
+    static var typeDisplayRepresentation: TypeDisplayRepresentation = "模块"
+    static var defaultQuery = ModuleEntityQuery()
+    var id: String
+    var name: String
+    var displayRepresentation: DisplayRepresentation { DisplayRepresentation(title: "\(name)") }
+}
+
+struct ModuleEntityQuery: EntityQuery {
+    @MainActor
+    func entities(for identifiers: [String]) async throws -> [ModuleEntity] {
+        EngineStore.shared.config.modules.filter { identifiers.contains($0.id) }.map { ModuleEntity(id: $0.id, name: $0.name) }
+    }
+
+    @MainActor
+    func suggestedEntities() async throws -> [ModuleEntity] {
+        EngineStore.shared.config.modules.map { ModuleEntity(id: $0.id, name: $0.name) }
+    }
+}
+
+enum SwitchAction: String, AppEnum {
+    case on, off, toggle
+    static var typeDisplayRepresentation: TypeDisplayRepresentation = "操作"
+    static var caseDisplayRepresentations: [SwitchAction: DisplayRepresentation] = [
+        .on: "开启",
+        .off: "关闭",
+        .toggle: "切换",
+    ]
+}
+
+struct ToggleModuleIntent: AppIntent {
+    static var title: LocalizedStringResource = "开关模块"
+    static var description = IntentDescription("开启、关闭或切换一个模块；已连接时自动重载。")
+    static var openAppWhenRun = false
+
+    @Parameter(title: "模块")
+    var module: ModuleEntity
+
+    @Parameter(title: "操作", default: .toggle)
+    var action: SwitchAction
+
+    @MainActor
+    func perform() async throws -> some IntentResult & ProvidesDialog {
+        await VPNManager.shared.load()
+        let store = EngineStore.shared
+        guard let i = store.config.modules.firstIndex(where: { $0.id == module.id }) else {
+            return .result(dialog: "找不到模块「\(module.name)」")
+        }
+        let on: Bool
+        switch action {
+        case .on: on = true
+        case .off: on = false
+        case .toggle: on = !store.config.modules[i].enabled
+        }
+        store.config.modules[i].enabled = on
+        store.save(reload: false)
+        if VPNManager.shared.isConnected, let e = await VPNManager.shared.reload() {
+            return .result(dialog: "模块「\(module.name)」已\(on ? String(localized: "开启") : String(localized: "关闭"))，但重载失败：\(e)")
+        }
+        return .result(dialog: "模块「\(module.name)」已\(on ? String(localized: "开启") : String(localized: "关闭"))")
+    }
+}
+
+struct UpdateSubscriptionsIntent: AppIntent {
+    static var title: LocalizedStringResource = "更新订阅"
+    static var description = IntentDescription("更新所有远程配置（订阅）；当前配置更新后，已连接时自动重载。")
+    static var openAppWhenRun = false
+
+    @MainActor
+    func perform() async throws -> some IntentResult & ProvidesDialog {
+        await VPNManager.shared.load()
+        let store = ProfileStore.shared
+        let count = store.profiles.filter { $0.kind == .remote }.count
+        guard count > 0 else { return .result(dialog: "没有远程订阅") }
+        let errors = await store.refreshAll()
+        if errors.isEmpty { return .result(dialog: "已更新 \(count) 个订阅") }
+        return .result(dialog: "\(count - errors.count)/\(count) 个订阅已更新。失败：\(errors.joined(separator: "；"))")
+    }
+}
+
+struct RunScriptIntent: AppIntent {
+    static var title: LocalizedStringResource = "运行脚本"
+    static var description = IntentDescription("立即运行一个定时（cron）或通用脚本任务，按脚本名匹配。需要已连接。")
+    static var openAppWhenRun = false
+
+    @Parameter(title: "脚本名称")
+    var name: String
+
+    @MainActor
+    func perform() async throws -> some IntentResult & ReturnsValue<String> & ProvidesDialog {
+        let vpn = VPNManager.shared
+        await vpn.load()
+        guard vpn.isConnected else { return .result(value: "", dialog: "未连接：脚本在隧道内运行，请先连接") }
+        let tasks = try await ControllerClient.shared.mitmTasks()
+        let q = name.trimmingCharacters(in: .whitespaces)
+        guard let t = tasks.first(where: { $0.script.name == q }) ?? tasks.first(where: { $0.script.name.localizedCaseInsensitiveContains(q) }) else {
+            return .result(value: "", dialog: "没有名为「\(q)」的脚本任务")
+        }
+        let r = try await ControllerClient.shared.mitmRunTask(t.id)
+        if r.ok { return .result(value: "ok", dialog: "已运行「\(t.script.name)」") }
+        return .result(value: r.error ?? "error", dialog: "「\(t.script.name)」运行失败：\(r.error ?? "")")
+    }
+}
+
 struct MihomoShortcuts: AppShortcutsProvider {
     static var appShortcuts: [AppShortcut] {
         AppShortcut(intent: ConnectIntent(), phrases: ["连接 \(.applicationName)", "Connect \(.applicationName)"])
         AppShortcut(intent: DisconnectIntent(), phrases: ["断开 \(.applicationName)", "Disconnect \(.applicationName)"])
         AppShortcut(intent: ToggleIntent(), phrases: ["切换 \(.applicationName)", "Toggle \(.applicationName)"])
+        AppShortcut(intent: StatusIntent(), phrases: ["\(.applicationName) 状态", "\(.applicationName) status"])
+        AppShortcut(intent: UpdateSubscriptionsIntent(), phrases: ["更新 \(.applicationName) 订阅", "Update \(.applicationName) subscriptions"])
     }
 }
