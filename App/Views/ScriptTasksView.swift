@@ -437,6 +437,8 @@ struct TaskDetailView: View {
             }
             .listRowBackground(Theme.card)
 
+            TaskPinSection(task: task, node: node) // feat/panels
+
             Section {
                 if history.isEmpty {
                     Text("还没有运行记录。每个任务保留最近 10 次。").font(.footnote).foregroundStyle(.secondary)
