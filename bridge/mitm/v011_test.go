@@ -142,3 +142,11 @@ func indexOf(s, sub string) int {
 	}
 	return -1
 }
+
+func TestQXMitMKeys(t *testing.T) {
+	rs := &Ruleset{}
+	rs.ParseText("[mitm]\nskip_validating_cert = true\nskip_src_ip = 192.168.1.5\nhostname = a.com, -b.a.com\n", "QX", nil)
+	if rs.SkipCertVerify == nil || !*rs.SkipCertVerify || len(rs.Unsupported) > 0 || len(rs.Errors) > 0 {
+		t.Fatalf("skip=%v unsupported=%v errors=%v", rs.SkipCertVerify, rs.Unsupported, rs.Errors)
+	}
+}

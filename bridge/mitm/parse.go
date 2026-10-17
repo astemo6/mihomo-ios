@@ -592,7 +592,7 @@ func (rs *Ruleset) ParseLine(line, section, source string) {
 				rs.addHosts(v)
 			}
 			return
-		case "skip-server-cert-verify", "skip-cert-verify":
+		case "skip-server-cert-verify", "skip-cert-verify", "skip_validating_cert": // v0.11: QX spelling
 			b := truthy(v)
 			rs.SkipCertVerify = &b
 			return
@@ -600,7 +600,7 @@ func (rs *Ruleset) ParseLine(line, section, source string) {
 			b := truthy(v)
 			rs.H2 = &b
 			return
-		case "tcp-connection", "ca-passphrase", "ca-p12", "passphrase", "p12", "client-source-address", "auto-quic-block":
+		case "tcp-connection", "ca-passphrase", "ca-p12", "passphrase", "p12", "client-source-address", "auto-quic-block", "skip_src_ip", "skip_dst_ip":
 			return
 		}
 	}
