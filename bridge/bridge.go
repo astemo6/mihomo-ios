@@ -223,6 +223,9 @@ func buildRuntimeWith(profile []byte, o Overrides, fd int32, inject func(raw map
 			log.Warnln("[Groups] %s", e)
 		}
 	}
+	if o.home != "" {
+		expandOwnPolicyProviders(raw, o.home) // v0.12 QX lists without force-policy
+	}
 	if o.SafeMode {
 		applyChains(raw, nil)
 	} else {

@@ -79,10 +79,17 @@ type confSettings struct {
 	TestURL        string   `json:"testURL,omitempty"`        // server_check_url
 	TestTimeoutMs  int      `json:"testTimeoutMs,omitempty"`  // server_check_timeout (≤ 5000)
 	BlockQUIC      bool     `json:"blockQUIC,omitempty"`      // udp_drop_list contains QUIC
+	// v0.12
+	ModeTrigger *ModeTrigger `json:"modeTrigger,omitempty"` // running_mode_trigger
+	GeoAPI      string       `json:"geoAPI,omitempty"`      // geo_location_checker = <api>, <script>
+	GeoScript   string       `json:"geoScript,omitempty"`
+	GeoDisabled bool         `json:"geoDisabled,omitempty"` // geo_location_checker = disabled
+	ParserURL   string       `json:"parserURL,omitempty"`   // resource_parser_url (stored, never run by default)
 }
 
 func (c confSettings) empty() bool {
-	return len(c.ExcludedRoutes) == 0 && len(c.TrustedSSIDs) == 0 && c.TestURL == "" && c.TestTimeoutMs == 0 && !c.BlockQUIC
+	return len(c.ExcludedRoutes) == 0 && len(c.TrustedSSIDs) == 0 && c.TestURL == "" && c.TestTimeoutMs == 0 && !c.BlockQUIC &&
+		c.ModeTrigger == nil && c.GeoAPI == "" && c.GeoScript == "" && !c.GeoDisabled && c.ParserURL == ""
 }
 
 type confResult struct {
@@ -447,16 +454,30 @@ func ImportConf(text string) string {
 			skip(ruleSec, line, "策略「"+pol+"」不存在")
 			return
 		}
-		name, seen := byList[kind+"|"+u]
+		// v0.12: "list-own" = QX filter_remote without force-policy; every line keeps its own policy
+		// once the app has downloaded the list (ProviderStore "list-split" + expandOwnPolicyProviders).
+		own := kind == "list-own"
+		key := kind + "|" + u
+		if own {
+			kind = "list"
+		}
+		name, seen := byList[key]
 		if !seen {
 			name = uniqueProviderName(prettyProviderName(u, tag), func(n string) bool { _, ok := providers[n]; return ok })
-			byList[kind+"|"+u] = name
 			behavior := "classical"
 			if kind == "domainset" {
 				behavior = "domain"
 			}
+			pk := kind
+			if own {
+				pk = "list-own"
+			}
 			providers[name] = map[string]any{"type": "http", "behavior": behavior, "format": "text", "url": u, "x-convert": kind,
-				"path": "./ruleset/" + providerNameFor(u, kind) + ".txt", "interval": 86400}
+				"path": "./ruleset/" + providerNameFor(u, pk) + ".txt", "interval": 86400}
+			if own {
+				providers[name].(map[string]any)["x-own-policy"] = true
+			}
+			byList[key] = name
 		}
 		rules = append(rules, "RULE-SET,"+name+","+p)
 	}
@@ -518,9 +539,11 @@ func ImportConf(text string) string {
 					continue
 				}
 				if opts["force-policy"] == "" {
-					rep.Notes = append(rep.Notes, "filter_remote 未指定 force-policy 的列表按 proxy 处理："+sp.URL)
+					rep.Notes = append(rep.Notes, "filter_remote 未指定 force-policy：下载后按列表内每行自己的策略分流（不存在的策略自动创建为手动选择组），下载前整份列表走 proxy："+sp.Tag)
+					addRemote(sp.URL, "list-own", sp.Policy, l, sp.Tag)
+				} else {
+					addRemote(sp.URL, "list", sp.Policy, l, sp.Tag)
 				}
-				addRemote(sp.URL, "list", sp.Policy, l, sp.Tag)
 			}
 			// inserted-resource=true: QX checks these before the local rules.
 			if truthy(opts["inserted-resource"]) && len(rules) > before {

@@ -109,6 +109,9 @@ func ProviderPlan(homeDir, profilePath string) string {
 			} else {
 				t.URL = u
 			}
+			if truthyAny(m["x-own-policy"]) && t.Convert == "list" {
+				t.Convert = "list-split" // v0.12: QX list without force-policy (ownpolicy.go)
+			}
 			t.Source = firstNonEmpty(str(m["x-source"]), t.URL)
 			if t.URL == "" || t.Path == "" {
 				continue
@@ -151,6 +154,18 @@ func ProviderStore(homeDir, kind, cachePath, convert string, data []byte) string
 		out, n = b, c
 		if n < 0 {
 			n = len(parseProviderNodes(b, ""))
+		}
+	case convert == "list-split":
+		text, ok, _ := convertListText(bytes.NewReader(data), "list")
+		if ok == 0 {
+			return res(0, "列表里没有可用的规则")
+		}
+		out, n = []byte(text), ok
+		if err := os.MkdirAll(filepath.Dir(cachePath), 0o755); err != nil {
+			return res(0, err.Error())
+		}
+		if _, err := splitOwnPolicyList(cachePath, data); err != nil {
+			return res(0, err.Error())
 		}
 	case convert != "":
 		text, ok, _ := convertListText(bytes.NewReader(data), convert)
