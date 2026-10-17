@@ -65,6 +65,7 @@ type remoteSpec struct {
 	Kind     string // list | domainset
 	Policy   string
 	Interval int
+	Tag      string // QX tag= (provider display name)
 }
 
 // parseQXRemote reads a QX filter_remote line: "https://x.list, tag=名称, force-policy=Proxy, update-interval=86400, enabled=true".
@@ -81,6 +82,8 @@ func parseQXRemote(line string) (remoteSpec, bool) {
 			continue
 		}
 		switch strings.ToLower(strings.TrimSpace(k)) {
+		case "tag":
+			sp.Tag = strings.TrimSpace(v)
 		case "force-policy":
 			sp.Policy = strings.TrimSpace(v)
 		case "update-interval":
@@ -102,12 +105,21 @@ func providerNameFor(u, kind string) string {
 }
 
 // addRemoteProvider adds a converted rule-provider for sp and returns its RULE-SET rule (without policy).
+// v0.8.1: the provider gets a readable name (QX tag or the list's file name, de-duplicated) and keeps
+// its source URL in x-source for the UI; the cache file name stays hash-based (shared with the app's
+// resource downloads). A provider for the same list that is already in the profile is reused.
 func addRemoteProvider(raw map[string]any, o Overrides, sp remoteSpec) string {
-	name := providerNameFor(sp.URL, sp.Kind)
 	rp, _ := raw["rule-providers"].(map[string]any)
 	if rp == nil {
 		rp = map[string]any{}
 	}
+	path := "./ruleset/" + providerNameFor(sp.URL, sp.Kind) + ".txt"
+	for n, v := range rp {
+		if m, ok := v.(map[string]any); ok && str(m["path"]) == path {
+			return "RULE-SET," + n
+		}
+	}
+	name := uniqueProviderName(prettyProviderName(sp.URL, sp.Tag), func(s string) bool { _, ok := rp[s]; return ok })
 	behavior := "classical"
 	if sp.Kind == "domainset" {
 		behavior = "domain"
@@ -116,19 +128,23 @@ func addRemoteProvider(raw map[string]any, o Overrides, sp remoteSpec) string {
 	if interval <= 0 {
 		interval = 86400
 	}
-	q := url.Values{"url": {sp.URL}, "kind": {sp.Kind}}
 	rp[name] = map[string]any{
 		"type":     "http",
 		"behavior": behavior,
 		"format":   "text",
-		"url":      fmt.Sprintf("http://127.0.0.1:%d/rules/convert?%s", o.ControllerPort, q.Encode()),
+		"url":      ruleConvertURL(o, sp.URL, sp.Kind),
 		"header":   map[string]any{"Authorization": []any{"Bearer " + o.Secret}},
 		"proxy":    "DIRECT",
-		"path":     "./ruleset/" + name + ".txt",
+		"path":     path,
 		"interval": interval,
+		"x-source": sp.URL,
 	}
 	raw["rule-providers"] = rp
 	return "RULE-SET," + name
+}
+
+func ruleConvertURL(o Overrides, src, kind string) string {
+	return fmt.Sprintf("http://127.0.0.1:%d/rules/convert?%s", o.ControllerPort, url.Values{"url": {src}, "kind": {kind}}.Encode())
 }
 
 type ruleCheck struct {

@@ -65,8 +65,14 @@ func TestImportQXTypical(t *testing.T) {
 	if res.Report.Format != "qx" {
 		t.Fatalf("format %s", res.Report.Format)
 	}
-	if len(res.RewriteRemote) != 1 || !strings.Contains(res.RewriteRemote[0], "boxjs") {
-		t.Fatalf("rewrite_remote: %v", res.RewriteRemote)
+	var enabled []remoteModule
+	for _, m := range res.RewriteRemotes {
+		if m.Enabled {
+			enabled = append(enabled, m)
+		}
+	}
+	if len(enabled) != 1 || !strings.Contains(enabled[0].URL, "boxjs") {
+		t.Fatalf("rewrite_remote: %v", res.RewriteRemotes)
 	}
 	if !res.Report.Module {
 		t.Fatalf("rewrite_local / mitm should become a module")
@@ -79,8 +85,8 @@ func TestImportQXTypical(t *testing.T) {
 	if len(pp) != 2 || pp["机场A"] == nil || pp["机场B"] == nil {
 		t.Fatalf("proxy-providers: %v", pp)
 	}
-	if u := str(pp["机场A"].(map[string]any)["url"]); !strings.HasPrefix(u, "convert+nodes:https://sub.example.com/") {
-		t.Fatalf("provider url %s", u)
+	if a := pp["机场A"].(map[string]any); !strings.HasPrefix(str(a["url"]), "https://sub.example.com/") || str(a["x-convert"]) != "nodes" {
+		t.Fatalf("provider url %v", a)
 	}
 	groups := map[string]map[string]any{}
 	for _, g := range asList(cfg["proxy-groups"]) {
