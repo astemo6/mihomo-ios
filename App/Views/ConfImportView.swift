@@ -84,9 +84,8 @@ struct ConfImportResult: Decodable {
                 }
             }
             if geoDisabled == true || !(geoAPI ?? "").isEmpty {
-                var g = GeoCheckerSettings.load()
-                if geoDisabled == true { g.disabled = true } else { g.api = geoAPI ?? ""; g.script = geoScript ?? ""; g.disabled = false }
-                g.save()
+                if geoDisabled == true { GeoChecker.save(checker: "disabled", url: IPInfoFetcher.checkerURL, script: GeoChecker.script) }
+                else { GeoChecker.save(checker: "custom", url: geoAPI ?? "", script: geoScript ?? "") }
                 IPInfoModel.shared.scheduleRefresh(after: 0.5)
             }
             if let p = parserURL, !p.isEmpty { ResourceParserSetting.url = p }

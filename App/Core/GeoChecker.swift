@@ -1,41 +1,42 @@
 import Foundation
 import Libmihomo
 
-/// 出口信息查询 (v0.12, QX geo_location_checker): an optional custom exit-IP lookup for the Home header.
-/// api = any JSON IP API (parsed with the built-in readers); script = a QX geo_location_checker script that
-/// turns the API reply into {title, subtitle} (run in the Go script engine, app process). disabled = no
-/// exit lookup at all. Empty api = the built-in endpoints (default).
-struct GeoCheckerSettings: Codable, Equatable {
-    var api: String = ""
-    var script: String = ""
-    var disabled: Bool = false
-
-    private static let key = "geo.checker"
-
-    static func load() -> GeoCheckerSettings {
-        guard let d = UserDefaults.standard.data(forKey: key), let s = try? JSONDecoder().decode(GeoCheckerSettings.self, from: d) else { return GeoCheckerSettings() }
-        return s
-    }
-
-    func save() {
-        if let d = try? JSONEncoder().encode(self) { UserDefaults.standard.set(d, forKey: Self.key) }
-        try? FileManager.default.removeItem(at: GeoChecker.scriptCache)
-    }
-
-    var isCustom: Bool { !api.trimmingCharacters(in: .whitespaces).isEmpty }
-}
-
+/// 出口信息查询 (v0.12, QX geo_location_checker). Settings live in the App Group under the same keys as
+/// qx/rebuild's 出口位置查询 (IPInfoFetcher.checkerKey / checkerURLKey: "" auto, an endpoint name = preferred,
+/// "custom" = the user's JSON API, "disabled" = no lookup). Main adds one optional key on top: a QX
+/// geo_location_checker script for the custom API, which turns the API reply into {title, subtitle}
+/// (run in the Go script engine, app process).
 enum GeoChecker {
+    static let scriptKey = "geo.checkerScript"
+    static var script: String { AppShared.defaults.string(forKey: scriptKey) ?? "" }
+    static var usesScript: Bool {
+        IPInfoFetcher.checker == "custom" && !IPInfoFetcher.checkerURL.isEmpty && !script.trimmingCharacters(in: .whitespaces).isEmpty
+    }
     static var scriptCache: URL { AppShared.homeURL.appendingPathComponent("geo-checker.js") }
+
+    /// Stores the choice (and clears the cached script when it changed).
+    static func save(checker: String, url: String, script newScript: String) {
+        let d = AppShared.defaults
+        if newScript.trimmingCharacters(in: .whitespaces) != script { try? FileManager.default.removeItem(at: scriptCache) }
+        d.set(checker, forKey: IPInfoFetcher.checkerKey)
+        d.set(url.trimmingCharacters(in: .whitespacesAndNewlines), forKey: IPInfoFetcher.checkerURLKey)
+        d.set(newScript.trimmingCharacters(in: .whitespacesAndNewlines), forKey: scriptKey)
+    }
 
     struct ScriptResult: Decodable { var title: String?; var subtitle: String?; var ip: String?; var error: String? }
 
     /// Result of the last lookup for the settings page ("" = fine).
     @MainActor static var lastError = ""
 
-    /// Fetches the custom API (through the tunnel when connected) and applies the script when one is set.
-    static func fetch(_ s: GeoCheckerSettings, timeout: TimeInterval = 8) async -> IPInfo? {
-        guard let url = URL(string: s.api.trimmingCharacters(in: .whitespaces)) else { await setError(String(localized: "查询地址无效")); return nil }
+    /// Custom API + script; falls back to the built-in endpoints when the custom API gives nothing.
+    static func fetchWithScript(timeout: TimeInterval = 8) async -> IPInfo? {
+        if let info = await fetchCustom(timeout: timeout) { return info }
+        return await IPInfoFetcher.fetch()
+    }
+
+    static func fetchCustom(timeout: TimeInterval = 8) async -> IPInfo? {
+        let api = IPInfoFetcher.checkerURL
+        guard let url = URL(string: api), url.scheme?.hasPrefix("http") == true else { await setError(String(localized: "查询地址无效")); return nil }
         let session = URLSession(configuration: IPInfoFetcher.sessionConfiguration(timeout: timeout))
         defer { session.invalidateAndCancel() }
         var req = URLRequest(url: url)
@@ -47,32 +48,26 @@ enum GeoChecker {
         }
         let data = result.0
         let obj = (try? JSONSerialization.jsonObject(with: data)) as? [String: Any] ?? [:]
-        var info = IPInfoFetcher.endpoints.lazy.compactMap { $0.parse(obj) }.first
-        if info != nil {
-            info?.source = url.host
-            if info?.timezone == nil { info?.timezone = IPInfoFetcher.str(obj, "timezone", "time_zone") }
-        }
-        let script = s.script.trimmingCharacters(in: .whitespaces)
-        if !script.isEmpty, let code = await loadScript(script, session: session) {
-            let body = String(decoding: data, as: UTF8.self)
-            let home = AppShared.homeURL.path
-            let json = await Task.detached { LibmihomoGeoLocationRun(home, code, url.absoluteString, body) }.value
-            if let r = try? JSONDecoder().decode(ScriptResult.self, from: Data(json.utf8)) {
-                if let e = r.error, !e.isEmpty {
-                    await setError(e)
-                } else {
-                    if info == nil, let ip = r.ip, !ip.isEmpty { info = IPInfo(ip: ip, source: url.host) }
-                    info?.customTitle = r.title
-                    if let sub = r.subtitle, !sub.isEmpty { info?.org = sub; info?.asn = nil }
-                    await setError("")
-                    return info
-                }
-            }
-        } else if !script.isEmpty {
-            await setError(String(localized: "脚本下载失败"))
-        } else {
+        var info = IPInfoFetcher.genericParse(obj, source: url.host ?? "custom")
+        if info != nil, info?.timezone == nil { info?.timezone = IPInfoFetcher.str(obj, "timezone", "time_zone") }
+        let ref = script.trimmingCharacters(in: .whitespaces)
+        guard !ref.isEmpty else {
             await setError(info == nil ? String(localized: "无法识别查询结果，请填写脚本") : "")
+            return info
         }
+        guard let code = await loadScript(ref, session: session) else {
+            await setError(String(localized: "脚本下载失败"))
+            return info
+        }
+        let body = String(decoding: data, as: UTF8.self)
+        let home = AppShared.homeURL.path
+        let json = await Task.detached { LibmihomoGeoLocationRun(home, code, url.absoluteString, body) }.value
+        guard let r = try? JSONDecoder().decode(ScriptResult.self, from: Data(json.utf8)) else { return info }
+        if let e = r.error, !e.isEmpty { await setError(e); return info }
+        if info == nil, let ip = r.ip, !ip.isEmpty { info = IPInfo(ip: ip, source: url.host) }
+        info?.customTitle = r.title
+        if let sub = r.subtitle, !sub.isEmpty { info?.org = sub; info?.asn = nil }
+        await setError("")
         return info
     }
 
@@ -91,9 +86,8 @@ enum GeoChecker {
               let h = got.1 as? HTTPURLResponse, (200..<300).contains(h.statusCode), !got.0.isEmpty else {
             return try? String(contentsOf: scriptCache, encoding: .utf8)
         }
-        let d = got.0
-        try? d.write(to: scriptCache, options: .atomic)
-        return String(decoding: d, as: UTF8.self)
+        try? got.0.write(to: scriptCache, options: .atomic)
+        return String(decoding: got.0, as: UTF8.self)
     }
 
     @MainActor private static func setError(_ e: String) { lastError = e }

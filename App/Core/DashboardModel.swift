@@ -155,18 +155,18 @@ final class IPInfoModel: ObservableObject {
     }
 
     func refresh() async {
+        if IPInfoFetcher.disabled {
+            // QX `geo_location_checker = disabled`: no lookups; the header shows the connection state only.
+            exit = nil; direct = nil; failed = false; loading = false
+            return
+        }
         loading = true
         failed = false
         defer { loading = false; updatedAt = Date() }
         let connected = VPNManager.shared.isConnected
-        let geo = GeoCheckerSettings.load()
-        if geo.disabled {
-            // v0.12 geo_location_checker = disabled: no exit lookup.
-            exit = nil
-            direct = connected ? await fetchDirectFromTunnel(enabled: true) : nil
-            return
-        }
-        async let exitInfo = geo.isCustom ? GeoChecker.fetch(geo) : IPInfoFetcher.fetch()
+        // v0.12: a custom API with a QX geo_location_checker script goes through GeoChecker; everything
+        // else (auto / preferred API / custom JSON API) is IPInfoFetcher's ordered endpoints (shared with qx/rebuild).
+        async let exitInfo = GeoChecker.usesScript ? GeoChecker.fetchWithScript() : IPInfoFetcher.fetch()
         async let directInfo = fetchDirectFromTunnel(enabled: connected)
         let (e, d) = await (exitInfo, directInfo)
         exit = e
