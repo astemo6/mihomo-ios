@@ -133,3 +133,9 @@ Mihomo for Android 是用户 iOS 客户端（astemo6/mihomo-ios）的 Android �
 - `app/` 的 Kotlin 已对照**真实 gobind 生成的 Java 绑定**（`gobind -lang=java -tags android,with_gvisor`，javac 编成 classes.jar 放进占位 AAR）跑过 `:app:compileDebugKotlin`，BUILD SUCCESSFUL。`Core.kt` 的签名已确认，无需再猜。
 - 仍未验证：真实 `gomobile bind` 产出的 .so、R8 release 构建（沙箱内存不足）、真机运行。
 - 2026-10-17 13:xx CST：A1 补全（工具栏编辑/搜索模式、DNS 工具、面板 & 工具栏、策略组图标）+ A2 模块/重写/MitM/脚本 + feature2 入口，`:app:compileDebugKotlin` 对真实 gobind 绑定 BUILD SUCCESSFUL。未上机：MediaStore 导出、证书安装流程、MitM 实际解密、图标加载均未在设备上验证。
+
+## 2026-10-17 合并 android/a2-data
+- 合并 `android/a2-data`（1ed3fb1, ffe75f6）：规则集、DNS 日志、流量统计、节点订阅、策略组编辑、手动节点、出口 IP/解锁检测、诊断包/安全模式。详见 `HANDOFF-feature2.md`。
+- 删除 `Feature2Placeholder.kt`，路由直接进入 `Feature2Router.kt`；`MihomoApp` 调用 `Feature2Hooks.onAppCreate`，`MainActivity.onResume` 调用 `Feature2Hooks.onForeground`。
+- 验证：`:app:compileDebugKotlin` BUILD SUCCESSFUL（真实 gobind 绑定）。未真机测试。
+- 待办：普通连接时清除 `safeMode`（目前只能在诊断页“正常重连”退出）；`ProfileStore` 增加固定 id 新增接口替换 `ManualNodes.ensureProfile`；二维码扫描；模块参数/策略映射、脚本编辑调试、MitM 请求查看、p12 导入导出、CA 信任检测。

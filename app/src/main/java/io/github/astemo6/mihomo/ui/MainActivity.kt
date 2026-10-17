@@ -96,7 +96,7 @@ class MainActivity : AppCompatActivity() {
 
     override fun onResume() {
         super.onResume()
-        lifecycleScope.launch { ProfileStore.autoUpdateIfNeeded() }
+        lifecycleScope.launch { ProfileStore.autoUpdateIfNeeded(); runCatching { io.github.astemo6.mihomo.data.feature2.Feature2Hooks.onForeground(this@MainActivity) } }
     }
 
     private fun handleIntent(intent: Intent?) {

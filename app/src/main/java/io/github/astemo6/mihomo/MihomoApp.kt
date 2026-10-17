@@ -26,6 +26,7 @@ class MihomoApp : Application() {
         Core.initLogging()
         ProfileStore.onActiveChanged = { VpnController.reload(this) }
         Thread { EngineStore.init() }.start()
+        io.github.astemo6.mihomo.data.feature2.Feature2Hooks.onAppCreate(this)
         // engine.json edits come in bursts (toggles): reload the running core once, 400 ms after the last.
         val main = Handler(Looper.getMainLooper())
         val reload = Runnable { VpnController.reload(this) }
