@@ -10,3 +10,5 @@ Payload/
 .DS_Store
 bridge/*.xcframework
 __pycache__/
+FrameworksShared/
+project-shared.yml
