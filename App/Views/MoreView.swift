@@ -80,6 +80,7 @@ struct MoreView: View {
                     NavigationLink { AnalyticsView() } label: { row("连接分析", "chart.pie", nil) }
                     NavigationLink { StatsView() } label: { row("流量统计", "chart.bar.xaxis", nil) }
                     NavigationLink { LogsView() } label: { row("日志", "text.alignleft", nil) }
+                    NavigationLink { DNSLogView() } label: { row("DNS 日志", "list.bullet.below.rectangle", nil) }
                     NavigationLink { BackupView() } label: { row("备份与恢复", "externaldrive.badge.icloud", nil) }
                     NavigationLink { SnapshotsView() } label: { row("配置快照", "clock.arrow.circlepath", nil) }
                     NavigationLink { StorageView() } label: { row("存储空间", "internaldrive", nil) }
