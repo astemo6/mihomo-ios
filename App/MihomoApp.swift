@@ -27,8 +27,9 @@ struct MihomoApp: App {
                 // Imports are presented by ImportRouter from the topmost view controller (v0.8.1): a root
                 // .sheet was silently dropped while onboarding, another sheet or the file picker was up.
                 .onOpenURL { router.handle(url: $0) }
-                .preferredColorScheme(.dark)
                 .tint(Theme.accent)
+                // v0.9: 更多 → 设置 → 外观 (跟随系统 / 浅色 / 深色), applied to every window.
+                .onAppear { AppAppearance.apply() }
                 .onChange(of: phase) { p in
                     if p == .active {
                         Task { await vpn.load() }

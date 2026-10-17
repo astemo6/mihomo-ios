@@ -73,7 +73,6 @@ struct OnboardingView: View {
             .frame(maxWidth: 560)
         }
         .background(Theme.bg.ignoresSafeArea())
-        .preferredColorScheme(.dark)
         .tint(Theme.accent)
         .interactiveDismissDisabled(busy)
     }
