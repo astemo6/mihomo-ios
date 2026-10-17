@@ -16813,6 +16813,41 @@
         }
       }
     },
+    "列表来自运行中的内核。": {
+      "extractionState": "manual",
+      "localizations": {
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "列表來自執行中的核心。"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "The list comes from the running core."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "一覧は実行中のコアから取得しています。"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "목록은 실행 중인 코어에서 가져옵니다."
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Список получен от работающего ядра."
+          }
+        }
+      }
+    },
     "删除": {
       "localizations": {
         "en": {
@@ -17768,6 +17803,41 @@
           "stringUnit": {
             "state": "translated",
             "value": "Действия: reject / reject-200 / reject-img / reject-dict / reject-array / reject-drop / 302 / 307 / header; заголовки: header-add / header-del / header-replace / header-replace-regex."
+          }
+        }
+      }
+    },
+    "勾选要在首页显示的策略组，拖动调整顺序，最多 12 个。全部取消勾选则首页不显示策略卡片。": {
+      "extractionState": "manual",
+      "localizations": {
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "勾選要在首頁顯示的策略組，拖動調整順序，最多 12 個。全部取消勾選則首頁不顯示策略卡片。"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Check the groups to show on Home and drag to reorder (up to 12). Uncheck all to hide the group cards on Home."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ホームに表示するポリシーグループにチェックを入れ、ドラッグで並べ替えます（最大 12 個）。すべて外すとホームにポリシーカードは表示されません。"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "홈에 표시할 정책 그룹을 선택하고 드래그해 순서를 바꿉니다(최대 12개). 모두 해제하면 홈에 정책 카드가 표시되지 않습니다."
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Отметьте группы для главного экрана и перетащите, чтобы изменить порядок (до 12). Снимите все отметки, чтобы скрыть карточки групп."
           }
         }
       }
@@ -28004,6 +28074,41 @@
         }
       }
     },
+    "当前为默认：显示前 4 个策略组。": {
+      "extractionState": "manual",
+      "localizations": {
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "當前為預設：顯示前 4 個策略組。"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Default: the first 4 groups are shown."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "デフォルト：最初の 4 つのポリシーグループを表示します。"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "기본값: 처음 4개 정책 그룹을 표시합니다."
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "По умолчанию: показаны первые 4 группы."
+          }
+        }
+      }
+    },
     "当前签名没有 iCloud 容器权限，可以在「保存到文件」时选择 iCloud 云盘，恢复时从那里选择文件。恢复会覆盖同名配置与设置。": {
       "localizations": {
         "en": {
@@ -28306,6 +28411,41 @@
           "stringUnit": {
             "state": "translated",
             "value": "В текущем профиле нет наборов узлов"
+          }
+        }
+      }
+    },
+    "当前配置里没有策略组。": {
+      "extractionState": "manual",
+      "localizations": {
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "當前配置裡沒有策略組。"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "The current profile has no policy groups."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "現在のプロファイルにはポリシーグループがありません。"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "현재 프로필에 정책 그룹이 없습니다."
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "В текущем профиле нет групп политик."
           }
         }
       }
@@ -36386,6 +36526,41 @@
         }
       }
     },
+    "未连接：列表来自当前配置文件。": {
+      "extractionState": "manual",
+      "localizations": {
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "未連線：列表來自當前配置檔案。"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Not connected: the list comes from the current profile."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "未接続：一覧は現在のプロファイルから取得しています。"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "연결 안 됨: 목록은 현재 프로필에서 가져옵니다."
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Нет подключения: список взят из текущего профиля."
+          }
+        }
+      }
+    },
     "未连接：脚本在隧道内运行，请先连接": {
       "localizations": {
         "zh-Hant": {
@@ -40226,6 +40401,41 @@
           "stringUnit": {
             "state": "translated",
             "value": "Нет узлов для экспорта"
+          }
+        }
+      }
+    },
+    "没有可显示的策略组": {
+      "extractionState": "manual",
+      "localizations": {
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "沒有可顯示的策略組"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "No groups to show"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "表示できるポリシーグループがありません"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "표시할 정책 그룹이 없습니다"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Нет групп для показа"
           }
         }
       }
@@ -47820,6 +48030,41 @@
           "stringUnit": {
             "state": "translated",
             "value": "Изменить ссылку / имя / UA / интервал"
+          }
+        }
+      }
+    },
+    "编辑首页策略": {
+      "extractionState": "manual",
+      "localizations": {
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "編輯首頁策略"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Edit Home Groups"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ホームのポリシーを編集"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "홈 정책 편집"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Изменить группы на главной"
           }
         }
       }
@@ -59937,6 +60182,41 @@
           "stringUnit": {
             "state": "translated",
             "value": "Главная"
+          }
+        }
+      }
+    },
+    "首页显示": {
+      "extractionState": "manual",
+      "localizations": {
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "首頁顯示"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Shown on Home"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ホームに表示"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "홈에 표시"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "На главной"
           }
         }
       }
