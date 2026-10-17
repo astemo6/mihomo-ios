@@ -395,6 +395,16 @@ struct ImportSheet: View {
                 default:
                     EmptyView()
                 }
+                if result != nil, !failed, needsMitM {
+                    Section {
+                        NavigationLink { MitMView() } label: {
+                            Label("开启 MitM 并安装证书", systemImage: "lock.shield")
+                        }
+                    } footer: {
+                        Text("导入的重写和脚本需要解密这些主机的 HTTPS 才能生效。MitM 当前未开启或证书未信任。")
+                    }
+                    .listRowBackground(Theme.card)
+                }
                 if let result {
                     if failed {
                         Section {
@@ -434,6 +444,13 @@ struct ImportSheet: View {
     }
 
     var isConf: Bool { if case .confText = action { return true } else { return false } }
+
+    /// v0.8.1: the import brought MitM hostnames, but MitM is off or the CA is not trusted.
+    var needsMitM: Bool {
+        let hosts: Int
+        if isConf { hosts = conf?.report?.hostnames ?? 0 } else { hosts = engine.enabledModuleCounts.hosts }
+        return hosts > 0 && (!engine.config.mitm || engine.caTrusted != true)
+    }
 
     func header(_ title: String, _ icon: String, _ detail: String) -> some View {
         Section {
