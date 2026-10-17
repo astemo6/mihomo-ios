@@ -341,6 +341,8 @@ enum TunnelMessage: String {
     case flushStats
     /// Ask the tunnel to write its core-log / memory rings to <home>/diag/ (诊断包).
     case dumpDiagnostics
+    /// 按网络切换策略 (v0.9): re-apply netpolicy.json for the current network now.
+    case applyNetworkPolicy
 }
 
 /// Last start error written by the extension so the app can show why the tunnel stopped.

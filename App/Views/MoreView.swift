@@ -22,6 +22,13 @@ struct MoreView: View {
                 }
                 .listRowBackground(Theme.card)
 
+                Section("订阅") {
+                    NavigationLink { SubscriptionsView() } label: {
+                        row("订阅管理", "tray.full", "\(store.profiles.filter { $0.kind == .remote }.count + NodeSubStore.shared.subs.count)")
+                    }
+                }
+                .listRowBackground(Theme.card)
+
                 Section("规则与资源") {
                     NavigationLink { RulesView() } label: { row("规则", "list.bullet.rectangle", nil) }
                     NavigationLink { ProvidersView() } label: { row("提供者（规则集 / 节点集）", "shippingbox", nil) }
@@ -70,6 +77,7 @@ struct MoreView: View {
                 .listRowBackground(Theme.card)
 
                 Section("设置") {
+                    NavigationLink { AppearanceView() } label: { row("外观", "circle.lefthalf.filled", nil) }
                     NavigationLink { SettingsView() } label: { row("内核设置", "slider.horizontal.3", nil) }
                     NavigationLink { SpeedTestSettingsView() } label: { row("测速", "bolt.horizontal", nil) }
                     if UIApplication.shared.supportsAlternateIcons {
@@ -516,7 +524,7 @@ struct AppIconView: View {
                                 .resizable().scaledToFit()
                                 .frame(width: 56, height: 56)
                                 .clipShape(RoundedRectangle(cornerRadius: 13, style: .continuous))
-                                .overlay(RoundedRectangle(cornerRadius: 13, style: .continuous).stroke(Color.white.opacity(0.1)))
+                                .overlay(RoundedRectangle(cornerRadius: 13, style: .continuous).stroke(Theme.ink(0.1)))
                             Text(LocalizedStringKey(icon.title)).foregroundStyle(.primary)
                             Spacer()
                             if current == icon.name { Image(systemName: "checkmark").foregroundStyle(Theme.accent) }

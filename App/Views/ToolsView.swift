@@ -265,12 +265,12 @@ struct ToolsView: View {
                         } label: {
                             HStack {
                                 Spacer()
-                                if model.running { ProgressView().tint(.white) } else { Text("开始").bold() }
+                                if model.running { ProgressView().tint(Theme.onAccent) } else { Text("开始").bold() }
                                 Spacer()
                             }
                             .padding(.vertical, 10)
                             .background(RoundedRectangle(cornerRadius: 12, style: .continuous).fill(Theme.accent.opacity(model.running ? 0.4 : 0.9)))
-                            .foregroundStyle(.white)
+                            .foregroundStyle(Theme.onAccent)
                         }
                         .buttonStyle(.plain)
                         .disabled(model.running)

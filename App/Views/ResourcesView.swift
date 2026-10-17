@@ -178,7 +178,7 @@ struct SourceFormatBadge: View {
         Text(label)
             .scaledFont(8, weight: .bold)
             .padding(.horizontal, 4).padding(.vertical, 1)
-            .background(Capsule().fill(Color.white.opacity(0.1)))
+            .background(Capsule().fill(Theme.ink(0.1)))
     }
 }
 

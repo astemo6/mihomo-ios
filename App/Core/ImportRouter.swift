@@ -303,11 +303,10 @@ final class ImportRouter: ObservableObject {
         let sheet = ImportSheet(action: a, onClose: { host?.dismiss(animated: true) })
             .environmentObject(ProfileStore.shared)
             .environmentObject(VPNManager.shared)
-            .preferredColorScheme(.dark)
             .tint(Theme.accent)
         let vc = UIHostingController(rootView: AnyView(sheet))
         host = vc
-        vc.overrideUserInterfaceStyle = .dark
+        vc.overrideUserInterfaceStyle = AppAppearance.current.style
         vc.modalPresentationStyle = .pageSheet
         presented = vc
         top.present(vc, animated: true)

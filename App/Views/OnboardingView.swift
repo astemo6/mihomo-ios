@@ -73,7 +73,6 @@ struct OnboardingView: View {
             .frame(maxWidth: 560)
         }
         .background(Theme.bg.ignoresSafeArea())
-        .preferredColorScheme(.dark)
         .tint(Theme.accent)
         .interactiveDismissDisabled(busy)
     }
@@ -278,7 +277,7 @@ private struct StepDots: View {
         HStack(spacing: 6) {
             ForEach(0..<count, id: \.self) { i in
                 Capsule()
-                    .fill(i == current ? Theme.accent : Color.white.opacity(0.2))
+                    .fill(i == current ? Theme.accent : Theme.ink(0.2))
                     .frame(width: i == current ? 22 : 8, height: 8)
             }
         }

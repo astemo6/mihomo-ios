@@ -13,6 +13,13 @@
 		<string>ko</string>
 		<string>ru</string>
 	</array>
+	<key>NSLocationWhenInUseUsageDescription</key>
+	<string>iOS 只在获得位置权限时提供当前 Wi-Fi 的名称。Mihomo 只用它读取 Wi-Fi 名称（用于「按需连接」和「按网络切换策略」），不读取、不保存你的位置。</string>
+	<key>NSLocationTemporaryUsageDescriptionDictionary</key>
+	<dict>
+		<key>WiFiName</key>
+		<string>读取当前 Wi-Fi 名称需要精确位置。Mihomo 不读取、不保存你的位置。</string>
+	</dict>
 	<key>CFBundleDisplayName</key>
 	<string>Mihomo</string>
 	<key>CFBundleExecutable</key>
@@ -287,7 +294,5 @@
 		<string>UIInterfaceOrientationLandscapeLeft</string>
 		<string>UIInterfaceOrientationLandscapeRight</string>
 	</array>
-	<key>UIUserInterfaceStyle</key>
-	<string>Dark</string>
 </dict>
 </plist>

@@ -211,7 +211,7 @@ struct ScriptWorkbenchView: View {
                 Label("调试运行", systemImage: "play.fill").font(.subheadline.weight(.semibold))
                     .padding(.horizontal, 14).padding(.vertical, 8)
                     .background(Capsule().fill(Theme.accent))
-                    .foregroundStyle(.black)
+                    .foregroundStyle(Theme.onAccent)
             }
             .disabled(code.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty)
         }

@@ -6,6 +6,8 @@ struct WidgetSnapshot: Codable, Equatable {
     var node: String = ""
     var policy: String = ""
     var profile: String = ""
+    /// v0.9: remaining traffic of the active subscription ("" / nil = unknown), already formatted.
+    var remaining: String? = nil
     var updated: Date = .distantPast
 
     private static let key = "widgetSnapshot.v1"
@@ -19,7 +21,7 @@ struct WidgetSnapshot: Codable, Equatable {
     @discardableResult
     func save() -> Bool {
         let old = Self.load()
-        guard old.node != node || old.policy != policy || old.profile != profile else { return false }
+        guard old.node != node || old.policy != policy || old.profile != profile || old.remaining != remaining else { return false }
         if let d = try? JSONEncoder().encode(self) { AppShared.defaults.set(d, forKey: Self.key) }
         return true
     }

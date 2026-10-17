@@ -12,6 +12,7 @@ struct ProfilesView: View {
     @State private var editing: Profile?
     @State private var showManual = false
     @State private var subRulesFor: Profile?
+    @State private var showSubs = false
 
     var body: some View {
         NavigationStack {
@@ -69,9 +70,10 @@ struct ProfilesView: View {
             .background(Theme.bg.ignoresSafeArea())
             .navigationTitle("配置")
             .toolbar {
-                ToolbarItem(placement: .navigationBarLeading) {
+                ToolbarItemGroup(placement: .navigationBarLeading) {
                     Button { updateAll() } label: { Label("全部更新", systemImage: "arrow.triangle.2.circlepath") }
                         .disabled(busy || !store.profiles.contains { $0.kind == .remote })
+                    Button { showSubs = true } label: { Label("订阅管理", systemImage: "tray.full") }
                 }
                 ToolbarItem(placement: .navigationBarTrailing) {
                     Menu {
@@ -85,6 +87,7 @@ struct ProfilesView: View {
                 }
             }
             .navigationDestination(isPresented: $showManual) { ManualNodesView() }
+            .navigationDestination(isPresented: $showSubs) { SubscriptionsView() }
             .overlay { if busy { ProgressView().padding(20).background(RoundedRectangle(cornerRadius: 12).fill(Theme.cardHi)) } }
             .sheet(isPresented: $showAddRemote) { AddRemoteSheet { msg in message = msg } }
             .sheet(isPresented: $showNewLocal) {
