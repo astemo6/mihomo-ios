@@ -5551,6 +5551,41 @@
       },
       "extractionState": "manual"
     },
+    "Surge [Panel] / Stash 面板在「面板」页长按固定；QX 的通用脚本和交互脚本在脚本任务详情里固定。连接期间首页面板按刷新间隔在后台更新（最短 5 分钟）。": {
+      "extractionState": "manual",
+      "localizations": {
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Surge [Panel] / Stash 面板在「面板」頁長按固定；QX 的通用腳本和互動腳本在腳本任務詳情裡固定。連線期間首頁面板按重新整理間隔在背景更新（最短 5 分鐘）。"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Pin Surge [Panel] / Stash panels by long-pressing them on the Panels page; pin QX generic and interaction scripts from the script task details. While connected, Home panels refresh in the background on their interval (at most every 5 minutes)."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Surge [Panel] / Stash のパネルは「パネル」ページで長押しして固定、QX の汎用スクリプトとインタラクションスクリプトはスクリプトタスクの詳細から固定します。接続中、ホームのパネルは更新間隔に従ってバックグラウンドで更新されます（最短 5 分）。"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Surge [Panel] / Stash 패널은 ‘패널’ 페이지에서 길게 눌러 고정하고, QX 일반 스크립트와 상호작용 스크립트는 스크립트 작업 상세에서 고정합니다. 연결 중에는 홈 패널이 새로 고침 간격에 따라 백그라운드에서 업데이트됩니다(최소 5분)."
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Панели Surge [Panel] / Stash закрепляются долгим нажатием на странице «Панели», общие и интерактивные скрипты QX — в сведениях о задаче скрипта. Во время подключения панели на главной обновляются в фоне по своему интервалу (не чаще раза в 5 минут)."
+          }
+        }
+      }
+    },
     "Surge 配置": {
       "localizations": {
         "en": {
@@ -9176,6 +9211,41 @@
         }
       }
     },
+    "上次结果": {
+      "extractionState": "manual",
+      "localizations": {
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "上次結果"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Last result"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "前回の結果"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "마지막 결과"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Последний результат"
+          }
+        }
+      }
+    },
     "上行": {
       "localizations": {
         "en": {
@@ -9894,6 +9964,41 @@
           "stringUnit": {
             "state": "translated",
             "value": "Недоступно"
+          }
+        }
+      }
+    },
+    "不可用的面板": {
+      "extractionState": "manual",
+      "localizations": {
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "不可用的面板"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Unavailable panel"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "利用できないパネル"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "사용할 수 없는 패널"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Недоступная панель"
           }
         }
       }
@@ -11535,6 +11640,41 @@
           "stringUnit": {
             "state": "translated",
             "value": "С начала этого подключения (%@); данные собираются только при открытом приложении и сбрасываются при отключении."
+          }
+        }
+      }
+    },
+    "从首页移除": {
+      "extractionState": "manual",
+      "localizations": {
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "從首頁移除"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Remove from Home"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ホームから削除"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "홈에서 제거"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Убрать с главной"
           }
         }
       }
@@ -14170,6 +14310,41 @@
           "stringUnit": {
             "state": "translated",
             "value": "Блокировать всё"
+          }
+        }
+      }
+    },
+    "全部面板": {
+      "extractionState": "manual",
+      "localizations": {
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "全部面板"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "All Panels"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "すべてのパネル"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "모든 패널"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Все панели"
           }
         }
       }
@@ -20916,6 +21091,41 @@
         }
       }
     },
+    "在「面板」页长按面板，或在脚本任务详情里点「固定到首页」。": {
+      "extractionState": "manual",
+      "localizations": {
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "在「面板」頁長按面板，或在腳本任務詳情裡點「固定到首頁」。"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Long-press a panel on the Panels page, or tap “Pin to Home” in a script task’s details."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "「パネル」ページでパネルを長押しするか、スクリプトタスクの詳細で「ホームに固定」をタップします。"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "‘패널’ 페이지에서 패널을 길게 누르거나 스크립트 작업 상세에서 ‘홈에 고정’을 탭하세요."
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Нажмите и удерживайте панель на странице «Панели» или нажмите «Закрепить на главной» в сведениях о задаче скрипта."
+          }
+        }
+      }
+    },
     "在不同网络下自动使用 规则 / 全局 / 直连 模式（与 Quantumult X 的 running_mode_trigger 相同）。手动切换的模式会保持到下一次网络变化。": {
       "localizations": {
         "zh-Hant": {
@@ -21254,6 +21464,76 @@
           "stringUnit": {
             "state": "translated",
             "value": "Выбранные здесь узлы сохраняются в профиле и применяются при следующем подключении. Проверка задержки идёт прямо с устройства (не через прокси). Провайдеры показывают только кэшированные узлы."
+          }
+        }
+      }
+    },
+    "在首页显示": {
+      "extractionState": "manual",
+      "localizations": {
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "在首頁顯示"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Show on Home"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ホームに表示"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "홈에 표시"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Показывать на главной"
+          }
+        }
+      }
+    },
+    "在首页隐藏": {
+      "extractionState": "manual",
+      "localizations": {
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "在首頁隱藏"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Hide on Home"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ホームで非表示"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "홈에서 숨기기"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Скрыть на главной"
           }
         }
       }
@@ -29148,6 +29428,41 @@
         }
       }
     },
+    "打开首页时": {
+      "extractionState": "manual",
+      "localizations": {
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "開啟首頁時"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "When Home opens"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ホームを開いたとき"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "홈을 열 때"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "При открытии главной"
+          }
+        }
+      }
+    },
     "扩展被停用": {
       "localizations": {
         "zh-Hant": {
@@ -29588,6 +29903,41 @@
           "stringUnit": {
             "state": "translated",
             "value": "Отклонить запрос (reject)"
+          }
+        }
+      }
+    },
+    "拖动调整顺序。关闭开关的面板保留固定，但不在首页显示，也不会在后台刷新。": {
+      "extractionState": "manual",
+      "localizations": {
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "拖曳調整順序。關閉開關的面板保留固定，但不在首頁顯示，也不會在背景重新整理。"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Drag to reorder. Panels switched off stay pinned but are not shown on Home and do not refresh in the background."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ドラッグで並べ替えます。オフにしたパネルは固定されたままですが、ホームに表示されず、バックグラウンドでも更新されません。"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "드래그해 순서를 바꿉니다. 꺼 둔 패널은 고정된 채로 남지만 홈에 표시되지 않고 백그라운드에서도 새로 고치지 않습니다."
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Перетащите, чтобы изменить порядок. Выключенные панели остаются закреплёнными, но не показываются на главной и не обновляются в фоне."
           }
         }
       }
@@ -38842,6 +39192,111 @@
         }
       }
     },
+    "每 15 分钟": {
+      "extractionState": "manual",
+      "localizations": {
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "每 15 分鐘"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Every 15 minutes"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "15 分ごと"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "15분마다"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Каждые 15 минут"
+          }
+        }
+      }
+    },
+    "每 30 分钟": {
+      "extractionState": "manual",
+      "localizations": {
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "每 30 分鐘"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Every 30 minutes"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "30 分ごと"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "30분마다"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Каждые 30 минут"
+          }
+        }
+      }
+    },
+    "每 5 分钟": {
+      "extractionState": "manual",
+      "localizations": {
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "每 5 分鐘"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Every 5 minutes"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "5 分ごと"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "5분마다"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Каждые 5 минут"
+          }
+        }
+      }
+    },
     "每 6 小时": {
       "localizations": {
         "en": {
@@ -38940,6 +39395,41 @@
           "stringUnit": {
             "state": "translated",
             "value": "Ежедневно"
+          }
+        }
+      }
+    },
+    "每小时": {
+      "extractionState": "manual",
+      "localizations": {
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "每小時"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Every hour"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "1 時間ごと"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "1시간마다"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Каждый час"
           }
         }
       }
@@ -46879,6 +47369,41 @@
         }
       }
     },
+    "编辑首页面板": {
+      "extractionState": "manual",
+      "localizations": {
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "編輯首頁面板"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Edit Home Panels"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ホームのパネルを編集"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "홈 패널 편집"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Изменить панели на главной"
+          }
+        }
+      }
+    },
     "网址": {
       "localizations": {
         "en": {
@@ -47527,6 +48052,41 @@
           "stringUnit": {
             "state": "translated",
             "value": "Не удалось загрузить скрипт"
+          }
+        }
+      }
+    },
+    "脚本任务": {
+      "extractionState": "manual",
+      "localizations": {
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "腳本任務"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Script Tasks"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "スクリプトタスク"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "스크립트 작업"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Задачи скриптов"
           }
         }
       }
@@ -49133,6 +49693,41 @@
           "stringUnit": {
             "state": "translated",
             "value": "Наборы и фильтры"
+          }
+        }
+      }
+    },
+    "节点：%@": {
+      "extractionState": "manual",
+      "localizations": {
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "節點：%@"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Node: %@"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ノード：%@"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "노드: %@"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Узел: %@"
           }
         }
       }
@@ -53652,6 +54247,41 @@
         }
       }
     },
+    "还没有固定的面板": {
+      "extractionState": "manual",
+      "localizations": {
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "還沒有固定的面板"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "No pinned panels yet"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "固定したパネルはまだありません"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "아직 고정한 패널이 없습니다"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Закреплённых панелей пока нет"
+          }
+        }
+      }
+    },
     "还没有填写 Wi-Fi 名称：不会自动连接。": {
       "localizations": {
         "zh-Hant": {
@@ -55739,6 +56369,41 @@
           "stringUnit": {
             "state": "translated",
             "value": "Выбрать скрипт"
+          }
+        }
+      }
+    },
+    "选择节点后可固定到首页。": {
+      "extractionState": "manual",
+      "localizations": {
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "選擇節點後可固定到首頁。"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Choose a node to pin it to Home."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ノードを選ぶとホームに固定できます。"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "노드를 선택하면 홈에 고정할 수 있습니다."
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Выберите узел, чтобы закрепить на главной."
           }
         }
       }
@@ -58746,6 +59411,111 @@
           "stringUnit": {
             "state": "translated",
             "value": "Флаг, место, ASN и IP на главном экране берутся из выбранного здесь сервиса (geo_location_checker в Quantumult X). Запрос идёт через текущее подключение, поэтому показывается выход прокси. «Выкл.» — никаких запросов."
+          }
+        }
+      }
+    },
+    "首页面板": {
+      "extractionState": "manual",
+      "localizations": {
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "首頁面板"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Home Panels"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ホームのパネル"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "홈 패널"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Панели на главной"
+          }
+        }
+      }
+    },
+    "首页面板显示脚本返回的标题和内容（$done 的 title / content 或 message）。": {
+      "extractionState": "manual",
+      "localizations": {
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "首頁面板顯示腳本返回的標題和內容（$done 的 title / content 或 message）。"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "The Home panel shows the title and content the script returns ($done’s title / content or message)."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ホームのパネルにはスクリプトが返すタイトルと内容（$done の title / content または message）が表示されます。"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "홈 패널에는 스크립트가 반환한 제목과 내용($done의 title / content 또는 message)이 표시됩니다."
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Панель на главной показывает заголовок и текст, которые возвращает скрипт (title / content или message в $done)."
+          }
+        }
+      }
+    },
+    "首页面板显示脚本返回的标题和内容，脚本收到节点「%@」。": {
+      "extractionState": "manual",
+      "localizations": {
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "首頁面板顯示腳本返回的標題和內容，腳本收到節點「%@」。"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "The Home panel shows the title and content the script returns; the script receives the node “%@”."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ホームのパネルにはスクリプトが返すタイトルと内容が表示され、スクリプトにはノード「%@」が渡されます。"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "홈 패널에는 스크립트가 반환한 제목과 내용이 표시되며, 스크립트는 노드 ‘%@’을(를) 받습니다."
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Панель на главной показывает заголовок и текст, которые возвращает скрипт; скрипт получает узел «%@»."
           }
         }
       }
