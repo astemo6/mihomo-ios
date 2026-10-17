@@ -195,6 +195,42 @@ final class ControllerClient {
         }
     }
 
+    /// v0.15.2: tests the given members with at most `limit` (10) running at once (GET /proxies/{name}/delay
+    /// each) instead of GET /group/{name}/delay, which starts every member at the same moment inside the
+    /// memory-limited extension (CPU / GC contention inflates the measured round trip) and also clears
+    /// the 固定 node of a url-test / fallback group. Returns name → ms, 0 = timeout / failure.
+    func membersDelay(_ members: [String], limit: Int = 10, url: String? = nil, timeoutMs: Int? = nil) async throws -> [String: Int] {
+        var out: [String: Int] = [:]
+        var firstError: Error?
+        let width = max(1, limit)
+        let run: (String) async -> (String, Int, Error?) = { name in
+            do { return (name, try await self.proxyDelay(name, url: url, timeoutMs: timeoutMs), nil) }
+            catch { return (name, 0, error) }
+        }
+        // Sliding window: a new member starts as soon as one finishes, never more than `width` at once.
+        await withTaskGroup(of: (String, Int, Error?).self) { tg in
+            var next = 0
+            while next < min(width, members.count) {
+                let name = members[next]
+                next += 1
+                tg.addTask { await run(name) }
+            }
+            while let r = await tg.next() {
+                let (name, ms, err) = r
+                out[name] = ms
+                if let err, firstError == nil { firstError = err }
+                if next < members.count {
+                    let n2 = members[next]
+                    next += 1
+                    tg.addTask { await run(n2) }
+                }
+            }
+        }
+        // Every request failed at the HTTP level (not a node timeout): the controller is unreachable.
+        if let firstError, out.values.allSatisfy({ $0 == 0 }) { throw firstError }
+        return out
+    }
+
     /// GET /proxies/{name}/delay for one node; 0 = timeout / failure.
     func proxyDelay(_ name: String, url: String? = nil, timeoutMs: Int? = nil) async throws -> Int {
         let st = Self.testSettings

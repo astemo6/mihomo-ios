@@ -296,6 +296,7 @@ func buildRuntimeWith(profile []byte, o Overrides, fd int32, inject func(raw map
 	}
 	applyDNSOverride(dns, o.DNS, o.DNSMode)
 	applyLocalDNS(raw, dns, o.Local, o.DNSMode)
+	defaultProxyServerNameserver(dns)
 	raw["dns"] = dns
 
 	// Sniffer
