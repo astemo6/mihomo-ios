@@ -6910,6 +6910,40 @@
       },
       "extractionState": "manual"
     },
+    "Surge [Panel] / Stash 面板在「全部面板」里长按固定；QX 的通用脚本和交互脚本在脚本任务详情里固定。连接期间首页面板按刷新间隔在后台更新（最短 5 分钟）。": {
+      "localizations": {
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Surge [Panel] / Stash 面板在「全部面板」裡長按固定；QX 的通用腳本和互動腳本在腳本任務詳情裡固定。連線期間首頁面板按重新整理間隔在背景更新（最短 5 分鐘）。"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Pin Surge [Panel] / Stash panels by long-pressing them in All Panels; pin QX generic and interaction scripts from the script task details. While connected, Home panels refresh in the background at their interval (at least 5 minutes)."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Surge [Panel] / Stash のパネルは「すべてのパネル」で長押しして固定します。QX の汎用スクリプトとインタラクションスクリプトはスクリプトタスクの詳細で固定します。接続中、ホームのパネルは更新間隔ごとにバックグラウンドで更新されます（最短 5 分）。"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Surge [Panel] / Stash 패널은 「모든 패널」에서 길게 눌러 고정하고, QX 일반 스크립트와 인터랙션 스크립트는 스크립트 작업 상세에서 고정합니다. 연결 중에는 홈 패널이 새로 고침 간격마다 백그라운드에서 업데이트됩니다(최소 5분)."
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Панели Surge [Panel] / Stash закрепляются долгим нажатием во «Всех панелях»; общие и интерактивные скрипты QX — в подробностях задачи скрипта. При подключении панели на главном экране обновляются в фоне по своему интервалу (не чаще раза в 5 минут)."
+          }
+        }
+      }
+    },
     "Surge [Panel] / Stash 面板在「面板」页长按固定；QX 的通用脚本和交互脚本在脚本任务详情里固定。连接期间首页面板按刷新间隔在后台更新（最短 5 分钟）。": {
       "extractionState": "manual",
       "localizations": {
@@ -10634,6 +10668,40 @@
           "stringUnit": {
             "state": "translated",
             "value": "«Mihomo QX» подключает и отключает; «Режим Mihomo QX» переключает По правилам → Глобальный прокси → Глобально напрямую, цвет значка как у вертушки. Применяется сразу при подключении, иначе — при следующем подключении."
+          }
+        }
+      }
+    },
+    "「内置精选」随 App 提供，也可以在右上角添加自己的索引来源。轻点模块先预览它会添加的重写、脚本和 MitM 主机名，确认后再添加；已添加的模块可以直接在这里开关。第三方模块由作者维护，请只添加信任的来源。": {
+      "localizations": {
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "「內建精選」隨 App 提供，也可以在右上角新增自己的索引來源。輕點模組先預覽它會新增的重寫、腳本和 MitM 主機名稱，確認後再新增；已新增的模組可以直接在這裡開關。第三方模組由作者維護，請只新增信任的來源。"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "“Built-in picks” ship with the app; add your own index sources at the top right. Tap a module to preview the rewrites, scripts and MitM hostnames it adds before adding it; modules you already added can be switched on or off right here. Third-party modules are maintained by their authors, so only add sources you trust."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "「内蔵セレクション」はアプリに同梱されています。右上で独自のインデックスソースも追加できます。モジュールをタップすると、追加されるリライト・スクリプト・MitM ホスト名をプレビューしてから追加できます。追加済みのモジュールはここで直接オン／オフできます。サードパーティのモジュールは作者が管理しています。信頼できるソースだけを追加してください。"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "「기본 추천」은 앱에 포함되어 있으며, 오른쪽 위에서 직접 인덱스 소스를 추가할 수도 있습니다. 모듈을 탭하면 추가될 리라이트, 스크립트, MitM 호스트 이름을 미리 보고 추가할 수 있으며, 이미 추가한 모듈은 여기서 바로 켜고 끌 수 있습니다. 서드파티 모듈은 작성자가 관리하므로 신뢰하는 소스만 추가하세요."
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "«Встроенная подборка» поставляется с приложением; свои источники индексов можно добавить справа вверху. Нажмите на модуль, чтобы до добавления увидеть, какие перезаписи, скрипты и хосты MitM он добавит; уже добавленные модули можно включать и выключать прямо здесь. Сторонние модули поддерживают их авторы — добавляйте только источники, которым доверяете."
           }
         }
       }
@@ -17339,6 +17407,40 @@
         }
       }
     },
+    "全部刷新": {
+      "localizations": {
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "全部重新整理"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Refresh All"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "すべて更新"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "모두 새로 고침"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Обновить все"
+          }
+        }
+      }
+    },
     "全部协议": {
       "localizations": {
         "zh-Hant": {
@@ -21263,6 +21365,40 @@
           "stringUnit": {
             "state": "translated",
             "value": "Обновить Live Activity"
+          }
+        }
+      }
+    },
+    "刷新索引": {
+      "localizations": {
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "重新整理索引"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Refresh Index"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "インデックスを更新"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "인덱스 새로 고침"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Обновить индекс"
           }
         }
       }
@@ -25203,6 +25339,40 @@
           "stringUnit": {
             "state": "translated",
             "value": "Закрепить узел"
+          }
+        }
+      }
+    },
+    "固定的面板都已隐藏。轻点右侧按钮选择要显示的面板。": {
+      "localizations": {
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "固定的面板都已隱藏。輕點右側按鈕選擇要顯示的面板。"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "All pinned panels are hidden. Tap the button on the right to choose which panels to show."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "固定したパネルはすべて非表示です。右のボタンで表示するパネルを選んでください。"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "고정한 패널이 모두 숨겨져 있습니다. 오른쪽 버튼을 눌러 표시할 패널을 선택하세요."
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Все закреплённые панели скрыты. Нажмите кнопку справа, чтобы выбрать, какие показывать."
           }
         }
       }
@@ -31526,6 +31696,40 @@
         }
       }
     },
+    "已启用的模块里没有面板。": {
+      "localizations": {
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "已啟用的模組裡沒有面板。"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "None of the enabled modules has a panel."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "有効なモジュールにパネルはありません。"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "활성화된 모듈에 패널이 없습니다."
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Во включённых модулях нет панелей."
+          }
+        }
+      }
+    },
     "已固定": {
       "localizations": {
         "zh-Hant": {
@@ -37156,6 +37360,40 @@
         }
       }
     },
+    "拷贝内容": {
+      "localizations": {
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "拷貝內容"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Copy Content"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "内容をコピー"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "내용 복사"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Скопировать содержимое"
+          }
+        }
+      }
+    },
     "拷贝名称": {
       "localizations": {
         "zh-Hant": {
@@ -37186,6 +37424,40 @@
           "stringUnit": {
             "state": "translated",
             "value": "Скопировать имя"
+          }
+        }
+      }
+    },
+    "拷贝模块地址": {
+      "localizations": {
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "拷貝模組位址"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Copy Module URL"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "モジュール URL をコピー"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "모듈 URL 복사"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Скопировать URL модуля"
           }
         }
       }
@@ -47515,6 +47787,40 @@
           "stringUnit": {
             "state": "translated",
             "value": "Настройки модуля"
+          }
+        }
+      }
+    },
+    "模块里的 Surge [Panel]、Stash 面板，以及固定到首页的通用 / 交互脚本。长按面板固定到首页或取消固定；首页的面板显示在「节点」页顶部。": {
+      "localizations": {
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "模組裡的 Surge [Panel]、Stash 面板，以及固定到首頁的通用／互動腳本。長按面板固定到首頁或取消固定；首頁的面板顯示在「節點」頁頂部。"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Surge [Panel] and Stash panels from your modules, plus generic / interaction scripts pinned to Home. Long-press a panel to pin it to Home or unpin it; Home panels appear at the top of the Nodes page."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "モジュール内の Surge [Panel]・Stash パネルと、ホームに固定した汎用／インタラクションスクリプトです。パネルを長押しするとホームに固定・固定解除できます。ホームのパネルは「ノード」ページの上部に表示されます。"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "모듈의 Surge [Panel]·Stash 패널과 홈에 고정한 일반/인터랙션 스크립트입니다. 패널을 길게 눌러 홈에 고정하거나 고정을 해제하세요. 홈 패널은 「노드」 페이지 위쪽에 표시됩니다."
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Панели Surge [Panel] и Stash из модулей, а также общие / интерактивные скрипты, закреплённые на главном экране. Долгое нажатие закрепляет панель или открепляет её; панели главного экрана показываются вверху страницы «Узлы»."
           }
         }
       }
@@ -60273,6 +60579,40 @@
         }
       }
     },
+    "脚本在 VPN 扩展里运行，连接后才能刷新面板。下面是固定面板的上次结果。": {
+      "localizations": {
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "腳本在 VPN 擴充功能裡執行，連線後才能重新整理面板。下面是固定面板的上次結果。"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Scripts run in the VPN extension, so panels refresh only while connected. Below are the last results of your pinned panels."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "スクリプトは VPN 拡張内で実行されるため、パネルは接続中のみ更新できます。以下は固定パネルの前回の結果です。"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "스크립트는 VPN 확장에서 실행되므로 연결된 후에만 패널을 새로 고칠 수 있습니다. 아래는 고정한 패널의 마지막 결과입니다."
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Скрипты выполняются в расширении VPN, поэтому панели обновляются только при подключении. Ниже — последние результаты закреплённых панелей."
+          }
+        }
+      }
+    },
     "脚本在 VPN 扩展里运行，连接后才能运行。": {
       "localizations": {
         "zh-Hant": {
@@ -68198,6 +68538,40 @@
         }
       }
     },
+    "还没有固定的面板。在「全部面板」里长按面板，或在脚本任务详情里点「固定到首页」。": {
+      "localizations": {
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "還沒有固定的面板。在「全部面板」裡長按面板，或在腳本任務詳情裡點「固定到首頁」。"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "No pinned panels yet. Long-press a panel in All Panels, or tap Pin to Home in a script task’s details."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "固定したパネルはまだありません。「すべてのパネル」でパネルを長押しするか、スクリプトタスクの詳細で「ホームに固定」をタップしてください。"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "아직 고정한 패널이 없습니다. 「모든 패널」에서 패널을 길게 누르거나 스크립트 작업 상세에서 「홈에 고정」을 탭하세요."
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Закреплённых панелей пока нет. Нажмите и удерживайте панель во «Всех панелях» или нажмите «Закрепить на главном» в подробностях задачи скрипта."
+          }
+        }
+      }
+    },
     "还没有填写 Wi-Fi 名称：不会自动连接。": {
       "localizations": {
         "zh-Hant": {
@@ -74693,6 +75067,40 @@
         }
       },
       "extractionState": "manual"
+    },
+    "预览": {
+      "localizations": {
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "預覽"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Preview"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "プレビュー"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "미리 보기"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Просмотр"
+          }
+        }
+      }
     },
     "预设": {
       "localizations": {
