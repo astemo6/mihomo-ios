@@ -38,6 +38,11 @@ settings:
       DEPLOYMENT_POSTPROCESSING: YES
       DEBUG_INFORMATION_FORMAT: dwarf
       SWIFT_OPTIMIZATION_LEVEL: "-Osize"
+      # v0.14 size pass
+      GCC_OPTIMIZATION_LEVEL: s
+      ASSETCATALOG_COMPILER_OPTIMIZATION: space
+      STRIP_SWIFT_SYMBOLS: YES
+      SWIFT_COMPILATION_MODE: wholemodule
 
 targets:
   Mihomo:
@@ -80,6 +85,8 @@ targets:
       # Bundled MetaCubeX/meta-rules-dat databases, copied into the core home dir before start.
       - path: Geo
         buildPhase: resources
+        # v0.14 size pass: ASN.mmdb (8.6 MB, only for IP-ASN rules / $utils.ipasn) is downloaded on demand.
+        excludes: ["ASN.mmdb"]
     configFiles:
       Debug: Config/Tunnel.signing.xcconfig
       Release: Config/Tunnel.signing.xcconfig
