@@ -113,7 +113,7 @@ struct QXTaskListView: View {
                         Divider().padding(.leading, 76)
                     }
                 }
-                .padding(.horizontal, 20)
+                .padding(.horizontal, QXMetrics.inset)
                 .padding(.bottom, 110)
             }
             .overlay(alignment: .bottom) { bottomBar }
@@ -154,7 +154,7 @@ struct QXTaskListView: View {
             .buttonStyle(.plain)
             .accessibilityLabel(Text("运行日志"))
         }
-        .padding(.horizontal, 20)
+        .padding(.horizontal, QXMetrics.inset)
         .padding(.bottom, 10)
     }
 

@@ -88,12 +88,9 @@ struct RootView: View {
 
     var body: some View {
         Group {
-            if hSize == .regular {
-                SplitRootView()
-            } else {
-                // QX branch: one screen (header + panel tiles + panel content + floating toolbar), no tab bar.
-                QXShell()
-            }
+            // QX branch: one screen (header + panel tiles + panel content + floating toolbar), no tab bar.
+            // QX-4: iPad / regular width uses the same page with a detail pane (SplitRootView is no longer used here).
+            QXShell(pad: hSize == .regular)
         }
         .overlay(alignment: .top) { PasteBanner() }
         .fullScreenCover(isPresented: $showOnboarding) {

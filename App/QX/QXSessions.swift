@@ -87,7 +87,7 @@ struct QXSessionListView: View {
                     }
                     Text("每次连接记录一份（App 打开期间按出口节点统计），保留最近 30 次。").font(.caption).foregroundStyle(.secondary)
                 }
-                .padding(.horizontal, 20)
+                .padding(.horizontal, QXMetrics.inset)
                 .padding(.bottom, 40)
             }
         }
@@ -130,7 +130,7 @@ struct QXSessionDetailView: View {
                     }
                     Text("连接数 \(session.connections)").font(.caption).foregroundStyle(.secondary)
                 }
-                .padding(.horizontal, 20)
+                .padding(.horizontal, QXMetrics.inset)
                 .padding(.bottom, 40)
             }
         }

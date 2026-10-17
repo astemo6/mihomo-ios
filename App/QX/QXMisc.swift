@@ -212,7 +212,7 @@ struct QXSnippetsView: View {
                     snippetCard(.filter, count: rules.rules.count, open: .customRules)
                     snippetCard(.rewrite, count: engine.config.rules.count + engine.config.scripts.count, open: .localRewrite)
                 }
-                .padding(.horizontal, 20)
+                .padding(.horizontal, QXMetrics.inset)
                 .padding(.bottom, 50)
             }
         }
@@ -293,7 +293,7 @@ struct QXResetView: View {
                     .disabled(!anySelected || working)
                     if let done { Text(verbatim: done).font(.footnote).foregroundStyle(QXColor.mitm) }
                 }
-                .padding(.horizontal, 20)
+                .padding(.horizontal, QXMetrics.inset)
                 .padding(.bottom, 50)
             }
         }

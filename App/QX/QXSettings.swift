@@ -15,19 +15,23 @@ struct QXActionSpec: Identifiable {
 struct QXActionGrid: View {
     let color: Color
     let items: [QXActionSpec]
+    /// 2 on iPhone (QX); 3 on iPad regular width.
+    var columns = 2
     var body: some View {
-        LazyVGrid(columns: [GridItem(.flexible(), spacing: 14), GridItem(.flexible(), spacing: 14)], spacing: 14) {
+        // Frame 25: 2 columns, 61 pt capsules 13 pt apart, white glyph + 17–18 pt semibold label, soft colour shadow.
+        LazyVGrid(columns: Array(repeating: GridItem(.flexible(), spacing: 13), count: columns), spacing: 13) {
             ForEach(items) { it in
                 Button(action: it.action) {
                     HStack(spacing: 10) {
-                        Image(systemName: it.icon).font(.system(size: 19, weight: .semibold))
-                        Text(verbatim: it.title).font(.system(size: 20, weight: .semibold)).lineLimit(1).minimumScaleFactor(0.7)
+                        Image(systemName: it.icon).font(.system(size: 18, weight: .semibold)).frame(width: 24)
+                        Text(verbatim: it.title).font(.system(size: 18, weight: .semibold)).lineLimit(1).minimumScaleFactor(0.7)
                         Spacer(minLength: 0)
                     }
                     .foregroundStyle(.white)
                     .padding(.horizontal, 18)
-                    .frame(maxWidth: .infinity, minHeight: 64)
+                    .frame(maxWidth: .infinity, minHeight: 60)
                     .background(Capsule().fill(color))
+                    .shadow(color: color.opacity(0.28), radius: 8, y: 4)
                 }
                 .buttonStyle(.plain)
             }
@@ -42,17 +46,18 @@ struct QXSettingsSection<Trailing: View>: View {
     let color: Color
     let items: [QXActionSpec]
     @ViewBuilder var trailing: Trailing
+    @Environment(\.horizontalSizeClass) private var hSize
 
     var body: some View {
         VStack(alignment: .leading, spacing: 12) {
             HStack(alignment: .firstTextBaseline, spacing: 10) {
-                Text(verbatim: title).font(.system(size: 30, weight: .bold))
-                if let count { Text(verbatim: count).font(.system(size: 17)).foregroundStyle(.secondary) }
+                Text(verbatim: title).font(.system(size: QXMetrics.largeTitle + 2, weight: .bold))
+                if let count { Text(verbatim: count).font(.system(size: 15)).foregroundStyle(.secondary) }
                 Spacer()
                 trailing
             }
-            Text(verbatim: caption).font(.system(size: 16)).foregroundStyle(.secondary).fixedSize(horizontal: false, vertical: true)
-            QXActionGrid(color: color, items: items).padding(.top, 4)
+            Text(verbatim: caption).font(.system(size: QXMetrics.caption)).foregroundStyle(.secondary).lineSpacing(3).fixedSize(horizontal: false, vertical: true)
+            QXActionGrid(color: color, items: items, columns: hSize == .regular ? 3 : 2).padding(.top, 6)
         }
     }
 }
@@ -65,6 +70,8 @@ extension QXSettingsSection where Trailing == EmptyView {
 }
 
 struct QXSettingsView: View {
+    /// iPad: root of the detail pane (no back circle).
+    var isRoot = false
     @EnvironmentObject var nav: QXNavigator
     @EnvironmentObject var store: ProfileStore
     @ObservedObject private var engine = EngineStore.shared
@@ -88,10 +95,10 @@ struct QXSettingsView: View {
     }
 
     var body: some View {
-        QXPage(title: String(localized: "设置")) {
+        QXPage(title: String(localized: "设置"), trailing: {
             QXCircleButton(systemName: "link") { nav.present(.profiles) }
                 .accessibilityLabel(Text("配置"))
-        } content: {
+        }, content: {
             ScrollView {
                 VStack(alignment: .leading, spacing: 40) {
                     QXSettingsSection(title: String(localized: "节点"), count: "\(nodeCount)",
@@ -159,11 +166,11 @@ struct QXSettingsView: View {
                         bottomButton(String(localized: "其他设置")) { nav.push(.otherSettings) }
                     }
                 }
-                .padding(.horizontal, 20)
+                .padding(.horizontal, QXMetrics.inset)
                 .padding(.top, 8)
                 .padding(.bottom, 50)
             }
-        }
+        }, hideBack: isRoot)
         .task {
             if nodes.index.isEmpty { await nodes.load() }
             if rules.total == 0 { await rules.load() }
@@ -189,7 +196,7 @@ struct QXSettingsView: View {
     private func bottomButton(_ title: String, _ action: @escaping () -> Void) -> some View {
         Button(action: action) {
             Text(verbatim: title).font(.system(size: 18, weight: .semibold)).foregroundStyle(QXColor.switchOn)
-                .frame(maxWidth: .infinity, minHeight: 56)
+                .frame(maxWidth: .infinity, minHeight: 60)
                 .background(Capsule().fill(Theme.cardHi))
         }
         .buttonStyle(.plain)
@@ -264,6 +271,7 @@ struct QXOtherSettingsView: View {
 
                 Section {
                     row(String(localized: "DNS"), "network", .dns)
+                    row(String(localized: "出口位置查询"), "location.viewfinder", .geoChecker)
                     row(String(localized: "测速"), "bolt.horizontal", .speedTest)
                     row(String(localized: "内核设置"), "slider.horizontal.3", .coreSettings)
                 } header: { header("VPN") } footer: { Text("IPv6、局域网共享（HTTP / SOCKS5 代理服务器）、排除路由与按需连接在「出站接口 / 连接方式」中设置。") }
@@ -553,7 +561,7 @@ struct QXNodeResourcesView: View {
                         }
                     }
                 }
-                .padding(.horizontal, 20)
+                .padding(.horizontal, QXMetrics.inset)
                 .padding(.bottom, 100)
             }
             .overlay(alignment: .bottom) { QXResourceSwitcher(current: 0).padding(.bottom, 10) }
@@ -691,7 +699,7 @@ struct QXFilterResourcesView: View {
                         }
                     }
                 }
-                .padding(.horizontal, 20)
+                .padding(.horizontal, QXMetrics.inset)
                 .padding(.bottom, 100)
             }
             .overlay(alignment: .bottom) { QXResourceSwitcher(current: 1).padding(.bottom, 10) }

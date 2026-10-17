@@ -5,6 +5,8 @@ import UniformTypeIdentifiers
 /// floating toolbar with the windmill. Everything else is pushed from here (settings page, resource pages)
 /// or presented as a sheet (pages that own a NavigationStack, editors, the run-mode sheet).
 struct QXShell: View {
+    /// iPad / regular width (QX-4): home on the left, the pushed pages in a detail pane on the right.
+    var pad = false
     @StateObject private var nav = QXNavigator.shared
     @EnvironmentObject var vpn: VPNManager
     @EnvironmentObject var store: ProfileStore
@@ -13,14 +15,12 @@ struct QXShell: View {
     @EnvironmentObject var router: ImportRouter
 
     var body: some View {
-        NavigationStack(path: $nav.path) {
-            QXHome()
-                .toolbar(.hidden, for: .navigationBar)
-                .navigationDestination(for: QXRoute.self) { r in
-                    QXRouteView(route: r)
-                }
+        Group {
+            if pad { padBody } else { phoneBody }
         }
         .environmentObject(nav)
+        .onAppear { nav.padLayout = pad }
+        .onChange(of: pad) { nav.padLayout = $0 }
         .sheet(item: $nav.sheet) { s in
             QXSheetView(sheet: s)
                 .environmentObject(vpn)
@@ -30,6 +30,39 @@ struct QXShell: View {
                 .environmentObject(router)
                 .environmentObject(nav)
         }
+    }
+}
+
+extension QXShell {
+    var phoneBody: some View {
+        NavigationStack(path: $nav.path) {
+            QXHome()
+                .toolbar(.hidden, for: .navigationBar)
+                .navigationDestination(for: QXRoute.self) { r in
+                    QXRouteView(route: r)
+                }
+        }
+    }
+
+    /// Regular width: the QX single page stays whole on the left (header, all tiles visible as a grid, panel
+    /// content, toolbar + windmill); the right pane starts at 设置 (3-column buttons) and hosts every push.
+    /// The windmill pops the right pane back to 设置 instead of pushing it.
+    var padBody: some View {
+        GeometryReader { g in
+            HStack(spacing: 0) {
+                QXHome(pad: true)
+                    .frame(width: min(max(g.size.width * 0.42, 360), 500))
+                Rectangle().fill(Color.primary.opacity(0.08)).frame(width: 1).ignoresSafeArea()
+                NavigationStack(path: $nav.path) {
+                    QXSettingsView(isRoot: true)
+                        .navigationDestination(for: QXRoute.self) { r in
+                            QXRouteView(route: r)
+                        }
+                }
+                .frame(maxWidth: .infinity)
+            }
+        }
+        .background(Theme.bg.ignoresSafeArea())
     }
 }
 
@@ -87,6 +120,7 @@ struct QXSheetView: View {
 // MARK: - Home
 
 struct QXHome: View {
+    var pad = false
     @EnvironmentObject var vpn: VPNManager
     @EnvironmentObject var nav: QXNavigator
     @AppStorage("qx.panel") private var selectedRaw = QXPanel.nodes.rawValue
@@ -99,9 +133,9 @@ struct QXHome: View {
         VStack(spacing: 0) {
             VStack(spacing: 12) {
                 QXHeader()
-                    .padding(.horizontal, 20)
+                    .padding(.horizontal, QXMetrics.inset)
                     .padding(.top, 6)
-                QXPanelStrip(selected: $selectedRaw, order: order)
+                QXPanelStrip(selected: $selectedRaw, order: order, grid: pad)
                 if vpn.safeModeActive && vpn.status != .disconnected && vpn.status != .invalid {
                     SafeModeCard().padding(.horizontal, 16)
                 }
@@ -120,9 +154,11 @@ struct QXHome: View {
         }
         .background(Theme.bg.ignoresSafeArea())
         .overlay(alignment: .bottom) {
+            // Frame 01: the bar's bottom edge sits ~19 pt above the screen edge, over the home-indicator area.
             QXToolbar(panel: selected)
-                .padding(.horizontal, 16)
-                .padding(.bottom, 2)
+                .padding(.horizontal, QXMetrics.toolbarInset)
+                .padding(.bottom, QXMetrics.toolbarBottom)
+                .ignoresSafeArea(.container, edges: .bottom)
         }
         .onChange(of: selectedRaw) { _ in
             UISelectionFeedbackGenerator().selectionChanged()
@@ -174,8 +210,9 @@ struct QXHeader: View {
             VStack(alignment: .leading, spacing: 3) {
                 HStack(spacing: 8) {
                     Text(verbatim: ip.exit?.flag ?? "🌐").font(.system(size: 24))
-                    Text(verbatim: ip.exit?.placeText ?? (ip.loading ? String(localized: "正在查询…") : (ip.failed ? String(localized: "查询失败") : "—")))
-                        .font(.system(size: 26, weight: .bold))
+                    Text(verbatim: ip.exit?.placeText ?? (IPInfoFetcher.disabled ? (on ? String(localized: "已连接") : String(localized: "未连接"))
+                                                          : (ip.loading ? String(localized: "正在查询…") : (ip.failed ? String(localized: "查询失败") : "—"))))
+                        .font(.system(size: 24, weight: .bold))
                         .lineLimit(1)
                         .minimumScaleFactor(0.6)
                 }
@@ -240,11 +277,24 @@ struct QXHeader: View {
 struct QXPanelStrip: View {
     @Binding var selected: String
     let order: [QXPanel]
+    /// iPad: every tile visible at once in a wrapping grid instead of a horizontal strip.
+    var grid = false
     @EnvironmentObject var nav: QXNavigator
     @AppStorage("qx.panelStyle") private var style = "large"
 
     var body: some View {
-        if style == "line" {
+        if grid && style != "line" {
+            LazyVGrid(columns: [GridItem(.adaptive(minimum: style == "small" ? 56 : 96, maximum: 160), spacing: QXMetrics.tileGap)],
+                      spacing: QXMetrics.tileGap) {
+                ForEach(order) { p in
+                    QXTile(panel: p, selected: p.rawValue == selected, small: style == "small", flexible: true)
+                        .onTapGesture { withAnimation(.spring(response: 0.3)) { selected = p.rawValue } }
+                        .onLongPressGesture(minimumDuration: 0.4) { open(p) }
+                }
+            }
+            .padding(.horizontal, QXMetrics.inset)
+            .padding(.vertical, 6)
+        } else if style == "line" {
             HStack(spacing: 8) {
                 ForEach(order) { p in
                     Capsule()
@@ -256,12 +306,12 @@ struct QXPanelStrip: View {
                         .accessibilityLabel(Text(p.title))
                 }
             }
-            .padding(.horizontal, 20)
+            .padding(.horizontal, QXMetrics.inset)
             .padding(.vertical, 6)
         } else {
             ScrollViewReader { proxy in
                 ScrollView(.horizontal, showsIndicators: false) {
-                    HStack(spacing: style == "small" ? 10 : 12) {
+                    HStack(spacing: QXMetrics.tileGap) {
                         ForEach(order) { p in
                             QXTile(panel: p, selected: p.rawValue == selected, small: style == "small")
                                 .id(p.rawValue)
@@ -269,7 +319,8 @@ struct QXPanelStrip: View {
                                 .onLongPressGesture(minimumDuration: 0.4) { open(p) }
                         }
                     }
-                    .padding(.horizontal, 20)
+                    .padding(.horizontal, QXMetrics.inset)
+                    .padding(.vertical, 6)
                 }
                 .onChange(of: selected) { s in withAnimation { proxy.scrollTo(s, anchor: .center) } }
             }
@@ -286,41 +337,44 @@ struct QXTile: View {
     let panel: QXPanel
     let selected: Bool
     var small = false
+    /// iPad grid: fill the grid cell's width.
+    var flexible = false
 
     var body: some View {
         ZStack(alignment: .topTrailing) {
-            VStack(spacing: small ? 0 : 6) {
-                QXPanelGlyph(panel: panel, size: small ? 22 : 22)
+            VStack(spacing: small ? 0 : 5) {
+                QXPanelGlyph(panel: panel, size: 20)
                 if !small {
                     Text(verbatim: panel.title)
-                        .font(.system(size: 17, weight: .semibold))
+                        .font(.system(size: 15, weight: .semibold))
                         .foregroundStyle(.white)
                         .lineLimit(1)
                         .minimumScaleFactor(0.7)
                 }
                 Capsule()
                     .fill(Color.white.opacity(selected ? 0.85 : 0))
-                    .frame(width: 26, height: 3)
+                    .frame(width: 22, height: 3)
                     .padding(.top, small ? 4 : 0)
             }
-            .frame(width: small ? 58 : 120, height: small ? 58 : 72)
-            .padding(.top, 2)
+            .frame(width: flexible ? nil : (small ? 56 : QXMetrics.tileSize.width), height: small ? 56 : QXMetrics.tileSize.height)
+            .frame(maxWidth: flexible ? .infinity : nil)
+            .padding(.top, 4)
             if !small {
                 ZStack {
                     Circle().strokeBorder(Color.white.opacity(0.5), style: StrokeStyle(lineWidth: 1.4, dash: [2, 2]))
                     Circle().fill(Color.white.opacity(0.5)).frame(width: 5, height: 5)
                 }
                 .frame(width: 15, height: 15)
-                .padding(10)
+                .padding(8)
                 .accessibilityHidden(true)
             }
         }
         .background(
-            RoundedRectangle(cornerRadius: small ? 18 : 22, style: .continuous)
-                .fill(LinearGradient(colors: [panel.color.opacity(0.92), panel.color], startPoint: .top, endPoint: .bottom))
+            RoundedRectangle(cornerRadius: small ? 16 : QXMetrics.tileRadius, style: .continuous)
+                .fill(panel.color)
         )
-        .shadow(color: panel.color.opacity(selected ? 0.35 : 0.15), radius: selected ? 8 : 4, y: 3)
-        .scaleEffect(selected ? 1 : 0.97)
+        // Frame 01: flat solid tiles with a soft drop shadow; the selected one is marked only by the underline.
+        .shadow(color: .black.opacity(0.10), radius: 6, y: 3)
         .accessibilityElement(children: .ignore)
         .accessibilityLabel(Text(panel.title))
         .accessibilityAddTraits(selected ? [.isButton, .isSelected] : .isButton)
@@ -343,7 +397,6 @@ struct QXToolbar: View {
     private func shown(_ id: String) -> Bool { !hiddenRaw.split(separator: ",").contains(Substring(id)) }
 
     var body: some View {
-        HStack(spacing: 10) {
         HStack(spacing: 0) {
             // 1. 编辑 (网络活动 / 分流 / 重写 / 日志: 搜索)
             if shown("1") {
@@ -413,16 +466,21 @@ struct QXToolbar: View {
             .accessibilityLabel(Text("HTTP 请求"))
             }
 
+            // 6. Windmill: a circle inside the capsule's trailing end (frame 01).
+            windmill
         }
-        .padding(.horizontal, 6)
-        .frame(height: 60)
+        .padding(.leading, 6)
+        .padding(.trailing, (QXMetrics.toolbarHeight - QXMetrics.windmillCircle) / 2)
+        .frame(height: QXMetrics.toolbarHeight)
         .background(
-            RoundedRectangle(cornerRadius: toolbarStyle == "rounded" ? 30 : 16, style: .continuous)
+            RoundedRectangle(cornerRadius: toolbarStyle == "rounded" ? QXMetrics.toolbarHeight / 2 : 16, style: .continuous)
                 .fill(Theme.card)
-                .shadow(color: .black.opacity(0.12), radius: 12, y: 4)
+                .shadow(color: .black.opacity(0.10), radius: 14, y: 4)
         )
-                windmill
-        }
+        .overlay(
+            RoundedRectangle(cornerRadius: toolbarStyle == "rounded" ? QXMetrics.toolbarHeight / 2 : 16, style: .continuous)
+                .stroke(QXMetrics.hairline, lineWidth: 1)
+        )
     }
 
     // 6. Windmill: tap = 设置, long-press = 运行模式
@@ -432,12 +490,13 @@ struct QXToolbar: View {
                 .animation(spin ? .linear(duration: 6).repeatForever(autoreverses: false) : .default, value: spin)
                 .onAppear { spin = vpn.isConnected }
                 .onChange(of: vpn.isConnected) { on in spin = on }
-                .frame(width: 60, height: 60)
-                .background(Circle().fill(Theme.card).shadow(color: .black.opacity(0.12), radius: 12, y: 4))
+                .frame(width: QXMetrics.windmillCircle, height: QXMetrics.windmillCircle)
+                .background(Circle().fill(Theme.card))
+                .overlay(Circle().stroke(Color.primary.opacity(0.09), lineWidth: 1))
                 .contentShape(Circle())
                 .onTapGesture {
                     UIImpactFeedbackGenerator(style: .light).impactOccurred()
-                    nav.push(.settings)
+                    if nav.padLayout { nav.path = [] } else { nav.push(.settings) }
                 }
                 .onLongPressGesture(minimumDuration: 0.4) {
                     UIImpactFeedbackGenerator(style: .medium).impactOccurred()
@@ -451,7 +510,7 @@ struct QXToolbar: View {
 
     private func icon(_ name: String) -> some View {
         Image(systemName: name)
-            .font(.system(size: 21, weight: .regular))
+            .font(.system(size: 22, weight: .light))
             .foregroundStyle(.primary)
             .frame(maxWidth: .infinity, minHeight: 50)
             .contentShape(Rectangle())

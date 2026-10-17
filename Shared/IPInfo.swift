@@ -132,6 +132,67 @@ enum IPInfoFetcher {
         },
     ]
 
+    // MARK: QX geo_location_checker (QX-4)
+
+    /// "" = automatic (built-in order), an endpoint name = try it first, "custom" = the user's API first,
+    /// "disabled" = no lookup at all (QX `geo_location_checker = disabled`). Stored in the App Group.
+    static let checkerKey = "geo.checker"
+    static let checkerURLKey = "geo.checkerURL"
+    static var checker: String { AppShared.defaults.string(forKey: checkerKey) ?? "" }
+    static var checkerURL: String { AppShared.defaults.string(forKey: checkerURLKey) ?? "" }
+    static var disabled: Bool { checker == "disabled" }
+
+    /// Reads the common field names of IP APIs (ipinfo / ip-api / ip.sb / ipapi / ipwho / ifconfig.co …).
+    static func genericParse(_ d: [String: Any], source: String) -> IPInfo? {
+        guard let ip = str(d, "ip", "query", "ip_addr", "address") else { return nil }
+        let conn = d["connection"] as? [String: Any] ?? [:]
+        let asRaw = str(d, "asn", "as", "as_number") ?? str(conn, "asn")
+        let (a, o) = splitASOrg(asRaw)
+        return IPInfo(ip: ip, countryCode: str(d, "country_code", "countryCode", "country_iso", "cc") ?? (str(d, "country").flatMap { $0.count == 2 ? $0 : nil }),
+                      country: str(d, "country_name", "country"), region: str(d, "region", "regionName", "region_name"),
+                      city: str(d, "city"), asn: a ?? normASN(asRaw), org: str(d, "org", "isp", "asn_organization", "asname", "organization") ?? o ?? str(conn, "org", "isp"),
+                      source: source)
+    }
+
+    /// Endpoints in the order the user's choice asks for.
+    static var orderedEndpoints: [Endpoint] {
+        var list = endpoints
+        let c = checker
+        if c == "custom", let u = URL(string: checkerURL), let host = u.host, u.scheme?.hasPrefix("http") == true {
+            list.insert(Endpoint(name: host, url: checkerURL) { d in IPInfoFetcher.genericParse(d, source: host) }, at: 0)
+        } else if let i = list.firstIndex(where: { $0.name == c }) {
+            let e = list.remove(at: i)
+            list.insert(e, at: 0)
+        }
+        return list
+    }
+
+    /// GeoIP of an arbitrary address (网络活动 detail): ipinfo.io, then ip-api.com.
+    static func lookup(ip: String, timeout: TimeInterval = 6) async -> IPInfo? {
+        let session = URLSession(configuration: sessionConfiguration(timeout: timeout))
+        defer { session.invalidateAndCancel() }
+        let enc = ip.addingPercentEncoding(withAllowedCharacters: .urlPathAllowed) ?? ip
+        let tries: [(String, String)] = [
+            ("ipinfo.io", "https://ipinfo.io/\(enc)/json"),
+            ("ip-api.com", "http://ip-api.com/json/\(enc)?fields=status,query,country,countryCode,regionName,city,timezone,isp,org,as&lang=en"),
+        ]
+        for (name, u) in tries {
+            guard let url = URL(string: u) else { continue }
+            var req = URLRequest(url: url)
+            req.setValue("application/json", forHTTPHeaderField: "Accept")
+            guard let r = try? await session.data(for: req),
+                  let http = r.1 as? HTTPURLResponse, (200..<300).contains(http.statusCode),
+                  let obj = try? JSONSerialization.jsonObject(with: r.0) as? [String: Any] else { continue }
+            if let status = obj["status"] as? String, status.lowercased() == "fail" { continue }
+            if obj["bogon"] as? Bool == true { continue }
+            if var info = genericParse(obj, source: name) {
+                info.timezone = str(obj, "timezone")
+                return info
+            }
+        }
+        return nil
+    }
+
     /// Fetches with a brand-new ephemeral session each time so a connection opened
     /// before the tunnel came up is never reused (that would report the old IP).
     static func fetch(timeout: TimeInterval = 6) async -> IPInfo? {
@@ -153,7 +214,8 @@ enum IPInfoFetcher {
 
     /// Tries the endpoints in order with the given session (v0.8: also a session through 节点探测).
     static func fetch(using session: URLSession) async -> IPInfo? {
-        for ep in endpoints {
+        if disabled { return nil }
+        for ep in orderedEndpoints {
             guard let url = URL(string: ep.url) else { continue }
             var req = URLRequest(url: url)
             req.setValue("Mozilla/5.0 (iPhone; CPU iPhone OS 17_0 like Mac OS X) AppleWebKit/605.1.15 (KHTML, like Gecko) Mobile/15E148", forHTTPHeaderField: "User-Agent")

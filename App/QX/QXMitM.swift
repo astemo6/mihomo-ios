@@ -206,7 +206,7 @@ struct QXMitMView: View {
             ScrollView {
                 VStack(alignment: .leading, spacing: 18) {
                     HStack(alignment: .firstTextBaseline, spacing: 10) {
-                        Text(verbatim: "MitM").font(.system(size: 30, weight: .bold))
+                        Text(verbatim: "MitM").font(.system(size: QXMetrics.largeTitle, weight: .bold))
                         Text(verbatim: "\(store.config.hostnames.count + store.moduleHostnames.count)").font(.system(size: 17)).foregroundStyle(.secondary)
                         Spacer()
                         Toggle("", isOn: Binding(get: { store.config.mitm }, set: { store.config.mitm = $0; store.save() }))
@@ -228,7 +228,7 @@ struct QXMitMView: View {
                     optionsSection
                     if let s = status, vpn.isConnected { statusSection(s) }
                 }
-                .padding(.horizontal, 20)
+                .padding(.horizontal, QXMetrics.inset)
                 .padding(.bottom, 60)
             }
         }

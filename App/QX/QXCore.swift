@@ -71,6 +71,32 @@ enum QXPanel: String, CaseIterable, Identifiable {
     }
 }
 
+/// QX-4 visual pass: metrics measured on the recording (600 px frame = 393 pt, 1 pt ≈ 1.53 px).
+enum QXMetrics {
+    /// Side inset of every QX list, page and the tile strip (frames 01/25/28: 28 px ≈ 18 pt).
+    static let inset: CGFloat = 18
+    /// Content cards (resource / policy / rule-set cards): 62 pt rows, ~22 pt continuous corners.
+    static let cardRadius: CGFloat = 22
+    /// Home tiles (frame 01: 163×100 px ≈ 107×66 pt, gap ≈ 9 pt, radius ≈ 20 pt).
+    static let tileSize = CGSize(width: 107, height: 66)
+    static let tileRadius: CGFloat = 20
+    static let tileGap: CGFloat = 9
+    /// Floating toolbar (frame 01: 60 pt high, 14 pt side insets, windmill circle 52 pt inside the capsule,
+    /// bottom edge 19 pt above the screen edge).
+    static let toolbarHeight: CGFloat = 60
+    static let toolbarInset: CGFloat = 14
+    static let toolbarBottom: CGFloat = 19
+    static let windmillCircle: CGFloat = 52
+    /// Page chrome circles and capsules (frame 28: 65 px ≈ 43 pt).
+    static let circle: CGFloat = 43
+    /// In-content large titles (frame 28: ≈ 24 pt bold) and section headers on Home (≈ 20 pt bold).
+    static let largeTitle: CGFloat = 24
+    static let sectionTitle: CGFloat = 20
+    static let caption: CGFloat = 15
+    /// Hairline that QX draws around white chrome (circles, capsules, the toolbar).
+    static let hairline = Color.primary.opacity(0.07)
+}
+
 enum QXColor {
     static let nodes = Color(red: 0.239, green: 0.710, blue: 0.902)    // #3DB5E6
     static let activity = Color(red: 0.851, green: 0.255, blue: 0.169) // #D9412B
@@ -98,7 +124,7 @@ enum QXDest: String, Hashable, CaseIterable {
     case connection, dns, speedTest, coreSettings, geo, appIcon, diagnostics, about, notices, scriptLogs, panels, sessions, subscriptions
     case mitmAdvanced, allResources, prefsStore, snippets, reset
     case netTest, snapshots, storage, syncFolder
-    case taskGallery
+    case taskGallery, geoChecker
 
     @MainActor @ViewBuilder var view: some View {
         switch self {
@@ -146,6 +172,7 @@ enum QXDest: String, Hashable, CaseIterable {
         case .storage: QXWrappedPage(title: String(localized: "存储空间")) { StorageView() }
         case .syncFolder: QXWrappedPage(title: String(localized: "同步文件夹")) { SyncFolderView() }
         case .taskGallery: QXTaskGalleryView()
+        case .geoChecker: QXGeoCheckerView()
         }
     }
 }
@@ -171,6 +198,8 @@ final class QXNavigator: ObservableObject {
     /// 网络活动: the toolbar's first button becomes search.
     @Published var activitySearch = false
     @Published var activityQuery = ""
+    /// iPad: pushes land in the right-hand pane whose root is 设置.
+    @Published var padLayout = false
 
     func push(_ r: QXRoute) { path.append(r) }
     func present(_ s: QXSheet) { sheet = s }
@@ -254,7 +283,7 @@ struct QXCard<Content: View>: View {
     var body: some View {
         content
             .frame(maxWidth: .infinity, alignment: .leading)
-            .background(RoundedRectangle(cornerRadius: 20, style: .continuous).fill(Theme.card))
+            .background(RoundedRectangle(cornerRadius: QXMetrics.cardRadius, style: .continuous).fill(Theme.card))
     }
 }
 
@@ -284,7 +313,7 @@ struct QXSectionHeader<Trailing: View>: View {
                 withAnimation(.spring(response: 0.3)) { expanded.toggle() }
             } label: {
                 HStack(spacing: 8) {
-                    Text(verbatim: title).font(.system(size: 22, weight: .bold)).foregroundStyle(.primary)
+                    Text(verbatim: title).font(.system(size: QXMetrics.sectionTitle, weight: .bold)).foregroundStyle(.primary)
                     Image(systemName: expanded ? "arrowtriangle.down.fill" : "arrowtriangle.right.fill")
                         .font(.system(size: 11, weight: .bold)).foregroundStyle(.primary)
                 }
@@ -364,11 +393,13 @@ struct QXCircleButton: View {
     var body: some View {
         Button(action: action) {
             Image(systemName: systemName)
-                .font(.system(size: 18, weight: .semibold))
+                .font(.system(size: 18, weight: .medium))
                 .foregroundStyle(tint)
-                .frame(width: 44, height: 44)
+                .frame(width: QXMetrics.circle, height: QXMetrics.circle)
                 .background(Circle().fill(Theme.card))
-                .shadow(color: .black.opacity(0.10), radius: 8, y: 2)
+                .overlay(Circle().stroke(QXMetrics.hairline, lineWidth: 1))
+                .shadow(color: .black.opacity(0.05), radius: 6, y: 2)
+                .contentShape(Circle())
         }
         .buttonStyle(.plain)
     }
@@ -378,11 +409,12 @@ struct QXCircleButton: View {
 struct QXCapsuleBar<Content: View>: View {
     @ViewBuilder var content: Content
     var body: some View {
-        HStack(spacing: 2) { content }
-            .padding(.horizontal, 6)
-            .frame(height: 44)
+        HStack(spacing: 4) { content }
+            .padding(.horizontal, 8)
+            .frame(height: QXMetrics.circle)
             .background(Capsule().fill(Theme.card))
-            .shadow(color: .black.opacity(0.10), radius: 8, y: 2)
+            .overlay(Capsule().stroke(QXMetrics.hairline, lineWidth: 1))
+            .shadow(color: .black.opacity(0.05), radius: 6, y: 2)
     }
 }
 
@@ -392,7 +424,7 @@ struct QXBarIcon: View {
     let action: () -> Void
     var body: some View {
         Button(action: action) {
-            Image(systemName: systemName).font(.system(size: 17, weight: .semibold)).foregroundStyle(tint).frame(width: 38, height: 40)
+            Image(systemName: systemName).font(.system(size: 18, weight: .medium)).foregroundStyle(tint).frame(width: 40, height: 40)
         }
         .buttonStyle(.plain)
     }
@@ -404,6 +436,8 @@ struct QXPage<Content: View, Trailing: View>: View {
     var title: String? = nil
     @ViewBuilder var trailing: Trailing
     @ViewBuilder var content: Content
+    /// The root page of the iPad detail pane has nothing to go back to.
+    var hideBack = false
     @Environment(\.dismiss) private var dismiss
 
     var body: some View {
@@ -416,13 +450,15 @@ struct QXPage<Content: View, Trailing: View>: View {
                         Text(verbatim: title).font(.headline).lineLimit(1).padding(.horizontal, 70)
                     }
                     HStack {
-                        QXCircleButton(systemName: "chevron.left") { dismiss() }
-                            .accessibilityLabel(Text("返回"))
+                        if !hideBack {
+                            QXCircleButton(systemName: "chevron.left") { dismiss() }
+                                .accessibilityLabel(Text("返回"))
+                        }
                         Spacer()
                         trailing
                     }
                 }
-                .padding(.horizontal, 16)
+                .padding(.horizontal, QXMetrics.inset)
                 .padding(.top, 4)
                 .padding(.bottom, 8)
                 .background(
@@ -450,11 +486,11 @@ struct QXLargeTitle: View {
     var body: some View {
         VStack(alignment: .leading, spacing: 8) {
             HStack(alignment: .firstTextBaseline, spacing: 10) {
-                Text(verbatim: title).font(.system(size: 30, weight: .bold))
-                if let count { Text(verbatim: count).font(.system(size: 17)).foregroundStyle(.secondary) }
+                Text(verbatim: title).font(.system(size: QXMetrics.largeTitle, weight: .bold))
+                if let count { Text(verbatim: count).font(.system(size: 15)).foregroundStyle(.secondary) }
             }
             if let caption {
-                Text(verbatim: caption).font(.system(size: 16)).foregroundStyle(.secondary).fixedSize(horizontal: false, vertical: true)
+                Text(verbatim: caption).font(.system(size: QXMetrics.caption)).foregroundStyle(.secondary).lineSpacing(3).fixedSize(horizontal: false, vertical: true)
             }
         }
         .frame(maxWidth: .infinity, alignment: .leading)
@@ -467,8 +503,8 @@ struct QXPill: View {
     let action: () -> Void
     var body: some View {
         Button(action: action) {
-            Text(verbatim: title).font(.footnote.weight(.semibold)).foregroundStyle(QXColor.switchOn)
-                .padding(.horizontal, 12).padding(.vertical, 6)
+            Text(verbatim: title).font(.system(size: 15, weight: .semibold)).foregroundStyle(QXColor.switchOn)
+                .padding(.horizontal, 14).padding(.vertical, 5)
                 .background(Capsule().fill(Theme.cardHi))
         }
         .buttonStyle(.plain)
@@ -491,21 +527,26 @@ struct QXBottomSegment: View {
     let icons: [String]
     @Binding var selection: Int
     var body: some View {
-        HStack(spacing: 16) {
+        // Frame 28: 183×55 pt capsule, 23 pt circles ~68 pt apart; selected = black disc, others grey rings.
+        HStack(spacing: 30) {
             ForEach(Array(icons.enumerated()), id: \.offset) { i, icon in
                 Button { withAnimation(.spring(response: 0.3)) { selection = i } } label: {
                     Image(systemName: icon)
-                        .font(.system(size: 16, weight: .semibold))
-                        .foregroundStyle(selection == i ? Color(UIColor.systemBackground) : Color.secondary)
-                        .frame(width: 44, height: 44)
+                        .font(.system(size: 13, weight: .bold))
+                        .foregroundStyle(selection == i ? Color(UIColor.systemBackground) : Color.secondary.opacity(0.7))
+                        .frame(width: 32, height: 32)
                         .background(Circle().fill(selection == i ? Color.primary : Color.clear))
-                        .overlay(Circle().stroke(Color.secondary.opacity(selection == i ? 0 : 0.5), lineWidth: 1.5))
+                        .overlay(Circle().stroke(Color.secondary.opacity(selection == i ? 0 : 0.45), lineWidth: 1.5))
+                        .frame(width: 44, height: 44)
+                        .contentShape(Rectangle())
                 }
                 .buttonStyle(.plain)
             }
         }
-        .padding(8)
-        .background(Capsule().fill(.regularMaterial).shadow(color: .black.opacity(0.12), radius: 10, y: 3))
+        .padding(.horizontal, 14)
+        .frame(height: 56)
+        .background(Capsule().fill(Theme.card).shadow(color: .black.opacity(0.10), radius: 12, y: 4))
+        .overlay(Capsule().stroke(QXMetrics.hairline, lineWidth: 1))
     }
 }
 

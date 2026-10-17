@@ -150,6 +150,11 @@ final class IPInfoModel: ObservableObject {
     }
 
     func refresh() async {
+        if IPInfoFetcher.disabled {
+            // QX `geo_location_checker = disabled`: no lookups; the header shows the connection state only.
+            exit = nil; direct = nil; failed = false; loading = false
+            return
+        }
         loading = true
         failed = false
         defer { loading = false; updatedAt = Date() }

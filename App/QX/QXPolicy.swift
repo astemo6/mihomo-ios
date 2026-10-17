@@ -206,7 +206,7 @@ struct QXPolicyEditor: View {
         let members = spec.proxies
         return VStack(alignment: .leading, spacing: 0) {
             HStack(alignment: .firstTextBaseline, spacing: 10) {
-                Text("结果").font(.system(size: 30, weight: .bold))
+                Text("结果").font(.system(size: QXMetrics.largeTitle, weight: .bold))
                 Text(verbatim: "\(members.count + nodes.count)").font(.system(size: 17)).foregroundStyle(.secondary)
             }
             .padding(.bottom, 10)
@@ -243,7 +243,7 @@ struct QXPolicyEditor: View {
         VStack(alignment: .leading, spacing: 18) {
             VStack(alignment: .leading, spacing: 0) {
                 HStack(alignment: .firstTextBaseline, spacing: 10) {
-                    Text("可引用").font(.system(size: 26, weight: .bold))
+                    Text("可引用").font(.system(size: 22, weight: .bold))
                     Text(verbatim: "\(spec.proxies.count)").font(.system(size: 15)).foregroundStyle(.secondary)
                 }
                 .padding(.bottom, 6)
@@ -271,7 +271,7 @@ struct QXPolicyEditor: View {
                 }
             }
             VStack(alignment: .leading, spacing: 0) {
-                Text("更多").font(.system(size: 26, weight: .bold)).padding(.bottom, 6)
+                Text("更多").font(.system(size: 22, weight: .bold)).padding(.bottom, 6)
                 ForEach(candidates.filter { !spec.proxies.contains($0) }, id: \.self) { c in
                     HStack(spacing: 12) {
                         Button { withAnimation { spec.proxies.append(c) } } label: {

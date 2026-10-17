@@ -113,7 +113,7 @@ struct QXRewriteRulesView: View {
                         Text("另有 \(list.count - 1500) 条，请用搜索查看").font(.footnote).foregroundStyle(.secondary).padding(.vertical, 12)
                     }
                 }
-                .padding(.horizontal, 20)
+                .padding(.horizontal, QXMetrics.inset)
                 .padding(.bottom, 100)
             }
             .overlay(alignment: .bottomTrailing) {
@@ -255,7 +255,7 @@ struct QXRewriteResourcesView: View {
                     Text("轻点切换启用，长按编辑（标签、地址、更新间隔）、更新、排序或删除。")
                         .font(.footnote).foregroundStyle(.secondary).padding(.horizontal, 4)
                 }
-                .padding(.horizontal, 20)
+                .padding(.horizontal, QXMetrics.inset)
                 .padding(.bottom, 100)
             }
             .overlay(alignment: .bottom) { QXResourceSwitcher(current: 2).padding(.bottom, 10) }

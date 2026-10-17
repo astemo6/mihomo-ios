@@ -132,7 +132,7 @@ struct QXRulesPanel: View {
         ScrollView {
             LazyVStack(alignment: .leading, spacing: 10) {
                 HStack(alignment: .firstTextBaseline, spacing: 10) {
-                    Text("分流规则").font(.system(size: 26, weight: .bold))
+                    Text("分流规则").font(.system(size: 22, weight: .bold))
                     Text(verbatim: QXFmt.count(model.total)).font(.system(size: 17)).foregroundStyle(.secondary)
                     Spacer()
                     if model.loading { ProgressView().controlSize(.small) }
@@ -161,7 +161,7 @@ struct QXRulesPanel: View {
                     }
                 }
             }
-            .padding(.horizontal, 20)
+            .padding(.horizontal, QXMetrics.inset)
             .padding(.bottom, 110)
         }
         .refreshable { await model.load() }
@@ -213,7 +213,7 @@ struct QXRuleBlockCard: View {
                             if !r.type.isEmpty { QXChip(text: QXFmt.ruleType(r.type), color: QXColor.rules) }
                             if !r.policy.isEmpty { QXChip(text: r.policy, color: QXPolicyColor.color(r.policy)) }
                         }
-                        .padding(.horizontal, 20).padding(.vertical, 11)
+                        .padding(.horizontal, QXMetrics.inset).padding(.vertical, 11)
                     }
                 }
             }
@@ -268,7 +268,7 @@ struct QXRewritePanel: View {
         ScrollView {
             LazyVStack(alignment: .leading, spacing: 10) {
                 HStack(alignment: .firstTextBaseline, spacing: 10) {
-                    Text("重写规则").font(.system(size: 26, weight: .bold))
+                    Text("重写规则").font(.system(size: 22, weight: .bold))
                     Text(verbatim: QXFmt.count(list.filter(\.enabled).reduce(0) { $0 + $1.lines.count })).font(.system(size: 17)).foregroundStyle(.secondary)
                     Spacer()
                     Toggle("", isOn: Binding(get: { engine.config.enabled }, set: { engine.config.enabled = $0; engine.save() }))
@@ -311,7 +311,7 @@ struct QXRewritePanel: View {
                                         Text(verbatim: l.text).font(.system(size: 13, design: .monospaced)).lineLimit(4).textSelection(.enabled)
                                     }
                                     .frame(maxWidth: .infinity, alignment: .leading)
-                                    .padding(.horizontal, 20).padding(.vertical, 10)
+                                    .padding(.horizontal, QXMetrics.inset).padding(.vertical, 10)
                                 }
                             }
                         }
@@ -333,7 +333,7 @@ struct QXRewritePanel: View {
                     }
                 }
             }
-            .padding(.horizontal, 20)
+            .padding(.horizontal, QXMetrics.inset)
             .padding(.bottom, 110)
         }
         .onAppear { if active { engine.reparseModules() } }
@@ -484,12 +484,12 @@ struct QXDNSLogView: View {
                 LazyVStack(alignment: .leading, spacing: 0) {
                     QXLargeTitle(title: String(localized: "DNS 缓存"), count: "\(entries.count)",
                                  caption: String(localized: "本次连接中解析过的域名与地址（来自连接记录）。使用 fake-ip 时地址为 198.18.x.x 占位地址。"))
-                        .padding(.horizontal, 20).padding(.bottom, 10)
-                    if let message { Text(verbatim: message).font(.footnote).foregroundStyle(Theme.good).padding(.horizontal, 20).padding(.bottom, 6) }
+                        .padding(.horizontal, QXMetrics.inset).padding(.bottom, 10)
+                    if let message { Text(verbatim: message).font(.footnote).foregroundStyle(Theme.good).padding(.horizontal, QXMetrics.inset).padding(.bottom, 6) }
                     TextField("搜索", text: $query)
                         .textInputAutocapitalization(.never).autocorrectionDisabled()
                         .padding(10).background(RoundedRectangle(cornerRadius: 12, style: .continuous).fill(Theme.card))
-                        .padding(.horizontal, 20).padding(.bottom, 8)
+                        .padding(.horizontal, QXMetrics.inset).padding(.bottom, 8)
                     if !vpn.isConnected && entries.isEmpty {
                         EmptyStateView(icon: "globe", title: "连接后可查看")
                     }
@@ -504,7 +504,7 @@ struct QXDNSLogView: View {
                             }
                             Text(verbatim: e.rule).font(.system(size: 12, weight: .medium)).foregroundStyle(.secondary).lineLimit(1)
                         }
-                        .padding(.horizontal, 20).padding(.vertical, 10)
+                        .padding(.horizontal, QXMetrics.inset).padding(.vertical, 10)
                         .contextMenu {
                             Button { UIPasteboard.general.string = e.host } label: { Label("拷贝主机名", systemImage: "doc.on.doc") }
                         }

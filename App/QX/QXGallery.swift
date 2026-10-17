@@ -161,7 +161,7 @@ struct QXTaskGalleryView: View {
                         }
                     }
                 }
-                .padding(.horizontal, 20)
+                .padding(.horizontal, QXMetrics.inset)
                 .padding(.bottom, 40)
             }
         }
@@ -215,7 +215,7 @@ struct QXTaskGalleryRepoView: View {
                         Divider().padding(.leading, 70)
                     }
                 }
-                .padding(.horizontal, 20)
+                .padding(.horizontal, QXMetrics.inset)
                 .padding(.bottom, 40)
             }
         }

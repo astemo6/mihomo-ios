@@ -398,7 +398,7 @@ struct QXNodesPanel: View {
                         .font(.caption2).foregroundStyle(.secondary).padding(.horizontal, 4)
                 }
             }
-            .padding(.horizontal, 20)
+            .padding(.horizontal, QXMetrics.inset)
             .padding(.bottom, 110)
         }
         .refreshable { await model.load() }

@@ -53,7 +53,7 @@ struct QXSubscriptionEditor: View {
                     .onChange(of: ua) { _ in scheduleDetect() }
 
                 VStack(alignment: .leading, spacing: 10) {
-                    Text("格式识别").font(.system(size: 26, weight: .bold))
+                    Text("格式识别").font(.system(size: 22, weight: .bold))
                     HStack(spacing: 8) {
                         if detecting {
                             ProgressView().controlSize(.small)

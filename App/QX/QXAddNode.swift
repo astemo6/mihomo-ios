@@ -115,7 +115,7 @@ struct QXAddNodeView: View {
                     Text("节点保存在「手动节点」中；在「其他设置 → 内核设置」打开「把手动节点加入每个配置」后，可在任何订阅的策略里选择。")
                         .font(.caption).foregroundStyle(.secondary)
                 }
-                .padding(.horizontal, 20)
+                .padding(.horizontal, QXMetrics.inset)
                 .padding(.bottom, 40)
             }
         }

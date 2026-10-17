@@ -181,7 +181,7 @@ struct QXActivityPanel: View {
                     .padding(.top, 10)
                 }
                 counters
-                    .padding(.horizontal, 20)
+                    .padding(.horizontal, QXMetrics.inset)
                     .padding(.vertical, 16)
                 if !vpn.isConnected && model.records.isEmpty {
                     EmptyStateView(icon: "bolt.horizontal.circle", title: "连接后可查看实时请求")
@@ -311,7 +311,7 @@ struct QXActivityRow: View {
                     .font(.system(size: 13).monospacedDigit()).foregroundStyle(.secondary)
             }
         }
-        .padding(.horizontal, 20)
+        .padding(.horizontal, QXMetrics.inset)
         .padding(.vertical, 10)
         .contentShape(Rectangle())
     }
@@ -321,6 +321,8 @@ struct QXActivityRow: View {
 
 struct QXConnectionDetailView: View {
     let id: String
+    @EnvironmentObject var nav: QXNavigator
+    @ObservedObject private var engine = EngineStore.shared
     @ObservedObject private var model = QXActivityModel.shared
     @ObservedObject private var rules = CustomRulesStore.shared
     @State private var newRule: CustomRule?
@@ -330,6 +332,25 @@ struct QXConnectionDetailView: View {
         QXPage(title: String(localized: "网络活动")) {
             if let r = model.record(id) {
                 QXCapsuleBar {
+                    // QX: @ = MitM 主机名 (add this host), ≣ = the rule's resource, funnel = new rule from this record.
+                    Menu {
+                        let host = r.conn.metadata.host ?? ""
+                        if !host.isEmpty && !engine.config.hostnames.contains(host) {
+                            Button {
+                                engine.config.hostnames.append(host)
+                                engine.save()
+                                message = String(localized: "已添加到 MitM 主机名")
+                            } label: { Label("添加 \(host) 到 MitM", systemImage: "plus") }
+                        }
+                        Button { nav.push(.dest(.mitm)) } label: { Label("MitM 主机名", systemImage: "at") }
+                    } label: {
+                        Image(systemName: "at").font(.system(size: 18, weight: .medium)).foregroundStyle(QXColor.mitm).frame(width: 40, height: 40)
+                    }
+                    .accessibilityLabel(Text("MitM"))
+                    QXBarIcon(systemName: "list.bullet.rectangle", tint: QXColor.rules) {
+                        nav.push(.dest(QXFmt.isRuleSet(r.conn.rule ?? "") ? .filterResources : .customRules))
+                    }
+                    .accessibilityLabel(Text("规则来源"))
                     QXBarIcon(systemName: "line.3.horizontal.decrease", tint: QXColor.rules) {
                         let host = r.conn.metadata.host?.isEmpty == false ? r.conn.metadata.host! : (r.conn.metadata.sniffHost ?? "")
                         let line = host.isEmpty
@@ -353,13 +374,11 @@ struct QXConnectionDetailView: View {
                         if let message { Text(verbatim: message).font(.footnote).foregroundStyle(Theme.good) }
                         section(String(localized: "目标地址"), [
                             (String(localized: "主机"), r.conn.metadata.displayHost),
-                            (String(localized: "目标 IP"), r.conn.metadata.destinationIP ?? "—"),
+                            (String(localized: "目标 IP"), (r.conn.metadata.destinationIP ?? "—") + (r.conn.metadata.destinationPort.map { ":" + $0 } ?? "")),
                             (String(localized: "网络"), (r.conn.metadata.network ?? "tcp").uppercased()),
                             (String(localized: "类型"), r.conn.metadata.type ?? "—"),
-                        ])
-                        section(String(localized: "分流"), [
-                            (String(localized: "规则"), r.ruleLine),
-                        ])
+                        ], geoIP: r.conn.metadata.destinationIP.flatMap { $0.isEmpty ? nil : $0 })
+                        section(String(localized: "分流"), ruleRows(r))
                         section(String(localized: "策略走向"), [
                             (String(localized: "策略"), r.policy),
                             (String(localized: "链路"), r.conn.chainText),
@@ -384,7 +403,7 @@ struct QXConnectionDetailView: View {
                             }
                         }
                     }
-                    .padding(.horizontal, 20)
+                    .padding(.horizontal, QXMetrics.inset)
                     .padding(.bottom, 40)
                 } else {
                     EmptyStateView(icon: "clock.arrow.circlepath", title: "记录已过期")
@@ -400,11 +419,15 @@ struct QXConnectionDetailView: View {
         }
     }
 
-    private func section(_ title: String, _ rows: [(String, String)]) -> some View {
+    private func section(_ title: String, _ rows: [(String, String)], geoIP: String? = nil) -> some View {
         VStack(alignment: .leading, spacing: 8) {
             Text(verbatim: title).font(.system(size: 20, weight: .bold))
             QXCard {
                 VStack(spacing: 0) {
+                    if let geoIP {
+                        QXRemoteGeoRow(ip: geoIP)
+                        Divider().padding(.leading, 16)
+                    }
                     ForEach(Array(rows.enumerated()), id: \.offset) { i, row in
                         if i > 0 { Divider().padding(.leading, 16) }
                         HStack(alignment: .top) {
@@ -418,6 +441,13 @@ struct QXConnectionDetailView: View {
                 }
             }
         }
+    }
+
+    private func ruleRows(_ r: QXRecord) -> [(String, String)] {
+        var rows: [(String, String)] = [(String(localized: "规则"), r.ruleLine)]
+        if QXFmt.isRuleSet(r.conn.rule ?? "") { rows.append((String(localized: "规则集"), r.conn.rulePayload ?? "—")) }
+        if let p = r.conn.metadata.process, !p.isEmpty { rows.append((String(localized: "进程"), p)) }
+        return rows
     }
 
     private func summary(_ r: QXRecord) -> String {
@@ -438,11 +468,11 @@ struct QXBlockedView: View {
                 LazyVStack(alignment: .leading, spacing: 0) {
                     QXLargeTitle(title: String(localized: "已阻止的请求"), count: "\(model.blocked.count)",
                                  caption: String(localized: "本次打开 App 以来，命中 REJECT 的连接。"))
-                        .padding(.horizontal, 20).padding(.bottom, 10)
+                        .padding(.horizontal, QXMetrics.inset).padding(.bottom, 10)
                     TextField("搜索", text: $query)
                         .textInputAutocapitalization(.never).autocorrectionDisabled()
                         .padding(10).background(RoundedRectangle(cornerRadius: 12, style: .continuous).fill(Theme.card))
-                        .padding(.horizontal, 20).padding(.bottom, 8)
+                        .padding(.horizontal, QXMetrics.inset).padding(.bottom, 8)
                     let list = model.blocked.filter { query.isEmpty || $0.conn.metadata.displayHost.localizedCaseInsensitiveContains(query) }
                     if list.isEmpty {
                         Text("还没有记录").font(.footnote).foregroundStyle(.secondary).frame(maxWidth: .infinity).padding(.top, 30)
@@ -456,7 +486,7 @@ struct QXBlockedView: View {
                             Text(verbatim: r.ruleLine).font(.system(size: 12, weight: .medium)).foregroundStyle(.secondary)
                             Text(verbatim: "➤ " + r.leaf).font(.system(size: 13)).foregroundStyle(.secondary)
                         }
-                        .padding(.horizontal, 20).padding(.vertical, 9)
+                        .padding(.horizontal, QXMetrics.inset).padding(.vertical, 9)
                         Divider().padding(.leading, 20)
                     }
                 }
@@ -494,7 +524,7 @@ struct QXTrafficStatsView: View {
                 VStack(alignment: .leading, spacing: 18) {
                     if tab == 0 { trafficBody } else { speedBody }
                 }
-                .padding(.horizontal, 20)
+                .padding(.horizontal, QXMetrics.inset)
                 .padding(.bottom, 110)
             }
             .overlay(alignment: .bottom) {
