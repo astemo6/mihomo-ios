@@ -102,6 +102,7 @@
 			<array>
 				<string>public.data</string>
 				<string>public.content</string>
+				<string>public.item</string>
 			</array>
 		</dict>
 	</array>
@@ -282,7 +283,7 @@
 		<true/>
 	</dict>
 	<key>LSSupportsOpeningDocumentsInPlace</key>
-	<true/>
+	<false/>
 	<key>UIFileSharingEnabled</key>
 	<true/>
 	<key>UILaunchScreen</key>
