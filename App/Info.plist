@@ -2,61 +2,14 @@
 <!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
 <plist version="1.0">
 <dict>
-	<key>CFBundleDevelopmentRegion</key>
-	<string>zh-Hans</string>
-	<key>CFBundleLocalizations</key>
-	<array>
-		<string>zh-Hans</string>
-		<string>zh-Hant</string>
-		<string>en</string>
-		<string>ja</string>
-		<string>ko</string>
-		<string>ru</string>
-	</array>
-	<key>NSLocationWhenInUseUsageDescription</key>
-	<string>iOS 只在获得位置权限时提供当前 Wi-Fi 的名称。Mihomo 只用它读取 Wi-Fi 名称（用于「按需连接」和「按网络切换策略」），不读取、不保存你的位置。</string>
-	<key>NSLocationTemporaryUsageDescriptionDictionary</key>
-	<dict>
-		<key>WiFiName</key>
-		<string>读取当前 Wi-Fi 名称需要精确位置。Mihomo 不读取、不保存你的位置。</string>
-	</dict>
-	<key>CFBundleDisplayName</key>
-	<string>Mihomo QX</string>
-	<key>CFBundleExecutable</key>
-	<string>$(EXECUTABLE_NAME)</string>
-	<key>CFBundleIdentifier</key>
-	<string>$(PRODUCT_BUNDLE_IDENTIFIER)</string>
-	<key>CFBundleInfoDictionaryVersion</key>
-	<string>6.0</string>
-	<key>CFBundleName</key>
-	<string>$(PRODUCT_NAME)</string>
-	<key>CFBundlePackageType</key>
-	<string>$(PRODUCT_BUNDLE_PACKAGE_TYPE)</string>
-	<key>CFBundleShortVersionString</key>
-	<string>$(MARKETING_VERSION)</string>
-	<key>CFBundleVersion</key>
-	<string>$(CURRENT_PROJECT_VERSION)</string>
-	<key>NSSupportsLiveActivities</key>
-	<true/>
-	<key>UIBackgroundModes</key>
-	<array>
-		<string>fetch</string>
-	</array>
 	<key>BGTaskSchedulerPermittedIdentifiers</key>
 	<array>
 		<string>mihomo.liveactivity.refresh</string>
 	</array>
-	<key>CFBundleURLTypes</key>
-	<array>
-		<dict>
-			<key>CFBundleURLName</key>
-			<string>$(PRODUCT_BUNDLE_IDENTIFIER)</string>
-			<key>CFBundleURLSchemes</key>
-			<array>
-				<string>mihomo-qx</string>
-			</array>
-		</dict>
-	</array>
+	<key>CFBundleDevelopmentRegion</key>
+	<string>zh-Hans</string>
+	<key>CFBundleDisplayName</key>
+	<string>Mihomo QX</string>
 	<key>CFBundleDocumentTypes</key>
 	<array>
 		<dict>
@@ -88,6 +41,8 @@
 			<key>LSItemContentTypes</key>
 			<array>
 				<string>public.plain-text</string>
+				<string>public.utf8-plain-text</string>
+				<string>public.text</string>
 			</array>
 		</dict>
 		<dict>
@@ -101,178 +56,54 @@
 			<array>
 				<string>public.data</string>
 				<string>public.content</string>
+				<string>public.item</string>
 			</array>
 		</dict>
 	</array>
-	<key>UTImportedTypeDeclarations</key>
+	<key>CFBundleExecutable</key>
+	<string>$(EXECUTABLE_NAME)</string>
+	<key>CFBundleIdentifier</key>
+	<string>$(PRODUCT_BUNDLE_IDENTIFIER)</string>
+	<key>CFBundleInfoDictionaryVersion</key>
+	<string>6.0</string>
+	<key>CFBundleLocalizations</key>
+	<array>
+		<string>zh-Hans</string>
+		<string>zh-Hant</string>
+		<string>en</string>
+		<string>ja</string>
+		<string>ko</string>
+		<string>ru</string>
+	</array>
+	<key>CFBundleName</key>
+	<string>$(PRODUCT_NAME)</string>
+	<key>CFBundlePackageType</key>
+	<string>$(PRODUCT_BUNDLE_PACKAGE_TYPE)</string>
+	<key>CFBundleShortVersionString</key>
+	<string>$(MARKETING_VERSION)</string>
+	<key>CFBundleURLTypes</key>
 	<array>
 		<dict>
-			<key>UTTypeIdentifier</key>
-			<string>com.astemo6.mihomo.qx.module</string>
-			<key>UTTypeDescription</key>
-			<string>Surge 模块（.module）</string>
-			<key>UTTypeConformsTo</key>
+			<key>CFBundleURLName</key>
+			<string>$(PRODUCT_BUNDLE_IDENTIFIER)</string>
+			<key>CFBundleURLSchemes</key>
 			<array>
-				<string>public.plain-text</string>
+				<string>mihomo-qx</string>
 			</array>
-			<key>UTTypeTagSpecification</key>
-			<dict>
-				<key>public.filename-extension</key>
-				<array>
-					<string>module</string>
-				</array>
-			</dict>
-		</dict>
-		<dict>
-			<key>UTTypeIdentifier</key>
-			<string>com.astemo6.mihomo.qx.snippet</string>
-			<key>UTTypeDescription</key>
-			<string>Quantumult X 片段</string>
-			<key>UTTypeConformsTo</key>
-			<array>
-				<string>public.plain-text</string>
-			</array>
-			<key>UTTypeTagSpecification</key>
-			<dict>
-				<key>public.filename-extension</key>
-				<array>
-					<string>snippet</string>
-				</array>
-			</dict>
-		</dict>
-		<dict>
-			<key>UTTypeIdentifier</key>
-			<string>com.astemo6.mihomo.qx.sgmodule</string>
-			<key>UTTypeDescription</key>
-			<string>Surge 模块</string>
-			<key>UTTypeConformsTo</key>
-			<array>
-				<string>public.plain-text</string>
-			</array>
-			<key>UTTypeTagSpecification</key>
-			<dict>
-				<key>public.filename-extension</key>
-				<array>
-					<string>sgmodule</string>
-				</array>
-			</dict>
-		</dict>
-		<dict>
-			<key>UTTypeIdentifier</key>
-			<string>com.astemo6.mihomo.qx.plugin</string>
-			<key>UTTypeDescription</key>
-			<string>Loon 插件</string>
-			<key>UTTypeConformsTo</key>
-			<array>
-				<string>public.plain-text</string>
-			</array>
-			<key>UTTypeTagSpecification</key>
-			<dict>
-				<key>public.filename-extension</key>
-				<array>
-					<string>plugin</string>
-				</array>
-			</dict>
-		</dict>
-		<dict>
-			<key>UTTypeIdentifier</key>
-			<string>com.astemo6.mihomo.qx.stoverride</string>
-			<key>UTTypeDescription</key>
-			<string>Stash 覆写</string>
-			<key>UTTypeConformsTo</key>
-			<array>
-				<string>public.plain-text</string>
-			</array>
-			<key>UTTypeTagSpecification</key>
-			<dict>
-				<key>public.filename-extension</key>
-				<array>
-					<string>stoverride</string>
-				</array>
-			</dict>
-		</dict>
-		<dict>
-			<key>UTTypeIdentifier</key>
-			<string>com.astemo6.mihomo.qx.conf</string>
-			<key>UTTypeDescription</key>
-			<string>Surge / Quantumult X 配置</string>
-			<key>UTTypeConformsTo</key>
-			<array>
-				<string>public.plain-text</string>
-			</array>
-			<key>UTTypeTagSpecification</key>
-			<dict>
-				<key>public.filename-extension</key>
-				<array>
-					<string>conf</string>
-				</array>
-			</dict>
-		</dict>
-		<dict>
-			<key>UTTypeIdentifier</key>
-			<string>com.astemo6.mihomo.qx.list</string>
-			<key>UTTypeDescription</key>
-			<string>规则 / 重写列表</string>
-			<key>UTTypeConformsTo</key>
-			<array>
-				<string>public.plain-text</string>
-			</array>
-			<key>UTTypeTagSpecification</key>
-			<dict>
-				<key>public.filename-extension</key>
-				<array>
-					<string>list</string>
-				</array>
-			</dict>
 		</dict>
 	</array>
-	<key>UIApplicationShortcutItems</key>
-	<array>
-		<dict>
-			<key>UIApplicationShortcutItemType</key>
-			<string>$(PRODUCT_BUNDLE_IDENTIFIER).toggle</string>
-			<key>UIApplicationShortcutItemTitle</key>
-			<string>连接 / 断开</string>
-			<key>UIApplicationShortcutItemIconSymbolName</key>
-			<string>power</string>
-		</dict>
-		<dict>
-			<key>UIApplicationShortcutItemType</key>
-			<string>$(PRODUCT_BUNDLE_IDENTIFIER).rule</string>
-			<key>UIApplicationShortcutItemTitle</key>
-			<string>规则模式</string>
-			<key>UIApplicationShortcutItemIconSymbolName</key>
-			<string>list.bullet.rectangle</string>
-		</dict>
-		<dict>
-			<key>UIApplicationShortcutItemType</key>
-			<string>$(PRODUCT_BUNDLE_IDENTIFIER).global</string>
-			<key>UIApplicationShortcutItemTitle</key>
-			<string>全局模式</string>
-			<key>UIApplicationShortcutItemIconSymbolName</key>
-			<string>globe</string>
-		</dict>
-		<dict>
-			<key>UIApplicationShortcutItemType</key>
-			<string>$(PRODUCT_BUNDLE_IDENTIFIER).direct</string>
-			<key>UIApplicationShortcutItemTitle</key>
-			<string>直连模式</string>
-			<key>UIApplicationShortcutItemIconSymbolName</key>
-			<string>arrow.right</string>
-		</dict>
-	</array>
-	<key>LSRequiresIPhoneOS</key>
-	<true/>
+	<key>CFBundleVersion</key>
+	<string>$(CURRENT_PROJECT_VERSION)</string>
 	<key>ITSAppUsesNonExemptEncryption</key>
 	<false/>
+	<key>LSRequiresIPhoneOS</key>
+	<true/>
+	<key>LSSupportsOpeningDocumentsInPlace</key>
+	<true/>
 	<key>MihomoAppGroup</key>
 	<string>$(APP_GROUP_ID)</string>
 	<key>MihomoTunnelBundleID</key>
 	<string>$(TUNNEL_BUNDLE_ID)</string>
-	<key>NSCameraUsageDescription</key>
-	<string>扫描节点二维码</string>
-	<key>NSPhotoLibraryUsageDescription</key>
-	<string>从相册识别节点二维码</string>
 	<key>NSAppTransportSecurity</key>
 	<dict>
 		<key>NSAllowsArbitraryLoads</key>
@@ -280,8 +111,58 @@
 		<key>NSAllowsLocalNetworking</key>
 		<true/>
 	</dict>
-	<key>LSSupportsOpeningDocumentsInPlace</key>
+	<key>NSCameraUsageDescription</key>
+	<string>扫描节点二维码</string>
+	<key>NSLocationTemporaryUsageDescriptionDictionary</key>
+	<dict>
+		<key>WiFiName</key>
+		<string>读取当前 Wi-Fi 名称需要精确位置。Mihomo 不读取、不保存你的位置。</string>
+	</dict>
+	<key>NSLocationWhenInUseUsageDescription</key>
+	<string>iOS 只在获得位置权限时提供当前 Wi-Fi 的名称。Mihomo 只用它读取 Wi-Fi 名称（用于「按需连接」和「按网络切换策略」），不读取、不保存你的位置。</string>
+	<key>NSPhotoLibraryUsageDescription</key>
+	<string>从相册识别节点二维码</string>
+	<key>NSSupportsLiveActivities</key>
 	<true/>
+	<key>UIApplicationShortcutItems</key>
+	<array>
+		<dict>
+			<key>UIApplicationShortcutItemIconSymbolName</key>
+			<string>power</string>
+			<key>UIApplicationShortcutItemTitle</key>
+			<string>连接 / 断开</string>
+			<key>UIApplicationShortcutItemType</key>
+			<string>$(PRODUCT_BUNDLE_IDENTIFIER).toggle</string>
+		</dict>
+		<dict>
+			<key>UIApplicationShortcutItemIconSymbolName</key>
+			<string>list.bullet.rectangle</string>
+			<key>UIApplicationShortcutItemTitle</key>
+			<string>规则模式</string>
+			<key>UIApplicationShortcutItemType</key>
+			<string>$(PRODUCT_BUNDLE_IDENTIFIER).rule</string>
+		</dict>
+		<dict>
+			<key>UIApplicationShortcutItemIconSymbolName</key>
+			<string>globe</string>
+			<key>UIApplicationShortcutItemTitle</key>
+			<string>全局模式</string>
+			<key>UIApplicationShortcutItemType</key>
+			<string>$(PRODUCT_BUNDLE_IDENTIFIER).global</string>
+		</dict>
+		<dict>
+			<key>UIApplicationShortcutItemIconSymbolName</key>
+			<string>arrow.right</string>
+			<key>UIApplicationShortcutItemTitle</key>
+			<string>直连模式</string>
+			<key>UIApplicationShortcutItemType</key>
+			<string>$(PRODUCT_BUNDLE_IDENTIFIER).direct</string>
+		</dict>
+	</array>
+	<key>UIBackgroundModes</key>
+	<array>
+		<string>fetch</string>
+	</array>
 	<key>UIFileSharingEnabled</key>
 	<true/>
 	<key>UILaunchScreen</key>
@@ -303,6 +184,140 @@
 		<string>UIInterfaceOrientationPortraitUpsideDown</string>
 		<string>UIInterfaceOrientationLandscapeLeft</string>
 		<string>UIInterfaceOrientationLandscapeRight</string>
+	</array>
+	<key>UTImportedTypeDeclarations</key>
+	<array>
+		<dict>
+			<key>UTTypeConformsTo</key>
+			<array>
+				<string>public.plain-text</string>
+				<string>public.data</string>
+			</array>
+			<key>UTTypeDescription</key>
+			<string>Surge 模块（.module）</string>
+			<key>UTTypeIdentifier</key>
+			<string>com.astemo6.mihomo.qx.module</string>
+			<key>UTTypeTagSpecification</key>
+			<dict>
+				<key>public.filename-extension</key>
+				<array>
+					<string>module</string>
+				</array>
+			</dict>
+		</dict>
+		<dict>
+			<key>UTTypeConformsTo</key>
+			<array>
+				<string>public.plain-text</string>
+				<string>public.data</string>
+			</array>
+			<key>UTTypeDescription</key>
+			<string>Quantumult X 片段</string>
+			<key>UTTypeIdentifier</key>
+			<string>com.astemo6.mihomo.qx.snippet</string>
+			<key>UTTypeTagSpecification</key>
+			<dict>
+				<key>public.filename-extension</key>
+				<array>
+					<string>snippet</string>
+				</array>
+			</dict>
+		</dict>
+		<dict>
+			<key>UTTypeConformsTo</key>
+			<array>
+				<string>public.plain-text</string>
+				<string>public.data</string>
+			</array>
+			<key>UTTypeDescription</key>
+			<string>Surge 模块</string>
+			<key>UTTypeIdentifier</key>
+			<string>com.astemo6.mihomo.qx.sgmodule</string>
+			<key>UTTypeTagSpecification</key>
+			<dict>
+				<key>public.filename-extension</key>
+				<array>
+					<string>sgmodule</string>
+				</array>
+			</dict>
+		</dict>
+		<dict>
+			<key>UTTypeConformsTo</key>
+			<array>
+				<string>public.plain-text</string>
+				<string>public.data</string>
+			</array>
+			<key>UTTypeDescription</key>
+			<string>Loon 插件</string>
+			<key>UTTypeIdentifier</key>
+			<string>com.astemo6.mihomo.qx.plugin</string>
+			<key>UTTypeTagSpecification</key>
+			<dict>
+				<key>public.filename-extension</key>
+				<array>
+					<string>plugin</string>
+				</array>
+			</dict>
+		</dict>
+		<dict>
+			<key>UTTypeConformsTo</key>
+			<array>
+				<string>public.plain-text</string>
+				<string>public.data</string>
+			</array>
+			<key>UTTypeDescription</key>
+			<string>Stash 覆写</string>
+			<key>UTTypeIdentifier</key>
+			<string>com.astemo6.mihomo.qx.stoverride</string>
+			<key>UTTypeTagSpecification</key>
+			<dict>
+				<key>public.filename-extension</key>
+				<array>
+					<string>stoverride</string>
+				</array>
+			</dict>
+		</dict>
+		<dict>
+			<key>UTTypeConformsTo</key>
+			<array>
+				<string>public.plain-text</string>
+				<string>public.data</string>
+			</array>
+			<key>UTTypeDescription</key>
+			<string>Surge / Quantumult X 配置</string>
+			<key>UTTypeIdentifier</key>
+			<string>com.astemo6.mihomo.qx.conf</string>
+			<key>UTTypeTagSpecification</key>
+			<dict>
+				<key>public.filename-extension</key>
+				<array>
+					<string>conf</string>
+					<string>cfg</string>
+				</array>
+				<key>public.mime-type</key>
+				<array>
+					<string>text/plain</string>
+				</array>
+			</dict>
+		</dict>
+		<dict>
+			<key>UTTypeConformsTo</key>
+			<array>
+				<string>public.plain-text</string>
+				<string>public.data</string>
+			</array>
+			<key>UTTypeDescription</key>
+			<string>规则 / 重写列表</string>
+			<key>UTTypeIdentifier</key>
+			<string>com.astemo6.mihomo.qx.list</string>
+			<key>UTTypeTagSpecification</key>
+			<dict>
+				<key>public.filename-extension</key>
+				<array>
+					<string>list</string>
+				</array>
+			</dict>
+		</dict>
 	</array>
 </dict>
 </plist>

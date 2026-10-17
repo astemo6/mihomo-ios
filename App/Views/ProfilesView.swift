@@ -103,7 +103,7 @@ struct ProfilesView: View {
             .sheet(item: $editing) { p in
                 YAMLEditorView(title: p.kind == .remote ? "查看配置" : "编辑配置", initialName: p.name, initialText: store.content(of: p), profile: p)
             }
-            .fileImporter(isPresented: $showImporter, allowedContentTypes: [UTType(filenameExtension: "yaml") ?? .plainText, UTType(filenameExtension: "yml") ?? .plainText, UTType(filenameExtension: "conf") ?? .plainText, .plainText, .text, .data]) { result in
+            .fileImporter(isPresented: $showImporter, allowedContentTypes: ImportRouter.pickerTypes) { result in
                 importFile(result)
             }
             .alert("提示", isPresented: Binding(get: { message != nil }, set: { if !$0 { message = nil } })) {

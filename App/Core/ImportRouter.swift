@@ -290,7 +290,9 @@ final class ImportRouter: ObservableObject {
     /// Every URL / document opened in the app ends in a visible sheet (an import or the reason it cannot be
     /// imported). The same URL within 10 s is handled once (onOpenURL and the cold-launch fallback).
     func handle(url: URL) {
-        recentURLs.removeAll { Date().timeIntervalSince($0.1) > 10 }
+        // Same URL within 2 s = onOpenURL + the cold-launch fallback delivering one document twice. A longer
+        // window swallowed a second share of the same file (Quantumult X reuses the Inbox name) — QX preview 6.
+        recentURLs.removeAll { Date().timeIntervalSince($0.1) > 2 }
         if recentURLs.contains(where: { $0.0 == url }) { return }
         recentURLs.append((url, Date()))
         coldLaunchURLs.removeAll { $0 == url }
@@ -303,6 +305,47 @@ final class ImportRouter: ObservableObject {
                 run(a)
             } else {
                 present(.unsupported(String(localized: "无法识别的链接：\(url.scheme ?? "")://…")))
+            }
+        }
+    }
+
+    nonisolated static func kindName(_ a: ImportAction) -> String {
+        switch a {
+        case .profileURL: return "profileURL"
+        case .profileText: return "profileText"
+        case .moduleURL: return "moduleURL"
+        case .moduleText: return "moduleText"
+        case .confText: return "confText"
+        case .nodesText: return "nodesText"
+        case .qxResources: return "qxResources"
+        case .qxGallery: return "qxGallery"
+        case .unsupported: return "unsupported"
+        default: return "other"
+        }
+    }
+
+    /// Every in-app file picker for profiles / configs (QX preview 6 import fix). Quantumult X exports its
+    /// own type for .conf files and that type may not conform to public.data / public.text, so the picker
+    /// greyed those files out; public.item matches any file, the content decides what it is.
+    static var pickerTypes: [UTType] {
+        var t: [UTType] = []
+        for ext in ["conf", "yaml", "yml", "snippet", "txt", "list"] { if let u = UTType(filenameExtension: ext) { t.append(u) } }
+        t += [.plainText, .text, .data, .content, .item]
+        return t
+    }
+
+    /// Result of a SwiftUI fileImporter: read now (inside the picker's security scope), present once the
+    /// picker has finished dismissing. A picker error is shown, never dropped.
+    func handlePicked(_ result: Result<URL, Error>) {
+        switch result {
+        case .success(let url):
+            let a = Self.action(forFile: url)
+            DispatchQueue.main.asyncAfter(deadline: .now() + 0.8) { self.present(a) }
+        case .failure(let e):
+            if (e as NSError).code == NSUserCancelledError { return }
+            StartupLog.write("file picker error: \(e.localizedDescription)", tag: "app")
+            DispatchQueue.main.asyncAfter(deadline: .now() + 0.8) {
+                self.present(.unsupported(String(localized: "无法打开所选文件：\(e.localizedDescription)")))
             }
         }
     }
@@ -395,6 +438,7 @@ struct ImportSheet: View {
     @State private var result: String?
     @State private var failed = false
     @State private var conf: ConfImportResult?
+    @State private var alertText: String?
 
     /// Set when presented through UIKit (ImportRouter.present); SwiftUI's dismiss is the fallback.
     var onClose: (() -> Void)? = nil
@@ -481,10 +525,17 @@ struct ImportSheet: View {
                     } else if busy {
                         ProgressView()
                     } else if result == nil || failed {
+                        // QX preview 6: never disabled — a conversion error is explained on tap instead of a
+                        // grey button that looks like it does nothing.
                         Button("导入") { Task { await perform() } }
-                            .disabled(isConf && conf?.error?.isEmpty == false)
+                            .fontWeight(.semibold)
                     }
                 }
+            }
+            .alert("导入失败", isPresented: Binding(get: { alertText != nil }, set: { if !$0 { alertText = nil } })) {
+                Button("好", role: .cancel) { alertText = nil }
+            } message: {
+                Text(alertText ?? "")
             }
             .onAppear {
                 switch action {
@@ -514,10 +565,21 @@ struct ImportSheet: View {
     }
 
     func perform() async {
+        StartupLog.write("import sheet: 导入 tapped (\(ImportRouter.kindName(action)))", tag: "app")
+        if isConf, let e = conf?.error, !e.isEmpty {
+            failed = true
+            result = e
+            alertText = e
+            return
+        }
         busy = true
         failed = false
         result = nil
-        defer { busy = false }
+        defer {
+            busy = false
+            if failed, let r = result { alertText = r }
+            StartupLog.write("import sheet: \(failed ? "failed" : "done")\(failed ? " – " + (result ?? "") : "")", tag: "app")
+        }
         do {
             switch action {
             case .profileURL(let url, _):
@@ -546,12 +608,15 @@ struct ImportSheet: View {
                 failed = r.failed && r.added == 0
                 result = r.text
             default:
-                break
+                failed = true
+                result = String(localized: "这类内容不能在这里导入")
             }
         } catch {
             failed = true
-            result = error.localizedDescription
+            let why = error.localizedDescription
+            result = why.isEmpty ? String(localized: "未知错误") : why
         }
+        if result == nil { failed = true; result = String(localized: "导入没有完成，也没有返回原因") }
     }
 }
 

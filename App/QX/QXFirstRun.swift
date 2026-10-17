@@ -42,11 +42,8 @@ struct QXImportEntries: View {
         } message: {
             Text("Clash / mihomo 订阅、Quantumult X 或 Surge 配置链接、节点订阅都可以，格式会自动识别。")
         }
-        .fileImporter(isPresented: $importing, allowedContentTypes: [UTType(filenameExtension: "yaml") ?? .plainText, UTType(filenameExtension: "yml") ?? .plainText,
-                                                                      UTType(filenameExtension: "conf") ?? .plainText, .plainText, .text, .data]) { result in
-            if case .success(let u) = result {
-                DispatchQueue.main.asyncAfter(deadline: .now() + 0.8) { ImportRouter.shared.handle(url: u) }
-            }
+        .fileImporter(isPresented: $importing, allowedContentTypes: ImportRouter.pickerTypes) { result in
+            ImportRouter.shared.handlePicked(result)
         }
         .sheet(isPresented: $scanning) {
             QRScannerSheet { code in

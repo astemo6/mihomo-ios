@@ -187,12 +187,9 @@ struct QXSettingsView: View {
             Button("管理片段") { nav.push(.dest(.snippets)) }
         }
         .sheet(item: $snippet) { k in QXSnippetEditor(kind: k).environmentObject(store) }
-        .fileImporter(isPresented: $importing, allowedContentTypes: [UTType(filenameExtension: "yaml") ?? .plainText, UTType(filenameExtension: "yml") ?? .plainText,
-                                                                    UTType(filenameExtension: "conf") ?? .plainText, .plainText, .text, .data]) { result in
-            if case .success(let url) = result {
-                // Let the document picker finish dismissing before the import sheet is presented.
-                DispatchQueue.main.asyncAfter(deadline: .now() + 0.8) { ImportRouter.shared.handle(url: url) }
-            }
+        .fileImporter(isPresented: $importing, allowedContentTypes: ImportRouter.pickerTypes) { result in
+            // Read inside the picker's scope, present after it dismisses; errors are shown (QX preview 6).
+            ImportRouter.shared.handlePicked(result)
         }
     }
 
