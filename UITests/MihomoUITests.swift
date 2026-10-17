@@ -55,12 +55,14 @@ final class MihomoUITests: MihomoUITestCase {
         edit.tap()
         for g in ["Proxy", "Auto", "Fallback", "Streaming", "Apple", "Final"] {
             let r = app.element(id: "homegroups.row." + g)
-            if r.exists && r.isSelected { r.tap() }
+            // A lazy row can vanish between exists and isSelected; read both from one snapshot.
+            if let snap = try? r.snapshot(), snap.isSelected { r.tap() }
         }
         // Rows report selection through the trait; tap any still selected one again.
         for g in ["Proxy", "Auto", "Fallback", "Streaming", "Apple", "Final"] {
             let r = app.element(id: "homegroups.row." + g)
-            if r.exists && r.isSelected { r.tap() }
+            // A lazy row can vanish between exists and isSelected; read both from one snapshot.
+            if let snap = try? r.snapshot(), snap.isSelected { r.tap() }
         }
         snap("home-groups-none")
         closeSheet()
