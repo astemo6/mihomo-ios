@@ -32,12 +32,12 @@ struct QXAddNodeView: View {
     static let featured: [Proto] = [
         Proto(title: "VLESS XHTTP", subtitle: "XHTTP · Reality", type: "vless",
               preset: ["network": "xhttp", "xhttp-opts.mode": "auto", "tls": "true", "client-fingerprint": "chrome"], badge: "NEW"),
-        Proto(title: "AmneziaWG", subtitle: "WireGuard · 抗识别", type: "wireguard", preset: ["x-awg": "true"], badge: "NEW"),
-        Proto(title: "Sudoku", subtitle: "TCP · HTTP 伪装", type: "sudoku", badge: "NEW"),
+        Proto(title: "AmneziaWG", subtitle: String(localized: "WireGuard · 抗识别"), type: "wireguard", preset: ["x-awg": "true"], badge: "NEW"),
+        Proto(title: "Sudoku", subtitle: String(localized: "TCP · HTTP 伪装"), type: "sudoku", badge: "NEW"),
         Proto(title: "MASQUE", subtitle: "HTTP/3 · WARP", type: "masque", badge: "NEW"),
         Proto(title: "TrustTunnel", subtitle: "HTTP/2 · HTTP/3", type: "trusttunnel", badge: "NEW"),
         Proto(title: "ShadowQUIC", subtitle: "QUIC · TLS 1.3", type: "shadowquic", badge: "NEW"),
-        Proto(title: "OpenVPN", subtitle: "用户态 · PEM", type: "openvpn", badge: "NEW"),
+        Proto(title: "OpenVPN", subtitle: String(localized: "用户态 · PEM"), type: "openvpn", badge: "NEW"),
         Proto(title: "GOST Relay", subtitle: "GOST v3 · TLS · Mux", type: "gost-relay", badge: "NEW"),
     ]
 
@@ -52,7 +52,7 @@ struct QXAddNodeView: View {
         Proto(title: "WireGuard", subtitle: "UDP", type: "wireguard"),
         Proto(title: "Mieru", subtitle: "TCP / UDP", type: "mieru"),
         Proto(title: "Snell", subtitle: "v4 / v5", type: "snell"),
-        Proto(title: "SSH", subtitle: "密码 / 私钥", type: "ssh"),
+        Proto(title: "SSH", subtitle: String(localized: "密码 / 私钥"), type: "ssh"),
         Proto(title: "Shadowsocks", subtitle: "AEAD · 2022", type: "ss"),
         Proto(title: "ShadowsocksR", subtitle: "SSR", type: "ssr"),
         Proto(title: "VMess", subtitle: "WS · gRPC · H2", type: "vmess"),
@@ -128,7 +128,7 @@ struct QXAddNodeView: View {
                                         }
                                         Spacer(minLength: 0)
                                         Text(verbatim: p.title).font(.system(size: 16, weight: .bold)).lineLimit(1).minimumScaleFactor(0.8)
-                                        Text(LocalizedStringKey(p.subtitle)).font(.system(size: 12, weight: .medium)).opacity(0.85).lineLimit(1)
+                                        Text(verbatim: p.subtitle).font(.system(size: 12, weight: .medium)).opacity(0.85).lineLimit(1)
                                     }
                                     .foregroundStyle(.white)
                                     .padding(13)
@@ -153,7 +153,7 @@ struct QXAddNodeView: View {
                                             if let b = p.badge { QXChip(text: b, color: QXColor.nodes) }
                                             Spacer(minLength: 0)
                                         }
-                                        Text(LocalizedStringKey(p.subtitle)).font(.caption).foregroundStyle(.secondary).lineLimit(1)
+                                        Text(verbatim: p.subtitle).font(.caption).foregroundStyle(.secondary).lineLimit(1)
                                     }
                                     .padding(14)
                                     .frame(maxWidth: .infinity, alignment: .leading)
