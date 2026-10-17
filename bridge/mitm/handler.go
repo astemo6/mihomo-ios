@@ -38,6 +38,31 @@ func (r *Rule) match(u string) bool {
 	return err == nil && ok
 }
 
+// matchReq is match plus the QX url-and-header condition on the request line and headers.
+func (r *Rule) matchReq(u string, req *http.Request) bool {
+	if !r.match(u) {
+		return false
+	}
+	if r.hre == nil {
+		return true
+	}
+	if req == nil {
+		return false
+	}
+	var b strings.Builder
+	b.WriteString(req.Method + " " + req.URL.RequestURI() + " HTTP/1.1\r\n")
+	if req.Host != "" {
+		b.WriteString("Host: " + req.Host + "\r\n")
+	}
+	for k, vs := range req.Header {
+		for _, v := range vs {
+			b.WriteString(k + ": " + v + "\r\n")
+		}
+	}
+	ok, err := r.hre.MatchString(b.String())
+	return err == nil && ok
+}
+
 func (r *Rule) label() string {
 	if r.Source != "" && r.Source != "用户" {
 		return r.Desc + " · " + r.Source
@@ -97,7 +122,7 @@ func (e *Engine) serveHTTP(w http.ResponseWriter, r *http.Request) {
 
 	// 1. URL rewrite — first match wins.
 	for _, rule := range rules {
-		if rule.Kind != KindURL || !rule.match(u) {
+		if rule.Kind != KindURL || !rule.matchReq(u, r) {
 			continue
 		}
 		ent.Match(rule.label())
@@ -149,7 +174,7 @@ func (e *Engine) serveHTTP(w http.ResponseWriter, r *http.Request) {
 
 	// 2. Map Local — first match wins.
 	for _, rule := range rules {
-		if rule.Kind != KindMapLocal || !rule.match(u) {
+		if rule.Kind != KindMapLocal || !rule.matchReq(u, r) {
 			continue
 		}
 		ent.Match(rule.label())
@@ -207,19 +232,19 @@ func (e *Engine) serveHTTP(w http.ResponseWriter, r *http.Request) {
 	var respRules []*Rule
 	for _, rule := range rules {
 		if rule.Phase == "response" {
-			if rule.Kind != KindURL && rule.Kind != KindMapLocal && rule.match(u) {
+			if rule.Kind != KindURL && rule.Kind != KindMapLocal && rule.matchReq(u, r) {
 				respRules = append(respRules, rule)
 			}
 			continue
 		}
 		switch rule.Kind {
 		case KindHeader:
-			if rule.match(u) {
+			if rule.matchReq(u, r) {
 				ent.Match(rule.label())
 				applyHeaderOps(r.Header, rule.Headers, func() string { return r.Method + " " + r.URL.RequestURI() + " HTTP/1.1" })
 			}
 		case KindBody, KindJQ, KindJSON:
-			if rule.match(u) && loadBody(MaxBody) {
+			if rule.matchReq(u, r) && loadBody(MaxBody) {
 				nb, err := e.applyBodyRule(rule, reqBody)
 				if err != nil {
 					e.logf("warning", fmt.Sprintf("[MitM] 请求体改写失败（%s）：%s", rule.Desc, err))
@@ -229,7 +254,7 @@ func (e *Engine) serveHTTP(w http.ResponseWriter, r *http.Request) {
 				setBody(nb)
 			}
 		case KindScript:
-			if !rule.match(u) {
+			if !rule.matchReq(u, r) {
 				continue
 			}
 			sreq := &ScriptHTTP{URL: u, Method: r.Method, Header: r.Header}

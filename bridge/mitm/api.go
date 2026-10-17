@@ -3,6 +3,7 @@ package mitm
 import (
 	"encoding/json"
 	http "github.com/metacubex/http"
+	"io"
 	"strconv"
 
 	"github.com/metacubex/chi"
@@ -158,12 +159,53 @@ func Routes(get func() *Engine) func(r chi.Router) {
 					http.NotFound(w, req)
 					return
 				}
-				out, err := e.tasks.run(tk, nil)
+				// v0.11: {"params": "<policy>"} for QX interaction scripts.
+				var body struct {
+					Params *string `json:"params"`
+				}
+				_ = json.NewDecoder(io.LimitReader(req.Body, 64<<10)).Decode(&body)
+				var extra map[string]any
+				trigger := "manual"
+				if body.Params != nil {
+					extra = map[string]any{"$params": *body.Params}
+					trigger = "interaction"
+				}
+				out, err := e.tasks.runAs(tk, extra, trigger)
 				if err != nil {
 					writeJSON(w, map[string]any{"ok": false, "error": err.Error()})
 					return
 				}
 				writeJSON(w, map[string]any{"ok": true, "result": out})
+			})
+			r.Get("/tasks/{id}/history", func(w http.ResponseWriter, req *http.Request) {
+				e := get()
+				if e == nil {
+					writeJSON(w, []RunRecord{})
+					return
+				}
+				writeJSON(w, e.tasks.historyFor(chi.URLParam(req, "id")))
+			})
+			r.Get("/tasks-prefs", func(w http.ResponseWriter, req *http.Request) {
+				e := get()
+				if e == nil {
+					writeJSON(w, TaskPrefs{})
+					return
+				}
+				writeJSON(w, e.tasks.getPrefs())
+			})
+			r.Put("/tasks-prefs", func(w http.ResponseWriter, req *http.Request) {
+				e := get()
+				if e == nil {
+					http.Error(w, "engine not running", http.StatusServiceUnavailable)
+					return
+				}
+				var p TaskPrefs
+				if err := json.NewDecoder(io.LimitReader(req.Body, 1<<20)).Decode(&p); err != nil {
+					http.Error(w, err.Error(), http.StatusBadRequest)
+					return
+				}
+				e.tasks.setPrefs(p)
+				writeJSON(w, map[string]any{"ok": true})
 			})
 			r.Get("/panels", func(w http.ResponseWriter, req *http.Request) {
 				e := get()

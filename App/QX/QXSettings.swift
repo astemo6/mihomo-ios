@@ -265,7 +265,7 @@ struct QXOtherSettingsView: View {
                         Text("系统设置中关闭了 Mihomo 的实时活动。").font(.caption).foregroundStyle(Theme.warn)
                     }
                 } header: { header("通知") } footer: {
-                    Text("连接时在锁定屏幕和灵动岛显示连接状态、已连接时长、当前节点和速度。需要带小组件的 IPA（-widget）。时长一直走；速度和节点在打开 App 时刷新。")
+                    Text("连接时在锁定屏幕和灵动岛显示连接状态、已连接时长、当前节点和速度。需要带小组件的 IPA（-widget）。时长一直走；App 关闭时，速度和节点在系统允许后台刷新时更新，也可以点实时活动上的刷新按钮（iOS 17 及以上）。")
                 }
                 .listRowBackground(Theme.card)
 

@@ -71,12 +71,27 @@ func parseQXRewriteRemote(line string) (remoteModule, bool) {
 	return m, true
 }
 
+// confSettings are connection settings a QX [general] section carries (v0.11). They are not part of a
+// mihomo profile; the import sheet offers to apply them to the app's own settings.
+type confSettings struct {
+	ExcludedRoutes []string `json:"excludedRoutes,omitempty"` // excluded_routes
+	TrustedSSIDs   []string `json:"trustedSSIDs,omitempty"`   // ssid_suspended_list
+	TestURL        string   `json:"testURL,omitempty"`        // server_check_url
+	TestTimeoutMs  int      `json:"testTimeoutMs,omitempty"`  // server_check_timeout (≤ 5000)
+	BlockQUIC      bool     `json:"blockQUIC,omitempty"`      // udp_drop_list contains QUIC
+}
+
+func (c confSettings) empty() bool {
+	return len(c.ExcludedRoutes) == 0 && len(c.TrustedSSIDs) == 0 && c.TestURL == "" && c.TestTimeoutMs == 0 && !c.BlockQUIC
+}
+
 type confResult struct {
 	YAML   string `json:"yaml"`
 	Module string `json:"module,omitempty"`
 	// RewriteRemotes: QX [rewrite_remote] lines; the app adds each as its own remote module (name from
 	// tag= or the file name, enabled= respected, downloaded by the app).
 	RewriteRemotes []remoteModule `json:"rewriteRemotes,omitempty"`
+	Settings      *confSettings `json:"settings,omitempty"`
 	Report        confReport `json:"report"`
 	Error         string     `json:"error,omitempty"`
 }
@@ -151,6 +166,24 @@ func ImportConf(text string) string {
 		return string(b)
 	}
 	rep := &res.Report
+	// QX [general] keys (v0.11), read up front: server_check_url is the default health-check URL of the
+	// generated groups.
+	qxGeneral := map[string]string{}
+	if isQX {
+		for _, l := range nonEmpty(secs["general"]) {
+			if k, v, ok := strings.Cut(l, "="); ok {
+				qxGeneral[strings.ToLower(strings.TrimSpace(k))] = strings.TrimSpace(v)
+			}
+		}
+	}
+	checkURL := "https://www.gstatic.com/generate_204"
+	if u := qxGeneral["server_check_url"]; strings.HasPrefix(u, "http://") || strings.HasPrefix(u, "https://") {
+		checkURL = u
+	}
+	checkTimeout := 0
+	if n := atoi(qxGeneral["server_check_timeout"], 0); n > 0 {
+		checkTimeout = min(n, 5000)
+	}
 	var proxies []any
 	var groups []any
 	groupNames := map[string]bool{}
@@ -194,6 +227,7 @@ func ImportConf(text string) string {
 	// local /nodes/convert endpoint (QX / Surge lines, share links, base64 or Clash YAML → proxies).
 	proxyProviders := map[string]any{}
 	var providerTags []string // provider names in file order
+	var asPolicy [][2]string  // v0.11: [server_remote] as-policy → a group named after the subscription
 	if isQX {
 		for _, l := range nonEmpty(secs["server_remote"]) {
 			sp, ok := parseQXServerRemote(l)
@@ -209,15 +243,19 @@ func ImportConf(text string) string {
 			proxyProviders[name] = map[string]any{
 				"type": "http", "url": sp.URL, "x-convert": "nodes", "path": "./proxies/" + providerNameFor(sp.URL, "nodes") + ".yaml",
 				"interval":     sp.Interval,
-				"health-check": map[string]any{"enable": true, "url": "https://www.gstatic.com/generate_204", "interval": 600, "lazy": true},
+				"health-check": map[string]any{"enable": true, "url": checkURL, "interval": 600, "lazy": true},
 			}
 			providerTags = append(providerTags, name)
+			if sp.AsPolicy != "" {
+				asPolicy = append(asPolicy, [2]string{name, sp.AsPolicy})
+			}
 		}
 	}
 
 	// ---- groups
 	type pendingGroup struct {
 		name, typ string
+		qxType    string // v0.11: the QX policy keyword (static / available / round-robin / dest-hash / …)
 		members   []string
 		opts      map[string]string
 	}
@@ -250,6 +288,7 @@ func ImportConf(text string) string {
 				continue
 			}
 			g := parseGroup(parts[0], typ, parts[1:])
+			g.qxType = strings.ToLower(strings.TrimSpace(k))
 			if strings.HasPrefix(strings.ToLower(strings.TrimSpace(k)), "ssid") {
 				rep.Notes = append(rep.Notes, "SSID 策略组「"+g.name+"」按普通选择组导入（不随 Wi-Fi 切换）")
 			}
@@ -276,6 +315,19 @@ func ImportConf(text string) string {
 			}
 			pg = append(pg, parseGroup(name, typ, parts[1:]))
 		}
+	}
+	for _, a := range asPolicy {
+		if groupNames[a[0]] {
+			continue
+		}
+		typ, known := map[string]string{"static": "select", "available": "fallback", "round-robin": "load-balance", "url-latency-benchmark": "url-test", "dest-hash": "load-balance"}[strings.ToLower(a[1])]
+		if !known {
+			rep.Notes = append(rep.Notes, "订阅「"+a[0]+"」的 as-policy="+a[1]+" 不支持，未生成策略组")
+			continue
+		}
+		g := pendingGroup{name: a[0], typ: typ, qxType: strings.ToLower(a[1]), opts: map[string]string{"resource-tag-regex": "^" + regexp.QuoteMeta(a[0]) + "$"}}
+		pg = append(pg, g)
+		groupNames[a[0]] = true
 	}
 	for _, g := range pg {
 		groupNames[g.name] = true
@@ -342,10 +394,27 @@ func ImportConf(text string) string {
 			m["proxies"] = members
 		}
 		if g.typ == "url-test" || g.typ == "fallback" || g.typ == "load-balance" {
-			m["url"] = firstNonEmpty(g.opts["url"], g.opts["check-interval-url"], "https://www.gstatic.com/generate_204")
-			m["interval"] = atoi(firstNonEmpty(g.opts["interval"], g.opts["check-interval"]), 300)
+			m["url"] = firstNonEmpty(g.opts["url"], g.opts["check-interval-url"], checkURL)
+			defInterval := 300
+			if isQX && g.qxType == "available" {
+				defInterval = 600
+			}
+			m["interval"] = atoi(firstNonEmpty(g.opts["interval"], g.opts["check-interval"]), defInterval)
 			if tol := atoi(g.opts["tolerance"], 0); tol > 0 {
 				m["tolerance"] = tol
+			}
+			if checkTimeout > 0 {
+				m["timeout"] = checkTimeout
+			}
+			// v0.11: QX alive-checking=false (default) = only test when used → lazy.
+			if v, ok := g.opts["alive-checking"]; ok {
+				m["lazy"] = !truthy(v)
+			}
+			switch g.qxType {
+			case "round-robin":
+				m["strategy"] = "round-robin"
+			case "dest-hash":
+				m["strategy"] = "consistent-hashing"
 			}
 		}
 		groups = append(groups, m)
@@ -417,16 +486,99 @@ func ImportConf(text string) string {
 		rules = append(rules, c.Format(pol))
 	}
 	if isQX {
+		var inserted []any
 		for _, l := range nonEmpty(secs["filter_remote"]) {
-			sp, ok := parseQXRemote(l)
-			if !ok {
-				skip("filter_remote", l, "无效或已禁用")
+			opts := qxLineOpts(l)
+			if v, ok := opts["enabled"]; ok && !truthy(v) {
+				skip("filter_remote", l, "已禁用")
 				continue
 			}
-			if !strings.Contains(strings.ToLower(l), "force-policy") {
-				rep.Notes = append(rep.Notes, "filter_remote 未指定 force-policy 的列表按 proxy 处理："+sp.URL)
+			before := len(rules)
+			head := strings.ToUpper(strings.TrimSpace(strings.SplitN(l, ",", 2)[0]))
+			switch head {
+			case "FILTER_LAN", "FILTER_REGION":
+				// v0.11: QX built-in lists.
+				pol, ok := mitm.ResolvePolicy(firstNonEmpty(opts["force-policy"], "direct"), gl, pl, firstSelect)
+				if !ok {
+					skip("filter_remote", l, "策略「"+opts["force-policy"]+"」不存在")
+					continue
+				}
+				if head == "FILTER_LAN" {
+					for _, c := range []string{"10.0.0.0/8", "172.16.0.0/12", "192.168.0.0/16", "127.0.0.0/8", "100.64.0.0/10", "169.254.0.0/16"} {
+						rules = append(rules, "IP-CIDR,"+c+","+pol+",no-resolve")
+					}
+					rules = append(rules, "DOMAIN-SUFFIX,local,"+pol)
+				} else {
+					rules = append(rules, "GEOIP,CN,"+pol)
+				}
+			default:
+				sp, ok := parseQXRemote(l)
+				if !ok {
+					skip("filter_remote", l, "无效或已禁用")
+					continue
+				}
+				if opts["force-policy"] == "" {
+					rep.Notes = append(rep.Notes, "filter_remote 未指定 force-policy 的列表按 proxy 处理："+sp.URL)
+				}
+				addRemote(sp.URL, "list", sp.Policy, l, sp.Tag)
 			}
-			addRemote(sp.URL, "list", sp.Policy, l, sp.Tag)
+			// inserted-resource=true: QX checks these before the local rules.
+			if truthy(opts["inserted-resource"]) && len(rules) > before {
+				inserted = append(inserted, rules[before:]...)
+				rules = rules[:before]
+			}
+		}
+		if len(inserted) > 0 {
+			rules = append(inserted, rules...)
+		}
+	}
+	if isQX {
+		var pre []any
+		if v := qxGeneral["udp_drop_list"]; v != "" {
+			var ports []string
+			for _, x := range strings.Split(v, ",") {
+				x = strings.TrimSpace(x)
+				switch strings.ToUpper(x) {
+				case "":
+				case "QUIC":
+					if res.Settings == nil {
+						res.Settings = &confSettings{}
+					}
+					res.Settings.BlockQUIC = true
+				case "STUN":
+					ports = append(ports, "3478", "5349", "19302")
+				default:
+					if atoi(strings.ReplaceAll(x, "-", ""), -1) >= 0 {
+						ports = append(ports, x)
+					}
+				}
+			}
+			if len(ports) > 0 {
+				pre = append(pre, "AND,((NETWORK,UDP),(DST-PORT,"+strings.Join(ports, "/")+")),REJECT-DROP")
+			}
+		}
+		if v := qxGeneral["udp_whitelist"]; v != "" {
+			var ports []string
+			for _, x := range strings.Split(v, ",") {
+				if x = strings.TrimSpace(x); x != "" && atoi(strings.ReplaceAll(x, "-", ""), -1) >= 0 {
+					ports = append(ports, x)
+				}
+			}
+			if len(ports) > 0 {
+				pre = append(pre, "AND,((NETWORK,UDP),(NOT,((DST-PORT,"+strings.Join(ports, "/")+")))),REJECT")
+			}
+		}
+		if len(pre) > 0 {
+			rules = append(pre, rules...)
+		}
+		// fallback_udp_policy: mihomo skips a rule whose policy cannot carry UDP, so a catch-all UDP rule
+		// just before MATCH catches exactly the UDP QX would hand to the fallback policy.
+		if v := qxGeneral["fallback_udp_policy"]; v != "" && !strings.EqualFold(v, "reject") {
+			if pol, ok := mitm.ResolvePolicy(v, gl, pl, firstSelect); ok {
+				rules = append(rules, "AND,((NETWORK,UDP)),"+pol)
+			} else {
+				rep.Notes = append(rep.Notes, "fallback_udp_policy 的策略「"+v+"」不存在，未导入")
+			}
 		}
 	}
 	if final == nil {
@@ -488,21 +640,8 @@ func ImportConf(text string) string {
 		}
 	}
 	if isQX {
-		for _, l := range nonEmpty(secs["dns"]) {
-			if k, v, ok := strings.Cut(l, "="); ok && strings.EqualFold(strings.TrimSpace(k), "server") {
-				s := strings.TrimSpace(v)
-				if strings.HasPrefix(s, "/") {
-					rep.Notes = append(rep.Notes, "[dns] 指定域名的服务器未导入，可在「DNS」页面的 nameserver-policy 中添加："+s)
-					continue
-				}
-				d, _ := cfg["dns"].(map[string]any)
-				if d == nil {
-					d = map[string]any{"enable": true}
-				}
-				d["nameserver"] = append(asList(d["nameserver"]), s)
-				cfg["dns"] = d
-			}
-		}
+		importQXDNS(cfg, nonEmpty(secs["dns"]), rep)
+		importQXGeneral(cfg, qxGeneral, &res, rep)
 	}
 
 	// ---- rewrite / MitM / scripts → one module text
@@ -568,7 +707,11 @@ func ImportConf(text string) string {
 				rep.Rewrites++
 			}
 		}
-		rep.Tasks = len(rs.Tasks)
+		for _, tk := range rs.Tasks {
+			if !tk.DisabledByLine { // v0.11: enabled=false tasks are kept (off) but not counted
+				rep.Tasks++
+			}
+		}
 		for _, h := range rs.Hostnames {
 			if !strings.HasPrefix(h, "-") {
 				rep.Hostnames++
@@ -651,6 +794,7 @@ type qxServerRemote struct {
 	URL      string
 	Tag      string
 	Interval int
+	AsPolicy string // v0.11
 }
 
 // parseQXServerRemote reads a QX [server_remote] line: "<url>, tag=…, update-interval=…, enabled=…".
@@ -669,6 +813,8 @@ func parseQXServerRemote(line string) (qxServerRemote, bool) {
 		switch strings.ToLower(strings.TrimSpace(k)) {
 		case "tag":
 			sp.Tag = strings.TrimSpace(v)
+		case "as-policy":
+			sp.AsPolicy = strings.TrimSpace(v)
 		case "update-interval":
 			if n := atoi(v, 0); n > 0 {
 				sp.Interval = n

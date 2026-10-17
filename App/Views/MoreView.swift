@@ -48,6 +48,7 @@ struct MoreView: View {
                     NavigationLink { ScriptsView() } label: {
                         row("脚本", "curlybraces", mc.scripts > 0 ? String(localized: "\(engine.config.scripts.count) · 模块 \(mc.scripts)") : "\(engine.config.scripts.count)")
                     }
+                    NavigationLink { ScriptTasksView() } label: { row("任务", "clock.arrow.circlepath", nil) }
                     NavigationLink { MitMView() } label: {
                         HStack {
                             Label("MitM", systemImage: "lock.open")

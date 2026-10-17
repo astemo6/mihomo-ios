@@ -1,6 +1,7 @@
 import Foundation
 #if canImport(ActivityKit) && !os(macOS)
 import ActivityKit
+import AppIntents
 
 /// v0.10 实时活动 / 灵动岛: attributes shared by the app (starts / updates / ends the activity) and the
 /// widget extension (draws it). The tunnel extension compiles this file but never uses it.
@@ -16,7 +17,27 @@ struct MihomoActivityAttributes: ActivityAttributes {
     }
     var profile: String
 }
+
+/// v0.11: the refresh button on the Lock Screen / Dynamic Island. A LiveActivityIntent runs in the app's
+/// process (launched in the background if needed), which may update the activity from the latest
+/// numbers the tunnel extension stored (LiveStats).
+@available(iOS 17.0, *)
+struct RefreshLiveActivityIntent: LiveActivityIntent {
+    static var title: LocalizedStringResource = "刷新实时活动"
+    static var isDiscoverable = false
+    init() {}
+    func perform() async throws -> some IntentResult {
+        if let refresh = await LiveActivityHook.refresh { await refresh() }
+        return .result()
+    }
+}
 #endif
+
+/// Set by the app at launch (the widget extension leaves it nil).
+@MainActor
+enum LiveActivityHook {
+    static var refresh: (@MainActor () async -> Void)?
+}
 
 enum LiveActivityFormat {
     /// "1.2 MB/s" style, compact for the Dynamic Island.

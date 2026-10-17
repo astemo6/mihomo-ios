@@ -31,6 +31,7 @@ struct MihomoApp: App {
                 // v0.9: 更多 → 设置 → 外观 (跟随系统 / 浅色 / 深色), applied to every window.
                 .onAppear { AppAppearance.apply() }
                 .onChange(of: phase) { p in
+                    if p == .background { LiveActivityController.shared.didEnterBackground() }
                     if p == .active {
                         Task { await vpn.load() }
                         Task { await store.autoUpdateIfNeeded() }

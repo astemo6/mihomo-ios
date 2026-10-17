@@ -42,6 +42,7 @@ struct KindBadge: View {
         case "cron": return ("定时", Color.orange)
         case "event": return ("事件", Color.pink)
         case "generic": return ("通用", Color.teal)
+        case "interaction": return ("交互", Color.indigo)
         default: return ("?", .secondary)
         }
     }
@@ -429,7 +430,7 @@ struct ScriptsView: View {
 
             Section("工具") {
                 NavigationLink { ScriptWorkbenchView(target: .scratch) } label: { Label("脚本调试台", systemImage: "play.rectangle") }
-                NavigationLink { ScriptTasksView() } label: { Label("定时与事件脚本", systemImage: "clock.arrow.circlepath") }
+                NavigationLink { ScriptTasksView() } label: { Label("任务（定时 / 网络变化 / 交互）", systemImage: "clock.arrow.circlepath") }
                 NavigationLink { ScriptLogsView() } label: { Label("运行日志", systemImage: "text.alignleft") }
                 NavigationLink { ScriptNoticesView() } label: { Label("脚本通知记录", systemImage: "bell") }
                 NavigationLink { StoreView() } label: { Label("持久化存储（$persistentStore / $prefs）", systemImage: "externaldrive") }

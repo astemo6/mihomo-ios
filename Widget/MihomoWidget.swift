@@ -373,14 +373,15 @@ struct ConnectionLiveActivity: Widget {
                         Label(context.state.node.isEmpty ? context.attributes.profile : context.state.node, systemImage: "point.3.connected.trianglepath.dotted")
                             .font(.caption).lineLimit(1)
                         Spacer()
-                        LiveSpeeds(state: context.state)
+                        LiveSpeeds(state: context.state, stale: context.isStale)
+                        LiveRefreshButton()
                     }
                     .padding(.horizontal, 4)
                 }
             } compactLeading: {
                 Image(systemName: "network").foregroundStyle(context.state.connected ? WidgetTheme.good : .secondary)
             } compactTrailing: {
-                Text("↓" + LiveActivityFormat.speed(context.state.down)).font(.caption2.monospacedDigit()).foregroundStyle(WidgetTheme.accent)
+                Text(context.isStale ? "—" : "↓" + LiveActivityFormat.speed(context.state.down)).font(.caption2.monospacedDigit()).foregroundStyle(WidgetTheme.accent)
             } minimal: {
                 Image(systemName: "network").foregroundStyle(context.state.connected ? WidgetTheme.good : .secondary)
             }
@@ -390,12 +391,35 @@ struct ConnectionLiveActivity: Widget {
 
 struct LiveSpeeds: View {
     let state: MihomoActivityAttributes.ContentState
+    /// v0.11: past the stale date the numbers are old (the app was not allowed to run): show when they
+    /// were taken instead of a frozen speed.
+    var stale = false
     var body: some View {
-        HStack(spacing: 8) {
-            Text("↑" + LiveActivityFormat.speed(state.up) + "/s").foregroundStyle(.orange)
-            Text("↓" + LiveActivityFormat.speed(state.down) + "/s").foregroundStyle(WidgetTheme.accent)
+        if stale {
+            Text("更新于 \(state.updated.formatted(date: .omitted, time: .shortened))")
+                .font(.caption2).foregroundStyle(.secondary)
+        } else {
+            HStack(spacing: 8) {
+                Text("↑" + LiveActivityFormat.speed(state.up) + "/s").foregroundStyle(.orange)
+                Text("↓" + LiveActivityFormat.speed(state.down) + "/s").foregroundStyle(WidgetTheme.accent)
+            }
+            .font(.caption.monospacedDigit())
         }
-        .font(.caption.monospacedDigit())
+    }
+}
+
+/// v0.11: refreshes the activity from the tunnel's latest numbers (runs in the app process).
+struct LiveRefreshButton: View {
+    var body: some View {
+        Button(intent: RefreshLiveActivityIntent()) {
+            Image(systemName: "arrow.clockwise")
+                .font(.caption.weight(.semibold))
+                .frame(width: 28, height: 28)
+                .background(Circle().fill(WidgetTheme.accent.opacity(0.18)))
+        }
+        .buttonStyle(.plain)
+        .foregroundStyle(WidgetTheme.accent)
+        .accessibilityLabel(Text("刷新"))
     }
 }
 
@@ -416,7 +440,10 @@ struct LiveActivityLockView: View {
                     .font(.caption).foregroundStyle(.secondary).lineLimit(1)
             }
             Spacer()
-            LiveSpeeds(state: context.state)
+            VStack(alignment: .trailing, spacing: 6) {
+                LiveSpeeds(state: context.state, stale: context.isStale)
+                LiveRefreshButton()
+            }
         }
         .padding(14)
     }

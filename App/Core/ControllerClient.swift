@@ -17,11 +17,36 @@ final class ControllerClient {
     enum APIError: LocalizedError {
         case http(Int, String)
         case badURL
+        case unreachable
+        case timedOut
+        /// v0.11: readable Chinese messages instead of "HTTP 404 {…}".
         var errorDescription: String? {
             switch self {
-            case let .http(c, m): return "HTTP \(c) \(m)"
+            case let .http(c, m):
+                let detail = Self.detail(m)
+                switch c {
+                case 401, 403: return String(localized: "内核拒绝了请求（密钥不匹配）。断开后重新连接一次。")
+                case 404: return detail.isEmpty || detail.lowercased().contains("not found")
+                    ? String(localized: "内核没有这个接口：扩展可能还在运行旧版本，断开后重新连接一次。") : detail
+                case 503: return detail.lowercased().contains("engine not running")
+                    ? String(localized: "脚本引擎未运行：先在模块、重写或脚本页面开启，再重新连接。") : String(localized: "内核暂时不可用：\(detail)")
+                case 408, 504: return String(localized: "请求超时：\(detail)")
+                default: return detail.isEmpty ? "HTTP \(c)" : String(localized: "内核返回错误（HTTP \(c)）：\(detail)")
+                }
             case .badURL: return String(localized: "控制器地址无效")
+            case .unreachable: return String(localized: "连不上内核：VPN 未连接，或扩展刚刚退出。")
+            case .timedOut: return String(localized: "内核没有及时响应，请稍后再试。")
             }
+        }
+
+        /// mihomo answers {"message": "…"}; plain text otherwise (trimmed).
+        static func detail(_ body: String) -> String {
+            if let d = body.data(using: .utf8), let o = try? JSONSerialization.jsonObject(with: d) as? [String: Any],
+               let m = (o["message"] ?? o["error"]) as? String {
+                return m
+            }
+            let t = body.trimmingCharacters(in: .whitespacesAndNewlines)
+            return t.count > 200 ? String(t.prefix(200)) + "…" : t
         }
     }
 
@@ -44,7 +69,16 @@ final class ControllerClient {
     @discardableResult
     func send(_ path: String, method: String = "GET", query: [URLQueryItem] = [], body: Any? = nil, timeout: TimeInterval = 8) async throws -> Data {
         let req = try request(path, method: method, query: query, body: body, timeout: timeout)
-        let (data, resp) = try await session.data(for: req)
+        let data: Data, resp: URLResponse
+        do {
+            (data, resp) = try await session.data(for: req)
+        } catch let e as URLError {
+            switch e.code {
+            case .cannotConnectToHost, .networkConnectionLost, .notConnectedToInternet, .cannotFindHost: throw APIError.unreachable
+            case .timedOut: throw APIError.timedOut
+            default: throw e
+            }
+        }
         if let http = resp as? HTTPURLResponse, !(200..<300).contains(http.statusCode) {
             throw APIError.http(http.statusCode, String(data: data, encoding: .utf8) ?? "")
         }

@@ -54,7 +54,7 @@ struct QXTaskListView: View {
         if vpn.isConnected && loaded {
             base = live.map {
                 QXTaskItem(id: $0.id, name: $0.script.name, kind: $0.kind, schedule: $0.cron ?? $0.event ?? "", path: $0.script.path,
-                           source: $0.source, lastRun: $0.lastRun, lastOK: $0.lastOK, running: $0.running, lastResult: $0.lastResult)
+                           source: $0.source, lastRun: $0.lastRun, lastOK: $0.lastOK ?? true, running: $0.running ?? false, lastResult: $0.lastResult)
             }
         } else {
             base = offline
