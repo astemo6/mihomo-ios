@@ -97,6 +97,40 @@ enum UITestSeed {
         return (try? JSONDecoder().decode([ConnectionItem].self, from: Data(json.utf8))) ?? []
     }
 
+    /// v0.17 磁贴编辑 demo (UI tests only): a Surge script panel and a static Stash tile.
+    static func demoPanels() -> [PanelItem] {
+        let now = Date().timeIntervalSince1970 - 120
+        return [
+            PanelItem(id: "demo-script", name: "demo-script", title: "Demo Script Panel", content: "Synthetic content", style: "info", icon: "globe",
+                      iconColor: nil, script: "demo-script-js", interval: 3600, source: "UITest Panel Module", format: "surge", updated: now,
+                      error: nil, running: false),
+            PanelItem(id: "demo-tile", name: "demo-tile", title: "Demo Tile", content: "Static tile", style: nil, icon: "info.circle",
+                      iconColor: nil, script: nil, interval: nil, source: "UITest Panel Module", format: "stash", updated: nil,
+                      error: nil, running: false),
+        ]
+    }
+
+    /// v0.17 请求时间线 demo (UI tests only): passive records for d1 (proxied) and d2 (DIRECT, DNS seen).
+    static func demoTimeline() -> [String: TimelineRecord] {
+        let json = """
+        [{"id":"d1","host":"www.example.com","network":"tcp","firstUp":{"lo":0,"hi":12.4},"firstDown":{"lo":180.2,"hi":200.2}},
+         {"id":"d2","host":"api.example.org","network":"tcp","dns":{"ms":23.5,"upstream":"udp://223.5.5.5:53","beforeMs":4.1},"firstUp":{"lo":0,"hi":9.8},"firstDown":{"lo":40.1,"hi":60.1}},
+         {"id":"d3","host":"quic.example.net","network":"udp","preexisting":true}]
+        """
+        let recs = (try? JSONDecoder().decode([TimelineRecord].self, from: Data(json.utf8))) ?? []
+        return Dictionary(uniqueKeysWithValues: recs.map { ($0.id, $0) })
+    }
+
+    static func demoProbe(for c: ConnectionItem) -> TimelineProbe {
+        let direct = c.chains?.first == "DIRECT"
+        let json = direct ? """
+        {"host":"\(c.metadata.displayHost)","port":"443","policy":"DIRECT","chain":"DIRECT","remote":"192.0.2.21:443","dns":{"ms":18.2,"note":"内核直连解析器（命中缓存时接近 0）"},"connect":{"ms":31.6,"note":"到目标的 TCP 连接"},"tls":{"ms":64.0},"firstByte":{"ms":88.9,"note":"HEAD / 到第一个响应字节"},"totalMs":202.7,"tlsInfo":"TLS 1.3 · http/1.1","status":"200","ok":true}
+        """ : """
+        {"host":"\(c.metadata.displayHost)","port":"443","policy":"Proxy","chain":"Proxy → 🇯🇵 Tokyo 01","remote":"192.0.2.20:443","dns":{"note":"经代理时域名由代理服务器解析，本机看不到这段耗时"},"connect":{"ms":52.3,"note":"到代理服务器的连接与代理握手；部分协议在发送数据时才连目标，这部分计入下一阶段"},"tls":{"ms":143.8},"firstByte":{"ms":97.1,"note":"HEAD / 到第一个响应字节"},"totalMs":293.2,"tlsInfo":"TLS 1.3 · http/1.1","status":"301","ok":true}
+        """
+        return try! JSONDecoder().decode(TimelineProbe.self, from: Data(json.utf8))
+    }
+
     @MainActor static func seedNodeSubscription() throws {
         let id = "uitest-sub"
         let dir = AppShared.homeURL.appendingPathComponent("nodesubs", isDirectory: true)

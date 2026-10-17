@@ -69,7 +69,8 @@ final class HomePanelStore: ObservableObject {
     }
 
     func name(_ id: String) -> String? {
-        model.panels.first(where: { $0.id == id }).map { $0.title?.isEmpty == false ? $0.title! : $0.name }
+        if let t = PanelOverrideStore.shared.map[id]?.title, !t.isEmpty { return t }
+        return model.panels.first(where: { $0.id == id }).map { $0.title?.isEmpty == false ? $0.title! : $0.name }
             ?? cached[id].map { $0.title?.isEmpty == false ? $0.title! : $0.name }
             ?? tasks.first(where: { $0.panelID == id })?.name
             ?? names[id]
@@ -137,6 +138,7 @@ final class HomePanelStore: ObservableObject {
                 if let p = t.params { m["params"] = p }
                 return m
             },
+            "intervals": PanelOverrideStore.shared.intervals, // v0.17 磁贴编辑
         ]
         if let d = try? JSONSerialization.data(withJSONObject: body) { try? d.write(to: Self.homeURL, options: .atomic) }
         guard VPNManager.shared.isConnected else { return }
@@ -169,7 +171,9 @@ struct HomePanelsSection: View {
     @EnvironmentObject var vpn: VPNManager
     @ObservedObject var model = PanelsModel.shared
     @ObservedObject var home = HomePanelStore.shared
+    @ObservedObject var overrides = PanelOverrideStore.shared
     @State private var editing = false
+    @State private var editPanel: PanelItem?
 
     var body: some View {
         let items = home.visibleIDs.compactMap { home.item($0, connected: vpn.isConnected) }
@@ -193,6 +197,7 @@ struct HomePanelsSection: View {
                 .contextMenu {
                     Button { home.setHidden(e.item.id, true) } label: { Label("在首页隐藏", systemImage: "eye.slash") }
                     Button { editing = true } label: { Label("编辑首页面板", systemImage: "slider.horizontal.3") }
+                    PanelEditButton { editPanel = e.item }
                     Button(role: .destructive) { home.unpin(e.item.id) } label: { Label("取消固定", systemImage: "pin.slash") }
                 }
             }
@@ -213,9 +218,10 @@ struct HomePanelsSection: View {
             }
         }
         .sheet(isPresented: $editing) { HomePanelsEditor().environmentObject(vpn) }
+        .sheet(item: $editPanel) { p in PanelEditSheet(p: p) }
         .task(id: vpn.isConnected) {
             home.loadCache()
-            guard vpn.isConnected else { model.panels = []; return }
+            guard vpn.isConnected else { if !model.demo { model.panels = [] }; return }
             home.sync()
             await model.load()
             home.rememberNames()
@@ -289,7 +295,7 @@ struct HomePanelsEditor: View {
         let shown = home.item(id, connected: vpn.isConnected)?.item
         let task = home.tasks.first { $0.panelID == id }
         HStack(spacing: 10) {
-            Image(systemName: PanelCard.symbol(shown?.icon))
+            Image(systemName: PanelCard.symbol(PanelOverrideStore.shared.map[id]?.icon ?? shown?.icon))
                 .foregroundStyle(Color(hex: shown?.iconColor) ?? Theme.accent)
                 .frame(width: 24)
             VStack(alignment: .leading, spacing: 2) {

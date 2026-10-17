@@ -1,6 +1,7 @@
 package mitm
 
 import (
+	"bytes"
 	"encoding/json"
 	"os"
 	"path/filepath"
@@ -159,4 +160,31 @@ func has(l []string, s string) bool {
 		}
 	}
 	return false
+}
+
+func TestPanelIntervalOverride(t *testing.T) {
+	tk := &tasker{}
+	base := []*Panel{
+		{ID: "a", Name: "A", Script: "s", Interval: 3600},
+		{ID: "b", Name: "B", Content: "static"},
+		{ID: "c", Name: "C", Script: "s2", Interval: 600},
+	}
+	tk.home = HomePanels{Intervals: map[string]int{"a": 300, "b": 120, "c": 10}}
+	out := tk.withTaskPanelsLocked(base)
+	if out[0].Interval != 300 || out[0].DefaultInterval != 3600 || !out[0].IntervalOverridden {
+		t.Fatalf("a: %+v", out[0])
+	}
+	if base[0].Interval != 3600 || base[0].IntervalOverridden {
+		t.Fatal("base mutated")
+	}
+	if out[1].Interval != 0 || out[1].IntervalOverridden {
+		t.Fatalf("static panel has no interval: %+v", out[1])
+	}
+	if out[2].Interval != 60 {
+		t.Fatalf("floor 60 s: %+v", out[2])
+	}
+	b, _ := json.Marshal(HomePanels{Visible: []string{}, Tasks: []HomePanelPin{}})
+	if bytes.Contains(b, []byte("intervals")) {
+		t.Fatalf("omitted when empty: %s", b)
+	}
 }

@@ -28,7 +28,7 @@ final class PolicyModel: ObservableObject {
 
     func delay(of name: String) -> Int? {
         if let d = liveDelays[name] { return d }
-        return all[name]?.lastDelay(for: ControllerClient.testSettings.url)
+        return all[name]?.lastDelay(for: NodeSettingsStore.testURL(for: name))
     }
 
     func select(_ group: ProxyItem, _ node: String) async {
@@ -657,9 +657,12 @@ struct NodeCell: View {
 /// Which 测速 URL / timeout the bolt buttons use; set in 更多 → 测速.
 struct TestTargetCaption: View {
     let live: Bool
+    /// v0.17: a node with its own test URL (按节点设置) shows that one.
+    var node: String? = nil
     var body: some View {
         let st = ControllerClient.testSettings
-        let host = URL(string: st.url)?.host ?? st.url
+        let u = node.flatMap { NodeSettingsStore.customURL(for: $0) } ?? st.url
+        let host = URL(string: u)?.host ?? u
         HStack(spacing: 6) {
             Image(systemName: "bolt.horizontal")
             Text(live ? "测速经由内核：\(host) · \(st.timeoutMs / 1000) 秒超时" : "离线测速：\(host) · \(st.timeoutMs / 1000) 秒超时")

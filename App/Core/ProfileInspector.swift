@@ -215,7 +215,8 @@ final class ProfileInspector: ObservableObject {
             idx += batch.count
             let got = await withTaskGroup(of: (String, Int).self, returning: [(String, Int)].self) { tg in
                 for n in batch {
-                    tg.addTask { (n, Int(LibmihomoTestDelayByName(home, path, n, url, timeout))) }
+                    let u = NodeSettingsStore.customURL(for: n) ?? url
+                    tg.addTask { (n, Int(LibmihomoTestDelayByName(home, path, n, u, timeout))) }
                 }
                 var out: [(String, Int)] = []
                 for await r in tg { out.append(r) }
