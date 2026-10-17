@@ -31,6 +31,12 @@
 | 导入链接 | 只注册自己的 `mihomo://`（`mihomo://install-config?url=`、`install-module?url=`、`connect`、`disconnect`、`toggle`）。粘贴的 `loon://`、`stash://`、`surge:///`、`quantumult-x:///`、`egern:/` 安装链接也能识别，但**不注册**这些 scheme，避免与其他客户端抢链接。可以用「文件」/其他 App 的「用 Mihomo 打开」打开 `.sgmodule` `.plugin` `.stoverride` `.module` `.snippet` `.conf` `.list` `.yaml` 和纯文本；剪贴板有新内容时顶部出现「粘贴导入」横幅 |
 | iPad | 横向宽度为常规时用侧边栏（NavigationSplitView）显示五个分区，支持横竖屏与分屏；iPhone 保持底部标签栏 |
 
+## v0.13.1 热修复（导入）
+
+- 从文件导入改用系统文档选择器的拷贝模式：任何文件都可以选（其他 App 为 .conf / .snippet 声明的类型不再变灰），内容决定导入方式。
+- 从 Quantumult X 等「用其他应用打开 / 共享」进来的文件总是先拷贝再读取；同一文件只处理一次；导入进行中不会被新的导入页替换。
+- 导入页：「导入」按钮始终可点，页面内也有一个导入按钮，显示当前步骤（转换 / 校验 / 下载规则集）；任何失败都会弹出原因并可「复制错误」，同时写入诊断启动日志。
+
 ## v0.13 要点
 
 - **协议覆盖跟上内核 v1.19.32**（策略 → 手动节点 → 添加 / 编辑）：新增 Sudoku、MASQUE、TrustTunnel、ShadowQUIC、OpenVPN（CA / 证书 / 私钥 / tls-auth / tls-crypt 可直接粘贴 PEM）、GOST Relay；VLESS 增加 XHTTP 传输（路径 / Host / 模式）、`encryption`、ALPN、UDP 封装（xudp / packetaddr）；Hysteria2 增加端口跳跃间隔与 ALPN；WireGuard 增加 AmneziaWG 参数；AnyTLS 增加空闲会话设置。传输参数只显示所选传输方式需要的那几项。保存前仍由内核校验。
