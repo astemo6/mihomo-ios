@@ -143,6 +143,10 @@ struct DNSPreset: Identifiable {
 
 /// Edits a list of strings as one-per-line text.
 struct LinesField: View {
+    static func parse(_ t: String) -> [String] {
+        t.components(separatedBy: CharacterSet(charactersIn: "\n,")).map { $0.trimmingCharacters(in: .whitespaces) }.filter { !$0.isEmpty }
+    }
+
     let title: String
     let placeholder: String
     @Binding var lines: [String]
@@ -171,13 +175,17 @@ struct LinesField: View {
                     }
                 }
             }
-            TextField(placeholder, text: $text, axis: .vertical)
+            TextField(LocalizedStringKey(placeholder), text: $text, axis: .vertical)
                 .scaledFont(12, design: .monospaced)
                 .textInputAutocapitalization(.never).autocorrectionDisabled()
                 .lineLimit(1...8)
                 .onAppear { text = lines.joined(separator: "\n") }
                 .onChange(of: text) { t in
-                    lines = t.components(separatedBy: CharacterSet(charactersIn: "\n,")).map { $0.trimmingCharacters(in: .whitespaces) }.filter { !$0.isEmpty }
+                    let l = Self.parse(t)
+                    if l != lines { lines = l }
+                }
+                .onChange(of: lines) { l in
+                    if Self.parse(text) != l { text = l.joined(separator: "\n") }
                 }
         }
     }
@@ -335,6 +343,16 @@ struct DNSView: View {
         .scrollContentBackground(.hidden)
         .background(Theme.bg.ignoresSafeArea())
         .navigationTitle("DNS")
+        // selftest B17: the NavigationLink builds DNSView when 更多 renders, so the @State initial values above
+        // are read then — reopening the page after a change showed (and would re-apply) the old settings.
+        // Read the files again whenever the page appears.
+        .onAppear {
+            let fs = DNSOverrideSettings.load(), fl = LocalDNSSettings.load(), fm = CoreOverrides.load().dnsMode
+            savedS = fs; savedLocal = fl; savedMode = fm
+            if s != fs { s = fs }
+            if local != fl { local = fl }
+            if dnsMode != fm { dnsMode = fm }
+        }
         .onChange(of: s) { _ in debounce.schedule { save() } }
         .onChange(of: local) { _ in debounce.schedule { save() } }
         .onChange(of: dnsMode) { _ in debounce.schedule { save() } }

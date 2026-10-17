@@ -305,7 +305,7 @@ struct RewriteRuleEditor: View {
                     if let e = checked.error {
                         Label(e, systemImage: "exclamationmark.triangle.fill").font(.caption).foregroundStyle(Theme.bad)
                     } else if let d = checked.desc {
-                        Label(d, systemImage: "checkmark.circle.fill").font(.caption).foregroundStyle(Theme.good)
+                        Label(GoText.localize(d), systemImage: "checkmark.circle.fill").font(.caption).foregroundStyle(Theme.good)
                     }
                     if form.type != "raw", let l = checked.line, !l.isEmpty {
                         Text(l).scaledFont(10, design: .monospaced).foregroundStyle(.secondary).textSelection(.enabled)
