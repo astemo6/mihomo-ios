@@ -348,7 +348,8 @@ struct QXNodesPanel: View {
                                        onProbe: vpn.isConnected ? { probeTarget = QXNameTarget(name: $0) } : nil,
                                        onShare: { shareNode($0) },
                                        onUpdate: r.isSaved ? (store.active?.kind == .remote ? { refreshProfile() } : nil)
-                                                           : (vpn.isConnected ? { Task { await model.updateProvider(r.name) } } : nil))
+                                                           : (vpn.isConnected ? { Task { await model.updateProvider(r.name) } } : nil),
+                                       link: r.isSaved ? store.active?.url : insp.result.proxyProviders.first(where: { $0.name == r.name })?.url)
                     }
                 }
 
@@ -456,6 +457,8 @@ struct QXResourceCard: View {
     var onProbe: ((String) -> Void)? = nil
     var onShare: ((String) -> Void)? = nil
     var onUpdate: (() -> Void)? = nil
+    /// Remote URL of the resource (subscription / provider), for 资源链接.
+    var link: String? = nil
     @ObservedObject private var model = QXNodesModel.shared
 
     var body: some View {
@@ -497,6 +500,9 @@ struct QXResourceCard: View {
                     Button(action: onTest) { Label("测速", systemImage: "bolt") }
                     if let onUpdate { Button(action: onUpdate) { Label("更新", systemImage: "arrow.clockwise") } }
                     Button { UIPasteboard.general.string = resource.name } label: { Label("拷贝名称", systemImage: "doc.on.doc") }
+                    if let link, !link.isEmpty {
+                        Button { UIPasteboard.general.string = link } label: { Label("资源链接", systemImage: "link") }
+                    }
                 }
 
                 if expanded {

@@ -18,7 +18,7 @@ settings:
     APP_GROUP_ID: group.com.astemo6.mihomo
     MARKETING_VERSION: "0.9.0"
     # QX rebuild preview number (qx/rebuild only): tags v<ver>-qx.<n>-build<run>.
-    QX_PREVIEW: "1"
+    QX_PREVIEW: "2"
     CURRENT_PROJECT_VERSION: "1"
     SWIFT_VERSION: "5.0"
     # i18n: String Catalog (App/Localizable.xcstrings), source language zh-Hans; the compiler extracts keys.
