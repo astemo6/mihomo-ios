@@ -208,10 +208,12 @@ struct ConnectionRow: View {
                 Text(m.joined(separator: " · ")).font(.caption2).foregroundStyle(Theme.accent).lineLimit(2)
             }
             HStack(spacing: 6) {
-                Image(systemName: "arrow.triangle.branch").font(.caption2)
-                Text(c.ruleText).lineLimit(1)
-                Text("→").foregroundStyle(.secondary)
-                Text(isMitM ? "MitM 引擎" : c.chainText).foregroundStyle(Theme.accent).lineLimit(1)
+                if let r = c.rule, !r.isEmpty {
+                    RuleTypeTag(type: Theme.ruleTypeName(r))
+                    if let p = c.rulePayload, !p.isEmpty { Text(verbatim: p).lineLimit(1).truncationMode(.middle).foregroundStyle(.secondary) }
+                }
+                Spacer(minLength: 4)
+                if isMitM { PolicyChip(name: String(localized: "MitM 引擎")) } else if !c.chainText.isEmpty { PolicyChip(name: c.chainText) }
             }
             .font(.caption)
             HStack(spacing: 10) {

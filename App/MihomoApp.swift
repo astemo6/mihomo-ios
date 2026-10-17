@@ -222,6 +222,43 @@ enum Theme {
         }
     }
 
+    /// v0.16: rule type chips (规则, 请求, 自定义规则). Categories share the protocol badge hues; MATCH is neutral.
+    static func ruleTypeColor(_ type: String) -> Color? {
+        let t = type.uppercased()
+        if t == "MATCH" || t == "FINAL" { return neutral }
+        if t.hasPrefix("GEOSITE") { return tone(0.55, 0.45, 1.0) }
+        if t.hasPrefix("DOMAIN") || t.hasPrefix("HOST") { return tone(0.25, 0.6, 1.0) }
+        if t.hasPrefix("RULE-SET") || t == "RULESET" || t.hasPrefix("RULE_SET") { return tone(1.0, 0.62, 0.2) }
+        if t.hasPrefix("IP") || t.hasPrefix("GEOIP") || t.hasPrefix("SRC-IP") || t.hasPrefix("SRC-GEOIP") || t.hasPrefix("DST-IP") { return tone(0.35, 0.85, 0.45) }
+        if t == "AND" || t == "OR" || t == "NOT" || t == "SUB-RULE" { return tone(0.2, 0.8, 0.85) }
+        if t.hasPrefix("PROCESS") || t.hasPrefix("UID") || t.hasPrefix("USER-AGENT") || t.hasPrefix("URL-REGEX") { return tone(1.0, 0.4, 0.75) }
+        if t.hasSuffix("PORT") || t == "NETWORK" || t.hasPrefix("IN-") || t == "DSCP" || t.hasPrefix("PROTOCOL") { return tone(1.0, 0.45, 0.45) }
+        return nil
+    }
+
+    /// Controller connection rules come as Go type names ("DomainSuffix", "GeoIP"); shown with the profile spelling.
+    static func ruleTypeName(_ raw: String) -> String {
+        let known: [String: String] = [
+            "domain": "DOMAIN", "domainsuffix": "DOMAIN-SUFFIX", "domainkeyword": "DOMAIN-KEYWORD", "domainregex": "DOMAIN-REGEX",
+            "domainwildcard": "DOMAIN-WILDCARD", "geosite": "GEOSITE", "geoip": "GEOIP", "srcgeoip": "SRC-GEOIP",
+            "ipcidr": "IP-CIDR", "ipcidr6": "IP-CIDR6", "srcipcidr": "SRC-IP-CIDR", "ipsuffix": "IP-SUFFIX", "srcipsuffix": "SRC-IP-SUFFIX",
+            "ipasn": "IP-ASN", "srcipasn": "SRC-IP-ASN", "ruleset": "RULE-SET", "match": "MATCH", "and": "AND", "or": "OR", "not": "NOT",
+            "subrules": "SUB-RULE", "processname": "PROCESS-NAME", "processpath": "PROCESS-PATH", "processnameregex": "PROCESS-NAME-REGEX",
+            "processpathregex": "PROCESS-PATH-REGEX", "dstport": "DST-PORT", "srcport": "SRC-PORT", "inport": "IN-PORT", "network": "NETWORK",
+            "intype": "IN-TYPE", "inuser": "IN-USER", "inname": "IN-NAME", "uid": "UID", "dscp": "DSCP",
+        ]
+        let key = raw.lowercased().replacingOccurrences(of: "-", with: "").replacingOccurrences(of: "_", with: "")
+        return known[key] ?? raw.uppercased()
+    }
+
+    /// Policy chip colour: DIRECT good, REJECT bad, everything else the accent.
+    static func policyColor(_ name: String) -> Color {
+        let n = name.uppercased()
+        if n == "DIRECT" { return good }
+        if n.hasPrefix("REJECT") { return bad }
+        return accent
+    }
+
     static func delayText(_ d: Int?) -> String {
         guard let d else { return "—" }
         return d > 0 ? "\(d) ms" : "超时"
