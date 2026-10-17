@@ -28,6 +28,9 @@ struct GalleryItem: Codable, Identifiable, Hashable {
     var author: String = ""
     var icon: String = ""
     var sourceID: String = ""
+    /// Built-in index: the same module in other formats (optional for caches written before).
+    var alternates: [String]? = nil
+    var homepage: String? = nil
 
     /// SURGE / LOON / STASH / QX / EGERN from the file extension (the real format shows in the preview).
     var formatHint: String {
@@ -53,10 +56,9 @@ struct GalleryIndex: Codable {
 final class ModuleGallery: ObservableObject {
     static let shared = ModuleGallery()
 
-    static let defaultSources: [GallerySource] = [
-        GallerySource(id: "default-maasea", name: "Maasea/sgmodule", url: "https://github.com/Maasea/sgmodule"),
-        GallerySource(id: "default-loonkiss", name: "QingRex/LoonKissSurge", url: "https://github.com/QingRex/LoonKissSurge/tree/main/Surge"),
-    ]
+    /// The built-in curated index (BuiltinModuleIndex) is the only default; third-party repositories are
+    /// offered as suggestions in 索引来源.
+    static let defaultSources: [GallerySource] = [BuiltinModuleIndex.source]
 
     @Published var sources: [GallerySource]
     @Published var indexes: [String: GalleryIndex] = [:]
@@ -71,6 +73,7 @@ final class ModuleGallery: ObservableObject {
             sources = Self.defaultSources
         }
         for s in sources { if let i = Self.loadCache(s) { indexes[s.id] = i } }
+        if sources.contains(where: { $0.id == BuiltinModuleIndex.sourceID }) { indexes[BuiltinModuleIndex.sourceID] = BuiltinModuleIndex.load() }
     }
 
     func saveSources() {
@@ -125,6 +128,7 @@ final class ModuleGallery: ObservableObject {
     }
 
     func refresh(_ s: GallerySource) async {
+        if s.id == BuiltinModuleIndex.sourceID { indexes[s.id] = BuiltinModuleIndex.load(); return }
         guard !loading.contains(s.id) else { return }
         loading.insert(s.id)
         defer { loading.remove(s.id) }
