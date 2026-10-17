@@ -1,0 +1,10 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <color name="window_bg">#FFF2F2F7</color>
+    <color name="card_bg">#FFFFFFFF</color>
+    <color name="text">#FF111114</color>
+    <color name="text_secondary">#FF8A8A8E</color>
+    <color name="accent">#FF007AFF</color>
+    <color name="good">#FF34C759</color>
+    <color name="ic_launcher_background">#FF101828</color>
+</resources>
