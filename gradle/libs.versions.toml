@@ -9,6 +9,9 @@ appcompat = "1.7.0"
 okhttp = "4.12.0"
 serialization = "1.7.3"
 coroutines = "1.9.0"
+# QR: ZXing core (encode) + zxing-android-embedded (camera scanner, Camera1 API; no CameraX / ML Kit).
+zxingCore = "3.5.3"
+zxingEmbedded = "4.3.0"
 
 [libraries]
 androidx-core-ktx = { group = "androidx.core", name = "core-ktx", version.ref = "coreKtx" }
@@ -27,6 +30,8 @@ compose-material-icons = { group = "androidx.compose.material", name = "material
 okhttp = { group = "com.squareup.okhttp3", name = "okhttp", version.ref = "okhttp" }
 kotlinx-serialization-json = { group = "org.jetbrains.kotlinx", name = "kotlinx-serialization-json", version.ref = "serialization" }
 kotlinx-coroutines-android = { group = "org.jetbrains.kotlinx", name = "kotlinx-coroutines-android", version.ref = "coroutines" }
+zxing-core = { group = "com.google.zxing", name = "core", version.ref = "zxingCore" }
+zxing-android-embedded = { group = "com.journeyapps", name = "zxing-android-embedded", version.ref = "zxingEmbedded" }
 
 [plugins]
 android-application = { id = "com.android.application", version.ref = "agp" }

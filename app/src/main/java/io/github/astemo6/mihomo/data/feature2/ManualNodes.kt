@@ -4,7 +4,6 @@ import io.github.astemo6.mihomo.core.Paths
 import io.github.astemo6.mihomo.data.AppJson
 import io.github.astemo6.mihomo.data.Profile
 import io.github.astemo6.mihomo.data.ProfileStore
-import kotlinx.serialization.builtins.ListSerializer
 import kotlinx.serialization.json.JsonObject
 import kotlinx.serialization.json.jsonArray
 import kotlinx.serialization.json.jsonObject
@@ -14,8 +13,7 @@ import kotlinx.serialization.json.jsonObject
  * (filesDir/profiles/manual-nodes.yaml) the bridge edits (ManualList / ManualAddText / ManualUpsert /
  * ManualDelete) and, with overrides.mergeManual, merges into every profile.
  *
- * ProfileStore (a shared file owned by the main branch) has no API to insert a profile with a fixed id,
- * so [ensureProfile] adds the index entry to profiles.json and re-runs ProfileStore.init() to pick it up.
+ * [ensureProfile] adds the fixed-id index entry through [ProfileStore.ensureProfile].
  */
 object ManualNodes {
     const val ID = ProfileStore.MANUAL_ID
@@ -26,14 +24,7 @@ object ManualNodes {
     fun ensureProfile(defaultName: String): Profile {
         profile?.let { return it }
         if (!Paths.profile(ID).exists()) F2Core.manualDelete(path, "") // writes an empty manual profile
-        val ser = ListSerializer(Profile.serializer())
-        val list = runCatching { AppJson.decodeFromString(ser, Paths.profilesIndex.readText()) }.getOrDefault(emptyList())
-        val p = Profile(id = ID, name = defaultName, kind = Profile.Kind.local)
-        if (list.none { it.id == ID }) {
-            JsonFiles.write(Paths.profilesIndex, ser, listOf(p) + list)
-            ProfileStore.init()
-        }
-        return profile ?: p
+        return ProfileStore.ensureProfile(ID, defaultName, first = true)
     }
 
     fun list(): List<JsonObject> {

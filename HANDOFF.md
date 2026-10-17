@@ -119,14 +119,15 @@ Mihomo for Android 是用户 iOS 客户端（astemo6/mihomo-ios）的 Android �
   - **策略组图标自选**：`data/GroupIconStore.kt` 写 `<home>/group-icons.json`（同 iOS：组名 → URL，"" = 默认），节点面板长按组图标打开 `ui/components/GroupIconPicker.kt`（图片地址校验加载、3 个 QX 图标库网格 + 搜索（经 jsDelivr 镜像，索引缓存在 icon-cache/）、使用配置文件图标 / 默认图标、清除缓存）。feature2 的 GroupsScreen 未接（不改 feature2 文件）。
   - 字符串：`res/values*/strings_engine2.xml`，由 `scripts/gen-strings-engine2.py` 生成（简体 / English / 繁體），键名 `e2_`。
   - 仅编译检查，**未上机**：AndroidCAStore 行为、p12 与 iOS 互通、调试运行、重放均未在设备上验证。
-- [ ] 规则列表导入（QX/Surge/Clash rule list，作为远程规则集）
-- [ ] DNS 查询日志和 DNS 阻止的域名
-- [ ] 流量统计：本次会话按策略统计、历史记录、流速
-- [ ] 订阅管理：节点订阅作为 proxy-provider，支持过滤、重命名、排序
-- [ ] 策略组编辑器：类型、正则筛选、预览、手动引用
-- [ ] 手动节点（表单、二维码导入、分享链接导出）
-- [ ] 每个节点的出口 IP 和解锁检测（MIHOMO-PROBE）
-- [ ] 诊断包导出（脱敏）和安全模式连接
+- [x] 规则列表导入（QX/Surge/Clash rule list / domain-set，作为远程规则集；`ui/feature2/RuleSetsScreen`，`<home>/rules.json`）。限制：未连接时不预下载，远程列表在连接后由内核下载
+- [x] DNS 查询日志和 DNS 阻止的域名（`DnsLogScreen`：查询日志 / 被拦截域名（REJECT 规则按域名汇总）/ 查询工具）。限制：Fake-IP 模式下多数查询本地直接返回，不产生上游日志
+- [x] 流量统计：本次会话按策略统计（含热门主机/规则）、历史记录（今日/近 N 天，Wi-Fi/蜂窝）、流速与峰值（`TrafficScreen`）
+- [x] 订阅管理：节点订阅作为 proxy-provider，支持过滤（包含/排除/正则）、重命名（替换/前缀/国旗）、去重与排序，实时预览（`NodeSubsScreen`）
+- [x] 策略组编辑器：类型（select/url-test/fallback/load-balance/smart）、正则筛选与 provider 过滤、匹配预览、手动添加成员、前置代理（`GroupsScreen`）
+- [x] 手动节点（表单、分享链接导入、**二维码扫码导入**、分享链接导出 + **二维码显示**，全部节点订阅文本也可出二维码）（`ManualNodesScreen`，二维码见 `ui/components/Qr.kt`，2026-10-17 a2-fixes）
+- [x] 每个节点的出口 IP 和解锁检测（MIHOMO-PROBE，`PolicyProbe` / `ProbeScreen`）
+- [x] 诊断包导出（脱敏）和安全模式连接（`DiagnosticsScreen`）；普通连接（总开关/磁贴/小组件/快捷方式）会把 `overrides.safeMode` 清回 false，与 iOS 相同（a2-fixes）
+- 以上 A2 数据功能都只做了编译检查（`:app:compileDebugKotlin`，真实 gobind 绑定），**未上机验证**
 
 ### A3 Android 加分项
 - [ ] 更多小组件（节点切换、流量）和 App Shortcuts
@@ -141,11 +142,17 @@ Mihomo for Android 是用户 iOS 客户端（astemo6/mihomo-ios）的 Android �
 
 ## 本地验证记录（2026-10-17 12:30 CST）
 - `app/` 的 Kotlin 已对照**真实 gobind 生成的 Java 绑定**（`gobind -lang=java -tags android,with_gvisor`，javac 编成 classes.jar 放进占位 AAR）跑过 `:app:compileDebugKotlin`，BUILD SUCCESSFUL。`Core.kt` 的签名已确认，无需再猜。
-- 仍未验证：真实 `gomobile bind` 产出的 .so、R8 release 构建（沙箱内存不足）、真机运行。
+- 仍未验证：真实 `gomobile bind` 产出的 .so、真机运行。（R8 已在 a2-fixes 本地跑通 `:app:minifyReleaseWithR8`，见文末。）
 - 2026-10-17 13:xx CST：A1 补全（工具栏编辑/搜索模式、DNS 工具、面板 & 工具栏、策略组图标）+ A2 模块/重写/MitM/脚本 + feature2 入口，`:app:compileDebugKotlin` 对真实 gobind 绑定 BUILD SUCCESSFUL。未上机：MediaStore 导出、证书安装流程、MitM 实际解密、图标加载均未在设备上验证。
 
 ## 2026-10-17 合并 android/a2-data
 - 合并 `android/a2-data`（1ed3fb1, ffe75f6）：规则集、DNS 日志、流量统计、节点订阅、策略组编辑、手动节点、出口 IP/解锁检测、诊断包/安全模式。详见 `HANDOFF-feature2.md`。
 - 删除 `Feature2Placeholder.kt`，路由直接进入 `Feature2Router.kt`；`MihomoApp` 调用 `Feature2Hooks.onAppCreate`，`MainActivity.onResume` 调用 `Feature2Hooks.onForeground`。
 - 验证：`:app:compileDebugKotlin` BUILD SUCCESSFUL（真实 gobind 绑定）。未真机测试。
-- 待办：普通连接时清除 `safeMode`（目前只能在诊断页“正常重连”退出）；`ProfileStore` 增加固定 id 新增接口替换 `ManualNodes.ensureProfile`；二维码扫描。（模块参数/策略映射、脚本编辑调试、MitM 请求查看、p12、CA 信任检测、组图标自选已在 android/a2-engine 完成）
+- 待办：A2 剩余项已全部完成（a2-engine / a2-fixes）；仅剩真机验证与完整 gomobile AAR。
+
+## 2026-10-17 a2-fixes（分支 `android/a2-fixes`，基于 4a403a4）
+- 安全模式：`VpnController.start(context, safeMode = false)` 给 `ACTION_START` 带上 `MihomoVpnService.EXTRA_SAFE_MODE`；`ACTION_TOGGLE`（小组件）没带 extra 时按 false 处理。`startVpn(safeMode)` 在启动前把值写进 overrides.json；系统重启/始终开启（action 为 null 或 `android.net.VpnService`）传 null，保持原值。诊断页的安全模式连接传 true。
+- `ProfileStore.ensureProfile(id, name, first = true)`：按固定 id 新增本地配置项（不存在时插到列表最前），`ManualNodes.ensureProfile` 改用它，不再直接写 profiles.json。
+- 二维码：依赖 `com.journeyapps:zxing-android-embedded:4.3.0`（Camera1，自带 CaptureActivity，约 150 KB AAR）+ `com.google.zxing:core:3.5.3`，没有引入 CameraX / ML Kit。`ui/components/Qr.kt`：`rememberQrScanner`（先申请 CAMERA 运行时权限，拒绝时提示）、`QrCodeDialog`（生成二维码 + 复制/分享，超过 2953 字节提示过长）。接入：添加配置页「扫码」（与剪贴板相同的 ImportRouter 路由）、配置文件菜单「二维码」（订阅 URL）、手动节点「扫码」填入导入框、每个节点的二维码按钮、顶栏「全部节点」二维码。Manifest 加 CAMERA 权限（camera feature required=false），扫码页改为 fullSensor 方向。字符串在 `res/values*/strings_fixes.xml`。均未上机验证。
+- R8：`:app:minifyReleaseWithR8` 本地 **BUILD SUCCESSFUL**（2026-10-17 15:18 CST，6 分 29 秒，Gradle `-Xmx2048m -XX:+UseSerialGC`、Kotlin in-process，峰值时机器可用内存仍约 4 GB，没有 OOM）。`proguard-rules.pro` 无需改动：mapping 里 `go.*` / `libmihomo.*` 33 个类保留原名，`CaptureActivity` 保留，kotlinx.serialization 生成的 `$$serializer` 正常。注意：AAR 是 gobind 生成的 classes.jar 占位（无 .so），所以只证明 Java/Kotlin 侧的 R8 配置可行；没有跑 `assembleRelease` 打包签名（ABI split / 签名交给 CI）。release 依赖需要联网下载一次（`--offline` 下缺 lifecycle-common-java8 等 jar）。

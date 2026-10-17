@@ -91,6 +91,24 @@ object ProfileStore {
         persist()
     }
 
+    /**
+     * Returns the profile with the fixed [id], adding a local index entry named [name] when it is missing
+     * (e.g. [MANUAL_ID]). The YAML file is the caller's job. [first] puts a new entry at the top of the list.
+     * Does not change the active profile unless none is active yet.
+     */
+    @Synchronized
+    fun ensureProfile(id: String, name: String, first: Boolean = true): Profile {
+        _profiles.value.firstOrNull { it.id == id }?.let { return it }
+        val p = Profile(id = id, name = name.ifBlank { id }, kind = Profile.Kind.local)
+        _profiles.update { l -> if (l.any { it.id == id }) l else if (first) listOf(p) + l else l + p }
+        persist()
+        if (_activeId.value == null) {
+            _activeId.value = id
+            AppSettings.activeProfileId = id
+        }
+        return _profiles.value.first { it.id == id }
+    }
+
     fun rename(p: Profile, name: String) = replace(p.copy(name = name.ifBlank { p.name }))
 
     fun setInterval(p: Profile, hours: Int) = replace(p.copy(updateIntervalHours = hours.coerceAtLeast(0)))

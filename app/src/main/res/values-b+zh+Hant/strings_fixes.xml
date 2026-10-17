@@ -1,0 +1,15 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- a2-fixes: QR scan / generate. -->
+<resources>
+    <string name="qr_scan">掃描</string>
+    <string name="qr_scan_prompt">將 QR 碼放入取景框內</string>
+    <string name="qr_camera_denied">未獲得相機權限，無法掃描。可在系統設定中允許相機權限。</string>
+    <string name="qr_too_long">內容過長，無法放進一個 QR 碼。請改用複製或分享。</string>
+    <string name="qr_close">關閉</string>
+    <string name="qr_copy">複製</string>
+    <string name="qr_share">分享</string>
+    <string name="qr_copied">已複製</string>
+    <string name="qr_show">QR 碼</string>
+    <string name="qr_sub_title">訂閱 QR 碼</string>
+    <string name="qr_manual_all_title">全部手動節點</string>
+</resources>

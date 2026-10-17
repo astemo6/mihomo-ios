@@ -53,7 +53,7 @@ private suspend fun restartWith(context: Context, safe: Boolean) {
         VpnController.stop(context)
         withTimeoutOrNull(10_000) { while (VpnState.info.value.status != VpnStatus.STOPPED) delay(150) }
     }
-    VpnController.start(context)
+    VpnController.start(context, safeMode = safe)
 }
 
 /** 诊断: redacted diagnostics bundle (bridge WriteDiagnosticBundle / DiagnosticSummary), safe-mode connect, 节点探测. */

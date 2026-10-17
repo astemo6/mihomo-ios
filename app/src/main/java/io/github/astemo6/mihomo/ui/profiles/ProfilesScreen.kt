@@ -31,6 +31,7 @@ import androidx.compose.material.icons.filled.ContentPaste
 import androidx.compose.material.icons.filled.FolderOpen
 import androidx.compose.material.icons.filled.Link
 import androidx.compose.material.icons.filled.MoreVert
+import androidx.compose.material.icons.filled.QrCodeScanner
 import androidx.compose.material.icons.filled.Refresh
 import androidx.compose.material.icons.filled.TextSnippet
 import androidx.compose.material3.AlertDialog
@@ -73,6 +74,8 @@ import io.github.astemo6.mihomo.ui.MainViewModel
 import io.github.astemo6.mihomo.ui.components.AppCard
 import io.github.astemo6.mihomo.ui.components.BackTopBar
 import io.github.astemo6.mihomo.ui.components.EmptyHint
+import io.github.astemo6.mihomo.ui.components.QrCodeDialog
+import io.github.astemo6.mihomo.ui.components.rememberQrScanner
 import io.github.astemo6.mihomo.ui.components.Tag
 import io.github.astemo6.mihomo.ui.theme.LocalAppColors
 
@@ -85,6 +88,7 @@ fun ProfilesScreen(vm: MainViewModel, onBack: () -> Unit, onAdd: () -> Unit) {
     var renaming by remember { mutableStateOf<Profile?>(null) }
     var deleting by remember { mutableStateOf<Profile?>(null) }
     var intervalFor by remember { mutableStateOf<Profile?>(null) }
+    var qrFor by remember { mutableStateOf<Profile?>(null) }
 
     Scaffold(
         containerColor = c.bg,
@@ -115,11 +119,15 @@ fun ProfilesScreen(vm: MainViewModel, onBack: () -> Unit, onAdd: () -> Unit) {
                     onRename = { renaming = p },
                     onInterval = { intervalFor = p },
                     onDelete = { deleting = p },
+                    onQr = { qrFor = p },
                 )
             }
         }
     }
 
+    qrFor?.let { p ->
+        p.url?.let { QrCodeDialog(it, p.name.ifBlank { stringResource(R.string.qr_sub_title) }, onDismiss = { qrFor = null }) }
+    }
     renaming?.let { p ->
         var name by remember(p.id) { mutableStateOf(p.name) }
         AlertDialog(
@@ -164,6 +172,7 @@ fun ProfilesScreen(vm: MainViewModel, onBack: () -> Unit, onAdd: () -> Unit) {
 private fun ProfileRow(
     p: Profile, active: Boolean, updating: Boolean,
     onSelect: () -> Unit, onUpdate: () -> Unit, onRename: () -> Unit, onInterval: () -> Unit, onDelete: () -> Unit,
+    onQr: () -> Unit,
 ) {
     val c = LocalAppColors.current
     var menu by remember { mutableStateOf(false) }
@@ -197,6 +206,9 @@ private fun ProfileRow(
                     if (p.isRemote) {
                         DropdownMenuItem(text = { Text(stringResource(R.string.update)) }, onClick = { menu = false; onUpdate() })
                         DropdownMenuItem(text = { Text(stringResource(R.string.auto_update)) }, onClick = { menu = false; onInterval() })
+                        if (!p.url.isNullOrBlank()) {
+                            DropdownMenuItem(text = { Text(stringResource(R.string.qr_show)) }, onClick = { menu = false; onQr() })
+                        }
                     }
                     DropdownMenuItem(text = { Text(stringResource(R.string.rename)) }, onClick = { menu = false; onRename() })
                     DropdownMenuItem(text = { Text(stringResource(R.string.delete), color = c.bad) }, onClick = { menu = false; onDelete() })
@@ -249,6 +261,11 @@ fun AddProfileSheet(vm: MainViewModel, onDismiss: () -> Unit) {
     var name by remember { mutableStateOf("") }
     var text by remember { mutableStateOf("") }
     var showText by remember { mutableStateOf(false) }
+    val scanQr = rememberQrScanner { scanned ->
+        // Same routing as the clipboard: subscription URL, install-config link, share links, module URL …
+        val req = ImportRouter.fromText(scanned)
+        if (req == null) vm.toast(context.getString(R.string.err_bad_url)) else { vm.import(req); onDismiss() }
+    }
 
     val pickFile = rememberLauncherForActivityResult(ActivityResultContracts.OpenDocument()) { uri ->
         if (uri != null) {
@@ -293,6 +310,7 @@ fun AddProfileSheet(vm: MainViewModel, onDismiss: () -> Unit) {
                 SourceTile(Icons.Filled.FolderOpen, stringResource(R.string.from_file), Modifier.weight(1f)) {
                     pickFile.launch(arrayOf("*/*"))
                 }
+                SourceTile(Icons.Filled.QrCodeScanner, stringResource(R.string.qr_scan), Modifier.weight(1f)) { scanQr() }
                 @Suppress("DEPRECATION")
                 SourceTile(Icons.Filled.TextSnippet, stringResource(R.string.from_text), Modifier.weight(1f)) { showText = !showText }
             }

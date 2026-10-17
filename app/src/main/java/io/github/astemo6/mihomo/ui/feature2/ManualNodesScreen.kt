@@ -11,6 +11,8 @@ import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.lazy.items
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Add
+import androidx.compose.material.icons.filled.QrCode
+import androidx.compose.material.icons.filled.QrCodeScanner
 import androidx.compose.material.icons.filled.Share
 import androidx.compose.material3.Button
 import androidx.compose.material3.CircularProgressIndicator
@@ -20,6 +22,8 @@ import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
+import io.github.astemo6.mihomo.ui.components.QrCodeDialog
+import io.github.astemo6.mihomo.ui.components.rememberQrScanner
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
@@ -79,6 +83,9 @@ fun ManualNodesScreen(onBack: () -> Unit) {
     val activeId by ProfileStore.activeId.collectAsState()
     val addedFmt = stringResource(R.string.f2_manual_added_n)
     val copiedMsg = stringResource(R.string.f2_copied)
+    // QR: (title, text) shown in QrCodeDialog; scanning appends the decoded link to the import box.
+    var qr by remember { mutableStateOf<Pair<String, String>?>(null) }
+    val scanQr = rememberQrScanner { scanned -> importText = if (importText.isBlank()) scanned else importText.trimEnd() + "\n" + scanned }
 
     fun changed() {
         version++
@@ -103,6 +110,10 @@ fun ManualNodesScreen(onBack: () -> Unit) {
             val sub = ManualNodes.subscription()
             if (sub.isNotBlank()) F2Util.shareText(context, sub, context.getString(R.string.f2_manual_export_all))
         }) { Icon(Icons.Default.Share, stringResource(R.string.f2_manual_export_all)) }
+        IconButton(onClick = {
+            val sub = ManualNodes.subscription()
+            if (sub.isNotBlank()) qr = context.getString(R.string.qr_manual_all_title) to sub
+        }) { Icon(Icons.Default.QrCode, stringResource(R.string.qr_show)) }
         IconButton(onClick = { creating = true }) { Icon(Icons.Default.Add, stringResource(R.string.f2_manual_add)) }
     }) {
         item { SectionTitle(stringResource(R.string.f2_manual_import)) }
@@ -111,6 +122,11 @@ fun ManualNodesScreen(onBack: () -> Unit) {
                 F2Field(stringResource(R.string.f2_manual_import_hint), importText, { importText = it }, singleLine = false, mono = true, minLines = 3)
                 Row(Modifier.padding(horizontal = 8.dp, vertical = 4.dp)) {
                     TextButton(onClick = { importText = F2Util.paste(context) }) { Text(stringResource(R.string.f2_paste)) }
+                    TextButton(onClick = scanQr) {
+                        Icon(Icons.Default.QrCodeScanner, null, Modifier.size(16.dp))
+                        Spacer(Modifier.size(4.dp))
+                        Text(stringResource(R.string.qr_scan))
+                    }
                     Spacer(Modifier.weight(1f))
                     Button(enabled = importText.isNotBlank(), onClick = {
                         scope.launch {
@@ -164,6 +180,11 @@ fun ManualNodesScreen(onBack: () -> Unit) {
                         val link = ManualNodes.shareLink(n)
                         if (link.isNotBlank()) F2Util.shareText(context, link, name)
                     }) { Text(stringResource(R.string.f2_share), fontSize = 12.sp) }
+                    IconButton(onClick = {
+                        val link = ManualNodes.shareLink(n)
+                        if (link.isBlank()) message = F2Core.lastError().ifBlank { context.getString(R.string.f2_share_unsupported) }
+                        else qr = name to link
+                    }, modifier = Modifier.size(32.dp)) { Icon(Icons.Default.QrCode, stringResource(R.string.qr_show), Modifier.size(18.dp), tint = c.accent) }
                     TextButton(onClick = {
                         probeErrors.remove(name)
                         scope.launch { ProbeStore.probeExit(name)?.let { probeErrors[name] = probeMessage(context, it) } }
@@ -183,6 +204,7 @@ fun ManualNodesScreen(onBack: () -> Unit) {
         ConfirmDialog(stringResource(R.string.f2_delete_q), n, stringResource(R.string.delete),
             onConfirm = { scope.launch { F2Core.io { ManualNodes.delete(n) }; changed() } }, onDismiss = { confirmDelete = null })
     }
+    qr?.let { (title, text) -> QrCodeDialog(text, title, onDismiss = { qr = null }) }
     MessageDialog(message) { message = null }
 }
 

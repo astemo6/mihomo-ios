@@ -123,5 +123,8 @@ dependencies {
     implementation(libs.okhttp)
     implementation(libs.kotlinx.serialization.json)
     implementation(libs.kotlinx.coroutines.android)
+    // QR scan / generate. zxing-android-embedded depends on ZXing core 3.4.1; the explicit core wins resolution.
+    implementation(libs.zxing.android.embedded)
+    implementation(libs.zxing.core)
     debugImplementation(libs.compose.ui.tooling)
 }
