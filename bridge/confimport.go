@@ -31,6 +31,8 @@ type confReport struct {
 	Remotes   int      `json:"remotes"`   // rewrite_remote modules (incl. disabled)
 	Skipped   []string `json:"skipped"`
 	Notes     []string `json:"notes"`
+	// v0.13.1: remote entries switched off in the original config (enabled=false) — not failures.
+	Disabled []string `json:"disabled,omitempty"`
 }
 
 type remoteModule struct {
@@ -239,7 +241,11 @@ func ImportConf(text string) string {
 		for _, l := range nonEmpty(secs["server_remote"]) {
 			sp, ok := parseQXServerRemote(l)
 			if !ok {
-				skip("server_remote", l, "无效或已禁用")
+				if qxLineDisabled(l) {
+					rep.Disabled = append(rep.Disabled, "[server_remote] "+qxRemoteLabel(l))
+				} else {
+					skip("server_remote", l, "无效的订阅地址")
+				}
 				continue
 			}
 			name := sp.Tag
@@ -340,9 +346,40 @@ func ImportConf(text string) string {
 		groupNames[g.name] = true
 	}
 	providers := map[string]any{}
+	// v0.13.1: QX's built-in `proxy` policy (the server picked on the main page) becomes a generated
+	// select group with every local node and every subscription, placed first; members named `proxy`
+	// point at it instead of being dropped.
+	qxProxyGroup := ""
+	if isQX && !groupNames["proxy"] {
+		for _, g := range pg {
+			for _, mem := range g.members {
+				if strings.EqualFold(mem, "proxy") {
+					qxProxyGroup = "proxy"
+				}
+			}
+		}
+		if qxProxyGroup != "" {
+			pm := map[string]any{"name": qxProxyGroup, "type": "select"}
+			var names []any
+			for _, p := range proxies {
+				names = append(names, strOf(p.(map[string]any)["name"]))
+			}
+			if len(providerTags) > 0 {
+				pm["include-all-providers"] = true
+			}
+			if len(names) > 0 {
+				pm["proxies"] = names
+			} else if len(providerTags) == 0 {
+				pm["proxies"] = []any{"DIRECT"}
+			}
+			groups = append(groups, pm)
+			rep.Notes = append(rep.Notes, "QX 内置策略 proxy 已生成为策略组「proxy」（全部本地节点和订阅节点），原来引用 proxy 的策略组改为引用它")
+		}
+	}
 	for _, g := range pg {
 		m := map[string]any{"name": g.name, "type": g.typ}
 		var members []any
+		var remoteNames []string // v0.13.1: node tags that only exist in a [server_remote] subscription
 		for _, mem := range g.members {
 			u := strings.ToUpper(mem)
 			switch {
@@ -350,10 +387,14 @@ func ImportConf(text string) string {
 				members = append(members, builtinPolicy(u))
 			case groupNames[mem] || proxyNames[mem]:
 				members = append(members, mem)
+			case u == "PROXY" && isQX && qxProxyGroup != "":
+				members = append(members, qxProxyGroup)
 			case u == "PROXY" && isQX:
 				skip("group "+g.name, mem, "QX 的 proxy 成员没有对应项，已忽略")
+			case len(providerTags) > 0:
+				remoteNames = append(remoteNames, mem)
 			default:
-				skip("group "+g.name, mem, "成员不存在")
+				skip("group "+g.name, mem, "成员不存在（没有节点订阅可以提供它）")
 			}
 		}
 		if pp := g.opts["policy-path"]; strings.Contains(pp, "://") {
@@ -380,6 +421,21 @@ func ImportConf(text string) string {
 				m["use"] = use
 				delete(m, "include-all")
 			}
+		}
+		// v0.13.1: members that are subscription nodes: take them from every subscription with an
+		// exact-name filter (unless the group already filters / picks providers itself).
+		if len(remoteNames) > 0 && m["filter"] == nil && m["use"] == nil && m["include-all"] == nil {
+			var alts []string
+			for _, n := range remoteNames {
+				alts = append(alts, regexp.QuoteMeta(n))
+			}
+			var use []any
+			for _, t := range providerTags {
+				use = append(use, t)
+			}
+			m["use"] = use
+			m["filter"] = "^(?:" + strings.Join(alts, "|") + ")$"
+			rep.Notes = append(rep.Notes, fmt.Sprintf("策略组「%s」的 %d 个成员来自节点订阅，按名称从订阅中选取", g.name, len(remoteNames)))
 		}
 		// A QX group whose members are remote servers (not known here) uses the subscriptions instead.
 		if len(members) == 0 && m["include-all"] == nil && m["include-all-proxies"] == nil && m["use"] == nil && len(providerTags) > 0 && hadUnknown(g.members, groupNames, proxyNames) {
@@ -432,6 +488,9 @@ func ImportConf(text string) string {
 	firstSelect := ""
 	for _, g := range groups {
 		gm := g.(map[string]any)
+		if qxProxyGroup != "" && strOf(gm["name"]) == qxProxyGroup {
+			continue // rules keep resolving `proxy` the way they did (first select group)
+		}
 		gl = append(gl, strOf(gm["name"]))
 		if firstSelect == "" && gm["type"] == "select" {
 			firstSelect = strOf(gm["name"])
@@ -511,7 +570,7 @@ func ImportConf(text string) string {
 		for _, l := range nonEmpty(secs["filter_remote"]) {
 			opts := qxLineOpts(l)
 			if v, ok := opts["enabled"]; ok && !truthy(v) {
-				skip("filter_remote", l, "已禁用")
+				rep.Disabled = append(rep.Disabled, "[filter_remote] "+qxRemoteLabel(l))
 				continue
 			}
 			before := len(rules)
@@ -535,7 +594,11 @@ func ImportConf(text string) string {
 			default:
 				sp, ok := parseQXRemote(l)
 				if !ok {
-					skip("filter_remote", l, "无效或已禁用")
+					if qxLineDisabled(l) {
+						rep.Disabled = append(rep.Disabled, "[filter_remote] "+qxRemoteLabel(l))
+					} else {
+						skip("filter_remote", l, "无效的规则列表地址")
+					}
 					continue
 				}
 				if opts["force-policy"] == "" {
@@ -858,6 +921,31 @@ func qxRemoteURL(line string) (string, bool) {
 }
 
 // hadUnknown: the group listed members that are neither groups nor proxies of this file (remote servers).
+// qxLineDisabled: a QX remote line with enabled=false.
+func qxLineDisabled(line string) bool {
+	for _, p := range strings.Split(line, ",") {
+		if k, v, ok := strings.Cut(strings.TrimSpace(p), "="); ok && strings.EqualFold(strings.TrimSpace(k), "enabled") {
+			return !truthy(v)
+		}
+	}
+	return false
+}
+
+// qxRemoteLabel: "tag (host)" for the 已禁用 list (no query string, so tokens are not shown).
+func qxRemoteLabel(line string) string {
+	parts := strings.Split(line, ",")
+	host := strings.TrimSpace(parts[0])
+	if u, err := url.Parse(host); err == nil && u.Host != "" {
+		host = u.Host + u.Path
+	}
+	for _, p := range parts[1:] {
+		if k, v, ok := strings.Cut(strings.TrimSpace(p), "="); ok && strings.EqualFold(strings.TrimSpace(k), "tag") {
+			return strings.TrimSpace(v) + " (" + host + ")"
+		}
+	}
+	return host
+}
+
 func hadUnknown(members []string, groups, proxies map[string]bool) bool {
 	for _, m := range members {
 		u := strings.ToUpper(m)

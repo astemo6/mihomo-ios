@@ -11,6 +11,7 @@ import (
 	"errors"
 	"fmt"
 	"net"
+	"net/netip"
 	"net/url"
 	"os"
 	"strconv"
@@ -53,9 +54,19 @@ func truthy(s string) bool {
 }
 
 func splitHostPort(hp string) (string, int, error) {
-	h, p, err := net.SplitHostPort(strings.TrimSpace(hp))
+	hp = strings.TrimSpace(hp)
+	h, p, err := net.SplitHostPort(hp)
 	if err != nil {
-		return "", 0, err
+		// v0.13.1: QX / Surge write IPv6 servers without brackets ("2606:4700::1:443"); the last colon
+		// is the port when the rest parses as an IPv6 address.
+		i := strings.LastIndex(hp, ":")
+		if i <= 0 || strings.Count(hp, ":") < 3 || strings.Contains(hp, "[") {
+			return "", 0, err
+		}
+		if _, perr := netip.ParseAddr(hp[:i]); perr != nil {
+			return "", 0, err
+		}
+		h, p = hp[:i], hp[i+1:]
 	}
 	port, err := strconv.Atoi(p)
 	if err != nil {

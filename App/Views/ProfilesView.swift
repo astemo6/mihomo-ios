@@ -6,7 +6,6 @@ struct ProfilesView: View {
     @EnvironmentObject var store: ProfileStore
     @State private var showAddRemote = false
     @State private var showNewLocal = false
-    @State private var showImporter = false
     @State private var message: String?
     @State private var busy = false
     @State private var editing: Profile?
@@ -79,7 +78,7 @@ struct ProfilesView: View {
                     Menu {
                         Button { showAddRemote = true } label: { Label("添加订阅链接", systemImage: "link.badge.plus") }
                         Button { importClipboard() } label: { Label("从剪贴板导入", systemImage: "doc.on.clipboard") }
-                        Button { showImporter = true } label: { Label("从文件导入（YAML / Surge·QX .conf）", systemImage: "folder") }
+                        Button { ImportRouter.shared.pickFile() } label: { Label("从文件导入（YAML / Surge·QX .conf）", systemImage: "folder") }
                         Button { importConfFromClipboard() } label: { Label("粘贴 Surge / QX 配置（.conf）", systemImage: "arrow.triangle.2.circlepath.doc.on.clipboard") }
                         Button { showNewLocal = true } label: { Label("新建本地配置", systemImage: "square.and.pencil") }
                         Button { showManual = true } label: { Label("添加单个节点", systemImage: "plus.viewfinder") }
@@ -102,9 +101,6 @@ struct ProfilesView: View {
             }
             .sheet(item: $editing) { p in
                 YAMLEditorView(title: p.kind == .remote ? "查看配置" : "编辑配置", initialName: p.name, initialText: store.content(of: p), profile: p)
-            }
-            .fileImporter(isPresented: $showImporter, allowedContentTypes: [UTType(filenameExtension: "yaml") ?? .plainText, UTType(filenameExtension: "yml") ?? .plainText, UTType(filenameExtension: "conf") ?? .plainText, .plainText, .text, .data]) { result in
-                importFile(result)
             }
             .alert("提示", isPresented: Binding(get: { message != nil }, set: { if !$0 { message = nil } })) {
                 Button("好", role: .cancel) {}
@@ -174,15 +170,6 @@ struct ProfilesView: View {
         }
     }
 
-    /// 从文件导入: read inside the security scope right away, then present through the shared presenter
-    /// (which waits for the file picker to finish dismissing). Every outcome is visible.
-    func importFile(_ result: Result<URL, Error>) {
-        switch result {
-        case .failure(let e): message = e.localizedDescription
-        case .success(let url):
-            ImportRouter.shared.present(ImportRouter.action(forFile: url))
-        }
-    }
 }
 
 struct ProfileRow: View {
