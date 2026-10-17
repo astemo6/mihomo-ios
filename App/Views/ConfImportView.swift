@@ -17,13 +17,14 @@ struct ConfImportResult: Decodable {
     }
     var yaml: String?
     var module: String?
+    var rewriteRemote: [String]? = nil
     var report: Report?
     var error: String?
 
     static func convert(_ text: String) async -> ConfImportResult {
         let json = await Task.detached(priority: .userInitiated) { LibmihomoImportConf(text) }.value
         return (try? JSONDecoder().decode(ConfImportResult.self, from: Data(json.utf8)))
-            ?? ConfImportResult(yaml: nil, module: nil, report: nil, error: "转换失败")
+            ?? ConfImportResult(yaml: nil, module: nil, report: nil, error: String(localized: "转换失败"))
     }
 }
 
@@ -39,6 +40,17 @@ enum ConfImport {
         if let m = r.module, !m.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
             await MainActor.run { EngineStore.shared.addModule(text: m, name: p.name + "（重写）") }
             msg += "，重写 / MitM / 脚本已作为模块「\(p.name)（重写）」添加"
+        }
+        // QX [rewrite_remote] (v0.8.1): each enabled URL becomes a remote module.
+        let remotes = r.rewriteRemote ?? []
+        if !remotes.isEmpty {
+            var added = 0
+            for u in remotes {
+                await EngineStore.shared.addModule(url: u)
+                added += 1
+            }
+            await MainActor.run { EngineStore.shared.message = nil }
+            msg += "，另添加 \(added) 个远程重写模块"
         }
         return msg
     }

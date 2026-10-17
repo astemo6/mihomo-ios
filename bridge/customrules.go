@@ -12,6 +12,7 @@ import (
 	"crypto/sha1"
 	"encoding/hex"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"io"
 	"net"
@@ -325,7 +326,67 @@ func convertListText(r io.Reader, kind string) (string, int, int) {
 	return sb.String(), ok, skipped
 }
 
+// convertNodesText turns a downloaded subscription into a proxy-provider YAML: Clash / mihomo YAML passes
+// through, anything else (QX / Surge / Loon lines, share links, base64) goes through parseNodeText.
+func convertNodesText(data []byte) ([]byte, int, error) {
+	t := strings.TrimSpace(strings.TrimPrefix(string(data), "\ufeff"))
+	if strings.Contains(t, "proxies:") {
+		return data, -1, nil
+	}
+	ps, _ := parseNodeText(t)
+	if len(ps) == 0 {
+		return nil, 0, errors.New("no nodes recognised")
+	}
+	list := make([]any, 0, len(ps))
+	for _, p := range ps {
+		list = append(list, p)
+	}
+	b, err := yaml.Marshal(map[string]any{"proxies": list})
+	return b, len(ps), err
+}
+
 func convertRoutes(r chi.Router) {
+	r.Get("/nodes/convert", func(w mhttp.ResponseWriter, req *mhttp.Request) {
+		src := req.URL.Query().Get("url")
+		if !strings.HasPrefix(src, "http://") && !strings.HasPrefix(src, "https://") {
+			w.WriteHeader(mhttp.StatusBadRequest)
+			return
+		}
+		tr := &http.Transport{
+			DialContext: func(ctx context.Context, network, addr string) (net.Conn, error) {
+				return coreDial(ctx, network, addr, "")
+			},
+			TLSHandshakeTimeout: 15 * time.Second,
+		}
+		defer tr.CloseIdleConnections()
+		cl := &http.Client{Transport: tr, Timeout: 60 * time.Second}
+		up, _ := http.NewRequest("GET", src, nil)
+		up.Header.Set("User-Agent", "clash.meta mihomo-ios")
+		resp, err := cl.Do(up)
+		if err != nil {
+			log.Warnln("[Nodes] download %s: %v", redactURL(src), err)
+			w.WriteHeader(mhttp.StatusBadGateway)
+			return
+		}
+		defer resp.Body.Close()
+		if resp.StatusCode != 200 {
+			w.WriteHeader(mhttp.StatusBadGateway)
+			return
+		}
+		data, _ := io.ReadAll(io.LimitReader(resp.Body, 16<<20))
+		out, n, err := convertNodesText(data)
+		if err != nil {
+			log.Warnln("[Nodes] %s: %v", redactURL(src), err)
+			w.WriteHeader(mhttp.StatusBadGateway)
+			return
+		}
+		if n >= 0 {
+			log.Infoln("[Nodes] converted %d node(s)", n)
+		}
+		w.Header().Set("Content-Type", "text/yaml; charset=utf-8")
+		_, _ = w.Write(out)
+	})
+
 	r.Get("/rules/convert", func(w mhttp.ResponseWriter, req *mhttp.Request) {
 		src := req.URL.Query().Get("url")
 		kind := req.URL.Query().Get("kind")
@@ -361,4 +422,12 @@ func convertRoutes(r chi.Router) {
 		w.Header().Set("Content-Type", "text/plain; charset=utf-8")
 		_, _ = io.WriteString(w, text)
 	})
+}
+
+// redactURL keeps only scheme and host for logs (subscription URLs carry tokens).
+func redactURL(s string) string {
+	if u, err := url.Parse(s); err == nil && u.Host != "" {
+		return u.Scheme + "://" + u.Host + "/…"
+	}
+	return "(url)"
 }

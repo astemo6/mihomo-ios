@@ -7,8 +7,14 @@ import (
 	"github.com/astemo6/mihomo-ios/bridge/mitm"
 )
 
+// qxConfSectionRe: sections only a full Quantumult X config has (modules / snippets never do).
+var qxConfSectionRe = regexp.MustCompile(`(?mi)^[ \t]*\[(server_local|server_remote|policy|filter_local|filter_remote)\][ \t]*\r?$`)
+
+// isQXConf reports whether text is a full Quantumult X configuration.
+func isQXConf(t string) bool { return qxConfSectionRe.MatchString(t) }
+
 var (
-	classifyConfRe  = regexp.MustCompile(`(?mi)^\[(Proxy|Proxy Group|General|server_local|server_remote|policy|filter_local)\]\s*$`)
+	classifyConfRe  = regexp.MustCompile(`(?mi)^[ \t]*\[(Proxy|Proxy Group|General|server_local|server_remote|policy|filter_local|filter_remote)\][ \t]*\r?$`)
 	moduleSectionRe = regexp.MustCompile(`(?mi)^\[(Script|URL Rewrite|Header Rewrite|Body Rewrite|Map Local|MITM|Rule|Rewrite|rewrite_local|mitm|Panel|task_local|Plugin)\]\s*$`)
 )
 
@@ -20,6 +26,9 @@ func ClassifyText(text string) string {
 	t := strings.TrimSpace(strings.TrimPrefix(text, "\ufeff"))
 	if t == "" {
 		return ""
+	}
+	if isQXConf(t) {
+		return "conf"
 	}
 	if mitm.IsEgern(t) {
 		return "module:egern"
