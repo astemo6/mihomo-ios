@@ -6,12 +6,12 @@ import SwiftUI
 // the extension's views cannot be hosted in the app, so keep the two in step when one changes.
 
 struct QXWidgetsPage: View {
-    @EnvironmentObject var dash: DashboardModel
+    @ObservedObject private var modeModel = QXModeModel.shared
     @EnvironmentObject var vpn: VPNManager
     @State private var scheme = 0          // 0 = 浅色, 1 = 深色
     @State private var previewMode: String?
 
-    private var mode: String { previewMode ?? dash.mode }
+    private var mode: String { previewMode ?? modeModel.mode }
     private var colorScheme: ColorScheme { scheme == 1 ? .dark : .light }
 
     var body: some View {
@@ -33,7 +33,7 @@ struct QXWidgetsPage: View {
                             QXHaptics.select()
                             let order = ["rule", "global", "direct"]
                             let i = order.firstIndex(of: mode) ?? 0
-                            withAnimation(.easeInOut(duration: 0.25)) { previewMode = order[(i + 1) % 3] }
+                            withAnimation(QXMotion.spring) { previewMode = order[(i + 1) % 3] }
                         } label: {
                             HStack(spacing: 6) {
                                 QXWindmill(mode: mode, size: 18)

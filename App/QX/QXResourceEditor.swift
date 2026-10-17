@@ -62,6 +62,8 @@ struct QXResourceEditor: View {
     @State private var loaded = false
     @State private var originalURL = ""
     @State private var detectTask: Task<Void, Never>?
+    @State private var alert = UsageAlertRule()
+    @State private var userInfo: SubscriptionUserInfo?
 
     static let hourChoices = [1, 6, 12, 24, 48, 72, 168]
 
@@ -152,6 +154,7 @@ struct QXResourceEditor: View {
                     }
                 }
 
+                if hasAlerts { QXUsageAlertField(rule: $alert, info: userInfo) }
                 detectionSection
                 advancedSection
                 if let error { ErrorRow(message: error) }
@@ -181,6 +184,9 @@ struct QXResourceEditor: View {
         .task { await load() }
     }
 
+    var hasAlerts: Bool {
+        switch target.kind { case .profile, .nodeSub: return true; default: return false }
+    }
     var isDomainSetRule: Bool { if case .ruleSet = target.kind { return domainSet } else { return false } }
     var hasEnable: Bool { if case .profile = target.kind { return false } else { return true } }
     var tagPlaceholder: String {
@@ -266,6 +272,7 @@ struct QXResourceEditor: View {
         case .profile(let id):
             guard let p = store.profiles.first(where: { $0.id == id }) else { error = String(localized: "找不到这个资源"); return }
             tag = p.name; url = p.url ?? ""; hours = p.updateIntervalHours; ua = p.userAgent
+            alert = UsageAlerts.rule(for: id); userInfo = p.userInfo
             if id == store.activeID {
                 let n = insp.result.proxies.count + insp.result.proxyProviders.reduce(0) { $0 + max($1.count, 0) }
                 detected = "mihomo YAML"
@@ -274,6 +281,7 @@ struct QXResourceEditor: View {
         case .nodeSub(let id):
             guard let s = subs.subs.first(where: { $0.id == id }) else { error = String(localized: "找不到这个资源"); return }
             tag = s.name; url = s.url; hours = s.updateIntervalHours; enabled = s.enabled; ua = s.userAgent
+            alert = UsageAlerts.rule(for: id); userInfo = s.userInfo
             if let c = s.count { detectedCount = String(localized: "识别到 \(c) 个节点") }
         case .ruleSet(let id):
             guard let r = rules.rules.first(where: { $0.id == id }) else { error = String(localized: "找不到这个资源"); return }
@@ -402,13 +410,17 @@ struct QXResourceEditor: View {
             if !t.isEmpty { p.name = t }
             p.url = u; p.userAgent = ua.isEmpty ? "clash.meta" : ua; p.updateIntervalHours = hours
             store.update(p)
+            UsageAlerts.setRule(alert, for: p.id)
+            UsageAlerts.evaluate(id: p.id, name: p.name, info: p.userInfo)
             if changed, let e = await store.refresh(p) { error = e; return }
         case .nodeSub(let id):
             guard var s = subs.subs.first(where: { $0.id == id }) else { return }
             let changed = u != s.url || ua != s.userAgent
             if !t.isEmpty { s.name = t }
             s.url = u; s.userAgent = ua.isEmpty ? "clash.meta" : ua; s.updateIntervalHours = hours; s.enabled = enabled
+            UsageAlerts.setRule(alert, for: s.id)
             await subs.save(s)
+            UsageAlerts.evaluate(id: s.id, name: s.name, info: s.userInfo)
             if changed, let e = await subs.refresh(s) { error = e; return }
         case .ruleSet(let id):
             guard let i = rules.rules.firstIndex(where: { $0.id == id }) else { return }

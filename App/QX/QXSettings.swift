@@ -231,7 +231,8 @@ struct QXSettingsView: View {
 
 struct QXOtherSettingsView: View {
     @EnvironmentObject var nav: QXNavigator
-    @EnvironmentObject var dash: DashboardModel
+    // QX preview 7: only the mode is shown here; observing DashboardModel re-rendered the list every second.
+    @ObservedObject private var modeModel = QXModeModel.shared
     @EnvironmentObject var vpn: VPNManager
     @AppStorage(AppAppearance.key) private var appearance = AppAppearance.system.rawValue
     @ObservedObject private var live = LiveActivityController.shared
@@ -332,17 +333,17 @@ struct QXOtherSettingsView: View {
 
     private func modeRow(_ mode: String, _ title: String) -> some View {
         Button {
-            Task { await dash.setMode(mode) }
+            Task { await modeModel.set(mode) }
             UISelectionFeedbackGenerator().selectionChanged()
         } label: {
             HStack(spacing: 12) {
                 QXWindmill(mode: mode, size: 22)
                 Text(verbatim: title).foregroundStyle(.primary)
                 Spacer()
-                if dash.mode == mode { Image(systemName: "checkmark").foregroundStyle(QXColor.switchOn) }
+                if modeModel.mode == mode { Image(systemName: "checkmark").foregroundStyle(QXColor.switchOn) }
             }
         }
-        .accessibilityAddTraits(dash.mode == mode ? .isSelected : [])
+        .accessibilityAddTraits(modeModel.mode == mode ? .isSelected : [])
     }
 
     private func row(_ title: String, _ icon: String, _ d: QXDest) -> some View {
@@ -503,7 +504,7 @@ struct QXNodeResourcesView: View {
                             ForEach(Array(store.profiles.enumerated()), id: \.element.id) { i, p in
                                 if i > 0 { Divider().padding(.leading, 56) }
                                 Button { Task { if let e = await store.setActive(p) { message = e } } } label: {
-                                    resourceRow(checked: p.id == store.activeID, title: p.name,
+                                    resourceRow(checked: p.id == store.activeID, title: p.name, bell: UsageAlerts.rule(for: p.id).enabled,
                                                 trailing: p.lastUpdated.map { Self.rel.localizedString(for: $0, relativeTo: Date()) } ?? (p.kind == .remote ? String(localized: "需要更新") : String(localized: "本地")),
                                                 subtitle: p.kind == .remote ? Self.redact(p.url ?? "") : String(localized: "本地配置"))
                                 }
@@ -530,7 +531,7 @@ struct QXNodeResourcesView: View {
                                 ForEach(Array(subs.subs.enumerated()), id: \.element.id) { i, sub in
                                     if i > 0 { Divider().padding(.leading, 56) }
                                     Button { editing = QXResourceTarget(kind: .nodeSub(sub.id)) } label: {
-                                        resourceRow(checked: sub.enabled, title: sub.name,
+                                        resourceRow(checked: sub.enabled, title: sub.name, bell: UsageAlerts.rule(for: sub.id).enabled,
                                                     trailing: subs.updating.contains(sub.id) ? String(localized: "更新中…")
                                                         : (sub.lastUpdated.map { Self.rel.localizedString(for: $0, relativeTo: Date()) } ?? String(localized: "需要更新")),
                                                     subtitle: sub.lastError ?? (Self.redact(sub.url) + (sub.count.map { " · " + String(localized: "\($0) 个节点") } ?? "")))
@@ -549,6 +550,8 @@ struct QXNodeResourcesView: View {
                             }
                         }
                     }
+
+                    QXUpdateNotifyCard()
 
                     let providers = insp.result.proxyProviders.filter { pv in !subs.subs.contains { $0.name == pv.name } }
                     if !providers.isEmpty {
@@ -580,13 +583,17 @@ struct QXNodeResourcesView: View {
         .sheet(item: $editing, onDismiss: { Task { await insp.load() } }) { t in QXResourceEditor(target: t).environmentObject(store) }
     }
 
-    func resourceRow(checked: Bool, title: String, trailing: String, subtitle: String) -> some View {
+    func resourceRow(checked: Bool, title: String, bell: Bool = false, trailing: String, subtitle: String) -> some View {
         HStack(alignment: .top, spacing: 14) {
             Image(systemName: checked ? "checkmark.square.fill" : "square")
                 .font(.system(size: 22)).foregroundStyle(checked ? QXColor.switchOn : Color.secondary)
             VStack(alignment: .leading, spacing: 3) {
-                HStack {
+                HStack(spacing: 6) {
                     Text(verbatim: title).font(.system(size: 18)).lineLimit(1)
+                    if bell {
+                        Image(systemName: "bell.fill").font(.caption2).foregroundStyle(.secondary)
+                            .accessibilityLabel(Text("用量提醒"))
+                    }
                     Spacer()
                     Text(verbatim: trailing).font(.caption).foregroundStyle(.secondary)
                 }

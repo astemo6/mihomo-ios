@@ -9,6 +9,10 @@ struct QXRuleLine: Hashable {
     let type: String
     let payload: String
     let policy: String
+    /// QX preview 7 (main v0.14): this session's hit count from /rules (extra.hitCount), connected only.
+    var session: Int? = nil
+
+    var text: String { [type, payload, policy].filter { !$0.isEmpty }.joined(separator: ",") }
 }
 
 struct QXRuleBlock: Identifiable, Hashable {
@@ -20,6 +24,8 @@ struct QXRuleBlock: Identifiable, Hashable {
     let count: Int
     /// Inline rules (local / final blocks).
     let rules: [QXRuleLine]
+    /// The RULE-SET / FINAL line itself (its hit counter); nil for local blocks.
+    var line: QXRuleLine? = nil
 }
 
 @MainActor
@@ -39,7 +45,7 @@ final class QXRulesModel: ObservableObject {
         var lines: [QXRuleLine] = []
         var setCounts: [String: Int] = [:]
         if VPNManager.shared.isConnected, let live = try? await ControllerClient.shared.rules() {
-            lines = live.map { QXRuleLine(type: $0.type, payload: $0.payload, policy: $0.proxy) }
+            lines = live.map { QXRuleLine(type: $0.type, payload: $0.payload, policy: $0.proxy, session: $0.extra?.hitCount) }
             for p in (try? await ControllerClient.shared.ruleProviders()) ?? [] { setCounts[p.name] = p.ruleCount ?? 0 }
         } else {
             lines = insp.result.rules.map { QXRuleLine(type: $0.type, payload: $0.payload, policy: $0.proxy) }
@@ -55,10 +61,10 @@ final class QXRulesModel: ObservableObject {
         for l in lines {
             if QXFmt.isRuleSet(l.type) {
                 flushLocal()
-                out.append(QXRuleBlock(id: "set-\(out.count)-\(l.payload)", kind: .set, name: l.payload, policy: l.policy, count: setCounts[l.payload] ?? 0, rules: []))
+                out.append(QXRuleBlock(id: "set-\(out.count)-\(l.payload)", kind: .set, name: l.payload, policy: l.policy, count: setCounts[l.payload] ?? 0, rules: [], line: l))
             } else if QXFmt.isFinal(l.type) {
                 flushLocal()
-                out.append(QXRuleBlock(id: "final", kind: .final, name: "FINAL", policy: l.policy, count: 1, rules: [l]))
+                out.append(QXRuleBlock(id: "final", kind: .final, name: "FINAL", policy: l.policy, count: 1, rules: [l], line: l))
             } else {
                 local.append(l)
             }
@@ -66,6 +72,14 @@ final class QXRulesModel: ObservableObject {
         flushLocal()
         blocks = out
         total = out.reduce(0) { $0 + $1.count }
+        // main v0.14 persistent counters (the tunnel saves them every 30 s; ask it to flush first).
+        await RuleHitsStore.shared.refresh()
+    }
+
+    /// Accumulated hits of a block (set / FINAL: its own line; local: the sum of its rules).
+    static func hits(_ b: QXRuleBlock, _ store: RuleHitsStore) -> Int {
+        if let l = b.line { return store.entry(l.type, l.payload, l.policy)?.total ?? 0 }
+        return b.rules.reduce(0) { $0 + (store.entry($1.type, $1.payload, $1.policy)?.total ?? 0) }
     }
 
     /// Rules inside a rule set, read from the provider's cache file (text / YAML; .mrs is binary).
@@ -126,22 +140,38 @@ struct QXRulesPanel: View {
     @EnvironmentObject var store: ProfileStore
     @EnvironmentObject var nav: QXNavigator
     @ObservedObject private var model = QXRulesModel.shared
+    // Published only on load / reset (not per second), so the panel can sort by it.
+    @ObservedObject private var hits = RuleHitsStore.shared
+    @AppStorage("qx.rules.sortByHits") private var sortByHits = false
     @State private var expanded: Set<String> = []
+    @State private var confirmReset = false
+
+    var sortedBlocks: [QXRuleBlock] {
+        guard sortByHits else { return model.blocks }
+        return model.blocks.enumerated().sorted { a, b in
+            let x = QXRulesModel.hits(a.element, hits), y = QXRulesModel.hits(b.element, hits)
+            return x != y ? x > y : a.offset < b.offset
+        }.map(\.element)
+    }
 
     var body: some View {
         ScrollView {
             LazyVStack(alignment: .leading, spacing: 10) {
                 HStack(alignment: .firstTextBaseline, spacing: 10) {
-                    Text("分流规则").font(.system(size: 22, weight: .bold))
+                    Text("分流规则").font(QXType.pageTitle)
                     Text(verbatim: QXFmt.count(model.total)).font(QXType.rowTitle).foregroundStyle(.secondary)
                     Spacer()
                     if model.loading { ProgressView().controlSize(.small) }
+                    hitsMenu
                 }
                 .padding(.horizontal, 4).padding(.top, 14)
+                if !hits.entries.isEmpty {
+                    QXRuleHitsCard(store: hits)
+                }
                 if model.blocks.isEmpty && !model.loading {
                     Text("没有规则。").font(.footnote).foregroundStyle(.secondary).padding(.horizontal, 4)
                 }
-                ForEach(model.blocks) { b in
+                ForEach(sortedBlocks) { b in
                     QXRuleBlockCard(block: b, expanded: expanded.contains(b.id), rules: rules(for: b), note: model.expandedNote[b.id]) {
                         withAnimation(QXMotion.spring) {
                             if expanded.contains(b.id) { expanded.remove(b.id) } else { expanded.insert(b.id); model.expand(b) }
@@ -158,6 +188,12 @@ struct QXRulesPanel: View {
                         }
                         Button { nav.push(.dest(.filterResources)) } label: { Label("规则资源", systemImage: "link") }
                         Button { UIPasteboard.general.string = b.name } label: { Label("拷贝名称", systemImage: "doc.on.doc") }
+                        if let l = b.line {
+                            Button { UIPasteboard.general.string = l.text } label: { Label("复制规则", systemImage: "doc.on.clipboard") }
+                            if let e = hits.entry(l.type, l.payload, l.policy) {
+                                Button(role: .destructive) { hits.reset(e.key) } label: { Label("重置此规则的命中计数", systemImage: "arrow.counterclockwise") }
+                            }
+                        }
                     }
                 }
             }
@@ -165,6 +201,9 @@ struct QXRulesPanel: View {
             .padding(.bottom, 110)
         }
         .refreshable { await model.load() }
+        .confirmationDialog("重置全部规则的命中计数？", isPresented: $confirmReset, titleVisibility: .visible) {
+            Button("重置", role: .destructive) { hits.reset(nil) }
+        }
         .task(id: "\(active)|\(vpn.isConnected)|\(store.activeID ?? "")") {
             guard active else { return }
             model.expandedRules = [:]
@@ -174,7 +213,32 @@ struct QXRulesPanel: View {
     }
 
     private func rules(for b: QXRuleBlock) -> [QXRuleLine] {
-        b.kind == .set ? (model.expandedRules[b.id] ?? []) : b.rules
+        if b.kind == .set { return model.expandedRules[b.id] ?? [] }
+        guard sortByHits else { return b.rules }
+        return b.rules.enumerated().sorted { a, c in
+            let x = hits.entry(a.element.type, a.element.payload, a.element.policy)?.total ?? 0
+            let y = hits.entry(c.element.type, c.element.payload, c.element.policy)?.total ?? 0
+            return x != y ? x > y : a.offset < c.offset
+        }.map(\.element)
+    }
+
+    /// 命中统计 menu (main v0.14 sort + reset), a QX circle-less glyph next to the count.
+    private var hitsMenu: some View {
+        Menu {
+            Picker("排序", selection: $sortByHits) {
+                Label("配置顺序", systemImage: "list.number").tag(false)
+                Label("命中最多", systemImage: "chart.bar.fill").tag(true)
+            }
+            Button(role: .destructive) { confirmReset = true } label: { Label("重置全部命中计数", systemImage: "arrow.counterclockwise") }
+                .disabled(hits.entries.isEmpty)
+        } label: {
+            Image(systemName: sortByHits ? "chart.bar.fill" : "chart.bar.xaxis")
+                .font(.system(size: 17, weight: .semibold))
+                .foregroundStyle(sortByHits ? QXColor.rules : Color.secondary)
+                .frame(width: 36, height: 30)
+                .contentShape(Rectangle())
+        }
+        .accessibilityLabel(Text("命中统计"))
     }
 }
 
@@ -187,10 +251,13 @@ struct QXRuleBlockCard: View {
 
     var body: some View {
         QXCard {
-            VStack(spacing: 0) {
+            LazyVStack(spacing: 0) {
                 HStack(spacing: 14) {
                     QXFunnel().fill(QXColor.rules).frame(width: 20, height: 20).frame(width: 30)
-                    Text(verbatim: block.name).font(QXType.rowTitle).lineLimit(1)
+                    VStack(alignment: .leading, spacing: 2) {
+                        Text(verbatim: block.name).font(QXType.rowTitle).lineLimit(1)
+                        if let l = block.line { QXRuleHitBadge(line: l) }
+                    }
                     Spacer(minLength: 6)
                     if expanded && !block.policy.isEmpty {
                         QXChip(text: block.policy, color: QXPolicyColor.color(block.policy))
@@ -208,12 +275,23 @@ struct QXRuleBlockCard: View {
                     ForEach(Array(rules.enumerated()), id: \.offset) { _, r in
                         Divider().padding(.leading, 20)
                         HStack(spacing: 6) {
-                            Text(verbatim: r.payload).font(.system(size: 16)).lineLimit(1).truncationMode(.middle)
+                            VStack(alignment: .leading, spacing: 2) {
+                                Text(verbatim: r.payload).font(QXType.rowTitle).lineLimit(1).truncationMode(.middle)
+                                // Counters exist for the profile's own rules, not for lines inside a rule set.
+                                if block.kind == .local { QXRuleHitBadge(line: r) }
+                            }
                             Spacer(minLength: 6)
                             if !r.type.isEmpty { QXChip(text: QXFmt.ruleType(r.type), color: QXColor.rules) }
                             if !r.policy.isEmpty { QXChip(text: r.policy, color: QXPolicyColor.color(r.policy)) }
                         }
                         .padding(.horizontal, QXMetrics.inset).padding(.vertical, 11)
+                        .contentShape(Rectangle())
+                        .contextMenu {
+                            Button { UIPasteboard.general.string = r.text } label: { Label("复制规则", systemImage: "doc.on.clipboard") }
+                            if block.kind == .local, let e = RuleHitsStore.shared.entry(r.type, r.payload, r.policy) {
+                                Button(role: .destructive) { RuleHitsStore.shared.reset(e.key) } label: { Label("重置此规则的命中计数", systemImage: "arrow.counterclockwise") }
+                            }
+                        }
                     }
                 }
             }
@@ -284,7 +362,7 @@ struct QXRewritePanel: View {
                 }
                 ForEach(list) { b in
                     QXCard {
-                        VStack(spacing: 0) {
+                        LazyVStack(spacing: 0) {
                             HStack(spacing: 14) {
                                 Image(systemName: "pencil").font(.system(size: 20, weight: .semibold)).foregroundStyle(QXColor.rewrite).frame(width: 30)
                                 Text(verbatim: b.name).font(QXType.rowTitle).lineLimit(1)
@@ -518,5 +596,86 @@ struct QXDNSLogView: View {
             guard vpn.isConnected else { return }
             await model.poll()
         }
+    }
+}
+
+
+// MARK: - Rule hit counters (main v0.14, QX preview 7)
+
+/// "累计 n · 今天 n · 本次 n" under a rule; observes the counter store on its own so a reload re-renders only
+/// these lines. Draws nothing for a rule without hits.
+struct QXRuleHitBadge: View {
+    let line: QXRuleLine
+    @ObservedObject private var store = RuleHitsStore.shared
+
+    var body: some View {
+        let e = store.entry(line.type, line.payload, line.policy)
+        let session = line.session ?? 0
+        if e != nil || session > 0 {
+            HStack(spacing: 6) {
+                if let e {
+                    Image(systemName: "chart.bar.fill").foregroundStyle(QXColor.rules)
+                    Text("累计 \(Fmt.count(e.total))")
+                    if e.todayCount > 0 { Text("今天 \(Fmt.count(e.todayCount))") }
+                }
+                if session > 0 { Text("本次 \(Fmt.count(session))") }
+            }
+            .font(QXType.rowDetail.monospacedDigit())
+            .foregroundStyle(.secondary)
+            .lineLimit(1)
+            .accessibilityElement(children: .combine)
+        }
+    }
+}
+
+/// 命中统计 summary at the top of the 分流规则 panel: totals and the five busiest rules as bars.
+struct QXRuleHitsCard: View {
+    @ObservedObject var store: RuleHitsStore
+
+    var body: some View {
+        QXCard {
+            VStack(alignment: .leading, spacing: 10) {
+                HStack(alignment: .firstTextBaseline) {
+                    Text("命中统计").font(QXType.rowTitle.weight(.semibold))
+                    Spacer()
+                    if let d = store.since {
+                        Text("自 \(d.formatted(date: .abbreviated, time: .omitted)) 起").font(QXType.rowDetail).foregroundStyle(.secondary)
+                    }
+                }
+                HStack(spacing: 0) {
+                    number(Fmt.count(store.total), String(localized: "累计"))
+                    number(Fmt.count(store.today), String(localized: "今天"))
+                    number("\(store.entries.count)", String(localized: "条规则有命中"))
+                }
+                let maxTotal = max(store.top.first?.total ?? 1, 1)
+                ForEach(store.top, id: \.key) { e in
+                    HStack(spacing: 8) {
+                        Text(verbatim: e.payload.isEmpty ? e.type : e.payload)
+                            .font(QXType.rowDetail).lineLimit(1).truncationMode(.middle)
+                            .frame(maxWidth: .infinity, alignment: .leading)
+                        Capsule().fill(QXColor.rules.opacity(0.15))
+                            .frame(width: 80, height: 6)
+                            .overlay(alignment: .leading) {
+                                Capsule().fill(QXColor.rules)
+                                    .frame(width: 80, height: 6)
+                                    .scaleEffect(x: max(CGFloat(e.total) / CGFloat(maxTotal), 0.04), anchor: .leading)
+                            }
+                        Text(verbatim: Fmt.count(e.total)).font(QXType.rowDetail.monospacedDigit()).foregroundStyle(.secondary)
+                            .frame(width: 46, alignment: .trailing)
+                    }
+                }
+                Text("连接时每 30 秒保存一次，断开、重载配置后继续累计。长按规则可单独重置。")
+                    .font(.caption2).foregroundStyle(.secondary)
+            }
+            .padding(16)
+        }
+    }
+
+    private func number(_ value: String, _ title: String) -> some View {
+        VStack(alignment: .leading, spacing: 2) {
+            Text(verbatim: value).font(.title3.weight(.semibold).monospacedDigit())
+            Text(verbatim: title).font(QXType.rowDetail).foregroundStyle(.secondary)
+        }
+        .frame(maxWidth: .infinity, alignment: .leading)
     }
 }

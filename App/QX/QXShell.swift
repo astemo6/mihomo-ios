@@ -8,6 +8,8 @@ struct QXShell: View {
     /// iPad / regular width (QX-4): home on the left, the pushed pages in a detail pane on the right.
     var pad = false
     @StateObject private var nav = QXNavigator.shared
+    /// QX preview 7: source namespace of the tile / windmill → page zoom transition (phone only).
+    @Namespace private var zoomNS
     @EnvironmentObject var vpn: VPNManager
     @EnvironmentObject var store: ProfileStore
     // Not observed: DashboardModel publishes traffic every second; observing it here re-rendered the whole
@@ -60,6 +62,7 @@ extension QXShell {
                     QXRouteView(route: r)
                 }
         }
+        .environment(\.qxZoomNamespace, zoomNS)
     }
 
     /// Regular width: the QX single page stays whole on the left (header, all tiles visible as a grid, panel
@@ -94,6 +97,7 @@ struct QXRouteView: View {
         case .group(let name): QXGroupDetailView(name: name)
         case .connection(let id): QXConnectionDetailView(id: id)
         case .dest(let d): d.view
+        case .zoom(let r): QXRouteView(route: r).qxZoomDestination(r)
         }
     }
 }
@@ -325,10 +329,11 @@ struct QXPanelStrip: View {
                 ForEach(order) { p in
                     Capsule()
                         .fill(p.color.opacity(p.rawValue == selected ? 1 : 0.45))
-                        .frame(height: p.rawValue == selected ? 10 : 7)
+                        .frame(height: 10)
+                        .scaleEffect(y: p.rawValue == selected ? 1 : 0.7)
                         .contentShape(Rectangle().inset(by: -10))
                         .onTapGesture { withAnimation(QXMotion.spring) { selected = p.rawValue } }
-                        .onLongPressGesture(minimumDuration: 0.4) { open(p) }
+                        .onLongPressGesture(minimumDuration: 0.4) { QXHaptics.longPress(); nav.push(p.resourceRoute) }
                         .accessibilityLabel(Text(p.title))
                 }
             }
@@ -340,6 +345,7 @@ struct QXPanelStrip: View {
                     HStack(spacing: QXMetrics.tileGap) {
                         ForEach(order) { p in
                             QXTile(panel: p, selected: p.rawValue == selected, small: style == "small")
+                                .qxZoomSource(p.resourceRoute, radius: style == "small" ? 16 : QXMetrics.tileRadius)
                                 .id(p.rawValue)
                                 .onTapGesture { withAnimation(QXMotion.spring) { selected = p.rawValue } }
                                 .onLongPressGesture(minimumDuration: 0.4, pressing: { press(p, $0) }) { open(p) }
@@ -360,7 +366,7 @@ struct QXPanelStrip: View {
 
     private func open(_ p: QXPanel) {
         QXHaptics.longPress()
-        nav.push(p.resourceRoute)
+        nav.pushZoom(p.resourceRoute)
     }
 }
 
@@ -382,9 +388,11 @@ struct QXTile: View {
                         .lineLimit(1)
                         .minimumScaleFactor(0.7)
                 }
+                // QX preview 7: animate transform / opacity only (was an animated frame width).
                 Capsule()
                     .fill(Color.white.opacity(selected ? 0.9 : 0))
-                    .frame(width: selected ? 22 : 6, height: 3)
+                    .frame(width: 22, height: 3)
+                    .scaleEffect(x: selected ? 1 : 6.0 / 22.0)
                     .padding(.top, small ? 4 : 0)
                     .animation(QXMotion.spring, value: selected)
             }
@@ -527,12 +535,13 @@ struct QXToolbar: View {
                 .frame(width: QXMetrics.windmillCircle, height: QXMetrics.windmillCircle)
                 .background(Circle().fill(QXPalette.chrome))
                 .overlay(Circle().stroke(QXPalette.hairline, lineWidth: 1))
+                .qxZoomSource(.settings, radius: QXMetrics.windmillCircle / 2)
                 .scaleEffect(windmillPressed ? 0.9 : 1)
                 .animation(QXMotion.press, value: windmillPressed)
                 .contentShape(Circle())
                 .onTapGesture {
                     QXHaptics.tap()
-                    if nav.padLayout { nav.path = [] } else { nav.push(.settings) }
+                    if nav.padLayout { nav.path = [] } else { nav.pushZoom(.settings) }
                 }
                 .onLongPressGesture(minimumDuration: 0.4, pressing: { p in windmillPressed = p }) {
                     QXHaptics.longPress()
@@ -572,7 +581,7 @@ struct QXToolbar: View {
 // MARK: - Run mode sheet (windmill long-press)
 
 struct QXRunModeSheet: View {
-    @EnvironmentObject var dash: DashboardModel
+    @ObservedObject private var modeModel = QXModeModel.shared
     @EnvironmentObject var vpn: VPNManager
     @EnvironmentObject var store: ProfileStore
     @ObservedObject private var engine = EngineStore.shared
@@ -581,7 +590,7 @@ struct QXRunModeSheet: View {
     @State private var result: String?
 
     var modeName: String {
-        switch dash.mode {
+        switch modeModel.mode {
         case "global": return String(localized: "全局代理")
         case "direct": return String(localized: "全局直连")
         default: return String(localized: "规则分流")
@@ -650,19 +659,19 @@ struct QXRunModeSheet: View {
 
     private func modeButton(_ mode: String, _ title: String) -> some View {
         Button {
-            Task { await dash.setMode(mode) }
+            Task { await modeModel.set(mode) }
             UISelectionFeedbackGenerator().selectionChanged()
         } label: {
             VStack(spacing: 8) {
                 QXWindmill(mode: mode, size: 34)
                     .frame(width: 72, height: 72)
                     .background(Circle().fill(QXPalette.card))
-                    .overlay(Circle().stroke(dash.mode == mode ? QXColor.switchOn : Color.primary.opacity(0.08), lineWidth: dash.mode == mode ? 2.5 : 1))
-                Text(verbatim: title).font(.footnote.weight(dash.mode == mode ? .semibold : .regular)).foregroundStyle(.primary)
+                    .overlay(Circle().stroke(modeModel.mode == mode ? QXColor.switchOn : Color.primary.opacity(0.08), lineWidth: modeModel.mode == mode ? 2.5 : 1))
+                Text(verbatim: title).font(.footnote.weight(modeModel.mode == mode ? .semibold : .regular)).foregroundStyle(.primary)
             }
         }
         .buttonStyle(.plain)
-        .accessibilityAddTraits(dash.mode == mode ? .isSelected : [])
+        .accessibilityAddTraits(modeModel.mode == mode ? .isSelected : [])
     }
 
     /// 一键更新: subscriptions, rule sets / scripts in the resource manager, modules, and (connected) every provider.

@@ -190,6 +190,9 @@ enum QXRoute: Hashable {
     case group(String)
     case connection(String)
     case dest(QXDest)
+    /// QX preview 7: pushed with the iOS 18 zoom transition from a home tile / the windmill (the wrapped route
+    /// is also the transition source id). Other pushes of the same page use the normal push.
+    indirect case zoom(QXRoute)
 }
 
 /// Sheets the shell presents (pages that own a NavigationStack, and editors).

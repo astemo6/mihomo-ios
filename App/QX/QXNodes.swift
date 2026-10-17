@@ -486,7 +486,7 @@ struct QXResourceCard: View {
 
     var body: some View {
         QXCard {
-            VStack(spacing: 0) {
+            LazyVStack(spacing: 0) {
                 // QX-5 size check (frame 01, 600 px = 393 pt): card 62 pt high, 9 pt apart, glyph centred 31 pt
                 // from the card edge, title at 59 pt, 30 pt grey bar before the count.
                 HStack(spacing: 13) {
@@ -797,13 +797,13 @@ struct QXGroupDetailView: View {
             }
         } content: {
         ScrollView {
-                VStack(alignment: .leading, spacing: 12) {
+                LazyVStack(alignment: .leading, spacing: 12) {
                     if let e = model.error { ErrorRow(message: e) }
                     if let g = model.group(named: name) {
                         header(g)
                         let pinAction = (g.kind == "url-test" || g.kind == "fallback") && model.live && !smart.isSmart(g.name)
                         QXCard {
-                            VStack(spacing: 0) {
+                            LazyVStack(spacing: 0) {
                                 ForEach(Array(ordered(g.members).enumerated()), id: \.element) { i, m in
                                     if i > 0 { Divider().padding(.leading, 16) }
                                     QXNodeRow(name: m, selected: g.now == m, pinned: g.pinned == m, enabled: g.selectable || pinAction)

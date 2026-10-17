@@ -16,6 +16,7 @@ struct QXSubscriptionEditor: View {
     @State private var saving = false
     @State private var error: String?
     @State private var detectTask: Task<Void, Never>?
+    @State private var alert = UsageAlertRule()
 
     static let intervals = [6, 12, 24, 48, 72, 168]
 
@@ -51,6 +52,7 @@ struct QXSubscriptionEditor: View {
                 }
                 field("User-Agent", placeholder: "clash.meta", text: $ua)
                     .onChange(of: ua) { _ in scheduleDetect() }
+                QXUsageAlertField(rule: $alert)
 
                 VStack(alignment: .leading, spacing: 10) {
                     Text("格式识别").font(.system(size: 22, weight: .bold))
@@ -150,7 +152,11 @@ struct QXSubscriptionEditor: View {
         Task {
             defer { saving = false }
             do {
-                _ = try await store.addRemote(url: url, name: name, userAgent: ua, intervalHours: hours)
+                let p = try await store.addRemote(url: url, name: name, userAgent: ua, intervalHours: hours)
+                if alert.enabled {
+                    UsageAlerts.setRule(alert, for: p.id)
+                    UsageAlerts.evaluate(id: p.id, name: p.name, info: p.userInfo)
+                }
                 dismiss()
             } catch {
                 self.error = error.localizedDescription

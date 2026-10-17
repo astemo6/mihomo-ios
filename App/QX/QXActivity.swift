@@ -114,9 +114,10 @@ final class QXActivityModel: ObservableObject {
             for r in list[Self.recordCap...] { seqByID.removeValue(forKey: r.id) }
             list.removeLast(list.count - Self.recordCap)
         }
-        records = list
+        // QX preview 7: publish only what changed (each assignment notifies every observer).
+        if list != records { records = list }
         last = seen
-        traffic = tr
+        if tr != traffic { traffic = tr }
         saveSession()
         if dt > 0 {
             var sp: [String: NetBytes] = [:]
@@ -130,8 +131,8 @@ final class QXActivityModel: ObservableObject {
                 m.down = max(m.down, s.tcp.down + s.udp.down)
                 mx[k] = m
             }
-            speed = sp
-            maxSpeed = mx
+            if sp != speed { speed = sp }
+            if mx != maxSpeed { maxSpeed = mx }
         }
     }
 
@@ -500,7 +501,6 @@ struct QXBlockedView: View {
 
 struct QXTrafficStatsView: View {
     @EnvironmentObject var vpn: VPNManager
-    @EnvironmentObject var dash: DashboardModel
     @EnvironmentObject var nav: QXNavigator
     @ObservedObject private var model = QXActivityModel.shared
     @State private var tab = 0
@@ -542,8 +542,8 @@ struct QXTrafficStatsView: View {
 
     @ViewBuilder var trafficBody: some View {
         HStack {
-            bigNumber(String(localized: "下载"), Fmt.bytes(dash.downloadTotal))
-            bigNumber(String(localized: "上传"), Fmt.bytes(dash.uploadTotal))
+            bigNumber(String(localized: "下载")) { QXLiveTotal(download: true) }
+            bigNumber(String(localized: "上传")) { QXLiveTotal(download: false) }
         }
         .padding(.top, 8)
         if !vpn.isConnected && model.traffic.isEmpty {
@@ -558,7 +558,7 @@ struct QXTrafficStatsView: View {
 
     @ViewBuilder var speedBody: some View {
         VStack(alignment: .leading, spacing: 4) {
-            Text(verbatim: Fmt.speed(dash.down + dash.up)).font(.title3.monospacedDigit()).foregroundStyle(.secondary)
+            QXLiveSpeed().font(.title3.monospacedDigit()).foregroundStyle(.secondary)
             Text("已运行").font(.subheadline).foregroundStyle(.secondary).padding(.top, 8)
             if let d = vpn.connectedDate {
                 TimelineView(.periodic(from: .now, by: 1)) { ctx in
@@ -583,10 +583,10 @@ struct QXTrafficStatsView: View {
         }
     }
 
-    private func bigNumber(_ title: String, _ value: String) -> some View {
+    private func bigNumber<V: View>(_ title: String, @ViewBuilder value: () -> V) -> some View {
         VStack(spacing: 6) {
             Text(verbatim: title).font(.subheadline).foregroundStyle(.secondary)
-            Text(verbatim: value).font(.system(size: 40, weight: .regular).monospacedDigit()).lineLimit(1).minimumScaleFactor(0.5)
+            value().font(.system(size: 40, weight: .regular).monospacedDigit()).lineLimit(1).minimumScaleFactor(0.5)
         }
         .frame(maxWidth: .infinity)
     }
@@ -667,4 +667,21 @@ struct QXHTTPCaptureView: View {
         .onAppear { if vpn.isConnected { http.start() } }
         .onDisappear { http.stop() }
     }
+}
+
+
+// QX preview 7: live numbers in their own tiny views, so the per-second DashboardModel sample re-renders a
+// Text, not the whole 流量 page.
+struct QXLiveTotal: View {
+    let download: Bool
+    @ObservedObject private var dash = DashboardModel.shared
+    var body: some View {
+        Text(verbatim: Fmt.bytes(download ? dash.downloadTotal : dash.uploadTotal))
+            .contentTransition(.numericText())
+    }
+}
+
+struct QXLiveSpeed: View {
+    @ObservedObject private var dash = DashboardModel.shared
+    var body: some View { Text(verbatim: Fmt.speed(dash.down + dash.up)) }
 }
