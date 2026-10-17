@@ -471,6 +471,9 @@ func apply(home, configPath string, fd int32) error {
 	if err := hub.Parse(rt); err != nil {
 		return friendlyError(err)
 	}
+	// Read here, in the goroutine that just set it: the diag capture goroutine used to call log.Level()
+	// itself while ApplyConfig wrote it (data race found by the selftest -race run).
+	diagLevel.Store(int32(log.Level()))
 	debug.FreeOSMemory()
 	return nil
 }

@@ -330,6 +330,7 @@ final class NodeManagerModel: ObservableObject {
         }
         let st = ControllerClient.testSettings
         let url = st.url, timeout = st.timeoutMs
+        await bindOfflineInterface()
         if n.inRuntime, let path = AppShared.activeProfileURL?.path {
             let home = AppShared.homeURL.path
             let name = n.name
@@ -341,6 +342,24 @@ final class NodeManagerModel: ObservableObject {
             return max(ms, 0)
         }
         return 0
+    }
+
+    /// selftest: offline tests here never bound to Wi-Fi / cellular (only 策略's offline test did, v0.15.2), so
+    /// with another app's VPN up (QX while ours is off) 节点管理 measured through that VPN again — the latency
+    /// the v0.15.2 hotfix removed. The interface is looked up at most every 30 s and shared by a bulk run.
+    private var ifaceCheckedAt: Date?
+    private var ifaceLookup: Task<Void, Never>?
+
+    private func bindOfflineInterface() async {
+        if let t = ifaceCheckedAt, Date().timeIntervalSince(t) < 30 { return }
+        if let running = ifaceLookup { await running.value; return }
+        let task = Task {
+            LibmihomoSetOfflineTestInterface(await PhysicalInterface.current() ?? "")
+        }
+        ifaceLookup = task
+        await task.value
+        ifaceLookup = nil
+        ifaceCheckedAt = Date()
     }
 
     /// 全部测速: `list` in order, at most `concurrency` at a time; cancel with stopAll().

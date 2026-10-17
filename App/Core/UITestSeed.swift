@@ -86,7 +86,7 @@ enum UITestSeed {
         }
     }
 
-    static func seedNodeSubscription() throws {
+    @MainActor static func seedNodeSubscription() throws {
         let id = "uitest-sub"
         let dir = AppShared.homeURL.appendingPathComponent("nodesubs", isDirectory: true)
         try FileManager.default.createDirectory(at: dir, withIntermediateDirectories: true)

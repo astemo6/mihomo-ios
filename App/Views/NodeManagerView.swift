@@ -466,7 +466,13 @@ struct NodeDetailView: View {
             loaded = true
         }
         .sheet(item: $share) { t in NodeShareSheet(name: t.name, link: t.link) }
-        .sheet(item: $editing, onDismiss: { Task { await model.reload(); dismiss() } }) { t in NodeEditorView(node: t.node).environmentObject(ProfileStore.shared) }
+        // selftest: popped the detail even when the editor was cancelled; now only when the node is gone / renamed.
+        .sheet(item: $editing, onDismiss: {
+            Task {
+                await model.reload()
+                if model.manualNode(node) == nil { dismiss() } else { info = await model.summary(of: node) }
+            }
+        }) { t in NodeEditorView(node: t.node).environmentObject(ProfileStore.shared) }
         .sheet(item: $editSub) { s in NodeSubEditor(sub: s).environmentObject(ProfileStore.shared) }
         .confirmationDialog("删除这个手动节点？", isPresented: $confirmDelete, titleVisibility: .visible) {
             Button("删除", role: .destructive) { Task { await model.delete(node); dismiss() } }

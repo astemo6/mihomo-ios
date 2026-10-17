@@ -13,6 +13,7 @@ import (
 	"path/filepath"
 	"strconv"
 	"strings"
+	"sync/atomic"
 	"testing"
 	"time"
 )
@@ -23,7 +24,7 @@ type stunTestServer struct {
 	ips   [2]string
 	ports [2]int
 	// dropChanged makes the server ignore CHANGE-REQUEST (to emulate a filtering NAT on the client side).
-	dropChanged bool
+	dropChanged atomic.Bool
 }
 
 func newStunTestServer(t *testing.T) *stunTestServer {
@@ -80,7 +81,7 @@ func (s *stunTestServer) serve(k [2]int, c *net.UDPConn) {
 			v := binary.BigEndian.Uint32(buf[24:])
 			changeIP, changePort = v&4 != 0, v&2 != 0
 		}
-		if (changeIP || changePort) && s.dropChanged {
+		if (changeIP || changePort) && s.dropChanged.Load() {
 			continue
 		}
 		out := k
@@ -195,7 +196,7 @@ func TestNATThroughCore(t *testing.T) {
 	if r.Type != "full-cone" || r.Mapping != "endpoint-independent" || !strings.Contains(r.Chain, "DIRECT") || !strings.HasPrefix(r.Mapped, "127.0.0.1:") {
 		t.Fatalf("%s", b)
 	}
-	srv.dropChanged = true
+	srv.dropChanged.Store(true)
 	r = natTest(context.Background(), []string{server}, "", 600*time.Millisecond)
 	if r.Type != "port-restricted-cone" {
 		t.Fatalf("%+v", r)

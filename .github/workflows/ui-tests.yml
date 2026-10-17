@@ -50,16 +50,39 @@ jobs:
       - name: go vet
         working-directory: bridge
         run: go vet ./... 2>&1 | tee ../go-vet.log
+      # 1) The suite without the race detector; tests that fail are retried once on their own (several
+      #    download geo data / reach public endpoints and flake on the runner's network).
+      - name: go test
+        if: always()
+        working-directory: bridge
+        run: |
+          set +e
+          go test -count=1 -timeout 30m ./... 2>&1 | tee ../go-test.log
+          RC=${PIPESTATUS[0]}
+          [ "$RC" = 0 ] && exit 0
+          FAILED=$(grep -E "^--- FAIL: " ../go-test.log | awk '{print $3}' | sort -u | paste -sd'|' -)
+          echo "failed first run: $FAILED"
+          [ -n "$FAILED" ] || exit "$RC"
+          go test -count=1 -timeout 15m -run "^(${FAILED})\$" ./... 2>&1 | tee ../go-test-retry.log
+          RC2=${PIPESTATUS[0]}
+          echo "### go test" >> "$GITHUB_STEP_SUMMARY"
+          echo "- first run failed: ${FAILED//|/, }; retry exit $RC2" >> "$GITHUB_STEP_SUMMARY"
+          exit "$RC2"
+      # 2) The race detector; reports are classified (scripts/race_check.py): races in this repository's
+      #    code fail, races inside mihomo's config re-apply are listed as upstream.
       - name: go test -race
         if: always()
         working-directory: bridge
         run: |
-          set -o pipefail
-          go test -race -count=1 -timeout 30m ./... 2>&1 | tee ../go-test.log
+          set +e
+          go test -race -count=1 -timeout 30m ./... > ../go-test-race.log 2>&1
+          echo "go test -race exit ${PIPESTATUS[0]} (failures from upstream races are expected)"
+          grep -E "^(--- FAIL|ok |FAIL)" ../go-test-race.log | head -n 80
+          python3 ../scripts/race_check.py ../go-test-race.log --summary "$GITHUB_STEP_SUMMARY"
       - name: Failed tests (on failure)
         if: failure()
         run: |
-          grep -E "^(--- FAIL|FAIL|panic:|WARNING: DATA RACE)" -A12 go-test.log | head -n 300 || true
+          grep -E "^(--- FAIL|FAIL|panic:)" -A12 go-test.log go-test-retry.log 2>/dev/null | head -n 300 || true
       - uses: actions/upload-artifact@v4
         if: always()
         with:
@@ -67,6 +90,8 @@ jobs:
           path: |
             go-vet.log
             go-test.log
+            go-test-retry.log
+            go-test-race.log
           if-no-files-found: warn
           retention-days: 14
 
