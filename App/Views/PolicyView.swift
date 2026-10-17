@@ -270,7 +270,9 @@ struct PolicyView: View {
                 if let e = model.error { Text(e).font(.footnote).foregroundStyle(Theme.bad) }
                 TestTargetCaption(live: true)
                 ForEach(model.groups) { g in
-                    let fixed = (g.fixed ?? "").isEmpty ? nil : g.fixed
+                    let fixed: String? = (g.fixed ?? "").isEmpty ? nil : g.fixed
+                    let pinAction: ((String?) -> Void)? = (PolicyGroupDisplay.kind(live: g.type) == "url-test" || PolicyGroupDisplay.kind(live: g.type) == "fallback") && !smart.isSmart(g.name)
+                        ? { n in Task { await model.pin(g, n) } } : nil
                     let d = PolicyGroupDisplay(name: g.name, kind: PolicyGroupDisplay.kind(live: g.type), now: g.now,
                                                members: ordered(g.all ?? []), selectable: g.isSelectable, profileIcon: g.icon,
                                                pinned: fixed)
@@ -290,7 +292,7 @@ struct PolicyView: View {
                                     onIcon: { iconTarget = IconTarget(name: g.name, profileIcon: g.icon) },
                                     onProbe: { probeTarget = ProbeTarget(name: $0) },
                                     badge: { probes.badge(for: $0) },
-                                    onPin: d.pinnable && !smart.isSmart(g.name) ? { n in Task { await model.pin(g, n) } } : nil)
+                                    onPin: pinAction)
                 }
             }
             .padding(16)

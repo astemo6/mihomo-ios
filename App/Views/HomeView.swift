@@ -11,7 +11,7 @@ struct HomeView: View {
     var offlineCards: [DashboardModel.HomeGroup] {
         let groups = offline.result.groups.filter { $0.hidden != true }
         let byName = Dictionary(groups.map { ($0.name, $0) }, uniquingKeysWith: { a, _ in a })
-        return groups.prefix(4).map { g in
+        return groups.prefix(4).map { g -> DashboardModel.HomeGroup in
             var chain = [g.name]
             var cur = g
             while let n = offline.current(of: cur), chain.count < 6, !chain.contains(n) {
