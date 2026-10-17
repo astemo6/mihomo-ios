@@ -343,6 +343,8 @@ enum TunnelMessage: String {
     case dumpDiagnostics
     /// 按网络切换策略 (v0.9): re-apply netpolicy.json for the current network now.
     case applyNetworkPolicy
+    /// v0.18 隧道内存: current / peak / available memory + Tailscale guard status (JSON).
+    case memoryStats
 }
 
 /// Last start error written by the extension so the app can show why the tunnel stopped.

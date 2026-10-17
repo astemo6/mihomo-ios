@@ -358,6 +358,7 @@ struct DiagnosticsView: View {
     var body: some View {
         let group = AppShared.appGroup
         List {
+            TunnelMemorySection()
             Section {
                 Button {
                     Task { await exportBundle() }

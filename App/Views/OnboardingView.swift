@@ -22,6 +22,7 @@ struct OnboardingView: View {
     @State private var busy = false
     @State private var message: String?
     @State private var isError = false
+    @State private var showSample = false
 
     private let steps = 3
 
@@ -114,6 +115,17 @@ struct OnboardingView: View {
                         .disabled(busy)
                     }
                 }
+            }
+            Button { showSample = true } label: {
+                Label("还不熟悉配置写法？看看示例配置", systemImage: "text.book.closed").font(.footnote.weight(.semibold))
+            }
+            .accessibilityIdentifier("onboarding.sample")
+            .sheet(isPresented: $showSample) {
+                NavigationStack {
+                    SampleProfileView()
+                        .toolbar { ToolbarItem(placement: .cancellationAction) { Button("关闭") { showSample = false } } }
+                }
+                .environmentObject(store)
             }
         }
     }

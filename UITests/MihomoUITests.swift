@@ -1045,4 +1045,112 @@ final class MihomoUITests: MihomoUITestCase {
         XCTAssertTrue(app.staticTexts.matching(NSPredicate(format: "label == %@", "Demo Script Panel")).firstMatch.waitForExistence(timeout: 6), "module title back")
         XCTAssertTrue(app.element(id: "panel.interval").label.contains(L("每小时")), "module interval back")
     }
+
+    // MARK: 22. v0.18 experimental Tailscale node: editor form, saved node detail
+
+    func test22_TailscaleNode() {
+        launch()
+        tab(4)
+        let row = app.element(id: "more.节点管理")
+        XCTAssertTrue(scrollTo(row))
+        row.tap()
+        XCTAssertTrue(tapIfExists(app.button(L("添加节点")), timeout: 8), "+")
+        let ts = app.buttons["Tailscale"]
+        XCTAssertTrue(scrollTo(ts), "Tailscale in 新协议")
+        ts.tap()
+        XCTAssertTrue(app.navigationBars[L("添加节点")].waitForExistence(timeout: 6), "editor")
+        XCTAssertTrue(app.element(id: "node.experimentalWarning").waitForExistence(timeout: 4), "实验性 warning")
+        XCTAssertTrue(app.element(id: "node.experimentalWarning").label.contains("50 MB"), "warning mentions the 50 MB limit")
+        XCTAssertFalse(app.textFields[L("服务器")].exists, "no server field for Tailscale")
+        XCTAssertFalse(app.textFields[L("端口")].exists, "no port field for Tailscale")
+        XCTAssertTrue(app.staticTexts[L("设备名")].exists || app.textFields["mihomo-ios"].exists, "hostname field")
+        fill(L("名称"), "UITest Tailscale")
+        let sec = app.secureTextFields.firstMatch
+        XCTAssertTrue(sec.waitForExistence(timeout: 3), "auth key field")
+        sec.tap()
+        sec.typeText("tskey-auth-uitest-xxxx")
+        snap("tailscale-editor")
+        app.swipeUp()
+        XCTAssertTrue(scrollTo(app.staticTexts[L("接受子网路由")]), "accept-routes toggle")
+        snap("tailscale-editor-bottom")
+        let save = app.navigationBars.buttons[L("保存")]
+        XCTAssertTrue(save.waitHittable(), "保存 enabled without server / port")
+        save.tap()
+        let gone = NSPredicate(format: "exists == false")
+        let closed = XCTWaiter().wait(for: [XCTNSPredicateExpectation(predicate: gone, object: app.navigationBars.buttons[L("保存")])], timeout: 8) == .completed
+        if !closed {
+            snap("tailscale-editor-error")
+            XCTFail("Tailscale node did not save")
+            closeSheet()
+            return
+        }
+        usleep(600_000)
+        back()
+        XCTAssertTrue(tapIfExists(app.element(label: L("本地节点"))))
+        let node = app.element(label: "UITest Tailscale")
+        XCTAssertTrue(scrollTo(node), "saved Tailscale node listed")
+        node.tap()
+        let mem = app.element(id: "node.tailscale.memory")
+        XCTAssertTrue(scrollTo(mem), "Tailscale section with memory link")
+        XCTAssertTrue(app.element(id: "node.experimentalWarning").exists, "warning on detail")
+        XCTAssertFalse(app.staticTexts.matching(NSPredicate(format: "label CONTAINS %@", "tskey-auth-uitest")).firstMatch.exists, "auth key not shown")
+        snap("tailscale-detail")
+        mem.tap()
+        XCTAssertTrue(app.navigationBars[L("诊断")].waitForExistence(timeout: 6), "opens 诊断")
+        XCTAssertTrue(app.staticTexts[L("隧道内存")].waitForExistence(timeout: 4) || app.otherElements[L("隧道内存")].exists, "隧道内存 section")
+        snap("tailscale-diagnostics")
+    }
+
+    // MARK: 23. v0.18 隧道内存 readout in 更多 → 诊断
+
+    func test23_DiagnosticsMemory() {
+        launch(["-UITestDemoMemory"])
+        openMore("诊断")
+        let cur = app.element(id: "diag.memory.current")
+        XCTAssertTrue(cur.waitForExistence(timeout: 8), "当前占用 row")
+        XCTAssertTrue(cur.label.contains("23.4 MB"), "current footprint: \(cur.label)")
+        XCTAssertTrue(app.element(id: "diag.memory.peak").label.contains("33.0 MB"), "peak: \(app.element(id: "diag.memory.peak").label)")
+        XCTAssertTrue(app.element(id: "diag.memory.available").label.contains("26.6 MB"), "available")
+        XCTAssertTrue(app.element(id: "diag.memory.limit").label.contains("50.0 MB"), "limit = footprint + available: \(app.element(id: "diag.memory.limit").label)")
+        XCTAssertTrue(app.element(label: L("实时")).exists, "live badge")
+        let ts = app.element(id: "diag.memory.tailscale")
+        XCTAssertTrue(ts.exists, "Tailscale row")
+        XCTAssertTrue(ts.label.contains(L("已启动")), "Tailscale state: \(ts.label)")
+        XCTAssertTrue(app.element(id: "diag.memory.tsBefore").label.contains("20.5 MB"), "before start")
+        XCTAssertTrue(app.element(id: "diag.memory.tsAfter").label.contains("30.0 MB"), "after start")
+        snap("diagnostics-memory")
+        // Refreshed while open: still there after a few polls, page alive.
+        sleep(3)
+        XCTAssertTrue(app.element(id: "diag.memory.current").exists, "still shown after refreshes")
+        assertAlive("memory refresh")
+    }
+
+    // MARK: 24. v0.18 示例配置
+
+    func test24_SampleProfile() {
+        launch()
+        tab(3)
+        let entry = app.element(id: "profiles.sample")
+        XCTAssertTrue(scrollTo(entry), "示例配置 entry in 配置")
+        entry.tap()
+        XCTAssertTrue(app.navigationBars[L("示例配置")].waitForExistence(timeout: 6), "sample page")
+        let editor = app.textViews.firstMatch
+        XCTAssertTrue(editor.waitForExistence(timeout: 4), "highlighted text")
+        let text = (editor.value as? String) ?? ""
+        for k in ["proxy-groups:", "rule-providers:", "type: tailscale", "[rewrite_local]", "MATCH,"] {
+            XCTAssertTrue(text.contains(k), "sample contains \(k)")
+        }
+        snap("sample-profile")
+        app.element(id: "sample.copy").tap()
+        XCTAssertTrue(app.button(L("已复制")).waitForExistence(timeout: 3), "copied")
+        app.element(id: "sample.create").tap()
+        let msg = app.element(id: "sample.message")
+        XCTAssertTrue(msg.waitForExistence(timeout: 15), "create result")
+        XCTAssertTrue(msg.label.contains(L("示例配置")), "created: \(msg.label)")
+        snap("sample-profile-created")
+        back()
+        let rows = app.descendants(matching: .any).matching(NSPredicate(format: "label CONTAINS %@", L("示例配置")))
+        XCTAssertTrue(rows.count >= 2, "new profile listed next to the entry")
+        snap("sample-profile-list")
+    }
 }

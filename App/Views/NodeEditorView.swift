@@ -19,7 +19,15 @@ enum NodeProtocols {
         // v0.13: protocols added to mihomo after v1.19.0 (all in v1.19.32).
         ("sudoku", "Sudoku"), ("masque", "MASQUE"), ("trusttunnel", "TrustTunnel"), ("shadowquic", "ShadowQUIC"),
         ("openvpn", "OpenVPN"), ("gost-relay", "GOST Relay"),
+        // v0.18: experimental — tsnet runs inside the 50 MB tunnel extension.
+        ("tailscale", "Tailscale"),
     ]
+
+    /// v0.18: protocols shown with 实验性 (memory not yet measured on device).
+    static let experimental: Set<String> = ["tailscale"]
+
+    /// Overlay networks joined through a control plane: no server / port fields.
+    static func serverless(_ type: String) -> Bool { ["tailscale", "zerotier", "easytier"].contains(type) }
 
     /// Protocols that are new in this release (shown with a short note in the editor).
     static let newer: Set<String> = ["sudoku", "masque", "trusttunnel", "shadowquic", "openvpn", "gost-relay"]
@@ -33,6 +41,7 @@ enum NodeProtocols {
         case "shadowquic": return "ShadowQUIC：伪装成普通 QUIC（TLS 1.3）的代理协议，SNI 填被伪装的网站。"
         case "openvpn": return "OpenVPN：由内核在用户态完成连接，不会创建系统 VPN。CA 证书必填；把 .ovpn 中 <ca> 等段的 PEM 内容粘贴进来。"
         case "gost-relay": return "GOST Relay：GOST v3 的 relay 协议，可选 TLS 与多路复用。"
+        case "tailscale": return "Tailscale：由内核在隧道扩展里加入你的 tailnet（不创建系统 VPN）。建议填写 Auth Key；目标不在 tailnet 路由内时连接会失败，访问公网需要设置出口节点。状态保存在 App Group 内核目录下。"
         default: return nil
         }
     }
@@ -281,6 +290,18 @@ enum NodeProtocols {
                 FieldSpec(key: "udp", label: "UDP", kind: .bool),
                 FieldSpec(key: "skip-cert-verify", label: "跳过证书验证", kind: .bool),
             ]
+        case "tailscale":
+            return [
+                FieldSpec(key: "auth-key", label: "Auth Key", kind: .secure, placeholder: "tskey-auth-…"),
+                FieldSpec(key: "hostname", label: "设备名", placeholder: "mihomo-ios"),
+                FieldSpec(key: "control-url", label: "控制服务器（Headscale）", placeholder: "https://controlplane.tailscale.com"),
+                FieldSpec(key: "state-dir", label: "状态目录", placeholder: "留空为 tailscale/节点名"),
+                FieldSpec(key: "ephemeral", label: "临时设备（Ephemeral）", kind: .bool),
+                FieldSpec(key: "udp", label: "UDP", kind: .bool),
+                FieldSpec(key: "accept-routes", label: "接受子网路由", kind: .bool),
+                FieldSpec(key: "exit-node", label: "出口节点", placeholder: "100.64.0.1 / auto:any"),
+                FieldSpec(key: "exit-node-allow-lan-access", label: "使用出口节点时允许访问局域网", kind: .bool),
+            ]
         case "mieru":
             return [
                 FieldSpec(key: "username", label: "用户名"),
@@ -325,6 +346,9 @@ enum NodeProtocols {
 
     static func advanced(for type: String) -> [FieldSpec] {
         var f: [FieldSpec] = []
+        if serverless(type) {
+            return [FieldSpec(key: "ip-version", label: "IP 版本", kind: .choice(["", "dual", "ipv4", "ipv6", "ipv4-prefer", "ipv6-prefer"]))]
+        }
         if echTypes.contains(type) {
             f.append(FieldSpec(key: "ech-opts.enable", label: "ECH", kind: .bool))
             f.append(FieldSpec(key: "ech-opts.config", label: "ECHConfig", placeholder: "Base64（留空则查询 DNS）"))
@@ -364,6 +388,7 @@ enum NodeProtocols {
         case "shadowquic": return ["alpn": "h3", "congestion-controller": "bbr"]
         case "openvpn": return ["proto": "udp", "udp": "true"]
         case "gost-relay": return ["udp": "true"]
+        case "tailscale": return ["udp": "true"]
         default: return [:]
         }
     }
@@ -461,14 +486,23 @@ struct NodeEditorView: View {
                 Section("基本") {
                     Picker("协议", selection: $type) {
                         ForEach(NodeProtocols.all, id: \.type) { p in
-                            Text(NodeProtocols.newer.contains(p.type) ? "\(p.title) · " + String(localized: "新") : p.title).tag(p.type)
+                            Text(NodeProtocols.experimental.contains(p.type) ? "\(p.title) · " + String(localized: "实验性")
+                                 : NodeProtocols.newer.contains(p.type) ? "\(p.title) · " + String(localized: "新") : p.title).tag(p.type)
                         }
                     }
                     TextField("名称", text: $name)
-                    TextField("服务器", text: $server).textInputAutocapitalization(.never).autocorrectionDisabled().keyboardType(.URL)
-                    TextField("端口", text: $port).keyboardType(.numberPad)
+                    if !NodeProtocols.serverless(type) {
+                        TextField("服务器", text: $server).textInputAutocapitalization(.never).autocorrectionDisabled().keyboardType(.URL)
+                        TextField("端口", text: $port).keyboardType(.numberPad)
+                    }
                 }
                 .listRowBackground(Theme.card)
+                if NodeProtocols.experimental.contains(type) {
+                    Section {
+                        ExperimentalMemoryWarning()
+                    }
+                    .listRowBackground(Theme.card)
+                }
                 Section {
                     ForEach(NodeProtocols.fields(for: type).filter { NodeProtocols.visible($0, values: values) }) { f in field(f) }
                 } header: {
@@ -509,7 +543,7 @@ struct NodeEditorView: View {
             .toolbar {
                 ToolbarItem(placement: .cancellationAction) { Button("取消") { dismiss() } }
                 ToolbarItem(placement: .confirmationAction) {
-                    if busy { ProgressView() } else { Button("保存") { save() }.disabled(server.isEmpty || port.isEmpty) }
+                    if busy { ProgressView() } else { Button("保存") { save() }.disabled(!NodeProtocols.serverless(type) && (server.isEmpty || port.isEmpty)) }
                 }
             }
             .onChange(of: type) { t in
@@ -579,9 +613,15 @@ struct NodeEditorView: View {
         let specs = NodeProtocols.fields(for: type) + NodeProtocols.advanced(for: type)
         for f in specs { NodeProtocols.removeNested(&d, f.key.split(separator: ".").map(String.init)) }
         d["type"] = type
-        d["name"] = name.trimmingCharacters(in: .whitespaces).isEmpty ? "\(ProxyItem.label(for: type)) \(server)" : name.trimmingCharacters(in: .whitespaces)
-        d["server"] = server.trimmingCharacters(in: .whitespaces)
-        d["port"] = Int(port) ?? 0
+        let fallbackName = NodeProtocols.serverless(type) ? ProxyItem.label(for: type) : "\(ProxyItem.label(for: type)) \(server)"
+        d["name"] = name.trimmingCharacters(in: .whitespaces).isEmpty ? fallbackName : name.trimmingCharacters(in: .whitespaces)
+        if NodeProtocols.serverless(type) {
+            d.removeValue(forKey: "server")
+            d.removeValue(forKey: "port")
+        } else {
+            d["server"] = server.trimmingCharacters(in: .whitespaces)
+            d["port"] = Int(port) ?? 0
+        }
         for f in specs {
             if f.key == "x-awg" { continue }
             if f.key.hasPrefix("amnezia-wg-option."), values["x-awg"] != "true" { continue }
@@ -622,5 +662,21 @@ struct NodeEditorView: View {
                 dismiss()
             } catch { self.error = error.localizedDescription }
         }
+    }
+}
+
+/// v0.18: the warning shown with the experimental Tailscale node (editor, node detail).
+struct ExperimentalMemoryWarning: View {
+    var body: some View {
+        VStack(alignment: .leading, spacing: 6) {
+            Label("实验性：内存占用未经真机验证", systemImage: "exclamationmark.triangle.fill")
+                .font(.subheadline.weight(.semibold)).foregroundStyle(Theme.warn)
+            Text("iOS 只给 VPN 扩展约 50 MB 内存，Tailscale 会在扩展里额外运行一套网络栈。首次使用时如果剩余内存不足 14 MB 会拒绝启动；运行中剩余不足 5 MB 会自动停止 Tailscale，以免 VPN 被系统终止。在 更多 → 诊断 → 隧道内存 查看实际占用。")
+                .font(.footnote).foregroundStyle(.secondary)
+                .fixedSize(horizontal: false, vertical: true)
+        }
+        .padding(.vertical, 2)
+        .accessibilityElement(children: .combine)
+        .accessibilityIdentifier("node.experimentalWarning")
     }
 }

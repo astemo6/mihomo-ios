@@ -420,6 +420,8 @@ struct NodeDetailView: View {
             }
             .listRowBackground(Theme.card)
 
+            if node.type.lowercased() == "tailscale" { tailscaleSection }
+
             if let i = info, i.error == nil {
                 let t = transportRows(i)
                 if !t.isEmpty {
@@ -694,8 +696,40 @@ struct NodeDetailView: View {
         return r
     }
 
+    /// v0.18: experimental Tailscale node — its settings, the memory warning and a way to the readout.
+    @ViewBuilder
+    var tailscaleSection: some View {
+        Section {
+            ExperimentalMemoryWarning()
+            if let t = info?.tailscale {
+                kv("设备名", t.hostname ?? "mihomo-ios", mono: true)
+                kv("控制服务器", t.controlURL ?? String(localized: "Tailscale 官方"), mono: t.controlURL != nil)
+                kv("状态目录", t.stateDir ?? String(localized: "tailscale/节点名（App Group）"), mono: true)
+                kv("临时设备（Ephemeral）", (t.ephemeral ?? false) ? String(localized: "开启") : String(localized: "关闭"))
+                kv("接受子网路由", (t.acceptRoutes ?? false) ? String(localized: "开启") : String(localized: "关闭"))
+                kv("出口节点", t.exitNode ?? String(localized: "无"), mono: t.exitNode != nil)
+                if t.exitNode != nil {
+                    kv("使用出口节点时允许访问局域网", (t.exitNodeAllowLAN ?? false) ? String(localized: "开启") : String(localized: "关闭"))
+                }
+            }
+            NavigationLink { DiagnosticsView() } label: {
+                Label("查看隧道内存", systemImage: "memorychip")
+            }
+            .accessibilityIdentifier("node.tailscale.memory")
+        } header: {
+            HStack(spacing: 6) {
+                Text(verbatim: "Tailscale")
+                Text("实验性")
+            }
+        } footer: {
+            Text("Tailscale 只在连接后由隧道扩展启动和测速；离线测速不可用。")
+        }
+        .listRowBackground(Theme.card)
+    }
+
     static func credentialLabel(_ k: String) -> String {
         switch k {
+        case "auth-key": return "Auth Key"
         case "password": return "密码"
         case "uuid": return "UUID"
         case "username": return "用户名"

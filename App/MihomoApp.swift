@@ -216,6 +216,7 @@ enum Theme {
         case "wireguard": return tone(0.35, 0.85, 0.45)
         case "snell", "anytls", "mieru": return tone(1.0, 0.4, 0.75)
         case "socks5", "http", "ssh": return neutral
+        case "tailscale", "zerotier", "easytier": return accent
         case "direct": return good
         case "reject", "rejectdrop": return bad
         default: return .secondary
