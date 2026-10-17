@@ -46,6 +46,7 @@ final class RequestsModel: ObservableObject {
 }
 
 struct RequestsView: View {
+    @State private var quickRule: ConnectionItem?
     @EnvironmentObject var vpn: VPNManager
     @StateObject private var model = RequestsModel()
     @StateObject private var http = HTTPLogModel()
@@ -100,6 +101,13 @@ struct RequestsView: View {
                         ForEach(tab == 2 ? [] : items) { c in
                             ConnectionRow(c: c, engineMarks: http.hosts[c.metadata.host ?? ""] ?? http.hosts[c.metadata.sniffHost ?? ""])
                                 .listRowBackground(Theme.card)
+                                .contextMenu {
+                                    // v0.12: 从连接一键加规则.
+                                    Button { quickRule = c } label: { Label("添加规则…", systemImage: "plus.rectangle.on.rectangle") }
+                                    if let h = c.metadata.host ?? c.metadata.sniffHost, !h.isEmpty {
+                                        Button { UIPasteboard.general.string = h } label: { Label("拷贝主机", systemImage: "doc.on.doc") }
+                                    }
+                                }
                                 .swipeActions {
                                     if tab == 0 {
                                         Button(role: .destructive) { Task { await model.close(c) } } label: { Label("断开", systemImage: "xmark") }
@@ -127,6 +135,7 @@ struct RequestsView: View {
                     }
                 }
             }
+            .sheet(item: $quickRule) { c in QuickRuleSheet(conn: c) }
             .confirmationDialog("断开全部连接？", isPresented: $confirmCloseAll, titleVisibility: .visible) {
                 Button("全部断开", role: .destructive) { Task { await model.closeAll() } }
             }
@@ -220,5 +229,94 @@ struct ConnectionRow: View {
             .font(.caption2.monospacedDigit())
         }
         .padding(.vertical, 2)
+    }
+}
+
+/// 添加规则 from a connection (v0.12): DOMAIN / DOMAIN-SUFFIX / DOMAIN-KEYWORD / IP-CIDR + a policy, saved
+/// as a 自定义规则 (rules.json, checked before the profile's rules) and applied with a reload.
+struct QuickRuleSheet: View {
+    @Environment(\.dismiss) private var dismiss
+    let conn: ConnectionItem
+    @ObservedObject private var store = CustomRulesStore.shared
+    @ObservedObject private var insp = ProfileInspector.shared
+    @State private var type = "DOMAIN-SUFFIX"
+    @State private var value = ""
+    @State private var policy = "DIRECT"
+
+    private var host: String { conn.metadata.host ?? conn.metadata.sniffHost ?? "" }
+    private var ip: String { conn.metadata.destinationIP ?? "" }
+    private var policies: [String] {
+        var out = ["DIRECT", "REJECT"]
+        for g in insp.result.groups where g.hidden != true && !out.contains(g.name) { out.append(g.name) }
+        if let last = conn.chains?.last, !last.isEmpty, !out.contains(last), last != "__MITM__" { out.append(last) }
+        return out
+    }
+    private var line: String {
+        let v = value.trimmingCharacters(in: .whitespaces)
+        return type == "IP-CIDR" ? "IP-CIDR,\(v.contains("/") ? v : v + (v.contains(":") ? "/128" : "/32")),\(policy),no-resolve" : "\(type),\(v),\(policy)"
+    }
+
+    var body: some View {
+        NavigationStack {
+            Form {
+                Section {
+                    Picker("类型", selection: $type) {
+                        if !host.isEmpty {
+                            Text("域名后缀").tag("DOMAIN-SUFFIX")
+                            Text("完整域名").tag("DOMAIN")
+                            Text("域名关键词").tag("DOMAIN-KEYWORD")
+                        }
+                        if !ip.isEmpty { Text("IP 段").tag("IP-CIDR") }
+                    }
+                    TextField("值", text: $value).textInputAutocapitalization(.never).autocorrectionDisabled()
+                        .font(.body.monospaced())
+                    Picker("策略", selection: $policy) {
+                        ForEach(policies, id: \.self) { Text(verbatim: $0).tag($0) }
+                    }
+                } footer: {
+                    Text(verbatim: line).font(.caption.monospaced())
+                }
+                .listRowBackground(Theme.card)
+                Section {
+                    Text("规则加入「更多 → 规则 → 自定义规则」，优先于配置文件里的规则；连接中会立即重载。")
+                        .font(.footnote).foregroundStyle(.secondary)
+                }
+                .listRowBackground(Color.clear)
+            }
+            .scrollContentBackground(.hidden)
+            .background(Theme.bg.ignoresSafeArea())
+            .navigationTitle("添加规则")
+            .navigationBarTitleDisplayMode(.inline)
+            .toolbar {
+                ToolbarItem(placement: .cancellationAction) { Button("取消") { dismiss() } }
+                ToolbarItem(placement: .confirmationAction) {
+                    Button("添加") {
+                        store.rules.insert(CustomRule(line: line), at: 0)
+                        store.save()
+                        dismiss()
+                    }
+                    .disabled(value.trimmingCharacters(in: .whitespaces).isEmpty)
+                }
+            }
+            .task {
+                if host.isEmpty { type = "IP-CIDR" }
+                value = type == "IP-CIDR" ? ip : Self.suffix(of: host)
+                if let last = conn.chains?.last, policies.contains(last) { policy = last }
+                if insp.result.groups.isEmpty { await insp.load() }
+            }
+            .onChange(of: type) { t in
+                value = t == "IP-CIDR" ? ip : (t == "DOMAIN-SUFFIX" ? Self.suffix(of: host) : host)
+            }
+        }
+        .presentationDetents([.medium, .large])
+    }
+
+    /// "a.b.example.co.uk" → "example.co.uk"; "www.google.com" → "google.com" (simple 2/3-label heuristic).
+    static func suffix(of host: String) -> String {
+        let parts = host.split(separator: ".")
+        guard parts.count > 2, Int(parts.last ?? "") == nil else { return host }
+        let sld = parts[parts.count - 2]
+        let n = (sld.count <= 3 && parts.last!.count == 2) ? 3 : 2
+        return parts.suffix(n).joined(separator: ".")
     }
 }

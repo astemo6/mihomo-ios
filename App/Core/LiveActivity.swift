@@ -26,6 +26,13 @@ final class LiveActivityController: ObservableObject {
 
     init() { enabled = AppShared.defaults.bool(forKey: Self.key) }
 
+    /// v0.12: only activities still on screen. Ended / dismissed ones can linger in `activities`; updating
+    /// them is a no-op, which used to keep a new activity from starting after the user swiped one away.
+    @available(iOS 16.2, *)
+    private var current: [Activity<MihomoActivityAttributes>] {
+        Activity<MihomoActivityAttributes>.activities.filter { $0.activityState == .active || $0.activityState == .stale }
+    }
+
     var systemAllowed: Bool {
         if #available(iOS 16.2, *) { return ActivityAuthorizationInfo().areActivitiesEnabled }
         return false
@@ -39,8 +46,11 @@ final class LiveActivityController: ObservableObject {
         guard enabled, #available(iOS 16.2, *), ActivityAuthorizationInfo().areActivitiesEnabled else { return }
         let since = VPNManager.shared.connectedDate ?? Date()
         let state = MihomoActivityAttributes.ContentState(connected: true, node: DashboardModel.shared.selectedNode, up: 0, down: 0, since: since, updated: Date())
-        if let a = Activity<MihomoActivityAttributes>.activities.first {
+        let live = current
+        if let a = live.first {
             Task { await a.update(ActivityContent(state: state, staleDate: nil)) }
+            // A second activity (e.g. from a relaunch race) would show twice on the Lock Screen.
+            for extra in live.dropFirst() { Task { await extra.end(nil, dismissalPolicy: .immediate) } }
             return
         }
         let attrs = MihomoActivityAttributes(profile: ProfileStore.shared.active?.name ?? "Mihomo")
@@ -49,7 +59,7 @@ final class LiveActivityController: ObservableObject {
 
     /// Called from the dashboard's traffic stream; throttled to one update every 3 s.
     func traffic(up: Int64, down: Int64, node: String) {
-        guard enabled, #available(iOS 16.2, *), let a = Activity<MihomoActivityAttributes>.activities.first else { return }
+        guard enabled, #available(iOS 16.2, *), let a = current.first else { return }
         let now = Date()
         guard now.timeIntervalSince(lastUpdate) >= 3 else { return }
         if last == (up, down, node) { return }
@@ -81,7 +91,7 @@ final class LiveActivityController: ObservableObject {
 
     /// iOS decides when (typically every 15 min or more, less on low battery); nothing runs if it doesn't.
     func scheduleBackgroundRefresh() {
-        guard enabled, #available(iOS 16.2, *), !Activity<MihomoActivityAttributes>.activities.isEmpty else { return }
+        guard enabled, #available(iOS 16.2, *), !current.isEmpty else { return }
         let req = BGAppRefreshTaskRequest(identifier: Self.refreshTaskID)
         req.earliestBeginDate = Date(timeIntervalSinceNow: 15 * 60)
         try? BGTaskScheduler.shared.submit(req)
@@ -89,7 +99,7 @@ final class LiveActivityController: ObservableObject {
 
     /// The app moved to the background: keep the activity current for the short time iOS allows.
     func didEnterBackground() {
-        guard enabled, #available(iOS 16.2, *), !Activity<MihomoActivityAttributes>.activities.isEmpty else { return }
+        guard enabled, #available(iOS 16.2, *), !current.isEmpty else { return }
         scheduleBackgroundRefresh()
         if backgroundTask != .invalid { return }
         backgroundTask = UIApplication.shared.beginBackgroundTask(withName: "LiveActivity") { [weak self] in
@@ -113,7 +123,7 @@ final class LiveActivityController: ObservableObject {
 
     /// Updates the activity from the extension's latest LiveStats (ends it when the tunnel is down).
     func refreshFromShared() async {
-        guard enabled, #available(iOS 16.2, *), let a = Activity<MihomoActivityAttributes>.activities.first else { return }
+        guard enabled, #available(iOS 16.2, *), let a = current.first else { return }
         await VPNManager.shared.load()
         guard VPNManager.shared.isConnected else { endAll(); return }
         let s = LiveStats.load()
