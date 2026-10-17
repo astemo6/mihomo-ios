@@ -101,7 +101,7 @@
 	<key>LSRequiresIPhoneOS</key>
 	<true/>
 	<key>LSSupportsOpeningDocumentsInPlace</key>
-	<true/>
+	<false/>
 	<key>MihomoAppGroup</key>
 	<string>$(APP_GROUP_ID)</string>
 	<key>MihomoTunnelBundleID</key>

@@ -19,6 +19,8 @@ struct ConfImportResult: Decodable {
         var remotes: Int?
         var skipped: [String]?
         var notes: [String]?
+        /// v0.13.1: remote entries switched off in the original config (not failures).
+        var disabled: [String]?
     }
     var yaml: String?
     var module: String?
@@ -105,12 +107,13 @@ struct ConfImportResult: Decodable {
 
 enum ConfImport {
     /// Saves the converted profile (validated by the real core) and, if present, the module.
-    static func save(text: String, name: String, result: ConfImportResult?, store: ProfileStore, progress: (@MainActor (String) -> Void)? = nil) async throws -> String {
+    static func save(text: String, name: String, result: ConfImportResult?, store: ProfileStore,
+                     progress: @MainActor (String) -> Void = { _ in }) async throws -> String {
         let r: ConfImportResult
-        if let result { r = result } else { r = await ConfImportResult.convert(text) }
+        if let result { r = result } else { await progress(String(localized: "正在转换配置…")); r = await ConfImportResult.convert(text) }
         if let e = r.error, !e.isEmpty { throw ProfileStore.StoreError.invalid(e) }
         guard let yaml = r.yaml, !yaml.isEmpty else { throw ProfileStore.StoreError.empty }
-        await progress?(String(localized: "正在检查并保存配置…"))
+        await progress(String(localized: "正在校验配置…"))
         let p = try await store.addLocal(name: name.isEmpty ? "导入的配置" : name, text: yaml)
         var msg = "已导入配置「\(p.name)」"
         if let m = r.module, !m.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
@@ -120,9 +123,9 @@ enum ConfImport {
         // QX [rewrite_remote] (v0.8.1): one module per line (tag / file name, enabled= kept), downloaded now.
         let remotes = r.rewriteRemotes ?? []
         if !remotes.isEmpty {
+            await progress(String(localized: "正在下载远程重写…"))
             var failed: [String] = []
-            for (i, m) in remotes.enumerated() {
-                await progress?(String(localized: "正在下载远程重写 \(i + 1)/\(remotes.count)…"))
+            for m in remotes {
                 if let e = await EngineStore.shared.addRemoteModule(url: m.url, name: m.name, enabled: m.enabled, interval: m.interval ?? 86400) {
                     failed.append("\(m.name)：\(e)")
                 }
@@ -132,15 +135,12 @@ enum ConfImport {
                 msg += String(localized: "（\(failed.count) 个下载失败，可在「模块与资源」中更新）\n") + failed.joined(separator: "\n")
             }
         }
-        // QX preview 5: [http_backend] → HTTP Backend page (QX branch only).
-        let backends = await MainActor.run { QXHTTPBackendStore.importConf(text) }
-        if backends > 0 { msg += String(localized: "，另添加 \(backends) 个 HTTP Backend") }
         if let st = r.settings, r.applySettings != false, !st.lines.isEmpty {
             await MainActor.run { st.apply() }
             msg += String(localized: "，已应用 \(st.lines.count) 项连接设置")
         }
         // Rule sets / node subscriptions: download them now so they work before the first connection.
-        await progress?(String(localized: "正在下载规则集与节点集…"))
+        await progress(String(localized: "正在下载规则集 / 节点集…"))
         let pr = await ProviderUpdater.shared.updateAll(profile: p)
         if pr.failed > 0 {
             msg += String(localized: "\n规则集 / 节点集：\(pr.ok) 个已下载，\(pr.failed) 个失败（可在「更多 → 提供者」中重试）")
@@ -154,6 +154,7 @@ struct ConfReportSection: View {
     let text: String
     @Binding var result: ConfImportResult?
     @State private var showSkipped = false
+    @State private var showDisabled = false
 
     init(text: String, result: Binding<ConfImportResult?>) {
         self.text = text
@@ -208,6 +209,14 @@ struct ConfReportSection: View {
                     if let notes = rep.notes, !notes.isEmpty {
                         Section("说明") {
                             ForEach(notes, id: \.self) { Text($0).font(.caption) }
+                        }
+                        .listRowBackground(Theme.card)
+                    }
+                    if let off = rep.disabled, !off.isEmpty {
+                        Section {
+                            DisclosureGroup("已禁用（原配置中关闭）\(off.count) 项", isExpanded: $showDisabled) {
+                                ForEach(off, id: \.self) { Text($0).scaledFont(10, design: .monospaced).foregroundStyle(.secondary) }
+                            }
                         }
                         .listRowBackground(Theme.card)
                     }

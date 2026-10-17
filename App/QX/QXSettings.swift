@@ -186,9 +186,11 @@ struct QXSettingsView: View {
             Button("管理片段") { nav.push(.dest(.snippets)) }
         }
         .sheet(item: $snippet) { k in QXSnippetEditor(kind: k).environmentObject(store) }
-        .fileImporter(isPresented: $importing, allowedContentTypes: ImportRouter.pickerTypes) { result in
-            // Read inside the picker's scope, present after it dismisses; errors are shown (QX preview 6).
-            ImportRouter.shared.handlePicked(result)
+        .onChange(of: importing) { on in
+            // v0.13.1 / QX preview 6: UIKit document picker in copy mode (every file selectable), read before presenting.
+            guard on else { return }
+            importing = false
+            ImportRouter.shared.pickFile()
         }
     }
 

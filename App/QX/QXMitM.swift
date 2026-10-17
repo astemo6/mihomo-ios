@@ -26,9 +26,9 @@ struct QXTintedActionSheet: View {
     let onCancel: () -> Void
 
     var body: some View {
-        ZStack(alignment: .bottom) {
-            Color.black.opacity(0.28).ignoresSafeArea()
-                .onTapGesture(perform: onCancel)
+        // QX preview 6: presented as a system sheet (render-server animation, system dimming), not an overlay.
+        VStack(spacing: 0) {
+            Spacer(minLength: 0)
             VStack(spacing: 8) {
                 VStack(spacing: 0) {
                     VStack(spacing: 8) {
@@ -69,7 +69,6 @@ struct QXTintedActionSheet: View {
             }
             .padding(.horizontal, 10)
             .padding(.bottom, 8)
-            .transition(.move(edge: .bottom).combined(with: .opacity))
         }
     }
 }
@@ -95,12 +94,9 @@ struct QXCertSheets: ViewModifier {
 
     func body(content: Content) -> some View {
         content
-            .overlay {
-                if let s = sheet {
-                    sheetView(s).zIndex(10)
-                }
+            .sheet(item: $sheet) { s in
+                sheetView(s).modifier(QXClearSheet())
             }
-            .animation(QXMotion.spring, value: sheet)
             .sheet(item: $share) { ActivityView(items: [$0.url]) }
             .alert("导出 p12", isPresented: $askP12) {
                 SecureField("设置密码", text: $p12Password)
@@ -422,6 +418,18 @@ struct QXMitMAdvancedView: View {
         QXPage(title: String(localized: "MitM 高级")) {
             MitMView()
                 .toolbar(.hidden, for: .navigationBar)
+        }
+    }
+}
+
+
+/// A system sheet whose own background is clear, so the QX action-sheet cards float on the system dimming.
+struct QXClearSheet: ViewModifier {
+    func body(content: Content) -> some View {
+        if #available(iOS 16.4, *) {
+            content.presentationDetents([.medium]).presentationDragIndicator(.hidden).presentationBackground(.clear)
+        } else {
+            content.presentationDetents([.medium]).presentationDragIndicator(.hidden)
         }
     }
 }

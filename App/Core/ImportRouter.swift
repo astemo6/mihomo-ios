@@ -55,8 +55,58 @@ final class ImportRouter: ObservableObject {
     @Published var selectedTab = 0
     /// URLs from the scene's launch options (cold launch); drained once the UI exists if onOpenURL did not.
     var coldLaunchURLs: [URL] = []
-    private var recentURLs: [(URL, Date)] = []
+    private var recentURLs: [(String, Date)] = []
     private weak var presented: UIViewController?
+    /// v0.13.1: an import is running in the sheet; a new presentation waits instead of replacing it.
+    var importing = false
+    private var pickerDelegate: PickerDelegate?
+
+    /// Everything is selectable (v0.13.1): other apps export their own UTIs for .conf / .snippet that do not
+    /// conform to public.data or public.plain-text, which greyed QX configs out. Content decides afterwards.
+    nonisolated static var pickerTypes: [UTType] {
+        var t: [UTType] = [.item, .data, .content, .text, .plainText, .utf8PlainText, .yaml, .json, .javaScript]
+        for ext in ["conf", "txt", "list", "snippet", "plugin", "lpx", "sgmodule", "module", "stoverride", "yaml", "yml", "js"] {
+            if let u = UTType(filenameExtension: ext), !t.contains(u) { t.append(u) }
+        }
+        return t
+    }
+
+    /// 从文件导入 (v0.13.1): a UIKit document picker in copy mode from the topmost controller, replacing
+    /// SwiftUI's fileImporter (which could greys out files and lose the selection with several presenters).
+    func pickFile() {
+        guard let top = Self.topViewController() else { return }
+        let picker = UIDocumentPickerViewController(forOpeningContentTypes: Self.pickerTypes, asCopy: true)
+        picker.allowsMultipleSelection = false
+        picker.shouldShowFileExtensions = true
+        let d = PickerDelegate { [weak self] urls in
+            guard let self else { return }
+            self.pickerDelegate = nil
+            guard let url = urls.first else { return }
+            StartupLog.write("import: picked \(url.lastPathComponent)", tag: "app")
+            let a = ImportRouter.action(forFile: url)
+            try? FileManager.default.removeItem(at: url) // our own copy (asCopy)
+            self.present(a)
+        } onCancel: { [weak self] in self?.pickerDelegate = nil }
+        pickerDelegate = d
+        picker.delegate = d
+        top.present(picker, animated: true)
+    }
+
+    @MainActor final class PickerDelegate: NSObject, UIDocumentPickerDelegate {
+        let onPick: @MainActor ([URL]) -> Void
+        let onCancel: @MainActor () -> Void
+        init(onPick: @escaping @MainActor ([URL]) -> Void, onCancel: @escaping @MainActor () -> Void) { self.onPick = onPick; self.onCancel = onCancel }
+        func documentPicker(_ controller: UIDocumentPickerViewController, didPickDocumentsAt urls: [URL]) { onPick(urls) }
+        func documentPickerWasCancelled(_ controller: UIDocumentPickerViewController) { onCancel() }
+    }
+
+    /// Same document within 10 s = handled once, even when onOpenURL and the cold-launch fallback give it
+    /// different paths (/private/var vs /var, Inbox copy vs original).
+    nonisolated static func fingerprint(_ url: URL) -> String {
+        guard url.isFileURL else { return url.absoluteString }
+        let size = (try? url.resourceValues(forKeys: [.fileSizeKey]))?.fileSize ?? -1
+        return "file:\(url.lastPathComponent):\(size)"
+    }
 
     // MARK: Parsing
 
@@ -175,12 +225,25 @@ final class ImportRouter: ObservableObject {
     nonisolated static func readText(at url: URL) -> (text: String?, bytes: Int, uti: String, error: String?) {
         let ok = url.startAccessingSecurityScopedResource()
         defer { if ok { url.stopAccessingSecurityScopedResource() } }
-        let uti = (try? url.resourceValues(forKeys: [.contentTypeKey]))?.contentType?.identifier ?? "?"
+        let values = try? url.resourceValues(forKeys: [.contentTypeKey, .isDirectoryKey])
+        let uti = values?.contentType?.identifier ?? "?"
+        if values?.isDirectory == true {
+            return (nil, 0, uti, String(localized: "「\(url.lastPathComponent)」是文件夹，请选择其中的配置文件"))
+        }
         var data: Data?
         var readErr: Error?
         var coordErr: NSError?
+        // v0.13.1: copy into our temp dir inside the scope / coordination, then read the copy (provider files
+        // and Inbox copies can disappear or lose access right after the open call).
         NSFileCoordinator(filePresenter: nil).coordinate(readingItemAt: url, options: [.withoutChanges], error: &coordErr) { u in
-            do { data = try Data(contentsOf: u) } catch { readErr = error }
+            let tmp = FileManager.default.temporaryDirectory.appendingPathComponent("import-\(UUID().uuidString)-\(u.lastPathComponent)")
+            defer { try? FileManager.default.removeItem(at: tmp) }
+            do {
+                try FileManager.default.copyItem(at: u, to: tmp)
+                data = try Data(contentsOf: tmp)
+            } catch {
+                do { data = try Data(contentsOf: u) } catch let e { readErr = e }
+            }
         }
         if data == nil, coordErr != nil {
             // Some providers refuse coordination; a plain read still works for them.
@@ -290,19 +353,26 @@ final class ImportRouter: ObservableObject {
     /// Every URL / document opened in the app ends in a visible sheet (an import or the reason it cannot be
     /// imported). The same URL within 10 s is handled once (onOpenURL and the cold-launch fallback).
     func handle(url: URL) {
-        // Same URL within 2 s = onOpenURL + the cold-launch fallback delivering one document twice. A longer
-        // window swallowed a second share of the same file (Quantumult X reuses the Inbox name) — QX preview 6.
-        recentURLs.removeAll { Date().timeIntervalSince($0.1) > 2 }
-        if recentURLs.contains(where: { $0.0 == url }) { return }
-        recentURLs.append((url, Date()))
-        coldLaunchURLs.removeAll { $0 == url }
+        let fp = Self.fingerprint(url)
+        recentURLs.removeAll { Date().timeIntervalSince($0.1) > 10 }
+        if recentURLs.contains(where: { $0.0 == fp }) {
+            StartupLog.write("open: duplicate \(url.lastPathComponent) ignored", tag: "app")
+            return
+        }
+        recentURLs.append((fp, Date()))
+        coldLaunchURLs.removeAll { $0 == url || Self.fingerprint($0) == fp }
         if url.isFileURL {
             // Read synchronously now: the security scope of an opened document does not survive an async hop.
-            present(Self.action(forFile: url))
+            let a = Self.action(forFile: url)
+            // Copies iOS put in Documents/Inbox are ours to delete once read.
+            if url.pathComponents.contains("Inbox") { try? FileManager.default.removeItem(at: url) }
+            present(a)
         } else {
             StartupLog.write("open url: scheme=\(url.scheme ?? "-") bytes=\(url.absoluteString.utf8.count)", tag: "app")
             if let a = Self.parse(url.absoluteString) {
                 run(a)
+            } else if let a = Self.route(text: url.absoluteString) {
+                run(a) // v0.13.1: a shared http(s) link (profile / module URL)
             } else {
                 present(.unsupported(String(localized: "无法识别的链接：\(url.scheme ?? "")://…")))
             }
@@ -321,32 +391,6 @@ final class ImportRouter: ObservableObject {
         case .qxGallery: return "qxGallery"
         case .unsupported: return "unsupported"
         default: return "other"
-        }
-    }
-
-    /// Every in-app file picker for profiles / configs (QX preview 6 import fix). Quantumult X exports its
-    /// own type for .conf files and that type may not conform to public.data / public.text, so the picker
-    /// greyed those files out; public.item matches any file, the content decides what it is.
-    static var pickerTypes: [UTType] {
-        var t: [UTType] = []
-        for ext in ["conf", "yaml", "yml", "snippet", "txt", "list"] { if let u = UTType(filenameExtension: ext) { t.append(u) } }
-        t += [.plainText, .text, .data, .content, .item]
-        return t
-    }
-
-    /// Result of a SwiftUI fileImporter: read now (inside the picker's security scope), present once the
-    /// picker has finished dismissing. A picker error is shown, never dropped.
-    func handlePicked(_ result: Result<URL, Error>) {
-        switch result {
-        case .success(let url):
-            let a = Self.action(forFile: url)
-            DispatchQueue.main.asyncAfter(deadline: .now() + 0.8) { self.present(a) }
-        case .failure(let e):
-            if (e as NSError).code == NSUserCancelledError { return }
-            StartupLog.write("file picker error: \(e.localizedDescription)", tag: "app")
-            DispatchQueue.main.asyncAfter(deadline: .now() + 0.8) {
-                self.present(.unsupported(String(localized: "无法打开所选文件：\(e.localizedDescription)")))
-            }
         }
     }
 
@@ -377,6 +421,13 @@ final class ImportRouter: ObservableObject {
                 DispatchQueue.main.asyncAfter(deadline: .now() + 0.15) { self.present(a, attempt: attempt + 1) }
                 return
             }
+        }
+        if importing, presented?.presentingViewController != nil {
+            // v0.13.1: never pull the sheet away from a running import (that looked like 导入 doing nothing).
+            if attempt < 200 {
+                DispatchQueue.main.asyncAfter(deadline: .now() + 0.3) { self.present(a, attempt: attempt + 1) }
+            }
+            return
         }
         if let old = presented, old.presentingViewController != nil {
             old.dismiss(animated: false) { self.present(a, attempt: attempt + 1) }
@@ -438,8 +489,9 @@ struct ImportSheet: View {
     @State private var result: String?
     @State private var failed = false
     @State private var conf: ConfImportResult?
-    @State private var alertText: String?
-    @State private var progressText: String?
+    /// v0.13.1: what the import is doing right now, and an alert for every failure (never silent).
+    @State private var stage: String?
+    @State private var errorAlert: String?
 
     /// Set when presented through UIKit (ImportRouter.present); SwiftUI's dismiss is the fallback.
     var onClose: (() -> Void)? = nil
@@ -454,22 +506,6 @@ struct ImportSheet: View {
     var body: some View {
         NavigationStack {
             Form {
-                // QX preview 6: the outcome and progress sit at the top — a long conversion report used to
-                // push the error below the fold, so 导入 looked like it did nothing.
-                if busy, let progressText {
-                    Section { LoadingRow(text: progressText) }.listRowBackground(Theme.card)
-                }
-                if let result {
-                    if failed {
-                        Section {
-                            Label("导入失败", systemImage: "exclamationmark.triangle.fill").foregroundStyle(Theme.warn)
-                            Text(result).font(.footnote).textSelection(.enabled)
-                        }
-                        .listRowBackground(Theme.card)
-                    } else {
-                        Text(result).font(.footnote).foregroundStyle(.secondary).listRowBackground(Theme.card)
-                    }
-                }
                 switch action {
                 case .profileURL(let url, _):
                     header("订阅配置", "doc.badge.arrow.up", url)
@@ -519,6 +555,35 @@ struct ImportSheet: View {
                     }
                     .listRowBackground(Theme.card)
                 }
+                if busy, let stage {
+                    Section { LoadingRow(text: stage) }.listRowBackground(Theme.card)
+                }
+                if canImport {
+                    // v0.13.1: a plain in-content button as well as the toolbar one (the toolbar button was
+                    // reported as doing nothing on device).
+                    Section {
+                        Button { start() } label: {
+                            HStack {
+                                Spacer()
+                                Label(failed ? "重试导入" : "导入", systemImage: "square.and.arrow.down").font(.headline)
+                                Spacer()
+                            }
+                        }
+                        .disabled(busy)
+                    }
+                    .listRowBackground(Theme.accent.opacity(0.15))
+                }
+                if let result {
+                    if failed {
+                        Section {
+                            Label("导入失败", systemImage: "exclamationmark.triangle.fill").foregroundStyle(Theme.warn)
+                            Text(result).font(.footnote).textSelection(.enabled)
+                        }
+                        .listRowBackground(Theme.card)
+                    } else {
+                        Text(result).font(.footnote).foregroundStyle(.secondary).listRowBackground(Theme.card)
+                    }
+                }
             }
             .scrollContentBackground(.hidden)
             .background(Theme.bg.ignoresSafeArea())
@@ -531,18 +596,15 @@ struct ImportSheet: View {
                     } else if busy {
                         ProgressView()
                     } else if result == nil || failed {
-                        // QX preview 6: never disabled — a conversion error is explained on tap instead of a
-                        // grey button that looks like it does nothing.
-                        Button("导入") { Task { await perform() } }
-                            .fontWeight(.semibold)
+                        Button("导入") { start() }
                     }
                 }
             }
-            .alert("导入失败", isPresented: Binding(get: { alertText != nil }, set: { if !$0 { alertText = nil } })) {
-                Button("好", role: .cancel) { alertText = nil }
-            } message: {
-                Text(alertText ?? "")
-            }
+            .interactiveDismissDisabled(busy)
+            .alert("导入失败", isPresented: Binding(get: { errorAlert != nil }, set: { if !$0 { errorAlert = nil } })) {
+                Button("复制错误") { UIPasteboard.general.string = errorAlert; errorAlert = nil }
+                Button("好", role: .cancel) { errorAlert = nil }
+            } message: { Text(errorAlert ?? "") }
             .onAppear {
                 switch action {
                 case .profileURL(_, let n): name = n
@@ -554,6 +616,33 @@ struct ImportSheet: View {
     }
 
     var isConf: Bool { if case .confText = action { return true } else { return false } }
+
+    var canImport: Bool {
+        switch action {
+        case .unsupported, .connect, .disconnect, .toggle: return false
+        default: return result == nil || failed
+        }
+    }
+
+    /// Both 导入 buttons: one import at a time, the router keeps the sheet up while it runs.
+    func start() {
+        guard !busy else { return }
+        busy = true
+        stage = String(localized: "正在导入…")
+        ImportRouter.shared.importing = true
+        StartupLog.write("import: start \(action.id.prefix(60))", tag: "app")
+        Task { @MainActor in
+            await perform()
+            ImportRouter.shared.importing = false
+        }
+    }
+
+    func fail(_ why: String) {
+        failed = true
+        result = why
+        errorAlert = why
+        StartupLog.write("import: FAILED \(why.prefix(300))", tag: "app")
+    }
 
     /// v0.8.1: the import brought MitM hostnames, but MitM is off or the CA is not trusted.
     var needsMitM: Bool {
@@ -571,23 +660,10 @@ struct ImportSheet: View {
     }
 
     func perform() async {
-        StartupLog.write("import sheet: 导入 tapped (\(ImportRouter.kindName(action)))", tag: "app")
-        if isConf, let e = conf?.error, !e.isEmpty {
-            failed = true
-            result = e
-            alertText = e
-            return
-        }
         busy = true
         failed = false
         result = nil
-        progressText = String(localized: "正在导入…")
-        defer {
-            busy = false
-            progressText = nil
-            if failed, let r = result { alertText = r }
-            StartupLog.write("import sheet: \(failed ? "failed" : "done")\(failed ? " – " + (result ?? "") : "")", tag: "app")
-        }
+        defer { busy = false; stage = nil }
         do {
             switch action {
             case .profileURL(let url, _):
@@ -604,7 +680,12 @@ struct ImportSheet: View {
                 engine.addModule(text: text, name: name.isEmpty ? "本地模块" : name)
                 result = "已添加模块「\(name)」"
             case .confText(_, let text):
-                result = try await ConfImport.save(text: text, name: name, result: conf, store: store) { progressText = $0 }
+                if conf == nil {
+                    stage = String(localized: "正在转换配置…")
+                    conf = await ConfImportResult.convert(text)
+                }
+                if let e = conf?.error, !e.isEmpty { fail(String(localized: "转换失败：\(e)")); return }
+                result = try await ConfImport.save(text: text, name: name, result: conf, store: store) { s in stage = s }
             case .nodesText(let text):
                 let n = try await store.addManualNodes(text: text)
                 result = String(localized: "已添加 \(n) 个节点到手动节点")
@@ -613,18 +694,17 @@ struct ImportSheet: View {
                 result = n == 0 ? String(localized: "仓库已存在") : String(localized: "已添加 \(n) 个仓库")
             case .qxResources(let server, let filter, let rewrite):
                 let r = await QXResourceImport.run(server: server, filter: filter, rewrite: rewrite)
-                failed = r.failed && r.added == 0
+                if r.failed && r.added == 0 { fail(r.text); return }
                 result = r.text
             default:
-                failed = true
-                result = String(localized: "这类内容不能在这里导入")
+                fail(String(localized: "这类内容不能在这里导入")); return
             }
+            if result == nil { fail(String(localized: "导入没有完成，也没有返回原因")); return }
+            StartupLog.write("import: done \(String((result ?? "").prefix(120)))", tag: "app")
         } catch {
-            failed = true
             let why = error.localizedDescription
-            result = why.isEmpty ? String(localized: "未知错误") : why
+            fail(why.isEmpty ? String(localized: "未知错误") : why)
         }
-        if result == nil { failed = true; result = String(localized: "导入没有完成，也没有返回原因") }
     }
 }
 
@@ -770,6 +850,3 @@ struct QXResourceImportSection: View {
                 }
             } header: { Label(title, systemImage: icon) }
             .listRowBackground(Theme.card)
-        }
-    }
-}

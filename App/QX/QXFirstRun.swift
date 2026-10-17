@@ -42,8 +42,11 @@ struct QXImportEntries: View {
         } message: {
             Text("Clash / mihomo 订阅、Quantumult X 或 Surge 配置链接、节点订阅都可以，格式会自动识别。")
         }
-        .fileImporter(isPresented: $importing, allowedContentTypes: ImportRouter.pickerTypes) { result in
-            ImportRouter.shared.handlePicked(result)
+        .onChange(of: importing) { on in
+            // v0.13.1 / QX preview 6: UIKit document picker in copy mode (every file selectable), read before presenting.
+            guard on else { return }
+            importing = false
+            ImportRouter.shared.pickFile()
         }
         .sheet(isPresented: $scanning) {
             QRScannerSheet { code in
