@@ -258,7 +258,7 @@ final class NodeManagerModel: ObservableObject {
                     srcs.append(src)
                 }
                 for p in pv.proxies ?? [] where !Self.isHidden(p.name, p.type) {
-                    if let d = p.lastDelay(for: url) { liveHistory[p.name] = d }
+                    if let d = p.lastDelay(for: NodeSettingsStore.testURL(for: p.name)) { liveHistory[p.name] = d }
                     add(ManagedNode(name: p.name, type: ManagedNode.normalize(p.type), server: nil, port: nil, udp: p.udp ?? false,
                                     source: src, inRuntime: true))
                 }
