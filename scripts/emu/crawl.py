@@ -53,16 +53,34 @@ def L(k):
 
 
 # ---- ui -----------------------------------------------------------------------------------------
+def _raw_dump():
+    r = adb("shell uiautomator dump /sdcard/ui.xml", 40)
+    if "dumped" in r:
+        x = adb("exec-out cat /sdcard/ui.xml")
+        try:
+            return x, ET.fromstring(x)
+        except ET.ParseError:
+            pass
+    return "", None
+
+
 def dump():
-    for _ in range(4):
-        r = adb("shell uiautomator dump /sdcard/ui.xml", 40)
-        if "dumped" in r:
-            x = adb("exec-out cat /sdcard/ui.xml")
-            try:
-                return x, ET.fromstring(x)
-            except ET.ParseError:
-                pass
-        time.sleep(1.5)
+    """Dump the UI; dismisses system 'isn't responding' dialogs (emulator launcher ANRs) first."""
+    for _ in range(5):
+        x, root = _raw_dump()
+        if root is None:
+            time.sleep(1.5); continue
+        if "isn't responding" in x or "没有响应" in x or "無回應" in x:
+            ours = PKG in x or "Mihomo" in x
+            with open(os.path.join(OUT, "anomalies.txt"), "a") as f:
+                titles = re.findall(r'text="([^"]*(?:responding|响应|回應)[^"]*)"', x)
+                f.write(f"{PASS[0]}: system ANR dialog ours={ours} {titles}\n")
+            for lab in ("Wait", "等待", "Close app", "关闭应用"):
+                b = find(lab, root=root)
+                if b:
+                    tap_b(b); time.sleep(1.5); break
+            continue
+        return x, root
     return "", None
 
 
@@ -233,10 +251,27 @@ def seed():
 
 # ---- passes -------------------------------------------------------------------------------------
 def set_locale(loc):
+    """Switch through 设置 › 语言 (exercises the in-app picker); falls back to `cmd locale`."""
     global S
-    S = ZH if loc == "zh" else EN
-    adb(f"shell cmd locale set-app-locales {PKG} --locales {'zh-CN' if loc == 'zh' else 'en-US'}")
-    time.sleep(3)
+    target = ZH if loc == "zh" else EN
+    if S is target and at_lang(target): return
+    if go_settings():
+        b = find_scrolling(L("language"))
+        if b:
+            tap_b(b); time.sleep(1.5)
+            shot("language_dialog")
+            tap("简体中文" if loc == "zh" else "English", wait=4)
+    S = target
+    if not at_lang(target):
+        out = adb(f"shell cmd locale set-app-locales {PKG} --user 0 --locales {'zh-CN' if loc == 'zh' else 'en-US'}")
+        log("  cmd locale:", out.strip()); time.sleep(4)
+    log("  locale now", loc, "ok" if at_lang(target) else "NOT APPLIED")
+
+
+def at_lang(t):
+    _, r = dump()
+    return r is not None and (find(t["settings"], root=r) is not None or find(t["panel_nodes"], root=r) is not None
+                              or find(t["sec_data_tools"], root=r) is not None)
 
 
 def set_dark(dark):
@@ -369,12 +404,19 @@ def main():
     adb("shell settings put global transition_animation_scale 0")
     adb("shell settings put global animator_duration_scale 0")
 
-    PASS[0] = "0_firstrun_zh_light"
-    set_locale("zh"); set_dark(False)
+    for l in ("com.google.android.apps.nexuslauncher", "com.android.launcher3"):
+        log("disable", l, adb(f"shell pm disable-user --user 0 {l}").strip())
+    time.sleep(2)
+
+    global S
+    PASS[0] = "0_firstrun_en_light"
+    S = EN
+    set_dark(False)
     launch(6)
     shot("first_launch_empty")
     seed()
     home_pass()
+    set_locale("zh")
 
     PASS[0] = "1_zh_light_offline"
     toolbar_pass()
