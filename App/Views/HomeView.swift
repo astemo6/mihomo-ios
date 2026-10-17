@@ -130,7 +130,7 @@ struct ConnectCard: View {
             HStack(spacing: 18) {
                 VStack(alignment: .leading, spacing: 3) {
                     Label("配置", systemImage: "doc.text").font(.caption2).foregroundStyle(.secondary)
-                    Text(store.active?.name ?? "未选择").font(.subheadline.weight(.semibold)).lineLimit(1)
+                    Text(verbatim: store.active?.displayName ?? String(localized: "未选择")).font(.subheadline.weight(.semibold)).lineLimit(1)
                 }
                 Spacer()
                 VStack(alignment: .trailing, spacing: 3) {
@@ -372,7 +372,7 @@ struct ExitHeader: View {
                     Text(vpn.statusText).font(.caption)
                 }
                 Spacer()
-                Label(store.active?.name ?? String(localized: "未选择"), systemImage: "doc.text")
+                Label(store.active?.displayName ?? String(localized: "未选择"), systemImage: "doc.text")
                     .font(.caption)
                     .foregroundStyle(.secondary)
                     .lineLimit(1)

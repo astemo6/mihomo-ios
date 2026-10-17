@@ -184,7 +184,7 @@ struct ProfileRow: View {
                 .foregroundStyle(active ? Theme.good : .secondary)
             VStack(alignment: .leading, spacing: 6) {
                 HStack {
-                    Text(profile.name).font(.headline).lineLimit(1)
+                    Text(verbatim: profile.displayName).font(.headline).lineLimit(1)
                     Text(profile.kind == .remote ? "订阅" : "本地")
                         .font(.caption2.weight(.semibold))
                         .padding(.horizontal, 6).padding(.vertical, 2)
@@ -282,7 +282,7 @@ struct AddRemoteSheet: View {
             defer { busy = false }
             do {
                 let p = try await store.addRemote(url: url, name: name, userAgent: ua, intervalHours: interval)
-                onDone("已添加「\(p.name)」")
+                onDone(String(localized: "已添加「\(p.name)」"))
                 dismiss()
             } catch { self.error = error.localizedDescription }
         }

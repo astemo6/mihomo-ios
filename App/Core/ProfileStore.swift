@@ -44,6 +44,9 @@ struct Profile: Codable, Identifiable, Hashable {
     var userInfo: SubscriptionUserInfo?
 
     var fileURL: URL { AppShared.profileURL(id: id) }
+
+    /// selftest: the built-in 「手动节点」 profile is stored with its Chinese name; show it in the UI language.
+    var displayName: String { id == "manual-nodes" && name == "手动节点" ? String(localized: "手动节点") : name }
 }
 
 @MainActor

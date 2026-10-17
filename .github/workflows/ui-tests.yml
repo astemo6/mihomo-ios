@@ -98,7 +98,11 @@ jobs:
   ui:
     if: ${{ github.event_name == 'push' || inputs.run_tests }}
     runs-on: macos-15
-    timeout-minutes: 150
+    timeout-minutes: 120
+    strategy:
+      fail-fast: false
+      matrix:
+        combo: ["zh-Hans:light", "en:light", "zh-Hans:dark", "en:dark"]
     steps:
       - uses: actions/checkout@v4
       - name: Core version
@@ -173,21 +177,18 @@ jobs:
           done
           DARK_ONLY=(-only-testing:MihomoUITests/MihomoUITests/test01_TabsAndHome -only-testing:MihomoUITests/MihomoUITests/test03_MoreEveryPage -only-testing:MihomoUITests/MihomoUITests/test04_NodeManager -only-testing:MihomoUITests/MihomoUITests/test05_AddNodeAndEditor)
           FAILED=""
-          for combo in zh-Hans:light en:light zh-Hans:dark en:dark; do
-            LANG_=${combo%%:*}; STYLE=${combo##*:}
-            SEL=("${ONLY[@]}")
-            if [ ${#SEL[@]} -eq 0 ] && [ "$STYLE" = dark ]; then SEL=("${DARK_ONLY[@]}"); fi
-            echo "::group::UI tests $LANG_ $STYLE"
-            xcrun simctl ui "$DEV" appearance "$STYLE" || true
-            TEST_RUNNER_UI_LANG="$LANG_" TEST_RUNNER_UI_STYLE="$STYLE" TEST_RUNNER_UI_SHOT_DIR="$PWD/shots" \
-            xcodebuild -project Mihomo.xcodeproj -scheme MihomoUITests -configuration Debug -sdk iphonesimulator \
-              -destination "id=$DEV" -derivedDataPath build/uit -resultBundlePath "results/$LANG_-$STYLE.xcresult" \
-              "${SEL[@]}" test-without-building 2>&1 | tee "results/$LANG_-$STYLE.log" | grep -E "Test Case|error:|failed|passed|XCTAssert|issue" | head -n 400
-            RC=${PIPESTATUS[0]}
-            echo "::endgroup::"
-            echo "$LANG_ $STYLE exit $RC"
-            [ "$RC" = 0 ] || FAILED="$FAILED $LANG_-$STYLE"
-          done
+          combo="${{ matrix.combo }}"
+          LANG_=${combo%%:*}; STYLE=${combo##*:}
+          SEL=("${ONLY[@]}")
+          if [ ${#SEL[@]} -eq 0 ] && [ "$STYLE" = dark ]; then SEL=("${DARK_ONLY[@]}"); fi
+          xcrun simctl ui "$DEV" appearance "$STYLE" || true
+          TEST_RUNNER_UI_LANG="$LANG_" TEST_RUNNER_UI_STYLE="$STYLE" TEST_RUNNER_UI_SHOT_DIR="$PWD/shots" \
+          xcodebuild -project Mihomo.xcodeproj -scheme MihomoUITests -configuration Debug -sdk iphonesimulator \
+            -destination "id=$DEV" -derivedDataPath build/uit -resultBundlePath "results/$LANG_-$STYLE.xcresult" \
+            "${SEL[@]}" test-without-building 2>&1 | tee "results/$LANG_-$STYLE.log" | grep -E "Test Case|error:|failed|passed|XCTAssert|issue" | head -n 400
+          RC=${PIPESTATUS[0]}
+          echo "$LANG_ $STYLE exit $RC"
+          [ "$RC" = 0 ] || FAILED="$FAILED $LANG_-$STYLE"
           {
             echo "### UI self-test"
             for f in shots/*/report-*.md; do
@@ -209,7 +210,7 @@ jobs:
       - uses: actions/upload-artifact@v4
         if: always()
         with:
-          name: ui-screens
+          name: ui-screens-${{ matrix.combo == 'zh-Hans:light' && 'zh-light' || matrix.combo == 'en:light' && 'en-light' || matrix.combo == 'zh-Hans:dark' && 'zh-dark' || 'en-dark' }}
           path: |
             shots/
             crashes/
@@ -218,7 +219,7 @@ jobs:
       - uses: actions/upload-artifact@v4
         if: always()
         with:
-          name: ui-results
+          name: ui-results-${{ matrix.combo == 'zh-Hans:light' && 'zh-light' || matrix.combo == 'en:light' && 'en-light' || matrix.combo == 'zh-Hans:dark' && 'zh-dark' || 'en-dark' }}
           path: |
             results/*.log
             build-uit.log
@@ -227,7 +228,7 @@ jobs:
       - uses: actions/upload-artifact@v4
         if: always()
         with:
-          name: ui-xcresult
+          name: ui-xcresult-${{ matrix.combo == 'zh-Hans:light' && 'zh-light' || matrix.combo == 'en:light' && 'en-light' || matrix.combo == 'zh-Hans:dark' && 'zh-dark' || 'en-dark' }}
           path: results/*.xcresult
           if-no-files-found: ignore
           retention-days: 7
