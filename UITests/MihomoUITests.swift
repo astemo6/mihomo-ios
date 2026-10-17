@@ -853,4 +853,71 @@ final class MihomoUITests: MihomoUITestCase {
         snap("ssid-permission-explain")
         alert.buttons[L("取消")].tap()
     }
+
+    // MARK: 19. v0.17 请求时间线 + 主机
+
+    /// label + value (LabeledContent puts the trailing text in the value).
+    func fullText(_ e: XCUIElement) -> String { e.label + " " + ((e.value as? String) ?? "") }
+
+    func test19_RequestTimeline() {
+        launch(["-UITestDemoConnections"])
+        tab(2)
+        XCTAssertTrue(app.element(id: "requests.tcpCount").waitForExistence(timeout: 8), "requests page")
+        // Proxied connection: passive first bytes, active probe without a local DNS phase.
+        let row = app.buttons.matching(NSPredicate(format: "label CONTAINS %@", "www.example.com")).firstMatch
+        XCTAssertTrue(scrollTo(row), "connection row")
+        row.tap()
+        let down = app.element(id: "timeline.passive.down")
+        XCTAssertTrue(down.waitForExistence(timeout: 6), "passive first download byte")
+        XCTAssertTrue(fullText(down).contains("180–200 ms"), "bound shown as a range: \(fullText(down))")
+        XCTAssertTrue(fullText(app.element(id: "timeline.passive.dns")).contains(L("未观察到")), "no DNS for the proxied host")
+        snap("timeline-passive")
+        let run = app.element(id: "timeline.probe.run")
+        XCTAssertTrue(scrollTo(run), "测量 button")
+        run.tap()
+        let total = app.element(id: "timeline.probe.total")
+        XCTAssertTrue(total.waitForExistence(timeout: 6), "probe result")
+        XCTAssertTrue(fullText(total).contains("293 ms"), "total: \(fullText(total))")
+        let connect = app.element(id: "timeline.probe.connect")
+        XCTAssertTrue(scrollTo(connect))
+        XCTAssertTrue(fullText(connect).contains("52 ms"), "connect: \(fullText(connect))")
+        let dns = app.element(id: "timeline.probe.dns")
+        XCTAssertTrue(fullText(dns).contains("—"), "DNS not measured through a proxy: \(fullText(dns))")
+        snap("timeline-probe-proxy")
+        back()
+        // DIRECT connection: DNS seen passively and measured actively.
+        let row2 = app.buttons.matching(NSPredicate(format: "label CONTAINS %@", "api.example.org")).firstMatch
+        XCTAssertTrue(scrollTo(row2), "direct connection row")
+        row2.tap()
+        let pdns = app.element(id: "timeline.passive.dns")
+        XCTAssertTrue(pdns.waitForExistence(timeout: 6))
+        XCTAssertTrue(fullText(pdns).contains("24 ms"), "passive DNS: \(fullText(pdns))")
+        let run2 = app.element(id: "timeline.probe.run")
+        XCTAssertTrue(scrollTo(run2))
+        run2.tap()
+        XCTAssertTrue(app.element(id: "timeline.probe.total").waitForExistence(timeout: 6))
+        let dns2 = app.element(id: "timeline.probe.dns")
+        XCTAssertTrue(scrollTo(dns2))
+        XCTAssertTrue(fullText(dns2).contains("18 ms"), "direct DNS measured: \(fullText(dns2))")
+        snap("timeline-probe-direct")
+        back()
+        // UDP connection that was open before recording: no timings, said so.
+        let row3 = app.buttons.matching(NSPredicate(format: "label CONTAINS %@", "quic.example.net")).firstMatch
+        XCTAssertTrue(scrollTo(row3))
+        row3.tap()
+        XCTAssertTrue(app.element(id: "timeline.passive.none").waitForExistence(timeout: 6), "preexisting connection explained")
+        back()
+        // 主机 aggregate.
+        let hosts = app.buttons[L("主机")]
+        XCTAssertTrue(scrollTo(hosts), "主机 segment")
+        hosts.tap()
+        let h = app.buttons.matching(NSPredicate(format: "label CONTAINS %@", "api.example.org")).firstMatch
+        XCTAssertTrue(h.waitForExistence(timeout: 6), "host row")
+        XCTAssertTrue(h.label.contains(L10n.f("%lld 个连接", 1)) || h.label.contains("1"), "count: \(h.label)")
+        XCTAssertTrue(h.label.contains("DNS 24 ms"), "host DNS median: \(h.label)")
+        snap("timeline-hosts")
+        h.tap()
+        XCTAssertTrue(app.navigationBars["api.example.org"].waitForExistence(timeout: 6), "host detail")
+        snap("timeline-host-detail")
+    }
 }

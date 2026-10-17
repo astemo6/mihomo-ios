@@ -6,6 +6,9 @@ final class RequestsModel: ObservableObject {
     @Published var active: [ConnectionItem] = []
     @Published var recent: [ConnectionItem] = []   // closed connections, newest first
     @Published var paused = false
+    /// v0.17 passive timeline records by connection id (kept for closed connections in 最近 too).
+    @Published var timeline: [String: TimelineRecord] = [:]
+    @Published var timelineResolution = 20
     /// v0.16 summary bar: core totals and the speed derived from them between polls.
     @Published var uploadTotal: Int64 = 0
     @Published var downloadTotal: Int64 = 0
@@ -19,6 +22,7 @@ final class RequestsModel: ObservableObject {
     init() {
         if demo {
             active = UITestSeed.demoConnections()
+            timeline = UITestSeed.demoTimeline()
             uploadTotal = 12_582_912; downloadTotal = 98_566_144; upSpeed = 24_576; downSpeed = 1_310_720
         }
     }
@@ -61,6 +65,18 @@ final class RequestsModel: ObservableObject {
             if recent.count > 300 { recent.removeLast(recent.count - 300) }
         }
         active = now.sorted { ($0.startDate ?? .distantPast) > ($1.startDate ?? .distantPast) }
+        await pollTimeline()
+    }
+
+    /// Renews the core's 20 s watch lease and merges its records; ids no longer listed anywhere are dropped.
+    private func pollTimeline() async {
+        guard let t = try? await TimelineAPI.conns() else { return }
+        if let r = t.resolutionMs { timelineResolution = r }
+        var merged = timeline
+        for r in t.records ?? [] { merged[r.id] = r }
+        let keep = Set(active.map(\.id)).union(recent.map(\.id))
+        if merged.count > 700 { merged = merged.filter { keep.contains($0.key) } }
+        timeline = merged
     }
 
     func close(_ c: ConnectionItem) async {
@@ -99,6 +115,13 @@ struct RequestsView: View {
         }
     }
 
+    /// v0.17 主机: active + recent grouped by host (search filters hosts and their policies).
+    var hostItems: [HostAggregate] {
+        let all = HostAggregate.build(active: model.active, recent: model.recent, timeline: model.timeline)
+        guard !search.isEmpty else { return all }
+        return all.filter { $0.host.localizedCaseInsensitiveContains(search) || $0.policies.joined().localizedCaseInsensitiveContains(search) }
+    }
+
     var httpItems: [HTTPRequestSummary] {
         guard !search.isEmpty else { return http.items }
         return http.items.filter { $0.url.localizedCaseInsensitiveContains(search) || ($0.matched ?? []).joined().localizedCaseInsensitiveContains(search) }
@@ -118,6 +141,7 @@ struct RequestsView: View {
                             Text("活跃 \(model.active.count)").tag(0)
                             Text("最近 \(model.recent.count)").tag(1)
                             Text("HTTP \(http.items.count)").tag(2)
+                            Text("主机").tag(3)
                         }
                         .pickerStyle(.segmented)
                         .listRowBackground(Color.clear)
@@ -132,8 +156,20 @@ struct RequestsView: View {
                                     .listRowBackground(Theme.card)
                             }
                         }
-                        ForEach(tab == 2 ? [] : items) { c in
-                            ConnectionRow(c: c, engineMarks: http.hosts[c.metadata.host ?? ""] ?? http.hosts[c.metadata.sniffHost ?? ""])
+                        if tab == 3 {
+                            if hostItems.isEmpty {
+                                EmptyStateRow(icon: "server.rack", title: "还没有连接")
+                                    .listRowBackground(Theme.card)
+                            }
+                            ForEach(hostItems) { h in
+                                NavigationLink { HostConnectionsView(host: h.host, model: model) } label: { HostAggregateRow(h: h) }
+                                    .listRowBackground(Theme.card)
+                            }
+                        }
+                        ForEach(tab >= 2 ? [] : items) { c in
+                            NavigationLink { ConnectionDetailView(c: c, model: model) } label: {
+                                ConnectionRow(c: c, engineMarks: http.hosts[c.metadata.host ?? ""] ?? http.hosts[c.metadata.sniffHost ?? ""])
+                            }
                                 .listRowBackground(Theme.card)
                                 .contextMenu {
                                     // v0.12: 从连接一键加规则.

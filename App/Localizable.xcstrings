@@ -69305,6 +69305,1230 @@
           }
         }
       }
+    },
+    "远端地址": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Remote address"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "リモートアドレス"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "원격 주소"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Удалённый адрес"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "遠端地址"
+          }
+        }
+      }
+    },
+    "缓存命中": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Cache hit"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "キャッシュヒット"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "캐시 적중"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Из кэша"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "快取命中"
+          }
+        }
+      }
+    },
+    "未观察到": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Not observed"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "観測されず"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "관측되지 않음"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Не наблюдалось"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "未觀察到"
+          }
+        }
+      }
+    },
+    "DNS 查询": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "DNS lookup"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "DNS 問い合わせ"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "DNS 조회"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "DNS-запрос"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "DNS 查詢"
+          }
+        }
+      }
+    },
+    "首个上行字节": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "First byte up"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "最初の上り バイト"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "첫 업로드 바이트"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Первый байт вверх"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "首個上行位元組"
+          }
+        }
+      }
+    },
+    "首个下行字节": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "First byte down"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "最初の下り バイト"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "첫 다운로드 바이트"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Первый байт вниз"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "首個下行位元組"
+          }
+        }
+      }
+    },
+    "打开「请求」页之后建立的连接才有时间点。": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Only connections made after the Requests page was opened have timings."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "「リクエスト」ページを開いた後に確立された接続にだけタイミングがあります。"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "'요청' 페이지를 연 뒤에 맺어진 연결에만 시간 정보가 있습니다."
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Тайминги есть только у соединений, открытых после перехода на страницу «Запросы»."
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "開啟「請求」頁之後建立的連線才有時間點。"
+          }
+        }
+      }
+    },
+    "这条连接在开始记录前已建立，没有时间点。": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "This connection was open before recording started, so it has no timings."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "この接続は記録開始前に確立されていたため、タイミングはありません。"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "이 연결은 기록 시작 전에 맺어져 시간 정보가 없습니다."
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Это соединение открылось до начала записи, таймингов нет."
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "這條連線在開始記錄前已建立，沒有時間點。"
+          }
+        }
+      }
+    },
+    "时间从内核建立出站连接（拨号与代理握手已完成）算起，每 %lld ms 采样一次，所以显示为区间。DNS 是连接前 10 秒内内核收到的该域名应答（上游往返或缓存）；经代理时域名通常由代理服务器解析。真实连接的 TLS 握手在 App 与服务器之间端到端完成，内核看不到。": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Times count from when the core established the outbound connection (dial and proxy handshake done) and are sampled every %lld ms, so they are shown as ranges. DNS is the answer the core received for this domain within 10 s before the connection (upstream round trip or cache); through a proxy the domain is usually resolved by the proxy server. The real connection's TLS handshake runs end to end between the app and the server, so the core cannot see it."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "時間はコアが送信接続を確立した時点（ダイヤルとプロキシのハンドシェイク完了後）から数え、%lld ms ごとにサンプリングするため範囲で表示します。DNS は接続前 10 秒以内にコアがこのドメインについて受け取った応答（上流の往復またはキャッシュ）です。プロキシ経由では通常プロキシサーバーがドメインを解決します。実際の接続の TLS ハンドシェイクは App とサーバーの間でエンドツーエンドに行われるため、コアからは見えません。"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "시간은 코어가 아웃바운드 연결을 맺은 시점(다이얼과 프록시 핸드셰이크 완료 후)부터 계산하며 %lld ms마다 샘플링하므로 구간으로 표시합니다. DNS는 연결 전 10초 이내에 코어가 이 도메인에 대해 받은 응답(업스트림 왕복 또는 캐시)입니다. 프록시를 거치면 보통 프록시 서버가 도메인을 해석합니다. 실제 연결의 TLS 핸드셰이크는 앱과 서버 사이에서 종단 간에 이루어지므로 코어는 볼 수 없습니다."
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Время отсчитывается от момента, когда ядро установило исходящее соединение (дозвон и рукопожатие с прокси завершены), и замеряется каждые %lld мс, поэтому показан интервал. DNS — ответ, полученный ядром для этого домена не раньше чем за 10 с до соединения (запрос к upstream или кэш); через прокси домен обычно разрешает прокси-сервер. TLS-рукопожатие реального соединения идёт напрямую между приложением и сервером, ядро его не видит."
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "時間從核心建立出站連線（撥號與代理握手已完成）算起，每 %lld ms 取樣一次，所以顯示為區間。DNS 是連線前 10 秒內核心收到的該域名應答（上游往返或快取）；經代理時域名通常由代理伺服器解析。真實連線的 TLS 握手在 App 與伺服器之間端到端完成，核心看不到。"
+          }
+        }
+      }
+    },
+    "建立后 %@": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%@ after established"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "確立後 %@"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "연결 후 %@"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%@ после установки"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "建立後 %@"
+          }
+        }
+      }
+    },
+    "尚无数据": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "No data yet"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "まだデータなし"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "아직 데이터 없음"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Данных пока нет"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "尚無資料"
+          }
+        }
+      }
+    },
+    "合计": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Total"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "合計"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "합계"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Итого"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "合計"
+          }
+        }
+      }
+    },
+    "出站": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Outbound"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "送信先"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "아웃바운드"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Выход"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "出站"
+          }
+        }
+      }
+    },
+    "HTTP 状态": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "HTTP status"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "HTTP ステータス"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "HTTP 상태"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "HTTP-статус"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "HTTP 狀態"
+          }
+        }
+      }
+    },
+    "测量": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Measure"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "計測"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "측정"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Измерить"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "測量"
+          }
+        }
+      }
+    },
+    "重新测量": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Measure again"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "再計測"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "다시 측정"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Измерить снова"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "重新測量"
+          }
+        }
+      }
+    },
+    "测量时间线": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Measured timeline"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "計測タイムライン"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "측정 타임라인"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Измеренная хронология"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "測量時間線"
+          }
+        }
+      }
+    },
+    "按这条连接的出站重新建立一次连接（HTTPS 只发送 HEAD /），测出 DNS、连接、TLS 握手和首字节。这是新连接的耗时，不是原请求本身的。": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Opens one new connection through this connection's outbound (HTTPS sends only HEAD /) and measures DNS, connect, TLS handshake and first byte. These are the new connection's times, not the original request's."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "この接続の送信先で接続を 1 回張り直し（HTTPS は HEAD / のみ送信）、DNS・接続・TLS ハンドシェイク・最初のバイトを計測します。元のリクエストではなく新しい接続の所要時間です。"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "이 연결의 아웃바운드로 새 연결을 한 번 맺고(HTTPS는 HEAD /만 전송) DNS, 연결, TLS 핸드셰이크, 첫 바이트를 측정합니다. 원래 요청이 아니라 새 연결의 소요 시간입니다."
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Открывает одно новое соединение через выход этого соединения (для HTTPS отправляется только HEAD /) и измеряет DNS, подключение, TLS-рукопожатие и первый байт. Это время нового соединения, а не исходного запроса."
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "按這條連線的出站重新建立一次連線（HTTPS 只傳送 HEAD /），測出 DNS、連線、TLS 握手和首位元組。這是新連線的耗時，不是原請求本身的。"
+          }
+        }
+      }
+    },
+    "首字节": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "First byte"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "最初のバイト"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "첫 바이트"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Первый байт"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "首位元組"
+          }
+        }
+      }
+    },
+    "目标是 IP 地址，无需解析": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "The target is an IP address, nothing to resolve"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "宛先は IP アドレスのため解決不要"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "대상이 IP 주소라 해석할 필요 없음"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Цель — IP-адрес, разрешать нечего"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "目標是 IP 地址，無需解析"
+          }
+        }
+      }
+    },
+    "内核直连解析器（命中缓存时接近 0）": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "The core's direct resolver (close to 0 on a cache hit)"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "コアの直接接続用リゾルバー（キャッシュヒット時はほぼ 0）"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "코어의 직접 연결 리졸버(캐시 적중 시 0에 가까움)"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Резолвер ядра для DIRECT (при попадании в кэш почти 0)"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "核心直連解析器（命中快取時接近 0）"
+          }
+        }
+      }
+    },
+    "经代理时域名由代理服务器解析，本机看不到这段耗时": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Through a proxy the proxy server resolves the domain; this device cannot see that time"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "プロキシ経由ではプロキシサーバーがドメインを解決するため、この端末からは所要時間が見えません"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "프록시를 거치면 프록시 서버가 도메인을 해석하므로 이 기기에서는 그 시간을 볼 수 없습니다"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Через прокси домен разрешает прокси-сервер; это время с устройства не видно"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "經代理時域名由代理伺服器解析，本機看不到這段耗時"
+          }
+        }
+      }
+    },
+    "到目标的 TCP 连接": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "TCP connection to the target"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "宛先への TCP 接続"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "대상까지의 TCP 연결"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "TCP-подключение к цели"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "到目標的 TCP 連線"
+          }
+        }
+      }
+    },
+    "到代理服务器的连接与代理握手；部分协议在发送数据时才连目标，这部分计入下一阶段": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Connection to the proxy server plus the proxy handshake; some protocols reach the target only when data is sent, which then counts toward the next phase"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "プロキシサーバーへの接続とプロキシのハンドシェイク。一部のプロトコルはデータ送信時に初めて宛先へ接続し、その分は次の段階に含まれます"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "프록시 서버까지의 연결과 프록시 핸드셰이크. 일부 프로토콜은 데이터를 보낼 때 대상에 연결하며, 그 시간은 다음 단계에 포함됩니다"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Подключение к прокси-серверу и рукопожатие прокси; некоторые протоколы подключаются к цели только при отправке данных — это время входит в следующий этап"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "到代理伺服器的連線與代理握手；部分協議在傳送資料時才連目標，這部分計入下一階段"
+          }
+        }
+      }
+    },
+    "非 TLS 端口": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Not a TLS port"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "TLS ポートではありません"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "TLS 포트가 아님"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Не TLS-порт"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "非 TLS 埠"
+          }
+        }
+      }
+    },
+    "非 HTTP 端口，不发送请求": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Not an HTTP port, no request sent"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "HTTP ポートではないためリクエストは送信しません"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "HTTP 포트가 아니라 요청을 보내지 않음"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Не HTTP-порт, запрос не отправляется"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "非 HTTP 埠，不傳送請求"
+          }
+        }
+      }
+    },
+    "HEAD / 到第一个响应字节": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "HEAD / to the first response byte"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "HEAD / から最初の応答バイトまで"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "HEAD /부터 첫 응답 바이트까지"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "От HEAD / до первого байта ответа"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "HEAD / 到第一個響應位元組"
+          }
+        }
+      }
+    },
+    "%lld 个连接": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%lld connections"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%lld 件の接続"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "연결 %lld개"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Соединений: %lld"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%lld 個連線"
+          }
+        }
+      }
+    },
+    "DNS %@": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "DNS %@"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "DNS %@"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "DNS %@"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "DNS %@"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "DNS %@"
+          }
+        }
+      }
+    },
+    "首字节 %@": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "First byte %@"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "最初のバイト %@"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "첫 바이트 %@"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Первый байт %@"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "首位元組 %@"
+          }
+        }
+      }
+    },
+    "上传 / 下载": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Upload / Download"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "アップロード / ダウンロード"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "업로드 / 다운로드"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Отдача / загрузка"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "上傳 / 下載"
+          }
+        }
+      }
+    },
+    "DNS 中位数": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "DNS median"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "DNS 中央値"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "DNS 중앙값"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Медиана DNS"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "DNS 中位數"
+          }
+        }
+      }
+    },
+    "首个下行字节中位数": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "First byte down, median"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "最初の下りバイト（中央値）"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "첫 다운로드 바이트 중앙값"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Медиана первого байта вниз"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "首個下行位元組中位數"
+          }
+        }
+      }
+    },
+    "中位数只统计打开「请求」页之后建立、有时间点的 %lld 个连接。": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Medians cover only the %lld connections with timings, made after the Requests page was opened."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "中央値は「リクエスト」ページを開いた後に確立され、タイミングのある %lld 件の接続だけを集計します。"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "중앙값은 '요청' 페이지를 연 뒤에 맺어져 시간 정보가 있는 연결 %lld개만 집계합니다."
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Медианы считаются только по %lld соединениям с таймингами, открытым после перехода на страницу «Запросы»."
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "中位數只統計開啟「請求」頁之後建立、有時間點的 %lld 個連線。"
+          }
+        }
+      }
+    },
+    "还没有连接": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "No connections yet"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "まだ接続はありません"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "아직 연결이 없습니다"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Соединений пока нет"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "還沒有連線"
+          }
+        }
+      }
+    },
+    "TLS": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "TLS"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "TLS"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "TLS"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "TLS"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "TLS"
+          }
+        }
+      }
     }
   },
   "version": "1.0"
