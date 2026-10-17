@@ -238,13 +238,46 @@ jobs:
           echo "--- app entitlements ---"; codesign -d --entitlements - "$APP" 2>&1 | tail -n 20
           rm -rf Payload && mkdir Payload && cp -R "$APP" Payload/
           IPA_WIDGET="Mihomo-${VER}-build${{ github.run_number }}-widget-unsigned.ipa"
-          zip -qry "$IPA_WIDGET" Payload
+          zip -qry -9 "$IPA_WIDGET" Payload
           rm -rf Payload/Mihomo.app/PlugIns/MihomoWidget.appex
           codesign -f -s - --entitlements app.entitlements Payload/Mihomo.app
           IPA="Mihomo-${VER}-build${{ github.run_number }}-unsigned.ipa"
-          zip -qry "$IPA" Payload
+          zip -qry -9 "$IPA" Payload
           echo "IPA=$IPA" >> "$GITHUB_ENV"
           echo "IPA_WIDGET=$IPA_WIDGET" >> "$GITHUB_ENV"
+
+      - name: IPA size report
+        run: |
+          set -euo pipefail
+          for f in "$IPA" ${IPA_WIDGET:+"$IPA_WIDGET"}; do
+            echo "===== $f ($(stat -f%z "$f") B) ====="
+            python3 - "$f" <<'PY'
+          import sys, zipfile, collections
+          z = zipfile.ZipFile(sys.argv[1])
+          rows = sorted(((i.compress_size, i.file_size, i.filename) for i in z.infolist()), reverse=True)
+          print("compressed   unpacked  file (top 15)")
+          for c, u, n in rows[:15]:
+              print(f"{c:>10} {u:>10}  {n}")
+          groups = collections.defaultdict(lambda: [0, 0])
+          for c, u, n in rows:
+              base = n.rsplit("/", 1)[-1]
+              if n.endswith("Mihomo.app/Mihomo"): k = "app binary"
+              elif n.endswith("PacketTunnel.appex/PacketTunnel"): k = "tunnel binary"
+              elif n.endswith("MihomoWidget.appex/MihomoWidget"): k = "widget binary"
+              elif base.endswith((".dat", ".metadb", ".mmdb")): k = "geo databases"
+              elif base.endswith(".car") or base.endswith(".png"): k = "assets / icons"
+              elif ".lproj/" in n: k = "localizations"
+              else: k = "other"
+              groups[k][0] += c; groups[k][1] += u
+          print("--- per component (compressed / unpacked) ---")
+          for k, (c, u) in sorted(groups.items(), key=lambda x: -x[1][0]):
+              print(f"{k:16} {c:>10} {u:>10}")
+          bad = [n for _, _, n in rows if ".dSYM" in n or n.endswith((".swiftmodule", ".h", ".a")) or "/Headers/" in n or ".framework/" in n or "Libmihomo" in n]
+          if bad:
+              print("SHOULD NOT SHIP:", *bad[:20], sep="\n  "); sys.exit(1)
+          print("no dSYM / swiftmodule / headers / embedded frameworks")
+          PY
+          done
 
       - name: Inspect IPA
         run: |

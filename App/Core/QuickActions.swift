@@ -1,3 +1,4 @@
+import UserNotifications
 import UIKit
 import SwiftUI
 import NetworkExtension
@@ -26,6 +27,9 @@ final class AppDelegate: NSObject, UIApplicationDelegate {
     func application(_ application: UIApplication, didFinishLaunchingWithOptions launchOptions: [UIApplication.LaunchOptionsKey: Any]? = nil) -> Bool {
         // v0.11: Live Activity background refresh + refresh button (must be registered during launch).
         LiveActivityController.registerBackgroundWork()
+        // v0.14: scheduled subscription updates in the background + banners while the app is open.
+        ScheduledUpdates.registerBackgroundWork()
+        UNUserNotificationCenter.current().delegate = NotificationPresenter.shared
         return true
     }
 

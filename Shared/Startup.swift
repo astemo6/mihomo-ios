@@ -75,7 +75,8 @@ enum ProcessMemory {
 /// Geo databases bundled in the PacketTunnel extension (Geo/ in the repo), copied into the core home
 /// dir when missing or truncated so the core never downloads them at startup.
 enum GeoBootstrap {
-    static let files = ["geoip.metadb", "GeoSite.dat", "ASN.mmdb"]
+    /// ASN.mmdb is no longer bundled (v0.14 size pass): the core downloads it when a profile uses IP-ASN.
+    static let files = ["geoip.metadb", "GeoSite.dat"]
 
     /// Bundle that carries the files: the extension itself, or the embedded PacketTunnel.appex from the app.
     static var resourceBundles: [Bundle] {
