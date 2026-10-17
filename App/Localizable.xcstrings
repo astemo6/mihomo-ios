@@ -3959,6 +3959,40 @@
       },
       "extractionState": "manual"
     },
+    "IP 归属": {
+      "localizations": {
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "IP 歸屬"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "IP Location"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "IP の所在地"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "IP 위치"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Местоположение IP"
+          }
+        }
+      }
+    },
     "IP-ASN 规则、请求详情里的 ASN": {
       "localizations": {
         "en": {
@@ -7036,6 +7070,40 @@
         }
       }
     },
+    "https://api.example.com/json": {
+      "localizations": {
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "https://api.example.com/json"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "https://api.example.com/json"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "https://api.example.com/json"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "https://api.example.com/json"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "https://api.example.com/json"
+          }
+        }
+      }
+    },
     "https://example.com/generate_204": {
       "localizations": {
         "zh-Hant": {
@@ -7172,6 +7240,40 @@
         }
       }
     },
+    "https://…/gallery.json": {
+      "localizations": {
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "https://…/gallery.json"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "https://…/gallery.json"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "https://…/gallery.json"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "https://…/gallery.json"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "https://…/gallery.json"
+          }
+        }
+      }
+    },
     "https://…/icon.png": {
       "localizations": {
         "zh-Hant": {
@@ -7202,6 +7304,40 @@
           "stringUnit": {
             "state": "translated",
             "value": "https://…/icon.png"
+          }
+        }
+      }
+    },
+    "https://…/icons.json": {
+      "localizations": {
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "https://…/icons.json"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "https://…/icons.json"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "https://…/icons.json"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "https://…/icons.json"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "https://…/icons.json"
           }
         }
       }
@@ -9837,6 +9973,40 @@
       },
       "extractionState": "manual"
     },
+    "不是可识别的任务行": {
+      "localizations": {
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "不是可識別的任務行"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Not a recognised task line"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "認識できるタスク行ではありません"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "인식할 수 있는 작업 줄이 아닙니다"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Не распознано как строка задачи"
+          }
+        }
+      }
+    },
     "不需要的话直接点「开始使用」，以后在 更多 → MitM 设置。": {
       "localizations": {
         "zh-Hant": {
@@ -11202,6 +11372,74 @@
         }
       }
     },
+    "仓库加载失败：%@": {
+      "localizations": {
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "倉庫載入失敗：%@"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Failed to load the gallery: %@"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ギャラリーの読み込みに失敗しました：%@"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "갤러리를 불러오지 못했습니다: %@"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Не удалось загрузить галерею: %@"
+          }
+        }
+      }
+    },
+    "仓库已存在": {
+      "localizations": {
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "倉庫已存在"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "The gallery already exists"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ギャラリーは既に存在します"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "갤러리가 이미 있습니다"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Галерея уже добавлена"
+          }
+        }
+      }
+    },
     "代理": {
       "localizations": {
         "zh-Hant": {
@@ -11437,6 +11675,74 @@
           "stringUnit": {
             "state": "translated",
             "value": "Подключить в безопасном режиме"
+          }
+        }
+      }
+    },
+    "任务仓库": {
+      "localizations": {
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "任務倉庫"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Task Gallery"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "タスクギャラリー"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "작업 갤러리"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Галерея задач"
+          }
+        }
+      }
+    },
+    "任务仓库是一份列出若干任务的 JSON（Quantumult X 格式）。打开仓库后逐条添加：定时任务按 cron 运行，event-network 在网络变化时运行，event-interaction 可在请求列表中手动运行。添加前不会下载或运行任何脚本。": {
+      "localizations": {
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "任務倉庫是一份列出若干任務的 JSON（Quantumult X 格式）。開啟倉庫後逐條新增：定時任務按 cron 執行，event-network 在網路變化時執行，event-interaction 可在請求列表中手動執行。新增前不會下載或執行任何指令碼。"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "A task gallery is a JSON file listing tasks (Quantumult X format). Open a gallery and add tasks one by one: cron tasks run on schedule, event-network runs when the network changes, and event-interaction can be run by hand from the Request List. Nothing is downloaded or run before you add it."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "タスクギャラリーはタスクを並べた JSON（Quantumult X 形式）です。ギャラリーを開いて 1 件ずつ追加します：定期タスクは cron で、event-network はネットワーク変化時に実行され、event-interaction はリクエスト一覧から手動で実行できます。追加するまでスクリプトのダウンロードや実行は行いません。"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "작업 갤러리는 여러 작업을 나열한 JSON(Quantumult X 형식)입니다. 갤러리를 열어 하나씩 추가하세요. 예약 작업은 cron에 따라, event-network는 네트워크가 바뀔 때 실행되고, event-interaction은 요청 목록에서 직접 실행할 수 있습니다. 추가하기 전에는 스크립트를 내려받거나 실행하지 않습니다."
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Галерея задач — это JSON со списком задач (формат Quantumult X). Откройте галерею и добавляйте задачи по одной: задачи cron выполняются по расписанию, event-network — при смене сети, event-interaction можно запустить вручную из списка запросов. До добавления ничего не скачивается и не запускается."
           }
         }
       }
@@ -12085,6 +12391,40 @@
           "stringUnit": {
             "state": "translated",
             "value": "Сохранить аргументы"
+          }
+        }
+      }
+    },
+    "保存并测试": {
+      "localizations": {
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "儲存並測試"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Save and Test"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "保存してテスト"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "저장 후 테스트"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Сохранить и проверить"
           }
         }
       }
@@ -13551,6 +13891,40 @@
           "stringUnit": {
             "state": "translated",
             "value": "Проверить все"
+          }
+        }
+      }
+    },
+    "全部添加": {
+      "localizations": {
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "全部新增"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Add All"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "すべて追加"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "모두 추가"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Добавить все"
           }
         }
       }
@@ -15125,6 +15499,40 @@
           "stringUnit": {
             "state": "translated",
             "value": "Место выхода, текущая цепочка политик, трафик за сегодня и переключатель"
+          }
+        }
+      }
+    },
+    "出口位置查询": {
+      "localizations": {
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "出口位置查詢"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Exit Location Lookup"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "出口位置の照会"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "출구 위치 조회"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Определение точки выхода"
           }
         }
       }
@@ -18405,6 +18813,40 @@
         }
       }
     },
+    "只添加仓库地址：之后在「请求列表 → 任务仓库」里查看任务并逐条添加，不会自动运行任何脚本。": {
+      "localizations": {
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "只新增倉庫地址：之後在「請求列表 → 任務倉庫」裡檢視任務並逐條新增，不會自動執行任何指令碼。"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Only the gallery address is added. Browse and add its tasks later under Request List → Task Gallery; no script runs automatically."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ギャラリーのアドレスだけを追加します。タスクは後で「リクエスト一覧 → タスクギャラリー」で確認して 1 件ずつ追加でき、スクリプトが自動で実行されることはありません。"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "갤러리 주소만 추가합니다. 작업은 나중에 ‘요청 목록 → 작업 갤러리’에서 확인하고 하나씩 추가하며, 스크립트가 자동으로 실행되지 않습니다."
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Добавляется только адрес галереи. Задачи можно просмотреть и добавить позже в «Список запросов → Галерея задач»; скрипты не запускаются автоматически."
+          }
+        }
+      }
+    },
     "只解密下方主机名列表（含已启用模块）中的 HTTPS 流量；QUIC/HTTP3 会被阻断以回落到 TCP。证书固定（pinning）的 App 握手失败后会自动放行 30 分钟。": {
       "localizations": {
         "en": {
@@ -20116,6 +20558,40 @@
         }
       }
     },
+    "图标库是 Quantumult X 格式的 JSON（name + icons）。点右上角 + 添加自己的图标库地址。": {
+      "localizations": {
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "圖示庫是 Quantumult X 格式的 JSON（name + icons）。點右上角 + 新增自己的圖示庫地址。"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "An icon gallery is a Quantumult X JSON file (name + icons). Tap + at the top right to add your own gallery URL."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "アイコンライブラリは Quantumult X 形式の JSON（name + icons）です。右上の + で独自のライブラリの URL を追加できます。"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "아이콘 라이브러리는 Quantumult X 형식의 JSON(name + icons)입니다. 오른쪽 위 +를 눌러 직접 라이브러리 주소를 추가하세요."
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Библиотека значков — это JSON в формате Quantumult X (name + icons). Нажмите + вверху справа, чтобы добавить свой адрес."
+          }
+        }
+      }
+    },
     "图标来自 GitHub 上的开源图标库，经 jsDelivr 镜像加载并缓存在本机。": {
       "localizations": {
         "zh-Hant": {
@@ -20764,6 +21240,40 @@
         }
       },
       "extractionState": "manual"
+    },
+    "地址无效或已存在": {
+      "localizations": {
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "地址無效或已存在"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Invalid address, or it already exists"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "アドレスが無効か、既に存在します"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "주소가 잘못되었거나 이미 있습니다"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Неверный адрес или он уже добавлен"
+          }
+        }
+      }
     },
     "地理与规则库": {
       "localizations": {
@@ -25606,6 +26116,74 @@
         }
       }
     },
+    "已添加": {
+      "localizations": {
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "已新增"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Added"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "追加済み"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "추가됨"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Добавлено"
+          }
+        }
+      }
+    },
+    "已添加 %lld 个仓库": {
+      "localizations": {
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "已新增 %lld 個倉庫"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Added %lld galleries"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%lld 件のギャラリーを追加しました"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "갤러리 %lld개를 추가했습니다"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Добавлено галерей: %lld"
+          }
+        }
+      }
+    },
     "已添加 %lld 个节点": {
       "localizations": {
         "zh-Hant": {
@@ -25840,6 +26418,40 @@
           "stringUnit": {
             "state": "translated",
             "value": "Правило добавлено"
+          }
+        }
+      }
+    },
+    "已添加到 MitM 主机名": {
+      "localizations": {
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "已新增到 MitM 主機名"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Added to MitM hostnames"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "MitM ホスト名に追加しました"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "MitM 호스트 이름에 추가했습니다"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Добавлено в хосты MitM"
           }
         }
       }
@@ -30037,6 +30649,40 @@
         }
       }
     },
+    "拷贝任务行": {
+      "localizations": {
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "複製任務行"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Copy Task Line"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "タスク行をコピー"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "작업 줄 복사"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Скопировать строку задачи"
+          }
+        }
+      }
+    },
     "拷贝名称": {
       "localizations": {
         "zh-Hant": {
@@ -31327,6 +31973,40 @@
           "stringUnit": {
             "state": "translated",
             "value": "Исключить: регулярное выражение, напр. 剩余|到期|官网"
+          }
+        }
+      }
+    },
+    "接口": {
+      "localizations": {
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "介面"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "API"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "API"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "API"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "API"
           }
         }
       }
@@ -37520,6 +38200,40 @@
         }
       }
     },
+    "来源：%@": {
+      "localizations": {
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "來源：%@"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Source: %@"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ソース：%@"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "출처: %@"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Источник: %@"
+          }
+        }
+      }
+    },
     "来自 %@": {
       "localizations": {
         "zh-Hant": {
@@ -37963,6 +38677,40 @@
         }
       }
     },
+    "查询": {
+      "localizations": {
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "查詢"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Look Up"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "照会"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "조회"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Узнать"
+          }
+        }
+      }
+    },
     "查询 Mihomo 状态": {
       "localizations": {
         "zh-Hant": {
@@ -38065,6 +38813,40 @@
         }
       },
       "extractionState": "manual"
+    },
+    "查询失败，重试": {
+      "localizations": {
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "查詢失敗，重試"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Lookup failed, retry"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "照会に失敗しました。再試行"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "조회 실패, 다시 시도"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Ошибка, повторить"
+          }
+        }
+      }
     },
     "校验": {
       "localizations": {
@@ -41646,6 +42428,40 @@
         }
       }
     },
+    "浏览图标": {
+      "localizations": {
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "瀏覽圖示"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Browse Icons"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "アイコンを参照"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "아이콘 둘러보기"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Выбор значка"
+          }
+        }
+      }
+    },
     "深色": {
       "localizations": {
         "zh-Hant": {
@@ -41854,6 +42670,40 @@
         }
       }
     },
+    "添加 %@ 到 MitM": {
+      "localizations": {
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "新增 %@ 到 MitM"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Add %@ to MitM"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%@ を MitM に追加"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%@을(를) MitM에 추가"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Добавить %@ в MitM"
+          }
+        }
+      }
+    },
     "添加 %lld": {
       "localizations": {
         "zh-Hant": {
@@ -41956,6 +42806,40 @@
         }
       }
     },
+    "添加仓库": {
+      "localizations": {
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "新增倉庫"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Add Gallery"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ギャラリーを追加"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "갤러리 추가"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Добавить галерею"
+          }
+        }
+      }
+    },
     "添加任务": {
       "localizations": {
         "zh-Hant": {
@@ -41986,6 +42870,40 @@
           "stringUnit": {
             "state": "translated",
             "value": "Добавить задачу"
+          }
+        }
+      }
+    },
+    "添加任务仓库": {
+      "localizations": {
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "新增任務倉庫"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Add Task Gallery"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "タスクギャラリーを追加"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "작업 갤러리 추가"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Добавить галерею задач"
           }
         }
       }
@@ -42088,6 +43006,74 @@
           "stringUnit": {
             "state": "translated",
             "value": "Добавить один узел"
+          }
+        }
+      }
+    },
+    "添加后在策略编辑器「图标 → 浏览」中可选。": {
+      "localizations": {
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "新增後在策略編輯器「圖示 → 瀏覽」中可選。"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Once added, pick from it in the policy editor under Icon → Browse."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "追加後、ポリシーエディタの「アイコン → 参照」で選べます。"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "추가하면 정책 편집기의 ‘아이콘 → 둘러보기’에서 고를 수 있습니다."
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "После добавления выбирайте в редакторе политики: «Значок → Обзор»."
+          }
+        }
+      }
+    },
+    "添加图标库": {
+      "localizations": {
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "新增圖示庫"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Add Icon Gallery"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "アイコンライブラリを追加"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "아이콘 라이브러리 추가"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Добавить библиотеку значков"
           }
         }
       }
@@ -42258,6 +43244,40 @@
           "stringUnit": {
             "state": "translated",
             "value": "Перед добавлением модуля"
+          }
+        }
+      }
+    },
+    "添加示例仓库（UI 脚本合集）": {
+      "localizations": {
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "新增示例倉庫（UI 指令碼合集）"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Add a sample gallery (UI script collection)"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "サンプルギャラリーを追加（UI スクリプト集）"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "예시 갤러리 추가(UI 스크립트 모음)"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Добавить пример (сборник UI-скриптов)"
           }
         }
       }
@@ -43551,6 +44571,40 @@
           "stringUnit": {
             "state": "translated",
             "value": "Нажмите + вверху справа и вставьте строку задачи, например:"
+          }
+        }
+      }
+    },
+    "点右上角 + 粘贴仓库地址，或在 Safari 打开 quantumult-x:///ui?module=gallery&type=task… 链接。": {
+      "localizations": {
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "點右上角 + 貼上倉庫地址，或在 Safari 開啟 quantumult-x:///ui?module=gallery&type=task… 連結。"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Tap + at the top right to paste a gallery address, or open a quantumult-x:///ui?module=gallery&type=task… link in Safari."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "右上の + でギャラリーのアドレスを貼り付けるか、Safari で quantumult-x:///ui?module=gallery&type=task… のリンクを開いてください。"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "오른쪽 위 +를 눌러 갤러리 주소를 붙여 넣거나 Safari에서 quantumult-x:///ui?module=gallery&type=task… 링크를 여세요."
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Нажмите + вверху справа и вставьте адрес галереи или откройте в Safari ссылку quantumult-x:///ui?module=gallery&type=task…"
           }
         }
       }
@@ -45563,6 +46617,40 @@
           "stringUnit": {
             "state": "translated",
             "value": "Обновить сейчас"
+          }
+        }
+      }
+    },
+    "立即查询": {
+      "localizations": {
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "立即查詢"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Look Up Now"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "今すぐ照会"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "지금 조회"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Проверить сейчас"
           }
         }
       }
@@ -49696,6 +50784,40 @@
         }
       }
     },
+    "自动（内置顺序）": {
+      "localizations": {
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "自動（內建順序）"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Automatic (built-in order)"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "自動（内蔵の順序）"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "자동(내장 순서)"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Автоматически (встроенный порядок)"
+          }
+        }
+      }
+    },
     "自动（第一个手动组）": {
       "localizations": {
         "en": {
@@ -49726,6 +50848,40 @@
           "stringUnit": {
             "state": "translated",
             "value": "Авто (первая ручная группа)"
+          }
+        }
+      }
+    },
+    "自动：依次尝试内置接口，第一个成功的为准。选择某个接口时它最先尝试，失败后再用其余接口。": {
+      "localizations": {
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "自動：依次嘗試內建介面，第一個成功的為準。選擇某個介面時它最先嚐試，失敗後再用其餘介面。"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Automatic tries the built-in APIs in turn and uses the first that answers. When you pick one, it is tried first and the others follow if it fails."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "自動：内蔵 API を順に試し、最初に成功したものを使います。特定の API を選ぶとそれを最初に試し、失敗したら残りを使います。"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "자동: 내장 API를 차례로 시도해 처음 성공한 것을 씁니다. 하나를 고르면 그것을 먼저 시도하고, 실패하면 나머지를 사용합니다."
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Автоматически: встроенные API опрашиваются по очереди, используется первый ответивший. Выбранный API пробуется первым, при ошибке — остальные."
           }
         }
       }
@@ -49794,6 +50950,40 @@
           "stringUnit": {
             "state": "translated",
             "value": "Свои: %lld"
+          }
+        }
+      }
+    },
+    "自定义 API": {
+      "localizations": {
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "自定義 API"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Custom API"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "カスタム API"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "사용자 지정 API"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Свой API"
           }
         }
       }
@@ -51464,6 +52654,40 @@
           "stringUnit": {
             "state": "translated",
             "value": "Текст правил"
+          }
+        }
+      }
+    },
+    "规则来源": {
+      "localizations": {
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "規則來源"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Rule Source"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ルールの出所"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "규칙 출처"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Источник правила"
           }
         }
       }
@@ -55533,6 +56757,40 @@
         }
       }
     },
+    "返回 JSON 的地址即可，常见字段名（ip / query、country_code / countryCode、city、region、asn / as、org / isp）会自动识别。Quantumult X 的「API, 脚本」写法中的脚本部分不会执行，只使用 API。": {
+      "localizations": {
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "返回 JSON 的地址即可，常見欄位名（ip / query、country_code / countryCode、city、region、asn / as、org / isp）會自動識別。Quantumult X 的「API, 指令碼」寫法中的指令碼部分不會執行，只使用 API。"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Any URL that returns JSON works; common field names (ip / query, country_code / countryCode, city, region, asn / as, org / isp) are recognised. In Quantumult X’s “API, script” form only the API is used; the script is not run."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "JSON を返すアドレスなら使えます。一般的なフィールド名（ip / query、country_code / countryCode、city、region、asn / as、org / isp）は自動で認識します。Quantumult X の「API, スクリプト」形式ではスクリプト部分は実行せず、API だけを使います。"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "JSON을 돌려주는 주소면 됩니다. 일반적인 필드 이름(ip / query, country_code / countryCode, city, region, asn / as, org / isp)은 자동으로 인식합니다. Quantumult X의 ‘API, 스크립트’ 형식에서는 스크립트를 실행하지 않고 API만 사용합니다."
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Подойдёт любой адрес, возвращающий JSON; распространённые поля (ip / query, country_code / countryCode, city, region, asn / as, org / isp) распознаются автоматически. В форме Quantumult X «API, скрипт» используется только API, скрипт не выполняется."
+          }
+        }
+      }
+    },
     "返回内容": {
       "localizations": {
         "zh-Hant": {
@@ -55666,6 +56924,40 @@
           "stringUnit": {
             "state": "translated",
             "value": "Пока нет. Добавьте справа вверху."
+          }
+        }
+      }
+    },
+    "还没有仓库": {
+      "localizations": {
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "還沒有倉庫"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "No galleries yet"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ギャラリーはまだありません"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "아직 갤러리가 없습니다"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Галерей пока нет"
           }
         }
       }
@@ -56216,6 +57508,40 @@
         }
       }
     },
+    "这个仓库里没有任务": {
+      "localizations": {
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "這個倉庫裡沒有任務"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "This gallery has no tasks"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "このギャラリーにタスクはありません"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "이 갤러리에는 작업이 없습니다"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "В этой галерее нет задач"
+          }
+        }
+      }
+    },
     "这个配置没有策略组。": {
       "localizations": {
         "zh-Hant": {
@@ -56588,6 +57914,40 @@
           "stringUnit": {
             "state": "translated",
             "value": "Диапазоны назначения, направляемые в туннель. Диапазоны IPv6 действуют только при включённом IPv6. Пусто — всё (0.0.0.0/0 и ::/0)."
+          }
+        }
+      }
+    },
+    "进程": {
+      "localizations": {
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "程序"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Process"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "プロセス"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "프로세스"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Процесс"
           }
         }
       }
@@ -57958,6 +59318,40 @@
           "stringUnit": {
             "state": "translated",
             "value": "Общие скрипты"
+          }
+        }
+      }
+    },
+    "通知": {
+      "localizations": {
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "通知"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Notifications"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "通知"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "알림"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Уведомления"
           }
         }
       }
@@ -59970,6 +61364,40 @@
         }
       }
     },
+    "链接里没有仓库地址": {
+      "localizations": {
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "連結裡沒有倉庫地址"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "The link contains no gallery address"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "リンクにギャラリーのアドレスがありません"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "링크에 갤러리 주소가 없습니다"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "В ссылке нет адреса галереи"
+          }
+        }
+      }
+    },
     "链接里没有可导入的资源": {
       "localizations": {
         "zh-Hant": {
@@ -60987,6 +62415,40 @@
           "stringUnit": {
             "state": "translated",
             "value": "Главная"
+          }
+        }
+      }
+    },
+    "首页顶部的国旗、城市、ASN 与 IP 来自这里选择的接口（对应 Quantumult X 的 geo_location_checker）。请求经由当前代理发出，所以显示的是出口位置。选择「关闭」则不发出任何查询，顶部只显示连接状态。": {
+      "localizations": {
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "首頁頂部的國旗、城市、ASN 與 IP 來自這裡選擇的介面（對應 Quantumult X 的 geo_location_checker）。請求經由當前代理發出，所以顯示的是出口位置。選擇「關閉」則不發出任何查詢，頂部只顯示連線狀態。"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "The flag, city, ASN and IP at the top of Home come from the API chosen here (Quantumult X’s geo_location_checker). The request goes through the current proxy, so it shows the exit location. Choose Off to send no lookups; the top then shows only the connection state."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ホーム上部の国旗・都市・ASN・IP はここで選んだ API から取得します（Quantumult X の geo_location_checker に相当）。リクエストは現在のプロキシ経由で送られるため、出口の位置が表示されます。「オフ」を選ぶと照会を一切行わず、上部には接続状態だけが表示されます。"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "홈 상단의 국기, 도시, ASN, IP는 여기서 고른 API에서 가져옵니다(Quantumult X의 geo_location_checker). 요청은 현재 프록시를 거치므로 출구 위치가 표시됩니다. ‘끄기’를 고르면 조회를 하지 않고 상단에 연결 상태만 표시합니다."
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Флаг, город, ASN и IP вверху главного экрана берутся из выбранного здесь API (geo_location_checker в Quantumult X). Запрос идёт через текущий прокси, поэтому показывается точка выхода. «Выкл.» — запросов нет, вверху только состояние подключения."
           }
         }
       }
