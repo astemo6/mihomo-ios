@@ -231,7 +231,8 @@ struct ScriptTasksView: View {
             await load()
             while !Task.isCancelled {
                 try? await Task.sleep(nanoseconds: 5_000_000_000)
-                await load()
+                // v0.12: the offline list only changes when modules change; poll only while connected.
+                if VPNManager.shared.isConnected { await load() }
             }
         }
         .alert("提示", isPresented: Binding(get: { message != nil }, set: { if !$0 { message = nil } })) {
@@ -318,12 +319,17 @@ struct ScriptTasksView: View {
     }
 
     func run(_ t: ScriptTaskState) {
+        guard runningID == nil else { return }
+        guard VPNManager.shared.isConnected else {
+            message = String(localized: "连接后才能运行任务。")
+            return
+        }
         runningID = t.id
         Task {
             defer { runningID = nil }
             do {
                 let r = try await ControllerClient.shared.mitmRunTask(t.id)
-                if !r.ok { message = r.error }
+                if !r.ok { message = r.error ?? String(localized: "运行失败") }
             } catch { message = error.localizedDescription }
             await load()
         }

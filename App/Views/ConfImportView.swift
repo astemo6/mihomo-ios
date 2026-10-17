@@ -37,6 +37,12 @@ struct ConfImportResult: Decodable {
         var testURL: String? = nil
         var testTimeoutMs: Int? = nil
         var blockQUIC: Bool? = nil
+        // v0.12
+        var modeTrigger: ModeTrigger? = nil
+        var geoAPI: String? = nil
+        var geoScript: String? = nil
+        var geoDisabled: Bool? = nil
+        var parserURL: String? = nil
 
         var lines: [String] {
             var out: [String] = []
@@ -45,6 +51,10 @@ struct ConfImportResult: Decodable {
             if let u = testURL, !u.isEmpty { out.append(String(localized: "测速地址：\(u)")) }
             if let t = testTimeoutMs, t > 0 { out.append(String(localized: "测速超时：\(t) ms")) }
             if blockQUIC == true { out.append(String(localized: "阻止 QUIC：始终")) }
+            if let m = modeTrigger { out.append(String(localized: "按网络切换运行模式：\(m.summary)")) }
+            if geoDisabled == true { out.append(String(localized: "出口信息查询：关闭")) }
+            else if let a = geoAPI, !a.isEmpty { out.append(String(localized: "出口信息查询：\(a)")) }
+            if let p = parserURL, !p.isEmpty { out.append(String(localized: "资源解析器（仅保存）：\(p)")) }
             return out
         }
 
@@ -66,6 +76,19 @@ struct ConfImportResult: Decodable {
                 EngineStore.shared.config.quic = "all"
                 EngineStore.shared.save()
             }
+            if var m = modeTrigger {
+                m.enabled = true
+                m.save()
+                if VPNManager.shared.isConnected {
+                    Task { _ = await VPNManager.shared.send(.applyNetworkPolicy, timeout: 4) }
+                }
+            }
+            if geoDisabled == true || !(geoAPI ?? "").isEmpty {
+                if geoDisabled == true { GeoChecker.save(checker: "disabled", url: IPInfoFetcher.checkerURL, script: GeoChecker.script) }
+                else { GeoChecker.save(checker: "custom", url: geoAPI ?? "", script: geoScript ?? "") }
+                IPInfoModel.shared.scheduleRefresh(after: 0.5)
+            }
+            if let p = parserURL, !p.isEmpty { ResourceParserSetting.url = p }
         }
     }
     var settings: Settings? = nil

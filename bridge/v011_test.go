@@ -156,8 +156,9 @@ func TestImportQXRemainingKeys(t *testing.T) {
 	if rs[len(rs)-2] != "AND,((NETWORK,UDP)),DIRECT" || rs[len(rs)-1] != "MATCH,节点选择" {
 		t.Fatalf("fallback_udp_policy before MATCH: %v", rs[len(rs)-3:])
 	}
-	if !strings.Contains(strings.Join(res.Report.Notes, "\n"), "running_mode_trigger") {
-		t.Fatalf("unsupported key not reported: %v", res.Report.Notes)
+	// v0.12: running_mode_trigger is imported as a setting (v012_test.go).
+	if res.Settings == nil || res.Settings.ModeTrigger == nil || res.Settings.ModeTrigger.SSIDs["Home"] != "direct" {
+		t.Fatalf("running_mode_trigger not imported: %+v", res.Settings)
 	}
 	o := defaultOverrides()
 	rt, err := buildRuntime([]byte(res.YAML), o, 0)

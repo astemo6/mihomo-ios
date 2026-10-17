@@ -52,7 +52,13 @@ final class DashboardModel: ObservableObject {
             }
         })
         tasks.append(Task { [weak self] in
+            var tick = 0
             while !Task.isCancelled {
+                tick += 1
+                // v0.12: 运行模式按网络切换 can change the mode inside the extension; re-read it every ~10 s.
+                if tick % 5 == 0, let cfg = try? await c.configs(), let m = (cfg["mode"] as? String)?.lowercased(), self?.mode != m {
+                    self?.mode = m
+                }
                 if let r = try? await c.connections() {
                     self?.uploadTotal = r.uploadTotal ?? 0
                     self?.downloadTotal = r.downloadTotal ?? 0
@@ -149,11 +155,18 @@ final class IPInfoModel: ObservableObject {
     }
 
     func refresh() async {
+        if IPInfoFetcher.disabled {
+            // QX `geo_location_checker = disabled`: no lookups; the header shows the connection state only.
+            exit = nil; direct = nil; failed = false; loading = false
+            return
+        }
         loading = true
         failed = false
         defer { loading = false; updatedAt = Date() }
         let connected = VPNManager.shared.isConnected
-        async let exitInfo = IPInfoFetcher.fetch()
+        // v0.12: a custom API with a QX geo_location_checker script goes through GeoChecker; everything
+        // else (auto / preferred API / custom JSON API) is IPInfoFetcher's ordered endpoints (shared with qx/rebuild).
+        async let exitInfo = GeoChecker.usesScript ? GeoChecker.fetchWithScript() : IPInfoFetcher.fetch()
         async let directInfo = fetchDirectFromTunnel(enabled: connected)
         let (e, d) = await (exitInfo, directInfo)
         exit = e
