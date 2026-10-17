@@ -1,0 +1,7 @@
+#!name=Demo Module
+#!desc=SYNTHETIC module for emulator UI review (example.com only)
+[URL Rewrite]
+^https?:\/\/ads\.example\.com\/ - reject
+^https?:\/\/example\.com\/old\/ https://example.com/new/ 302
+[MITM]
+hostname = %APPEND% api.example.com

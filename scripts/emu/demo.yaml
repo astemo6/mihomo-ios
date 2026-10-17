@@ -1,0 +1,28 @@
+# SYNTHETIC test profile for emulator UI review only.
+# Every server is in 192.0.2.0/24 (RFC 5737 TEST-NET-1): nothing here is a real node.
+mixed-port: 7890
+mode: rule
+log-level: info
+proxies:
+  - {name: HK-01 Demo, type: ss, server: 192.0.2.11, port: 8388, cipher: aes-128-gcm, password: demo-only}
+  - {name: HK-02 Demo, type: ss, server: 192.0.2.12, port: 8388, cipher: aes-128-gcm, password: demo-only}
+  - {name: JP-01 Demo, type: trojan, server: 192.0.2.21, port: 443, password: demo-only, sni: example.com, skip-cert-verify: true}
+  - {name: JP-02 Demo, type: vmess, server: 192.0.2.22, port: 443, uuid: 00000000-0000-4000-8000-000000000000, alterId: 0, cipher: auto, tls: true}
+  - {name: SG-01 Demo, type: socks5, server: 192.0.2.31, port: 1080}
+  - {name: US-01 Demo, type: http, server: 192.0.2.41, port: 8080}
+  - {name: US-02 Demo, type: hysteria2, server: 192.0.2.42, port: 443, password: demo-only, sni: example.com}
+proxy-groups:
+  - {name: Final, type: select, proxies: [DIRECT, PROXY, Auto], icon: https://raw.githubusercontent.com/Koolson/Qure/master/IconSet/Color/Final.png}
+  - {name: PROXY, type: select, proxies: [Auto, HK-01 Demo, HK-02 Demo, JP-01 Demo, JP-02 Demo, SG-01 Demo, US-01 Demo, US-02 Demo], icon: https://raw.githubusercontent.com/Koolson/Qure/master/IconSet/Color/Proxy.png}
+  - {name: Auto, type: url-test, proxies: [HK-01 Demo, HK-02 Demo, JP-01 Demo, SG-01 Demo], url: https://www.gstatic.com/generate_204, interval: 300, icon: https://raw.githubusercontent.com/Koolson/Qure/master/IconSet/Color/Auto.png}
+  - {name: Streaming, type: select, proxies: [PROXY, HK-01 Demo, JP-01 Demo, US-01 Demo, DIRECT], icon: https://raw.githubusercontent.com/Koolson/Qure/master/IconSet/Color/Netflix.png}
+  - {name: Fallback, type: fallback, proxies: [JP-01 Demo, SG-01 Demo, DIRECT], url: https://www.gstatic.com/generate_204, interval: 300}
+rules:
+  - DOMAIN-SUFFIX,netflix.com,Streaming
+  - DOMAIN-SUFFIX,youtube.com,Streaming
+  - DOMAIN-KEYWORD,adservice,REJECT
+  - DOMAIN-SUFFIX,google.com,PROXY
+  - DOMAIN-SUFFIX,telegram.org,Fallback
+  - IP-CIDR,192.168.0.0/16,DIRECT,no-resolve
+  - IP-CIDR,10.0.0.0/8,DIRECT,no-resolve
+  - MATCH,Final

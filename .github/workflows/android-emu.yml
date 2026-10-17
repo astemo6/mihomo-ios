@@ -1,0 +1,93 @@
+# Emulator UI review run (branch test/android-emu only; no release, no signing).
+# Builds an x86_64 debug APK, runs it on an API 34 x86_64 emulator, crawls every screen with
+# a SYNTHETIC profile (scripts/emu/demo.yaml, 192.0.2.x TEST-NET servers) and uploads screenshots + logcat.
+name: Android emulator review
+
+on:
+  push:
+    branches: ['test/android-emu']
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: android-emu-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  emu:
+    runs-on: ubuntu-latest
+    timeout-minutes: 90
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '17'
+
+      - uses: actions/setup-go@v5
+        with:
+          go-version-file: core/go.mod
+          cache-dependency-path: core/go.sum
+
+      - name: Cache libmihomo.aar (amd64)
+        id: aarcache
+        uses: actions/cache@v4
+        with:
+          path: app/libs/libmihomo.aar
+          key: libmihomo-aar-amd64-${{ hashFiles('core/**') }}
+
+      - name: Build libmihomo.aar (gomobile, android/amd64 only)
+        if: steps.aarcache.outputs.cache-hit != 'true'
+        working-directory: core
+        run: |
+          set -euo pipefail
+          export ANDROID_HOME="${ANDROID_HOME:-$ANDROID_SDK_ROOT}"
+          export ANDROID_NDK_HOME="${ANDROID_NDK_LATEST_HOME:-$ANDROID_NDK_HOME}"
+          V=$(awk '$1=="github.com/metacubex/mihomo"{print $2; exit}' go.mod)
+          MOBILE_VER=$(go list -m -f '{{.Version}}' golang.org/x/mobile)
+          go install golang.org/x/mobile/cmd/gomobile@"$MOBILE_VER" golang.org/x/mobile/cmd/gobind@"$MOBILE_VER"
+          export PATH="$(go env GOPATH)/bin:$PATH"
+          gomobile init
+          mkdir -p ../app/libs
+          gomobile bind -target=android/amd64 -androidapi 26 -tags with_gvisor -trimpath \
+            -ldflags "-s -w -X github.com/metacubex/mihomo/constant.Version=${V} -X github.com/astemo6/mihomo-android/core.CoreVersion=${V}" \
+            -o ../app/libs/libmihomo.aar .
+          rm -f ../app/libs/libmihomo-sources.jar
+          unzip -l ../app/libs/libmihomo.aar | grep -E '\.so$'
+
+      - uses: gradle/actions/setup-gradle@v4
+
+      - name: assembleDebug
+        run: |
+          chmod +x gradlew
+          ./gradlew --no-daemon assembleDebug
+          ls -la app/build/outputs/apk/debug
+
+      - name: Enable KVM
+        run: |
+          echo 'KERNEL=="kvm", GROUP="kvm", MODE="0666", OPTIONS+="static_node=kvm"' | sudo tee /etc/udev/rules.d/99-kvm4all.rules
+          sudo udevadm control --reload-rules
+          sudo udevadm trigger --name-match=kvm
+
+      - name: Run emulator + crawl
+        uses: reactivecircus/android-emulator-runner@v2
+        with:
+          api-level: 34
+          arch: x86_64
+          target: google_apis
+          profile: pixel_6
+          disable-animations: true
+          emulator-options: -no-window -gpu swiftshader_indirect -noaudio -no-boot-anim -camera-back none -camera-front none
+          script: bash scripts/emu/run.sh
+
+      - name: Upload screenshots + logs
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: android-emu-review
+          path: emu-out/
+          if-no-files-found: warn
+          retention-days: 7
