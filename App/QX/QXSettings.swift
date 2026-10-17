@@ -72,6 +72,9 @@ struct QXSettingsView: View {
     @ObservedObject private var rules = QXRulesModel.shared
     @ObservedObject private var insp = ProfileInspector.shared
     @State private var importing = false
+    @State private var certSheet: QXCertSheet?
+    @State private var snippetType = false
+    @State private var snippet: QXSnippetKind?
 
     var nodeCount: Int { nodes.index.keys.filter { !QXNodesModel.builtins.contains($0) }.count }
     var ruleCount: Int { rules.total > 0 ? rules.total : insp.result.rules.count }
@@ -117,8 +120,8 @@ struct QXSettingsView: View {
                                       caption: String(localized: "MitM 根证书用于 HTTPS 解析。只有配置了主机名的请求才会被 MitM 模块进行解析。主机名按加载顺序进行匹配，可点击“主机名”查看加载顺序。"),
                                       color: QXColor.mitm, items: [
                         QXActionSpec(title: String(localized: "主机名"), icon: "at") { nav.push(.dest(.mitm)) },
-                        QXActionSpec(title: String(localized: "生成证书"), icon: "person.text.rectangle") { nav.push(.dest(.mitm)) },
-                        QXActionSpec(title: String(localized: "配置证书"), icon: "gearshape.2") { nav.push(.dest(.mitm)) },
+                        QXActionSpec(title: String(localized: "生成证书"), icon: "person.text.rectangle") { certSheet = .generate },
+                        QXActionSpec(title: String(localized: "配置证书"), icon: "gearshape.2") { certSheet = .configure },
                     ]) {
                         Toggle("", isOn: Binding(get: { engine.config.mitm }, set: { engine.config.mitm = $0; engine.save() }))
                             .labelsHidden().tint(QXColor.mitm)
@@ -137,13 +140,15 @@ struct QXSettingsView: View {
                     QXSettingsSection(title: String(localized: "配置文件"),
                                       caption: String(localized: "完整的配置文件（mihomo YAML）保存在本地，包含节点详情、分流规则、策略、引用链接等信息；重写与 MitM 保存在模块中。"),
                                       color: QXColor.profile, items: [
-                        QXActionSpec(title: String(localized: "配置片段"), icon: "doc.on.doc") { nav.present(.profiles) },
+                        QXActionSpec(title: String(localized: "配置片段"), icon: "doc.on.doc") { snippetType = true },
                         QXActionSpec(title: String(localized: "编辑"), icon: "square.and.pencil") { nav.present(.editProfile) },
                         QXActionSpec(title: String(localized: "导入配置"), icon: "square.and.arrow.down") { importing = true },
                         QXActionSpec(title: String(localized: "导出配置"), icon: "square.and.arrow.up") { exportProfile() },
                         QXActionSpec(title: String(localized: "下载配置"), icon: "tray.and.arrow.down") { nav.present(.addRemote) },
                         QXActionSpec(title: String(localized: "示例配置"), icon: "doc.text") { nav.present(.sample) },
+                        QXActionSpec(title: String(localized: "初始化"), icon: "arrow.counterclockwise") { nav.push(.dest(.reset)) },
                         QXActionSpec(title: String(localized: "备份与恢复"), icon: "externaldrive") { nav.push(.dest(.backup)) },
+                        QXActionSpec(title: String(localized: "配置管理"), icon: "doc.text.magnifyingglass") { nav.present(.profiles) },
                     ])
                     VStack(spacing: 12) {
                         bottomButton(String(localized: "面板 & 工具栏")) { nav.push(.panelSettings) }
@@ -160,6 +165,14 @@ struct QXSettingsView: View {
             if rules.total == 0 { await rules.load() }
             engine.reparseModules()
         }
+        .qxCertSheets($certSheet)
+        .confirmationDialog("片段类型", isPresented: $snippetType, titleVisibility: .visible) {
+            Button("节点") { snippet = .nodes }
+            Button("分流") { snippet = .filter }
+            Button("重写") { snippet = .rewrite }
+            Button("管理片段") { nav.push(.dest(.snippets)) }
+        }
+        .sheet(item: $snippet) { k in QXSnippetEditor(kind: k).environmentObject(store) }
         .fileImporter(isPresented: $importing, allowedContentTypes: [UTType(filenameExtension: "yaml") ?? .plainText, UTType(filenameExtension: "yml") ?? .plainText,
                                                                     UTType(filenameExtension: "conf") ?? .plainText, .plainText, .text, .data]) { result in
             if case .success(let url) = result {
@@ -425,6 +438,8 @@ struct QXNodeResourcesView: View {
     @ObservedObject private var insp = ProfileInspector.shared
     @State private var busy = false
     @State private var message: String?
+    @State private var editing: QXResourceTarget?
+    @ObservedObject private var subs = NodeSubStore.shared
 
     var body: some View {
         QXPage {
@@ -459,6 +474,7 @@ struct QXNodeResourcesView: View {
                                 .buttonStyle(.plain)
                                 .contextMenu {
                                     if p.kind == .remote {
+                                        Button { editing = QXResourceTarget(kind: .profile(p.id)) } label: { Label("编辑", systemImage: "square.and.pencil") }
                                         Button { Task { if let e = await store.refresh(p) { message = e } } } label: { Label("更新", systemImage: "arrow.triangle.2.circlepath") }
                                         Button { UIPasteboard.general.string = p.url } label: { Label("拷贝链接", systemImage: "doc.on.doc") }
                                     }
@@ -471,7 +487,34 @@ struct QXNodeResourcesView: View {
                         }
                     }
 
-                    let providers = insp.result.proxyProviders
+                    if !subs.subs.isEmpty {
+                        Text("节点订阅").font(.headline).padding(.top, 6)
+                        QXCard {
+                            VStack(spacing: 0) {
+                                ForEach(Array(subs.subs.enumerated()), id: \.element.id) { i, sub in
+                                    if i > 0 { Divider().padding(.leading, 56) }
+                                    Button { editing = QXResourceTarget(kind: .nodeSub(sub.id)) } label: {
+                                        resourceRow(checked: sub.enabled, title: sub.name,
+                                                    trailing: subs.updating.contains(sub.id) ? String(localized: "更新中…")
+                                                        : (sub.lastUpdated.map { Self.rel.localizedString(for: $0, relativeTo: Date()) } ?? String(localized: "需要更新")),
+                                                    subtitle: sub.lastError ?? (Self.redact(sub.url) + (sub.count.map { " · " + String(localized: "\($0) 个节点") } ?? "")))
+                                    }
+                                    .buttonStyle(.plain)
+                                    .contextMenu {
+                                        Button { editing = QXResourceTarget(kind: .nodeSub(sub.id)) } label: { Label("编辑", systemImage: "square.and.pencil") }
+                                        Button { Task { if let e = await subs.refresh(sub) { message = e } } } label: { Label("更新", systemImage: "arrow.triangle.2.circlepath") }
+                                        Button { var x = sub; x.enabled.toggle(); Task { await subs.save(x) } } label: {
+                                            Label(sub.enabled ? LocalizedStringKey("停用") : LocalizedStringKey("启用"), systemImage: sub.enabled ? "pause.circle" : "play.circle")
+                                        }
+                                        Button { UIPasteboard.general.string = sub.url } label: { Label("资源链接", systemImage: "link") }
+                                        Button(role: .destructive) { Task { await subs.delete(sub) } } label: { Label("删除", systemImage: "trash") }
+                                    }
+                                }
+                            }
+                        }
+                    }
+
+                    let providers = insp.result.proxyProviders.filter { pv in !subs.subs.contains { $0.name == pv.name } }
                     if !providers.isEmpty {
                         Text("节点集").font(.headline).padding(.top, 6)
                         QXCard {
@@ -498,6 +541,7 @@ struct QXNodeResourcesView: View {
             .overlay(alignment: .bottom) { QXResourceSwitcher(current: 0).padding(.bottom, 10) }
         }
         .task { await insp.load() }
+        .sheet(item: $editing, onDismiss: { Task { await insp.load() } }) { t in QXResourceEditor(target: t).environmentObject(store) }
     }
 
     func resourceRow(checked: Bool, title: String, trailing: String, subtitle: String) -> some View {
@@ -520,7 +564,8 @@ struct QXNodeResourcesView: View {
     private func updateAll() async {
         busy = true
         defer { busy = false }
-        let errs = await store.refreshAll()
+        var errs = await store.refreshAll()
+        errs += await subs.refreshAll()
         if vpn.isConnected {
             for p in insp.result.proxyProviders where p.vehicle.uppercased() == "HTTP" { await nodes.updateProvider(p.name) }
         }
@@ -543,12 +588,14 @@ struct QXNodeResourcesView: View {
 
 struct QXFilterResourcesView: View {
     @EnvironmentObject var nav: QXNavigator
+    @EnvironmentObject var store: ProfileStore
     @EnvironmentObject var vpn: VPNManager
     @ObservedObject private var insp = ProfileInspector.shared
     @ObservedObject private var res = ResourceStore.shared
     @State private var adding = false
     @State private var busy = false
     @State private var message: String?
+    @State private var editing: QXResourceTarget?
 
     /// Policy each profile rule-provider is used with (first RULE-SET line naming it).
     var policies: [String: String] {
@@ -616,6 +663,9 @@ struct QXFilterResourcesView: View {
                                 }
                                 .buttonStyle(.plain)
                                 .contextMenu {
+                                    if let id = it.refId {
+                                        Button { editing = QXResourceTarget(kind: .ruleSet(id)) } label: { Label("编辑", systemImage: "square.and.pencil") }
+                                    }
                                     Button { Task { await res.update(it) } } label: { Label("更新", systemImage: "arrow.triangle.2.circlepath") }
                                     Button { UIPasteboard.general.string = it.url } label: { Label("拷贝链接", systemImage: "doc.on.doc") }
                                 }
@@ -630,6 +680,7 @@ struct QXFilterResourcesView: View {
         }
         .task { await insp.load(); res.reload() }
         .sheet(isPresented: $adding) { AddRuleSetSheet() }
+        .sheet(item: $editing, onDismiss: { res.reload() }) { t in QXResourceEditor(target: t).environmentObject(store) }
     }
 
     func row(checked: Bool, title: String, policy: String, trailing: String, subtitle: String) -> some View {

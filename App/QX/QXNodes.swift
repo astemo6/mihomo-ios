@@ -309,9 +309,15 @@ struct QXNodesPanel: View {
     @State private var probeTarget: QXNameTarget?
     @State private var share: ShareTarget?
     @State private var editTarget: QXEditTarget?
+    @State private var sorting = false
+    @State private var bgTarget: QXNameTarget?
+    @State private var resEdit: QXResourceTarget?
+    @State private var prefsTick = 0
+    @ObservedObject private var nodeSubs = NodeSubStore.shared
 
     var body: some View {
-        let groups = model.groups()
+        let _ = prefsTick
+        let groups = QXPolicyPrefs.sorted(model.groups(), profile: store.activeID ?? "")
         let proxyName = model.proxyGroupName
         ScrollView {
             LazyVStack(alignment: .leading, spacing: 10) {
@@ -349,7 +355,8 @@ struct QXNodesPanel: View {
                                        onShare: { shareNode($0) },
                                        onUpdate: r.isSaved ? (store.active?.kind == .remote ? { refreshProfile() } : nil)
                                                            : (vpn.isConnected ? { Task { await model.updateProvider(r.name) } } : nil),
-                                       link: r.isSaved ? store.active?.url : insp.result.proxyProviders.first(where: { $0.name == r.name })?.url)
+                                       link: r.isSaved ? store.active?.url : insp.result.proxyProviders.first(where: { $0.name == r.name })?.url,
+                                       onEdit: editAction(r))
                     }
                 }
 
@@ -375,7 +382,10 @@ struct QXNodesPanel: View {
                                     onEdit: g.name == "GLOBAL" ? nil : { editTarget = QXEditTarget(name: g.name) },
                                     onIcon: { iconTarget = QXIconTarget(name: g.name, profileIcon: g.icon) },
                                     onChain: g.name == "GLOBAL" ? nil : { chainTarget = QXNameTarget(name: g.name) },
-                                    onProbe: vpn.isConnected ? { probeTarget = QXNameTarget(name: g.name) } : nil)
+                                    onProbe: vpn.isConnected ? { probeTarget = QXNameTarget(name: g.name) } : nil,
+                                    onSort: { sorting = true },
+                                    onBackground: { bgTarget = QXNameTarget(name: g.name) },
+                                    background: QXPolicyPrefs.background(g.name))
                     }
                     if groups.isEmpty && AppShared.activeProfileURL != nil {
                         Text(insp.loading ? LocalizedStringKey("正在读取配置…") : LocalizedStringKey("这个配置没有策略组。"))
@@ -406,8 +416,23 @@ struct QXNodesPanel: View {
         .sheet(item: $probeTarget) { t in NodeProbeSheet(policy: t.name) }
         .sheet(item: $share) { t in NodeShareSheet(name: t.name, link: t.link) }
         .sheet(item: $editTarget, onDismiss: { Task { await model.load() } }) { t in
-            GroupEditorView(groupName: t.name).environmentObject(store).environmentObject(vpn)
+            QXPolicyEditor(groupName: t.name).environmentObject(store).environmentObject(vpn)
         }
+        .sheet(isPresented: $sorting) {
+            QXPolicySortSheet(profileID: store.activeID ?? "", names: groups.map(\.name)) { prefsTick += 1 }
+        }
+        .sheet(item: $bgTarget) { t in QXPolicyBackgroundSheet(group: t.name) { prefsTick += 1 } }
+        .sheet(item: $resEdit, onDismiss: { Task { await model.load() } }) { t in QXResourceEditor(target: t).environmentObject(store) }
+    }
+
+    /// 编辑 on a resource card: the remote config itself, or one of our node subscriptions.
+    private func editAction(_ r: QXResource) -> (() -> Void)? {
+        if r.isSaved {
+            guard let p = store.active, p.kind == .remote else { return nil }
+            return { resEdit = QXResourceTarget(kind: .profile(p.id)) }
+        }
+        guard let s = nodeSubs.subs.first(where: { $0.name == r.name }) else { return nil }
+        return { resEdit = QXResourceTarget(kind: .nodeSub(s.id)) }
     }
 
     private func toggle(_ id: String) {
@@ -459,6 +484,7 @@ struct QXResourceCard: View {
     var onUpdate: (() -> Void)? = nil
     /// Remote URL of the resource (subscription / provider), for 资源链接.
     var link: String? = nil
+    var onEdit: (() -> Void)? = nil
     @ObservedObject private var model = QXNodesModel.shared
 
     var body: some View {
@@ -497,6 +523,7 @@ struct QXResourceCard: View {
                 .contentShape(Rectangle())
                 .onTapGesture(perform: onToggle)
                 .contextMenu {
+                    if let onEdit { Button(action: onEdit) { Label("编辑", systemImage: "square.and.pencil") } }
                     Button(action: onTest) { Label("测速", systemImage: "bolt") }
                     if let onUpdate { Button(action: onUpdate) { Label("更新", systemImage: "arrow.clockwise") } }
                     Button { UIPasteboard.general.string = resource.name } label: { Label("拷贝名称", systemImage: "doc.on.doc") }
@@ -631,6 +658,9 @@ struct QXPolicyRow: View {
     let onIcon: () -> Void
     var onChain: (() -> Void)? = nil
     var onProbe: (() -> Void)? = nil
+    var onSort: (() -> Void)? = nil
+    var onBackground: (() -> Void)? = nil
+    var background: Color? = nil
 
     var statusIcon: String {
         if group.pinned != nil { return "pin.fill" }
@@ -678,13 +708,21 @@ struct QXPolicyRow: View {
             }
             .padding(.horizontal, 14)
             .padding(.vertical, 12)
+            .background {
+                if let background {
+                    RoundedRectangle(cornerRadius: 20, style: .continuous)
+                        .fill(LinearGradient(colors: [background.opacity(0.30), background.opacity(0.10)], startPoint: .leading, endPoint: .trailing))
+                }
+            }
             .contentShape(Rectangle())
             .onTapGesture(perform: onOpen)
             .contextMenu {
+                if let onSort { Button(action: onSort) { Label("排序", systemImage: "line.3.horizontal") } }
                 if let onEdit { Button(action: onEdit) { Label("编辑", systemImage: "square.and.pencil") } }
                 Button(action: onOpen) { Label("节点", systemImage: "list.bullet") }
                 Button(action: onTest) { Label("测速", systemImage: "bolt") }
                 Button(action: onIcon) { Label("图标", systemImage: "square.grid.2x2") }
+                if let onBackground { Button(action: onBackground) { Label("背景", systemImage: "paintpalette") } }
                 if let onChain { Button(action: onChain) { Label("前置代理", systemImage: "link") } }
                 if let onProbe {
                     Divider()
@@ -807,7 +845,7 @@ struct QXGroupDetailView: View {
         .sheet(item: $probeTarget) { t in NodeProbeSheet(policy: t.name) }
         .sheet(item: $share) { t in NodeShareSheet(name: t.name, link: t.link) }
         .sheet(item: $editing, onDismiss: { Task { await model.load() } }) { t in
-            GroupEditorView(groupName: t.name).environmentObject(store).environmentObject(vpn)
+            QXPolicyEditor(groupName: t.name).environmentObject(store).environmentObject(vpn)
         }
     }
 

@@ -96,6 +96,7 @@ enum QXDest: String, Hashable, CaseIterable {
     case mitm, httpCapture, tasks
     case tools, unlock, analytics, stats, trafficStats, dnsLog, blocked, logs, backup
     case connection, dns, speedTest, coreSettings, geo, appIcon, diagnostics, about, notices, scriptLogs, panels, sessions, subscriptions
+    case mitmAdvanced, allResources, prefsStore, snippets, reset
 
     @MainActor @ViewBuilder var view: some View {
         switch self {
@@ -105,12 +106,12 @@ enum QXDest: String, Hashable, CaseIterable {
         case .providers: ProvidersView()
         case .customRules: RulesView()
         case .filterResources: QXFilterResourcesView()
-        case .localRewrite: LocalModuleView()
-        case .rewriteResources: ModulesView()
-        case .scripts: ScriptsView()
-        case .mitm: MitMView()
+        case .localRewrite: QXRewriteRulesView()
+        case .rewriteResources: QXRewriteResourcesView()
+        case .scripts: QXScriptsPage()
+        case .mitm: QXMitMView()
         case .httpCapture: QXHTTPCaptureView()
-        case .tasks: ScriptTasksView()
+        case .tasks: QXTaskListView()
         case .tools: ToolsView()
         case .unlock: UnlockView()
         case .analytics: AnalyticsView()
@@ -121,7 +122,7 @@ enum QXDest: String, Hashable, CaseIterable {
         case .logs: LogsView()
         case .backup: BackupView()
         case .connection: ConnectionView()
-        case .dns: DNSView()
+        case .dns: QXDNSPage()
         case .speedTest: SpeedTestSettingsView()
         case .coreSettings: SettingsView()
         case .geo: GeoView()
@@ -133,6 +134,11 @@ enum QXDest: String, Hashable, CaseIterable {
         case .panels: PanelsView()
         case .sessions: QXSessionListView()
         case .subscriptions: SubscriptionsView()
+        case .mitmAdvanced: QXMitMAdvancedView()
+        case .allResources: QXAllResourcesView()
+        case .prefsStore: QXWrappedPage(title: String(localized: "持久化存储")) { StoreView() }
+        case .snippets: QXSnippetsView()
+        case .reset: QXResetView()
         }
     }
 }
