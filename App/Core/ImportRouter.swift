@@ -311,6 +311,16 @@ final class ImportRouter: ObservableObject {
         vc.modalPresentationStyle = .pageSheet
         presented = vc
         top.present(vc, animated: true)
+        // UIKit refuses a presentation silently when another one starts in the same run loop; check that the
+        // sheet is really up and try again (bounded by `attempt`) instead of losing the import.
+        DispatchQueue.main.asyncAfter(deadline: .now() + 1.0) {
+            guard self.presented === vc, vc.presentingViewController == nil, vc.view.window == nil else { return }
+            self.presented = nil
+            if attempt < 50 {
+                StartupLog.write("import sheet: presentation refused, retrying", tag: "app")
+                self.present(a, attempt: attempt + 5)
+            }
+        }
     }
 
     static func topViewController() -> UIViewController? {
@@ -343,6 +353,7 @@ struct ImportSheet: View {
     @State private var name = ""
     @State private var busy = false
     @State private var result: String?
+    @State private var failed = false
     @State private var conf: ConfImportResult?
 
     /// Set when presented through UIKit (ImportRouter.present); SwiftUI's dismiss is the fallback.
@@ -385,7 +396,15 @@ struct ImportSheet: View {
                     EmptyView()
                 }
                 if let result {
-                    Text(result).font(.footnote).foregroundStyle(.secondary).listRowBackground(Theme.card)
+                    if failed {
+                        Section {
+                            Label("导入失败", systemImage: "exclamationmark.triangle.fill").foregroundStyle(Theme.warn)
+                            Text(result).font(.footnote).textSelection(.enabled)
+                        }
+                        .listRowBackground(Theme.card)
+                    } else {
+                        Text(result).font(.footnote).foregroundStyle(.secondary).listRowBackground(Theme.card)
+                    }
                 }
             }
             .scrollContentBackground(.hidden)
@@ -398,7 +417,7 @@ struct ImportSheet: View {
                         EmptyView()
                     } else if busy {
                         ProgressView()
-                    } else if result == nil {
+                    } else if result == nil || failed {
                         Button("导入") { Task { await perform() } }
                             .disabled(isConf && conf?.error?.isEmpty == false)
                     }
@@ -426,6 +445,8 @@ struct ImportSheet: View {
 
     func perform() async {
         busy = true
+        failed = false
+        result = nil
         defer { busy = false }
         do {
             switch action {
@@ -451,6 +472,7 @@ struct ImportSheet: View {
                 break
             }
         } catch {
+            failed = true
             result = error.localizedDescription
         }
     }
