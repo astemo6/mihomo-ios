@@ -1,0 +1,267 @@
+import SwiftUI
+import UIKit
+
+/// test/selftest: synthetic demo state for the simulator UI tests (UITests/, .github/workflows/ui-tests.yml).
+///
+/// Active only when the app is launched with `-UITestSeed` (never on a device otherwise):
+/// - `MihomoApp.init` calls `resetIfNeeded()` first: the app's container and defaults are wiped, onboarding and
+///   the exit-IP lookups are switched off (no network data in screenshots).
+/// - `RootView` runs `seedIfNeeded()`: one demo profile (documentation IPs 192.0.2.x / 198.51.100.x, fake keys,
+///   select / url-test / fallback / hidden groups, a file proxy-provider stub), manual nodes from share links,
+///   a node subscription stub with a cached node file, a local module with a panel, and the sample import files
+///   (QX, Surge, Clash, Loon, share links) under Documents/UITestSamples.
+/// - `-UITestImport <file>` then opens that sample through ImportRouter like 「用 Mihomo 打开」.
+/// Nothing here is real user data.
+enum UITestSeed {
+    static var args: [String] { ProcessInfo.processInfo.arguments }
+    static var enabled: Bool { args.contains("-UITestSeed") }
+
+    static func value(after flag: String) -> String? {
+        guard let i = args.firstIndex(of: flag), i + 1 < args.count else { return nil }
+        return args[i + 1]
+    }
+
+    /// Marker the tests wait for (`uitest.ready`).
+    @MainActor static var ready = false
+
+    static var samplesURL: URL {
+        FileManager.default.urls(for: .documentDirectory, in: .userDomainMask)[0].appendingPathComponent("UITestSamples", isDirectory: true)
+    }
+
+    /// Synchronous, before any store exists.
+    @MainActor static func resetIfNeeded() {
+        guard enabled else { return }
+        let fm = FileManager.default
+        for dir in [AppShared.containerURL, fm.urls(for: .documentDirectory, in: .userDomainMask)[0]] {
+            for u in (try? fm.contentsOfDirectory(at: dir, includingPropertiesForKeys: nil)) ?? [] { try? fm.removeItem(at: u) }
+        }
+        if let bid = Bundle.main.bundleIdentifier { UserDefaults.standard.removePersistentDomain(forName: bid) }
+        UserDefaults(suiteName: AppShared.appGroup)?.removePersistentDomain(forName: AppShared.appGroup)
+        UserDefaults.standard.set(true, forKey: "onboardingDone.v1")
+        AppShared.defaults.set("disabled", forKey: IPInfoFetcher.checkerKey)
+        // The paste banner reads only changeCount / hasStrings (no paste prompt); mark the clipboard as seen anyway.
+        UserDefaults.standard.set(UIPasteboard.general.changeCount, forKey: "clipboard.seenCount")
+    }
+
+    @MainActor
+    static func seedIfNeeded() async {
+        guard enabled, !ready else { return }
+        defer { ready = true }
+        let store = ProfileStore.shared
+        do {
+            let home = AppShared.homeURL
+            try FileManager.default.createDirectory(at: home.appendingPathComponent("proxies"), withIntermediateDirectories: true)
+            try providerYAML.write(to: home.appendingPathComponent("proxies/uitest-provider.yaml"), atomically: true, encoding: .utf8)
+            if store.profiles.isEmpty {
+                _ = try await store.addLocal(name: "UITest Demo", text: profileYAML)
+            }
+            _ = try await store.addManualNodes(text: manualLinks)
+            // Back to the demo profile (adding manual nodes keeps the active profile, but be explicit).
+            if let demo = store.profiles.first(where: { $0.name == "UITest Demo" }), store.activeID != demo.id {
+                _ = await store.setActive(demo)
+            }
+            try seedNodeSubscription()
+            EngineStore.shared.addModule(text: moduleText, name: "UITest Panel Module")
+            try writeSamples()
+            await ProfileInspector.shared.load()
+            await NodeManagerModel.shared.reload()
+        } catch {
+            StartupLog.write("uitest seed: \(error.localizedDescription)", tag: "app")
+        }
+        if let name = value(after: "-UITestImport") {
+            let url = samplesURL.appendingPathComponent(name)
+            try? await Task.sleep(nanoseconds: 400_000_000)
+            ImportRouter.shared.handle(url: url)
+        }
+        if let tab = value(after: "-UITestTab").flatMap(Int.init) { ImportRouter.shared.selectedTab = tab }
+        // Pages that are only linked while connected (panels): presented directly.
+        if value(after: "-UITestScreen") == "panels", let top = ImportRouter.topViewController() {
+            let root = NavigationStack { PanelsView() }
+                .environmentObject(VPNManager.shared)
+                .environmentObject(ProfileStore.shared)
+                .environmentObject(DashboardModel.shared)
+            let vc = UIHostingController(rootView: AnyView(root))
+            vc.overrideUserInterfaceStyle = AppAppearance.current.style
+            top.present(vc, animated: false)
+        }
+    }
+
+    static func seedNodeSubscription() throws {
+        let id = "uitest-sub"
+        let dir = AppShared.homeURL.appendingPathComponent("nodesubs", isDirectory: true)
+        try FileManager.default.createDirectory(at: dir, withIntermediateDirectories: true)
+        try subYAML.write(to: dir.appendingPathComponent("\(id).yaml"), atomically: true, encoding: .utf8)
+        let day: TimeInterval = 86400
+        let sub = NodeSubscription(id: id, name: "Demo Sub", url: "https://sub.example.invalid/nodes?token=uitest", enabled: true,
+                                   lastUpdated: Date().addingTimeInterval(-3600),
+                                   userInfo: SubscriptionUserInfo(upload: 3 << 30, download: 21 << 30, total: 100 << 30,
+                                                                  expire: Int64(Date().addingTimeInterval(40 * day).timeIntervalSince1970)),
+                                   count: 3)
+        let enc = JSONEncoder()
+        enc.outputFormatting = [.prettyPrinted, .sortedKeys]
+        try enc.encode([sub]).write(to: NodeSubStore.url, options: .atomic)
+        NodeSubStore.shared.load()
+    }
+
+    static func writeSamples() throws {
+        let fm = FileManager.default
+        try fm.createDirectory(at: samplesURL, withIntermediateDirectories: true)
+        for (name, text) in samples {
+            try text.write(to: samplesURL.appendingPathComponent(name), atomically: true, encoding: .utf8)
+        }
+    }
+
+    // MARK: Synthetic data (documentation IP ranges, fake keys)
+
+    static let profileYAML = """
+    mode: rule
+    log-level: info
+    proxies:
+      - {name: "🇯🇵 Tokyo 01", type: ss, server: 192.0.2.1, port: 8388, cipher: aes-128-gcm, password: uitest-secret-ss, udp: true}
+      - {name: "🇯🇵 Tokyo 02", type: vmess, server: 192.0.2.2, port: 443, uuid: 00000000-0000-4000-8000-000000000001, alterId: 0, cipher: auto, network: ws, tls: true, servername: example.com, ws-opts: {path: /ws}}
+      - {name: "🇭🇰 Hong Kong 01", type: trojan, server: 192.0.2.3, port: 443, password: uitest-secret-trojan, sni: example.com}
+      - {name: "🇭🇰 Hong Kong XHTTP", type: vless, server: 192.0.2.4, port: 443, uuid: 00000000-0000-4000-8000-000000000002, tls: true, servername: example.com, network: xhttp, xhttp-opts: {path: /x, mode: auto}, client-fingerprint: chrome}
+      - {name: "🇸🇬 Singapore Hy2", type: hysteria2, server: 192.0.2.5, port: 443, password: uitest-secret-hy2, sni: example.com}
+      - {name: "🇺🇸 Los Angeles TUIC", type: tuic, server: 192.0.2.6, port: 443, uuid: 00000000-0000-4000-8000-000000000003, password: uitest-secret-tuic, alpn: [h3]}
+      - {name: "🇺🇸 San Jose AWG", type: wireguard, server: 192.0.2.7, port: 51820, ip: 10.7.0.2, private-key: AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA=, public-key: AQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQE=, udp: true, amnezia-wg-option: {jc: 4, jmin: 40, jmax: 70, s1: 0, s2: 0, h1: 1, h2: 2, h3: 3, h4: 4}}
+      - {name: "🇩🇪 Frankfurt AnyTLS", type: anytls, server: 192.0.2.8, port: 443, password: uitest-secret-anytls, sni: example.com}
+    proxy-providers:
+      Demo Provider:
+        type: file
+        path: ./proxies/uitest-provider.yaml
+        health-check: {enable: false, url: "http://www.gstatic.com/generate_204", interval: 600}
+    proxy-groups:
+      - {name: Proxy, type: select, proxies: [Auto, Fallback, "🇯🇵 Tokyo 01", "🇯🇵 Tokyo 02", "🇭🇰 Hong Kong 01", "🇭🇰 Hong Kong XHTTP", "🇸🇬 Singapore Hy2", "🇺🇸 Los Angeles TUIC", "🇺🇸 San Jose AWG", "🇩🇪 Frankfurt AnyTLS", DIRECT], use: [Demo Provider]}
+      - {name: Auto, type: url-test, proxies: ["🇯🇵 Tokyo 01", "🇯🇵 Tokyo 02", "🇭🇰 Hong Kong 01"], url: "http://www.gstatic.com/generate_204", interval: 600}
+      - {name: Fallback, type: fallback, proxies: ["🇸🇬 Singapore Hy2", "🇺🇸 Los Angeles TUIC"], url: "http://www.gstatic.com/generate_204", interval: 600}
+      - {name: Streaming, type: select, proxies: [Proxy, "🇭🇰 Hong Kong XHTTP", "🇸🇬 Singapore Hy2"]}
+      - {name: Apple, type: select, proxies: [DIRECT, Proxy]}
+      - {name: Hidden Probe, type: select, hidden: true, proxies: [DIRECT, "🇯🇵 Tokyo 01"]}
+      - {name: Final, type: select, proxies: [Proxy, DIRECT]}
+    rules:
+      - DOMAIN-SUFFIX,apple.com,Apple
+      - DOMAIN-KEYWORD,netflix,Streaming
+      - IP-CIDR,192.168.0.0/16,DIRECT,no-resolve
+      - MATCH,Final
+    """
+
+    static let providerYAML = """
+    proxies:
+      - {name: "🇬🇧 London Provider", type: ss, server: 198.51.100.1, port: 8388, cipher: aes-256-gcm, password: uitest-secret-prov}
+      - {name: "🇫🇷 Paris Provider", type: trojan, server: 198.51.100.2, port: 443, password: uitest-secret-prov2, sni: example.com}
+    """
+
+    static let subYAML = """
+    proxies:
+      - {name: "🇰🇷 Seoul Sub 01", type: ss, server: 198.51.100.11, port: 8388, cipher: aes-128-gcm, password: uitest-secret-sub}
+      - {name: "🇰🇷 Seoul Sub 02", type: vless, server: 198.51.100.12, port: 443, uuid: 00000000-0000-4000-8000-000000000011, tls: true, servername: example.com, flow: xtls-rprx-vision, client-fingerprint: chrome}
+      - {name: "🇹🇼 Taipei Sub", type: hysteria2, server: 198.51.100.13, port: 443, password: uitest-secret-sub2}
+    """
+
+    static let manualLinks = """
+    ss://YWVzLTEyOC1nY206dWl0ZXN0LXNlY3JldC1tYW51YWw@203.0.113.1:8388#Manual%20SS
+    hysteria2://uitest-secret-manual-hy2@203.0.113.2:443/?sni=example.com#Manual%20Hy2
+    trojan://uitest-secret-manual-trojan@203.0.113.3:443?sni=example.com#Manual%20Trojan
+    """
+
+    static let moduleText = """
+    #!name=UITest Panel Module
+    #!desc=Synthetic module for UI tests
+    [Panel]
+    uitest-panel = script-name=uitest-panel-script, title="UITest Panel", content="Synthetic panel", style=info, update-interval=3600
+
+    [Script]
+    uitest-panel-script = type=generic, script-path=https://example.invalid/uitest-panel.js, timeout=5
+
+    [URL Rewrite]
+    ^https?://ad\\.example\\.com/ - reject
+
+    [MITM]
+    hostname = %APPEND% ad.example.com
+    """
+
+    static let samples: [(String, String)] = [
+        ("uitest-qx.conf", """
+        [general]
+        server_check_url=http://www.gstatic.com/generate_204
+        [dns]
+        server=223.5.5.5
+        [policy]
+        static=QX Proxy, QX Tokyo, QX Hong Kong, direct
+        url-latency-benchmark=QX Auto, QX Tokyo, QX Hong Kong, check-interval=600
+        [server_local]
+        shadowsocks=192.0.2.21:8388, method=aes-128-gcm, password=uitest-secret-qx, tag=QX Tokyo
+        trojan=192.0.2.22:443, password=uitest-secret-qx2, over-tls=true, tls-host=example.com, tag=QX Hong Kong
+        [filter_local]
+        host-suffix, apple.com, direct
+        host-keyword, uitest, QX Proxy
+        final, QX Proxy
+        [rewrite_local]
+        ^https?://ad\\.example\\.com/ url reject
+        [mitm]
+        hostname = ad.example.com
+        """),
+        ("uitest-surge.conf", """
+        [General]
+        loglevel = notify
+        dns-server = 223.5.5.5
+        [Proxy]
+        Surge SS = ss, 192.0.2.31, 8388, encrypt-method=aes-128-gcm, password=uitest-secret-surge
+        Surge Trojan = trojan, 192.0.2.32, 443, password=uitest-secret-surge2, sni=example.com
+        [Proxy Group]
+        Surge Proxy = select, Surge SS, Surge Trojan, DIRECT
+        Surge Auto = url-test, Surge SS, Surge Trojan, url=http://www.gstatic.com/generate_204, interval=600
+        [Rule]
+        DOMAIN-SUFFIX,apple.com,DIRECT
+        DOMAIN-KEYWORD,uitest,Surge Proxy
+        FINAL,Surge Proxy
+        """),
+        ("uitest-clash.yaml", """
+        mixed-port: 7890
+        mode: rule
+        proxies:
+          - {name: Clash SS, type: ss, server: 192.0.2.41, port: 8388, cipher: aes-128-gcm, password: uitest-secret-clash}
+          - {name: Clash Hy2, type: hysteria2, server: 192.0.2.42, port: 443, password: uitest-secret-clash2}
+        proxy-groups:
+          - {name: Clash Proxy, type: select, proxies: [Clash SS, Clash Hy2, DIRECT]}
+        rules:
+          - DOMAIN-SUFFIX,apple.com,DIRECT
+          - MATCH,Clash Proxy
+        """),
+        ("uitest-loon.plugin", """
+        #!name=UITest Loon Plugin
+        #!desc=Synthetic Loon plugin for UI tests
+        [Rewrite]
+        ^https?:\\/\\/ad\\.example\\.com\\/ reject
+        [Script]
+        http-response ^https?:\\/\\/api\\.example\\.com\\/v1 script-path=https://example.invalid/uitest.js, requires-body=true, tag=uitest-loon
+        [MITM]
+        hostname = api.example.com, ad.example.com
+        """),
+        ("uitest-links.txt", """
+        vless://00000000-0000-4000-8000-000000000051@192.0.2.51:443?encryption=none&security=tls&sni=example.com&type=xhttp&path=%2Fx&mode=auto#Link%20VLESS%20XHTTP
+        hysteria2://uitest-secret-link@192.0.2.52:443/?sni=example.com#Link%20Hy2
+        ss://YWVzLTEyOC1nY206dWl0ZXN0LXNlY3JldC1saW5r@192.0.2.53:8388#Link%20SS
+        """),
+    ]
+}
+
+/// Invisible marker for the UI tests once the seed has finished.
+struct UITestReadyMarker: View {
+    @State private var ready = false
+    var body: some View {
+        Group {
+            if UITestSeed.enabled {
+                Text(verbatim: ready ? "uitest ready" : "uitest seeding")
+                    .font(.system(size: 1))
+                    .opacity(0.02)
+                    .accessibilityIdentifier(ready ? "uitest.ready" : "uitest.seeding")
+                    .allowsHitTesting(false)
+                    .task {
+                        await UITestSeed.seedIfNeeded()
+                        ready = true
+                    }
+            }
+        }
+    }
+}

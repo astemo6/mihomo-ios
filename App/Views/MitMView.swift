@@ -456,6 +456,7 @@ struct ScriptsView: View {
                     Button { adding = true } label: { Label("新建 / 导入脚本", systemImage: "doc.badge.plus") }
                     Button { addingRaw = true } label: { Label("粘贴脚本行", systemImage: "text.badge.plus") }
                 } label: { Image(systemName: "plus") }
+                .accessibilityIdentifier("scripts.add")
             }
         }
         .sheet(isPresented: $adding) { ScriptFormSheet(item: nil) }

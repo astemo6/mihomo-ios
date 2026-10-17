@@ -118,6 +118,7 @@ struct RulesView: View {
             ToolbarItem(placement: .navigationBarTrailing) {
                 if tab == 1 {
                     Button { adding = true } label: { Image(systemName: "plus") }
+                        .accessibilityIdentifier("rules.add")
                 } else {
                     Menu {
                         Picker("排序", selection: $sortByHits) {

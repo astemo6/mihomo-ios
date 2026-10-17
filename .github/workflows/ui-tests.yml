@@ -1,0 +1,210 @@
+# test/selftest: self-tests without a device. Runs on pushes to test/** branches (a workflow_dispatch workflow
+# must exist on the default branch before it can be dispatched) and by workflow_dispatch with run_tests=true
+# once merged. Never releases. A commit message containing [only:<testName>] runs just that UI test, [skip-go]
+# skips the Go job.
+# - go: go vet + the whole bridge test suite with the race detector (Linux).
+# - ui: XCUITest target (project-uitests.yml) on an iOS simulator with the synthetic -UITestSeed profile,
+#   zh-Hans and en, light and dark. Screenshots and per-test reports are uploaded as artifacts only.
+# The release workflow (ios.yml) and project.yml are not touched by this file.
+name: Self-test
+
+on:
+  push:
+    branches: ['test/**']
+  workflow_dispatch:
+    inputs:
+      run_tests:
+        description: Run the self-tests
+        type: boolean
+        required: false
+        default: true
+      only:
+        description: "Optional -only-testing filter, e.g. MihomoUITests/MihomoUITests/test04_NodeManager"
+        type: string
+        required: false
+        default: ""
+      skip_go:
+        description: Skip the Go job
+        type: boolean
+        required: false
+        default: false
+
+permissions:
+  contents: read
+
+concurrency:
+  group: selftest-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  go:
+    if: ${{ (github.event_name == 'push' && !contains(github.event.head_commit.message, '[skip-go]')) || (inputs.run_tests && !inputs.skip_go) }}
+    runs-on: ubuntu-latest
+    timeout-minutes: 45
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-go@v5
+        with:
+          go-version-file: bridge/go.mod
+          cache-dependency-path: bridge/go.sum
+      - name: go vet
+        working-directory: bridge
+        run: go vet ./... 2>&1 | tee ../go-vet.log
+      - name: go test -race
+        if: always()
+        working-directory: bridge
+        run: |
+          set -o pipefail
+          go test -race -count=1 -timeout 30m ./... 2>&1 | tee ../go-test.log
+      - name: Failed tests (on failure)
+        if: failure()
+        run: grep -E "^(--- FAIL|FAIL|panic:|WARNING: DATA RACE)" -A12 go-test.log | head -n 300 || true
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: go-test-logs
+          path: |
+            go-vet.log
+            go-test.log
+          if-no-files-found: warn
+          retention-days: 14
+
+  ui:
+    if: ${{ github.event_name == 'push' || inputs.run_tests }}
+    runs-on: macos-15
+    timeout-minutes: 150
+    steps:
+      - uses: actions/checkout@v4
+      - name: Core version
+        run: echo "MIHOMO_VERSION=$(awk '$1=="github.com/metacubex/mihomo"{print $2; exit}' bridge/go.mod)" >> "$GITHUB_ENV"
+      - name: Select latest Xcode
+        run: |
+          XC=$(ls -d /Applications/Xcode_*.app | sed -E 's/.*Xcode_([0-9.]+)\.app/\1 &/' | grep -v -i beta | sort -V | tail -n1 | cut -d' ' -f2)
+          sudo xcode-select -s "$XC/Contents/Developer"
+          xcodebuild -version
+      - uses: actions/setup-go@v5
+        with:
+          go-version-file: bridge/go.mod
+          cache-dependency-path: bridge/go.sum
+      - name: Cache simulator Libmihomo
+        id: simfw
+        uses: actions/cache@v4
+        with:
+          path: Frameworks/Libmihomo.xcframework
+          key: libmihomo-sim-${{ env.MIHOMO_VERSION }}-${{ hashFiles('bridge/**') }}
+      - name: Build Libmihomo.xcframework (simulator)
+        if: steps.simfw.outputs.cache-hit != 'true'
+        working-directory: bridge
+        run: |
+          set -euo pipefail
+          MOBILE_VER=$(go list -m -f '{{.Version}}' golang.org/x/mobile)
+          go install golang.org/x/mobile/cmd/gomobile@"$MOBILE_VER" golang.org/x/mobile/cmd/gobind@"$MOBILE_VER"
+          export PATH="$(go env GOPATH)/bin:$PATH"
+          gomobile init
+          mkdir -p ../Frameworks
+          gomobile bind -target=iossimulator/arm64 -iosversion=15.0 -tags with_gvisor -trimpath \
+            -ldflags "-s -w -X github.com/metacubex/mihomo/constant.Version=${MIHOMO_VERSION} -X github.com/astemo6/mihomo-ios/bridge.CoreVersion=${MIHOMO_VERSION}" \
+            -o ../Frameworks/Libmihomo.xcframework .
+      - name: Generate project (with UI tests)
+        run: |
+          brew install xcodegen
+          xcodegen generate --spec project-uitests.yml
+      - name: Pick simulator
+        run: |
+          DEV=$(xcrun simctl list devices available -j | python3 -c "
+          import json,sys
+          d=json.load(sys.stdin)['devices']
+          devs=[(r,x) for r,l in d.items() if 'iOS' in r for x in l]
+          devs.sort(key=lambda rx: (0 if 'iOS-18' in rx[0] else 1, rx[0]))
+          for want in ['iPhone 16 Pro','iPhone 17 Pro','iPhone 15 Pro','iPhone 16']:
+              m=[(r,x) for r,x in devs if x['name']==want]
+              if m: print(m[0][1]['udid']); sys.stderr.write('using %s on %s\\n' % (want, m[0][0])); break
+          ")
+          test -n "$DEV"
+          echo "DEV=$DEV" >> "$GITHUB_ENV"
+          xcrun simctl boot "$DEV" || true
+          xcrun simctl bootstatus "$DEV" -b
+          xcrun simctl status_bar "$DEV" override --time "9:41" --batteryState charged --batteryLevel 100 || true
+      - name: Build for testing
+        run: |
+          set -o pipefail
+          xcodebuild -project Mihomo.xcodeproj -scheme MihomoUITests -configuration Debug -sdk iphonesimulator \
+            -destination "id=$DEV" -derivedDataPath build/uit \
+            ARCHS=arm64 ONLY_ACTIVE_ARCH=YES CODE_SIGNING_ALLOWED=NO CODE_SIGNING_REQUIRED=NO CODE_SIGN_IDENTITY="" CODE_SIGN_ENTITLEMENTS="" \
+            build-for-testing 2>&1 | tee build-uit.log | grep -E "error:|\*\* (TEST BUILD|BUILD)" | head -n 200 || true
+          grep -q "TEST BUILD SUCCEEDED" build-uit.log
+      - name: Run UI tests
+        env:
+          COMMIT_MSG: ${{ github.event.head_commit.message }}
+          ONLY_INPUT: ${{ inputs.only }}
+        run: |
+          set +e
+          mkdir -p shots results
+          ONLY=()
+          if [ -n "$ONLY_INPUT" ]; then ONLY=(-only-testing:"$ONLY_INPUT"); fi
+          for t in $(printf '%s' "$COMMIT_MSG" | grep -oE '\[only:[A-Za-z0-9_]+\]' | sed -E 's/\[only:(.*)\]/\1/'); do
+            ONLY+=(-only-testing:"MihomoUITests/MihomoUITests/$t")
+          done
+          DARK_ONLY=(-only-testing:MihomoUITests/MihomoUITests/test01_TabsAndHome -only-testing:MihomoUITests/MihomoUITests/test03_MoreEveryPage -only-testing:MihomoUITests/MihomoUITests/test04_NodeManager -only-testing:MihomoUITests/MihomoUITests/test05_AddNodeAndEditor)
+          FAILED=""
+          for combo in zh-Hans:light en:light zh-Hans:dark en:dark; do
+            LANG_=${combo%%:*}; STYLE=${combo##*:}
+            SEL=("${ONLY[@]}")
+            if [ ${#SEL[@]} -eq 0 ] && [ "$STYLE" = dark ]; then SEL=("${DARK_ONLY[@]}"); fi
+            echo "::group::UI tests $LANG_ $STYLE"
+            xcrun simctl ui "$DEV" appearance "$STYLE" || true
+            TEST_RUNNER_UI_LANG="$LANG_" TEST_RUNNER_UI_STYLE="$STYLE" TEST_RUNNER_UI_SHOT_DIR="$PWD/shots" \
+            xcodebuild -project Mihomo.xcodeproj -scheme MihomoUITests -configuration Debug -sdk iphonesimulator \
+              -destination "id=$DEV" -derivedDataPath build/uit -resultBundlePath "results/$LANG_-$STYLE.xcresult" \
+              "${SEL[@]}" test-without-building 2>&1 | tee "results/$LANG_-$STYLE.log" | grep -E "Test Case|error:|failed|passed|XCTAssert|issue" | head -n 400
+            RC=${PIPESTATUS[0]}
+            echo "::endgroup::"
+            echo "$LANG_ $STYLE exit $RC"
+            [ "$RC" = 0 ] || FAILED="$FAILED $LANG_-$STYLE"
+          done
+          {
+            echo "### UI self-test"
+            for f in shots/*/report-*.md; do
+              [ -f "$f" ] || continue
+              n=$(sed -n '/^## issues/,/^## warnings/p' "$f" | grep -c '^\[' || true)
+              echo "- $(basename "$(dirname "$f")") $(basename "$f" .md): $n issue(s)"
+            done
+            echo "- failed combos:${FAILED:- none}"
+          } >> "$GITHUB_STEP_SUMMARY"
+          cat shots/*/report-*.md 2>/dev/null | grep -E "^\[|^# " | head -n 400
+          echo "FAILED=$FAILED" >> "$GITHUB_ENV"
+      - name: Crash logs
+        if: always()
+        run: |
+          mkdir -p crashes
+          cp ~/Library/Logs/DiagnosticReports/Mihomo* crashes/ 2>/dev/null || true
+          find "$HOME/Library/Developer/CoreSimulator/Devices/$DEV" -name "Mihomo*.ips" -exec cp {} crashes/ \; 2>/dev/null || true
+          ls -la crashes
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: ui-screens
+          path: |
+            shots/
+            crashes/
+          if-no-files-found: warn
+          retention-days: 14
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: ui-results
+          path: |
+            results/*.log
+            build-uit.log
+          if-no-files-found: warn
+          retention-days: 14
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: ui-xcresult
+          path: results/*.xcresult
+          if-no-files-found: ignore
+          retention-days: 7
+      - name: Result
+        run: |
+          if [ -n "$FAILED" ]; then echo "UI tests failed:$FAILED"; exit 1; fi

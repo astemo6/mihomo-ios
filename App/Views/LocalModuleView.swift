@@ -99,6 +99,7 @@ struct LocalModuleView: View {
             Divider()
             Button { editing = EditTarget(item: nil, type: "raw") } label: { Label("粘贴规则文本", systemImage: "doc.on.clipboard") }
         } label: { Image(systemName: "plus") }
+        .accessibilityIdentifier("localmodule.add")
     }
 
     var formList: some View {

@@ -434,6 +434,7 @@ struct HomePolicyCards: View {
                     .contentShape(Rectangle())
                 }
                 .buttonStyle(.plain)
+                .accessibilityIdentifier("home.card." + g.name)
                 .contextMenu {
                     if let onRemove {
                         Button(role: .destructive) { onRemove(g.name) } label: { Label("从首页移除", systemImage: "minus.circle") }
