@@ -49,6 +49,7 @@ struct MoreView: View {
 
                 Section("工具与数据") {
                     NavigationLink { ToolsView() } label: { row("网络工具（Ping / TCP / DNS）", "stethoscope.circle", nil) }
+                    NavigationLink { UnlockView() } label: { row("解锁检测", "checkmark.shield", nil) }
                     NavigationLink { AnalyticsView() } label: { row("连接分析", "chart.pie", nil) }
                     NavigationLink { StatsView() } label: { row("流量统计", "chart.bar.xaxis", nil) }
                     NavigationLink { LogsView() } label: { row("日志", "text.alignleft", nil) }

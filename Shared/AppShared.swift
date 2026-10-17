@@ -213,6 +213,16 @@ struct CoreOverrides: Codable, Equatable {
     }
     static let mtuChoices = [1280, 1500, 4064, 9000]
 
+    /// v0.8 节点探测: loopback port of the probe listener (same rule as bridge/probe.go probePort): 7899, or the
+    /// next lower port when the mixed or controller port already uses it.
+    var probePort: Int {
+        let ctrl = (1...65535).contains(controllerPort) ? controllerPort : 9090
+        let mixed = mixedPort == ctrl ? 7890 : mixedPort
+        var p = 7899
+        while p > 7800 && (p == mixed || p == ctrl) { p -= 1 }
+        return p
+    }
+
     var isProxyOnly: Bool { tunnelMode == "proxy" }
     var isMixed: Bool { tunnelMode == "mix" }
 

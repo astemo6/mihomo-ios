@@ -185,7 +185,7 @@ func checkProfileText(homeDir, profilePath, text string) profileCheck {
 	}
 	rtRaw := map[string]any{}
 	_ = yaml.Unmarshal(rt, &rtRaw)
-	return profileCheck{OK: true, Nodes: len(asList(rtRaw["proxies"])), Groups: len(asList(rtRaw["proxy-groups"])),
+	return profileCheck{OK: true, Nodes: len(asList(rtRaw["proxies"])), Groups: countUserGroups(rtRaw),
 		Rules: len(cfg.Rules), Providers: len(cfg.Providers)}
 }
 

@@ -259,6 +259,39 @@ struct StatTile: View {
 }
 
 
+/// Flag + exit location large, "time zone · ASN · IP" small. Shared by the Home header and 节点探测 (v0.8).
+struct ExitInfoRow: View {
+    let info: IPInfo?
+    let loading: Bool
+    let failed: Bool
+    let placeholder: String
+    /// Third line with the operator (节点探测 shows it; Home keeps two lines).
+    var showOrg = false
+
+    var body: some View {
+        HStack(alignment: .center, spacing: 12) {
+            Text(info?.flag ?? "🌐")
+                .font(.system(size: 34))
+                .accessibilityHidden(true)
+            VStack(alignment: .leading, spacing: 3) {
+                Text(info?.placeText ?? (loading ? String(localized: "正在查询…") : (failed ? String(localized: "查询失败") : "—")))
+                    .font(.title3.weight(.bold))
+                    .lineLimit(1)
+                    .minimumScaleFactor(0.7)
+                Text(info?.detailText ?? placeholder)
+                    .font(.caption.monospacedDigit())
+                    .foregroundStyle(.secondary)
+                    .lineLimit(1)
+                    .minimumScaleFactor(0.75)
+                if showOrg, let org = info?.org, !org.isEmpty {
+                    Text(org).font(.caption).foregroundStyle(.secondary).lineLimit(1)
+                }
+            }
+            Spacer(minLength: 0)
+        }
+    }
+}
+
 /// Home header (v0.7): flag + exit location large, "time zone · ASN · IP" small, a plain toggle, and one
 /// status line. Tap refreshes the exit info, long-press copies it (as the old IP card did).
 struct ExitHeader: View {
@@ -271,20 +304,8 @@ struct ExitHeader: View {
         let on = vpn.isConnected
         VStack(alignment: .leading, spacing: 12) {
             HStack(alignment: .center, spacing: 12) {
-                Text(ip.exit?.flag ?? "🌐")
-                    .font(.system(size: 34))
-                    .accessibilityHidden(true)
-                VStack(alignment: .leading, spacing: 3) {
-                    Text(ip.exit?.placeText ?? (ip.loading ? String(localized: "正在查询…") : (ip.failed ? String(localized: "查询失败") : "—")))
-                        .font(.title3.weight(.bold))
-                        .lineLimit(1)
-                        .minimumScaleFactor(0.7)
-                    Text(ip.exit?.detailText ?? (on ? String(localized: "出口 · 代理") : String(localized: "出口 · 本机网络")))
-                        .font(.caption.monospacedDigit())
-                        .foregroundStyle(.secondary)
-                        .lineLimit(1)
-                        .minimumScaleFactor(0.75)
-                }
+                ExitInfoRow(info: ip.exit, loading: ip.loading, failed: ip.failed,
+                            placeholder: on ? String(localized: "出口 · 代理") : String(localized: "出口 · 本机网络"))
                 .contentShape(Rectangle())
                 .onTapGesture {
                     UIImpactFeedbackGenerator(style: .light).impactOccurred()

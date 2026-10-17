@@ -323,7 +323,7 @@ func InspectProfile(homeDir, path string) string {
 	if gl, ok := raw["proxy-groups"].([]any); ok {
 		for _, x := range gl {
 			m, ok := x.(map[string]any)
-			if !ok {
+			if !ok || str(m["name"]) == ProbeGroup {
 				continue
 			}
 			g := inspectGroup{Name: str(m["name"]), Type: strings.ToLower(str(m["type"])), Proxies: strList(m["proxies"]), Use: strList(m["use"]),

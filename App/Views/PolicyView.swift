@@ -44,6 +44,19 @@ final class PolicyModel: ObservableObject {
         }
     }
 
+    /// 固定 / 解除固定 (v0.8) a member of a url-test / fallback group (core-native, PUT / DELETE /proxies/{group}).
+    func pin(_ group: ProxyItem, _ node: String?) async {
+        do {
+            if let node { try await ControllerClient.shared.pin(group: group.name, node: node) }
+            else { try await ControllerClient.shared.unpin(group: group.name) }
+            UISelectionFeedbackGenerator().selectionChanged()
+            await load()
+            NotificationCenter.default.post(name: .egressMayHaveChanged, object: nil)
+        } catch {
+            self.error = String(localized: "固定失败：\(error.localizedDescription)")
+        }
+    }
+
     /// Live 测速 through the running core (each member is dialled through its own node), with the
     /// URL and timeout from 更多 → 测速.
     func test(_ group: ProxyItem) async {
@@ -76,6 +89,10 @@ struct PolicyGroupDisplay {
     var selectable: Bool
     /// The profile's own `icon:` (mihomo proxy-groups); the user's choice in group-icons.json wins.
     var profileIcon: String? = nil
+    /// url-test / fallback member pinned in the core (v0.8), nil = automatic.
+    var pinned: String? = nil
+
+    var pinnable: Bool { kind == "url-test" || kind == "fallback" }
 
     static func kind(live type: String) -> String {
         switch type {
@@ -137,6 +154,9 @@ struct PolicyView: View {
     @State private var iconTarget: IconTarget?
 
     struct IconTarget: Identifiable { let id = UUID(); let name: String; let profileIcon: String? }
+    struct ProbeTarget: Identifiable { let id = UUID(); let name: String }
+    @State private var probeTarget: ProbeTarget?
+    @ObservedObject private var probes = ProbeStore.shared
 
     struct ChainGroupTarget: Identifiable { let id = UUID(); let name: String }
 
@@ -227,6 +247,7 @@ struct PolicyView: View {
         .onChange(of: store.activeID) { _ in Task { if !vpn.isConnected { await offline.load() } } }
         .sheet(item: $chainGroup) { t in GroupChainSheet(group: t.name) }
         .sheet(item: $share) { t in NodeShareSheet(name: t.name, link: t.link) }
+        .sheet(item: $probeTarget) { t in NodeProbeSheet(policy: t.name) }
         .alert("分享节点", isPresented: Binding(get: { shareError != nil }, set: { if !$0 { shareError = nil } })) {
             Button("好", role: .cancel) {}
         } message: { Text(shareError ?? "") }
@@ -249,8 +270,10 @@ struct PolicyView: View {
                 if let e = model.error { Text(e).font(.footnote).foregroundStyle(Theme.bad) }
                 TestTargetCaption(live: true)
                 ForEach(model.groups) { g in
+                    let fixed = (g.fixed ?? "").isEmpty ? nil : g.fixed
                     let d = PolicyGroupDisplay(name: g.name, kind: PolicyGroupDisplay.kind(live: g.type), now: g.now,
-                                               members: ordered(g.all ?? []), selectable: g.isSelectable, profileIcon: g.icon)
+                                               members: ordered(g.all ?? []), selectable: g.isSelectable, profileIcon: g.icon,
+                                               pinned: fixed)
                     PolicyGroupCard(group: d,
                                     testing: model.testing.contains(g.name),
                                     expanded: binding(g.name),
@@ -264,7 +287,10 @@ struct PolicyView: View {
                                     via: smart.via(g.name),
                                     onChain: chainAction(g.name),
                                     onShare: { shareNode($0) },
-                                    onIcon: { iconTarget = IconTarget(name: g.name, profileIcon: g.icon) })
+                                    onIcon: { iconTarget = IconTarget(name: g.name, profileIcon: g.icon) },
+                                    onProbe: { probeTarget = ProbeTarget(name: $0) },
+                                    badge: { probes.badge(for: $0) },
+                                    onPin: d.pinnable && !smart.isSmart(g.name) ? { n in Task { await model.pin(g, n) } } : nil)
                 }
             }
             .padding(16)
@@ -349,6 +375,13 @@ struct PolicyGroupCard: View {
     var onShare: ((String) -> Void)? = nil
     /// Opens the group icon picker.
     var onIcon: (() -> Void)? = nil
+    /// v0.8 节点探测 sheet for a member (live only), and the 解锁 badge per member.
+    var onProbe: ((String) -> Void)? = nil
+    var badge: ((String) -> (ok: Int, total: Int)?)? = nil
+    /// v0.8 固定 / 解除固定 (nil = not offered: not url-test / fallback, smart selection on, or offline).
+    var onPin: ((String?) -> Void)? = nil
+
+    static let unprobeable: Set<String> = ["REJECT", "REJECT-DROP", "PASS", "COMPATIBLE"]
 
     static let nonShareable: Set<String> = ["group", "selector", "urltest", "url-test", "fallback", "loadbalance", "load-balance", "relay",
                                             "direct", "reject", "rejectdrop", "reject-drop", "compatible", "pass", "dns"]
@@ -370,6 +403,14 @@ struct PolicyGroupCard: View {
                         if via != nil {
                             Image(systemName: "link").font(.caption2.weight(.bold)).foregroundStyle(Theme.accent)
                                 .accessibilityLabel(Text("已设置前置代理"))
+                        }
+                        if group.pinned != nil {
+                            Label("已固定", systemImage: "pin.fill")
+                                .labelStyle(.titleAndIcon)
+                                .font(.caption2.weight(.semibold))
+                                .padding(.horizontal, 6).padding(.vertical, 2)
+                                .background(Capsule().fill(Theme.warn.opacity(0.18)))
+                                .foregroundStyle(Theme.warn)
                         }
                         if smart?.wrappedValue == true {
                             Label("智能", systemImage: "sparkles")
@@ -419,8 +460,18 @@ struct PolicyGroupCard: View {
                     .padding(10)
                     .background(RoundedRectangle(cornerRadius: 12, style: .continuous).fill(Theme.cardHi))
                 }
-                if !group.selectable && smart?.wrappedValue != true {
-                    Text(group.hint).font(.caption2).foregroundStyle(.secondary)
+                if let pinned = group.pinned, let onPin {
+                    HStack(spacing: 8) {
+                        Image(systemName: "pin.fill").font(.caption).foregroundStyle(Theme.warn)
+                        Text("已固定到 \(pinned)").font(.subheadline).lineLimit(1)
+                        Spacer()
+                        Button("解除固定") { onPin(nil) }.font(.subheadline)
+                    }
+                    .padding(10)
+                    .background(RoundedRectangle(cornerRadius: 12, style: .continuous).fill(Theme.cardHi))
+                } else if !group.selectable && smart?.wrappedValue != true {
+                    Text(onPin != nil ? String(localized: "\(group.hint)。轻点节点可临时固定，自动选择暂停，直到解除固定。") : group.hint)
+                        .font(.caption2).foregroundStyle(.secondary)
                 }
                 if let onChain {
                     Button(action: onChain) {
@@ -456,9 +507,24 @@ struct PolicyGroupCard: View {
                                  udp: nodeUDP(name),
                                  delay: delay(name),
                                  selected: group.now == name,
-                                 enabled: group.selectable)
-                        .onTapGesture { if group.selectable { onSelect(name) } }
+                                 enabled: group.selectable || onPin != nil,
+                                 pinned: group.pinned == name,
+                                 badge: badge?(name))
+                        .onTapGesture {
+                            if group.selectable { onSelect(name) }
+                            else if let onPin { onPin(group.pinned == name ? nil : name) }
+                        }
                         .contextMenu {
+                            if let onProbe, !Self.unprobeable.contains(name) {
+                                Button { onProbe(name) } label: { Label("出口与解锁检测", systemImage: "location.magnifyingglass") }
+                            }
+                            if let onPin {
+                                if group.pinned == name {
+                                    Button { onPin(nil) } label: { Label("解除固定", systemImage: "pin.slash") }
+                                } else {
+                                    Button { onPin(name) } label: { Label("固定此节点", systemImage: "pin") }
+                                }
+                            }
                             if let onShare, let t = nodeType(name), !Self.nonShareable.contains(t.lowercased()) {
                                 Button { onShare(name) } label: { Label("分享节点", systemImage: "qrcode") }
                             }
@@ -480,6 +546,8 @@ struct NodeCell: View {
     let delay: Int?
     let selected: Bool
     let enabled: Bool
+    var pinned: Bool = false
+    var badge: (ok: Int, total: Int)? = nil
 
     var body: some View {
         VStack(alignment: .leading, spacing: 6) {
@@ -497,6 +565,11 @@ struct NodeCell: View {
                 }
                 if udp {
                     Text("UDP").scaledFont(9, weight: .bold).foregroundStyle(.secondary)
+                }
+                if let badge { UnlockBadge(ok: badge.ok, total: badge.total) }
+                if pinned {
+                    Image(systemName: "pin.fill").scaledFont(9, weight: .bold).foregroundStyle(Theme.warn)
+                        .accessibilityLabel(Text("已固定"))
                 }
                 Spacer()
                 Text(Theme.delayText(delay))

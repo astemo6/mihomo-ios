@@ -79,11 +79,12 @@ final class ControllerClient {
 
     func proxies() async throws -> [String: ProxyItem] {
         var p = try await get(ProxiesResponse.self, "/proxies").proxies
-        // Hide the internal MitM engine outbound.
-        p.removeValue(forKey: "__MITM__")
-        for (k, v) in p where v.all?.contains("__MITM__") == true {
+        // Hide the internal MitM engine outbound and the v0.8 节点探测 group.
+        let internal: Set<String> = ["__MITM__", PolicyProbe.group]
+        for n in internal { p.removeValue(forKey: n) }
+        for (k, v) in p where v.all?.contains(where: { internal.contains($0) }) == true {
             var v2 = v
-            v2.all = v.all?.filter { $0 != "__MITM__" }
+            v2.all = v.all?.filter { !internal.contains($0) }
             p[k] = v2
         }
         return p
@@ -106,6 +107,16 @@ final class ControllerClient {
 
     func select(group: String, node: String) async throws {
         try await send("/proxies/\(Self.enc(group))", method: "PUT", body: ["name": node])
+    }
+
+    /// 固定 (v0.8): url-test / fallback groups accept PUT /proxies/{group} too; the core then uses that member
+    /// until DELETE /proxies/{group} (解除固定). Stored by the core's cache file, so it survives a reconnect.
+    func pin(group: String, node: String) async throws {
+        try await send("/proxies/\(Self.enc(group))", method: "PUT", body: ["name": node])
+    }
+
+    func unpin(group: String) async throws {
+        try await send("/proxies/\(Self.enc(group))", method: "DELETE")
     }
 
     static let testURL = CoreOverrides.defaultTestURL

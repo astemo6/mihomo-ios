@@ -310,6 +310,7 @@ func buildRuntimeWith(profile []byte, o Overrides, fd int32, inject func(raw map
 	if inject != nil {
 		inject(raw)
 	}
+	applyProbe(raw, o)
 	applyQUICBlock(raw, o.BlockQUIC)
 	return yaml.Marshal(raw)
 }

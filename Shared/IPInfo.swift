@@ -135,6 +135,12 @@ enum IPInfoFetcher {
     /// Fetches with a brand-new ephemeral session each time so a connection opened
     /// before the tunnel came up is never reused (that would report the old IP).
     static func fetch(timeout: TimeInterval = 6) async -> IPInfo? {
+        let session = URLSession(configuration: sessionConfiguration(timeout: timeout))
+        defer { session.invalidateAndCancel() }
+        return await fetch(using: session)
+    }
+
+    static func sessionConfiguration(timeout: TimeInterval) -> URLSessionConfiguration {
         let cfg = URLSessionConfiguration.ephemeral
         cfg.timeoutIntervalForRequest = timeout
         cfg.timeoutIntervalForResource = timeout + 2
@@ -142,8 +148,11 @@ enum IPInfoFetcher {
         cfg.urlCache = nil
         cfg.httpShouldUsePipelining = false
         cfg.httpMaximumConnectionsPerHost = 1
-        let session = URLSession(configuration: cfg)
-        defer { session.invalidateAndCancel() }
+        return cfg
+    }
+
+    /// Tries the endpoints in order with the given session (v0.8: also a session through 节点探测).
+    static func fetch(using session: URLSession) async -> IPInfo? {
         for ep in endpoints {
             guard let url = URL(string: ep.url) else { continue }
             var req = URLRequest(url: url)
