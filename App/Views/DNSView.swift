@@ -111,16 +111,65 @@ struct DNSOverrideSettings: Codable, Equatable {
     }
 }
 
+/// v0.13: one-tap DNS servers (Surge / Shadowrocket style presets).
+struct DNSPreset: Identifiable {
+    var id: String { url }
+    let name: String
+    let kind: String // DoH / DoT / DoQ / UDP
+    let url: String
+
+    static let domestic: [DNSPreset] = [
+        DNSPreset(name: "阿里 DNS", kind: "DoH", url: "https://dns.alidns.com/dns-query"),
+        DNSPreset(name: "阿里 DNS", kind: "DoT", url: "tls://dns.alidns.com"),
+        DNSPreset(name: "阿里 DNS", kind: "DoQ", url: "quic://dns.alidns.com:853"),
+        DNSPreset(name: "腾讯 DNSPod", kind: "DoH", url: "https://doh.pub/dns-query"),
+        DNSPreset(name: "腾讯 DNSPod", kind: "DoT", url: "tls://dot.pub"),
+        DNSPreset(name: "360 DNS", kind: "DoH", url: "https://doh.360.cn/dns-query"),
+        DNSPreset(name: "阿里 DNS", kind: "UDP", url: "223.5.5.5"),
+        DNSPreset(name: "腾讯 DNSPod", kind: "UDP", url: "119.29.29.29"),
+    ]
+    static let foreign: [DNSPreset] = [
+        DNSPreset(name: "Cloudflare", kind: "DoH", url: "https://1.1.1.1/dns-query"),
+        DNSPreset(name: "Cloudflare", kind: "DoT", url: "tls://1.1.1.1"),
+        DNSPreset(name: "Google", kind: "DoH", url: "https://dns.google/dns-query"),
+        DNSPreset(name: "Google", kind: "DoT", url: "tls://dns.google"),
+        DNSPreset(name: "Quad9", kind: "DoH", url: "https://dns.quad9.net/dns-query"),
+        DNSPreset(name: "AdGuard", kind: "DoH", url: "https://dns.adguard-dns.com/dns-query"),
+        DNSPreset(name: "AdGuard", kind: "DoQ", url: "quic://dns.adguard-dns.com"),
+        DNSPreset(name: "OpenDNS", kind: "DoH", url: "https://doh.opendns.com/dns-query"),
+    ]
+}
+
 /// Edits a list of strings as one-per-line text.
 struct LinesField: View {
     let title: String
     let placeholder: String
     @Binding var lines: [String]
+    var presets: [DNSPreset] = []
     @State private var text = ""
 
     var body: some View {
         VStack(alignment: .leading, spacing: 4) {
-            Text(LocalizedStringKey(title)).font(.caption.weight(.semibold)).foregroundStyle(.secondary)
+            HStack {
+                Text(LocalizedStringKey(title)).font(.caption.weight(.semibold)).foregroundStyle(.secondary)
+                Spacer()
+                if !presets.isEmpty {
+                    Menu {
+                        ForEach(presets) { p in
+                            Button {
+                                guard !lines.contains(p.url) else { return }
+                                text = (text.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty ? "" : text.trimmingCharacters(in: .whitespacesAndNewlines) + "\n") + p.url
+                            } label: {
+                                Label { Text("\(String(localized: String.LocalizationValue(p.name))) · \(p.kind)") } icon: {
+                                    if lines.contains(p.url) { Image(systemName: "checkmark") }
+                                }
+                            }
+                        }
+                    } label: {
+                        Label("预设", systemImage: "plus.circle").font(.caption.weight(.semibold))
+                    }
+                }
+            }
             TextField(placeholder, text: $text, axis: .vertical)
                 .scaledFont(12, design: .monospaced)
                 .textInputAutocapitalization(.never).autocorrectionDisabled()
@@ -171,9 +220,9 @@ struct DNSView: View {
             if s.enabled {
                 Section {
                     Toggle("国内 / 国外分流", isOn: $s.split)
-                    LinesField(title: "国内 DNS", placeholder: "https://223.5.5.5/dns-query", lines: $s.nameserver)
+                    LinesField(title: "国内 DNS", placeholder: "https://223.5.5.5/dns-query", lines: $s.nameserver, presets: DNSPreset.domestic)
                     if s.split {
-                        LinesField(title: "国外 DNS", placeholder: "https://1.1.1.1/dns-query", lines: $s.foreign)
+                        LinesField(title: "国外 DNS", placeholder: "https://1.1.1.1/dns-query", lines: $s.foreign, presets: DNSPreset.foreign)
                     }
                 } header: { Text("解析服务器") } footer: {
                     Text(s.split ? "geosite:cn 与私有域名用国内 DNS，其余域名用国外 DNS（通过代理查询）。支持 udp / tcp / DoH (https://) / DoT (tls://) / DoQ (quic://)。" : "所有域名都用这里的服务器。")
