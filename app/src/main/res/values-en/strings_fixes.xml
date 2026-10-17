@@ -1,0 +1,15 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- a2-fixes: QR scan / generate. -->
+<resources>
+    <string name="qr_scan">Scan QR</string>
+    <string name="qr_scan_prompt">Place the QR code inside the frame</string>
+    <string name="qr_camera_denied">Camera permission was denied, so scanning is unavailable. You can allow it in system settings.</string>
+    <string name="qr_too_long">Too long to fit in one QR code. Copy or share it instead.</string>
+    <string name="qr_close">Close</string>
+    <string name="qr_copy">Copy</string>
+    <string name="qr_share">Share</string>
+    <string name="qr_copied">Copied</string>
+    <string name="qr_show">QR code</string>
+    <string name="qr_sub_title">Subscription QR code</string>
+    <string name="qr_manual_all_title">All manual nodes</string>
+</resources>
