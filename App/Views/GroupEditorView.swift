@@ -33,6 +33,9 @@ struct GroupEdit: Codable, Hashable {
 struct GroupEdits: Codable, Hashable {
     var edits: [String: GroupEdit]? = nil
     var added: [GroupSpec]? = nil
+    /// feat/group-order: the 策略组 order (file names), kept only for subscription profiles and re-applied to the
+    /// file after each download (bridge GroupOrderReapply). The file itself holds the order otherwise.
+    var order: [String]? = nil
 }
 
 enum GroupEditStore {
@@ -47,7 +50,7 @@ enum GroupEditStore {
 
     static func set(_ profileID: String, _ e: GroupEdits) {
         var m = all()
-        let empty = (e.edits ?? [:]).isEmpty && (e.added ?? []).isEmpty
+        let empty = (e.edits ?? [:]).isEmpty && (e.added ?? []).isEmpty && (e.order ?? []).isEmpty
         m[profileID] = empty ? nil : e
         let enc = JSONEncoder()
         enc.outputFormatting = [.prettyPrinted, .sortedKeys]

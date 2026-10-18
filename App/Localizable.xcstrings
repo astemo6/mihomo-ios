@@ -72943,6 +72943,414 @@
           }
         }
       }
+    },
+    "排列策略组": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Reorder Groups"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ポリシーグループの並べ替え"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "정책 그룹 순서 변경"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Порядок групп"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "排列策略組"
+          }
+        }
+      }
+    },
+    "置顶": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Move to Top"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "先頭へ移動"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "맨 위로 이동"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "В начало"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "置頂"
+          }
+        }
+      }
+    },
+    "拖动或置顶来调整顺序。保存后写入配置文件，注释和其他内容保持不变，原文件备份为 .bak。": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Drag or move groups to the top to change the order. Saving writes it into the profile file; comments and everything else stay as they are, and the previous file is kept as .bak."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ドラッグまたは「先頭へ移動」で順序を変更します。保存すると構成ファイルに書き込まれ、コメントやその他の内容はそのまま残り、元のファイルは .bak として保存されます。"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "드래그하거나 맨 위로 이동해 순서를 바꿉니다. 저장하면 구성 파일에 기록되며, 주석과 다른 내용은 그대로 유지되고 이전 파일은 .bak으로 보관됩니다."
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Перетащите группы или переместите их в начало. При сохранении порядок записывается в файл конфигурации; комментарии и остальное содержимое не меняются, прежний файл сохраняется как .bak."
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "拖動或置頂來調整順序。儲存後寫入配置檔案，註釋和其他內容保持不變，原檔案備份為 .bak。"
+          }
+        }
+      }
+    },
+    "标有「运行时加入」的策略组不在配置文件中，位置保持不变。": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Groups marked “Added at runtime” are not in the profile file and keep their place."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "「実行時に追加」と表示されたグループは構成ファイルにないため、位置は変わりません。"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "'런타임에 추가됨'으로 표시된 그룹은 구성 파일에 없어서 위치가 바뀌지 않습니다."
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Группы с пометкой «Добавлена при запуске» отсутствуют в файле конфигурации и остаются на месте."
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "標有「執行時加入」的策略組不在配置檔案中，位置保持不變。"
+          }
+        }
+      }
+    },
+    "这是订阅配置：顺序也会单独保存，每次更新订阅后自动重新排列。": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "This is a subscription profile: the order is also saved separately and re-applied after every subscription update."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "これはサブスクリプション構成です：順序は別途保存され、サブスクリプションを更新するたびに自動で並べ直されます。"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "구독 구성입니다: 순서가 따로 저장되며 구독을 업데이트할 때마다 자동으로 다시 정렬됩니다."
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Это профиль подписки: порядок также сохраняется отдельно и применяется заново после каждого обновления подписки."
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "這是訂閱配置：順序也會單獨儲存，每次更新訂閱後自動重新排列。"
+          }
+        }
+      }
+    },
+    "不再保持此顺序": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Stop Keeping This Order"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "この順序を保持しない"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "이 순서 유지 안 함"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Не сохранять этот порядок"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "不再保持此順序"
+          }
+        }
+      }
+    },
+    "下次更新订阅时恢复订阅自带的顺序。": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "The next subscription update restores the subscription's own order."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "次回のサブスクリプション更新で、サブスクリプション本来の順序に戻ります。"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "다음 구독 업데이트 때 구독 원래의 순서로 돌아갑니다."
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "При следующем обновлении подписки вернётся её исходный порядок."
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "下次更新訂閱時恢復訂閱自帶的順序。"
+          }
+        }
+      }
+    },
+    "运行时加入": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Added at runtime"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "実行時に追加"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "런타임에 추가됨"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Добавлена при запуске"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "執行時加入"
+          }
+        }
+      }
+    },
+    "排列策略组前": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Before reordering groups"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ポリシーグループの並べ替え前"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "정책 그룹 순서 변경 전"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Перед изменением порядка групп"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "排列策略組前"
+          }
+        }
+      }
+    },
+    "该策略组不在配置文件中（运行时加入），位置无法调整": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "This group is not in the profile file (added at runtime), so its position can't be changed"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "このグループは構成ファイルにない（実行時に追加）ため、位置を変更できません"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "이 그룹은 구성 파일에 없어서(런타임에 추가됨) 위치를 바꿀 수 없습니다"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Этой группы нет в файле конфигурации (добавлена при запуске), её позицию нельзя изменить"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "該策略組不在配置檔案中（執行時加入），位置無法調整"
+          }
+        }
+      }
+    },
+    "无法安全地重排策略组（配置使用了 YAML 锚点或特殊格式）": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Can't reorder the groups safely (the profile uses YAML anchors or an unusual layout)"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ポリシーグループを安全に並べ替えられません（構成が YAML アンカーまたは特殊な形式を使用しています）"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "정책 그룹을 안전하게 재정렬할 수 없습니다(구성에 YAML 앵커나 특수 형식이 사용됨)"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Не удалось безопасно изменить порядок групп (в конфигурации используются YAML-якоря или нестандартный формат)"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "無法安全地重排策略組（配置使用了 YAML 錨點或特殊格式）"
+          }
+        }
+      }
+    },
+    "配置文件中没有可排序的策略组": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "The profile file has no proxy groups to reorder"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "構成ファイルに並べ替えできるポリシーグループがありません"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "구성 파일에 정렬할 정책 그룹이 없습니다"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "В файле конфигурации нет групп для сортировки"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "配置檔案中沒有可排序的策略組"
+          }
+        }
+      }
     }
   },
   "version": "1.0"

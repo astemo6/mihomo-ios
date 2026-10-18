@@ -23,6 +23,14 @@ final class PolicyModel: ObservableObject {
         }
     }
 
+    /// feat/group-order: shows a saved order right away (the core reload that follows confirms it).
+    func applyOrder(_ names: [String]) {
+        let rank = Dictionary(names.enumerated().map { ($1, $0) }, uniquingKeysWith: { a, _ in a })
+        let listed = groups.filter { rank[$0.name] != nil }.sorted { rank[$0.name]! < rank[$1.name]! }
+        var it = listed.makeIterator()
+        groups = groups.map { rank[$0.name] != nil ? (it.next() ?? $0) : $0 }
+    }
+
     /// Results of this session's live 测速 (0 = timeout), newest wins over the core's history.
     @Published var liveDelays: [String: Int] = [:]
 
@@ -168,6 +176,35 @@ struct PolicyView: View {
     /// v0.9 策略组编辑 (name nil = new group).
     struct EditGroupTarget: Identifiable { let id = UUID(); let name: String? }
     @State private var editGroup: EditGroupTarget?
+    /// feat/group-order: 排列策略组 sheet and the message of a failed 置顶.
+    @State private var ordering = false
+    @State private var orderError: String?
+
+    /// The groups in the order the page shows them (display names), for 排列策略组 / 置顶.
+    private var orderGroups: [(name: String, kind: String, icon: String?)] {
+        if vpn.isConnected {
+            return model.groups.filter { $0.name != "GLOBAL" }.map { ($0.name, PolicyGroupDisplay.kind(live: $0.type), $0.icon) }
+        }
+        return offline.result.groups.filter { $0.hidden != true }.map { ($0.name, $0.type, $0.icon) }
+    }
+
+    private func topAction(_ name: String) -> (() -> Void)? {
+        guard name != "GLOBAL", store.active != nil else { return nil }
+        return {
+            Task {
+                guard let p = store.active else { return }
+                let names = orderGroups.map { $0.name }
+                guard let i = names.firstIndex(of: name), i > 0 else { return }
+                guard GroupOrder.fileNames(p).contains(GroupOrder.fileName(of: name, edits: GroupEditStore.get(p.id))) else {
+                    orderError = String(localized: "该策略组不在配置文件中（运行时加入），位置无法调整")
+                    return
+                }
+                let r = await GroupOrder.moveToTop(name, current: names, profile: p)
+                if r.saved, vpn.isConnected { var n = names; n.remove(at: i); n.insert(name, at: 0); model.applyOrder(n); await model.load() }
+                if let m = r.message { orderError = m }
+            }
+        }
+    }
 
     /// Groups that can carry a 前置代理 (not GLOBAL; DIRECT/REJECT style built-ins have no members).
     private func chainAction(_ name: String) -> (() -> Void)? {
@@ -238,6 +275,8 @@ struct PolicyView: View {
                         }
                         Toggle("测速后自动排序", isOn: $autoSort)
                         Divider()
+                        Button { ordering = true } label: { Label("排列策略组", systemImage: "line.3.horizontal") } // feat/group-order
+                            .accessibilityIdentifier("policy.reorder")
                         Button { editHome = true } label: { Label("编辑首页策略", systemImage: "house") } // feat/home-groups
                     } label: { Image(systemName: "arrow.up.arrow.down") }
                     .accessibilityLabel(Text("排序"))
@@ -271,6 +310,15 @@ struct PolicyView: View {
         .sheet(item: $share) { t in NodeShareSheet(name: t.name, link: t.link) }
         .sheet(item: $probeTarget) { t in NodeProbeSheet(policy: t.name) }
         .sheet(isPresented: $editHome) { HomeGroupsEditor().environmentObject(vpn) }
+        .sheet(isPresented: $ordering) {
+            GroupOrderView(groups: orderGroups, onSaved: { names in
+                if vpn.isConnected { model.applyOrder(names); Task { await model.load() } }
+            })
+            .environmentObject(store)
+        }
+        .alert("排列策略组", isPresented: Binding(get: { orderError != nil }, set: { if !$0 { orderError = nil } })) {
+            Button("好", role: .cancel) {}
+        } message: { Text(orderError ?? "") }
         .alert("分享节点", isPresented: Binding(get: { shareError != nil }, set: { if !$0 { shareError = nil } })) {
             Button("好", role: .cancel) {}
         } message: { Text(shareError ?? "") }
@@ -321,6 +369,7 @@ struct PolicyView: View {
                                     onShare: { shareNode($0) },
                                     onIcon: { iconTarget = IconTarget(name: g.name, profileIcon: g.icon) },
                                     onEdit: { editGroup = EditGroupTarget(name: g.name) },
+                                    onTop: topAction(g.name),
                                     onProbe: { probeTarget = ProbeTarget(name: $0) },
                                     badge: { probes.badge(for: $0) },
                                     onPin: pinAction,
@@ -385,7 +434,8 @@ struct PolicyView: View {
                                         onChain: chainAction(g.name),
                                         onShare: { shareNode($0) },
                                         onIcon: { iconTarget = IconTarget(name: g.name, profileIcon: g.icon) },
-                                        onEdit: { editGroup = EditGroupTarget(name: g.name) })
+                                        onEdit: { editGroup = EditGroupTarget(name: g.name) },
+                                        onTop: topAction(g.name))
                       }
                     }
                     if !offline.result.groups.isEmpty {
@@ -423,6 +473,8 @@ struct PolicyGroupCard: View {
     var onIcon: (() -> Void)? = nil
     /// v0.9: opens the group editor.
     var onEdit: (() -> Void)? = nil
+    /// feat/group-order: 置顶 (moves the group to the top of the profile's proxy-groups).
+    var onTop: (() -> Void)? = nil
     /// v0.8 节点探测 sheet for a member (live only), and the 解锁 badge per member.
     var onProbe: ((String) -> Void)? = nil
     var badge: ((String) -> (ok: Int, total: Int)?)? = nil
@@ -444,10 +496,13 @@ struct PolicyGroupCard: View {
                     .contextMenu {
                         if let onEdit { Button { onEdit() } label: { Label("编辑策略组", systemImage: "slider.horizontal.3") } }
                         if let onIcon { Button { onIcon() } label: { Label("更换图标", systemImage: "photo") } }
+                        if let onTop { Button { onTop() } label: { Label("置顶", systemImage: "arrow.up.to.line") } }
                     }
+                    .accessibilityIdentifier("policy.icon." + group.name)
                 VStack(alignment: .leading, spacing: 2) {
                     HStack(spacing: 6) {
                         Text(group.name).font(.headline).lineLimit(1)
+                            .accessibilityIdentifier("policy.card." + group.name)
                         Text(group.label)
                             .font(.caption2.weight(.semibold))
                             .padding(.horizontal, 6).padding(.vertical, 2)

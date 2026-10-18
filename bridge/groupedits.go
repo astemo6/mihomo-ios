@@ -44,6 +44,10 @@ type GroupEdit struct {
 type GroupEdits struct {
 	Edits map[string]GroupEdit `json:"edits,omitempty"` // original group name → edit
 	Added []GroupSpec          `json:"added,omitempty"`
+	// feat/group-order: the user's 策略组 order (file names), kept for subscription profiles so it can be
+	// re-applied to the file after each download (GroupOrderReapply). Not applied at runtime: the file order is
+	// the source of truth.
+	Order []string `json:"order,omitempty"`
 }
 
 func groupEditsPath(home string) string { return filepath.Join(home, "group-edits.json") }

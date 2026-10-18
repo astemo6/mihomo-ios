@@ -197,6 +197,8 @@ final class ProfileStore: ObservableObject {
         text = Self.normalize(text)
         if let err = await Self.validate(text: text) { throw StoreError.invalid(err) }
         try text.write(to: p.fileURL, atomically: true, encoding: .utf8)
+        // feat/group-order: the user's 策略组 order survives the update (kept in group-edits.json, put back here).
+        await GroupOrder.reapply(p)
         p.userInfo = SubscriptionUserInfo.parse(http?.value(forHTTPHeaderField: "subscription-userinfo")) ?? p.userInfo
         if p.name.trimmingCharacters(in: .whitespaces).isEmpty {
             p.name = Self.nameFromHeaders(http) ?? url.host ?? "订阅"

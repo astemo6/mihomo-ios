@@ -1174,4 +1174,56 @@ final class MihomoUITests: MihomoUITestCase {
         XCTAssertTrue(rows.count >= 2, "new profile listed next to the entry")
         snap("sample-profile-list")
     }
+
+    // MARK: 25. feat/group-order 排列策略组: 置顶 in the sheet, save → the profile file is rewritten (the offline
+    // list is read back from it), 置顶 from the group icon's context menu.
+    func test25_GroupOrder() {
+        launch()
+        tab(1)
+        XCTAssertTrue(app.element(id: "policy.card.Proxy").waitForExistence(timeout: 10), "policy cards")
+        let sortMenu = app.button(L("排序"))
+        XCTAssertTrue(sortMenu.waitForExistence(timeout: 8), "策略 sort menu")
+        sortMenu.tap()
+        XCTAssertTrue(tapIfExists(app.button(L("排列策略组"))), "menu entry 排列策略组")
+        let bar = app.navigationBars[L("排列策略组")]
+        XCTAssertTrue(bar.waitForExistence(timeout: 8), "reorder sheet")
+        XCTAssertTrue(app.element(id: "grouporder.row.Apple").waitForExistence(timeout: 6), "rows")
+        XCTAssertFalse(app.element(id: "grouporder.row.Hidden Probe").exists, "hidden group is not listed")
+        XCTAssertTrue(app.element(id: "grouporder.hint").exists, "hint under the list")
+        snap("group-order")
+        XCTAssertTrue(tapIfExists(app.element(id: "grouporder.top.Apple")), "置顶 Apple")
+        usleep(700_000)
+        let appleRow = app.element(id: "grouporder.row.Apple"), proxyRow = app.element(id: "grouporder.row.Proxy")
+        if appleRow.exists && proxyRow.exists {
+            XCTAssertLessThan(appleRow.frame.minY, proxyRow.frame.minY, "Apple row moved above Proxy")
+        }
+        snap("group-order-edited")
+        let save = app.element(id: "grouporder.save")
+        XCTAssertTrue(save.waitForExistence(timeout: 4) && save.isEnabled, "保存 enabled after a change")
+        save.tap()
+        for _ in 0..<40 where bar.exists { usleep(250_000) }
+        XCTAssertFalse(bar.exists, "sheet closes after saving")
+        // The offline list is re-read from the rewritten profile file.
+        let apple = app.element(id: "policy.card.Apple"), proxy = app.element(id: "policy.card.Proxy")
+        XCTAssertTrue(apple.waitForExistence(timeout: 8) && proxy.waitForExistence(timeout: 8), "cards after saving")
+        XCTAssertLessThan(apple.frame.minY, proxy.frame.minY, "Apple above Proxy on the policy page")
+        snap("policy-reordered")
+        // 置顶 from the group icon's context menu: Auto (now third) to the top.
+        let autoIcon = app.element(id: "policy.icon.Auto")
+        XCTAssertTrue(autoIcon.waitForExistence(timeout: 6), "Auto icon")
+        autoIcon.press(forDuration: 1.0)
+        XCTAssertTrue(tapIfExists(app.button(L("置顶")), timeout: 4), "置顶 in the context menu")
+        let auto = app.element(id: "policy.card.Auto")
+        var moved = false
+        for _ in 0..<20 {
+            if auto.exists && apple.exists && auto.frame.minY < apple.frame.minY { moved = true; break }
+            usleep(250_000)
+        }
+        XCTAssertTrue(moved, "Auto moved to the top")
+        snap("policy-top")
+        // Home's default cards are the first four groups, so they follow the new order.
+        tab(0)
+        if !app.element(id: "home.card.Apple").waitForExistence(timeout: 8) { warnings.append("Home cards did not follow the new order") }
+        snap("home-after-order")
+    }
 }
