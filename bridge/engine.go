@@ -16,6 +16,7 @@ import (
 
 	"github.com/astemo6/mihomo-ios/bridge/mitm"
 
+	"github.com/metacubex/mihomo/adapter/outboundgroup"
 	"github.com/metacubex/mihomo/component/mmdb"
 	C "github.com/metacubex/mihomo/constant"
 	"github.com/metacubex/mihomo/hub/route"
@@ -67,9 +68,50 @@ func installNotifier(e *mitm.Engine) {
 	})
 }
 
+// mitmLoopArmed reports whether any proxy group's effective selection resolves to the
+// engine's __MITM__ outbound (following nested groups, depth-capped and cycle-safe).
+// Only then can an INNER connection carry __MITM__ in its chain, which is the only case
+// mitmLoop can ever flag: a loop needs the *current* routing to send the engine's own
+// upstream back into __MITM__, and the mitm rules explicitly exclude INNER traffic, so a
+// (possibly nested) group selection is the only vector. When false we skip the
+// O(connections) tracker scan entirely; this gate itself is O(groups).
+func mitmLoopArmed() bool {
+	proxies := tunnel.Proxies()
+	for _, p := range proxies {
+		g, ok := p.Adapter().(outboundgroup.ProxyGroup)
+		if !ok {
+			continue
+		}
+		seen := map[string]bool{}
+		name := g.Now()
+		for depth := 0; depth < 8; depth++ {
+			if name == mitm.ProxyName {
+				return true
+			}
+			if seen[name] {
+				break
+			}
+			seen[name] = true
+			np, ok := proxies[name]
+			if !ok {
+				break
+			}
+			ng, ok := np.Adapter().(outboundgroup.ProxyGroup)
+			if !ok {
+				break // leaf node
+			}
+			name = ng.Now()
+		}
+	}
+	return false
+}
+
 // mitmLoop: an INNER connection (the engine's own upstream) whose chain contains __MITM__ to the same
 // target means a proxy group picked the engine outbound → reject instead of looping.
 func mitmLoop(target string) bool {
+	if !mitmLoopArmed() {
+		return false
+	}
 	found := false
 	statistic.DefaultManager.Range(func(t statistic.Tracker) bool {
 		info := t.Info()

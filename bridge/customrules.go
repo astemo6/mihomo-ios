@@ -240,7 +240,7 @@ func addRemoteModuleRules(raw map[string]any, coreRules []string) {
 	if len(remote) == 0 {
 		return
 	}
-	o := readOverrides(curHome)
+	o := readOverrides(curHomeStr())
 	var rs []CustomRule
 	for i, r := range remote {
 		rs = append(rs, CustomRule{ID: fmt.Sprint(i), Line: r, Enabled: true})

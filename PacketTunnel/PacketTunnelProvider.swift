@@ -205,9 +205,15 @@ final class PacketTunnelProvider: NEPacketTunnelProvider {
                 completionHandler?("没有可用的配置".data(using: .utf8))
                 return
             }
-            var err: NSError?
-            LibmihomoReload(profile.path, &err)
-            completionHandler?((err?.localizedDescription ?? "").data(using: .utf8))
+            // LibmihomoReload re-parses the profile (YAML + provider downloads, seconds).
+            // Never block the NE callback thread on it: handleAppMessage must stay responsive,
+            // otherwise an in-flight reload delays stopTunnel's completion and iOS may kill
+            // the extension. The completionHandler may be called asynchronously.
+            DispatchQueue.global(qos: .userInitiated).async {
+                var err: NSError?
+                LibmihomoReload(profile.path, &err)
+                completionHandler?((err?.localizedDescription ?? "").data(using: .utf8))
+            }
         case .directIP:
             // Sockets opened by the provider itself are not routed through its own tunnel,
             // so this request reveals the real (direct) egress IP.

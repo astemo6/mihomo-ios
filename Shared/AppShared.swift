@@ -308,6 +308,21 @@ struct CoreOverrides: Codable, Equatable {
            let decoded = try? JSONDecoder().decode(CoreOverrides.self, from: data) {
             o = decoded
         }
+        // The controller secret and the LAN-share password are keychain-backed: read the
+        // keychain first, and migrate a value still sitting in overrides.json (written by
+        // an older build) into the keychain on first read. The JSON copy stays because the
+        // extension's Go bridge reads overrides.json straight into the core (bridge.go
+        // readOverrides -> buildRuntime) — dropping it needs a Go-side change.
+        if let s = Keychain.read(Keychain.controllerSecretAccount) {
+            o.secret = s
+        } else if !o.secret.isEmpty {
+            Keychain.write(Keychain.controllerSecretAccount, o.secret)
+        }
+        if let p = Keychain.read(Keychain.lanSharePasswordAccount) {
+            o.lanAuth.password = p
+        } else if !o.lanAuth.password.isEmpty {
+            Keychain.write(Keychain.lanSharePasswordAccount, o.lanAuth.password)
+        }
         if o.secret.isEmpty {
             o.secret = CoreOverrides.randomSecret()
             o.save()
@@ -318,6 +333,10 @@ struct CoreOverrides: Codable, Equatable {
     func save() {
         var me = self
         me.ipv6 = ipv6Mode != "off"
+        // Keep the keychain copy in sync: the app, the widget and the extension all read
+        // the secret / LAN password through Keychain first (see load()).
+        Keychain.write(Keychain.controllerSecretAccount, secret)
+        Keychain.write(Keychain.lanSharePasswordAccount, lanAuth.password)
         let enc = JSONEncoder()
         enc.outputFormatting = [.sortedKeys]
         if let data = try? enc.encode(me) {

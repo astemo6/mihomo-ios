@@ -161,8 +161,8 @@ func stopRuleHits(home string) {
 // FlushRuleHits saves the running core's counters now (the extension calls it for the app's flushStats
 // message and on sleep). No-op when the core is not running.
 func FlushRuleHits() {
-	if running {
-		flushRuleHits(curHome)
+	if running.Load() {
+		flushRuleHits(curHomeStr())
 	}
 }
 
