@@ -22,6 +22,10 @@ final class NetworkWatcher {
     private let queue = DispatchQueue(label: "mihomo.network-watcher")
     private var last: String?
     private var pending: DispatchWorkItem?
+    /// v0.19.1: path updates are numbered (on `queue`). A Wi-Fi update waits for NEHotspotNetwork.fetchCurrent;
+    /// when a newer update (e.g. cellular) arrived meanwhile, the late Wi-Fi answer is dropped, so the network
+    /// policy / DNS flush never end on the network the device just left.
+    private var seq = 0
 
     /// v0.19 网络变化时清空 DNS 缓存, read once at start and on every reload (refreshSettings) straight from
     /// overrides.json. Never CoreOverrides.load() here: it touches the Keychain and may write overrides.json
@@ -57,6 +61,8 @@ final class NetworkWatcher {
     }
 
     private func update(_ path: Network.NWPath) {
+        seq += 1
+        let mySeq = seq
         guard path.status == .satisfied else { return }
         let iface = path.availableInterfaces.first
         let type: String
@@ -74,7 +80,8 @@ final class NetworkWatcher {
         NEHotspotNetwork.fetchCurrent { [weak self] net in
             let ssid = net?.ssid, bssid = net?.bssid
             self?.queue.async {
-                self?.handle(type: type, ssid: ssid, bssid: bssid, iface: name, expensive: expensive, constrained: constrained)
+                guard let self, self.seq == mySeq else { return } // superseded by a newer path update
+                self.handle(type: type, ssid: ssid, bssid: bssid, iface: name, expensive: expensive, constrained: constrained)
             }
         }
     }

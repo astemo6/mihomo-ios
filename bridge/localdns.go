@@ -164,11 +164,20 @@ func applyInbound(raw map[string]any, o Overrides) {
 }
 
 // lanCredentials: the main LAN user plus the v0.19 extra users as mihomo `authentication` entries.
-// Incomplete pairs, usernames with ':' and repeated usernames (the first wins) are skipped.
+// The main user (连接方式 → 用户名 / 密码) is passed exactly as before v0.19 whenever both fields are set,
+// even with spaces or a ':' in the name (v0.19.1: v0.19.0 skipped such a main user, which turned
+// authentication off altogether when there were no extra users, so the shared port was open).
+// Extra users: incomplete pairs, usernames with ':' and repeated usernames (the main user and the first
+// extra user with a name win) are skipped.
 func lanCredentials(o Overrides) []any {
 	var out []any
 	seen := map[string]bool{}
-	for _, u := range append([]LanAuth{o.LanAuth}, o.LanUsers...) {
+	if o.LanAuth.Username != "" && o.LanAuth.Password != "" {
+		out = append(out, o.LanAuth.Username+":"+o.LanAuth.Password)
+		seen[o.LanAuth.Username] = true
+		seen[strings.TrimSpace(o.LanAuth.Username)] = true
+	}
+	for _, u := range o.LanUsers {
 		name := strings.TrimSpace(u.Username)
 		if name == "" || u.Password == "" || strings.Contains(name, ":") || seen[name] {
 			continue

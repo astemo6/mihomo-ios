@@ -10,7 +10,9 @@ struct LANDetailView: View {
     @State private var loaded = false
     @State private var copied: String?
 
-    var overrides: CoreOverrides { CoreOverrides.load() }
+    /// v0.19.1: read once per load (was CoreOverrides.load() on every render: Keychain reads, and possibly
+    /// an overrides.json write, on the main thread each time the page redrew).
+    @State private var overrides = CoreOverrides()
 
     var body: some View {
         List {
@@ -27,6 +29,7 @@ struct LANDetailView: View {
         .navigationBarTitleDisplayMode(.inline)
         .refreshable { await load() }
         .task { await load() }
+        .onAppear { overrides = CoreOverrides.load() } // back from 连接方式
         .overlay(alignment: .bottom) {
             if let copied {
                 Text("已复制 \(copied)")
@@ -41,6 +44,7 @@ struct LANDetailView: View {
     }
 
     func load() async {
+        overrides = CoreOverrides.load()
         if UITestSeed.enabled && UITestSeed.args.contains("-UITestDemoLAN") {
             info = Self.demo
         } else {

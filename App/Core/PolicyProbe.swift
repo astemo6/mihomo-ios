@@ -540,8 +540,11 @@ enum UnlockChecker {
         let cookies = (http?.value(forHTTPHeaderField: "Set-Cookie") ?? "") + " " + (http?.value(forHTTPHeaderField: "x-custom-client-ip") ?? "")
         let mod = firstMatch("mod=([a-zA-Z]+)", in: cookies)?.uppercased()
         let region = mod == "NTW" ? "TW" : (mod == "INTL" ? nil : mod)
-        if http?.statusCode == 200 { return UnlockResult(service: .iqiyi, status: .yes, region: region) }
-        return UnlockResult(service: .iqiyi, status: .no, region: region, note: "HTTP \(http?.statusCode ?? 0)")
+        let code = http?.statusCode ?? 0
+        if (200..<400).contains(code) { return UnlockResult(service: .iqiyi, status: .yes, region: region) }
+        // v0.19.1: only a refusal is 「不可用」; any other answer (405 to HEAD, 5xx, a CDN error) is unreadable.
+        if code == 403 || code == 451 { return UnlockResult(service: .iqiyi, status: .no, region: region, note: "HTTP \(code)") }
+        return UnlockResult(service: .iqiyi, status: .failed, region: region, note: "HTTP \(code)")
     }
 
     static func mytvsuper(_ session: URLSession) async throws -> UnlockResult {

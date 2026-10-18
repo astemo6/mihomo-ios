@@ -65,13 +65,21 @@ enum BackupManager {
         let dec = JSONDecoder()
         dec.dateDecodingStrategy = .iso8601
         let b = try dec.decode(BackupFile.self, from: data)
-        guard b.app == "mihomo-ios" else { throw NSError(domain: "Backup", code: 1, userInfo: [NSLocalizedDescriptionKey: "不是 Mihomo 备份文件"]) }
+        guard b.app == "mihomo-ios" else { throw NSError(domain: "Backup", code: 1, userInfo: [NSLocalizedDescriptionKey: String(localized: "不是 Mihomo 备份文件")]) }
         let root = AppShared.containerURL
         let allowed = items(includeCA: true)
-        var n = 0
+        // v0.19.1: decode every entry first. A damaged entry (bad base64, e.g. a truncated download) stops the
+        // restore before anything is written, instead of leaving a half-restored mix of old and new files.
+        var decoded: [(String, Data)] = []
         for (rel, b64) in b.files {
-            guard !rel.contains(".."), allowed.contains(where: { rel == $0 || rel.hasPrefix($0 + "/") }),
-                  let d = Data(base64Encoded: b64) else { continue }
+            guard !rel.contains(".."), allowed.contains(where: { rel == $0 || rel.hasPrefix($0 + "/") }) else { continue }
+            guard let d = Data(base64Encoded: b64) else {
+                throw NSError(domain: "Backup", code: 2, userInfo: [NSLocalizedDescriptionKey: String(localized: "备份文件已损坏：\(rel)")])
+            }
+            decoded.append((rel, d))
+        }
+        var n = 0
+        for (rel, d) in decoded {
             let u = root.appendingPathComponent(rel)
             AppShared.ensureDir(u.deletingLastPathComponent())
             try d.write(to: u, options: .atomic)
@@ -244,14 +252,7 @@ enum BackupRestore {
     static func apply(_ data: Data) throws -> Int {
         SnapshotStore.shared.capture(String(localized: "恢复备份前"))
         let n = try BackupManager.restore(data)
-        let store = ProfileStore.shared
-        store.load()
-        store.activeID = AppShared.activeProfileID
-        EngineStore.shared.config = EngineConfig.load()
-        EngineStore.shared.reparseModules()
-        CustomRulesStore.shared.load()
-        OverrideScriptStore.shared.load()
-        Task { if VPNManager.shared.isConnected { _ = await VPNManager.shared.reload() } }
+        SnapshotStore.reloadStores() // the same stores as a snapshot restore (incl. override scripts)
         return n
     }
 }

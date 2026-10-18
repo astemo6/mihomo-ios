@@ -37,7 +37,7 @@ struct IPInfo: Codable, Equatable {
         if let c = countryName, !c.isEmpty { parts.append(c) }
         if let city = city, !city.isEmpty, city != parts.first { parts.append(city) }
         else if let r = region, !r.isEmpty, r != parts.first { parts.append(r) }
-        return parts.isEmpty ? "未知位置" : parts.joined(separator: " · ")
+        return parts.isEmpty ? String(localized: "未知位置") : parts.joined(separator: " · ")
     }
 
     var asnText: String {

@@ -267,6 +267,9 @@ final class SnapshotStore: ObservableObject {
         EngineStore.shared.config = EngineConfig.load()
         EngineStore.shared.reparseModules()
         CustomRulesStore.shared.load()
+        // v0.19.1: override scripts are part of a snapshot / backup (override-scripts/index.json). Without this
+        // the store kept the pre-restore list and its next save wrote that list over the restored index.
+        OverrideScriptStore.shared.load()
         Task { if VPNManager.shared.isConnected { _ = await VPNManager.shared.reload() } }
     }
 }

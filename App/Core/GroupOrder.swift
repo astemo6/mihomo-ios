@@ -14,6 +14,8 @@ import Libmihomo
 enum GroupOrder {
     struct Result: Decodable {
         var changed: Bool?
+        /// GroupOrderCopy: the existing copy was edited by hand, so it was reordered in place (edits kept).
+        var modified: Bool?
         var order: [String]?
         var method: String?
         var error: String?
@@ -127,7 +129,9 @@ enum GroupOrder {
         let src = p.fileURL.path, dst = c.fileURL.path
         let r = decode(await Task.detached(priority: .userInitiated) { LibmihomoGroupOrderCopy(home, src, dst, json) }.value)
         if let e = r.error, !e.isEmpty { return SaveResult(saved: false, message: GoText.localize(e)) }
-        guard r.changed == true else { return SaveResult(saved: true) } // same order as the source: no copy needed
+        // Same order as the source: no copy needed. An edited existing copy (reordered in place) is switched to
+        // even when it already had this order.
+        guard r.changed == true || (existing != nil && r.modified == true) else { return SaveResult(saved: true) }
         if existing == nil {
             let from = p.id, to = c.id
             let err = await Task.detached(priority: .userInitiated) { LibmihomoCopyProfileSettings(home, from, to) }.value
