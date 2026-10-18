@@ -785,6 +785,15 @@ final class MihomoUITests: MihomoUITestCase {
 
     // MARK: 16. v0.16 策略 mode control drives the same mode as Home
 
+    func waitSelected(_ e: XCUIElement, _ timeout: TimeInterval) -> Bool {
+        let end = Date().addingTimeInterval(timeout)
+        repeat {
+            if e.exists && e.isSelected { return true }
+            usleep(250_000)
+        } while Date() < end
+        return false
+    }
+
     func test16_PolicyModeControl() {
         launch()
         tab(1)
@@ -805,9 +814,13 @@ final class MihomoUITests: MihomoUITestCase {
         rule.tap()
         usleep(600_000)
         XCTAssertTrue(rule.isSelected, "back to 规则")
-        // Survives a relaunch (saved in the overrides).
+        // Survives a relaunch (saved in the overrides). The tap right after 规则 was sometimes dropped on the
+        // slower en-light simulator (v0.18 self-test), so wait for the selection (one re-tap) and give the
+        // save a moment before terminating.
         global.tap()
-        usleep(600_000)
+        if !waitSelected(global, 3) { global.tap() }
+        XCTAssertTrue(waitSelected(global, 3), "全局 selected before relaunch")
+        usleep(1_500_000)
         app.terminate()
         let a = XCUIApplication()
         a.launchArguments = ["-AppleLanguages", "(\(Env.lang))", "-appearance", Env.style]
@@ -816,7 +829,7 @@ final class MihomoUITests: MihomoUITestCase {
         tab(1)
         let seg2 = app.segmentedControls.matching(identifier: "policy.mode").firstMatch
         XCTAssertTrue(seg2.waitForExistence(timeout: 10))
-        XCTAssertTrue(seg2.buttons[L("全局")].isSelected, "mode persisted")
+        XCTAssertTrue(waitSelected(seg2.buttons[L("全局")], 5), "mode persisted")
         seg2.buttons[L("规则")].tap()
     }
 
