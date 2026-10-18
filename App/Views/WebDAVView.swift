@@ -156,10 +156,11 @@ struct WebDAVView: View {
         Keychain.write(WebDAVSettings.passwordAccount, password)
         Keychain.write(WebDAVSettings.encryptionAccount, encPassword)
         let settings = s
+        let pw = password, encPW = encPassword
         Task {
             defer { busy = nil }
             do {
-                let (_, n, removed) = try await WebDAVClient.backup(settings)
+                let (_, n, removed) = try await WebDAVClient.backup(settings, password: pw, encryptionPassword: encPW)
                 message = removed > 0 ? String(localized: "已备份 \(n) 个文件，删除了 \(removed) 个旧版本") : String(localized: "已备份 \(n) 个文件")
                 await list()
             } catch {
@@ -172,7 +173,7 @@ struct WebDAVView: View {
         busy = "list"
         defer { if busy == "list" { busy = nil } }
         do {
-            let t = try WebDAVClient.transport(s)
+            let t = try WebDAVClient.transport(s, password: password)
             files = WebDAVClient.sorted(try await t.list())
             listed = true
             error = nil
@@ -186,7 +187,7 @@ struct WebDAVView: View {
         Task {
             defer { busy = nil }
             do {
-                let data = try await WebDAVClient.transport(s).get(f.name)
+                let data = try await WebDAVClient.transport(s, password: password).get(f.name)
                 if BackupCrypto.isEncrypted(data) {
                     encrypted = EncryptedData(data: data)
                     return
@@ -202,7 +203,7 @@ struct WebDAVView: View {
     func delete(_ f: WebDAVFile) {
         Task {
             do {
-                try await WebDAVClient.transport(s).delete(f.name)
+                try await WebDAVClient.transport(s, password: password).delete(f.name)
                 files.removeAll { $0.id == f.id }
             } catch {
                 self.error = error.localizedDescription

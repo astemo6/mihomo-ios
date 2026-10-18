@@ -324,7 +324,7 @@ struct SettingsView: View {
         .scrollContentBackground(.hidden)
         .background(Theme.bg.ignoresSafeArea())
         .navigationTitle("内核设置")
-        .onAppear { o = CoreOverrides.load(); portText = String(o.controllerPort) }
+        .onAppear { debounce.flush(); o = CoreOverrides.load(); portText = String(o.controllerPort) }
         // v0.15.4: applied on change (debounced), no 保存 button.
         .onChange(of: o) { _ in debounce.schedule { apply() } }
         .onChange(of: portText) { _ in debounce.schedule { apply() } }
@@ -341,6 +341,7 @@ struct SettingsView: View {
         cur.memoryLimitMB = o.memoryLimitMB
         cur.tunMTU = o.tunMTU
         cur.secret = o.secret
+        cur.flushDNSOnNetworkChange = o.flushDNSOnNetworkChange // v0.19 (was not saved)
         if !portInvalid, let p = Int(portText) { cur.controllerPort = p }
         guard cur != old else { return }
         cur.save()

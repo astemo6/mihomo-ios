@@ -37,6 +37,8 @@ struct ConnectionView: View {
         .background(Theme.bg.ignoresSafeArea())
         .navigationTitle("连接方式")
         .onAppear {
+            // Coming back from a sub page (其他用户): save its edits before re-reading the file.
+            debounce.flush()
             o = CoreOverrides.load()
             saved = o
             onDemand = OnDemandSettings.load()
@@ -361,6 +363,7 @@ struct ConnectionView: View {
         cur.allowLan = o.allowLan
         cur.lanLocalOnly = o.lanLocalOnly
         cur.lanAuth = CoreOverrides.LanAuth(username: o.lanAuth.username.trimmingCharacters(in: .whitespaces), password: o.lanAuth.password)
+        cur.lanUsers = o.lanUsers // v0.19 局域网多用户 (was not saved)
         let onDemandChanged = onDemand != savedOnDemand
         guard cur != old || onDemandChanged else { return }
         cur.save()
@@ -375,7 +378,7 @@ struct ConnectionView: View {
         let scopeChanged = old.includeAllNetworks != cur.includeAllNetworks || old.excludeLocalNetworks != cur.excludeLocalNetworks
             || old.excludeAPNs != cur.excludeAPNs || old.excludeCellularServices != cur.excludeCellularServices
             || old.excludeDeviceCommunication != cur.excludeDeviceCommunication
-        let reload = old.blockQUIC != cur.blockQUIC || old.ipPreference != cur.ipPreference || old.lanLocalOnly != cur.lanLocalOnly || old.lanAuth != cur.lanAuth
+        let reload = old.blockQUIC != cur.blockQUIC || old.ipPreference != cur.ipPreference || old.lanLocalOnly != cur.lanLocalOnly || old.lanAuth != cur.lanAuth || old.lanUsers != cur.lanUsers
         let settings = onDemand
         Task {
             if scopeChanged, let e = await vpn.applyTunnelScope() {

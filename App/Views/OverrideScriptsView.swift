@@ -257,11 +257,13 @@ struct OverrideScriptDetailView: View {
                 Section {
                     if let e = s.lastError {
                         VStack(alignment: .leading, spacing: 6) {
+                            // One element whose label is the message (the VStack's id landed on the icon).
                             ErrorRow(message: e)
+                                .accessibilityElement(children: .combine)
+                                .accessibilityIdentifier("script.error")
                             Button { UIPasteboard.general.string = e } label: { Label("复制错误", systemImage: "doc.on.doc") }
                                 .font(.caption.weight(.semibold)).buttonStyle(.borderless)
                         }
-                        .accessibilityIdentifier("script.error")
                     } else if let at = s.lastRun {
                         LabeledContent("上次运行") { Text("\(at.formatted(date: .omitted, time: .shortened)) · \(s.lastMillis ?? 0) ms").monospacedDigit() }
                     }

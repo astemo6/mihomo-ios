@@ -315,10 +315,12 @@ enum WebDAVClient {
 
     static var demo: Bool { UITestSeed.enabled && UITestSeed.args.contains("-UITestDemoWebDAV") }
 
-    static func transport(_ s: WebDAVSettings) throws -> WebDAVTransport {
+    /// `password`: the value the page holds (the Keychain copy can be unreadable, e.g. a signature whose
+    /// access group differs); nil = read the Keychain.
+    static func transport(_ s: WebDAVSettings, password: String? = nil) throws -> WebDAVTransport {
         if demo { return WebDAVMemory.shared }
         guard let folder = s.folderURL else { throw WebDAVError.notConfigured }
-        return WebDAVHTTP(folder: folder, username: s.username, password: Keychain.read(WebDAVSettings.passwordAccount) ?? "")
+        return WebDAVHTTP(folder: folder, username: s.username, password: password ?? Keychain.read(WebDAVSettings.passwordAccount) ?? "")
     }
 
     /// Newest first (by the time in the name, else the server's date).
@@ -328,14 +330,16 @@ enum WebDAVClient {
 
     /// Uploads a new backup and keeps the newest `keep`. Returns (file name, files in the backup, removed).
     @MainActor
-    static func backup(_ s: WebDAVSettings) async throws -> (String, Int, Int) {
-        let t = try transport(s)
+    static func backup(_ s: WebDAVSettings, password: String? = nil, encryptionPassword: String? = nil) async throws -> (String, Int, Int) {
+        let t = try transport(s, password: password)
         let (url, n) = try BackupManager.make(includeCA: s.includeCA)
         var data = try Data(contentsOf: url)
         try? FileManager.default.removeItem(at: url)
         var name = prefix + stampFormatter.string(from: Date())
         if s.encrypt {
-            guard let pw = Keychain.read(WebDAVSettings.encryptionAccount), !pw.isEmpty else {
+            // v0.19: the page passes the password it shows; the Keychain copy is only a fallback (it is not
+            // readable when the keychain write failed, which left encrypted backups failing with a KDF error).
+            guard let pw = encryptionPassword.flatMap({ $0.isEmpty ? nil : $0 }) ?? Keychain.read(WebDAVSettings.encryptionAccount), !pw.isEmpty else {
                 throw BackupCrypto.CryptoError.kdf
             }
             let plain = data
