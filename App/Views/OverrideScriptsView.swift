@@ -522,7 +522,7 @@ struct OverrideScriptEditor: View {
             .navigationBarTitleDisplayMode(.inline)
             .toolbar {
                 ToolbarItem(placement: .cancellationAction) {
-                    Button(readOnly ? LocalizedStringKey("关闭") : LocalizedStringKey("取消")) {
+                    Button(readOnly ? LocalizedStringKey("完成") : LocalizedStringKey("取消")) {
                         if isNew { store.delete(profile.id, scriptID) }
                         dismiss()
                     }

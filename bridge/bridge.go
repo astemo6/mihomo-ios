@@ -102,6 +102,8 @@ type Overrides struct {
 	// v0.7 局域网共享: optional username / password for the mixed port, and LAN-only source addresses.
 	LanAuth      LanAuth `json:"lanAuth"`
 	LanLocalOnly bool    `json:"lanLocalOnly"`
+	// v0.19 局域网多用户: more username / password pairs for the shared port (all of them accepted).
+	LanUsers []LanAuth `json:"lanUsers"`
 	// v0.8 IPv6: "off" | "auto" (IPv6 only when the physical network has a global IPv6 address at start,
 	// reported by the extension through SetNetworkIPv6) | "always". "" = older builds: the IPv6 bool decides.
 	IPv6Mode string `json:"ipv6Mode"`

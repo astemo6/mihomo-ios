@@ -143,8 +143,8 @@ func applyInbound(raw map[string]any, o Overrides) {
 	case o.AllowLan:
 		raw["mixed-port"] = o.MixedPort
 		raw["bind-address"] = "*"
-		if o.LanAuth.Username != "" && o.LanAuth.Password != "" {
-			raw["authentication"] = []any{o.LanAuth.Username + ":" + o.LanAuth.Password}
+		if users := lanCredentials(o); len(users) > 0 {
+			raw["authentication"] = users
 		}
 		if o.LanLocalOnly {
 			raw["lan-allowed-ips"] = lanPrivatePrefixes
@@ -161,4 +161,20 @@ func applyInbound(raw map[string]any, o Overrides) {
 	}
 	// This device's own system proxy (proxy-only / 混合) never needs the LAN password.
 	raw["skip-auth-prefixes"] = loopbackPrefixes
+}
+
+// lanCredentials: the main LAN user plus the v0.19 extra users as mihomo `authentication` entries.
+// Incomplete pairs, usernames with ':' and repeated usernames (the first wins) are skipped.
+func lanCredentials(o Overrides) []any {
+	var out []any
+	seen := map[string]bool{}
+	for _, u := range append([]LanAuth{o.LanAuth}, o.LanUsers...) {
+		name := strings.TrimSpace(u.Username)
+		if name == "" || u.Password == "" || strings.Contains(name, ":") || seen[name] {
+			continue
+		}
+		seen[name] = true
+		out = append(out, name+":"+u.Password)
+	}
+	return out
 }

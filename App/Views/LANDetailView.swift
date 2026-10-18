@@ -202,7 +202,7 @@ struct LANDetailView: View {
                     }
                     .accessibilityIdentifier("lan.share.\(pair.iface.name)")
                 }
-                if !o.lanAuth.username.isEmpty && !o.lanAuth.password.isEmpty {
+                if (!o.lanAuth.username.isEmpty && !o.lanAuth.password.isEmpty) || o.lanUsers.contains(where: { !$0.username.isEmpty && !$0.password.isEmpty }) {
                     Label("需要用户名和密码", systemImage: "lock").font(.caption).foregroundStyle(.secondary)
                 }
             } else {

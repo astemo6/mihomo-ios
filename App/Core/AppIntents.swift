@@ -103,6 +103,7 @@ struct SwitchNodeIntent: AppIntent {
             guard let t = target, t.isSelectable else { return .result(dialog: "找不到可手动选择的策略组") }
             guard let match = Self.match(wanted, in: t.all ?? []) else { return .result(dialog: "「\(t.name)」中没有节点「\(wanted)」") }
             try await ControllerClient.shared.select(group: t.name, node: match)
+            await ControllerClient.shared.afterUserSwitch() // v0.19
             ProfileInspector.rememberLiveSelection(group: t.name, node: match)
             NotificationCenter.default.post(name: .egressMayHaveChanged, object: nil)
             return .result(dialog: "「\(t.name)」已切换到 \(match)")

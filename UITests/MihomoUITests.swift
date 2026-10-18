@@ -1174,4 +1174,267 @@ final class MihomoUITests: MihomoUITestCase {
         XCTAssertTrue(rows.count >= 2, "new profile listed next to the entry")
         snap("sample-profile-list")
     }
+
+    // MARK: 25. v0.19 覆写脚本 (Bettbox switches, run + validate, error, output)
+
+    func test25_OverrideScripts() {
+        launch(["-UITestDemoScripts", "-UITestScreen", "scripts"])
+        XCTAssertTrue(app.navigationBars[L("覆写脚本")].waitForExistence(timeout: 10), "scripts page")
+        XCTAssertTrue(app.element(id: "scripts.row.bettbox-demo.js").waitForExistence(timeout: 6), "demo script row")
+        XCTAssertTrue(app.element(id: "scripts.row.broken.js").exists, "disabled broken script row")
+        let run = app.element(id: "scripts.run")
+        XCTAssertTrue(run.waitHittable(), "运行并校验")
+        run.tap()
+        XCTAssertTrue(app.element(id: "scripts.result.ok").waitForExistence(timeout: 20), "chain validated")
+        snap("scripts-list")
+
+        // Switches declared by the script: 2 policy-group switches + 「其他设置」 with the rest.
+        app.element(id: "scripts.row.bettbox-demo.js").tap()
+        let ai = app.switches["script.option.AI"]
+        XCTAssertTrue(ai.waitForExistence(timeout: 8), "AI switch")
+        XCTAssertTrue(app.switches["script.option.Video"].exists, "Video switch")
+        XCTAssertFalse(app.switches["script.option.Block Ads"].exists, "others are on a sub page")
+        snap("script-detail")
+        let others = app.element(id: "script.others")
+        XCTAssertTrue(scrollTo(others), "其他设置")
+        others.tap()
+        let ads = app.switches["script.option.Block Ads"]
+        XCTAssertTrue(ads.waitForExistence(timeout: 6), "Block Ads switch")
+        XCTAssertTrue(app.switches["script.option.Low Ratio"].exists, "Low Ratio switch")
+        snap("script-others")
+        back()
+        let ai2 = app.switches["script.option.AI"]
+        XCTAssertTrue(scrollTo(ai2))
+        XCTAssertEqual(switchValue(ai2), "1", "AI on by the script's default")
+        toggleSwitch(ai2)
+        usleep(2_500_000) // 0.6 s debounce + run
+        XCTAssertEqual(switchValue(app.switches["script.option.AI"]), "0", "AI switched off")
+        back()
+        XCTAssertTrue(app.element(id: "scripts.result.ok").waitForExistence(timeout: 15), "re-run after the switch")
+        // The generated config has no AI group now, Video still there.
+        let out = app.element(id: "scripts.output")
+        XCTAssertTrue(scrollTo(out), "查看生成的配置")
+        out.tap()
+        let tv = app.textViews.firstMatch
+        XCTAssertTrue(tv.waitForExistence(timeout: 6))
+        let yaml = (tv.value as? String) ?? ""
+        XCTAssertTrue(yaml.contains("name: Video"), "Video group in the output")
+        XCTAssertFalse(yaml.contains("name: AI"), "AI group gone after the switch")
+        XCTAssertFalse(yaml.contains("openai.com"), "AI rule gone")
+        snap("script-output")
+        back()
+
+        // A failing script: enabling it shows its runtime error with the line.
+        app.element(id: "scripts.row.broken.js").tap()
+        let en = app.switches["script.enabled"]
+        XCTAssertTrue(en.waitForExistence(timeout: 6))
+        toggleSwitch(en)
+        let err = app.element(id: "script.error")
+        XCTAssertTrue(err.waitForExistence(timeout: 15), "runtime error shown")
+        XCTAssertTrue(err.label.contains("boom"), "error text: \(err.label)")
+        let linePrefix = L10n.f("第 %lld 行：%@", 3, "").trimmingCharacters(in: .whitespaces)
+        XCTAssertTrue(err.label.contains(linePrefix), "line number (\(linePrefix)): \(err.label)")
+        snap("script-error")
+        back()
+        XCTAssertTrue(app.element(id: "scripts.result.error").waitForExistence(timeout: 6), "chain error on the list")
+        snap("scripts-error")
+
+        // New script from the template saves and runs.
+        let new = app.element(id: "scripts.new")
+        XCTAssertTrue(scrollTo(new))
+        new.tap()
+        XCTAssertTrue(app.navigationBars[L("新建脚本")].waitForExistence(timeout: 6), "editor")
+        allowHan = true // the template's comments are Chinese + English on purpose
+        snap("script-editor")
+        allowHan = false
+        app.buttons["scripteditor.save"].tap()
+        XCTAssertTrue(app.element(id: "scripts.row.script-3.js").waitForExistence(timeout: 15), "new script listed")
+        assertAlive("override scripts")
+    }
+
+    // MARK: 26. v0.19 首页内置卡片
+
+    func test26_HomeTiles() {
+        launch(["-UITestDemoExitIP", "-UITestDemoMemory"])
+        let add = app.element(id: "home.addTiles")
+        XCTAssertTrue(scrollTo(add), "添加首页卡片")
+        add.tap()
+        XCTAssertTrue(app.navigationBars[L("编辑首页面板")].waitForExistence(timeout: 6), "editor")
+        for t in ["speed", "traffic", "uptime", "exitip", "lanip", "memory"] {
+            let b = app.element(id: "homepanels.add." + t)
+            XCTAssertTrue(scrollTo(b), "add \(t)")
+            b.tap()
+            usleep(300_000)
+        }
+        XCTAssertTrue(app.element(id: "homepanels.row.memory").waitForExistence(timeout: 4), "memory pinned")
+        snap("home-tiles-editor")
+        closeSheet()
+        func tile(_ t: String) -> XCUIElement {
+            app.descendants(matching: .any).matching(NSPredicate(format: "identifier BEGINSWITH %@", "home.tile." + t)).firstMatch
+        }
+        for t in ["speed", "traffic", "uptime", "exitip", "lanip", "memory"] {
+            XCTAssertTrue(scrollTo(tile(t)), "tile \(t) on Home")
+        }
+        let masked = app.element(labelContains: "203.0.•••.•••")
+        XCTAssertTrue(scrollTo(masked), "exit IP masked by default")
+        snap("home-tiles")
+        masked.tap()
+        // (the header shows the full exit IP anyway; the card's masked text goes away)
+        let gone = XCTNSPredicateExpectation(predicate: NSPredicate(format: "exists == false"), object: app.element(labelContains: "203.0.•••.•••"))
+        XCTAssertEqual(XCTWaiter().wait(for: [gone], timeout: 3), .completed, "revealed after a tap")
+        XCTAssertTrue(app.element(labelContains: "23.4 MB").exists, "memory demo value")
+        snap("home-tiles-revealed")
+        // 内网 IP card opens the LAN page.
+        let lan = tile("lanip")
+        XCTAssertTrue(scrollTo(lan))
+        lan.tap()
+        XCTAssertTrue(app.navigationBars[L("内网 IP")].waitForExistence(timeout: 6), "LAN page from the card")
+        back()
+        assertAlive("home tiles")
+    }
+
+    // MARK: 27. v0.19 内网 IP 详情
+
+    func test27_LANDetail() {
+        launch(["-UITestDemoLAN"])
+        openMore("内网 IP 与路由器")
+        XCTAssertTrue(app.navigationBars[L("内网 IP")].waitForExistence(timeout: 6))
+        let gw = app.element(id: "lan.gateway")
+        XCTAssertTrue(gw.waitForExistence(timeout: 6))
+        XCTAssertTrue(gw.label.contains("192.0.2.1"), "gateway: \(gw.label)")
+        XCTAssertTrue(app.element(id: "lan.openRouter").exists, "打开路由器后台")
+        XCTAssertTrue(app.element(id: "lan.iface.en0").exists, "Wi-Fi interface")
+        XCTAssertTrue(app.element(labelContains: "192.0.2.23").exists, "LAN address")
+        snap("lan-detail")
+        let share = app.element(id: "lan.share.off")
+        XCTAssertTrue(scrollTo(share), "局域网共享 row")
+        XCTAssertTrue(app.element(labelContains: "2001:db8::53").exists || app.element(labelContains: "192.0.2.1").exists, "DNS listed")
+        snap("lan-detail-share")
+    }
+
+    // MARK: 28. v0.19 WebDAV 备份 (in-memory server)
+
+    func test28_WebDAV() {
+        launch(["-UITestDemoWebDAV"])
+        openMore("备份与恢复")
+        let entry = app.element(id: "backup.webdav")
+        XCTAssertTrue(scrollTo(entry))
+        entry.tap()
+        XCTAssertTrue(app.navigationBars[L("WebDAV 备份")].waitForExistence(timeout: 6))
+        let backup = app.element(id: "webdav.backup")
+        XCTAssertTrue(scrollTo(backup))
+        backup.tap()
+        let ok = app.alerts.buttons[L("好")]
+        XCTAssertTrue(ok.waitForExistence(timeout: 15), "backup done")
+        snap("webdav-backed-up")
+        ok.tap()
+        // Encrypted backup.
+        let enc = app.switches["webdav.encrypt"]
+        XCTAssertTrue(scrollTo(enc))
+        toggleSwitch(enc)
+        let pw = app.secureTextFields["webdav.encpassword"]
+        XCTAssertTrue(pw.waitForExistence(timeout: 4))
+        pw.tap()
+        pw.typeText("uitest-pass")
+        XCTAssertTrue(scrollTo(app.element(id: "webdav.backup")))
+        sleep(1) // keep the second backup's name (seconds) apart
+        app.element(id: "webdav.backup").tap()
+        XCTAssertTrue(ok.waitForExistence(timeout: 20), "encrypted backup done")
+        ok.tap()
+        let encRow = app.element(labelContains: L("已加密"))
+        XCTAssertTrue(scrollTo(encRow), "encrypted version listed")
+        snap("webdav-versions")
+        // Restore it: password sheet, wrong then right.
+        encRow.tap()
+        let restore = app.buttons[L("恢复")]
+        XCTAssertTrue(restore.waitForExistence(timeout: 5), "confirm restore")
+        restore.tap()
+        let bpw = app.secureTextFields["backup.password"]
+        XCTAssertTrue(bpw.waitForExistence(timeout: 10), "password sheet")
+        bpw.tap()
+        bpw.typeText("wrong")
+        app.buttons["backup.password.restore"].tap()
+        XCTAssertTrue(app.element(labelContains: L("密码不对，或备份已损坏")).waitForExistence(timeout: 15), "wrong password refused")
+        snap("webdav-wrong-password")
+        bpw.tap()
+        bpw.typeText(String(repeating: XCUIKeyboardKey.delete.rawValue, count: 6) + "uitest-pass")
+        app.buttons["backup.password.restore"].tap()
+        XCTAssertTrue(ok.waitForExistence(timeout: 20), "restored")
+        snap("webdav-restored")
+        ok.tap()
+        assertAlive("webdav")
+    }
+
+    // MARK: 29. v0.19 解锁检测 → 检测项目
+
+    func test29_UnlockServices() {
+        launch()
+        openMore("解锁检测")
+        let svc = app.element(id: "unlock.services")
+        XCTAssertTrue(svc.waitForExistence(timeout: 6), "检测项目 while disconnected")
+        XCTAssertTrue(svc.label.contains("14/14"), "all services by default: \(svc.label)")
+        XCTAssertTrue(app.switches["unlock.auto"].exists, "auto re-test switch")
+        svc.tap()
+        XCTAssertTrue(app.navigationBars[L("检测项目")].waitForExistence(timeout: 6))
+        let copilot = app.switches["unlock.service.copilot"]
+        XCTAssertTrue(scrollTo(copilot), "Copilot in AI")
+        toggleSwitch(copilot)
+        let mytv = app.switches["unlock.service.mytvsuper"]
+        XCTAssertTrue(scrollTo(mytv))
+        toggleSwitch(mytv)
+        snap("unlock-services")
+        back()
+        XCTAssertTrue(app.element(id: "unlock.services").label.contains("12/14"), "two off: \(app.element(id: "unlock.services").label)")
+        snap("unlock-disconnected")
+    }
+
+    // MARK: 30. v0.19 small toggles + 局域网多用户
+
+    func test30_SettingsToggles() {
+        launch()
+        openMore("内核设置")
+        let close = app.switches["settings.closeOnSwitch"]
+        let flush = app.switches["settings.flushDNS"]
+        XCTAssertTrue(close.waitForExistence(timeout: 6), "close connections switch")
+        XCTAssertTrue(flush.exists, "flush DNS switch")
+        XCTAssertEqual(switchValue(close), "1", "on by default")
+        XCTAssertEqual(switchValue(flush), "1", "on by default")
+        toggleSwitch(flush)
+        usleep(1_500_000)
+        snap("settings-connection")
+        back()
+        openMore("内核设置")
+        XCTAssertEqual(switchValue(app.switches["settings.flushDNS"]), "0", "flush DNS kept off")
+        toggleSwitch(app.switches["settings.flushDNS"])
+        usleep(1_200_000)
+        back()
+        // 局域网多用户 under 连接方式 → 局域网共享.
+        openMore("连接方式")
+        let lan = app.switches[L("局域网共享")]
+        XCTAssertTrue(scrollTo(lan), "局域网共享 switch")
+        if switchValue(lan) != "1" { toggleSwitch(lan) }
+        let users = app.element(id: "lan.users")
+        XCTAssertTrue(scrollTo(users), "其他用户")
+        users.tap()
+        XCTAssertTrue(app.navigationBars[L("其他用户")].waitForExistence(timeout: 6))
+        app.element(id: "lan.users.add").tap()
+        let name = app.textFields["lan.user.0.name"]
+        XCTAssertTrue(name.waitForExistence(timeout: 4))
+        name.tap()
+        name.typeText("a:b")
+        XCTAssertTrue(app.element(labelContains: L("用户名不能包含冒号")).waitForExistence(timeout: 3), "colon refused")
+        replaceText(name, "tv")
+        let pw = app.secureTextFields["lan.user.0.password"]
+        pw.tap()
+        pw.typeText("secret1")
+        usleep(800_000)
+        snap("lan-users")
+        back()
+        XCTAssertTrue(app.element(id: "lan.users").label.contains("1"), "one extra user: \(app.element(id: "lan.users").label)")
+        // Put 局域网共享 back off.
+        let lan2 = app.switches[L("局域网共享")]
+        if scrollTo(lan2), switchValue(lan2) == "1" { toggleSwitch(lan2) }
+        usleep(1_200_000)
+    }
 }
+

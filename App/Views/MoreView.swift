@@ -239,6 +239,7 @@ struct LogsView: View {
 struct SettingsView: View {
     @EnvironmentObject var vpn: VPNManager
     @State private var o = CoreOverrides.load()
+    @AppStorage(ControllerClient.closeOnSwitchKey) private var closeOnSwitch = true
     @State private var portText = ""
     @State private var status: String?
     @StateObject private var debounce = Debouncer()
@@ -258,6 +259,16 @@ struct SettingsView: View {
                 Toggle("域名嗅探（Sniffer）", isOn: $o.sniffer)
             } header: { Text("内核") } footer: {
                 Text("这些选项会覆盖配置文件里的同名字段。DNS 模式在「更多 → DNS」中设置，IPv6 与局域网共享在「更多 → 连接方式」中设置。")
+            }
+            .listRowBackground(Theme.card)
+
+            Section {
+                Toggle("切换节点或模式时断开所有连接", isOn: $closeOnSwitch)
+                    .accessibilityIdentifier("settings.closeOnSwitch")
+                Toggle("网络变化时清空 DNS 缓存", isOn: $o.flushDNSOnNetworkChange)
+                    .accessibilityIdentifier("settings.flushDNS")
+            } header: { Text("连接") } footer: {
+                Text("断开后，App 会经由新选的节点或模式重新连接；关闭则已有连接保持原来的节点直到结束。Wi-Fi 与蜂窝网络切换或换了 Wi-Fi 时清空 DNS 缓存，避免沿用上一个网络的解析结果。")
             }
             .listRowBackground(Theme.card)
 

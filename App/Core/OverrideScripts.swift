@@ -529,7 +529,7 @@ final class OverrideScriptStore: ObservableObject {
         var config = LibmihomoScriptInput(path, &err)
         if let err {
             LibmihomoScriptOutputClear(home, path)
-            return (OverrideChainResult(ok: false, message: String(localized: "读取配置失败：\(GoText.localize(err.localizedDescription))")), stats)
+            return (OverrideChainResult(ok: false, message: GoText.localize(err.localizedDescription)), stats)
         }
         for (s, source) in scripts {
             if source.isEmpty {

@@ -140,3 +140,40 @@ func TestV019ScriptOutputInvalidRejected(t *testing.T) {
 		t.Fatal("an array is not a config")
 	}
 }
+
+func TestV019FlushDNSCacheNoCore(t *testing.T) {
+	// Must not panic without a running core (the extension may call it during start-up).
+	FlushDNSCache()
+}
+
+func TestV019LanMultiUser(t *testing.T) {
+	o := defaultOverrides()
+	o.AllowLan = true
+	o.LanAuth = LanAuth{Username: "main", Password: "p0"}
+	o.LanUsers = []LanAuth{{Username: " tv ", Password: "p1"}, {Username: "main", Password: "dup"}, {Username: "a:b", Password: "x"}, {Username: "nopw"}, {Username: "kid", Password: "p:2"}}
+	raw := map[string]any{}
+	applyInbound(raw, o)
+	got, _ := raw["authentication"].([]any)
+	want := []string{"main:p0", "tv:p1", "kid:p:2"}
+	if len(got) != len(want) {
+		t.Fatalf("authentication = %v", got)
+	}
+	for i := range want {
+		if got[i] != want[i] {
+			t.Fatalf("authentication[%d] = %v, want %s", i, got[i], want[i])
+		}
+	}
+	// extra users only, main empty: still protected
+	o.LanAuth = LanAuth{}
+	raw = map[string]any{}
+	applyInbound(raw, o)
+	if got, _ := raw["authentication"].([]any); len(got) != 3 {
+		t.Fatalf("extra users without a main user: %v", got)
+	}
+	o.LanUsers = nil
+	raw = map[string]any{}
+	applyInbound(raw, o)
+	if _, ok := raw["authentication"]; ok {
+		t.Fatal("no users → no authentication")
+	}
+}

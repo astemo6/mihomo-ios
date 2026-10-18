@@ -131,7 +131,7 @@ final class DashboardModel: ObservableObject {
         o.save()
         if VPNManager.shared.isConnected {
             try? await ControllerClient.shared.setMode(m)
-            try? await ControllerClient.shared.closeAllConnections()
+            await ControllerClient.shared.afterUserSwitch() // v0.19: was always; now the 内核设置 switch (default on)
         }
         NotificationCenter.default.post(name: .egressMayHaveChanged, object: nil)
         WidgetBridge.reload() // v0.13: widget mode row + Control Center 出站模式
@@ -169,6 +169,12 @@ final class IPInfoModel: ObservableObject {
     }
 
     func refresh() async {
+        if UITestSeed.enabled && UITestSeed.args.contains("-UITestDemoExitIP") {
+            // v0.19 UI tests: a fixed documentation address for the 出口 IP card (no network lookups).
+            exit = IPInfo(ip: "203.0.113.45", countryCode: "JP", country: "Japan", region: nil, city: "Tokyo", asn: "AS64500", org: "Example Net", source: "uitest")
+            failed = false; loading = false
+            return
+        }
         if IPInfoFetcher.disabled {
             // QX `geo_location_checker = disabled`: no lookups; the header shows the connection state only.
             exit = nil; direct = nil; failed = false; loading = false

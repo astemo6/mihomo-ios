@@ -183,7 +183,7 @@ struct BackupView: View {
         .sheet(item: $encryptedRestore) { e in
             BackupPasswordSheet(data: e.data) { n in
                 encryptedRestore = nil
-                message = String(localized: "已恢复 \(n) 个文件")
+                DispatchQueue.main.asyncAfter(deadline: .now() + 0.7) { message = String(localized: "已恢复 \(n) 个文件") }
             }
         }
         .alert("备份", isPresented: Binding(get: { message != nil }, set: { if !$0 { message = nil } })) {
@@ -285,7 +285,7 @@ struct BackupPasswordSheet: View {
             }
             .scrollContentBackground(.hidden)
             .background(Theme.bg.ignoresSafeArea())
-            .navigationTitle("加密备份")
+            .navigationTitle("加密的备份")
             .navigationBarTitleDisplayMode(.inline)
             .toolbar {
                 ToolbarItem(placement: .cancellationAction) { Button("取消") { dismiss() } }

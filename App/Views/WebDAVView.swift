@@ -121,7 +121,8 @@ struct WebDAVView: View {
         .sheet(item: $encrypted) { e in
             BackupPasswordSheet(data: e.data) { n in
                 encrypted = nil
-                message = String(localized: "已恢复 \(n) 个文件")
+                // After the sheet has gone, or the alert has nothing to present on.
+                DispatchQueue.main.asyncAfter(deadline: .now() + 0.7) { message = String(localized: "已恢复 \(n) 个文件") }
             }
         }
         .alert("WebDAV 备份", isPresented: Binding(get: { message != nil }, set: { if !$0 { message = nil } })) {

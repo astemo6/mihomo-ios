@@ -78,6 +78,11 @@ final class NetworkWatcher {
         // Debounce flapping (Wi-Fi handover reports several paths in a row).
         pending?.cancel()
         let work = DispatchWorkItem {
+            // v0.19 网络变化时清空 DNS 缓存 (更多 → 内核设置, on by default).
+            if CoreOverrides.load().flushDNSOnNetworkChange {
+                LibmihomoFlushDNSCache()
+                StartupLog.write("network changed (\(type)): DNS cache cleared")
+            }
             let msg = LibmihomoSetNetworkState(type, ssid ?? "")
             if !msg.isEmpty { StartupLog.write(msg) }
             let n = LibmihomoNotifyNetworkChanged(json)

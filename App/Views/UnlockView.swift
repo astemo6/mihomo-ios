@@ -187,7 +187,9 @@ struct UnlockView: View {
                                   message: "解锁检测经由正在运行的内核，按所选策略发出请求。请先连接代理。")
                 }
                 .listRowBackground(Theme.card)
+                optionsSection
             } else {
+                optionsSection
                 Section {
                     Picker("策略组", selection: $group) {
                         ForEach(groups, id: \.self) { Text($0).tag($0) }
@@ -196,15 +198,7 @@ struct UnlockView: View {
                         Text("组的当前选择\(all[group]?.now.map { "（\($0)）" } ?? "")").tag("")
                         ForEach(members, id: \.self) { Text($0).tag($0) }
                     }
-                    NavigationLink { UnlockServicesView { selectedCount = UnlockService.selected.count } } label: {
-                        LabeledContent("检测项目") { Text("\(selectedCount)/\(UnlockService.allCases.count)").monospacedDigit() }
-                    }
-                    .accessibilityIdentifier("unlock.services")
-                    Toggle("切换节点后自动重新检测", isOn: $autoRetest)
-                        .accessibilityIdentifier("unlock.auto")
-                } header: { Text("检测对象") } footer: {
-                    if autoRetest { Text("选「组的当前选择」时，在策略页或首页切换这个组的节点后约 3 秒自动重新检测。") }
-                }
+                } header: { Text("检测对象") }
                 .listRowBackground(Theme.card)
 
                 let e = store.entry(policy)
@@ -274,6 +268,21 @@ struct UnlockView: View {
         .task(id: vpn.isConnected) { await load() }
         .onChange(of: group) { _ in member = "" }
         .onDisappear { batch?.cancel() }
+    }
+
+    /// v0.19: what to check and the auto re-test switch (also while disconnected).
+    var optionsSection: some View {
+        Section {
+            NavigationLink { UnlockServicesView { selectedCount = UnlockService.selected.count } } label: {
+                LabeledContent("检测项目") { Text(verbatim: "\(selectedCount)/\(UnlockService.allCases.count)").monospacedDigit() }
+            }
+            .accessibilityIdentifier("unlock.services")
+            Toggle("切换节点后自动重新检测", isOn: $autoRetest)
+                .accessibilityIdentifier("unlock.auto")
+        } footer: {
+            if autoRetest { Text("选「组的当前选择」时，在策略页或首页切换这个组的节点后约 3 秒自动重新检测。") }
+        }
+        .listRowBackground(Theme.card)
     }
 
     private func load() async {

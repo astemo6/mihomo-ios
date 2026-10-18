@@ -174,6 +174,11 @@ struct CoreOverrides: Codable, Equatable {
     /// v0.8 IP preference for nodes without their own ip-version: "dual" (mihomo default) · "ipv4-prefer" ·
     /// "ipv6-prefer" · "ipv4" · "ipv6".
     var ipPreference: String = "dual"
+    /// v0.19: the extension clears the core's DNS cache after the physical network changes (Wi-Fi ⇄ cellular,
+    /// another Wi-Fi), so answers from the previous network (LAN names, CDN picks) are not reused.
+    var flushDNSOnNetworkChange: Bool = true
+    /// v0.19 局域网多用户: more username / password pairs accepted on the shared port (besides lanAuth).
+    var lanUsers: [LanAuth] = []
 
     struct LanAuth: Codable, Equatable {
         var username: String = ""
@@ -250,6 +255,7 @@ struct CoreOverrides: Codable, Equatable {
         case includedRoutes, excludedRoutes, skipProxy, blockQUIC
         case includeAllNetworks, excludeLocalNetworks, excludeAPNs, excludeCellularServices, excludeDeviceCommunication
         case lanAuth, lanLocalOnly, ipv6Mode, ipPreference
+        case flushDNSOnNetworkChange, lanUsers
     }
 
     init(from decoder: Decoder) throws {
@@ -292,6 +298,8 @@ struct CoreOverrides: Codable, Equatable {
         ipv6Mode = get(.ipv6Mode, ipv6 ? "always" : "off")
         if !["off", "auto", "always"].contains(ipv6Mode) { ipv6Mode = ipv6 ? "always" : "off" }
         ipPreference = get(.ipPreference, d.ipPreference)
+        flushDNSOnNetworkChange = get(.flushDNSOnNetworkChange, d.flushDNSOnNetworkChange)
+        lanUsers = get(.lanUsers, d.lanUsers)
         if !["dual", "ipv4-prefer", "ipv6-prefer", "ipv4", "ipv6"].contains(ipPreference) { ipPreference = d.ipPreference }
         if !["off", "nondirect", "always"].contains(blockQUIC) { blockQUIC = d.blockQUIC }
         if !Self.isValidTestURL(testURL) { testURL = d.testURL }

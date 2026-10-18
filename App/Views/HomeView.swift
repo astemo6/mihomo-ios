@@ -544,6 +544,7 @@ struct GroupQuickPicker: View {
     func select(_ node: String) async {
         do {
             try await ControllerClient.shared.select(group: group, node: node)
+            await ControllerClient.shared.afterUserSwitch() // v0.19
             UISelectionFeedbackGenerator().selectionChanged()
             if group != "GLOBAL" { ProfileInspector.rememberLiveSelection(group: group, node: node) }
             NotificationCenter.default.post(name: .egressMayHaveChanged, object: nil)
