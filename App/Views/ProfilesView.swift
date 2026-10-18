@@ -41,7 +41,10 @@ struct ProfilesView: View {
                 .listRowBackground(Theme.card)
                 Section {
                     ForEach(store.profiles) { p in
-                        ProfileRow(profile: p, active: p.id == store.activeID, updating: store.updating.contains(p.id))
+                        ProfileRow(profile: p, active: p.id == store.activeID,
+                                   updating: store.updating.contains(p.id) || p.sourceID.map { store.updating.contains($0) } == true,
+                                   source: p.sourceID == nil ? nil : (store.source(of: p)?.displayName ?? p.sourceName ?? ""),
+                                   sourceIsRemote: store.source(of: p)?.kind == .remote)
                             .contentShape(Rectangle())
                             .onTapGesture { select(p) }
                             .swipeActions(edge: .trailing) {
@@ -53,7 +56,7 @@ struct ProfilesView: View {
                                 Button { scriptsFor = p } label: { Label("脚本", systemImage: "curlybraces") }.tint(.purple)
                             }
                             .swipeActions(edge: .leading) {
-                                if p.kind == .remote {
+                                if p.kind == .remote || store.source(of: p)?.kind == .remote {
                                     Button { refresh(p) } label: { Label("更新", systemImage: "arrow.clockwise") }.tint(.blue)
                                 }
                             }
@@ -198,6 +201,9 @@ struct ProfileRow: View {
     let active: Bool
     let updating: Bool
     @ObservedObject private var scripts = OverrideScriptStore.shared
+    /// feat/group-order: on an 自定义 copy, the name of the profile it was copied from.
+    var source: String? = nil
+    var sourceIsRemote = false
 
     var body: some View {
         HStack(alignment: .top, spacing: 12) {
@@ -213,6 +219,13 @@ struct ProfileRow: View {
                         .background(Capsule().fill((profile.kind == .remote ? Theme.accent : Color.orange).opacity(0.2)))
                     Spacer()
                     if updating { ProgressView().controlSize(.small) }
+                }
+                if let source {
+                    Label {
+                        if sourceIsRemote { Text("复制自「\(source)」· 随订阅更新") } else { Text("复制自「\(source)」") }
+                    } icon: { Image(systemName: "doc.on.doc") }
+                        .font(.caption2).foregroundStyle(.secondary)
+                        .accessibilityIdentifier("profiles.source." + profile.id)
                 }
                 if let info = profile.userInfo {
                     if info.total > 0 {

@@ -1,5 +1,6 @@
 import SwiftUI
 import NetworkExtension
+import UniformTypeIdentifiers
 
 @MainActor
 final class PolicyModel: ObservableObject {
@@ -21,6 +22,14 @@ final class PolicyModel: ObservableObject {
         } catch {
             self.error = error.localizedDescription
         }
+    }
+
+    /// feat/group-order: shows a saved order right away (the core reload that follows confirms it).
+    func applyOrder(_ names: [String]) {
+        let rank = Dictionary(names.enumerated().map { ($1, $0) }, uniquingKeysWith: { a, _ in a })
+        let listed = groups.filter { rank[$0.name] != nil }.sorted { rank[$0.name]! < rank[$1.name]! }
+        var it = listed.makeIterator()
+        groups = groups.map { rank[$0.name] != nil ? (it.next() ?? $0) : $0 }
     }
 
     /// Results of this session's live 测速 (0 = timeout), newest wins over the core's history.
@@ -169,6 +178,152 @@ struct PolicyView: View {
     /// v0.9 策略组编辑 (name nil = new group).
     struct EditGroupTarget: Identifiable { let id = UUID(); let name: String? }
     @State private var editGroup: EditGroupTarget?
+    /// feat/group-order: 编辑排序 mode (reorder list in place of the cards), direct drag in the normal list,
+    /// and the message of a failed save.
+    @State private var reorderMode = false
+    @State private var reorderRows: [GroupOrderRow] = []
+    @State private var reorderOriginal: [String] = []
+    @State private var reorderSaving = false
+    @State private var reorderMessage: String?
+    @State private var movable: Set<String> = []
+    @State private var dragOrder: [String]?
+    @State private var dragging: String?
+    @State private var dragSaving = false
+    @State private var orderError: String?
+
+    /// The groups in the order the page shows them (display names), for 排列策略组 / 置顶.
+    private var orderGroups: [(name: String, kind: String, icon: String?)] {
+        if vpn.isConnected {
+            return model.groups.filter { $0.name != "GLOBAL" }.map { ($0.name, PolicyGroupDisplay.kind(live: $0.type), $0.icon) }
+        }
+        return offline.result.groups.filter { $0.hidden != true }.map { ($0.name, $0.type, $0.icon) }
+    }
+
+    private func topAction(_ name: String) -> (() -> Void)? {
+        guard name != "GLOBAL", store.active != nil else { return nil }
+        return {
+            Task {
+                guard let p = store.active else { return }
+                let names = orderGroups.map { $0.name }
+                guard let i = names.firstIndex(of: name), i > 0 else { return }
+                guard GroupOrder.fileNames(p).contains(GroupOrder.fileName(of: name, edits: GroupEditStore.get(p.id))) else {
+                    orderError = String(localized: "该策略组不在配置文件中（运行时加入），位置无法调整")
+                    return
+                }
+                resetDrag()
+                let r = await GroupOrder.moveToTop(name, current: names, profile: p)
+                if r.saved, vpn.isConnected { var n = names; n.remove(at: i); n.insert(name, at: 0); model.applyOrder(n); await model.load() }
+                if let m = r.message { orderError = m }
+            }
+        }
+    }
+
+    private func refreshMovable() { movable = GroupOrderRow.movableNames(store.active) }
+
+    /// Drops any drag override (a drag that never reached a drop, or a provider call outside a real drag).
+    private func resetDrag() {
+        guard !dragSaving else { return }
+        dragging = nil
+        dragOrder = nil
+    }
+
+    private func enterReorder() {
+        resetDrag()
+        refreshMovable()
+        let gs = orderGroups
+        reorderRows = gs.map { GroupOrderRow(name: $0.name, kind: $0.kind, icon: $0.icon, movable: movable.contains($0.name)) }
+        reorderOriginal = gs.map { $0.name }
+        reorderMessage = nil
+        withAnimation { reorderMode = true }
+    }
+
+    private func finishReorder() async {
+        let names = reorderRows.map(\.name)
+        guard names != reorderOriginal, let p = store.active else { withAnimation { reorderMode = false }; return }
+        reorderSaving = true
+        defer { reorderSaving = false }
+        let r = await GroupOrder.save(names, profile: p)
+        guard r.saved else { reorderMessage = r.message; return }
+        UINotificationFeedbackGenerator().notificationOccurred(.success)
+        if vpn.isConnected { model.applyOrder(names); await model.load() }
+        if let m = r.message { orderError = m }
+        withAnimation { reorderMode = false }
+    }
+
+    /// Direct drag: long-press a card header (file groups only).
+    private func dragAction(_ name: String) -> (() -> NSItemProvider)? {
+        guard movable.contains(name), name != "GLOBAL" else { return nil }
+        return {
+            dragging = name
+            dragOrder = orderGroups.map { $0.name }
+            return NSItemProvider(object: name as NSString)
+        }
+    }
+
+    private func dragEnter(_ target: String) {
+        guard let d = dragging, d != target, movable.contains(target), var o = dragOrder,
+              let from = o.firstIndex(of: d), let to = o.firstIndex(of: target) else { return }
+        o.remove(at: from)
+        o.insert(d, at: to)
+        withAnimation(.spring(response: 0.3)) { dragOrder = o }
+    }
+
+    private func dragFinish() {
+        guard dragging != nil else { return }
+        dragging = nil
+        guard let o = dragOrder, o != orderGroups.map({ $0.name }), let p = store.active else { dragOrder = nil; return }
+        dragSaving = true
+        Task {
+            defer { dragSaving = false; dragging = nil; dragOrder = nil }
+            let r = await GroupOrder.save(o, profile: p)
+            if r.saved {
+                UINotificationFeedbackGenerator().notificationOccurred(.success)
+                if vpn.isConnected { model.applyOrder(o); await model.load() }
+            }
+            if let m = r.message { orderError = m }
+        }
+    }
+
+    private func dropTarget(_ name: String) -> GroupDropDelegate {
+        GroupDropDelegate(target: name, enter: { dragEnter($0) }, drop: { dragFinish() })
+    }
+
+    /// 策略组 header with 编辑排序 above the cards (and, on an 自定义 copy, where it was copied from).
+    private var orderHeader: some View {
+        VStack(alignment: .leading, spacing: 2) {
+            HStack {
+                Text("策略组").font(.footnote.weight(.semibold)).foregroundStyle(.secondary)
+                Spacer()
+                Button { enterReorder() } label: {
+                    Text("编辑排序")
+                        .font(.caption.weight(.semibold))
+                        .padding(.horizontal, 12).padding(.vertical, 4)
+                        .background(Capsule().fill(Theme.ink(0.08)))
+                }
+                .buttonStyle(.plain)
+                .accessibilityIdentifier("policy.editOrder")
+            }
+            orderSource
+        }
+        .padding(.horizontal, 4)
+    }
+
+    /// On an 自定义 copy: which profile it was copied from.
+    @ViewBuilder private var orderSource: some View {
+        if let p = store.active, p.sourceID != nil {
+            let name = store.source(of: p)?.displayName ?? p.sourceName ?? ""
+            HStack(spacing: 4) {
+                Image(systemName: "doc.on.doc")
+                Text("当前为副本，复制自「\(name)」")
+                    .lineLimit(1)
+            }
+            .font(.caption2)
+            .foregroundStyle(.secondary)
+            .frame(maxWidth: .infinity, alignment: .leading)
+            .accessibilityElement(children: .combine)
+            .accessibilityIdentifier("policy.orderSource")
+        }
+    }
 
     /// Groups that can carry a 前置代理 (not GLOBAL; DIRECT/REJECT style built-ins have no members).
     private func chainAction(_ name: String) -> (() -> Void)? {
@@ -219,11 +374,30 @@ struct PolicyView: View {
     var body: some View {
         NavigationStack {
             Group {
-                if vpn.isConnected { liveList } else { offlineList }
+                if reorderMode {
+                    GroupReorderList(rows: $reorderRows, profile: store.active, message: reorderMessage, onCleared: {
+                        withAnimation { reorderMode = false }
+                        Task { if vpn.isConnected { await model.load() } else { await offline.load() } }
+                    })
+                } else if vpn.isConnected { liveList } else { offlineList }
             }
             .background(Theme.bg.ignoresSafeArea())
-            .navigationTitle("策略")
+            .navigationTitle(reorderMode ? LocalizedStringKey("编辑排序") : LocalizedStringKey("策略"))
             .toolbar {
+              if reorderMode {
+                ToolbarItem(placement: .cancellationAction) {
+                    Button("取消") { withAnimation { reorderMode = false } }
+                }
+                ToolbarItem(placement: .confirmationAction) {
+                    if reorderSaving {
+                        ProgressView()
+                    } else {
+                        Button("完成") { Task { await finishReorder() } }
+                            .fontWeight(.semibold)
+                            .accessibilityIdentifier("grouporder.done")
+                    }
+                }
+              } else {
                 ToolbarItemGroup(placement: .navigationBarTrailing) {
                     Button { editGroup = EditGroupTarget(name: nil) } label: { Image(systemName: "plus") }
                         .accessibilityLabel(Text("新建策略组"))
@@ -239,6 +413,8 @@ struct PolicyView: View {
                         }
                         Toggle("测速后自动排序", isOn: $autoSort)
                         Divider()
+                        Button { enterReorder() } label: { Label("编辑排序", systemImage: "line.3.horizontal") } // feat/group-order
+                            .accessibilityIdentifier("policy.reorder")
                         Button { editHome = true } label: { Label("编辑首页策略", systemImage: "house") } // feat/home-groups
                     } label: { Image(systemName: "arrow.up.arrow.down") }
                     .accessibilityLabel(Text("排序"))
@@ -254,17 +430,26 @@ struct PolicyView: View {
                     } label: { Image(systemName: "bolt.fill") }
                     .accessibilityLabel(Text("全部测速"))
                 }
+              }
             }
         }
         .task(id: vpn.isConnected) {
             if vpn.isConnected { await model.load() } else { await offline.load() }
             snapshotDelays()
             interactions = vpn.isConnected ? await TaskCatalog.interactions() : []
+            refreshMovable()
         }
         .modifier(InteractionRunner(request: $interaction))
         .onChange(of: sortMode) { _ in snapshotDelays() }
         .sheet(item: $iconTarget) { t in GroupIconPicker(group: t.name, profileIcon: t.profileIcon) }
-        .onChange(of: store.activeID) { _ in Task { if !vpn.isConnected { await offline.load() } } }
+        // The order changed underneath (another save, a reload, a subscription update): no drag override survives it.
+        .onChange(of: orderGroups.map { $0.name }) { _ in resetDrag() }
+        .onChange(of: store.activeID) { _ in
+            reorderMode = false
+            resetDrag()
+            refreshMovable()
+            Task { if !vpn.isConnected { await offline.load() } }
+        }
         .sheet(item: $chainGroup) { t in GroupChainSheet(group: t.name) }
         .sheet(item: $editGroup) { t in
             GroupEditorView(groupName: t.name).environmentObject(store).environmentObject(vpn)
@@ -272,6 +457,9 @@ struct PolicyView: View {
         .sheet(item: $share) { t in NodeShareSheet(name: t.name, link: t.link) }
         .sheet(item: $probeTarget) { t in NodeProbeSheet(policy: t.name) }
         .sheet(isPresented: $editHome) { HomeGroupsEditor().environmentObject(vpn) }
+        .alert("编辑排序", isPresented: Binding(get: { orderError != nil }, set: { if !$0 { orderError = nil } })) {
+            Button("好", role: .cancel) {}
+        } message: { Text(orderError ?? "") }
         .alert("分享节点", isPresented: Binding(get: { shareError != nil }, set: { if !$0 { shareError = nil } })) {
             Button("好", role: .cancel) {}
         } message: { Text(shareError ?? "") }
@@ -296,8 +484,9 @@ struct PolicyView: View {
                 PolicyModeBar()
                 if let e = model.error { Text(e).font(.footnote).foregroundStyle(Theme.bad) }
                 TestTargetCaption(live: true)
+                orderHeader
                 let liveAuto = model.groups.filter { PolicyGroupDisplay.isAutomatic(PolicyGroupDisplay.kind(live: $0.type)) }
-                ForEach(model.groups) { g in
+                ForEach(GroupOrderRow.arranged(model.groups, by: dragOrder) { $0.name }) { g in
                   if collapseAuto && PolicyGroupDisplay.isAutomatic(PolicyGroupDisplay.kind(live: g.type)) {
                     if g.id == liveAuto.first?.id { CollapsedAutoRow(count: liveAuto.count) { expandAuto() } }
                   } else {
@@ -322,6 +511,8 @@ struct PolicyView: View {
                                     onShare: { shareNode($0) },
                                     onIcon: { iconTarget = IconTarget(name: g.name, profileIcon: g.icon) },
                                     onEdit: { editGroup = EditGroupTarget(name: g.name) },
+                                    onTop: topAction(g.name),
+                                    onDrag: dragAction(g.name),
                                     onProbe: { probeTarget = ProbeTarget(name: $0) },
                                     badge: { probes.badge(for: $0) },
                                     onPin: pinAction,
@@ -329,10 +520,12 @@ struct PolicyView: View {
                                     onInteract: { id, node in
                                         if let t = interactions.first(where: { $0.id == id }) { interaction = InteractionRequest(task: t, node: node) }
                                     })
+                    .onDrop(of: [UTType.text], delegate: dropTarget(g.name))
                   }
                 }
             }
             .padding(16)
+            .onDrop(of: [UTType.text], delegate: GroupListDropDelegate(drop: { dragFinish() }))
         }
         .refreshable { await model.load() }
     }
@@ -360,7 +553,8 @@ struct PolicyView: View {
                     let groupNames = Set(offline.result.groups.map(\.name))
                     let visible = offline.result.groups.filter { $0.hidden != true }
                     let offAuto = visible.filter { PolicyGroupDisplay.isAutomatic($0.type) }
-                    ForEach(visible) { g in
+                    if !visible.isEmpty { orderHeader }
+                    ForEach(GroupOrderRow.arranged(visible, by: dragOrder) { $0.name }) { g in
                       if collapseAuto && PolicyGroupDisplay.isAutomatic(g.type) {
                         if g.id == offAuto.first?.id { CollapsedAutoRow(count: offAuto.count) { expandAuto() } }
                       } else {
@@ -386,7 +580,10 @@ struct PolicyView: View {
                                         onChain: chainAction(g.name),
                                         onShare: { shareNode($0) },
                                         onIcon: { iconTarget = IconTarget(name: g.name, profileIcon: g.icon) },
-                                        onEdit: { editGroup = EditGroupTarget(name: g.name) })
+                                        onEdit: { editGroup = EditGroupTarget(name: g.name) },
+                                        onTop: topAction(g.name),
+                                        onDrag: dragAction(g.name))
+                        .onDrop(of: [UTType.text], delegate: dropTarget(g.name))
                       }
                     }
                     if !offline.result.groups.isEmpty {
@@ -399,6 +596,7 @@ struct PolicyView: View {
                 }
             }
             .padding(16)
+            .onDrop(of: [UTType.text], delegate: GroupListDropDelegate(drop: { dragFinish() }))
         }
         .refreshable { await offline.load() }
     }
@@ -424,6 +622,10 @@ struct PolicyGroupCard: View {
     var onIcon: (() -> Void)? = nil
     /// v0.9: opens the group editor.
     var onEdit: (() -> Void)? = nil
+    /// feat/group-order: 置顶 (moves the group to the top of the profile's proxy-groups).
+    var onTop: (() -> Void)? = nil
+    /// feat/group-order: long-press drag of the header (nil = not draggable, e.g. a runtime group).
+    var onDrag: (() -> NSItemProvider)? = nil
     /// v0.8 节点探测 sheet for a member (live only), and the 解锁 badge per member.
     var onProbe: ((String) -> Void)? = nil
     var badge: ((String) -> (ok: Int, total: Int)?)? = nil
@@ -445,10 +647,13 @@ struct PolicyGroupCard: View {
                     .contextMenu {
                         if let onEdit { Button { onEdit() } label: { Label("编辑策略组", systemImage: "slider.horizontal.3") } }
                         if let onIcon { Button { onIcon() } label: { Label("更换图标", systemImage: "photo") } }
+                        if let onTop { Button { onTop() } label: { Label("置顶", systemImage: "arrow.up.to.line") } }
                     }
+                    .accessibilityIdentifier("policy.icon." + group.name)
                 VStack(alignment: .leading, spacing: 2) {
                     HStack(spacing: 6) {
                         Text(group.name).font(.headline).lineLimit(1)
+                            .accessibilityIdentifier("policy.card." + group.name)
                         Text(group.label)
                             .font(.caption2.weight(.semibold))
                             .padding(.horizontal, 6).padding(.vertical, 2)
@@ -504,6 +709,7 @@ struct PolicyGroupCard: View {
             }
             .contentShape(Rectangle())
             .onTapGesture { withAnimation(.spring(response: 0.3)) { expanded.toggle() } }
+            .modifier(OptionalDrag(provider: onDrag))
 
             if expanded {
                 if let smart {
@@ -711,5 +917,13 @@ struct PolicyModeBar: View {
         }
         .pickerStyle(.segmented)
         .accessibilityIdentifier("policy.mode")
+    }
+}
+
+/// feat/group-order: .onDrag only when a provider is given.
+struct OptionalDrag: ViewModifier {
+    let provider: (() -> NSItemProvider)?
+    @ViewBuilder func body(content: Content) -> some View {
+        if let provider { content.onDrag(provider) } else { content }
     }
 }

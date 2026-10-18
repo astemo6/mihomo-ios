@@ -100,6 +100,8 @@ enum GoText {
         case "配置文件里没有这个节点": return String(localized: "配置文件里没有这个节点")
         case "已有同名的节点或策略组": return String(localized: "已有同名的节点或策略组")
         case "名称、类型、服务器不能为空": return String(localized: "名称、类型、服务器不能为空")
+        case "无法安全地重排策略组（配置使用了 YAML 锚点或特殊格式）": return String(localized: "无法安全地重排策略组（配置使用了 YAML 锚点或特殊格式）")
+        case "配置文件中没有可排序的策略组": return String(localized: "配置文件中没有可排序的策略组")
         default: return s
         }
     }
