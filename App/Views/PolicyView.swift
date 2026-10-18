@@ -287,21 +287,41 @@ struct PolicyView: View {
         GroupDropDelegate(target: name, enter: { dragEnter($0) }, drop: { dragFinish() })
     }
 
-    /// 策略组 header with 编辑排序 above the cards.
+    /// 策略组 header with 编辑排序 above the cards (and, on an 自定义 copy, where it was copied from).
     private var orderHeader: some View {
-        HStack {
-            Text("策略组").font(.footnote.weight(.semibold)).foregroundStyle(.secondary)
-            Spacer()
-            Button { enterReorder() } label: {
-                Text("编辑排序")
-                    .font(.caption.weight(.semibold))
-                    .padding(.horizontal, 12).padding(.vertical, 4)
-                    .background(Capsule().fill(Theme.ink(0.08)))
+        VStack(alignment: .leading, spacing: 2) {
+            HStack {
+                Text("策略组").font(.footnote.weight(.semibold)).foregroundStyle(.secondary)
+                Spacer()
+                Button { enterReorder() } label: {
+                    Text("编辑排序")
+                        .font(.caption.weight(.semibold))
+                        .padding(.horizontal, 12).padding(.vertical, 4)
+                        .background(Capsule().fill(Theme.ink(0.08)))
+                }
+                .buttonStyle(.plain)
+                .accessibilityIdentifier("policy.editOrder")
             }
-            .buttonStyle(.plain)
-            .accessibilityIdentifier("policy.editOrder")
+            orderSource
         }
         .padding(.horizontal, 4)
+    }
+
+    /// On an 自定义 copy: which profile it was copied from.
+    @ViewBuilder private var orderSource: some View {
+        if let p = store.active, p.sourceID != nil {
+            let name = store.source(of: p)?.displayName ?? p.sourceName ?? ""
+            HStack(spacing: 4) {
+                Image(systemName: "doc.on.doc")
+                Text("当前为副本，复制自「\(name)」")
+                    .lineLimit(1)
+            }
+            .font(.caption2)
+            .foregroundStyle(.secondary)
+            .frame(maxWidth: .infinity, alignment: .leading)
+            .accessibilityElement(children: .combine)
+            .accessibilityIdentifier("policy.orderSource")
+        }
     }
 
     /// Groups that can carry a 前置代理 (not GLOBAL; DIRECT/REJECT style built-ins have no members).
@@ -354,7 +374,10 @@ struct PolicyView: View {
         NavigationStack {
             Group {
                 if reorderMode {
-                    GroupReorderList(rows: $reorderRows, profile: store.active, message: reorderMessage)
+                    GroupReorderList(rows: $reorderRows, profile: store.active, message: reorderMessage, onCleared: {
+                        withAnimation { reorderMode = false }
+                        Task { if vpn.isConnected { await model.load() } else { await offline.load() } }
+                    })
                 } else if vpn.isConnected { liveList } else { offlineList }
             }
             .background(Theme.bg.ignoresSafeArea())

@@ -245,41 +245,147 @@ func TestGroupOrderBadInput(t *testing.T) {
 	}
 }
 
-// End to end through the exported functions with the real validator (no geo rules, so no download), and the
-// re-apply after a subscription download using the order stored in group-edits.json.
-func TestGroupOrderReapplyAfterDownload(t *testing.T) {
+// End to end through the exported functions with the real validator (no geo rules, so no download): the first
+// reorder goes into a copy (source untouched), later reorders change the copy, and a subscription update
+// regenerates the copy from the fresh source with the copy's stored order (group-edits.json of the copy's id).
+func TestGroupOrderCopyAndRegenerate(t *testing.T) {
 	home := t.TempDir()
 	prof := filepath.Join(home, "profiles")
 	_ = os.MkdirAll(prof, 0o755)
-	path := filepath.Join(prof, "SUB-1.yaml")
-	if err := os.WriteFile(path, []byte(goProfile), 0o644); err != nil {
+	src := filepath.Join(prof, "SUB-1.yaml")
+	cp := filepath.Join(prof, "COPY-1.yaml")
+	if err := os.WriteFile(src, []byte(goProfile), 0o644); err != nil {
 		t.Fatal(err)
 	}
 	var r reorderResult
-	_ = json.Unmarshal([]byte(ReorderGroups(home, path, `["流媒体","节点选择","自动"]`)), &r)
-	if r.Error != "" || !r.Changed {
-		t.Fatalf("ReorderGroups %+v", r)
+	// Same order as the source: no copy is written.
+	_ = json.Unmarshal([]byte(GroupOrderCopy(home, src, cp, `["节点选择","自动","流媒体"]`)), &r)
+	if r.Error != "" || r.Changed {
+		t.Fatalf("identity copy %+v", r)
 	}
-	edits := map[string]GroupEdits{"SUB-1": {Order: []string{"流媒体", "节点选择", "自动"}}}
+	if _, err := os.Stat(cp); err == nil {
+		t.Fatal("copy written for an unchanged order")
+	}
+	_ = json.Unmarshal([]byte(GroupOrderCopy(home, src, cp, `["流媒体","节点选择","自动"]`)), &r)
+	if r.Error != "" || !r.Changed || r.Method != "text" {
+		t.Fatalf("GroupOrderCopy %+v", r)
+	}
+	if b, _ := os.ReadFile(src); string(b) != goProfile {
+		t.Fatal("source file changed")
+	}
+	if _, err := os.Stat(src + ".bak"); err == nil {
+		t.Fatal("source got a .bak")
+	}
+	if _, err := os.Stat(cp + ".bak"); err == nil {
+		t.Fatal("new copy got a .bak")
+	}
+	cb, _ := os.ReadFile(cp)
+	if got := groupNamesOf(t, cb); !reflect.DeepEqual(got, []string{"流媒体", "节点选择", "隐藏", "自动"}) {
+		t.Fatalf("copy order %v", got)
+	}
+	if !strings.Contains(string(cb), "# 我的配置 — header comment") || !strings.Contains(string(cb), "# ---- 自动 ----") {
+		t.Fatal("copy lost comments")
+	}
+	// A later reorder changes only the copy (previous copy → .bak).
+	_ = json.Unmarshal([]byte(ReorderGroups(home, cp, `["自动","流媒体","节点选择"]`)), &r)
+	if r.Error != "" || !r.Changed {
+		t.Fatalf("reorder copy %+v", r)
+	}
+	if b, _ := os.ReadFile(cp + ".bak"); string(b) != string(cb) {
+		t.Fatal("copy .bak is not the previous copy")
+	}
+	if b, _ := os.ReadFile(src); string(b) != goProfile {
+		t.Fatal("source file changed by a copy reorder")
+	}
+	edits := map[string]GroupEdits{"COPY-1": {Order: []string{"自动", "流媒体", "节点选择"}}}
 	b, _ := json.Marshal(edits)
 	_ = os.WriteFile(groupEditsPath(home), b, 0o644)
-	// The subscription is downloaded again in its original order, with a new group 新组.
+
+	// The subscription is downloaded again in the provider's order, with a new group 新组 and a new node.
 	fresh := strings.Replace(goProfile, "# 规则 — belongs to rules", "  - {name: 新组, type: select, proxies: [DIRECT]}\n\n# 规则 — belongs to rules", 1)
-	_ = os.WriteFile(path, []byte(fresh), 0o644)
-	_ = json.Unmarshal([]byte(GroupOrderReapply(home, path)), &r)
+	fresh = strings.Replace(fresh, "  - {name: n2,", "  - {name: n3, type: ss, server: 192.0.2.3, port: 8388, cipher: aes-128-gcm, password: x}\n  - {name: n2,", 1)
+	_ = os.WriteFile(src, []byte(fresh), 0o644)
+	_ = json.Unmarshal([]byte(GroupOrderRegenerate(home, src, cp)), &r)
 	if r.Error != "" || !r.Changed {
-		t.Fatalf("reapply %+v", r)
+		t.Fatalf("regenerate %+v", r)
 	}
-	nb, _ := os.ReadFile(path)
-	if got := groupNamesOf(t, nb); !reflect.DeepEqual(got, []string{"流媒体", "节点选择", "隐藏", "自动", "新组"}) {
-		t.Fatalf("order after reapply %v", got)
+	nb, _ := os.ReadFile(cp)
+	if got := groupNamesOf(t, nb); !reflect.DeepEqual(got, []string{"自动", "流媒体", "隐藏", "节点选择", "新组"}) {
+		t.Fatalf("order after regenerate %v", got)
 	}
-	// No stored order → nothing happens.
-	other := filepath.Join(prof, "LOCAL.yaml")
-	_ = os.WriteFile(other, []byte(goProfile), 0o644)
-	_ = json.Unmarshal([]byte(GroupOrderReapply(home, other)), &r)
+	if !strings.Contains(string(nb), "name: n3") {
+		t.Fatal("copy did not get the fresh source content")
+	}
+	if b, _ := os.ReadFile(src); string(b) != fresh {
+		t.Fatal("source changed by regenerate")
+	}
+	// Regenerating again with nothing new writes nothing.
+	_ = json.Unmarshal([]byte(GroupOrderRegenerate(home, src, cp)), &r)
 	if r.Changed || r.Error != "" {
-		t.Fatalf("no stored order %+v", r)
+		t.Fatalf("second regenerate %+v", r)
+	}
+
+	// 不再保持此顺序 (order cleared): the copy becomes the source content as is.
+	_ = os.WriteFile(groupEditsPath(home), []byte("{}"), 0o644)
+	_ = json.Unmarshal([]byte(GroupOrderRegenerate(home, src, cp)), &r)
+	if r.Error != "" || !r.Changed {
+		t.Fatalf("regenerate without order %+v", r)
+	}
+	if b, _ := os.ReadFile(cp); string(b) != fresh {
+		t.Fatal("copy without order must equal the source")
+	}
+}
+
+// When the stored order cannot be applied to the fresh source, the copy still gets the fresh content.
+func TestGroupOrderRegenerateFallsBackToSource(t *testing.T) {
+	dir := t.TempDir()
+	src := filepath.Join(dir, "s.yaml")
+	cp := filepath.Join(dir, "c.yaml")
+	_ = os.WriteFile(cp, []byte("old copy\n"), 0o644)
+	fresh := "proxy-groups:\n  - &base\n    name: A\n    type: select\n    proxies: &x [DIRECT]\n  - name: B\n    type: select\n    proxies: *x\n"
+	r := reorderInto([]byte(fresh), cp, []string{"B", "A"}, nil, true)
+	if r.Error == "" || !r.Changed {
+		t.Fatalf("want error + written: %+v", r)
+	}
+	if b, _ := os.ReadFile(cp); string(b) != fresh {
+		t.Fatal("copy must be the fresh source")
+	}
+	if b, _ := os.ReadFile(cp + ".bak"); string(b) != "old copy\n" {
+		t.Fatal("previous copy not kept as .bak")
+	}
+	_ = src
+}
+
+func TestCopyProfileSettings(t *testing.T) {
+	home := t.TempDir()
+	w := func(f, s string) { _ = os.WriteFile(filepath.Join(home, f), []byte(s), 0o644) }
+	w("group-edits.json", `{"SRC":{"edits":{"A":{"deleted":true}},"order":["B","A"]},"OTHER":{"order":["X"]}}`)
+	w("groups.json", `{"SRC":{"dialer":{"A":"n1"}}}`)
+	w("subscriptions.json", `{"SRC":{"enabled":true},"DST":{"enabled":false}}`)
+	if e := CopyProfileSettings(home, "SRC", "DST"); e != "" {
+		t.Fatal(e)
+	}
+	read := func(f string) map[string]any {
+		var m map[string]any
+		b, _ := os.ReadFile(filepath.Join(home, f))
+		_ = json.Unmarshal(b, &m)
+		return m
+	}
+	ge := read("group-edits.json")["DST"].(map[string]any)
+	if _, has := ge["order"]; has || ge["edits"] == nil {
+		t.Fatalf("group edits copied wrong: %v", ge)
+	}
+	if read("group-edits.json")["SRC"].(map[string]any)["order"] == nil {
+		t.Fatal("source entry changed")
+	}
+	if read("groups.json")["DST"] == nil {
+		t.Fatal("groups.json not copied")
+	}
+	if read("subscriptions.json")["DST"].(map[string]any)["enabled"] != false {
+		t.Fatal("existing DST entry overwritten")
+	}
+	if _, err := os.Stat(filepath.Join(home, "netpolicy.json")); err == nil {
+		t.Fatal("missing file created")
 	}
 }
 

@@ -1192,6 +1192,7 @@ final class MihomoUITests: MihomoUITestCase {
         }
         XCTAssertTrue(card("Proxy").waitForExistence(timeout: 10), "policy cards")
         XCTAssertTrue(above("Proxy", "Apple", 2), "seed order: Proxy before Apple")
+        XCTAssertFalse(app.element(id: "policy.orderSource").exists, "the seeded profile is an original, not a copy")
         snap("policy-before-order")
 
         // 1. Direct drag: long-press Apple's header and drop it on Proxy.
@@ -1199,7 +1200,12 @@ final class MihomoUITests: MihomoUITestCase {
         card("Apple").press(forDuration: 1.2, thenDragTo: card("Proxy"), withVelocity: .slow, thenHoldForDuration: 0.8)
         XCTAssertTrue(above("Apple", "Proxy", 8), "drag: Apple dropped above Proxy")
         snap("policy-dragged")
-        usleep(1_500_000) // the save writes the file and re-reads it
+        // The first reorder never rewrites the original: it creates 「UITest Demo (自定义)」 and switches to it.
+        let source = app.element(id: "policy.orderSource")
+        XCTAssertTrue(source.waitForExistence(timeout: 8), "switched to the 自定义 copy")
+        XCTAssertTrue(source.label.contains("UITest Demo"), "copy names its source: \(source.label)")
+        XCTAssertTrue(above("Apple", "Proxy", 8), "the copy has the dragged order")
+        usleep(1_000_000)
 
         // 2. 编辑排序 mode: the list re-reads the file, so Apple is first there too.
         let edit = app.element(id: "policy.editOrder")

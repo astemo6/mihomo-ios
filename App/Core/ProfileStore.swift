@@ -42,6 +42,11 @@ struct Profile: Codable, Identifiable, Hashable {
     var updateIntervalHours: Int = 24
     var lastUpdated: Date?
     var userInfo: SubscriptionUserInfo?
+    /// feat/group-order: set on an 自定义 copy made by the first 策略组 reorder — the profile it was copied from
+    /// (its id, and its name at the time, shown when the source is gone). The source file is never rewritten by a
+    /// reorder; a subscription source regenerates its copies when it updates.
+    var sourceID: String? = nil
+    var sourceName: String? = nil
 
     var fileURL: URL { AppShared.profileURL(id: id) }
 
@@ -197,8 +202,6 @@ final class ProfileStore: ObservableObject {
         text = Self.normalize(text)
         if let err = await Self.validate(text: text) { throw StoreError.invalid(err) }
         try text.write(to: p.fileURL, atomically: true, encoding: .utf8)
-        // feat/group-order: the user's 策略组 order survives the update (kept in group-edits.json, put back here).
-        await GroupOrder.reapply(p)
         p.userInfo = SubscriptionUserInfo.parse(http?.value(forHTTPHeaderField: "subscription-userinfo")) ?? p.userInfo
         if p.name.trimmingCharacters(in: .whitespaces).isEmpty {
             p.name = Self.nameFromHeaders(http) ?? url.host ?? "订阅"
@@ -226,6 +229,8 @@ final class ProfileStore: ObservableObject {
     }
 
     func refresh(_ p: Profile) async -> String? {
+        // feat/group-order: updating an 自定义 copy of a subscription updates its source (which regenerates the copy).
+        if p.kind == .local, let src = source(of: p), src.kind == .remote { return await refresh(src) }
         guard p.kind == .remote else { return nil }
         updating.insert(p.id)
         defer { updating.remove(p.id) }
@@ -234,7 +239,8 @@ final class ProfileStore: ObservableObject {
             let np = try await download(p)
             update(np)
             UsageAlerts.evaluate(id: np.id, name: np.name, info: np.userInfo)
-            if np.id == activeID { _ = await VPNManager.shared.reload() }
+            let copies = await regenerateCopies(of: np)
+            if np.id == activeID || copies.contains(where: { $0.id == activeID }) { _ = await VPNManager.shared.reload() }
             return nil
         } catch {
             return error.localizedDescription
@@ -259,6 +265,41 @@ final class ProfileStore: ObservableObject {
             if due < Date() { out.append(SubUpdateResult(name: p.name, error: await refresh(p))) }
         }
         return out
+    }
+
+    // MARK: feat/group-order — 自定义 copies
+
+    /// The profile `p` was copied from (nil for an original, or when the source was deleted).
+    func source(of p: Profile) -> Profile? {
+        guard let id = p.sourceID else { return nil }
+        return profiles.first { $0.id == id }
+    }
+
+    /// The 自定义 copy of `p` (the first reorder of `p` made it), if any.
+    func orderCopy(of p: Profile) -> Profile? { profiles.first { $0.sourceID == p.id } }
+
+    /// Adds a new 自定义 copy right after its source.
+    func insertCopy(_ c: Profile, after src: Profile) {
+        let i = profiles.firstIndex(where: { $0.id == src.id }).map { $0 + 1 } ?? profiles.endIndex
+        profiles.insert(c, at: i)
+        persist()
+    }
+
+    /// After a subscription update: rebuilds every 自定义 copy of `src` from the fresh content with the copy's saved
+    /// order, and carries the subscription info over. Returns the copies.
+    @discardableResult
+    func regenerateCopies(of src: Profile) async -> [Profile] {
+        let copies = profiles.filter { $0.sourceID == src.id }
+        for c in copies {
+            await GroupOrder.regenerate(c, from: src)
+            var nc = c
+            nc.userInfo = src.userInfo
+            nc.lastUpdated = src.lastUpdated
+            nc.sourceName = src.displayName
+            update(nc)
+        }
+        if !copies.isEmpty { objectWillChange.send() }
+        return copies
     }
 
     // MARK: Manual nodes (Shadowrocket style) — a local profile "手动节点"

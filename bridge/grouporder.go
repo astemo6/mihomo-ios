@@ -15,8 +15,11 @@ package libmihomo
 // missing from the order (hidden groups, groups new in a subscription update) keep their slot — the listed
 // groups are permuted among the slots they already occupy.
 //
-// Subscription profiles are re-downloaded over the file, so the app also keeps the order in group-edits.json
-// ("order", per profile id) and calls GroupOrderReapply after each download.
+// The original profile is never rewritten (user 2026-10-18 16:51): the first reorder writes the new order into
+// an 自定义 copy (GroupOrderCopy) that the app switches to; later reorders change only the copy
+// (ReorderGroups on the copy's path). The copy's order is also kept in group-edits.json ("order", per copy id):
+// when its source subscription updates, GroupOrderRegenerate rebuilds the copy from the fresh source content and
+// re-applies that order, so the source stays a pristine mirror of the subscription.
 
 import (
 	"bytes"
@@ -379,38 +382,80 @@ func writeAtomic(path string, b []byte) error {
 	return nil
 }
 
-// reorderFile is ReorderGroups with an injectable validator (tests run without geo data).
+// reorderFile is ReorderGroups with an injectable validator (tests run without geo data): reorders the file in
+// place.
 func reorderFile(path string, want []string, validate func(b []byte) string) reorderResult {
 	orig, err := os.ReadFile(path)
 	if err != nil {
 		return reorderResult{Error: err.Error()}
 	}
-	nb, changed, method, after, err := reorderGroupsBytes(orig, want)
+	return reorderInto(orig, path, want, validate, false)
+}
+
+// reorderInto writes `src` with its groups in `want` order to `dest` (dest may be the file src came from, or a
+// copy of another profile). The previous content of dest, when it exists, is kept as <dest>.bak.
+// always=false: nothing is written when the order does not change. always=true (regenerating a copy from fresh
+// source content): src is written even when the order is unchanged, and when the reorder or its validation fails
+// src is written unchanged and the error is still reported, so the copy never keeps stale content.
+func reorderInto(src []byte, dest string, want []string, validate func(b []byte) string, always bool) reorderResult {
+	plain := func(e string) reorderResult {
+		if !always {
+			return reorderResult{Error: e}
+		}
+		if err := replaceKeepingBak(dest, src); err != nil {
+			return reorderResult{Error: err.Error()}
+		}
+		return reorderResult{Changed: true, Error: e}
+	}
+	nb, changed, method, after, err := reorderGroupsBytes(src, want)
 	if err != nil {
-		return reorderResult{Error: err.Error()}
+		return plain(err.Error())
 	}
 	if !changed {
-		return reorderResult{Order: after}
+		if !always {
+			return reorderResult{Order: after}
+		}
+		if cur, err := os.ReadFile(dest); err == nil && bytes.Equal(cur, src) {
+			return reorderResult{Order: after}
+		}
+		if err := replaceKeepingBak(dest, src); err != nil {
+			return reorderResult{Error: err.Error()}
+		}
+		return reorderResult{Changed: true, Order: after}
 	}
 	if validate != nil {
 		if e := validate(nb); e != "" {
-			// An error the unchanged file already has (e.g. geo data not downloadable right now) does not block.
-			if pre := validate(orig); pre == "" || pre != e {
-				return reorderResult{Error: e}
+			// An error the unchanged profile already has (e.g. geo data not downloadable right now) does not block.
+			if pre := validate(src); pre == "" || pre != e {
+				return plain(e)
 			}
 		}
 	}
-	if err := writeAtomic(path+".bak", orig); err != nil {
-		return reorderResult{Error: err.Error()}
+	if always {
+		// Regenerated content identical to the copy as it is: nothing to write.
+		if cur, err := os.ReadFile(dest); err == nil && bytes.Equal(cur, nb) {
+			return reorderResult{Order: after, Method: method}
+		}
 	}
-	if err := writeAtomic(path, nb); err != nil {
+	if err := replaceKeepingBak(dest, nb); err != nil {
 		return reorderResult{Error: err.Error()}
 	}
 	return reorderResult{Changed: true, Order: after, Method: method}
 }
 
+// replaceKeepingBak atomically writes b to path, keeping the previous content (if any) as <path>.bak.
+func replaceKeepingBak(path string, b []byte) error {
+	if cur, err := os.ReadFile(path); err == nil {
+		if err := writeAtomic(path+".bak", cur); err != nil {
+			return err
+		}
+	}
+	return writeAtomic(path, b)
+}
+
 // ReorderGroups puts the profile's proxy-groups in the order of orderJSON (a JSON array of group names), see
-// the file comment. Returns JSON {changed, order, method, error}.
+// the file comment. The app only calls it on an 自定义 copy (GroupOrderCopy made it), never on an original
+// profile. Returns JSON {changed, order, method, error}.
 func ReorderGroups(homeDir, profilePath, orderJSON string) (out string) {
 	defer func() {
 		if r := recover(); r != nil {
@@ -424,7 +469,29 @@ func ReorderGroups(homeDir, profilePath, orderJSON string) (out string) {
 	return reorderFile(profilePath, want, func(b []byte) string { return validateProfileBytes(homeDir, profilePath, b) }).json()
 }
 
-// storedGroupOrder is the order kept in group-edits.json for the profile (subscriptions).
+// GroupOrderCopy writes the source profile with its groups in orderJSON order to copyPath, leaving the source
+// file untouched (user 2026-10-18: 「自动复制一个配置文件出来，在复制的配置文件上更新」). Nothing is written
+// when the order equals the source's (changed=false: the app then creates no copy). An existing copy (the
+// source was reordered again while it was active) is overwritten, its previous content kept as .bak.
+// Validation runs with the source's settings (the copy gets the same settings right after).
+func GroupOrderCopy(homeDir, sourcePath, copyPath, orderJSON string) (out string) {
+	defer func() {
+		if r := recover(); r != nil {
+			out = reorderResult{Error: fmt.Sprint(r)}.json()
+		}
+	}()
+	var want []string
+	if err := json.Unmarshal([]byte(orderJSON), &want); err != nil {
+		return reorderResult{Error: err.Error()}.json()
+	}
+	src, err := os.ReadFile(sourcePath)
+	if err != nil {
+		return reorderResult{Error: err.Error()}.json()
+	}
+	return reorderInto(src, copyPath, want, func(b []byte) string { return validateProfileBytes(homeDir, sourcePath, b) }, false).json()
+}
+
+// storedGroupOrder is the order kept in group-edits.json for a profile (the 自定义 copies).
 func storedGroupOrder(home, profileID string) []string {
 	if e := readGroupEdits(home, profileID); e != nil {
 		return e.Order
@@ -432,16 +499,81 @@ func storedGroupOrder(home, profileID string) []string {
 	return nil
 }
 
-// GroupOrderReapply re-applies the stored order (group-edits.json "order") to the profile file, e.g. right
-// after a subscription download replaced it. Returns the same JSON as ReorderGroups; {"changed":false} when no
-// order is stored.
-func GroupOrderReapply(homeDir, profilePath string) string {
-	want := storedGroupOrder(homeDir, profileIDFromPath(profilePath))
-	if len(want) == 0 {
-		return reorderResult{}.json()
+// GroupOrderRegenerate rebuilds a copy from its source after the source subscription was updated: the fresh
+// source content with the copy's stored order (group-edits.json "order" of the copy's id) applied — groups new
+// in the subscription keep the provider's slot. The source file is only read. When no order is stored, or the
+// order cannot be applied, the copy becomes the source content as is (error reported when it failed).
+func GroupOrderRegenerate(homeDir, sourcePath, copyPath string) (out string) {
+	defer func() {
+		if r := recover(); r != nil {
+			out = reorderResult{Error: fmt.Sprint(r)}.json()
+		}
+	}()
+	src, err := os.ReadFile(sourcePath)
+	if err != nil {
+		return reorderResult{Error: err.Error()}.json()
 	}
-	b, _ := json.Marshal(want)
-	return ReorderGroups(homeDir, profilePath, string(b))
+	want := storedGroupOrder(homeDir, profileIDFromPath(copyPath))
+	if len(want) == 0 {
+		if cur, err := os.ReadFile(copyPath); err == nil && bytes.Equal(cur, src) {
+			return reorderResult{}.json()
+		}
+		if err := replaceKeepingBak(copyPath, src); err != nil {
+			return reorderResult{Error: err.Error()}.json()
+		}
+		return reorderResult{Changed: true}.json()
+	}
+	return reorderInto(src, copyPath, want, func(b []byte) string { return validateProfileBytes(homeDir, copyPath, b) }, true).json()
+}
+
+// profileSettingFiles are the home files that keep per-profile settings in a JSON object keyed by profile id
+// (策略组编辑, 前置代理 / smart groups, 订阅规则, 网络策略).
+var profileSettingFiles = []string{"group-edits.json", "groups.json", "subscriptions.json", "netpolicy.json"}
+
+// CopyProfileSettings gives a new 自定义 copy the per-profile settings of its source, so switching to the copy
+// changes nothing but the group order. Entries the copy already has are kept; the source's stored group order
+// is not copied. Returns "" or an error.
+func CopyProfileSettings(homeDir, fromID, toID string) string {
+	if homeDir == "" || fromID == "" || toID == "" || fromID == toID {
+		return ""
+	}
+	for _, f := range profileSettingFiles {
+		p := filepath.Join(homeDir, f)
+		b, err := os.ReadFile(p)
+		if err != nil {
+			continue
+		}
+		m := map[string]json.RawMessage{}
+		if json.Unmarshal(b, &m) != nil {
+			continue
+		}
+		v, ok := m[fromID]
+		if !ok {
+			continue
+		}
+		if _, has := m[toID]; has {
+			continue
+		}
+		if f == "group-edits.json" {
+			var e map[string]json.RawMessage
+			if json.Unmarshal(v, &e) == nil {
+				delete(e, "order")
+				if len(e) == 0 {
+					continue
+				}
+				v, _ = json.Marshal(e)
+			}
+		}
+		m[toID] = v
+		nb, err := json.MarshalIndent(m, "", "  ")
+		if err != nil {
+			return err.Error()
+		}
+		if err := writeAtomic(p, nb); err != nil {
+			return err.Error()
+		}
+	}
+	return ""
 }
 
 // ProfileGroupNames returns the names of the groups written in the profile file (JSON array, [] when the file has

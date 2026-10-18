@@ -72978,40 +72978,6 @@
         }
       }
     },
-    "拖动或置顶来调整顺序。保存后写入配置文件，注释和其他内容保持不变，原文件备份为 .bak。": {
-      "localizations": {
-        "en": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Drag or move groups to the top to change the order. Saving writes it into the profile file; comments and everything else stay as they are, and the previous file is kept as .bak."
-          }
-        },
-        "ja": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "ドラッグまたは「先頭へ移動」で順序を変更します。保存すると構成ファイルに書き込まれ、コメントやその他の内容はそのまま残り、元のファイルは .bak として保存されます。"
-          }
-        },
-        "ko": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "드래그하거나 맨 위로 이동해 순서를 바꿉니다. 저장하면 구성 파일에 기록되며, 주석과 다른 내용은 그대로 유지되고 이전 파일은 .bak으로 보관됩니다."
-          }
-        },
-        "ru": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Перетащите группы или переместите их в начало. При сохранении порядок записывается в файл конфигурации; комментарии и остальное содержимое не меняются, прежний файл сохраняется как .bak."
-          }
-        },
-        "zh-Hant": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "拖動或置頂來調整順序。儲存後寫入配置檔案，註釋和其他內容保持不變，原檔案備份為 .bak。"
-          }
-        }
-      }
-    },
     "标有「运行时加入」的策略组不在配置文件中，位置保持不变。": {
       "localizations": {
         "en": {
@@ -73046,40 +73012,6 @@
         }
       }
     },
-    "这是订阅配置：顺序也会单独保存，每次更新订阅后自动重新排列。": {
-      "localizations": {
-        "en": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "This is a subscription profile: the order is also saved separately and re-applied after every subscription update."
-          }
-        },
-        "ja": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "これはサブスクリプション構成です：順序は別途保存され、サブスクリプションを更新するたびに自動で並べ直されます。"
-          }
-        },
-        "ko": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "구독 구성입니다: 순서가 따로 저장되며 구독을 업데이트할 때마다 자동으로 다시 정렬됩니다."
-          }
-        },
-        "ru": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Это профиль подписки: порядок также сохраняется отдельно и применяется заново после каждого обновления подписки."
-          }
-        },
-        "zh-Hant": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "這是訂閱配置：順序也會單獨儲存，每次更新訂閱後自動重新排列。"
-          }
-        }
-      }
-    },
     "不再保持此顺序": {
       "localizations": {
         "en": {
@@ -73110,40 +73042,6 @@
           "stringUnit": {
             "state": "translated",
             "value": "不再保持此順序"
-          }
-        }
-      }
-    },
-    "下次更新订阅时恢复订阅自带的顺序。": {
-      "localizations": {
-        "en": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "The next subscription update restores the subscription's own order."
-          }
-        },
-        "ja": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "次回のサブスクリプション更新で、サブスクリプション本来の順序に戻ります。"
-          }
-        },
-        "ko": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "다음 구독 업데이트 때 구독 원래의 순서로 돌아갑니다."
-          }
-        },
-        "ru": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "При следующем обновлении подписки вернётся её исходный порядок."
-          }
-        },
-        "zh-Hant": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "下次更新訂閱時恢復訂閱自帶的順序。"
           }
         }
       }
@@ -73348,6 +73246,312 @@
           "stringUnit": {
             "state": "translated",
             "value": "編輯排序"
+          }
+        }
+      }
+    },
+    "%@ (自定义)": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%@ (Custom)"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%@（カスタム）"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%@ (사용자 지정)"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%@ (своя)"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%@ (自訂)"
+          }
+        }
+      }
+    },
+    "拖动或置顶来调整顺序。": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Drag groups or move them to the top to change the order."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ドラッグまたは「先頭へ移動」で順序を変更します。"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "드래그하거나 맨 위로 이동해 순서를 바꿉니다."
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Перетащите группы или переместите их в начало, чтобы изменить порядок."
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "拖動或置頂來調整順序。"
+          }
+        }
+      }
+    },
+    "原配置不会被修改：首次保存时会自动复制出「%@」，新顺序写入副本并切换到它。": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "The original profile is never changed: the first save automatically creates “%@”, writes the new order into that copy and switches to it."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "元の構成は変更されません：最初の保存時に「%@」が自動で複製され、新しい順序はその複製に書き込まれ、複製に切り替わります。"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "원래 구성은 바뀌지 않습니다: 처음 저장할 때 '%@'이(가) 자동으로 복제되고, 새 순서는 복제본에 기록되며 복제본으로 전환됩니다."
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Исходный профиль не меняется: при первом сохранении автоматически создаётся «%@», новый порядок записывается в эту копию, и она становится текущей."
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "原配置不會被修改：首次儲存時會自動複製出「%@」，新順序寫入副本並切換到它。"
+          }
+        }
+      }
+    },
+    "这是「%@」的副本，新顺序只写入这个副本（注释和其他内容不变，上一版备份为 .bak）。": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "This is a copy of “%@”. The new order is written only into this copy (comments and everything else stay as they are; the previous version is kept as .bak)."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "これは「%@」の複製です。新しい順序はこの複製にのみ書き込まれます（コメントやその他の内容は変わらず、前のバージョンは .bak として保存されます）。"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "'%@'의 복제본입니다. 새 순서는 이 복제본에만 기록됩니다(주석과 다른 내용은 그대로이며 이전 버전은 .bak으로 보관됩니다)."
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Это копия «%@». Новый порядок записывается только в эту копию (комментарии и остальное не меняются, предыдущая версия сохраняется как .bak)."
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "這是「%@」的副本，新順序只寫入這個副本（註釋和其他內容不變，上一版備份為 .bak）。"
+          }
+        }
+      }
+    },
+    "订阅更新时，副本会用订阅的新内容重新生成，并保持此顺序；新增的策略组保留订阅中的位置。": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "When the subscription updates, this copy is rebuilt from the new subscription content and keeps this order; new groups keep their place from the subscription."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "サブスクリプションが更新されると、この複製は新しい内容から再生成され、この順序が維持されます。新しいグループはサブスクリプション内の位置のままです。"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "구독이 업데이트되면 이 복제본은 구독의 새 내용으로 다시 만들어지고 이 순서가 유지됩니다. 새 그룹은 구독에서의 위치를 유지합니다."
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "При обновлении подписки копия создаётся заново из нового содержимого и сохраняет этот порядок; новые группы остаются на своих местах из подписки."
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "訂閱更新時，副本會用訂閱的新內容重新生成，並保持此順序；新增的策略組保留訂閱中的位置。"
+          }
+        }
+      }
+    },
+    "副本立即恢复为订阅自带的顺序，之后的订阅更新也不再重新排列。": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "The copy returns to the subscription's own order now, and later updates no longer reorder it."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "複製はすぐにサブスクリプション本来の順序に戻り、以後の更新でも並べ替えられません。"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "복제본이 즉시 구독 원래의 순서로 돌아가며, 이후 업데이트에서도 다시 정렬되지 않습니다."
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Копия сразу вернётся к исходному порядку подписки, и последующие обновления больше не будут его менять."
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "副本立即恢復為訂閱自帶的順序，之後的訂閱更新也不再重新排列。"
+          }
+        }
+      }
+    },
+    "当前为副本，复制自「%@」": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "This is a copy of “%@”"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "「%@」の複製を使用中"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "'%@'의 복제본 사용 중"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Используется копия «%@»"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "當前為副本，複製自「%@」"
+          }
+        }
+      }
+    },
+    "复制自「%@」· 随订阅更新": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Copy of “%@” · updates with the subscription"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "「%@」の複製 · サブスクリプションと一緒に更新"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "'%@'의 복제본 · 구독과 함께 업데이트"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Копия «%@» · обновляется вместе с подпиской"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "複製自「%@」· 隨訂閱更新"
+          }
+        }
+      }
+    },
+    "复制自「%@」": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Copy of “%@”"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "「%@」の複製"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "'%@'의 복제본"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Копия «%@»"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "複製自「%@」"
           }
         }
       }
