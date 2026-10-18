@@ -187,6 +187,7 @@ struct PolicyView: View {
     @State private var movable: Set<String> = []
     @State private var dragOrder: [String]?
     @State private var dragging: String?
+    @State private var dragSaving = false
     @State private var orderError: String?
 
     /// The groups in the order the page shows them (display names), for 排列策略组 / 置顶.
@@ -208,6 +209,7 @@ struct PolicyView: View {
                     orderError = String(localized: "该策略组不在配置文件中（运行时加入），位置无法调整")
                     return
                 }
+                resetDrag()
                 let r = await GroupOrder.moveToTop(name, current: names, profile: p)
                 if r.saved, vpn.isConnected { var n = names; n.remove(at: i); n.insert(name, at: 0); model.applyOrder(n); await model.load() }
                 if let m = r.message { orderError = m }
@@ -217,7 +219,15 @@ struct PolicyView: View {
 
     private func refreshMovable() { movable = GroupOrderRow.movableNames(store.active) }
 
+    /// Drops any drag override (a drag that never reached a drop, or a provider call outside a real drag).
+    private func resetDrag() {
+        guard !dragSaving else { return }
+        dragging = nil
+        dragOrder = nil
+    }
+
     private func enterReorder() {
+        resetDrag()
         refreshMovable()
         let gs = orderGroups
         reorderRows = gs.map { GroupOrderRow(name: $0.name, kind: $0.kind, icon: $0.icon, movable: movable.contains($0.name)) }
@@ -261,14 +271,15 @@ struct PolicyView: View {
         guard dragging != nil else { return }
         dragging = nil
         guard let o = dragOrder, o != orderGroups.map({ $0.name }), let p = store.active else { dragOrder = nil; return }
+        dragSaving = true
         Task {
+            defer { dragSaving = false; dragging = nil; dragOrder = nil }
             let r = await GroupOrder.save(o, profile: p)
             if r.saved {
                 UINotificationFeedbackGenerator().notificationOccurred(.success)
                 if vpn.isConnected { model.applyOrder(o); await model.load() }
             }
             if let m = r.message { orderError = m }
-            dragOrder = nil
         }
     }
 
@@ -407,8 +418,11 @@ struct PolicyView: View {
         .modifier(InteractionRunner(request: $interaction))
         .onChange(of: sortMode) { _ in snapshotDelays() }
         .sheet(item: $iconTarget) { t in GroupIconPicker(group: t.name, profileIcon: t.profileIcon) }
+        // The order changed underneath (another save, a reload, a subscription update): no drag override survives it.
+        .onChange(of: orderGroups.map { $0.name }) { _ in resetDrag() }
         .onChange(of: store.activeID) { _ in
             reorderMode = false
+            resetDrag()
             refreshMovable()
             Task { if !vpn.isConnected { await offline.load() } }
         }
