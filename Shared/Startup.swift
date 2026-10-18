@@ -60,6 +60,22 @@ enum ProcessMemory {
         return kr == KERN_SUCCESS ? info.phys_footprint : 0
     }
 
+    /// v0.18: the kernel's lifetime peak of phys_footprint for this process (task_vm_info rev 3+),
+    /// 0 when the running OS does not report it.
+    static func peakBytes() -> UInt64 {
+        var info = task_vm_info_data_t()
+        let full = mach_msg_type_number_t(MemoryLayout<task_vm_info_data_t>.size / MemoryLayout<integer_t>.size)
+        var count = full
+        let kr = withUnsafeMutablePointer(to: &info) {
+            $0.withMemoryRebound(to: integer_t.self, capacity: Int(count)) {
+                task_info(mach_task_self_, task_flavor_t(TASK_VM_INFO), $0, &count)
+            }
+        }
+        guard kr == KERN_SUCCESS, let off = MemoryLayout<task_vm_info_data_t>.offset(of: \.ledger_phys_footprint_peak),
+              Int(count) * MemoryLayout<integer_t>.size >= off + 8 else { return 0 }
+        return UInt64(max(0, info.ledger_phys_footprint_peak))
+    }
+
     static func availableBytes() -> Int {
         if #available(iOS 13.0, *) { return Int(os_proc_available_memory()) }
         return -1
@@ -115,4 +131,14 @@ enum GeoBootstrap {
         }
         return copied
     }
+}
+
+/// v0.18 隧道内存: the extension's last memory snapshot (MemorySnapshot JSON from Go, with footprint / peak /
+/// available measured in Swift), written to the App Group on every MemoryGuard tick and on each
+/// memoryStats request, so 更多 → 诊断 still shows the last values (and the peak) after the tunnel stopped
+/// or was killed.
+enum TunnelMemoryFile {
+    static var url: URL { AppShared.containerURL.appendingPathComponent("tunnel-memory.json") }
+    static func write(_ json: String) { try? Data(json.utf8).write(to: url, options: .atomic) }
+    static func read() -> Data? { try? Data(contentsOf: url) }
 }

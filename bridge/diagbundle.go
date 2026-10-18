@@ -96,6 +96,9 @@ func startDiagCapture(home string) {
 		sub := log.Subscribe()
 		go func() {
 			for ev := range sub {
+				if strings.HasPrefix(ev.Payload, "[Tailscale]") {
+					tsObserveLog(ev.Payload)
+				}
 				if ev.LogLevel < log.LogLevel(diagLevel.Load()) {
 					continue
 				}

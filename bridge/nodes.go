@@ -973,7 +973,7 @@ func ManualUpsert(path, nodeJSON, oldName string) string {
 	if err := json.Unmarshal([]byte(nodeJSON), &node); err != nil {
 		return err.Error()
 	}
-	if strOf(node["name"]) == "" || strOf(node["type"]) == "" || strOf(node["server"]) == "" {
+	if strOf(node["name"]) == "" || strOf(node["type"]) == "" || (strOf(node["server"]) == "" && !serverlessType(strOf(node["type"]))) {
 		return "名称、类型、服务器不能为空"
 	}
 	// JSON numbers → int for YAML neatness

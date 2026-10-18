@@ -116,6 +116,27 @@ struct NodeSummaryInfo: Decodable {
     var credentials: [String]?
     var shareable: Bool?
     var error: String?
+    var tailscale: TailscaleNodeSummary?
+}
+
+/// v0.18: the Tailscale fields of a node summary (the auth key is only listed under credentials).
+struct TailscaleNodeSummary: Decodable {
+    var hostname: String?
+    var controlURL: String?
+    var stateDir: String?
+    var exitNode: String?
+    var ephemeral: Bool?
+    var acceptRoutes: Bool?
+    var exitNodeAllowLAN: Bool?
+
+    enum CodingKeys: String, CodingKey {
+        case hostname, ephemeral
+        case controlURL = "control-url"
+        case stateDir = "state-dir"
+        case exitNode = "exit-node"
+        case acceptRoutes = "accept-routes"
+        case exitNodeAllowLAN = "exit-node-allow-lan-access"
+    }
 }
 
 @MainActor

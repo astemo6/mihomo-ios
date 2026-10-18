@@ -12,6 +12,7 @@ struct ProfilesView: View {
     @State private var showManual = false
     @State private var subRulesFor: Profile?
     @State private var showSubs = false
+    @State private var showSample = false
 
     var body: some View {
         NavigationStack {
@@ -19,7 +20,11 @@ struct ProfilesView: View {
                 if store.profiles.isEmpty {
                     Section {
                         EmptyStateRow(icon: "doc.badge.plus", title: "还没有配置",
-                                      message: "点右上角 + 添加订阅链接，或从文件 / 剪贴板导入 mihomo（Clash Meta）YAML 配置。也支持 ss/vmess/vless/trojan/hysteria2/tuic 分享链接列表。")
+                                      message: "点右上角 + 添加订阅链接，或从文件 / 剪贴板导入 mihomo（Clash Meta）YAML 配置。也支持 ss/vmess/vless/trojan/hysteria2/tuic 分享链接列表。") {
+                            Button { showSample = true } label: { Label("看看示例配置", systemImage: "text.book.closed") }
+                                .font(.footnote.weight(.semibold)).buttonStyle(.borderless)
+                                .accessibilityIdentifier("profiles.empty.sample")
+                        }
                     }
                     .listRowBackground(Theme.card)
                 }
@@ -27,6 +32,10 @@ struct ProfilesView: View {
                     NavigationLink { ManualNodesView() } label: {
                         Label("手动节点（粘贴链接 / 扫码 / 手动填写）", systemImage: "plus.viewfinder")
                     }
+                    NavigationLink { SampleProfileView() } label: {
+                        Label("示例配置", systemImage: "text.book.closed")
+                    }
+                    .accessibilityIdentifier("profiles.sample")
                 }
                 .listRowBackground(Theme.card)
                 Section {
@@ -81,11 +90,13 @@ struct ProfilesView: View {
                         Button { ImportRouter.shared.pickFile() } label: { Label("从文件导入（YAML / Surge·QX .conf）", systemImage: "folder") }
                         Button { importConfFromClipboard() } label: { Label("粘贴 Surge / QX 配置（.conf）", systemImage: "arrow.triangle.2.circlepath.doc.on.clipboard") }
                         Button { showNewLocal = true } label: { Label("新建本地配置", systemImage: "square.and.pencil") }
+                        Button { showSample = true } label: { Label("示例配置", systemImage: "text.book.closed") }
                         Button { showManual = true } label: { Label("添加单个节点", systemImage: "plus.viewfinder") }
                     } label: { Image(systemName: "plus.circle.fill").font(.title3) }
                 }
             }
             .navigationDestination(isPresented: $showManual) { ManualNodesView() }
+            .navigationDestination(isPresented: $showSample) { SampleProfileView() }
             .navigationDestination(isPresented: $showSubs) { SubscriptionsView() }
             .overlay { if busy { ProgressView().padding(20).background(RoundedRectangle(cornerRadius: 12).fill(Theme.cardHi)) } }
             .sheet(isPresented: $showAddRemote) { AddRemoteSheet { msg in message = msg } }

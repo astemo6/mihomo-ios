@@ -68,6 +68,11 @@ jobs:
           echo "### go test" >> "$GITHUB_STEP_SUMMARY"
           echo "- first run failed: ${FAILED//|/, }; retry exit $RC2" >> "$GITHUB_STEP_SUMMARY"
           exit "$RC2"
+      # 1b) v0.18: tests that need the real Tailscale outbound (tsnet + gVisor), built with the app's tag.
+      - name: go test (with_gvisor)
+        if: always()
+        working-directory: bridge
+        run: go test -tags with_gvisor -count=1 -timeout 10m -run 'TestV018' . 2>&1 | tee ../go-test-gvisor.log
       # 2) The race detector; reports are classified (scripts/race_check.py): races in this repository's
       #    code fail, races inside mihomo's config re-apply are listed as upstream.
       - name: go test -race
@@ -92,6 +97,7 @@ jobs:
             go-test.log
             go-test-retry.log
             go-test-race.log
+            go-test-gvisor.log
           if-no-files-found: warn
           retention-days: 14
 

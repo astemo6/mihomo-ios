@@ -229,6 +229,7 @@ func buildRuntimeWith(profile []byte, o Overrides, fd int32, inject func(raw map
 	if o.home != "" {
 		expandOwnPolicyProviders(raw, o.home) // v0.12 QX lists without force-policy
 	}
+	normalizeTailscale(raw, o.home) // v0.18: state dir inside the App Group home, hostname
 	if o.SafeMode {
 		applyChains(raw, nil)
 	} else {
@@ -468,7 +469,7 @@ func apply(home, configPath string, fd int32) error {
 	if missing := missingGeo(home, rt); len(missing) > 0 {
 		stage("geo data missing for this profile: %s (the core will try to download it)", strings.Join(missing, ", "))
 	}
-	if err := hub.Parse(rt); err != nil {
+	if err := hub.Parse(rt, guardTailscale); err != nil {
 		return friendlyError(err)
 	}
 	// The diag capture goroutine used to call log.Level() while ApplyConfig wrote it (data race found by

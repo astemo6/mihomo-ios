@@ -170,6 +170,9 @@ final class MihomoUITests: MihomoUITestCase {
         if tapIfExists(hy2, timeout: 3) {
             usleep(700_000)
             XCTAssertTrue(app.element(label: "🇸🇬 Singapore Hy2").exists, "hy2 node after filter")
+            // The list re-renders after the menu closes; give it a moment (en-dark flake, v0.18).
+            let hidden = NSPredicate(format: "exists == false")
+            _ = XCTWaiter().wait(for: [XCTNSPredicateExpectation(predicate: hidden, object: app.element(label: "🇯🇵 Tokyo 01"))], timeout: 4)
             XCTAssertFalse(app.element(label: "🇯🇵 Tokyo 01").exists, "ss node hidden by filter")
             snap("nodes-filter-hy2")
         } else { issues.append("[\(Env.tag)] protocol Hy2 not in the filter menu") }
@@ -782,6 +785,15 @@ final class MihomoUITests: MihomoUITestCase {
 
     // MARK: 16. v0.16 策略 mode control drives the same mode as Home
 
+    func waitSelected(_ e: XCUIElement, _ timeout: TimeInterval) -> Bool {
+        let end = Date().addingTimeInterval(timeout)
+        repeat {
+            if e.exists && e.isSelected { return true }
+            usleep(250_000)
+        } while Date() < end
+        return false
+    }
+
     func test16_PolicyModeControl() {
         launch()
         tab(1)
@@ -802,9 +814,13 @@ final class MihomoUITests: MihomoUITestCase {
         rule.tap()
         usleep(600_000)
         XCTAssertTrue(rule.isSelected, "back to 规则")
-        // Survives a relaunch (saved in the overrides).
+        // Survives a relaunch (saved in the overrides). The tap right after 规则 was sometimes dropped on the
+        // slower en-light simulator (v0.18 self-test), so wait for the selection (one re-tap) and give the
+        // save a moment before terminating.
         global.tap()
-        usleep(600_000)
+        if !waitSelected(global, 3) { global.tap() }
+        XCTAssertTrue(waitSelected(global, 3), "全局 selected before relaunch")
+        usleep(1_500_000)
         app.terminate()
         let a = XCUIApplication()
         a.launchArguments = ["-AppleLanguages", "(\(Env.lang))", "-appearance", Env.style]
@@ -813,7 +829,7 @@ final class MihomoUITests: MihomoUITestCase {
         tab(1)
         let seg2 = app.segmentedControls.matching(identifier: "policy.mode").firstMatch
         XCTAssertTrue(seg2.waitForExistence(timeout: 10))
-        XCTAssertTrue(seg2.buttons[L("全局")].isSelected, "mode persisted")
+        XCTAssertTrue(waitSelected(seg2.buttons[L("全局")], 5), "mode persisted")
         seg2.buttons[L("规则")].tap()
     }
 
@@ -1044,5 +1060,118 @@ final class MihomoUITests: MihomoUITestCase {
         reset.tap()
         XCTAssertTrue(app.staticTexts.matching(NSPredicate(format: "label == %@", "Demo Script Panel")).firstMatch.waitForExistence(timeout: 6), "module title back")
         XCTAssertTrue(app.element(id: "panel.interval").label.contains(L("每小时")), "module interval back")
+    }
+
+    // MARK: 22. v0.18 experimental Tailscale node: editor form, saved node detail
+
+    func test22_TailscaleNode() {
+        launch()
+        tab(4)
+        let row = app.element(id: "more.节点管理")
+        XCTAssertTrue(scrollTo(row))
+        row.tap()
+        XCTAssertTrue(tapIfExists(app.button(L("添加节点")), timeout: 8), "+")
+        let ts = app.buttons["Tailscale"]
+        XCTAssertTrue(scrollTo(ts), "Tailscale in 新协议")
+        ts.tap()
+        XCTAssertTrue(app.navigationBars[L("添加节点")].waitForExistence(timeout: 6), "editor")
+        XCTAssertTrue(app.element(id: "node.experimentalWarning").waitForExistence(timeout: 4), "实验性 warning")
+        XCTAssertTrue(app.element(id: "node.experimentalWarning").label.contains("50 MB"), "warning mentions the 50 MB limit")
+        XCTAssertFalse(app.textFields[L("服务器")].exists, "no server field for Tailscale")
+        XCTAssertFalse(app.textFields[L("端口")].exists, "no port field for Tailscale")
+        XCTAssertTrue(app.staticTexts[L("设备名")].exists || app.textFields["mihomo-ios"].exists, "hostname field")
+        fill(L("名称"), "UITest Tailscale")
+        let sec = app.secureTextFields.firstMatch
+        XCTAssertTrue(sec.waitForExistence(timeout: 3), "auth key field")
+        sec.tap()
+        sec.typeText("tskey-auth-uitest-xxxx")
+        snap("tailscale-editor")
+        app.swipeUp()
+        XCTAssertTrue(scrollTo(app.element(label: L("接受子网路由"))), "accept-routes toggle")
+        snap("tailscale-editor-bottom")
+        let save = app.navigationBars.buttons[L("保存")]
+        XCTAssertTrue(save.waitHittable(), "保存 enabled without server / port")
+        save.tap()
+        let gone = NSPredicate(format: "exists == false")
+        let closed = XCTWaiter().wait(for: [XCTNSPredicateExpectation(predicate: gone, object: app.navigationBars.buttons[L("保存")])], timeout: 8) == .completed
+        if !closed {
+            snap("tailscale-editor-error")
+            XCTFail("Tailscale node did not save")
+            closeSheet()
+            return
+        }
+        usleep(600_000)
+        back()
+        XCTAssertTrue(tapIfExists(app.element(label: L("本地节点"))))
+        let node = app.element(label: "UITest Tailscale")
+        XCTAssertTrue(scrollTo(node), "saved Tailscale node listed")
+        node.tap()
+        let mem = app.element(id: "node.tailscale.memory")
+        XCTAssertTrue(scrollTo(mem), "Tailscale section with memory link")
+        XCTAssertTrue(app.element(id: "node.experimentalWarning").exists, "warning on detail")
+        XCTAssertFalse(app.staticTexts.matching(NSPredicate(format: "label CONTAINS %@", "tskey-auth-uitest")).firstMatch.exists, "auth key not shown")
+        snap("tailscale-detail")
+        mem.tap()
+        XCTAssertTrue(app.navigationBars[L("诊断")].waitForExistence(timeout: 6), "opens 诊断")
+        // Section headers are upper-cased in English; check the section's content instead (no tunnel in the simulator).
+        let memRow = app.element(labelContains: L("暂无内存数据"))
+        XCTAssertTrue(memRow.waitForExistence(timeout: 4) || app.element(id: "diag.memory.current").exists, "隧道内存 section")
+        snap("tailscale-diagnostics")
+    }
+
+    // MARK: 23. v0.18 隧道内存 readout in 更多 → 诊断
+
+    func test23_DiagnosticsMemory() {
+        launch(["-UITestDemoMemory"])
+        openMore("诊断")
+        let cur = app.element(id: "diag.memory.current")
+        XCTAssertTrue(cur.waitForExistence(timeout: 8), "当前占用 row")
+        XCTAssertTrue(cur.label.contains("23.4 MB"), "current footprint: \(cur.label)")
+        XCTAssertTrue(app.element(id: "diag.memory.peak").label.contains("33.0 MB"), "peak: \(app.element(id: "diag.memory.peak").label)")
+        XCTAssertTrue(app.element(id: "diag.memory.available").label.contains("26.6 MB"), "available")
+        XCTAssertTrue(app.element(id: "diag.memory.limit").label.contains("50.0 MB"), "limit = footprint + available: \(app.element(id: "diag.memory.limit").label)")
+        XCTAssertTrue(app.element(label: L("实时")).exists, "live badge")
+        let ts = app.element(id: "diag.memory.tailscale")
+        XCTAssertTrue(ts.exists, "Tailscale row")
+        XCTAssertTrue(ts.label.contains(L("已启动")), "Tailscale state: \(ts.label)")
+        XCTAssertTrue(app.element(id: "diag.memory.tsBefore").label.contains("20.5 MB"), "before start")
+        XCTAssertTrue(app.element(id: "diag.memory.tsAfter").label.contains("30.0 MB"), "after start")
+        snap("diagnostics-memory")
+        // Refreshed while open: still there after a few polls, page alive.
+        sleep(3)
+        XCTAssertTrue(app.element(id: "diag.memory.current").exists, "still shown after refreshes")
+        assertAlive("memory refresh")
+    }
+
+    // MARK: 24. v0.18 示例配置
+
+    func test24_SampleProfile() {
+        launch()
+        tab(3)
+        let entry = app.element(id: "profiles.sample")
+        XCTAssertTrue(scrollTo(entry), "示例配置 entry in 配置")
+        entry.tap()
+        XCTAssertTrue(app.navigationBars[L("示例配置")].waitForExistence(timeout: 6), "sample page")
+        let editor = app.textViews.firstMatch
+        XCTAssertTrue(editor.waitForExistence(timeout: 4), "highlighted text")
+        let text = (editor.value as? String) ?? ""
+        for k in ["proxy-groups:", "rule-providers:", "type: tailscale", "[rewrite_local]", "MATCH,"] {
+            XCTAssertTrue(text.contains(k), "sample contains \(k)")
+        }
+        // The profile text itself is Chinese by design (comments); only the UI around it is localized.
+        allowHan = true
+        snap("sample-profile")
+        app.element(id: "sample.copy").tap()
+        XCTAssertTrue(app.button(L("已复制")).waitForExistence(timeout: 3), "copied")
+        app.element(id: "sample.create").tap()
+        let msg = app.element(id: "sample.message")
+        XCTAssertTrue(msg.waitForExistence(timeout: 15), "create result")
+        XCTAssertTrue(msg.label.contains(L("示例配置")), "created: \(msg.label)")
+        snap("sample-profile-created")
+        allowHan = false
+        back()
+        let rows = app.descendants(matching: .any).matching(NSPredicate(format: "label CONTAINS %@", L("示例配置")))
+        XCTAssertTrue(rows.count >= 2, "new profile listed next to the entry")
+        snap("sample-profile-list")
     }
 }

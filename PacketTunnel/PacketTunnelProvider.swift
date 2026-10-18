@@ -21,6 +21,7 @@ final class ScriptNotifier: NSObject, LibmihomoNotifierProtocol {
 
 final class PacketTunnelProvider: NEPacketTunnelProvider {
     private let notifier = ScriptNotifier()
+    private let memoryProbe = ExtensionMemoryProbe()
     private var bridge: PacketFlowBridge?
     private var memoryGuard: MemoryGuard?
     private var traffic: TrafficRecorder?
@@ -66,6 +67,7 @@ final class PacketTunnelProvider: NEPacketTunnelProvider {
         StartupLog.write("ipv6 mode \(overrides.ipv6Mode) → \(overrides.ipv6 ? "on" : "off"), ip preference \(overrides.ipPreference)")
         LibmihomoSetNotifier(notifier)
         LibmihomoSetMemoryLimit(Int32(overrides.memoryLimitMB))
+        LibmihomoSetMemoryProbe(memoryProbe)
         let proxyOnly = overrides.isProxyOnly
         StartupLog.write("mode \(proxyOnly ? "proxy-only (NEProxySettings)" : overrides.isMixed ? "mix (tun + system proxy)" : "tun (NEPacketTunnelFlow bridge)"), quic \(overrides.blockQUIC), routes +\(overrides.includedRoutes.count)/-\(overrides.excludedRoutes.count), mtu \(overrides.tunMTU), GOMEMLIMIT \(overrides.memoryLimitMB) MB\(overrides.safeMode ? ", SAFE MODE" : "")")
         if let v = Bundle.main.object(forInfoDictionaryKey: "CFBundleShortVersionString") as? String {
@@ -226,6 +228,8 @@ final class PacketTunnelProvider: NEPacketTunnelProvider {
             LibmihomoRecordMemorySample(Int64(ProcessMemory.footprintBytes()), Int64(ProcessMemory.availableBytes()))
             LibmihomoDumpDiagnostics()
             completionHandler?("\(ProcessMemory.summary()), \(LibmihomoMemoryStats())".data(using: .utf8))
+        case .memoryStats:
+            completionHandler?(Data(MemorySnapshotWriter.snapshot().utf8))
         case .applyNetworkPolicy:
             let n = LibmihomoApplyNetworkPolicy()
             completionHandler?("\(n)".data(using: .utf8))
@@ -246,6 +250,30 @@ final class PacketTunnelProvider: NEPacketTunnelProvider {
     static func error(_ msg: String) -> NSError {
         NSError(domain: "Mihomo.PacketTunnel", code: 1, userInfo: [NSLocalizedDescriptionKey: msg])
     }
+}
+
+/// v0.18: footprint / headroom for the Go side (Tailscale start guard).
+final class ExtensionMemoryProbe: NSObject, LibmihomoMemoryProbeProtocol {
+    func footprint() -> Int64 { Int64(ProcessMemory.footprintBytes()) }
+    func available() -> Int64 { Int64(ProcessMemory.availableBytes()) }
+}
+
+/// v0.18 隧道内存: one snapshot = Swift-measured footprint / peak / available + Go numbers + Tailscale status.
+enum MemorySnapshotWriter {
+    private static var trackedPeak: UInt64 = 0
+    private static let lock = NSLock()
+
+    static func snapshot(fp: UInt64 = ProcessMemory.footprintBytes(), avail: Int = ProcessMemory.availableBytes()) -> String {
+        lock.lock()
+        trackedPeak = max(trackedPeak, fp)
+        let peak = max(trackedPeak, ProcessMemory.peakBytes())
+        lock.unlock()
+        let json = LibmihomoMemorySnapshot(Int64(fp), Int64(peak), Int64(avail))
+        TunnelMemoryFile.write(json)
+        return json
+    }
+
+    static func save(fp: UInt64, avail: Int) { _ = snapshot(fp: fp, avail: avail) }
 }
 
 /// Keeps the extension under the ~50 MB jetsam limit. v0.6.1, after the first device test: iOS sends
@@ -312,6 +340,7 @@ final class MemoryGuard {
         let fp = ProcessMemory.footprintBytes()
         let avail = ProcessMemory.availableBytes()
         LibmihomoRecordMemorySample(Int64(fp), Int64(avail))
+        MemorySnapshotWriter.save(fp: fp, avail: avail)
         evaluate(fp: fp, avail: avail, freeAt: freeAtBytes, why: "timer")
         // Sample faster while close to the limit, slowly otherwise (battery).
         let want = fp >= freeAtBytes ? 2 : 10

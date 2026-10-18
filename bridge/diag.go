@@ -147,6 +147,11 @@ func TestDelay(proxyJSON, url string, timeoutMs int) int {
 	if timeoutMs <= 0 {
 		timeoutMs = 5000
 	}
+	if serverlessType(str(m["type"])) {
+		// v0.18: tsnet must only run in the extension (one state dir, 50 MB budget is measured there).
+		setLastError("Tailscale 节点只能在连接后测速")
+		return -1
+	}
 	adapter.UnifiedDelay.Store(true) // app process: never runs a tunnel config; the extension sets it anyway
 	iface := offlineIface()
 	if iface != "" && str(m["interface-name"]) == "" && str(m["dialer-proxy"]) == "" {
