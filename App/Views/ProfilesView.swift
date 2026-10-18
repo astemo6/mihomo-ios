@@ -13,6 +13,8 @@ struct ProfilesView: View {
     @State private var subRulesFor: Profile?
     @State private var showSubs = false
     @State private var showSample = false
+    @State private var scriptsFor: Profile?
+    @State private var pendingDelete: Profile?
 
     var body: some View {
         NavigationStack {
@@ -47,19 +49,25 @@ struct ProfilesView: View {
                             .contentShape(Rectangle())
                             .onTapGesture { select(p) }
                             .swipeActions(edge: .trailing) {
-                                Button(role: .destructive) { store.delete(p) } label: { Label("删除", systemImage: "trash") }
+                                Button(role: .destructive) { requestDelete(p) } label: { Label("删除", systemImage: "trash") }
                                 Button { editing = p } label: { Label(LocalizedStringKey(p.kind == .remote ? "查看" : "编辑"), systemImage: p.kind == .remote ? "doc.text" : "pencil") }.tint(.indigo)
                                 if p.id != ProfileStore.manualID {
                                     Button { subRulesFor = p } label: { Label("节点处理", systemImage: "line.3.horizontal.decrease.circle") }.tint(.teal)
                                 }
+                                Button { scriptsFor = p } label: { Label("脚本", systemImage: "curlybraces") }.tint(.purple)
                             }
                             .swipeActions(edge: .leading) {
-                                if p.kind == .remote || store.source(of: p)?.kind == .remote {
+                                if p.copyModified == true, store.source(of: p) != nil {
+                                    Button { regenerate(p) } label: { Label("重新生成", systemImage: "arrow.triangle.2.circlepath") }.tint(.orange)
+                                } else if p.kind == .remote || store.source(of: p)?.kind == .remote {
                                     Button { refresh(p) } label: { Label("更新", systemImage: "arrow.clockwise") }.tint(.blue)
                                 }
                             }
                             .contextMenu {
                                 Button { select(p) } label: { Label("设为当前配置", systemImage: "checkmark.circle") }
+                                if p.copyModified == true, store.source(of: p) != nil {
+                                    Button { regenerate(p) } label: { Label("从订阅重新生成", systemImage: "arrow.triangle.2.circlepath") }
+                                }
                                 if p.kind == .remote {
                                     Button { refresh(p) } label: { Label("更新订阅", systemImage: "arrow.clockwise") }
                                     Button { UIPasteboard.general.string = p.url } label: { Label("复制订阅链接", systemImage: "doc.on.doc") }
@@ -67,13 +75,14 @@ struct ProfilesView: View {
                                 if p.id != ProfileStore.manualID {
                                     Button { subRulesFor = p } label: { Label("节点处理（过滤 / 重命名 / 排序）", systemImage: "line.3.horizontal.decrease.circle") }
                                 }
+                                Button { scriptsFor = p } label: { Label("覆写脚本", systemImage: "curlybraces") } // v0.19
                                 Button { editing = p } label: { Label(LocalizedStringKey(p.kind == .remote ? "查看 YAML" : "编辑 YAML"), systemImage: p.kind == .remote ? "doc.text" : "pencil") }
-                                Button(role: .destructive) { store.delete(p) } label: { Label("删除", systemImage: "trash") }
+                                Button(role: .destructive) { requestDelete(p) } label: { Label("删除", systemImage: "trash") }
                             }
                             .listRowBackground(Theme.card)
                     }
                 } footer: {
-                    if !store.profiles.isEmpty { Text("轻点切换当前配置；左滑编辑、节点处理或删除，右滑更新订阅。") }
+                    if !store.profiles.isEmpty { Text("轻点切换当前配置；左滑编辑、节点处理、覆写脚本或删除，右滑更新订阅。") }
                 }
             }
             .listStyle(.insetGrouped)
@@ -113,13 +122,38 @@ struct ProfilesView: View {
                 }
                 .environmentObject(store)
             }
+            .sheet(item: $scriptsFor) { p in
+                NavigationStack {
+                    OverrideScriptsView(profile: p)
+                        .toolbar { ToolbarItem(placement: .cancellationAction) { Button("完成") { scriptsFor = nil } } }
+                }
+                .environmentObject(store)
+            }
             .sheet(item: $editing) { p in
                 YAMLEditorView(title: p.kind == .remote ? "查看配置" : "编辑配置", initialName: p.name, initialText: store.content(of: p), profile: p)
             }
             .alert("提示", isPresented: Binding(get: { message != nil }, set: { if !$0 { message = nil } })) {
                 Button("好", role: .cancel) {}
             } message: { Text(message ?? "") }
+            .confirmationDialog(Text("删除「\(pendingDelete?.displayName ?? "")」？"),
+                                isPresented: Binding(get: { pendingDelete != nil }, set: { if !$0 { pendingDelete = nil } }),
+                                titleVisibility: .visible) {
+                Button("删除", role: .destructive) { if let p = pendingDelete { store.delete(p) }; pendingDelete = nil }
+                Button("取消", role: .cancel) { pendingDelete = nil }
+            } message: {
+                let names = pendingDelete.map { store.copies(of: $0).map(\.displayName).joined(separator: "、") } ?? ""
+                Text("这些副本是从它复制的：\(names)。删除后它们会保留为本地配置，不再随订阅更新。")
+            }
         }
+    }
+
+    /// A source with 自定义 copies is deleted only after a confirmation that names them.
+    func requestDelete(_ p: Profile) {
+        if store.copies(of: p).isEmpty { store.delete(p) } else { pendingDelete = p }
+    }
+
+    func regenerate(_ p: Profile) {
+        Task { if let e = await store.regenerateCopy(p) { message = e } }
     }
 
     func select(_ p: Profile) {
@@ -190,6 +224,7 @@ struct ProfileRow: View {
     let profile: Profile
     let active: Bool
     let updating: Bool
+    @ObservedObject private var scripts = OverrideScriptStore.shared
     /// feat/group-order: on an 自定义 copy, the name of the profile it was copied from.
     var source: String? = nil
     var sourceIsRemote = false
@@ -216,6 +251,11 @@ struct ProfileRow: View {
                         .font(.caption2).foregroundStyle(.secondary)
                         .accessibilityIdentifier("profiles.source." + profile.id)
                 }
+                if profile.copyModified == true {
+                    Label("副本已手动修改，未随订阅更新", systemImage: "pencil.circle")
+                        .font(.caption2).foregroundStyle(Theme.warn)
+                        .accessibilityIdentifier("profiles.modified." + profile.id)
+                }
                 if let info = profile.userInfo {
                     if info.total > 0 {
                         ProgressView(value: info.fraction)
@@ -238,6 +278,17 @@ struct ProfileRow: View {
                 if let r = SubRulesStore.get(profile.id), r.enabled, !r.isEmpty {
                     Label(r.summary, systemImage: "line.3.horizontal.decrease.circle")
                         .font(.caption2).foregroundStyle(Theme.accent)
+                }
+                // v0.19 覆写脚本
+                let scriptCount = scripts.enabledCount(profile.id)
+                if scriptCount > 0 {
+                    if let r = scripts.lastResult[profile.id], !r.ok {
+                        Label("覆写脚本出错", systemImage: "exclamationmark.triangle.fill")
+                            .font(.caption2).foregroundStyle(Theme.bad)
+                    } else {
+                        Label("覆写脚本 \(scriptCount)", systemImage: "curlybraces")
+                            .font(.caption2).foregroundStyle(Theme.accent)
+                    }
                 }
                 if let d = profile.lastUpdated {
                     Text("更新于 \(d.formatted(.relative(presentation: .named)))")

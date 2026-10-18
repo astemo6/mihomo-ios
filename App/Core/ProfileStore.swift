@@ -47,6 +47,9 @@ struct Profile: Codable, Identifiable, Hashable {
     /// reorder; a subscription source regenerates its copies when it updates.
     var sourceID: String? = nil
     var sourceName: String? = nil
+    /// feat/group-order review: the copy was edited by the user since it was last generated, so subscription
+    /// updates leave it alone until 「从订阅重新生成」.
+    var copyModified: Bool? = nil
 
     var fileURL: URL { AppShared.profileURL(id: id) }
 
@@ -100,6 +103,16 @@ final class ProfileStore: ObservableObject {
         SubRulesStore.set(p.id, nil)
         UsageAlerts.remove(p.id)
         HomeGroupsStore.forget(profile: p.id) // feat/home-groups
+        OverrideScriptStore.shared.forget(profile: p) // v0.19 覆写脚本
+        // Per-profile settings (策略组编辑 / order, 前置代理, 订阅规则, 网络策略) and side files (.bak, .gen,
+        // .selected.json) of the deleted profile.
+        let err = LibmihomoForgetProfile(AppShared.homeURL.path, p.id, p.fileURL.path)
+        if !err.isEmpty { StartupLog.write("forget profile: \(err)", tag: "app") }
+        // 自定义 copies of a deleted source become plain local profiles (they no longer follow a subscription).
+        for i in profiles.indices where profiles[i].sourceID == p.id {
+            profiles[i].sourceID = nil
+            profiles[i].copyModified = nil
+        }
         profiles.removeAll { $0.id == p.id }
         if activeID == p.id {
             activeID = profiles.first?.id
@@ -163,6 +176,7 @@ final class ProfileStore: ObservableObject {
         if let err = await Self.validate(text: text) { throw StoreError.invalid(err) }
         SnapshotStore.shared.capture(String(localized: "编辑配置「\(p.name)」前"))
         try text.write(to: p.fileURL, atomically: true, encoding: .utf8)
+        if OverrideScriptStore.shared.enabledCount(p.id) > 0 { await OverrideScriptStore.shared.apply(p, force: false) } // v0.19
         if p.id == activeID { _ = await VPNManager.shared.reload() }
     }
 
@@ -239,9 +253,15 @@ final class ProfileStore: ObservableObject {
             let np = try await download(p)
             update(np)
             UsageAlerts.evaluate(id: np.id, name: np.name, info: np.userInfo)
-            let copies = await regenerateCopies(of: np)
+            let (copies, notes) = await regenerateCopies(of: np)
+            // v0.19: re-run the override scripts of the profile (and of its 自定义 copies) now, so an on-demand
+            // connect later still finds a current output (the reload below skips them again when nothing else changed).
+            for q in [np] + copies where OverrideScriptStore.shared.enabledCount(q.id) > 0 {
+                await OverrideScriptStore.shared.apply(q, force: false)
+            }
             if np.id == activeID || copies.contains(where: { $0.id == activeID }) { _ = await VPNManager.shared.reload() }
-            return nil
+            // The subscription itself updated; a copy that could not follow it is reported.
+            return notes.isEmpty ? nil : notes.joined(separator: "\n")
         } catch {
             return error.localizedDescription
         }
@@ -286,21 +306,50 @@ final class ProfileStore: ObservableObject {
     }
 
     /// After a subscription update: rebuilds every 自定义 copy of `src` from the fresh content with the copy's saved
-    /// order, and carries the subscription info over. Returns the copies.
+    /// order, and carries the subscription info over. A copy the user edited is left as it is (copyModified).
+    /// Returns the copies and one message per copy that did not follow the update.
     @discardableResult
-    func regenerateCopies(of src: Profile) async -> [Profile] {
+    func regenerateCopies(of src: Profile) async -> ([Profile], [String]) {
         let copies = profiles.filter { $0.sourceID == src.id }
+        var notes: [String] = []
         for c in copies {
-            await GroupOrder.regenerate(c, from: src)
-            var nc = c
-            nc.userInfo = src.userInfo
-            nc.lastUpdated = src.lastUpdated
+            let r = await GroupOrder.regenerate(c, from: src)
+            guard var nc = profiles.first(where: { $0.id == c.id }) else { continue }
+            nc.copyModified = r.modified ? true : nil
+            if r.modified {
+                notes.append(String(localized: "「\(c.displayName)」副本已手动修改，没有随订阅更新。可在配置列表中选择「从订阅重新生成」。"))
+            } else {
+                nc.userInfo = src.userInfo
+                nc.lastUpdated = src.lastUpdated
+                if let e = r.error { notes.append(String(localized: "「\(c.displayName)」无法保持策略组顺序，已恢复为订阅的顺序：\(e)")) }
+            }
             nc.sourceName = src.displayName
             update(nc)
         }
         if !copies.isEmpty { objectWillChange.send() }
-        return copies
+        return (copies, notes)
     }
+
+    /// 「从订阅重新生成」 on an edited copy: replaces its content with the subscription's (saved order applied;
+    /// the edited file is kept as .bak). Returns an error / note or nil.
+    func regenerateCopy(_ c: Profile) async -> String? {
+        guard let src = source(of: c) else { return nil }
+        SnapshotStore.shared.capture(String(localized: "重新生成「\(c.name)」前"))
+        let r = await GroupOrder.regenerate(c, from: src, force: true)
+        if var nc = profiles.first(where: { $0.id == c.id }) {
+            nc.copyModified = nil
+            nc.userInfo = src.userInfo
+            nc.lastUpdated = src.lastUpdated
+            update(nc)
+        }
+        if OverrideScriptStore.shared.enabledCount(c.id) > 0 { await OverrideScriptStore.shared.apply(c, force: false) }
+        if r.changed, c.id == activeID { _ = await VPNManager.shared.reload() }
+        await ProfileInspector.shared.load()
+        return r.error.map { String(localized: "「\(c.displayName)」无法保持策略组顺序，已恢复为订阅的顺序：\($0)") }
+    }
+
+    /// The 自定义 copies made from `p` (shown before deleting it).
+    func copies(of p: Profile) -> [Profile] { profiles.filter { $0.sourceID == p.id } }
 
     // MARK: Manual nodes (Shadowrocket style) — a local profile "手动节点"
 

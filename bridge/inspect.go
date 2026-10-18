@@ -304,7 +304,7 @@ func InspectProfile(homeDir, path string) string {
 		}
 	}()
 	C.SetHomeDir(homeDir)
-	profile, err := os.ReadFile(path)
+	profile, err := readRuntimeProfile(homeDir, path, false) // v0.19: override-script output when current
 	if err != nil {
 		res.Error = err.Error()
 		b, _ := json.Marshal(res)

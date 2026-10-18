@@ -37,6 +37,8 @@ struct ConnectionView: View {
         .background(Theme.bg.ignoresSafeArea())
         .navigationTitle("连接方式")
         .onAppear {
+            // Coming back from a sub page (其他用户): save its edits before re-reading the file.
+            debounce.flush()
             o = CoreOverrides.load()
             saved = o
             onDemand = OnDemandSettings.load()
@@ -256,6 +258,10 @@ struct ConnectionView: View {
                 if lanAuthIncomplete {
                     Text("用户名和密码都填写才会启用认证。").font(.caption).foregroundStyle(Theme.warn)
                 }
+                NavigationLink { LanUsersView(users: $o.lanUsers) } label: {
+                    LabeledContent("其他用户") { Text("\(o.lanUsers.filter { !$0.username.isEmpty && !$0.password.isEmpty }.count)").monospacedDigit() }
+                }
+                .accessibilityIdentifier("lan.users")
                 if !vpn.isConnected {
                     Text("连接后生效。").font(.caption).foregroundStyle(.secondary)
                 }
@@ -357,6 +363,7 @@ struct ConnectionView: View {
         cur.allowLan = o.allowLan
         cur.lanLocalOnly = o.lanLocalOnly
         cur.lanAuth = CoreOverrides.LanAuth(username: o.lanAuth.username.trimmingCharacters(in: .whitespaces), password: o.lanAuth.password)
+        cur.lanUsers = o.lanUsers // v0.19 局域网多用户 (was not saved)
         let onDemandChanged = onDemand != savedOnDemand
         guard cur != old || onDemandChanged else { return }
         cur.save()
@@ -371,7 +378,7 @@ struct ConnectionView: View {
         let scopeChanged = old.includeAllNetworks != cur.includeAllNetworks || old.excludeLocalNetworks != cur.excludeLocalNetworks
             || old.excludeAPNs != cur.excludeAPNs || old.excludeCellularServices != cur.excludeCellularServices
             || old.excludeDeviceCommunication != cur.excludeDeviceCommunication
-        let reload = old.blockQUIC != cur.blockQUIC || old.ipPreference != cur.ipPreference || old.lanLocalOnly != cur.lanLocalOnly || old.lanAuth != cur.lanAuth
+        let reload = old.blockQUIC != cur.blockQUIC || old.ipPreference != cur.ipPreference || old.lanLocalOnly != cur.lanLocalOnly || old.lanAuth != cur.lanAuth || old.lanUsers != cur.lanUsers
         let settings = onDemand
         Task {
             if scopeChanged, let e = await vpn.applyTunnelScope() {
@@ -485,5 +492,56 @@ enum LANInfo {
             }
         }
         return out
+    }
+}
+
+/// v0.19 局域网多用户: extra username / password pairs for 局域网共享 (each device or person its own login).
+struct LanUsersView: View {
+    @Binding var users: [CoreOverrides.LanAuth]
+
+    var body: some View {
+        List {
+            Section {
+                if users.isEmpty {
+                    Text("还没有其他用户。").foregroundStyle(.secondary)
+                }
+                ForEach(users.indices, id: \.self) { i in
+                    VStack(alignment: .leading, spacing: 6) {
+                        TextField("用户名", text: Binding(get: { users.indices.contains(i) ? users[i].username : "" },
+                                                        set: { if users.indices.contains(i) { users[i].username = $0 } }))
+                            .textInputAutocapitalization(.never).autocorrectionDisabled()
+                            .accessibilityIdentifier("lan.user.\(i).name")
+                        SecureField("密码", text: Binding(get: { users.indices.contains(i) ? users[i].password : "" },
+                                                        set: { if users.indices.contains(i) { users[i].password = $0 } }))
+                            .accessibilityIdentifier("lan.user.\(i).password")
+                        if let w = warning(i) { Text(w).font(.caption).foregroundStyle(Theme.warn) }
+                    }
+                    .padding(.vertical, 2)
+                }
+                .onDelete { users.remove(atOffsets: $0) }
+                Button { users.append(CoreOverrides.LanAuth()) } label: { Label("添加用户", systemImage: "person.badge.plus") }
+                    .accessibilityIdentifier("lan.users.add")
+            } footer: {
+                Text("除了「连接方式」里的用户名和密码，这些账号也可以使用局域网共享（HTTP 与 SOCKS5 都需要认证）。用户名不能包含冒号，重复的用户名只保留第一个。这些密码保存在 App 的配置文件中，连接后生效。")
+            }
+            .listRowBackground(Theme.card)
+        }
+        .listStyle(.insetGrouped)
+        .scrollContentBackground(.hidden)
+        .background(Theme.bg.ignoresSafeArea())
+        .navigationTitle("其他用户")
+        .navigationBarTitleDisplayMode(.inline)
+        .toolbar { if !users.isEmpty { EditButton() } }
+    }
+
+    func warning(_ i: Int) -> String? {
+        guard users.indices.contains(i) else { return nil }
+        let u = users[i]
+        let name = u.username.trimmingCharacters(in: .whitespaces)
+        if name.isEmpty && u.password.isEmpty { return nil }
+        if name.contains(":") { return String(localized: "用户名不能包含冒号") }
+        if name.isEmpty || u.password.isEmpty { return String(localized: "用户名和密码都填写才会生效") }
+        if users.prefix(i).contains(where: { $0.username.trimmingCharacters(in: .whitespaces) == name }) { return String(localized: "用户名重复，不会生效") }
+        return nil
     }
 }

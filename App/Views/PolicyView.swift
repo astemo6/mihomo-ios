@@ -44,6 +44,7 @@ final class PolicyModel: ObservableObject {
         guard group.isSelectable else { return }
         do {
             try await ControllerClient.shared.select(group: group.name, node: node)
+            await ControllerClient.shared.afterUserSwitch() // v0.19
             UISelectionFeedbackGenerator().selectionChanged()
             if group.name != "GLOBAL" { ProfileInspector.rememberLiveSelection(group: group.name, node: node) }
             await load()

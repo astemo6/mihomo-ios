@@ -23,7 +23,30 @@ final class NetworkWatcher {
     private var last: String?
     private var pending: DispatchWorkItem?
 
+    /// v0.19 网络变化时清空 DNS 缓存, read once at start and on every reload (refreshSettings) straight from
+    /// overrides.json. Never CoreOverrides.load() here: it touches the Keychain and may write overrides.json
+    /// from the extension.
+    private let flagLock = NSLock()
+    private var _flushDNS = true
+    private var flushDNS: Bool {
+        flagLock.lock(); defer { flagLock.unlock() }
+        return _flushDNS
+    }
+
+    func refreshSettings() {
+        let v = Self.readFlushDNSFlag()
+        flagLock.lock(); _flushDNS = v; flagLock.unlock()
+    }
+
+    /// The flag alone, decoded from overrides.json (default on when absent / unreadable).
+    static func readFlushDNSFlag() -> Bool {
+        guard let d = try? Data(contentsOf: AppShared.overridesURL),
+              let o = try? JSONSerialization.jsonObject(with: d) as? [String: Any] else { return true }
+        return o["flushDNSOnNetworkChange"] as? Bool ?? true
+    }
+
     func start() {
+        refreshSettings()
         monitor.pathUpdateHandler = { [weak self] path in self?.update(path) }
         monitor.start(queue: queue)
     }
@@ -78,6 +101,11 @@ final class NetworkWatcher {
         // Debounce flapping (Wi-Fi handover reports several paths in a row).
         pending?.cancel()
         let work = DispatchWorkItem {
+            // v0.19 网络变化时清空 DNS 缓存 (更多 → 内核设置, on by default).
+            if self.flushDNS {
+                LibmihomoFlushDNSCache()
+                StartupLog.write("network changed (\(type)): DNS cache cleared")
+            }
             let msg = LibmihomoSetNetworkState(type, ssid ?? "")
             if !msg.isEmpty { StartupLog.write(msg) }
             let n = LibmihomoNotifyNetworkChanged(json)

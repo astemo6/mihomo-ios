@@ -109,6 +109,27 @@ final class ProbeStore: ObservableObject {
 
     init() {
         if let d = try? Data(contentsOf: url), let e = try? JSONDecoder().decode([String: Entry].self, from: d) { entries = e }
+        // v0.19 切换节点后自动重新检测: the group last checked on 解锁检测, a few seconds after its node changed.
+        observer = NotificationCenter.default.addObserver(forName: .egressMayHaveChanged, object: nil, queue: .main) { [weak self] _ in
+            Task { @MainActor in self?.scheduleAutoRetest() }
+        }
+    }
+
+    private var observer: NSObjectProtocol?
+    private var autoTask: Task<Void, Never>?
+    static let autoKey = "unlock.autoRetest"
+
+    private func scheduleAutoRetest() {
+        guard UserDefaults.standard.bool(forKey: Self.autoKey), VPNManager.shared.isConnected else { return }
+        let group = UserDefaults.standard.string(forKey: "unlock.group") ?? ""
+        let member = UserDefaults.standard.string(forKey: "unlock.member") ?? ""
+        guard !group.isEmpty, member.isEmpty else { return } // a fixed node did not change
+        autoTask?.cancel()
+        autoTask = Task { [weak self] in
+            try? await Task.sleep(nanoseconds: 3_000_000_000)
+            guard !Task.isCancelled, let self, !self.running.contains(group) else { return }
+            _ = await self.probeUnlock(group)
+        }
     }
 
     func entry(_ policy: String) -> Entry? { entries[policy] }
@@ -165,7 +186,7 @@ final class ProbeStore: ObservableObject {
     }
 
     /// 解锁检测 (+ exit info in the same probe session); returns an error message or nil.
-    func probeUnlock(_ policy: String, services: [UnlockService] = UnlockService.allCases) async -> String? {
+    func probeUnlock(_ policy: String, services: [UnlockService] = UnlockService.selected) async -> String? {
         running.insert(policy)
         defer { running.remove(policy) }
         do {
@@ -187,8 +208,44 @@ final class ProbeStore: ObservableObject {
 
 enum UnlockService: String, CaseIterable, Codable, Identifiable {
     case netflix, disney, youtube, chatgpt, claude, gemini, tiktok, spotify, bilibiliHKMOTW, bilibiliTW
+    // v0.19 (Bettbox list, checks with a readable answer only)
+    case copilot, youtubeMusic, iqiyi, mytvsuper
 
     var id: String { rawValue }
+
+    /// v0.19 解锁检测 categories (display order).
+    enum Category: String, CaseIterable, Identifiable {
+        case ai, streaming, asia
+        var id: String { rawValue }
+        var title: String {
+            switch self {
+            case .ai: return String(localized: "AI 服务")
+            case .streaming: return String(localized: "国际流媒体")
+            case .asia: return String(localized: "港澳台与亚洲")
+            }
+        }
+        var services: [UnlockService] { UnlockService.allCases.filter { $0.category == self } }
+    }
+
+    var category: Category {
+        switch self {
+        case .chatgpt, .claude, .gemini, .copilot: return .ai
+        case .netflix, .disney, .youtube, .youtubeMusic, .spotify, .tiktok: return .streaming
+        case .bilibiliHKMOTW, .bilibiliTW, .iqiyi, .mytvsuper: return .asia
+        }
+    }
+
+    /// The user's choice (更多 → 解锁检测 → 检测项目); default = every service.
+    static var selected: [UnlockService] {
+        guard let raw = UserDefaults.standard.string(forKey: "unlock.services") else { return allCases }
+        let set = Set(raw.split(separator: ",").map(String.init))
+        let l = allCases.filter { set.contains($0.rawValue) }
+        return l.isEmpty ? allCases : l
+    }
+
+    static func setSelected(_ l: [UnlockService]) {
+        UserDefaults.standard.set(l.map(\.rawValue).joined(separator: ","), forKey: "unlock.services")
+    }
 
     var title: String {
         switch self {
@@ -202,6 +259,10 @@ enum UnlockService: String, CaseIterable, Codable, Identifiable {
         case .spotify: return "Spotify"
         case .bilibiliHKMOTW: return String(localized: "哔哩哔哩 港澳台")
         case .bilibiliTW: return String(localized: "哔哩哔哩 台湾")
+        case .copilot: return "Microsoft Copilot"
+        case .youtubeMusic: return "YouTube Music"
+        case .iqiyi: return String(localized: "爱奇艺国际版")
+        case .mytvsuper: return "myTV SUPER"
         }
     }
 
@@ -209,10 +270,10 @@ enum UnlockService: String, CaseIterable, Codable, Identifiable {
         switch self {
         case .netflix, .disney: return "film.fill"
         case .youtube: return "play.rectangle.fill"
-        case .chatgpt, .claude, .gemini: return "sparkles"
+        case .chatgpt, .claude, .gemini, .copilot: return "sparkles"
         case .tiktok: return "music.note"
-        case .spotify: return "headphones"
-        case .bilibiliHKMOTW, .bilibiliTW: return "tv.fill"
+        case .spotify, .youtubeMusic: return "headphones"
+        case .bilibiliHKMOTW, .bilibiliTW, .iqiyi, .mytvsuper: return "tv.fill"
         }
     }
 }
@@ -328,6 +389,10 @@ enum UnlockChecker {
                 return try await bilibili(s, session, "avid=18281381&cid=29892777&qn=0&type=&otype=json&ep_id=183799&fourk=1&fnver=0&fnval=16&module=bangumi")
             case .bilibiliTW:
                 return try await bilibili(s, session, "avid=50762638&cid=100279344&qn=0&type=&otype=json&ep_id=268176&fourk=1&fnver=0&fnval=16&module=bangumi")
+            case .copilot: return try await copilot(session)
+            case .youtubeMusic: return try await youtubeMusic(session)
+            case .iqiyi: return try await iqiyi(session)
+            case .mytvsuper: return try await mytvsuper(session)
             }
         } catch {
             return failed(s, error)
@@ -435,6 +500,57 @@ enum UnlockChecker {
         guard (200..<400).contains(p.status) else { return UnlockResult(service: .spotify, status: .failed, note: "HTTP \(p.status)") }
         let region = firstMatch("spotify\\.com/([a-z]{2})(?:-[a-z]{2})?/premium", in: final)?.uppercased()
         return UnlockResult(service: .spotify, status: .yes, region: region ?? "US")
+    }
+
+    // v0.19 Copilot: copilot.microsoft.com sends unsupported markets to cn.bing.com / an error page; the
+    // market is Bing's Region field. Regions Microsoft does not serve Copilot in count as not available.
+    static let copilotUnsupported: Set<String> = ["CN", "HK", "MO", "RU", "BY", "IR", "KP", "SY", "CU"]
+    static func copilot(_ session: URLSession) async throws -> UnlockResult {
+        async let bing = get("https://www.bing.com/search?q=curl", session: session, maxBytes: 600_000)
+        let p = try await get("https://copilot.microsoft.com/", session: session, maxBytes: 200_000)
+        let b = try? await bing
+        let final = (p.url?.absoluteString ?? "").lowercased()
+        var region = b.flatMap { firstMatch("Region\\s*:\\s*\"([A-Z]{2})\"", in: $0.body) }
+        if final.contains("cn.bing.com") || (b?.url?.host ?? "").hasPrefix("cn.bing") { region = region ?? "CN" }
+        if let r = region, copilotUnsupported.contains(r) { return UnlockResult(service: .copilot, status: .no, region: r, note: String(localized: "地区不支持")) }
+        if p.status == 403 || p.status == 451 { return UnlockResult(service: .copilot, status: .no, region: region, note: "HTTP \(p.status)") }
+        if (200..<400).contains(p.status) { return UnlockResult(service: .copilot, status: .yes, region: region) }
+        return UnlockResult(service: .copilot, status: .failed, region: region, note: "HTTP \(p.status)")
+    }
+
+    static func youtubeMusic(_ session: URLSession) async throws -> UnlockResult {
+        let p = try await get("https://music.youtube.com/", session: session, maxBytes: 300_000)
+        let final = p.url?.absoluteString ?? ""
+        let region = firstMatch("\"INNERTUBE_CONTEXT_GL\":\"([A-Z]{2})\"", in: p.body) ?? firstMatch("\"countryCode\":\"([A-Z]{2})\"", in: p.body)
+        if final.contains("sorry.google.com") || final.contains("unavailable") || p.body.contains("not available in your") || p.body.contains("unavailable in your country") {
+            return UnlockResult(service: .youtubeMusic, status: .no, region: region)
+        }
+        if p.status == 200 { return UnlockResult(service: .youtubeMusic, status: .yes, region: region) }
+        return UnlockResult(service: .youtubeMusic, status: .failed, region: region, note: "HTTP \(p.status)")
+    }
+
+    // iQIYI international: the site sets mod=<region> in a cookie / x-custom-client-ip.
+    static func iqiyi(_ session: URLSession) async throws -> UnlockResult {
+        guard let u = URL(string: "https://www.iq.com/") else { throw URLError(.badURL) }
+        var req = URLRequest(url: u)
+        req.httpMethod = "HEAD"
+        req.setValue(PolicyProbe.browserUA, forHTTPHeaderField: "User-Agent")
+        let (_, resp) = try await session.data(for: req)
+        let http = resp as? HTTPURLResponse
+        let cookies = (http?.value(forHTTPHeaderField: "Set-Cookie") ?? "") + " " + (http?.value(forHTTPHeaderField: "x-custom-client-ip") ?? "")
+        let mod = firstMatch("mod=([a-zA-Z]+)", in: cookies)?.uppercased()
+        let region = mod == "NTW" ? "TW" : (mod == "INTL" ? nil : mod)
+        if http?.statusCode == 200 { return UnlockResult(service: .iqiyi, status: .yes, region: region) }
+        return UnlockResult(service: .iqiyi, status: .no, region: region, note: "HTTP \(http?.statusCode ?? 0)")
+    }
+
+    static func mytvsuper(_ session: URLSession) async throws -> UnlockResult {
+        let p = try await get("https://www.mytvsuper.com/api/auth/getSession/self/", session: session, maxBytes: 50_000)
+        guard p.status == 200, let o = try? JSONSerialization.jsonObject(with: Data(p.body.utf8)) as? [String: Any] else {
+            return UnlockResult(service: .mytvsuper, status: .failed, note: "HTTP \(p.status)")
+        }
+        let cc = (o["country_code"] as? String)?.uppercased()
+        return UnlockResult(service: .mytvsuper, status: (o["supported_country"] as? Bool) == true ? .yes : .no, region: cc)
     }
 
     static func bilibili(_ s: UnlockService, _ session: URLSession, _ query: String) async throws -> UnlockResult {

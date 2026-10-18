@@ -159,6 +159,13 @@ final class VPNManager: ObservableObject {
         }
         isBusy = true
         defer { isBusy = false }
+        // v0.19 覆写脚本: the active profile's scripts run (when anything changed) before the tunnel starts;
+        // a failing script stops the connect with its error instead of running an unexpected config.
+        if !safeMode, let err = await OverrideScriptStore.shared.prepareActive() {
+            lastError = err
+            canOfferSafeMode = AppShared.containerOK
+            return
+        }
         do {
             var o = CoreOverrides.load()
             o.safeMode = safeMode
@@ -376,6 +383,7 @@ final class VPNManager: ObservableObject {
     /// Asks the tunnel to re-read the active profile and overrides. Returns an error message or nil.
     func reload() async -> String? {
         guard isConnected else { return nil }
+        if !safeModeActive, let err = await OverrideScriptStore.shared.prepareActive() { return err } // v0.19 覆写脚本
         let data = await send(.reload)
         let msg = data.flatMap { String(data: $0, encoding: .utf8) } ?? ""
         NotificationCenter.default.post(name: .egressMayHaveChanged, object: nil)

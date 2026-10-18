@@ -22,7 +22,6 @@ package libmihomo
 import (
 	"encoding/json"
 	"fmt"
-	"os"
 	"sort"
 	"strings"
 
@@ -319,7 +318,7 @@ func GroupPreview(homeDir, path, specsJSON string) string {
 
 func runtimePool(homeDir, path string) (*memberPool, error) {
 	C.SetHomeDir(homeDir)
-	profile, err := os.ReadFile(path)
+	profile, err := readRuntimeProfile(homeDir, path, false)
 	if err != nil {
 		return nil, err
 	}

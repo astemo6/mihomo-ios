@@ -212,6 +212,7 @@ final class PacketTunnelProvider: NEPacketTunnelProvider {
             DispatchQueue.global(qos: .userInitiated).async {
                 var err: NSError?
                 LibmihomoReload(profile.path, &err)
+                self.network?.refreshSettings() // settings saved by the app before it asked for the reload
                 completionHandler?((err?.localizedDescription ?? "").data(using: .utf8))
             }
         case .directIP:

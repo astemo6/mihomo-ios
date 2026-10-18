@@ -102,6 +102,8 @@ type Overrides struct {
 	// v0.7 局域网共享: optional username / password for the mixed port, and LAN-only source addresses.
 	LanAuth      LanAuth `json:"lanAuth"`
 	LanLocalOnly bool    `json:"lanLocalOnly"`
+	// v0.19 局域网多用户: more username / password pairs for the shared port (all of them accepted).
+	LanUsers []LanAuth `json:"lanUsers"`
 	// v0.8 IPv6: "off" | "auto" (IPv6 only when the physical network has a global IPv6 address at start,
 	// reported by the extension through SetNetworkIPv6) | "always". "" = older builds: the IPv6 bool decides.
 	IPv6Mode string `json:"ipv6Mode"`
@@ -467,11 +469,11 @@ func startGC(limitMB int) {
 func apply(home, configPath string, fd int32) error {
 	C.SetHomeDir(home)
 	C.SetConfig(configPath)
-	profile, err := os.ReadFile(configPath)
+	o := overridesFor(home, configPath)
+	profile, err := readRuntimeProfile(home, configPath, o.SafeMode) // v0.19 覆写脚本 output when current
 	if err != nil {
 		return fmt.Errorf("读取配置失败: %w", err)
 	}
-	o := overridesFor(home, configPath)
 	startGC(o.MemoryLimitMB)
 	// Startup burst (rule / proxy providers parse concurrently): collect more eagerly and limit
 	// parallelism until the config is applied, then return to steady pacing and hand memory back.
@@ -700,13 +702,13 @@ func IsRunning() bool { return running.Load() }
 // ValidateConfig parses the profile at path the same way Start would (without tun).
 // Returns "" when valid, otherwise a human readable error.
 func ValidateConfig(path string) string {
-	profile, err := os.ReadFile(path)
-	if err != nil {
-		return err.Error()
-	}
 	home := filepath.Dir(path)
 	if h := curHomeStr(); h != "" {
 		home = h
+	}
+	profile, err := readRuntimeProfile(home, path, false)
+	if err != nil {
+		return err.Error()
 	}
 	C.SetHomeDir(home)
 	rt, err := buildRuntime(profile, overridesFor(home, path), 0)
@@ -721,7 +723,7 @@ func ValidateConfig(path string) string {
 
 // ValidateConfigIn is ValidateConfig with an explicit home dir (geo data location).
 func ValidateConfigIn(homeDir, path string) string {
-	profile, err := os.ReadFile(path)
+	profile, err := readRuntimeProfile(homeDir, path, false)
 	if err != nil {
 		return err.Error()
 	}

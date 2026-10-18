@@ -37,12 +37,15 @@ import (
 
 // Fixed messages (App/Core/GoText.swift maps them to the UI language).
 const (
+	errCopyModified  = "副本已手动修改"
 	errUnsafeReorder = "无法安全地重排策略组（配置使用了 YAML 锚点或特殊格式）"
 	errNoGroups      = "配置文件中没有可排序的策略组"
 )
 
 type reorderResult struct {
 	Changed bool     `json:"changed"`
+	// Modified: GroupOrderRegenerate found the copy edited by the user since it was last generated and left it.
+	Modified bool     `json:"modified,omitempty"`
 	Order   []string `json:"order,omitempty"`  // the file's group order afterwards
 	Method  string   `json:"method,omitempty"` // text | node
 	Error   string   `json:"error,omitempty"`
@@ -466,7 +469,13 @@ func ReorderGroups(homeDir, profilePath, orderJSON string) (out string) {
 	if err := json.Unmarshal([]byte(orderJSON), &want); err != nil {
 		return reorderResult{Error: err.Error()}.json()
 	}
-	return reorderFile(profilePath, want, func(b []byte) string { return validateProfileBytes(homeDir, profilePath, b) }).json()
+	generated := copyGenerated(profilePath)
+	r := reorderFile(profilePath, want, func(b []byte) string { return validateProfileBytes(homeDir, profilePath, b) })
+	if r.Error == "" && r.Changed && generated {
+		// Only an unedited copy stays "generated"; a reorder must not bless the user's manual edits.
+		markGenerated(profilePath)
+	}
+	return r.json()
 }
 
 // GroupOrderCopy writes the source profile with its groups in orderJSON order to copyPath, leaving the source
@@ -488,7 +497,35 @@ func GroupOrderCopy(homeDir, sourcePath, copyPath, orderJSON string) (out string
 	if err != nil {
 		return reorderResult{Error: err.Error()}.json()
 	}
-	return reorderInto(src, copyPath, want, func(b []byte) string { return validateProfileBytes(homeDir, sourcePath, b) }, false).json()
+	r := reorderInto(src, copyPath, want, func(b []byte) string { return validateProfileBytes(homeDir, sourcePath, b) }, false)
+	if r.Error == "" && r.Changed {
+		markGenerated(copyPath)
+	}
+	return r.json()
+}
+
+// copyGenPath keeps the sha256 of the copy content this package last generated (GroupOrderCopy, regenerate,
+// a reorder of an unedited copy), so a later regeneration can tell whether the user edited the copy since.
+func copyGenPath(copyPath string) string { return copyPath + ".gen" }
+
+func markGenerated(copyPath string) {
+	if b, err := os.ReadFile(copyPath); err == nil {
+		_ = writeAtomic(copyGenPath(copyPath), []byte(sha256Hex(b)))
+	}
+}
+
+// copyGenerated reports whether the copy is still exactly what was last generated. Copies made before the
+// .gen marker existed (no marker) count as generated.
+func copyGenerated(copyPath string) bool {
+	want, err := os.ReadFile(copyGenPath(copyPath))
+	if err != nil {
+		return true
+	}
+	b, err := os.ReadFile(copyPath)
+	if err != nil {
+		return true // nothing to lose
+	}
+	return strings.TrimSpace(string(want)) == sha256Hex(b)
 }
 
 // storedGroupOrder is the order kept in group-edits.json for a profile (the 自定义 copies).
@@ -504,6 +541,18 @@ func storedGroupOrder(home, profileID string) []string {
 // in the subscription keep the provider's slot. The source file is only read. When no order is stored, or the
 // order cannot be applied, the copy becomes the source content as is (error reported when it failed).
 func GroupOrderRegenerate(homeDir, sourcePath, copyPath string) (out string) {
+	return groupOrderRegenerate(homeDir, sourcePath, copyPath, false)
+}
+
+// GroupOrderRegenerateForced is GroupOrderRegenerate even when the user edited the copy (「从订阅重新生成」):
+// the edits are replaced (previous content kept as .bak).
+func GroupOrderRegenerateForced(homeDir, sourcePath, copyPath string) (out string) {
+	return groupOrderRegenerate(homeDir, sourcePath, copyPath, true)
+}
+
+// groupOrderRegenerate: without force, a copy edited since it was last generated is left as it is
+// ({modified: true, error: 副本已手动修改}).
+func groupOrderRegenerate(homeDir, sourcePath, copyPath string, force bool) (out string) {
 	defer func() {
 		if r := recover(); r != nil {
 			out = reorderResult{Error: fmt.Sprint(r)}.json()
@@ -513,17 +562,26 @@ func GroupOrderRegenerate(homeDir, sourcePath, copyPath string) (out string) {
 	if err != nil {
 		return reorderResult{Error: err.Error()}.json()
 	}
+	if !force && !copyGenerated(copyPath) {
+		return reorderResult{Modified: true, Error: errCopyModified}.json()
+	}
 	want := storedGroupOrder(homeDir, profileIDFromPath(copyPath))
 	if len(want) == 0 {
 		if cur, err := os.ReadFile(copyPath); err == nil && bytes.Equal(cur, src) {
+			markGenerated(copyPath)
 			return reorderResult{}.json()
 		}
 		if err := replaceKeepingBak(copyPath, src); err != nil {
 			return reorderResult{Error: err.Error()}.json()
 		}
+		markGenerated(copyPath)
 		return reorderResult{Changed: true}.json()
 	}
-	return reorderInto(src, copyPath, want, func(b []byte) string { return validateProfileBytes(homeDir, copyPath, b) }, true).json()
+	r := reorderInto(src, copyPath, want, func(b []byte) string { return validateProfileBytes(homeDir, copyPath, b) }, true)
+	if r.Changed || r.Error == "" {
+		markGenerated(copyPath) // the file is generated content now (reordered, or the source as is after a failure)
+	}
+	return r.json()
 }
 
 // profileSettingFiles are the home files that keep per-profile settings in a JSON object keyed by profile id
@@ -572,6 +630,59 @@ func CopyProfileSettings(homeDir, fromID, toID string) string {
 		if err := writeAtomic(p, nb); err != nil {
 			return err.Error()
 		}
+	}
+	return ""
+}
+
+// ForgetProfile removes a deleted profile's per-profile settings (the profileSettingFiles entries keyed by its id)
+// and its side files: <file>.bak, <file>.gen, <profile>.selected.json. Returns "" or an error.
+func ForgetProfile(homeDir, profileID, profilePath string) string {
+	var firstErr string
+	if homeDir != "" && profileID != "" {
+		for _, f := range profileSettingFiles {
+			p := filepath.Join(homeDir, f)
+			b, err := os.ReadFile(p)
+			if err != nil {
+				continue
+			}
+			m := map[string]json.RawMessage{}
+			if json.Unmarshal(b, &m) != nil {
+				continue
+			}
+			if _, ok := m[profileID]; !ok {
+				continue
+			}
+			delete(m, profileID)
+			nb, err := json.MarshalIndent(m, "", "  ")
+			if err == nil {
+				err = writeAtomic(p, nb)
+			}
+			if err != nil && firstErr == "" {
+				firstErr = err.Error()
+			}
+		}
+	}
+	if profilePath != "" {
+		for _, side := range []string{profilePath + ".bak", copyGenPath(profilePath), selectionsPath(profilePath)} {
+			_ = os.Remove(side)
+		}
+	}
+	return firstErr
+}
+
+// CopyProfileSelections gives a new 自定义 copy the source's offline selections (<profile>.selected.json), so the
+// copy starts on the same nodes. An existing file of the copy is kept.
+func CopyProfileSelections(fromPath, toPath string) string {
+	b, err := os.ReadFile(selectionsPath(fromPath))
+	if err != nil {
+		return ""
+	}
+	dst := selectionsPath(toPath)
+	if _, err := os.Stat(dst); err == nil {
+		return ""
+	}
+	if err := writeAtomic(dst, b); err != nil {
+		return err.Error()
 	}
 	return ""
 }

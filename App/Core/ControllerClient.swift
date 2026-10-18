@@ -153,6 +153,16 @@ final class ControllerClient {
         try await send("/proxies/\(Self.enc(group))", method: "PUT", body: ["name": node])
     }
 
+    /// v0.19 切换节点或模式时断开所有连接 (更多 → 内核设置, on by default): open connections keep the node
+    /// they were made with, so a user switch closes them and apps reconnect through the new choice.
+    static let closeOnSwitchKey = "switch.closeConnections"
+    static var closeOnSwitch: Bool { UserDefaults.standard.object(forKey: closeOnSwitchKey) as? Bool ?? true }
+
+    /// A node / mode change the user made: closes every connection when that setting is on.
+    func afterUserSwitch() async {
+        if Self.closeOnSwitch { try? await closeAllConnections() }
+    }
+
     /// 固定 (v0.8): url-test / fallback groups accept PUT /proxies/{group} too; the core then uses that member
     /// until DELETE /proxies/{group} (解除固定). Stored by the core's cache file, so it survives a reconnect.
     func pin(group: String, node: String) async throws {

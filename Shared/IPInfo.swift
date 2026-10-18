@@ -23,9 +23,11 @@ struct IPInfo: Codable, Equatable {
         return s
     }
 
-    /// Chinese country name when possible.
+    /// Country name in the app's display language (was always zh_CN, so English / Japanese / … UIs showed
+    /// 「日本」; found by the v0.19 en UI scan of the 出口 IP card).
     var countryName: String? {
-        if let cc = countryCode, let n = Locale(identifier: "zh_CN").localizedString(forRegionCode: cc) { return n }
+        let lang = Bundle.main.preferredLocalizations.first ?? Locale.current.identifier
+        if let cc = countryCode, let n = Locale(identifier: lang).localizedString(forRegionCode: cc) { return n }
         return country
     }
 

@@ -76,6 +76,7 @@ struct MoreView: View {
                 Section("工具与数据") {
                     NavigationLink { ToolsView() } label: { row("网络工具（Ping / TCP / DNS）", "stethoscope.circle", nil) }
                     NavigationLink { NetTestView() } label: { row("网络测试（带宽 / NAT 类型）", "speedometer", nil) }
+                    NavigationLink { LANDetailView() } label: { row("内网 IP 与路由器", "wifi.router", nil) }
                     NavigationLink { UnlockView() } label: { row("解锁检测", "checkmark.shield", nil) }
                     NavigationLink { AnalyticsView() } label: { row("连接分析", "chart.pie", nil) }
                     NavigationLink { StatsView() } label: { row("流量统计", "chart.bar.xaxis", nil) }
@@ -238,6 +239,7 @@ struct LogsView: View {
 struct SettingsView: View {
     @EnvironmentObject var vpn: VPNManager
     @State private var o = CoreOverrides.load()
+    @AppStorage(ControllerClient.closeOnSwitchKey) private var closeOnSwitch = true
     @State private var portText = ""
     @State private var status: String?
     @StateObject private var debounce = Debouncer()
@@ -257,6 +259,16 @@ struct SettingsView: View {
                 Toggle("域名嗅探（Sniffer）", isOn: $o.sniffer)
             } header: { Text("内核") } footer: {
                 Text("这些选项会覆盖配置文件里的同名字段。DNS 模式在「更多 → DNS」中设置，IPv6 与局域网共享在「更多 → 连接方式」中设置。")
+            }
+            .listRowBackground(Theme.card)
+
+            Section {
+                Toggle("切换节点或模式时断开所有连接", isOn: $closeOnSwitch)
+                    .accessibilityIdentifier("settings.closeOnSwitch")
+                Toggle("网络变化时清空 DNS 缓存", isOn: $o.flushDNSOnNetworkChange)
+                    .accessibilityIdentifier("settings.flushDNS")
+            } header: { Text("连接") } footer: {
+                Text("断开后，App 会经由新选的节点或模式重新连接；关闭则已有连接保持原来的节点直到结束。Wi-Fi 与蜂窝网络切换或换了 Wi-Fi 时清空 DNS 缓存，避免沿用上一个网络的解析结果。")
             }
             .listRowBackground(Theme.card)
 
@@ -312,7 +324,7 @@ struct SettingsView: View {
         .scrollContentBackground(.hidden)
         .background(Theme.bg.ignoresSafeArea())
         .navigationTitle("内核设置")
-        .onAppear { o = CoreOverrides.load(); portText = String(o.controllerPort) }
+        .onAppear { debounce.flush(); o = CoreOverrides.load(); portText = String(o.controllerPort) }
         // v0.15.4: applied on change (debounced), no 保存 button.
         .onChange(of: o) { _ in debounce.schedule { apply() } }
         .onChange(of: portText) { _ in debounce.schedule { apply() } }
@@ -329,6 +341,7 @@ struct SettingsView: View {
         cur.memoryLimitMB = o.memoryLimitMB
         cur.tunMTU = o.tunMTU
         cur.secret = o.secret
+        cur.flushDNSOnNetworkChange = o.flushDNSOnNetworkChange // v0.19 (was not saved)
         if !portInvalid, let p = Int(portText) { cur.controllerPort = p }
         guard cur != old else { return }
         cur.save()
