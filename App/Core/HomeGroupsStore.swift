@@ -66,6 +66,12 @@ final class HomeGroupsStore: ObservableObject {
     }
 
     /// Called when a profile is deleted.
+    /// feat/group-order: an 自定义 copy starts with its source's Home selection.
+    nonisolated static func copy(from: String, to: String) {
+        guard let v = AppShared.defaults.stringArray(forKey: prefix + from), AppShared.defaults.object(forKey: prefix + to) == nil else { return }
+        AppShared.defaults.set(v, forKey: prefix + to)
+    }
+
     nonisolated static func forget(profile: String) {
         AppShared.defaults.removeObject(forKey: prefix + profile)
     }
