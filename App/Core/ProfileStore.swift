@@ -159,6 +159,7 @@ final class ProfileStore: ObservableObject {
         if let err = await Self.validate(text: text) { throw StoreError.invalid(err) }
         SnapshotStore.shared.capture(String(localized: "编辑配置「\(p.name)」前"))
         try text.write(to: p.fileURL, atomically: true, encoding: .utf8)
+        if OverrideScriptStore.shared.enabledCount(p.id) > 0 { await OverrideScriptStore.shared.apply(p, force: false) } // v0.19
         if p.id == activeID { _ = await VPNManager.shared.reload() }
     }
 
@@ -233,6 +234,9 @@ final class ProfileStore: ObservableObject {
             let np = try await download(p)
             update(np)
             UsageAlerts.evaluate(id: np.id, name: np.name, info: np.userInfo)
+            // v0.19: re-run the profile's override scripts now, so an on-demand connect later still finds a
+            // current output (the reload below skips them again when nothing else changed).
+            if OverrideScriptStore.shared.enabledCount(np.id) > 0 { await OverrideScriptStore.shared.apply(np, force: false) }
             if np.id == activeID { _ = await VPNManager.shared.reload() }
             return nil
         } catch {
