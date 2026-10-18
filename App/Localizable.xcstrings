@@ -8675,25 +8675,25 @@
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "“%@” is a folder. Choose the config file inside it."
+            "value": "“%@” is a folder. Choose the profile file inside it."
           }
         },
         "ja": {
           "stringUnit": {
             "state": "translated",
-            "value": "「%@」はフォルダです。中の設定ファイルを選んでください"
+            "value": "「%@」はフォルダです。中のプロファイルを選んでください"
           }
         },
         "ko": {
           "stringUnit": {
             "state": "translated",
-            "value": "“%@”은(는) 폴더입니다. 안의 구성 파일을 선택하세요"
+            "value": "“%@”은(는) 폴더입니다. 안의 프로파일 파일을 선택하세요"
           }
         },
         "ru": {
           "stringUnit": {
             "state": "translated",
-            "value": "«%@» — это папка. Выберите файл конфигурации внутри неё."
+            "value": "«%@» — это папка. Выберите файл профиля внутри неё."
           }
         }
       }
@@ -26856,7 +26856,7 @@
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "Disabled in the original config: %lld"
+            "value": "Disabled in the original profile: %lld"
           }
         },
         "ja": {
@@ -26868,13 +26868,13 @@
         "ko": {
           "stringUnit": {
             "state": "translated",
-            "value": "원래 구성에서 비활성화됨: %lld개"
+            "value": "원래 프로파일에서 비활성화됨: %lld개"
           }
         },
         "ru": {
           "stringUnit": {
             "state": "translated",
-            "value": "Отключено в исходной конфигурации: %lld"
+            "value": "Отключено в исходном профиле: %lld"
           }
         }
       }
@@ -26932,7 +26932,7 @@
         "ja": {
           "stringUnit": {
             "state": "translated",
-            "value": "%lld 件のサブスクリプションを自動更新しました"
+            "value": "%lld 件の購読を自動更新しました"
           }
         },
         "ko": {
@@ -28439,7 +28439,7 @@
         "ko": {
           "stringUnit": {
             "state": "translated",
-            "value": "현재 프로필에 정책 그룹이 없습니다."
+            "value": "현재 프로파일에 정책 그룹이 없습니다."
           }
         },
         "ru": {
@@ -30687,7 +30687,7 @@
         "ja": {
           "stringUnit": {
             "state": "translated",
-            "value": "各サブスクリプションの更新間隔で自動更新します（App を開いたとき、および iOS が許可するバックグラウンド更新時）。成功時は通知せず、失敗やノード数が 3 割以上減ったときに通知します。"
+            "value": "各購読の更新間隔で自動更新します（App を開いたとき、および iOS が許可するバックグラウンド更新時）。成功時は通知せず、失敗やノード数が 3 割以上減ったときに通知します。"
           }
         },
         "ko": {
@@ -36550,7 +36550,7 @@
         "ko": {
           "stringUnit": {
             "state": "translated",
-            "value": "연결 안 됨: 목록은 현재 프로필에서 가져옵니다."
+            "value": "연결 안 됨: 목록은 현재 프로파일에서 가져옵니다."
           }
         },
         "ru": {
@@ -39217,7 +39217,7 @@
         "ja": {
           "stringUnit": {
             "state": "translated",
-            "value": "リモートリライトをダウンロード中…"
+            "value": "リモート書き換えをダウンロード中…"
           }
         },
         "ko": {
@@ -39385,7 +39385,7 @@
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "Validating config…"
+            "value": "Validating profile…"
           }
         },
         "ja": {
@@ -39397,13 +39397,13 @@
         "ko": {
           "stringUnit": {
             "state": "translated",
-            "value": "구성 검증 중…"
+            "value": "프로파일 검증 중…"
           }
         },
         "ru": {
           "stringUnit": {
             "state": "translated",
-            "value": "Проверка конфигурации…"
+            "value": "Проверка профиля…"
           }
         }
       }
@@ -39592,7 +39592,7 @@
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "Converting config…"
+            "value": "Converting profile…"
           }
         },
         "ja": {
@@ -39604,13 +39604,13 @@
         "ko": {
           "stringUnit": {
             "state": "translated",
-            "value": "구성 변환 중…"
+            "value": "프로파일 변환 중…"
           }
         },
         "ru": {
           "stringUnit": {
             "state": "translated",
-            "value": "Преобразование конфигурации…"
+            "value": "Преобразование профиля…"
           }
         }
       }
@@ -44289,7 +44289,7 @@
         "ja": {
           "stringUnit": {
             "state": "translated",
-            "value": "サブスクリプションが返すデータ量と期限（subscription-userinfo）からローカル通知を送ります。データ量は更新のたびに確認し、使い切ったときにもう一度通知します。期限の通知は App を開かなくても iOS が時間どおりに届けます。この情報がないサブスクリプションは通知しません。"
+            "value": "購読が返すデータ量と期限（subscription-userinfo）からローカル通知を送ります。データ量は更新のたびに確認し、使い切ったときにもう一度通知します。期限の通知は App を開かなくても iOS が時間どおりに届けます。この情報がない購読は通知しません。"
           }
         },
         "ko": {
@@ -56756,7 +56756,7 @@
         "ko": {
           "stringUnit": {
             "state": "translated",
-            "value": "연결 중 30초마다 저장되며 연결 해제·프로필 다시 불러오기 후에도 누적됩니다. 규칙을 길게 눌러 개별 초기화할 수 있습니다."
+            "value": "연결 중 30초마다 저장되며 연결 해제·프로파일 다시 불러오기 후에도 누적됩니다. 규칙을 길게 눌러 개별 초기화할 수 있습니다."
           }
         },
         "ru": {
@@ -71545,7 +71545,7 @@
         "zh-Hant": {
           "stringUnit": {
             "state": "translated",
-            "value": "連線一次後顯示隧道擴充套件的記憶體佔用。"
+            "value": "連線一次後顯示隧道擴展的記憶體佔用。"
           }
         }
       }
@@ -71613,7 +71613,7 @@
         "zh-Hant": {
           "stringUnit": {
             "state": "translated",
-            "value": "phys_footprint，也就是 iOS 判斷是否終止 VPN 擴充套件時看的數值；擴充套件上限約 50 MB。連線時每秒重新整理；未連線時顯示擴充套件最後一次記錄的數值。峰值是擴充套件本次執行的最高值。"
+            "value": "phys_footprint，也就是 iOS 判斷是否終止 VPN 擴展時看的數值；擴展上限約 50 MB。連線時每秒重新整理；未連線時顯示擴展最後一次記錄的數值。峰值是擴展本次執行的最高值。"
           }
         }
       }
@@ -72055,7 +72055,7 @@
         "zh-Hant": {
           "stringUnit": {
             "state": "translated",
-            "value": "Tailscale：由核心在隧道擴充套件里加入你的 tailnet（不建立系統 VPN）。建議填寫 Auth Key；目標不在 tailnet 路由內時連線會失敗，訪問公網需要設定出口節點。狀態儲存在 App Group 核心目錄下。"
+            "value": "Tailscale：由核心在隧道擴展里加入你的 tailnet（不建立系統 VPN）。建議填寫 Auth Key；目標不在 tailnet 路由內時連線會失敗，訪問公網需要設定出口節點。狀態儲存在 App Group 核心目錄下。"
           }
         }
       }
@@ -72429,7 +72429,7 @@
         "zh-Hant": {
           "stringUnit": {
             "state": "translated",
-            "value": "iOS 只給 VPN 擴充套件約 50 MB 記憶體，Tailscale 會在擴充套件裡額外執行一套網路棧。首次使用時如果剩餘記憶體不足 14 MB 會拒絕啟動；執行中剩餘不足 5 MB 會自動停止 Tailscale，以免 VPN 被系統終止。在 更多 → 診斷 → 隧道記憶體 檢視實際佔用。"
+            "value": "iOS 只給 VPN 擴展約 50 MB 記憶體，Tailscale 會在擴展裡額外執行一套網路棧。首次使用時如果剩餘記憶體不足 14 MB 會拒絕啟動；執行中剩餘不足 5 MB 會自動停止 Tailscale，以免 VPN 被系統終止。在 更多 → 診斷 → 隧道記憶體 檢視實際佔用。"
           }
         }
       }
@@ -72599,7 +72599,7 @@
         "zh-Hant": {
           "stringUnit": {
             "state": "translated",
-            "value": "Tailscale 只在連線後由隧道擴充套件啟動和測速；離線測速不可用。"
+            "value": "Tailscale 只在連線後由隧道擴展啟動和測速；離線測速不可用。"
           }
         }
       }
@@ -72701,7 +72701,7 @@
         "zh-Hant": {
           "stringUnit": {
             "state": "translated",
-            "value": "Tailscale 未啟動：隧道擴充套件可用記憶體不足，繼續啟動可能讓系統直接終止 VPN。詳見 更多 → 診斷 → 隧道記憶體。"
+            "value": "Tailscale 未啟動：隧道擴展可用記憶體不足，繼續啟動可能讓系統直接終止 VPN。詳見 更多 → 診斷 → 隧道記憶體。"
           }
         }
       }
@@ -72735,7 +72735,7 @@
         "zh-Hant": {
           "stringUnit": {
             "state": "translated",
-            "value": "Tailscale 已停止：隧道擴充套件可用記憶體過低，為避免 VPN 被系統終止已關閉 Tailscale。重新連線後可再次使用。"
+            "value": "Tailscale 已停止：隧道擴展可用記憶體過低，為避免 VPN 被系統終止已關閉 Tailscale。重新連線後可再次使用。"
           }
         }
       }
@@ -72751,7 +72751,7 @@
         "ja": {
           "stringUnit": {
             "state": "translated",
-            "value": "サンプル構成"
+            "value": "サンプルプロファイル"
           }
         },
         "ko": {
@@ -72819,7 +72819,7 @@
         "ja": {
           "stringUnit": {
             "state": "translated",
-            "value": "これで新しい構成を作成"
+            "value": "これで新しいプロファイルを作成"
           }
         },
         "ko": {
@@ -72853,7 +72853,7 @@
         "ja": {
           "stringUnit": {
             "state": "translated",
-            "value": "構成「%@」を作成しました。「構成」タブで切り替え・編集できます。"
+            "value": "プロファイル「%@」を作成しました。「プロファイル」タブで切り替え・編集できます。"
           }
         },
         "ko": {
@@ -72887,7 +72887,7 @@
         "ja": {
           "stringUnit": {
             "state": "translated",
-            "value": "サンプル構成を見る"
+            "value": "サンプルプロファイルを見る"
           }
         },
         "ko": {
@@ -72921,7 +72921,7 @@
         "ja": {
           "stringUnit": {
             "state": "translated",
-            "value": "構成の書き方に慣れていない？サンプル構成を見る"
+            "value": "プロファイルの書き方に慣れていない？サンプルプロファイルを見る"
           }
         },
         "ko": {

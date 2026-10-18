@@ -31,14 +31,28 @@ var CoreVersion = "unknown"
 
 var (
 	mu      sync.Mutex
-	running bool
-	curFd   int32
-	curHome string
+	running atomic.Bool
+	curFd   atomic.Int32
+	curHome atomic.Value // string: set by Start under mu, read lock-free elsewhere
 	gcStop  chan struct{}
 	// lastError: written by helpers that run concurrently (8-way offline 测速 calls TestDelay from several
 	// threads); a plain string global was a data race (torn read in LastError). selftest fix.
 	lastError atomic.Value // string
+	// applyEpoch / startTimedOut: Start applies the config in a goroutine with a timeout
+	// (startTimeout). hub.Parse takes no context, so a timed-out apply can't be cancelled;
+	// instead the goroutine tears down the core it installed once it finishes, unless a
+	// newer Start/Reload has taken ownership (tracked by applyEpoch, bumped under mu).
+	applyEpoch    uint64
+	startTimedOut atomic.Bool
 )
+
+// curHomeStr loads the home dir set by Start ("" if it never ran).
+func curHomeStr() string {
+	if s, ok := curHome.Load().(string); ok {
+		return s
+	}
+	return ""
+}
 
 // Overrides mirrors the JSON the Swift side writes to <home>/overrides.json.
 type Overrides struct {
@@ -366,7 +380,7 @@ func convertLinks(buf []byte) ([]byte, error) {
 }
 
 func validateBytes(profile []byte) string {
-	home := curHome
+	home := curHomeStr()
 	if home == "" {
 		home = C.Path.HomeDir()
 	}
@@ -489,61 +503,100 @@ func apply(home, configPath string, fd int32) error {
 // It never blocks longer than startTimeout: the config is applied in a goroutine and Start returns as
 // soon as the tun listener is up (tunnel status Inner/Running). Proxy / rule providers keep loading in
 // the background (mihomo only forwards tun traffic once they finish; INNER traffic already flows).
+//
+// If the timeout fires first, the in-flight apply is NOT abandoned: when it finishes it tears down
+// the core it installed (stale-apply teardown), unless a newer Start/Reload took ownership meanwhile.
+// hub.Parse takes no context, so this is the closest we get to cancelling a timed-out apply.
 func Start(homeDir, configPath string, tunFd int32) error {
 	mu.Lock()
 	defer mu.Unlock()
 	if err := os.MkdirAll(homeDir, 0o755); err != nil {
 		return err
 	}
-	curFd, curHome = tunFd, homeDir
+	curFd.Store(tunFd)
+	curHome.Store(homeDir)
 	setNetPolicyProfile(configPath)
 	startDiagCapture(homeDir)
 	stage("core start begin (fd=%d)", tunFd)
 	tunnel.OnSuspend()
 	safe := overridesFor(homeDir, configPath).SafeMode
+	// New apply generation: a previous timed-out apply that finishes late must not
+	// leave a zombie core behind (see the stale branch in the goroutine below).
+	epoch := atomic.AddUint64(&applyEpoch, 1)
+	startTimedOut.Store(false)
 	done := make(chan error, 1)
 	go func() {
 		err := safeApply(homeDir, configPath, tunFd)
+		done <- err
+		if startTimedOut.Load() {
+			// Start already gave up (timeout). Skip the post-apply side effects and,
+			// if nothing newer took ownership, tear down the core this apply installed
+			// instead of leaving a zombie core (listeners, ports, memory) behind.
+			mu.Lock()
+			stale := atomic.LoadUint64(&applyEpoch) == epoch
+			if stale {
+				if err == nil {
+					stage("apply finished after Start timeout; tearing down stale core")
+					shutdownStaleApplyLocked()
+				} else {
+					stage("apply failed after Start timeout: %s", err.Error())
+				}
+			} else {
+				stage("late apply result discarded (superseded by a newer Start/Reload)")
+			}
+			mu.Unlock()
+			return
+		}
 		if err != nil {
 			stage("core apply failed: %s", err.Error())
-		} else {
-			stage("core apply finished: providers loaded, tunnel %s, %s", tunnel.Status().String(), memText())
-			startRuleHits(homeDir)
-			if n := applySelections(configPath); n > 0 {
-				stage("restored %d saved group selection(s)", n)
-			}
-			if !safe {
-				startSmart(homeDir, configPath)
-				if n := applyNetPolicy(homeDir, configPath, "start"); n > 0 {
-					stage("network policy: %d group(s) switched for this network", n)
-				}
+			return
+		}
+		stage("core apply finished: providers loaded, tunnel %s, %s", tunnel.Status().String(), memText())
+		startRuleHits(homeDir)
+		if n := applySelections(configPath); n > 0 {
+			stage("restored %d saved group selection(s)", n)
+		}
+		if !safe {
+			startSmart(homeDir, configPath)
+			if n := applyNetPolicy(homeDir, configPath, "start"); n > 0 {
+				stage("network policy: %d group(s) switched for this network", n)
 			}
 		}
-		done <- err
 	}()
 	deadline := time.NewTimer(startTimeout)
 	defer deadline.Stop()
 	tick := time.NewTicker(50 * time.Millisecond)
 	defer tick.Stop()
+	complete := func(err error) error {
+		if err != nil {
+			setLastError(err.Error())
+			log.Errorln("[Bridge] start failed: %s", err.Error())
+			DumpDiagnostics()
+			return err
+		}
+		running.Store(true)
+		stage("core start end (running), %s", memText())
+		return nil
+	}
 	for {
 		select {
 		case err := <-done:
-			if err != nil {
-				setLastError(err.Error())
-				log.Errorln("[Bridge] start failed: %s", err.Error())
-				DumpDiagnostics()
-				return err
-			}
-			running = true
-			stage("core start end (running), %s", memText())
-			return nil
+			return complete(err)
 		case <-tick.C:
 			if st := tunnel.Status(); st == tunnel.Inner || st == tunnel.Running {
-				running = true
+				running.Store(true)
 				stage("core start end (tun up, status %s; providers continue in background), %s", st.String(), memText())
 				return nil
 			}
 		case <-deadline.C:
+			// The apply may have finished between the last tick and now; prefer its
+			// real result over reporting a timeout.
+			select {
+			case err := <-done:
+				return complete(err)
+			default:
+			}
+			startTimedOut.Store(true)
 			msg := fmt.Sprintf("内核启动超时（%d 秒）：可能在下载 GeoIP/GeoSite 或规则集 / 节点集。请检查网络，或在 更多 → 诊断 查看启动日志", int(startTimeout/time.Second))
 			stage("core start TIMEOUT after %s, %s", startTimeout, memText())
 			DumpDiagnostics()
@@ -557,36 +610,53 @@ func Start(homeDir, configPath string, tunFd int32) error {
 func Reload(configPath string) error {
 	mu.Lock()
 	defer mu.Unlock()
-	if curHome == "" {
+	atomic.AddUint64(&applyEpoch, 1) // take ownership from any late timed-out Start apply
+	home, fd := curHomeStr(), curFd.Load()
+	if home == "" {
 		return errors.New("core not started")
 	}
-	flushRuleHits(curHome) // the new rules start counting at 0
-	if err := safeApply(curHome, configPath, curFd); err != nil {
+	flushRuleHits(home) // the new rules start counting at 0
+	if err := safeApply(home, configPath, fd); err != nil {
 		setLastError(err.Error())
 		return err
 	}
 	setNetPolicyProfile(configPath)
-	if overridesFor(curHome, configPath).SafeMode {
+	if overridesFor(home, configPath).SafeMode {
 		stopSmart()
 	} else {
-		startSmart(curHome, configPath)
-		applyNetPolicy(curHome, configPath, "reload")
+		startSmart(home, configPath)
+		applyNetPolicy(home, configPath, "reload")
 	}
 	return nil
+}
+
+// shutdownStaleApplyLocked tears down a core installed by an apply() whose Start
+// already timed out. Caller holds mu; applyEpoch guarantees no newer Start/Reload
+// has taken ownership since. Mirrors the teardown half of Stop(), minus the parts
+// the stale apply never started (rule hits / smart groups run as post-apply steps,
+// which are skipped on the stale path).
+func shutdownStaleApplyLocked() {
+	stopEngine()
+	executor.Shutdown()
+	if gcStop != nil {
+		close(gcStop)
+		gcStop = nil
+	}
+	debug.FreeOSMemory()
 }
 
 // Stop tears the core down.
 func Stop() {
 	mu.Lock()
 	defer mu.Unlock()
-	if !running {
+	if !running.Load() {
 		return
 	}
-	stopRuleHits(curHome)
+	stopRuleHits(curHomeStr())
 	stopEngine()
 	stopSmart()
 	executor.Shutdown()
-	running = false
+	running.Store(false)
 	DumpDiagnostics()
 	if gcStop != nil {
 		close(gcStop)
@@ -596,7 +666,7 @@ func Stop() {
 }
 
 // IsRunning reports whether Start succeeded and Stop was not called.
-func IsRunning() bool { return running }
+func IsRunning() bool { return running.Load() }
 
 // ValidateConfig parses the profile at path the same way Start would (without tun).
 // Returns "" when valid, otherwise a human readable error.
@@ -606,8 +676,8 @@ func ValidateConfig(path string) string {
 		return err.Error()
 	}
 	home := filepath.Dir(path)
-	if curHome != "" {
-		home = curHome
+	if h := curHomeStr(); h != "" {
+		home = h
 	}
 	C.SetHomeDir(home)
 	rt, err := buildRuntime(profile, overridesFor(home, path), 0)

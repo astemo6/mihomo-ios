@@ -69,6 +69,11 @@ func installNotifier(e *mitm.Engine) {
 
 // mitmLoop: an INNER connection (the engine's own upstream) whose chain contains __MITM__ to the same
 // target means a proxy group picked the engine outbound → reject instead of looping.
+//
+// NOTE (reverted optimization): we briefly gated this scan on "no proxy group currently selects
+// __MITM__", but TestV0141LoopRejected proved the gate wrong — a plain rule like MATCH,__MITM__
+// (no group involved) is a valid loop vector too. The scan stays unconditional: this is a safety
+// mechanism against unbounded resource exhaustion, not worth a clever gate.
 func mitmLoop(target string) bool {
 	found := false
 	statistic.DefaultManager.Range(func(t statistic.Tracker) bool {

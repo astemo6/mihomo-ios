@@ -227,10 +227,10 @@ func SetNetworkState(netType, ssid string) string {
 	npType, npSSID, npKnown = netType, ssid, true
 	profile := npProfile
 	npMu.Unlock()
-	if !changed || !running {
+	if !changed || !running.Load() {
 		return ""
 	}
-	home := curHome
+	home := curHomeStr()
 	if n := applyNetPolicy(home, profile, "network"); n > 0 {
 		return "network policy: switched " + itoa(n) + " group(s)/mode for " + netType
 	}
@@ -242,10 +242,10 @@ func ApplyNetworkPolicy() int {
 	npMu.Lock()
 	profile := npProfile
 	npMu.Unlock()
-	if !running {
+	if !running.Load() {
 		return 0
 	}
-	return applyNetPolicy(curHome, profile, "edit")
+	return applyNetPolicy(curHomeStr(), profile, "edit")
 }
 
 func itoa(n int) string {

@@ -40,6 +40,10 @@ final class DashboardModel: ObservableObject {
         let c = ControllerClient.shared
         tasks.append(Task { [weak self] in
             for await s in c.stream("/traffic", as: TrafficSample.self) {
+                // AsyncStream.next() doesn't check Task.isCancelled: without this the cancelled
+                // task stays suspended on the stream, which keeps the websocket alive and briefly
+                // double-writes @Published / LiveActivity on a quick reconnect.
+                guard !Task.isCancelled else { break }
                 guard let self else { return }
                 self.up = s.up; self.down = s.down
                 LiveActivityController.shared.traffic(up: s.up, down: s.down, node: self.selectedNode)
@@ -50,6 +54,7 @@ final class DashboardModel: ObservableObject {
         })
         tasks.append(Task { [weak self] in
             for await m in c.stream("/memory", as: MemorySample.self) {
+                guard !Task.isCancelled else { break }
                 self?.memory = m.inuse
             }
         })
@@ -69,7 +74,11 @@ final class DashboardModel: ObservableObject {
                 }
                 if self?.coreVersion.isEmpty == true, let v = try? await c.version() { self?.coreVersion = v }
                 await self?.refreshSelectedNode()
-                try? await Task.sleep(nanoseconds: 2_000_000_000)
+                // Adaptive interval: a full /connections pull gets heavy with many connections,
+                // so back off while the count is high and return to 2 s once it drops again.
+                let count = self?.connectionCount ?? 0
+                let pollInterval: UInt64 = count > 2000 ? 10_000_000_000 : count > 800 ? 5_000_000_000 : 2_000_000_000
+                try? await Task.sleep(nanoseconds: pollInterval)
             }
         })
         Task { if let cfg = try? await c.configs(), let m = cfg["mode"] as? String { self.mode = m.lowercased() } }
