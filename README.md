@@ -35,7 +35,7 @@
 
 - **模块库**（更多 → 模块与资源 → 模块库）：从索引来源浏览、搜索模块。来源可以是 GitHub 仓库或文件夹链接（列出其中的 `.sgmodule` / `.plugin` / `.stoverride` / `.snippet`，子文件夹作为分类）、JSON 列表（`name` / `url` / `desc` / `category`）或包含模块链接 / 安装链接的网页、Markdown、文本；默认带两个来源，可增删、排序、恢复默认，索引离线缓存。点模块先下载并预览：重写、脚本、MitM 主机名、规则、任务、面板、参数和暂不支持的行，确认后添加（不再下载第二次）；已添加的模块可在列表里直接开关。
 - **面板固定到首页**：在「面板」页长按 Surge `[Panel]` / Stash 面板 →「固定到首页」；首页显示固定的面板卡片，按面板间隔刷新，长按取消固定。
-- **共享内核测试版**：发布页多一个 `-sharedcore-unsigned.ipa`：mihomo 内核只打包一次（`Mihomo.app/Frameworks/Libmihomo.framework`，隧道扩展通过 `@rpath` 加载），安装包约 35 MB（普通版约 62 MB）。重签时框架只需用同一证书签名，不需要额外的描述文件。仍需真机验证，普通 IPA 保持静态链接。设置 → 诊断显示「内核打包方式」。
+- **共享内核测试版**：发布页多一个 `-sharedcore-unsigned.ipa`：mihomo 内核只打包一次（`Mihomo.app/Frameworks/Libmihomo.framework`，隧道扩展通过 `@rpath` 加载），安装包约 36 MB（-widget 版约 63 MB）。重签时框架只需用同一证书签名，不需要额外的描述文件。仍需真机验证，-widget IPA 保持静态链接。设置 → 诊断显示「内核打包方式」。
 
 ## v0.14 要点
 
@@ -214,7 +214,7 @@
 
 ### 小组件与控制中心开关（单独的 IPA）
 
-- Release 里有两个 IPA：`Mihomo-<版本>-build<N>-unsigned.ipa`（与以前一样，只含主程序和隧道扩展）和 `Mihomo-<版本>-build<N>-widget-unsigned.ipa`（另含小组件扩展）。另附 `widget.entitlements`。
+- 自 v0.19 起 Release 只有两个 IPA：`Mihomo-<版本>-build<N>-widget-unsigned.ipa`（主程序 + 隧道扩展 + 小组件扩展）和 `Mihomo-<版本>-build<N>-sharedcore-unsigned.ipa`（共享内核测试版，不含小组件）；不含小组件的普通版不再发布。另附 `app.entitlements` / `tunnel.entitlements` / `widget.entitlements`。
 - 小组件扩展 Bundle ID = 主 ID + `.widget`（与隧道 `.tunnel` 同一规则），App Group 运行时解析（与主程序、隧道相同），所以用同一个覆盖三者的显式 App ID 描述文件重签即可，重签工具会处理扩展。
 - 内容：连接状态、当前策略组 / 节点、连接 / 断开按钮（iOS 17+ 交互式小组件，主屏小 / 中尺寸与锁屏）；iOS 18+ 控制中心开关。开关直接用公开的 NETunnelProviderManager，与 App 内的规则一致（手动连接恢复按需连接、手动断开暂停按需连接、不以安全模式启动）。
 
@@ -466,7 +466,7 @@ String Catalog（`App/Localizable.xcstrings`），源语言简体中文，提供
 
 `.github/workflows/ios.yml`（push 到 main 或手动运行）：setup-go → gomobile 构建 xcframework（按 bridge 源码与内核版本缓存）→ XcodeGen → `xcodebuild archive` → IPA → 上传 Artifact，并发布 GitHub Release（tag `v<版本>-build<N>`）。手动运行时可勾选 `build_only` 只编译不发布。
 
-- **没有签名 secrets**：`CODE_SIGNING_ALLOWED=NO` 构建，然后用 `codesign -s -`（伪签名）把 entitlements 写进 App 和扩展，打包为 `Mihomo-<版本>-build<N>-unsigned.ipa`。Release 中同时附带 `app.entitlements` / `tunnel.entitlements`，方便重签工具使用。
+- **没有签名 secrets**：`CODE_SIGNING_ALLOWED=NO` 构建，然后用 `codesign -s -`（伪签名）把 entitlements 写进 App 和扩展，打包为 `Mihomo-<版本>-build<N>-widget-unsigned.ipa`（v0.19 前另有不含小组件的 `-unsigned.ipa`）。Release 中同时附带 `app.entitlements` / `tunnel.entitlements`，方便重签工具使用。
 - **有签名 secrets**：导入证书和两个描述文件，导出 `Mihomo-<版本>-build<N>-signed.ipa`。
 
 ## 获取可安装的签名版本
