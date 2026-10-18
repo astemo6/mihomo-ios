@@ -1,5 +1,6 @@
 import SwiftUI
 import UniformTypeIdentifiers
+import Libmihomo
 
 // v0.19 覆写脚本: per-profile list, detail with the Bettbox switches, code editor, remote scripts.
 // Engine and store: App/Core/OverrideScripts.swift.

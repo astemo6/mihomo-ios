@@ -7,8 +7,30 @@ import SwiftUI
 struct UnlockResultRows: View {
     let results: [UnlockResult]
 
+    /// v0.19: grouped by category (AI 服务 / 国际流媒体 / 港澳台与亚洲) when results span more than one.
+    var groups: [(UnlockService.Category, [UnlockResult])] {
+        UnlockService.Category.allCases.compactMap { c in
+            let l = results.filter { $0.service.category == c }
+            return l.isEmpty ? nil : (c, l)
+        }
+    }
+
     var body: some View {
-        ForEach(results) { r in
+        let g = groups
+        ForEach(g.indices, id: \.self) { i in
+            if g.count > 1 {
+                Text(verbatim: g[i].0.title.uppercased())
+                    .font(.caption2.weight(.semibold)).foregroundStyle(.secondary)
+                    .padding(.top, i == 0 ? 0 : 6)
+                    .accessibilityAddTraits(.isHeader)
+            }
+            rows(g[i].1)
+        }
+    }
+
+    @ViewBuilder
+    func rows(_ list: [UnlockResult]) -> some View {
+        ForEach(list) { r in
             HStack(spacing: 10) {
                 Image(systemName: r.service.symbol)
                     .font(.footnote.weight(.semibold))
@@ -151,6 +173,9 @@ struct UnlockView: View {
 
     private static let skipMembers: Set<String> = ["DIRECT", "REJECT", "REJECT-DROP", "PASS", "COMPATIBLE"]
 
+    @AppStorage(ProbeStore.autoKey) private var autoRetest = false
+    @State private var selectedCount = UnlockService.selected.count
+
     var members: [String] { (all[group]?.all ?? []).filter { !Self.skipMembers.contains($0) } }
     var policy: String { member.isEmpty ? group : member }
 
@@ -171,7 +196,15 @@ struct UnlockView: View {
                         Text("组的当前选择\(all[group]?.now.map { "（\($0)）" } ?? "")").tag("")
                         ForEach(members, id: \.self) { Text($0).tag($0) }
                     }
-                } header: { Text("检测对象") }
+                    NavigationLink { UnlockServicesView { selectedCount = UnlockService.selected.count } } label: {
+                        LabeledContent("检测项目") { Text("\(selectedCount)/\(UnlockService.allCases.count)").monospacedDigit() }
+                    }
+                    .accessibilityIdentifier("unlock.services")
+                    Toggle("切换节点后自动重新检测", isOn: $autoRetest)
+                        .accessibilityIdentifier("unlock.auto")
+                } header: { Text("检测对象") } footer: {
+                    if autoRetest { Text("选「组的当前选择」时，在策略页或首页切换这个组的节点后约 3 秒自动重新检测。") }
+                }
                 .listRowBackground(Theme.card)
 
                 let e = store.entry(policy)
@@ -278,5 +311,64 @@ struct UnlockView: View {
             running = false
             batch = nil
         }
+    }
+}
+
+/// v0.19 解锁检测 → 检测项目: services by category, each one on / off (at least one stays on).
+struct UnlockServicesView: View {
+    var changed: () -> Void
+    @State private var on: Set<UnlockService> = Set(UnlockService.selected)
+
+    var body: some View {
+        List {
+            ForEach(UnlockService.Category.allCases) { c in
+                Section {
+                    ForEach(c.services) { s in
+                        Toggle(isOn: Binding(get: { on.contains(s) }, set: { v in set(s, v) })) {
+                            Label { Text(verbatim: s.title) } icon: { Image(systemName: s.symbol).foregroundStyle(Theme.accent) }
+                        }
+                        .accessibilityIdentifier("unlock.service.\(s.rawValue)")
+                    }
+                } header: {
+                    HStack {
+                        Text(verbatim: c.title)
+                        Spacer()
+                        Button(c.services.allSatisfy { on.contains($0) } ? LocalizedStringKey("全不选") : LocalizedStringKey("全选")) { toggleAll(c) }
+                            .font(.caption).textCase(nil)
+                    }
+                }
+                .listRowBackground(Theme.card)
+            }
+            Section {
+                EmptyView()
+            } footer: {
+                Text("只检测开启的项目，结果按类别显示。每个项目约 1–3 个请求，同时进行，单项最长 10 秒。")
+            }
+        }
+        .listStyle(.insetGrouped)
+        .scrollContentBackground(.hidden)
+        .background(Theme.bg.ignoresSafeArea())
+        .navigationTitle("检测项目")
+        .navigationBarTitleDisplayMode(.inline)
+    }
+
+    func set(_ s: UnlockService, _ v: Bool) {
+        if v { on.insert(s) } else if on.count > 1 { on.remove(s) }
+        save()
+    }
+
+    func toggleAll(_ c: UnlockService.Category) {
+        if c.services.allSatisfy({ on.contains($0) }) {
+            let rest = on.subtracting(c.services)
+            if !rest.isEmpty { on = rest }
+        } else {
+            on.formUnion(c.services)
+        }
+        save()
+    }
+
+    func save() {
+        UnlockService.setSelected(UnlockService.allCases.filter { on.contains($0) })
+        changed()
     }
 }

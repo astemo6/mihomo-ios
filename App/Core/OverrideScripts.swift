@@ -2,6 +2,7 @@ import Foundation
 import JavaScriptCore
 import CryptoKit
 import Darwin
+import Libmihomo
 
 // v0.19 覆写脚本 (override scripts), the Clash Verge / FlClash / Bettbox convention:
 // `function main(config, profileName) { …; return config }` runs in JavaScriptCore in the app whenever the
@@ -305,9 +306,9 @@ final class OverrideScriptStore: ObservableObject {
     /// Fingerprint of the last successful run per profile: source + scripts + switch values.
     private var fingerprints: [String: String] = [:]
 
-    static var dir: URL { AppShared.ensureDir(AppShared.homeURL.appendingPathComponent("override-scripts", isDirectory: true)) }
-    static var indexURL: URL { dir.appendingPathComponent("index.json") }
-    static func contentURL(_ id: String) -> URL { dir.appendingPathComponent("\(id).js") }
+    nonisolated static var dir: URL { AppShared.ensureDir(AppShared.homeURL.appendingPathComponent("override-scripts", isDirectory: true)) }
+    nonisolated static var indexURL: URL { dir.appendingPathComponent("index.json") }
+    nonisolated static func contentURL(_ id: String) -> URL { dir.appendingPathComponent("\(id).js") }
 
     static let template = """
     // 覆写脚本：生成运行配置时调用 main(config, profileName)，返回修改后的配置。

@@ -109,6 +109,7 @@ struct BackupView: View {
     @State private var pendingRestore: Data?
     @State private var message: String?
     @State private var cloudFiles: [URL] = []
+    @State private var encryptedRestore: EncryptedData?
 
     var body: some View {
         List {
@@ -125,11 +126,15 @@ struct BackupView: View {
             .listRowBackground(Theme.card)
 
             Section {
+                NavigationLink { WebDAVView() } label: {
+                    Label("WebDAV 备份", systemImage: "externaldrive.connected.to.line.below")
+                }
+                .accessibilityIdentifier("backup.webdav")
                 NavigationLink { SyncFolderView() } label: {
                     Label("同步文件夹（iCloud 云盘）", systemImage: "arrow.triangle.2.circlepath.icloud")
                 }
             } footer: {
-                Text("选一个 iCloud 云盘文件夹，在多台设备间同步配置、模块和覆写。")
+                Text("WebDAV：备份到坚果云、Nextcloud、群晖等，保留多个版本，可加密。同步文件夹：选一个 iCloud 云盘文件夹，在多台设备间同步配置、模块和覆写。")
             }
             .listRowBackground(Theme.card)
 
@@ -175,6 +180,12 @@ struct BackupView: View {
             Button("恢复", role: .destructive) { if let d = pendingRestore { restore(d) }; pendingRestore = nil }
             Button("取消", role: .cancel) { pendingRestore = nil }
         }
+        .sheet(item: $encryptedRestore) { e in
+            BackupPasswordSheet(data: e.data) { n in
+                encryptedRestore = nil
+                message = String(localized: "已恢复 \(n) 个文件")
+            }
+        }
         .alert("备份", isPresented: Binding(get: { message != nil }, set: { if !$0 { message = nil } })) {
             Button("好") { message = nil }
         } message: { Text(message ?? "") }
@@ -216,18 +227,91 @@ struct BackupView: View {
     }
 
     func restore(_ data: Data) {
+        // v0.19: password-encrypted backups (WebDAV 备份 option) ask for the password first.
+        if BackupCrypto.isEncrypted(data) { encryptedRestore = EncryptedData(data: data); return }
         do {
-            SnapshotStore.shared.capture(String(localized: "恢复备份前"))
-            let n = try BackupManager.restore(data)
-            store.load()
-            store.activeID = AppShared.activeProfileID
-            EngineStore.shared.config = EngineConfig.load()
-            EngineStore.shared.reparseModules()
-            CustomRulesStore.shared.load()
-            message = "已恢复 \(n) 个文件"
-            Task { if vpn.isConnected { _ = await vpn.reload() } }
+            let n = try BackupRestore.apply(data)
+            message = String(localized: "已恢复 \(n) 个文件")
         } catch {
-            message = "恢复失败：\(error.localizedDescription)"
+            message = String(localized: "恢复失败：\(error.localizedDescription)")
+        }
+    }
+}
+
+/// v0.19: restoring a backup file (local, iCloud, WebDAV) and reloading every store that reads it.
+@MainActor
+enum BackupRestore {
+    static func apply(_ data: Data) throws -> Int {
+        SnapshotStore.shared.capture(String(localized: "恢复备份前"))
+        let n = try BackupManager.restore(data)
+        let store = ProfileStore.shared
+        store.load()
+        store.activeID = AppShared.activeProfileID
+        EngineStore.shared.config = EngineConfig.load()
+        EngineStore.shared.reparseModules()
+        CustomRulesStore.shared.load()
+        OverrideScriptStore.shared.load()
+        Task { if VPNManager.shared.isConnected { _ = await VPNManager.shared.reload() } }
+        return n
+    }
+}
+
+struct EncryptedData: Identifiable {
+    let data: Data
+    let id = UUID()
+}
+
+/// Password prompt for an encrypted backup; decrypts off the main thread (PBKDF2), then restores.
+struct BackupPasswordSheet: View {
+    let data: Data
+    let done: (Int) -> Void
+    @Environment(\.dismiss) private var dismiss
+    @State private var password = ""
+    @State private var error: String?
+    @State private var busy = false
+
+    var body: some View {
+        NavigationStack {
+            Form {
+                Section {
+                    SecureField("备份密码", text: $password)
+                        .textContentType(.password)
+                        .accessibilityIdentifier("backup.password")
+                } footer: {
+                    Text("这个备份用密码加密过（AES-256-GCM）。恢复会覆盖同名配置与设置。")
+                }
+                .listRowBackground(Theme.card)
+                if let error { Section { ErrorRow(message: error) }.listRowBackground(Theme.card) }
+            }
+            .scrollContentBackground(.hidden)
+            .background(Theme.bg.ignoresSafeArea())
+            .navigationTitle("加密备份")
+            .navigationBarTitleDisplayMode(.inline)
+            .toolbar {
+                ToolbarItem(placement: .cancellationAction) { Button("取消") { dismiss() } }
+                ToolbarItem(placement: .confirmationAction) {
+                    if busy { ProgressView() } else {
+                        Button("恢复") { restore() }.disabled(password.isEmpty).accessibilityIdentifier("backup.password.restore")
+                    }
+                }
+            }
+        }
+    }
+
+    func restore() {
+        busy = true
+        error = nil
+        let d = data, pw = password
+        Task {
+            defer { busy = false }
+            do {
+                let plain = try await Task.detached(priority: .userInitiated) { try BackupCrypto.decrypt(d, password: pw) }.value
+                let n = try BackupRestore.apply(plain)
+                dismiss()
+                done(n)
+            } catch {
+                self.error = error.localizedDescription
+            }
         }
     }
 }
