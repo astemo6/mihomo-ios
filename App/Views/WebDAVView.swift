@@ -14,6 +14,7 @@ struct WebDAVView: View {
     @State private var pendingRestore: WebDAVFile?
     @State private var encrypted: EncryptedData?
     @State private var pendingDelete: WebDAVFile?
+    @State private var confirmInsecure = false
 
     static let keepChoices = [3, 5, 10, 20, 50]
 
@@ -28,10 +29,21 @@ struct WebDAVView: View {
                     .accessibilityIdentifier("webdav.user")
                 SecureField("密码 / 应用密码", text: $password)
                     .accessibilityIdentifier("webdav.password")
+                if s.isInsecure {
+                    Toggle("允许不安全的 http 连接", isOn: Binding(get: { s.allowInsecure }, set: { v in
+                        if v { confirmInsecure = true } else { s.allowInsecure = false }
+                    }))
+                    .accessibilityIdentifier("webdav.insecure")
+                }
             } header: {
                 Text("服务器")
             } footer: {
-                Text("填写一个文件夹地址（不存在会自动创建）。坚果云等服务请使用「应用密码」。密码保存在钥匙串中。")
+                VStack(alignment: .leading, spacing: 4) {
+                    Text("填写一个文件夹地址（不存在会自动创建）。坚果云等服务请使用「应用密码」。密码保存在钥匙串中。")
+                    if s.isInsecure {
+                        Text("http:// 地址不加密传输：用户名、密码和备份内容在网络上可被看到。请尽量使用 https://。").foregroundStyle(Theme.warn)
+                    }
+                }
             }
             .listRowBackground(Theme.card)
 
@@ -41,6 +53,7 @@ struct WebDAVView: View {
                 }
                 Toggle("包含 MitM 根证书和私钥", isOn: $s.includeCA)
                 Toggle("加密备份", isOn: $s.encrypt)
+                    .disabled(s.includeCA) // a backup with the CA private key is always encrypted
                     .accessibilityIdentifier("webdav.encrypt")
                 if s.encrypt {
                     SecureField("加密密码", text: $encPassword)
@@ -49,9 +62,15 @@ struct WebDAVView: View {
             } header: {
                 Text("选项")
             } footer: {
-                Text(s.encrypt
-                     ? LocalizedStringKey("备份先用 AES-256-GCM 加密（密钥由加密密码经 PBKDF2 生成）再上传；恢复时需要同一个密码，忘记就无法恢复。")
-                     : LocalizedStringKey("每次备份上传一个新文件，超过保留数量时删除最旧的。"))
+                VStack(alignment: .leading, spacing: 4) {
+                    Text(s.encrypt
+                         ? LocalizedStringKey("备份先用 AES-256-GCM 加密（密钥由加密密码经 PBKDF2 生成）再上传；恢复时需要同一个密码，忘记就无法恢复。")
+                         : LocalizedStringKey("每次备份上传一个新文件，超过保留数量时删除最旧的。"))
+                    if s.includeCA { Text("包含根证书私钥时备份总是加密。") }
+                    if !s.encrypt {
+                        Text("未加密：备份里有所有节点的密码和控制密钥，能读取服务器文件的人都能看到。").foregroundStyle(Theme.warn)
+                    }
+                }
             }
             .listRowBackground(Theme.card)
 
@@ -107,6 +126,13 @@ struct WebDAVView: View {
         .navigationTitle("WebDAV 备份")
         .navigationBarTitleDisplayMode(.inline)
         .onChange(of: s) { v in v.save() }
+        .onChange(of: s.includeCA) { on in if on { s.encrypt = true } }
+        .confirmationDialog("允许不安全的 http 连接？", isPresented: $confirmInsecure, titleVisibility: .visible) {
+            Button("仍然允许", role: .destructive) { s.allowInsecure = true }
+            Button("取消", role: .cancel) {}
+        } message: {
+            Text("用户名、密码和备份会以明文经过网络，同一网络中的其他人可以看到。建议只在自己的局域网内这样使用，并开启加密备份。")
+        }
         .onChange(of: password) { _ = Keychain.write(WebDAVSettings.passwordAccount, $0) }
         .onChange(of: encPassword) { _ = Keychain.write(WebDAVSettings.encryptionAccount, $0) }
         .task { if s.configured || WebDAVClient.demo { await list() } }

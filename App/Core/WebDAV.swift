@@ -12,6 +12,8 @@ import Security
 
 enum BackupCrypto {
     static let iterations: UInt32 = 210_000
+    /// Accepted rounds from a file: below is too weak to be ours, above would hang the app (no cancel).
+    static let iterationRange: ClosedRange<UInt32> = 100_000...5_000_000
 
     struct Envelope: Codable {
         var app = "mihomo-ios"
@@ -68,8 +70,9 @@ enum BackupCrypto {
         let dec = JSONDecoder()
         dec.dateDecodingStrategy = .iso8601
         guard let env = try? dec.decode(Envelope.self, from: data), env.app == "mihomo-ios", env.encrypted == "aes-256-gcm",
-              let salt = Data(base64Encoded: env.salt), let blob = Data(base64Encoded: env.data) else { throw CryptoError.badFile }
-        let k = try key(password, salt: salt, rounds: max(env.iterations, 1))
+              let salt = Data(base64Encoded: env.salt), let blob = Data(base64Encoded: env.data),
+              iterationRange.contains(env.iterations) else { throw CryptoError.badFile }
+        let k = try key(password, salt: salt, rounds: env.iterations)
         do {
             return try AES.GCM.open(try AES.GCM.SealedBox(combined: blob), using: k)
         } catch {
@@ -84,6 +87,8 @@ struct WebDAVSettings: Equatable {
     var keep: Int = 10
     var encrypt = false
     var includeCA = false
+    /// The user confirmed an http:// server (credentials and unencrypted backups travel in clear text).
+    var allowInsecure = false
 
     static let passwordAccount = "webdav-password"
     static let encryptionAccount = "webdav-encryption-password"
@@ -97,12 +102,17 @@ struct WebDAVSettings: Equatable {
         s.keep = min(max(d["keep"] as? Int ?? 10, 1), 100)
         s.encrypt = d["encrypt"] as? Bool ?? false
         s.includeCA = d["includeCA"] as? Bool ?? false
+        s.allowInsecure = d["allowInsecure"] as? Bool ?? false
+        if s.includeCA { s.encrypt = true }
         return s
     }
 
     func save() {
-        UserDefaults.standard.set(["url": url, "username": username, "keep": keep, "encrypt": encrypt, "includeCA": includeCA], forKey: Self.key)
+        UserDefaults.standard.set(["url": url, "username": username, "keep": keep, "encrypt": encrypt, "includeCA": includeCA, "allowInsecure": allowInsecure], forKey: Self.key)
     }
+
+    /// http:// (not https://): Basic auth and the backup would be readable on the network.
+    var isInsecure: Bool { folderURL?.scheme?.lowercased() == "http" }
 
     var configured: Bool { URL(string: url.trimmingCharacters(in: .whitespaces))?.scheme?.hasPrefix("http") == true }
 
@@ -139,9 +149,11 @@ protocol WebDAVTransport {
 }
 
 enum WebDAVError: LocalizedError {
-    case notConfigured, http(Int, String), badResponse, auth
+    case notConfigured, http(Int, String), badResponse, auth, insecure, caNeedsEncryption
     var errorDescription: String? {
         switch self {
+        case .insecure: return String(localized: "这是 http:// 地址，密码和备份会以明文传输。请改用 https://，或确认「允许不安全的 http 连接」。")
+        case .caNeedsEncryption: return String(localized: "包含 MitM 根证书私钥的备份必须加密")
         case .notConfigured: return String(localized: "请先填写 WebDAV 地址")
         case .auth: return String(localized: "用户名或密码不对（HTTP 401）")
         case .http(let c, let m): return String(localized: "WebDAV 请求失败：HTTP \(c)") + (m.isEmpty ? "" : " · \(m)")
@@ -320,6 +332,7 @@ enum WebDAVClient {
     static func transport(_ s: WebDAVSettings, password: String? = nil) throws -> WebDAVTransport {
         if demo { return WebDAVMemory.shared }
         guard let folder = s.folderURL else { throw WebDAVError.notConfigured }
+        if s.isInsecure && !s.allowInsecure { throw WebDAVError.insecure }
         return WebDAVHTTP(folder: folder, username: s.username, password: password ?? Keychain.read(WebDAVSettings.passwordAccount) ?? "")
     }
 
@@ -331,6 +344,7 @@ enum WebDAVClient {
     /// Uploads a new backup and keeps the newest `keep`. Returns (file name, files in the backup, removed).
     @MainActor
     static func backup(_ s: WebDAVSettings, password: String? = nil, encryptionPassword: String? = nil) async throws -> (String, Int, Int) {
+        if s.includeCA && !s.encrypt { throw WebDAVError.caNeedsEncryption }
         let t = try transport(s, password: password)
         let (url, n) = try BackupManager.make(includeCA: s.includeCA)
         var data = try Data(contentsOf: url)
@@ -351,7 +365,8 @@ enum WebDAVClient {
         try await t.ensureFolder()
         try await t.put(name, data)
         var removed = 0
-        let all = sorted(try await t.list())
+        // Pruning is best effort: the backup is on the server already.
+        let all = sorted((try? await t.list()) ?? [])
         if all.count > s.keep {
             for f in all.dropFirst(s.keep) where f.name != name {
                 try? await t.delete(f.name)

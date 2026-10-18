@@ -78723,6 +78723,788 @@
           }
         }
       }
+    },
+    "这个系统版本无法限制脚本运行时间，为避免脚本卡死已停止运行": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "This iOS version cannot limit how long a script runs, so scripts are not run (a stuck script could not be stopped)"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "この iOS ではスクリプトの実行時間を制限できないため、停止できなくなるのを防ぐために実行しません"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "이 iOS 버전에서는 스크립트 실행 시간을 제한할 수 없어, 멈춘 스크립트를 막기 위해 실행하지 않습니다"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Эта версия iOS не умеет ограничивать время работы скрипта, поэтому скрипты не запускаются (зависший скрипт нельзя было бы остановить)"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "這個系統版本無法限制腳本執行時間，為避免腳本卡死已停止執行"
+          }
+        }
+      }
+    },
+    "「%@」副本已手动修改，没有随订阅更新。可在配置列表中选择「从订阅重新生成」。": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "“%@” was edited by hand and did not follow the subscription update. Choose “Regenerate from Subscription” in the profile list to replace it."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "「%@」は手動で編集されているため、サブスクリプションの更新に追従しませんでした。プロファイル一覧の「サブスクリプションから再生成」で置き換えられます。"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "'%@'은(는) 직접 수정되어 구독 업데이트를 따르지 않았습니다. 프로필 목록에서 '구독에서 다시 생성'으로 바꿀 수 있습니다."
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "«%@» изменён вручную и не обновлён вместе с подпиской. Чтобы заменить его, выберите «Пересоздать из подписки» в списке профилей."
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "「%@」副本已手動修改，沒有隨訂閱更新。可在配置列表中選擇「從訂閱重新生成」。"
+          }
+        }
+      }
+    },
+    "「%@」无法保持策略组顺序，已恢复为订阅的顺序：%@": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "“%1$@” could not keep its group order and now uses the subscription’s order: %2$@"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "「%1$@」はグループの順序を保てなかったため、サブスクリプションの順序に戻しました：%2$@"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "'%1$@'의 그룹 순서를 유지할 수 없어 구독의 순서로 되돌렸습니다: %2$@"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "«%1$@»: порядок групп сохранить не удалось, используется порядок подписки: %2$@"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "「%@」無法保持策略組順序，已恢復為訂閱的順序：%@"
+          }
+        }
+      }
+    },
+    "重新生成「%@」前": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Before regenerating “%@”"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "「%@」を再生成する前"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "'%@' 다시 생성 전"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Перед пересозданием «%@»"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "重新生成「%@」前"
+          }
+        }
+      }
+    },
+    "从订阅重新生成": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Regenerate from Subscription"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "サブスクリプションから再生成"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "구독에서 다시 생성"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Пересоздать из подписки"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "從訂閱重新生成"
+          }
+        }
+      }
+    },
+    "删除「%@」？": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Delete “%@”?"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "「%@」を削除しますか？"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "'%@'을(를) 삭제할까요?"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Удалить «%@»?"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "刪除「%@」？"
+          }
+        }
+      }
+    },
+    "这些副本是从它复制的：%@。删除后它们会保留为本地配置，不再随订阅更新。": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "These copies were made from it: %@. They stay as local profiles and no longer follow the subscription."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "次の複製はこのプロファイルから作られています：%@。削除後はローカルプロファイルとして残り、サブスクリプションには追従しません。"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "다음 복제본이 이 프로필에서 만들어졌습니다: %@. 삭제하면 로컬 프로필로 남고 더 이상 구독을 따르지 않습니다."
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Из него сделаны копии: %@. Они останутся локальными профилями и перестанут обновляться вместе с подпиской."
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "這些副本是從它複製的：%@。刪除後它們會保留為本地配置，不再隨訂閱更新。"
+          }
+        }
+      }
+    },
+    "副本已手动修改，未随订阅更新": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Edited by hand · not updated with the subscription"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "手動で編集済み · サブスクリプションと一緒に更新されません"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "직접 수정됨 · 구독과 함께 업데이트되지 않음"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Изменено вручную · не обновляется с подпиской"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "副本已手動修改，未隨訂閱更新"
+          }
+        }
+      }
+    },
+    "这是 http:// 地址，密码和备份会以明文传输。请改用 https://，或确认「允许不安全的 http 连接」。": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "This is an http:// address: the password and the backup would travel in clear text. Use https://, or confirm “Allow Insecure http Connection”."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "http:// のアドレスです。パスワードとバックアップが平文で送信されます。https:// を使うか、「安全でない http 接続を許可」を確認してください。"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "http:// 주소입니다. 비밀번호와 백업이 평문으로 전송됩니다. https://를 쓰거나 '안전하지 않은 http 연결 허용'을 확인하세요."
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Это адрес http://: пароль и резервная копия будут переданы открытым текстом. Используйте https:// или подтвердите «Разрешить небезопасное http-подключение»."
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "這是 http:// 地址，密碼和備份會以明文傳輸。請改用 https://，或確認「允許不安全的 http 連線」。"
+          }
+        }
+      }
+    },
+    "包含 MitM 根证书私钥的备份必须加密": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "A backup with the MitM root private key must be encrypted"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "MitM ルート証明書の秘密鍵を含むバックアップは暗号化が必要です"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "MitM 루트 인증서 개인 키가 포함된 백업은 암호화해야 합니다"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Резервную копию с закрытым ключом корневого сертификата MitM нужно шифровать"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "包含 MitM 根證書私鑰的備份必須加密"
+          }
+        }
+      }
+    },
+    "允许不安全的 http 连接": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Allow Insecure http Connection"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "安全でない http 接続を許可"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "안전하지 않은 http 연결 허용"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Разрешить небезопасное http-подключение"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "允許不安全的 http 連線"
+          }
+        }
+      }
+    },
+    "http:// 地址不加密传输：用户名、密码和备份内容在网络上可被看到。请尽量使用 https://。": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "http:// is not encrypted: the user name, password and backup can be seen on the network. Use https:// whenever you can."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "http:// は暗号化されません。ユーザー名、パスワード、バックアップの内容がネットワーク上で見えてしまいます。できるだけ https:// を使ってください。"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "http://는 암호화되지 않습니다. 사용자 이름, 비밀번호, 백업 내용이 네트워크에서 보일 수 있습니다. 가능하면 https://를 사용하세요."
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "http:// не шифруется: имя пользователя, пароль и содержимое резервной копии видны в сети. По возможности используйте https://."
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "http:// 地址不加密傳輸：使用者名稱、密碼和備份內容在網路上可被看到。請儘量使用 https://。"
+          }
+        }
+      }
+    },
+    "包含根证书私钥时备份总是加密。": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Backups that include the root private key are always encrypted."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ルート証明書の秘密鍵を含むバックアップは常に暗号化されます。"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "루트 인증서 개인 키를 포함하면 백업은 항상 암호화됩니다."
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Резервные копии с закрытым ключом корневого сертификата всегда шифруются."
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "包含根證書私鑰時備份總是加密。"
+          }
+        }
+      }
+    },
+    "未加密：备份里有所有节点的密码和控制密钥，能读取服务器文件的人都能看到。": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Not encrypted: the backup holds every node password and the controller secret; anyone who can read the files on the server can see them."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "暗号化なし：バックアップにはすべてのノードのパスワードとコントローラーの秘密鍵が含まれ、サーバー上のファイルを読める人は誰でも見られます。"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "암호화 안 함: 백업에는 모든 노드 비밀번호와 컨트롤러 키가 들어 있어 서버의 파일을 읽을 수 있는 사람은 누구나 볼 수 있습니다."
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Без шифрования: в копии все пароли узлов и секрет контроллера; их увидит любой, кто может читать файлы на сервере."
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "未加密：備份裡有所有節點的密碼和控制金鑰，能讀取伺服器檔案的人都能看到。"
+          }
+        }
+      }
+    },
+    "允许不安全的 http 连接？": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Allow an insecure http connection?"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "安全でない http 接続を許可しますか？"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "안전하지 않은 http 연결을 허용할까요?"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Разрешить небезопасное http-подключение?"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "允許不安全的 http 連線？"
+          }
+        }
+      }
+    },
+    "仍然允许": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Allow Anyway"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "それでも許可"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "그래도 허용"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Всё равно разрешить"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "仍然允許"
+          }
+        }
+      }
+    },
+    "用户名、密码和备份会以明文经过网络，同一网络中的其他人可以看到。建议只在自己的局域网内这样使用，并开启加密备份。": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "The user name, password and backup cross the network in clear text, and others on the same network can see them. Only use this on your own LAN, with encrypted backups turned on."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ユーザー名、パスワード、バックアップが平文でネットワークを通り、同じネットワークの他の人が見られます。自分の LAN 内だけで、暗号化バックアップをオンにして使ってください。"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "사용자 이름, 비밀번호, 백업이 평문으로 네트워크를 지나며 같은 네트워크의 다른 사람이 볼 수 있습니다. 자신의 LAN에서만, 암호화 백업을 켠 채로 사용하세요."
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Имя пользователя, пароль и копия идут по сети открытым текстом, и их видят другие в той же сети. Используйте это только в своей локальной сети и включите шифрование копий."
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "使用者名稱、密碼和備份會以明文經過網路，同一網路中的其他人可以看到。建議只在自己的區域網內這樣使用，並開啟加密備份。"
+          }
+        }
+      }
+    },
+    "配置文件不是 YAML 映射": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "The profile is not a YAML mapping"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "プロファイルが YAML のマッピングではありません"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "프로필이 YAML 매핑이 아닙니다"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Профиль не является YAML-словарём"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "配置檔案不是 YAML 對映"
+          }
+        }
+      }
+    },
+    "策略组条目格式无法识别（锚点或非映射条目）": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "A proxy group entry has a format that can’t be read (an anchor or a non-mapping entry)"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "読み取れない形式のグループ項目があります（アンカーまたはマッピング以外の項目）"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "읽을 수 없는 형식의 그룹 항목이 있습니다(앵커 또는 매핑이 아닌 항목)"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Запись группы в непонятном формате (якорь или запись не-словарь)"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "策略組條目格式無法識別（錨點或非對映條目）"
+          }
+        }
+      }
+    },
+    "有策略组缺少名称": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "A proxy group has no name"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "名前のないグループがあります"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "이름이 없는 그룹이 있습니다"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "У одной из групп нет имени"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "有策略組缺少名稱"
+          }
+        }
+      }
+    },
+    "策略组「%@」重名": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Two proxy groups are named “%@”"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "グループ名「%@」が重複しています"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "그룹 이름 '%@'이(가) 중복됩니다"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Две группы называются «%@»"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "策略組「%@」重名"
+          }
+        }
+      }
+    },
+    "副本已手动修改": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "The copy was edited by hand"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "複製は手動で編集されています"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "복제본이 직접 수정되었습니다"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Копия изменена вручную"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "副本已手動修改"
+          }
+        }
+      }
+    },
+    "配置在脚本运行期间已改变，请重新运行": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "The profile changed while the scripts ran; run them again"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "スクリプトの実行中にプロファイルが変わりました。もう一度実行してください"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "스크립트 실행 중에 프로필이 바뀌었습니다. 다시 실행하세요"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Профиль изменился во время работы скриптов; запустите их снова"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "配置在腳本執行期間已改變，請重新執行"
+          }
+        }
+      }
     }
   },
   "version": "1.0"

@@ -146,13 +146,33 @@ func jsonSafe(v any) any {
 
 // ScriptInput returns the profile at path as a JSON object for override scripts.
 func ScriptInput(profilePath string) (string, error) {
-	b, err := os.ReadFile(profilePath)
-	if err != nil {
-		return "", fmt.Errorf("读取配置失败: %w", err)
-	}
-	raw, err := profileAsMap(b)
+	js, _, err := scriptInput(profilePath)
+	return js, err
+}
+
+// ScriptInputSnapshot is ScriptInput plus the sha256 of the exact bytes it read: "<sha>\n<json>". The app
+// passes the sha to ScriptOutputApplyFor, so output computed from content that changed during the chain
+// (a subscription download, a copy regeneration) is never stored as fresh.
+func ScriptInputSnapshot(profilePath string) (string, error) {
+	js, sha, err := scriptInput(profilePath)
 	if err != nil {
 		return "", err
+	}
+	return sha + "\n" + js, nil
+}
+
+// errScriptSourceChanged: the profile changed while the scripts ran.
+const errScriptSourceChanged = "配置在脚本运行期间已改变，请重新运行"
+
+func scriptInput(profilePath string) (string, string, error) {
+	b, err := os.ReadFile(profilePath)
+	if err != nil {
+		return "", "", fmt.Errorf("读取配置失败: %w", err)
+	}
+	sha := sha256Hex(b)
+	raw, err := profileAsMap(b)
+	if err != nil {
+		return "", "", err
 	}
 	// Bettbox normalisation: `rule:` is an alias of `rules:`; scripts expect proxy-providers to exist.
 	if r, ok := raw["rule"]; ok {
@@ -166,9 +186,9 @@ func ScriptInput(profilePath string) (string, error) {
 	}
 	out, err := json.Marshal(jsonSafe(raw))
 	if err != nil {
-		return "", fmt.Errorf("配置无法转换为 JSON: %w", err)
+		return "", "", fmt.Errorf("配置无法转换为 JSON: %w", err)
 	}
-	return string(out), nil
+	return string(out), sha, nil
 }
 
 // scriptOutputYAML turns the script chain's JSON output into profile YAML.
@@ -216,6 +236,12 @@ func normalizeJSONNumbers(v any) any {
 // Returns "" or the error (nothing is stored on error, the previous output is removed so a broken
 // script never leaves an old result running silently).
 func ScriptOutputApply(home, profilePath, outputJSON, scriptsJSON string) string {
+	return ScriptOutputApplyFor(home, profilePath, outputJSON, scriptsJSON, "")
+}
+
+// ScriptOutputApplyFor is ScriptOutputApply for output computed from the profile content with sha256
+// sourceSHA (from ScriptInputSnapshot): refused when the file no longer has that content. "" = no check.
+func ScriptOutputApplyFor(home, profilePath, outputJSON, scriptsJSON, sourceSHA string) string {
 	src, err := os.ReadFile(profilePath)
 	if err != nil {
 		return "读取配置失败: " + err.Error()
@@ -225,6 +251,9 @@ func ScriptOutputApply(home, profilePath, outputJSON, scriptsJSON string) string
 		_ = os.Remove(yp)
 		_ = os.Remove(mp)
 		return msg
+	}
+	if sourceSHA != "" && sourceSHA != sha256Hex(src) {
+		return fail(errScriptSourceChanged)
 	}
 	y, err := scriptOutputYAML(outputJSON)
 	if err != nil {

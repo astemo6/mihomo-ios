@@ -66,7 +66,7 @@ enum GroupOrder {
     static func clearStoredOrder(_ p: Profile) async -> String? {
         storeOrder(nil, for: p.id)
         guard let src = ProfileStore.shared.source(of: p), src.kind == .remote else { return nil }
-        let changed = await regenerate(p, from: src)
+        let changed = await regenerate(p, from: src).changed
         ProfileStore.shared.objectWillChange.send()
         var msg: String?
         if changed, p.id == AppShared.activeProfileID, VPNManager.shared.isConnected,
@@ -80,7 +80,14 @@ enum GroupOrder {
     /// Saves `names` (display names, in the new order) for profile `p`: into `p` itself when it is an 自定义
     /// copy, otherwise into its copy (created on the first reorder), which then becomes the active profile.
     /// Reloads the core when connected and refreshes the offline view.
+    /// One save at a time (置顶 tapped twice, a drag finishing while 编辑排序 saves): a second save of an original
+    /// profile before the first created its copy would create a second copy.
+    private static var saving = false
+
     static func save(_ names: [String], profile p: Profile) async -> SaveResult {
+        guard !saving else { return SaveResult(saved: false) }
+        saving = true
+        defer { saving = false }
         let edits = GroupEditStore.get(p.id)
         let order = names.map { fileName(of: $0, edits: edits) }
         guard let data = try? JSONEncoder().encode(order) else { return SaveResult(saved: false) }
@@ -89,8 +96,9 @@ enum GroupOrder {
         let store = ProfileStore.shared
         SnapshotStore.shared.capture(String(localized: "排列策略组前"))
 
-        if p.sourceID != nil {
-            // Already a copy: reorder it in place.
+        if p.sourceID != nil || p.id == ProfileStore.manualID {
+            // Already a copy: reorder it in place. 手动节点 too: it is the app's own profile (node adds go to it),
+            // so a copy would leave later manual nodes behind.
             let path = p.fileURL.path
             let r = decode(await Task.detached(priority: .userInitiated) { LibmihomoReorderGroups(home, path, json) }.value)
             if let e = r.error, !e.isEmpty { return SaveResult(saved: false, message: GoText.localize(e)) }
@@ -125,6 +133,11 @@ enum GroupOrder {
             let err = await Task.detached(priority: .userInitiated) { LibmihomoCopyProfileSettings(home, from, to) }.value
             if !err.isEmpty { StartupLog.write("group order copy settings: \(err)", tag: "app") }
             HomeGroupsStore.copy(from: p.id, to: c.id)
+            // Offline selections and the override scripts follow the user to the copy (scripts get new ids).
+            let fromPath = p.fileURL.path, toPath = c.fileURL.path
+            let selErr = await Task.detached(priority: .userInitiated) { LibmihomoCopyProfileSelections(fromPath, toPath) }.value
+            if !selErr.isEmpty { StartupLog.write("group order copy selections: \(selErr)", tag: "app") }
+            OverrideScriptStore.shared.copyScripts(from: p.id, to: c.id)
             store.insertCopy(c, after: p)
         }
         storeOrder(r.order ?? order, for: c.id)
@@ -142,14 +155,27 @@ enum GroupOrder {
         return await save(n, profile: p)
     }
 
+    struct RegenerateResult {
+        var changed = false
+        /// The user edited the copy since it was last generated: left as it is (「从订阅重新生成」 forces it).
+        var modified = false
+        /// The stored order could not be applied (the copy now has the subscription's own order) or the write failed.
+        var error: String?
+    }
+
     /// After the source subscription was updated: rebuilds copy `c` from the fresh source content with the copy's
-    /// saved order. Returns whether the copy file changed.
+    /// saved order. force: also when the user edited the copy.
     @discardableResult
-    nonisolated static func regenerate(_ c: Profile, from src: Profile) async -> Bool {
+    nonisolated static func regenerate(_ c: Profile, from src: Profile, force: Bool = false) async -> RegenerateResult {
         let home = AppShared.homeURL.path, s = src.fileURL.path, d = c.fileURL.path
-        let out = await Task.detached(priority: .utility) { LibmihomoGroupOrderRegenerate(home, s, d) }.value
-        let r = (try? JSONDecoder().decode(Result.self, from: Data(out.utf8))) ?? Result(error: out)
+        let out = await Task.detached(priority: .utility) {
+            force ? LibmihomoGroupOrderRegenerateForced(home, s, d) : LibmihomoGroupOrderRegenerate(home, s, d)
+        }.value
+        struct R: Decodable { var changed: Bool?; var modified: Bool?; var error: String? }
+        let r = (try? JSONDecoder().decode(R.self, from: Data(out.utf8))) ?? R(error: out)
+        if r.modified == true { return RegenerateResult(changed: false, modified: true) }
         if let e = r.error, !e.isEmpty { StartupLog.write("group order regenerate: \(e)", tag: "app") }
-        return r.changed == true
+        return RegenerateResult(changed: r.changed == true, modified: false,
+                                error: (r.error ?? "").isEmpty ? nil : GoText.localize(r.error!))
     }
 }

@@ -66,7 +66,7 @@ enum JSOverrideEngine {
     static let maxLogs = 200
 
     struct ScriptError: Error, Equatable {
-        enum Kind: String { case syntax, runtime, timeout, noMain, notObject, promise, input }
+        enum Kind: String { case syntax, runtime, timeout, noMain, notObject, promise, input, unsupported }
         var kind: Kind
         var message: String
         var line: Int?
@@ -77,6 +77,7 @@ enum JSOverrideEngine {
             case .noMain: return String(localized: "没有找到 main 函数（需要 function main(config) { … return config }）")
             case .notObject: return String(localized: "main() 没有返回配置对象（需要 return config）")
             case .promise: return String(localized: "main() 返回的 Promise 没有完成")
+            case .unsupported: return String(localized: "这个系统版本无法限制脚本运行时间，为避免脚本卡死已停止运行")
             case .syntax:
                 if let line { return String(localized: "语法错误（第 \(line) 行）：\(message)") }
                 return String(localized: "语法错误：\(message)")
@@ -114,7 +115,8 @@ enum JSOverrideEngine {
     }
 
     // Private JavaScriptCore API (JSContextRefPrivate.h), looked up at runtime: a hard execution time limit
-    // for runaway scripts. When it is unavailable the thread watchdog below still returns on time.
+    // for runaway scripts. Without it a runaway script would keep its thread and VM spinning after the watchdog
+    // returned (and every retry would add another), so scripts are refused then (ScriptError.unsupported).
     private typealias SetLimitFn = @convention(c) (JSContextGroupRef?, Double, UnsafeRawPointer?, UnsafeMutableRawPointer?) -> Void
     private static let setLimit: SetLimitFn? = {
         guard let h = dlopen(nil, RTLD_NOW), let sym = dlsym(h, "JSContextGroupSetExecutionTimeLimit") else { return nil }
@@ -207,6 +209,7 @@ enum JSOverrideEngine {
 
     /// Runs the script's top level and reads what it declares for the switch UI.
     static func declared(_ source: String) -> Result<Declared, ScriptError> {
+        if setLimit == nil { return .failure(ScriptError(kind: .unsupported, message: "")) }
         let res = onThread(timeout: extractTimeout) { box in
             let started = Date()
             let ctx = makeContext(box, timeout: extractTimeout)
@@ -231,6 +234,7 @@ enum JSOverrideEngine {
 
     /// main(config, profileName) with the user's switch values. Returns the new config as JSON text.
     static func run(_ source: String, configJSON: String, custom: [String: Bool]?, profileName: String) -> (Result<RunOutput, ScriptError>, [String]) {
+        if setLimit == nil { return (.failure(ScriptError(kind: .unsupported, message: "")), []) }
         let started = Date()
         let customJSON: String = {
             guard let custom, !custom.isEmpty, let d = try? JSONSerialization.data(withJSONObject: custom) else { return "null" }
@@ -383,6 +387,28 @@ final class OverrideScriptStore: ObservableObject {
         persist()
     }
 
+    /// A new 自定义 copy gets the source profile's scripts (new ids, own .js files, same switches and order), so
+    /// switching to the copy keeps them running. Scripts the copy already has are kept.
+    func copyScripts(from src: String, to dst: String) {
+        guard src != dst, byProfile[dst]?.isEmpty ?? true else { return }
+        let list = scripts(src)
+        guard !list.isEmpty else { return }
+        var out: [OverrideScript] = []
+        for s in list {
+            var n = s
+            n.id = UUID().uuidString
+            n.lastRun = nil; n.lastError = nil; n.lastErrorLine = nil; n.lastMillis = nil; n.logs = nil
+            do {
+                try FileManager.default.copyItem(at: Self.contentURL(s.id), to: Self.contentURL(n.id))
+            } catch {
+                try? Self.content(s.id).write(to: Self.contentURL(n.id), atomically: true, encoding: .utf8)
+            }
+            out.append(n)
+        }
+        byProfile[dst] = out
+        persist()
+    }
+
     /// Removes a deleted profile's scripts and output.
     func forget(profile p: Profile) {
         for s in scripts(p.id) { try? FileManager.default.removeItem(at: Self.contentURL(s.id)) }
@@ -470,8 +496,22 @@ final class OverrideScriptStore: ObservableObject {
 
     /// Runs the profile's enabled scripts in order, validates and stores the output (or clears it when no
     /// script is enabled). force: run even when nothing changed since the last successful run.
+    /// In-flight chain per profile: a second apply for the same profile waits for it, then runs (or reuses it).
+    private var inFlight: [String: Task<OverrideChainResult, Never>] = [:]
+
     @discardableResult
     func apply(_ p: Profile, force: Bool) async -> OverrideChainResult {
+        while let t = inFlight[p.id] { _ = await t.value }
+        let t = Task { () -> OverrideChainResult in
+            let r = await self.applyNow(p, force: force)
+            self.inFlight[p.id] = nil
+            return r
+        }
+        inFlight[p.id] = t
+        return await t.value
+    }
+
+    private func applyNow(_ p: Profile, force: Bool) async -> OverrideChainResult {
         let list = scripts(p.id).filter(\.enabled)
         let home = AppShared.homeURL.path, path = p.fileURL.path
         if list.isEmpty {
@@ -526,10 +566,16 @@ final class OverrideScriptStore: ObservableObject {
         var stats: [String: (Int?, String?, Int?, [String])] = [:]
         let started = Date()
         var err: NSError?
-        var config = LibmihomoScriptInput(path, &err)
+        let snap = LibmihomoScriptInputSnapshot(path, &err)
         if let err {
             LibmihomoScriptOutputClear(home, path)
             return (OverrideChainResult(ok: false, message: GoText.localize(err.localizedDescription)), stats)
+        }
+        // "<sha256 of the bytes read>\n<json>": the output is stored only if the file still has that content.
+        var sourceSHA = "", config = snap
+        if let nl = snap.firstIndex(of: "\n") {
+            sourceSHA = String(snap[..<nl])
+            config = String(snap[snap.index(after: nl)...])
         }
         for (s, source) in scripts {
             if source.isEmpty {
@@ -554,7 +600,7 @@ final class OverrideScriptStore: ObservableObject {
             }
         }
         let names = (try? JSONSerialization.data(withJSONObject: scripts.map { $0.0.name })).map { String(decoding: $0, as: UTF8.self) } ?? "[]"
-        let msg = LibmihomoScriptOutputApply(home, path, config, names)
+        let msg = LibmihomoScriptOutputApplyFor(home, path, config, names, sourceSHA)
         let ms = Int(Date().timeIntervalSince(started) * 1000)
         if !msg.isEmpty {
             return (OverrideChainResult(ok: false, message: String(localized: "覆写脚本的结果无法使用：\(GoText.localize(msg))"), millis: ms), stats)
