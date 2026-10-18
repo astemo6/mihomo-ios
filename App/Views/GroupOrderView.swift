@@ -1,98 +1,100 @@
 import SwiftUI
+import UniformTypeIdentifiers
 
-// feat/group-order: 排列策略组. Drag (or 置顶) the groups of the active profile; 保存 writes the order into the
-// profile file (GroupOrder.save) and reloads the core when connected.
+// feat/group-order: reordering 策略组 on the policy page, two ways (user 14:19 「两个都要」):
+// 1. 编辑排序 above the group list switches the page into a reorder list (drag handles, 置顶) with 取消 / 完成;
+// 2. in the normal list, long-press a group's header and drag it onto another group.
+// Both save through GroupOrder.save (written into the profile file, core reloaded when connected).
 
-struct GroupOrderView: View {
-    struct Row: Identifiable, Equatable {
-        var id: String { name }
-        let name: String
-        let kind: String
-        let icon: String?
-        /// false = not in the profile file (added at runtime), keeps its place.
-        let movable: Bool
+struct GroupOrderRow: Identifiable, Equatable {
+    var id: String { name }
+    let name: String
+    let kind: String
+    let icon: String?
+    /// false = not in the profile file (added at runtime), keeps its place.
+    let movable: Bool
+
+    /// Display names of the active profile's file groups (after 策略组编辑 renames).
+    @MainActor static func movableNames(_ p: Profile?) -> Set<String> {
+        guard let p else { return [] }
+        let edits = GroupEditStore.get(p.id)
+        return Set(GroupOrder.fileNames(p).map { GroupOrder.displayName(of: $0, edits: edits) })
     }
 
-    /// The groups as the policy page lists them (display names, current order).
-    let groups: [(name: String, kind: String, icon: String?)]
-    /// Called with the new order after a successful save (optimistic update of the live list).
-    var onSaved: (([String]) -> Void)? = nil
+    /// Puts the non-movable rows back at their original indexes; the movable ones fill the rest in moved order.
+    static func pinFixed(original: [GroupOrderRow], moved: [GroupOrderRow]) -> [GroupOrderRow] {
+        var mov = moved.filter(\.movable).makeIterator()
+        return original.map { $0.movable ? (mov.next() ?? $0) : $0 }
+    }
 
-    @EnvironmentObject var store: ProfileStore
-    @Environment(\.dismiss) private var dismiss
-    @State private var rows: [Row] = []
-    @State private var original: [String] = []
-    @State private var saving = false
-    @State private var message: String?
+    /// `items` in `order` (names); items not in `order` keep their slot.
+    static func arranged<T>(_ items: [T], by order: [String]?, name: (T) -> String) -> [T] {
+        guard let order else { return items }
+        let rank = Dictionary(order.enumerated().map { ($1, $0) }, uniquingKeysWith: { a, _ in a })
+        let listed = items.filter { rank[name($0)] != nil }.sorted { rank[name($0)]! < rank[name($1)]! }
+        var it = listed.makeIterator()
+        return items.map { rank[name($0)] != nil ? (it.next() ?? $0) : $0 }
+    }
+}
+
+/// The reorder list shown in place of the cards while 编辑排序 is on.
+struct GroupReorderList: View {
+    @Binding var rows: [GroupOrderRow]
+    let profile: Profile?
+    var message: String?
+
     @State private var keepsOrder = false
 
-    private var profile: Profile? { store.active }
-    private var changed: Bool { rows.map(\.name) != original }
-
     var body: some View {
-        NavigationStack {
-            List {
-                Section {
-                    ForEach(rows) { r in row(r).moveDisabled(!r.movable) }
-                        .onMove { from, to in move(from, to) }
-                        .deleteDisabled(true)
-                } footer: {
-                    VStack(alignment: .leading, spacing: 4) {
-                        Text("拖动或置顶来调整顺序。保存后写入配置文件，注释和其他内容保持不变，原文件备份为 .bak。")
-                        if rows.contains(where: { !$0.movable }) {
-                            Text("标有「运行时加入」的策略组不在配置文件中，位置保持不变。")
-                        }
-                        if profile?.kind == .remote {
-                            Text("这是订阅配置：顺序也会单独保存，每次更新订阅后自动重新排列。")
-                                .accessibilityIdentifier("grouporder.subhint")
-                        }
+        List {
+            Section {
+                ForEach(rows) { r in row(r).moveDisabled(!r.movable) }
+                    .onMove { from, to in
+                        var all = rows
+                        all.move(fromOffsets: from, toOffset: to)
+                        rows = GroupOrderRow.pinFixed(original: rows, moved: all)
                     }
-                    .accessibilityElement(children: .combine)
-                    .accessibilityIdentifier("grouporder.hint")
+                    .deleteDisabled(true)
+            } footer: {
+                VStack(alignment: .leading, spacing: 4) {
+                    Text("拖动或置顶来调整顺序。保存后写入配置文件，注释和其他内容保持不变，原文件备份为 .bak。")
+                    if rows.contains(where: { !$0.movable }) {
+                        Text("标有「运行时加入」的策略组不在配置文件中，位置保持不变。")
+                    }
+                    if profile?.kind == .remote {
+                        Text("这是订阅配置：顺序也会单独保存，每次更新订阅后自动重新排列。")
+                    }
+                }
+                .accessibilityElement(children: .combine)
+                .accessibilityIdentifier("grouporder.hint")
+            }
+            .listRowBackground(Theme.card)
+
+            if let message {
+                Section { Text(message).font(.footnote).foregroundStyle(Theme.bad).accessibilityIdentifier("grouporder.message") }
+                    .listRowBackground(Theme.card)
+            }
+
+            if profile?.kind == .remote && keepsOrder {
+                Section {
+                    Button("不再保持此顺序") {
+                        if let p = profile { GroupOrder.clearStoredOrder(p) }
+                        keepsOrder = false
+                    }
+                } footer: {
+                    Text("下次更新订阅时恢复订阅自带的顺序。")
                 }
                 .listRowBackground(Theme.card)
-
-                if let message {
-                    Section { Text(message).font(.footnote).foregroundStyle(Theme.bad).accessibilityIdentifier("grouporder.message") }
-                        .listRowBackground(Theme.card)
-                }
-
-                if profile?.kind == .remote && keepsOrder {
-                    Section {
-                        Button("不再保持此顺序") {
-                            if let p = profile { GroupOrder.clearStoredOrder(p) }
-                            keepsOrder = false
-                        }
-                    } footer: {
-                        Text("下次更新订阅时恢复订阅自带的顺序。")
-                    }
-                    .listRowBackground(Theme.card)
-                }
             }
-            .listStyle(.insetGrouped)
-            .scrollContentBackground(.hidden)
-            .background(Theme.bg.ignoresSafeArea())
-            .environment(\.editMode, .constant(.active))
-            .navigationTitle("排列策略组")
-            .navigationBarTitleDisplayMode(.inline)
-            .toolbar {
-                ToolbarItem(placement: .cancellationAction) { Button("取消") { dismiss() } }
-                ToolbarItem(placement: .confirmationAction) {
-                    if saving {
-                        ProgressView()
-                    } else {
-                        Button("保存") { Task { await save() } }
-                            .disabled(!changed)
-                            .accessibilityIdentifier("grouporder.save")
-                    }
-                }
-            }
-            .task { load() }
         }
+        .listStyle(.insetGrouped)
+        .scrollContentBackground(.hidden)
+        .environment(\.editMode, .constant(.active))
+        .onAppear { if let p = profile { keepsOrder = GroupOrder.hasStoredOrder(p) } }
     }
 
     @ViewBuilder
-    func row(_ r: Row) -> some View {
+    func row(_ r: GroupOrderRow) -> some View {
         let display = PolicyGroupDisplay(name: r.name, kind: r.kind, now: nil, members: [], selectable: false)
         HStack(spacing: 12) {
             GroupIconView(group: r.name, profileIcon: r.icon, fallback: display.icon, size: 28)
@@ -122,51 +124,30 @@ struct GroupOrderView: View {
         .accessibilityIdentifier("grouporder.row." + r.name)
     }
 
-    private func load() {
-        guard let p = profile else { return }
-        let edits = GroupEditStore.get(p.id)
-        let inFile = Set(GroupOrder.fileNames(p).map { GroupOrder.displayName(of: $0, edits: edits) })
-        rows = groups.map { Row(name: $0.name, kind: $0.kind, icon: $0.icon, movable: inFile.contains($0.name)) }
-        original = rows.map(\.name)
-        keepsOrder = GroupOrder.hasStoredOrder(p)
-    }
-
-    /// Moves only movable rows; rows that are not in the file stay at their index.
-    private func move(_ from: IndexSet, _ to: Int) {
-        var all = rows
-        all.move(fromOffsets: from, toOffset: to)
-        rows = Self.pinFixed(original: rows, moved: all)
-    }
-
     private func toTop(_ name: String) {
         guard let i = rows.firstIndex(where: { $0.name == name }) else { return }
         var all = rows
         let r = all.remove(at: i)
         all.insert(r, at: 0)
-        withAnimation { rows = Self.pinFixed(original: rows, moved: all) }
+        withAnimation { rows = GroupOrderRow.pinFixed(original: rows, moved: all) }
     }
+}
 
-    /// Puts the non-movable rows back at their original indexes; the movable ones fill the rest in moved order.
-    static func pinFixed(original: [Row], moved: [Row]) -> [Row] {
-        var mov = moved.filter(\.movable).makeIterator()
-        return original.map { $0.movable ? (mov.next() ?? $0) : $0 }
-    }
+/// Direct drag in the normal list: a card is a drop target; entering it moves the dragged group there, the drop
+/// saves.
+struct GroupDropDelegate: DropDelegate {
+    let target: String
+    let enter: (String) -> Void
+    let drop: () -> Void
 
-    private func save() async {
-        guard let p = profile else { return }
-        saving = true
-        defer { saving = false }
-        let names = rows.map(\.name)
-        let r = await GroupOrder.save(names, profile: p)
-        guard r.saved else { message = r.message; return }
-        UINotificationFeedbackGenerator().notificationOccurred(.success)
-        onSaved?(names)
-        if let m = r.message {
-            // Written, but the reload failed: stay and say so.
-            message = m
-            original = names
-            return
-        }
-        dismiss()
-    }
+    func dropEntered(info: DropInfo) { enter(target) }
+    func dropUpdated(info: DropInfo) -> DropProposal? { DropProposal(operation: .move) }
+    func performDrop(info: DropInfo) -> Bool { drop(); return true }
+}
+
+/// Drops that land between cards (the list background) finish the drag too.
+struct GroupListDropDelegate: DropDelegate {
+    let drop: () -> Void
+    func dropUpdated(info: DropInfo) -> DropProposal? { DropProposal(operation: .move) }
+    func performDrop(info: DropInfo) -> Bool { drop(); return true }
 }
