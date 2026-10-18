@@ -1175,10 +1175,10 @@ final class MihomoUITests: MihomoUITestCase {
         snap("sample-profile-list")
     }
 
-    // MARK: 25. feat/group-order: direct long-press drag in the policy list, 编辑排序 mode (置顶 + drag handle,
+    // MARK: 30. feat/group-order: direct long-press drag in the policy list, 编辑排序 mode (置顶 + drag handle,
     // 完成), 置顶 from the group icon's context menu, tap-to-expand still working. Every save rewrites the profile
     // file; the offline list is read back from it.
-    func test25_GroupOrder() {
+    func test30_GroupOrder() {
         launch()
         tab(1)
         let card: (String) -> XCUIElement = { self.app.element(id: "policy.card." + $0) }
