@@ -38,12 +38,27 @@ var (
 	// lastError: written by helpers that run concurrently (8-way offline 测速 calls TestDelay from several
 	// threads); a plain string global was a data race (torn read in LastError). selftest fix.
 	lastError atomic.Value // string
-	// applyEpoch / startTimedOut: Start applies the config in a goroutine with a timeout
-	// (startTimeout). hub.Parse takes no context, so a timed-out apply can't be cancelled;
-	// instead the goroutine tears down the core it installed once it finishes, unless a
-	// newer Start/Reload has taken ownership (tracked by applyEpoch, bumped under mu).
-	applyEpoch    uint64
-	startTimedOut atomic.Bool
+	// applyEpoch: Start applies the config in a goroutine with a timeout (startTimeout).
+	// hub.Parse takes no context, so a timed-out apply can't be cancelled; instead the
+	// goroutine tears down the core it installed once it finishes, unless a newer
+	// Start/Reload has taken ownership (tracked by applyEpoch, bumped under mu).
+	// Who decides the outcome of one Start is a per-Start atomic state (startPending →
+	// startFinished by the apply goroutine, or startPending → startTimedOut by Start's
+	// deadline branch); exactly one CAS wins (hotfix v0.18.1, see Start).
+	applyEpoch uint64
+
+	// Test hooks (nil in production): applyDone runs in the apply goroutine after the
+	// apply returned and before its CAS; atDeadline runs in Start's deadline branch
+	// before its CAS. Used by v0181_test.go to force both interleavings.
+	testHookApplyDone  func()
+	testHookAtDeadline func()
+)
+
+// Outcome of one Start, decided by a single CAS (see Start).
+const (
+	startPending int32 = iota
+	startFinished
+	startTimedOut
 )
 
 // curHomeStr loads the home dir set by Start ("" if it never ran).
@@ -523,18 +538,24 @@ func Start(homeDir, configPath string, tunFd int32) error {
 	// New apply generation: a previous timed-out apply that finishes late must not
 	// leave a zombie core behind (see the stale branch in the goroutine below).
 	epoch := atomic.AddUint64(&applyEpoch, 1)
-	startTimedOut.Store(false)
+	// One state per Start. The apply goroutine and the deadline branch race on it with a
+	// CAS from startPending; the winner alone decides the outcome, so Start can never
+	// report a timeout (running=false) while the goroutine treats the apply as finished
+	// and leaves a live core that Stop can't tear down (v0.18.1 review fix).
+	var state atomic.Int32
 	done := make(chan error, 1)
 	go func() {
 		err := safeApply(homeDir, configPath, tunFd)
-		done <- err
-		if startTimedOut.Load() {
+		if h := testHookApplyDone; h != nil {
+			h()
+		}
+		if !state.CompareAndSwap(startPending, startFinished) {
 			// Start already gave up (timeout). Skip the post-apply side effects and,
 			// if nothing newer took ownership, tear down the core this apply installed
 			// instead of leaving a zombie core (listeners, ports, memory) behind.
 			mu.Lock()
-			stale := atomic.LoadUint64(&applyEpoch) == epoch
-			if stale {
+			current := atomic.LoadUint64(&applyEpoch) == epoch
+			if current {
 				if err == nil {
 					stage("apply finished after Start timeout; tearing down stale core")
 					shutdownStaleApplyLocked()
@@ -547,6 +568,7 @@ func Start(homeDir, configPath string, tunFd int32) error {
 			mu.Unlock()
 			return
 		}
+		done <- err // buffered; Start reads it unless it already returned via the tun-up tick
 		if err != nil {
 			stage("core apply failed: %s", err.Error())
 			return
@@ -589,14 +611,14 @@ func Start(homeDir, configPath string, tunFd int32) error {
 				return nil
 			}
 		case <-deadline.C:
-			// The apply may have finished between the last tick and now; prefer its
-			// real result over reporting a timeout.
-			select {
-			case err := <-done:
-				return complete(err)
-			default:
+			if h := testHookAtDeadline; h != nil {
+				h()
 			}
-			startTimedOut.Store(true)
+			if !state.CompareAndSwap(startPending, startTimedOut) {
+				// The apply goroutine won: it finished and sends its result right after
+				// its CAS (buffered channel), so this receive returns promptly.
+				return complete(<-done)
+			}
 			msg := fmt.Sprintf("内核启动超时（%d 秒）：可能在下载 GeoIP/GeoSite 或规则集 / 节点集。请检查网络，或在 更多 → 诊断 查看启动日志", int(startTimeout/time.Second))
 			stage("core start TIMEOUT after %s, %s", startTimeout, memText())
 			DumpDiagnostics()
@@ -610,6 +632,13 @@ func Start(homeDir, configPath string, tunFd int32) error {
 func Reload(configPath string) error {
 	mu.Lock()
 	defer mu.Unlock()
+	// The extension runs Reload on a background queue, so a reload queued before stopTunnel
+	// can arrive after Stop (curHome is kept). Never re-apply a core then. Checked before the
+	// epoch bump: a refused Reload must not take ownership from a late timed-out Start apply,
+	// or that apply would skip its teardown and leave a zombie core (v0.18.1 review fix).
+	if !running.Load() {
+		return errors.New("core not running")
+	}
 	atomic.AddUint64(&applyEpoch, 1) // take ownership from any late timed-out Start apply
 	home, fd := curHomeStr(), curFd.Load()
 	if home == "" {

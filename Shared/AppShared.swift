@@ -313,19 +313,32 @@ struct CoreOverrides: Codable, Equatable {
         // an older build) into the keychain on first read. The JSON copy stays because the
         // extension's Go bridge reads overrides.json straight into the core (bridge.go
         // readOverrides -> buildRuntime) — dropping it needs a Go-side change.
-        if let s = Keychain.read(Keychain.controllerSecretAccount) {
-            o.secret = s
-        } else if !o.secret.isEmpty {
+        //
+        // v0.18.1: the keychain survives app deletion, overrides.json does not. After a
+        // reinstall the keychain still holds the old secret while the fresh JSON has none,
+        // so the core would start its controller with an empty secret while the app sends
+        // the old one. Whenever the keychain value wins and differs from the JSON copy,
+        // write it back (save()) so both always agree; the secret is never left empty.
+        let kcSecret = Keychain.read(Keychain.controllerSecretAccount)
+        let kcLan = Keychain.read(Keychain.lanSharePasswordAccount)
+        let (secret, secretSync) = Self.reconcile(json: o.secret, keychain: kcSecret)
+        let (lanPassword, lanSync) = Self.reconcile(json: o.lanAuth.password, keychain: kcLan)
+        o.secret = secret
+        o.lanAuth.password = lanPassword
+        var needsSave = secretSync || lanSync
+        // JSON-only value from an older build: migrate it into the keychain.
+        if kcSecret == nil && !o.secret.isEmpty {
             Keychain.write(Keychain.controllerSecretAccount, o.secret)
         }
-        if let p = Keychain.read(Keychain.lanSharePasswordAccount) {
-            o.lanAuth.password = p
-        } else if !o.lanAuth.password.isEmpty {
+        if kcLan == nil && !o.lanAuth.password.isEmpty {
             Keychain.write(Keychain.lanSharePasswordAccount, o.lanAuth.password)
         }
         if o.secret.isEmpty {
             o.secret = CoreOverrides.randomSecret()
-            o.save()
+            needsSave = true
+        }
+        if needsSave {
+            o.save() // writes overrides.json and the keychain, so the Go core and the app agree
         }
         return o
     }
@@ -342,6 +355,14 @@ struct CoreOverrides: Codable, Equatable {
         if let data = try? enc.encode(me) {
             try? data.write(to: AppShared.overridesURL, options: .atomic)
         }
+    }
+
+    /// Keychain wins when it holds a value (it is what the app, widget and extension send);
+    /// otherwise the JSON copy stays. The flag says overrides.json must be rewritten because
+    /// its copy differs from the winning keychain value (e.g. empty after a reinstall).
+    static func reconcile(json: String, keychain: String?) -> (value: String, jsonNeedsSync: Bool) {
+        guard let k = keychain, !k.isEmpty else { return (json, false) }
+        return (k, k != json)
     }
 
     static func randomSecret() -> String {
