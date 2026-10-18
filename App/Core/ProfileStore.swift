@@ -95,6 +95,7 @@ final class ProfileStore: ObservableObject {
         SubRulesStore.set(p.id, nil)
         UsageAlerts.remove(p.id)
         HomeGroupsStore.forget(profile: p.id) // feat/home-groups
+        OverrideScriptStore.shared.forget(profile: p) // v0.19 覆写脚本
         profiles.removeAll { $0.id == p.id }
         if activeID == p.id {
             activeID = profiles.first?.id

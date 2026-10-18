@@ -218,6 +218,7 @@ enum ScheduledUpdates {
         defer { running = false }
         var results = await ProfileStore.shared.autoUpdateIfNeeded()
         results += await NodeSubStore.shared.autoUpdateIfNeeded()
+        await OverrideScriptStore.shared.autoUpdateIfNeeded() // v0.19 remote 覆写脚本
         UsageAlerts.evaluateAll()
         notify(results)
         scheduleBackground()

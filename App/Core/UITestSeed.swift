@@ -63,6 +63,12 @@ enum UITestSeed {
             try seedNodeSubscription()
             EngineStore.shared.addModule(text: moduleText, name: "UITest Panel Module")
             try writeSamples()
+            if args.contains("-UITestDemoScripts"), let demo = store.profiles.first(where: { $0.name == "UITest Demo" }) {
+                OverrideScriptStore.shared.add(demo.id, name: "bettbox-demo.js", source: demoScript)
+                var broken = OverrideScriptStore.shared.add(demo.id, name: "broken.js", source: brokenScript)
+                broken.enabled = false
+                OverrideScriptStore.shared.update(demo.id, broken)
+            }
             await ProfileInspector.shared.load()
             await NodeManagerModel.shared.reload()
         } catch {
@@ -74,6 +80,15 @@ enum UITestSeed {
             ImportRouter.shared.handle(url: url)
         }
         if let tab = value(after: "-UITestTab").flatMap(Int.init) { ImportRouter.shared.selectedTab = tab }
+        // v0.19 覆写脚本 of the demo profile (the entry is a context-menu / swipe action on 配置).
+        if value(after: "-UITestScreen") == "scripts", let p = store.active, let top = ImportRouter.topViewController() {
+            let root = NavigationStack { OverrideScriptsView(profile: p) }
+                .environmentObject(VPNManager.shared)
+                .environmentObject(ProfileStore.shared)
+            let vc = UIHostingController(rootView: AnyView(root))
+            vc.overrideUserInterfaceStyle = AppAppearance.current.style
+            top.present(vc, animated: false)
+        }
         // Pages that are only linked while connected (panels): presented directly.
         if value(after: "-UITestScreen") == "panels", let top = ImportRouter.topViewController() {
             let root = NavigationStack { PanelsView() }
@@ -188,6 +203,32 @@ enum UITestSeed {
       - DOMAIN-KEYWORD,netflix,Streaming
       - IP-CIDR,192.168.0.0/16,DIRECT,no-resolve
       - MATCH,Final
+    """
+
+    /// v0.19 覆写脚本 demo: Bettbox-compatible switches (2 policy-group switches + 2 others).
+    static let demoScript = """
+    const Compatible_With_Bettbox = { ruleOptionsEnable: true, policyGroupOptions: ['AI', 'Video'] };
+    const ruleOptionsEnable = { AI: true, Video: true, 'Block Ads': false, 'Low Ratio': false };
+    function main(config, profileName) {
+      const names = (config.proxies || []).map((p) => p.name);
+      const groups = config['proxy-groups'] || [];
+      const extra = [];
+      if (ruleOptionsEnable.AI) extra.push({ name: 'AI', type: 'select', proxies: ['Proxy', ...names] });
+      if (ruleOptionsEnable.Video) extra.push({ name: 'Video', type: 'select', proxies: ['Proxy', 'DIRECT'] });
+      const rules = [];
+      if (ruleOptionsEnable.AI) rules.push('DOMAIN-SUFFIX,openai.com,AI');
+      if (ruleOptionsEnable.Video) rules.push('DOMAIN-SUFFIX,youtube.com,Video');
+      if (ruleOptionsEnable['Block Ads']) rules.push('DOMAIN-KEYWORD,adservice,REJECT');
+      console.log('profile', profileName, 'groups', extra.length);
+      return { ...config, 'proxy-groups': [...groups, ...extra], rules: [...rules, ...(config.rules || [])] };
+    }
+    """
+
+    static let brokenScript = """
+    function main(config) {
+      const x = config.proxies.length;
+      throw new Error('boom ' + x);
+    }
     """
 
     static let providerYAML = """

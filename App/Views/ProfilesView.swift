@@ -13,6 +13,7 @@ struct ProfilesView: View {
     @State private var subRulesFor: Profile?
     @State private var showSubs = false
     @State private var showSample = false
+    @State private var scriptsFor: Profile?
 
     var body: some View {
         NavigationStack {
@@ -49,6 +50,7 @@ struct ProfilesView: View {
                                 if p.id != ProfileStore.manualID {
                                     Button { subRulesFor = p } label: { Label("节点处理", systemImage: "line.3.horizontal.decrease.circle") }.tint(.teal)
                                 }
+                                Button { scriptsFor = p } label: { Label("脚本", systemImage: "curlybraces") }.tint(.purple)
                             }
                             .swipeActions(edge: .leading) {
                                 if p.kind == .remote {
@@ -64,13 +66,14 @@ struct ProfilesView: View {
                                 if p.id != ProfileStore.manualID {
                                     Button { subRulesFor = p } label: { Label("节点处理（过滤 / 重命名 / 排序）", systemImage: "line.3.horizontal.decrease.circle") }
                                 }
+                                Button { scriptsFor = p } label: { Label("覆写脚本", systemImage: "curlybraces") } // v0.19
                                 Button { editing = p } label: { Label(LocalizedStringKey(p.kind == .remote ? "查看 YAML" : "编辑 YAML"), systemImage: p.kind == .remote ? "doc.text" : "pencil") }
                                 Button(role: .destructive) { store.delete(p) } label: { Label("删除", systemImage: "trash") }
                             }
                             .listRowBackground(Theme.card)
                     }
                 } footer: {
-                    if !store.profiles.isEmpty { Text("轻点切换当前配置；左滑编辑、节点处理或删除，右滑更新订阅。") }
+                    if !store.profiles.isEmpty { Text("轻点切换当前配置；左滑编辑、节点处理、覆写脚本或删除，右滑更新订阅。") }
                 }
             }
             .listStyle(.insetGrouped)
@@ -107,6 +110,13 @@ struct ProfilesView: View {
                 NavigationStack {
                     SubscriptionRulesView(profile: p)
                         .toolbar { ToolbarItem(placement: .cancellationAction) { Button("取消") { subRulesFor = nil } } }
+                }
+                .environmentObject(store)
+            }
+            .sheet(item: $scriptsFor) { p in
+                NavigationStack {
+                    OverrideScriptsView(profile: p)
+                        .toolbar { ToolbarItem(placement: .cancellationAction) { Button("完成") { scriptsFor = nil } } }
                 }
                 .environmentObject(store)
             }
@@ -187,6 +197,7 @@ struct ProfileRow: View {
     let profile: Profile
     let active: Bool
     let updating: Bool
+    @ObservedObject private var scripts = OverrideScriptStore.shared
 
     var body: some View {
         HStack(alignment: .top, spacing: 12) {
@@ -225,6 +236,17 @@ struct ProfileRow: View {
                 if let r = SubRulesStore.get(profile.id), r.enabled, !r.isEmpty {
                     Label(r.summary, systemImage: "line.3.horizontal.decrease.circle")
                         .font(.caption2).foregroundStyle(Theme.accent)
+                }
+                // v0.19 覆写脚本
+                let scriptCount = scripts.enabledCount(profile.id)
+                if scriptCount > 0 {
+                    if let r = scripts.lastResult[profile.id], !r.ok {
+                        Label("覆写脚本出错", systemImage: "exclamationmark.triangle.fill")
+                            .font(.caption2).foregroundStyle(Theme.bad)
+                    } else {
+                        Label("覆写脚本 \(scriptCount)", systemImage: "curlybraces")
+                            .font(.caption2).foregroundStyle(Theme.accent)
+                    }
                 }
                 if let d = profile.lastUpdated {
                     Text("更新于 \(d.formatted(.relative(presentation: .named)))")

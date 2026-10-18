@@ -97,6 +97,13 @@ final class HomePanelStore: ObservableObject {
         savePinned()
     }
 
+    /// v0.19 首页卡片: built-in tiles live in the same pinned list.
+    func pinBuiltin(_ t: BuiltinTile) {
+        if !model.pinned.contains(t.id) { model.pinned.append(t.id) }
+        hidden.remove(t.id)
+        savePinned()
+    }
+
     func unpin(_ id: String) {
         model.pinned.removeAll { $0 == id }
         savePinned()
@@ -132,7 +139,7 @@ final class HomePanelStore: ObservableObject {
         UserDefaults.standard.set(Array(hidden), forKey: Self.hiddenKey)
         if let d = try? JSONEncoder().encode(tasks) { UserDefaults.standard.set(d, forKey: Self.tasksKey) }
         let body: [String: Any] = [
-            "visible": visibleIDs,
+            "visible": visibleIDs.filter { !BuiltinTile.isBuiltin($0) }, // v0.19 tiles are app-drawn
             "tasks": tasks.map { t -> [String: Any] in
                 var m: [String: Any] = ["id": t.id, "interval": t.interval]
                 if let p = t.params { m["params"] = p }
@@ -154,7 +161,7 @@ final class HomePanelStore: ObservableObject {
     /// at most, when Home opens) has passed.
     func refreshStaleVisible() async {
         let now = Date().timeIntervalSince1970
-        let due = visibleIDs.compactMap { id in model.panels.first { $0.id == id } }.filter { p in
+        let due = visibleIDs.filter { !BuiltinTile.isBuiltin($0) }.compactMap { id in model.panels.first { $0.id == id } }.filter { p in
             guard p.script != nil, !p.running else { return false }
             let every = Double(max(p.interval ?? 0, 60))
             return (p.updated ?? 0) == 0 || now - (p.updated ?? 0) > every
@@ -177,6 +184,7 @@ struct HomePanelsSection: View {
 
     var body: some View {
         let items = home.visibleIDs.compactMap { home.item($0, connected: vpn.isConnected) }
+        let rows = HomeRow.rows(home.visibleIDs) { home.item($0, connected: vpn.isConnected) }
         VStack(spacing: 14) {
             if !model.pinned.isEmpty {
                 HStack {
@@ -190,16 +198,37 @@ struct HomePanelsSection: View {
                 .padding(.horizontal, 4)
                 .padding(.bottom, -6)
             }
-            ForEach(items) { e in
-                PanelCard(p: e.item, refreshing: e.live && (model.refreshing.contains(e.item.id) || e.item.running), offline: !e.live) {
-                    Task { await model.refresh(e.item) }
+            ForEach(rows) { row in
+                switch row {
+                case .panel(let e):
+                    PanelCard(p: e.item, refreshing: e.live && (model.refreshing.contains(e.item.id) || e.item.running), offline: !e.live) {
+                        Task { await model.refresh(e.item) }
+                    }
+                    .contextMenu {
+                        Button { home.setHidden(e.item.id, true) } label: { Label("在首页隐藏", systemImage: "eye.slash") }
+                        Button { editing = true } label: { Label("编辑首页面板", systemImage: "slider.horizontal.3") }
+                        PanelEditButton { editPanel = e.item }
+                        Button(role: .destructive) { home.unpin(e.item.id) } label: { Label("取消固定", systemImage: "pin.slash") }
+                    }
+                case .wide(let t):
+                    tile(t)
+                case .pair(let a, let b):
+                    HStack(alignment: .top, spacing: 12) {
+                        tile(a)
+                        if let b { tile(b) } else { Color.clear.frame(maxWidth: .infinity) }
+                    }
+                    .fixedSize(horizontal: false, vertical: true)
                 }
-                .contextMenu {
-                    Button { home.setHidden(e.item.id, true) } label: { Label("在首页隐藏", systemImage: "eye.slash") }
-                    Button { editing = true } label: { Label("编辑首页面板", systemImage: "slider.horizontal.3") }
-                    PanelEditButton { editPanel = e.item }
-                    Button(role: .destructive) { home.unpin(e.item.id) } label: { Label("取消固定", systemImage: "pin.slash") }
+            }
+            if model.pinned.isEmpty {
+                // v0.19: the way in when nothing is pinned yet (built-in cards need no module).
+                Button { editing = true } label: {
+                    Label("添加首页卡片", systemImage: "plus.circle")
+                        .font(.footnote.weight(.semibold))
                 }
+                .buttonStyle(.borderless)
+                .frame(maxWidth: .infinity)
+                .accessibilityIdentifier("home.addTiles")
             }
             if vpn.isConnected && !model.panels.isEmpty {
                 NavigationLink { PanelsView() } label: {
@@ -239,6 +268,17 @@ struct HomePanelsSection: View {
     }
 }
 
+extension HomePanelsSection {
+    func tile(_ t: BuiltinTile) -> some View {
+        BuiltinTileView(tile: t)
+            .contextMenu {
+                Button { home.setHidden(t.id, true) } label: { Label("在首页隐藏", systemImage: "eye.slash") }
+                Button { editing = true } label: { Label("编辑首页面板", systemImage: "slider.horizontal.3") }
+                Button(role: .destructive) { home.unpin(t.id) } label: { Label("取消固定", systemImage: "pin.slash") }
+            }
+    }
+}
+
 // MARK: - Home editing
 
 struct HomePanelsEditor: View {
@@ -254,7 +294,7 @@ struct HomePanelsEditor: View {
             List {
                 Section {
                     if model.pinned.isEmpty {
-                        EmptyStateRow(icon: "pin", title: "还没有固定的面板", message: "在「面板」页长按面板，或在脚本任务详情里点「固定到首页」。")
+                        EmptyStateRow(icon: "pin", title: "还没有固定的面板", message: "从下面的「内置卡片」添加，或在「面板」页长按面板、在脚本任务详情里点「固定到首页」。")
                     }
                     ForEach(model.pinned, id: \.self) { id in row(id) }
                         .onMove { home.move(from: $0, to: $1) }
@@ -263,6 +303,32 @@ struct HomePanelsEditor: View {
                     Text("首页面板")
                 } footer: {
                     Text("拖动调整顺序。关闭开关的面板保留固定，但不在首页显示，也不会在后台刷新。")
+                }
+                .listRowBackground(Theme.card)
+
+                Section {
+                    let missing = BuiltinTile.allCases.filter { !model.pinned.contains($0.id) }
+                    if missing.isEmpty {
+                        Text("内置卡片都已添加。").font(.footnote).foregroundStyle(.secondary)
+                    }
+                    ForEach(missing) { t in
+                        Button { home.pinBuiltin(t) } label: {
+                            HStack(spacing: 10) {
+                                Image(systemName: t.icon).foregroundStyle(Theme.accent).frame(width: 24)
+                                VStack(alignment: .leading, spacing: 2) {
+                                    Text(verbatim: t.title).font(.subheadline).foregroundStyle(.primary)
+                                    Text(verbatim: t.caption).font(.caption2).foregroundStyle(.secondary)
+                                }
+                                Spacer(minLength: 6)
+                                Image(systemName: "plus.circle.fill").foregroundStyle(Theme.good)
+                            }
+                        }
+                        .accessibilityIdentifier("homepanels.add.\(t.rawValue)")
+                    }
+                } header: {
+                    Text("内置卡片")
+                } footer: {
+                    Text("网速、流量、运行时长、出口 IP（默认打码）、内网 IP 和内存，由 App 绘制，不需要模块。两张小卡片并排显示。")
                 }
                 .listRowBackground(Theme.card)
 
@@ -292,6 +358,25 @@ struct HomePanelsEditor: View {
 
     @ViewBuilder
     func row(_ id: String) -> some View {
+        if let t = BuiltinTile.from(id) {
+            HStack(spacing: 10) {
+                Image(systemName: t.icon).foregroundStyle(Theme.accent).frame(width: 24)
+                VStack(alignment: .leading, spacing: 2) {
+                    Text(verbatim: t.title).font(.subheadline).lineLimit(1)
+                    Text("内置卡片").font(.caption2).foregroundStyle(.secondary)
+                }
+                Spacer(minLength: 6)
+                Toggle("在首页显示", isOn: Binding(get: { !home.hidden.contains(id) }, set: { home.setHidden(id, !$0) }))
+                    .labelsHidden()
+            }
+            .accessibilityIdentifier("homepanels.row.\(t.rawValue)")
+        } else {
+            panelRow(id)
+        }
+    }
+
+    @ViewBuilder
+    func panelRow(_ id: String) -> some View {
         let shown = home.item(id, connected: vpn.isConnected)?.item
         let task = home.tasks.first { $0.panelID == id }
         HStack(spacing: 10) {
