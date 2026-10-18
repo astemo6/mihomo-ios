@@ -258,8 +258,12 @@ struct ConnectionView: View {
                 if lanAuthIncomplete {
                     Text("用户名和密码都填写才会启用认证。").font(.caption).foregroundStyle(Theme.warn)
                 }
-                NavigationLink { LanUsersView(users: $o.lanUsers) } label: {
-                    LabeledContent("其他用户") { Text("\(o.lanUsers.filter { !$0.username.isEmpty && !$0.password.isEmpty }.count)").monospacedDigit() }
+                if o.lanAuth.username.contains(":") {
+                    // mihomo splits "user:pass" at the first ':', so this user could never sign in (v0.19.1).
+                    Text("用户名不能包含冒号").font(.caption).foregroundStyle(Theme.warn)
+                }
+                NavigationLink { LanUsersView(users: $o.lanUsers, mainUser: o.lanAuth.password.isEmpty ? "" : o.lanAuth.username) } label: {
+                    LabeledContent("其他用户") { Text("\(LanUsersView.validCount(o.lanUsers, mainUser: o.lanAuth))").monospacedDigit() }
                 }
                 .accessibilityIdentifier("lan.users")
                 if !vpn.isConnected {
@@ -498,6 +502,25 @@ enum LANInfo {
 /// v0.19 局域网多用户: extra username / password pairs for 局域网共享 (each device or person its own login).
 struct LanUsersView: View {
     @Binding var users: [CoreOverrides.LanAuth]
+    /// The 连接方式 user: an extra user with the same name is ignored by the core (v0.19.1: now warned).
+    var mainUser: String = ""
+
+    /// Extra users the core will accept (same rules as bridge lanCredentials).
+    static func validCount(_ users: [CoreOverrides.LanAuth], mainUser: CoreOverrides.LanAuth) -> Int {
+        var seen = Set<String>()
+        if !mainUser.username.isEmpty && !mainUser.password.isEmpty {
+            seen.insert(mainUser.username)
+            seen.insert(mainUser.username.trimmingCharacters(in: .whitespacesAndNewlines))
+        }
+        var n = 0
+        for u in users {
+            let name = u.username.trimmingCharacters(in: .whitespacesAndNewlines)
+            guard !name.isEmpty, !u.password.isEmpty, !name.contains(":"), !seen.contains(name) else { continue }
+            seen.insert(name)
+            n += 1
+        }
+        return n
+    }
 
     var body: some View {
         List {
@@ -541,7 +564,10 @@ struct LanUsersView: View {
         if name.isEmpty && u.password.isEmpty { return nil }
         if name.contains(":") { return String(localized: "用户名不能包含冒号") }
         if name.isEmpty || u.password.isEmpty { return String(localized: "用户名和密码都填写才会生效") }
-        if users.prefix(i).contains(where: { $0.username.trimmingCharacters(in: .whitespaces) == name }) { return String(localized: "用户名重复，不会生效") }
+        let main = mainUser.trimmingCharacters(in: .whitespacesAndNewlines)
+        if (!main.isEmpty && main == name) || users.prefix(i).contains(where: { $0.username.trimmingCharacters(in: .whitespaces) == name }) {
+            return String(localized: "用户名重复，不会生效")
+        }
         return nil
     }
 }

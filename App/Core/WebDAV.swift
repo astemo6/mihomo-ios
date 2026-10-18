@@ -114,15 +114,30 @@ struct WebDAVSettings: Equatable {
     /// http:// (not https://): Basic auth and the backup would be readable on the network.
     var isInsecure: Bool { folderURL?.scheme?.lowercased() == "http" }
 
-    var configured: Bool { URL(string: url.trimmingCharacters(in: .whitespaces))?.scheme?.hasPrefix("http") == true }
+    var configured: Bool { folderURL != nil }
 
     /// The folder URL with a trailing slash.
     var folderURL: URL? {
         var s = url.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !s.isEmpty else { return nil }
         if !s.hasSuffix("/") { s += "/" }
-        guard let u = URL(string: s), u.scheme?.hasPrefix("http") == true else { return nil }
+        guard let u = Self.parseURL(s), u.scheme?.lowercased().hasPrefix("http") == true, u.host != nil else { return nil }
         return u
+    }
+
+    /// v0.19.1: folder names with spaces or non-ASCII characters (「我的坚果云/备份」) as typed. URL(string:)
+    /// rejects them before iOS 17, which left the page saying 「请先填写 WebDAV 地址」. Already-encoded URLs
+    /// (%E6…) are kept as they are.
+    static func parseURL(_ s: String) -> URL? {
+        if let u = URL(string: s) { return u }
+        guard let schemeEnd = s.range(of: "://") else { return nil }
+        let afterScheme = s[schemeEnd.upperBound...]
+        let slash = afterScheme.firstIndex(of: "/") ?? afterScheme.endIndex
+        let head = String(s[..<slash]), path = String(s[slash...])
+        var allowed = CharacterSet.urlPathAllowed
+        allowed.insert("%")
+        guard let enc = path.addingPercentEncoding(withAllowedCharacters: allowed) else { return nil }
+        return URL(string: head + enc)
     }
 }
 
@@ -203,11 +218,26 @@ final class WebDAVHTTP: WebDAVTransport {
         let (d, code) = try await request(folder, "PROPFIND", headers: ["Depth": "0", "Content-Type": "application/xml"])
         if code == 207 || code == 200 { return }
         if code == 404 {
-            let (d2, c2) = try await request(folder, "MKCOL")
-            try check(c2, d2, ok: [201, 405])
+            try await makeCollection(folder, depth: 0)
             return
         }
         try check(code, d, ok: [207, 200])
+    }
+
+    /// MKCOL; a 409 means a parent folder is missing too (RFC 4918 §9.3.1; 坚果云 / Nextcloud with a nested
+    /// path such as …/dav/Mihomo/backup/), so the parents are created first, at most 8 levels up.
+    func makeCollection(_ url: URL, depth: Int) async throws {
+        let (d, c) = try await request(url, "MKCOL")
+        if c == 409, depth < 8 {
+            let parent = url.deletingLastPathComponent()
+            if parent.path.count > 1, parent != url {
+                try await makeCollection(parent, depth: depth + 1)
+                let (d2, c2) = try await request(url, "MKCOL")
+                try check(c2, d2, ok: [201, 405])
+                return
+            }
+        }
+        try check(c, d, ok: [201, 405])
     }
 
     static let propfindBody = Data("""

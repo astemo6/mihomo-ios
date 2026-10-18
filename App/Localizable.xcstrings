@@ -79505,6 +79505,40 @@
           }
         }
       }
+    },
+    "备份文件已损坏：%@": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "The backup file is damaged: %@"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "バックアップファイルが壊れています：%@"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "백업 파일이 손상되었습니다: %@"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Файл резервной копии повреждён: %@"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "備份檔案已損壞：%@"
+          }
+        }
+      }
     }
   },
   "version": "1.0"

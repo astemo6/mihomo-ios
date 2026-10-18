@@ -27,6 +27,15 @@ final class PacketTunnelProvider: NEPacketTunnelProvider {
     private var traffic: TrafficRecorder?
     private var liveStats: LiveStatsSampler?
     private var network: NetworkWatcher?
+    /// v0.19.1: set by stopTunnel. A stop that arrives while the core is still starting (user taps 断开 during
+    /// 连接中…) must not be followed by the start path launching MemoryGuard / TrafficRecorder / NetworkWatcher
+    /// timers in an extension that is going away; the late start stops the core it brought up instead.
+    private let stopLock = NSLock()
+    private var _stopped = false
+    private var stopped: Bool {
+        stopLock.lock(); defer { stopLock.unlock() }
+        return _stopped
+    }
 
     override func startTunnel(options: [String: NSObject]?, completionHandler: @escaping (Error?) -> Void) {
         TunnelErrorLog.clear()
@@ -115,6 +124,12 @@ final class PacketTunnelProvider: NEPacketTunnelProvider {
                     completionHandler(Self.error("内核启动失败：\(err.localizedDescription)"))
                     return
                 }
+                if self.stopped {
+                    StartupLog.write("stopTunnel arrived during core start: stopping the core again")
+                    LibmihomoStop()
+                    completionHandler(Self.error("已断开"))
+                    return
+                }
                 let guardian = MemoryGuard()
                 guardian.start()
                 self.memoryGuard = guardian
@@ -184,6 +199,7 @@ final class PacketTunnelProvider: NEPacketTunnelProvider {
         let why = TunnelStopReason.describe(reason.rawValue)
         StartupLog.write("stopTunnel reason=\(reason.rawValue)（\(why)）, \(ProcessMemory.summary()), bridge \(bridge?.stats ?? "-")")
         TunnelStopReason.record(reason.rawValue)
+        stopLock.lock(); _stopped = true; stopLock.unlock()
         traffic?.stop() // flushes the last delta
         liveStats?.stop()
         liveStats = nil
@@ -209,10 +225,13 @@ final class PacketTunnelProvider: NEPacketTunnelProvider {
             // Never block the NE callback thread on it: handleAppMessage must stay responsive,
             // otherwise an in-flight reload delays stopTunnel's completion and iOS may kill
             // the extension. The completionHandler may be called asynchronously.
+            // Read `network` here, on the provider's queue: stopTunnel clears it there too (v0.19.1, was read
+            // from the background queue while stopTunnel could be writing it).
+            let nw = network
             DispatchQueue.global(qos: .userInitiated).async {
                 var err: NSError?
                 LibmihomoReload(profile.path, &err)
-                self.network?.refreshSettings() // settings saved by the app before it asked for the reload
+                nw?.refreshSettings() // settings saved by the app before it asked for the reload
                 completionHandler?((err?.localizedDescription ?? "").data(using: .utf8))
             }
         case .directIP:

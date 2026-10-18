@@ -563,13 +563,25 @@ final class OverrideScriptStore: ObservableObject {
     /// The chain itself (off the main actor). Per script: millis, error, error line, console output.
     nonisolated static func runChain(home: String, path: String, profileName: String, scripts: [(OverrideScript, String)])
         -> (OverrideChainResult, [String: (Int?, String?, Int?, [String])]) {
+        // v0.19.1: the profile can change while the chain runs (a subscription download or copy regeneration
+        // landing mid-run); Go then refuses the output. Run once more on the new content before reporting it,
+        // instead of failing the connect / reload with 「请重新运行」.
+        var out = runChainCore(home: home, path: path, profileName: profileName, scripts: scripts)
+        if out.2 {
+            out = runChainCore(home: home, path: path, profileName: profileName, scripts: scripts)
+        }
+        return (out.0, out.1)
+    }
+
+    nonisolated private static func runChainCore(home: String, path: String, profileName: String, scripts: [(OverrideScript, String)])
+        -> (OverrideChainResult, [String: (Int?, String?, Int?, [String])], Bool) {
         var stats: [String: (Int?, String?, Int?, [String])] = [:]
         let started = Date()
         var err: NSError?
         let snap = LibmihomoScriptInputSnapshot(path, &err)
         if let err {
             LibmihomoScriptOutputClear(home, path)
-            return (OverrideChainResult(ok: false, message: GoText.localize(err.localizedDescription)), stats)
+            return (OverrideChainResult(ok: false, message: GoText.localize(err.localizedDescription)), stats, false)
         }
         // "<sha256 of the bytes read>\n<json>": the output is stored only if the file still has that content.
         var sourceSHA = "", config = snap
@@ -581,7 +593,7 @@ final class OverrideScriptStore: ObservableObject {
             if source.isEmpty {
                 stats[s.id] = (nil, String(localized: "脚本内容为空"), nil, [])
                 LibmihomoScriptOutputClear(home, path)
-                return (OverrideChainResult(ok: false, message: String(localized: "覆写脚本「\(s.name)」：脚本内容为空"), failedScriptID: s.id), stats)
+                return (OverrideChainResult(ok: false, message: String(localized: "覆写脚本「\(s.name)」：脚本内容为空"), failedScriptID: s.id), stats, false)
             }
             // Only the switch values the script declares now (a renamed key is not passed on).
             var custom: [String: Bool]? = nil
@@ -596,14 +608,15 @@ final class OverrideScriptStore: ObservableObject {
             case .failure(let e):
                 stats[s.id] = (nil, e.text, e.line, logs)
                 LibmihomoScriptOutputClear(home, path)
-                return (OverrideChainResult(ok: false, message: String(localized: "覆写脚本「\(s.name)」：\(e.text)"), failedScriptID: s.id), stats)
+                return (OverrideChainResult(ok: false, message: String(localized: "覆写脚本「\(s.name)」：\(e.text)"), failedScriptID: s.id), stats, false)
             }
         }
         let names = (try? JSONSerialization.data(withJSONObject: scripts.map { $0.0.name })).map { String(decoding: $0, as: UTF8.self) } ?? "[]"
         let msg = LibmihomoScriptOutputApplyFor(home, path, config, names, sourceSHA)
         let ms = Int(Date().timeIntervalSince(started) * 1000)
         if !msg.isEmpty {
-            return (OverrideChainResult(ok: false, message: String(localized: "覆写脚本的结果无法使用：\(GoText.localize(msg))"), millis: ms), stats)
+            return (OverrideChainResult(ok: false, message: String(localized: "覆写脚本的结果无法使用：\(GoText.localize(msg))"), millis: ms), stats,
+                    msg == "配置在脚本运行期间已改变，请重新运行")
         }
         var res = OverrideChainResult(ok: true, message: "", millis: ms)
         if let o = try? JSONSerialization.jsonObject(with: Data(config.utf8)) as? [String: Any] {
@@ -611,7 +624,7 @@ final class OverrideScriptStore: ObservableObject {
             res.groups = (o["proxy-groups"] as? [Any])?.count ?? 0
             res.rules = (o["rules"] as? [Any])?.count ?? 0
         }
-        return (res, stats)
+        return (res, stats, false)
     }
 
     /// After a change to a profile's scripts: run them now (errors show at once) and reload when the profile

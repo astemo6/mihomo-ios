@@ -43,12 +43,13 @@ const (
 )
 
 type reorderResult struct {
-	Changed bool     `json:"changed"`
-	// Modified: GroupOrderRegenerate found the copy edited by the user since it was last generated and left it.
+	Changed bool `json:"changed"`
+	// Modified: the copy was edited by the user since it was last generated: GroupOrderRegenerate left it,
+	// GroupOrderCopy reordered it in place (v0.19.1).
 	Modified bool     `json:"modified,omitempty"`
-	Order   []string `json:"order,omitempty"`  // the file's group order afterwards
-	Method  string   `json:"method,omitempty"` // text | node
-	Error   string   `json:"error,omitempty"`
+	Order    []string `json:"order,omitempty"`  // the file's group order afterwards
+	Method   string   `json:"method,omitempty"` // text | node
+	Error    string   `json:"error,omitempty"`
 }
 
 func (r reorderResult) json() string {
@@ -481,7 +482,8 @@ func ReorderGroups(homeDir, profilePath, orderJSON string) (out string) {
 // GroupOrderCopy writes the source profile with its groups in orderJSON order to copyPath, leaving the source
 // file untouched (user 2026-10-18: 「自动复制一个配置文件出来，在复制的配置文件上更新」). Nothing is written
 // when the order equals the source's (changed=false: the app then creates no copy). An existing copy (the
-// source was reordered again while it was active) is overwritten, its previous content kept as .bak.
+// source was reordered again while it was active) is overwritten, its previous content kept as .bak, unless
+// the user edited it since it was generated: then only its group order changes (modified=true).
 // Validation runs with the source's settings (the copy gets the same settings right after).
 func GroupOrderCopy(homeDir, sourcePath, copyPath, orderJSON string) (out string) {
 	defer func() {
@@ -492,6 +494,16 @@ func GroupOrderCopy(homeDir, sourcePath, copyPath, orderJSON string) (out string
 	var want []string
 	if err := json.Unmarshal([]byte(orderJSON), &want); err != nil {
 		return reorderResult{Error: err.Error()}.json()
+	}
+	// v0.19.1: an existing copy the user edited by hand (node edits, the YAML editor) is reordered in place
+	// instead of being rebuilt from the source, so the edits survive (the same rule as GroupOrderRegenerate).
+	// Modified=true tells the app to switch to the copy even when its order was already the wanted one.
+	if _, err := os.Stat(copyPath); err == nil && !copyGenerated(copyPath) {
+		r := reorderFile(copyPath, want, func(b []byte) string { return validateProfileBytes(homeDir, copyPath, b) })
+		if r.Error == "" {
+			r.Modified = true
+		}
+		return r.json()
 	}
 	src, err := os.ReadFile(sourcePath)
 	if err != nil {
