@@ -11,7 +11,9 @@ type APIFunc func(method, path string, body any) (any, error)
 
 // egernNativeRe detects Egern's native script shape (ES module + ctx); such scripts run through the
 // ctx adapter in egernadapter.go.
-var egernNativeRe = regexp.MustCompile(`(?m)^\s*export\s+default\s+(async\s+)?function`)
+// v0.19.4: any `export default` (also `export default async (ctx) => …` / `export default ctx => …`, which
+// adaptEgern already handled but were never detected and failed with a syntax error).
+var egernNativeRe = regexp.MustCompile(`(?m)^[ \t]*export[ \t]+default[ \t]+`)
 
 // SetAPI installs the $httpAPI handler (nil removes it).
 func (e *Engine) SetAPI(f APIFunc) {

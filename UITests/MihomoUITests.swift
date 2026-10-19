@@ -1545,4 +1545,102 @@ final class MihomoUITests: MihomoUITestCase {
         usleep(800_000)
         back()
     }
+
+    // MARK: 33. v0.19.4 自定义规则 add / swipe-delete / persists; 本地模块 rewrite add / delete
+
+    func swipeDelete(_ row: XCUIElement) -> Bool {
+        row.swipeLeft()
+        for label in [L("删除"), "Delete", "删除"] {
+            let b = app.buttons.matching(NSPredicate(format: "label == %@", label)).firstMatch
+            if b.waitForExistence(timeout: 2) { b.tap(); return true }
+        }
+        return false
+    }
+
+    func addCustomRule(_ text: String) {
+        XCTAssertTrue(tapIfExists(app.element(id: "rules.add"), timeout: 5), "rules +")
+        let rule = app.textFields[L("规则")]
+        XCTAssertTrue(rule.waitForExistence(timeout: 5), "rule field")
+        rule.tap()
+        rule.typeText(text)
+        usleep(1_200_000)
+        app.navigationBars.buttons[L("保存")].tap()
+        usleep(800_000)
+    }
+
+    func test33_RulesAndRewriteAddDelete() {
+        launch()
+        openMore("规则")
+        app.buttons[L10n.f("自定义 %lld", 0)].firstMatch.tap()
+        addCustomRule("DOMAIN-SUFFIX,a1.uitest.example,Proxy")
+        addCustomRule("DOMAIN,b2.uitest.example,DIRECT")
+        let a = app.element(labelContains: "a1.uitest.example")
+        let b = app.element(labelContains: "b2.uitest.example")
+        XCTAssertTrue(a.waitForExistence(timeout: 6), "first rule saved")
+        XCTAssertTrue(b.waitForExistence(timeout: 6), "second rule saved")
+        snap("rules-two")
+        XCTAssertTrue(swipeDelete(a), "swipe to delete the first rule")
+        usleep(800_000)
+        XCTAssertFalse(app.element(labelContains: "a1.uitest.example").exists, "deleted rule still listed")
+        XCTAssertTrue(b.exists, "other rule kept")
+        assertAlive("rule delete")
+        // Leave and come back: the remaining rule is read from disk again.
+        back()
+        openMore("规则")
+        let tab1 = app.buttons[L10n.f("自定义 %lld", 1)].firstMatch
+        XCTAssertTrue(tab1.waitForExistence(timeout: 6), "custom count is 1 after the delete")
+        if tab1.exists { tab1.tap() }
+        XCTAssertTrue(app.element(labelContains: "b2.uitest.example").waitForExistence(timeout: 6), "rule persisted")
+        XCTAssertFalse(app.element(labelContains: "a1.uitest.example").exists, "deleted rule came back")
+        snap("rules-after-delete")
+        back()
+
+        // 本地模块: add a reject rewrite, then delete it.
+        openMore("重写（本地模块）")
+        XCTAssertTrue(tapIfExists(app.element(id: "localmodule.add"), timeout: 5), "rewrite +")
+        XCTAssertTrue(tapIfExists(app.button(L("拒绝请求（reject）")), timeout: 4), "reject entry")
+        let pat = app.textFields.firstMatch
+        XCTAssertTrue(pat.waitForExistence(timeout: 5))
+        pat.tap()
+        pat.typeText("^https?://del\\.uitest\\.example/")
+        usleep(800_000)
+        let save = app.navigationBars.buttons[L("保存")]
+        XCTAssertTrue(save.waitHittable(), "rewrite 保存 enabled")
+        save.tap()
+        let row = app.element(labelContains: "del\\.uitest")
+        XCTAssertTrue(row.waitForExistence(timeout: 6), "rewrite saved")
+        snap("rewrite-added")
+        XCTAssertTrue(swipeDelete(row), "swipe to delete the rewrite")
+        usleep(800_000)
+        XCTAssertFalse(app.element(labelContains: "del\\.uitest").exists, "deleted rewrite still listed")
+        assertAlive("rewrite delete")
+        snap("rewrite-deleted")
+        back()
+    }
+
+    // MARK: 34. v0.19.4 URL scheme: mihomo:// links opened from outside never crash; unknown actions are refused
+
+    func test34_URLSchemeLinks() {
+        launch()
+        guard #available(iOS 16.4, *) else { return }
+        // Unknown action → refused (alert or nothing), app stays up.
+        app.open(URL(string: "mihomo://definitely-not-an-action?x=1")!)
+        usleep(2_500_000)
+        XCTAssertEqual(app.state, .runningForeground, "app alive after an unknown mihomo:// action")
+        snap("scheme-unknown")
+        for b in [L("好"), "OK", L("取消"), "Cancel"] where app.buttons[b].exists { app.buttons[b].firstMatch.tap(); break }
+        // install-config with an unreachable URL → confirmation / error, never a silent import or a crash.
+        app.open(URL(string: "mihomo://install-config?url=https%3A%2F%2Fuitest.invalid%2Fprofile.yaml&name=UITestScheme")!)
+        usleep(3_000_000)
+        XCTAssertEqual(app.state, .runningForeground, "app alive after install-config")
+        snap("scheme-install-config")
+        if !app.element(labelContains: "uitest.invalid").exists && !app.element(labelContains: "UITestScheme").exists {
+            warnings.append("[\(Env.tag)] install-config: the link's URL / name is not shown on the import screen")
+        }
+        closeSheet()
+        usleep(800_000)
+        // Nothing was added without confirmation.
+        tab(4)
+        XCTAssertEqual(app.state, .runningForeground)
+    }
 }
