@@ -162,17 +162,25 @@ final class ProfileInspector: ObservableObject {
         return members(of: g).first
     }
 
+    /// v0.19.2: loads overlap (profile switch, subscription update, node edits all call load()). A slower earlier
+    /// load finishing last used to put the previous profile's groups and path back — 策略 then showed the old
+    /// profile and offline selections were saved into the wrong profile. Only the newest load publishes.
+    private var loadSeq = 0
+
     func load() async {
+        loadSeq += 1
+        let seq = loadSeq
         guard let url = AppShared.activeProfileURL else {
             result = InspectResult()
             profilePath = nil
             return
         }
         loading = true
-        defer { loading = false }
+        defer { if seq == loadSeq { loading = false } }
         let home = AppShared.homeURL.path
         let path = url.path
         let json = await Task.detached(priority: .userInitiated) { LibmihomoInspectProfile(home, path) }.value
+        guard seq == loadSeq else { return }
         if let r = try? JSONDecoder().decode(InspectResult.self, from: Data(json.utf8)) {
             result = r
         } else {

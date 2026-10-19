@@ -80,16 +80,29 @@ final class NodeSubStore: ObservableObject {
     /// Returns an error text, nil on success.
     @discardableResult
     func refresh(_ s: NodeSubscription, reload: Bool = true) async -> String? {
+        guard !updating.contains(s.id) else { return nil } // v0.19.2: one download per subscription at a time
         updating.insert(s.id)
         defer { updating.remove(s.id) }
         do {
-            let n = try await download(s)
+            let d = try await download(s)
+            // v0.19.2: merge the download into the entry as it is now. set(<copy from before the download>) undid
+            // edits made meanwhile and re-added a subscription the user deleted during the download (with its
+            // freshly written cache file).
+            guard var n = subs.first(where: { $0.id == s.id }) else {
+                try? FileManager.default.removeItem(at: s.cacheURL)
+                return nil
+            }
+            n.count = d.count
+            n.userInfo = d.userInfo
+            n.lastUpdated = d.lastUpdated
+            n.lastError = nil
+            if n.name.isEmpty { n.name = d.name }
             set(n)
             UsageAlerts.evaluate(id: n.id, name: n.name, info: n.userInfo)
             if reload { await applyChange() }
             return nil
         } catch {
-            var e = s
+            guard var e = subs.first(where: { $0.id == s.id }) else { return error.localizedDescription }
             e.lastError = error.localizedDescription
             set(e)
             return error.localizedDescription

@@ -11,8 +11,24 @@ final class ControllerClient {
         return URLSession(configuration: c)
     }()
 
-    var overrides: CoreOverrides { CoreOverrides.load() }
-    var base: String { "http://127.0.0.1:\(overrides.controllerPort)" }
+    /// v0.19.2: port + secret, re-read at most every 3 s. Every request used to call CoreOverrides.load() twice
+    /// (two Keychain reads and a file read, sometimes a write) — dozens of times a second with the 1 s polls of
+    /// 请求 / 日志 / 首页 open.
+    private struct Credentials { var port: Int; var secret: String; var at: Date }
+    private let credLock = NSLock()
+    private var cached: Credentials?
+    private var credentials: Credentials {
+        credLock.lock(); defer { credLock.unlock() }
+        if let c = cached, Date().timeIntervalSince(c.at) < 3 { return c }
+        let o = CoreOverrides.load()
+        let c = Credentials(port: o.controllerPort, secret: o.secret, at: Date())
+        cached = c
+        return c
+    }
+    /// Drops the cached port / secret (after the controller settings changed).
+    func invalidateCredentials() { credLock.lock(); cached = nil; credLock.unlock() }
+
+    var base: String { "http://127.0.0.1:\(credentials.port)" }
 
     enum APIError: LocalizedError {
         case http(Int, String)
@@ -58,7 +74,7 @@ final class ControllerClient {
         var req = URLRequest(url: url)
         req.httpMethod = method
         req.timeoutInterval = timeout
-        req.setValue("Bearer \(overrides.secret)", forHTTPHeaderField: "Authorization")
+        req.setValue("Bearer \(credentials.secret)", forHTTPHeaderField: "Authorization")
         if let body {
             req.httpBody = try JSONSerialization.data(withJSONObject: body)
             req.setValue("application/json", forHTTPHeaderField: "Content-Type")
@@ -309,7 +325,7 @@ final class ControllerClient {
                 return
             }
             comps.percentEncodedPath = path
-            comps.queryItems = query + [URLQueryItem(name: "token", value: overrides.secret)]
+            comps.queryItems = query + [URLQueryItem(name: "token", value: credentials.secret)]
             guard let wsURL = comps.url else {
                 continuation.finish()
                 return

@@ -53,6 +53,12 @@ final class VPNManager: ObservableObject {
         let old = status
         status = conn.status
         connectedDate = conn.connectedDate
+        // v0.19.2: a connect from the widget / Control Center / on-demand clears 安全模式 in overrides.json
+        // without going through start(); re-read it so Home stops showing the safe-mode card and reload() runs
+        // the override scripts again. Plain file read (no Keychain).
+        if old != status, status == .connecting || status == .connected {
+            safeModeActive = CoreOverrides.storedSafeMode()
+        }
         if status == .connected { lastError = nil }
         // Connecting -> disconnected without the user stopping: the extension failed. Never stay silent.
         if (old == .connecting || old == .reasserting), status == .disconnected, !userStopped {
