@@ -23,14 +23,35 @@ targets:
         SWIFT_EMIT_LOC_STRINGS: NO
         CODE_SIGN_ENTITLEMENTS: ""
 
+  # v0.19.5: Swift unit tests (backup / restore, CoreOverrides decoding, SubscriptionUserInfo, RouteSpec,
+  # ProfileStore merge + header names), hosted in the app so `@testable import Mihomo` reaches internal types.
+  MihomoUnitTests:
+    type: bundle.unit-test
+    platform: iOS
+    deploymentTarget: "16.0"
+    sources:
+      - path: UnitTests
+    dependencies:
+      - target: Mihomo
+    settings:
+      base:
+        PRODUCT_BUNDLE_IDENTIFIER: com.astemo6.mihomo.unittests
+        GENERATE_INFOPLIST_FILE: YES
+        TEST_HOST: "$(BUILT_PRODUCTS_DIR)/Mihomo.app/Mihomo"
+        BUNDLE_LOADER: "$(TEST_HOST)"
+        SWIFT_EMIT_LOC_STRINGS: NO
+        CODE_SIGN_ENTITLEMENTS: ""
+
 schemes:
   MihomoUITests:
     build:
       targets:
         Mihomo: all
         MihomoUITests: [test]
+        MihomoUnitTests: [test]
     test:
       config: Debug
       gatherCoverageData: false
       targets:
+        - name: MihomoUnitTests
         - name: MihomoUITests

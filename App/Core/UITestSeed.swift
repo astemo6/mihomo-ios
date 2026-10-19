@@ -29,8 +29,11 @@ enum UITestSeed {
     }
 
     /// Synchronous, before any store exists.
+    /// v0.19.5 relaunch tests: `-UITestKeepData` keeps what the previous launch wrote (no wipe, no re-seed).
+    static var keepData: Bool { args.contains("-UITestKeepData") }
+
     @MainActor static func resetIfNeeded() {
-        guard enabled else { return }
+        guard enabled, !keepData else { return }
         let fm = FileManager.default
         for dir in [AppShared.containerURL, fm.urls(for: .documentDirectory, in: .userDomainMask)[0]] {
             for u in (try? fm.contentsOfDirectory(at: dir, includingPropertiesForKeys: nil)) ?? [] { try? fm.removeItem(at: u) }
@@ -48,6 +51,10 @@ enum UITestSeed {
         guard enabled, !ready else { return }
         defer { ready = true }
         let store = ProfileStore.shared
+        if keepData && !store.profiles.isEmpty {
+            await ProfileInspector.shared.load()
+            return
+        }
         do {
             let home = AppShared.homeURL
             try FileManager.default.createDirectory(at: home.appendingPathComponent("proxies"), withIntermediateDirectories: true)
@@ -56,6 +63,10 @@ enum UITestSeed {
                 _ = try await store.addLocal(name: "UITest Demo", text: profileYAML)
             }
             _ = try await store.addManualNodes(text: manualLinks)
+            // v0.19.5 profile switch test: a second local profile with its own groups (stays inactive).
+            if args.contains("-UITestSecondProfile"), !store.profiles.contains(where: { $0.name == "UITest Second" }) {
+                _ = try await store.addLocal(name: "UITest Second", text: secondProfileYAML)
+            }
             // Back to the demo profile (adding manual nodes keeps the active profile, but be explicit).
             if let demo = store.profiles.first(where: { $0.name == "UITest Demo" }), store.activeID != demo.id {
                 _ = await store.setActive(demo)
@@ -242,6 +253,16 @@ enum UITestSeed {
       - {name: "🇰🇷 Seoul Sub 01", type: ss, server: 198.51.100.11, port: 8388, cipher: aes-128-gcm, password: uitest-secret-sub}
       - {name: "🇰🇷 Seoul Sub 02", type: vless, server: 198.51.100.12, port: 443, uuid: 00000000-0000-4000-8000-000000000011, tls: true, servername: example.com, flow: xtls-rprx-vision, client-fingerprint: chrome}
       - {name: "🇹🇼 Taipei Sub", type: hysteria2, server: 198.51.100.13, port: 443, password: uitest-secret-sub2}
+    """
+
+    static let secondProfileYAML = """
+    proxies:
+      - {name: "Second Node A", type: ss, server: 192.0.2.50, port: 8388, cipher: aes-128-gcm, password: uitest-second}
+      - {name: "Second Node B", type: ss, server: 192.0.2.51, port: 8388, cipher: aes-128-gcm, password: uitest-second}
+    proxy-groups:
+      - {name: Second Select, type: select, proxies: ["Second Node A", "Second Node B", DIRECT]}
+    rules:
+      - MATCH,Second Select
     """
 
     static let manualLinks = """

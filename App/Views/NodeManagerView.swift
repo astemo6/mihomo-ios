@@ -356,6 +356,9 @@ struct NodeDetailView: View {
     @State private var deleteCheck: ProfileStore.NodeDeleteCheck?
     @State private var confirmProfileDelete = false
     @State private var canUndo = false
+    /// v0.19.5: the profile file's modification date when the editor opened; a later date on dismiss = saved
+    /// → 撤销上次修改 is offered (before, only 复制一份 enabled it, so an edit could not be undone here).
+    @State private var editBaseline: Date?
     // v0.17 按节点设置
     @ObservedObject private var nodeSettings = NodeSettingsStore.shared
     @State private var editSettings = false
@@ -367,6 +370,10 @@ struct NodeDetailView: View {
     }
 
     var editableProfile: Profile? { node.source.kind == .profile && profileEntry != nil ? store.active : nil }
+
+    static func modified(_ url: URL) -> Date? {
+        (try? FileManager.default.attributesOfItem(atPath: url.path))?[.modificationDate] as? Date
+    }
 
     var manual: [String: Any]? { model.manualNode(node) }
     var delay: Int? { model.delay(of: node) }
@@ -482,7 +489,10 @@ struct NodeDetailView: View {
                     Button(role: .destructive) { confirmDelete = true } label: { Label("删除", systemImage: "trash") }
                 }
                 if let p = editableProfile, let entry = profileEntry {
-                    Button { profileEdit = ProfileEditTarget(node: entry, profile: p) } label: { Label("编辑", systemImage: "pencil") }
+                    Button {
+                        editBaseline = Self.modified(p.fileURL)
+                        profileEdit = ProfileEditTarget(node: entry, profile: p)
+                    } label: { Label("编辑", systemImage: "pencil") }
                         .accessibilityIdentifier("node.edit")
                     Button {
                         Task {
@@ -501,10 +511,11 @@ struct NodeDetailView: View {
                     if canUndo {
                         Button {
                             Task {
-                                do { try await store.undoProfileNodeEdit(p); canUndo = false; await model.reload(force: true); await loadEntry() }
+                                do { try await store.undoProfileNodeEdit(p); canUndo = false; await model.reload(force: true); await loadEntry(); info = await model.summary(of: node) }
                                 catch { message = error.localizedDescription }
                             }
                         } label: { Label("撤销上次修改", systemImage: "arrow.uturn.backward") }
+                        .accessibilityIdentifier("node.undo")
                     }
                 }
             } header: { Text("操作") } footer: {
@@ -529,6 +540,10 @@ struct NodeDetailView: View {
             await loadEntry()
         }
         .sheet(item: $profileEdit, onDismiss: {
+            if let p = editableProfile, let m = Self.modified(p.fileURL), m != editBaseline,
+               FileManager.default.fileExists(atPath: p.fileURL.path + ".bak") {
+                canUndo = true
+            }
             Task {
                 await model.reload(force: true)
                 guard let p = store.active else { return }

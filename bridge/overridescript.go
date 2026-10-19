@@ -17,6 +17,7 @@ package libmihomo
 // script output, in buildRuntimeWith, as before.
 
 import (
+	"bytes"
 	"crypto/sha256"
 	"encoding/hex"
 	"encoding/json"
@@ -24,6 +25,7 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"sort"
 	"time"
 
 	"github.com/metacubex/mihomo/log"
@@ -184,7 +186,9 @@ func scriptInput(profilePath string) (string, string, error) {
 	if p, ok := raw["proxy-providers"]; !ok || p == nil {
 		raw["proxy-providers"] = map[string]any{}
 	}
-	out, err := json.Marshal(jsonSafe(raw))
+	safe := jsonSafe(raw).(map[string]any)
+	orderPolicyForScript(safe, b)
+	out, err := json.Marshal(safe)
 	if err != nil {
 		return "", "", fmt.Errorf("配置无法转换为 JSON: %w", err)
 	}
@@ -204,7 +208,75 @@ func scriptOutputYAML(outputJSON string) ([]byte, error) {
 		delete(raw, "proxy-providers")
 	}
 	normalizeJSONNumbers(raw)
+	// v0.19.5: dns.nameserver-policy keeps the order the script produced (JSON object key order; mihomo
+	// uses the first matching entry). Decoding into a Go map alone wrote it sorted by key.
+	if dns, ok := raw["dns"].(map[string]any); ok {
+		keepProfilePolicyOrder(dns, []byte(outputJSON))
+	}
 	return yaml.Marshal(raw)
+}
+
+// orderedJSONObject marshals a map with its keys in a fixed order (JSON key order is what a script sees
+// in for…in / Object.keys and what it writes back).
+type orderedJSONObject struct {
+	keys []string
+	vals map[string]any
+}
+
+func (o orderedJSONObject) MarshalJSON() ([]byte, error) {
+	var buf bytes.Buffer
+	buf.WriteByte('{')
+	for i, k := range o.keys {
+		if i > 0 {
+			buf.WriteByte(',')
+		}
+		kb, err := json.Marshal(k)
+		if err != nil {
+			return nil, err
+		}
+		vb, err := json.Marshal(o.vals[k])
+		if err != nil {
+			return nil, err
+		}
+		buf.Write(kb)
+		buf.WriteByte(':')
+		buf.Write(vb)
+	}
+	buf.WriteByte('}')
+	return buf.Bytes(), nil
+}
+
+// orderPolicyForScript hands dns.nameserver-policy to override scripts in the profile's own order
+// (keys missing from the profile order, if any, follow sorted).
+func orderPolicyForScript(raw map[string]any, profile []byte) {
+	dns, ok := raw["dns"].(map[string]any)
+	if !ok {
+		return
+	}
+	m, ok := dns["nameserver-policy"].(map[string]any)
+	if !ok || len(m) < 2 {
+		return
+	}
+	order := profilePolicyOrder(profile)
+	if len(order) == 0 {
+		return
+	}
+	seen := map[string]bool{}
+	var keys []string
+	for _, k := range order {
+		if _, ok := m[k]; ok && !seen[k] {
+			keys = append(keys, k)
+			seen[k] = true
+		}
+	}
+	var rest []string
+	for k := range m {
+		if !seen[k] {
+			rest = append(rest, k)
+		}
+	}
+	sort.Strings(rest)
+	dns["nameserver-policy"] = orderedJSONObject{keys: append(keys, rest...), vals: m}
 }
 
 // normalizeJSONNumbers turns whole float64 values (every JSON number) back into ints so ports,
