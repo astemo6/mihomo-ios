@@ -316,6 +316,9 @@ func profileRaw(homeDir, profilePath string) map[string]any {
 // convertListText rewrites a Surge / Loon / Stash / QX list into mihomo text for the provider.
 func convertListText(r io.Reader, kind string) (string, int, int) {
 	data, _ := io.ReadAll(r)
+	// v0.19.2: a UTF-8 BOM (lists saved on Windows) made the first rule unparseable (classical) or part of the
+	// first domain (domainset).
+	data = bytes.TrimPrefix(data, []byte("\ufeff"))
 	if mitm.IsEgernRuleSet(string(data)) {
 		lines, skipped := mitm.ConvertEgernRuleSet(string(data))
 		if len(lines) == 0 {
@@ -326,7 +329,10 @@ func convertListText(r io.Reader, kind string) (string, int, int) {
 	var sb strings.Builder
 	ok, skipped := 0, 0
 	sc := bufio.NewScanner(bytes.NewReader(data))
-	sc.Buffer(make([]byte, 64<<10), 1<<20)
+	// v0.19.2: the token limit was 1 MB and sc.Err() was never checked, so one over-long line (a minified
+	// payload, a broken download) silently dropped every rule after it. The data is in memory already; allow
+	// a line as long as the whole input.
+	sc.Buffer(make([]byte, 64<<10), len(data)+1)
 	for sc.Scan() {
 		l, good := mitm.ConvertListLine(sc.Text(), kind)
 		if !good {

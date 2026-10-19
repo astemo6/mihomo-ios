@@ -369,7 +369,7 @@ func SaveSelection(profilePath, group, node string) string {
 		m[group] = node
 	}
 	b, _ := json.MarshalIndent(m, "", "  ")
-	if err := os.WriteFile(selectionsPath(profilePath), b, 0o644); err != nil {
+	if err := writeAtomic(selectionsPath(profilePath), b); err != nil {
 		return err.Error()
 	}
 	return ""

@@ -381,7 +381,7 @@ func SetGroupChain(homeDir, profilePath, group, via string) string {
 	}
 	all[id] = s
 	b, _ := json.MarshalIndent(all, "", "  ")
-	if err := os.WriteFile(groupSettingsPath(homeDir), b, 0o644); err != nil {
+	if err := writeAtomic(groupSettingsPath(homeDir), b); err != nil {
 		return err.Error()
 	}
 	return ""
