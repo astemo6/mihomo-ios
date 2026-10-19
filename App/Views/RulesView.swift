@@ -51,7 +51,7 @@ final class CustomRulesStore: ObservableObject {
         if let d = try? enc.encode(File(rules: rules)) { try? d.write(to: Self.url, options: .atomic) }
         Task {
             await recheck()
-            if VPNManager.shared.isConnected, let e = await VPNManager.shared.reload() { message = "重载失败：\(e)" }
+            if VPNManager.shared.isConnected, let e = await VPNManager.shared.reload() { message = String(localized: "重载失败：\(e)") }
         }
     }
 

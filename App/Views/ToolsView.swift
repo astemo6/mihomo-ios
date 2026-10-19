@@ -41,7 +41,7 @@ final class ToolsModel: ObservableObject {
         clear()
         var target = raw.trimmingCharacters(in: .whitespaces)
         if !target.contains("://") { target = "https://" + target }
-        guard URL(string: target) != nil else { error = "地址无效"; return }
+        guard URL(string: target) != nil else { error = String(localized: "地址无效"); return }
         running = true
         defer { running = false }
         if VPNManager.shared.isConnected {
@@ -85,7 +85,7 @@ final class ToolsModel: ObservableObject {
     func tcp(host: String, port: String, tls: Bool, count: Int = 4) async {
         clear()
         let h = host.trimmingCharacters(in: .whitespaces)
-        guard !h.isEmpty, let p = UInt16(port) else { error = "请输入主机和端口"; return }
+        guard !h.isEmpty, let p = UInt16(port) else { error = String(localized: "请输入主机和端口"); return }
         running = true
         defer { running = false }
         if VPNManager.shared.isConnected {
@@ -158,7 +158,7 @@ final class ToolsModel: ObservableObject {
                 answers = list.map { a in
                     DNSAnswerLine(type: Self.rrType(a["type"]), data: a["data"] as? String ?? "", ttl: (a["TTL"] as? NSNumber)?.intValue)
                 }
-                if answers.isEmpty { error = "没有记录（状态 \((obj["Status"] as? NSNumber)?.intValue ?? -1)）" }
+                if answers.isEmpty { let st = (obj["Status"] as? NSNumber)?.intValue ?? -1; error = String(localized: "没有记录（状态 \(st)）") }
             } catch { self.error = error.localizedDescription }
         } else {
             via = "系统解析（未连接）"
@@ -167,7 +167,7 @@ final class ToolsModel: ObservableObject {
             case .success(let ips): answers = ips.map { DNSAnswerLine(type: $0.contains(":") ? "AAAA" : "A", data: $0, ttl: nil) }
             case .failure(let e): error = e.localizedDescription
             }
-            if answers.isEmpty && error == nil { error = "没有记录" }
+            if answers.isEmpty && error == nil { error = String(localized: "没有记录") }
         }
         via += String(format: " · %.0f ms", Date().timeIntervalSince(t0) * 1000)
     }

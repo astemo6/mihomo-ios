@@ -104,10 +104,10 @@ struct ManualNodesView: View {
             Task {
                 defer { photoItem = nil }
                 guard let data = try? await item.loadTransferable(type: Data.self), let img = UIImage(data: data) else {
-                    message = "无法读取图片"; return
+                    message = String(localized: "无法读取图片"); return
                 }
                 let codes = QRDecoder.decode(img)
-                if codes.isEmpty { message = "图片中没有识别到二维码" } else { importText(codes.joined(separator: "\n")) }
+                if codes.isEmpty { message = String(localized: "图片中没有识别到二维码") } else { importText(codes.joined(separator: "\n")) }
             }
         }
         .sheet(isPresented: $showPasteSheet) {
@@ -155,11 +155,11 @@ struct ManualNodesView: View {
 
     func importText(_ text: String) {
         let t = text.trimmingCharacters(in: .whitespacesAndNewlines)
-        guard !t.isEmpty else { message = "内容为空"; return }
+        guard !t.isEmpty else { message = String(localized: "内容为空"); return }
         Task {
             do {
                 let n = try await store.addManualNodes(text: t)
-                message = "已添加 \(n) 个节点"
+                message = String(localized: "已添加 \(n) 个节点")
                 reload()
             } catch { message = error.localizedDescription }
         }

@@ -159,7 +159,7 @@ struct BackupView: View {
                 Button { importing = true } label: { Label("从文件恢复…", systemImage: "arrow.down.doc") }
                 ForEach(cloudFiles, id: \.self) { u in
                     Button {
-                        if let d = try? Data(contentsOf: u) { pendingRestore = d } else { message = "无法读取 iCloud 文件（可能尚未下载）" }
+                        if let d = try? Data(contentsOf: u) { pendingRestore = d } else { message = String(localized: "无法读取 iCloud 文件（可能尚未下载）") }
                     } label: {
                         Label(u.deletingPathExtension().lastPathComponent, systemImage: "icloud.and.arrow.down")
                     }
@@ -176,13 +176,13 @@ struct BackupView: View {
         .onAppear { loadCloud() }
         .sheet(item: $share) { ActivityView(items: [$0.url]) }
         .fileExporter(isPresented: $exporting, document: exportDoc, contentType: .json, defaultFilename: exportName) { r in
-            if case .failure(let e) = r { message = "保存失败：\(e.localizedDescription)" } else { message = "已保存" }
+            if case .failure(let e) = r { message = String(localized: "保存失败：\(e.localizedDescription)") } else { message = String(localized: "已保存") }
         }
         .fileImporter(isPresented: $importing, allowedContentTypes: [.json, .data]) { r in
             guard case .success(let url) = r else { return }
             let ok = url.startAccessingSecurityScopedResource()
             defer { if ok { url.stopAccessingSecurityScopedResource() } }
-            if let d = try? Data(contentsOf: url) { pendingRestore = d } else { message = "无法读取文件" }
+            if let d = try? Data(contentsOf: url) { pendingRestore = d } else { message = String(localized: "无法读取文件") }
         }
         .confirmationDialog("恢复备份会覆盖当前的同名配置与设置", isPresented: Binding(get: { pendingRestore != nil }, set: { if !$0 { pendingRestore = nil } }), titleVisibility: .visible) {
             Button("恢复", role: .destructive) { if let d = pendingRestore { restore(d) }; pendingRestore = nil }
@@ -210,7 +210,7 @@ struct BackupView: View {
                 share = ShareItem(url: url)
             }
         } catch {
-            message = "导出失败：\(error.localizedDescription)"
+            message = String(localized: "导出失败：\(error.localizedDescription)")
         }
     }
 
@@ -221,10 +221,10 @@ struct BackupView: View {
             let dst = folder.appendingPathComponent(url.lastPathComponent)
             try? FileManager.default.removeItem(at: dst)
             try FileManager.default.copyItem(at: url, to: dst)
-            message = "已备份 \(n) 个文件到 iCloud"
+            message = String(localized: "已备份 \(n) 个文件到 iCloud")
             loadCloud()
         } catch {
-            message = "iCloud 备份失败：\(error.localizedDescription)"
+            message = String(localized: "iCloud 备份失败：\(error.localizedDescription)")
         }
     }
 

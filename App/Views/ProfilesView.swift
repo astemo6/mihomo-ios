@@ -158,7 +158,7 @@ struct ProfilesView: View {
 
     func select(_ p: Profile) {
         Task {
-            if let err = await store.setActive(p) { message = "已切换，但重载失败：\(err)" }
+            if let err = await store.setActive(p) { message = String(localized: "已切换，但重载失败：\(err)") }
         }
     }
 
@@ -177,7 +177,7 @@ struct ProfilesView: View {
 
     func importConfFromClipboard() {
         guard let s = UIPasteboard.general.string, !s.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else {
-            message = "剪贴板为空"; return
+            message = String(localized: "剪贴板为空"); return
         }
         ImportRouter.shared.present(.confText(name: String(localized: "导入的配置"), text: s))
     }
@@ -189,7 +189,7 @@ struct ProfilesView: View {
 
     func importClipboard() {
         guard let s = UIPasteboard.general.string?.trimmingCharacters(in: .whitespacesAndNewlines), !s.isEmpty else {
-            message = "剪贴板为空"; return
+            message = String(localized: "剪贴板为空"); return
         }
         // Links of our own scheme or of other clients (loon:// stash:// surge:/// quantumult-x:///).
         if !s.contains("\n"), let a = ImportRouter.parse(s) {
@@ -206,13 +206,13 @@ struct ProfilesView: View {
             do {
                 if (s.hasPrefix("http://") || s.hasPrefix("https://")) && !s.contains("\n") && !s.contains("@") {
                     _ = try await store.addRemote(url: s, name: "", userAgent: "clash.meta", intervalHours: 24)
-                    message = "已添加订阅"
+                    message = String(localized: "已添加订阅")
                 } else if s.contains("proxies:") || s.contains("proxy-providers:") {
                     _ = try await store.addLocal(name: "剪贴板导入", text: s)
-                    message = "已导入配置"
+                    message = String(localized: "已导入配置")
                 } else {
                     let n = try await store.addManualNodes(text: s)
-                    message = "已添加 \(n) 个节点到「手动节点」"
+                    message = String(localized: "已添加 \(n) 个节点到「手动节点」")
                 }
             } catch { message = error.localizedDescription }
         }

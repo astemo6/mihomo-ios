@@ -185,7 +185,7 @@ final class ProfileInspector: ObservableObject {
             result = r
         } else {
             var r = InspectResult()
-            r.error = "无法读取配置"
+            r.error = String(localized: "无法读取配置")
             result = r
         }
         if profilePath != path { delays = [:] }
