@@ -13,6 +13,10 @@ struct ManualNodesView: View {
     @State private var showPhotoPicker = false
     @State private var message: String?
     @State private var pasteText = ""
+    /// v0.19.3: text from the scanner / paste sheet, imported in the sheet's onDismiss. Setting `message`
+    /// while the sheet was still animating away could drop the result alert (UIKit refuses a second
+    /// presentation) and leave the binding stuck on, so later alerts never appeared either.
+    @State private var pendingImport: String?
     @State private var showPasteSheet = false
     @State private var share: ShareTarget?
     @State private var exportSub = false
@@ -92,10 +96,10 @@ struct ManualNodesView: View {
         .sheet(item: $share) { t in NodeShareSheet(name: t.name, link: t.link) }
         .sheet(isPresented: $exportSub) { SubscriptionExportSheet() }
         .sheet(item: $editing, onDismiss: reload) { t in NodeEditorView(node: t.node) }
-        .sheet(isPresented: $showScanner) {
+        .sheet(isPresented: $showScanner, onDismiss: runPendingImport) {
             QRScannerSheet { code in
+                pendingImport = code
                 showScanner = false
-                importText(code)
             }
         }
         .photosPicker(isPresented: $showPhotoPicker, selection: $photoItem, matching: .images)
@@ -110,7 +114,7 @@ struct ManualNodesView: View {
                 if codes.isEmpty { message = String(localized: "图片中没有识别到二维码") } else { importText(codes.joined(separator: "\n")) }
             }
         }
-        .sheet(isPresented: $showPasteSheet) {
+        .sheet(isPresented: $showPasteSheet, onDismiss: runPendingImport) {
             NavigationStack {
                 TextEditor(text: $pasteText)
                     .scaledFont(13, design: .monospaced)
@@ -121,7 +125,7 @@ struct ManualNodesView: View {
                     .toolbar {
                         ToolbarItem(placement: .cancellationAction) { Button("取消") { showPasteSheet = false } }
                         ToolbarItem(placement: .confirmationAction) {
-                            Button("导入") { showPasteSheet = false; importText(pasteText); pasteText = "" }
+                            Button("导入") { pendingImport = pasteText; pasteText = ""; showPasteSheet = false }
                         }
                     }
             }
@@ -151,6 +155,12 @@ struct ManualNodesView: View {
         case .success(let l): share = ShareTarget(name: n["name"] as? String ?? "", link: l)
         case .failure(let e): message = e.message
         }
+    }
+
+    func runPendingImport() {
+        guard let t = pendingImport else { return }
+        pendingImport = nil
+        importText(t)
     }
 
     func importText(_ text: String) {

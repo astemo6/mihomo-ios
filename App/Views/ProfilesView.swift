@@ -7,6 +7,8 @@ struct ProfilesView: View {
     @State private var showAddRemote = false
     @State private var showNewLocal = false
     @State private var message: String?
+    /// v0.19.3: the add-subscription sheet's result, shown after the sheet is gone (see ManualNodesView).
+    @State private var pendingMessage: String?
     @State private var busy = false
     @State private var editing: Profile?
     @State private var showManual = false
@@ -111,7 +113,7 @@ struct ProfilesView: View {
             .navigationDestination(isPresented: $showSample) { SampleProfileView() }
             .navigationDestination(isPresented: $showSubs) { SubscriptionsView() }
             .overlay { if busy { ProgressView().padding(20).background(RoundedRectangle(cornerRadius: 12).fill(Theme.cardHi)) } }
-            .sheet(isPresented: $showAddRemote) { AddRemoteSheet { msg in message = msg } }
+            .sheet(isPresented: $showAddRemote, onDismiss: { if let m = pendingMessage { pendingMessage = nil; message = m } }) { AddRemoteSheet { msg in pendingMessage = msg } }
             .sheet(isPresented: $showNewLocal) {
                 YAMLEditorView(title: "新建本地配置", initialName: "本地配置", initialText: YAMLEditorView.template, profile: nil)
             }

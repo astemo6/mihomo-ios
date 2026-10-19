@@ -171,8 +171,18 @@ final class ControllerClient {
 
     /// v0.19 切换节点或模式时断开所有连接 (更多 → 内核设置, on by default): open connections keep the node
     /// they were made with, so a user switch closes them and apps reconnect through the new choice.
+    /// v0.19.3: stored in the App Group defaults (was UserDefaults.standard), so the widget / Control
+    /// Center mode switch follows the same setting instead of always closing every connection.
     static let closeOnSwitchKey = "switch.closeConnections"
-    static var closeOnSwitch: Bool { UserDefaults.standard.object(forKey: closeOnSwitchKey) as? Bool ?? true }
+    static var closeOnSwitch: Bool { AppShared.defaults.object(forKey: closeOnSwitchKey) as? Bool ?? true }
+
+    /// Moves a value saved by v0.19.0–v0.19.2 (standard defaults) into the App Group once.
+    static func migrateCloseOnSwitch() {
+        guard AppShared.defaults.object(forKey: closeOnSwitchKey) == nil,
+              let old = UserDefaults.standard.object(forKey: closeOnSwitchKey) as? Bool else { return }
+        AppShared.defaults.set(old, forKey: closeOnSwitchKey)
+        UserDefaults.standard.removeObject(forKey: closeOnSwitchKey)
+    }
 
     /// A node / mode change the user made: closes every connection when that setting is on.
     func afterUserSwitch() async {

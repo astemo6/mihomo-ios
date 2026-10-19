@@ -75,6 +75,9 @@ enum GoText {
             let name = String(s.dropFirst("策略组「".count).dropLast("」重名".count))
             return String(localized: "策略组「\(name)」重名")
         }
+        // v0.19.3 script runtime guards (bridge/mitm/script.go).
+        if s == "脚本调用栈溢出（递归过深）" { return String(localized: "脚本调用栈溢出（递归过深）") }
+        if s == "脚本内存占用过高，已终止（保护隧道内存）" { return String(localized: "脚本内存占用过高，已终止（保护隧道内存）") }
         switch s {
         case "配置文件不是 YAML 映射": return String(localized: "配置文件不是 YAML 映射")
         case "策略组条目格式无法识别（锚点或非映射条目）": return String(localized: "策略组条目格式无法识别（锚点或非映射条目）")

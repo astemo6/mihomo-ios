@@ -79879,6 +79879,74 @@
           }
         }
       }
+    },
+    "脚本调用栈溢出（递归过深）": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Script call stack overflow (recursion too deep)"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "スクリプトのコールスタックがオーバーフローしました（再帰が深すぎます）"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "스크립트 호출 스택 오버플로(재귀가 너무 깊음)"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Переполнение стека вызовов скрипта (слишком глубокая рекурсия)"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "腳本呼叫棧溢位（遞迴過深）"
+          }
+        }
+      }
+    },
+    "脚本内存占用过高，已终止（保护隧道内存）": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "The script used too much memory and was stopped (to protect the tunnel's memory)"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "スクリプトのメモリ使用量が多すぎるため停止しました（トンネルのメモリを保護）"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "스크립트 메모리 사용량이 너무 많아 중지했습니다(터널 메모리 보호)"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Скрипт использовал слишком много памяти и был остановлен (защита памяти туннеля)"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "腳本記憶體佔用過高，已終止（保護隧道記憶體）"
+          }
+        }
+      }
     }
   },
   "version": "1.0"

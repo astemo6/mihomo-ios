@@ -96,7 +96,7 @@ enum ScriptDebugger {
         }
         guard let data = try? JSONEncoder().encode(input), let json = String(data: data, encoding: .utf8) else { return nil }
         let home = AppShared.homeURL.path
-        let out = await Task.detached(priority: .userInitiated) { LibmihomoScriptDebugRun(home, json) }.value
+        let out = await BlockingWork.run { LibmihomoScriptDebugRun(home, json) }
         guard let d = out.data(using: .utf8) else { return nil }
         return try? JSONDecoder().decode(DebugOutput.self, from: d)
     }
@@ -424,7 +424,7 @@ struct ScriptDebugForm: View {
                 Spacer()
                 Text("\(o.durationMs) ms").font(.caption.monospacedDigit()).foregroundStyle(.secondary)
             }
-            if let e = o.error { Text(e).font(.caption.monospaced()).foregroundStyle(Theme.bad).textSelection(.enabled) }
+            if let e = o.error { Text(verbatim: GoText.localize(e)).font(.caption.monospaced()).foregroundStyle(Theme.bad).textSelection(.enabled) }
             ForEach(o.summary, id: \.self) { Text($0).font(.caption) }
         } header: { Text("结果") }
         .listRowBackground(Theme.card)

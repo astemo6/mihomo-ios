@@ -239,7 +239,7 @@ struct LogsView: View {
 struct SettingsView: View {
     @EnvironmentObject var vpn: VPNManager
     @State private var o = CoreOverrides.load()
-    @AppStorage(ControllerClient.closeOnSwitchKey) private var closeOnSwitch = true
+    @AppStorage(ControllerClient.closeOnSwitchKey, store: AppShared.defaults) private var closeOnSwitch = true
     @State private var portText = ""
     @State private var status: String?
     @StateObject private var debounce = Debouncer()
