@@ -587,16 +587,20 @@ func Start(homeDir, configPath string, tunFd int32) error {
 		// groups over the newer ones. They now run under mu (done was sent first, so a Start still waiting on
 		// it is not blocked), not at all after a Stop, and only the rule-hit ticker after a Reload (the Reload
 		// already did the rest for its profile).
-		mu.Lock()
-		defer mu.Unlock()
-		if stopCount.Load() != stops || !running.Load() {
-			stage("core apply finished after Stop: post-apply steps skipped")
+		if stopCount.Load() != stops {
+			stage("apply done after Stop: post-apply steps skipped")
 			return
 		}
 		stage("core apply finished: providers loaded, tunnel %s, %s", tunnel.Status().String(), memText())
+		mu.Lock()
+		defer mu.Unlock()
+		if stopCount.Load() != stops || !running.Load() {
+			stage("apply done after Stop: post-apply steps skipped")
+			return
+		}
 		startRuleHits(homeDir)
 		if atomic.LoadUint64(&applyEpoch) != epoch {
-			stage("core apply finished after a Reload: selections / smart groups left to the Reload")
+			stage("apply done after a Reload: selections / smart groups left to the Reload")
 			return
 		}
 		if n := applySelections(configPath); n > 0 {

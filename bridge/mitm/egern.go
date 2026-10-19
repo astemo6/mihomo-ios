@@ -558,7 +558,11 @@ var egernSetTypes = map[string]string{
 
 // IsEgernRuleSet reports whether text is an Egern YAML rule set (domain_set: …).
 func IsEgernRuleSet(text string) bool {
-	for _, l := range strings.Split(text, "\n") {
+	// v0.19.6: walks lines without strings.Split (that allocated a slice of every line of a multi-MB list
+	// to look at its first meaningful line).
+	for rest := text; rest != ""; {
+		var l string
+		l, rest, _ = strings.Cut(rest, "\n")
 		t := strings.TrimSpace(l)
 		if t == "" || strings.HasPrefix(t, "#") || t == "no_resolve: true" || t == "no_resolve: false" {
 			continue

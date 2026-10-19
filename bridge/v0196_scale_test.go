@@ -419,3 +419,33 @@ func TestV0196NodesConvertBounded(t *testing.T) {
 		t.Fatalf("validate: %s", s)
 	}
 }
+
+// /rules/convert streams: a 16 MB list (the download cap) converts with a small, size-independent heap.
+func TestV0196RuleListConvertStreams(t *testing.T) {
+	list := genRuleList(16 << 20 / 32)
+	var ok, skipped int
+	var cw countWriter
+	r := neLimit(func() { ok, skipped = convertListTo(&cw, strings.NewReader(list), "") })
+	t.Logf("convertListTo %d MB list → %d MB: %s (%d rules, %d skipped)", len(list)>>20, cw.n>>20, r, ok, skipped)
+	if ok < 500000 || skipped != 0 {
+		t.Fatalf("ok %d skipped %d", ok, skipped)
+	}
+	if r.peakHeap > scaleMB(8) {
+		t.Errorf("peak heap %.1f MB for a streamed list (was ≈3.4× the input)", float64(r.peakHeap)/(1<<20))
+	}
+	// Same output as before for the edge cases: BOM, CRLF, comments, a 2 MB line in the middle, Egern YAML.
+	in := "\ufeff# c\r\nDOMAIN-SUFFIX,a.example\r\n" + strings.Repeat("x", 2<<20) + "\nDOMAIN,b.example\n"
+	out, n, sk := convertListText(strings.NewReader(in), "")
+	if n != 2 || sk != 1 || !strings.Contains(out, "DOMAIN-SUFFIX,a.example\n") || !strings.Contains(out, "DOMAIN,b.example\n") {
+		t.Fatalf("edge cases: n=%d skipped=%d out=%.200q", n, sk, out)
+	}
+	eg := "# egern\ndomain_set:\n  - a.example\ndomain_suffix_set:\n  - b.example\n"
+	out, n, _ = convertListText(strings.NewReader(eg), "")
+	if n != 2 || !strings.Contains(out, "a.example") || !strings.Contains(out, "b.example") {
+		t.Fatalf("egern: n=%d out=%q", n, out)
+	}
+}
+
+type countWriter struct{ n int }
+
+func (c *countWriter) Write(p []byte) (int, error) { c.n += len(p); return len(p), nil }

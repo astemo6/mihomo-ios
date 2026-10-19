@@ -7,7 +7,6 @@ package libmihomo
 
 import (
 	"bufio"
-	"bytes"
 	"context"
 	"crypto/sha1"
 	"encoding/hex"
@@ -315,37 +314,75 @@ func profileRaw(homeDir, profilePath string) map[string]any {
 
 // convertListText rewrites a Surge / Loon / Stash / QX list into mihomo text for the provider.
 func convertListText(r io.Reader, kind string) (string, int, int) {
-	data, _ := io.ReadAll(r)
-	// v0.19.2: a UTF-8 BOM (lists saved on Windows) made the first rule unparseable (classical) or part of the
-	// first domain (domainset).
-	data = bytes.TrimPrefix(data, []byte("\ufeff"))
-	if mitm.IsEgernRuleSet(string(data)) {
-		lines, skipped := mitm.ConvertEgernRuleSet(string(data))
-		if len(lines) == 0 {
-			return "", 0, skipped
-		}
-		return strings.Join(lines, "\n") + "\n", len(lines), skipped
-	}
 	var sb strings.Builder
+	ok, skipped := convertListTo(&sb, r, kind)
+	return sb.String(), ok, skipped
+}
+
+// convertListTo converts a rule list read from r line by line and writes the mihomo lines to w.
+// v0.19.6 (review 7): the list used to be read whole, copied to a string for the Egern check, scanned
+// and built into a second string before the handler wrote it: ≈3.4× the download in the extension's heap
+// (16 MB cap → ~55 MB, over the ~50 MB budget). Lines are now streamed from the download to the response;
+// only an Egern YAML rule set (recognised by its first meaningful line, small in practice) is read whole.
+func convertListTo(w io.Writer, r io.Reader, kind string) (int, int) {
+	br := bufio.NewReaderSize(r, 64<<10)
 	ok, skipped := 0, 0
-	sc := bufio.NewScanner(bytes.NewReader(data))
-	// v0.19.2: the token limit was 1 MB and sc.Err() was never checked, so one over-long line (a minified
-	// payload, a broken download) silently dropped every rule after it. The data is in memory already; allow
-	// a line as long as the whole input.
-	sc.Buffer(make([]byte, 64<<10), len(data)+1)
-	for sc.Scan() {
-		l, good := mitm.ConvertListLine(sc.Text(), kind)
+	first := true
+	decided := false
+	var head []string // lines before the first meaningful one (comments / blanks), kept for the Egern path
+	emit := func(line string) {
+		l, good := mitm.ConvertListLine(line, kind)
 		if !good {
-			if t := strings.TrimSpace(sc.Text()); t != "" && !strings.HasPrefix(t, "#") && !strings.HasPrefix(t, ";") && !strings.HasPrefix(t, "//") && t != "payload:" {
+			if t := strings.TrimSpace(line); t != "" && !strings.HasPrefix(t, "#") && !strings.HasPrefix(t, ";") && !strings.HasPrefix(t, "//") && t != "payload:" {
 				skipped++
 			}
-			continue
+			return
 		}
-		sb.WriteString(l)
-		sb.WriteByte('\n')
+		_, _ = io.WriteString(w, l)
+		_, _ = io.WriteString(w, "\n")
 		ok++
 	}
-	return sb.String(), ok, skipped
+	for {
+		// ReadString has no line-length limit (v0.19.2: one over-long line must not drop the rest).
+		line, err := br.ReadString('\n')
+		if line != "" {
+			if first {
+				// v0.19.2: a UTF-8 BOM (lists saved on Windows) made the first rule unparseable.
+				line = strings.TrimPrefix(line, "\ufeff")
+				first = false
+			}
+			line = strings.TrimSuffix(strings.TrimSuffix(line, "\n"), "\r")
+			if !decided {
+				head = append(head, line)
+				t := strings.TrimSpace(line)
+				if t != "" && !strings.HasPrefix(t, "#") && t != "no_resolve: true" && t != "no_resolve: false" {
+					decided = true
+					if mitm.IsEgernRuleSet(strings.Join(head, "\n")) {
+						rest, _ := io.ReadAll(br)
+						lines, sk := mitm.ConvertEgernRuleSet(strings.Join(head, "\n") + "\n" + string(rest))
+						for _, l := range lines {
+							_, _ = io.WriteString(w, l)
+							_, _ = io.WriteString(w, "\n")
+						}
+						return len(lines), sk
+					}
+					for _, h := range head {
+						emit(h)
+					}
+					head = nil
+				}
+			} else {
+				emit(line)
+			}
+		}
+		if err != nil {
+			break
+		}
+	}
+	for _, h := range head { // only comments / blanks / no_resolve lines
+		emit(h)
+	}
+	return ok, skipped
 }
 
 // convertNodesText turns a downloaded subscription into a proxy-provider YAML: Clash / mihomo YAML passes
@@ -434,12 +471,13 @@ func convertRoutes(r chi.Router) {
 			w.WriteHeader(mhttp.StatusBadGateway)
 			return
 		}
-		text, ok, skipped := convertListText(io.LimitReader(resp.Body, 16<<20), kind)
+		w.Header().Set("Content-Type", "text/plain; charset=utf-8")
+		bw := bufio.NewWriterSize(w, 32<<10) // v0.19.6: streamed (see convertListTo)
+		ok, skipped := convertListTo(bw, io.LimitReader(resp.Body, 16<<20), kind)
+		_ = bw.Flush()
 		if skipped > 0 {
 			log.Infoln("[RuleSet] %s: %d 条已转换，%d 条不支持已跳过", src, ok, skipped)
 		}
-		w.Header().Set("Content-Type", "text/plain; charset=utf-8")
-		_, _ = io.WriteString(w, text)
 	})
 }
 
