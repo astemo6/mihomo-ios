@@ -11,6 +11,8 @@ import (
 	"fmt"
 	"io"
 	"net/http"
+	"runtime/debug"
+	"runtime/metrics"
 	"sort"
 	"strconv"
 	"strings"
@@ -56,7 +58,9 @@ type ScriptRunner struct {
 }
 
 func NewScriptRunner(e *Engine) *ScriptRunner {
-	return &ScriptRunner{e: e, progs: newLRU[*goja.Program](16), sem: make(chan struct{}, 2), taskSem: make(chan struct{}, 1), byURL: map[string]string{}}
+	progs := newLRU[*goja.Program](16)
+	progs.maxW = progCacheBudget
+	return &ScriptRunner{e: e, progs: progs, sem: make(chan struct{}, 2), taskSem: make(chan struct{}, 1), byURL: map[string]string{}}
 }
 
 // Reset drops compiled programs (memory).
@@ -100,9 +104,18 @@ func (s *ScriptRunner) program(sc *Script) (*goja.Program, error) {
 		}
 		p = p2
 	}
-	s.progs.Put(key, p)
+	s.progs.PutW(key, p, int64(len(code))*progBytesPerSourceByte)
 	return p, nil
 }
+
+// A compiled goja Program takes ~14× its source in heap (measured: 300 KB of JS → ~4.1 MB). 16 cached
+// programs of large module scripts (100–500 KB is common) used to sit at tens of MB inside the 50 MB
+// extension. The cache now has a budget on the estimated compiled size; evicted scripts are compiled
+// again on their next run.
+const (
+	progBytesPerSourceByte = 14
+	progCacheBudget        = 8 << 20
+)
 
 type loopJob func()
 
@@ -153,7 +166,14 @@ func (s *ScriptRunner) Run(parent context.Context, rule *Rule, req, resp *Script
 
 // execute compiles + runs one script in a fresh runtime and drives its event loop until $done or until
 // nothing is pending. req == nil => task script (no $request / $response).
-func (s *ScriptRunner) execute(sc *Script, req, resp *ScriptHTTP, sem chan struct{}, maxTimeout, defTimeout time.Duration, setup func(*runCtx)) (*runCtx, error) {
+func (s *ScriptRunner) execute(sc *Script, req, resp *ScriptHTTP, sem chan struct{}, maxTimeout, defTimeout time.Duration, setup func(*runCtx)) (rcOut *runCtx, errOut error) {
+	// v0.19.3: a Go panic inside a native helper must not take the tunnel down (task scripts run on the
+	// scheduler goroutine, which has no net/http recover around it).
+	defer func() {
+		if p := recover(); p != nil {
+			rcOut, errOut = nil, fmt.Errorf("脚本运行时内部错误：%v", p)
+		}
+	}()
 	prog, err := s.program(sc)
 	if err != nil {
 		return nil, err
@@ -175,6 +195,9 @@ func (s *ScriptRunner) execute(sc *Script, req, resp *ScriptHTTP, sem chan struc
 	ctx, cancel := context.WithTimeout(context.Background(), timeout)
 	defer cancel()
 	rt := goja.New()
+	// v0.19.3: goja's default call-stack limit is MaxInt32, so `function f(){f()} f()` grew the heap by
+	// ~25 MB/s until jetsam killed the extension long before the timeout. JSC (Surge) throws RangeError.
+	rt.SetMaxCallStackSize(scriptMaxCallStack)
 	liveRuntimes.Add(1)
 	defer liveRuntimes.Add(-1)
 	rc := &runCtx{rt: rt, jobs: make(chan loopJob, 8), script: sc, name: sc.Name, e: s.e, ctx: ctx, timers: map[int64]*time.Timer{}}
@@ -192,6 +215,8 @@ func (s *ScriptRunner) execute(sc *Script, req, resp *ScriptHTTP, sem chan struc
 	}
 	stop := context.AfterFunc(ctx, func() { rt.Interrupt("timeout") })
 	defer stop()
+	stopGuard := startMemGuard(ctx, rt)
+	defer stopGuard()
 
 	_, err = rt.RunProgram(prog)
 	if err != nil {
@@ -206,7 +231,11 @@ func (s *ScriptRunner) execute(sc *Script, req, resp *ScriptHTTP, sem chan struc
 			func() {
 				defer func() {
 					if p := recover(); p != nil {
-						err = fmt.Errorf("%v", p)
+						if pe, ok := p.(error); ok {
+							err = pe // keeps *goja.Exception / StackOverflowError / InterruptedError for jsErr
+						} else {
+							err = fmt.Errorf("%v", p)
+						}
 					}
 				}()
 				j()
@@ -227,13 +256,62 @@ func (s *ScriptRunner) execute(sc *Script, req, resp *ScriptHTTP, sem chan struc
 func (s *ScriptRunner) jsErr(sc *Script, err error, timeout time.Duration) error {
 	var ie *goja.InterruptedError
 	if errors.As(err, &ie) {
+		if v, _ := ie.Value().(string); v == memInterrupt {
+			return errors.New("脚本内存占用过高，已终止（保护隧道内存）")
+		}
 		return fmt.Errorf("脚本执行超时（%s）", timeout)
+	}
+	var so *goja.StackOverflowError
+	if errors.As(err, &so) {
+		return errors.New("脚本调用栈溢出（递归过深）")
 	}
 	var ex *goja.Exception
 	if errors.As(err, &ex) {
 		return fmt.Errorf("脚本异常：%s", clip(ex.Error(), 400))
 	}
 	return err
+}
+
+// scriptMaxCallStack bounds JS recursion (frames). JSC allows roughly this order of magnitude too.
+const scriptMaxCallStack = 3000
+
+const memInterrupt = "memory"
+
+// memGuardHook lets tests force a limit; nil in production.
+var memGuardLimit = func() int64 { return debug.SetMemoryLimit(-1) }
+
+// startMemGuard interrupts the runtime when the Go heap nears the soft memory limit (GOMEMLIMIT is set
+// in the extension from the jetsam budget). A script that builds huge strings / arrays would otherwise
+// push the extension over its ~50 MB budget and the system kills the tunnel. No limit set (app, tests)
+// => no guard.
+func startMemGuard(ctx context.Context, rt *goja.Runtime) func() {
+	limit := memGuardLimit()
+	if limit <= 0 || limit >= 1<<40 {
+		return func() {}
+	}
+	threshold := uint64(limit) / 10 * 9
+	done := make(chan struct{})
+	go func() {
+		t := time.NewTicker(50 * time.Millisecond)
+		defer t.Stop()
+		sample := []metrics.Sample{{Name: "/memory/classes/heap/objects:bytes"}}
+		for {
+			select {
+			case <-done:
+				return
+			case <-ctx.Done():
+				return
+			case <-t.C:
+				metrics.Read(sample)
+				if sample[0].Value.Kind() == metrics.KindUint64 && sample[0].Value.Uint64() > threshold {
+					rt.Interrupt(memInterrupt)
+					return
+				}
+			}
+		}
+	}()
+	var once sync.Once
+	return func() { once.Do(func() { close(done) }) }
 }
 
 // ---- headers as a case-insensitive JS object ----
@@ -766,7 +844,9 @@ func (rc *runCtx) parseFetch(method string, v goja.Value) (*fetchReq, error) {
 	if x := get("timeout"); x != nil {
 		t := x.ToFloat()
 		if t > 0 {
-			if t > 1000 { // ms (QX)
+			// QX ($task.fetch, method "") documents milliseconds; Surge ($httpClient) seconds. Large Surge
+			// values are milliseconds in practice too.
+			if method == "" || t > 1000 {
 				fr.timeout = time.Duration(t) * time.Millisecond
 			} else {
 				fr.timeout = time.Duration(t * float64(time.Second))

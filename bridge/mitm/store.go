@@ -51,6 +51,9 @@ func (s *Store) saveLocked() error {
 	return nil
 }
 
+// storeMaxTotal caps $persistentStore / $prefs (keys + values).
+const storeMaxTotal = 8 << 20
+
 // Read returns the value and whether it exists.
 func (s *Store) Read(key string) (string, bool) {
 	s.mu.Lock()
@@ -69,6 +72,17 @@ func (s *Store) Write(key, val string, del bool) bool {
 		delete(s.data, key)
 	} else {
 		if len(val) > 1<<20 {
+			return false
+		}
+		// v0.19.3: total cap. Every write re-serialises the whole map inside the 50 MB extension, so an
+		// unbounded store (a script appending to a key on every request) ended in a jetsam kill.
+		total := len(val) + len(key)
+		for k, v := range s.data {
+			if k != key {
+				total += len(k) + len(v)
+			}
+		}
+		if total > storeMaxTotal {
 			return false
 		}
 		s.data[key] = val
