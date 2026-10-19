@@ -316,10 +316,10 @@ final class ScaleTests: XCTestCase {
     func testLargeProfileValidatesAndInspects() {
         let root = scratch(), path = bigProfile(root)
         var t = Date()
-        XCTAssertEqual(LibmihomoValidateConfigIn(root.path, path), "")
+        XCTAssertEqual(TestBridge.validate(home: root.path, path: path), "")
         let validate = Date().timeIntervalSince(t)
         t = Date()
-        let json = LibmihomoInspectProfile(root.path, path)
+        let json = TestBridge.inspect(home: root.path, path: path)
         let inspect = Date().timeIntervalSince(t)
         let o = (try? JSONSerialization.jsonObject(with: Data(json.utf8))) as? [String: Any]
         XCTAssertEqual((o?["proxies"] as? [Any])?.count, 3000)
@@ -333,8 +333,8 @@ final class ScaleTests: XCTestCase {
     func testLargeManualListOffMainActor() async {
         let root = scratch()
         let path = root.appendingPathComponent("manual.yaml").path
-        _ = LibmihomoManualDelete(path, "")
-        XCTAssertEqual(LibmihomoManualAddText(path, UITestSeed.bigManualLinks(3000)), 3000)
+        _ = TestBridge.manualDelete(path, "")
+        XCTAssertEqual(TestBridge.manualAdd(path, UITestSeed.bigManualLinks(3000)), 3000)
         let t = Date()
         let list = await Task.detached { ProfileStore.manualNodes(path: path) }.value
         XCTAssertEqual(list.count, 3000)
@@ -349,25 +349,25 @@ final class ScaleTests: XCTestCase {
         await withTaskGroup(of: String.self) { g in
             for i in 0..<12 {
                 g.addTask {
-                    LibmihomoProfileNodeUpsert(root.path, path, #"{"name":"NEW \#(i)","type":"ss","server":"192.0.2.\#(i + 1)","port":443,"cipher":"aes-128-gcm","password":"x"}"#, "")
+                    TestBridge.nodeUpsert(home: root.path, path: path, json: #"{"name":"NEW \#(i)","type":"ss","server":"192.0.2.\#(i + 1)","port":443,"cipher":"aes-128-gcm","password":"x"}"#, oldName: "")
                 }
             }
             for await e in g { XCTAssertEqual(e, "") }
         }
-        for i in 0..<12 { XCTAssertTrue(LibmihomoProfileHasNode(path, "NEW \(i)"), "NEW \(i) lost") }
+        for i in 0..<12 { XCTAssertTrue(TestBridge.hasNode(path, "NEW \(i)"), "NEW \(i) lost") }
     }
 
     func testConcurrentManualAddsAndSelections() async {
         let root = scratch()
         let manual = root.appendingPathComponent("manual.yaml").path
-        _ = LibmihomoManualDelete(manual, "")
+        _ = TestBridge.manualDelete(manual, "")
         let profile = root.appendingPathComponent("p.yaml").path
         try? "proxies: []\n".write(toFile: profile, atomically: true, encoding: .utf8)
         let ui = Data("aes-128-gcm:pw".utf8).base64EncodedString()
         await withTaskGroup(of: Void.self) { g in
             for i in 0..<16 {
-                g.addTask { _ = LibmihomoManualAddText(manual, "ss://\(ui)@192.0.2.\(i + 1):443#M\(i)") }
-                g.addTask { _ = LibmihomoSaveSelection(profile, "G\(i)", "DIRECT") }
+                g.addTask { _ = TestBridge.manualAdd(manual, "ss://\(ui)@192.0.2.\(i + 1):443#M\(i)") }
+                g.addTask { _ = TestBridge.saveSelection(profile, "G\(i)", "DIRECT") }
             }
         }
         XCTAssertEqual(ProfileStore.manualNodes(path: manual).count, 16)
