@@ -25,8 +25,15 @@ struct ConnectIntent: AppIntent {
     @MainActor
     func perform() async throws -> some IntentResult & ProvidesDialog {
         let ok = await VPNManager.shared.connectAndWait()
-        let msg = ok ? "已连接" : "连接失败：\(VPNManager.shared.lastError ?? "请打开 App 查看")"
+        // v0.19.2: was built from plain literals (always Chinese).
+        let msg = ok ? String(localized: "已连接") : Self.failure(VPNManager.shared.lastError)
         return .result(dialog: "\(msg)")
+    }
+
+    /// The failure dialog of the connect intents, in the app language.
+    static func failure(_ error: String?) -> String {
+        guard let e = error, !e.isEmpty else { return String(localized: "连接失败，请打开 App 查看") }
+        return e.hasPrefix(String(localized: "连接失败：")) ? e : String(localized: "连接失败：") + e
     }
 }
 
@@ -56,7 +63,7 @@ struct ToggleIntent: AppIntent {
             return .result(dialog: "已断开")
         }
         let ok = await vpn.connectAndWait()
-        let msg = ok ? "已连接" : "连接失败：\(vpn.lastError ?? "请打开 App 查看")"
+        let msg = ok ? String(localized: "已连接") : ConnectIntent.failure(vpn.lastError)
         return .result(dialog: "\(msg)")
     }
 }
@@ -73,7 +80,7 @@ struct SwitchModeIntent: AppIntent {
     func perform() async throws -> some IntentResult & ProvidesDialog {
         await VPNManager.shared.load()
         await DashboardModel.shared.setMode(mode.rawValue)
-        let name = ["rule": "规则", "global": "全局", "direct": "直连"][mode.rawValue] ?? mode.rawValue
+        let name = ["rule": String(localized: "规则"), "global": String(localized: "全局"), "direct": String(localized: "直连")][mode.rawValue] ?? mode.rawValue
         return .result(dialog: "已切换到\(name)模式")
     }
 }

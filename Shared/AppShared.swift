@@ -351,6 +351,14 @@ struct CoreOverrides: Codable, Equatable {
         return o
     }
 
+    /// The safe-mode flag as stored in overrides.json (no Keychain access, nothing written).
+    static func storedSafeMode() -> Bool {
+        struct Flag: Decodable { var safeMode: Bool? }
+        guard let d = try? Data(contentsOf: AppShared.overridesURL),
+              let f = try? JSONDecoder().decode(Flag.self, from: d) else { return false }
+        return f.safeMode ?? false
+    }
+
     func save() {
         var me = self
         me.ipv6 = ipv6Mode != "off"
@@ -467,7 +475,9 @@ struct RouteSpec: Equatable {
         let t = text.trimmingCharacters(in: .whitespaces)
         guard !t.isEmpty else { return nil }
         let parts = t.split(separator: "/", maxSplits: 1).map(String.init)
-        let addr = parts[0]
+        // v0.19.2: "/" alone split into [] and parts[0] crashed the app (the 连接方式 editor validates on every
+        // keystroke) and the extension (routes are built at start).
+        guard let addr = parts.first, !addr.isEmpty else { return nil }
         var a4 = in_addr(), a6 = in6_addr()
         if inet_pton(AF_INET, addr, &a4) == 1 {
             isV6 = false

@@ -1519,5 +1519,30 @@ final class MihomoUITests: MihomoUITestCase {
         if !app.element(id: "home.card.Streaming").waitForExistence(timeout: 8) { warnings.append("Home cards did not follow the new order") }
         snap("home-after-order")
     }
-}
 
+    // MARK: 32. v0.19.2: a route list line that is just "/" crashed the app (RouteSpec split it into nothing and
+    // read parts[0]); the editor validates on every keystroke, so typing "/" was enough.
+    func test32_RouteEditorSlash() {
+        launch()
+        openMore("连接方式")
+        let row = app.element(labelContains: L("排除的路由"))
+        XCTAssertTrue(scrollTo(row), "排除的路由 row")
+        row.tap()
+        XCTAssertTrue(app.navigationBars[L("排除的路由")].waitForExistence(timeout: 6), "route editor")
+        let tv = app.textViews.firstMatch
+        let field = tv.waitForExistence(timeout: 3) ? tv : app.textFields.firstMatch
+        XCTAssertTrue(field.waitForExistence(timeout: 4), "route text field")
+        field.tap()
+        field.typeText("\n/")
+        usleep(800_000)
+        XCTAssertEqual(app.state, .runningForeground, "app still running after typing \"/\"")
+        XCTAssertTrue(app.navigationBars[L("排除的路由")].exists, "still on the route editor")
+        XCTAssertTrue(app.element(labelContains: "/").exists, "the line is shown")
+        snap("route-slash")
+        // Put the defaults back.
+        let reset = app.button(L("恢复默认"))
+        if scrollTo(reset) { reset.tap() }
+        usleep(800_000)
+        back()
+    }
+}

@@ -7,7 +7,8 @@ struct SubscriptionUserInfo: Codable, Hashable {
     var total: Int64 = 0
     var expire: Int64 = 0
 
-    var used: Int64 { upload + download }
+    /// Saturating: two huge header values must not trap (v0.19.2).
+    var used: Int64 { let (s, o) = upload.addingReportingOverflow(download); return o ? .max : s }
     var fraction: Double { total > 0 ? min(Double(used) / Double(total), 1) : 0 }
     var expireDate: Date? { expire > 0 ? Date(timeIntervalSince1970: TimeInterval(expire)) : nil }
 
@@ -19,7 +20,9 @@ struct SubscriptionUserInfo: Codable, Hashable {
         for part in header.split(whereSeparator: { $0 == ";" || $0 == "," }) {
             let kv = part.split(separator: "=", maxSplits: 1).map { $0.trimmingCharacters(in: .whitespaces).lowercased() }
             guard kv.count == 2 else { continue }
-            let v = Int64(Double(kv[1]) ?? 0)
+            // v0.19.2: Int64(Double) traps on inf / nan / values beyond Int64 ("total=1e30" from a broken
+            // panel) — that crashed the app on every update of that subscription, also in background refresh.
+            let v = Self.clampedInt64(kv[1])
             switch kv[0] {
             case "upload": info.upload = v; found = true
             case "download": info.download = v; found = true
@@ -29,6 +32,14 @@ struct SubscriptionUserInfo: Codable, Hashable {
             }
         }
         return found ? info : nil
+    }
+
+    /// Whole bytes / seconds from a header value: plain integers exactly, decimals / exponents rounded down,
+    /// anything non-finite or negative → 0, larger than Int64 → Int64.max.
+    static func clampedInt64(_ s: String) -> Int64 {
+        if let i = Int64(s) { return max(i, 0) }
+        guard let d = Double(s), d.isFinite, d > 0 else { return 0 }
+        return d >= 9.2e18 ? Int64.max : Int64(d)
     }
 }
 
@@ -114,11 +125,21 @@ final class ProfileStore: ObservableObject {
             profiles[i].copyModified = nil
         }
         profiles.removeAll { $0.id == p.id }
-        if activeID == p.id {
+        let wasActive = activeID == p.id
+        if wasActive {
             activeID = profiles.first?.id
             AppShared.activeProfileID = activeID
         }
         persist()
+        // v0.19.2: deleting the running profile left the core on the deleted file while the list showed another
+        // one as active. Switch the tunnel to the new active profile, or disconnect when none is left.
+        if wasActive, VPNManager.shared.isConnected {
+            if activeID != nil {
+                Task { _ = await VPNManager.shared.reload() }
+            } else {
+                VPNManager.shared.stop()
+            }
+        }
     }
 
     func rename(_ p: Profile, to name: String) {
@@ -212,7 +233,9 @@ final class ProfileStore: ObservableObject {
         let (data, resp) = try await URLSession.shared.data(for: req)
         let http = resp as? HTTPURLResponse
         if let code = http?.statusCode, !(200..<300).contains(code) { throw StoreError.http(code) }
-        guard var text = String(data: data, encoding: .utf8), !text.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else { throw StoreError.empty }
+        // v0.19.2: same decoder as opened files (UTF-8 with the BOM stripped, UTF-16, GB18030). A BOM used to stay in
+        // the text and a GBK-encoded subscription was reported as 「订阅内容为空」.
+        guard var text = ImportRouter.decodeText(data), !text.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else { throw StoreError.empty }
         text = Self.normalize(text)
         if let err = await Self.validate(text: text) { throw StoreError.invalid(err) }
         try text.write(to: p.fileURL, atomically: true, encoding: .utf8)
@@ -246,11 +269,23 @@ final class ProfileStore: ObservableObject {
         // feat/group-order: updating an 自定义 copy of a subscription updates its source (which regenerates the copy).
         if p.kind == .local, let src = source(of: p), src.kind == .remote { return await refresh(src) }
         guard p.kind == .remote else { return nil }
+        // v0.19.2: one download per profile at a time (manual 更新 + the foreground auto-update pass could run
+        // two, each reloading the tunnel).
+        guard !updating.contains(p.id) else { return nil }
         updating.insert(p.id)
         defer { updating.remove(p.id) }
         do {
             SnapshotStore.shared.capture(String(localized: "更新订阅「\(p.name)」前"))
-            let np = try await download(p)
+            let downloaded = try await download(p)
+            // v0.19.2: merge into the entry as it is now. Writing back the copy taken before the download undid a
+            // rename / interval / User-Agent change made meanwhile; a profile deleted meanwhile stays deleted.
+            guard var np = profiles.first(where: { $0.id == p.id }) else {
+                try? FileManager.default.removeItem(at: p.fileURL)
+                return nil
+            }
+            np.userInfo = downloaded.userInfo
+            np.lastUpdated = downloaded.lastUpdated
+            if np.name.trimmingCharacters(in: .whitespaces).isEmpty { np.name = downloaded.name }
             update(np)
             UsageAlerts.evaluate(id: np.id, name: np.name, info: np.userInfo)
             let (copies, notes) = await regenerateCopies(of: np)

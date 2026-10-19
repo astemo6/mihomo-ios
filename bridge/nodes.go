@@ -911,7 +911,7 @@ func writeManual(path string, proxies []map[string]any) error {
 	if err != nil {
 		return err
 	}
-	return os.WriteFile(path, b, 0o644)
+	return writeAtomic(path, b) // v0.19.2: was truncate-and-write (the extension may read it during a reload)
 }
 
 // ManualList returns the proxies of the manual profile as a JSON array.

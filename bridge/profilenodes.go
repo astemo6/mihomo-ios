@@ -412,10 +412,13 @@ func commit(home, path string, orig []byte, d *yamlDoc) string {
 			return e
 		}
 	}
-	if err := os.WriteFile(path+".bak", orig, 0o644); err != nil {
+	if err := writeAtomic(path+".bak", orig); err != nil {
 		return err.Error()
 	}
-	if err := os.WriteFile(path, nb, 0o644); err != nil {
+	// v0.19.2: atomic (temp file + rename) like the group-order writer. os.WriteFile truncated the profile
+	// first, so a reload running at the same moment (the extension reads it) could see an empty / partial
+	// file, and a crash mid-write lost the profile.
+	if err := writeAtomic(path, nb); err != nil {
 		return err.Error()
 	}
 	return ""
@@ -653,10 +656,10 @@ func ProfileNodeUndo(path string) string {
 		return "没有可以撤销的修改"
 	}
 	cur, _ := os.ReadFile(path)
-	if err := os.WriteFile(path, b, 0o644); err != nil {
+	if err := writeAtomic(path, b); err != nil {
 		return err.Error()
 	}
-	_ = os.WriteFile(path+".bak", cur, 0o644)
+	_ = writeAtomic(path+".bak", cur)
 	return ""
 }
 

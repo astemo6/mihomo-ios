@@ -134,14 +134,14 @@ final class ResourceStore: ObservableObject {
         EngineStore.shared.reparseModules()
         reload()
         if changed, VPNManager.shared.isConnected, let err = await VPNManager.shared.reload() {
-            message = "重载失败：\(err)"
+            message = String(localized: "重载失败：\(err)")
         }
     }
 
     func update(_ it: ResourceItem) async {
         let changed = await download(it)
         await finish(changed: changed)
-        if let e = items.first(where: { $0.key == it.key })?.error, !e.isEmpty { message = "更新「\(it.name)」失败：\(e)" }
+        if let e = items.first(where: { $0.key == it.key })?.error, !e.isEmpty { message = String(localized: "更新「\(it.name)」失败：\(e)") }
     }
 
     /// Update all (enabled, remote) resources, or only the due ones. Modules first so newly referenced
@@ -180,7 +180,7 @@ final class ResourceStore: ObservableObject {
     /// Adds a remote rule set to the custom rules (rules.json) — its single home.
     func addRuleSet(url: String, policy: String, domainSet: Bool, interval: Int) async {
         let u = url.trimmingCharacters(in: .whitespacesAndNewlines)
-        guard u.hasPrefix("http") else { message = "请输入 http(s) 链接"; return }
+        guard u.hasPrefix("http") else { message = String(localized: "请输入 http(s) 链接"); return }
         let line = "\(domainSet ? "DOMAIN-SET" : "RULE-SET"),\(u),\(policy)"
         let rs = CustomRulesStore.shared
         rs.rules.insert(CustomRule(line: line, enabled: true, interval: interval), at: 0)

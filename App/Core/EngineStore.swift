@@ -37,7 +37,7 @@ final class EngineStore: ObservableObject {
             try? await Task.sleep(nanoseconds: 400_000_000)
             guard !Task.isCancelled, let self else { return }
             if VPNManager.shared.isConnected, let err = await VPNManager.shared.reload() {
-                self.message = "重载失败：\(err)"
+                self.message = String(localized: "重载失败：\(err)")
             }
         }
     }
@@ -104,19 +104,26 @@ final class EngineStore: ObservableObject {
     }
 
     func addModule(url: String) async {
+        // v0.19.2: opening the same install link twice (mihomo:// / surge:/// / a pasted URL) added a second copy,
+        // so every rewrite and script of that module ran twice. The other add paths already refused duplicates.
+        let wanted = url.trimmingCharacters(in: .whitespacesAndNewlines)
+        if let existing = config.modules.first(where: { $0.url == wanted || $0.url == url }) {
+            message = String(localized: "模块已存在：「\(existing.name)」")
+            return
+        }
         SnapshotStore.shared.capture(String(localized: "添加模块前"))
         busy.insert("add")
         defer { busy.remove("add") }
         do {
-            let text = try await Self.download(url)
+            let text = try await Self.download(wanted)
             let p = ParsedEngineText.parse(LibmihomoEngineParseText(text, "{}"))
             guard let p, !(p.rules.isEmpty && p.hostnames.isEmpty && p.coreRules.isEmpty && (p.tasks ?? []).isEmpty && (p.panels ?? []).isEmpty) else {
-                message = "未识别到可用的重写、脚本或 MitM 内容"
+                message = String(localized: "未识别到可用的重写、脚本或 MitM 内容")
                 return
             }
             var name = p.name
             if name.isEmpty { name = URL(string: url)?.deletingPathExtension().lastPathComponent ?? "模块" }
-            let m = EngineModule(name: name, url: url, enabled: true, args: nil, updatedAt: Date().timeIntervalSince1970)
+            let m = EngineModule(name: name, url: wanted, enabled: true, args: nil, updatedAt: Date().timeIntervalSince1970)
             try text.write(to: EnginePaths.moduleURL(m.id), atomically: true, encoding: .utf8)
             config.modules.append(m)
             if !config.enabled { config.enabled = true }
@@ -127,7 +134,7 @@ final class EngineStore: ObservableObject {
             if !p.hostnames.isEmpty && !caTrustedOrUnknownTrue { msg += String(localized: "。HTTPS 规则需要先在 MitM 页安装并信任证书") }
             message = msg
         } catch {
-            message = "下载失败：\(error.localizedDescription)"
+            message = String(localized: "下载失败：\(error.localizedDescription)")
         }
     }
 
@@ -216,7 +223,7 @@ final class EngineStore: ObservableObject {
             reparseModules()
             save()
         } catch {
-            message = "更新「\(m.name)」失败：\(error.localizedDescription)"
+            message = String(localized: "更新「\(m.name)」失败：\(error.localizedDescription)")
         }
     }
 
@@ -291,7 +298,7 @@ final class EngineStore: ObservableObject {
     func generateCA() {
         var err: NSError?
         _ = LibmihomoCAGenerate(home, &err)
-        if let err { message = "生成失败：\(err.localizedDescription)" }
+        if let err { message = String(localized: "生成失败：\(err.localizedDescription)") }
         refreshCA()
         save()
     }
@@ -335,7 +342,7 @@ final class EngineStore: ObservableObject {
     func p12File(password: String) -> URL? {
         var err: NSError?
         guard let data = LibmihomoCAExportP12(home, password, &err), err == nil else {
-            message = "导出失败：\(err?.localizedDescription ?? "")"
+            message = String(localized: "导出失败：\(err?.localizedDescription ?? "")")
             return nil
         }
         let url = FileManager.default.temporaryDirectory.appendingPathComponent("Mihomo-CA.p12")
@@ -346,10 +353,10 @@ final class EngineStore: ObservableObject {
     func importP12(_ url: URL, password: String) {
         let ok = url.startAccessingSecurityScopedResource()
         defer { if ok { url.stopAccessingSecurityScopedResource() } }
-        guard let data = try? Data(contentsOf: url) else { message = "无法读取文件"; return }
+        guard let data = try? Data(contentsOf: url) else { message = String(localized: "无法读取文件"); return }
         var err: NSError?
         _ = LibmihomoCAImportP12(home, data, password, &err)
-        if let err { message = err.localizedDescription } else { message = "已导入证书，请重新安装并信任描述文件" }
+        if let err { message = err.localizedDescription } else { message = String(localized: "已导入证书，请重新安装并信任描述文件") }
         refreshCA()
         save()
     }

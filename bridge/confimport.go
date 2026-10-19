@@ -113,6 +113,9 @@ const convertScheme = "convert+"
 func splitSections(text string) (order []string, secs map[string][]string) {
 	secs = map[string][]string{}
 	cur := ""
+	// v0.19.2: strings.TrimSpace keeps U+FEFF, so a UTF-8 BOM hid the first section header ([General] /
+	// [general]) and its settings were dropped.
+	text = strings.TrimPrefix(text, "\ufeff")
 	for _, raw := range strings.Split(strings.ReplaceAll(text, "\r", ""), "\n") {
 		t := strings.TrimSpace(raw)
 		if m := confSectionRe.FindStringSubmatch(t); m != nil {

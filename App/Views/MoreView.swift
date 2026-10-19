@@ -345,6 +345,7 @@ struct SettingsView: View {
         if !portInvalid, let p = Int(portText) { cur.controllerPort = p }
         guard cur != old else { return }
         cur.save()
+        ControllerClient.shared.invalidateCredentials() // v0.19.2 (port / secret are cached for 3 s)
         Task {
             if vpn.isConnected {
                 let reconnect = old.controllerPort != cur.controllerPort || old.secret != cur.secret || old.tunMTU != cur.tunMTU || old.memoryLimitMB != cur.memoryLimitMB

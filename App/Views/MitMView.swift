@@ -690,6 +690,9 @@ struct ScriptLogsView: View {
             Button { Task { try? await ControllerClient.shared.mitmClearLogs(); lines = [] } } label: { Image(systemName: "trash") }
         }
         .onAppear {
+            // v0.19.2: onAppear runs again when a pushed page / sheet closes; the old loop was overwritten without
+            // being cancelled and kept polling the core every 1.5 s for the rest of the session.
+            timer?.cancel()
             timer = Task {
                 while !Task.isCancelled {
                     if vpn.isConnected, let l = try? await ControllerClient.shared.mitmLogs() { lines = l }
