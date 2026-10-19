@@ -1663,15 +1663,18 @@ final class MihomoUITests: MihomoUITestCase {
         app.navigationBars.buttons[L("保存")].tap()
         let gone = XCTNSPredicateExpectation(predicate: NSPredicate(format: "exists == false"), object: app.navigationBars[L("编辑节点")])
         XCTAssertEqual(XCTWaiter().wait(for: [gone], timeout: 10), .completed, "editor saved")
-        XCTAssertTrue(app.element(labelContains: "192.0.2.233").waitForExistence(timeout: 6), "detail shows the edit")
+        // The list is lazy and was scrolled down to 编辑: look for the server row by scrolling.
+        usleep(1_500_000)
+        XCTAssertTrue(scrollTo(app.element(labelContains: "192.0.2.233")), "detail shows the edit")
         let undo = app.element(id: "node.undo")
         XCTAssertTrue(scrollTo(undo), "撤销上次修改 offered after an edit")
         snap("node-undo-offered")
         undo.tap()
-        XCTAssertTrue(app.element(labelContains: "192.0.2.2").waitForExistence(timeout: 6), "original server back")
-        usleep(1_000_000)
-        XCTAssertFalse(app.element(labelContains: "192.0.2.233").exists, "detail still shows the undone edit")
+        usleep(1_500_000)
         XCTAssertFalse(app.element(id: "node.undo").exists, "undo is one level")
+        for _ in 0..<4 { app.swipeDown(velocity: .slow) }
+        XCTAssertTrue(scrollTo(app.element(labelContains: "192.0.2.2:443")), "original server back")
+        XCTAssertFalse(app.element(labelContains: "192.0.2.233").exists, "detail still shows the undone edit")
         snap("node-undo-done")
         // The file really went back: reopen the list.
         for _ in 0..<3 where !app.navigationBars[L("更多")].exists { back() }
@@ -1679,7 +1682,7 @@ final class MihomoUITests: MihomoUITestCase {
         let again = app.element(label: "🇯🇵 Tokyo 02")
         XCTAssertTrue(scrollTo(again))
         again.tap()
-        XCTAssertTrue(app.element(labelContains: "192.0.2.2").waitForExistence(timeout: 6))
+        XCTAssertTrue(app.element(labelContains: "192.0.2.2:443").waitForExistence(timeout: 6), "server after reopening")
         XCTAssertFalse(app.element(labelContains: "192.0.2.233").exists, "undo not persisted")
         back()
     }
