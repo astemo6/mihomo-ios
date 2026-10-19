@@ -192,10 +192,26 @@ func geoLookup(ip string) (string, string, string) {
 		}
 	}
 	if fi, err := os.Stat(C.Path.ASN()); err == nil && fi.Size() > 1024 {
-		a, o := mmdb.ASNInstance().LookupASN(addr)
-		asn, org = a, o
+		asn, org = lookupASNSafe(addr)
 	}
 	return country, asn, org
+}
+
+// lookupASNSafe: mihomo's reader returns "0" for an address the GeoLite2 ASN database does not know
+// (scripts then saw ASN 0 instead of null) and slices ASN[2:] unchecked for ipinfo databases (a panic on
+// a miss, inside a script callback). v0.19.4: both mapped to "no result".
+func lookupASNSafe(addr net.IP) (asn, org string) {
+	defer func() {
+		if recover() != nil {
+			asn, org = "", ""
+		}
+	}()
+	asn, org = mmdb.ASNInstance().LookupASN(addr)
+	asn = strings.TrimPrefix(strings.TrimPrefix(asn, "AS"), "as")
+	if asn == "0" {
+		asn = ""
+	}
+	return asn, org
 }
 
 // NotifyNetworkChanged is called by the extension when the default path changes (Wi-Fi ⇄ cellular,

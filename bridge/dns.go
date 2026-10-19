@@ -1,12 +1,16 @@
 package libmihomo
 
 import (
+	"bytes"
 	"encoding/json"
 	"fmt"
 	"net/netip"
 	"os"
 	"path/filepath"
+	"sort"
 	"strings"
+
+	"go.yaml.in/yaml/v3"
 )
 
 // DNSOverride mirrors <home>/dns.json written by the app's DNS settings page. When Enabled it replaces
@@ -108,7 +112,7 @@ func applyDNSOverride(dns map[string]any, d *DNSOverride, mode string) {
 		}
 	}
 	if len(policy.keys) > 0 {
-		dns["nameserver-policy"] = policy.toMap()
+		dns["nameserver-policy"] = orderedPolicyNode(policy.keys, policy.toMap())
 	} else {
 		delete(dns, "nameserver-policy")
 	}
@@ -191,6 +195,75 @@ func (p *yamlOrderedPolicy) add(k string, v []any) {
 		p.keys = append(p.keys, k)
 	}
 	p.vals[k] = v
+}
+
+// orderedPolicyNode writes nameserver-policy as a YAML mapping in the given key order. mihomo keeps this
+// section ordered and the first matching entry wins; a Go map is written sorted by key, so before v0.19.4
+// the DNS page's order (and the profile's own order) was silently replaced by the alphabetical one
+// ("geosite:…" ahead of "rule-set:…", the 国内/国外分流 entry moved behind user entries, …).
+func orderedPolicyNode(keys []string, vals map[string]any) any {
+	n := &yaml.Node{Kind: yaml.MappingNode, Tag: "!!map"}
+	for _, k := range keys {
+		v, ok := vals[k]
+		if !ok {
+			continue
+		}
+		var vn yaml.Node
+		if err := vn.Encode(v); err != nil {
+			return vals
+		}
+		n.Content = append(n.Content, &yaml.Node{Kind: yaml.ScalarNode, Tag: "!!str", Value: k}, &vn)
+	}
+	return n
+}
+
+// profilePolicyOrder returns the key order of dns.nameserver-policy as written in the profile, nil when
+// the profile has none (cheap check first: most profiles do not).
+func profilePolicyOrder(profile []byte) []string {
+	if !bytes.Contains(profile, []byte("nameserver-policy")) {
+		return nil
+	}
+	var doc struct {
+		DNS struct {
+			Policy yaml.Node `yaml:"nameserver-policy"`
+		} `yaml:"dns"`
+	}
+	if yaml.Unmarshal(profile, &doc) != nil || doc.DNS.Policy.Kind != yaml.MappingNode {
+		return nil
+	}
+	var keys []string
+	for i := 0; i+1 < len(doc.DNS.Policy.Content); i += 2 {
+		keys = append(keys, doc.DNS.Policy.Content[i].Value)
+	}
+	return keys
+}
+
+// keepProfilePolicyOrder re-applies the profile's own nameserver-policy order to the decoded map.
+func keepProfilePolicyOrder(dns map[string]any, profile []byte) {
+	m, ok := dns["nameserver-policy"].(map[string]any)
+	if !ok || len(m) < 2 {
+		return
+	}
+	order := profilePolicyOrder(profile)
+	if len(order) == 0 {
+		return
+	}
+	seen := map[string]bool{}
+	var keys []string
+	for _, k := range order {
+		if _, ok := m[k]; ok && !seen[k] {
+			keys = append(keys, k)
+			seen[k] = true
+		}
+	}
+	var rest []string
+	for k := range m {
+		if !seen[k] {
+			rest = append(rest, k)
+		}
+	}
+	sort.Strings(rest)
+	dns["nameserver-policy"] = orderedPolicyNode(append(keys, rest...), m)
 }
 
 func (p *yamlOrderedPolicy) toMap() map[string]any {

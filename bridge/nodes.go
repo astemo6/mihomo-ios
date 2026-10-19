@@ -38,6 +38,39 @@ func tryB64(s string) (string, bool) {
 	return "", false
 }
 
+// normalizeLegacySS rewrites the legacy whole-base64 form ss://BASE64(method:password@host:port)[?…][#name]
+// into SIP002 (ss://BASE64URL(method:password)@host:port…). mihomo's converter only decodes that form
+// with unpadded standard base64, so padded ("…==") or URL-safe links — what many subscriptions and
+// Shadowrocket exports use — were dropped without an error (v0.19.4).
+func normalizeLegacySS(line string) string {
+	body := line[len("ss://"):]
+	frag := ""
+	if i := strings.Index(body, "#"); i >= 0 {
+		body, frag = body[:i], body[i:]
+	}
+	query := ""
+	if i := strings.IndexAny(body, "?/"); i >= 0 {
+		body, query = body[:i], body[i:]
+	}
+	if body == "" || strings.Contains(body, "@") {
+		return line
+	}
+	dec, ok := tryB64(body)
+	if !ok {
+		if u, err := url.PathUnescape(body); err == nil && u != body {
+			dec, ok = tryB64(u)
+		}
+	}
+	if !ok {
+		return line
+	}
+	at := strings.LastIndex(dec, "@")
+	if at <= 0 || !strings.Contains(dec[:at], ":") || !strings.Contains(dec[at+1:], ":") {
+		return line
+	}
+	return "ss://" + base64.RawURLEncoding.EncodeToString([]byte(dec[:at])) + "@" + strings.TrimSpace(dec[at+1:]) + query + frag
+}
+
 func atoi(s string, def int) int {
 	if v, err := strconv.Atoi(strings.TrimSpace(s)); err == nil {
 		return v
@@ -276,11 +309,40 @@ func parseSurgeLine(line string) (map[string]any, error) {
 			p["skip-cert-verify"] = true
 		}
 	}
+	// v0.19.4: Loon writes the secret positionally after host and port
+	// ("Shadowsocks,host,port,aes-256-gcm,"pw"", "vmess,host,port,auto,"uuid"", "trojan,host,port,"pw"",
+	// "Hysteria2,host,port,"pw"", "vless,host,port,"uuid""), plus transport= / path= / host= / over-tls=.
+	// Before, these came out with an empty cipher / password and the core refused the whole profile.
+	at := func(i int) string {
+		if i < len(pos) {
+			return pos[i]
+		}
+		return ""
+	}
+	loonTransport := func() {
+		switch strings.ToLower(kv["transport"]) {
+		case "ws":
+			applyWS(p, kv["path"], kv["host"])
+		case "http":
+			p["network"] = "http"
+			opts := map[string]any{}
+			if v := kv["path"]; v != "" {
+				opts["path"] = []any{v}
+			}
+			if v := kv["host"]; v != "" {
+				opts["headers"] = map[string]any{"Host": []any{v}}
+			}
+			p["http-opts"] = opts
+		case "grpc":
+			p["network"] = "grpc"
+			p["grpc-opts"] = map[string]any{"grpc-service-name": firstNonEmpty(kv["service-name"], kv["path"])}
+		}
+	}
 	switch typ {
 	case "ss", "shadowsocks":
 		p["type"] = "ss"
-		p["cipher"] = firstNonEmpty(kv["encrypt-method"], kv["method"], kv["cipher"])
-		p["password"] = kv["password"]
+		p["cipher"] = firstNonEmpty(kv["encrypt-method"], kv["method"], kv["cipher"], at(3))
+		p["password"] = firstNonEmpty(kv["password"], at(4))
 		p["udp"] = udp
 		if o := kv["obfs"]; o != "" {
 			p["plugin"] = "obfs"
@@ -293,19 +355,40 @@ func parseSurgeLine(line string) (map[string]any, error) {
 		}
 	case "vmess":
 		p["type"] = "vmess"
-		p["uuid"] = kv["username"]
-		p["alterId"] = 0
-		p["cipher"] = vmessCipher(kv["encrypt-method"])
+		p["uuid"] = firstNonEmpty(kv["username"], at(4))
+		p["alterId"] = atoi(kv["alterid"], 0)
+		p["cipher"] = vmessCipher(firstNonEmpty(kv["encrypt-method"], at(3)))
 		p["udp"] = true
 		if truthy(kv["ws"]) {
 			applyWS(p, kv["ws-path"], headerHost(kv["ws-headers"]))
 		}
-		if truthy(kv["tls"]) {
+		loonTransport()
+		if truthy(kv["tls"]) || truthy(kv["over-tls"]) {
+			setTLS()
+		}
+	case "vless":
+		// Loon only (Surge has no VLESS): vless,host,port,"uuid",transport=…,over-tls=true,sni=…,flow=…
+		p["type"] = "vless"
+		p["uuid"] = firstNonEmpty(kv["uuid"], kv["username"], at(3))
+		p["udp"] = true
+		if v := kv["flow"]; v != "" {
+			p["flow"] = v
+		}
+		loonTransport()
+		if pk := kv["public-key"]; pk != "" {
+			setTLS()
+			ro := map[string]any{"public-key": pk}
+			if sid := kv["short-id"]; sid != "" {
+				ro["short-id"] = sid
+			}
+			p["reality-opts"] = ro
+			p["client-fingerprint"] = "chrome"
+		} else if truthy(kv["over-tls"]) || truthy(kv["tls"]) {
 			setTLS()
 		}
 	case "trojan":
 		p["type"] = "trojan"
-		p["password"] = kv["password"]
+		p["password"] = firstNonEmpty(kv["password"], at(3))
 		p["udp"] = true
 		if sni != "" {
 			p["sni"] = sni
@@ -316,6 +399,7 @@ func parseSurgeLine(line string) (map[string]any, error) {
 		if truthy(kv["ws"]) {
 			applyWS(p, kv["ws-path"], headerHost(kv["ws-headers"]))
 		}
+		loonTransport()
 	case "snell":
 		p["type"] = "snell"
 		p["psk"] = kv["psk"]
@@ -347,7 +431,7 @@ func parseSurgeLine(line string) (map[string]any, error) {
 		}
 	case "hysteria2", "hy2":
 		p["type"] = "hysteria2"
-		p["password"] = kv["password"]
+		p["password"] = firstNonEmpty(kv["password"], at(3))
 		if sni != "" {
 			p["sni"] = sni
 		}
@@ -658,6 +742,9 @@ func parseNodeText(text string) ([]map[string]any, []string) {
 			continue
 		case strings.HasPrefix(lower, "socks://"), strings.HasPrefix(lower, "socks5://"), strings.HasPrefix(lower, "http://"), strings.HasPrefix(lower, "https://"):
 			p, err = parseSocksHTTP(line)
+		case strings.HasPrefix(lower, "ss://"):
+			uris = append(uris, normalizeLegacySS(line))
+			continue
 		case strings.Contains(line, "://"):
 			uris = append(uris, line)
 			continue

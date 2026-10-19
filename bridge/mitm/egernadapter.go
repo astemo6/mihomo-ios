@@ -282,6 +282,14 @@ const egernPrelude = `(function () {
     }
     if (hasResp) {
       if (!ret) { $done({}); return; }
+      // v0.19.4: ctx.respond() in a response script replaces the response (was ignored).
+      if (ret.__egernRespond) {
+        var rr = ret.__egernRespond, q = { status: rr.status || 200 };
+        if (rr.headers) q.headers = plainHeaders(rr.headers);
+        q.body = rr.body === undefined || rr.body === null ? '' : bodyOut(rr.body);
+        $done(q);
+        return;
+      }
       var p = {};
       if (ret.status) p.status = ret.status;
       if (ret.headers) p.headers = plainHeaders(ret.headers);

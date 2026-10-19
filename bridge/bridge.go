@@ -329,6 +329,7 @@ func buildRuntimeWith(profile []byte, o Overrides, fd int32, inject func(raw map
 	if _, ok := dns["default-nameserver"]; !ok {
 		dns["default-nameserver"] = []any{"223.5.5.5", "119.29.29.29"}
 	}
+	keepProfilePolicyOrder(dns, profile)
 	applyDNSOverride(dns, o.DNS, o.DNSMode)
 	applyLocalDNS(raw, dns, o.Local, o.DNSMode)
 	defaultProxyServerNameserver(dns)
