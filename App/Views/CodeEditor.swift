@@ -127,7 +127,6 @@ struct CodeEditor: UIViewRepresentable {
 
         init(_ p: CodeEditor) { parent = p }
 
-        weak var textView: UITextView?
         private var pendingHighlight = false
 
         func textViewDidChange(_ tv: UITextView) {
