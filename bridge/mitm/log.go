@@ -14,15 +14,18 @@ import (
 // ---- tiny generic LRU ----
 
 type lru[V any] struct {
-	mu  sync.Mutex
-	max int
-	l   *list.List
-	m   map[string]*list.Element
+	mu   sync.Mutex
+	max  int
+	maxW int64 // optional total weight budget (0 = count only)
+	w    int64
+	l    *list.List
+	m    map[string]*list.Element
 }
 
 type lruItem[V any] struct {
 	k string
 	v V
+	w int64
 }
 
 func newLRU[V any](max int) *lru[V] {
@@ -40,26 +43,43 @@ func (c *lru[V]) Get(k string) (V, bool) {
 	return zero, false
 }
 
-func (c *lru[V]) Put(k string, v V) {
+func (c *lru[V]) Put(k string, v V) { c.PutW(k, v, 0) }
+
+// PutW stores v with a weight; with maxW set, least recently used entries are dropped until the total
+// fits (the newest entry always stays).
+func (c *lru[V]) PutW(k string, v V, w int64) {
 	c.mu.Lock()
 	defer c.mu.Unlock()
 	if el, ok := c.m[k]; ok {
-		el.Value.(*lruItem[V]).v = v
+		it := el.Value.(*lruItem[V])
+		c.w += w - it.w
+		it.v, it.w = v, w
 		c.l.MoveToFront(el)
-		return
+	} else {
+		c.m[k] = c.l.PushFront(&lruItem[V]{k, v, w})
+		c.w += w
 	}
-	c.m[k] = c.l.PushFront(&lruItem[V]{k, v})
-	for c.l.Len() > c.max {
+	for c.l.Len() > c.max || (c.maxW > 0 && c.w > c.maxW && c.l.Len() > 1) {
 		el := c.l.Back()
 		c.l.Remove(el)
-		delete(c.m, el.Value.(*lruItem[V]).k)
+		it := el.Value.(*lruItem[V])
+		c.w -= it.w
+		delete(c.m, it.k)
 	}
+}
+
+// Weight is the current total weight (tests / diagnostics).
+func (c *lru[V]) Weight() int64 {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	return c.w
 }
 
 func (c *lru[V]) Reset() {
 	c.mu.Lock()
 	c.l.Init()
 	c.m = map[string]*list.Element{}
+	c.w = 0
 	c.mu.Unlock()
 }
 

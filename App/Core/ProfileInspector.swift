@@ -204,7 +204,7 @@ final class ProfileInspector: ObservableObject {
 
     /// Delay test without the tunnel (direct from the app), group members in parallel (6 at a time).
     func test(group g: InspectGroup) async {
-        guard let path = profilePath else { return }
+        guard let path = profilePath, !testing.contains(g.name) else { return } // v0.19.3: no parallel duplicate
         testing.insert(g.name)
         defer { testing.remove(g.name) }
         let home = AppShared.homeURL.path
@@ -224,7 +224,7 @@ final class ProfileInspector: ObservableObject {
             let got = await withTaskGroup(of: (String, Int).self, returning: [(String, Int)].self) { tg in
                 for n in batch {
                     let u = NodeSettingsStore.customURL(for: n) ?? url
-                    tg.addTask { (n, Int(LibmihomoTestDelayByName(home, path, n, u, timeout))) }
+                    tg.addTask { (n, Int(await BlockingWork.run { LibmihomoTestDelayByName(home, path, n, u, timeout) })) }
                 }
                 var out: [(String, Int)] = []
                 for await r in tg { out.append(r) }

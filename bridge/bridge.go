@@ -748,7 +748,15 @@ func Version() string {
 }
 
 // FreeMemory forces a GC and returns memory to the OS (call on memory warnings / sleep).
-func FreeMemory() { debug.FreeOSMemory() }
+// v0.19.3: also drops the MitM engine's compiled scripts / cached sources (rebuilt on next use) — they
+// could hold several MB per large module script and were never released under memory pressure.
+func FreeMemory() {
+	engMu.Lock()
+	e := eng
+	engMu.Unlock()
+	e.DropCaches()
+	debug.FreeOSMemory()
+}
 
 // SetMemoryLimit adjusts the Go soft memory limit in MB.
 func SetMemoryLimit(mb int32) { debug.SetMemoryLimit(int64(mb) << 20) }

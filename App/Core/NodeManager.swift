@@ -354,11 +354,11 @@ final class NodeManagerModel: ObservableObject {
         if n.inRuntime, let path = AppShared.activeProfileURL?.path {
             let home = AppShared.homeURL.path
             let name = n.name
-            let ms = await Task.detached(priority: .userInitiated) { LibmihomoNodeTestDelay(home, path, name, url, timeout) }.value
+            let ms = await BlockingWork.run { LibmihomoNodeTestDelay(home, path, name, url, timeout) }
             return max(ms, 0)
         }
         if let m = manualNode(n), let d = try? JSONSerialization.data(withJSONObject: m), let s = String(data: d, encoding: .utf8) {
-            let ms = await Task.detached(priority: .userInitiated) { LibmihomoTestDelay(s, url, timeout) }.value
+            let ms = await BlockingWork.run { LibmihomoTestDelay(s, url, timeout) }
             return max(ms, 0)
         }
         return 0
@@ -433,5 +433,20 @@ final class NodeManagerModel: ObservableObject {
         guard let m = manualNode(n), let name = m["name"] as? String else { return }
         await ProfileStore.shared.deleteManualNode(name)
         await reload()
+    }
+}
+
+
+/// v0.19.3: runs a blocking call (an offline delay test waits on the network for up to the test timeout)
+/// on its own GCD queue instead of Swift's cooperative pool. Task.detached / task-group children still use
+/// that pool, which has only as many threads as CPU cores: 8 (节点) or 6 (策略) blocked tests stalled every
+/// other async task in the app (loads, downloads, UI refreshes) until the tests returned.
+enum BlockingWork {
+    private static let queue = DispatchQueue(label: "mihomo.blocking-work", qos: .userInitiated, attributes: .concurrent)
+
+    static func run<T>(_ work: @escaping @Sendable () -> T) async -> T {
+        await withCheckedContinuation { c in
+            queue.async { c.resume(returning: work()) }
+        }
     }
 }

@@ -172,6 +172,20 @@ func (e *Engine) Stop() {
 	e.scripts.Reset()
 }
 
+// DropCaches frees what the engine can rebuild on demand: compiled scripts and in-memory script sources
+// (v0.19.3, called from FreeMemory when the extension nears its memory limit).
+func (e *Engine) DropCaches() {
+	if e == nil {
+		return
+	}
+	if e.scripts != nil {
+		e.scripts.Reset()
+	}
+	if e.res != nil {
+		e.res.mem.Reset()
+	}
+}
+
 // Reload swaps config + rules (cheap; listener keeps running).
 func (e *Engine) Reload(cfg *Config, rs *Ruleset) {
 	s := &state{cfg: cfg, rs: rs, hosts: NewHostMatcher(rs.Hostnames)}

@@ -70,6 +70,9 @@ final class PolicyModel: ObservableObject {
     /// Live 测速 through the running core (each member is dialled through its own node), with the
     /// URL and timeout from 更多 → 测速.
     func test(_ group: ProxyItem) async {
+        // v0.19.3: a second tap (group bolt during 全部测速, or 全部测速 twice) ran the same group's test again in
+        // parallel and the first one to finish cleared the spinner while the other was still testing.
+        guard !testing.contains(group.name) else { return }
         testing.insert(group.name)
         defer { testing.remove(group.name) }
         let members = (group.all ?? []).filter { $0 != "DIRECT" && $0 != "REJECT" && $0 != "REJECT-DROP" && $0 != "PASS" && $0 != "COMPATIBLE" }

@@ -161,8 +161,10 @@ enum ModeControlCore {
         o.save()
         guard await VPNControl.isOn() else { return }
         if let r = request("/configs", method: "PATCH", body: ["mode": m]) { _ = try? await URLSession.shared.data(for: r) }
-        // Same as the app: drop existing connections so they follow the new mode.
-        if let r = request("/connections", method: "DELETE") { _ = try? await URLSession.shared.data(for: r) }
+        // Same as the app: drop existing connections so they follow the new mode — only when 切换节点或模式时
+        // 断开所有连接 is on (v0.19.3: the widget ignored that setting).
+        let close = AppShared.defaults.object(forKey: "switch.closeConnections") as? Bool ?? true
+        if close, let r = request("/connections", method: "DELETE") { _ = try? await URLSession.shared.data(for: r) }
     }
 }
 
