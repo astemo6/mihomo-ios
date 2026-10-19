@@ -2,6 +2,7 @@ package libmihomo
 
 import (
 	"encoding/base64"
+	"encoding/json"
 	"reflect"
 
 	"fmt"
@@ -449,3 +450,115 @@ func TestV0196RuleListConvertStreams(t *testing.T) {
 type countWriter struct{ n int }
 
 func (c *countWriter) Write(p []byte) (int, error) { c.n += len(p); return len(p), nil }
+
+func genLoonConf(nodes, rules int) string {
+	var b strings.Builder
+	b.WriteString("[General]\nskip-proxy = 192.168.0.0/16\n\n[Proxy]\n")
+	for i := 0; i < nodes; i++ {
+		fmt.Fprintf(&b, "L%05d = Shadowsocks,192.0.2.%d,%d,aes-128-gcm,\"pw%d\",udp=true\n", i, i%250+1, 10000+i, i)
+	}
+	b.WriteString("\n[Proxy Group]\nProxy = select,")
+	for i := 0; i < nodes; i++ {
+		if i > 0 {
+			b.WriteString(",")
+		}
+		fmt.Fprintf(&b, "L%05d", i)
+	}
+	b.WriteString("\n\n[Rule]\n")
+	for i := 0; i < rules; i++ {
+		fmt.Fprintf(&b, "DOMAIN-SUFFIX,d%06d.example.com,Proxy\n", i)
+	}
+	b.WriteString("FINAL,Proxy\n")
+	return b.String()
+}
+
+// Importers on big files (Surge / QX / Loon → mihomo; Stash / Clash YAML through the profile checks), many
+// rule-providers, hostile YAML (deep nesting, alias bombs): bounded time, no crash, linear.
+func TestV0196ImportersProvidersHostileYAML(t *testing.T) {
+	if testing.Short() {
+		t.Skip("short")
+	}
+	home := v0194Home(t)
+	for _, c := range []struct {
+		name string
+		gen  func(int, int) string
+	}{{"surge", genSurgeConf}, {"qx", genQXConf}, {"loon", genLoonConf}} {
+		var small, big scaleResult
+		var res map[string]any
+		small = scaleMeasure(func() { _ = ImportConf(c.gen(500, 2000)) })
+		big = scaleMeasure(func() { _ = json.Unmarshal([]byte(ImportConf(c.gen(5000, 20000))), &res) })
+		t.Logf("ImportConf %-5s 500/2k %s | 5k/20k %s", c.name, small, big)
+		if y, _ := res["yaml"].(string); y == "" {
+			t.Fatalf("%s: no yaml in import result: %.300v", c.name, res)
+		} else {
+			p := writeScaleProfile(t, home, []byte(y))
+			if s := ValidateConfigIn(home, p); s != "" {
+				t.Fatalf("%s import does not validate: %.300s", c.name, s)
+			}
+		}
+		// Linear: 10× the input may take at most ~30× the time (generous for CI noise).
+		if big.d > 30*small.d+2*time.Second {
+			t.Errorf("%s import scales badly: %s vs %s", c.name, small.d, big.d)
+		}
+	}
+	// Stash-style YAML profile: through the same checks the app runs on import.
+	stash := genYAMLProfile(5000, 20000, 20, 0)
+	r := scaleMeasure(func() {
+		if s := ProfileCheck(home, writeScaleProfile(t, home, stash), string(stash)); !strings.Contains(s, `"ok":true`) {
+			t.Errorf("stash profile check: %.300s", s)
+		}
+	})
+	t.Logf("ProfileCheck stash 5k/20k %s", r)
+
+	// 2000 rule-providers (file, small lists): runtime + validation stay bounded.
+	dir := filepath.Join(home, "profiles", "rules")
+	_ = os.MkdirAll(dir, 0o755)
+	for p := 0; p < 2000; p++ {
+		_ = os.WriteFile(filepath.Join(dir, fmt.Sprintf("rp%04d.yaml", p)), []byte(fmt.Sprintf("payload:\n  - '+.p%d-a.example'\n  - '+.p%d-b.example'\n", p, p)), 0o644)
+	}
+	prof := genYAMLProfile(200, 200, 4, 2000)
+	path := writeScaleProfile(t, home, prof)
+	var rt []byte
+	r = neLimit(func() { rt, _ = buildRuntime(prof, overridesFor(home, path), 0) })
+	t.Logf("buildRuntime 2000 rule-providers %s (%d KB)", r, len(rt)>>10)
+	r = scaleMeasure(func() {
+		if s := ValidateConfigIn(home, path); s != "" {
+			t.Errorf("2000 providers: %.300s", s)
+		}
+	})
+	t.Logf("ValidateConfigIn 2000 rule-providers %s", r)
+	if r.d > 30*time.Second {
+		t.Errorf("2000 providers took %s", r.d)
+	}
+
+	// Hostile YAML: refused quickly, nothing panics.
+	deep := []byte("proxies: []\nx: " + strings.Repeat("[", 20000) + strings.Repeat("]", 20000) + "\n")
+	bomb := []byte(`a: &a ["x","x","x","x","x","x","x","x","x"]
+b: &b [*a,*a,*a,*a,*a,*a,*a,*a,*a]
+c: &c [*b,*b,*b,*b,*b,*b,*b,*b,*b]
+d: &d [*c,*c,*c,*c,*c,*c,*c,*c,*c]
+e: &e [*d,*d,*d,*d,*d,*d,*d,*d,*d]
+f: &f [*e,*e,*e,*e,*e,*e,*e,*e,*e]
+g: &g [*f,*f,*f,*f,*f,*f,*f,*f,*f]
+h: &h [*g,*g,*g,*g,*g,*g,*g,*g,*g]
+i: &i [*h,*h,*h,*h,*h,*h,*h,*h,*h]
+proxies: []
+`)
+	nested := []byte("proxies: []\nx: " + strings.Repeat("[", 5000) + "1" + strings.Repeat("]", 5000) + "\nrules:\n  - MATCH,DIRECT\n")
+	for name, body := range map[string][]byte{"deep 20000": deep, "alias bomb": bomb, "nested 5000": nested} {
+		p := writeScaleProfile(t, home, body)
+		r := scaleMeasure(func() {
+			_ = InspectProfile(home, p)
+			_ = ValidateConfigIn(home, p)
+			_ = ProfileGroups(home, p)
+			_ = ProfileNodeUpsert(home, p, `{"name":"n","type":"ss","server":"192.0.2.1","port":1,"cipher":"aes-128-gcm","password":"x"}`, "")
+			_, _ = buildRuntime(body, overridesFor(home, p), 0)
+			_ = ParseNodes(string(body))
+			_ = ImportConf(string(body))
+		})
+		t.Logf("hostile %-11s %s", name, r)
+		if r.d > 20*time.Second || r.peakHeap > scaleMB(512) {
+			t.Errorf("hostile %s: %s", name, r)
+		}
+	}
+}
