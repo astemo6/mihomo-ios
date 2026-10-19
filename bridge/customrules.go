@@ -359,11 +359,8 @@ func convertNodesText(data []byte) ([]byte, int, error) {
 	if len(ps) == 0 {
 		return nil, 0, errors.New("no nodes recognised")
 	}
-	list := make([]any, 0, len(ps))
-	for _, p := range ps {
-		list = append(list, p)
-	}
-	b, err := yaml.Marshal(map[string]any{"proxies": list})
+	// v0.19.6: one JSON flow line per node instead of yaml.Marshal (5k nodes: +60 MB → a few MB in the extension).
+	b, err := marshalProxiesYAML(ps)
 	return b, len(ps), err
 }
 

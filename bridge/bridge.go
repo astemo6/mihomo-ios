@@ -386,7 +386,7 @@ func buildRuntimeWith(profile []byte, o Overrides, fd int32, inject func(raw map
 	applyIPPreference(raw, o.IPPreference)
 	applyProbe(raw, o)
 	applyQUICBlock(raw, o.BlockQUIC)
-	return yaml.Marshal(raw)
+	return marshalConfig(raw, len(profile) >= runtimeJSONThreshold || configItems(raw) >= runtimeJSONItems) // v0.19.6
 }
 
 func convertLinks(buf []byte) ([]byte, error) {

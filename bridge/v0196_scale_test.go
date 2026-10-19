@@ -2,7 +2,10 @@ package libmihomo
 
 import (
 	"encoding/base64"
+	"reflect"
+
 	"fmt"
+	"go.yaml.in/yaml/v3"
 	"os"
 	"path/filepath"
 	"runtime"
@@ -300,5 +303,119 @@ func TestV0196ScaleExploreBodies(t *testing.T) {
 	} {
 		r := scaleMeasure(s.f)
 		t.Logf("%-32s %s", s.name, r)
+	}
+}
+
+// neLimit runs f under a GOMEMLIMIT like the extension's (36 MB = 3/4 of the ~48 MB it starts with), so
+// the peak heap measured is close to the live set rather than uncollected garbage.
+func neLimit(f func()) scaleResult {
+	old := debug.SetMemoryLimit(36 << 20)
+	defer debug.SetMemoryLimit(old)
+	return scaleMeasure(f)
+}
+
+// A large profile's runtime is written as JSON (YAML flow style): same content as the YAML encoding, the
+// core accepts it, nameserver-policy order kept, and building it stays within the extension's budget.
+func TestV0196LargeRuntimeIsJSONAndEquivalent(t *testing.T) {
+	home := v0194Home(t)
+	prof := genYAMLProfile(5000, 20000, 40, 0)
+	prof = append(prof, []byte("dns:\n  nameserver-policy:\n    '+.zzz.example': [223.5.5.5]\n    'geosite:cn': [119.29.29.29]\n    '+.aaa.example': [1.1.1.1]\n")...)
+	path := writeScaleProfile(t, home, prof)
+	o := overridesFor(home, path)
+	var rt []byte
+	var err error
+	r := neLimit(func() { rt, err = buildRuntime(prof, o, 0) })
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Logf("buildRuntime 5k nodes / 20k rules: %s, %d KB", r, len(rt)>>10)
+	if rt[0] != '{' {
+		t.Fatalf("large runtime not written as JSON: %.80s", rt)
+	}
+	if r.peakHeap > scaleMB(30) {
+		t.Errorf("buildRuntime peak heap %.1f MB (yaml.Marshal was ~58 MB)", float64(r.peakHeap)/(1<<20))
+	}
+	// Same content as the YAML encoding.
+	raw := map[string]any{}
+	if err := yaml.Unmarshal(prof, &raw); err != nil {
+		t.Fatal(err)
+	}
+	var fromJSON, fromYAML map[string]any
+	if err := yaml.Unmarshal(rt, &fromJSON); err != nil {
+		t.Fatalf("JSON runtime is not YAML-parseable: %v", err)
+	}
+	yb, _ := marshalConfig(mustRuntimeMap(t, prof, o), false)
+	if err := yaml.Unmarshal(yb, &fromYAML); err != nil {
+		t.Fatal(err)
+	}
+	if !reflect.DeepEqual(fromJSON, fromYAML) {
+		t.Fatal("JSON and YAML runtime differ")
+	}
+	// nameserver-policy order as in the profile.
+	var doc struct {
+		DNS struct {
+			Policy yaml.Node `yaml:"nameserver-policy"`
+		} `yaml:"dns"`
+	}
+	_ = yaml.Unmarshal(rt, &doc)
+	var keys []string
+	for i := 0; i+1 < len(doc.DNS.Policy.Content); i += 2 {
+		keys = append(keys, doc.DNS.Policy.Content[i].Value)
+	}
+	if strings.Join(keys, " ") != "+.zzz.example geosite:cn +.aaa.example" {
+		t.Fatalf("nameserver-policy order %v", keys)
+	}
+	if s := ValidateConfigIn(home, path); s != "" { // sets the home dir and parses the (JSON) runtime
+		t.Fatalf("validate: %s", s)
+	}
+	// A small profile keeps block YAML.
+	small, _ := buildRuntime(genYAMLProfile(20, 20, 2, 0), o, 0)
+	if small[0] == '{' {
+		t.Fatal("small runtime written as JSON")
+	}
+}
+
+func mustRuntimeMap(t *testing.T, prof []byte, o Overrides) map[string]any {
+	t.Helper()
+	rt, err := buildRuntime(prof, o, 0)
+	if err != nil {
+		t.Fatal(err)
+	}
+	m := map[string]any{}
+	if err := yaml.Unmarshal(rt, &m); err != nil {
+		t.Fatal(err)
+	}
+	return m
+}
+
+// /nodes/convert for a 5k-node share-link subscription stays small and produces a provider the core loads.
+func TestV0196NodesConvertBounded(t *testing.T) {
+	links := genSSLinks(5000)
+	var out []byte
+	var n int
+	var err error
+	r := neLimit(func() { out, n, err = convertNodesText([]byte(base64.StdEncoding.EncodeToString([]byte(links)))) })
+	if err != nil || n != 6000 {
+		t.Fatalf("convert: n=%d err=%v", n, err)
+	}
+	t.Logf("convertNodesText 6k nodes (b64): %s, %d KB", r, len(out)>>10)
+	if r.peakHeap > scaleMB(25) {
+		t.Errorf("peak heap %.1f MB (yaml.Marshal was ~60 MB)", float64(r.peakHeap)/(1<<20))
+	}
+	var doc struct {
+		Proxies []map[string]any `yaml:"proxies"`
+	}
+	if err := yaml.Unmarshal(out, &doc); err != nil || len(doc.Proxies) != 6000 {
+		t.Fatalf("provider YAML: %d proxies, %v", len(doc.Proxies), err)
+	}
+	if doc.Proxies[0]["name"] != "JP 00000" || doc.Proxies[0]["cipher"] != "aes-128-gcm" {
+		t.Fatalf("first proxy %v", doc.Proxies[0])
+	}
+	// The same body through the core's provider path: a profile using the converted file.
+	home := v0194Home(t)
+	_ = os.WriteFile(filepath.Join(home, "sub.yaml"), out, 0o644)
+	p := writeScaleProfile(t, home, []byte("proxy-providers:\n  sub: {type: file, path: ./sub.yaml}\nproxy-groups:\n  - {name: P, type: select, use: [sub]}\nrules:\n  - MATCH,P\n"))
+	if s := ValidateConfigIn(home, p); s != "" {
+		t.Fatalf("validate: %s", s)
 	}
 }

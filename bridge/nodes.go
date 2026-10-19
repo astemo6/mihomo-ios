@@ -916,7 +916,7 @@ func buildConfigFromProxies(proxies []map[string]any) ([]byte, error) {
 		"proxy-groups": []any{sel, auto},
 		"rules":        defaultRules("节点选择"),
 	}
-	return yaml.Marshal(cfg)
+	return marshalConfig(cfg, len(proxies) >= runtimeJSONItems) // v0.19.6: also the extension's share-link fallback
 }
 
 func defaultRules(target string) []any {
