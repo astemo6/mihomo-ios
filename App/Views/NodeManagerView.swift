@@ -505,8 +505,12 @@ struct NodeDetailView: View {
                         }
                     } label: { Label("复制一份", systemImage: "plus.square.on.square") }
                     Button(role: .destructive) {
-                        deleteCheck = ProfileStore.profileNodeDeleteCheck(p, node.name)
-                        confirmProfileDelete = true
+                        // v0.19.6: the check parses the whole profile; off the main actor.
+                        let name = node.name
+                        Task {
+                            deleteCheck = await Task.detached(priority: .userInitiated) { ProfileStore.profileNodeDeleteCheck(p, name) }.value
+                            confirmProfileDelete = true
+                        }
                     } label: { Label("删除", systemImage: "trash") }
                     if canUndo {
                         Button {
@@ -547,7 +551,8 @@ struct NodeDetailView: View {
             Task {
                 await model.reload(force: true)
                 guard let p = store.active else { return }
-                if ProfileStore.profileNode(p, node.name) == nil { dismiss() } else {
+                let name = node.name
+                if await Task.detached(priority: .userInitiated, operation: { ProfileStore.profileNode(p, name) == nil }).value { dismiss() } else {
                     await loadEntry()
                     info = await model.summary(of: node)
                 }
