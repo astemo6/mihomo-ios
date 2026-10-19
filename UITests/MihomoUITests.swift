@@ -1643,4 +1643,154 @@ final class MihomoUITests: MihomoUITestCase {
         tab(4)
         XCTAssertEqual(app.state, .runningForeground)
     }
+
+    // MARK: 35. v0.19.5 profile node edit → 撤销上次修改 (only 复制一份 offered undo before), detail refreshed
+
+    func test35_NodeEditUndo() {
+        launch()
+        openAllNodes()
+        let node = app.element(label: "🇯🇵 Tokyo 02")
+        XCTAssertTrue(scrollTo(node), "profile node")
+        node.tap()
+        let edit = app.element(id: "node.edit")
+        XCTAssertTrue(scrollTo(edit), "编辑")
+        XCTAssertFalse(app.element(id: "node.undo").exists, "undo before any change")
+        edit.tap()
+        XCTAssertTrue(app.navigationBars[L("编辑节点")].waitForExistence(timeout: 6), "node editor")
+        let server = app.textFields[L("服务器")]
+        XCTAssertTrue(server.waitForExistence(timeout: 4))
+        replaceText(server, "192.0.2.233")
+        app.navigationBars.buttons[L("保存")].tap()
+        let gone = XCTNSPredicateExpectation(predicate: NSPredicate(format: "exists == false"), object: app.navigationBars[L("编辑节点")])
+        XCTAssertEqual(XCTWaiter().wait(for: [gone], timeout: 10), .completed, "editor saved")
+        XCTAssertTrue(app.element(labelContains: "192.0.2.233").waitForExistence(timeout: 6), "detail shows the edit")
+        let undo = app.element(id: "node.undo")
+        XCTAssertTrue(scrollTo(undo), "撤销上次修改 offered after an edit")
+        snap("node-undo-offered")
+        undo.tap()
+        XCTAssertTrue(app.element(labelContains: "192.0.2.2").waitForExistence(timeout: 6), "original server back")
+        usleep(1_000_000)
+        XCTAssertFalse(app.element(labelContains: "192.0.2.233").exists, "detail still shows the undone edit")
+        XCTAssertFalse(app.element(id: "node.undo").exists, "undo is one level")
+        snap("node-undo-done")
+        // The file really went back: reopen the list.
+        for _ in 0..<3 where !app.navigationBars[L("更多")].exists { back() }
+        openAllNodes()
+        let again = app.element(label: "🇯🇵 Tokyo 02")
+        XCTAssertTrue(scrollTo(again))
+        again.tap()
+        XCTAssertTrue(app.element(labelContains: "192.0.2.2").waitForExistence(timeout: 6))
+        XCTAssertFalse(app.element(labelContains: "192.0.2.233").exists, "undo not persisted")
+        back()
+    }
+
+    // MARK: 36. v0.19.5 every app language: main tabs carry no zh-Hans source text that has a translation
+
+    func test36_LanguagesNoLeftovers() {
+        // One job is enough (the suite already runs zh-Hans and en end to end); en-light skips it.
+        guard !Env.isEnglish else { return }
+        let langs: [(String, String)] = [("en", "en_US"), ("ja", "ja_JP"), ("ko", "ko_KR"), ("ru", "ru_RU"), ("zh-Hant", "zh_TW"), ("zh-Hans", "zh_CN")]
+        let testBundle = Bundle(for: MihomoUITests.self)
+        // Data names in the seed that happen to equal catalog keys (group / profile names written by the seed).
+        let dataNames: Set<String> = ["手动节点", "节点订阅"]
+        for (lang, locale) in langs {
+            guard let path = testBundle.path(forResource: lang, ofType: "lproj"),
+                  let table = NSDictionary(contentsOfFile: (path as NSString).appendingPathComponent("Localizable.strings")) as? [String: String] else {
+                issues.append("[\(lang)] no compiled catalog in the test bundle"); continue
+            }
+            let translated = table.filter { k, v in k != v && Self.han.firstMatch(in: k, range: NSRange(location: 0, length: (k as NSString).length)) != nil }
+            let a = XCUIApplication()
+            a.launchArguments = ["-UITestSeed", "-AppleLanguages", "(\(lang))", "-AppleLocale", locale, "-appearance", Env.style]
+            a.launch()
+            app = a
+            XCTAssertTrue(a.element(id: "uitest.ready").waitForExistence(timeout: 40), "\(lang): seed")
+            var seen = Set<String>()
+            for i in 0..<5 {
+                tab(i)
+                for pass in 0..<2 {
+                    if pass == 1 { app.swipeUp(velocity: .slow); usleep(400_000) }
+                    let tree = app.debugDescription as NSString
+                    for m in Self.labelRE.matches(in: tree as String, range: NSRange(location: 0, length: tree.length)) {
+                        let t = tree.substring(with: m.range(at: 2))
+                        guard !t.isEmpty, !seen.contains(t) else { continue }
+                        seen.insert(t)
+                        if translated[t] != nil && !dataNames.contains(t) {
+                            issues.append("[\(lang)] tab \(i): untranslated “\(t)” (\(lang): “\(translated[t]!)”)")
+                        }
+                    }
+                }
+                let shot = XCTAttachment(screenshot: XCUIScreen.main.screenshot())
+                shot.name = "lang-\(lang)-tab\(i)"
+                shot.lifetime = .keepAlways
+                add(shot)
+            }
+            // Tab bar titles must not be empty / missing in any language.
+            for i in 0..<5 {
+                let b = app.tabBars.buttons.element(boundBy: i)
+                if !b.exists || b.label.trimmingCharacters(in: .whitespaces).isEmpty { issues.append("[\(lang)] tab \(i) has no title") }
+            }
+            assertAlive("language \(lang)")
+            a.terminate()
+        }
+    }
+
+    // MARK: 37. v0.19.5 settings survive a relaunch (same data, no re-seed)
+
+    func test37_SettingsPersistAcrossRelaunch() {
+        launch()
+        openMore("内核设置")
+        let close = app.switches["settings.closeOnSwitch"]
+        XCTAssertTrue(close.waitForExistence(timeout: 6))
+        XCTAssertEqual(switchValue(close), "1")
+        toggleSwitch(close)
+        toggleSwitch(app.switches["settings.flushDNS"])
+        usleep(1_800_000)
+        XCTAssertEqual(switchValue(app.switches["settings.closeOnSwitch"]), "0")
+        XCTAssertEqual(switchValue(app.switches["settings.flushDNS"]), "0")
+        back()
+        usleep(800_000)
+        app.terminate()
+        launch(["-UITestKeepData"])
+        openMore("内核设置")
+        XCTAssertTrue(app.switches["settings.closeOnSwitch"].waitForExistence(timeout: 6))
+        XCTAssertEqual(switchValue(app.switches["settings.closeOnSwitch"]), "0", "断开所有连接 kept off after relaunch")
+        XCTAssertEqual(switchValue(app.switches["settings.flushDNS"]), "0", "清空 DNS 缓存 kept off after relaunch")
+        snap("settings-after-relaunch")
+        // The profile and its nodes are still there (not re-seeded, not wiped).
+        back()
+        tab(0)
+        XCTAssertTrue(app.element(id: "home.card.Proxy").waitForExistence(timeout: 10), "profile kept across relaunch")
+    }
+
+    // MARK: 38. v0.19.5 switching the active profile while 策略 / 首页 are open follows at once
+
+    func test38_ProfileSwitch() {
+        launch(["-UITestSecondProfile"])
+        tab(1)
+        XCTAssertTrue(app.element(id: "policy.card.Proxy").waitForExistence(timeout: 10), "demo groups")
+        tab(3)
+        let second = app.staticTexts["UITest Second"]
+        XCTAssertTrue(scrollTo(second), "second profile listed")
+        second.tap()
+        usleep(1_500_000)
+        snap("profiles-second-active")
+        tab(1)
+        XCTAssertTrue(app.element(id: "policy.card.Second Select").waitForExistence(timeout: 10), "策略 shows the new profile's groups")
+        XCTAssertFalse(app.element(id: "policy.card.Proxy").exists, "策略 still shows the previous profile")
+        snap("policy-second")
+        tab(0)
+        XCTAssertTrue(app.element(id: "home.card.Second Select").waitForExistence(timeout: 10), "Home follows the switch")
+        XCTAssertFalse(app.element(id: "home.card.Proxy").exists, "Home still shows the previous profile")
+        tab(3)
+        let demo = app.staticTexts["UITest Demo"]
+        XCTAssertTrue(scrollTo(demo))
+        demo.tap()
+        usleep(1_500_000)
+        tab(1)
+        XCTAssertTrue(app.element(id: "policy.card.Proxy").waitForExistence(timeout: 10), "back to the demo groups")
+        XCTAssertFalse(app.element(id: "policy.card.Second Select").exists)
+        tab(0)
+        XCTAssertTrue(app.element(id: "home.card.Proxy").waitForExistence(timeout: 10))
+        assertAlive("profile switch")
+    }
 }

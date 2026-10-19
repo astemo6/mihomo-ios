@@ -183,6 +183,20 @@ struct CoreOverrides: Codable, Equatable {
     struct LanAuth: Codable, Equatable {
         var username: String = ""
         var password: String = ""
+
+        init(username: String = "", password: String = "") {
+            self.username = username
+            self.password = password
+        }
+
+        /// v0.19.5: a missing / mistyped field is empty. The synthesized decoder threw, and CoreOverrides' tolerant
+        /// get() then replaced the whole value with the default — one bad 其他用户 entry dropped every extra user,
+        /// a lanAuth without "password" (the keychain holds it) lost the username.
+        init(from decoder: Decoder) throws {
+            let c = try decoder.container(keyedBy: CodingKeys.self)
+            username = (try? c.decodeIfPresent(String.self, forKey: .username)) ?? ""
+            password = (try? c.decodeIfPresent(String.self, forKey: .password)) ?? ""
+        }
     }
 
     static let defaultIncludedRoutes = ["0.0.0.0/0", "::/0"]
@@ -307,6 +321,9 @@ struct CoreOverrides: Codable, Equatable {
         if tunnelMode != "proxy" && tunnelMode != "mix" { tunnelMode = "tun" }
         if !(1280...9000).contains(tunMTU) { tunMTU = d.tunMTU }
         if !(1...65535).contains(mixedPort) { mixedPort = d.mixedPort }
+        // v0.19.5: an out-of-range controller port (0, 70000) was kept → the core's controller could not listen
+        // and the app lost the live view; the same fallback as the mixed port.
+        if !(1...65535).contains(controllerPort) { controllerPort = d.controllerPort }
         if !Self.memoryLimitRange.contains(memoryLimitMB) { memoryLimitMB = d.memoryLimitMB }
     }
 

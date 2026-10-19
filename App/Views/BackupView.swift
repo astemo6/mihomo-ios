@@ -12,6 +12,21 @@ struct BackupFile: Codable {
     /// Path relative to the App Group container → base64 content.
     var files: [String: String] = [:]
     var defaults: [String: String] = [:]
+
+    init() {}
+
+    /// v0.19.5: only `app` and `files` are required. The synthesized decoder also required created / version /
+    /// appVersion / defaults, so a backup missing one of them (hand-edited, or written by another tool) was
+    /// refused although every file in it was intact.
+    init(from decoder: Decoder) throws {
+        let c = try decoder.container(keyedBy: CodingKeys.self)
+        app = try c.decode(String.self, forKey: .app)
+        files = try c.decode([String: String].self, forKey: .files)
+        version = (try? c.decodeIfPresent(Int.self, forKey: .version)) ?? 1
+        created = (try? c.decodeIfPresent(Date.self, forKey: .created)) ?? Date(timeIntervalSince1970: 0)
+        appVersion = (try? c.decodeIfPresent(String.self, forKey: .appVersion)) ?? "?"
+        defaults = (try? c.decodeIfPresent([String: String].self, forKey: .defaults)) ?? [:]
+    }
 }
 
 enum BackupManager {
@@ -27,7 +42,16 @@ enum BackupManager {
     static let defaultsKeys = ["activeProfileID"]
 
     static func make(includeCA: Bool) throws -> (URL, Int) {
-        let root = AppShared.containerURL
+        let (data, n) = try makeData(includeCA: includeCA)
+        let f = DateFormatter()
+        f.dateFormat = "yyyyMMdd-HHmm"
+        let url = FileManager.default.temporaryDirectory.appendingPathComponent("Mihomo-备份-\(f.string(from: Date())).json")
+        try data.write(to: url, options: .atomic)
+        return (url, n)
+    }
+
+    /// The backup JSON of `root` (the App Group container; a scratch directory in unit tests).
+    static func makeData(includeCA: Bool, root: URL = AppShared.containerURL, defaults: UserDefaults = AppShared.defaults) throws -> (Data, Int) {
         let fm = FileManager.default
         var b = BackupFile()
         for rel in items(includeCA: includeCA) {
@@ -47,26 +71,23 @@ enum BackupManager {
                 b.files[rel] = d.base64EncodedString()
             }
         }
-        for k in defaultsKeys { if let v = AppShared.defaults.string(forKey: k) { b.defaults[k] = v } }
+        for k in defaultsKeys { if let v = defaults.string(forKey: k) { b.defaults[k] = v } }
         let enc = JSONEncoder()
         enc.dateEncodingStrategy = .iso8601
         enc.outputFormatting = [.sortedKeys]
-        let data = try enc.encode(b)
-        let f = DateFormatter()
-        f.dateFormat = "yyyyMMdd-HHmm"
-        let url = fm.temporaryDirectory.appendingPathComponent("Mihomo-备份-\(f.string(from: Date())).json")
-        try data.write(to: url, options: .atomic)
-        return (url, b.files.count)
+        return (try enc.encode(b), b.files.count)
     }
 
     /// Restores a backup. Only paths under the known items are written. Returns the number of files.
     @discardableResult
-    static func restore(_ data: Data) throws -> Int {
+    static func restore(_ data: Data, root: URL = AppShared.containerURL, defaults: UserDefaults = AppShared.defaults) throws -> Int {
         let dec = JSONDecoder()
         dec.dateDecodingStrategy = .iso8601
-        let b = try dec.decode(BackupFile.self, from: data)
+        let b: BackupFile
+        do { b = try dec.decode(BackupFile.self, from: data) } catch {
+            throw NSError(domain: "Backup", code: 1, userInfo: [NSLocalizedDescriptionKey: String(localized: "不是 Mihomo 备份文件")])
+        }
         guard b.app == "mihomo-ios" else { throw NSError(domain: "Backup", code: 1, userInfo: [NSLocalizedDescriptionKey: String(localized: "不是 Mihomo 备份文件")]) }
-        let root = AppShared.containerURL
         let allowed = items(includeCA: true)
         // v0.19.1: decode every entry first. A damaged entry (bad base64, e.g. a truncated download) stops the
         // restore before anything is written, instead of leaving a half-restored mix of old and new files.
@@ -86,7 +107,7 @@ enum BackupManager {
             if rel.hasSuffix("ca.key") { try? FileManager.default.setAttributes([.posixPermissions: 0o600], ofItemAtPath: u.path) }
             n += 1
         }
-        for (k, v) in b.defaults where defaultsKeys.contains(k) { AppShared.defaults.set(v, forKey: k) }
+        for (k, v) in b.defaults where defaultsKeys.contains(k) { defaults.set(v, forKey: k) }
         return n
     }
 

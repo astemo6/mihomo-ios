@@ -253,16 +253,42 @@ final class ProfileStore: ObservableObject {
             return t
         }
         if let cd = http?.value(forHTTPHeaderField: "Content-Disposition") {
-            if let r = cd.range(of: "filename*=UTF-8''") {
+            // v0.19.5: RFC 5987 parameters are case-insensitive (`filename*=utf-8''…` from many panels fell back to
+            // the host name), `filename="a.yaml"; size=1` kept the rest after the quote, .yml was not stripped.
+            if let r = cd.range(of: "filename*=utf-8''", options: .caseInsensitive) {
                 let raw = String(cd[r.upperBound...]).split(separator: ";").first.map(String.init) ?? ""
-                if let dec = raw.removingPercentEncoding, !dec.isEmpty { return dec.replacingOccurrences(of: ".yaml", with: "") }
+                if let dec = raw.trimmingCharacters(in: .whitespaces).removingPercentEncoding, !dec.isEmpty { return Self.stripYAMLExtension(dec) }
             }
-            if let r = cd.range(of: "filename=") {
-                let raw = String(cd[r.upperBound...]).trimmingCharacters(in: CharacterSet(charactersIn: "\" ;"))
-                if !raw.isEmpty { return raw.replacingOccurrences(of: ".yaml", with: "") }
+            if let r = cd.range(of: "filename=", options: .caseInsensitive) {
+                var rest = String(cd[r.upperBound...]).trimmingCharacters(in: .whitespaces)
+                if rest.hasPrefix("\"") {
+                    rest.removeFirst()
+                    rest = String(rest.prefix { $0 != "\"" })
+                } else {
+                    rest = rest.split(separator: ";").first.map(String.init) ?? ""
+                }
+                let raw = rest.trimmingCharacters(in: .whitespaces)
+                if !raw.isEmpty { return Self.stripYAMLExtension(raw) }
             }
         }
         return nil
+    }
+
+    nonisolated static func stripYAMLExtension(_ s: String) -> String {
+        for ext in [".yaml", ".yml"] where s.lowercased().hasSuffix(ext) && s.count > ext.count {
+            return String(s.dropLast(ext.count))
+        }
+        return s
+    }
+
+    /// v0.19.2 merge of a finished download into the entry as it is now (rename / interval / User-Agent edits
+    /// made during the download stay; only the download's results are taken).
+    nonisolated static func mergeRefreshed(current: Profile, downloaded: Profile) -> Profile {
+        var np = current
+        np.userInfo = downloaded.userInfo
+        np.lastUpdated = downloaded.lastUpdated
+        if np.name.trimmingCharacters(in: .whitespaces).isEmpty { np.name = downloaded.name }
+        return np
     }
 
     func refresh(_ p: Profile) async -> String? {
@@ -279,13 +305,11 @@ final class ProfileStore: ObservableObject {
             let downloaded = try await download(p)
             // v0.19.2: merge into the entry as it is now. Writing back the copy taken before the download undid a
             // rename / interval / User-Agent change made meanwhile; a profile deleted meanwhile stays deleted.
-            guard var np = profiles.first(where: { $0.id == p.id }) else {
+            guard let cur = profiles.first(where: { $0.id == p.id }) else {
                 try? FileManager.default.removeItem(at: p.fileURL)
                 return nil
             }
-            np.userInfo = downloaded.userInfo
-            np.lastUpdated = downloaded.lastUpdated
-            if np.name.trimmingCharacters(in: .whitespaces).isEmpty { np.name = downloaded.name }
+            let np = Self.mergeRefreshed(current: cur, downloaded: downloaded)
             update(np)
             UsageAlerts.evaluate(id: np.id, name: np.name, info: np.userInfo)
             let (copies, notes) = await regenerateCopies(of: np)
