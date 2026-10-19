@@ -7,6 +7,7 @@ import CoreImage
 struct ManualNodesView: View {
     @EnvironmentObject var store: ProfileStore
     @State private var nodes: [[String: Any]] = []
+    @State private var reloadGen = 0
     @State private var editing: EditTarget?
     @State private var showScanner = false
     @State private var photoItem: PhotosPickerItem?
@@ -148,7 +149,16 @@ struct ManualNodesView: View {
         .buttonStyle(.plain)
     }
 
-    func reload() { nodes = store.manualNodes() }
+    /// v0.19.6: read off the main actor; only the newest of overlapping reloads publishes.
+    func reload() {
+        let path = store.manualProfile?.fileURL.path
+        reloadGen += 1
+        let gen = reloadGen
+        Task {
+            let list = await Task.detached(priority: .userInitiated) { ProfileStore.manualNodes(path: path) }.value
+            if gen == reloadGen { nodes = list }
+        }
+    }
 
     func shareNode(_ n: [String: Any]) {
         switch NodeShare.link(node: n) {

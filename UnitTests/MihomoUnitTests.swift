@@ -303,3 +303,96 @@ final class ProfileStoreLogicTests: XCTestCase {
         XCTAssertEqual(ProfileStore.stripYAMLExtension(".yaml"), ".yaml")
     }
 }
+
+// MARK: v0.19.6 (review 7) scale + concurrency, through the same gomobile calls the app makes. Scratch dirs only.
+
+final class ScaleTests: XCTestCase {
+    private func bigProfile(_ root: URL, nodes: Int = 3000, rules: Int = 10000) -> String {
+        let path = root.appendingPathComponent("big.yaml").path
+        try? UITestSeed.bigProfileYAML(nodes: nodes, rules: rules).write(toFile: path, atomically: true, encoding: .utf8)
+        return path
+    }
+
+    func testLargeProfileValidatesAndInspects() {
+        let root = scratch(), path = bigProfile(root)
+        var t = Date()
+        XCTAssertEqual(TestBridge.validate(home: root.path, path: path), "")
+        let validate = Date().timeIntervalSince(t)
+        t = Date()
+        let json = TestBridge.inspect(home: root.path, path: path)
+        let inspect = Date().timeIntervalSince(t)
+        let o = (try? JSONSerialization.jsonObject(with: Data(json.utf8))) as? [String: Any]
+        XCTAssertEqual((o?["proxies"] as? [Any])?.count, 3000)
+        let big = (o?["groups"] as? [[String: Any]])?.first { $0["name"] as? String == "Big Select" }
+        XCTAssertEqual((big?["proxies"] as? [Any])?.count, 3000)
+        print("3000 nodes / 10000 rules: validate \(validate) s, inspect \(inspect) s, \(json.utf8.count / 1024) KB JSON")
+        XCTAssertLessThan(validate, 15)
+        XCTAssertLessThan(inspect, 15)
+    }
+
+    func testLargeManualListOffMainActor() async {
+        let root = scratch()
+        let path = root.appendingPathComponent("manual.yaml").path
+        _ = TestBridge.manualDelete(path, "")
+        XCTAssertEqual(TestBridge.manualAdd(path, UITestSeed.bigManualLinks(3000)), 3000)
+        let t = Date()
+        let list = await Task.detached { ProfileStore.manualNodes(path: path) }.value
+        XCTAssertEqual(list.count, 3000)
+        XCTAssertEqual(list.last?["name"] as? String, "BM 2999")
+        XCTAssertLessThan(Date().timeIntervalSince(t), 10)
+        XCTAssertTrue(ProfileStore.manualNodes(path: nil).isEmpty)
+    }
+
+    /// The Go side serialises read-modify-write per file (v0.19.6); before, most concurrent additions were lost.
+    func testConcurrentProfileNodeWrites() async {
+        let root = scratch(), path = bigProfile(root, nodes: 50, rules: 50)
+        await withTaskGroup(of: String.self) { g in
+            for i in 0..<12 {
+                g.addTask {
+                    TestBridge.nodeUpsert(home: root.path, path: path, json: #"{"name":"NEW \#(i)","type":"ss","server":"192.0.2.\#(i + 1)","port":443,"cipher":"aes-128-gcm","password":"x"}"#, oldName: "")
+                }
+            }
+            for await e in g { XCTAssertEqual(e, "") }
+        }
+        for i in 0..<12 { XCTAssertTrue(TestBridge.hasNode(path, "NEW \(i)"), "NEW \(i) lost") }
+    }
+
+    func testConcurrentManualAddsAndSelections() async {
+        let root = scratch()
+        let manual = root.appendingPathComponent("manual.yaml").path
+        _ = TestBridge.manualDelete(manual, "")
+        let profile = root.appendingPathComponent("p.yaml").path
+        try? "proxies: []\n".write(toFile: profile, atomically: true, encoding: .utf8)
+        let ui = Data("aes-128-gcm:pw".utf8).base64EncodedString()
+        await withTaskGroup(of: Void.self) { g in
+            for i in 0..<16 {
+                g.addTask { _ = TestBridge.manualAdd(manual, "ss://\(ui)@192.0.2.\(i + 1):443#M\(i)") }
+                g.addTask { _ = TestBridge.saveSelection(profile, "G\(i)", "DIRECT") }
+            }
+        }
+        XCTAssertEqual(ProfileStore.manualNodes(path: manual).count, 16)
+        let sel = (try? Data(contentsOf: root.appendingPathComponent("p.selected.json")))
+            .flatMap { try? JSONSerialization.jsonObject(with: $0) as? [String: String] }
+        XCTAssertEqual(sel?.count, 16, "offline selections lost")
+    }
+
+    /// ProfileStore's refresh merge stays correct when many refresh results land at once.
+    func testConcurrentRefreshMerges() async {
+        let cur = Profile(name: "Mine", kind: .remote, url: "https://example.com/s", userAgent: "ua", updateIntervalHours: 6)
+        let merged = await withTaskGroup(of: Profile.self, returning: [Profile].self) { g in
+            for i in 0..<64 {
+                g.addTask {
+                    var d = cur
+                    d.name = "server-\(i)"
+                    d.lastUpdated = Date(timeIntervalSince1970: TimeInterval(i))
+                    return ProfileStore.mergeRefreshed(current: cur, downloaded: d)
+                }
+            }
+            var out: [Profile] = []
+            for await p in g { out.append(p) }
+            return out
+        }
+        XCTAssertEqual(merged.count, 64)
+        XCTAssertTrue(merged.allSatisfy { $0.name == "Mine" && $0.userAgent == "ua" && $0.updateIntervalHours == 6 })
+    }
+}

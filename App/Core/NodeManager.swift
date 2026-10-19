@@ -200,7 +200,9 @@ final class NodeManagerModel: ObservableObject {
         let r = inspector.result
         error = AppShared.activeProfileURL == nil ? nil : r.error
 
-        let manual = store.manualNodes()
+        // v0.19.6: read off the main actor (a few thousand manual nodes took a noticeable parse on every reload).
+        let manualPath = store.manualProfile?.fileURL.path
+        let manual = await Task.detached(priority: .userInitiated) { ProfileStore.manualNodes(path: manualPath) }.value
         manualByName = [:]
         for m in manual { if let n = m["name"] as? String { manualByName[n] = m } }
         let manualActive = store.activeID == ProfileStore.manualID
@@ -229,10 +231,12 @@ final class NodeManagerModel: ObservableObject {
                             source: isManual ? manualSource : profileSource, inRuntime: true))
         }
         // Manual nodes the current profile does not include (merge off, or another profile active).
+        // v0.19.6 (review 7): was `out.contains { … }` per manual node — O(manual × nodes) string work on the main
+        // actor (2k manual + 3k profile nodes: millions of comparisons on every reload). One set lookup now.
+        let manualInRuntime = Set(out.lazy.filter { $0.source.kind == .manual }.map { Self.strippedManualName($0.name) })
         for m in manual {
             guard let name = m["name"] as? String else { continue }
-            let inRuntime = out.contains { $0.source.kind == .manual && Self.strippedManualName($0.name) == name }
-            if inRuntime { continue }
+            if manualInRuntime.contains(name) { continue }
             add(ManagedNode(name: name, type: ManagedNode.normalize(m["type"] as? String ?? "?"), server: m["server"] as? String,
                             port: (m["port"] as? NSNumber)?.intValue ?? Int(m["port"] as? String ?? ""), udp: (m["udp"] as? Bool) ?? false,
                             source: manualSource, inRuntime: false))

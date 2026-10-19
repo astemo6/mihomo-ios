@@ -429,8 +429,13 @@ final class ProfileStore: ObservableObject {
     }
 
     func manualNodes() -> [[String: Any]] {
-        guard let p = manualProfile else { return [] }
-        let json = LibmihomoManualList(p.fileURL.path)
+        Self.manualNodes(path: manualProfile?.fileURL.path)
+    }
+
+    /// v0.19.6: callable off the main actor (NodeManagerModel.reload).
+    nonisolated static func manualNodes(path: String?) -> [[String: Any]] {
+        guard let path else { return [] }
+        let json = LibmihomoManualList(path)
         return (try? JSONSerialization.jsonObject(with: Data(json.utf8)) as? [[String: Any]]) ?? []
     }
 
@@ -438,8 +443,13 @@ final class ProfileStore: ObservableObject {
     func addManualNodes(text: String) async throws -> Int {
         SnapshotStore.shared.capture(String(localized: "添加手动节点前"))
         let p = ensureManualProfile()
-        let n = LibmihomoManualAddText(p.fileURL.path, text)
-        if n < 0 { throw StoreError.invalid(LibmihomoLastError()) }
+        // v0.19.6: parse + write off the main actor (pasting a few thousand links froze the UI).
+        let path = p.fileURL.path
+        let (n, err) = await Task.detached(priority: .userInitiated) { () -> (Int32, String) in
+            let n = LibmihomoManualAddText(path, text)
+            return (n, n < 0 ? LibmihomoLastError() : "")
+        }.value
+        if n < 0 { throw StoreError.invalid(err) }
         objectWillChange.send()
         if activeID == nil { _ = await setActive(p) } else if activeID == p.id { _ = await VPNManager.shared.reload() }
         return Int(n)

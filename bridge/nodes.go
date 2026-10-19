@@ -916,7 +916,7 @@ func buildConfigFromProxies(proxies []map[string]any) ([]byte, error) {
 		"proxy-groups": []any{sel, auto},
 		"rules":        defaultRules("节点选择"),
 	}
-	return yaml.Marshal(cfg)
+	return marshalConfig(cfg, len(proxies) >= runtimeJSONItems) // v0.19.6: also the extension's share-link fallback
 }
 
 func defaultRules(target string) []any {
@@ -1018,6 +1018,7 @@ func ManualList(path string) string {
 
 // ManualAddText parses text and appends all nodes to the manual profile. Returns the number added (or -1; see LastError).
 func ManualAddText(path, text string) int32 {
+	defer lockPath(path)() // v0.19.6: one read-modify-write of the file at a time
 	ps, errs := parseNodeText(text)
 	if len(ps) == 0 {
 		setLastError("未识别到节点")
@@ -1056,6 +1057,7 @@ func ManualAddText(path, text string) int32 {
 
 // ManualUpsert inserts or replaces (by oldName) a node given as a JSON object. Returns "" or an error.
 func ManualUpsert(path, nodeJSON, oldName string) string {
+	defer lockPath(path)() // v0.19.6: one read-modify-write of the file at a time
 	var node map[string]any
 	if err := json.Unmarshal([]byte(nodeJSON), &node); err != nil {
 		return err.Error()
@@ -1100,6 +1102,7 @@ func ManualUpsert(path, nodeJSON, oldName string) string {
 
 // ManualDelete removes a node by name.
 func ManualDelete(path, name string) string {
+	defer lockPath(path)() // v0.19.6: one read-modify-write of the file at a time
 	raw, err := loadYAML(path)
 	if err != nil {
 		return err.Error()

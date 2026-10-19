@@ -461,6 +461,7 @@ func replaceKeepingBak(path string, b []byte) error {
 // the file comment. The app only calls it on an 自定义 copy (GroupOrderCopy made it), never on an original
 // profile. Returns JSON {changed, order, method, error}.
 func ReorderGroups(homeDir, profilePath, orderJSON string) (out string) {
+	defer lockPath(profilePath)() // v0.19.6: one read-modify-write of the file at a time
 	defer func() {
 		if r := recover(); r != nil {
 			out = reorderResult{Error: fmt.Sprint(r)}.json()
@@ -486,6 +487,7 @@ func ReorderGroups(homeDir, profilePath, orderJSON string) (out string) {
 // the user edited it since it was generated: then only its group order changes (modified=true).
 // Validation runs with the source's settings (the copy gets the same settings right after).
 func GroupOrderCopy(homeDir, sourcePath, copyPath, orderJSON string) (out string) {
+	defer lockPath(copyPath)() // v0.19.6: one read-modify-write of the file at a time
 	defer func() {
 		if r := recover(); r != nil {
 			out = reorderResult{Error: fmt.Sprint(r)}.json()
@@ -565,6 +567,7 @@ func GroupOrderRegenerateForced(homeDir, sourcePath, copyPath string) (out strin
 // groupOrderRegenerate: without force, a copy edited since it was last generated is left as it is
 // ({modified: true, error: 副本已手动修改}).
 func groupOrderRegenerate(homeDir, sourcePath, copyPath string, force bool) (out string) {
+	defer lockPath(copyPath)() // v0.19.6: one read-modify-write of the file at a time
 	defer func() {
 		if r := recover(); r != nil {
 			out = reorderResult{Error: fmt.Sprint(r)}.json()
@@ -608,28 +611,38 @@ func CopyProfileSettings(homeDir, fromID, toID string) string {
 		return ""
 	}
 	for _, f := range profileSettingFiles {
-		p := filepath.Join(homeDir, f)
+		if e := copyProfileSetting(filepath.Join(homeDir, f), f, fromID, toID); e != "" {
+			return e
+		}
+	}
+	return ""
+}
+
+// copyProfileSetting copies fromID's entry of one settings file to toID (v0.19.6: under the file's lock).
+func copyProfileSetting(p, f, fromID, toID string) string {
+	defer lockPath(p)()
+	{
 		b, err := os.ReadFile(p)
 		if err != nil {
-			continue
+			return ""
 		}
 		m := map[string]json.RawMessage{}
 		if json.Unmarshal(b, &m) != nil {
-			continue
+			return ""
 		}
 		v, ok := m[fromID]
 		if !ok {
-			continue
+			return ""
 		}
 		if _, has := m[toID]; has {
-			continue
+			return ""
 		}
 		if f == "group-edits.json" {
 			var e map[string]json.RawMessage
 			if json.Unmarshal(v, &e) == nil {
 				delete(e, "order")
 				if len(e) == 0 {
-					continue
+					return ""
 				}
 				v, _ = json.Marshal(e)
 			}
@@ -653,25 +666,28 @@ func ForgetProfile(homeDir, profileID, profilePath string) string {
 	if homeDir != "" && profileID != "" {
 		for _, f := range profileSettingFiles {
 			p := filepath.Join(homeDir, f)
-			b, err := os.ReadFile(p)
-			if err != nil {
-				continue
-			}
-			m := map[string]json.RawMessage{}
-			if json.Unmarshal(b, &m) != nil {
-				continue
-			}
-			if _, ok := m[profileID]; !ok {
-				continue
-			}
-			delete(m, profileID)
-			nb, err := json.MarshalIndent(m, "", "  ")
-			if err == nil {
-				err = writeAtomic(p, nb)
-			}
-			if err != nil && firstErr == "" {
-				firstErr = err.Error()
-			}
+			func() {
+				defer lockPath(p)() // v0.19.6
+				b, err := os.ReadFile(p)
+				if err != nil {
+					return
+				}
+				m := map[string]json.RawMessage{}
+				if json.Unmarshal(b, &m) != nil {
+					return
+				}
+				if _, ok := m[profileID]; !ok {
+					return
+				}
+				delete(m, profileID)
+				nb, err := json.MarshalIndent(m, "", "  ")
+				if err == nil {
+					err = writeAtomic(p, nb)
+				}
+				if err != nil && firstErr == "" {
+					firstErr = err.Error()
+				}
+			}()
 		}
 	}
 	if profilePath != "" {
@@ -685,6 +701,7 @@ func ForgetProfile(homeDir, profileID, profilePath string) string {
 // CopyProfileSelections gives a new 自定义 copy the source's offline selections (<profile>.selected.json), so the
 // copy starts on the same nodes. An existing file of the copy is kept.
 func CopyProfileSelections(fromPath, toPath string) string {
+	defer lockPath(selectionsPath(toPath))() // v0.19.6: one read-modify-write of the file at a time
 	b, err := os.ReadFile(selectionsPath(fromPath))
 	if err != nil {
 		return ""

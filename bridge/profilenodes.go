@@ -452,6 +452,7 @@ func ProfileNodeGet(path, name string) string {
 // ProfileNodeUpsert replaces the entry named oldName (or appends a new one when oldName is "") with nodeJSON.
 // A rename is applied to every reference in the file. Returns "" or an error message.
 func ProfileNodeUpsert(homeDir, path, nodeJSON, oldName string) string {
+	defer lockPath(path)() // v0.19.6: one read-modify-write of the file at a time
 	var node map[string]any
 	if err := json.Unmarshal([]byte(nodeJSON), &node); err != nil {
 		return err.Error()
@@ -503,6 +504,7 @@ func ProfileNodeUpsert(homeDir, path, nodeJSON, oldName string) string {
 // ProfileNodeDuplicate inserts a copy of name right after it (not added to any group). Returns the new name,
 // or "" (LastError).
 func ProfileNodeDuplicate(homeDir, path, name, suffix string) string {
+	defer lockPath(path)() // v0.19.6: one read-modify-write of the file at a time
 	d, orig, err := loadDoc(path)
 	if err != nil {
 		setLastError(err.Error())
@@ -607,6 +609,7 @@ func ProfileNodeDeleteCheck(path, name string) string {
 // ProfileNodeDelete removes name from the profile: the entry, group members (a group left with no member
 // gets DIRECT), rules that target it and dialer-proxy references. Returns "" or an error message.
 func ProfileNodeDelete(homeDir, path, name string) string {
+	defer lockPath(path)() // v0.19.6: one read-modify-write of the file at a time
 	d, orig, err := loadDoc(path)
 	if err != nil {
 		return err.Error()
@@ -635,6 +638,7 @@ func ProfileNodeDelete(homeDir, path, name string) string {
 // ProfileRenameRefs renames references to a group or node (members, dialer-proxy, rules) without touching
 // the entry itself — used when a group that lives outside the file (策略组编辑 added groups) is renamed.
 func ProfileRenameRefs(homeDir, path, oldName, newName string) string {
+	defer lockPath(path)() // v0.19.6: one read-modify-write of the file at a time
 	if oldName == "" || newName == "" || oldName == newName {
 		return ""
 	}
@@ -651,6 +655,7 @@ func ProfileRenameRefs(homeDir, path, oldName, newName string) string {
 
 // ProfileNodeUndo restores <path>.bak (the file before the last node edit). Returns "" or an error message.
 func ProfileNodeUndo(path string) string {
+	defer lockPath(path)() // v0.19.6: one read-modify-write of the file at a time
 	b, err := os.ReadFile(path + ".bak")
 	if err != nil {
 		return "没有可以撤销的修改"

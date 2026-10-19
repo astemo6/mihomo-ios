@@ -1796,4 +1796,59 @@ final class MihomoUITests: MihomoUITestCase {
         XCTAssertTrue(app.element(id: "home.card.Proxy").waitForExistence(timeout: 10))
         assertAlive("profile switch")
     }
+
+    // MARK: 39. v0.19.6 a profile with thousands of nodes and rules stays responsive (seed: -UITestBigProfile)
+
+    func test39_BigProfileResponsive() {
+        let t0 = Date()
+        launch(["-UITestBigProfile"]) // 3000 nodes in one select group, 10000 rules, +1500 manual nodes
+        print("big profile seed + launch: \(String(format: "%.1f", Date().timeIntervalSince(t0))) s")
+        // Home: the active big profile's cards; the 3000-member group's offline picker opens and lists members.
+        let card = app.element(id: "home.card.Big Select")
+        XCTAssertTrue(card.waitForExistence(timeout: 20), "big profile card on Home")
+        var s = Date()
+        card.tap()
+        XCTAssertTrue(app.element(label: "Big 00000").waitForExistence(timeout: 15), "picker lists the first member")
+        XCTAssertLessThan(Date().timeIntervalSince(s), 15, "group picker with 3000 members")
+        snap("big-home-picker")
+        back()
+        // 策略 lists the groups.
+        s = Date()
+        tab(1)
+        XCTAssertTrue(app.element(id: "policy.card.Big Select").waitForExistence(timeout: 15), "策略 shows the big profile")
+        XCTAssertLessThan(Date().timeIntervalSince(s), 15, "策略 tab")
+        snap("big-policy")
+        // 节点管理 → 全部节点: 3000 profile + 1500 manual nodes, search narrows the list.
+        tab(4)
+        let row = app.element(id: "more.节点管理")
+        XCTAssertTrue(scrollTo(row))
+        s = Date()
+        row.tap()
+        XCTAssertTrue(app.navigationBars[L("节点管理")].waitForExistence(timeout: 15))
+        XCTAssertTrue(tapIfExists(app.element(label: L("全部节点"))))
+        XCTAssertTrue(app.element(label: "Big 00000").waitForExistence(timeout: 20), "big profile node listed")
+        XCTAssertLessThan(Date().timeIntervalSince(s), 25, "全部节点 with 4500 nodes")
+        snap("big-nodes-all")
+        let search = app.searchFields.firstMatch
+        for _ in 0..<8 where !search.exists { app.swipeDown(velocity: .fast) }
+        if search.waitForExistence(timeout: 5) {
+            search.tap()
+            search.typeText("BM 1499")
+            XCTAssertTrue(app.element(label: "BM 1499").waitForExistence(timeout: 10), "search finds the last manual node")
+            XCTAssertFalse(app.element(label: "Big 00000").exists, "search filters the profile nodes")
+            snap("big-nodes-search")
+            let cancel = app.buttons[L("取消")].exists ? app.buttons[L("取消")] : app.buttons["Cancel"]
+            if cancel.exists { cancel.tap() }
+        } else {
+            XCTFail("node search field")
+        }
+        // Every tab answers quickly with the big profile active (no main-thread hang).
+        for i in [0, 1, 2, 3, 4, 0] {
+            s = Date()
+            tab(i)
+            XCTAssertTrue(app.tabBars.buttons.element(boundBy: i).waitForExistence(timeout: 10))
+            XCTAssertLessThan(Date().timeIntervalSince(s), 8, "tab \(i) switch")
+        }
+        assertAlive("big profile")
+    }
 }

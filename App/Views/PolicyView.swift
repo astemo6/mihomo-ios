@@ -223,6 +223,16 @@ struct PolicyView: View {
 
     private func refreshMovable() { movable = GroupOrderRow.movableNames(store.active) }
 
+    /// v0.19.6: the file's group names are read off the main actor when the page appears / the profile changes
+    /// (a YAML parse of the whole profile; noticeable on a profile with thousands of nodes and rules).
+    private func refreshMovableAsync() async {
+        guard let p = store.active else { movable = []; return }
+        let names = await Task.detached(priority: .utility) { GroupOrder.fileNames(p) }.value
+        guard store.active?.id == p.id else { return }
+        let edits = GroupEditStore.get(p.id)
+        movable = Set(names.map { GroupOrder.displayName(of: $0, edits: edits) })
+    }
+
     /// Drops any drag override (a drag that never reached a drop, or a provider call outside a real drag).
     private func resetDrag() {
         guard !dragSaving else { return }
@@ -440,7 +450,7 @@ struct PolicyView: View {
             if vpn.isConnected { await model.load() } else { await offline.load() }
             snapshotDelays()
             interactions = vpn.isConnected ? await TaskCatalog.interactions() : []
-            refreshMovable()
+            await refreshMovableAsync()
         }
         .modifier(InteractionRunner(request: $interaction))
         .onChange(of: sortMode) { _ in snapshotDelays() }
@@ -450,7 +460,7 @@ struct PolicyView: View {
         .onChange(of: store.activeID) { _ in
             reorderMode = false
             resetDrag()
-            refreshMovable()
+            Task { await refreshMovableAsync() }
             Task { if !vpn.isConnected { await offline.load() } }
         }
         .sheet(item: $chainGroup) { t in GroupChainSheet(group: t.name) }

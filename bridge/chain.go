@@ -365,6 +365,7 @@ func SetGroupChain(homeDir, profilePath, group, via string) string {
 			return fmt.Sprintf("「%s」不能作为「%s」的前置代理（不存在或会形成循环）", via, group)
 		}
 	}
+	defer lockPath(groupSettingsPath(homeDir))() // v0.19.6: one read-modify-write of groups.json at a time
 	all := readAllGroupSettings(homeDir)
 	id := profileIDFromPath(profilePath)
 	s := all[id]

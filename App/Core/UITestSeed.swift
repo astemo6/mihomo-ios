@@ -71,6 +71,13 @@ enum UITestSeed {
             if let demo = store.profiles.first(where: { $0.name == "UITest Demo" }), store.activeID != demo.id {
                 _ = await store.setActive(demo)
             }
+            // v0.19.6 stress test: a large profile (3000 nodes in one select group, 10000 rules) becomes the active
+            // profile, plus 1500 more manual nodes.
+            if args.contains("-UITestBigProfile"), !store.profiles.contains(where: { $0.name == "UITest Big" }) {
+                let big = try await store.addLocal(name: "UITest Big", text: bigProfileYAML(nodes: 3000, rules: 10000))
+                _ = try await store.addManualNodes(text: bigManualLinks(1500))
+                _ = await store.setActive(big)
+            }
             try seedNodeSubscription()
             EngineStore.shared.addModule(text: moduleText, name: "UITest Panel Module")
             try writeSamples()
@@ -110,6 +117,34 @@ enum UITestSeed {
             vc.overrideUserInterfaceStyle = AppAppearance.current.style
             top.present(vc, animated: false)
         }
+    }
+
+    /// v0.19.6: synthetic large profile (documentation addresses, placeholder passwords).
+    static func bigProfileYAML(nodes: Int, rules: Int) -> String {
+        var y = "mode: rule\nproxies:\n"
+        y.reserveCapacity(nodes * 140 + rules * 50)
+        for i in 0..<nodes {
+            y += "  - {name: \"Big \(String(format: "%05d", i))\", type: ss, server: 192.0.2.\(i % 250 + 1), port: \(10000 + i), cipher: aes-128-gcm, password: pw\(i), udp: true}\n"
+        }
+        y += "proxy-groups:\n  - name: Big Select\n    type: select\n    proxies:\n"
+        for i in 0..<nodes { y += "      - \"Big \(String(format: "%05d", i))\"\n" }
+        y += "  - {name: Big Auto, type: url-test, url: 'http://www.gstatic.com/generate_204', interval: 600, include-all-proxies: true}\n"
+        y += "  - {name: Big Final, type: select, proxies: [Big Select, Big Auto, DIRECT]}\n"
+        y += "rules:\n"
+        for i in 0..<rules {
+            switch i % 3 {
+            case 0: y += "  - DOMAIN-SUFFIX,d\(i).example.com,Big Select\n"
+            case 1: y += "  - DOMAIN-KEYWORD,kw\(i),DIRECT\n"
+            default: y += "  - IP-CIDR,10.\((i / 256) % 256).\(i % 256).0/24,Big Auto,no-resolve\n"
+            }
+        }
+        y += "  - MATCH,Big Final\n"
+        return y
+    }
+
+    static func bigManualLinks(_ n: Int) -> String {
+        let ui = Data("aes-128-gcm:pw".utf8).base64EncodedString()
+        return (0..<n).map { "ss://\(ui)@198.51.100.\($0 % 250 + 1):\(20000 + $0)#BM%20\(String(format: "%04d", $0))" }.joined(separator: "\n")
     }
 
     /// v0.16 请求 summary test: two TCP + one UDP connection (documentation addresses).

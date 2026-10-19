@@ -362,6 +362,7 @@ func InspectProfile(homeDir, path string) string {
 // SaveSelection records group → node for a profile (used while disconnected; applied after the next
 // start). node == "" removes the entry.
 func SaveSelection(profilePath, group, node string) string {
+	defer lockPath(selectionsPath(profilePath))() // v0.19.6: one read-modify-write of the file at a time
 	m := readSelections(profilePath)
 	if node == "" {
 		delete(m, group)
