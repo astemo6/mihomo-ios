@@ -201,6 +201,7 @@ var ruleSetRefRE = regexp.MustCompile(`RULE-SET\s*,\s*([^,()]+)`)
 // RULE-SET references (also inside logical rules and sub-rules) follow. Returns the number of changed
 // providers, or -1 on error. Cache paths are unchanged.
 func MigrateProfileProviders(profilePath string) int {
+	defer lockPath(profilePath)() // v0.19.6: one read-modify-write of the file at a time
 	b, err := os.ReadFile(profilePath)
 	if err != nil || !bytes.Contains(b, []byte(convertScheme)) {
 		return 0

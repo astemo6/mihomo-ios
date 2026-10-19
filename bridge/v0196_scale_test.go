@@ -256,3 +256,49 @@ func TestV0196ScaleExplore(t *testing.T) {
 		t.Logf("%-24s %s", s.name, r)
 	}
 }
+
+func genRuleList(n int) string {
+	var b strings.Builder
+	for i := 0; i < n; i++ {
+		switch i % 3 {
+		case 0:
+			fmt.Fprintf(&b, "DOMAIN-SUFFIX,d%07d.example.com\n", i)
+		case 1:
+			fmt.Fprintf(&b, "DOMAIN,h%07d.example.org\n", i)
+		default:
+			fmt.Fprintf(&b, "IP-CIDR,10.%d.%d.0/24,no-resolve\n", (i/256)%256, i%256)
+		}
+	}
+	return b.String()
+}
+
+// Bodies the NE converts itself (/rules/convert, /nodes/convert cap downloads at 16 MB) and the
+// app-side converters (50 MB, one huge line).
+func TestV0196ScaleExploreBodies(t *testing.T) {
+	if testing.Short() {
+		t.Skip("short")
+	}
+	list16 := genRuleList(16 << 20 / 32)
+	t.Logf("rule list %d MB", len(list16)>>20)
+	oneLine := strings.Repeat("A", 50<<20)
+	links := genSSLinks(150000)
+	t.Logf("links body %d MB", len(links)>>20)
+	b64 := base64.StdEncoding.EncodeToString([]byte(links))
+	for _, s := range []struct {
+		name string
+		f    func()
+	}{
+		{"convertListText 16MB classical", func() { _, _, _ = convertListText(strings.NewReader(list16), "") }},
+		{"convertListText 16MB one line", func() { _, _, _ = convertListText(strings.NewReader(oneLine[:16<<20]), "") }},
+		{"convertNodesText 16MB b64", func() { _, _, _ = convertNodesText([]byte(b64)) }},
+		{"ParseNodes 50MB one line", func() { _ = ParseNodes(oneLine) }},
+		{"ConvertShareLinks 50MB one line", func() { _ = ConvertShareLinks(oneLine) }},
+		{"DetectNodeFormat 50MB one line", func() { _ = DetectNodeFormat(oneLine) }},
+		{"ClassifyText 50MB one line", func() { _ = ClassifyText(oneLine) }},
+		{"ImportConf 50MB one line", func() { _ = ImportConf(oneLine) }},
+		{"ParseNodes 180k links", func() { _ = ParseNodes(links) }},
+	} {
+		r := scaleMeasure(s.f)
+		t.Logf("%-32s %s", s.name, r)
+	}
+}

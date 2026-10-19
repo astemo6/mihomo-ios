@@ -319,6 +319,7 @@ func ScriptOutputApplyFor(home, profilePath, outputJSON, scriptsJSON, sourceSHA 
 		return "读取配置失败: " + err.Error()
 	}
 	yp, mp := scriptedPaths(home, profilePath)
+	defer lockPath(yp)() // v0.19.6: two applies of one profile wrote output and meta interleaved
 	fail := func(msg string) string {
 		_ = os.Remove(yp)
 		_ = os.Remove(mp)
@@ -352,6 +353,7 @@ func ScriptOutputApplyFor(home, profilePath, outputJSON, scriptsJSON, sourceSHA 
 // ScriptOutputClear removes the stored output (no enabled scripts left).
 func ScriptOutputClear(home, profilePath string) {
 	yp, mp := scriptedPaths(home, profilePath)
+	defer lockPath(yp)()
 	_ = os.Remove(yp)
 	_ = os.Remove(mp)
 }

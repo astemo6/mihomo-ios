@@ -45,8 +45,8 @@ func TestV0196StopWhileApplyPendingSkipsPostApply(t *testing.T) {
 		stopRuleHits("")
 		t.Fatal("rule-hit ticker started by a late apply after Stop")
 	}
-	if stageLogHas(logPath, "core apply finished") && !stageLogHas(logPath, "after Stop") {
-		t.Fatalf("late apply ran its post-apply steps after Stop")
+	if !stageLogHas(logPath, "post-apply steps skipped") {
+		t.Fatalf("late apply did not skip its post-apply steps after Stop")
 	}
 }
 
@@ -74,7 +74,9 @@ func TestV0196ReloadWhileApplyPendingKeepsNewest(t *testing.T) {
 	if !IsRunning() {
 		t.Fatal("not running")
 	}
-	_ = logPath
+	if !stageLogHas(logPath, "after a Reload") {
+		t.Fatal("late Start apply did not notice the Reload")
+	}
 }
 
 // Concurrent read-modify-write of one file (the app runs node edits on detached tasks; selections are

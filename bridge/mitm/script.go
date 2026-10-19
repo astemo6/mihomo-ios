@@ -55,7 +55,18 @@ type ScriptRunner struct {
 	taskSem chan struct{} // cron / event / generic scripts (long running, kept apart from HTTP traffic)
 	mu      sync.Mutex
 	byURL   map[string]string // script path -> program cache key
+	// v0.19.6: compiles in flight by cache key (one compile per script for a burst of cold requests).
+	compiling map[string]*compileCall
 }
+
+type compileCall struct {
+	done chan struct{}
+	p    *goja.Program
+	err  error
+}
+
+// compileCount counts goja compiles (tests).
+var compileCount atomic.Int64
 
 func NewScriptRunner(e *Engine) *ScriptRunner {
 	progs := newLRU[*goja.Program](16)
@@ -73,7 +84,7 @@ func (s *ScriptRunner) Invalidate(path string) {
 	s.mu.Unlock()
 }
 
-func (s *ScriptRunner) program(sc *Script) (*goja.Program, error) {
+func (s *ScriptRunner) program(sc *Script) (prog *goja.Program, err error) {
 	src := sc.Source
 	if src == nil {
 		var err error
@@ -87,6 +98,42 @@ func (s *ScriptRunner) program(sc *Script) (*goja.Program, error) {
 	if p, ok := s.progs.Get(key); ok {
 		return p, nil
 	}
+	// v0.19.6 (review 7): compile runs before the run semaphore, so a burst of requests on a script whose
+	// program was not cached (first use after a start, or right after FreeMemory dropped the cache under
+	// memory pressure) compiled it once per request in parallel, ~14× the source in heap each (24 requests
+	// on a 330 KB script: 24 compiles). Concurrent callers for one key now wait for a single compile.
+	s.mu.Lock()
+	if c, ok := s.compiling[key]; ok {
+		s.mu.Unlock()
+		<-c.done
+		return c.p, c.err
+	}
+	if p, ok := s.progs.Get(key); ok { // finished between the check above and the lock
+		s.mu.Unlock()
+		return p, nil
+	}
+	if s.compiling == nil {
+		s.compiling = map[string]*compileCall{}
+	}
+	c := &compileCall{done: make(chan struct{})}
+	s.compiling[key] = c
+	s.mu.Unlock()
+	defer func() {
+		if r := recover(); r != nil {
+			c.p, c.err = nil, fmt.Errorf("脚本编译内部错误：%v", r)
+			prog, err = nil, c.err
+		}
+		s.mu.Lock()
+		delete(s.compiling, key)
+		s.mu.Unlock()
+		close(c.done)
+	}()
+	c.p, c.err = s.compile(sc, src, key)
+	return c.p, c.err
+}
+
+func (s *ScriptRunner) compile(sc *Script, src []byte, key string) (*goja.Program, error) {
+	compileCount.Add(1)
 	code := strings.TrimPrefix(string(src), "\ufeff")
 	if egernNativeRe.MatchString(code) {
 		adapted, err := adaptEgern(code)

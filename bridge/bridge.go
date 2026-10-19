@@ -432,6 +432,9 @@ func LastError() string {
 
 func setLastError(s string) { lastError.Store(s) }
 
+// stopCount counts Stop calls (v0.19.6): a pending Start apply compares it to skip its post-apply steps.
+var stopCount atomic.Uint64
+
 // startGC applies Hako-style GC pacing for the NetworkExtension: GOMEMLIMIT at 3/4 of the jetsam budget
 // with a normal GOGC, so the collector only works hard near the limit (less CPU = less battery than a
 // permanently low GOGC). A slow ticker returns idle spans to the OS; the Swift MemoryGuard handles
@@ -546,6 +549,7 @@ func Start(homeDir, configPath string, tunFd int32) error {
 	// report a timeout (running=false) while the goroutine treats the apply as finished
 	// and leaves a live core that Stop can't tear down (v0.18.1 review fix).
 	var state atomic.Int32
+	stops := stopCount.Load()
 	done := make(chan error, 1)
 	go func() {
 		err := safeApply(homeDir, configPath, tunFd)
@@ -576,8 +580,25 @@ func Start(homeDir, configPath string, tunFd int32) error {
 			stage("core apply failed: %s", err.Error())
 			return
 		}
+		// v0.19.6 (review 7): Start returns on tun up while this apply is still loading providers, so a Stop or
+		// Reload can run before it finishes. The post-apply steps used to run regardless: after a Stop they
+		// started the rule-hit ticker, smart groups and the network policy on a stopped core (goroutines and
+		// probes left running), and after a Reload they re-applied the previous profile's selections / smart
+		// groups over the newer ones. They now run under mu (done was sent first, so a Start still waiting on
+		// it is not blocked), not at all after a Stop, and only the rule-hit ticker after a Reload (the Reload
+		// already did the rest for its profile).
+		mu.Lock()
+		defer mu.Unlock()
+		if stopCount.Load() != stops || !running.Load() {
+			stage("core apply finished after Stop: post-apply steps skipped")
+			return
+		}
 		stage("core apply finished: providers loaded, tunnel %s, %s", tunnel.Status().String(), memText())
 		startRuleHits(homeDir)
+		if atomic.LoadUint64(&applyEpoch) != epoch {
+			stage("core apply finished after a Reload: selections / smart groups left to the Reload")
+			return
+		}
 		if n := applySelections(configPath); n > 0 {
 			stage("restored %d saved group selection(s)", n)
 		}
@@ -684,6 +705,7 @@ func Stop() {
 	if !running.Load() {
 		return
 	}
+	stopCount.Add(1) // v0.19.6: a Start apply still loading providers skips its post-apply steps
 	stopRuleHits(curHomeStr())
 	stopEngine()
 	stopSmart()
