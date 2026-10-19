@@ -70,6 +70,7 @@ struct CodeEditor: UIViewRepresentable {
 
     func makeUIView(context: Context) -> UITextView {
         let tv = UITextView()
+        context.coordinator.textView = tv
         tv.backgroundColor = CodeTheme.background
         tv.textColor = CodeTheme.text
         tv.font = Coordinator.font
@@ -126,8 +127,21 @@ struct CodeEditor: UIViewRepresentable {
 
         init(_ p: CodeEditor) { parent = p }
 
+        weak var textView: UITextView?
+        private var pendingHighlight = false
+
         func textViewDidChange(_ tv: UITextView) {
             parent.text = tv.text
+            // v0.19.3: colours deferred while a CJK / kana input composition was open are applied once it ends.
+            if pendingHighlight, tv.markedTextRange == nil {
+                pendingHighlight = false
+                let ns = (tv.text ?? "") as NSString
+                if ns.length < 30_000 {
+                    highlightAll(tv.textStorage)
+                } else if ns.length <= CodeEditor.highlightLimit {
+                    highlight(tv.textStorage, in: ns.paragraphRange(for: NSRange(location: min(tv.selectedRange.location, ns.length), length: 0)))
+                }
+            }
         }
 
         // Re-colour the edited paragraphs after every edit.
@@ -139,6 +153,9 @@ struct CodeEditor: UIViewRepresentable {
             let range = s.length < 30_000 ? NSRange(location: 0, length: s.length) : s.paragraphRange(for: editedRange)
             DispatchQueue.main.async { [weak self, weak ts] in
                 guard let self, let ts else { return }
+                // v0.19.3: re-colouring the storage while a pinyin / kana composition is open (marked text) can
+                // interrupt the input method; wait until the composition is committed.
+                if let tv = self.textView, tv.markedTextRange != nil { self.pendingHighlight = true; return }
                 self.highlight(ts, in: range)
             }
         }
