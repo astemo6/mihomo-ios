@@ -430,6 +430,8 @@ struct NodeEditorView: View {
     @Environment(\.dismiss) var dismiss
 
     let original: [String: Any]?
+    /// The node's fields as loaded, restored when the protocol is switched away and back (review 5).
+    private let originalValues: [String: String]
     /// v0.15.4: the node lives in this profile file (节点管理 → 配置); saving writes it back there.
     var profile: Profile? = nil
     @State private var type: String
@@ -445,6 +447,7 @@ struct NodeEditorView: View {
     /// v0.16 添加节点: a new node of a given protocol with optional preset fields (same as the QX preview's).
     init(newType t: String, preset: [String: String] = [:]) {
         original = nil
+        originalValues = [:]
         _type = State(initialValue: t)
         _name = State(initialValue: "")
         _server = State(initialValue: "")
@@ -466,6 +469,7 @@ struct NodeEditorView: View {
         var flat: [String: String] = [:]
         if let node { NodeProtocols.flatten(node, into: &flat) } else { flat = NodeProtocols.defaults(for: t) }
         if node?["amnezia-wg-option"] != nil { flat["x-awg"] = "true" }
+        originalValues = node == nil ? [:] : flat
         _values = State(initialValue: flat)
         _dialer = State(initialValue: node?["dialer-proxy"] as? String ?? "")
     }
@@ -549,6 +553,9 @@ struct NodeEditorView: View {
             .onChange(of: type) { t in
                 if (original?["type"] as? String) != t {
                     values = NodeProtocols.defaults(for: t)
+                } else {
+                    // Back to the node's own protocol: its credentials, not the other protocol's defaults.
+                    values = originalValues
                 }
             }
             .onAppear {

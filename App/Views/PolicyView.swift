@@ -204,7 +204,8 @@ struct PolicyView: View {
     @State private var interaction: InteractionRequest?
     @ObservedObject private var probes = ProbeStore.shared
     /// v0.19.8: the group list follows the outbound mode (GLOBAL only in 全局, first there).
-    @ObservedObject private var dash = DashboardModel.shared
+    /// Review 5: only the mode is mirrored; observing DashboardModel re-rendered every card each second.
+    @State private var mode = DashboardModel.shared.mode
 
     struct ChainGroupTarget: Identifiable { let id = UUID(); let name: String }
     /// v0.9 策略组编辑 (name nil = new group).
@@ -222,6 +223,7 @@ struct PolicyView: View {
     @State private var dragging: String?
     @State private var dragSaving = false
     @State private var orderError: String?
+    @State private var reorderLoading = false
 
     /// The groups in the order the page shows them (display names), for 排列策略组 / 置顶.
     private var orderGroups: [(name: String, kind: String, icon: String?)] {
@@ -238,7 +240,9 @@ struct PolicyView: View {
                 guard let p = store.active else { return }
                 let names = orderGroups.map { $0.name }
                 guard let i = names.firstIndex(of: name), i > 0 else { return }
-                guard GroupOrder.fileNames(p).contains(GroupOrder.fileName(of: name, edits: GroupEditStore.get(p.id))) else {
+                // Review 5: the whole-profile YAML parse runs off the main actor.
+                let fileNames = await Task.detached(priority: .userInitiated) { GroupOrder.fileNames(p) }.value
+                guard fileNames.contains(GroupOrder.fileName(of: name, edits: GroupEditStore.get(p.id))) else {
                     orderError = String(localized: "该策略组不在配置文件中（运行时加入），位置无法调整")
                     return
                 }
@@ -249,8 +253,6 @@ struct PolicyView: View {
             }
         }
     }
-
-    private func refreshMovable() { movable = GroupOrderRow.movableNames(store.active) }
 
     /// v0.19.6: the file's group names are read off the main actor when the page appears / the profile changes
     /// (a YAML parse of the whole profile; noticeable on a profile with thousands of nodes and rules).
@@ -270,8 +272,18 @@ struct PolicyView: View {
     }
 
     private func enterReorder() {
+        guard !reorderLoading else { return }
         resetDrag()
-        refreshMovable()
+        reorderLoading = true
+        Task {
+            // Review 5: the file's group names are parsed off the main actor (was refreshMovable on main).
+            await refreshMovableAsync()
+            reorderLoading = false
+            showReorder()
+        }
+    }
+
+    private func showReorder() {
         let gs = orderGroups
         reorderRows = gs.map { GroupOrderRow(name: $0.name, kind: $0.kind, icon: $0.icon, movable: movable.contains($0.name)) }
         reorderOriginal = gs.map { $0.name }
@@ -529,7 +541,7 @@ struct PolicyView: View {
                 TestTargetCaption(live: true)
                 orderHeader
                 let liveAuto = model.groups.filter { PolicyGroupDisplay.isAutomatic(PolicyGroupDisplay.kind(live: $0.type)) }
-                ForEach(GroupOrderRow.arranged(PolicyModeFilter.apply(model.groups, mode: dash.mode) { $0.name }, by: dragOrder) { $0.name }) { g in
+                ForEach(GroupOrderRow.arranged(PolicyModeFilter.apply(model.groups, mode: mode) { $0.name }, by: dragOrder) { $0.name }) { g in
                   if collapseAuto && PolicyGroupDisplay.isAutomatic(PolicyGroupDisplay.kind(live: g.type)) {
                     if g.id == liveAuto.first?.id { CollapsedAutoRow(count: liveAuto.count) { expandAuto() } }
                   } else {
@@ -595,7 +607,7 @@ struct PolicyView: View {
                     let index = offline.nodeIndex
                     let groupNames = Set(offline.result.groups.map(\.name))
                     let profileGroups = offline.result.groups.filter { $0.hidden != true && $0.name != "GLOBAL" }
-                    let visible = PolicyModeFilter.apply(profileGroups + [offline.globalGroup], mode: dash.mode) { $0.name }
+                    let visible = PolicyModeFilter.apply(profileGroups + [offline.globalGroup], mode: mode) { $0.name }
                     let offAuto = visible.filter { PolicyGroupDisplay.isAutomatic($0.type) }
                     if !visible.isEmpty { orderHeader }
                     ForEach(GroupOrderRow.arranged(visible, by: dragOrder) { $0.name }) { g in

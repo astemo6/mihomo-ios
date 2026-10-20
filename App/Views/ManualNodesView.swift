@@ -18,6 +18,8 @@ struct ManualNodesView: View {
     /// while the sheet was still animating away could drop the result alert (UIKit refuses a second
     /// presentation) and leave the binding stuck on, so later alerts never appeared either.
     @State private var pendingImport: String?
+    /// Review 5: deleting a manual node asks first, as in 节点管理.
+    @State private var pendingDelete: String?
     @State private var showPasteSheet = false
     @State private var share: ShareTarget?
     @State private var exportSub = false
@@ -60,15 +62,13 @@ struct ManualNodesView: View {
                     .contentShape(Rectangle())
                     .onTapGesture { editing = EditTarget(node: n) }
                     .swipeActions {
-                        Button(role: .destructive) {
-                            Task { await store.deleteManualNode(name); reload() }
-                        } label: { Label("删除", systemImage: "trash") }
+                        Button(role: .destructive) { pendingDelete = name } label: { Label("删除", systemImage: "trash") }
                         Button { shareNode(n) } label: { Label("分享", systemImage: "qrcode") }.tint(Theme.accent)
                     }
                     .contextMenu {
                         Button { editing = EditTarget(node: n) } label: { Label("编辑", systemImage: "pencil") }
                         Button { shareNode(n) } label: { Label("分享链接与二维码", systemImage: "qrcode") }
-                        Button(role: .destructive) { Task { await store.deleteManualNode(name); reload() } } label: { Label("删除", systemImage: "trash") }
+                        Button(role: .destructive) { pendingDelete = name } label: { Label("删除", systemImage: "trash") }
                     }
                 }
             }
@@ -134,6 +134,9 @@ struct ManualNodesView: View {
         .alert("提示", isPresented: Binding(get: { message != nil }, set: { if !$0 { message = nil } })) {
             Button("好", role: .cancel) {}
         } message: { Text(message ?? "") }
+        .deleteConfirmation({ _ in Text("删除这个手动节点？") }, item: $pendingDelete, message: { n in Text(verbatim: n) }) { n in
+            Task { await store.deleteManualNode(n); reload() }
+        }
     }
 
     func actionButton(_ title: String, _ icon: String, action: @escaping () -> Void) -> some View {

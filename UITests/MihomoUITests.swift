@@ -230,6 +230,8 @@ final class MihomoUITests: MihomoUITestCase {
             snap("nodes-filter-added")
             jp.swipeLeft()
             XCTAssertTrue(tapIfExists(app.button(L("移除策略组")), timeout: 3), "remove action")
+            // Review 5: removing the group asks first.
+            XCTAssertTrue(tapIfExists(app.element(id: "filter.confirmRemove"), timeout: 4), "remove confirmation")
             usleep(1_500_000)
             XCTAssertFalse(app.element(label: L("已加为策略组")).exists, "group removed")
         } else { issues.append("[\(Env.tag)] 加为策略组 swipe action missing") }

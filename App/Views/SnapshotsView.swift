@@ -10,6 +10,8 @@ struct SnapshotsView: View {
     @State private var selecting = false
     @State private var selected: Set<String> = []
     @State private var confirmDelete = false
+    /// A single swipe on a pinned snapshot asks first (review 5); the multi-select path already warns.
+    @State private var pendingPinned: SnapshotMeta?
 
     private var allSelected: Bool { !snaps.list.isEmpty && selected.count == snaps.list.count }
     private var selectedPinned: Int { snaps.list.filter { selected.contains($0.id) && $0.pinned }.count }
@@ -19,7 +21,7 @@ struct SnapshotsView: View {
             if !selecting {
                 Section {
                     Toggle("自动快照", isOn: $snaps.autoEnabled).tint(Theme.accent)
-                    Button { if snaps.capture(String(localized: "手动快照"), manual: true) == nil { message = String(localized: "和最近一个快照相同，没有新建") } } label: {
+                    Button { Task { if await snaps.captureAsync(String(localized: "手动快照"), manual: true) == nil { message = String(localized: "和最近一个快照相同，没有新建") } } } label: {
                         Label("立即创建快照", systemImage: "camera.on.rectangle")
                     }
                     .accessibilityIdentifier("snapshots.create")
@@ -53,7 +55,7 @@ struct SnapshotsView: View {
                         NavigationLink { SnapshotDetailView(meta: m) } label: { SnapshotRow(m: m) }
                             .accessibilityIdentifier("snapshots.row")
                             .swipeActions {
-                                Button(role: .destructive) { snaps.delete(m) } label: { Label("删除", systemImage: "trash") }
+                                Button(role: .destructive) { if m.pinned { pendingPinned = m } else { snaps.delete(m) } } label: { Label("删除", systemImage: "trash") }
                                 Button { snaps.togglePin(m) } label: { Label(m.pinned ? "取消固定" : "固定", systemImage: m.pinned ? "pin.slash" : "pin") }
                                     .tint(Theme.warn)
                             }
@@ -69,6 +71,8 @@ struct SnapshotsView: View {
         .background(Theme.bg.ignoresSafeArea())
         .navigationTitle("配置快照")
         .navigationBarBackButtonHidden(selecting)
+        .deleteConfirmation({ _ in Text("删除已固定的快照？") }, item: $pendingPinned,
+                            message: { m in Text(verbatim: m.reason) }) { m in snaps.delete(m) }
         .toolbar {
             ToolbarItem(placement: .navigationBarTrailing) {
                 if !snaps.list.isEmpty || selecting {
@@ -205,16 +209,18 @@ struct SnapshotDetailView: View {
         .background(Theme.bg.ignoresSafeArea())
         .navigationTitle("快照详情")
         .task {
-            diff = SnapshotStore.shared.diff(meta)
+            diff = await SnapshotStore.shared.diffAsync(meta)
             loaded = true
         }
         .confirmationDialog("用这个快照覆盖当前配置？", isPresented: $confirm, titleVisibility: .visible) {
             Button("恢复", role: .destructive) {
-                do {
-                    let n = try SnapshotStore.shared.restore(meta)
-                    message = String(localized: "已恢复 \(n) 个文件")
-                } catch {
-                    message = error.localizedDescription
+                Task {
+                    do {
+                        let n = try await SnapshotStore.shared.restoreAsync(meta)
+                        message = String(localized: "已恢复 \(n) 个文件")
+                    } catch {
+                        message = error.localizedDescription
+                    }
                 }
             }
         }

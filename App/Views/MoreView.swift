@@ -1,4 +1,5 @@
 import SwiftUI
+import Combine
 import NetworkExtension
 import Libmihomo
 
@@ -7,59 +8,70 @@ struct MoreView: View {
     @EnvironmentObject var store: ProfileStore
     @ObservedObject var engine = EngineStore.shared
     @State private var showOnboarding = false
-    @ObservedObject private var nodeModel = NodeManagerModel.shared
+    /// Not observed (review 5): during 全部测速 every result republished the model and re-rendered this
+    /// root page under the pushed ones. The count is refreshed from its publishers, debounced.
+    private let nodeModel = NodeManagerModel.shared
+    @State private var localNodeCount: Int?
+    /// Status texts of the 连接 rows, read once per appearance instead of on every render (Keychain + file).
+    @State private var connLabel = ""
+    @State private var dnsLabel = ""
 
     /// 本地节点 (manual nodes + a local profile's own nodes), as 节点管理 counts them; nil before the list loaded.
-    var localNodeCount: Int? {
-        let ids = Set(nodeModel.sources.filter { $0.kind == .manual || ($0.kind == .profile && !$0.remote) }.map(\.id))
-        let n = nodeModel.nodes.filter { ids.contains($0.source.id) }.count
-        return nodeModel.nodes.isEmpty ? nil : n
+    static func localCount(_ nodes: [ManagedNode], _ sources: [NodeSource]) -> Int? {
+        guard !nodes.isEmpty else { return nil }
+        let ids = Set(sources.filter { $0.kind == .manual || ($0.kind == .profile && !$0.remote) }.map(\.id))
+        return nodes.filter { ids.contains($0.source.id) }.count
+    }
+
+    func refreshLabels() {
+        let o = CoreOverrides.load()
+        connLabel = o.isProxyOnly ? String(localized: "仅代理") : o.isMixed ? String(localized: "VPN 混合") : "TUN"
+        dnsLabel = DNSOverrideSettings.load().enabled ? String(localized: "自定义") : String(localized: "配置文件")
     }
 
     var body: some View {
         NavigationStack {
             List {
                 Section("连接") {
-                    NavigationLink { ConnectionView() } label: {
-                        row("连接方式", "point.3.filled.connected.trianglepath.dotted",
-                            CoreOverrides.load().isProxyOnly ? String(localized: "仅代理") : CoreOverrides.load().isMixed ? String(localized: "VPN 混合") : "TUN")
+                    NavigationLink { LazyDestination { ConnectionView() } } label: {
+                        row("连接方式", "point.3.filled.connected.trianglepath.dotted", connLabel)
                     }
-                    NavigationLink { DNSView() } label: {
-                        row("DNS", "network", DNSOverrideSettings.load().enabled ? String(localized: "自定义") : String(localized: "配置文件"))
+                    NavigationLink { LazyDestination { DNSView() } } label: {
+                        row("DNS", "network", dnsLabel)
                     }
                 }
                 .listRowBackground(Theme.card)
 
                 // v0.19.8 (user): one section for the two pages instead of two one-row sections.
                 Section("节点与订阅") {
-                    NavigationLink { NodeManagerView() } label: { row("节点管理", "server.rack", localNodeCount.map { "\($0)" }) }
-                    NavigationLink { SubscriptionsView() } label: {
+                    NavigationLink { LazyDestination { NodeManagerView() } } label: { row("节点管理", "server.rack", localNodeCount.map { "\($0)" }) }
+                    NavigationLink { LazyDestination { SubscriptionsView() } } label: {
                         row("订阅管理", "tray.full", "\(store.profiles.filter { $0.kind == .remote }.count + NodeSubStore.shared.subs.count)")
                     }
                 }
                 .listRowBackground(Theme.card)
 
                 Section("规则与资源") {
-                    NavigationLink { RulesView() } label: { row("规则", "list.bullet.rectangle", nil) }
-                    NavigationLink { ProvidersView() } label: { row("提供者（规则集 / 节点集）", "shippingbox", nil) }
-                    NavigationLink { GeoView() } label: { row("地理与规则库", "globe.asia.australia", nil) }
+                    NavigationLink { LazyDestination { RulesView() } } label: { row("规则", "list.bullet.rectangle", nil) }
+                    NavigationLink { LazyDestination { ProvidersView() } } label: { row("提供者（规则集 / 节点集）", "shippingbox", nil) }
+                    NavigationLink { LazyDestination { GeoView() } } label: { row("地理与规则库", "globe.asia.australia", nil) }
                 }
                 .listRowBackground(Theme.card)
 
                 Section {
-                    NavigationLink { ModulesView() } label: {
+                    NavigationLink { LazyDestination { ModulesView() } } label: {
                         row("模块与资源", "puzzlepiece.extension", "\(engine.config.modules.filter(\.enabled).count)/\(engine.config.modules.count)")
                     }
                     // v0.8.1: own rules / scripts plus what the enabled modules bring, the same numbers 模块与资源 shows.
                     let mc = engine.enabledModuleCounts
-                    NavigationLink { LocalModuleView() } label: {
+                    NavigationLink { LazyDestination { LocalModuleView() } } label: {
                         row("重写（本地模块）", "arrow.triangle.swap", mc.rewrites > 0 ? String(localized: "\(engine.config.rules.count) · 模块 \(mc.rewrites)") : "\(engine.config.rules.count)")
                     }
-                    NavigationLink { ScriptsView() } label: {
+                    NavigationLink { LazyDestination { ScriptsView() } } label: {
                         row("脚本", "curlybraces", mc.scripts > 0 ? String(localized: "\(engine.config.scripts.count) · 模块 \(mc.scripts)") : "\(engine.config.scripts.count)")
                     }
-                    NavigationLink { ScriptTasksView() } label: { row("任务", "clock.arrow.circlepath", nil) }
-                    NavigationLink { MitMView() } label: {
+                    NavigationLink { LazyDestination { ScriptTasksView() } } label: { row("任务", "clock.arrow.circlepath", nil) }
+                    NavigationLink { LazyDestination { MitMView() } } label: {
                         HStack {
                             Label("MitM", systemImage: "lock.open")
                             Spacer()
@@ -79,29 +91,29 @@ struct MoreView: View {
                 .listRowBackground(Theme.card)
 
                 Section("工具与数据") {
-                    NavigationLink { ToolsView() } label: { row("网络工具（Ping / TCP / DNS）", "stethoscope.circle", nil) }
-                    NavigationLink { NetTestView() } label: { row("网络测试（带宽 / NAT 类型）", "speedometer", nil) }
-                    NavigationLink { LANDetailView() } label: { row("内网 IP 与路由器", "wifi.router", nil) }
-                    NavigationLink { UnlockView() } label: { row("解锁检测", "checkmark.shield", nil) }
-                    NavigationLink { AnalyticsView() } label: { row("连接分析", "chart.pie", nil) }
-                    NavigationLink { StatsView() } label: { row("流量统计", "chart.bar.xaxis", nil) }
-                    NavigationLink { LogsView() } label: { row("日志", "text.alignleft", nil) }
-                    NavigationLink { DNSLogView() } label: { row("DNS 日志", "list.bullet.below.rectangle", nil) }
-                    NavigationLink { BackupView() } label: { row("备份与恢复", "externaldrive.badge.icloud", nil) }
-                    NavigationLink { SnapshotsView() } label: { row("配置快照", "clock.arrow.circlepath", nil) }
-                    NavigationLink { StorageView() } label: { row("存储空间", "internaldrive", nil) }
+                    NavigationLink { LazyDestination { ToolsView() } } label: { row("网络工具（Ping / TCP / DNS）", "stethoscope.circle", nil) }
+                    NavigationLink { LazyDestination { NetTestView() } } label: { row("网络测试（带宽 / NAT 类型）", "speedometer", nil) }
+                    NavigationLink { LazyDestination { LANDetailView() } } label: { row("内网 IP 与路由器", "wifi.router", nil) }
+                    NavigationLink { LazyDestination { UnlockView() } } label: { row("解锁检测", "checkmark.shield", nil) }
+                    NavigationLink { LazyDestination { AnalyticsView() } } label: { row("连接分析", "chart.pie", nil) }
+                    NavigationLink { LazyDestination { StatsView() } } label: { row("流量统计", "chart.bar.xaxis", nil) }
+                    NavigationLink { LazyDestination { LogsView() } } label: { row("日志", "text.alignleft", nil) }
+                    NavigationLink { LazyDestination { DNSLogView() } } label: { row("DNS 日志", "list.bullet.below.rectangle", nil) }
+                    NavigationLink { LazyDestination { BackupView() } } label: { row("备份与恢复", "externaldrive.badge.icloud", nil) }
+                    NavigationLink { LazyDestination { SnapshotsView() } } label: { row("配置快照", "clock.arrow.circlepath", nil) }
+                    NavigationLink { LazyDestination { StorageView() } } label: { row("存储空间", "internaldrive", nil) }
                 }
                 .listRowBackground(Theme.card)
 
                 Section("设置") {
-                    NavigationLink { AppearanceView() } label: { row("外观", "circle.lefthalf.filled", nil) }
-                    NavigationLink { SettingsView() } label: { row("内核设置", "slider.horizontal.3", nil) }
-                    NavigationLink { SpeedTestSettingsView() } label: { row("测速", "bolt.horizontal", nil) }
-                    NavigationLink { GeoCheckerView() } label: { row("出口信息查询", "mappin.and.ellipse", nil) }
+                    NavigationLink { LazyDestination { AppearanceView() } } label: { row("外观", "circle.lefthalf.filled", nil) }
+                    NavigationLink { LazyDestination { SettingsView() } } label: { row("内核设置", "slider.horizontal.3", nil) }
+                    NavigationLink { LazyDestination { SpeedTestSettingsView() } } label: { row("测速", "bolt.horizontal", nil) }
+                    NavigationLink { LazyDestination { GeoCheckerView() } } label: { row("出口信息查询", "mappin.and.ellipse", nil) }
                     if UIApplication.shared.supportsAlternateIcons {
-                        NavigationLink { AppIconView() } label: { row("App 图标", "app.badge", nil) }
+                        NavigationLink { LazyDestination { AppIconView() } } label: { row("App 图标", "app.badge", nil) }
                     }
-                    NavigationLink { DiagnosticsView() } label: {
+                    NavigationLink { LazyDestination { DiagnosticsView() } } label: {
                         HStack {
                             Label("诊断", systemImage: "waveform.path.ecg")
                             Spacer()
@@ -116,7 +128,7 @@ struct MoreView: View {
                 Section {
                     Button { showOnboarding = true } label: { row("新手引导", "sparkles", nil) }
                         .foregroundStyle(.primary)
-                    NavigationLink { AboutView() } label: { row("关于 / 开源许可", "info.circle", nil) }
+                    NavigationLink { LazyDestination { AboutView() } } label: { row("关于 / 开源许可", "info.circle", nil) }
                 }
                 .listRowBackground(Theme.card)
             }
@@ -124,6 +136,15 @@ struct MoreView: View {
             .scrollContentBackground(.hidden)
             .background(Theme.bg.ignoresSafeArea())
             .navigationTitle("更多")
+            .onAppear {
+                refreshLabels()
+                localNodeCount = Self.localCount(nodeModel.nodes, nodeModel.sources)
+            }
+            .onReceive(nodeModel.$nodes.combineLatest(nodeModel.$sources)
+                .debounce(for: .milliseconds(300), scheduler: RunLoop.main)) { n, src in
+                let c = Self.localCount(n, src)
+                if c != localNodeCount { localNodeCount = c }
+            }
             .fullScreenCover(isPresented: $showOnboarding) {
                 OnboardingView { showOnboarding = false }
                     .environmentObject(vpn)
@@ -246,7 +267,8 @@ struct LogsView: View {
                         }
                         .listStyle(.plain)
                         .scrollContentBackground(.hidden)
-                        .onChange(of: model.lines.count) { _ in
+                        // The last id, not the count: at the 1000-line cap every append is followed by a removeFirst.
+                        .onChange(of: model.lines.last?.id) { _ in
                             if !model.paused, let last = shown.last { proxy.scrollTo(last.id, anchor: .bottom) }
                         }
                     }
@@ -460,7 +482,8 @@ struct DiagnosticsView: View {
                 LabeledContent("描述文件中的组", value: groups.isEmpty ? String(localized: "（未找到 embedded.mobileprovision）") : groups.sorted().joined(separator: "\n"))
                 LabeledContent("VPN 状态", value: vpn.statusText)
                 LabeledContent("上次断开原因", value: TunnelStopReason.last() ?? "—")
-                LabeledContent("连接方式", value: CoreOverrides.load().isProxyOnly ? String(localized: "仅代理（NEProxySettings）") : CoreOverrides.load().isMixed ? String(localized: "VPN 混合（PacketFlowBridge + NEProxySettings）") : String(localized: "全局隧道（PacketFlowBridge）"))
+                let co = CoreOverrides.load()
+                LabeledContent("连接方式", value: co.isProxyOnly ? String(localized: "仅代理（NEProxySettings）") : co.isMixed ? String(localized: "VPN 混合（PacketFlowBridge + NEProxySettings）") : String(localized: "全局隧道（PacketFlowBridge）"))
                 if vpn.safeModeActive { LabeledContent("安全模式", value: String(localized: "开启")) }
             } header: { Text("签名与容器") } footer: {
                 Text("重签名后描述文件会替换 entitlements。App 与扩展会在运行时从描述文件读取 App Group 并按字母序选第一个可用的；共享容器不可用时扩展无法读取配置，连接会失败。")

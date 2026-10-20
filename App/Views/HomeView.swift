@@ -4,7 +4,11 @@ import NetworkExtension
 struct HomeView: View {
     @EnvironmentObject var vpn: VPNManager
     @EnvironmentObject var store: ProfileStore
-    @EnvironmentObject var dash: DashboardModel
+    /// Review 5: the root mirrors only what it uses (mode, the live group cards). Observing DashboardModel
+    /// rebuilt the whole page every second for the speed fields; the cards that show them observe it themselves.
+    @State private var mode = DashboardModel.shared.mode
+    @State private var liveGroups = DashboardModel.shared.homeGroups
+    @State private var liveAvailable = DashboardModel.shared.availableGroups
     @ObservedObject private var offline = ProfileInspector.shared
     @ObservedObject private var homeGroups = HomeGroupsStore.shared
 
@@ -17,7 +21,7 @@ struct HomeView: View {
         let groups = offline.result.groups.filter { $0.hidden != true }
         let byName = Dictionary(groups.map { ($0.name, $0) }, uniquingKeysWith: { a, _ in a })
         // v0.19.8: a profile-defined GLOBAL only as the first card in 全局 mode.
-        let names = (dash.mode == "global" && byName["GLOBAL"] != nil ? ["GLOBAL"] : [])
+        let names = (mode == "global" && byName["GLOBAL"] != nil ? ["GLOBAL"] : [])
             + homeGroups.resolved(available: offlineAvailable)
         return names.compactMap { byName[$0] }.map { g -> DashboardModel.HomeGroup in
             var chain = [g.name]
@@ -40,8 +44,8 @@ struct HomeView: View {
                     // v0.7: exit-location header (QX reference, in our card style) with the plain toggle.
                     ExitHeader()
                     if vpn.safeModeActive && vpn.status != .disconnected && vpn.status != .invalid { SafeModeCard() }
-                    if vpn.isConnected && !dash.homeGroups.isEmpty {
-                        HomePolicySection(groups: dash.homeGroups, live: true, available: dash.availableGroups)
+                    if vpn.isConnected && !liveGroups.isEmpty {
+                        HomePolicySection(groups: liveGroups, live: true, available: liveAvailable)
                     } else if disconnected && !offlineCards.isEmpty {
                         HomePolicySection(groups: offlineCards, live: false, available: offlineAvailable)
                     }
@@ -73,6 +77,9 @@ struct HomeView: View {
             .background(Theme.bg.ignoresSafeArea())
             .toolbar(.hidden, for: .navigationBar)
             .task(id: "\(store.activeID ?? "")|\(disconnected)") { if disconnected { await offline.load() } }
+            .onReceive(DashboardModel.shared.$mode.removeDuplicates()) { if $0 != mode { mode = $0 } }
+            .onReceive(DashboardModel.shared.$homeGroups.removeDuplicates()) { if $0 != liveGroups { liveGroups = $0 } }
+            .onReceive(DashboardModel.shared.$availableGroups.removeDuplicates()) { if $0 != liveAvailable { liveAvailable = $0 } }
             .alert("连接失败", isPresented: Binding(get: { vpn.lastError != nil && vpn.showErrorAlert }, set: { if !$0 { vpn.showErrorAlert = false } })) {
                 if vpn.canOfferSafeMode {
                     Button("以安全模式连接") {

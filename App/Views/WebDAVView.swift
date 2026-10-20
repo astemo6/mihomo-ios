@@ -218,7 +218,7 @@ struct WebDAVView: View {
                     encrypted = EncryptedData(data: data)
                     return
                 }
-                let n = try BackupRestore.apply(data)
+                let n = try await BackupRestore.apply(data)
                 message = String(localized: "已恢复 \(n) 个文件")
             } catch {
                 self.error = error.localizedDescription

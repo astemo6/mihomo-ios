@@ -184,6 +184,36 @@ final class SnapshotStore: ObservableObject {
         return meta
     }
 
+    /// Review 5 P2-13: the same as capture(_:manual:), with the file reads, hashing, encoding and the write
+    /// off the main actor (seconds on big profiles). Only the index update runs on main.
+    @discardableResult
+    func captureAsync(_ reason: String, manual: Bool = false) async -> SnapshotMeta? {
+        guard manual || autoEnabled else { return nil }
+        let newest = list.first
+        let active = AppShared.defaults.string(forKey: "activeProfileID")
+        let dir = self.dir
+        let made = await Task.detached(priority: .userInitiated) { () -> SnapshotMeta? in
+            let files = SnapshotStore.currentFiles()
+            guard !files.isEmpty else { return nil }
+            let h = SnapshotStore.contentHash(files)
+            if SnapshotStore.shouldSkip(newest: newest, reason: reason, contentHash: h, manual: manual) { return nil }
+            var b = BackupFile()
+            b.files = files.mapValues { $0.base64EncodedString() }
+            if let active { b.defaults["activeProfileID"] = active }
+            let enc = JSONEncoder()
+            enc.dateEncodingStrategy = .iso8601
+            guard let data = try? enc.encode(b) else { return nil }
+            let id = String(Int(Date().timeIntervalSince1970 * 1000))
+            guard (try? data.write(to: dir.appendingPathComponent("\(id).json"), options: .atomic)) != nil else { return nil }
+            return SnapshotMeta(id: id, date: Date(), reason: reason, files: files.count, bytes: data.count, hash: h)
+        }.value
+        guard let meta = made else { return nil }
+        list.insert(meta, at: 0)
+        prune()
+        persist()
+        return meta
+    }
+
     /// Keeps at most maxCount snapshots and maxBytes on disk; pinned snapshots are never removed.
     private func prune() {
         var total = 0
@@ -316,6 +346,51 @@ final class SnapshotStore: ObservableObject {
             }
         }
         return out
+    }
+
+    /// Review 5 P2-13: diff(_:) with the decode and the line diffs off the main actor (a snapshot can be up to
+    /// the 40 MB cap). Titles are filled in on main.
+    func diffAsync(_ m: SnapshotMeta) async -> SnapshotDiff? {
+        let url = fileURL(m.id)
+        typealias Raw = (path: String, kind: SnapshotDiff.FileChange.Kind, plus: Int, minus: Int)
+        let r = await Task.detached(priority: .userInitiated) { () -> (raw: [Raw], cur: [String: Data], snap: [String: Data])? in
+            let dec = JSONDecoder()
+            dec.dateDecodingStrategy = .iso8601
+            guard let d = try? Data(contentsOf: url), let b = try? dec.decode(BackupFile.self, from: d) else { return nil }
+            let snap = b.files.compactMapValues { Data(base64Encoded: $0) }
+            let cur = SnapshotStore.currentFiles()
+            var raw: [Raw] = []
+            for path in Set(cur.keys).union(snap.keys).sorted() {
+                switch (cur[path], snap[path]) {
+                case (nil, let s?): raw.append((path, SnapshotDiff.FileChange.Kind.added, SnapshotStore.lineDelta(Data(), s).plus, 0))
+                case (let c?, nil): raw.append((path, SnapshotDiff.FileChange.Kind.removed, 0, SnapshotStore.lineDelta(c, Data()).minus))
+                case (let c?, let s?) where c != s:
+                    let dl = SnapshotStore.lineDelta(c, s)
+                    raw.append((path, SnapshotDiff.FileChange.Kind.changed, dl.plus, dl.minus))
+                default: break
+                }
+            }
+            // Only profiles.json is needed for the names.
+            return (raw, cur.filter { $0.key == "profiles.json" }, snap.filter { $0.key == "profiles.json" })
+        }.value
+        guard let r else { return nil }
+        var names = Self.profileNames(r.cur)
+        names.merge(Self.profileNames(r.snap)) { a, _ in a }
+        var out = SnapshotDiff()
+        out.changes = r.raw.map { .init(path: $0.path, title: Self.title($0.path, names: names), kind: $0.kind, plus: $0.plus, minus: $0.minus) }
+        return out
+    }
+
+    /// Review 5 P2-13: restore(_:) with the capture and the file writes off the main actor.
+    func restoreAsync(_ m: SnapshotMeta) async throws -> Int {
+        let url = fileURL(m.id)
+        guard let d = await Task.detached(priority: .userInitiated, operation: { try? Data(contentsOf: url) }).value else {
+            throw NSError(domain: "Snapshot", code: 1, userInfo: [NSLocalizedDescriptionKey: String(localized: "快照文件不存在")])
+        }
+        await captureAsync(String(localized: "恢复快照前"), manual: true)
+        let n = try await Task.detached(priority: .userInitiated) { try BackupManager.restore(d) }.value
+        Self.reloadStores()
+        return n
     }
 
     // MARK: Restore

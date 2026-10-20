@@ -39,10 +39,14 @@ struct ConnectionView: View {
         .onAppear {
             // Coming back from a sub page (其他用户): save its edits before re-reading the file.
             debounce.flush()
-            o = CoreOverrides.load()
-            saved = o
-            onDemand = OnDemandSettings.load()
-            savedOnDemand = onDemand
+            // Review 5: an invalid route line blocks apply(); re-reading then threw away every unsaved
+            // edit on the page. Keep the user's text until it is fixed (the banner says what is wrong).
+            if !hasInvalid {
+                o = CoreOverrides.load()
+                saved = o
+                onDemand = OnDemandSettings.load()
+                savedOnDemand = onDemand
+            }
             lanAddresses = LANInfo.addresses()
         }
         .onChange(of: o) { _ in debounce.schedule { apply() } }

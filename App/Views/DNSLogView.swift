@@ -57,12 +57,17 @@ final class DNSLogStore: ObservableObject {
     /// 清空 time: the general history (REJECT lines) is shared with 日志 and not cleared from here, so entries
     /// older than this are skipped when the history is read again.
     private var clearedAt = Date.distantPast
+    /// Bumped by every start(); a finishing old task only clears `task` / `running` while it is still the current
+    /// one (review 5: a stop() + start() during the history fetch let the old task null out the new one).
+    private var generation = 0
 
     /// v0.19.8: the extension records DNS queries and REJECT hits from tunnel start (GET /hark/logs); the page
     /// rebuilds from that history, then attaches the live /logs stream (lines repeated across the seam skipped).
     func start() {
         guard task == nil, VPNManager.shared.isConnected else { return }
         running = true
+        generation += 1
+        let gen = generation
         task = Task { [weak self] in
             var join = LogJoin(history: [])
             let c = ControllerClient.shared
@@ -89,8 +94,9 @@ final class DNSLogStore: ObservableObject {
                 if Task.isCancelled || !VPNManager.shared.isConnected { break }
                 try? await Task.sleep(nanoseconds: 2_000_000_000)
             }
-            self?.task = nil
-            self?.running = false
+            guard let self, self.generation == gen else { return }
+            self.task = nil
+            self.running = false
         }
     }
 
