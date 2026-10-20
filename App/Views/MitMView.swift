@@ -43,15 +43,15 @@ struct KindBadge: View {
         switch kind {
         case "url": return ("URL", Theme.bad)
         case "header": return (phase == "response" ? "响应头" : "请求头", Theme.warn)
-        case "body", "jq", "json": return (phase == "response" ? "响应体" : "请求体", Color.purple)
+        case "body", "jq", "json": return (phase == "response" ? "响应体" : "请求体", Theme.tone(0.55, 0.45, 1.0))
         case "maplocal": return ("本地", Theme.good)
         case "script": return (phase == "response" ? "响应脚本" : "请求脚本", Theme.accent)
         case "core": return ("规则", .secondary)
         case "hostname": return ("主机", .secondary)
-        case "cron": return ("定时", Color.orange)
-        case "event": return ("事件", Color.pink)
-        case "generic": return ("通用", Color.teal)
-        case "interaction": return ("交互", Color.indigo)
+        case "cron": return ("定时", Theme.tone(1.0, 0.62, 0.2))
+        case "event": return ("事件", Theme.tone(1.0, 0.4, 0.75))
+        case "generic": return ("通用", Theme.tone(0.2, 0.8, 0.85))
+        case "interaction": return ("交互", Theme.tone(0.35, 0.4, 0.95))
         default: return ("?", .secondary)
         }
     }

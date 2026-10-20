@@ -527,8 +527,11 @@ struct NodeEditorView: View {
                 .listRowBackground(Theme.card)
                 Section {
                     NavigationLink {
-                        ChainPickerView(kind: "node", name: (original?["name"] as? String) ?? name, profilePath: chainProfilePath,
-                                        selected: dialer.isEmpty ? nil : dialer) { dialer = $0 ?? "" }
+                        // Review 6: lazy — chainProfilePath reads CoreOverrides (Keychain) and ran on every keystroke.
+                        LazyDestination {
+                            ChainPickerView(kind: "node", name: (original?["name"] as? String) ?? name, profilePath: chainProfilePath,
+                                            selected: dialer.isEmpty ? nil : dialer) { dialer = $0 ?? "" }
+                        }
                     } label: {
                         LabeledContent("前置代理", value: dialer.isEmpty ? String(localized: "无") : dialer)
                     }

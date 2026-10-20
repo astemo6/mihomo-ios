@@ -104,7 +104,7 @@ final class GeoModel: NSObject, ObservableObject, URLSessionDownloadDelegate {
 
     func update(_ kind: String) async {
         guard progress[kind] == nil, let url = URL(string: effectiveURL(kind)) else {
-            if URL(string: effectiveURL(kind)) == nil { errors[kind] = "地址无效" }
+            if URL(string: effectiveURL(kind)) == nil { errors[kind] = String(localized: "地址无效") }
             return
         }
         errors[kind] = nil
@@ -124,7 +124,7 @@ final class GeoModel: NSObject, ObservableObject, URLSessionDownloadDelegate {
             refresh()
             await applyToRunningCore(kind)
         } catch {
-            errors[kind] = "下载失败：\(error.localizedDescription)"
+            errors[kind] = String(localized: "下载失败：\(error.localizedDescription)")
         }
     }
 
