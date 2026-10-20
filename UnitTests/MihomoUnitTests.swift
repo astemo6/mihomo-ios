@@ -436,3 +436,34 @@ final class SnapshotDedupeTests: XCTestCase {
         XCTAssertFalse(SnapshotStore.shouldSkip(newest: nil, reason: "x", contentHash: "h1", manual: false))
     }
 }
+
+// v0.19.8 clipboard rule (user: 「其他的时候不读取。只在粘贴的时候读」): the clipboard is read only inside an explicit
+// 粘贴 / 从剪贴板… tap (SwiftUI PasteButton preferred). No polling (hasStrings / changeCount …), no reads on launch,
+// onAppear or sheet open. Every UIPasteboard read line carries the marker; scripts/clipboard_check.py is the same
+// check for local use. The simulator shares the Mac's file system, so the sources are read via #filePath.
+final class ClipboardRuleTests: XCTestCase {
+    func testClipboardReadOnlyFromExplicitPaste() throws {
+        let root = URL(fileURLWithPath: #filePath).deletingLastPathComponent().deletingLastPathComponent()
+        let app = root.appendingPathComponent("App")
+        guard FileManager.default.fileExists(atPath: app.path) else { throw XCTSkip("sources not reachable from the test host") }
+        let poll = try NSRegularExpression(pattern: #"UIPasteboard[\w.]*\.(hasStrings|hasURLs|hasImages|hasColors|changeCount|detectPatterns|detectValues)|UIPasteboard\.changedNotification"#)
+        let read = try NSRegularExpression(pattern: #"UIPasteboard\.general\.(string|strings|url|urls|image|images|items|data|value|itemProviders)\b(?!\s*=[^=])"#)
+        let mark = "clipboard-read: explicit 粘贴 tap only"
+        var bad: [String] = []
+        for dir in ["App", "Widget", "PacketTunnel", "Shared"] {
+            guard let e = FileManager.default.enumerator(at: root.appendingPathComponent(dir), includingPropertiesForKeys: nil) else { continue }
+            for case let f as URL in e where f.pathExtension == "swift" {
+                let text = (try? String(contentsOf: f, encoding: .utf8)) ?? ""
+                for (i, line) in text.components(separatedBy: "\n").enumerated() {
+                    let r = NSRange(line.startIndex..., in: line)
+                    if poll.firstMatch(in: line, range: r) != nil {
+                        bad.append("\(f.lastPathComponent):\(i + 1) polls the clipboard")
+                    } else if read.firstMatch(in: line, range: r) != nil, !line.contains(mark) {
+                        bad.append("\(f.lastPathComponent):\(i + 1) reads the clipboard without the 粘贴 marker")
+                    }
+                }
+            }
+        }
+        XCTAssertEqual(bad, [], bad.joined(separator: "\n"))
+    }
+}

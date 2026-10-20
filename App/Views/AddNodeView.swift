@@ -102,9 +102,9 @@ struct AddNodeView: View {
                     }
                     Spacer()
                     Button {
-                        paste = UIPasteboard.general.string ?? ""
+                        paste = UIPasteboard.general.string ?? "" // clipboard-read: explicit 粘贴 tap only (see ClipboardRuleTests)
                         if paste.isEmpty { show(String(localized: "剪贴板为空"), error: true) }
-                    } label: { Label("剪贴板", systemImage: "doc.on.clipboard") }
+                    } label: { Label("粘贴", systemImage: "doc.on.clipboard") }
                         .buttonStyle(.bordered)
                     Button { add() } label: {
                         if busy { ProgressView() } else { Text("添加") }

@@ -343,7 +343,7 @@ struct LineEditorSheet: View {
                         .textInputAutocapitalization(.never)
                         .autocorrectionDisabled()
                     if item == nil {
-                        Button { text += (text.isEmpty ? "" : "\n") + (UIPasteboard.general.string ?? "") } label: { Label("粘贴", systemImage: "doc.on.clipboard") }
+                        Button { text += (text.isEmpty ? "" : "\n") + (UIPasteboard.general.string ?? "") } label: { Label("粘贴", systemImage: "doc.on.clipboard") } // clipboard-read: explicit 粘贴 tap only (see ClipboardRuleTests)
                     }
                 } header: { Text(item == nil ? "每行一条（hostname = … 会加入 MitM 列表）" : "规则") }
                 if item != nil {

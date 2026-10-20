@@ -178,7 +178,7 @@ struct ProfilesView: View {
     }
 
     func importConfFromClipboard() {
-        guard let s = UIPasteboard.general.string, !s.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else {
+        guard let s = UIPasteboard.general.string, !s.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else { // clipboard-read: explicit 粘贴 tap only (see ClipboardRuleTests)
             message = String(localized: "剪贴板为空"); return
         }
         ImportRouter.shared.present(.confText(name: String(localized: "导入的配置"), text: s))
@@ -190,7 +190,7 @@ struct ProfilesView: View {
     }
 
     func importClipboard() {
-        guard let s = UIPasteboard.general.string?.trimmingCharacters(in: .whitespacesAndNewlines), !s.isEmpty else {
+        guard let s = UIPasteboard.general.string?.trimmingCharacters(in: .whitespacesAndNewlines), !s.isEmpty else { // clipboard-read: explicit 粘贴 tap only (see ClipboardRuleTests)
             message = String(localized: "剪贴板为空"); return
         }
         // Links of our own scheme or of other clients (loon:// stash:// surge:/// quantumult-x:///).
