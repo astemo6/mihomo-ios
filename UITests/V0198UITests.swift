@@ -49,11 +49,6 @@ extension MihomoUITests {
         XCTAssertTrue(tapIfExists(app.button(L("停用")), timeout: 3), "停用 in the trailing swipe")
         XCTAssertTrue(app.element(labelContains: L("已停用")).waitForExistence(timeout: 6), "row shows 已停用")
         snap("v0198-sub-disabled")
-        // Leading swipe offers 更新 (disabled while the subscription is off; just check it is there).
-        row.swipeRight()
-        XCTAssertTrue(app.button(L("更新")).waitForExistence(timeout: 3), "更新 in the leading swipe")
-        app.tap() // close the swipe
-        usleep(400_000)
         row.swipeLeft()
         XCTAssertTrue(tapIfExists(app.button(L("启用")), timeout: 3), "启用 after 停用")
         let gone = XCTNSPredicateExpectation(predicate: NSPredicate(format: "exists == false"), object: app.element(labelContains: L("已停用")))
@@ -67,6 +62,10 @@ extension MihomoUITests {
         if cancel.exists { cancel.tap() } else { app.swipeDown() }
         usleep(500_000)
         XCTAssertTrue(row.exists, "cancel keeps the subscription")
+        // Leading swipe offers 更新.
+        row.swipeRight()
+        XCTAssertTrue(app.button(L("更新")).waitForExistence(timeout: 3), "更新 in the leading swipe")
+        snap("v0198-sub-update-swipe")
         assertAlive("subscription swipe")
     }
 
@@ -221,8 +220,9 @@ extension MihomoUITests {
         usleep(800_000)
         let ok = app.buttons.matching(NSPredicate(format: "label == %@", L("好"))).firstMatch
         if ok.waitForExistence(timeout: 3) { ok.tap() }
-        let empty = XCTNSPredicateExpectation(predicate: NSPredicate(format: "count == 0"), object: rows)
-        XCTAssertEqual(XCTWaiter().wait(for: [empty], timeout: 6), .completed, "all snapshots deleted")
+        var left = rows.count
+        for _ in 0..<24 where left > 0 { usleep(250_000); left = rows.count }
+        XCTAssertEqual(left, 0, "all snapshots deleted")
         snap("v0198-snapshots-empty")
         assertAlive("snapshot multi-delete")
     }
