@@ -189,8 +189,9 @@ jobs:
             -sdk iphoneos -destination 'generic/platform=iOS' \
             -archivePath build/Mihomo.xcarchive \
             CURRENT_PROJECT_VERSION=${{ github.run_number }} \
-            "${EXTRA[@]}" archive 2>&1 | tee build.log | grep -E "error:|warning: .*deprecated|\*\* (ARCHIVE|BUILD)" | head -n 200 || true
-          test -d build/Mihomo.xcarchive/Products/Applications/Mihomo.app
+            "${EXTRA[@]}" archive 2>&1 | tee build.log | grep -E "error:|warning: .*deprecated|\*\* (ARCHIVE|BUILD)" || true
+          # review 5 P2-10: no `| head` downstream of xcodebuild (SIGPIPE could kill the archive); tail on failure.
+          test -d build/Mihomo.xcarchive/Products/Applications/Mihomo.app || { tail -n 150 build.log; exit 1; }
 
       # i18n tooling: the compiler-extracted string tables (keys with format specifiers) for the catalog.
       - name: Collect extracted strings
@@ -284,7 +285,8 @@ jobs:
             -archivePath build/MihomoShared.xcarchive \
             CURRENT_PROJECT_VERSION=${{ github.run_number }} \
             CODE_SIGNING_ALLOWED=NO CODE_SIGNING_REQUIRED=NO CODE_SIGN_IDENTITY="" CODE_SIGN_ENTITLEMENTS="" \
-            archive 2>&1 | tee build-shared.log | grep -E "error:|\*\* (ARCHIVE|BUILD)" | head -n 200 || true
+            archive 2>&1 | tee build-shared.log | grep -E "error:|\*\* (ARCHIVE|BUILD)" || true
+          test -d build/MihomoShared.xcarchive/Products/Applications/Mihomo.app || { tail -n 150 build-shared.log; exit 1; }
           APP=build/MihomoShared.xcarchive/Products/Applications/Mihomo.app
           FW="$APP/Frameworks/Libmihomo.framework"
           test -f "$FW/Libmihomo"

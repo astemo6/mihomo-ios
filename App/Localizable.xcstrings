@@ -17979,36 +17979,70 @@
         }
       }
     },
-    "包含配置与订阅、手动节点、模块、脚本、覆写、DNS、自定义规则、策略组编辑；不含 MitM 证书和缓存。自动上传只在内容有变化时进行；下载需要手动确认，覆盖前会自动保存快照。": {
+    "包含配置与订阅、手动节点、模块、脚本、覆写、DNS、自定义规则、策略组编辑；不含 MitM 证书、脚本存储数据和缓存。自动上传只在内容有变化时进行；下载需要手动确认，覆盖前会自动保存快照。": {
       "localizations": {
         "zh-Hant": {
           "stringUnit": {
             "state": "translated",
-            "value": "包含配置與訂閱、手動節點、模組、腳本、覆寫、DNS、自定義規則、策略組編輯；不含 MitM 證書和快取。自動上傳只在內容有變化時進行；下載需要手動確認，覆蓋前會自動儲存快照。"
+            "value": "包含配置與訂閱、手動節點、模組、腳本、覆寫、DNS、自定義規則、策略組編輯；不含 MitM 證書、腳本儲存資料和快取。自動上傳只在內容有變化時進行；下載需要手動確認，覆蓋前會自動儲存快照。"
           }
         },
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "Includes profiles and subscriptions, manual nodes, modules, scripts, overrides, DNS, custom rules and group edits; not the MitM certificate or caches. Automatic upload only runs when something changed; downloading needs your confirmation and a snapshot is saved before overwriting."
+            "value": "Includes profiles and subscriptions, manual nodes, modules, scripts, overrides, DNS, custom rules and group edits; not the MitM certificate, script storage data or caches. Automatic upload only runs when something changed; downloading needs your confirmation and a snapshot is saved before overwriting."
           }
         },
         "ja": {
           "stringUnit": {
             "state": "translated",
-            "value": "プロファイルと購読、手動ノード、モジュール、スクリプト、上書き設定、DNS、カスタムルール、ポリシーグループの編集を含みます。MitM 証明書とキャッシュは含みません。自動アップロードは内容が変わったときだけ行います。ダウンロードは確認が必要で、上書き前にスナップショットを保存します。"
+            "value": "プロファイルと購読、手動ノード、モジュール、スクリプト、上書き設定、DNS、カスタムルール、ポリシーグループの編集を含みます。MitM 証明書、スクリプトの保存データとキャッシュは含みません。自動アップロードは内容が変わったときだけ行います。ダウンロードは確認が必要で、上書き前にスナップショットを保存します。"
           }
         },
         "ko": {
           "stringUnit": {
             "state": "translated",
-            "value": "프로파일과 구독, 수동 노드, 모듈, 스크립트, 덮어쓰기, DNS, 사용자 지정 규칙, 정책 그룹 편집을 포함하며 MitM 인증서와 캐시는 포함하지 않습니다. 자동 업로드는 내용이 바뀌었을 때만 실행됩니다. 다운로드는 확인이 필요하며 덮어쓰기 전에 스냅샷을 저장합니다."
+            "value": "프로파일과 구독, 수동 노드, 모듈, 스크립트, 덮어쓰기, DNS, 사용자 지정 규칙, 정책 그룹 편집을 포함하며 MitM 인증서, 스크립트 저장 데이터와 캐시는 포함하지 않습니다. 자동 업로드는 내용이 바뀌었을 때만 실행됩니다. 다운로드는 확인이 필요하며 덮어쓰기 전에 스냅샷을 저장합니다."
           }
         },
         "ru": {
           "stringUnit": {
             "state": "translated",
-            "value": "Включает профили и подписки, ручные узлы, модули, скрипты, переопределения, DNS, свои правила и правки групп; без сертификата MitM и кэшей. Автоотправка — только при изменениях; загрузка требует подтверждения, перед перезаписью сохраняется снимок."
+            "value": "Включает профили и подписки, ручные узлы, модули, скрипты, переопределения, DNS, свои правила и правки групп; без сертификата MitM, данных хранилища скриптов и кэшей. Автоотправка — только при изменениях; загрузка требует подтверждения, перед перезаписью сохраняется снимок."
+          }
+        }
+      }
+    },
+    "文件夹中有其他设备更新的副本，已跳过自动上传；请先确认后手动上传或恢复。": {
+      "localizations": {
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "資料夾中有其他裝置更新的副本，已跳過自動上傳；請先確認後手動上傳或恢復。"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "The folder holds a newer copy from another device, so automatic upload was skipped. Check it, then upload or restore manually."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "フォルダに他のデバイスからの新しいコピーがあるため、自動アップロードをスキップしました。確認してから手動でアップロードまたは復元してください。"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "폴더에 다른 기기의 더 새로운 사본이 있어 자동 업로드를 건너뛰었습니다. 확인한 후 직접 업로드하거나 복원하세요."
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "В папке есть более новая копия с другого устройства, поэтому автозагрузка пропущена. Проверьте её, затем загрузите или восстановите вручную."
           }
         }
       }

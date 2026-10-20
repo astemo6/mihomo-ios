@@ -167,8 +167,9 @@ jobs:
           xcodebuild -project Mihomo.xcodeproj -scheme MihomoUITests -configuration Debug -sdk iphonesimulator \
             -destination "id=$DEV" -derivedDataPath build/uit \
             ARCHS=arm64 ONLY_ACTIVE_ARCH=YES CODE_SIGNING_ALLOWED=NO CODE_SIGNING_REQUIRED=NO CODE_SIGN_IDENTITY="" CODE_SIGN_ENTITLEMENTS="" \
-            build-for-testing 2>&1 | tee build-uit.log | grep -E "error:|\*\* (TEST BUILD|BUILD)" | head -n 200 || true
-          grep -q "TEST BUILD SUCCEEDED" build-uit.log
+            build-for-testing 2>&1 | tee build-uit.log | grep -E "error:|\*\* (TEST BUILD|BUILD)" || true
+          # review 5 P2-10: no `| head` downstream of xcodebuild (SIGPIPE); full log in build-uit.log, tail on failure.
+          grep -q "TEST BUILD SUCCEEDED" build-uit.log || { tail -n 150 build-uit.log; exit 1; }
       - name: Run UI tests
         env:
           COMMIT_MSG: ${{ github.event.head_commit.message }}
@@ -191,9 +192,11 @@ jobs:
           TEST_RUNNER_UI_LANG="$LANG_" TEST_RUNNER_UI_STYLE="$STYLE" TEST_RUNNER_UI_SHOT_DIR="$PWD/shots" \
           xcodebuild -project Mihomo.xcodeproj -scheme MihomoUITests -configuration Debug -sdk iphonesimulator \
             -destination "id=$DEV" -derivedDataPath build/uit -resultBundlePath "results/$LANG_-$STYLE.xcresult" \
-            "${SEL[@]}" test-without-building 2>&1 | tee "results/$LANG_-$STYLE.log" | grep -E "Test Case|error:|failed|passed|XCTAssert|issue" | head -n 400
+            "${SEL[@]}" test-without-building 2>&1 | tee "results/$LANG_-$STYLE.log" | grep -E "Test Case|error:|failed|passed|XCTAssert|issue"
           RC=${PIPESTATUS[0]}
+          # review 5 P2-10: grep reads to EOF (no `| head`), so SIGPIPE can no longer end the test run early.
           echo "$LANG_ $STYLE exit $RC"
+          [ "$RC" = 0 ] || tail -n 120 "results/$LANG_-$STYLE.log"
           [ "$RC" = 0 ] || FAILED="$FAILED $LANG_-$STYLE"
           {
             echo "### UI self-test"
