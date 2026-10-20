@@ -537,6 +537,7 @@ func apply(home, configPath string, fd int32) error {
 	if err := hub.Parse(rt, guardTailscale); err != nil {
 		return friendlyError(err)
 	}
+	liveGroupOrder.Store(groupOrder) // v0.19.11 (review 6 P2-3): LiveStatus follows the app's group order
 	// The diag capture goroutine used to call log.Level() while ApplyConfig wrote it (data race found by
 	// the selftest -race run); it now filters by the level this config asked for.
 	if lv, ok := log.LogLevelMapping[strings.ToLower(o.LogLevel)]; ok {

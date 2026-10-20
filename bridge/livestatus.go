@@ -6,8 +6,10 @@ package libmihomo
 
 import (
 	"strconv"
+	"sync/atomic"
 
 	"github.com/metacubex/mihomo/adapter/outboundgroup"
+	C "github.com/metacubex/mihomo/constant"
 	"github.com/metacubex/mihomo/tunnel"
 	"github.com/metacubex/mihomo/tunnel/statistic"
 )
@@ -35,7 +37,9 @@ func liveNode() (name string) {
 	}
 	start := "GLOBAL"
 	if tunnel.Mode() != tunnel.Global {
-		if g, ok := global.Adapter().(outboundgroup.ProxyGroup); ok {
+		if n := mainRuleGroup(proxies); n != "" {
+			start = n
+		} else if g, ok := global.Adapter().(outboundgroup.ProxyGroup); ok {
 			for _, p := range g.Proxies() {
 				if _, isGroup := p.Adapter().(outboundgroup.ProxyGroup); isGroup && !p.Adapter().(outboundgroup.ProxyGroup).Hidden() {
 					start = p.Name()
@@ -61,4 +65,26 @@ func liveNode() (name string) {
 		name = now
 	}
 	return name
+}
+
+// liveGroupOrder is the last applied runtime's proxy-groups order (runtime-groups.json, v0.19.8).
+var liveGroupOrder atomic.Value // []string
+
+// mainRuleGroup (v0.19.11, review 6 P2-3): the main policy the app shows first — the first visible group in
+// the runtime order. GLOBAL's own member list is not that order once a profile or 策略组编辑 defines GLOBAL.
+func mainRuleGroup(proxies map[string]C.Proxy) string {
+	order, _ := liveGroupOrder.Load().([]string)
+	for _, n := range order {
+		if n == "GLOBAL" {
+			continue
+		}
+		p, ok := proxies[n]
+		if !ok {
+			continue
+		}
+		if g, ok := p.Adapter().(outboundgroup.ProxyGroup); ok && !g.Hidden() {
+			return n
+		}
+	}
+	return ""
 }

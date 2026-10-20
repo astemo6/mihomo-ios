@@ -418,11 +418,15 @@ func newMatcher(expr string, regex bool) (*nameMatcher, error) {
 		// v0.19.10 (review 5 go-core P2-2): 0 is not "no timeout" in regexp2 — the deadline became
 		// fastclock+100 ms and a match running across a clock tick returned "match timeout" (read as no
 		// match). A real bound; a timeout is logged once.
-		re.MatchTimeout = time.Second
+		re.MatchTimeout = userRegexTimeout
 		return &nameMatcher{re: re}, nil
 	}
 	return &nameMatcher{keywords: splitKeywords(expr)}, nil
 }
+
+// userRegexTimeout bounds every user-written regexp2 pattern (include / exclude / rename / group filter):
+// regexp2's default MatchTimeout is math.MaxInt64, so a catastrophic pattern hung buildRuntime.
+const userRegexTimeout = time.Second
 
 // providerFilter turns include/exclude into a mihomo (regexp2) filter pattern.
 func providerFilter(expr string, regex bool) string {
@@ -464,6 +468,9 @@ func compileSub(r SubRules) *compiledSub {
 			continue
 		}
 		re, err := regexp2.Compile(rn.Pattern, 0)
+		if err == nil {
+			re.MatchTimeout = userRegexTimeout // v0.19.11 (review 6 P2-4): a timed-out rename keeps the name
+		}
 		if err != nil {
 			c.errs = append(c.errs, fmt.Sprintf("重命名「%s」：正则无效：%s", rn.Pattern, err.Error()))
 			continue
