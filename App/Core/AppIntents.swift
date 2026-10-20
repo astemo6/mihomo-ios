@@ -174,7 +174,7 @@ struct ProfileEntityQuery: EntityQuery {
 
     @MainActor
     func suggestedEntities() async throws -> [ProfileEntity] {
-        ProfileStore.shared.profiles.map { ProfileEntity(id: $0.id, name: $0.name) }
+        ProfileStore.shared.profiles.filter(\.enabled).map { ProfileEntity(id: $0.id, name: $0.name) }
     }
 }
 
@@ -192,6 +192,7 @@ struct SwitchProfileIntent: AppIntent {
         guard let p = ProfileStore.shared.profiles.first(where: { $0.id == profile.id }) else {
             return .result(dialog: "找不到配置「\(profile.name)」")
         }
+        if !p.enabled { return .result(dialog: "「\(p.name)」已停用，启用后才能设为当前配置") }
         if let e = await ProfileStore.shared.setActive(p) { return .result(dialog: "已切换到「\(p.name)」，但重载失败：\(e)") }
         NotificationCenter.default.post(name: .egressMayHaveChanged, object: nil)
         return .result(dialog: "已切换到「\(p.name)」")

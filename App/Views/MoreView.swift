@@ -11,17 +11,13 @@ struct MoreView: View {
     /// Not observed (review 5): during 全部测速 every result republished the model and re-rendered this
     /// root page under the pushed ones. The count is refreshed from its publishers, debounced.
     private let nodeModel = NodeManagerModel.shared
-    @State private var localNodeCount: Int?
+    @State private var nodeCount: Int?
     /// Status texts of the 连接 rows, read once per appearance instead of on every render (Keychain + file).
     @State private var connLabel = ""
     @State private var dnsLabel = ""
 
-    /// 本地节点 (manual nodes + a local profile's own nodes), as 节点管理 counts them; nil before the list loaded.
-    static func localCount(_ nodes: [ManagedNode], _ sources: [NodeSource]) -> Int? {
-        guard !nodes.isEmpty else { return nil }
-        let ids = Set(sources.filter { $0.kind == .manual || ($0.kind == .profile && !$0.remote) }.map(\.id))
-        return nodes.filter { ids.contains($0.source.id) }.count
-    }
+    /// Every node 节点与订阅 lists (全部节点); nil before the list loaded.
+    static func nodeTotal(_ nodes: [ManagedNode]) -> Int? { nodes.isEmpty ? nil : nodes.count }
 
     func refreshLabels() {
         let o = CoreOverrides.load()
@@ -42,12 +38,9 @@ struct MoreView: View {
                 }
                 .listRowBackground(Theme.card)
 
-                // v0.19.8 (user): one section for the two pages instead of two one-row sections.
-                Section("节点与订阅") {
-                    NavigationLink { LazyDestination { NodeManagerView() } } label: { row("节点管理", "server.rack", localNodeCount.map { "\($0)" }) }
-                    NavigationLink { LazyDestination { SubscriptionsView() } } label: {
-                        row("订阅管理", "tray.full", "\(store.profiles.filter { $0.kind == .remote }.count + NodeSubStore.shared.subs.count)")
-                    }
+                // fb-subs-global (user 「还是分开的」): 节点管理 and 订阅管理 are one page now.
+                Section {
+                    NavigationLink { LazyDestination { NodeManagerView() } } label: { row("节点与订阅", "server.rack", nodeCount.map { "\($0)" }) }
                 }
                 .listRowBackground(Theme.card)
 
@@ -138,12 +131,12 @@ struct MoreView: View {
             .navigationTitle("更多")
             .onAppear {
                 refreshLabels()
-                localNodeCount = Self.localCount(nodeModel.nodes, nodeModel.sources)
+                nodeCount = Self.nodeTotal(nodeModel.nodes)
             }
-            .onReceive(nodeModel.$nodes.combineLatest(nodeModel.$sources)
-                .debounce(for: .milliseconds(300), scheduler: RunLoop.main)) { n, src in
-                let c = Self.localCount(n, src)
-                if c != localNodeCount { localNodeCount = c }
+            .onReceive(nodeModel.$nodes
+                .debounce(for: .milliseconds(300), scheduler: RunLoop.main)) { n in
+                let c = Self.nodeTotal(n)
+                if c != nodeCount { nodeCount = c }
             }
             .fullScreenCover(isPresented: $showOnboarding) {
                 OnboardingView { showOnboarding = false }

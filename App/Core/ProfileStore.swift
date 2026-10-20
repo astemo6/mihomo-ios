@@ -61,6 +61,14 @@ struct Profile: Codable, Identifiable, Hashable {
     /// feat/group-order review: the copy was edited by the user since it was last generated, so subscription
     /// updates leave it alone until 「从订阅重新生成」.
     var copyModified: Bool? = nil
+    /// fb-subs-global (device feedback 「订阅停用没做」): 停用 keeps the link and settings, but the profile is skipped
+    /// by automatic updates / 全部更新 and cannot become the active profile. Stored as an optional `disabled` key so
+    /// profiles.json written by earlier builds (no key) decodes as enabled.
+    var disabled: Bool? = nil
+    var enabled: Bool {
+        get { disabled != true }
+        set { disabled = newValue ? nil : true }
+    }
 
     var fileURL: URL { AppShared.profileURL(id: id) }
 
@@ -86,7 +94,7 @@ final class ProfileStore: ObservableObject {
             profiles = list
         }
         if activeID == nil || !profiles.contains(where: { $0.id == activeID }) {
-            activeID = profiles.first?.id
+            activeID = fallbackActiveID()
             AppShared.activeProfileID = activeID
         }
         // v0.8.1: profiles converted by v0.8.0 and earlier get source URLs and readable provider names.
@@ -102,7 +110,34 @@ final class ProfileStore: ObservableObject {
         }
     }
 
+    /// The profile to make active when the current one is gone: the first enabled one. When every profile is
+    /// disabled the first one is re-enabled (the active profile can never be disabled).
+    private func fallbackActiveID() -> String? {
+        if let p = profiles.first(where: { $0.enabled }) { return p.id }
+        guard !profiles.isEmpty else { return nil }
+        profiles[0].enabled = true
+        persist()
+        return profiles[0].id
+    }
+
+    /// Why `p` cannot become the active profile, or nil. Callers check this before `setActive` so its message
+    /// is not shown as a reload failure.
+    func activationBlock(_ p: Profile) -> String? {
+        let cur = profiles.first { $0.id == p.id } ?? p
+        return cur.enabled ? nil : String(localized: "该配置已停用，启用后才能设为当前配置")
+    }
+
+    /// 停用 / 启用 a profile (订阅管理). The active profile cannot be disabled.
+    func setEnabled(_ p: Profile, _ on: Bool) -> String? {
+        guard let i = profiles.firstIndex(where: { $0.id == p.id }) else { return nil }
+        if !on && p.id == activeID { return String(localized: "当前配置不能停用") }
+        profiles[i].enabled = on
+        persist()
+        return nil
+    }
+
     func setActive(_ p: Profile) async -> String? {
+        if let block = activationBlock(p) { return block }
         activeID = p.id
         AppShared.activeProfileID = p.id
         return await VPNManager.shared.reload()
@@ -127,7 +162,7 @@ final class ProfileStore: ObservableObject {
         profiles.removeAll { $0.id == p.id }
         let wasActive = activeID == p.id
         if wasActive {
-            activeID = profiles.first?.id
+            activeID = fallbackActiveID()
             AppShared.activeProfileID = activeID
         }
         persist()
@@ -328,7 +363,7 @@ final class ProfileStore: ObservableObject {
 
     func refreshAll() async -> [String] {
         var errors: [String] = []
-        for p in profiles where p.kind == .remote {
+        for p in profiles where p.kind == .remote && p.enabled {
             if let e = await refresh(p) { errors.append("\(p.name)：\(e)") }
         }
         return errors
@@ -339,7 +374,7 @@ final class ProfileStore: ObservableObject {
     @discardableResult
     func autoUpdateIfNeeded() async -> [SubUpdateResult] {
         var out: [SubUpdateResult] = []
-        for p in profiles where p.kind == .remote && p.updateIntervalHours > 0 {
+        for p in profiles where p.kind == .remote && p.enabled && p.updateIntervalHours > 0 {
             let due = (p.lastUpdated ?? .distantPast).addingTimeInterval(TimeInterval(p.updateIntervalHours * 3600))
             if due < Date() { out.append(SubUpdateResult(name: p.name, error: await refresh(p))) }
         }

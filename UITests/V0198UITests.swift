@@ -8,7 +8,7 @@ extension MihomoUITests {
 
     func test40_FilterRenameAndIcon() {
         launch()
-        openMore("节点管理")
+        openMore("节点与订阅")
         XCTAssertTrue(tapIfExists(app.element(label: L("筛选节点")), timeout: 8), "筛选节点")
         let jp = app.element(id: "filter.JP")
         XCTAssertTrue(jp.waitForExistence(timeout: 8), "JP filter")
@@ -42,7 +42,7 @@ extension MihomoUITests {
 
     func test41_SubscriptionSwipeDisable() {
         launch()
-        openMore("节点管理")
+        openMore("节点与订阅")
         let row = app.element(id: "nodesub.row.Demo Sub")
         XCTAssertTrue(scrollTo(row), "Demo Sub row")
         row.swipeLeft()
@@ -119,11 +119,16 @@ extension MihomoUITests {
         XCTAssertFalse(global.exists, "规则: no GLOBAL card")
         XCTAssertTrue(tapIfExists(seg("全局"), timeout: 4), "全局")
         XCTAssertTrue(global.waitForExistence(timeout: 6), "全局: GLOBAL card shown")
+        // fb-subs-global (user 「全局下，策略里下方的域名规则不需要显示」): the rule groups are hidden in 全局.
+        XCTAssertTrue(app.element(id: "policy.globalHidden").waitForExistence(timeout: 4), "全局: hidden-groups note")
+        XCTAssertFalse(app.element(id: "policy.card.Apple").exists, "全局: rule group Apple hidden")
         snap("v0198-mode-global")
         XCTAssertTrue(tapIfExists(seg("直连"), timeout: 4), "直连")
         let gone = XCTNSPredicateExpectation(predicate: NSPredicate(format: "exists == false"), object: global)
         XCTAssertEqual(XCTWaiter().wait(for: [gone], timeout: 6), .completed, "直连: GLOBAL hidden")
         XCTAssertTrue(tapIfExists(seg("规则"), timeout: 4), "back to 规则")
+        XCTAssertTrue(scrollTo(app.element(id: "policy.card.Apple")), "规则: rule group Apple shown again")
+        XCTAssertFalse(app.element(id: "policy.globalHidden").exists, "规则: no hidden-groups note")
         assertAlive("mode → GLOBAL")
     }
 

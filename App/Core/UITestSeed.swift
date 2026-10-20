@@ -65,6 +65,15 @@ enum UITestSeed {
             if args.contains("-UITestSecondProfile"), !store.profiles.contains(where: { $0.name == "UITest Second" }) {
                 _ = try await store.addLocal(name: "UITest Second", text: secondProfileYAML)
             }
+            // fb-subs-global: an inactive config subscription (remote kind, never downloaded: manual updates only)
+            // for the 节点与订阅 swipes and 停用.
+            if args.contains("-UITestRemoteProfile"), !store.profiles.contains(where: { $0.name == "UITest Remote" }) {
+                var r = try await store.addLocal(name: "UITest Remote", text: secondProfileYAML)
+                r.kind = .remote
+                r.url = "https://sub.example.invalid/config?token=uitest"
+                r.updateIntervalHours = 0
+                store.update(r)
+            }
             // Back to the demo profile (adding manual nodes keeps the active profile, but be explicit).
             if let demo = store.profiles.first(where: { $0.name == "UITest Demo" }), store.activeID != demo.id {
                 _ = await store.setActive(demo)
