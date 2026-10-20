@@ -132,25 +132,32 @@ extension MihomoUITests {
     func test44_HomeUnlockTileAndScriptTasks() {
         launch()
         let add = app.element(id: "home.addTiles")
+        let editor = app.navigationBars[L("编辑首页面板")]
         XCTAssertTrue(scrollTo(add), "添加首页卡片")
         add.tap()
-        XCTAssertTrue(app.navigationBars[L("编辑首页面板")].waitForExistence(timeout: 6), "editor")
+        XCTAssertTrue(editor.waitForExistence(timeout: 6), "editor")
         let unlock = app.element(id: "homepanels.add.unlock")
         XCTAssertTrue(scrollTo(unlock), "流媒体解锁 in 添加")
         unlock.tap()
         XCTAssertTrue(app.element(id: "homepanels.row.unlock").waitForExistence(timeout: 4), "unlock pinned")
-        // 脚本任务 opens the tasks page (a button row, not a dead label).
+        closeSheet()
+        for _ in 0..<3 where editor.exists { usleep(700_000); if editor.exists { closeSheet() } }
+        // The tile's own controls (the identifier on the tile container lands on its title text).
+        let tile = app.element(id: "home.tile.unlock.empty").exists ? app.element(id: "home.tile.unlock.empty") : app.element(id: "home.tile.unlock.run")
+        XCTAssertTrue(tile.waitForExistence(timeout: 6), "流媒体解锁 tile on Home")
+        scrollTo(tile)
+        snap("v0198-unlock-tile")
+
+        // 编辑首页面板 → 脚本任务 opens the tasks page (a button row, not a dead label).
+        XCTAssertTrue(scrollTo(add), "添加首页卡片 again")
+        add.tap()
+        XCTAssertTrue(editor.waitForExistence(timeout: 6), "editor again")
         let tasks = app.element(id: "homepanels.scriptTasks")
         XCTAssertTrue(scrollTo(tasks), "脚本任务 row")
         tasks.tap()
         XCTAssertTrue(app.navigationBars[L("任务")].waitForExistence(timeout: 6), "脚本任务 → 任务 page")
         snap("v0198-script-tasks")
-        closeSheet()
-        if app.navigationBars[L("编辑首页面板")].exists { closeSheet() }
-        let tile = app.descendants(matching: .any).matching(NSPredicate(format: "identifier BEGINSWITH %@", "home.tile.unlock")).firstMatch
-        XCTAssertTrue(scrollTo(tile), "流媒体解锁 tile on Home")
-        snap("v0198-unlock-tile")
-        assertAlive("home unlock tile")
+        assertAlive("home unlock tile + 脚本任务")
     }
 
     // MARK: 45. 自定义规则 form: DOMAIN-SUFFIX with only the value typed
