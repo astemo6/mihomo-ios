@@ -244,11 +244,13 @@ enum ScheduledUpdates {
     static func registerBackgroundWork() {
         BGTaskScheduler.shared.register(forTaskWithIdentifier: taskID, using: nil) { task in
             guard let task = task as? BGAppRefreshTask else { return }
+            let once = BGTaskOnce(task)
             let work = Task { @MainActor in
                 await ScheduledUpdates.run()
-                task.setTaskCompleted(success: true)
+                once.complete(success: true)
             }
-            task.expirationHandler = { work.cancel() }
+            // Review 5 P2-5: complete on expiry ourselves; the cancelled work may not return in time.
+            task.expirationHandler = { work.cancel(); once.complete(success: false) }
         }
     }
 
@@ -267,5 +269,23 @@ enum ScheduledUpdates {
         let req = BGAppRefreshTaskRequest(identifier: taskID)
         req.earliestBeginDate = max(next, Date().addingTimeInterval(3600))
         try? BGTaskScheduler.shared.submit(req)
+    }
+}
+
+/// Review 5 P2-5: completes a BGTask exactly once, from whichever comes first — the work finishing or the
+/// expiration handler (iOS kills the app when an expired task is left uncompleted).
+final class BGTaskOnce: @unchecked Sendable {
+    private let task: BGTask
+    private let lock = NSLock()
+    private var done = false
+
+    init(_ task: BGTask) { self.task = task }
+
+    func complete(success: Bool) {
+        lock.lock()
+        let first = !done
+        done = true
+        lock.unlock()
+        if first { task.setTaskCompleted(success: success) }
     }
 }

@@ -375,6 +375,13 @@ final class MihomoUITests: MihomoUITestCase {
 
     // MARK: 7. Rule / rewrite / script editors open and save
 
+    /// Review 5 P2-10: 连接方式 switches by accessibility id (labels differ per language and are long in en).
+    func connSwitch(_ label: String) -> XCUIElement {
+        let ids = ["接管所有网络流量": "conn.includeAll", "局域网共享": "conn.allowLan"]
+        if let id = ids[label] { return app.switches.matching(identifier: id).firstMatch }
+        return app.switches[L(label)]
+    }
+
     func openMore(_ key: String) {
         tab(4)
         let row = app.element(id: "more." + key)
@@ -483,7 +490,7 @@ final class MihomoUITests: MihomoUITestCase {
             for k in ["保存", "保存并重载", "保存并重载内核"] {
                 XCTAssertFalse(app.buttons.matching(NSPredicate(format: "label == %@", L(k))).firstMatch.exists, "\(page): 保存 button still there (\(k))")
             }
-            let sw = app.switches[L(toggle)]
+            let sw = connSwitch(toggle)
             guard scrollTo(sw) else { back(); continue }
             let before = switchValue(sw)
             toggleSwitch(sw)
@@ -493,7 +500,7 @@ final class MihomoUITests: MihomoUITestCase {
             usleep(1_200_000)   // debounce 0.5 s + write
             back()
             openMore(page)
-            let again = app.switches[L(toggle)]
+            let again = connSwitch(toggle)
             XCTAssertTrue(scrollTo(again), "\(page) reopened")
             XCTAssertNotEqual(switchValue(again), before, "\(page): \(toggle) not kept after leaving the page")
             // Put it back (also exercises a second apply).
@@ -1406,7 +1413,7 @@ final class MihomoUITests: MihomoUITestCase {
         back()
         // 局域网多用户 under 连接方式 → 局域网共享.
         openMore("连接方式")
-        let lan = app.switches[L("局域网共享")]
+        let lan = connSwitch("局域网共享")
         XCTAssertTrue(scrollTo(lan), "局域网共享 switch")
         if switchValue(lan) != "1" { toggleSwitch(lan) }
         let users = app.element(id: "lan.users")
@@ -1428,7 +1435,7 @@ final class MihomoUITests: MihomoUITestCase {
         back()
         XCTAssertTrue(app.element(id: "lan.users").label.contains("1"), "one extra user: \(app.element(id: "lan.users").label)")
         // Put 局域网共享 back off.
-        let lan2 = app.switches[L("局域网共享")]
+        let lan2 = connSwitch("局域网共享")
         if scrollTo(lan2), switchValue(lan2) == "1" { toggleSwitch(lan2) }
         usleep(1_200_000)
     }

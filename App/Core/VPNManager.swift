@@ -238,6 +238,9 @@ final class VPNManager: ObservableObject {
 
     /// Writes the scope switches into the VPN configuration. Returns an error message or nil.
     func applyTunnelScope() async -> String? {
+        // Review 5 P2-10: the simulator UI tests never save a VPN configuration from here (saveToPreferences can
+        // raise a system prompt over the app, one cause of the en-light 连接方式 switch flake).
+        if UITestSeed.enabled { return nil }
         do {
             let m = try await ensureManager()
             guard let proto = m.protocolConfiguration as? NETunnelProviderProtocol else { return nil }
@@ -338,6 +341,7 @@ final class VPNManager: ObservableObject {
     /// Saves the on-demand choice and applies it to the VPN configuration. Returns an error message or nil.
     func applyOnDemand(_ settings: OnDemandSettings) async -> String? {
         settings.save()
+        if UITestSeed.enabled { return nil }
         do {
             let m = try await ensureManager()
             // Turning it on while disconnected manually counts as a fresh choice: not paused.
