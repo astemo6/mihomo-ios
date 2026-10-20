@@ -87,6 +87,95 @@ func overridesFor(home, path string) Overrides {
 type region struct {
 	code string
 	re   *regexp2.Regexp
+	// open is true when the pattern has an alternative that is neither a plain
+	// literal nor a guarded code (e.g. IN's 印度(?!尼)): such regions always run re.
+	open bool
+}
+
+// splitRegionAlts splits pat on '|' outside any parentheses.
+func splitRegionAlts(pat string) []string {
+	var out []string
+	depth, start := 0, 0
+	for i := 0; i < len(pat); i++ {
+		switch pat[i] {
+		case '(':
+			depth++
+		case ')':
+			depth--
+		case '|':
+			if depth == 0 {
+				out = append(out, pat[start:i])
+				start = i + 1
+			}
+		}
+	}
+	return append(out, pat[start:])
+}
+
+// expandGuarded expands the inside of a (?<![A-Za-z])…(?![A-Za-z]) alternative into
+// the standalone tokens it accepts: plain codes, (A|B) groups, and letters with an
+// optional '?' (HKG? = HK + HKG, KO?R = KR + KOR). ok=false on anything else.
+func expandGuarded(inner string) (out []string, ok bool) {
+	if strings.HasPrefix(inner, "(") && strings.HasSuffix(inner, ")") {
+		for _, p := range strings.Split(inner[1:len(inner)-1], "|") {
+			if p == "" || strings.ContainsAny(p, "()[]{}.*+?^$\\") {
+				return nil, false
+			}
+			out = append(out, strings.ToLower(p))
+		}
+		return out, len(out) > 0
+	}
+	variants := []string{""}
+	for i := 0; i < len(inner); i++ {
+		c := inner[i]
+		if c < 'A' || c > 'Z' {
+			return nil, false
+		}
+		next := make([]string, 0, len(variants)*2)
+		for _, v := range variants {
+			next = append(next, v+string(c))
+		}
+		if i+1 < len(inner) && inner[i+1] == '?' {
+			next = append(next, variants...)
+			i++
+		}
+		variants = next
+	}
+	for _, v := range variants {
+		out = append(out, strings.ToLower(v))
+	}
+	return out, len(out) > 0
+}
+
+// classifyRegion sorts a pattern's alternatives into plain literals (a contains hit
+// proves the regex matches) and guarded standalone codes. ok=false when any
+// alternative fits neither class; the region is then "open" (regex always runs).
+func classifyRegion(pat string) (lits, codes []string, ok bool) {
+	const pre, post = `(?<![A-Za-z])`, `(?![A-Za-z])`
+	for _, alt := range splitRegionAlts(pat) {
+		if strings.HasPrefix(alt, pre) && strings.HasSuffix(alt, post) && len(alt) > len(pre)+len(post) {
+			cs, gok := expandGuarded(alt[len(pre) : len(alt)-len(post)])
+			if !gok {
+				return nil, nil, false
+			}
+			codes = append(codes, cs...)
+			continue
+		}
+		forms := []string{alt}
+		if strings.Contains(alt, `\s?`) {
+			forms = []string{
+				strings.ReplaceAll(alt, `\s?`, " "),
+				strings.ReplaceAll(alt, `\s?`, ""),
+			}
+		}
+		for _, f := range forms {
+			if f == "" || strings.ContainsAny(f, "()[]{}.*+?^$\\") {
+				return nil, nil, false
+			}
+			lits = append(lits, strings.ToLower(f))
+		}
+	}
+	return lits, codes, true
 }
 
 func flagOf(code string) string {
@@ -151,10 +240,50 @@ var regionDefs = []struct{ code, pat string }{
 var regions = func() []region {
 	out := make([]region, 0, len(regionDefs))
 	for _, d := range regionDefs {
-		out = append(out, region{d.code, regexp2.MustCompile(d.pat, regexp2.IgnoreCase)})
+		out = append(out, region{code: d.code, re: regexp2.MustCompile(d.pat, regexp2.IgnoreCase)})
 	}
 	return out
 }()
+
+// Region fast path (perf): most node names resolve through a plain literal
+// (香港, Japan, …) or a standalone ASCII code (HK, US, …), yet the regexp2 scan ran
+// every pattern up to the match — and all of them for a miss. classifyRegion sorts
+// each pattern's alternatives once at startup; detectRegion then finds literal
+// hits with a two-byte prefix index and only calls regexp2 for regions a name can
+// still match (a code token it contains, or an "open" region whose pattern defies
+// classification). A single combined regexp was tried first and measured ~5x
+// SLOWER than the regexp2 scan (state explosion over ~300 literals) — do not
+// "simplify" back to it.
+var (
+	litRegions  = map[string][]int{}    // literal -> region indexes it proves
+	litByHead   = map[uint16][]string{} // literal's first two bytes -> literals
+	litTiny     []string                // literals shorter than two bytes, if any
+	codeRegions = map[string][]int{}    // standalone token -> region indexes to regex-check
+)
+
+func init() {
+	for i, d := range regionDefs {
+		ls, cs, ok := classifyRegion(d.pat)
+		if !ok {
+			regions[i].open = true
+			continue
+		}
+		for _, l := range ls {
+			litRegions[l] = append(litRegions[l], i)
+		}
+		for _, c := range cs {
+			codeRegions[c] = append(codeRegions[c], i)
+		}
+	}
+	for l := range litRegions {
+		if len(l) < 2 {
+			litTiny = append(litTiny, l)
+			continue
+		}
+		head := uint16(l[0])<<8 | uint16(l[1])
+		litByHead[head] = append(litByHead[head], l)
+	}
+}
 
 // detectRegion returns the ISO code for a node name and its sort index (len(regions) = unknown).
 func detectRegion(name string) (string, int) {
@@ -166,7 +295,48 @@ func detectRegion(name string) (string, int) {
 			}
 		}
 	}
+	lower := strings.ToLower(name)
+	litHit := map[int]bool{}
+	markLit := func(l string) {
+		for _, ri := range litRegions[l] {
+			litHit[ri] = true
+		}
+	}
+	for _, l := range litTiny {
+		if strings.Contains(lower, l) {
+			markLit(l)
+		}
+	}
+	for i := 0; i+2 <= len(lower); i++ {
+		head := uint16(lower[i])<<8 | uint16(lower[i+1])
+		for _, l := range litByHead[head] {
+			if strings.HasPrefix(lower[i:], l) {
+				markLit(l)
+			}
+		}
+	}
+	codeHit := map[int]bool{}
+	for i := 0; i < len(lower); {
+		if lower[i] < 'a' || lower[i] > 'z' {
+			i++
+			continue
+		}
+		j := i + 1
+		for j < len(lower) && lower[j] >= 'a' && lower[j] <= 'z' {
+			j++
+		}
+		for _, ri := range codeRegions[lower[i:j]] {
+			codeHit[ri] = true
+		}
+		i = j
+	}
 	for i, r := range regions {
+		if litHit[i] {
+			return r.code, i
+		}
+		if !r.open && !codeHit[i] {
+			continue // no literal, no code token, classifiable pattern: cannot match
+		}
 		if ok, _ := r.re.MatchString(name); ok {
 			return r.code, i
 		}

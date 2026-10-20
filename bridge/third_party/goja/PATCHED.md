@@ -22,3 +22,17 @@ Files: compiler.go, compiler_stmt.go, vm.go (search "mihomo-ios patch").
 This broke every Sub-Store bundle (sub-store-0/1.min.js, cron-sync-artifacts.min.js):
 `class{constructor(name="untitled",debug=!1){… eval('require("dotenv")') …}}`.
 Upstream's own test suite passes with the patch. Drop this copy once upstream fixes it.
+
+## Patch 2: source map memory (mihomo-ios v0.19.9)
+
+`srcMapItem`'s `pc` and `srcPos` fields were narrowed from `int` to `int32`, and at the end of
+compilation the source map is compacted to its exact length (it grows by append and otherwise
+keeps up to 2x spare capacity). Files: compiler.go, compiler_expr.go (search "mihomo-ios patch").
+
+Why: the source map holds one item per source position change and is the second largest part of
+a compiled program after the code itself; halving the item size measurably cuts the memory a
+compiled script bundle holds in the extension.
+
+Safe because both fields are bounded far below 2^31 for any script this app runs: `pc` by the
+instruction count of the compiled program, `srcPos` by the source length in bytes. Drop /
+re-apply this patch together with the copy, like the eval patch above.
