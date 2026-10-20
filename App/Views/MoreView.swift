@@ -392,7 +392,12 @@ struct SettingsView: View {
         .scrollContentBackground(.hidden)
         .background(Theme.bg.ignoresSafeArea())
         .navigationTitle("内核设置")
-        .onAppear { debounce.flush(); o = CoreOverrides.load(); portText = String(o.controllerPort) }
+        .onAppear {
+            debounce.flush()
+            o = CoreOverrides.load()
+            // Review 6: a port that is not valid yet is never saved; keep what the user typed instead of resetting it.
+            if portText.isEmpty || !portInvalid { portText = String(o.controllerPort) }
+        }
         // v0.15.4: applied on change (debounced), no 保存 button.
         .onChange(of: o) { _ in debounce.schedule { apply() } }
         .onChange(of: portText) { _ in debounce.schedule { apply() } }
@@ -730,7 +735,11 @@ struct SpeedTestSettingsView: View {
         .scrollContentBackground(.hidden)
         .background(Theme.bg.ignoresSafeArea())
         .navigationTitle("测速")
-        .onAppear(perform: loadValues)
+        .onAppear {
+            // Review 6: an invalid custom URL is not saved; re-reading on every appearance replaced it with the preset.
+            debounce.flush()
+            if !customInvalid { loadValues() }
+        }
         // v0.15.4: applied on change (debounced), no 保存 button; an invalid custom URL is not applied.
         .onChange(of: choice) { _ in debounce.schedule { save() } }
         .onChange(of: custom) { _ in debounce.schedule { save() } }

@@ -161,6 +161,8 @@ struct NodeProbeSheet: View {
 struct UnlockView: View {
     @EnvironmentObject var vpn: VPNManager
     @ObservedObject private var store = ProbeStore.shared
+    /// Read once when the page is built (review 6): was CoreOverrides.load() (Keychain + file) in body, re-run on every probe result.
+    @State private var probePort = CoreOverrides.load().probePort
     @State private var all: [String: ProxyItem] = [:]
     @State private var groups: [String] = []
     @AppStorage("unlock.group") private var group = ""
@@ -256,7 +258,7 @@ struct UnlockView: View {
                 Section {
                     Button("清除检测记录", role: .destructive) { store.clear() }
                 } footer: {
-                    Text("检测在本 App 内进行：请求经由本机回环端口 \(String(CoreOverrides.load().probePort)) 送入内核，再按所选策略发出，不经过分流规则。结果按各服务网页与接口的公开表现判断，服务改版后可能失准；「检测失败」表示没能读出结果，不代表被封锁。")
+                    Text("检测在本 App 内进行：请求经由本机回环端口 \(String(probePort)) 送入内核，再按所选策略发出，不经过分流规则。结果按各服务网页与接口的公开表现判断，服务改版后可能失准；「检测失败」表示没能读出结果，不代表被封锁。")
                 }
                 .listRowBackground(Theme.card)
             }

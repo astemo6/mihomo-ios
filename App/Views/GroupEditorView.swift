@@ -223,7 +223,7 @@ struct GroupEditorView: View {
                 TextField("测速地址（留空用默认）", text: Binding(get: { spec.url ?? "" }, set: { spec.url = $0.isEmpty ? nil : $0 }))
                     .textInputAutocapitalization(.never).autocorrectionDisabled().keyboardType(.URL)
                 Stepper(value: Binding(get: { spec.interval ?? 300 }, set: { spec.interval = $0 }), in: 30...86400, step: 30) {
-                    LabeledContent("间隔", value: "\(spec.interval ?? 300) 秒")
+                    LabeledContent("间隔", value: String(localized: "\(spec.interval ?? 300) 秒"))
                 }
                 if spec.type == "url-test" {
                     Stepper(value: Binding(get: { spec.tolerance ?? 0 }, set: { spec.tolerance = $0 > 0 ? $0 : nil }), in: 0...1000, step: 10) {

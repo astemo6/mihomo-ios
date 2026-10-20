@@ -200,7 +200,7 @@ struct ProfilesView: View {
                     _ = try await store.addRemote(url: s, name: "", userAgent: "clash.meta", intervalHours: 24)
                     message = String(localized: "已添加订阅")
                 } else if s.contains("proxies:") || s.contains("proxy-providers:") {
-                    _ = try await store.addLocal(name: "剪贴板导入", text: s)
+                    _ = try await store.addLocal(name: String(localized: "剪贴板导入"), text: s)
                     message = String(localized: "已导入配置")
                 } else {
                     let n = try await store.addManualNodes(text: s)
@@ -232,7 +232,7 @@ struct ProfileRow: View {
                     Text(profile.kind == .remote ? "订阅" : "本地")
                         .font(.caption2.weight(.semibold))
                         .padding(.horizontal, 6).padding(.vertical, 2)
-                        .background(Capsule().fill((profile.kind == .remote ? Theme.accent : Color.orange).opacity(0.2)))
+                        .background(Capsule().fill((profile.kind == .remote ? Theme.accent : Theme.tone(1.0, 0.62, 0.2)).opacity(0.2)))
                     Spacer()
                     if updating { ProgressView().controlSize(.small) }
                 }

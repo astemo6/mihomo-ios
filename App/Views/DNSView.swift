@@ -347,6 +347,10 @@ struct DNSView: View {
         // are read then — reopening the page after a change showed (and would re-apply) the old settings.
         // Read the files again whenever the page appears.
         .onAppear {
+            // Review 6: save pending edits first; an entry the core would reject blocks save(), and re-reading the
+            // files then threw the user's unsaved edits away (every tab switch back). Keep them until they are fixed.
+            debounce.flush()
+            guard s == savedS, local == savedLocal, dnsMode == savedMode else { return }
             let fs = DNSOverrideSettings.load(), fl = LocalDNSSettings.load(), fm = CoreOverrides.load().dnsMode
             savedS = fs; savedLocal = fl; savedMode = fm
             if s != fs { s = fs }

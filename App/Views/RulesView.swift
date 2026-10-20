@@ -788,11 +788,11 @@ struct OfflineProviderDetail: View {
     var body: some View {
         List {
             Section {
-                LabeledContent("类型", value: p.kind == "proxy" ? "节点集" : "规则集")
+                LabeledContent("类型", value: p.kind == "proxy" ? String(localized: "节点集") : String(localized: "规则集"))
                 LabeledContent("来源", value: p.vehicle)
                 if let b = p.behavior, !b.isEmpty { LabeledContent("行为", value: b) }
                 if let f = p.format, !f.isEmpty { LabeledContent("格式", value: f) }
-                if let i = p.interval, i > 0 { LabeledContent("更新间隔", value: "\(i / 3600) 小时") }
+                if let i = p.interval, i > 0 { LabeledContent("更新间隔", value: String(localized: "\(i / 3600) 小时")) }
                 if let u = p.url, !u.isEmpty {
                     Text(u).scaledFont(10, design: .monospaced).foregroundStyle(.secondary).textSelection(.enabled)
                 }
