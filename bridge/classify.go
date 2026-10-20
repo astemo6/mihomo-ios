@@ -14,8 +14,10 @@ var qxConfSectionRe = regexp.MustCompile(`(?mi)^[ \t]*\[(server_local|server_rem
 func isQXConf(t string) bool { return qxConfSectionRe.MatchString(t) }
 
 var (
-	classifyConfRe  = regexp.MustCompile(`(?mi)^[ \t]*\[(Proxy|Proxy Group|General|server_local|server_remote|policy|filter_local|filter_remote)\][ \t]*\r?$`)
-	moduleSectionRe = regexp.MustCompile(`(?mi)^\[(Script|URL Rewrite|Header Rewrite|Body Rewrite|Map Local|MITM|Rule|Rewrite|rewrite_local|mitm|Panel|task_local|Plugin)\]\s*$`)
+	classifyConfRe = regexp.MustCompile(`(?mi)^[ \t]*\[(Proxy|Proxy Group|General|server_local|server_remote|policy|filter_local|filter_remote)\][ \t]*\r?$`)
+	// v0.19.11 (review 6 P1-1): sections only full configs have; a module never carries nodes or groups.
+	confOnlySectionRe = regexp.MustCompile(`(?mi)^[ \t]*\[(Proxy|Proxy Group|server_local|server_remote)\][ \t]*\r?$`)
+	moduleSectionRe   = regexp.MustCompile(`(?mi)^\[(Script|URL Rewrite|Header Rewrite|Body Rewrite|Map Local|MITM|Rule|Rewrite|rewrite_local|mitm|Panel|task_local|Plugin)\]\s*$`)
 )
 
 // ClassifyText tells the app what pasted / opened text is, so it can route it into the one internal
@@ -44,7 +46,9 @@ func ClassifyText(text string) string {
 	}
 	// v0.19.9: a module header wins over [General] (BoxJS's Surge module has a [General] section with
 	// force-http-engine-hosts and was taken for a full config).
-	if classifyConfRe.MatchString(t) && !strings.HasPrefix(t, "#!") {
+	// v0.19.11 (review 6 P1-1): but #!MANAGED-CONFIG (the first line of nearly every Surge subscription) is a
+	// config marker, and [Proxy] / [Proxy Group] only exist in full configs.
+	if classifyConfRe.MatchString(t) && (!strings.HasPrefix(t, "#!") || isManagedConf(t) || confOnlySectionRe.MatchString(t)) {
 		return "conf"
 	}
 	if moduleSectionRe.MatchString(t) || strings.HasPrefix(t, "#!") {
@@ -70,4 +74,9 @@ func ClassifyText(text string) string {
 		return "module:" + f
 	}
 	return ""
+}
+
+// isManagedConf: Surge's managed-profile header ("#!MANAGED-CONFIG <url> interval=… strict=…").
+func isManagedConf(t string) bool {
+	return len(t) >= 16 && strings.EqualFold(t[:16], "#!MANAGED-CONFIG")
 }

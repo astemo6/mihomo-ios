@@ -116,6 +116,7 @@ func compileGroupRegs(s string) ([]*regexp2.Regexp, error) {
 		if err != nil {
 			return nil, err
 		}
+		r.MatchTimeout = userRegexTimeout // v0.19.11 (review 6 P2-4): regexp2's default is "forever"
 		out = append(out, r)
 	}
 	return out, nil
