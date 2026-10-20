@@ -81851,6 +81851,40 @@
           }
         }
       }
+    },
+    "也可以粘贴 surge:/// loon:// stash:// quantumult-x:/// egern:/// 安装链接。": {
+      "localizations": {
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "也可以貼上 surge:/// loon:// stash:// quantumult-x:/// egern:/// 安裝連結。"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "You can also paste surge:/// loon:// stash:// quantumult-x:/// egern:/// install links."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "surge:/// loon:// stash:// quantumult-x:/// egern:/// のインストールリンクも貼り付けられます。"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "surge:/// loon:// stash:// quantumult-x:/// egern:/// 설치 링크도 붙여넣을 수 있습니다."
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Можно также вставить ссылки установки surge:/// loon:// stash:// quantumult-x:/// egern:///."
+          }
+        }
+      }
     }
   },
   "version": "1.0"

@@ -317,8 +317,19 @@ struct AddRemoteSheet: View {
         NavigationStack {
             Form {
                 Section("订阅") {
-                    TextField("订阅链接 https://…", text: $url)
-                        .keyboardType(.URL).textInputAutocapitalization(.never).autocorrectionDisabled()
+                    HStack {
+                        TextField("订阅链接 https://…", text: $url)
+                            .keyboardType(.URL).textInputAutocapitalization(.never).autocorrectionDisabled()
+                        // v0.19.8 (user): the clipboard is read only when 粘贴 is tapped (PasteButton: no prompt).
+                        PasteButton(payloadType: String.self) { strings in
+                            if let s = strings.first?.trimmingCharacters(in: .whitespacesAndNewlines), !s.isEmpty {
+                                DispatchQueue.main.async { url = s }
+                            }
+                        }
+                        .labelStyle(.iconOnly)
+                        .buttonBorderShape(.capsule)
+                        .accessibilityIdentifier("addsub.paste")
+                    }
                     TextField("名称（留空自动获取）", text: $name)
                 }
                 Section("选项") {
@@ -346,9 +357,6 @@ struct AddRemoteSheet: View {
                         Button("添加") { add() }.disabled(url.isEmpty)
                     }
                 }
-            }
-            .onAppear {
-                if url.isEmpty, let s = UIPasteboard.general.string, s.hasPrefix("http") { url = s }
             }
         }
     }

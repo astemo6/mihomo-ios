@@ -42,8 +42,6 @@ enum UITestSeed {
         UserDefaults(suiteName: AppShared.appGroup)?.removePersistentDomain(forName: AppShared.appGroup)
         UserDefaults.standard.set(true, forKey: "onboardingDone.v1")
         AppShared.defaults.set("disabled", forKey: IPInfoFetcher.checkerKey)
-        // The paste banner reads only changeCount / hasStrings (no paste prompt); mark the clipboard as seen anyway.
-        UserDefaults.standard.set(UIPasteboard.general.changeCount, forKey: "clipboard.seenCount")
     }
 
     @MainActor
