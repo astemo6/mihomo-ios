@@ -20,8 +20,11 @@ import (
 )
 
 const (
-	logRingCap    = 2000
-	logPayloadMax = 512
+	logRingCap = 2000
+	// v0.19.10 (review 5 go-core P2-7): payload cut 512 → 384 B (general) / 256 B (DNS); the count stays 2000
+	// (the pages say so). Worst case ~1.1 MB → ~0.9 MB + ~0.6 MB, about 6 % of GOMEMLIMIT instead of 9 %.
+	logPayloadMax    = 384
+	dnsLogPayloadMax = 256
 )
 
 type logEntry struct {
@@ -36,13 +39,14 @@ type logRing struct {
 	buf  []logEntry
 	head int // index of the oldest entry once full
 	cap  int
+	max  int // payload cut (bytes); 0 = logPayloadMax
 }
 
 var (
 	logSeqMu   sync.Mutex
 	logSeq     uint64
 	generalLog = &logRing{cap: logRingCap}
-	dnsLog     = &logRing{cap: logRingCap}
+	dnsLog     = &logRing{cap: logRingCap, max: dnsLogPayloadMax}
 )
 
 func nextLogSeq() uint64 {
@@ -53,8 +57,12 @@ func nextLogSeq() uint64 {
 }
 
 func (r *logRing) add(e logEntry) {
-	if len(e.Payload) > logPayloadMax {
-		cut := logPayloadMax
+	max := r.max
+	if max <= 0 {
+		max = logPayloadMax
+	}
+	if len(e.Payload) > max {
+		cut := max
 		for cut > 0 && !utf8Start(e.Payload[cut]) {
 			cut--
 		}

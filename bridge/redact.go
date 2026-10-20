@@ -28,6 +28,34 @@ var sensitiveKeys = map[string]bool{
 	"authorization": true, "cookie": true,
 }
 
+// v0.19.10 (review 5 go-core P1-2): exact keys missed new secrets (tailscale auth-key, easytier
+// network-secret, vless encryption, *-key fields of newer protocols). A key is sensitive when it is in
+// sensitiveKeys, or its lower-case form contains one of these parts, or it is `encryption`, unless it
+// is one of the harmless keys below.
+var sensitiveKeyParts = []string{"key", "secret", "password", "passwd", "token", "psk", "auth", "cred", "seed", "cookie"}
+
+var harmlessKeys = map[string]bool{
+	"key-direction": true, "authenticated-length": true, "host-key-algorithms": true, "auth-timeout": true,
+	"skip-auth-prefixes": true, "disable-keepalive": true, "keep-alive-interval": true, "keep-alive-idle": true,
+	"tcp-keep-alive": true, "dns-hijack": true,
+}
+
+func isSensitiveKey(lk string) bool {
+	if sensitiveKeys[lk] || lk == "encryption" {
+		return true
+	}
+	// map keys that are domains / rule selectors (nameserver-policy, hosts) are not field names
+	if harmlessKeys[lk] || strings.HasPrefix(lk, "rekey") || strings.ContainsAny(lk, ".:*+/,") {
+		return false
+	}
+	for _, p := range sensitiveKeyParts {
+		if strings.Contains(lk, p) {
+			return true
+		}
+	}
+	return false
+}
+
 // fullURLKeys hold URLs that are personal (subscription links, proxy-provider URLs): removed entirely.
 var fullURLSections = map[string]bool{"proxy-providers": true}
 
@@ -35,7 +63,11 @@ var (
 	reUUID     = regexp.MustCompile(`(?i)\b[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}\b`)
 	reURLQuery = regexp.MustCompile(`(?i)\b((?:https?|wss?)://[^\s?#"'<>]+)[?#][^\s"'<>]*`)
 	reURLUser  = regexp.MustCompile(`(?i)\b([a-z][a-z0-9+.-]*://)[^\s/@"'<>]+@`)
-	reKV       = regexp.MustCompile(`(?i)\b(password|passwd|token|secret|uuid|private-key|public-key|psk|auth|access_token|api_key)(\s*[=:]\s*)("[^"]*"|'[^']*'|[^\s,;&}"']+)`)
+	reKV       = regexp.MustCompile(`(?i)\b([\w-]*(?:password|passwd|token|secret|uuid|private-key|public-key|psk|auth|key|access_token|api_key|cred)[\w-]*)(\s*[=:]\s*)("[^"]*"|'[^']*'|[^\s,;&}"']+)`)
+	reTSKey    = regexp.MustCompile(`\btskey-[A-Za-z0-9-]+`)
+	// ssr:// / vmess:// base64 links: the whole payload is the credential (legacy ss:// is handled by
+	// redactShareLinks, review 5 core-ext lane).
+	reB64Link  = regexp.MustCompile(`(?i)\b(ssr|vmess)://[A-Za-z0-9+/=_-]{16,}`)
 	reIPv4     = regexp.MustCompile(`\b(\d{1,3})\.(\d{1,3})\.(\d{1,3})\.(\d{1,3})\b`)
 	reBearer   = regexp.MustCompile(`(?i)\b(bearer)\s+[A-Za-z0-9._~+/=-]{8,}`)
 	reTokenSeg = regexp.MustCompile(`^[A-Za-z0-9_\-]{6,}$`)
@@ -79,7 +111,7 @@ func (r *redactor) value(v any, key, section string) any {
 		}
 		return out
 	case string:
-		if sensitiveKeys[lk] && !(lk == "path" && section != "proxies") {
+		if isSensitiveKey(lk) && !(lk == "path" && section != "proxies") {
 			if t == "" {
 				return t
 			}
@@ -98,7 +130,7 @@ func (r *redactor) value(v any, key, section string) any {
 		}
 		return t
 	default:
-		if sensitiveKeys[lk] && v != nil {
+		if isSensitiveKey(lk) && v != nil {
 			switch v.(type) {
 			case bool:
 				return v
@@ -186,11 +218,14 @@ func (r *redactor) text(s string) string {
 		}
 		s = strings.NewReplacer(pairs...).Replace(s)
 	}
+	s = reTSKey.ReplaceAllString(s, "tskey-<redacted>")
+	s = reB64Link.ReplaceAllString(s, "$1://<redacted>")
 	s = reUUID.ReplaceAllString(s, "<uuid>")
 	s = reURLUser.ReplaceAllString(s, "$1<redacted>@")
 	s = reURLQuery.ReplaceAllString(s, "$1?<redacted>")
-	s = reKV.ReplaceAllString(s, "$1$2<redacted>")
+	// bearer first: reKV now matches "Authorization: Bearer" and would leave the token itself
 	s = reBearer.ReplaceAllString(s, "$1 <redacted>")
+	s = reKV.ReplaceAllString(s, "$1$2<redacted>")
 	s = reIPv4.ReplaceAllStringFunc(s, maskIPv4)
 	s = redactShareLinks(s)
 	return s

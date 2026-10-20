@@ -7,6 +7,7 @@ package libmihomo
 import (
 	"encoding/json"
 	"fmt"
+	"github.com/metacubex/mihomo/hub/executor"
 	"os"
 	"path/filepath"
 	"strings"
@@ -288,6 +289,105 @@ func applyGroupEdits(raw map[string]any, e *GroupEdits) []string {
 		return p
 	})
 	raw["proxy-groups"] = kept
+	warn = append(warn, renameGroupRefs(raw, renames, deleted)...)
+	return warn
+}
+
+// renameGroupRefs carries group renames / deletions into the references mihomo resolves by name outside
+// group members and rules (v0.19.10, review 5 go-core P1-3): dialer-proxy on proxies, groups and
+// proxy-provider overrides; listeners[].proxy; and the #Group suffix of DNS server URLs. A dangling
+// dialer-proxy fails the whole config ("proxy [b] dialer-proxy [P] not found").
+func renameGroupRefs(raw map[string]any, renames map[string]string, deleted map[string]bool) []string {
+	if len(renames) == 0 && len(deleted) == 0 {
+		return nil
+	}
+	var warn []string
+	fix := func(m map[string]any, key, owner string) {
+		v, ok := m[key].(string)
+		if !ok || v == "" {
+			return
+		}
+		if n, ok := renames[v]; ok {
+			m[key] = n
+		} else if deleted[v] {
+			delete(m, key)
+			warn = append(warn, fmt.Sprintf("「%s」的 %s 指向已删除的策略组「%s」，已移除", owner, key, v))
+		}
+	}
+	for _, pv := range asList(raw["proxies"]) {
+		if m := asMap(pv); m != nil {
+			fix(m, "dialer-proxy", str(m["name"]))
+		}
+	}
+	for _, gv := range asList(raw["proxy-groups"]) {
+		if m := asMap(gv); m != nil {
+			fix(m, "dialer-proxy", str(m["name"]))
+		}
+	}
+	for name, pv := range asMap(raw["proxy-providers"]) {
+		if ov := asMap(asMap(pv)["override"]); ov != nil {
+			fix(ov, "dialer-proxy", name)
+		}
+	}
+	for _, lv := range asList(raw["listeners"]) {
+		if m := asMap(lv); m != nil {
+			fix(m, "proxy", str(m["name"]))
+		}
+	}
+	dns := asMap(raw["dns"])
+	if dns == nil {
+		return warn
+	}
+	fixServer := func(s string) string {
+		i := strings.LastIndexByte(s, '#')
+		if i < 0 {
+			return s
+		}
+		frag := s[i+1:]
+		name, rest, hasRest := strings.Cut(frag, "&")
+		if strings.Contains(name, "=") {
+			return s // only parameters, no policy name
+		}
+		if n, ok := renames[name]; ok {
+			name = n
+		} else if deleted[name] {
+			warn = append(warn, fmt.Sprintf("DNS 服务器「%s」指定的策略组「%s」已删除，已改为按默认出站", s[:i], name))
+			if hasRest {
+				return s[:i] + "#" + rest
+			}
+			return s[:i]
+		} else {
+			return s
+		}
+		if hasRest {
+			return s[:i] + "#" + name + "&" + rest
+		}
+		return s[:i] + "#" + name
+	}
+	fixList := func(v any) any {
+		switch t := v.(type) {
+		case string:
+			return fixServer(t)
+		case []any:
+			for i, x := range t {
+				if xs, ok := x.(string); ok {
+					t[i] = fixServer(xs)
+				}
+			}
+			return t
+		}
+		return v
+	}
+	for _, k := range []string{"nameserver", "fallback", "proxy-server-nameserver", "direct-nameserver", "default-nameserver"} {
+		if v, ok := dns[k]; ok {
+			dns[k] = fixList(v)
+		}
+	}
+	if np := asMap(dns["nameserver-policy"]); np != nil {
+		for k, v := range np {
+			np[k] = fixList(v)
+		}
+	}
 	return warn
 }
 
@@ -352,6 +452,41 @@ func GroupEditCheck(homeDir, profilePath, editsJSON string) string {
 		if c := visit(n); c != "" {
 			return "策略组「" + c + "」形成了循环引用"
 		}
+	}
+	// v0.19.10 (review 5 go-core P1-3): parse the merged runtime like Start does, so anything still
+	// broken (a dangling reference mihomo resolves by name) is refused here instead of at connect time.
+	// A profile that already fails without the edit is not blamed on the edit.
+	if homeDir != "" {
+		if reason := groupEditParse(homeDir, profilePath, &e); reason != "" {
+			if groupEditParse(homeDir, profilePath, &GroupEdits{}) == "" {
+				return "修改后的配置无法使用：" + reason
+			}
+		}
+	}
+	return ""
+}
+
+func groupEditParse(homeDir, profilePath string, e *GroupEdits) (reason string) {
+	defer func() {
+		if p := recover(); p != nil {
+			reason = ""
+		}
+	}()
+	profile, err := readRuntimeProfile(homeDir, profilePath, false)
+	if err != nil {
+		return ""
+	}
+	o := overridesFor(homeDir, profilePath)
+	if o.home == "" {
+		o.home = homeDir
+	}
+	o.groupEditsOverride = e
+	rt, err := buildRuntime(profile, o, 0)
+	if err != nil {
+		return err.Error()
+	}
+	if _, err := executor.ParseWithBytes(rt); err != nil {
+		return err.Error()
 	}
 	return ""
 }

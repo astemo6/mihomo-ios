@@ -371,12 +371,14 @@ func storeResource(home, key string, data []byte) (string, error) {
 	return "", errors.New("未知资源类型")
 }
 
+// writeFileAtomic: v0.19.10 (review 5 go-core P2-5) unique temp name + fsync + rename (writeAtomic). The
+// fixed "<file>.tmp" let two writers (app reset + extension flush, two 更新 at once) interleave.
 func writeFileAtomic(p string, b []byte) error {
-	tmp := p + ".tmp"
-	if err := os.WriteFile(tmp, b, 0o644); err != nil {
+	if err := writeAtomic(p, b); err != nil {
 		return err
 	}
-	return os.Rename(tmp, p)
+	_ = os.Chmod(p, 0o644)
+	return nil
 }
 
 // ResourceStore saves downloaded bytes for a resource key and records the result. Returns JSON
