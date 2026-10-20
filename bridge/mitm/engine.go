@@ -343,7 +343,16 @@ func (e *Engine) handleConn(c net.Conn) {
 	if first[0] == 0x16 { // TLS ClientHello
 		// mihomo may hand us an IP (hosts / redir-host). Match on the SNI then.
 		if net.ParseIP(host) != nil {
-			if sni := peekSNI(br); sni != "" {
+			// review6 P2-5: peekSNI blocks until the whole ClientHello record arrived; a client that stalls
+			// mid-hello kept this goroutine forever (the read deadline was already cleared).
+			_ = c.SetReadDeadline(time.Now().Add(sniPeekTimeout))
+			sni := peekSNI(br)
+			if sni == "" && br.Buffered() < min(5+tlsRecordLen(br), br.Size()) {
+				_ = c.Close() // stalled (or closed) mid-ClientHello
+				return
+			}
+			_ = c.SetReadDeadline(time.Time{})
+			if sni != "" {
 				host = sni
 				meta.host = sni
 			}
@@ -614,6 +623,15 @@ func (e *Engine) client(policy string, insecure bool) *http.Client {
 }
 
 func base64Std(b []byte) string { return base64.StdEncoding.EncodeToString(b) }
+
+// tlsRecordLen is the length announced by the buffered TLS record header (0 when not buffered).
+func tlsRecordLen(br *bufio.Reader) int {
+	if br.Buffered() < 5 {
+		return 0
+	}
+	h, _ := br.Peek(5)
+	return int(h[3])<<8 | int(h[4])
+}
 
 // peekSNI extracts the server_name from a buffered TLS ClientHello without consuming it.
 func peekSNI(br *bufio.Reader) string {
