@@ -345,7 +345,7 @@ func (e *Engine) handleConn(c net.Conn) {
 		if net.ParseIP(host) != nil {
 			// review6 P2-5: peekSNI blocks until the whole ClientHello record arrived; a client that stalls
 			// mid-hello kept this goroutine forever (the read deadline was already cleared).
-			_ = c.SetReadDeadline(time.Now().Add(sniPeekTimeout))
+			_ = c.SetReadDeadline(time.Now().Add(sniPeekTimeout()))
 			sni := peekSNI(br)
 			if sni == "" && br.Buffered() < min(5+tlsRecordLen(br), br.Size()) {
 				_ = c.Close() // stalled (or closed) mid-ClientHello

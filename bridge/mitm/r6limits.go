@@ -7,6 +7,7 @@ import (
 	"fmt"
 	"io"
 	"runtime/metrics"
+	"sync/atomic"
 	"time"
 )
 
@@ -96,4 +97,8 @@ func readSized(r io.Reader, contentLength int64, limit int) ([]byte, error) {
 }
 
 // sniPeekTimeout bounds reading the ClientHello for SNI when CONNECT carried an IP (review6 P2-5).
-var sniPeekTimeout = 10 * time.Second
+var sniPeekTimeoutNs atomic.Int64
+
+func init() { sniPeekTimeoutNs.Store(int64(10 * time.Second)) }
+
+func sniPeekTimeout() time.Duration { return time.Duration(sniPeekTimeoutNs.Load()) }
