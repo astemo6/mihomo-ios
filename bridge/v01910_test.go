@@ -56,27 +56,38 @@ func listenerNames(raw map[string]any) []string {
 	return out
 }
 
-// P1-1: profile inbounds stripped while 局域网共享 is off.
+// P1-1: profile inbounds stripped while 局域网共享 is off. Since v0.19.12 (review 6 P2-1, QX behaviour)
+// protocol inbounds and the legacy inbound servers stay, but on 127.0.0.1 only.
 func TestV01910InboundsStrippedLanOff(t *testing.T) {
 	raw := v01910Runtime(t, v01910Profile+v01910Inbounds, defaultOverrides())
-	for _, k := range []string{"tunnels", "tuic-server", "ss-config", "vmess-config"} {
-		if _, ok := raw[k]; ok {
-			t.Errorf("%s kept with 局域网共享 off: %v", k, raw[k])
-		}
+	if _, ok := raw["tunnels"]; ok {
+		t.Errorf("tunnels kept with 局域网共享 off: %v", raw["tunnels"])
+	}
+	if l := str(asMap(raw["tuic-server"])["listen"]); l != "127.0.0.1:10443" {
+		t.Errorf("tuic-server listen = %q, want 127.0.0.1:10443", l)
+	}
+	if s := str(raw["ss-config"]); s != "ss://aes-128-gcm:pw@127.0.0.1:10811" {
+		t.Errorf("ss-config = %q", s)
+	}
+	if s := str(raw["vmess-config"]); s != "vmess://aes-128-gcm:uuid@127.0.0.1:10812" {
+		t.Errorf("vmess-config = %q", s)
 	}
 	names := listenerNames(raw)
 	for _, n := range names {
-		if n != probeListener && n != "local-in" {
+		if n != probeListener && n != "local-in" && n != "ss-in" {
 			t.Errorf("profile listener %q kept with 局域网共享 off (listeners %v)", n, names)
 		}
 	}
-	if len(names) != 2 {
-		t.Errorf("want only the probe + loopback listeners, got %v", names)
+	if len(names) != 3 {
+		t.Errorf("want only the probe + loopback + loopback-forced protocol listeners, got %v", names)
 	}
-	// probe listener still loopback only
 	for _, l := range asList(raw["listeners"]) {
-		if m := asMap(l); str(m["name"]) == probeListener && str(m["listen"]) != "127.0.0.1" {
-			t.Errorf("probe listener listen = %v", m["listen"])
+		m := asMap(l)
+		switch str(m["name"]) {
+		case probeListener, "ss-in":
+			if str(m["listen"]) != "127.0.0.1" {
+				t.Errorf("listener %v listen = %v", m["name"], m["listen"])
+			}
 		}
 	}
 }
