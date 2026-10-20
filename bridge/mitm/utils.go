@@ -1,17 +1,13 @@
 package mitm
 
 import (
-	"bytes"
-	"compress/flate"
-	"compress/gzip"
-	"compress/zlib"
 	"encoding/json"
-	"io"
 	"os"
 	"path/filepath"
 	"strings"
 	"sync"
 	"time"
+	"unicode/utf8"
 
 	"github.com/dop251/goja"
 )
@@ -69,26 +65,10 @@ func (rc *runCtx) installUtils(set func(string, any)) {
 	set("$utils", u)
 }
 
-// inflateAny accepts gzip, zlib or raw deflate.
+// inflateAny accepts gzip, zlib or raw deflate. Output past MaxBody is an error (review5 P1-1:
+// never hand a script a silently truncated result).
 func inflateAny(b []byte) ([]byte, error) {
-	lim := func(r io.Reader) ([]byte, error) { return io.ReadAll(io.LimitReader(r, MaxBody)) }
-	if len(b) > 2 && b[0] == 0x1f && b[1] == 0x8b {
-		zr, err := gzip.NewReader(bytes.NewReader(b))
-		if err != nil {
-			return nil, err
-		}
-		defer zr.Close()
-		return lim(zr)
-	}
-	if zr, err := zlib.NewReader(bytes.NewReader(b)); err == nil {
-		defer zr.Close()
-		if out, err := lim(zr); err == nil {
-			return out, nil
-		}
-	}
-	fr := flate.NewReader(bytes.NewReader(b))
-	defer fr.Close()
-	return lim(fr)
+	return inflateLimited(b, MaxBody)
 }
 
 // ---------------- notification history ----------------
@@ -123,8 +103,63 @@ func (l *NoticeLog) read() []Notice {
 	return out
 }
 
-// Add appends (newest last) and trims to max.
+const (
+	noticeShortMax = 256              // title / subtitle
+	noticeLongMax  = 4 << 10          // body / url
+	noticeBurst    = 5                // per script ...
+	noticeWindow   = 10 * time.Second // ... per window
+)
+
+// clipBytes cuts s to at most n bytes on a UTF-8 boundary.
+func clipBytes(s string, n int) string {
+	if len(s) <= n {
+		return s
+	}
+	i := n
+	for i > 0 && !utf8.RuneStart(s[i]) {
+		i--
+	}
+	return s[:i] + "…"
+}
+
+// noticeLimiter allows noticeBurst notifications per script per noticeWindow.
+type noticeLimiter struct {
+	mu   sync.Mutex
+	seen map[string][]time.Time
+}
+
+var noticeRate = &noticeLimiter{seen: map[string][]time.Time{}}
+
+func (l *noticeLimiter) allow(script string) bool {
+	l.mu.Lock()
+	defer l.mu.Unlock()
+	now := time.Now()
+	ts := l.seen[script]
+	keep := ts[:0]
+	for _, t := range ts {
+		if now.Sub(t) < noticeWindow {
+			keep = append(keep, t)
+		}
+	}
+	if len(keep) >= noticeBurst {
+		l.seen[script] = keep
+		return false
+	}
+	l.seen[script] = append(keep, now)
+	if len(l.seen) > 256 { // forget idle scripts
+		for k, v := range l.seen {
+			if len(v) == 0 || now.Sub(v[len(v)-1]) >= noticeWindow {
+				delete(l.seen, k)
+			}
+		}
+	}
+	return true
+}
+
+// Add appends (newest last) and trims to max. Fields are clipped (review5 P2-6).
 func (l *NoticeLog) Add(n Notice) {
+	n.Title, n.Subtitle = clipBytes(n.Title, noticeShortMax), clipBytes(n.Subtitle, noticeShortMax)
+	n.Body, n.URL = clipBytes(n.Body, noticeLongMax), clipBytes(n.URL, noticeLongMax)
 	l.mu.Lock()
 	defer l.mu.Unlock()
 	if n.Time == 0 {

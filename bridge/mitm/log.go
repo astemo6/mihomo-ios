@@ -363,7 +363,7 @@ func (e *Entry) ReqBody(b []byte) {
 
 func (e *Entry) RespBody(b []byte, enc string) {
 	if enc != "" {
-		if d, err := decodeBody(enc, b); err == nil {
+		if d, err := decodeBody(enc, b, 8*captureLimit); err == nil {
 			b = d
 			enc = ""
 		}
