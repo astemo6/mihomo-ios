@@ -43,6 +43,10 @@ type BodyOp struct {
 	Regex string `json:"regex"`
 	Repl  string `json:"repl"`
 	re    *regexp2.Regexp
+	// review5 P0-1: Go (RE2) regexp + Expand template when the pattern / replacement mean the same
+	// there. Byte based: no []rune copy of the body per op.
+	fast     *regexp.Regexp
+	fastTmpl []byte
 }
 
 // JSONOp is a Loon style JSON path edit.
@@ -589,6 +593,7 @@ func (rs *Ruleset) ParseLine(line, section, source string) {
 				return
 			}
 			r.Body[i].re = re
+			r.Body[i].fast, r.Body[i].fastTmpl, _ = fastBodyRe(r.Body[i].Regex, r.Body[i].Repl)
 		}
 		r.Desc = describe(r)
 		rs.Rules = append(rs.Rules, r)

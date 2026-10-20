@@ -4,8 +4,8 @@ import (
 	"context"
 	"crypto/sha1"
 	"encoding/hex"
+	"errors"
 	"fmt"
-	"io"
 	"net/http"
 	"os"
 	"path/filepath"
@@ -149,8 +149,12 @@ func (r *Resources) fetch(u string) ([]byte, error) {
 	if resp.StatusCode != 200 {
 		return nil, fmt.Errorf("下载 %s 失败：HTTP %d", clip(u, 80), resp.StatusCode)
 	}
-	b, err := io.ReadAll(io.LimitReader(resp.Body, 8<<20))
+	b, err := readAllLimited(resp.Body, maxResourceBytes)
 	if err != nil {
+		if errors.Is(err, errBodyTooBig) {
+			// review5 P1-1: never cache a truncated script / resource.
+			return nil, fmt.Errorf("下载 %s 失败：文件超过 %d MB", clip(u, 80), maxResourceBytes>>20)
+		}
 		return nil, err
 	}
 	cp := r.cachePath(u)
@@ -164,6 +168,9 @@ func (r *Resources) fetch(u string) ([]byte, error) {
 	r.e.scripts.Invalidate(u)
 	return b, nil
 }
+
+// maxResourceBytes caps a downloaded script / resource.
+const maxResourceBytes = 8 << 20
 
 // Prefetch downloads every remote resource referenced by rs (in background, sequentially).
 func (r *Resources) Prefetch(rs *Ruleset) {

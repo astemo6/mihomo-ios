@@ -64,7 +64,7 @@ func (rc *runCtx) installEgern(set func(string, any)) {
 
 func egernCompress(op string, in []byte) ([]byte, error) {
 	var buf bytes.Buffer
-	readAll := func(r io.Reader) ([]byte, error) { return io.ReadAll(io.LimitReader(r, MaxBody)) }
+	readAll := func(r io.Reader) ([]byte, error) { return readAllLimited(r, MaxBody) }
 	switch op {
 	case "gzip":
 		w := gzip.NewWriter(&buf)

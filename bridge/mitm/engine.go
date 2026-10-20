@@ -16,6 +16,7 @@ import (
 	"strings"
 	"sync"
 	"sync/atomic"
+	"syscall"
 	"time"
 )
 
@@ -56,7 +57,8 @@ type Engine struct {
 	tSkip     bool
 	clients   map[string]*http.Client
 
-	pinned sync.Map // host -> time.Time (pass-through until)
+	pinned  sync.Map // host -> time.Time (pass-through until)
+	strikes sync.Map // host -> *pinStrike (review5 P1-6)
 
 	srv     *http.Server
 	tlsCh   chan net.Conn
@@ -209,7 +211,10 @@ func (e *Engine) Reload(cfg *Config, rs *Ruleset) {
 	if e.res != nil {
 		e.res.mem.Reset()
 	}
-	e.pinned = sync.Map{}
+	// review5 P1-2: Clear, never reassign: connection goroutines use the map concurrently and
+	// overwriting a Go 1.24+ sync.Map (HashTrieMap) mid-use crashes the extension.
+	e.pinned.Clear()
+	e.strikes.Clear()
 	e.tmu.Lock()
 	skip := cfg.SkipCertVerify || (rs.SkipCertVerify != nil && *rs.SkipCertVerify)
 	if e.transport != nil && e.tSkip != skip {
@@ -394,6 +399,7 @@ func (e *Engine) interceptTLS(st *state, mc *metaConn, target string) {
 		nextProtos = []string{"h2", "http/1.1"}
 	}
 	host := mc.meta.host
+	var certSent atomic.Bool
 	cfg := &tls.Config{
 		NextProtos: nextProtos,
 		MinVersion: tls.VersionTLS12,
@@ -405,6 +411,7 @@ func (e *Engine) interceptTLS(st *state, mc *metaConn, target string) {
 				// CONNECT carried an IP (no domain known): use SNI for matching and the URL.
 				mc.meta.host = name
 			}
+			certSent.Store(true)
 			return st.ca.Leaf(name)
 		},
 	}
@@ -413,13 +420,91 @@ func (e *Engine) interceptTLS(st *state, mc *metaConn, target string) {
 	err := tc.HandshakeContext(ctx)
 	cancel()
 	if err != nil {
-		e.pinned.Store(host, time.Now().Add(30*time.Minute))
-		e.logf("warning", fmt.Sprintf("[MitM] %s TLS 握手失败（%s）。可能是证书固定（pinning）或 CA 未被信任，30 分钟内对该主机直接放行", host, shortErr(err)))
+		if e.shouldPin(host, err, certSent.Load()) {
+			e.pinned.Store(host, time.Now().Add(30*time.Minute))
+			e.logf("warning", fmt.Sprintf("[MitM] %s TLS 握手失败（%s）。可能是证书固定（pinning）或 CA 未被信任，30 分钟内对该主机直接放行", host, shortErr(err)))
+		} else {
+			e.logf("debug", fmt.Sprintf("[MitM] %s TLS 握手中断（%s），不放行", host, shortErr(err)))
+		}
 		e.Requests.AddFailure(host, shortErr(err))
 		_ = tc.Close()
 		return
 	}
 	e.handOff(tc)
+}
+
+// pinStrikes / pinStrikeWindow: a client that receives our certificate and then hangs up without a
+// TLS alert (some pinning stacks do that) gets the host pinned after this many such failures.
+const (
+	pinStrikes      = 3
+	pinStrikeWindow = 2 * time.Minute
+)
+
+type pinStrike struct {
+	mu    sync.Mutex
+	n     int
+	first time.Time
+}
+
+// shouldPin decides whether a failed client handshake means "this client rejects our certificate"
+// (review5 P1-6). A TLS alert about the certificate pins at once; an EOF / reset after our
+// certificate went out counts as a strike; timeouts, and hang-ups before the certificate was sent
+// (cancelled requests, network handovers), never pin.
+func (e *Engine) shouldPin(host string, err error, certSent bool) bool {
+	switch tlsClientRejection(err) {
+	case rejectCert:
+		return true
+	case rejectMaybe:
+		if !certSent {
+			return false
+		}
+		v, _ := e.strikes.LoadOrStore(host, &pinStrike{})
+		ps := v.(*pinStrike)
+		ps.mu.Lock()
+		defer ps.mu.Unlock()
+		now := time.Now()
+		if ps.n == 0 || now.Sub(ps.first) > pinStrikeWindow {
+			ps.n, ps.first = 0, now
+		}
+		ps.n++
+		if ps.n >= pinStrikes {
+			ps.n = 0
+			return true
+		}
+	}
+	return false
+}
+
+const (
+	rejectNo = iota
+	rejectCert
+	rejectMaybe
+)
+
+// tlsClientRejection classifies a server-side handshake error.
+func tlsClientRejection(err error) int {
+	if err == nil {
+		return rejectNo
+	}
+	var ne net.Error
+	if errors.Is(err, context.DeadlineExceeded) || errors.Is(err, context.Canceled) || (errors.As(err, &ne) && ne.Timeout()) {
+		return rejectNo
+	}
+	// crypto/tls reports a received alert as &net.OpError{Op: "remote error", Err: alert}.
+	var oe *net.OpError
+	if errors.As(err, &oe) && oe.Op == "remote error" {
+		msg := oe.Err.Error()
+		for _, a := range []string{"bad certificate", "unsupported certificate", "revoked certificate", "expired certificate", "unknown certificate", "unknown certificate authority", "access denied", "error decrypting message", "certificate required"} {
+			if strings.Contains(msg, a) {
+				return rejectCert
+			}
+		}
+		return rejectNo
+	}
+	if errors.Is(err, io.EOF) || errors.Is(err, io.ErrUnexpectedEOF) || errors.Is(err, syscall.ECONNRESET) || errors.Is(err, net.ErrClosed) || errors.Is(err, syscall.EPIPE) {
+		return rejectMaybe
+	}
+	return rejectNo
 }
 
 func (e *Engine) handOff(c net.Conn) {
@@ -480,21 +565,12 @@ func (e *Engine) upstream() *http.Transport {
 	dial := func(ctx context.Context, network, addr string) (net.Conn, error) {
 		return e.dial(ctx, network, addr, "")
 	}
+	// review5 P1-3: no custom DialTLSContext. Go's own TLS path (DialContext + TLSClientConfig) sets
+	// ServerName from the address and offers only http/1.1 for Upgrade (WebSocket) requests; with a
+	// custom DialTLS the h2 connection was used and the http2 transport rejected the Upgrade (502).
 	t := &http.Transport{
-		DialContext: dial,
-		DialTLSContext: func(ctx context.Context, network, addr string) (net.Conn, error) {
-			raw, err := dial(ctx, network, addr)
-			if err != nil {
-				return nil, err
-			}
-			host, _, _ := net.SplitHostPort(addr)
-			tc := tls.Client(raw, &tls.Config{ServerName: host, NextProtos: []string{"h2", "http/1.1"}, InsecureSkipVerify: skip})
-			if err := tc.HandshakeContext(ctx); err != nil {
-				_ = raw.Close()
-				return nil, err
-			}
-			return tc, nil
-		},
+		DialContext:           dial,
+		TLSClientConfig:       &tls.Config{InsecureSkipVerify: skip},
 		ForceAttemptHTTP2:     true,
 		MaxIdleConns:          16,
 		MaxIdleConnsPerHost:   2,

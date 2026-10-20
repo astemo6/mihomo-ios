@@ -169,16 +169,16 @@ func TestV0199OfficialModulesParse(t *testing.T) {
 	}
 }
 
-// heapPeak samples the live heap (after a forced GC) every 2 ms until stopped: the peak of what is
+// liveHeapPeak samples the live heap (after a forced GC) every 2 ms until stopped: the peak of what is
 // really reachable, not of garbage waiting for the collector.
-type heapPeak struct {
+type liveHeapPeak struct {
 	stop chan struct{}
 	done chan struct{}
 	peak atomic.Uint64
 }
 
-func startHeapPeak() *heapPeak {
-	hp := &heapPeak{stop: make(chan struct{}), done: make(chan struct{})}
+func startHeapPeak() *liveHeapPeak {
+	hp := &liveHeapPeak{stop: make(chan struct{}), done: make(chan struct{})}
 	go func() {
 		defer close(hp.done)
 		for {
@@ -199,9 +199,9 @@ func startHeapPeak() *heapPeak {
 	return hp
 }
 
-func (hp *heapPeak) Reset() uint64 { return hp.peak.Swap(0) }
+func (hp *liveHeapPeak) Reset() uint64 { return hp.peak.Swap(0) }
 
-func (hp *heapPeak) Stop() uint64 { close(hp.stop); <-hp.done; return hp.peak.Load() }
+func (hp *liveHeapPeak) Stop() uint64 { close(hp.stop); <-hp.done; return hp.peak.Load() }
 
 func liveHeap() uint64 {
 	runtime.GC()
