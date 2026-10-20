@@ -48,7 +48,7 @@ import json,sys
 runs=[r for r in json.load(sys.stdin).get("workflow_runs",[]) if r.get("name")=="Self-test"]
 runs.sort(key=lambda r:r["id"], reverse=True)
 r=runs[0] if runs else None
-print(f"{r[\"id\"]} {r[\"status\"]} {r[\"conclusion\"] or \"-\"} {r[\"html_url\"]}" if r else "- queued-not-found - -")'
+print("%s %s %s %s" % (r["id"], r["status"], r["conclusion"] or "-", r["html_url"]) if r else "- queued-not-found - -")'
 }
 
 status() { # name → prints both, returns 0 green / 1 failed / 2 running
