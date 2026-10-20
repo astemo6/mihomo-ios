@@ -137,22 +137,12 @@ struct ProfilesView: View {
             .alert("提示", isPresented: Binding(get: { message != nil }, set: { if !$0 { message = nil } })) {
                 Button("好", role: .cancel) {}
             } message: { Text(message ?? "") }
-            .confirmationDialog(Text("删除「\(pendingDelete?.displayName ?? "")」？"),
-                                isPresented: Binding(get: { pendingDelete != nil }, set: { if !$0 { pendingDelete = nil } }),
-                                titleVisibility: .visible) {
-                Button("删除", role: .destructive) { if let p = pendingDelete { store.delete(p) }; pendingDelete = nil }
-                Button("取消", role: .cancel) { pendingDelete = nil }
-            } message: {
-                let names = pendingDelete.map { store.copies(of: $0).map(\.displayName).joined(separator: "、") } ?? ""
-                Text("这些副本是从它复制的：\(names)。删除后它们会保留为本地配置，不再随订阅更新。")
-            }
+            .profileDeleteConfirmation($pendingDelete, store: store)
         }
     }
 
-    /// A source with 自定义 copies is deleted only after a confirmation that names them.
-    func requestDelete(_ p: Profile) {
-        if store.copies(of: p).isEmpty { store.delete(p) } else { pendingDelete = p }
-    }
+    /// Every profile delete asks first (review 5); a source with 自定义 copies names them in the dialog.
+    func requestDelete(_ p: Profile) { pendingDelete = p }
 
     func regenerate(_ p: Profile) {
         Task { if let e = await store.regenerateCopy(p) { message = e } }
@@ -389,6 +379,11 @@ struct YAMLEditorView: View {
     @State private var checking = false
     @State private var checkTask: Task<Void, Never>?
     @State private var scrollToken = 0
+    @State private var confirmDiscard = false
+    private let initialName: String
+    private let initialText: String
+    /// Unsaved edits: swipe-down is blocked and 取消 asks first (review 5).
+    var dirty: Bool { !readOnly && (text != initialText || name != initialName) }
 
     struct ProfileCheckResult: Decodable, Equatable {
         var ok: Bool
@@ -405,6 +400,8 @@ struct YAMLEditorView: View {
         self.title = title
         _name = State(initialValue: initialName)
         _text = State(initialValue: initialText)
+        self.initialName = initialName
+        self.initialText = initialText
         self.profile = profile
     }
 
@@ -448,10 +445,12 @@ struct YAMLEditorView: View {
                 statusBar
             }
             .background(Theme.bg.ignoresSafeArea())
-            .navigationTitle(title)
+            .navigationTitle(LocalizedStringKey(title))
             .navigationBarTitleDisplayMode(.inline)
             .toolbar {
-                ToolbarItem(placement: .cancellationAction) { Button(readOnly ? "关闭" : "取消") { dismiss() } }
+                ToolbarItem(placement: .cancellationAction) {
+                    Button(readOnly ? "关闭" : "取消") { if dirty { confirmDiscard = true } else { dismiss() } }
+                }
                 ToolbarItem(placement: .confirmationAction) {
                     if busy { ProgressView() }
                     else if readOnly { Button("复制为本地配置") { copyAsLocal() } }
@@ -461,7 +460,11 @@ struct YAMLEditorView: View {
             .onAppear { scheduleCheck(delay: 0) }
             .onChange(of: text) { _ in scheduleCheck(delay: 700_000_000) }
             .onDisappear { checkTask?.cancel() }
+            .confirmationDialog("放弃修改？", isPresented: $confirmDiscard, titleVisibility: .visible) {
+                Button("放弃修改", role: .destructive) { dismiss() }
+            }
         }
+        .interactiveDismissDisabled(dirty)
     }
 
     var statusBar: some View {

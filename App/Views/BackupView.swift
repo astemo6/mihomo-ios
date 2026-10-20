@@ -277,11 +277,13 @@ struct BackupView: View {
     func restore(_ data: Data) {
         // v0.19: password-encrypted backups (WebDAV 备份 option) ask for the password first.
         if BackupCrypto.isEncrypted(data) { encryptedRestore = EncryptedData(data: data); return }
-        do {
-            let n = try BackupRestore.apply(data)
-            message = String(localized: "已恢复 \(n) 个文件")
-        } catch {
-            message = String(localized: "恢复失败：\(error.localizedDescription)")
+        Task {
+            do {
+                let n = try await BackupRestore.apply(data)
+                message = String(localized: "已恢复 \(n) 个文件")
+            } catch {
+                message = String(localized: "恢复失败：\(error.localizedDescription)")
+            }
         }
     }
 }
@@ -289,9 +291,10 @@ struct BackupView: View {
 /// v0.19: restoring a backup file (local, iCloud, WebDAV) and reloading every store that reads it.
 @MainActor
 enum BackupRestore {
-    static func apply(_ data: Data) throws -> Int {
-        SnapshotStore.shared.capture(String(localized: "恢复备份前"))
-        let n = try BackupManager.restore(data)
+    /// Review 5 P2-13: the capture and the file writes run off the main actor.
+    static func apply(_ data: Data) async throws -> Int {
+        await SnapshotStore.shared.captureAsync(String(localized: "恢复备份前"))
+        let n = try await Task.detached(priority: .userInitiated) { try BackupManager.restore(data) }.value
         SnapshotStore.reloadStores() // the same stores as a snapshot restore (incl. override scripts)
         return n
     }
@@ -347,7 +350,7 @@ struct BackupPasswordSheet: View {
             defer { busy = false }
             do {
                 let plain = try await Task.detached(priority: .userInitiated) { try BackupCrypto.decrypt(d, password: pw) }.value
-                let n = try BackupRestore.apply(plain)
+                let n = try await BackupRestore.apply(plain)
                 dismiss()
                 done(n)
             } catch {

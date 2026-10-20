@@ -94,12 +94,19 @@ struct RulesView: View {
         var all: [Row] = vpn.isConnected
             ? live.enumerated().map { Row(index: $0.offset, type: $0.element.type, payload: $0.element.payload, proxy: $0.element.proxy, size: $0.element.size, session: $0.element.extra?.hitCount) }
             : offline.result.rules.enumerated().map { Row(index: $0.offset, type: $0.element.type, payload: $0.element.payload, proxy: $0.element.proxy, size: nil, session: nil) }
-        if sortByHits {
-            all.sort { (hits.entry($0.type, $0.payload, $0.proxy)?.total ?? 0) > (hits.entry($1.type, $1.payload, $1.proxy)?.total ?? 0) }
+        if !search.isEmpty {
+            let q = search.lowercased()
+            all = all.filter { $0.payload.lowercased().contains(q) || $0.type.lowercased().contains(q) || $0.proxy.lowercased().contains(q) }
         }
-        guard !search.isEmpty else { return all }
-        let q = search.lowercased()
-        return all.filter { $0.payload.lowercased().contains(q) || $0.type.lowercased().contains(q) || $0.proxy.lowercased().contains(q) }
+        if sortByHits {
+            // Review 5: one lookup per row (each builds a normalized key), not two per comparison.
+            let total = Dictionary(uniqueKeysWithValues: all.map { ($0.index, hits.entry($0.type, $0.payload, $0.proxy)?.total ?? 0) })
+            all.sort { a, b in
+                let ta = total[a.index] ?? 0, tb = total[b.index] ?? 0
+                return ta != tb ? ta > tb : a.index < b.index
+            }
+        }
+        return all
     }
 
     var body: some View {
@@ -154,7 +161,8 @@ struct RulesView: View {
     }
 
     var profileRules: some View {
-        List {
+        let rows = self.rows // built once per render (it was evaluated for the list and again for the overlay)
+        return List {
             if !vpn.isConnected {
                 Label("未连接 · 来自配置文件（含自定义规则）", systemImage: "doc.text.magnifyingglass")
                     .font(.caption.weight(.semibold)).foregroundStyle(.secondary)
@@ -640,7 +648,7 @@ struct ProvidersView: View {
             if let error { Text(error).font(.footnote).foregroundStyle(Theme.bad).listRowBackground(Theme.card) }
             Section("节点集 \(proxyProviders.count)") {
                 ForEach(proxyProviders) { p in
-                    row(p, detail: "\(p.proxies?.count ?? 0) 个节点 · \(p.vehicleType ?? "")", key: "p:" + p.name) {
+                    row(p, detail: String(localized: "\(p.proxies?.count ?? 0) 个节点") + " · " + (p.vehicleType ?? ""), key: "p:" + p.name) {
                         try await ControllerClient.shared.updateProxyProvider(p.name)
                     }
                 }
@@ -648,7 +656,7 @@ struct ProvidersView: View {
             .listRowBackground(Theme.card)
             Section("规则集 \(ruleProviders.count)") {
                 ForEach(ruleProviders) { p in
-                    row(p, detail: "\(p.ruleCount ?? 0) 条 · \(p.behavior ?? "") · \(p.vehicleType ?? "")", key: "r:" + p.name) {
+                    row(p, detail: String(localized: "\(p.ruleCount ?? 0) 条") + " · \(p.behavior ?? "") · \(p.vehicleType ?? "")", key: "r:" + p.name) {
                         try await ControllerClient.shared.updateRuleProvider(p.name)
                     }
                 }

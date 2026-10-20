@@ -173,11 +173,7 @@ struct NodeManagerView: View {
         .alert("提示", isPresented: Binding(get: { message != nil }, set: { if !$0 { message = nil } })) {
             Button("好", role: .cancel) {}
         } message: { Text(message ?? "") }
-        .confirmationDialog("删除这个订阅？", isPresented: Binding(get: { confirmDeleteSub != nil }, set: { if !$0 { confirmDeleteSub = nil } }),
-                            titleVisibility: .visible, presenting: confirmDeleteSub) { s in
-            Button("删除", role: .destructive) { Task { await nodeSubs.delete(s); await model.reload() } }
-                .accessibilityIdentifier("nodesub.confirmDelete")
-        } message: { s in Text("「\(s.name)」的节点会从所有配置中移除，引用它的策略组改用其他节点。") }
+        .nodeSubDeleteConfirmation($confirmDeleteSub) { s in await nodeSubs.delete(s); await model.reload() }
     }
 
     /// One subscription refreshed from a swipe / menu: spinner on the row, result in an alert only on failure.

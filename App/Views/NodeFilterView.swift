@@ -181,6 +181,9 @@ struct NodeFilterView: View {
     @State private var editing: RegionFilter?
     @State private var creating = false
     @State private var previewMembers: [String: [String]] = [:]
+    /// Review 5: removing a policy group from the profile asks first (swipe, menu, or deleting its filter).
+    @State private var pendingRemoveGroup: RegionFilter?
+    @State private var pendingDelete: [RegionFilter]?
     @Environment(\.editMode) private var editMode
 
     struct Region: Identifiable {
@@ -258,7 +261,10 @@ struct NodeFilterView: View {
                         }
                     }
                     .onMove { from, to in filters.move(fromOffsets: from, toOffset: to); persistFilters() }
-                    .onDelete { idx in Task { await delete(idx.map { filters[$0] }) } }
+                    .onDelete { idx in
+                        let list = idx.map { filters[$0] }
+                        if list.contains(where: { added.contains($0.name) }) { pendingDelete = list } else { Task { await delete(list) } }
+                    }
                 } header: { Text("全部筛选") } footer: {
                     Text("拖动排序，左滑删除。删除已加为策略组的筛选时，该策略组会一并移除。")
                 }
@@ -327,6 +333,15 @@ struct NodeFilterView: View {
         .alert("提示", isPresented: Binding(get: { message != nil }, set: { if !$0 { message = nil } })) {
             Button("好", role: .cancel) {}
         } message: { Text(message ?? "") }
+        .deleteConfirmation({ f in Text("移除策略组「\(f.name)」？") }, item: $pendingRemoveGroup,
+                            message: { _ in Text("会从当前配置中删除这个策略组，筛选本身保留。") },
+                            id: "filter.confirmRemove", actionTitle: "移除策略组") { f in
+            Task { await removeGroup(f) }
+        }
+        .deleteConfirmation({ _ in Text("删除筛选？") }, item: $pendingDelete,
+                            message: { _ in Text("删除已加为策略组的筛选时，该策略组会一并移除。") }) { list in
+            Task { await delete(list) }
+        }
     }
 
     func regionRow(_ f: RegionFilter, count: Int) -> some View {
@@ -349,7 +364,7 @@ struct NodeFilterView: View {
             Button { editing = f } label: { Label("编辑筛选", systemImage: "pencil") }.tint(.gray)
             if store.active != nil {
                 if added.contains(f.name) {
-                    Button(role: .destructive) { Task { await removeGroup(f) } } label: { Label("移除策略组", systemImage: "minus.circle") }
+                    Button(role: .destructive) { pendingRemoveGroup = f } label: { Label("移除策略组", systemImage: "minus.circle") }
                 } else {
                     Button { Task { await addGroup(f) } } label: { Label("加为策略组", systemImage: "plus.circle") }.tint(Theme.accent)
                 }
@@ -359,7 +374,7 @@ struct NodeFilterView: View {
             Button { editing = f } label: { Label("编辑筛选", systemImage: "pencil") }
             if store.active != nil {
                 if added.contains(f.name) {
-                    Button(role: .destructive) { Task { await removeGroup(f) } } label: { Label("移除策略组", systemImage: "minus.circle") }
+                    Button(role: .destructive) { pendingRemoveGroup = f } label: { Label("移除策略组", systemImage: "minus.circle") }
                 } else {
                     Button { Task { await addGroup(f) } } label: { Label("加为策略组", systemImage: "plus.circle") }
                 }
@@ -470,7 +485,7 @@ struct NodeFilterView: View {
     func persist(_ e: GroupEdits, profile p: Profile, busyID: String, reload: Bool = true) async -> Bool {
         busy = busyID
         defer { busy = nil }
-        SnapshotStore.shared.capture(String(localized: "编辑策略组前"))
+        await SnapshotStore.shared.captureAsync(String(localized: "编辑策略组前"))
         let json = GroupEditStore.json(e)
         let path = p.fileURL.path
         let err = await Task.detached(priority: .userInitiated) { LibmihomoGroupEditCheck(AppShared.homeURL.path, path, json) }.value
