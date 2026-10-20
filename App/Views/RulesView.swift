@@ -562,7 +562,13 @@ struct CustomRuleEditor: View {
 
     /// Switching to the form parses the line; a line the form cannot show stays in text mode.
     func setTextMode(_ on: Bool) {
-        if on { textMode = true; return }
+        if on {
+            // An empty form (no value typed yet) opens an empty text field instead of a half line like
+            // "DOMAIN-SUFFIX,,Proxy" that the pasted rule would be appended to.
+            if form.kind?.noValue != true && form.value.trimmingCharacters(in: .whitespaces).isEmpty { rule.line = "" }
+            textMode = true
+            return
+        }
         if let f = RuleFormFields.parse(rule.line) {
             form = f
             textMode = false
