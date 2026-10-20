@@ -227,7 +227,38 @@ func (r *redactor) text(s string) string {
 	s = reBearer.ReplaceAllString(s, "$1 <redacted>")
 	s = reKV.ReplaceAllString(s, "$1$2<redacted>")
 	s = reIPv4.ReplaceAllStringFunc(s, maskIPv4)
+	s = redactShareLinks(s)
 	return s
+}
+
+// Review 5 P1-2: share-link credentials the rules above miss in free text — a legacy
+// ss://BASE64(method:password@host:port) link has no "@" outside the base64, and subscription URLs carry
+// their token in the path (https://host/link/<token>, /s/<token>). Kept separate from the key/value rules.
+var (
+	reSSLegacy = regexp.MustCompile(`(?i)\bss://[A-Za-z0-9+/=_-]{16,}`)
+	reURLPath  = regexp.MustCompile(`(?i)\b((?:https?|wss?)://[^\s/?#"'<>]+)(/[^\s?#"'<>]*)`)
+)
+
+func redactShareLinks(s string) string {
+	s = reSSLegacy.ReplaceAllString(s, "ss://<redacted>")
+	return reURLPath.ReplaceAllStringFunc(s, func(m string) string {
+		sub := reURLPath.FindStringSubmatch(m)
+		if len(sub) != 3 {
+			return m
+		}
+		segs := strings.Split(sub[2], "/")
+		changed := false
+		for i, seg := range segs {
+			if seg != "" && looksLikeToken(seg) {
+				segs[i] = redacted
+				changed = true
+			}
+		}
+		if !changed {
+			return m
+		}
+		return sub[1] + strings.Join(segs, "/")
+	})
 }
 
 // maskIPv4 keeps private, loopback, fake-ip (198.18/15) and link-local addresses, masks public ones.
