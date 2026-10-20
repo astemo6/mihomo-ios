@@ -1,4 +1,5 @@
 import SwiftUI
+import Combine
 import NetworkExtension
 import UniformTypeIdentifiers
 
@@ -495,6 +496,8 @@ struct PolicyView: View {
             await refreshMovableAsync()
         }
         .modifier(InteractionRunner(request: $interaction))
+        // Review 5: mirror only the outbound mode (fires with the current value on appear, then on every change).
+        .onReceive(DashboardModel.shared.$mode.removeDuplicates()) { m in if mode != m { mode = m } }
         .onChange(of: sortMode) { _ in snapshotDelays() }
         .sheet(item: $iconTarget) { t in GroupIconPicker(group: t.name, profileIcon: t.profileIcon) }
         // The order changed underneath (another save, a reload, a subscription update): no drag override survives it.
