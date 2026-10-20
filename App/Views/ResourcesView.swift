@@ -21,7 +21,7 @@ struct ModulesView: View {
         filter == "all" ? res.items : res.items.filter { $0.kind == filter }
     }
 
-    func count(_ kind: String) -> Int { res.items.filter { $0.kind == kind }.count }
+    func count(_ kind: String) -> Int { res.items.reduce(0) { $0 + ($1.kind == kind ? 1 : 0) } }
 
     var body: some View {
         List {
@@ -155,7 +155,13 @@ struct ModulesView: View {
         .alert("提示", isPresented: Binding(get: { store.message != nil || res.message != nil }, set: { if !$0 { store.message = nil; res.message = nil } })) {
             Button("好") { store.message = nil; res.message = nil }
         } message: { Text(store.message ?? res.message ?? "") }
-        .onAppear { store.reparseModules(); res.reload() }
+        // v0.19.8: no synchronous Go parsing during the push / pop animation; the cached list shows at once and
+        // the refreshed one replaces it a moment later.
+        .task {
+            try? await Task.sleep(nanoseconds: 350_000_000)
+            await store.reparseModulesInBackground()
+            await res.reloadInBackground()
+        }
         .onChange(of: store.config.modules) { _ in res.reload() }
         .overlay { if store.busy.contains("add") { ProgressView("下载中…").padding().background(RoundedRectangle(cornerRadius: 12).fill(Theme.cardHi)) } }
         .sheet(isPresented: $pasting, onDismiss: { res.reload() }) { PasteModuleSheet() }
