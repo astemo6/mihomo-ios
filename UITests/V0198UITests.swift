@@ -144,9 +144,14 @@ extension MihomoUITests {
         // 编辑首页面板 → 脚本任务 opens the tasks page (a button row, not a dead label).
         let tasks = app.element(id: "homepanels.scriptTasks")
         XCTAssertTrue(scrollTo(tasks), "脚本任务 row")
+        // It is the last row of the sheet; in en the longer card captions push it under the home indicator, where a
+        // tap does not land. One more swipe settles the list at its bottom inset, and the tap is retried once.
+        app.swipeUp(velocity: .slow)
+        usleep(400_000)
+        let tasksPage = app.element(id: "scriptTasksView")
         tasks.tap()
-        // Assert on the page's own identifier: in en the 任务 title collides with other "Tasks" bars.
-        XCTAssertTrue(app.element(id: "scriptTasksView").waitForExistence(timeout: 6), "脚本任务 → 任务 page")
+        if !tasksPage.waitForExistence(timeout: 4), tasks.exists, tasks.isHittable { tasks.tap() }
+        XCTAssertTrue(tasksPage.waitForExistence(timeout: 6), "脚本任务 → 任务 page")
         snap("v0198-script-tasks")
         // Back to the editor, close it; the tile is part of Home's tree (existence only: the tile sits low on the
         // page and the simulator reports its title as not hittable).
