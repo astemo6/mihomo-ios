@@ -22,7 +22,8 @@ import (
 func runtimeRawWithHome(homeDir, profilePath string) map[string]any {
 	raw := map[string]any{}
 	C.SetHomeDir(homeDir)
-	b, err := os.ReadFile(profilePath)
+	// v0.19.10 (review 5 go-core P2-1): the 覆写脚本 output, like Start / InspectProfile.
+	b, err := readRuntimeProfile(homeDir, profilePath, false)
 	if err != nil {
 		setLastError(err.Error())
 		return raw
@@ -263,13 +264,21 @@ func runtimeCacheKey(homeDir, profilePath string) string {
 		filepath.Join(homeDir, "localdns.json"),
 		filepath.Join(homeDir, "rules.json"),
 	} {
-		if fi, err := os.Stat(p); err == nil {
-			parts = append(parts, fmt.Sprintf("%d.%d", fi.Size(), fi.ModTime().UnixNano()))
-		} else {
-			parts = append(parts, "-")
-		}
+		parts = append(parts, statSig(p))
+	}
+	// v0.19.10: the 覆写脚本 output readRuntimeProfile prefers.
+	yp, mp := scriptedPaths(homeDir, profilePath)
+	for _, p := range []string{yp, mp} {
+		parts = append(parts, statSig(p))
 	}
 	return strings.Join(parts, "|")
+}
+
+func statSig(p string) string {
+	if fi, err := os.Stat(p); err == nil {
+		return fmt.Sprintf("%d.%d", fi.Size(), fi.ModTime().UnixNano())
+	}
+	return "-"
 }
 
 func cachedRuntimeRaw(homeDir, profilePath string) map[string]any {

@@ -4,6 +4,7 @@ import (
 	"encoding/json"
 	"os"
 	"path/filepath"
+	"sort"
 	"sync"
 	"time"
 
@@ -117,12 +118,64 @@ func flushRuleHits(home string) {
 	}
 	ruleHitsMu.Lock()
 	defer ruleHitsMu.Unlock()
-	d := readRuleHits(home)
-	if !foldRuleHits(&d, tunnel.Rules(), ruleHitsBase, time.Now()) {
+	// v0.19.10 (review 5 go-core P2-4): keep the decoded data while running; re-read only when the file
+	// changed under us (ResetRuleHits from the app process) instead of read + decode every 30 s.
+	p := filepath.Join(home, ruleHitsFile)
+	var d RuleHitsData
+	if ruleHitsCache != nil && ruleHitsCacheHome == home && statSig(p) == ruleHitsCacheSig {
+		d = *ruleHitsCache
+	} else {
+		d = readRuleHits(home)
+	}
+	now := time.Now()
+	if !foldRuleHits(&d, tunnel.Rules(), ruleHitsBase, now) {
+		ruleHitsCache, ruleHitsCacheHome, ruleHitsCacheSig = &d, home, statSig(p)
 		return
 	}
+	pruneRuleHits(&d, now)
 	if b, err := json.Marshal(d); err == nil {
-		_ = writeFileAtomic(filepath.Join(home, ruleHitsFile), b)
+		_ = writeFileAtomic(p, b)
+	}
+	ruleHitsCache, ruleHitsCacheHome, ruleHitsCacheSig = &d, home, statSig(p)
+}
+
+// Rule-hit entries are keyed type,payload,policy and never expired before v0.19.10, so profile switches,
+// subscription updates and renames grew the file forever.
+const (
+	ruleHitsMaxAge     = 30 * 24 * time.Hour
+	ruleHitsMaxEntries = 5000
+)
+
+var (
+	ruleHitsCache     *RuleHitsData
+	ruleHitsCacheHome string
+	ruleHitsCacheSig  string
+)
+
+// pruneRuleHits drops entries not hit for 30 days and keeps at most ruleHitsMaxEntries (newest LastHit).
+func pruneRuleHits(d *RuleHitsData, now time.Time) {
+	cut := now.Add(-ruleHitsMaxAge).Unix()
+	for k, e := range d.Rules {
+		if e == nil || e.LastHit > 0 && e.LastHit < cut {
+			delete(d.Rules, k)
+		}
+	}
+	if len(d.Rules) <= ruleHitsMaxEntries {
+		return
+	}
+	keys := make([]string, 0, len(d.Rules))
+	for k := range d.Rules {
+		keys = append(keys, k)
+	}
+	sort.Slice(keys, func(i, j int) bool {
+		a, b := d.Rules[keys[i]], d.Rules[keys[j]]
+		if a.LastHit != b.LastHit {
+			return a.LastHit > b.LastHit
+		}
+		return keys[i] < keys[j]
+	})
+	for _, k := range keys[ruleHitsMaxEntries:] {
+		delete(d.Rules, k)
 	}
 }
 
@@ -171,6 +224,7 @@ func FlushRuleHits() {
 func ResetRuleHits(homeDir, key string) string {
 	ruleHitsMu.Lock()
 	defer ruleHitsMu.Unlock()
+	ruleHitsCache = nil
 	p := filepath.Join(homeDir, ruleHitsFile)
 	if key == "" {
 		if err := os.Remove(p); err != nil && !os.IsNotExist(err) {
