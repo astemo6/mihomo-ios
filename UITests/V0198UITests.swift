@@ -140,23 +140,20 @@ extension MihomoUITests {
         XCTAssertTrue(scrollTo(unlock), "流媒体解锁 in 添加")
         unlock.tap()
         XCTAssertTrue(app.element(id: "homepanels.row.unlock").waitForExistence(timeout: 4), "unlock pinned")
-        closeSheet()
-        for _ in 0..<3 where editor.exists { usleep(700_000); if editor.exists { closeSheet() } }
-        // The tile's own controls (the identifier on the tile container lands on its title text).
-        let tile = app.element(id: "home.tile.unlock.empty").exists ? app.element(id: "home.tile.unlock.empty") : app.element(id: "home.tile.unlock.run")
-        XCTAssertTrue(tile.waitForExistence(timeout: 6), "流媒体解锁 tile on Home")
-        scrollTo(tile)
-        snap("v0198-unlock-tile")
-
+        snap("v0198-unlock-pinned")
         // 编辑首页面板 → 脚本任务 opens the tasks page (a button row, not a dead label).
-        XCTAssertTrue(scrollTo(add), "添加首页卡片 again")
-        add.tap()
-        XCTAssertTrue(editor.waitForExistence(timeout: 6), "editor again")
         let tasks = app.element(id: "homepanels.scriptTasks")
         XCTAssertTrue(scrollTo(tasks), "脚本任务 row")
         tasks.tap()
         XCTAssertTrue(app.navigationBars[L("任务")].waitForExistence(timeout: 6), "脚本任务 → 任务 page")
         snap("v0198-script-tasks")
+        // Back to the editor, close it; the tile is part of Home's tree (existence only: the tile sits low on the
+        // page and the simulator reports its title as not hittable).
+        back()
+        if editor.waitForExistence(timeout: 4) { closeSheet() }
+        for _ in 0..<3 where editor.exists { usleep(700_000); if editor.exists { closeSheet() } }
+        let tile = app.descendants(matching: .any).matching(NSPredicate(format: "identifier BEGINSWITH %@", "home.tile.unlock")).firstMatch
+        XCTAssertTrue(tile.waitForExistence(timeout: 8), "流媒体解锁 tile on Home")
         assertAlive("home unlock tile + 脚本任务")
     }
 
