@@ -82,12 +82,13 @@ final class LiveActivityController: ObservableObject {
         LiveActivityHook.refresh = { await LiveActivityController.shared.refreshFromShared() }
         BGTaskScheduler.shared.register(forTaskWithIdentifier: refreshTaskID, using: nil) { task in
             guard let task = task as? BGAppRefreshTask else { return }
+            let once = BGTaskOnce(task)
             let work = Task { @MainActor in
                 await LiveActivityController.shared.refreshFromShared()
                 LiveActivityController.shared.scheduleBackgroundRefresh()
-                task.setTaskCompleted(success: true)
+                once.complete(success: true)
             }
-            task.expirationHandler = { work.cancel() }
+            task.expirationHandler = { work.cancel(); once.complete(success: false) }
         }
     }
 

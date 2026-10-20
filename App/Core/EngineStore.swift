@@ -363,10 +363,15 @@ final class EngineStore: ObservableObject {
             message = String(localized: "导出失败：\(err?.localizedDescription ?? "")")
             return nil
         }
-        let url = FileManager.default.temporaryDirectory.appendingPathComponent("Mihomo-CA.p12")
-        try? data.write(to: url, options: .atomic)
+        let url = Self.p12TempURL
+        try? data.write(to: url, options: [.atomic, .completeFileProtection])
         return url
     }
+
+    nonisolated static var p12TempURL: URL { FileManager.default.temporaryDirectory.appendingPathComponent("Mihomo-CA.p12") }
+
+    /// Review 5 P2-9: the exported .p12 (private key) does not stay in tmp after the share sheet closes.
+    nonisolated static func purgeP12() { try? FileManager.default.removeItem(at: p12TempURL) }
 
     func importP12(_ url: URL, password: String) {
         let ok = url.startAccessingSecurityScopedResource()
@@ -396,8 +401,10 @@ final class EngineStore: ObservableObject {
         if let err { message = err.localizedDescription; return }
         // Keep the app (and its tiny server) alive for a bit while Safari downloads the profile.
         if bgTask != .invalid { UIApplication.shared.endBackgroundTask(bgTask) }
+        // Review 5 P2-5: end the task synchronously inside the expiration handler (the handler runs on the main
+        // thread); a Task hop could run after the handler returned, and iOS kills apps that overrun.
         bgTask = UIApplication.shared.beginBackgroundTask(withName: "ca-profile") {
-            Task { @MainActor in EngineStore.shared.endBackgroundTask() }
+            MainActor.assumeIsolated { EngineStore.shared.endBackgroundTask() }
         }
         if let u = URL(string: "http://127.0.0.1:\(port)/ca.mobileconfig") { UIApplication.shared.open(u) }
     }

@@ -25,18 +25,30 @@ enum StartupLog {
         try? "=== \(header) \(day)\n".data(using: .utf8)?.write(to: url, options: .atomic)
     }
 
+    /// Review 5 P2-7: rotate to .prev once the file passes this size (a tunnel can run for days).
+    static let maxBytes: off_t = 512 * 1024
+    /// Review 5 P1-2: unified-log copy is private (redacted in Console / sysdiagnose unless a profile unlocks it).
+    private static let logger = Logger(subsystem: "mihomo", category: "startup")
+
     static func write(_ msg: String, tag: String = "ext") {
         lock.lock(); defer { lock.unlock() }
         let line = "\(fmt.string(from: Date())) [\(tag)] \(msg)\n"
-        NSLog("[Mihomo] %@", msg)
-        guard let data = line.data(using: .utf8) else { return }
-        if let h = try? FileHandle(forWritingTo: url) {
-            h.seekToEndOfFile()
-            h.write(data)
-            try? h.close()
-        } else {
-            try? data.write(to: url, options: .atomic)
+        logger.log("[\(tag, privacy: .public)] \(msg, privacy: .private)")
+        let path = url.path
+        // Review 5 P2-7: O_APPEND + one write(2) per line, so app and extension appending at the same time
+        // never overwrite each other's lines (FileHandle seek+write did).
+        var st = stat()
+        if stat(path, &st) == 0, st.st_size > maxBytes {
+            let prev = previousURL.path
+            unlink(prev)
+            rename(path, prev) // atomic; a concurrent writer keeps appending to the old inode (now .prev)
         }
+        let fd = open(path, O_WRONLY | O_APPEND | O_CREAT, 0o644)
+        guard fd >= 0 else { return }
+        defer { close(fd) }
+        var bytes = Array(line.utf8)
+        if bytes.count > 64 * 1024 { bytes = Array(bytes.prefix(64 * 1024)) + Array("…\n".utf8) }
+        _ = bytes.withUnsafeBytes { Darwin.write(fd, $0.baseAddress, $0.count) }
     }
 
     static func read() -> String {
@@ -120,12 +132,32 @@ enum GeoBootstrap {
                 log?("geo: \(name) 未打包")
                 continue
             }
-            if let e = existingURL { try? fm.removeItem(at: e) }
+            // Review 5 P2-6: app and extension can both run this at once. Copy to a unique temp name, check
+            // the size against the source, then rename(2) over the destination, so the other process never
+            // sees (and keeps) a half-written file and never removes one we just finished.
+            let srcSize = (try? fm.attributesOfItem(atPath: src.path)[.size] as? NSNumber)?.intValue ?? -1
+            let tmp = home.appendingPathComponent(".\(name).tmp-\(UUID().uuidString)")
             do {
-                try fm.copyItem(at: src, to: dst)
+                try fm.copyItem(at: src, to: tmp)
+                let tmpSize = (try? fm.attributesOfItem(atPath: tmp.path)[.size] as? NSNumber)?.intValue ?? -2
+                guard tmpSize == srcSize else {
+                    try? fm.removeItem(at: tmp)
+                    log?("geo: 复制 \(name) 大小不符（\(tmpSize)/\(srcSize)）")
+                    continue
+                }
+                // A truncated different-case leftover (mihomo matches case-insensitively) must not survive next to
+                // the new file; on a case-insensitive volume (simulator) it is the same file as dst anyway.
+                if let e = existingURL, e.lastPathComponent != name { try? fm.removeItem(at: e) }
+                guard rename(tmp.path, dst.path) == 0 else {
+                    let why = String(cString: strerror(errno))
+                    try? fm.removeItem(at: tmp)
+                    log?("geo: 替换 \(name) 失败：\(why)")
+                    continue
+                }
                 copied += 1
                 log?("geo: 已复制内置 \(name)")
             } catch {
+                try? fm.removeItem(at: tmp)
                 log?("geo: 复制 \(name) 失败：\(error.localizedDescription)")
             }
         }

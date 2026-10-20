@@ -1,4 +1,5 @@
 import Foundation
+import Darwin
 
 /// Daily traffic totals (about 120 days) in the App Group container. The PacketTunnel extension adds
 /// deltas of the core's counters (TrafficRecorder); the app reads them for 统计.
@@ -34,6 +35,19 @@ enum TrafficHistory {
 
     private static let lock = NSLock()
 
+    /// Review 5 P2-7: app (clear) and extension (add) are different processes, so the in-process NSLock alone
+    /// let a 2-minute sample in flight write the old days back after 清除统计. flock(2) on a side file
+    /// serialises the read-modify-write across both.
+    @discardableResult
+    private static func withFileLock<T>(_ body: () -> T) -> T {
+        lock.lock(); defer { lock.unlock() }
+        let path = AppShared.containerURL.appendingPathComponent("traffic-history.lock").path
+        let fd = open(path, O_RDWR | O_CREAT, 0o644)
+        if fd >= 0 { flock(fd, LOCK_EX) }
+        defer { if fd >= 0 { flock(fd, LOCK_UN); close(fd) } }
+        return body()
+    }
+
     /// All stored days, oldest first.
     static func load() -> [TrafficDay] {
         guard let data = try? Data(contentsOf: url),
@@ -44,7 +58,10 @@ enum TrafficHistory {
     /// Adds bytes to today's bucket and drops days older than keepDays.
     static func add(up: Int64, down: Int64, iface: String? = nil, at date: Date = Date()) {
         guard up > 0 || down > 0 else { return }
-        lock.lock(); defer { lock.unlock() }
+        withFileLock { addLocked(up: up, down: down, iface: iface, at: date) }
+    }
+
+    private static func addLocked(up: Int64, down: Int64, iface: String?, at date: Date) {
         var days = load()
         let key = dayFormatter.string(from: date)
         let i: Int
@@ -76,8 +93,7 @@ enum TrafficHistory {
     }
 
     static func clear() {
-        lock.lock(); defer { lock.unlock() }
-        try? FileManager.default.removeItem(at: url)
+        withFileLock { _ = try? FileManager.default.removeItem(at: url) }
     }
 
     /// Last `count` days ending today, with empty days filled in (for charts).
