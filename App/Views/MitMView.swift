@@ -7,8 +7,14 @@ import Libmihomo
 
 struct ActivityView: UIViewControllerRepresentable {
     let items: [Any]
+    /// Review 5 P2-9: a temp export holding secrets (backup JSON, CA .p12) is deleted once the share sheet ends.
+    var cleanup: URL? = nil
     func makeUIViewController(context: Context) -> UIActivityViewController {
-        UIActivityViewController(activityItems: items, applicationActivities: nil)
+        let vc = UIActivityViewController(activityItems: items, applicationActivities: nil)
+        if let cleanup {
+            vc.completionWithItemsHandler = { _, _, _, _ in try? FileManager.default.removeItem(at: cleanup) }
+        }
+        return vc
     }
     func updateUIViewController(_ vc: UIActivityViewController, context: Context) {}
 }
@@ -16,6 +22,8 @@ struct ActivityView: UIViewControllerRepresentable {
 struct ShareItem: Identifiable {
     let id = UUID()
     let url: URL
+    /// Delete the file when the share sheet goes away (it holds secrets).
+    var temporary = false
 }
 
 struct KindBadge: View {
@@ -146,13 +154,13 @@ struct MitMView: View {
         .background(Theme.bg.ignoresSafeArea())
         .navigationTitle("MitM")
         .toolbar { EditButton() }
-        .sheet(item: $share) { ActivityView(items: [$0.url]) }
+        .sheet(item: $share, onDismiss: { EngineStore.purgeP12() }) { ActivityView(items: [$0.url], cleanup: $0.temporary ? $0.url : nil) }
         .confirmationDialog("重新生成证书？", isPresented: $confirmRegen, titleVisibility: .visible) {
             Button("重新生成", role: .destructive) { store.generateCA() }
         } message: { Text("旧证书将失效，需要重新安装并信任新的描述文件。") }
         .alert("导出 p12", isPresented: $askP12) {
             SecureField("设置密码", text: $p12Password)
-            Button("导出") { if let u = store.p12File(password: p12Password) { share = ShareItem(url: u) }; p12Password = "" }
+            Button("导出") { if let u = store.p12File(password: p12Password) { share = ShareItem(url: u, temporary: true) }; p12Password = "" }
             Button("取消", role: .cancel) { p12Password = "" }
         } message: { Text("p12 包含私钥，请妥善保管，切勿分享给他人。") }
         .fileImporter(isPresented: $importing, allowedContentTypes: [UTType(filenameExtension: "p12") ?? .data, .data]) { r in

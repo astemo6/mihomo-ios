@@ -9,10 +9,12 @@ import UniformTypeIdentifiers
 // security-scoped bookmark. Optional: push automatically when the app goes to the background and the
 // configuration changed since the last push.
 
+private let syncFileName = "Mihomo-sync.json"
+
 @MainActor
 final class SyncFolder: ObservableObject {
     static let shared = SyncFolder()
-    static let fileName = "Mihomo-sync.json"
+    static let fileName = syncFileName
 
     @Published private(set) var folderName: String?
     @Published private(set) var lastPush: Date?
@@ -74,9 +76,14 @@ final class SyncFolder: ObservableObject {
     /// Runs body with the folder's security scope open and file coordination around the sync file.
     private func withFile<T>(writing: Bool, _ body: (URL) throws -> T) throws -> T {
         guard let folder = resolve() else { throw SyncError.noFolder }
+        return try Self.withFile(folder: folder, writing: writing, body)
+    }
+
+    /// Off-main variant (review 5 P2-2): the folder URL is resolved on the main actor and passed in.
+    nonisolated private static func withFile<T>(folder: URL, writing: Bool, _ body: (URL) throws -> T) throws -> T {
         guard folder.startAccessingSecurityScopedResource() else { throw SyncError.noAccess }
         defer { folder.stopAccessingSecurityScopedResource() }
-        let file = folder.appendingPathComponent(Self.fileName)
+        let file = folder.appendingPathComponent(syncFileName)
         var coordErr: NSError?
         var result: Result<T, Error>?
         let c = NSFileCoordinator()
@@ -91,24 +98,46 @@ final class SyncFolder: ObservableObject {
         return try result.get()
     }
 
-    /// Writes the current configuration to the folder. Returns the number of files.
-    @discardableResult
-    func push() throws -> Int {
-        let (tmp, n) = try BackupManager.make(includeCA: false)
-        var data = try Data(contentsOf: tmp)
-        try? FileManager.default.removeItem(at: tmp)
+    /// The sync file's bytes and file count. Review 5 P2-1: never the scripts' store (cookies, tokens) — the
+    /// sync folder is plain iCloud Drive.
+    nonisolated private static func payload(device: String) throws -> (Data, Int) {
+        let (raw, n) = try BackupManager.makeData(includeCA: false, includeStore: false)
+        var data = raw
         // Tag the device so the other side can show where the copy came from.
         if var obj = try JSONSerialization.jsonObject(with: data) as? [String: Any] {
             var d = obj["defaults"] as? [String: String] ?? [:]
-            d["syncDevice"] = UIDevice.current.name
+            d["syncDevice"] = device
             obj["defaults"] = d
             data = try JSONSerialization.data(withJSONObject: obj, options: [.sortedKeys])
         }
-        try withFile(writing: true) { u in try data.write(to: u, options: .atomic) }
+        return (data, n)
+    }
+
+    /// Review 5 P2-2: the change check compares what the user configured (SnapshotStore.contentHash), not raw
+    /// bytes, which change with JSONEncoder key order and timestamps on every launch.
+    nonisolated static func configHash() -> String { SnapshotStore.contentHash(SnapshotStore.currentFiles()) }
+
+    nonisolated private static func remoteInfo(_ u: URL) -> (Date?, String?) {
+        guard let d = try? Data(contentsOf: u), let obj = try? JSONSerialization.jsonObject(with: d) as? [String: Any] else { return (nil, nil) }
+        let f = ISO8601DateFormatter()
+        let date = (obj["created"] as? String).flatMap { f.date(from: $0) }
+        return (date, (obj["defaults"] as? [String: String])?["syncDevice"])
+    }
+
+    private func recordPush(hash: String) {
         let now = Date()
         lastPush = now
         AppShared.defaults.set(now, forKey: "sync.lastPush")
-        AppShared.defaults.set(SnapshotStore.hash(SnapshotStore.currentFiles()), forKey: hashKey)
+        AppShared.defaults.set(hash, forKey: hashKey)
+        autoPushSkipped = nil
+    }
+
+    /// Writes the current configuration to the folder. Returns the number of files.
+    @discardableResult
+    func push() throws -> Int {
+        let (data, n) = try Self.payload(device: UIDevice.current.name)
+        try withFile(writing: true) { u in try data.write(to: u, options: .atomic) }
+        recordPush(hash: Self.configHash())
         refreshRemote()
         return n
     }
@@ -123,22 +152,70 @@ final class SyncFolder: ObservableObject {
 
     func refreshRemote() {
         guard isSet else { return }
-        let r: (Date?, String?)? = try? withFile(writing: false) { u in
-            guard let d = try? Data(contentsOf: u), let obj = try? JSONSerialization.jsonObject(with: d) as? [String: Any] else { return (nil, nil) }
-            let f = ISO8601DateFormatter()
-            let date = (obj["created"] as? String).flatMap { f.date(from: $0) }
-            return (date, (obj["defaults"] as? [String: String])?["syncDevice"])
-        }
+        let r: (Date?, String?)? = try? withFile(writing: false) { u in Self.remoteInfo(u) }
         remoteDate = r?.0
         remoteDevice = r?.1
     }
 
+    /// Set when an automatic upload was skipped because the folder holds a newer copy from elsewhere.
+    @Published private(set) var autoPushSkipped: String?
+    private var autoPushRunning = false
+
     /// Called when the app goes to the background: push if enabled and something changed.
+    /// Review 5 P2-2: reading, hashing and the coordinated iCloud write run off the main thread inside a
+    /// background task, and a copy another device pushed after our last push is never overwritten silently.
     func autoPushIfNeeded() {
-        guard autoPush, isSet else { return }
-        let h = SnapshotStore.hash(SnapshotStore.currentFiles())
-        guard h != AppShared.defaults.string(forKey: hashKey) else { return }
-        _ = try? push()
+        guard autoPush, isSet, !autoPushRunning, let folder = resolve() else { return }
+        autoPushRunning = true
+        let lastHash = AppShared.defaults.string(forKey: hashKey)
+        let lastPush = self.lastPush
+        let device = UIDevice.current.name
+        let bg = BackgroundTaskBox()
+        bg.id = UIApplication.shared.beginBackgroundTask(withName: "sync-push") { MainActor.assumeIsolated { bg.end() } }
+        Task.detached(priority: .utility) {
+            enum Outcome { case unchanged, skipped(Date), pushed(String, Date?, String?), failed }
+            let outcome: Outcome
+            let h = Self.configHash()
+            if h == lastHash {
+                outcome = .unchanged
+            } else {
+                let remote = (try? Self.withFile(folder: folder, writing: false) { u in Self.remoteInfo(u) }) ?? (nil, nil)
+                if let rd = remote.0, rd.timeIntervalSince(lastPush ?? .distantPast) > 2 {
+                    outcome = .skipped(rd)
+                } else if let p = try? Self.payload(device: device),
+                          (try? Self.withFile(folder: folder, writing: true) { u in try p.0.write(to: u, options: .atomic) }) != nil {
+                    outcome = .pushed(h, Date(), device)
+                } else {
+                    outcome = .failed
+                }
+            }
+            await MainActor.run {
+                let s = SyncFolder.shared
+                switch outcome {
+                case .pushed(let h, let d, let dev):
+                    s.recordPush(hash: h)
+                    s.remoteDate = d
+                    s.remoteDevice = dev
+                case .skipped(let d):
+                    s.remoteDate = d
+                    s.autoPushSkipped = String(localized: "文件夹中有其他设备更新的副本，已跳过自动上传；请先确认后手动上传或恢复。")
+                case .unchanged, .failed: break
+                }
+                s.autoPushRunning = false
+                bg.end()
+            }
+        }
+    }
+}
+
+/// A UIApplication background task id that is ended exactly once, from the work or the expiration handler
+/// (both on the main thread).
+final class BackgroundTaskBox: @unchecked Sendable {
+    var id: UIBackgroundTaskIdentifier = .invalid
+    @MainActor func end() {
+        let t = id
+        id = .invalid
+        if t != .invalid { UIApplication.shared.endBackgroundTask(t) }
     }
 }
 
@@ -172,7 +249,7 @@ struct SyncFolderView: View {
                     Button { confirmPull = true } label: { Label("用文件夹中的配置覆盖本机", systemImage: "icloud.and.arrow.down") }
                     Toggle("退到后台时自动上传", isOn: $sync.autoPush).tint(Theme.accent)
                 } header: { Text("同步") } footer: {
-                    Text("包含配置与订阅、手动节点、模块、脚本、覆写、DNS、自定义规则、策略组编辑；不含 MitM 证书和缓存。自动上传只在内容有变化时进行；下载需要手动确认，覆盖前会自动保存快照。")
+                    Text("包含配置与订阅、手动节点、模块、脚本、覆写、DNS、自定义规则、策略组编辑；不含 MitM 证书、脚本存储数据和缓存。自动上传只在内容有变化时进行；下载需要手动确认，覆盖前会自动保存快照。")
                 }
                 .listRowBackground(Theme.card)
 
@@ -180,6 +257,7 @@ struct SyncFolderView: View {
                     LabeledContent("本机上次上传", value: sync.lastPush.map { $0.formatted(date: .abbreviated, time: .shortened) } ?? "—")
                     LabeledContent("文件夹中的副本", value: sync.remoteDate.map { $0.formatted(date: .abbreviated, time: .shortened) } ?? "—")
                     if let d = sync.remoteDevice { LabeledContent("来自设备", value: d) }
+                    if let w = sync.autoPushSkipped { Text(w).font(.footnote).foregroundStyle(.orange) }
                 }
                 .listRowBackground(Theme.card)
             }
