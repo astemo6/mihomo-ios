@@ -35,6 +35,8 @@ concurrency:
 
 jobs:
   build:
+    # Org mirror (astemo666/mihomo-ios) only runs the Self-test shard; never builds or releases.
+    if: github.repository == 'astemo6/mihomo-ios'
     runs-on: macos-15
     timeout-minutes: 60
     env:
