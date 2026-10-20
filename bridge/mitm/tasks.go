@@ -75,11 +75,14 @@ func stableID(parts ...string) string {
 }
 
 var (
-	loonCronRe    = regexp.MustCompile(`(?i)^cron\s+"([^"]+)"\s+(script-path\s*=.*)$`)
-	loonEventRe   = regexp.MustCompile(`(?i)^(network-changed|generic)\s+(script-path\s*=.*)$`)
-	qxEventRe     = regexp.MustCompile(`(?i)^event-(network|interaction)\s+(\S+?)\s*(,.*)?$`)
-	qxCronRe      = regexp.MustCompile(`^((?:[0-9*?/,\-A-Za-z]+\s+){4,5}[0-9*?/,\-A-Za-z]+)\s+(\S+?)\s*(,.*)?$`)
-	cronFieldOnly = regexp.MustCompile(`^[0-9*?/,\-]+$`)
+	loonCronRe = regexp.MustCompile(`(?i)^cron\s+"([^"]+)"\s+(script-path\s*=.*)$`)
+	// v0.19.9: `cron {cron} script-path=…` with an [Argument] input leaves the expression unquoted after
+	// substitution (Sub-Store's official Loon plugin).
+	loonCronBareRe = regexp.MustCompile(`(?i)^cron\s+((?:\S+\s+){4,5}\S+?)\s+(script-path\s*=.*)$`)
+	loonEventRe    = regexp.MustCompile(`(?i)^(network-changed|generic)\s+(script-path\s*=.*)$`)
+	qxEventRe      = regexp.MustCompile(`(?i)^event-(network|interaction)\s+(\S+?)\s*(,.*)?$`)
+	qxCronRe       = regexp.MustCompile(`^((?:[0-9*?/,\-A-Za-z]+\s+){4,5}[0-9*?/,\-A-Za-z]+)\s+(\S+?)\s*(,.*)?$`)
+	cronFieldOnly  = regexp.MustCompile(`^[0-9*?/,\-]+$`)
 )
 
 func (rs *Ruleset) addTask(kind, cron, event string, sc *Script, source, line, format string) *Task {
@@ -188,7 +191,13 @@ func (rs *Ruleset) parseTaskLine(line, section, source string) bool {
 		return true
 	}
 	// Loon
-	if m := loonCronRe.FindStringSubmatch(line); m != nil {
+	m := loonCronRe.FindStringSubmatch(line)
+	if m == nil {
+		if b := loonCronBareRe.FindStringSubmatch(line); b != nil && cronLooksValid(b[1]) {
+			m = b
+		}
+	}
+	if m != nil {
 		p := splitParams(m[2], scriptKeys)
 		withLineOpts(rs.addTask(TaskCron, m[1], "", scriptFromParams(p["tag"], p), source, line, "loon"), p)
 		return true

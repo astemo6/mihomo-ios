@@ -7,6 +7,7 @@
 package mitm
 
 import (
+	"encoding/json"
 	"fmt"
 	"regexp"
 	"strconv"
@@ -1015,6 +1016,9 @@ func (rs *Ruleset) ParseText(text, source string, args map[string]string) {
 		rs.parseEgern(text, source, args)
 		return
 	}
+	if rs.parseQXTaskGallery(text, source) {
+		return
+	}
 	rs.Arguments = ParseModuleArgs(text)
 	if len(rs.Arguments) > 0 {
 		text = ApplyModuleArgs(text, args)
@@ -1069,7 +1073,13 @@ func (rs *Ruleset) ParseText(text, source string, args map[string]string) {
 	if !sawSection && rs.Format == "" {
 		rs.Format = "list"
 	}
+	// v0.19.9: [Script] is shared by Surge and Loon; Loon's script lines start with the type.
+	if rs.Format == "surge" && loonScriptLineRe.MatchString(text) {
+		rs.Format = "loon"
+	}
 }
+
+var loonScriptLineRe = regexp.MustCompile(`(?m)^[ \t]*(?:(?:http-request|http-response)[ \t]|cron[ \t]+["0-9*])`)
 
 func isStash(text string) bool {
 	rulesKey := false
@@ -1361,4 +1371,27 @@ func describe(r *Rule) string {
 		return t + " · " + r.Script.Name
 	}
 	return r.Kind
+}
+
+// parseQXTaskGallery reads a Quantumult X task gallery JSON ({"name", "description", "task": [lines]},
+// e.g. Sub-Store's official QX-Task.json) as a module of [task_local] lines. v0.19.9.
+func (rs *Ruleset) parseQXTaskGallery(text, source string) bool {
+	t := strings.TrimSpace(text)
+	if !strings.HasPrefix(t, "{") || !strings.Contains(t, `"task"`) {
+		return false
+	}
+	var g struct {
+		Name        string   `json:"name"`
+		Description string   `json:"description"`
+		Task        []string `json:"task"`
+	}
+	if json.Unmarshal([]byte(t), &g) != nil || len(g.Task) == 0 {
+		return false
+	}
+	rs.Format = "qx"
+	rs.Name, rs.Desc = strings.TrimSpace(g.Name), strings.TrimSpace(g.Description)
+	for _, line := range g.Task {
+		rs.ParseLine(strings.TrimSpace(line), "task_local", source)
+	}
+	return true
 }

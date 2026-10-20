@@ -11,6 +11,8 @@ import (
 	"fmt"
 	"io"
 	"net/http"
+	"os"
+	"runtime"
 	"runtime/debug"
 	"runtime/metrics"
 	"sort"
@@ -57,7 +59,19 @@ type ScriptRunner struct {
 	byURL   map[string]string // script path -> program cache key
 	// v0.19.6: compiles in flight by cache key (one compile per script for a burst of cold requests).
 	compiling map[string]*compileCall
+	// v0.19.9: large programs (bundles like Sub-Store, ~1.3 MB of JS → ~14 MB compiled) stay cached only
+	// while in use: lastUse by cache key, released after largeProgIdle without a run. bigSem runs them
+	// one at a time so two such compiles / runtimes never coexist in the 50 MB extension.
+	lastUse map[string]time.Time
+	bigSem  chan struct{}
 }
+
+// largeProgSource is the source size from which a script counts as a large bundle (compiled ≥ ~7 MB).
+const largeProgSource = 512 << 10
+
+// largeProgIdle is how long a large compiled program is kept after its last run (a burst of API calls
+// from a web UI reuses it; then the memory goes back to the tunnel).
+var largeProgIdle = 45 * time.Second
 
 type compileCall struct {
 	done chan struct{}
@@ -71,7 +85,8 @@ var compileCount atomic.Int64
 func NewScriptRunner(e *Engine) *ScriptRunner {
 	progs := newLRU[*goja.Program](16)
 	progs.maxW = progCacheBudget
-	return &ScriptRunner{e: e, progs: progs, sem: make(chan struct{}, 2), taskSem: make(chan struct{}, 1), byURL: map[string]string{}}
+	return &ScriptRunner{e: e, progs: progs, sem: make(chan struct{}, 2), taskSem: make(chan struct{}, 1), byURL: map[string]string{},
+		lastUse: map[string]time.Time{}, bigSem: make(chan struct{}, 1)}
 }
 
 // Reset drops compiled programs (memory).
@@ -96,6 +111,9 @@ func (s *ScriptRunner) program(sc *Script) (prog *goja.Program, err error) {
 	sum := sha256.Sum256(src)
 	key := hex.EncodeToString(sum[:])
 	if p, ok := s.progs.Get(key); ok {
+		if len(src) >= largeProgSource {
+			s.touchLarge(key)
+		}
 		return p, nil
 	}
 	// v0.19.6 (review 7): compile runs before the run semaphore, so a burst of requests on a script whose
@@ -116,6 +134,18 @@ func (s *ScriptRunner) program(sc *Script) (prog *goja.Program, err error) {
 		s.compiling = map[string]*compileCall{}
 	}
 	c := &compileCall{done: make(chan struct{})}
+	if len(src) >= largeProgSource {
+		// One large bundle at a time: drop the others before compiling (a cached Sub-Store core plus a
+		// compile of its sibling bundle measured 64 MB live).
+		for k := range s.lastUse {
+			delete(s.lastUse, k)
+			s.progs.Remove(k)
+		}
+	}
+	if err := compileFits(len(src)); err != nil {
+		s.mu.Unlock()
+		return nil, err
+	}
 	s.compiling[key] = c
 	s.mu.Unlock()
 	defer func() {
@@ -152,7 +182,97 @@ func (s *ScriptRunner) compile(sc *Script, src []byte, key string) (*goja.Progra
 		p = p2
 	}
 	s.progs.PutW(key, p, int64(len(code))*progBytesPerSourceByte)
+	if len(code) >= largeProgSource {
+		s.touchLarge(key)
+	}
 	return p, nil
+}
+
+// compileBytesPerSourceByte: goja's live heap while compiling, per byte of source (measured v0.19.9 on
+// the 1.3 MB Sub-Store bundle: AST ~15 MB + program ~13 MB + compiler scopes ~13 MB = ~43 MB peak).
+const compileBytesPerSourceByte = 32
+
+// compileFits refuses to compile a large bundle when the estimated compile peak does not fit under the
+// soft memory limit (set in the tunnel extension from its ~50 MB jetsam budget). The compile happens in
+// Go, outside the script memory guard, so without this check the system would kill the tunnel. No limit
+// (app process: 脚本调试, tests) → always allowed.
+func compileFits(srcLen int) error {
+	if srcLen < largeProgSource {
+		return nil
+	}
+	limit := memGuardLimit()
+	if limit <= 0 || limit >= 1<<40 {
+		return nil
+	}
+	runtime.GC()
+	sample := []metrics.Sample{{Name: "/memory/classes/heap/objects:bytes"}}
+	metrics.Read(sample)
+	live := sample[0].Value.Uint64()
+	need := uint64(srcLen) * compileBytesPerSourceByte
+	if live+need > uint64(limit) {
+		return fmt.Errorf("脚本过大（%.1f MB），在隧道内编译约需 %d MB 内存，超出 iOS 网络扩展的内存上限（%d MB），已跳过",
+			float64(srcLen)/(1<<20), (live+need)>>20, limit>>20)
+	}
+	return nil
+}
+
+// scriptSize is the source size of sc without reading it (0 when unknown, e.g. not downloaded yet).
+func (s *ScriptRunner) scriptSize(sc *Script) int64 {
+	if sc.Source != nil {
+		return int64(len(sc.Source))
+	}
+	p := sc.Path
+	if isRemote(p) {
+		p = CachePath(s.e.home, p)
+	} else {
+		p = s.e.res.LocalPath(p)
+	}
+	if fi, err := os.Stat(p); err == nil {
+		return fi.Size()
+	}
+	return 0
+}
+
+// touchLarge records a run of a large program and schedules its release after largeProgIdle.
+func (s *ScriptRunner) touchLarge(key string) {
+	s.mu.Lock()
+	_, scheduled := s.lastUse[key]
+	s.lastUse[key] = time.Now()
+	s.mu.Unlock()
+	if !scheduled {
+		s.scheduleRelease(key, largeProgIdle)
+	}
+}
+
+func (s *ScriptRunner) scheduleRelease(key string, after time.Duration) {
+	time.AfterFunc(after, func() {
+		s.mu.Lock()
+		last, ok := s.lastUse[key]
+		if !ok {
+			s.mu.Unlock()
+			return
+		}
+		if idle := time.Since(last); idle < largeProgIdle {
+			s.mu.Unlock()
+			s.scheduleRelease(key, largeProgIdle-idle)
+			return
+		}
+		delete(s.lastUse, key)
+		s.mu.Unlock()
+		s.progs.Remove(key)
+		largeReleases.Add(1)
+	})
+}
+
+// largeReleases counts idle releases of large programs (tests / diagnostics).
+var largeReleases atomic.Int64
+
+// isLarge reports whether a cached program key belongs to a large bundle.
+func (s *ScriptRunner) isLarge(key string) bool {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	_, ok := s.lastUse[key]
+	return ok
 }
 
 // A compiled goja Program takes ~14× its source in heap (measured: 300 KB of JS → ~4.1 MB). 16 cached
@@ -221,16 +341,25 @@ func (s *ScriptRunner) execute(sc *Script, req, resp *ScriptHTTP, sem chan struc
 			rcOut, errOut = nil, fmt.Errorf("脚本运行时内部错误：%v", p)
 		}
 	}()
-	prog, err := s.program(sc)
-	if err != nil {
-		return nil, err
-	}
 	timeout := time.Duration(sc.Timeout) * time.Second
 	if timeout <= 0 {
 		timeout = defTimeout
 	}
 	if timeout > maxTimeout {
 		timeout = maxTimeout
+	}
+	// v0.19.9: large bundles compile and run one at a time (see bigSem).
+	if s.scriptSize(sc) >= largeProgSource {
+		select {
+		case s.bigSem <- struct{}{}:
+		case <-time.After(timeout):
+			return nil, errors.New("脚本排队超时")
+		}
+		defer func() { <-s.bigSem }()
+	}
+	prog, err := s.program(sc)
+	if err != nil {
+		return nil, err
 	}
 	select {
 	case sem <- struct{}{}:
@@ -342,6 +471,7 @@ func startMemGuard(ctx context.Context, rt *goja.Runtime) func() {
 		t := time.NewTicker(50 * time.Millisecond)
 		defer t.Stop()
 		sample := []metrics.Sample{{Name: "/memory/classes/heap/objects:bytes"}}
+		var lastGC time.Time
 		for {
 			select {
 			case <-done:
@@ -351,6 +481,17 @@ func startMemGuard(ctx context.Context, rt *goja.Runtime) func() {
 			case <-t.C:
 				metrics.Read(sample)
 				if sample[0].Value.Kind() == metrics.KindUint64 && sample[0].Value.Uint64() > threshold {
+					// v0.19.9: heap objects include garbage the GC has not swept yet. Under GOMEMLIMIT the
+					// heap legitimately runs close to the limit (a large bundle that was just replaced in
+					// the program cache), so collect once and judge the live heap; at most every 500 ms.
+					if time.Since(lastGC) > 500*time.Millisecond {
+						lastGC = time.Now()
+						runtime.GC()
+						metrics.Read(sample)
+						if sample[0].Value.Uint64() <= threshold {
+							continue
+						}
+					}
 					rt.Interrupt(memInterrupt)
 					return
 				}
@@ -1098,6 +1239,13 @@ func (rc *runCtx) parseDone(requestPhase bool) (*ScriptResult, error) {
 			if get(o, "status") != nil || get(o, "body") != nil || get(o, "bodyBytes") != nil {
 				mock = o
 			}
+		}
+		// v0.19.9: a request script that sees $task (we expose the QX API to every script) answers the
+		// QX way, $done({status: "HTTP/1.1 200 OK", headers, body}), even when the rule came from a Surge
+		// module or Loon plugin. Surge's request $done has no status key, so a status here can only mean
+		// a local answer (Sub-Store's backend did this and every API call fell through to the network).
+		if mock == nil && (get(o, "status") != nil || get(o, "statusCode") != nil) && get(o, "url") == nil && get(o, "method") == nil {
+			mock = o
 		}
 		if mock != nil {
 			mo := mock.ToObject(rc.rt)

@@ -26,6 +26,21 @@ import (
 // MaxBody caps any body the engine buffers for rewrite / scripts (memory guard for the ~50 MB extension).
 const MaxBody = 2 << 20
 
+// MaxScriptBody is the body cap for a script that asks for unlimited / larger bodies (max-size=-1, or a
+// max-size above MaxBody): Sub-Store's backend receives whole backups and files in a POST body.
+const MaxScriptBody = 4 << 20
+
+// scriptBodyLimit is the body size handed to a requires-body script: its max-size within the caps.
+func scriptBodyLimit(sc *Script) int {
+	switch {
+	case sc.MaxSize < 0 || sc.MaxSize > MaxScriptBody:
+		return MaxScriptBody
+	case sc.MaxSize == 0:
+		return MaxBody
+	}
+	return sc.MaxSize
+}
+
 var tinyGIF = []byte{0x47, 0x49, 0x46, 0x38, 0x39, 0x61, 0x01, 0x00, 0x01, 0x00, 0x80, 0x00, 0x00, 0xff, 0xff, 0xff,
 	0x00, 0x00, 0x00, 0x21, 0xf9, 0x04, 0x01, 0x00, 0x00, 0x00, 0x00, 0x2c, 0x00, 0x00, 0x00, 0x00, 0x01, 0x00, 0x01,
 	0x00, 0x00, 0x02, 0x02, 0x44, 0x01, 0x00, 0x3b}
@@ -259,10 +274,7 @@ func (e *Engine) serveHTTP(w http.ResponseWriter, r *http.Request) {
 			}
 			sreq := &ScriptHTTP{URL: u, Method: r.Method, Header: r.Header}
 			if rule.Script.RequiresBody {
-				lim := MaxBody
-				if rule.Script.MaxSize > 0 && rule.Script.MaxSize < lim {
-					lim = rule.Script.MaxSize
-				}
+				lim := scriptBodyLimit(rule.Script)
 				if !loadBody(lim) {
 					e.Logs.Add(rule.Script.Name, "warn", "请求体超过上限，跳过脚本")
 					continue
@@ -466,10 +478,7 @@ func (e *Engine) modifyResponse(f *flow, resp *http.Response) error {
 			sreq := &ScriptHTTP{URL: f.url, Method: resp.Request.Method, Header: resp.Request.Header}
 			sresp := &ScriptHTTP{Status: resp.StatusCode, Header: resp.Header}
 			if rule.Script.RequiresBody {
-				lim := MaxBody
-				if rule.Script.MaxSize > 0 && rule.Script.MaxSize < lim {
-					lim = rule.Script.MaxSize
-				}
+				lim := scriptBodyLimit(rule.Script)
 				if !loadBody(lim) {
 					e.Logs.Add(rule.Script.Name, "warn", "响应体超过上限或编码不支持，跳过脚本")
 					continue

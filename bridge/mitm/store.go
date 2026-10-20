@@ -54,6 +54,9 @@ func (s *Store) saveLocked() error {
 // storeMaxTotal caps $persistentStore / $prefs (keys + values).
 const storeMaxTotal = 8 << 20
 
+// storeMaxValue caps one $persistentStore / $prefs value.
+const storeMaxValue = 4 << 20
+
 // Read returns the value and whether it exists.
 func (s *Store) Read(key string) (string, bool) {
 	s.mu.Lock()
@@ -71,7 +74,9 @@ func (s *Store) Write(key, val string, del bool) bool {
 	if del {
 		delete(s.data, key)
 	} else {
-		if len(val) > 1<<20 {
+		// v0.19.9: 4 MB per value (was 1 MB). Sub-Store keeps all its subscriptions, collections, files and
+		// artifacts in one JSON key; BoxJS backups are one key each. The 8 MB total still bounds the store.
+		if len(val) > storeMaxValue {
 			return false
 		}
 		// v0.19.3: total cap. Every write re-serialises the whole map inside the 50 MB extension, so an

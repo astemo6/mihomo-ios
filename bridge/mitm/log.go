@@ -75,6 +75,17 @@ func (c *lru[V]) Weight() int64 {
 	return c.w
 }
 
+// Remove drops one entry (no-op when absent).
+func (c *lru[V]) Remove(k string) {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	if el, ok := c.m[k]; ok {
+		c.l.Remove(el)
+		c.w -= el.Value.(*lruItem[V]).w
+		delete(c.m, k)
+	}
+}
+
 func (c *lru[V]) Reset() {
 	c.mu.Lock()
 	c.l.Init()
