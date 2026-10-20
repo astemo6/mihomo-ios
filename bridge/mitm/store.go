@@ -29,6 +29,7 @@ type Store struct {
 	pending map[string]*string // keys changed since the last flush (nil = deleted)
 	cleared bool               // removeAllValues since the last flush
 	timer   *time.Timer
+	size    int // bytes of keys + values in data
 }
 
 // storeFlushDelay coalesces bursts of writes (a script setting several keys, counters per request).
@@ -44,11 +45,30 @@ func (s *Store) readFile() (map[string]string, time.Time, bool) {
 		return nil, time.Time{}, false
 	}
 	m := map[string]string{}
-	if f, err := os.Open(s.path); err == nil {
-		_ = json.NewDecoder(bufio.NewReader(f)).Decode(&m)
-		f.Close()
+	f, err := os.Open(s.path)
+	if err != nil {
+		return nil, time.Time{}, false
+	}
+	derr := json.NewDecoder(bufio.NewReader(f)).Decode(&m)
+	f.Close()
+	if derr != nil && fi.Size() > 0 {
+		// review6 P2-2: an unreadable file used to read as an empty (or partial) store, and the next
+		// write replaced the whole store with it — every BoxJS setting / Sub-Store subscription gone.
+		// Keep a copy for recovery and keep what is in memory.
+		_ = os.Rename(s.path, s.path+".bad")
+		return nil, time.Time{}, false
 	}
 	return m, fi.ModTime(), true
+}
+
+// recomputeSizeLocked recounts the bytes of keys + values (review6 OPT-2: Write keeps a running total
+// instead of summing every key on each call).
+func (s *Store) recomputeSizeLocked() {
+	n := 0
+	for k, v := range s.data {
+		n += len(k) + len(v)
+	}
+	s.size = n
 }
 
 func (s *Store) loadLocked() {
@@ -70,6 +90,7 @@ func (s *Store) loadLocked() {
 	} else if s.data == nil {
 		s.data = map[string]string{}
 	}
+	s.recomputeSizeLocked()
 }
 
 // markLocked records a change and schedules the flush.
@@ -112,6 +133,7 @@ func (s *Store) flushLocked() error {
 				}
 			}
 			s.data = m
+			s.recomputeSizeLocked()
 		}
 	}
 	s.pending, s.cleared = nil, false
@@ -184,6 +206,7 @@ func (s *Store) Write(key, val string, del bool) bool {
 		if _, ok := s.data[key]; !ok {
 			return true
 		}
+		s.size -= len(key) + len(s.data[key])
 		delete(s.data, key)
 		s.markLocked(key, nil)
 		return true
@@ -194,18 +217,20 @@ func (s *Store) Write(key, val string, del bool) bool {
 	if len(val) > storeMaxValue {
 		return false
 	}
-	if old, ok := s.data[key]; ok && old == val {
+	old, had := s.data[key]
+	if had && old == val {
 		return true
 	}
-	total := len(val) + len(key)
-	for k, v := range s.data {
-		if k != key {
-			total += len(k) + len(v)
-		}
+	total := s.size + len(val)
+	if had {
+		total -= len(old)
+	} else {
+		total += len(key)
 	}
 	if total > storeMaxTotal {
 		return false
 	}
+	s.size = total
 	s.data[key] = val
 	v := val
 	s.markLocked(key, &v)
@@ -217,6 +242,7 @@ func (s *Store) Clear() bool {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	s.data = map[string]string{}
+	s.size = 0
 	s.pending = nil
 	s.cleared = true
 	return s.flushLocked() == nil
