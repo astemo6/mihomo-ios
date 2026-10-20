@@ -712,6 +712,18 @@ func (rc *runCtx) uint8Array(b []byte) goja.Value {
 	return o
 }
 
+// binaryBody exposes a binary-mode body as a Uint8Array plus the ArrayBuffer under it (review6 OPT-1:
+// one copy of the body instead of two; Surge's body / bodyBytes describe the same bytes).
+func (rc *runCtx) binaryBody(b []byte) (goja.Value, goja.Value) {
+	ab := rc.rt.NewArrayBuffer(append([]byte(nil), b...))
+	abv := rc.rt.ToValue(ab)
+	o, err := rc.rt.New(rc.rt.Get("Uint8Array"), abv)
+	if err != nil {
+		return abv, abv
+	}
+	return o, abv
+}
+
 // bodyBytes converts a JS value (string / ArrayBuffer / TypedArray / object) into bytes.
 func (rc *runCtx) bodyBytes(v goja.Value) ([]byte, bool) {
 	if v == nil || goja.IsUndefined(v) || goja.IsNull(v) {
@@ -783,8 +795,9 @@ func (rc *runCtx) installHTTP(req, resp *ScriptHTTP) {
 	_ = ro.Set("id", strconv.FormatInt(time.Now().UnixNano(), 36))
 	if resp == nil && req.HasBody {
 		if sc.BinaryBody {
-			_ = ro.Set("body", rc.uint8Array(req.Body))
-			_ = ro.Set("bodyBytes", rt.NewArrayBuffer(append([]byte(nil), req.Body...)))
+			u8, ab := rc.binaryBody(req.Body)
+			_ = ro.Set("body", u8)
+			_ = ro.Set("bodyBytes", ab)
 		} else {
 			_ = ro.Set("body", bodyString(req.Body))
 		}
@@ -800,8 +813,9 @@ func (rc *runCtx) installHTTP(req, resp *ScriptHTTP) {
 		_ = so.Set("headers", rt.NewDynamicObject(newCIHeaders(rt, resp.Header)))
 		if resp.HasBody {
 			if sc.BinaryBody {
-				_ = so.Set("body", rc.uint8Array(resp.Body))
-				_ = so.Set("bodyBytes", rt.NewArrayBuffer(append([]byte(nil), resp.Body...)))
+				u8, ab := rc.binaryBody(resp.Body)
+				_ = so.Set("body", u8)
+				_ = so.Set("bodyBytes", ab)
 			} else {
 				_ = so.Set("body", bodyString(resp.Body))
 			}
@@ -1202,10 +1216,11 @@ func (rc *runCtx) parseFetch(method string, v goja.Value) (*fetchReq, error) {
 }
 
 type fetchResp struct {
-	status int
-	header http.Header
-	body   []byte
-	err    error
+	status  int
+	header  http.Header
+	body    []byte
+	err     error
+	release func() // body budget share (nil on error); returned by deliverFetch
 }
 
 func (rc *runCtx) do(fr *fetchReq) *fetchResp {
@@ -1243,19 +1258,42 @@ func (rc *runCtx) do(fr *fetchReq) *fetchResp {
 		return &fetchResp{err: err}
 	}
 	defer resp.Body.Close()
+	// review6 P1-2: script downloads share the global body budget with rewrite / script bodies. Six
+	// parallel 3 MB $httpClient.get calls peaked at +58 MB (the extension has ~50 MB). The budget is held
+	// until the callback has run (see deliverFetch); when it cannot be had within fetchBudgetWait the
+	// download still goes ahead unless the heap is already high, so a script that itself holds a body
+	// share never deadlocks on its own fetch.
+	if heapHigh() {
+		return &fetchResp{err: errors.New("内存紧张，已跳过下载（保护隧道内存）")}
+	}
+	want := int64(MaxScriptBody)
+	if resp.ContentLength >= 0 && resp.ContentLength < want && resp.Header.Get("Content-Encoding") == "" {
+		want = resp.ContentLength
+	}
+	release := bodyBudget.acquire(ctx, want, fetchBudgetWait)
+	if release == nil {
+		if ctx.Err() != nil {
+			return &fetchResp{err: ctx.Err()}
+		}
+		if heapHigh() {
+			return &fetchResp{err: errors.New("内存紧张，已跳过下载（保护隧道内存）")}
+		}
+		release = func() {}
+	}
+	fail := func(err error) *fetchResp { release(); return &fetchResp{err: err} }
 	// v0.19.9 (review 5 P2-5): read one byte past the cap and fail loudly instead of handing the script a
 	// silently truncated body (it then failed later in JSON.parse).
-	b, err := io.ReadAll(io.LimitReader(resp.Body, MaxScriptBody+1))
+	b, err := readSized(resp.Body, resp.ContentLength, MaxScriptBody)
 	if err != nil {
-		return &fetchResp{err: err}
+		return fail(err)
 	}
 	if len(b) > MaxScriptBody {
-		return &fetchResp{err: fmt.Errorf("响应体超过 %d MB", MaxScriptBody>>20)}
+		return fail(fmt.Errorf("响应体超过 %d MB", MaxScriptBody>>20))
 	}
 	if ce := resp.Header.Get("Content-Encoding"); ce != "" && !strings.EqualFold(ce, "identity") {
 		d, derr := decodeBody(ce, b, MaxScriptBody)
 		if errors.Is(derr, errBodyTooBig) {
-			return &fetchResp{err: fmt.Errorf("响应体超过 %d MB", MaxScriptBody>>20)}
+			return fail(fmt.Errorf("响应体超过 %d MB", MaxScriptBody>>20))
 		}
 		if derr == nil {
 			b = d
@@ -1263,7 +1301,27 @@ func (rc *runCtx) do(fr *fetchReq) *fetchResp {
 			resp.Header.Del("Content-Length")
 		}
 	}
-	return &fetchResp{status: resp.StatusCode, header: resp.Header, body: b}
+	return &fetchResp{status: resp.StatusCode, header: resp.Header, body: b, release: release}
+}
+
+// fetchBudgetWait is how long a script download waits for body budget before going ahead anyway.
+var fetchBudgetWait = 2 * time.Second
+
+// deliverFetch posts a fetch result to the event loop and returns its body budget once the callback
+// ran, or once the script ended without running it.
+func (rc *runCtx) deliverFetch(res *fetchResp, job func()) {
+	done := make(chan struct{})
+	rc.post(func() {
+		defer close(done)
+		job()
+	})
+	if res.release != nil {
+		select {
+		case <-done:
+		case <-rc.ctx.Done():
+		}
+		res.release()
+	}
 }
 
 func (rc *runCtx) httpClient(method string, opts, cb goja.Value) {
@@ -1278,7 +1336,7 @@ func (rc *runCtx) httpClient(method string, opts, cb goja.Value) {
 	rc.pending++
 	go func() {
 		res := rc.do(fr)
-		rc.post(func() {
+		rc.deliverFetch(res, func() {
 			rc.pending--
 			if fn == nil {
 				return
@@ -1319,7 +1377,7 @@ func (rc *runCtx) taskFetch(opts goja.Value) goja.Value {
 	rc.pending++
 	go func() {
 		res := rc.do(fr)
-		rc.post(func() {
+		rc.deliverFetch(res, func() {
 			rc.pending--
 			var e error
 			if res.err != nil {

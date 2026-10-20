@@ -88,6 +88,9 @@ func (r *Resources) Get(p string, maxAge int) ([]byte, error) {
 		return os.ReadFile(r.LocalPath(p))
 	}
 	if b, ok := r.mem.Get(p); ok {
+		// review6 OPT-3: a source kept in memory still honours its update interval (only checked on a
+		// disk read before, so hot small scripts / map-local files never refreshed until a reload).
+		r.RefreshIfStale(p, maxAge)
 		return b, nil
 	}
 	cp := r.cachePath(p)

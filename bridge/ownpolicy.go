@@ -91,6 +91,9 @@ func splitOwnPolicyList(cachePath string, data []byte) (int, error) {
 		}
 		b.lines = append(b.lines, rule)
 	}
+	if err := sc.Err(); err != nil {
+		return 0, err
+	}
 	side := ownPolicySidecar(cachePath)
 	if len(order) == 0 {
 		_ = os.Remove(side)
