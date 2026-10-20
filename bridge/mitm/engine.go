@@ -151,6 +151,7 @@ func (e *Engine) Start() error {
 // Stop closes the listener and all state.
 func (e *Engine) Stop() {
 	e.tasks.shutdown()
+	_ = e.Store.Flush() // v0.19.9: coalesced $persistentStore writes reach the file before the tunnel goes
 	if e.ln == nil {
 		return
 	}

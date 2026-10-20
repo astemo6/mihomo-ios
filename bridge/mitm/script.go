@@ -101,7 +101,26 @@ func (s *ScriptRunner) Invalidate(path string) {
 
 func (s *ScriptRunner) program(sc *Script) (prog *goja.Program, err error) {
 	src := sc.Source
+	sig := ""
 	if src == nil {
+		// v0.19.9 (review 5 P2-7): a script file that has not changed (same size + mtime) maps straight to
+		// its compiled program: no re-read + SHA-256 of a 1.3 MB bundle on every request.
+		var size int64
+		sig, size = s.statSig(sc.Path)
+		if sig != "" {
+			s.mu.Lock()
+			v, ok := s.byURL[sc.Path]
+			s.mu.Unlock()
+			if ok && strings.HasPrefix(v, sig+"|") {
+				if p, ok := s.progs.Get(strings.TrimPrefix(v, sig+"|")); ok {
+					if size >= largeProgSource {
+						s.touchLarge(strings.TrimPrefix(v, sig+"|"))
+					}
+					s.e.res.RefreshIfStale(sc.Path, sc.UpdateInterval)
+					return p, nil
+				}
+			}
+		}
 		var err error
 		src, err = s.e.res.Get(sc.Path, sc.UpdateInterval)
 		if err != nil {
@@ -110,6 +129,11 @@ func (s *ScriptRunner) program(sc *Script) (prog *goja.Program, err error) {
 	}
 	sum := sha256.Sum256(src)
 	key := hex.EncodeToString(sum[:])
+	if sig != "" {
+		s.mu.Lock()
+		s.byURL[sc.Path] = sig + "|" + key
+		s.mu.Unlock()
+	}
 	if p, ok := s.progs.Get(key); ok {
 		if len(src) >= largeProgSource {
 			s.touchLarge(key)
@@ -214,6 +238,21 @@ func compileFits(srcLen int) error {
 			float64(srcLen)/(1<<20), (live+need)>>20, limit>>20)
 	}
 	return nil
+}
+
+// statSig is "size:mtime" of the file behind a script path (cache file for URLs), "" when missing.
+func (s *ScriptRunner) statSig(path string) (string, int64) {
+	p := path
+	if isRemote(p) {
+		p = CachePath(s.e.home, p)
+	} else {
+		p = s.e.res.LocalPath(p)
+	}
+	fi, err := os.Stat(p)
+	if err != nil {
+		return "", 0
+	}
+	return strconv.FormatInt(fi.Size(), 10) + ":" + strconv.FormatInt(fi.ModTime().UnixNano(), 10), fi.Size()
 }
 
 // scriptSize is the source size of sc without reading it (0 when unknown, e.g. not downloaded yet).
@@ -1095,6 +1134,10 @@ func (rc *runCtx) do(fr *fetchReq) *fetchResp {
 		req.Header.Del("Host")
 	}
 	req.Header.Del("Content-Length")
+	// v0.19.9 (review 5 P1-4): a script passing its own Accept-Encoding (often $request.headers) turned
+	// off Go's transparent gzip and got compressed bytes. Surge / QX / Loon hand scripts decoded bodies:
+	// let the transport negotiate gzip, and decode anything a server sends regardless (below).
+	req.Header.Del("Accept-Encoding")
 	c := rc.e.client(fr.policy, fr.insecure)
 	if fr.noRedirect {
 		c2 := *c
@@ -1106,9 +1149,24 @@ func (rc *runCtx) do(fr *fetchReq) *fetchResp {
 		return &fetchResp{err: err}
 	}
 	defer resp.Body.Close()
-	b, err := io.ReadAll(io.LimitReader(resp.Body, MaxBody))
+	// v0.19.9 (review 5 P2-5): read one byte past the cap and fail loudly instead of handing the script a
+	// silently truncated body (it then failed later in JSON.parse).
+	b, err := io.ReadAll(io.LimitReader(resp.Body, MaxScriptBody+1))
 	if err != nil {
 		return &fetchResp{err: err}
+	}
+	if len(b) > MaxScriptBody {
+		return &fetchResp{err: fmt.Errorf("响应体超过 %d MB", MaxScriptBody>>20)}
+	}
+	if ce := resp.Header.Get("Content-Encoding"); ce != "" && !strings.EqualFold(ce, "identity") {
+		if d, derr := decodeBody(ce, b); derr == nil {
+			if len(d) > MaxScriptBody {
+				return &fetchResp{err: fmt.Errorf("响应体超过 %d MB", MaxScriptBody>>20)}
+			}
+			b = d
+			resp.Header.Del("Content-Encoding")
+			resp.Header.Del("Content-Length")
+		}
 	}
 	return &fetchResp{status: resp.StatusCode, header: resp.Header, body: b}
 }

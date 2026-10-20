@@ -127,6 +127,7 @@ func DebugRun(home string, in DebugInput, dial DialFunc) (out DebugOutput) {
 		dial = directDial
 	}
 	e := New(home, dial, func(string, string) {})
+	defer func() { _ = e.Store.Flush() }() // v0.19.9: store writes are coalesced; the run's writes land now
 	name := in.Name
 	if name == "" {
 		name = "调试"

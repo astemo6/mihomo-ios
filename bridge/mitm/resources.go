@@ -23,10 +23,42 @@ type Resources struct {
 	mu   sync.Mutex
 	inf  map[string]*sync.WaitGroup
 	mem  *lru[[]byte]
+	// v0.19.9 (review 5 P2-7): last background refresh attempt per URL (stale refreshes at most every
+	// staleRetry, so an offline device does not start a download on every run).
+	tried map[string]time.Time
 }
 
+// memCacheMax / memCacheBudget: sources kept in memory (small files only, 2 MB in total).
+const (
+	memCacheMax    = 512 << 10
+	memCacheBudget = 2 << 20
+	staleRetry     = 10 * time.Minute
+)
+
 func NewResources(home string, e *Engine) *Resources {
-	return &Resources{home: home, e: e, inf: map[string]*sync.WaitGroup{}, mem: newLRU[[]byte](12)}
+	mem := newLRU[[]byte](12)
+	mem.maxW = memCacheBudget
+	return &Resources{home: home, e: e, inf: map[string]*sync.WaitGroup{}, mem: mem, tried: map[string]time.Time{}}
+}
+
+// RefreshIfStale starts a background download when the cached copy of a remote resource is older than
+// maxAge seconds, at most once per staleRetry per URL.
+func (r *Resources) RefreshIfStale(p string, maxAge int) {
+	if !isRemote(p) || maxAge <= 0 {
+		return
+	}
+	fi, err := os.Stat(r.cachePath(p))
+	if err != nil || time.Since(fi.ModTime()) <= time.Duration(maxAge)*time.Second {
+		return
+	}
+	r.mu.Lock()
+	if t, ok := r.tried[p]; ok && time.Since(t) < staleRetry {
+		r.mu.Unlock()
+		return
+	}
+	r.tried[p] = time.Now()
+	r.mu.Unlock()
+	go func() { _, _ = r.fetch(p) }()
 }
 
 func isRemote(p string) bool {
@@ -63,10 +95,10 @@ func (r *Resources) Get(p string, maxAge int) ([]byte, error) {
 		b, err := os.ReadFile(cp)
 		if err == nil {
 			if maxAge > 0 && time.Since(fi.ModTime()) > time.Duration(maxAge)*time.Second {
-				go func() { _, _ = r.fetch(p) }()
+				r.RefreshIfStale(p, maxAge)
 			}
-			if len(b) < 512<<10 {
-				r.mem.Put(p, b)
+			if len(b) < memCacheMax {
+				r.mem.PutW(p, b, int64(len(b)))
 			}
 			return b, nil
 		}
@@ -124,7 +156,11 @@ func (r *Resources) fetch(u string) ([]byte, error) {
 	cp := r.cachePath(u)
 	_ = os.MkdirAll(filepath.Dir(cp), 0o755)
 	_ = writeAtomic(cp, b, 0o644)
-	r.mem.Put(u, b)
+	if len(b) < memCacheMax {
+		r.mem.PutW(u, b, int64(len(b)))
+	} else {
+		r.mem.Remove(u)
+	}
 	r.e.scripts.Invalidate(u)
 	return b, nil
 }

@@ -6,15 +6,20 @@ package mitm
 // temp dir; the tests skip when offline (MIHOMO_OFFLINE=1 forces the skip). Nothing large is committed.
 
 import (
+	"compress/gzip"
+	"context"
 	"crypto/sha1"
 	"encoding/hex"
 	"encoding/json"
 	"io"
+	"net"
 	"net/http"
+	"net/http/httptest"
 	"os"
 	"path/filepath"
 	"runtime"
 	"runtime/debug"
+	"strconv"
 	"strings"
 	"sync/atomic"
 	"testing"
@@ -405,4 +410,106 @@ func TestV0199SubStoreSyncTask(t *testing.T) {
 		}
 	}
 	t.Logf("sync task log: %s", clip(strings.Join(msgs, " | "), 600))
+}
+
+// review 5 P1-4 / P2-5: $httpClient decodes bodies even when the script sends its own Accept-Encoding,
+// and fails loudly above MaxScriptBody instead of truncating.
+func TestV0199HTTPClientEncodingAndCap(t *testing.T) {
+	big := strings.Repeat("x", MaxScriptBody+10)
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		switch r.URL.Path {
+		case "/gz":
+			w.Header().Set("Content-Encoding", "gzip")
+			gz := gzip.NewWriter(w)
+			_, _ = io.WriteString(gz, `{"ok":true,"ae":"`+r.Header.Get("Accept-Encoding")+`"}`)
+			_ = gz.Close()
+		case "/big":
+			_, _ = io.WriteString(w, big)
+		}
+	}))
+	defer srv.Close()
+	addr := srv.Listener.Addr().String()
+	dial := func(ctx context.Context, network, a, policy string) (net.Conn, error) {
+		var d net.Dialer
+		return d.DialContext(ctx, "tcp", addr)
+	}
+	code := `$httpClient.get({url: "http://t.test/gz", headers: {"Accept-Encoding": "gzip, deflate, br", "User-Agent": "x"}}, (e, r, d) => {
+  const o = JSON.parse(d);
+  $httpClient.get("http://t.test/big", (e2, r2, d2) => { $done({body: JSON.stringify({ok: o.ok, ce: r.headers["Content-Encoding"] || "", err: e2 || "", len: d2 ? d2.length : 0})}) });
+});`
+	out := DebugRun(t.TempDir(), DebugInput{Code: code, Type: "http-request", Request: &DebugHTTP{URL: "https://a.test/"}}, dial)
+	if !out.OK || out.Result == nil {
+		t.Fatalf("run: %+v", out)
+	}
+	var r struct {
+		OK  bool   `json:"ok"`
+		CE  string `json:"ce"`
+		Err string `json:"err"`
+		Len int    `json:"len"`
+	}
+	if err := json.Unmarshal([]byte(out.Result.Body), &r); err != nil {
+		t.Fatalf("%v: %s", err, out.Result.Body)
+	}
+	if !r.OK || r.CE != "" || !strings.Contains(r.Err, "响应体超过") || r.Len != 0 {
+		t.Fatalf("got %+v", r)
+	}
+}
+
+// review 5 P1-5: a tiny write to a multi-MB store stays cheap (streamed, coalesced) and an edit the app
+// made to store.json meanwhile survives the flush.
+func TestV0199StoreWriteCostAndMerge(t *testing.T) {
+	home := t.TempDir()
+	s := NewStore(home)
+	val := strings.Repeat(`{"k":"v\"q"},`, 878<<10/13)
+	for i := 0; i < 5; i++ {
+		if !s.Write("big"+strconv.Itoa(i), val, false) {
+			t.Fatal("write big")
+		}
+	}
+	if err := s.Flush(); err != nil {
+		t.Fatal(err)
+	}
+	runtime.GC()
+	var m0, m1 runtime.MemStats
+	runtime.ReadMemStats(&m0)
+	for i := 0; i < 20; i++ {
+		s.Write("counter", strconv.Itoa(i), false)
+		_ = s.Flush()
+	}
+	runtime.ReadMemStats(&m1)
+	perWrite := (m1.TotalAlloc - m0.TotalAlloc) / 20
+	t.Logf("store %.1f MB: %.2f MB allocated per one-key write+flush", float64(5*len(val))/(1<<20), float64(perWrite)/(1<<20))
+	if perWrite > 1<<20 {
+		t.Fatalf("one small write allocates %.1f MB", float64(perWrite)/(1<<20))
+	}
+	// The app edits the file (another process), then a script writes before reading it.
+	time.Sleep(10 * time.Millisecond)
+	app := NewStore(home)
+	app.Write("from_app", "1", false)
+	if err := app.Flush(); err != nil {
+		t.Fatal(err)
+	}
+	s.Write("from_script", "2", false) // loads the app's version first (mtime changed)
+	s.mu.Lock()
+	s.data["from_app"] = "1" // simulate a race: the app's write lands after our load
+	s.mu.Unlock()
+	if err := s.Flush(); err != nil {
+		t.Fatal(err)
+	}
+	fresh := NewStore(home)
+	if v, _ := fresh.Read("from_app"); v != "1" {
+		t.Fatal("app edit lost")
+	}
+	if v, _ := fresh.Read("from_script"); v != "2" {
+		t.Fatal("script write lost")
+	}
+	if v, _ := fresh.Read("big3"); v != val {
+		t.Fatal("big value corrupted")
+	}
+	odd := "a\x01b\tc\n\u2028中文\"\\ \x7f"
+	s.Write("odd", odd, false)
+	_ = s.Flush()
+	if v, _ := NewStore(home).Read("odd"); v != odd {
+		t.Fatalf("escaping round trip: %q", v)
+	}
 }
