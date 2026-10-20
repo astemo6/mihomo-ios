@@ -76,6 +76,8 @@ var (
 // redactor collects every secret it removed so the same strings can be scrubbed from free text.
 type redactor struct {
 	secrets map[string]bool
+	// v0.19.11 (review 6 OPT-2): the replacer for secrets, rebuilt only after remember adds one.
+	repl *strings.Replacer
 }
 
 func newRedactor() *redactor { return &redactor{secrets: map[string]bool{}} }
@@ -85,10 +87,14 @@ func (r *redactor) remember(s string) {
 	if len(s) < 4 {
 		return // too short to scrub safely from logs (would hit unrelated text)
 	}
-	r.secrets[s] = true
+	if !r.secrets[s] {
+		r.secrets[s] = true
+		r.repl = nil
+	}
 	if u, err := url.Parse(s); err == nil && u.Host != "" {
-		if h := u.Hostname(); len(h) >= 4 {
+		if h := u.Hostname(); len(h) >= 4 && !r.secrets[h] {
 			r.secrets[h] = true
+			r.repl = nil
 		}
 	}
 }
@@ -203,20 +209,34 @@ func looksLikeToken(seg string) bool {
 	return letters > 0 && digits >= 2 && len(seg) >= 6 && !strings.Contains(seg, "-") && !strings.Contains(seg, "_")
 }
 
+func (r *redactor) replacer() *strings.Replacer {
+	if r.repl != nil {
+		return r.repl
+	}
+	list := make([]string, 0, len(r.secrets))
+	for k := range r.secrets {
+		list = append(list, k)
+	}
+	// longest first, ties by text, so the result does not depend on map order
+	sort.Slice(list, func(i, j int) bool {
+		if len(list[i]) != len(list[j]) {
+			return len(list[i]) > len(list[j])
+		}
+		return list[i] < list[j]
+	})
+	pairs := make([]string, 0, 2*len(list))
+	for _, k := range list {
+		pairs = append(pairs, k, redacted)
+	}
+	r.repl = strings.NewReplacer(pairs...)
+	return r.repl
+}
+
 // text scrubs free text (logs, errors): every remembered secret, UUIDs, URL queries / credentials,
 // key=value secrets, bearer tokens, and public IPv4 addresses (last two octets masked).
 func (r *redactor) text(s string) string {
 	if len(r.secrets) > 0 {
-		list := make([]string, 0, len(r.secrets))
-		for k := range r.secrets {
-			list = append(list, k)
-		}
-		sort.Slice(list, func(i, j int) bool { return len(list[i]) > len(list[j]) })
-		pairs := make([]string, 0, 2*len(list))
-		for _, k := range list {
-			pairs = append(pairs, k, redacted)
-		}
-		s = strings.NewReplacer(pairs...).Replace(s)
+		s = r.replacer().Replace(s)
 	}
 	s = reTSKey.ReplaceAllString(s, "tskey-<redacted>")
 	s = reB64Link.ReplaceAllString(s, "$1://<redacted>")

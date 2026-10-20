@@ -10,6 +10,7 @@ import (
 	"strings"
 
 	"github.com/metacubex/mihomo/adapter/outboundgroup"
+	"github.com/metacubex/mihomo/component/profile/cachefile"
 	C "github.com/metacubex/mihomo/constant"
 	"github.com/metacubex/mihomo/log"
 	"github.com/metacubex/mihomo/tunnel"
@@ -115,6 +116,8 @@ func httpAPI(method, rawPath string, body any) (any, error) {
 		if err := s.Set(pol); err != nil {
 			return nil, err
 		}
+		// v0.19.11 (review 6 P2-6): persist like mihomo's PUT /proxies/{name}, so a Reload keeps it.
+		cachefile.Cache().SetSelected(name, pol)
 		log.Infoln("[Script] $httpAPI: %s → %s", name, pol)
 		return map[string]any{}, nil
 
