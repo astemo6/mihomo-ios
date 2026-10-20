@@ -401,6 +401,6 @@ struct HostTrafficList: View {
         .scrollContentBackground(.hidden)
         .background(Theme.bg.ignoresSafeArea())
         .navigationTitle("主机名")
-        .searchable(text: $search, prompt: "搜索主机名")
+        .searchable(text: $search, placement: .navigationBarDrawer(displayMode: .always), prompt: "搜索主机名")
     }
 }

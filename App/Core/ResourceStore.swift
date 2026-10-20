@@ -50,6 +50,16 @@ final class ResourceStore: ObservableObject {
         items = (try? JSONDecoder().decode([ResourceItem].self, from: Data(json.utf8))) ?? []
     }
 
+    /// v0.19.8: reload() off the main thread (the Go side reads every module and resource file), for page opens.
+    func reloadInBackground() async {
+        let home = self.home
+        let list = await Task.detached(priority: .userInitiated) { () -> [ResourceItem] in
+            let json = LibmihomoResourceList(home)
+            return (try? JSONDecoder().decode([ResourceItem].self, from: Data(json.utf8))) ?? []
+        }.value
+        if items != list { items = list }
+    }
+
     // MARK: settings (written to the store each resource belongs to)
 
     func setEnabled(_ it: ResourceItem, _ on: Bool) {

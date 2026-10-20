@@ -187,7 +187,7 @@ struct RequestsView: View {
                     }
                     .listStyle(.insetGrouped)
                     .scrollContentBackground(.hidden)
-                    .searchable(text: $search, prompt: "搜索主机、规则、策略")
+                    .searchable(text: $search, placement: .navigationBarDrawer(displayMode: .always), prompt: "搜索主机、规则、策略")
                 }
             }
             .background(Theme.bg.ignoresSafeArea())
@@ -259,11 +259,13 @@ struct ConnectionRow: View {
                 Text((c.metadata.network ?? "tcp").uppercased())
                     .scaledFont(9, weight: .bold)
                     .padding(.horizontal, 5).padding(.vertical, 2)
+                    .lineLimit(1) // v0.19.8: a capsule tag never wraps (tall grey box with large text)
                     .background(Capsule().fill((c.metadata.network == "udp" ? Color.purple : Theme.accent).opacity(0.2)))
                 if isMitM {
                     Text(c.metadata.destinationPort == "80" ? "HTTP" : "MitM")
                         .scaledFont(9, weight: .bold)
                         .padding(.horizontal, 5).padding(.vertical, 2)
+                        .lineLimit(1) // v0.19.8: a capsule tag never wraps (tall grey box with large text)
                         .background(Capsule().fill(Theme.warn.opacity(0.2)))
                         .foregroundStyle(Theme.warn)
                 }

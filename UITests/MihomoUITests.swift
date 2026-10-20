@@ -389,13 +389,9 @@ final class MihomoUITests: MihomoUITestCase {
         openMore("规则")
         app.buttons[L10n.f("自定义 %lld", 0)].firstMatch.tap()
         XCTAssertTrue(tapIfExists(app.element(id: "rules.add"), timeout: 5), "rules +")
-        let rule = app.textFields[L("规则")]
-        XCTAssertTrue(rule.waitForExistence(timeout: 5))
-        rule.tap()
-        rule.typeText("DOMAIN-SUFFIX,uitest.example.com,Proxy")
-        usleep(1_200_000)
+        typeRuleText("DOMAIN-SUFFIX,uitest.example.com,Proxy")
         snap("editor-rule")
-        app.navigationBars.buttons[L("保存")].tap()
+        app.element(id: "rule.save").tap()
         XCTAssertTrue(app.element(labelContains: "uitest.example.com").waitForExistence(timeout: 6), "rule saved")
         snap("rules-custom")
         back()
@@ -1557,14 +1553,29 @@ final class MihomoUITests: MihomoUITestCase {
         return false
     }
 
+    /// v0.19.8: the rule editor opens on the form; the raw line is typed in 文本模式 (segment), field id rule.text.
+    func typeRuleText(_ text: String) {
+        let mode = app.element(id: "rule.mode")
+        XCTAssertTrue(mode.waitForExistence(timeout: 5), "rule editor mode picker")
+        let seg = app.buttons.matching(NSPredicate(format: "label == %@", L("文本模式"))).firstMatch
+        XCTAssertTrue(tapIfExists(seg, timeout: 4), "文本模式 segment")
+        var field = app.textViews.matching(identifier: "rule.text").firstMatch
+        if !field.waitForExistence(timeout: 3) { field = app.textFields.matching(identifier: "rule.text").firstMatch }
+        XCTAssertTrue(field.waitForExistence(timeout: 5), "rule text field")
+        field.tap()
+        if let v = field.value as? String, !v.isEmpty, v != L("规则") {
+            field.typeText(String(repeating: XCUIKeyboardKey.delete.rawValue, count: v.count + 2))
+        }
+        field.typeText(text)
+        usleep(1_200_000)
+    }
+
     func addCustomRule(_ text: String) {
         XCTAssertTrue(tapIfExists(app.element(id: "rules.add"), timeout: 5), "rules +")
-        let rule = app.textFields[L("规则")]
-        XCTAssertTrue(rule.waitForExistence(timeout: 5), "rule field")
-        rule.tap()
-        rule.typeText(text)
-        usleep(1_200_000)
-        app.navigationBars.buttons[L("保存")].tap()
+        typeRuleText(text)
+        let save = app.element(id: "rule.save")
+        XCTAssertTrue(save.waitHittable(), "rule 保存 enabled")
+        save.tap()
         usleep(800_000)
     }
 

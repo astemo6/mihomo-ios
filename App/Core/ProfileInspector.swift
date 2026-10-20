@@ -43,6 +43,14 @@ struct InspectGroup: Decodable, Hashable, Identifiable {
         icon = try? c.decodeIfPresent(String.self, forKey: .icon)
         members = try? c.decodeIfPresent([String].self, forKey: .members)
     }
+
+    init(name: String, type: String, members: [String]) {
+        self.name = name
+        self.type = type
+        proxies = members
+        use = []
+        self.members = members
+    }
 }
 
 struct InspectRule: Decodable, Hashable {
@@ -117,6 +125,17 @@ final class ProfileInspector: ObservableObject {
         out["DIRECT"] = out["DIRECT"] ?? InspectProxy(name: "DIRECT", type: "direct")
         out["REJECT"] = out["REJECT"] ?? InspectProxy(name: "REJECT", type: "reject")
         return out
+    }
+
+    /// v0.19.8: GLOBAL while disconnected: the profile's own GLOBAL group, else the one mihomo builds (DIRECT,
+    /// REJECT, every node, every group, in config order). Shown in 全局 mode only.
+    var globalGroup: InspectGroup {
+        if let g = result.groups.first(where: { $0.name == "GLOBAL" }) { return g }
+        var m = ["DIRECT", "REJECT"] + result.proxies.map(\.name)
+        m += result.groups.filter { $0.name != "GLOBAL" }.map(\.name)
+        var g = InspectGroup(name: "GLOBAL", type: "select", members: m)
+        g.selected = result.selected["GLOBAL"]
+        return g
     }
 
     /// Members of a group as the core would list them: explicit proxies, then nodes from `use` providers.
@@ -196,10 +215,9 @@ final class ProfileInspector: ObservableObject {
     func select(group: String, node: String) {
         guard let path = profilePath ?? AppShared.activeProfileURL?.path else { return }
         let err = LibmihomoSaveSelection(path, group, node)
-        if err.isEmpty, let i = result.groups.firstIndex(where: { $0.name == group }) {
-            result.groups[i].selected = node
-            result.selected[group] = node
-        }
+        guard err.isEmpty else { return }
+        if let i = result.groups.firstIndex(where: { $0.name == group }) { result.groups[i].selected = node }
+        result.selected[group] = node // v0.19.8: also the synthesized GLOBAL
     }
 
     /// Delay test without the tunnel (direct from the app), group members in parallel (6 at a time).

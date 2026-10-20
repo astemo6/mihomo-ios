@@ -21,7 +21,7 @@ struct ModulesView: View {
         filter == "all" ? res.items : res.items.filter { $0.kind == filter }
     }
 
-    func count(_ kind: String) -> Int { res.items.filter { $0.kind == kind }.count }
+    func count(_ kind: String) -> Int { res.items.reduce(0) { $0 + ($1.kind == kind ? 1 : 0) } }
 
     var body: some View {
         List {
@@ -53,6 +53,7 @@ struct ModulesView: View {
                             Spacer()
                             Text("本地").scaledFont(9, weight: .bold)
                                 .padding(.horizontal, 5).padding(.vertical, 2)
+                                .lineLimit(1) // v0.19.8: a capsule tag never wraps (tall grey box with large text)
                                 .background(Capsule().fill(Theme.good.opacity(0.18)))
                                 .foregroundStyle(Theme.good)
                         }
@@ -127,12 +128,8 @@ struct ModulesView: View {
                     .disabled(res.updatingAll)
                     .accessibilityLabel(Text("全部更新"))
                 Menu {
-                    Button {
-                        let clip = UIPasteboard.general.hasStrings ? (UIPasteboard.general.string ?? "") : ""
-                        let t = clip.trimmingCharacters(in: .whitespacesAndNewlines)
-                        if case .moduleURL(let u, _)? = ImportRouter.parse(t) { url = u } else { url = t.hasPrefix("http") ? t : "" }
-                        adding = true
-                    } label: { Label("从 URL 导入模块", systemImage: "link") }
+                    // v0.19.8 (user): opens empty; the clipboard is read only from the sheet's 粘贴 button.
+                    Button { url = ""; adding = true } label: { Label("从 URL 导入模块", systemImage: "link") }
                     Button { pasting = true } label: { Label("粘贴模块内容", systemImage: "doc.on.clipboard") }
                     Button { addingRuleSet = true } label: { Label("添加远程规则集", systemImage: "list.bullet.rectangle") }
                     Divider()
@@ -141,20 +138,19 @@ struct ModulesView: View {
                 } label: { Image(systemName: "plus") }
             }
         }
-        .alert("导入模块", isPresented: $adding) {
-            TextField("https://…/xxx.sgmodule", text: $url).textInputAutocapitalization(.never).autocorrectionDisabled()
-            Button("导入") {
-                var u = url.trimmingCharacters(in: .whitespacesAndNewlines)
-                // Also accepts surge:/// loon:// stash:// quantumult-x:/// egern:/// install links.
-                if case .moduleURL(let inner, _)? = ImportRouter.parse(u) { u = inner }
-                Task { await store.addModule(url: u); res.reload() }
-            }
-            Button("取消", role: .cancel) {}
+        .sheet(isPresented: $adding) {
+            ModuleURLSheet(url: $url) { u in Task { await store.addModule(url: u); res.reload() } }
         }
         .alert("提示", isPresented: Binding(get: { store.message != nil || res.message != nil }, set: { if !$0 { store.message = nil; res.message = nil } })) {
             Button("好") { store.message = nil; res.message = nil }
         } message: { Text(store.message ?? res.message ?? "") }
-        .onAppear { store.reparseModules(); res.reload() }
+        // v0.19.8: no synchronous Go parsing during the push / pop animation; the cached list shows at once and
+        // the refreshed one replaces it a moment later.
+        .task {
+            try? await Task.sleep(nanoseconds: 350_000_000)
+            await store.reparseModulesInBackground()
+            await res.reloadInBackground()
+        }
         .onChange(of: store.config.modules) { _ in res.reload() }
         .overlay { if store.busy.contains("add") { ProgressView("下载中…").padding().background(RoundedRectangle(cornerRadius: 12).fill(Theme.cardHi)) } }
         .sheet(isPresented: $pasting, onDismiss: { res.reload() }) { PasteModuleSheet() }
@@ -175,6 +171,7 @@ struct ResourceKindBadge: View {
         Text(LocalizedStringKey(t))
             .scaledFont(9, weight: .bold)
             .padding(.horizontal, 5).padding(.vertical, 2)
+            .lineLimit(1) // v0.19.8: a capsule tag never wraps (tall grey box with large text)
             .background(Capsule().fill(c.opacity(0.18)))
             .foregroundStyle(c)
     }
@@ -197,6 +194,7 @@ struct SourceFormatBadge: View {
         Text(label)
             .scaledFont(8, weight: .bold)
             .padding(.horizontal, 4).padding(.vertical, 1)
+            .lineLimit(1) // v0.19.8: a capsule tag never wraps (tall grey box with large text)
             .background(Capsule().fill(Theme.ink(0.1)))
     }
 }
@@ -380,5 +378,54 @@ struct AddRuleSetSheet: View {
                 }
             }
         }
+    }
+}
+
+/// 从 URL 导入模块 (v0.19.8: a sheet instead of an alert, so the URL field can carry a PasteButton; nothing is read
+/// from the clipboard until 粘贴 is tapped).
+struct ModuleURLSheet: View {
+    @Binding var url: String
+    let onImport: (String) -> Void
+    @Environment(\.dismiss) private var dismiss
+
+    var body: some View {
+        NavigationStack {
+            Form {
+                Section {
+                    HStack {
+                        TextField("https://…/xxx.sgmodule", text: $url)
+                            .keyboardType(.URL).textInputAutocapitalization(.never).autocorrectionDisabled()
+                            .accessibilityIdentifier("moduleurl.field")
+                        PasteButton(payloadType: String.self) { strings in
+                            let t = (strings.first ?? "").trimmingCharacters(in: .whitespacesAndNewlines)
+                            DispatchQueue.main.async {
+                                if case .moduleURL(let u, _)? = ImportRouter.parse(t) { url = u } else { url = t }
+                            }
+                        }
+                        .labelStyle(.iconOnly)
+                        .buttonBorderShape(.capsule)
+                        .accessibilityIdentifier("moduleurl.paste")
+                    }
+                } footer: {
+                    Text("也可以粘贴 surge:/// loon:// stash:// quantumult-x:/// egern:/// 安装链接。")
+                }
+            }
+            .navigationTitle("导入模块")
+            .navigationBarTitleDisplayMode(.inline)
+            .toolbar {
+                ToolbarItem(placement: .cancellationAction) { Button("取消") { dismiss() } }
+                ToolbarItem(placement: .confirmationAction) {
+                    Button("导入") {
+                        var u = url.trimmingCharacters(in: .whitespacesAndNewlines)
+                        // Also accepts surge:/// loon:// stash:// quantumult-x:/// egern:/// install links.
+                        if case .moduleURL(let inner, _)? = ImportRouter.parse(u) { u = inner }
+                        onImport(u)
+                        dismiss()
+                    }
+                    .disabled(url.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty)
+                }
+            }
+        }
+        .presentationDetents([.medium])
     }
 }

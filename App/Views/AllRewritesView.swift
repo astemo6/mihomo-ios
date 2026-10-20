@@ -9,6 +9,11 @@ struct AllRewritesView: View {
     @State private var search = ""
     @State private var onlyEnabled = false
     @State private var localRows: [Row] = []
+    /// v0.19.8: rows built once after the push and filtered when search / 只看已启用 change, instead of rebuilding
+    /// and localizing ~2,000 rows in every body pass (the push animation stuttered; device report).
+    @State private var allRows: [Row] = []
+    @State private var shown: [Row] = []
+    @State private var loaded = false
 
     struct Row: Identifiable, Hashable {
         let id: String
@@ -16,6 +21,8 @@ struct AllRewritesView: View {
         let phase: String
         let pattern: String
         let desc: String
+        /// GoText.localize(desc), computed once.
+        var shownDesc: String = ""
         let source: String
         let moduleID: String?   // nil = 本地模块
         let enabled: Bool
@@ -45,19 +52,25 @@ struct AllRewritesView: View {
         return out
     }
 
-    private var rows: [Row] {
-        var all = localRows + moduleRows
+    private func filtered() -> [Row] {
+        var all = allRows
         if onlyEnabled { all = all.filter(\.enabled) }
-        guard !search.isEmpty else { return all }
+        let q = search
+        guard !q.isEmpty else { return all }
         return all.filter {
-            $0.pattern.localizedCaseInsensitiveContains(search) || $0.desc.localizedCaseInsensitiveContains(search)
-                || GoText.localize($0.desc).localizedCaseInsensitiveContains(search) || $0.source.localizedCaseInsensitiveContains(search)
-                || $0.kind.localizedCaseInsensitiveContains(search)
+            $0.pattern.localizedCaseInsensitiveContains(q) || $0.desc.localizedCaseInsensitiveContains(q)
+                || $0.shownDesc.localizedCaseInsensitiveContains(q) || $0.source.localizedCaseInsensitiveContains(q)
+                || $0.kind.localizedCaseInsensitiveContains(q)
         }
     }
 
+    private func rebuild() {
+        allRows = (localRows + moduleRows).map { var r = $0; r.shownDesc = GoText.localize(r.desc); return r }
+        shown = filtered()
+    }
+
     var body: some View {
-        let list = rows
+        let list = shown
         List {
             Section {
                 Toggle("只看已启用", isOn: $onlyEnabled)
@@ -73,22 +86,32 @@ struct AllRewritesView: View {
                     } label: { RewriteFlatRow(row: r) }
                     .listRowBackground(Theme.card)
                 }
-            } header: { Text("共 \(list.count) 条") }
+            } header: {
+                if loaded { Text("共 \(list.count) 条") } else { Text("正在读取…") }
+            }
         }
         .listStyle(.insetGrouped)
         .scrollContentBackground(.hidden)
         .background(Theme.bg.ignoresSafeArea())
-        .searchable(text: $search, prompt: "搜索 URL、说明或模块")
+        .searchable(text: $search, placement: .navigationBarDrawer(displayMode: .always), prompt: "搜索 URL、说明或模块")
         .overlay {
-            if list.isEmpty && search.isEmpty && !onlyEnabled {
+            if loaded && list.isEmpty && search.isEmpty && !onlyEnabled {
                 EmptyStateView(icon: "arrow.triangle.swap", title: "还没有重写规则", message: "导入模块或在本地模块里添加。")
                     .allowsHitTesting(false)
             }
         }
         .navigationTitle("全部重写规则")
         .navigationBarTitleDisplayMode(.inline)
-        .task(id: store.config.rules) { localRows = Self.parseLocal(store.config.rules, engineOn: store.config.enabled) }
-        .onChange(of: store.config.enabled) { on in localRows = Self.parseLocal(store.config.rules, engineOn: on) }
+        .task(id: store.config.rules) {
+            if !loaded { try? await Task.sleep(nanoseconds: 350_000_000) } // after the push animation
+            localRows = Self.parseLocal(store.config.rules, engineOn: store.config.enabled)
+            rebuild()
+            loaded = true
+        }
+        .onChange(of: store.config.enabled) { on in localRows = Self.parseLocal(store.config.rules, engineOn: on); rebuild() }
+        .onReceive(store.$moduleInfo.dropFirst()) { _ in if loaded { DispatchQueue.main.async { rebuild() } } }
+        .onChange(of: search) { _ in shown = filtered() }
+        .onChange(of: onlyEnabled) { _ in shown = filtered() }
     }
 }
 
@@ -101,9 +124,10 @@ struct RewriteFlatRow: View {
                 Text(LocalizedStringKey(row.phase == "response" ? "响应" : "请求"))
                     .scaledFont(9, weight: .bold)
                     .padding(.horizontal, 5).padding(.vertical, 2)
+                    .lineLimit(1) // v0.19.8: a capsule tag never wraps (tall grey box with large text)
                     .background(Capsule().fill(Theme.ink(0.08)))
                     .foregroundStyle(.secondary)
-                Text(verbatim: GoText.localize(row.desc)).font(.caption.weight(.semibold)).lineLimit(1)
+                Text(verbatim: row.shownDesc.isEmpty ? row.desc : row.shownDesc).font(.caption.weight(.semibold)).lineLimit(1)
                 Spacer(minLength: 4)
                 if !row.enabled { Text("已停用").font(.caption2).foregroundStyle(.secondary) }
             }

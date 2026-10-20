@@ -172,7 +172,7 @@ struct LocalModuleView: View {
         }
         .listStyle(.insetGrouped)
         .scrollContentBackground(.hidden)
-        .searchable(text: $search, prompt: "搜索规则")
+        .searchable(text: $search, placement: .navigationBarDrawer(displayMode: .always), prompt: "搜索规则")
     }
 
     var rawEditor: some View {
@@ -414,7 +414,7 @@ struct RewriteRuleEditor: View {
                     .font(.footnote.monospaced()).textInputAutocapitalization(.never).autocorrectionDisabled()
                     .lineLimit(3...10)
                 if target.item == nil {
-                    Button { form.line = UIPasteboard.general.string ?? "" } label: { Label("粘贴", systemImage: "doc.on.clipboard") }
+                    Button { form.line = UIPasteboard.general.string ?? "" } label: { Label("粘贴", systemImage: "doc.on.clipboard") } // clipboard-read: explicit 粘贴 tap only (see ClipboardRuleTests)
                 }
             } header: { Text("规则文本") } footer: {
                 Text(target.item == nil ? "一条 Surge / Quantumult X / Loon 重写行。多行请用「文本」模式。" : "这条规则的写法没有对应的表单（例如 JSON 操作或 jq），可以直接编辑文本。")

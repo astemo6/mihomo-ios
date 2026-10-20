@@ -20,6 +20,7 @@ struct HomePolicySection: View {
                     Text("编辑")
                         .font(.caption.weight(.semibold))
                         .padding(.horizontal, 12).padding(.vertical, 4)
+                        .lineLimit(1) // v0.19.8: a capsule tag never wraps (tall grey box with large text)
                         .background(Capsule().fill(Theme.ink(0.08)))
                 }
                 .buttonStyle(.plain)
@@ -130,6 +131,7 @@ struct HomeGroupsEditor: View {
                 Text(display.label)
                     .font(.caption2.weight(.semibold))
                     .padding(.horizontal, 6).padding(.vertical, 2)
+                    .lineLimit(1) // v0.19.8: a capsule tag never wraps (tall grey box with large text)
                     .background(Capsule().fill(Theme.ink(0.1)))
                     .foregroundStyle(.secondary)
             }
@@ -164,7 +166,7 @@ struct HomeGroupsEditor: View {
         var all: [Row] = []
         fromCore = false
         if vpn.isConnected, let proxies = try? await ControllerClient.shared.proxies() {
-            let order = proxies["GLOBAL"]?.all ?? []
+            let order = LiveGroupOrder.names(proxies)
             all = order.compactMap { n in
                 guard let p = proxies[n], p.isGroup, p.hidden != true else { return nil }
                 return Row(name: n, kind: PolicyGroupDisplay.kind(live: p.type), icon: p.icon)

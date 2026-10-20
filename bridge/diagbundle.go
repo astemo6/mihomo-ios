@@ -99,6 +99,7 @@ func startDiagCapture(home string) {
 				if strings.HasPrefix(ev.Payload, "[Tailscale]") {
 					tsObserveLog(ev.Payload)
 				}
+				recordLogEvent(ev, time.Now()) // v0.19.8: 日志 / DNS 日志 history from tunnel start
 				if ev.LogLevel < log.LogLevel(diagLevel.Load()) {
 					continue
 				}

@@ -105,7 +105,7 @@ struct OverrideScriptsView: View {
     }
 
     func paste() {
-        guard let text = UIPasteboard.general.string, text.contains("main") else {
+        guard let text = UIPasteboard.general.string, text.contains("main") else { // clipboard-read: explicit 粘贴 tap only (see ClipboardRuleTests)
             message = String(localized: "剪贴板里没有脚本（需要包含 main 函数）")
             return
         }

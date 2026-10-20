@@ -227,6 +227,7 @@ struct ScriptTasksView: View {
         .listStyle(.insetGrouped)
         .scrollContentBackground(.hidden)
         .background(Theme.bg.ignoresSafeArea())
+        .accessibilityIdentifier("scriptTasksView")
         .navigationTitle("任务")
         .navigationBarTitleDisplayMode(.inline)
         .refreshable { await load() }
@@ -520,6 +521,7 @@ struct TaskRunRow: View {
                 Text(Date(timeIntervalSince1970: record.time).formatted(date: .abbreviated, time: .standard)).font(.footnote.monospacedDigit())
                 Text(Self.trigger(record.trigger)).font(.caption2.weight(.semibold))
                     .padding(.horizontal, 5).padding(.vertical, 1)
+                    .lineLimit(1) // v0.19.8: a capsule tag never wraps (tall grey box with large text)
                     .background(Capsule().fill(Theme.ink(0.08)))
                 Spacer()
                 Text("\(record.duration) ms").font(.caption2.monospacedDigit()).foregroundStyle(.secondary)
@@ -643,6 +645,7 @@ struct FormatBadge: View {
         Text(format.uppercased() == "QX" ? "QX" : format.capitalized)
             .scaledFont(9, weight: .bold)
             .padding(.horizontal, 5).padding(.vertical, 2)
+            .lineLimit(1) // v0.19.8: a capsule tag never wraps (tall grey box with large text)
             .background(Capsule().stroke(Color.secondary.opacity(0.5)))
             .foregroundStyle(.secondary)
     }

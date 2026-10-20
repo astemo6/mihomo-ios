@@ -89,6 +89,24 @@ final class EngineStore: ObservableObject {
         moduleInfo = out
     }
 
+    /// v0.19.8: the same parse off the main thread (模块与资源 opened: the synchronous parse of every module ran
+    /// during the push animation and made it stutter). A change made meanwhile wins: the result is dropped when
+    /// the module list changed while parsing.
+    func reparseModulesInBackground() async {
+        let mods = config.modules
+        let out = await Task.detached(priority: .userInitiated) { () -> [String: ParsedEngineText] in
+            var out: [String: ParsedEngineText] = [:]
+            for m in mods {
+                if let text = try? String(contentsOf: EnginePaths.moduleURL(m.id), encoding: .utf8) {
+                    let args = (try? JSONEncoder().encode(m.args ?? [:])).flatMap { String(data: $0, encoding: .utf8) } ?? "{}"
+                    if let p = ParsedEngineText.parse(LibmihomoEngineParseText(text, args)) { out[m.id] = p }
+                }
+            }
+            return out
+        }.value
+        if config.modules == mods { moduleInfo = out }
+    }
+
     static func download(_ url: String) async throws -> String {
         guard let u = URL(string: url.trimmingCharacters(in: .whitespacesAndNewlines)), u.scheme?.hasPrefix("http") == true else {
             throw ProfileStore.StoreError.badURL

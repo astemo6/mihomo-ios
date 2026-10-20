@@ -396,3 +396,74 @@ final class ScaleTests: XCTestCase {
         XCTAssertTrue(merged.allSatisfy { $0.name == "Mine" && $0.userAgent == "ua" && $0.updateIntervalHours == 6 })
     }
 }
+
+// v0.19.8 配置快照 dedupe: same configuration with another key order / timestamps / volatile files hashes the
+// same; a real change does not; same-reason captures within a minute coalesce.
+final class SnapshotDedupeTests: XCTestCase {
+    func testContentHashIgnoresKeyOrderTimestampsAndVolatileFiles() {
+        let a: [String: Data] = [
+            "mihomo/group-edits.json": Data(#"{"b":{"x":1,"y":[1,2]},"a":"Proxy"}"#.utf8),
+            "profiles.json": Data(#"[{"id":"p1","name":"Sub","lastUpdated":"2026-10-20T07:00:00Z","userInfo":{"upload":1}}]"#.utf8),
+            "profiles/p1.yaml": Data("proxies: []\n".utf8),
+        ]
+        var b = a
+        b["mihomo/group-edits.json"] = Data(#"{"a":"Proxy","b":{"y":[1,2],"x":1}}"#.utf8)
+        b["profiles.json"] = Data(#"[{"name":"Sub","id":"p1","lastUpdated":"2026-10-20T07:00:45Z","userInfo":{"upload":99}}]"#.utf8)
+        b["mihomo/runtime-groups.json"] = Data(#"{"order":["A","B"]}"#.utf8)
+        b["mihomo/engine/store.json"] = Data(#"{"token":"changes"}"#.utf8)
+        XCTAssertEqual(SnapshotStore.contentHash(a), SnapshotStore.contentHash(b))
+
+        var c = a
+        c["mihomo/group-edits.json"] = Data(#"{"a":"DIRECT","b":{"x":1,"y":[1,2]}}"#.utf8)
+        XCTAssertNotEqual(SnapshotStore.contentHash(a), SnapshotStore.contentHash(c))
+        var d = a
+        d["profiles/p1.yaml"] = Data("proxies: [x]\n".utf8)
+        XCTAssertNotEqual(SnapshotStore.contentHash(a), SnapshotStore.contentHash(d))
+        // Array order is configuration (group order, rule order).
+        var e = a
+        e["mihomo/group-edits.json"] = Data(#"{"a":"Proxy","b":{"x":1,"y":[2,1]}}"#.utf8)
+        XCTAssertNotEqual(SnapshotStore.contentHash(a), SnapshotStore.contentHash(e))
+    }
+
+    func testSameReasonWithinAMinuteCoalesces() {
+        let t0 = Date(timeIntervalSince1970: 1_800_000_000)
+        let newest = SnapshotMeta(id: "1", date: t0, reason: "编辑策略组前", files: 47, bytes: 1, hash: "h1")
+        XCTAssertTrue(SnapshotStore.shouldSkip(newest: newest, reason: "编辑策略组前", contentHash: "h2", manual: false, now: t0.addingTimeInterval(20)))
+        XCTAssertFalse(SnapshotStore.shouldSkip(newest: newest, reason: "编辑策略组前", contentHash: "h2", manual: false, now: t0.addingTimeInterval(61)))
+        XCTAssertFalse(SnapshotStore.shouldSkip(newest: newest, reason: "添加模块前", contentHash: "h2", manual: false, now: t0.addingTimeInterval(5)))
+        XCTAssertFalse(SnapshotStore.shouldSkip(newest: newest, reason: "编辑策略组前", contentHash: "h2", manual: true, now: t0.addingTimeInterval(5)))
+        XCTAssertTrue(SnapshotStore.shouldSkip(newest: newest, reason: "手动快照", contentHash: "h1", manual: true, now: t0.addingTimeInterval(500)))
+        XCTAssertFalse(SnapshotStore.shouldSkip(newest: nil, reason: "x", contentHash: "h1", manual: false))
+    }
+}
+
+// v0.19.8 clipboard rule (user: 「其他的时候不读取。只在粘贴的时候读」): the clipboard is read only inside an explicit
+// 粘贴 / 从剪贴板… tap (SwiftUI PasteButton preferred). No polling (hasStrings / changeCount …), no reads on launch,
+// onAppear or sheet open. Every UIPasteboard read line carries the marker; scripts/clipboard_check.py is the same
+// check for local use. The simulator shares the Mac's file system, so the sources are read via #filePath.
+final class ClipboardRuleTests: XCTestCase {
+    func testClipboardReadOnlyFromExplicitPaste() throws {
+        let root = URL(fileURLWithPath: #filePath).deletingLastPathComponent().deletingLastPathComponent()
+        let app = root.appendingPathComponent("App")
+        guard FileManager.default.fileExists(atPath: app.path) else { throw XCTSkip("sources not reachable from the test host") }
+        let poll = try NSRegularExpression(pattern: #"UIPasteboard[\w.]*\.(hasStrings|hasURLs|hasImages|hasColors|changeCount|detectPatterns|detectValues)|UIPasteboard\.changedNotification"#)
+        let read = try NSRegularExpression(pattern: #"UIPasteboard\.general\.(string|strings|url|urls|image|images|items|data|value|itemProviders)\b(?!\s*=[^=])"#)
+        let mark = "clipboard-read: explicit 粘贴 tap only"
+        var bad: [String] = []
+        for dir in ["App", "Widget", "PacketTunnel", "Shared"] {
+            guard let e = FileManager.default.enumerator(at: root.appendingPathComponent(dir), includingPropertiesForKeys: nil) else { continue }
+            for case let f as URL in e where f.pathExtension == "swift" {
+                let text = (try? String(contentsOf: f, encoding: .utf8)) ?? ""
+                for (i, line) in text.components(separatedBy: "\n").enumerated() {
+                    let r = NSRange(line.startIndex..., in: line)
+                    if poll.firstMatch(in: line, range: r) != nil {
+                        bad.append("\(f.lastPathComponent):\(i + 1) polls the clipboard")
+                    } else if read.firstMatch(in: line, range: r) != nil, !line.contains(mark) {
+                        bad.append("\(f.lastPathComponent):\(i + 1) reads the clipboard without the 粘贴 marker")
+                    }
+                }
+            }
+        }
+        XCTAssertEqual(bad, [], bad.joined(separator: "\n"))
+    }
+}

@@ -14,14 +14,39 @@ final class PolicyModel: ObservableObject {
         do {
             let p = try await ControllerClient.shared.proxies()
             all = p
-            let order = p["GLOBAL"]?.all ?? []
-            var gs = order.compactMap { p[$0] }.filter { $0.isGroup && $0.hidden != true }
+            // v0.19.8: the runtime's own group order (GLOBAL lists only its members once it is user-defined).
+            var gs = LiveGroupOrder.names(p).compactMap { p[$0] }.filter { $0.isGroup && $0.hidden != true && $0.name != "GLOBAL" }
             if let g = p["GLOBAL"] { gs.append(g) }
-            groups = gs
+            if let pending = pendingOrder, Date() < pending.until {
+                groups = gs
+                applyOrder(pending.names) // a reload still applying: keep the saved order on screen
+            } else {
+                pendingOrder = nil
+                groups = gs
+            }
             error = nil
         } catch {
             self.error = error.localizedDescription
         }
+    }
+
+    /// v0.19.8: a saved order the core has not confirmed yet (a reload with providers can outlast the read that
+    /// follows it; the page then showed the old order and the save looked like it did nothing).
+    var pendingOrder: (names: [String], until: Date)?
+
+    /// After an order save: shows it right away and re-reads the core until its group order matches (≤ 30 s).
+    func confirmOrder(_ names: [String]) async {
+        pendingOrder = (names, Date().addingTimeInterval(30))
+        applyOrder(names)
+        for _ in 0..<15 {
+            await load()
+            guard let p = try? await ControllerClient.shared.proxies() else { break }
+            let live = LiveGroupOrder.names(p).filter { names.contains($0) }
+            if live == names.filter({ p[$0] != nil }) { pendingOrder = nil; break }
+            try? await Task.sleep(nanoseconds: 2_000_000_000)
+        }
+        pendingOrder = nil
+        await load()
     }
 
     /// feat/group-order: shows a saved order right away (the core reload that follows confirms it).
@@ -75,7 +100,9 @@ final class PolicyModel: ObservableObject {
         guard !testing.contains(group.name) else { return }
         testing.insert(group.name)
         defer { testing.remove(group.name) }
-        let members = (group.all ?? []).filter { $0 != "DIRECT" && $0 != "REJECT" && $0 != "REJECT-DROP" && $0 != "PASS" && $0 != "COMPATIBLE" }
+        // v0.19.8: members as the running core has them right now (the list on screen can be older).
+        let fresh = (try? await ControllerClient.shared.proxies())?[group.name]?.all ?? group.all ?? []
+        let members = fresh.filter { $0 != "DIRECT" && $0 != "REJECT" && $0 != "REJECT-DROP" && $0 != "PASS" && $0 != "COMPATIBLE" }
         var failure: String?
         do {
             // v0.15.2: bounded concurrency (10 at a time) instead of /group/delay firing every member at once.
@@ -176,6 +203,8 @@ struct PolicyView: View {
     @State private var interactions: [ScriptTaskState] = []
     @State private var interaction: InteractionRequest?
     @ObservedObject private var probes = ProbeStore.shared
+    /// v0.19.8: the group list follows the outbound mode (GLOBAL only in 全局, first there).
+    @ObservedObject private var dash = DashboardModel.shared
 
     struct ChainGroupTarget: Identifiable { let id = UUID(); let name: String }
     /// v0.9 策略组编辑 (name nil = new group).
@@ -199,7 +228,7 @@ struct PolicyView: View {
         if vpn.isConnected {
             return model.groups.filter { $0.name != "GLOBAL" }.map { ($0.name, PolicyGroupDisplay.kind(live: $0.type), $0.icon) }
         }
-        return offline.result.groups.filter { $0.hidden != true }.map { ($0.name, $0.type, $0.icon) }
+        return offline.result.groups.filter { $0.hidden != true && $0.name != "GLOBAL" }.map { ($0.name, $0.type, $0.icon) }
     }
 
     private func topAction(_ name: String) -> (() -> Void)? {
@@ -215,7 +244,7 @@ struct PolicyView: View {
                 }
                 resetDrag()
                 let r = await GroupOrder.moveToTop(name, current: names, profile: p)
-                if r.saved, vpn.isConnected { var n = names; n.remove(at: i); n.insert(name, at: 0); model.applyOrder(n); await model.load() }
+                if r.saved, vpn.isConnected { var n = names; n.remove(at: i); n.insert(name, at: 0); await model.confirmOrder(n) }
                 if let m = r.message { orderError = m }
             }
         }
@@ -258,7 +287,7 @@ struct PolicyView: View {
         let r = await GroupOrder.save(names, profile: p)
         guard r.saved else { reorderMessage = r.message; return }
         UINotificationFeedbackGenerator().notificationOccurred(.success)
-        if vpn.isConnected { model.applyOrder(names); await model.load() }
+        if vpn.isConnected { Task { await model.confirmOrder(names) } }
         if let m = r.message { orderError = m }
         withAnimation { reorderMode = false }
     }
@@ -291,7 +320,7 @@ struct PolicyView: View {
             let r = await GroupOrder.save(o, profile: p)
             if r.saved {
                 UINotificationFeedbackGenerator().notificationOccurred(.success)
-                if vpn.isConnected { model.applyOrder(o); await model.load() }
+                if vpn.isConnected { Task { await model.confirmOrder(o) } }
             }
             if let m = r.message { orderError = m }
         }
@@ -311,6 +340,7 @@ struct PolicyView: View {
                     Text("编辑排序")
                         .font(.caption.weight(.semibold))
                         .padding(.horizontal, 12).padding(.vertical, 4)
+                        .lineLimit(1) // v0.19.8: a capsule tag never wraps (tall grey box with large text)
                         .background(Capsule().fill(Theme.ink(0.08)))
                 }
                 .buttonStyle(.plain)
@@ -464,7 +494,7 @@ struct PolicyView: View {
             Task { if !vpn.isConnected { await offline.load() } }
         }
         .sheet(item: $chainGroup) { t in GroupChainSheet(group: t.name) }
-        .sheet(item: $editGroup) { t in
+        .sheet(item: $editGroup, onDismiss: { Task { if vpn.isConnected { await model.load() } else { await offline.load() } } }) { t in
             GroupEditorView(groupName: t.name).environmentObject(store).environmentObject(vpn)
         }
         .sheet(item: $share) { t in NodeShareSheet(name: t.name, link: t.link) }
@@ -499,7 +529,7 @@ struct PolicyView: View {
                 TestTargetCaption(live: true)
                 orderHeader
                 let liveAuto = model.groups.filter { PolicyGroupDisplay.isAutomatic(PolicyGroupDisplay.kind(live: $0.type)) }
-                ForEach(GroupOrderRow.arranged(model.groups, by: dragOrder) { $0.name }) { g in
+                ForEach(GroupOrderRow.arranged(PolicyModeFilter.apply(model.groups, mode: dash.mode) { $0.name }, by: dragOrder) { $0.name }) { g in
                   if collapseAuto && PolicyGroupDisplay.isAutomatic(PolicyGroupDisplay.kind(live: g.type)) {
                     if g.id == liveAuto.first?.id { CollapsedAutoRow(count: liveAuto.count) { expandAuto() } }
                   } else {
@@ -564,7 +594,8 @@ struct PolicyView: View {
                 } else {
                     let index = offline.nodeIndex
                     let groupNames = Set(offline.result.groups.map(\.name))
-                    let visible = offline.result.groups.filter { $0.hidden != true }
+                    let profileGroups = offline.result.groups.filter { $0.hidden != true && $0.name != "GLOBAL" }
+                    let visible = PolicyModeFilter.apply(profileGroups + [offline.globalGroup], mode: dash.mode) { $0.name }
                     let offAuto = visible.filter { PolicyGroupDisplay.isAutomatic($0.type) }
                     if !visible.isEmpty { orderHeader }
                     ForEach(GroupOrderRow.arranged(visible, by: dragOrder) { $0.name }) { g in
@@ -670,6 +701,7 @@ struct PolicyGroupCard: View {
                         Text(group.label)
                             .font(.caption2.weight(.semibold))
                             .padding(.horizontal, 6).padding(.vertical, 2)
+                            .lineLimit(1) // v0.19.8: a capsule tag never wraps (tall grey box with large text)
                             .background(Capsule().fill(Theme.ink(0.1)))
                         if via != nil {
                             Image(systemName: "link").font(.caption2.weight(.bold)).foregroundStyle(Theme.accent)
@@ -920,6 +952,15 @@ struct CollapsedAutoRow: View {
 
 /// v0.16: 规则 / 全局 / 直连 right above the policy cards, the same switch as Home's 出站模式 (DashboardModel.setMode:
 /// saved in the overrides, applied live and connections reset while connected). Selection only, not a connection state.
+/// v0.19.8 (user): 规则 / 直连 hide the GLOBAL card (it routes nothing then); 全局 shows it first.
+enum PolicyModeFilter {
+    static func apply<T>(_ items: [T], mode: String, name: (T) -> String) -> [T] {
+        let rest = items.filter { name($0) != "GLOBAL" }
+        guard mode == "global" else { return rest }
+        return items.filter { name($0) == "GLOBAL" } + rest
+    }
+}
+
 struct PolicyModeBar: View {
     @ObservedObject private var dash = DashboardModel.shared
     var body: some View {

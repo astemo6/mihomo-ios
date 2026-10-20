@@ -94,6 +94,7 @@ struct AddNodeView: View {
                         Text(verbatim: GoText.localize(d.format))
                             .scaledFont(10, weight: .bold)
                             .padding(.horizontal, 6).padding(.vertical, 2)
+                            .lineLimit(1) // v0.19.8: a capsule tag never wraps (tall grey box with large text)
                             .background(Capsule().fill((d.count > 0 ? Theme.accent : Color.secondary).opacity(0.16)))
                             .foregroundStyle(d.count > 0 ? Theme.accent : Color.secondary)
                         (d.count > 0 ? Text("识别到 \(d.count) 个节点") : Text("未识别到节点"))
@@ -101,9 +102,9 @@ struct AddNodeView: View {
                     }
                     Spacer()
                     Button {
-                        paste = UIPasteboard.general.string ?? ""
+                        paste = UIPasteboard.general.string ?? "" // clipboard-read: explicit 粘贴 tap only (see ClipboardRuleTests)
                         if paste.isEmpty { show(String(localized: "剪贴板为空"), error: true) }
-                    } label: { Label("剪贴板", systemImage: "doc.on.clipboard") }
+                    } label: { Label("粘贴", systemImage: "doc.on.clipboard") }
                         .buttonStyle(.bordered)
                     Button { add() } label: {
                         if busy { ProgressView() } else { Text("添加") }
@@ -194,6 +195,7 @@ struct AddNodeView: View {
                         if new {
                             Text(verbatim: "NEW").scaledFont(9, weight: .heavy)
                                 .padding(.horizontal, 5).padding(.vertical, 1)
+                                .lineLimit(1) // v0.19.8: a capsule tag never wraps (tall grey box with large text)
                                 .background(Capsule().fill(Theme.accent))
                                 .foregroundStyle(Theme.onAccent)
                         }

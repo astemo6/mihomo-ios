@@ -290,7 +290,7 @@ struct UnlockView: View {
         do {
             let p = try await ControllerClient.shared.proxies()
             all = p
-            let order = p["GLOBAL"]?.all ?? []
+            let order = LiveGroupOrder.names(p)
             groups = order.filter { p[$0]?.isGroup == true && p[$0]?.hidden != true }
             if !groups.contains(group) { group = groups.first ?? "" }
             if !member.isEmpty && !members.contains(member) { member = "" }

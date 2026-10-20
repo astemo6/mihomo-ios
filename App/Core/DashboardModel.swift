@@ -96,7 +96,7 @@ final class DashboardModel: ObservableObject {
     /// Follows the first group from GLOBAL's order (usually the main "节点选择") down to a leaf node.
     func refreshSelectedNode() async {
         guard let all = try? await ControllerClient.shared.proxies() else { return }
-        let order = all["GLOBAL"]?.all ?? []
+        let order = LiveGroupOrder.names(all)
         let firstGroup = order.first { all[$0]?.isGroup == true }
         var name = mode == "global" ? "GLOBAL" : (firstGroup ?? "GLOBAL")
         var hops = 0
@@ -108,10 +108,12 @@ final class DashboardModel: ObservableObject {
 
         // Home policy cards (feat/home-groups): the user's chosen groups for this profile, in their order;
         // default = the first four top-level groups in GLOBAL order (hidden ones skipped).
-        let available = order.filter { all[$0]?.isGroup == true && all[$0]?.hidden != true }
+        let available = order.filter { all[$0]?.isGroup == true && all[$0]?.hidden != true && $0 != "GLOBAL" }
         if available != availableGroups { availableGroups = available }
         var cards: [HomeGroup] = []
-        for g in HomeGroupsStore.shared.resolved(available: available) {
+        // v0.19.8 (user): GLOBAL only matters in 全局 mode; it is the first card then, and never shown otherwise.
+        let shown = (mode == "global" && all["GLOBAL"] != nil ? ["GLOBAL"] : []) + HomeGroupsStore.shared.resolved(available: available)
+        for g in shown {
             guard let p = all[g] else { continue }
             var chain = [g]
             var cur = g
@@ -132,6 +134,7 @@ final class DashboardModel: ObservableObject {
         if VPNManager.shared.isConnected {
             try? await ControllerClient.shared.setMode(m)
             await ControllerClient.shared.afterUserSwitch() // v0.19: was always; now the 内核设置 switch (default on)
+            await refreshSelectedNode() // v0.19.8: Home cards show / hide GLOBAL with the mode
         }
         NotificationCenter.default.post(name: .egressMayHaveChanged, object: nil)
         WidgetBridge.reload() // v0.13: widget mode row + Control Center 出站模式

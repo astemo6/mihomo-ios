@@ -85,7 +85,7 @@ func TestImportQXRemainingKeys(t *testing.T) {
 	}
 	// --- settings for the app
 	s := res.Settings
-	if s == nil || len(s.ExcludedRoutes) != 2 || len(s.TrustedSSIDs) != 2 || s.TestURL != "http://cp.cloudflare.com/generate_204" || s.TestTimeoutMs != 5000 || !s.BlockQUIC {
+	if s == nil || len(s.ExcludedRoutes) != 2 || len(s.TrustedSSIDs) != 2 || s.TestURL != "http://cp.cloudflare.com/generate_204" || s.TestTimeoutMs != 8000 || !s.BlockQUIC {
 		t.Fatalf("settings: %+v", s)
 	}
 	// --- groups
@@ -94,7 +94,7 @@ func TestImportQXRemainingKeys(t *testing.T) {
 		m := asMap(g)
 		groups[str(m["name"])] = m
 	}
-	if groups["香港"]["lazy"] != true || str(groups["香港"]["url"]) != "http://cp.cloudflare.com/generate_204" || groups["香港"]["timeout"] != 5000 {
+	if groups["香港"]["lazy"] != true || str(groups["香港"]["url"]) != "http://cp.cloudflare.com/generate_204" || groups["香港"]["timeout"] != 8000 {
 		t.Fatalf("url-latency-benchmark: %v", groups["香港"])
 	}
 	if groups["负载"]["strategy"] != "round-robin" || groups["哈希"]["strategy"] != "consistent-hashing" {

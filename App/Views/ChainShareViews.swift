@@ -70,7 +70,7 @@ struct ChainPickerView: View {
         .background(Theme.bg.ignoresSafeArea())
         .navigationTitle("前置代理")
         .navigationBarTitleDisplayMode(.inline)
-        .searchable(text: $search)
+        .searchable(text: $search, placement: .navigationBarDrawer(displayMode: .always))
         .task { await load() }
     }
 

@@ -114,7 +114,7 @@ struct NodeListView: View {
         .scrollContentBackground(.hidden)
         .background(Theme.bg.ignoresSafeArea())
         .navigationTitle(Text(verbatim: scope.title))
-        .searchable(text: $query, prompt: Text("名称、服务器或协议"))
+        .searchable(text: $query, placement: .navigationBarDrawer(displayMode: .always), prompt: Text("名称、服务器或协议"))
         .refreshable { await model.reload() }
         .toolbar {
             ToolbarItemGroup(placement: .navigationBarTrailing) {
@@ -136,6 +136,17 @@ struct NodeListView: View {
                         } label: { Label("更新订阅", systemImage: "arrow.clockwise") }
                             .disabled(nodeSubs.updating.contains(id))
                         Button { editSub = sub } label: { Label("编辑订阅", systemImage: "pencil") }
+                        // v0.19.8: 停用 keeps the subscription (link, settings) but takes its nodes out of every profile.
+                        Button {
+                            Task {
+                                var n = sub
+                                n.enabled.toggle()
+                                await nodeSubs.save(n)
+                                await model.reload()
+                            }
+                        } label: {
+                            Label(LocalizedStringKey(sub.enabled ? "停用" : "启用"), systemImage: sub.enabled ? "pause.circle" : "play.circle")
+                        }
                     }
                 } label: {
                     Image(systemName: protocolFilter.isEmpty ? "line.3.horizontal.decrease.circle" : "line.3.horizontal.decrease.circle.fill")

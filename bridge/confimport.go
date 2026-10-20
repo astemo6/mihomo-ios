@@ -17,12 +17,12 @@ import (
 )
 
 type confReport struct {
-	Format    string   `json:"format"` // surge | qx
-	Proxies   int      `json:"proxies"`
-	Groups    int      `json:"groups"`
-	Rules     int      `json:"rules"`
-	Providers int      `json:"providers"`
-	Module    bool     `json:"module"`
+	Format    string `json:"format"` // surge | qx
+	Proxies   int    `json:"proxies"`
+	Groups    int    `json:"groups"`
+	Rules     int    `json:"rules"`
+	Providers int    `json:"providers"`
+	Module    bool   `json:"module"`
 	// v0.8.1: what the module part holds, so the sheet can show counts per section.
 	Rewrites  int      `json:"rewrites"`  // rewrite / map-local / header / body lines
 	Scripts   int      `json:"scripts"`   // script rewrites
@@ -79,7 +79,7 @@ type confSettings struct {
 	ExcludedRoutes []string `json:"excludedRoutes,omitempty"` // excluded_routes
 	TrustedSSIDs   []string `json:"trustedSSIDs,omitempty"`   // ssid_suspended_list
 	TestURL        string   `json:"testURL,omitempty"`        // server_check_url
-	TestTimeoutMs  int      `json:"testTimeoutMs,omitempty"`  // server_check_timeout (≤ 5000)
+	TestTimeoutMs  int      `json:"testTimeoutMs,omitempty"`  // server_check_timeout (5000–10000)
 	BlockQUIC      bool     `json:"blockQUIC,omitempty"`      // udp_drop_list contains QUIC
 	// v0.12
 	ModeTrigger *ModeTrigger `json:"modeTrigger,omitempty"` // running_mode_trigger
@@ -100,9 +100,9 @@ type confResult struct {
 	// RewriteRemotes: QX [rewrite_remote] lines; the app adds each as its own remote module (name from
 	// tag= or the file name, enabled= respected, downloaded by the app).
 	RewriteRemotes []remoteModule `json:"rewriteRemotes,omitempty"`
-	Settings      *confSettings `json:"settings,omitempty"`
-	Report        confReport `json:"report"`
-	Error         string     `json:"error,omitempty"`
+	Settings       *confSettings  `json:"settings,omitempty"`
+	Report         confReport     `json:"report"`
+	Error          string         `json:"error,omitempty"`
 }
 
 var confSectionRe = regexp.MustCompile(`^\[([^\]]+)\]\s*$`)
@@ -194,7 +194,7 @@ func ImportConf(text string) string {
 	}
 	checkTimeout := 0
 	if n := atoi(qxGeneral["server_check_timeout"], 0); n > 0 {
-		checkTimeout = min(n, 5000)
+		checkTimeout = importedCheckTimeout(n)
 	}
 	var proxies []any
 	var groups []any
@@ -1011,3 +1011,8 @@ func stripReservedOutbound(proxies, groups []any, rep *confReport) ([]any, []any
 	}
 	return keptP, groups
 }
+
+// importedCheckTimeout (v0.19.8) maps QX / Surge server_check_timeout to the mihomo test timeout. QX measures
+// differently; mihomo's unified delay includes the TLS / proxy handshake, so a 2000 ms import made most nodes
+// 超时 (device report). Clamped to 5000–10000 ms.
+func importedCheckTimeout(n int) int { return max(5000, min(n, 10000)) }

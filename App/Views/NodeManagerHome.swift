@@ -12,6 +12,8 @@ struct NodeManagerView: View {
     @State private var mergeManual = CoreOverrides.load().mergeManual
     @State private var refreshing = false
     @State private var message: String?
+    /// v0.19.8 (user): swipe actions on subscription rows; 删除 asks first.
+    @State private var confirmDeleteSub: NodeSubscription?
 
     var manualActive: Bool { store.activeID == ProfileStore.manualID }
 
@@ -171,6 +173,30 @@ struct NodeManagerView: View {
         .alert("提示", isPresented: Binding(get: { message != nil }, set: { if !$0 { message = nil } })) {
             Button("好", role: .cancel) {}
         } message: { Text(message ?? "") }
+        .confirmationDialog("删除这个订阅？", isPresented: Binding(get: { confirmDeleteSub != nil }, set: { if !$0 { confirmDeleteSub = nil } }),
+                            titleVisibility: .visible, presenting: confirmDeleteSub) { s in
+            Button("删除", role: .destructive) { Task { await nodeSubs.delete(s); await model.reload() } }
+                .accessibilityIdentifier("nodesub.confirmDelete")
+        } message: { s in Text("「\(s.name)」的节点会从所有配置中移除，引用它的策略组改用其他节点。") }
+    }
+
+    /// One subscription refreshed from a swipe / menu: spinner on the row, result in an alert only on failure.
+    func refreshSub(_ s: NodeSubscription) async {
+        if let e = await nodeSubs.refresh(s) { message = String(localized: "更新失败：\(e)") }
+        await model.reload()
+    }
+
+    func refreshProfile(_ p: Profile) async {
+        if let e = await store.refresh(p) { message = String(localized: "更新失败：\(e)") }
+        await ProfileInspector.shared.load()
+        await model.reload()
+    }
+
+    func toggleSub(_ s: NodeSubscription) async {
+        guard var n = nodeSubs.subs.first(where: { $0.id == s.id }) else { return }
+        n.enabled.toggle()
+        await nodeSubs.save(n)
+        await model.reload()
     }
 
     /// 更新全部订阅: node subscriptions + remote profiles; one message with the failures.
@@ -196,6 +222,13 @@ struct NodeManagerView: View {
                                      count: model.count(s), info: p?.userInfo, updated: p?.lastUpdated, error: nil,
                                      updating: p.map { store.updating.contains($0.id) } ?? false, disabled: false, downloaded: true)
             }
+            // A configuration subscription: 更新 only (it is the profile itself; delete it in 订阅管理).
+            .swipeActions(edge: .leading) {
+                if let p { Button { Task { await refreshProfile(p) } } label: { Label("更新", systemImage: "arrow.clockwise") }.tint(.blue) }
+            }
+            .contextMenu {
+                if let p { Button { Task { await refreshProfile(p) } } label: { Label("更新订阅", systemImage: "arrow.clockwise") } }
+            }
         case .nodeSub(let sub):
             let src = model.source(subID: sub.id)
             NavigationLink {
@@ -208,6 +241,28 @@ struct NodeManagerView: View {
                                      count: src.map(model.count) ?? sub.count ?? 0, info: sub.userInfo, updated: sub.lastUpdated,
                                      error: sub.lastError, updating: nodeSubs.updating.contains(sub.id), disabled: !sub.enabled,
                                      downloaded: FileManager.default.fileExists(atPath: sub.cacheURL.path))
+            }
+            .accessibilityIdentifier("nodesub.row." + sub.name)
+            // v0.19.8 (user 「在订阅上左滑/右滑要能更新或者删除该订阅」): right swipe 更新, left swipe 删除 / 停用.
+            .swipeActions(edge: .leading) {
+                Button { Task { await refreshSub(sub) } } label: { Label("更新", systemImage: "arrow.clockwise") }
+                    .tint(.blue)
+                    .disabled(!sub.enabled || nodeSubs.updating.contains(sub.id))
+            }
+            .swipeActions(edge: .trailing) {
+                Button(role: .destructive) { confirmDeleteSub = sub } label: { Label("删除", systemImage: "trash") }
+                Button { Task { await toggleSub(sub) } } label: {
+                    Label(LocalizedStringKey(sub.enabled ? "停用" : "启用"), systemImage: sub.enabled ? "pause.circle" : "play.circle")
+                }
+                .tint(sub.enabled ? .orange : Theme.good)
+            }
+            .contextMenu {
+                Button { Task { await refreshSub(sub) } } label: { Label("更新订阅", systemImage: "arrow.clockwise") }
+                    .disabled(!sub.enabled)
+                Button { Task { await toggleSub(sub) } } label: {
+                    Label(LocalizedStringKey(sub.enabled ? "停用" : "启用"), systemImage: sub.enabled ? "pause.circle" : "play.circle")
+                }
+                Button(role: .destructive) { confirmDeleteSub = sub } label: { Label("删除", systemImage: "trash") }
             }
         case .provider(let s):
             NavigationLink {

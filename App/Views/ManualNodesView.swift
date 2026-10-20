@@ -31,7 +31,7 @@ struct ManualNodesView: View {
         List {
             Section {
                 HStack(spacing: 10) {
-                    actionButton("剪贴板", "doc.on.clipboard") { importText(UIPasteboard.general.string ?? "") }
+                    actionButton("粘贴", "doc.on.clipboard") { importText(UIPasteboard.general.string ?? "") } // clipboard-read: explicit 粘贴 tap only (see ClipboardRuleTests)
                     actionButton("扫码", "qrcode.viewfinder") { showScanner = true }
                     actionButton("相册", "photo") { showPhotoPicker = true }
                     actionButton("手动", "square.and.pencil") { editing = EditTarget(node: nil) }

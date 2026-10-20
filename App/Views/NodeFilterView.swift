@@ -119,6 +119,14 @@ enum RegionFilterStore {
         if let d = try? JSONEncoder().encode(l) { AppShared.defaults.set(d, forKey: key(profileID)) }
     }
 
+    /// v0.19.8: the 自定义 copy made by a group reorder gets the source's filters. It already got the source's
+    /// 策略组编辑 (the filter groups included); without its filters a renamed filter fell back to the default name,
+    /// no longer matched its group, and editing it renamed nothing.
+    static func copy(from: String, to: String) {
+        guard AppShared.defaults.data(forKey: key(to)) == nil, let d = AppShared.defaults.data(forKey: key(from)) else { return }
+        AppShared.defaults.set(d, forKey: key(to))
+    }
+
     /// A subscription (proxy-provider) was renamed (`new`) or removed (nil): filters of every profile that
     /// chose it, and groups that `use` it (策略组编辑 / 筛选节点 groups), follow.
     @MainActor
@@ -243,7 +251,7 @@ struct NodeFilterView: View {
                 Section {
                     ForEach(filters) { f in
                         HStack(spacing: 12) {
-                            FlagGlyph(flag: f.flag)
+                            IconGlyph(value: f.flag, size: 26)
                             Text(verbatim: f.name)
                             Spacer()
                             Text(verbatim: "\(counts[f.id] ?? 0)").font(.subheadline.monospacedDigit()).foregroundStyle(.secondary)
@@ -269,7 +277,7 @@ struct NodeFilterView: View {
                     Section("没有节点的地区") {
                         ForEach(without) { f in
                             HStack(spacing: 12) {
-                                FlagGlyph(flag: f.flag)
+                                IconGlyph(value: f.flag, size: 26)
                                 Text(verbatim: f.name).foregroundStyle(.secondary)
                                 Spacer()
                                 Text(verbatim: "0").font(.subheadline.monospacedDigit()).foregroundStyle(.tertiary)
@@ -304,9 +312,11 @@ struct NodeFilterView: View {
         }
         .task(id: filters) { await refreshPreview() }
         .sheet(item: $editing) { f in
-            RegionFilterEditor(filter: f, isNew: false, others: filters.filter { $0.id != f.id }, isGroup: added.contains(f.name)) { new in
+            RegionFilterEditor(filter: f, isNew: false, others: filters.filter { $0.id != f.id }, isGroup: added.contains(f.name),
+                               profileGroup: added.contains(f.name) ? nil : offline.result.groups.first(where: { $0.name == f.name })?.name) { new in
                 Task { await apply(old: f, new: new) }
             }
+            .environmentObject(store).environmentObject(vpn)
         }
         .sheet(isPresented: $creating) {
             RegionFilterEditor(filter: RegionFilter(id: UUID().uuidString, name: "", flag: "🏳️", pattern: "", kind: "keywords"), isNew: true, others: filters, isGroup: false) { new in
@@ -326,7 +336,7 @@ struct NodeFilterView: View {
                              ?? NodeListScope(title: f.name, pattern: f.filter))
             } label: {
                 HStack(spacing: 12) {
-                    FlagGlyph(flag: f.flag)
+                    IconGlyph(value: f.flag, size: 26)
                     VStack(alignment: .leading, spacing: 2) {
                         Text(verbatim: f.name).font(.subheadline.weight(.semibold))
                         Text("\(count) 个节点").font(.caption).foregroundStyle(.secondary)
@@ -394,7 +404,10 @@ struct NodeFilterView: View {
         }
         var e = GroupEditStore.get(p.id)
         e.added = (e.added ?? []) + [spec(for: f)]
-        _ = await persist(e, profile: p, busyID: f.id)
+        // v0.19.8: the filter's flag becomes the group's icon (策略 / 首页), unless the user already chose one.
+        if await persist(e, profile: p, busyID: f.id), GroupIconStore.shared.custom[f.name] == nil, !f.flag.isEmpty {
+            GroupIconStore.shared.set(group: f.name, url: f.flag)
+        }
     }
 
     func removeGroup(_ f: RegionFilter) async {
@@ -426,11 +439,14 @@ struct NodeFilterView: View {
                 }
             }
             guard await persist(e, profile: p, busyID: old.id, reload: !renamed) else { return }
+            // v0.19.8: the icon follows the flag (and the name).
+            let icons = GroupIconStore.shared
+            let followsFlag = icons.custom[old.name] == nil || icons.custom[old.name] == old.flag
             if renamed {
-                NameRefs.rename(old.name, to: new.name, profileID: p.id, isGroup: true)
-                let path = p.fileURL.path, home = AppShared.homeURL.path, o = old.name, n = new.name
-                let err = await Task.detached(priority: .userInitiated) { LibmihomoProfileRenameRefs(home, path, o, n) }.value
-                if !err.isEmpty { message = err }
+                if let err = await GroupRename.propagate(old: old.name, new: new.name, profile: p, inFile: false) { message = err }
+            }
+            if followsFlag || old.flag != new.flag { icons.set(group: new.name, url: new.flag) }
+            if renamed {
                 if vpn.isConnected {
                     if let rr = await ReloadCoalescer.shared.reload(vpn, after: 0) { message = String(localized: "已保存，但重载失败：\(rr)") }
                     await NameRefs.reselect(pinned, new.name)
@@ -478,9 +494,15 @@ struct RegionFilterEditor: View {
     let isNew: Bool
     let others: [RegionFilter]
     let isGroup: Bool
+    /// v0.19.8: a group of the current config with this filter's name that the filter does not control (from the
+    /// profile itself, or made elsewhere). Device report: the user edited this filter to rename / re-icon that group
+    /// and nothing happened; the editor now says so and opens the group's own editor.
+    var profileGroup: String? = nil
     let onSave: (RegionFilter) -> Void
     @State private var originalName = ""
     @State private var matchCount: Int?
+    @State private var pickingIcon = false
+    @State private var editingGroup = false
 
     var trimmedName: String { filter.name.trimmingCharacters(in: .whitespaces) }
 
@@ -526,16 +548,28 @@ struct RegionFilterEditor: View {
                     if let e = nameError, !(isNew && trimmedName.isEmpty) {
                         Text(e).font(.footnote).foregroundStyle(Theme.warn)
                     }
-                    HStack {
-                        Text("图标")
-                        Spacer()
-                        TextField("🏳️", text: $filter.flag)
-                            .multilineTextAlignment(.trailing).frame(width: 80)
-                            .accessibilityIdentifier("filter.flag")
-                        FlagGlyph(flag: filter.flag)
+                    // v0.19.8: the whole row opens the icon picker (flags drawn by FlagGlyph, emoji, symbols, URL).
+                    Button { pickingIcon = true } label: {
+                        HStack {
+                            Text("图标").foregroundStyle(.primary)
+                            Spacer()
+                            IconGlyph(value: filter.flag, size: 28)
+                            Image(systemName: "chevron.right").font(.caption.weight(.semibold)).foregroundStyle(.tertiary)
+                        }
+                        .contentShape(Rectangle())
                     }
+                    .accessibilityIdentifier("filter.flag")
                 } footer: {
-                    if isGroup { Text("已加为策略组：改名会同时改策略组名称，以及策略组成员、规则、首页卡片里对它的引用。") }
+                    if isGroup {
+                        Text("已加为策略组：改名会同时改策略组名称，以及策略组成员、规则、首页卡片里对它的引用；图标也会用作策略组图标。")
+                    } else if let g = profileGroup {
+                        VStack(alignment: .leading, spacing: 6) {
+                            Text("当前配置里的策略组「\(g)」不是由这个筛选生成的，在这里改名或换图标不会改动它。")
+                            Button("编辑策略组「\(g)」") { editingGroup = true }
+                                .font(.footnote.weight(.semibold))
+                                .accessibilityIdentifier("filter.editProfileGroup")
+                        }
+                    }
                 }
                 .listRowBackground(Theme.card)
                 Section {
@@ -630,6 +664,16 @@ struct RegionFilterEditor: View {
                 }
             }
             .onAppear { originalName = isNew ? "" : filter.name }
+            .sheet(isPresented: $pickingIcon) {
+                IconPickerSheet(title: trimmedName.isEmpty ? String(localized: "图标") : trimmedName, current: filter.flag, allowsReset: false) { v in
+                    if let v, !v.isEmpty { filter.flag = v }
+                }
+            }
+            .sheet(isPresented: $editingGroup) {
+                if let g = profileGroup {
+                    GroupEditorView(groupName: g).environmentObject(ProfileStore.shared).environmentObject(VPNManager.shared)
+                }
+            }
         }
     }
 }

@@ -109,7 +109,7 @@ struct ModuleGalleryView: View {
         .scrollContentBackground(.hidden)
         .background(Theme.bg.ignoresSafeArea())
         .navigationTitle("模块库")
-        .searchable(text: $query, prompt: Text("搜索模块"))
+        .searchable(text: $query, placement: .navigationBarDrawer(displayMode: .always), prompt: Text("搜索模块"))
         .refreshable { await gallery.refreshAll(force: true) }
         .toolbar {
             ToolbarItem(placement: .navigationBarTrailing) {
@@ -121,7 +121,11 @@ struct ModuleGalleryView: View {
             if !gallery.loading.isEmpty && !items.isEmpty { ProgressView().padding(.top, 4) }
         }
         .sheet(isPresented: $managing) { NavigationStack { GallerySourcesView() } }
-        .task { await gallery.refreshAll(force: false) }
+        // v0.19.8: start after the push animation (the built-in index is decoded on the main actor).
+        .task {
+            try? await Task.sleep(nanoseconds: 350_000_000)
+            await gallery.refreshAll(force: false)
+        }
         .onChange(of: gallery.sources) { s in if source != "all" && !s.contains(where: { $0.id == source }) { source = "all" } }
         .onChange(of: source) { _ in category = "" }
     }

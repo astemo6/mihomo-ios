@@ -101,7 +101,6 @@ struct RootView: View {
                 }
             }
         }
-        .overlay(alignment: .top) { PasteBanner() }
         .overlay(alignment: .bottomLeading) { UITestReadyMarker() }
         .fullScreenCover(isPresented: $showOnboarding) {
             OnboardingView { showOnboarding = false }
@@ -114,10 +113,8 @@ struct RootView: View {
             else if s == .disconnected || s == .invalid { LiveActivityController.shared.statusChanged(connected: false) }
         }
         .onChange(of: phase) { p in
-            if p == .active { ClipboardWatcher.shared.didBecomeActive() } else if p == .background {
-                ClipboardWatcher.shared.didLeave()
-                SyncFolder.shared.autoPushIfNeeded()
-            }
+            // v0.19.8 (user): no clipboard banner; the clipboard is read only from an explicit 粘贴 action.
+            if p == .background { SyncFolder.shared.autoPushIfNeeded() }
         }
         .onAppear {
             // First run only; people upgrading with profiles already set up never see it (更多 → 新手引导 shows it again).
@@ -125,7 +122,6 @@ struct RootView: View {
                 if store.profiles.isEmpty { showOnboarding = true } else { Onboarding.isDone = true }
             }
             if vpn.isConnected { dash.start() }
-            ClipboardWatcher.shared.didBecomeActive()
             // Cold launch from 「用 Mihomo 打开」: if onOpenURL did not deliver the document, do it now.
             DispatchQueue.main.asyncAfter(deadline: .now() + 1.0) { router.drainColdLaunchURLs() }
         }

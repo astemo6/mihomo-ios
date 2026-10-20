@@ -247,7 +247,7 @@ func importQXGeneral(cfg map[string]any, g map[string]string, res *confResult, r
 		set.TestURL = u
 	}
 	if n := atoi(g["server_check_timeout"], 0); n > 0 {
-		set.TestTimeoutMs = min(n, 5000)
+		set.TestTimeoutMs = importedCheckTimeout(n)
 	}
 	if v := g["running_mode_trigger"]; v != "" {
 		if mt := parseQXModeTrigger(v); mt != nil {

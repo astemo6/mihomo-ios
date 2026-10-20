@@ -26,6 +26,7 @@ struct KindBadge: View {
         Text(LocalizedStringKey(t))
             .scaledFont(9, weight: .bold)
             .padding(.horizontal, 5).padding(.vertical, 2)
+            .lineLimit(1) // v0.19.8: a capsule tag never wraps (tall grey box with large text)
             .background(Capsule().fill(c.opacity(0.18)))
             .foregroundStyle(c)
     }
@@ -342,7 +343,7 @@ struct LineEditorSheet: View {
                         .textInputAutocapitalization(.never)
                         .autocorrectionDisabled()
                     if item == nil {
-                        Button { text += (text.isEmpty ? "" : "\n") + (UIPasteboard.general.string ?? "") } label: { Label("粘贴", systemImage: "doc.on.clipboard") }
+                        Button { text += (text.isEmpty ? "" : "\n") + (UIPasteboard.general.string ?? "") } label: { Label("粘贴", systemImage: "doc.on.clipboard") } // clipboard-read: explicit 粘贴 tap only (see ClipboardRuleTests)
                     }
                 } header: { Text(item == nil ? "每行一条（hostname = … 会加入 MitM 列表）" : "规则") }
                 if item != nil {
@@ -681,7 +682,7 @@ struct ScriptLogsView: View {
                 }
                 .listStyle(.plain)
                 .scrollContentBackground(.hidden)
-                .searchable(text: $filter, prompt: "过滤脚本名或内容")
+                .searchable(text: $filter, placement: .navigationBarDrawer(displayMode: .always), prompt: "过滤脚本名或内容")
             }
         }
         .background(Theme.bg.ignoresSafeArea())
@@ -997,6 +998,7 @@ struct HTTPRequestRow: View {
             HStack(spacing: 6) {
                 Text(r.method).scaledFont(9, weight: .bold)
                     .padding(.horizontal, 5).padding(.vertical, 2)
+                    .lineLimit(1) // v0.19.8: a capsule tag never wraps (tall grey box with large text)
                     .background(Capsule().fill(Theme.accent.opacity(0.2)))
                 if r.mitm { Text("MitM").scaledFont(9, weight: .bold).foregroundStyle(Theme.warn) }
                 Text(r.host).font(.system(.footnote, design: .monospaced)).lineLimit(1)

@@ -93,6 +93,18 @@ struct GroupEditorView: View {
     @State private var message: String?
     @State private var confirmDelete = false
     @State private var saving = false
+    /// v0.19.8: icon picked in this editor (group-icons.json), written on 保存 under the saved name. nil = unchanged;
+    /// .some(nil) = back to the profile's / default icon.
+    @State private var iconChoice: String??
+    @State private var pickingIcon = false
+
+    /// The icon the group shows now (or will after 保存).
+    var currentIcon: String? {
+        if let c = iconChoice { return c }
+        return GroupIconStore.shared.custom[groupName ?? spec.name]
+    }
+
+    var isGlobal: Bool { groupName == "GLOBAL" }
 
     static let types: [(String, String)] = [("select", "手动选择"), ("url-test", "自动选择（延迟最低）"), ("fallback", "故障转移"), ("load-balance", "负载均衡")]
 
@@ -112,6 +124,9 @@ struct GroupEditorView: View {
                 ToolbarItem(placement: .confirmationAction) {
                     if saving { ProgressView() } else { Button("保存") { Task { await save() } }.disabled(!loaded) }
                 }
+            }
+            .sheet(isPresented: $pickingIcon) {
+                IconPickerSheet(title: spec.name, current: currentIcon, profileIcon: spec.icon) { v in iconChoice = .some(v) }
             }
             .sheet(isPresented: $showAddMember) {
                 MemberPicker(candidates: candidates, chosen: Set(spec.proxies)) { picked in
@@ -135,11 +150,29 @@ struct GroupEditorView: View {
     @ViewBuilder var content: some View {
         Section {
             TextField("名称", text: $spec.name)
+                .disabled(isGlobal) // mihomo knows the global group only by this name
+                .accessibilityIdentifier("group.name")
             Picker("类型", selection: $spec.type) {
                 ForEach(Self.types, id: \.0) { t in Text(LocalizedStringKey(t.1)).tag(t.0) }
             }
-            TextField("图标链接（可选）", text: Binding(get: { spec.icon ?? "" }, set: { spec.icon = $0.isEmpty ? nil : $0 }))
-                .textInputAutocapitalization(.never).autocorrectionDisabled().keyboardType(.URL)
+            // v0.19.8: the same icon picker as 策略 → 更换图标 (emoji / flag, symbol, image URL, icon libraries).
+            // The old 图标链接 field wrote the profile's icon:, which a 更换图标 choice silently overrode.
+            Button { pickingIcon = true } label: {
+                HStack {
+                    Text("图标").foregroundStyle(.primary)
+                    Spacer()
+                    if let c = currentIcon, !c.isEmpty { IconGlyph(value: c, size: 26) }
+                    else if let u = spec.icon, !u.isEmpty { IconGlyph(value: u, size: 26) }
+                    else { Text("默认").foregroundStyle(.secondary) }
+                    Image(systemName: "chevron.right").font(.caption.weight(.semibold)).foregroundStyle(.tertiary)
+                }
+                .contentShape(Rectangle())
+            }
+            .accessibilityIdentifier("group.icon")
+        } footer: {
+            if isGlobal {
+                Text("GLOBAL 是全局模式使用的策略组，名称不能修改。保存后它只包含这里列出的成员。")
+            }
         }
         .listRowBackground(Theme.card)
 
@@ -351,10 +384,12 @@ struct GroupEditorView: View {
             return
         }
         let e = candidate()
-        await persist(e, profile: p)
+        await persist(e, profile: p, renamedFrom: groupName.flatMap { $0 != name ? $0 : nil }, savedName: name)
     }
 
-    func persist(_ e: GroupEdits, profile p: Profile) async {
+    /// renamedFrom: the name before this save when 保存 renamed the group (v0.19.8: references outside group-edits
+    /// follow, GroupRename). savedName: where a picked icon is written.
+    func persist(_ e: GroupEdits, profile p: Profile, renamedFrom: String? = nil, savedName: String? = nil) async {
         saving = true
         defer { saving = false }
         let json = GroupEditStore.json(e)
@@ -362,12 +397,19 @@ struct GroupEditorView: View {
         let err = await Task.detached(priority: .userInitiated) { LibmihomoGroupEditCheck(AppShared.homeURL.path, path, json) }.value
         if !err.isEmpty { message = err; return }
         GroupEditStore.set(p.id, e)
+        var pinned: [String] = []
+        if let old = renamedFrom, let new = savedName {
+            pinned = await NameRefs.selectionsUsing(old)
+            if let m = await GroupRename.propagate(old: old, new: new, profile: p, inFile: originalName != nil) { message = m }
+        }
+        if let choice = iconChoice, let n = savedName { GroupIconStore.shared.set(group: n, url: choice) }
         if vpn.isConnected, let r = await VPNManager.shared.reload() {
             message = String(localized: "已保存，但重载失败：\(r)")
             return
         }
+        if !pinned.isEmpty, let n = savedName { await NameRefs.reselect(pinned, n) }
         await offline.load()
-        dismiss()
+        if message == nil { dismiss() }
     }
 
     func delete() async {
@@ -429,7 +471,7 @@ struct MemberPicker: View {
                 }
                 .listRowBackground(Theme.card)
             }
-            .searchable(text: $search)
+            .searchable(text: $search, placement: .navigationBarDrawer(displayMode: .always))
             .scrollContentBackground(.hidden)
             .background(Theme.bg.ignoresSafeArea())
             .navigationTitle("添加成员").navigationBarTitleDisplayMode(.inline)

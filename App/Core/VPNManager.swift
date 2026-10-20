@@ -390,7 +390,10 @@ final class VPNManager: ObservableObject {
     func reload() async -> String? {
         guard isConnected else { return nil }
         if !safeModeActive, let err = await OverrideScriptStore.shared.prepareActive() { return err } // v0.19 覆写脚本
-        let data = await send(.reload)
+        // v0.19.8: the extension answers when the new config is applied; with proxy-providers that takes longer than
+        // the 8 s default, and a reply missing after 8 s used to count as success while the core still ran the old
+        // config (a group order save then read the old order back and looked like it did nothing).
+        let data = await send(.reload, timeout: 45)
         let msg = data.flatMap { String(data: $0, encoding: .utf8) } ?? ""
         NotificationCenter.default.post(name: .egressMayHaveChanged, object: nil)
         return msg.isEmpty ? nil : msg

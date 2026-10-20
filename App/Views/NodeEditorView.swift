@@ -588,7 +588,7 @@ struct NodeEditorView: View {
                         Text("\((values[f.key] ?? "").split(separator: "\n").count) 行").font(.caption).foregroundStyle(.secondary)
                     }
                     Button("粘贴") {
-                        if let s = UIPasteboard.general.string { values[f.key] = s.trimmingCharacters(in: .whitespacesAndNewlines) }
+                        if let s = UIPasteboard.general.string { values[f.key] = s.trimmingCharacters(in: .whitespacesAndNewlines) } // clipboard-read: explicit 粘贴 tap only (see ClipboardRuleTests)
                     }
                     .font(.caption.weight(.semibold)).buttonStyle(.borderless)
                 }
