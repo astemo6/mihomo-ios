@@ -65,11 +65,9 @@ var (
 	reURLUser  = regexp.MustCompile(`(?i)\b([a-z][a-z0-9+.-]*://)[^\s/@"'<>]+@`)
 	reKV       = regexp.MustCompile(`(?i)\b([\w-]*(?:password|passwd|token|secret|uuid|private-key|public-key|psk|auth|key|access_token|api_key|cred)[\w-]*)(\s*[=:]\s*)("[^"]*"|'[^']*'|[^\s,;&}"']+)`)
 	reTSKey    = regexp.MustCompile(`\btskey-[A-Za-z0-9-]+`)
-	// legacy ss://BASE64(method:password@host:port) share links (no '@' outside the base64), and
-	// ssr:// / vmess:// base64 links: the whole payload is the credential.
-	reB64Link = regexp.MustCompile(`(?i)\b(ss|ssr|vmess)://[A-Za-z0-9+/=_-]{16,}`)
-	// http(s) URLs in free text: path segments that look like tokens (subscription /link/<token>).
-	reURLPath  = regexp.MustCompile(`(?i)\b(https?://[^\s/?#"'<>]+)(/[^\s?#"'<>]*)`)
+	// ssr:// / vmess:// base64 links: the whole payload is the credential (legacy ss:// is handled by
+	// redactShareLinks, review 5 core-ext lane).
+	reB64Link  = regexp.MustCompile(`(?i)\b(ssr|vmess)://[A-Za-z0-9+/=_-]{16,}`)
 	reIPv4     = regexp.MustCompile(`\b(\d{1,3})\.(\d{1,3})\.(\d{1,3})\.(\d{1,3})\b`)
 	reBearer   = regexp.MustCompile(`(?i)\b(bearer)\s+[A-Za-z0-9._~+/=-]{8,}`)
 	reTokenSeg = regexp.MustCompile(`^[A-Za-z0-9_\-]{6,}$`)
@@ -225,23 +223,9 @@ func (r *redactor) text(s string) string {
 	s = reUUID.ReplaceAllString(s, "<uuid>")
 	s = reURLUser.ReplaceAllString(s, "$1<redacted>@")
 	s = reURLQuery.ReplaceAllString(s, "$1?<redacted>")
-	s = reKV.ReplaceAllString(s, "$1$2<redacted>")
+	// bearer first: reKV now matches "Authorization: Bearer" and would leave the token itself
 	s = reBearer.ReplaceAllString(s, "$1 <redacted>")
-	s = reURLPath.ReplaceAllStringFunc(s, func(m string) string {
-		sub := reURLPath.FindStringSubmatch(m)
-		segs := strings.Split(sub[2], "/")
-		changed := false
-		for i, seg := range segs {
-			if looksLikeToken(seg) {
-				segs[i] = "<token>"
-				changed = true
-			}
-		}
-		if !changed {
-			return m
-		}
-		return sub[1] + strings.Join(segs, "/")
-	})
+	s = reKV.ReplaceAllString(s, "$1$2<redacted>")
 	s = reIPv4.ReplaceAllStringFunc(s, maskIPv4)
 	return s
 }

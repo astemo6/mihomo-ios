@@ -1,6 +1,7 @@
 package libmihomo
 
 import (
+	"net"
 	"sort"
 	"strings"
 
@@ -42,18 +43,28 @@ func sanitizeProfileInbounds(raw map[string]any, o Overrides) {
 		drop("tuic-server")
 		drop("ss-config")
 		drop("vmess-config")
-		if ls := asList(raw["listeners"]); len(ls) > 0 {
-			n := 0
-			for _, l := range ls {
-				if name, _ := asMap(l)["name"].(string); name != probeListener {
-					n++
-				}
+		// Loopback-only listeners stay (reachable from this device only, like our own probe listener and
+		// the proxy-mode mixed-port); anything listening on another address is dropped.
+		kept := []any{}
+		var gone []string
+		for _, l := range asList(raw["listeners"]) {
+			m := asMap(l)
+			if m == nil {
+				continue
 			}
-			if n > 0 {
-				dropped = append(dropped, "listeners")
+			typ := strings.ToLower(strings.TrimSpace(asString(m["type"])))
+			name := asString(m["name"])
+			if name == probeListener || (lanListenerTypesAuth[typ] || lanListenerTypesOwnAuth[typ]) && loopbackListen(asString(m["listen"])) {
+				kept = append(kept, m)
+				continue
 			}
+			gone = append(gone, name)
 		}
-		raw["listeners"] = []any{}
+		if len(gone) > 0 {
+			sort.Strings(gone)
+			dropped = append(dropped, "listeners: "+strings.Join(gone, ", "))
+		}
+		raw["listeners"] = kept
 	} else if ls := asList(raw["listeners"]); len(ls) > 0 {
 		creds := lanCredentials(o)
 		kept := []any{}
@@ -101,4 +112,14 @@ func sanitizeProfileInbounds(raw map[string]any, o Overrides) {
 func asString(v any) string {
 	s, _ := v.(string)
 	return s
+}
+
+// loopbackListen: listen address reachable from this device only ("" means 0.0.0.0 in mihomo).
+func loopbackListen(a string) bool {
+	a = strings.Trim(strings.TrimSpace(a), "[]")
+	if a == "localhost" {
+		return true
+	}
+	ip := net.ParseIP(a)
+	return ip != nil && ip.IsLoopback()
 }

@@ -279,6 +279,14 @@ func buildRuntimeWith(profile []byte, o Overrides, fd int32, inject func(raw map
 	if o.LogLevel != "" {
 		raw["log-level"] = o.LogLevel
 	}
+	// v0.19.10 (review 5 go-core P2-6): log-level debug makes mihomo mount /debug/pprof (and PUT
+	// /debug/gc) on the controller outside the secret check, so any app on the device could pull heap
+	// dumps or burn battery with a 30 s CPU profile. mihomo hands every level to log subscribers
+	// regardless of the configured level (the /logs stream filters by its own ?level=), and our rings
+	// filter by o.LogLevel (diagLevel), so the core itself never runs at debug.
+	if lv, _ := raw["log-level"].(string); strings.EqualFold(strings.TrimSpace(lv), "debug") {
+		raw["log-level"] = "info"
+	}
 	if o.Mode != "" {
 		raw["mode"] = o.Mode
 	}

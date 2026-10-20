@@ -400,6 +400,31 @@ func ImportConf(text string) string {
 				skip("group "+g.name, mem, "成员不存在（没有节点订阅可以提供它）")
 			}
 		}
+		// v0.19.10 (review 5 go-core P2-3): Surge 5 include-other-group / include-all-proxies.
+		if og := strings.Trim(g.opts["include-other-group"], `"' `); og != "" {
+			have := map[string]bool{}
+			for _, x := range members {
+				have[fmt.Sprint(x)] = true
+			}
+			for _, n := range strings.Split(og, ",") {
+				n = strings.Trim(strings.TrimSpace(n), `"'`)
+				switch {
+				case n == "" || n == g.name || have[n]:
+				case groupNames[n]:
+					members = append(members, n)
+					have[n] = true
+				default:
+					skip("group "+g.name, n, "include-other-group 引用的策略组不存在")
+				}
+			}
+		}
+		if v := strings.ToLower(strings.Trim(g.opts["include-all-proxies"], `"' `)); v == "true" || v == "1" || v == "yes" {
+			if len(providerTags) > 0 {
+				m["include-all"] = true // inline proxies + every provider
+			} else {
+				m["include-all-proxies"] = true
+			}
+		}
 		if pp := g.opts["policy-path"]; strings.Contains(pp, "://") {
 			rep.Notes = append(rep.Notes, "策略组「"+g.name+"」的 policy-path 远程节点列表未导入，请把该订阅作为单独配置添加")
 		}
