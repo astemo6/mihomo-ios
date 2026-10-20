@@ -32,6 +32,8 @@ type ScriptHTTP struct {
 	Header  http.Header
 	Body    []byte
 	HasBody bool
+	// Host is the request's Host (Go keeps it out of Header); exposed as $request.headers.Host.
+	Host string
 }
 
 // ScriptResult is what $done() asked for.
@@ -185,7 +187,9 @@ type runCtx struct {
 	e       *Engine
 	ctx     context.Context
 	timers  map[int64]*time.Timer
-	timerID int64
+	// origSetCookie holds the response's Set-Cookie lines when there were several (review5 P2-3).
+	origSetCookie []string
+	timerID       int64
 	// Debug runs (脚本调试): console output and notifications are captured instead of going to the
 	// engine's rings / the user's notification history.
 	onLog    func(level, msg string)
@@ -201,7 +205,47 @@ func (rc *runCtx) post(j loopJob) {
 
 // Run executes a script rule. resp == nil means request phase.
 func (s *ScriptRunner) Run(parent context.Context, rule *Rule, req, resp *ScriptHTTP) (*ScriptResult, error) {
-	rc, err := s.execute(rule.Script, req, resp, s.sem, 120*time.Second, 10*time.Second, nil)
+	return s.run(rule, req, resp, s.sem)
+}
+
+// Reserve takes an HTTP-script slot ahead of RunReserved (review5 P0-1: the slot is taken before the
+// body is loaded, so queued scripts don't each hold a body). The returned release is idempotent.
+func (s *ScriptRunner) Reserve(rule *Rule) (func(), error) {
+	select {
+	case s.sem <- struct{}{}:
+	case <-time.After(scriptTimeout(rule.Script, 120*time.Second, 10*time.Second)):
+		return nil, errors.New("脚本排队超时")
+	}
+	var once sync.Once
+	return func() { once.Do(func() { <-s.sem }) }, nil
+}
+
+// RunReserved is Run for a caller already holding a slot from Reserve.
+func (s *ScriptRunner) RunReserved(parent context.Context, rule *Rule, req, resp *ScriptHTTP) (*ScriptResult, error) {
+	return s.run(rule, req, resp, nil)
+}
+
+func scriptTimeout(sc *Script, maxTimeout, defTimeout time.Duration) time.Duration {
+	timeout := time.Duration(sc.Timeout) * time.Second
+	if timeout <= 0 {
+		timeout = defTimeout
+	}
+	if timeout > maxTimeout {
+		timeout = maxTimeout
+	}
+	return timeout
+}
+
+// bodyLimit is the largest body the script is handed (its max-size, at most MaxBody).
+func (sc *Script) bodyLimit() int {
+	if sc.MaxSize > 0 && sc.MaxSize < MaxBody {
+		return sc.MaxSize
+	}
+	return MaxBody
+}
+
+func (s *ScriptRunner) run(rule *Rule, req, resp *ScriptHTTP, sem chan struct{}) (*ScriptResult, error) {
+	rc, err := s.execute(rule.Script, req, resp, sem, 120*time.Second, 10*time.Second, nil)
 	if err != nil {
 		return nil, err
 	}
@@ -225,19 +269,15 @@ func (s *ScriptRunner) execute(sc *Script, req, resp *ScriptHTTP, sem chan struc
 	if err != nil {
 		return nil, err
 	}
-	timeout := time.Duration(sc.Timeout) * time.Second
-	if timeout <= 0 {
-		timeout = defTimeout
+	timeout := scriptTimeout(sc, maxTimeout, defTimeout)
+	if sem != nil { // nil: the caller holds a slot (Reserve)
+		select {
+		case sem <- struct{}{}:
+		case <-time.After(timeout):
+			return nil, errors.New("脚本排队超时")
+		}
+		defer func() { <-sem }()
 	}
-	if timeout > maxTimeout {
-		timeout = maxTimeout
-	}
-	select {
-	case sem <- struct{}{}:
-	case <-time.After(timeout):
-		return nil, errors.New("脚本排队超时")
-	}
-	defer func() { <-sem }()
 
 	ctx, cancel := context.WithTimeout(context.Background(), timeout)
 	defer cancel()
@@ -380,11 +420,8 @@ func newCIHeaders(rt *goja.Runtime, h http.Header) *ciHeaders {
 	for _, k := range keys {
 		v := h[k]
 		var jv goja.Value
-		if strings.EqualFold(k, "Set-Cookie") && len(v) > 1 {
-			jv = rt.ToValue(strings.Join(v, ", "))
-		} else {
-			jv = rt.ToValue(strings.Join(v, ", "))
-		}
+		// Set-Cookie is joined like Surge does; parseDone splits it back (review5 P2-3).
+		jv = rt.ToValue(strings.Join(v, ", "))
 		c.set(k, jv)
 	}
 	return c
@@ -423,6 +460,47 @@ func (c *ciHeaders) Delete(k string) bool {
 	return true
 }
 func (c *ciHeaders) Keys() []string { return append([]string(nil), c.keys...) }
+
+// fixSetCookie undoes the ", " join scripts see (review5 P2-3): an unchanged value gets the original
+// lines back, a changed one is split before each "name=" that starts a new cookie.
+func fixSetCookie(h http.Header, orig []string) {
+	vs := h.Values("Set-Cookie")
+	if len(vs) != 1 {
+		return
+	}
+	if len(orig) > 1 && vs[0] == strings.Join(orig, ", ") {
+		h["Set-Cookie"] = append([]string(nil), orig...)
+		return
+	}
+	if parts := splitSetCookie(vs[0]); len(parts) > 1 {
+		h["Set-Cookie"] = parts
+	}
+}
+
+// splitSetCookie splits a comma-joined Set-Cookie value at commas followed by `token=` (the comma in
+// "Expires=Wed, 21 Oct 2027 ..." is followed by a date, not a cookie name).
+func splitSetCookie(v string) []string {
+	var out []string
+	start := 0
+	for i := 0; i < len(v); i++ {
+		if v[i] != ',' {
+			continue
+		}
+		j := i + 1
+		for j < len(v) && (v[j] == ' ' || v[j] == '\t') {
+			j++
+		}
+		k := j
+		for k < len(v) && v[k] != '=' && v[k] != ';' && v[k] != ',' && v[k] != ' ' && v[k] != '\t' {
+			k++
+		}
+		if k > j && k < len(v) && v[k] == '=' {
+			out = append(out, strings.TrimSpace(v[start:i]))
+			start = j
+		}
+	}
+	return append(out, strings.TrimSpace(v[start:]))
+}
 
 func toHeader(rt *goja.Runtime, v goja.Value) http.Header {
 	if v == nil || goja.IsUndefined(v) || goja.IsNull(v) {
@@ -516,7 +594,16 @@ func (rc *runCtx) installHTTP(req, resp *ScriptHTTP) {
 	ro := rt.NewObject()
 	_ = ro.Set("url", req.URL)
 	_ = ro.Set("method", req.Method)
-	_ = ro.Set("headers", rt.NewDynamicObject(newCIHeaders(rt, req.Header)))
+	rh := req.Header
+	if req.Host != "" && rh.Get("Host") == "" {
+		// review5 P2-4: Go moves Host out of the header map; scripts expect to see it.
+		rh = rh.Clone()
+		if rh == nil {
+			rh = http.Header{}
+		}
+		rh.Set("Host", req.Host)
+	}
+	_ = ro.Set("headers", rt.NewDynamicObject(newCIHeaders(rt, rh)))
 	_ = ro.Set("id", strconv.FormatInt(time.Now().UnixNano(), 36))
 	if resp == nil && req.HasBody {
 		if sc.BinaryBody {
@@ -531,6 +618,9 @@ func (rc *runCtx) installHTTP(req, resp *ScriptHTTP) {
 		so := rt.NewObject()
 		_ = so.Set("status", resp.Status)
 		_ = so.Set("statusCode", resp.Status)
+		if sc := resp.Header.Values("Set-Cookie"); len(sc) > 1 {
+			rc.origSetCookie = append([]string(nil), sc...)
+		}
 		_ = so.Set("headers", rt.NewDynamicObject(newCIHeaders(rt, resp.Header)))
 		if resp.HasBody {
 			if sc.BinaryBody {
@@ -649,8 +739,16 @@ func (rc *runCtx) installCommon(set func(string, any)) {
 
 	// notifications
 	post := func(title, sub, body, url string) {
+		// review5 P2-6: bounded fields (the history file is rewritten on every post) and a per-script
+		// rate limit so a debug loop can't flood iOS notifications.
+		title, sub = clipBytes(title, noticeShortMax), clipBytes(sub, noticeShortMax)
+		body, url = clipBytes(body, noticeLongMax), clipBytes(url, noticeLongMax)
 		if rc.onNotify != nil {
 			rc.onNotify(title, sub, body, url)
+			return
+		}
+		if !noticeRate.allow(rc.name) {
+			rc.e.Logs.Add(rc.name, "warn", "通知过于频繁，已丢弃："+clip(title, 60))
 			return
 		}
 		rc.e.Logs.Add(rc.name, "notify", strings.TrimSpace(title+" | "+sub+" | "+body))
@@ -1127,6 +1225,9 @@ func (rc *runCtx) parseDone(requestPhase bool) (*ScriptResult, error) {
 	}
 	if x := get(o, "headers"); x != nil {
 		res.Header = toHeader(rc.rt, x)
+		if !requestPhase {
+			fixSetCookie(res.Header, rc.origSetCookie)
+		}
 	}
 	if x := get(o, "bodyBytes"); x != nil {
 		res.Body, res.BodySet = rc.bodyBytes(x)
