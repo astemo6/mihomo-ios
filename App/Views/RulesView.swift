@@ -189,7 +189,7 @@ struct RulesView: View {
         }
         .listStyle(.plain)
         .scrollContentBackground(.hidden)
-        .searchable(text: $search, prompt: "搜索规则")
+        .searchable(text: $search, placement: .navigationBarDrawer(displayMode: .always), prompt: "搜索规则")
         .refreshable { await load() }
         .overlay { if rows.isEmpty && search.isEmpty { EmptyStateView(icon: "list.bullet.rectangle", title: AppShared.activeProfileURL == nil ? "没有选择配置" : "没有规则") } }
     }
@@ -227,6 +227,7 @@ struct RuleTypeTag: View {
         if let c = Theme.ruleTypeColor(type) {
             Text(verbatim: type).font(.caption2.weight(.semibold))
                 .padding(.horizontal, 5).padding(.vertical, 1)
+                .lineLimit(1) // v0.19.8: a capsule tag never wraps (tall grey box with large text)
                 .background(Capsule().fill(c.opacity(0.16)))
                 .foregroundStyle(c)
                 .lineLimit(1).fixedSize()
@@ -234,6 +235,7 @@ struct RuleTypeTag: View {
         } else {
             Text(verbatim: type).font(.caption2.weight(.semibold))
                 .padding(.horizontal, 5).padding(.vertical, 1)
+                .lineLimit(1) // v0.19.8: a capsule tag never wraps (tall grey box with large text)
                 .background(Capsule().fill(Theme.ink(0.1)))
                 .lineLimit(1).fixedSize()
         }
@@ -247,6 +249,7 @@ struct PolicyChip: View {
         let c = Theme.policyColor(name)
         Text(verbatim: name).font(.caption.weight(.medium))
             .padding(.horizontal, 7).padding(.vertical, 2)
+            .lineLimit(1) // v0.19.8: a capsule tag never wraps (tall grey box with large text)
             .background(Capsule().fill(c.opacity(0.14)))
             .foregroundStyle(c)
             .lineLimit(1).truncationMode(.middle)
@@ -300,12 +303,104 @@ struct RuleCheckLine: View {
     }
 }
 
+/// v0.19.8: one rule type of the structured editor.
+struct RuleKind: Identifiable, Hashable {
+    enum Group: String, CaseIterable { case domain, ip, other }
+    let id: String          // the mihomo rule type
+    let group: Group
+    let caption: String
+    let placeholder: String
+    var isIP = false
+    var keyboard: UIKeyboardType = .asciiCapable
+    var noValue = false
+
+    static var all: [RuleKind] { [
+        RuleKind(id: "DOMAIN-SUFFIX", group: .domain, caption: String(localized: "域名及其所有子域名"), placeholder: "google.com"),
+        RuleKind(id: "DOMAIN", group: .domain, caption: String(localized: "完全相同的域名"), placeholder: "www.google.com"),
+        RuleKind(id: "DOMAIN-KEYWORD", group: .domain, caption: String(localized: "域名里包含这个关键词"), placeholder: "openai"),
+        RuleKind(id: "DOMAIN-REGEX", group: .domain, caption: String(localized: "域名匹配正则表达式"), placeholder: "^ad\\..*"),
+        RuleKind(id: "GEOSITE", group: .domain, caption: String(localized: "域名分类（GeoSite）"), placeholder: "netflix"),
+        RuleKind(id: "IP-CIDR", group: .ip, caption: String(localized: "IPv4 网段"), placeholder: "192.168.0.0/16", isIP: true, keyboard: .numbersAndPunctuation),
+        RuleKind(id: "IP-CIDR6", group: .ip, caption: String(localized: "IPv6 网段"), placeholder: "2001:db8::/32", isIP: true, keyboard: .numbersAndPunctuation),
+        RuleKind(id: "IP-ASN", group: .ip, caption: String(localized: "IP 所属的自治系统编号"), placeholder: "13335", isIP: true, keyboard: .numberPad),
+        RuleKind(id: "GEOIP", group: .ip, caption: String(localized: "IP 所属的国家或地区代码"), placeholder: "CN", isIP: true),
+        RuleKind(id: "PROCESS-NAME", group: .other, caption: String(localized: "发起连接的进程名"), placeholder: "Telegram"),
+        RuleKind(id: "DST-PORT", group: .other, caption: String(localized: "目标端口"), placeholder: "443", keyboard: .numberPad),
+        RuleKind(id: "NETWORK", group: .other, caption: String(localized: "网络类型：tcp 或 udp"), placeholder: "udp"),
+        RuleKind(id: "RULE-SET", group: .other, caption: String(localized: "远程规则列表（Surge / QX / Clash 格式）"), placeholder: "https://example.com/rules.list", keyboard: .URL),
+        RuleKind(id: "MATCH", group: .other, caption: String(localized: "其余所有连接（最后一条）"), placeholder: "", noValue: true),
+    ] }
+
+    static func groupTitle(_ g: Group) -> String {
+        switch g {
+        case .domain: return String(localized: "域名")
+        case .ip: return "IP"
+        case .other: return String(localized: "进程与其他")
+        }
+    }
+
+    /// Surge / QX spellings → the mihomo type the form shows.
+    static let aliases: [String: String] = [
+        "HOST": "DOMAIN", "HOST-SUFFIX": "DOMAIN-SUFFIX", "HOST-KEYWORD": "DOMAIN-KEYWORD", "HOST-REGEX": "DOMAIN-REGEX",
+        "IP6-CIDR": "IP-CIDR6", "IP-CIDR6": "IP-CIDR6", "FINAL": "MATCH", "PROCESS": "PROCESS-NAME", "DEST-PORT": "DST-PORT",
+    ]
+}
+
+/// v0.19.8: the fields of the structured editor, two-way with the rule line.
+struct RuleFormFields: Equatable {
+    var type = "DOMAIN-SUFFIX"
+    var value = ""
+    var policy = ""
+    var noResolve = false
+
+    var kind: RuleKind? { RuleKind.all.first { $0.id == type } }
+
+    var line: String {
+        let k = kind
+        if k?.noValue == true { return "\(type),\(policy)" }
+        var parts = [type, value.trimmingCharacters(in: .whitespaces), policy]
+        if k?.isIP == true && noResolve { parts.append("no-resolve") }
+        return parts.joined(separator: ",")
+    }
+
+    /// nil when the line is not one the form can show (remote QX filter_remote lines, logical rules, …): text mode.
+    static func parse(_ line: String) -> RuleFormFields? {
+        let parts = line.split(separator: ",", omittingEmptySubsequences: false).map { $0.trimmingCharacters(in: .whitespaces) }
+        guard let first = parts.first, !first.isEmpty else { return nil }
+        var t = first.uppercased()
+        t = RuleKind.aliases[t] ?? t
+        guard let k = RuleKind.all.first(where: { $0.id == t }) else { return nil }
+        var f = RuleFormFields(type: t)
+        if k.noValue {
+            guard parts.count == 2 else { return nil }
+            f.policy = parts[1]
+            return f
+        }
+        guard parts.count >= 3, parts.count <= 4 else { return nil }
+        f.value = parts[1]
+        f.policy = parts[2]
+        if parts.count == 4 {
+            guard parts[3].lowercased() == "no-resolve" else { return nil }
+            f.noResolve = true
+        }
+        // QX spells built-in policies in lower case.
+        if ["direct", "reject", "proxy"].contains(f.policy) { f.policy = f.policy == "proxy" ? f.policy : f.policy.uppercased() }
+        return f
+    }
+}
+
 struct CustomRuleEditor: View {
     @Environment(\.dismiss) var dismiss
+    @ObservedObject private var vpn = VPNManager.shared
+    @ObservedObject private var offline = ProfileInspector.shared
     @State var rule: CustomRule
     let onSave: (CustomRule) -> Void
     @State private var check: RuleCheck?
     @State private var checking = false
+    /// v0.19.8 (user: QX-like form, 「不要照抄」): type / value / policy fields; 文本模式 shows the raw line.
+    @State private var form = RuleFormFields()
+    @State private var textMode = false
+    @State private var policies: [String] = []
 
     static let examples = [
         "DOMAIN-SUFFIX,google.com,Proxy",
@@ -318,19 +413,30 @@ struct CustomRuleEditor: View {
         "https://example.com/x.list, tag=x, force-policy=Proxy          (QX filter_remote)",
     ]
 
+    static let builtins = ["DIRECT", "REJECT", "REJECT-DROP"]
+
+    var policyChoices: [String] {
+        var out = policies + Self.builtins
+        if !form.policy.isEmpty && !out.contains(form.policy) { out.insert(form.policy, at: 0) }
+        return out
+    }
+
     var body: some View {
         NavigationStack {
             Form {
                 Section {
-                    TextField("规则", text: $rule.line, axis: .vertical)
-                        .scaledFont(13, design: .monospaced)
-                        .textInputAutocapitalization(.never).autocorrectionDisabled()
-                        .lineLimit(1...5)
-                    if checking { ProgressView().controlSize(.small) } else { RuleCheckLine(check: check) }
-                } header: { Text("规则") } footer: {
-                    Text("输入时实时校验：显示转换后的 mihomo 规则和对应的策略组。")
+                    Picker("编辑方式", selection: Binding(get: { textMode }, set: { setTextMode($0) })) {
+                        Text("表单").tag(false)
+                        Text("文本模式").tag(true)
+                    }
+                    .pickerStyle(.segmented)
+                    .accessibilityIdentifier("rule.mode")
                 }
-                .listRowBackground(Theme.card)
+                .listRowBackground(Color.clear)
+                .listRowInsets(EdgeInsets())
+
+                if textMode { textSections } else { formSections }
+
                 if rule.line.contains("://") {
                     Section("远程列表更新间隔") {
                         Picker("间隔", selection: Binding(get: { rule.interval ?? 86400 }, set: { rule.interval = $0 })) {
@@ -342,16 +448,6 @@ struct CustomRuleEditor: View {
                     }
                     .listRowBackground(Theme.card)
                 }
-                Section("示例（轻点填入）") {
-                    ForEach(Self.examples, id: \.self) { ex in
-                        Button {
-                            rule.line = ex.components(separatedBy: "          ").first ?? ex
-                        } label: {
-                            Text(ex).scaledFont(11, design: .monospaced).foregroundStyle(.secondary)
-                        }
-                    }
-                }
-                .listRowBackground(Theme.card)
             }
             .scrollContentBackground(.hidden)
             .background(Theme.bg.ignoresSafeArea())
@@ -364,7 +460,8 @@ struct CustomRuleEditor: View {
                         onSave(rule)
                         dismiss()
                     }
-                    .disabled(rule.line.trimmingCharacters(in: .whitespaces).isEmpty || (check?.error?.isEmpty == false))
+                    .disabled(!canSave)
+                    .accessibilityIdentifier("rule.save")
                 }
             }
             .task(id: rule.line) {
@@ -377,7 +474,115 @@ struct CustomRuleEditor: View {
                 checking = false
                 if !Task.isCancelled { check = c }
             }
+            .task { await loadPolicies() }
+            .onAppear {
+                if let f = RuleFormFields.parse(rule.line) { form = f }
+                else if !rule.line.trimmingCharacters(in: .whitespaces).isEmpty { textMode = true }
+                if form.policy.isEmpty { form.policy = policies.first ?? "DIRECT" }
+                if !textMode && rule.line.isEmpty { rule.line = form.line }
+            }
+            .onChange(of: form) { f in if !textMode { rule.line = f.line } }
         }
+    }
+
+    var canSave: Bool {
+        let line = rule.line.trimmingCharacters(in: .whitespaces)
+        if line.isEmpty || check?.error?.isEmpty == false { return false }
+        if !textMode, form.kind?.noValue != true, form.value.trimmingCharacters(in: .whitespaces).isEmpty { return false }
+        return true
+    }
+
+    @ViewBuilder var formSections: some View {
+        Section {
+            Picker("类型", selection: $form.type) {
+                ForEach(RuleKind.Group.allCases, id: \.self) { g in
+                    Section(RuleKind.groupTitle(g)) {
+                        ForEach(RuleKind.all.filter { $0.group == g }) { k in Text(verbatim: k.id).tag(k.id) }
+                    }
+                }
+            }
+            .pickerStyle(.navigationLink)
+            .accessibilityIdentifier("rule.type")
+            if let k = form.kind { Text(k.caption).font(.caption).foregroundStyle(.secondary) }
+            if form.kind?.noValue != true {
+                TextField(form.kind?.placeholder ?? "", text: $form.value)
+                    .font(.body.monospaced())
+                    .keyboardType(form.kind?.keyboard ?? .asciiCapable)
+                    .textInputAutocapitalization(.never).autocorrectionDisabled()
+                    .accessibilityIdentifier("rule.value")
+            }
+            if form.kind?.isIP == true {
+                Toggle("不解析域名（no-resolve）", isOn: $form.noResolve)
+            }
+        } header: { Text("匹配") }
+        .listRowBackground(Theme.card)
+
+        Section {
+            Picker("策略", selection: $form.policy) {
+                ForEach(policyChoices, id: \.self) { Text(verbatim: $0).tag($0) }
+            }
+            .pickerStyle(.navigationLink)
+            .accessibilityIdentifier("rule.policy")
+        } header: { Text("策略") } footer: {
+            Text("策略组来自当前配置；找不到时使用第一个手动选择组并标黄。")
+        }
+        .listRowBackground(Theme.card)
+
+        Section {
+            Text(verbatim: rule.line).font(.footnote.monospaced()).foregroundStyle(.secondary).textSelection(.enabled)
+                .accessibilityIdentifier("rule.line")
+            if checking { ProgressView().controlSize(.small) } else { RuleCheckLine(check: check) }
+        } header: { Text("规则") } footer: { Text("实时校验：显示转换后的 mihomo 规则和对应的策略组。") }
+        .listRowBackground(Theme.card)
+    }
+
+    @ViewBuilder var textSections: some View {
+        Section {
+            TextField("规则", text: $rule.line, axis: .vertical)
+                .scaledFont(13, design: .monospaced)
+                .textInputAutocapitalization(.never).autocorrectionDisabled()
+                .lineLimit(1...5)
+                .accessibilityIdentifier("rule.text")
+            if checking { ProgressView().controlSize(.small) } else { RuleCheckLine(check: check) }
+        } header: { Text("规则") } footer: {
+            Text("可以粘贴 Surge / QX / Clash 规则；切回表单时会填入各个字段。输入时实时校验：显示转换后的 mihomo 规则和对应的策略组。")
+        }
+        .listRowBackground(Theme.card)
+        Section("示例（轻点填入）") {
+            ForEach(Self.examples, id: \.self) { ex in
+                Button {
+                    rule.line = ex.components(separatedBy: "          ").first ?? ex
+                } label: {
+                    Text(ex).scaledFont(11, design: .monospaced).foregroundStyle(.secondary)
+                }
+            }
+        }
+        .listRowBackground(Theme.card)
+    }
+
+    /// Switching to the form parses the line; a line the form cannot show stays in text mode.
+    func setTextMode(_ on: Bool) {
+        if on { textMode = true; return }
+        if let f = RuleFormFields.parse(rule.line) {
+            form = f
+            textMode = false
+            rule.line = f.line
+        } else if rule.line.trimmingCharacters(in: .whitespaces).isEmpty {
+            textMode = false
+            rule.line = form.line
+        } else {
+            check = RuleCheck(error: String(localized: "这条规则无法用表单编辑（例如远程列表的 QX 写法或逻辑规则），请在文本模式里修改。"))
+        }
+    }
+
+    func loadPolicies() async {
+        var names: [String] = []
+        if vpn.isConnected, let p = try? await ControllerClient.shared.proxies() {
+            names = LiveGroupOrder.names(p).filter { p[$0]?.isGroup == true && p[$0]?.hidden != true && $0 != "GLOBAL" }
+        }
+        if names.isEmpty { names = offline.result.groups.filter { $0.hidden != true && $0.name != "GLOBAL" }.map(\.name) }
+        policies = names
+        if form.policy.isEmpty || (rule.line.isEmpty && !textMode) { form.policy = names.first ?? "DIRECT" }
     }
 }
 

@@ -427,9 +427,15 @@ struct ConnectionLiveActivity: Widget {
                     .padding(.horizontal, 4)
                 }
             } compactLeading: {
-                Image(systemName: "network").foregroundStyle(context.state.connected ? WidgetTheme.good : .secondary)
+                // v0.19.8 (user): ↑ left, ↓ right, always numbers. Past the stale date they are the last known
+                // values, drawn grey (never a bare "—").
+                Text("↑" + LiveActivityFormat.speed(context.state.up))
+                    .font(.caption2.monospacedDigit()).lineLimit(1).minimumScaleFactor(0.7)
+                    .foregroundStyle(context.isStale ? Color.secondary : Color.orange)
             } compactTrailing: {
-                Text(context.isStale ? "—" : "↓" + LiveActivityFormat.speed(context.state.down)).font(.caption2.monospacedDigit()).foregroundStyle(WidgetTheme.accent)
+                Text("↓" + LiveActivityFormat.speed(context.state.down))
+                    .font(.caption2.monospacedDigit()).lineLimit(1).minimumScaleFactor(0.7)
+                    .foregroundStyle(context.isStale ? Color.secondary : WidgetTheme.accent)
             } minimal: {
                 Image(systemName: "network").foregroundStyle(context.state.connected ? WidgetTheme.good : .secondary)
             }
@@ -443,15 +449,17 @@ struct LiveSpeeds: View {
     /// were taken instead of a frozen speed.
     var stale = false
     var body: some View {
-        if stale {
-            Text("更新于 \(state.updated.formatted(date: .omitted, time: .shortened))")
-                .font(.caption2).foregroundStyle(.secondary)
-        } else {
+        // v0.19.8: both speeds always; stale = the last known values in grey with the time they were taken.
+        VStack(alignment: .trailing, spacing: 1) {
             HStack(spacing: 8) {
-                Text("↑" + LiveActivityFormat.speed(state.up) + "/s").foregroundStyle(.orange)
-                Text("↓" + LiveActivityFormat.speed(state.down) + "/s").foregroundStyle(WidgetTheme.accent)
+                Text("↑" + LiveActivityFormat.speed(state.up) + "/s").foregroundStyle(stale ? Color.secondary : Color.orange)
+                Text("↓" + LiveActivityFormat.speed(state.down) + "/s").foregroundStyle(stale ? Color.secondary : WidgetTheme.accent)
             }
             .font(.caption.monospacedDigit())
+            if stale {
+                Text("更新于 \(state.updated.formatted(date: .omitted, time: .shortened))")
+                    .font(.caption2).foregroundStyle(.secondary)
+            }
         }
     }
 }

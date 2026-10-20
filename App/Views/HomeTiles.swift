@@ -6,6 +6,8 @@ import SwiftUI
 
 enum BuiltinTile: String, CaseIterable, Identifiable {
     case speed, traffic, uptime, exitIP = "exitip", lanIP = "lanip", memory
+    /// v0.19.8: 流媒体解锁 (the last real 解锁检测 through the current exit; 未检测 until one ran).
+    case unlock
 
     static let prefix = "builtin."
     var id: String { Self.prefix + rawValue }
@@ -22,6 +24,7 @@ enum BuiltinTile: String, CaseIterable, Identifiable {
         case .exitIP: return String(localized: "出口 IP")
         case .lanIP: return String(localized: "内网 IP")
         case .memory: return String(localized: "内存")
+        case .unlock: return String(localized: "流媒体解锁")
         }
     }
 
@@ -33,6 +36,7 @@ enum BuiltinTile: String, CaseIterable, Identifiable {
         case .exitIP: return "globe"
         case .lanIP: return "wifi.router"
         case .memory: return "memorychip"
+        case .unlock: return "checkmark.shield"
         }
     }
 
@@ -44,11 +48,12 @@ enum BuiltinTile: String, CaseIterable, Identifiable {
         case .exitIP: return String(localized: "出口 IP 与国旗，默认打码，轻点显示")
         case .lanIP: return String(localized: "本机局域网地址，轻点查看网络详情")
         case .memory: return String(localized: "网络扩展当前占用的内存")
+        case .unlock: return String(localized: "经当前出口检测的流媒体与 AI 服务解锁情况，轻点重新检测")
         }
     }
 
     /// Full-width cards; the rest pair up two per row.
-    var wide: Bool { self == .speed || self == .traffic }
+    var wide: Bool { self == .speed || self == .traffic || self == .unlock }
 }
 
 /// One row on Home: a script panel, a wide built-in tile, or up to two small built-in tiles.
@@ -103,6 +108,7 @@ struct BuiltinTileView: View {
             case .exitIP: ExitIPTile()
             case .lanIP: LANIPTile()
             case .memory: MemoryTile()
+            case .unlock: UnlockTile()
             }
         }
         .accessibilityIdentifier("home.tile.\(tile.rawValue)")
@@ -400,5 +406,82 @@ struct MemoryTile: View {
                 try? await Task.sleep(nanoseconds: 5_000_000_000)
             }
         }
+    }
+}
+
+// MARK: - 流媒体解锁 (v0.19.8)
+
+/// The policy the current exit goes through: GLOBAL in 全局 mode, else the first group (usually 节点选择), the
+/// same start DashboardModel follows for the selected node. The result is the ProbeStore entry of that policy
+/// (probe-results.json in the App Group), so it is the same data 解锁检测 shows — nothing is made up.
+struct UnlockTile: View {
+    @EnvironmentObject var vpn: VPNManager
+    @ObservedObject private var probes = ProbeStore.shared
+    @ObservedObject private var dash = DashboardModel.shared
+    @AppStorage("home.unlockPolicy", store: AppShared.defaults) private var lastPolicy = ""
+    @State private var error: String?
+
+    var policy: String {
+        if dash.mode == "global" { return "GLOBAL" }
+        return dash.availableGroups.first ?? lastPolicy
+    }
+
+    var shownPolicy: String { probes.entry(policy)?.unlock != nil ? policy : lastPolicy }
+    var entry: ProbeStore.Entry? { shownPolicy.isEmpty ? nil : probes.entry(shownPolicy) }
+    var running: Bool { probes.running.contains(policy) }
+
+    var body: some View {
+        TileCard(title: BuiltinTile.unlock.title, icon: BuiltinTile.unlock.icon, trailing: trailing) {
+            VStack(alignment: .leading, spacing: 8) {
+                if let results = entry?.unlock, !results.isEmpty {
+                    LazyVGrid(columns: [GridItem(.flexible(), spacing: 8), GridItem(.flexible(), spacing: 8)], alignment: .leading, spacing: 6) {
+                        ForEach(results.prefix(8)) { r in
+                            HStack(spacing: 5) {
+                                Image(systemName: r.status == .yes ? "checkmark.circle.fill" : r.status == .partial ? "circle.lefthalf.filled" : r.status == .no ? "xmark.circle.fill" : "questionmark.circle")
+                                    .font(.caption2.weight(.bold)).foregroundStyle(r.color)
+                                Text(r.service.title).font(.caption).lineLimit(1).minimumScaleFactor(0.8)
+                                Spacer(minLength: 2)
+                                if let region = r.region { Text(verbatim: region.uppercased()).font(.caption2.monospaced()).foregroundStyle(.secondary) }
+                            }
+                            .accessibilityElement(children: .combine)
+                        }
+                    }
+                    .accessibilityIdentifier("home.tile.unlock.results")
+                } else {
+                    Text(running ? LocalizedStringKey("正在检测…") : LocalizedStringKey("未检测"))
+                        .font(.subheadline.weight(.semibold))
+                        .accessibilityIdentifier("home.tile.unlock.empty")
+                }
+                HStack(spacing: 10) {
+                    if running {
+                        ProgressView().controlSize(.small)
+                    } else {
+                        Button { Task { await run() } } label: { Label("重新检测", systemImage: "arrow.clockwise").font(.caption.weight(.semibold)) }
+                            .buttonStyle(.borderless)
+                            .disabled(!vpn.isConnected || policy.isEmpty)
+                            .accessibilityIdentifier("home.tile.unlock.run")
+                    }
+                    if !vpn.isConnected { Text("连接后检测").font(.caption2).foregroundStyle(.secondary) }
+                    Spacer()
+                    NavigationLink { UnlockView() } label: { Text("全部").font(.caption.weight(.semibold)) }
+                        .buttonStyle(.borderless)
+                }
+                if let error { Text(verbatim: error).font(.caption2).foregroundStyle(Theme.bad).lineLimit(2) }
+            }
+        }
+    }
+
+    var trailing: String? {
+        guard let d = entry?.unlockDate else { return nil }
+        let f = RelativeDateTimeFormatter()
+        f.unitsStyle = .short
+        return f.localizedString(for: d, relativeTo: Date())
+    }
+
+    func run() async {
+        let p = policy
+        guard vpn.isConnected, !p.isEmpty else { return }
+        error = await probes.probeUnlock(p)
+        if error == nil { lastPolicy = p }
     }
 }

@@ -109,7 +109,7 @@ struct ModuleGalleryView: View {
         .scrollContentBackground(.hidden)
         .background(Theme.bg.ignoresSafeArea())
         .navigationTitle("模块库")
-        .searchable(text: $query, prompt: Text("搜索模块"))
+        .searchable(text: $query, placement: .navigationBarDrawer(displayMode: .always), prompt: Text("搜索模块"))
         .refreshable { await gallery.refreshAll(force: true) }
         .toolbar {
             ToolbarItem(placement: .navigationBarTrailing) {

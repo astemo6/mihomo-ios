@@ -35,6 +35,7 @@ struct LANDetailView: View {
                 Text("已复制 \(copied)")
                     .font(.caption.weight(.semibold))
                     .padding(.horizontal, 12).padding(.vertical, 6)
+                    .lineLimit(1) // v0.19.8: a capsule tag never wraps (tall grey box with large text)
                     .background(Capsule().fill(Theme.good))
                     .foregroundStyle(Theme.onAccent)
                     .padding(.bottom, 20)
@@ -73,11 +74,18 @@ struct LANDetailView: View {
 
     var networkSection: some View {
         Section {
+            // v0.19.8: the tags wrapped inside the value (「计费」 clipped, 「网络」 low in a tall grey box). One line each;
+            // when the row is too narrow (large text) they go under the value.
             LabeledContent("网络类型") {
-                HStack(spacing: 6) {
-                    Text(verbatim: typeText)
-                    if info.expensive { tag("计费网络") }
-                    if info.constrained { tag("低数据模式") }
+                ViewThatFits(in: .horizontal) {
+                    HStack(spacing: 6) {
+                        Text(verbatim: typeText).lineLimit(1)
+                        tags
+                    }
+                    VStack(alignment: .trailing, spacing: 4) {
+                        Text(verbatim: typeText)
+                        HStack(spacing: 6) { tags }
+                    }
                 }
             }
             .accessibilityIdentifier("lan.type")
@@ -96,8 +104,14 @@ struct LANDetailView: View {
         .listRowBackground(Theme.card)
     }
 
+    @ViewBuilder var tags: some View {
+        if info.expensive { tag("计费网络") }
+        if info.constrained { tag("低数据模式") }
+    }
+
     func tag(_ t: LocalizedStringKey) -> some View {
         Text(t).font(.caption2.weight(.semibold))
+            .lineLimit(1).fixedSize()
             .padding(.horizontal, 6).padding(.vertical, 2)
             .background(Capsule().fill(Theme.warn.opacity(0.18)))
             .foregroundStyle(Theme.warn)

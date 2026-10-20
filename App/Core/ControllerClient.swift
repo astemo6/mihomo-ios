@@ -42,8 +42,14 @@ final class ControllerClient {
                 let detail = Self.detail(m)
                 switch c {
                 case 401, 403: return String(localized: "内核拒绝了请求（密钥不匹配）。断开后重新连接一次。")
-                case 404: return detail.isEmpty || detail.lowercased().contains("not found")
-                    ? String(localized: "内核没有这个接口：扩展可能还在运行旧版本，断开后重新连接一次。") : detail
+                case 404:
+                    // v0.19.8: mihomo answers {"message":"resource not found"} when the NAME (node, group,
+                    // provider) is not in the running config; only a missing route is an old extension.
+                    if Self.isResourceNotFound(m) {
+                        return String(localized: "内核里找不到这个节点或策略组，配置可能已变更，重新加载后再试。")
+                    }
+                    return detail.isEmpty || detail.lowercased().contains("not found")
+                        ? String(localized: "内核没有这个接口：扩展可能还在运行旧版本，断开后重新连接一次。") : detail
                 case 503: return detail.lowercased().contains("engine not running")
                     ? String(localized: "脚本引擎未运行：先在模块、重写或脚本页面开启，再重新连接。") : String(localized: "内核暂时不可用：\(detail)")
                 case 408, 504: return String(localized: "请求超时：\(detail)")
@@ -53,6 +59,11 @@ final class ControllerClient {
             case .unreachable: return String(localized: "连不上内核：VPN 未连接，或扩展刚刚退出。")
             case .timedOut: return String(localized: "内核没有及时响应，请稍后再试。")
             }
+        }
+
+        /// mihomo's ErrNotFound ({"message":"resource not found"}): the route exists, the name does not.
+        static func isResourceNotFound(_ body: String) -> Bool {
+            detail(body).lowercased() == "resource not found"
         }
 
         /// mihomo answers {"message": "…"}; plain text otherwise (trimmed).
@@ -239,11 +250,18 @@ final class ControllerClient {
         var out: [String: Int] = [:]
         var firstError: Error?
         var errors = 0
+        var notFound: [String] = []
         let width = max(1, limit)
+        // v0.19.8: nodes of proxy-providers (node subscriptions, 配置里的订阅) are not in GET /proxies/{name}
+        // (mihomo's route only looks at the config's own proxies and groups) — every one of them answered 404 and
+        // the whole test failed. They are tested through /providers/proxies/{provider}/{name}/healthcheck.
+        let providerOf = await providerIndex()
         let run: (String) async -> (String, Int, Error?) = { name in
             // v0.17: a node's own test URL (按节点设置) wins unless the caller fixed one.
-            do { return (name, try await self.proxyDelay(name, url: url ?? NodeSettingsStore.testURL(for: name), timeoutMs: timeoutMs), nil) }
-            catch { return (name, 0, error) }
+            do {
+                let u = url ?? NodeSettingsStore.testURL(for: name)
+                return (name, try await self.proxyDelay(name, url: u, timeoutMs: timeoutMs, provider: providerOf[name], resolved: true), nil)
+            } catch { return (name, 0, error) }
         }
         // Sliding window: a new member starts as soon as one finishes, never more than `width` at once.
         await withTaskGroup(of: (String, Int, Error?).self) { tg in
@@ -258,6 +276,7 @@ final class ControllerClient {
                 out[name] = ms
                 if let err {
                     errors += 1
+                    if case APIError.http(404, let body) = err, APIError.isResourceNotFound(body) { notFound.append(name) }
                     if firstError == nil { firstError = err }
                 }
                 if next < members.count {
@@ -270,16 +289,51 @@ final class ControllerClient {
         // Every request failed at the HTTP level (not a node timeout): the controller is unreachable.
         // selftest: before, one failed request (e.g. a node renamed since the list loaded) plus timeouts for
         // the rest threw away every result and showed an error instead of the timeouts.
-        if let firstError, errors == members.count { throw firstError }
+        if let firstError, errors == members.count {
+            // A member the core does not know counts as a failed member; only when nothing could be tested say why.
+            if notFound.count == members.count, let first = members.first { throw DelayError.nodeNotFound(first) }
+            throw firstError
+        }
         return out
     }
 
+    enum DelayError: LocalizedError {
+        case nodeNotFound(String)
+        var errorDescription: String? {
+            switch self {
+            case .nodeNotFound(let n): return String(localized: "内核里找不到节点「\(n)」，配置可能已变更，重新加载后再试")
+            }
+        }
+    }
+
+    /// Node name → the proxy-provider that holds it (first one wins), from GET /providers/proxies.
+    /// Cached 5 s (a 全部测速 in 节点管理 tests node by node).
+    func providerIndex() async -> [String: String] {
+        credLock.lock()
+        let c = providerIndexCache
+        credLock.unlock()
+        if let c, Date().timeIntervalSince(c.at) < 5 { return c.map }
+        guard let list = try? await proxyProviders() else { return [:] }
+        var m: [String: String] = [:]
+        for pv in list { for p in pv.proxies ?? [] where m[p.name] == nil { m[p.name] = pv.name } }
+        credLock.lock(); providerIndexCache = (Date(), m); credLock.unlock()
+        return m
+    }
+
+    private var providerIndexCache: (at: Date, map: [String: String])?
+
     /// GET /proxies/{name}/delay for one node; 0 = timeout / failure.
-    func proxyDelay(_ name: String, url: String? = nil, timeoutMs: Int? = nil) async throws -> Int {
+    /// `resolved`: the caller already looked the provider up (nil provider = a config proxy / group).
+    func proxyDelay(_ name: String, url: String? = nil, timeoutMs: Int? = nil, provider: String? = nil, resolved: Bool = false) async throws -> Int {
         let st = Self.testSettings
         let ms = timeoutMs ?? st.timeoutMs
+        // v0.19.8: a provider node is only reachable under its provider (see membersDelay). Without a known provider,
+        // a 404 "resource not found" from /proxies is retried there once.
+        var prov = provider
+        if prov == nil, !resolved { prov = await providerIndex()[name] }
+        let path = prov.map { "/providers/proxies/\(Self.enc($0))/\(Self.enc(name))/healthcheck" } ?? "/proxies/\(Self.enc(name))/delay"
         do {
-            let data = try await send("/proxies/\(Self.enc(name))/delay", query: [
+            let data = try await send(path, query: [
                 URLQueryItem(name: "url", value: url ?? NodeSettingsStore.customURL(for: name) ?? st.url), URLQueryItem(name: "timeout", value: String(ms)),
             ], timeout: TimeInterval(ms) / 1000 + 5)
             let obj = try JSONSerialization.jsonObject(with: data) as? [String: Any]

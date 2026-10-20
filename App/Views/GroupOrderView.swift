@@ -126,6 +126,7 @@ struct GroupReorderList: View {
             Text(display.label)
                 .font(.caption2.weight(.semibold))
                 .padding(.horizontal, 6).padding(.vertical, 2)
+                .lineLimit(1) // v0.19.8: a capsule tag never wraps (tall grey box with large text)
                 .background(Capsule().fill(Theme.ink(0.1)))
                 .foregroundStyle(.secondary)
             if r.movable {

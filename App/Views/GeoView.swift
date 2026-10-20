@@ -263,6 +263,7 @@ struct GeoView: View {
         }()
         return Text(LocalizedStringKey(text)).scaledFont(10, weight: .bold)
             .padding(.horizontal, 7).padding(.vertical, 3)
+            .lineLimit(1) // v0.19.8: a capsule tag never wraps (tall grey box with large text)
             .background(Capsule().fill(color.opacity(0.18)))
             .foregroundStyle(color)
     }

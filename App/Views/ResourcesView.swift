@@ -53,6 +53,7 @@ struct ModulesView: View {
                             Spacer()
                             Text("本地").scaledFont(9, weight: .bold)
                                 .padding(.horizontal, 5).padding(.vertical, 2)
+                                .lineLimit(1) // v0.19.8: a capsule tag never wraps (tall grey box with large text)
                                 .background(Capsule().fill(Theme.good.opacity(0.18)))
                                 .foregroundStyle(Theme.good)
                         }
@@ -175,6 +176,7 @@ struct ResourceKindBadge: View {
         Text(LocalizedStringKey(t))
             .scaledFont(9, weight: .bold)
             .padding(.horizontal, 5).padding(.vertical, 2)
+            .lineLimit(1) // v0.19.8: a capsule tag never wraps (tall grey box with large text)
             .background(Capsule().fill(c.opacity(0.18)))
             .foregroundStyle(c)
     }
@@ -197,6 +199,7 @@ struct SourceFormatBadge: View {
         Text(label)
             .scaledFont(8, weight: .bold)
             .padding(.horizontal, 4).padding(.vertical, 1)
+            .lineLimit(1) // v0.19.8: a capsule tag never wraps (tall grey box with large text)
             .background(Capsule().fill(Theme.ink(0.1)))
     }
 }

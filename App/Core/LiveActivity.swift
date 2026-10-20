@@ -62,12 +62,14 @@ final class LiveActivityController: ObservableObject {
         guard enabled, #available(iOS 16.2, *), let a = current.first else { return }
         let now = Date()
         guard now.timeIntervalSince(lastUpdate) >= 3 else { return }
-        if last == (up, down, node) { return }
+        if last == (up, down, node) && now.timeIntervalSince(lastUpdate) < 20 { return } // still refresh the stale date
         lastUpdate = now
         last = (up, down, node)
         let since = VPNManager.shared.connectedDate ?? a.content.state.since
         let state = MihomoActivityAttributes.ContentState(connected: true, node: node, up: up, down: down, since: since, updated: now)
-        Task { await a.update(ActivityContent(state: state, staleDate: now.addingTimeInterval(120))) }
+        // v0.19.8: updates arrive every 3 s while the app runs; 30 s without one means the app was suspended, so the
+        // numbers turn grey (still shown) rather than looking live.
+        Task { await a.update(ActivityContent(state: state, staleDate: now.addingTimeInterval(30))) }
     }
 
     // MARK: v0.11 updates while the app is closed
@@ -132,11 +134,17 @@ final class LiveActivityController: ObservableObject {
         var state = a.content.state
         state.connected = true
         if !s.node.isEmpty { state.node = s.node }
-        state.up = fresh ? s.up : 0
-        state.down = fresh ? s.down : 0
+        // v0.19.8: the newest numbers we have (the tunnel's when they are newer than the activity's), with the time
+        // they were taken; the activity draws them grey past the stale date instead of a bare "—". Before, an old
+        // sample became 0 / 0 with a 1 s stale date, so the island showed "—" almost all the time.
+        if s.time > state.updated || fresh {
+            state.up = s.up
+            state.down = s.down
+            state.updated = s.time
+        }
         state.since = VPNManager.shared.connectedDate ?? state.since
-        state.updated = fresh ? s.time : now
-        await a.update(ActivityContent(state: state, staleDate: now.addingTimeInterval(fresh ? 60 : 1)))
+        let staleAt = max(state.updated.addingTimeInterval(45), now.addingTimeInterval(fresh ? 30 : 0))
+        await a.update(ActivityContent(state: state, staleDate: staleAt))
     }
 
     func endAll() {

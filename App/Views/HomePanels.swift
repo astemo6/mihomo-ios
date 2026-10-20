@@ -288,6 +288,10 @@ struct HomePanelsEditor: View {
     @ObservedObject var home = HomePanelStore.shared
 
     static var intervals: [(Int, LocalizedStringKey)] { [(0, "打开首页时"), (300, "每 5 分钟"), (900, "每 15 分钟"), (1800, "每 30 分钟"), (3600, "每小时")] }
+    /// v0.19.8: the list is always in edit mode (drag handles), which disables NavigationLink rows (device report:
+    /// 「全部面板」/「脚本任务」 grey and dead). Buttons stay tappable; they push through navigationDestination.
+    @State private var showPanels = false
+    @State private var showScriptTasks = false
 
     var body: some View {
         NavigationStack {
@@ -328,15 +332,19 @@ struct HomePanelsEditor: View {
                 } header: {
                     Text("内置卡片")
                 } footer: {
-                    Text("网速、流量、运行时长、出口 IP（默认打码）、内网 IP 和内存，由 App 绘制，不需要模块。两张小卡片并排显示。")
+                    Text("网速、流量、运行时长、出口 IP（默认打码）、内网 IP、内存和流媒体解锁，由 App 绘制，不需要模块。两张小卡片并排显示。")
                 }
                 .listRowBackground(Theme.card)
 
                 Section {
-                    if vpn.isConnected {
-                        NavigationLink { PanelsView() } label: { Label("全部面板", systemImage: "square.grid.2x2") }
+                    Button { showPanels = true } label: { addRow("全部面板", icon: "square.grid.2x2", enabled: vpn.isConnected) }
+                        .disabled(!vpn.isConnected)
+                        .accessibilityIdentifier("homepanels.allPanels")
+                    if !vpn.isConnected {
+                        Text("需要连接后加载面板").font(.caption2).foregroundStyle(.secondary)
                     }
-                    NavigationLink { ScriptTasksView() } label: { Label("脚本任务", systemImage: "terminal") }
+                    Button { showScriptTasks = true } label: { addRow("脚本任务", icon: "terminal", enabled: true) }
+                        .accessibilityIdentifier("homepanels.scriptTasks")
                 } header: {
                     Text("添加")
                 } footer: {
@@ -353,7 +361,19 @@ struct HomePanelsEditor: View {
             .toolbar {
                 ToolbarItem(placement: .confirmationAction) { Button("完成") { dismiss() } }
             }
+            .navigationDestination(isPresented: $showPanels) { PanelsView().environment(\.editMode, .constant(.inactive)) }
+            .navigationDestination(isPresented: $showScriptTasks) { ScriptTasksView().environment(\.editMode, .constant(.inactive)) }
         }
+    }
+
+    /// A navigation row drawn as a button (chevron like a NavigationLink).
+    func addRow(_ title: LocalizedStringKey, icon: String, enabled: Bool) -> some View {
+        HStack {
+            Label(title, systemImage: icon).foregroundStyle(enabled ? Color.primary : Color.secondary)
+            Spacer()
+            Image(systemName: "chevron.right").font(.caption.weight(.semibold)).foregroundStyle(.tertiary)
+        }
+        .contentShape(Rectangle())
     }
 
     @ViewBuilder

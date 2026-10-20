@@ -20,7 +20,9 @@ enum NameRefs {
             for k in Array(edits.keys) {
                 guard var ed = edits[k] else { continue }
                 if var sp = ed.spec { fix(&sp); ed.spec = sp }
-                if isGroup, k == old, let new { edits.removeValue(forKey: k); edits[new] = ed } else { edits[k] = ed }
+                // v0.19.8: the key is the group's name in the profile file and never changes (a rename lives in the
+                // spec); moving the key on a rename detached the edit from its file group.
+                edits[k] = ed
             }
             e.edits = edits
         }

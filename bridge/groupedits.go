@@ -15,25 +15,25 @@ import (
 )
 
 type GroupSpec struct {
-	Name          string   `json:"name"`
-	Type          string   `json:"type"` // select | url-test | fallback | load-balance
-	Proxies       []string `json:"proxies"`
-	Use           []string `json:"use,omitempty"`
-	IncludeAll    bool     `json:"includeAll,omitempty"`
+	Name       string   `json:"name"`
+	Type       string   `json:"type"` // select | url-test | fallback | load-balance
+	Proxies    []string `json:"proxies"`
+	Use        []string `json:"use,omitempty"`
+	IncludeAll bool     `json:"includeAll,omitempty"`
 	// v0.15.4: kept apart from include-all (which also pulls in every provider) so a QX
 	// server-tag-regex group or a 筛选节点 group limited to some sources round-trips exactly.
 	IncludeAllProxies   bool   `json:"includeAllProxies,omitempty"`
 	IncludeAllProviders bool   `json:"includeAllProviders,omitempty"`
 	ExcludeType         string `json:"excludeType,omitempty"`
-	Filter        string   `json:"filter,omitempty"`
-	ExcludeFilter string   `json:"excludeFilter,omitempty"`
-	URL           string   `json:"url,omitempty"`
-	Interval      int      `json:"interval,omitempty"`
-	Tolerance     int      `json:"tolerance,omitempty"`
-	Lazy          *bool    `json:"lazy,omitempty"`
-	Strategy      string   `json:"strategy,omitempty"` // load-balance: consistent-hashing | round-robin | sticky-sessions
-	Icon          string   `json:"icon,omitempty"`
-	Hidden        bool     `json:"hidden,omitempty"`
+	Filter              string `json:"filter,omitempty"`
+	ExcludeFilter       string `json:"excludeFilter,omitempty"`
+	URL                 string `json:"url,omitempty"`
+	Interval            int    `json:"interval,omitempty"`
+	Tolerance           int    `json:"tolerance,omitempty"`
+	Lazy                *bool  `json:"lazy,omitempty"`
+	Strategy            string `json:"strategy,omitempty"` // load-balance: consistent-hashing | round-robin | sticky-sessions
+	Icon                string `json:"icon,omitempty"`
+	Hidden              bool   `json:"hidden,omitempty"`
 }
 
 type GroupEdit struct {
@@ -226,6 +226,16 @@ func applyGroupEdits(raw map[string]any, e *GroupEdits) []string {
 			existing[str(g["name"])] = true
 		}
 	}
+	// v0.19.8: an edit of GLOBAL when the file has no GLOBAL group (mihomo builds it from everything) becomes a
+	// real GLOBAL group, so the members are exactly the edited ones.
+	if ed, ok := e.Edits["GLOBAL"]; ok && !ed.Deleted && ed.Spec != nil && !existing["GLOBAL"] {
+		s := *ed.Spec
+		s.Name = "GLOBAL"
+		g := map[string]any{}
+		writeSpec(g, s)
+		kept = append(kept, g)
+		existing["GLOBAL"] = true
+	}
 	for _, s := range e.Added {
 		if strings.TrimSpace(s.Name) == "" || existing[s.Name] {
 			warn = append(warn, "新建的策略组「"+s.Name+"」与已有名称重复，已跳过")
@@ -390,4 +400,30 @@ func GroupSpecs(homeDir, profilePath string) string {
 	}
 	j, _ := json.Marshal(out)
 	return string(j)
+}
+
+// runtimeGroupNames (v0.19.8) lists the runtime's proxy-groups in config order, without the hidden probe group.
+func runtimeGroupNames(raw map[string]any) []string {
+	out := []string{}
+	for _, gv := range asList(raw["proxy-groups"]) {
+		if g, ok := gv.(map[string]any); ok {
+			if n := str(g["name"]); n != "" && n != ProbeGroup {
+				out = append(out, n)
+			}
+		}
+	}
+	return out
+}
+
+// RuntimeGroupOrderFile is written by every apply (Start / Reload) next to runtime.yaml. The app used GLOBAL's
+// member list as the order of the policy groups; once the profile (or a 策略组编辑 edit) defines its own GLOBAL
+// group, GLOBAL lists only what the user put in it, so the app reads the order from here instead.
+const RuntimeGroupOrderFile = "runtime-groups.json"
+
+func writeRuntimeGroupOrder(home string, names []string) {
+	if home == "" || names == nil {
+		return
+	}
+	b, _ := json.Marshal(names)
+	_ = writeAtomic(filepath.Join(home, RuntimeGroupOrderFile), b)
 }

@@ -103,7 +103,7 @@ struct SwitchNodeIntent: AppIntent {
         let wanted = node.trimmingCharacters(in: .whitespaces)
         if vpn.isConnected {
             let all = try await ControllerClient.shared.proxies()
-            let order = all["GLOBAL"]?.all ?? []
+            let order = LiveGroupOrder.names(all)
             let selectable = order.compactMap { all[$0] }.filter { $0.isSelectable }
             let target: ProxyItem?
             if let g = group, !g.isEmpty { target = all[g] } else { target = selectable.first { $0.all?.contains(wanted) == true } ?? selectable.first }

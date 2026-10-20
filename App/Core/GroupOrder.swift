@@ -137,6 +137,7 @@ enum GroupOrder {
             let err = await Task.detached(priority: .userInitiated) { LibmihomoCopyProfileSettings(home, from, to) }.value
             if !err.isEmpty { StartupLog.write("group order copy settings: \(err)", tag: "app") }
             HomeGroupsStore.copy(from: p.id, to: c.id)
+            RegionFilterStore.copy(from: p.id, to: c.id) // v0.19.8: 筛选节点 follow, so filter groups stay editable
             // Offline selections and the override scripts follow the user to the copy (scripts get new ids).
             let fromPath = p.fileURL.path, toPath = c.fileURL.path
             let selErr = await Task.detached(priority: .userInitiated) { LibmihomoCopyProfileSelections(fromPath, toPath) }.value

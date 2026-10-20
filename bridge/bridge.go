@@ -256,6 +256,10 @@ func buildRuntimeWith(profile []byte, o Overrides, fd int32, inject func(raw map
 		for _, e := range applyGroupEdits(raw, readGroupEdits(o.home, o.profileID)) {
 			log.Warnln("[Groups] %s", e)
 		}
+		// v0.19.8: a 停用 node subscription is not merged; groups that `use:` it keep working.
+		for _, g := range pruneDanglingUse(raw) {
+			log.Warnln("[Groups] 策略组「%s」引用的订阅已停用或尚未下载，已从 use 中移除", g)
+		}
 	}
 	if o.home != "" {
 		expandOwnPolicyProviders(raw, o.home) // v0.12 QX lists without force-policy
@@ -496,11 +500,19 @@ func apply(home, configPath string, fd int32) error {
 			log.Warnln("[MitM] %s", err.Error())
 		}
 	}
-	rt, err := buildRuntimeWith(profile, o, fd, inject)
+	var groupOrder []string
+	engineInject := inject
+	rt, err := buildRuntimeWith(profile, o, fd, func(raw map[string]any) {
+		if engineInject != nil {
+			engineInject(raw)
+		}
+		groupOrder = runtimeGroupNames(raw)
+	})
 	if err != nil {
 		return err
 	}
 	_ = os.WriteFile(filepath.Join(home, "runtime.yaml"), rt, 0o644)
+	writeRuntimeGroupOrder(home, groupOrder) // v0.19.8: the app's group order source (GLOBAL may be user-defined)
 	stage("runtime.yaml written, parsing")
 	if missing := missingGeo(home, rt); len(missing) > 0 {
 		stage("geo data missing for this profile: %s (the core will try to download it)", strings.Join(missing, ", "))

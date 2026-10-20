@@ -197,7 +197,7 @@ struct DNSLogView: View {
         .listStyle(.insetGrouped)
         .scrollContentBackground(.hidden)
         .background(Theme.bg.ignoresSafeArea())
-        .searchable(text: $search, prompt: "搜索域名")
+        .searchable(text: $search, placement: .navigationBarDrawer(displayMode: .always), prompt: "搜索域名")
         .overlay {
             if (tab == 0 ? shownQueries.isEmpty : shownBlocked.isEmpty) && search.isEmpty {
                 EmptyStateView(icon: tab == 0 ? "network" : "hand.raised", title: tab == 0 ? "没有 DNS 查询" : "没有被拦截的域名")
@@ -234,6 +234,7 @@ struct DNSQueryRow: View {
                 if e.cached {
                     Text("缓存").scaledFont(9, weight: .bold)
                         .padding(.horizontal, 5).padding(.vertical, 2)
+                        .lineLimit(1) // v0.19.8: a capsule tag never wraps (tall grey box with large text)
                         .background(Capsule().fill(Theme.good.opacity(0.16)))
                         .foregroundStyle(Theme.good)
                 }
@@ -266,6 +267,7 @@ struct BlockedDomainRow: View {
             Text(verbatim: "\(b.count)")
                 .font(.system(.subheadline, design: .rounded).weight(.semibold).monospacedDigit())
                 .padding(.horizontal, 8).padding(.vertical, 2)
+                .lineLimit(1) // v0.19.8: a capsule tag never wraps (tall grey box with large text)
                 .background(Capsule().fill(Theme.bad.opacity(0.14)))
                 .foregroundStyle(Theme.bad)
         }

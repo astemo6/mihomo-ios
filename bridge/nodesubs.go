@@ -118,3 +118,41 @@ func mergeNodeSubs(raw map[string]any, home string, sub func(key string) *SubRul
 		raw["proxy-providers"] = pp
 	}
 }
+
+// pruneDanglingUse (v0.19.8) drops `use:` entries that name no proxy-provider of the runtime: a node subscription
+// that is 停用 (or not downloaded yet) is not merged, but a 筛选节点 / 策略组编辑 group may still list it in
+// `use:` (only some subscriptions chosen as its source), and mihomo refuses the whole config over one unknown
+// provider. A group left with no members at all gets DIRECT, like the delete paths do. Returns the groups changed.
+func pruneDanglingUse(raw map[string]any) []string {
+	pp, _ := raw["proxy-providers"].(map[string]any)
+	var changed []string
+	for _, gv := range asList(raw["proxy-groups"]) {
+		g, ok := gv.(map[string]any)
+		if !ok {
+			continue
+		}
+		use := strList(g["use"])
+		if len(use) == 0 {
+			continue
+		}
+		var kept []any
+		for _, u := range use {
+			if _, ok := pp[u]; ok {
+				kept = append(kept, u)
+			}
+		}
+		if len(kept) == len(use) {
+			continue
+		}
+		changed = append(changed, str(g["name"]))
+		if len(kept) == 0 {
+			delete(g, "use")
+		} else {
+			g["use"] = kept
+		}
+		if len(kept) == 0 && len(asList(g["proxies"])) == 0 && !boolOf(g["include-all"]) && !boolOf(g["include-all-proxies"]) && !boolOf(g["include-all-providers"]) {
+			g["proxies"] = []any{"DIRECT"}
+		}
+	}
+	return changed
+}

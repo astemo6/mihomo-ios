@@ -172,7 +172,7 @@ struct LocalModuleView: View {
         }
         .listStyle(.insetGrouped)
         .scrollContentBackground(.hidden)
-        .searchable(text: $search, prompt: "搜索规则")
+        .searchable(text: $search, placement: .navigationBarDrawer(displayMode: .always), prompt: "搜索规则")
     }
 
     var rawEditor: some View {

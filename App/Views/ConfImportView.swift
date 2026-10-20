@@ -67,7 +67,8 @@ struct ConfImportResult: Decodable {
                 for x in r where !o.excludedRoutes.contains(x) { o.excludedRoutes.append(x) }
             }
             if let u = testURL, CoreOverrides.isValidTestURL(u) { o.testURL = u }
-            if let t = testTimeoutMs, t > 0 { o.testTimeoutMs = min(max(t, 1000), 5000) }
+            // v0.19.8: 5–10 s (bridge importedCheckTimeout); a QX 2000 made most nodes 超时 in mihomo.
+            if let t = testTimeoutMs, t > 0 { o.testTimeoutMs = min(max(t, 5000), 10000) }
             o.save()
             if let s = trustedSSIDs, !s.isEmpty {
                 var od = OnDemandSettings.load()

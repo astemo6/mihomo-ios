@@ -10,13 +10,16 @@ struct HomeView: View {
 
     /// v0.8: the same cards while disconnected, from the profile file (selection saved for the next connect).
     /// feat/home-groups: the user's chosen groups for this profile (default = the first four).
-    var offlineAvailable: [String] { offline.result.groups.filter { $0.hidden != true }.map(\.name) }
+    var offlineAvailable: [String] { offline.result.groups.filter { $0.hidden != true && $0.name != "GLOBAL" }.map(\.name) }
 
     var offlineCards: [DashboardModel.HomeGroup] {
         _ = homeGroups.revision
         let groups = offline.result.groups.filter { $0.hidden != true }
         let byName = Dictionary(groups.map { ($0.name, $0) }, uniquingKeysWith: { a, _ in a })
-        return homeGroups.resolved(available: groups.map(\.name)).compactMap { byName[$0] }.map { g -> DashboardModel.HomeGroup in
+        // v0.19.8: a profile-defined GLOBAL only as the first card in 全局 mode.
+        let names = (dash.mode == "global" && byName["GLOBAL"] != nil ? ["GLOBAL"] : [])
+            + homeGroups.resolved(available: offlineAvailable)
+        return names.compactMap { byName[$0] }.map { g -> DashboardModel.HomeGroup in
             var chain = [g.name]
             var cur = g
             while let n = offline.current(of: cur), chain.count < 6, !chain.contains(n) {
@@ -387,6 +390,7 @@ struct ExitHeader: View {
                 Text("已复制")
                     .font(.caption2.bold())
                     .padding(.horizontal, 8).padding(.vertical, 3)
+                    .lineLimit(1) // v0.19.8: a capsule tag never wraps (tall grey box with large text)
                     .background(Capsule().fill(Theme.good))
                     .foregroundStyle(Theme.onAccent)
                     .offset(x: -8, y: -8)
@@ -458,7 +462,7 @@ struct OfflineGroupPicker: View {
 
     var body: some View {
         List {
-            if let g = insp.result.groups.first(where: { $0.name == group }) {
+            if let g = insp.result.groups.first(where: { $0.name == group }) ?? (group == "GLOBAL" ? insp.globalGroup : nil) {
                 let selectable = g.type == "select"
                 Section {
                     ForEach(insp.members(of: g), id: \.self) { m in
@@ -489,6 +493,21 @@ struct OfflineGroupPicker: View {
         .background(Theme.bg.ignoresSafeArea())
         .navigationTitle(group)
         .navigationBarTitleDisplayMode(.inline)
+        .toolbar {
+            // v0.19.8 (user): 测速 for this group, like the 策略 tab's bolt (offline = direct from the app).
+            ToolbarItem(placement: .topBarTrailing) {
+                if insp.testing.contains(group) {
+                    ProgressView().accessibilityIdentifier("grouppicker.testing")
+                } else {
+                    Button {
+                        guard let g = insp.result.groups.first(where: { $0.name == group }) ?? (group == "GLOBAL" ? insp.globalGroup : nil) else { return }
+                        Task { await insp.test(group: g) }
+                    } label: { Image(systemName: "bolt.fill") }
+                    .accessibilityLabel(Text("测速"))
+                    .accessibilityIdentifier("grouppicker.test")
+                }
+            }
+        }
     }
 }
 
@@ -498,6 +517,9 @@ struct GroupQuickPicker: View {
     @State private var item: ProxyItem?
     @State private var all: [String: ProxyItem] = [:]
     @State private var error: String?
+    /// v0.19.8 测速 in this page: results of this run (0 = timeout), shown over the core's history.
+    @State private var tested: [String: Int] = [:]
+    @State private var testing = false
 
     var body: some View {
         List {
@@ -515,7 +537,7 @@ struct GroupQuickPicker: View {
                         HStack {
                             Text(verbatim: FlagSafe.text(m)).lineLimit(1)
                             Spacer()
-                            if let d = all[m]?.lastDelay(for: NodeSettingsStore.testURL(for: m)) {
+                            if let d = tested[m] ?? all[m]?.lastDelay(for: NodeSettingsStore.testURL(for: m)) {
                                 Text(Theme.delayText(d)).font(.caption.monospacedDigit()).foregroundStyle(Theme.delayColor(d))
                             }
                             if item.now == m { Image(systemName: "checkmark").foregroundStyle(Theme.accent) }
@@ -530,7 +552,37 @@ struct GroupQuickPicker: View {
         .background(Theme.bg.ignoresSafeArea())
         .navigationTitle(group)
         .navigationBarTitleDisplayMode(.inline)
+        .toolbar {
+            ToolbarItem(placement: .topBarTrailing) {
+                if testing {
+                    ProgressView().accessibilityIdentifier("grouppicker.testing")
+                } else {
+                    Button { Task { await test() } } label: { Image(systemName: "bolt.fill") }
+                        .accessibilityLabel(Text("测速"))
+                        .accessibilityIdentifier("grouppicker.test")
+                        .disabled(item == nil)
+                }
+            }
+        }
         .task { await load() }
+    }
+
+    /// The same path as the 策略 tab (PolicyModel.test): members as the core has them now, 10 at a time, provider
+    /// nodes through their provider.
+    func test() async {
+        guard !testing else { return }
+        testing = true
+        defer { testing = false }
+        let live = (try? await ControllerClient.shared.proxies()) ?? all
+        let members = (live[group]?.all ?? item?.all ?? []).filter { !["DIRECT", "REJECT", "REJECT-DROP", "PASS", "COMPATIBLE"].contains($0) }
+        do {
+            let got = try await ControllerClient.shared.membersDelay(members)
+            for m in members { tested[m] = got[m] ?? 0 }
+            error = nil
+        } catch {
+            self.error = String(localized: "测速失败：\(error.localizedDescription)")
+        }
+        await load()
     }
 
     func load() async {

@@ -7,6 +7,14 @@ struct MoreView: View {
     @EnvironmentObject var store: ProfileStore
     @ObservedObject var engine = EngineStore.shared
     @State private var showOnboarding = false
+    @ObservedObject private var nodeModel = NodeManagerModel.shared
+
+    /// 本地节点 (manual nodes + a local profile's own nodes), as 节点管理 counts them; nil before the list loaded.
+    var localNodeCount: Int? {
+        let ids = Set(nodeModel.sources.filter { $0.kind == .manual || ($0.kind == .profile && !$0.remote) }.map(\.id))
+        let n = nodeModel.nodes.filter { ids.contains($0.source.id) }.count
+        return nodeModel.nodes.isEmpty ? nil : n
+    }
 
     var body: some View {
         NavigationStack {
@@ -22,12 +30,9 @@ struct MoreView: View {
                 }
                 .listRowBackground(Theme.card)
 
-                Section("节点") {
-                    NavigationLink { NodeManagerView() } label: { row("节点管理", "server.rack", nil) }
-                }
-                .listRowBackground(Theme.card)
-
-                Section("订阅") {
+                // v0.19.8 (user): one section for the two pages instead of two one-row sections.
+                Section("节点与订阅") {
+                    NavigationLink { NodeManagerView() } label: { row("节点管理", "server.rack", localNodeCount.map { "\($0)" }) }
                     NavigationLink { SubscriptionsView() } label: {
                         row("订阅管理", "tray.full", "\(store.profiles.filter { $0.kind == .remote }.count + NodeSubStore.shared.subs.count)")
                     }
@@ -207,7 +212,7 @@ struct LogsView: View {
                         }
                     }
                 }
-                .searchable(text: $search, prompt: "过滤日志")
+                .searchable(text: $search, placement: .navigationBarDrawer(displayMode: .always), prompt: "过滤日志")
             }
         }
         .background(Theme.bg.ignoresSafeArea())
