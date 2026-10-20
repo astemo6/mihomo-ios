@@ -118,6 +118,8 @@ type Overrides struct {
 	manualPath string            // <container>/profiles/manual-nodes.yaml
 	home       string
 	profileID  string // v0.9: group edits are per profile
+	// v0.19.10: candidate group edits (GroupEditCheck parses the merged result before saving)
+	groupEditsOverride *GroupEdits
 }
 
 const (
@@ -253,7 +255,11 @@ func buildRuntimeWith(profile []byte, o Overrides, fd int32, inject func(raw map
 			}
 			return nil
 		})
-		for _, e := range applyGroupEdits(raw, readGroupEdits(o.home, o.profileID)) {
+		ge := o.groupEditsOverride
+		if ge == nil {
+			ge = readGroupEdits(o.home, o.profileID)
+		}
+		for _, e := range applyGroupEdits(raw, ge) {
 			log.Warnln("[Groups] %s", e)
 		}
 		// v0.19.8: a 停用 node subscription is not merged; groups that `use:` it keep working.
@@ -297,6 +303,9 @@ func buildRuntimeWith(profile []byte, o Overrides, fd int32, inject func(raw map
 	for _, k := range []string{"port", "socks-port", "redir-port", "tproxy-port", "mixed-port"} {
 		delete(raw, k)
 	}
+	// v0.19.10 (review 5 go-core P1-1): a profile's own inbounds must not open ports behind the user's
+	// back (listeners default to 0.0.0.0, allow-lan does not cover them).
+	sanitizeProfileInbounds(raw, o)
 	applyInbound(raw, o)
 	// Battery: fewer TCP keep-alive wake-ups unless the profile chose its own values.
 	if _, ok := raw["keep-alive-interval"]; !ok {

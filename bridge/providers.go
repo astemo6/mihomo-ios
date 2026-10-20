@@ -81,7 +81,7 @@ func ProviderPlan(homeDir, profilePath string) string {
 	out := []providerTask{}
 	defer func() { _ = recover() }()
 	C.SetHomeDir(homeDir)
-	b, err := os.ReadFile(profilePath)
+	b, err := readRuntimeProfile(homeDir, profilePath, false) // v0.19.10: 覆写脚本 output
 	if err != nil {
 		return "[]"
 	}

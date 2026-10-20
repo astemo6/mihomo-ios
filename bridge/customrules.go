@@ -298,7 +298,7 @@ func ModuleUnresolved(homeDir, profilePath, moduleText, argsJSON string) string 
 
 func profileRaw(homeDir, profilePath string) map[string]any {
 	raw := map[string]any{}
-	b, err := os.ReadFile(profilePath)
+	b, err := readRuntimeProfile(homeDir, profilePath, false) // v0.19.10: 覆写脚本 output
 	if err != nil {
 		return raw
 	}
