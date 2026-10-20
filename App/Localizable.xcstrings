@@ -10250,7 +10250,7 @@
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "Reload timed out: the core may still be using the old configuration. Try again later or reconnect."
+            "value": "Reload timed out: the core may still be using the old profile. Try again later or reconnect."
           }
         },
         "zh-Hant": {
@@ -10262,19 +10262,19 @@
         "ja": {
           "stringUnit": {
             "state": "translated",
-            "value": "再読み込みがタイムアウトしました。コアはまだ古い設定を使っている可能性があります。しばらくしてから再試行するか、再接続してください。"
+            "value": "再読み込みがタイムアウトしました。コアはまだ古いプロファイルを使っている可能性があります。しばらくしてから再試行するか、再接続してください。"
           }
         },
         "ko": {
           "stringUnit": {
             "state": "translated",
-            "value": "다시 불러오기 시간 초과: 코어가 아직 이전 구성을 사용하고 있을 수 있습니다. 잠시 후 다시 시도하거나 다시 연결하세요."
+            "value": "다시 불러오기 시간 초과: 코어가 아직 이전 프로파일을 사용하고 있을 수 있습니다. 잠시 후 다시 시도하거나 다시 연결하세요."
           }
         },
         "ru": {
           "stringUnit": {
             "state": "translated",
-            "value": "Время перезагрузки истекло: ядро может всё ещё использовать старую конфигурацию. Повторите попытку позже или переподключитесь."
+            "value": "Время перезагрузки истекло: ядро может всё ещё использовать старый профиль. Повторите попытку позже или переподключитесь."
           }
         }
       }
