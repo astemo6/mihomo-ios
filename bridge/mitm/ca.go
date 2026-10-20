@@ -134,6 +134,9 @@ func LoadCA(home string) (*CA, error) {
 	if !ok {
 		return nil, errors.New("CA 私钥类型不支持")
 	}
+	if err := checkCAPair(cert, k); err != nil {
+		return nil, err
+	}
 	// One shared leaf key keeps per-host certificate generation cheap (a signature only).
 	lk, err := ecdsa.GenerateKey(elliptic.P256(), rand.Reader)
 	if err != nil {
@@ -296,6 +299,9 @@ func ImportP12(home string, data []byte, password string) error {
 	if !cert.IsCA {
 		return errors.New("该证书不是 CA 证书")
 	}
+	if err := checkCAPair(cert, key); err != nil {
+		return err
+	}
 	kb, err := x509.MarshalPKCS8PrivateKey(key)
 	if err != nil {
 		return err
@@ -306,6 +312,23 @@ func ImportP12(home string, data []byte, password string) error {
 		return err
 	}
 	return writeAtomic(filepath.Join(dir, "ca.pem"), pem.EncodeToMemory(&pem.Block{Type: "CERTIFICATE", Bytes: cert.Raw}), 0o644)
+}
+
+// checkCAPair verifies that key is the private key of cert and that cert may sign certificates
+// (review5 P2-8: a mismatched p12 used to import "successfully" and then every leaf was invalid).
+func checkCAPair(cert *x509.Certificate, key any) error {
+	signer, ok := key.(crypto.Signer)
+	if !ok {
+		return errors.New("CA 私钥类型不支持")
+	}
+	pub, ok := cert.PublicKey.(interface{ Equal(crypto.PublicKey) bool })
+	if !ok || !pub.Equal(signer.Public()) {
+		return errors.New("私钥与证书不匹配")
+	}
+	if cert.KeyUsage != 0 && cert.KeyUsage&x509.KeyUsageCertSign == 0 {
+		return errors.New("该 CA 证书不允许签发证书（缺少 keyCertSign）")
+	}
+	return nil
 }
 
 // TrustTestChain returns DER leaf + CA for SecTrust evaluation in the app (trust status check).
