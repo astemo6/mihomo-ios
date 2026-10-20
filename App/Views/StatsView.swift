@@ -16,11 +16,15 @@ struct StatsView: View {
         let bytes: Int64
     }
 
+    /// Series names are the chart legend (review 6: were 下载 / 上传 in every language).
+    static let downLabel = String(localized: "下载")
+    static let upLabel = String(localized: "上传")
+
     var shown: [TrafficDay] { TrafficHistory.recent(range, from: days) }
 
     var bars: [Bar] {
         shown.flatMap { d in
-            [Bar(date: d.date, kind: "下载", bytes: d.down), Bar(date: d.date, kind: "上传", bytes: d.up)]
+            [Bar(date: d.date, kind: Self.downLabel, bytes: d.down), Bar(date: d.date, kind: Self.upLabel, bytes: d.up)]
         }
     }
 
@@ -60,7 +64,7 @@ struct StatsView: View {
                                     y: .value("流量", Double(b.bytes) / 1_048_576))
                                 .foregroundStyle(by: .value("方向", b.kind))
                         }
-                        .chartForegroundStyleScale(["下载": Theme.down, "上传": Theme.up])
+                        .chartForegroundStyleScale([Self.downLabel: Theme.down, Self.upLabel: Theme.up])
                         .chartYAxis {
                             AxisMarks(position: .leading) { v in
                                 AxisGridLine().foregroundStyle(Theme.ink(0.08))

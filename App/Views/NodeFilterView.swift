@@ -347,8 +347,11 @@ struct NodeFilterView: View {
     func regionRow(_ f: RegionFilter, count: Int) -> some View {
         HStack(spacing: 12) {
             NavigationLink {
-                NodeListView(scope: previewMembers[f.id].map { NodeListScope(title: f.name, names: Set($0)) }
-                             ?? NodeListScope(title: f.name, pattern: f.filter))
+                // Review 6 OPT-1: built on push, not on every render (a Set of all members per region per render).
+                LazyDestination {
+                    NodeListView(scope: previewMembers[f.id].map { NodeListScope(title: f.name, names: Set($0)) }
+                                 ?? NodeListScope(title: f.name, pattern: f.filter))
+                }
             } label: {
                 HStack(spacing: 12) {
                     IconGlyph(value: f.flag, size: 26)
@@ -435,7 +438,7 @@ struct NodeFilterView: View {
     /// Saves an edited filter; when it is a 策略组 the group follows (name, filter, type, interval, tolerance) and
     /// a rename is propagated to every reference.
     func apply(old: RegionFilter, new: RegionFilter) async {
-        guard let i = filters.firstIndex(where: { $0.id == old.id }) else { return }
+        guard filters.contains(where: { $0.id == old.id }) else { return }
         let wasGroup = added.contains(old.name)
         if wasGroup, let p = store.active {
             let renamed = old.name != new.name
@@ -470,6 +473,8 @@ struct NodeFilterView: View {
                 loadAdded()
             }
         }
+        // Review 6: looked up again after the awaits above (a filter deleted meanwhile shifted the indices).
+        guard let i = filters.firstIndex(where: { $0.id == old.id }) else { return }
         filters[i] = new
         persistFilters()
     }

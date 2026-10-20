@@ -350,7 +350,11 @@ struct PolicyView: View {
                 Text("策略组").font(.footnote.weight(.semibold)).foregroundStyle(.secondary)
                 Spacer()
                 Button { enterReorder() } label: {
-                    Text("编辑排序")
+                    // Review 6 OPT-3: the profile's group names are parsed off main first; show that it is working.
+                    HStack(spacing: 4) {
+                        if reorderLoading { ProgressView().controlSize(.mini) }
+                        Text("编辑排序")
+                    }
                         .font(.caption.weight(.semibold))
                         .padding(.horizontal, 12).padding(.vertical, 4)
                         .lineLimit(1) // v0.19.8: a capsule tag never wraps (tall grey box with large text)

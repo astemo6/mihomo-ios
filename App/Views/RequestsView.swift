@@ -260,7 +260,7 @@ struct ConnectionRow: View {
                     .scaledFont(9, weight: .bold)
                     .padding(.horizontal, 5).padding(.vertical, 2)
                     .lineLimit(1) // v0.19.8: a capsule tag never wraps (tall grey box with large text)
-                    .background(Capsule().fill((c.metadata.network == "udp" ? Color.purple : Theme.accent).opacity(0.2)))
+                    .background(Capsule().fill((c.metadata.network == "udp" ? Theme.tone(0.55, 0.45, 1.0) : Theme.accent).opacity(0.2)))
                 if isMitM {
                     Text(c.metadata.destinationPort == "80" ? "HTTP" : "MitM")
                         .scaledFont(9, weight: .bold)

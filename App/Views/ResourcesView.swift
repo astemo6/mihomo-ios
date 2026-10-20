@@ -174,7 +174,7 @@ struct ResourceKindBadge: View {
             switch kind {
             case "ruleset": return ("规则集", Theme.good)
             case "script": return ("脚本", Theme.accent)
-            default: return ("模块", Color.purple)
+            default: return ("模块", Theme.tone(0.55, 0.45, 1.0))
             }
         }()
         Text(LocalizedStringKey(t))
@@ -332,7 +332,7 @@ struct ResourceDetailView: View {
         .listStyle(.insetGrouped)
         .scrollContentBackground(.hidden)
         .background(Theme.bg.ignoresSafeArea())
-        .navigationTitle(item?.name ?? "资源")
+        .navigationTitle(item?.name ?? String(localized: "资源"))
         .navigationBarTitleDisplayMode(.inline)
     }
 }
