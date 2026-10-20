@@ -302,7 +302,7 @@ type chainCandidate struct {
 // ChainCandidates lists the policies that can be the 前置代理 of a node (kind "node") or a group (kind
 // "group") of the profile without forming a loop. JSON {"current": "…", "candidates": [{name, type, group}]}.
 func ChainCandidates(homeDir, profilePath, kind, name string) string {
-	b, _ := os.ReadFile(profilePath)
+	b, _ := readRuntimeProfile(homeDir, profilePath, false) // v0.19.10: 覆写脚本 output
 	o := overridesFor(homeDir, profilePath)
 	o.home = "" // no custom rules
 	cur := ""

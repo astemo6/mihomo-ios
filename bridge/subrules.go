@@ -15,9 +15,12 @@ import (
 	"path/filepath"
 	"sort"
 	"strings"
+	"sync/atomic"
+	"time"
 	"unicode"
 
 	"github.com/dlclark/regexp2"
+	"github.com/metacubex/mihomo/log"
 	"go.yaml.in/yaml/v3"
 )
 
@@ -200,13 +203,17 @@ func stripFlagEmojis(s string) string {
 type nameMatcher struct {
 	re       *regexp2.Regexp
 	keywords []string
+	warned   atomic.Bool
 }
 
 func (m *nameMatcher) empty() bool { return m == nil || (m.re == nil && len(m.keywords) == 0) }
 
 func (m *nameMatcher) match(name string) bool {
 	if m.re != nil {
-		ok, _ := m.re.MatchString(name)
+		ok, err := m.re.MatchString(name)
+		if err != nil && !m.warned.Swap(true) {
+			log.Warnln("[Subscription] 节点名正则匹配出错（%s）：%s", err.Error(), name)
+		}
 		return ok
 	}
 	ln := strings.ToLower(name)
@@ -238,7 +245,10 @@ func newMatcher(expr string, regex bool) (*nameMatcher, error) {
 		if err != nil {
 			return nil, fmt.Errorf("正则无效：%s", err.Error())
 		}
-		re.MatchTimeout = 0
+		// v0.19.10 (review 5 go-core P2-2): 0 is not "no timeout" in regexp2 — the deadline became
+		// fastclock+100 ms and a match running across a clock tick returned "match timeout" (read as no
+		// match). A real bound; a timeout is logged once.
+		re.MatchTimeout = time.Second
 		return &nameMatcher{re: re}, nil
 	}
 	return &nameMatcher{keywords: splitKeywords(expr)}, nil

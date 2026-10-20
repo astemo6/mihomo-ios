@@ -236,7 +236,7 @@ func diagnosticFiles(home, profilePath, appInfo string) (map[string]string, erro
 	}
 	var nextRun string
 	if profilePath != "" {
-		if prof, err := os.ReadFile(profilePath); err != nil {
+		if prof, err := readRuntimeProfile(home, profilePath, false); err != nil {
 			nextRun = "读取配置失败：" + err.Error()
 		} else if rt, err := buildRuntime(prof, overridesFor(home, profilePath), 0); err != nil {
 			nextRun = "生成运行配置失败：" + err.Error()
