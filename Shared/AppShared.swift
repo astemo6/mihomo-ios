@@ -95,7 +95,10 @@ enum AppShared {
     static var overridesURL: URL { homeURL.appendingPathComponent("overrides.json") }
     static var profilesIndexURL: URL { containerURL.appendingPathComponent("profiles.json") }
 
-    static var defaults: UserDefaults { UserDefaults(suiteName: appGroup) ?? .standard }
+    /// Review 6 OPT-3: one instance per process (was a new UserDefaults object on every access — the tunnel's
+    /// 10 s Live Activity sampler, the widget timeline and many app paths read it). UserDefaults is thread-safe
+    /// and still sees writes from the other processes.
+    static let defaults: UserDefaults = UserDefaults(suiteName: appGroup) ?? .standard
 
     static var activeProfileID: String? {
         get { defaults.string(forKey: "activeProfileID") }
@@ -418,6 +421,9 @@ enum TunnelMessage: String {
     case applyNetworkPolicy
     /// v0.18 隧道内存: current / peak / available memory + Tailscale guard status (JSON).
     case memoryStats
+
+    /// Review 6 R6A-3: the extension's reply to `reload` when the new config is applied (anything else is the error).
+    static let reloadOK = "ok"
 }
 
 /// Last start error written by the extension so the app can show why the tunnel stopped.

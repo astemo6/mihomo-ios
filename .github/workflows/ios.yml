@@ -240,6 +240,8 @@ jobs:
           echo "--- appex entitlements ---"; codesign -d --entitlements - "$APP/PlugIns/PacketTunnel.appex" 2>&1 | tail -n 20
           echo "--- widget entitlements ---"; codesign -d --entitlements - "$APP/PlugIns/MihomoWidget.appex" 2>&1 | tail -n 20
           echo "--- app entitlements ---"; codesign -d --entitlements - "$APP" 2>&1 | tail -n 20
+          # Review 6 R6A-8: the IPA users install gets the same strict check as the shared-core variant.
+          codesign --verify --deep --strict --verbose=2 "$APP"
           rm -rf Payload && mkdir Payload && cp -R "$APP" Payload/
           IPA="Mihomo-${VER}-build${{ github.run_number }}-widget-unsigned.ipa"
           zip -qry -9 "$IPA" Payload

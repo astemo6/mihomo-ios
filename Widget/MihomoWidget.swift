@@ -129,8 +129,8 @@ enum ModeControlCore {
         }
     }
 
-    private static func request(_ path: String, method: String = "GET", body: [String: Any]? = nil) -> URLRequest? {
-        let o = CoreOverrides.load()
+    private static func request(_ path: String, method: String = "GET", body: [String: Any]? = nil, overrides: CoreOverrides? = nil) -> URLRequest? {
+        let o = overrides ?? CoreOverrides.load()
         let port = (1...65535).contains(o.controllerPort) ? o.controllerPort : 9090
         guard let url = URL(string: "http://127.0.0.1:\(port)\(path)") else { return nil }
         var r = URLRequest(url: url, timeoutInterval: 2)
@@ -144,14 +144,19 @@ enum ModeControlCore {
     }
 
     /// The running core's mode while connected (a network trigger may have changed it), else the stored one.
-    static func current() async -> String {
-        if await VPNControl.isOn(), let r = request("/configs"),
+    /// Review 6 OPT-2: `connected` lets the timeline pass the status it already loaded (one
+    /// loadAllFromPreferences per refresh instead of two); overrides.json + Keychain are read once.
+    static func current(connected: Bool? = nil) async -> String {
+        let o = CoreOverrides.load()
+        let on: Bool
+        if let connected { on = connected } else { on = await VPNControl.isOn() }
+        if on, let r = request("/configs", overrides: o),
            let res = try? await URLSession.shared.data(for: r),
            let j = try? JSONSerialization.jsonObject(with: res.0) as? [String: Any], let m = (j["mode"] as? String)?.lowercased(),
            order.contains(m) {
             return m
         }
-        let m = CoreOverrides.load().mode.lowercased()
+        let m = o.mode.lowercased()
         return order.contains(m) ? m : "rule"
     }
 
@@ -160,11 +165,11 @@ enum ModeControlCore {
         o.mode = m
         o.save()
         guard await VPNControl.isOn() else { return }
-        if let r = request("/configs", method: "PATCH", body: ["mode": m]) { _ = try? await URLSession.shared.data(for: r) }
+        if let r = request("/configs", method: "PATCH", body: ["mode": m], overrides: o) { _ = try? await URLSession.shared.data(for: r) }
         // Same as the app: drop existing connections so they follow the new mode — only when 切换节点或模式时
         // 断开所有连接 is on (v0.19.3: the widget ignored that setting).
         let close = AppShared.defaults.object(forKey: "switch.closeConnections") as? Bool ?? true
-        if close, let r = request("/connections", method: "DELETE") { _ = try? await URLSession.shared.data(for: r) }
+        if close, let r = request("/connections", method: "DELETE", overrides: o) { _ = try? await URLSession.shared.data(for: r) }
     }
 }
 
@@ -272,7 +277,10 @@ struct StatusProvider: TimelineProvider {
 
     private func entry() async -> StatusEntry {
         let snap = WidgetSnapshot.load()
-        return StatusEntry(date: Date(), status: await VPNControl.status(), snapshot: snap, profile: snap.profile, mode: await ModeControlCore.current())
+        // Review 6 OPT-2: one VPN preferences load per timeline refresh; the mode lookup reuses it.
+        let status = await VPNControl.status()
+        let on = status == .connected || status == .connecting || status == .reasserting
+        return StatusEntry(date: Date(), status: status, snapshot: snap, profile: snap.profile, mode: await ModeControlCore.current(connected: on))
     }
 }
 

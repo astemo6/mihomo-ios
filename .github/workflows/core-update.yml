@@ -82,6 +82,16 @@ jobs:
             exit 0
           fi
           BR="core/mihomo-$TAG"
+          # Review 6 R6A-5: an existing branch means this tag was already proposed (open PR) or failed (open issue
+          # says to fix it there or delete the branch to retry) — never re-bump, re-build and re-comment every day.
+          if git ls-remote --exit-code --heads origin "$BR" >/dev/null 2>&1; then
+            echo "Branch $BR already exists; delete it to retry."
+            echo "updated=false" >> "$GITHUB_OUTPUT"
+            echo "### mihomo $TAG：分支 $BR 已存在，跳过（删除该分支可重试）" >> "$GITHUB_STEP_SUMMARY"
+            exit 0
+          fi
+          # Written before go vet / go test so a failure below is still reported (report-failure).
+          echo "branch=$BR" >> "$GITHUB_OUTPUT"
           git checkout -B "$BR"
           cd bridge
           go get "github.com/metacubex/mihomo@$TAG"
@@ -95,7 +105,6 @@ jobs:
           git commit -m "core: mihomo $TAG"
           git push -f origin "$BR"
           echo "updated=true" >> "$GITHUB_OUTPUT"
-          echo "branch=$BR" >> "$GITHUB_OUTPUT"
           echo "### mihomo $CUR → $TAG（分支 $BR）" >> "$GITHUB_STEP_SUMMARY"
 
   test-build:
@@ -146,19 +155,24 @@ jobs:
 
   report-failure:
     needs: [check, test-build]
-    if: always() && github.repository == 'astemo6/mihomo-ios' && needs.check.outputs.updated == 'true' && needs.test-build.result != 'success'
+    # Review 6 R6A-4: also when the bump itself (go get / go vet / go test in `check`) failed — that left `updated`
+    # unset and the failure went unreported. `branch` is written before those steps, so it marks a started bump.
+    if: always() && github.repository == 'astemo6/mihomo-ios' && ((needs.check.outputs.updated == 'true' && needs.test-build.result != 'success') || (needs.check.result == 'failure' && needs.check.outputs.branch != ''))
     runs-on: ubuntu-latest
+    permissions:
+      issues: write
     env:
       GH_TOKEN: ${{ github.token }}
       TAG: ${{ needs.check.outputs.tag }}
       BR: ${{ needs.check.outputs.branch }}
+      STAGE: ${{ needs.check.result == 'failure' && 'go vet / go test（分支尚未推送，次日会自动重试）' || '测试构建' }}
     steps:
       - name: Open issue
         run: |
           TITLE="内核自动升级失败：mihomo $TAG"
           URL="$GITHUB_SERVER_URL/$GITHUB_REPOSITORY/actions/runs/$GITHUB_RUN_ID"
           EXISTING=$(gh issue list --repo "$GITHUB_REPOSITORY" --state open --search "$TITLE in:title" --json number --jq '.[0].number' || true)
-          BODY=$(printf '自动升级到 mihomo %s 后测试构建失败，默认分支未改动。\n\n- 分支：`%s`\n- 运行：%s\n\n修复后可在该分支上推送，或删除分支后重新运行 Core auto-update。' "$TAG" "$BR" "$URL")
+          BODY=$(printf '自动升级到 mihomo %s 后%s失败，默认分支未改动。\n\n- 分支：`%s`\n- 运行：%s\n\n修复后可在该分支上推送，或删除分支后重新运行 Core auto-update。' "$TAG" "$STAGE" "$BR" "$URL")
           if [ -n "$EXISTING" ]; then
             gh issue comment "$EXISTING" --repo "$GITHUB_REPOSITORY" --body "$BODY"
           else
