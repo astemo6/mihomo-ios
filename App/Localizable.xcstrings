@@ -73165,7 +73165,7 @@
         "ko": {
           "stringUnit": {
             "state": "translated",
-            "value": "연결하거나 다시 불러올 때 프로필이 켜진 각 스크립트의 main(config)를 차례로 거치며 이전 결과가 다음으로 전달됩니다. 그 뒤에 앱 자체 오버라이드(그룹 편집, 노드 구독, DNS 등)가 적용됩니다. 검증을 통과한 결과만 사용하며, 스크립트가 실패하면 연결하지 않습니다."
+            "value": "연결하거나 다시 불러올 때 프로파일이 켜진 각 스크립트의 main(config)를 차례로 거치며 이전 결과가 다음으로 전달됩니다. 그 뒤에 앱 자체 오버라이드(그룹 편집, 노드 구독, DNS 등)가 적용됩니다. 검증을 통과한 결과만 사용하며, 스크립트가 실패하면 연결하지 않습니다."
           }
         },
         "ru": {
@@ -73221,7 +73221,7 @@
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "View generated config"
+            "value": "View generated profile"
           }
         },
         "ja": {
@@ -73239,7 +73239,7 @@
         "ru": {
           "stringUnit": {
             "state": "translated",
-            "value": "Сгенерированная конфигурация"
+            "value": "Сгенерированный профиль"
           }
         },
         "zh-Hant": {
@@ -73255,7 +73255,7 @@
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "Generated Config"
+            "value": "Generated Profile"
           }
         },
         "ja": {
@@ -73273,7 +73273,7 @@
         "ru": {
           "stringUnit": {
             "state": "translated",
-            "value": "Сгенерированная конфигурация"
+            "value": "Сгенерированный профиль"
           }
         },
         "zh-Hant": {
@@ -73335,7 +73335,7 @@
         "ko": {
           "stringUnit": {
             "state": "translated",
-            "value": "프로필이 바뀌었습니다. 다음 연결이나 다시 불러오기 때 스크립트를 다시 실행합니다."
+            "value": "프로파일이 바뀌었습니다. 다음 연결이나 다시 불러오기 때 스크립트를 다시 실행합니다."
           }
         },
         "ru": {
@@ -73969,7 +73969,7 @@
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "Switches declared by the script (Bettbox compatible). A change regenerates the config right away."
+            "value": "Switches declared by the script (Bettbox compatible). A change regenerates the profile right away."
           }
         },
         "ja": {
@@ -73987,7 +73987,7 @@
         "ru": {
           "stringUnit": {
             "state": "translated",
-            "value": "Переключатели, объявленные скриптом (совместимо с Bettbox). Изменение сразу пересобирает конфигурацию."
+            "value": "Переключатели, объявленные скриптом (совместимо с Bettbox). Изменение сразу пересобирает профиль."
           }
         },
         "zh-Hant": {
@@ -74003,7 +74003,7 @@
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "The script's switches that are not policy groups. A change regenerates the config right away."
+            "value": "The script's switches that are not policy groups. A change regenerates the profile right away."
           }
         },
         "ja": {
@@ -74021,7 +74021,7 @@
         "ru": {
           "stringUnit": {
             "state": "translated",
-            "value": "Переключатели скрипта, не относящиеся к группам. Изменение сразу пересобирает конфигурацию."
+            "value": "Переключатели скрипта, не относящиеся к группам. Изменение сразу пересобирает профиль."
           }
         },
         "zh-Hant": {
@@ -74105,7 +74105,7 @@
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "main() did not return a config object (needs return config)"
+            "value": "main() did not return a profile object (needs return config)"
           }
         },
         "ja": {
@@ -74123,7 +74123,7 @@
         "ru": {
           "stringUnit": {
             "state": "translated",
-            "value": "main() не вернула объект конфигурации (нужно return config)"
+            "value": "main() не вернула объект профиля (нужно return config)"
           }
         },
         "zh-Hant": {
@@ -74445,7 +74445,7 @@
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "The config from the scripts failed validation: %@"
+            "value": "The profile from the scripts failed validation: %@"
           }
         },
         "ja": {
@@ -74463,7 +74463,7 @@
         "ru": {
           "stringUnit": {
             "state": "translated",
-            "value": "Конфигурация от скриптов не прошла проверку: %@"
+            "value": "Профиль от скриптов не прошел проверку: %@"
           }
         },
         "zh-Hant": {
@@ -74479,7 +74479,7 @@
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "The scripts did not return a config object: %@"
+            "value": "The scripts did not return a profile object: %@"
           }
         },
         "ja": {
@@ -74497,7 +74497,7 @@
         "ru": {
           "stringUnit": {
             "state": "translated",
-            "value": "Скрипты вернули не объект конфигурации: %@"
+            "value": "Скрипты вернули не объект профиля: %@"
           }
         },
         "zh-Hant": {
@@ -74525,7 +74525,7 @@
         "ko": {
           "stringUnit": {
             "state": "translated",
-            "value": "프로필을 읽지 못했습니다: %@"
+            "value": "프로파일을 읽지 못했습니다: %@"
           }
         },
         "ru": {
@@ -74547,7 +74547,7 @@
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "The scripts returned an empty config"
+            "value": "The scripts returned an empty profile"
           }
         },
         "ja": {
@@ -74565,7 +74565,7 @@
         "ru": {
           "stringUnit": {
             "state": "translated",
-            "value": "Скрипты вернули пустую конфигурацию"
+            "value": "Скрипты вернули пустой профиль"
           }
         },
         "zh-Hant": {
@@ -74627,7 +74627,7 @@
         "ko": {
           "stringUnit": {
             "state": "translated",
-            "value": "탭하면 현재 프로필을 전환하고, 왼쪽으로 밀어 편집·노드 처리·오버라이드 스크립트·삭제, 오른쪽으로 밀어 구독을 업데이트합니다."
+            "value": "탭하면 현재 프로파일을 전환하고, 왼쪽으로 밀어 편집·노드 처리·오버라이드 스크립트·삭제, 오른쪽으로 밀어 구독을 업데이트합니다."
           }
         },
         "ru": {
@@ -75047,7 +75047,7 @@
         "zh-Hant": {
           "stringUnit": {
             "state": "translated",
-            "value": "網路擴充套件當前佔用的記憶體"
+            "value": "網路延伸功能當前佔用的記憶體"
           }
         }
       }
@@ -76395,7 +76395,7 @@
         "ko": {
           "stringUnit": {
             "state": "translated",
-            "value": "WebDAV: Jianguoyun, Nextcloud, Synology 등에 백업하고 여러 버전을 보관하며 암호화할 수 있습니다. 동기화 폴더: iCloud Drive 폴더를 골라 여러 기기 간에 프로필, 모듈, 오버라이드를 동기화합니다."
+            "value": "WebDAV: Jianguoyun, Nextcloud, Synology 등에 백업하고 여러 버전을 보관하며 암호화할 수 있습니다. 동기화 폴더: iCloud Drive 폴더를 골라 여러 기기 간에 프로파일, 모듈, 오버라이드를 동기화합니다."
           }
         },
         "ru": {
@@ -76825,7 +76825,7 @@
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "Tap a version to restore it, swipe left to delete. A config snapshot is saved before restoring."
+            "value": "Tap a version to restore it, swipe left to delete. A profile snapshot is saved before restoring."
           }
         },
         "ja": {
@@ -76843,7 +76843,7 @@
         "ru": {
           "stringUnit": {
             "state": "translated",
-            "value": "Нажмите версию, чтобы восстановить, смахните влево, чтобы удалить. Перед восстановлением сохраняется снимок конфигурации."
+            "value": "Нажмите версию, чтобы восстановить, смахните влево, чтобы удалить. Перед восстановлением сохраняется снимок профиля."
           }
         },
         "zh-Hant": {
@@ -76871,7 +76871,7 @@
         "ko": {
           "stringUnit": {
             "state": "translated",
-            "value": "이 버전을 복원하면 같은 이름의 프로필과 설정을 덮어씁니다"
+            "value": "이 버전을 복원하면 같은 이름의 프로파일과 설정을 덮어씁니다"
           }
         },
         "ru": {
@@ -77347,7 +77347,7 @@
         "ko": {
           "stringUnit": {
             "state": "translated",
-            "value": "이 백업은 비밀번호로 암호화되어 있습니다(AES-256-GCM). 복원하면 같은 이름의 프로필과 설정을 덮어씁니다."
+            "value": "이 백업은 비밀번호로 암호화되어 있습니다(AES-256-GCM). 복원하면 같은 이름의 프로파일과 설정을 덮어씁니다."
           }
         },
         "ru": {
@@ -77947,13 +77947,13 @@
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "Besides the username and password in Connection Mode, these accounts can use LAN sharing too (HTTP and SOCKS5 both require auth). Usernames cannot contain a colon; for repeated usernames only the first counts. These passwords are stored in the app's config file and take effect while connected."
+            "value": "Besides the username and password in Connection Mode, these accounts can use LAN sharing too (HTTP and SOCKS5 both require auth). Usernames cannot contain a colon; for repeated usernames only the first counts. These passwords are stored in the app's profile file and take effect while connected."
           }
         },
         "ja": {
           "stringUnit": {
             "state": "translated",
-            "value": "「接続方式」のユーザー名とパスワードに加えて、これらのアカウントも LAN 共有を使えます（HTTP と SOCKS5 の両方で認証が必要）。ユーザー名にコロンは使えず、重複したユーザー名は最初のものだけが有効です。これらのパスワードはアプリの設定ファイルに保存され、接続中に有効になります。"
+            "value": "「接続方式」のユーザー名とパスワードに加えて、これらのアカウントも LAN 共有を使えます（HTTP と SOCKS5 の両方で認証が必要）。ユーザー名にコロンは使えず、重複したユーザー名は最初のものだけが有効です。これらのパスワードはアプリのプロファイルに保存され、接続中に有効になります。"
           }
         },
         "ko": {
@@ -78157,19 +78157,19 @@
         "ja": {
           "stringUnit": {
             "state": "translated",
-            "value": "「実行時に追加」と表示されたグループは構成ファイルにないため、位置は変わりません。"
+            "value": "「実行時に追加」と表示されたグループはプロファイルにないため、位置は変わりません。"
           }
         },
         "ko": {
           "stringUnit": {
             "state": "translated",
-            "value": "'런타임에 추가됨'으로 표시된 그룹은 구성 파일에 없어서 위치가 바뀌지 않습니다."
+            "value": "'런타임에 추가됨'으로 표시된 그룹은 프로파일에 없어서 위치가 바뀌지 않습니다."
           }
         },
         "ru": {
           "stringUnit": {
             "state": "translated",
-            "value": "Группы с пометкой «Добавлена при запуске» отсутствуют в файле конфигурации и остаются на месте."
+            "value": "Группы с пометкой «Добавлена при запуске» отсутствуют в файле профиля и остаются на месте."
           }
         },
         "zh-Hant": {
@@ -78293,19 +78293,19 @@
         "ja": {
           "stringUnit": {
             "state": "translated",
-            "value": "このグループは構成ファイルにない（実行時に追加）ため、位置を変更できません"
+            "value": "このグループはプロファイルにない（実行時に追加）ため、位置を変更できません"
           }
         },
         "ko": {
           "stringUnit": {
             "state": "translated",
-            "value": "이 그룹은 구성 파일에 없어서(런타임에 추가됨) 위치를 바꿀 수 없습니다"
+            "value": "이 그룹은 프로파일에 없어서(런타임에 추가됨) 위치를 바꿀 수 없습니다"
           }
         },
         "ru": {
           "stringUnit": {
             "state": "translated",
-            "value": "Этой группы нет в файле конфигурации (добавлена при запуске), её позицию нельзя изменить"
+            "value": "Этой группы нет в файле профиля (добавлена при запуске), её позицию нельзя изменить"
           }
         },
         "zh-Hant": {
@@ -78327,19 +78327,19 @@
         "ja": {
           "stringUnit": {
             "state": "translated",
-            "value": "ポリシーグループを安全に並べ替えられません（構成が YAML アンカーまたは特殊な形式を使用しています）"
+            "value": "ポリシーグループを安全に並べ替えられません（プロファイルが YAML アンカーまたは特殊な形式を使用しています）"
           }
         },
         "ko": {
           "stringUnit": {
             "state": "translated",
-            "value": "정책 그룹을 안전하게 재정렬할 수 없습니다(구성에 YAML 앵커나 특수 형식이 사용됨)"
+            "value": "정책 그룹을 안전하게 재정렬할 수 없습니다(프로파일에 YAML 앵커나 특수 형식이 사용됨)"
           }
         },
         "ru": {
           "stringUnit": {
             "state": "translated",
-            "value": "Не удалось безопасно изменить порядок групп (в конфигурации используются YAML-якоря или нестандартный формат)"
+            "value": "Не удалось безопасно изменить порядок групп (в профиле используются YAML-якоря или нестандартный формат)"
           }
         },
         "zh-Hant": {
@@ -78355,25 +78355,25 @@
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "The profile file has no proxy groups to reorder"
+            "value": "The profile file has no policy groups to reorder"
           }
         },
         "ja": {
           "stringUnit": {
             "state": "translated",
-            "value": "構成ファイルに並べ替えできるポリシーグループがありません"
+            "value": "プロファイルに並べ替えできるポリシーグループがありません"
           }
         },
         "ko": {
           "stringUnit": {
             "state": "translated",
-            "value": "구성 파일에 정렬할 정책 그룹이 없습니다"
+            "value": "프로파일에 정렬할 정책 그룹이 없습니다"
           }
         },
         "ru": {
           "stringUnit": {
             "state": "translated",
-            "value": "В файле конфигурации нет групп для сортировки"
+            "value": "В файле профиля нет групп для сортировки"
           }
         },
         "zh-Hant": {
@@ -78497,13 +78497,13 @@
         "ja": {
           "stringUnit": {
             "state": "translated",
-            "value": "元の構成は変更されません：最初の保存時に「%@」が自動で複製され、新しい順序はその複製に書き込まれ、複製に切り替わります。"
+            "value": "元のプロファイルは変更されません：最初の保存時に「%@」が自動で複製され、新しい順序はその複製に書き込まれ、複製に切り替わります。"
           }
         },
         "ko": {
           "stringUnit": {
             "state": "translated",
-            "value": "원래 구성은 바뀌지 않습니다: 처음 저장할 때 '%@'이(가) 자동으로 복제되고, 새 순서는 복제본에 기록되며 복제본으로 전환됩니다."
+            "value": "원래 프로파일은 바뀌지 않습니다: 처음 저장할 때 '%@'이(가) 자동으로 복제되고, 새 순서는 복제본에 기록되며 복제본으로 전환됩니다."
           }
         },
         "ru": {
@@ -78565,7 +78565,7 @@
         "ja": {
           "stringUnit": {
             "state": "translated",
-            "value": "サブスクリプションが更新されると、この複製は新しい内容から再生成され、この順序が維持されます。新しいグループはサブスクリプション内の位置のままです。"
+            "value": "購読が更新されると、この複製は新しい内容から再生成され、この順序が維持されます。新しいグループは購読内の位置のままです。"
           }
         },
         "ko": {
@@ -78599,7 +78599,7 @@
         "ja": {
           "stringUnit": {
             "state": "translated",
-            "value": "複製はすぐにサブスクリプション本来の順序に戻り、以後の更新でも並べ替えられません。"
+            "value": "複製はすぐに購読本来の順序に戻り、以後の更新でも並べ替えられません。"
           }
         },
         "ko": {
@@ -78667,7 +78667,7 @@
         "ja": {
           "stringUnit": {
             "state": "translated",
-            "value": "「%@」の複製 · サブスクリプションと一緒に更新"
+            "value": "「%@」の複製 · 購読と一緒に更新"
           }
         },
         "ko": {
@@ -78769,13 +78769,13 @@
         "ja": {
           "stringUnit": {
             "state": "translated",
-            "value": "「%@」は手動で編集されているため、サブスクリプションの更新に追従しませんでした。プロファイル一覧の「サブスクリプションから再生成」で置き換えられます。"
+            "value": "「%@」は手動で編集されているため、購読の更新に追従しませんでした。プロファイル一覧の「購読から再生成」で置き換えられます。"
           }
         },
         "ko": {
           "stringUnit": {
             "state": "translated",
-            "value": "'%@'은(는) 직접 수정되어 구독 업데이트를 따르지 않았습니다. 프로필 목록에서 '구독에서 다시 생성'으로 바꿀 수 있습니다."
+            "value": "'%@'은(는) 직접 수정되어 구독 업데이트를 따르지 않았습니다. 프로파일 목록에서 '구독에서 다시 생성'으로 바꿀 수 있습니다."
           }
         },
         "ru": {
@@ -78803,7 +78803,7 @@
         "ja": {
           "stringUnit": {
             "state": "translated",
-            "value": "「%1$@」はグループの順序を保てなかったため、サブスクリプションの順序に戻しました：%2$@"
+            "value": "「%1$@」はグループの順序を保てなかったため、購読の順序に戻しました：%2$@"
           }
         },
         "ko": {
@@ -78871,7 +78871,7 @@
         "ja": {
           "stringUnit": {
             "state": "translated",
-            "value": "サブスクリプションから再生成"
+            "value": "購読から再生成"
           }
         },
         "ko": {
@@ -78939,13 +78939,13 @@
         "ja": {
           "stringUnit": {
             "state": "translated",
-            "value": "次の複製はこのプロファイルから作られています：%@。削除後はローカルプロファイルとして残り、サブスクリプションには追従しません。"
+            "value": "次の複製はこのプロファイルから作られています：%@。削除後はローカルプロファイルとして残り、購読には追従しません。"
           }
         },
         "ko": {
           "stringUnit": {
             "state": "translated",
-            "value": "다음 복제본이 이 프로필에서 만들어졌습니다: %@. 삭제하면 로컬 프로필로 남고 더 이상 구독을 따르지 않습니다."
+            "value": "다음 복제본이 이 프로파일에서 만들어졌습니다: %@. 삭제하면 로컬 프로파일로 남고 더 이상 구독을 따르지 않습니다."
           }
         },
         "ru": {
@@ -78973,7 +78973,7 @@
         "ja": {
           "stringUnit": {
             "state": "translated",
-            "value": "手動で編集済み · サブスクリプションと一緒に更新されません"
+            "value": "手動で編集済み · 購読と一緒に更新されません"
           }
         },
         "ko": {
@@ -79319,7 +79319,7 @@
         "ko": {
           "stringUnit": {
             "state": "translated",
-            "value": "프로필이 YAML 매핑이 아닙니다"
+            "value": "프로파일이 YAML 매핑이 아닙니다"
           }
         },
         "ru": {
@@ -79341,7 +79341,7 @@
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "A proxy group entry has a format that can’t be read (an anchor or a non-mapping entry)"
+            "value": "A policy group entry has a format that can’t be read (an anchor or a non-mapping entry)"
           }
         },
         "ja": {
@@ -79375,7 +79375,7 @@
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "A proxy group has no name"
+            "value": "A policy group has no name"
           }
         },
         "ja": {
@@ -79409,7 +79409,7 @@
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "Two proxy groups are named “%@”"
+            "value": "Two policy groups are named “%@”"
           }
         },
         "ja": {
@@ -79489,7 +79489,7 @@
         "ko": {
           "stringUnit": {
             "state": "translated",
-            "value": "스크립트 실행 중에 프로필이 바뀌었습니다. 다시 실행하세요"
+            "value": "스크립트 실행 중에 프로파일이 바뀌었습니다. 다시 실행하세요"
           }
         },
         "ru": {

@@ -234,7 +234,8 @@ func NodeTestDelay(homeDir, profilePath, name, url string, timeoutMs int) int {
 // rtCache (selftest fix): 全部测速 in 节点管理 calls NodeTestDelay once per node, 8 at a time, and every call
 // built the whole runtime (profile parse, manual merge, node subscriptions, group edits, sub rules) again —
 // N full config builds for N nodes in the memory-capped app process. One build is now shared for 30 s as
-// long as the inputs (profile, overrides, manual nodes, node subscription list) are unchanged; concurrent
+// long as the inputs (profile, overrides, manual nodes, node subscription list, subscription rules,
+// group chains) are unchanged; concurrent
 // callers wait for the one build instead of each starting their own. The map is only read afterwards.
 var rtCache struct {
 	sync.Mutex
@@ -252,6 +253,9 @@ func runtimeCacheKey(homeDir, profilePath string) string {
 		filepath.Join(homeDir, "overrides.json"),
 		filepath.Join(filepath.Dir(homeDir), "profiles", "manual-nodes.yaml"),
 		nodeSubsPath(homeDir),
+		// overridesFor also merges these into the runtime (sub rules + group chains)
+		filepath.Join(homeDir, "subscriptions.json"),
+		filepath.Join(homeDir, "groups.json"),
 	} {
 		if fi, err := os.Stat(p); err == nil {
 			parts = append(parts, fmt.Sprintf("%d.%d", fi.Size(), fi.ModTime().UnixNano()))

@@ -283,8 +283,9 @@ func buildRuntimeWith(profile []byte, o Overrides, fd int32, inject func(raw map
 	raw["unified-delay"] = true
 	raw["geo-auto-update"] = false
 	raw["geodata-loader"] = "memconservative"
-	// Bundled geoip.metadb / GeoSite.dat / ASN.mmdb are copied into home before start, so the core
-	// never needs to download them at startup. mmdb mode (not GeoIP.dat) matches the bundled files.
+	// Bundled geoip.metadb / GeoSite.dat are copied into home before start, so the core never needs to
+	// download them at startup (ASN.mmdb is not bundled since v0.14 and is downloaded on demand).
+	// mmdb mode (not GeoIP.dat) matches the bundled files.
 	raw["geodata-mode"] = false
 	raw["geox-url"] = geoxFor(o)
 	rewriteProviderURLs(raw)
