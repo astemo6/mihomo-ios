@@ -100,13 +100,14 @@ func splitOwnPolicyList(cachePath string, data []byte) (int, error) {
 	parts := make([]ownPolicyPart, 0, len(order))
 	for i, b := range order {
 		f := base + ".own" + itoa(i) + ".txt"
-		if err := os.WriteFile(filepath.Join(filepath.Dir(cachePath), f), []byte(strings.Join(b.lines, "\n")+"\n"), 0o644); err != nil {
+		// v0.19.11 (review 6 P2-2): atomic, the running core may read these files during a rewrite.
+		if err := writeFileAtomic(filepath.Join(filepath.Dir(cachePath), f), []byte(strings.Join(b.lines, "\n")+"\n")); err != nil {
 			return 0, err
 		}
 		parts = append(parts, ownPolicyPart{Policy: b.policy, File: f, Count: len(b.lines)})
 	}
 	j, _ := json.Marshal(parts)
-	if err := os.WriteFile(side, j, 0o644); err != nil {
+	if err := writeFileAtomic(side, j); err != nil {
 		return 0, err
 	}
 	return len(parts), nil

@@ -7,6 +7,7 @@ package libmihomo
 
 import (
 	"bufio"
+	"bytes"
 	"context"
 	"crypto/sha1"
 	"encoding/hex"
@@ -388,10 +389,11 @@ func convertListTo(w io.Writer, r io.Reader, kind string) (int, int) {
 // convertNodesText turns a downloaded subscription into a proxy-provider YAML: Clash / mihomo YAML passes
 // through, anything else (QX / Surge / Loon lines, share links, base64) goes through parseNodeText.
 func convertNodesText(data []byte) ([]byte, int, error) {
-	t := strings.TrimSpace(strings.TrimPrefix(string(data), "\ufeff"))
-	if strings.Contains(t, "proxies:") {
+	// v0.19.11 (review 6 OPT-1): the YAML check runs on the bytes; string(data) copied up to 16 MB first.
+	if bytes.Contains(data, []byte("proxies:")) {
 		return data, -1, nil
 	}
+	t := strings.TrimSpace(strings.TrimPrefix(string(data), "\ufeff"))
 	ps, _ := parseNodeText(t)
 	if len(ps) == 0 {
 		return nil, 0, errors.New("no nodes recognised")
@@ -462,7 +464,7 @@ func convertRoutes(r chi.Router) {
 		up.Header.Set("User-Agent", "Surge iOS/3000 mihomo-ios")
 		resp, err := cl.Do(up)
 		if err != nil {
-			log.Warnln("[RuleSet] download %s: %v", src, err)
+			log.Warnln("[RuleSet] download %s: %v", logURL(src), err)
 			w.WriteHeader(mhttp.StatusBadGateway)
 			return
 		}
@@ -476,10 +478,14 @@ func convertRoutes(r chi.Router) {
 		ok, skipped := convertListTo(bw, io.LimitReader(resp.Body, 16<<20), kind)
 		_ = bw.Flush()
 		if skipped > 0 {
-			log.Infoln("[RuleSet] %s: %d 条已转换，%d 条不支持已跳过", src, ok, skipped)
+			log.Infoln("[RuleSet] %s: %d 条已转换，%d 条不支持已跳过", logURL(src), ok, skipped)
 		}
 	})
 }
+
+// logURL (v0.19.11, review 6 P2-5): a rule-set URL for the live log — host and readable path stay (useful
+// when a list fails), credentials, query and token-looking path segments go.
+func logURL(s string) string { return newRedactor().sanitizeURL(s) }
 
 // redactURL keeps only scheme and host for logs (subscription URLs carry tokens).
 func redactURL(s string) string {

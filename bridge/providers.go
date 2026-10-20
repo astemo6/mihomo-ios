@@ -184,11 +184,8 @@ func ProviderStore(homeDir, kind, cachePath, convert string, data []byte) string
 	if err := os.MkdirAll(filepath.Dir(cachePath), 0o755); err != nil {
 		return res(0, err.Error())
 	}
-	tmp := cachePath + ".tmp"
-	if err := os.WriteFile(tmp, out, 0o644); err != nil {
-		return res(0, err.Error())
-	}
-	if err := os.Rename(tmp, cachePath); err != nil {
+	// v0.19.11 (review 6 P2-2): unique temp file + fsync + rename (two updates of one provider shared "<file>.tmp").
+	if err := writeFileAtomic(cachePath, out); err != nil {
 		return res(0, err.Error())
 	}
 	return res(n, "")
@@ -278,8 +275,7 @@ func MigrateProfileProviders(profilePath string) int {
 	if err != nil {
 		return -1
 	}
-	tmp := profilePath + ".tmp"
-	if os.WriteFile(tmp, out, 0o644) != nil || os.Rename(tmp, profilePath) != nil {
+	if writeFileAtomic(profilePath, out) != nil { // v0.19.11 (review 6 P2-2)
 		return -1
 	}
 	return changed

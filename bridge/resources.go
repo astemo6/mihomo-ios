@@ -68,10 +68,8 @@ func setResState(home, key, errMsg string) {
 	m := readResState(home)
 	m[key] = resourceState{CheckedAt: float64(time.Now().Unix()), Error: errMsg}
 	b, _ := json.MarshalIndent(m, "", "  ")
-	tmp := resStatePath(home) + ".tmp"
-	if os.WriteFile(tmp, b, 0o644) == nil {
-		_ = os.Rename(tmp, resStatePath(home))
-	}
+	_ = writeFileAtomic(resStatePath(home), b) // v0.19.11 (review 6 P2-2): the extension writes it too
+
 }
 
 func mtime(p string) float64 {
