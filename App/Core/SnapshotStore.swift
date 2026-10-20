@@ -103,15 +103,72 @@ final class SnapshotStore: ObservableObject {
         return h.finalize().map { String(format: "%02x", $0) }.joined()
     }
 
-    /// Saves a snapshot unless automatic snapshots are off (manual ones always save) or nothing changed
-    /// since the newest snapshot. Returns the snapshot, or nil when skipped.
+    // MARK: v0.19.8 dedupe
+    //
+    // Device report: three identical 「编辑策略组前」 snapshots in the same minute. Two causes: (1) each save in the
+    // group editor captures again, and the file it just wrote (group-edits.json) makes the next state differ, so
+    // every save in a row became a snapshot of its own; (2) JSONEncoder writes dictionaries in a per-launch random
+    // key order and some stores stamp times / usage counters, so the raw bytes of an unchanged configuration
+    // differ and the raw-byte hash never matched. Now the comparison hash covers only what the user configured
+    // (JSON re-serialized with sorted keys, volatile keys and files left out), and a capture with the same reason
+    // within `coalesceWindow` of the newest snapshot is skipped: that snapshot already holds the state before the
+    // first edit of the series.
+
+    static let coalesceWindow: TimeInterval = 60
+
+    /// Files that change on their own (live order, caches, logs, the scripts' key-value store).
+    nonisolated static func isVolatile(_ path: String) -> Bool {
+        let name = (path as NSString).lastPathComponent.lowercased()
+        if name == "runtime-groups.json" || name.hasSuffix(".log") || name.contains("cache") { return true }
+        if path.contains("/logs/") || path.hasPrefix("logs/") { return true }
+        return path == "mihomo/engine/store.json"
+    }
+
+    /// JSON keys that are timestamps or counters, not configuration.
+    nonisolated static let volatileKeys: Set<String> = ["lastUpdated", "updatedAt", "lastUsed", "lastChecked", "lastRun", "lastFetched", "timestamp", "userInfo"]
+
+    nonisolated static func normalizedJSON(_ obj: Any) -> Any {
+        if let d = obj as? [String: Any] {
+            var out: [String: Any] = [:]
+            for (k, v) in d where !volatileKeys.contains(k) { out[k] = normalizedJSON(v) }
+            return out
+        }
+        if let a = obj as? [Any] { return a.map(normalizedJSON) }
+        return obj
+    }
+
+    /// Hash of what the user configured: volatile files skipped, JSON files compared by content (sorted keys,
+    /// volatile keys dropped), other files by bytes.
+    nonisolated static func contentHash(_ files: [String: Data]) -> String {
+        var norm: [String: Data] = [:]
+        for (k, v) in files where !isVolatile(k) {
+            if k.hasSuffix(".json"), let obj = try? JSONSerialization.jsonObject(with: v, options: [.fragmentsAllowed]),
+               let d = try? JSONSerialization.data(withJSONObject: normalizedJSON(obj), options: [.sortedKeys, .fragmentsAllowed]) {
+                norm[k] = d
+            } else {
+                norm[k] = v
+            }
+        }
+        return hash(norm)
+    }
+
+    /// true when a new automatic capture should be skipped.
+    nonisolated static func shouldSkip(newest: SnapshotMeta?, reason: String, contentHash h: String, manual: Bool, now: Date = Date()) -> Bool {
+        guard let newest else { return false }
+        if newest.hash == h { return true }
+        return !manual && newest.reason == reason && now.timeIntervalSince(newest.date) < coalesceWindow && now >= newest.date
+    }
+
+    /// Saves a snapshot unless automatic snapshots are off (manual ones always save), nothing the user configured
+    /// changed since the newest snapshot, or the newest has the same reason and is under a minute old.
+    /// Returns the snapshot, or nil when skipped.
     @discardableResult
     func capture(_ reason: String, manual: Bool = false) -> SnapshotMeta? {
         guard manual || autoEnabled else { return nil }
         let files = Self.currentFiles()
         guard !files.isEmpty else { return nil }
-        let h = Self.hash(files)
-        if let newest = list.first, newest.hash == h { return nil }
+        let h = Self.contentHash(files)
+        if Self.shouldSkip(newest: list.first, reason: reason, contentHash: h, manual: manual) { return nil }
         var b = BackupFile()
         b.files = files.mapValues { $0.base64EncodedString() }
         if let v = AppShared.defaults.string(forKey: "activeProfileID") { b.defaults["activeProfileID"] = v }
@@ -147,6 +204,20 @@ final class SnapshotStore: ObservableObject {
         try? FileManager.default.removeItem(at: fileURL(m.id))
         list.removeAll { $0.id == m.id }
         persist()
+    }
+
+    /// v0.19.8 配置快照 multi-select: deletes the given snapshots (pinned ones too: the page warns first).
+    /// Returns the freed bytes.
+    @discardableResult
+    func delete(ids: Set<String>) -> Int {
+        var freed = 0
+        for m in list where ids.contains(m.id) {
+            freed += m.bytes
+            try? FileManager.default.removeItem(at: fileURL(m.id))
+        }
+        list.removeAll { ids.contains($0.id) }
+        persist()
+        return freed
     }
 
     /// Deletes all but the newest `keep` unpinned snapshots. Returns freed bytes.

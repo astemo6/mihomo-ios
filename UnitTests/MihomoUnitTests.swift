@@ -396,3 +396,43 @@ final class ScaleTests: XCTestCase {
         XCTAssertTrue(merged.allSatisfy { $0.name == "Mine" && $0.userAgent == "ua" && $0.updateIntervalHours == 6 })
     }
 }
+
+// v0.19.8 配置快照 dedupe: same configuration with another key order / timestamps / volatile files hashes the
+// same; a real change does not; same-reason captures within a minute coalesce.
+final class SnapshotDedupeTests: XCTestCase {
+    func testContentHashIgnoresKeyOrderTimestampsAndVolatileFiles() {
+        let a: [String: Data] = [
+            "mihomo/group-edits.json": Data(#"{"b":{"x":1,"y":[1,2]},"a":"Proxy"}"#.utf8),
+            "profiles.json": Data(#"[{"id":"p1","name":"Sub","lastUpdated":"2026-10-20T07:00:00Z","userInfo":{"upload":1}}]"#.utf8),
+            "profiles/p1.yaml": Data("proxies: []\n".utf8),
+        ]
+        var b = a
+        b["mihomo/group-edits.json"] = Data(#"{"a":"Proxy","b":{"y":[1,2],"x":1}}"#.utf8)
+        b["profiles.json"] = Data(#"[{"name":"Sub","id":"p1","lastUpdated":"2026-10-20T07:00:45Z","userInfo":{"upload":99}}]"#.utf8)
+        b["mihomo/runtime-groups.json"] = Data(#"{"order":["A","B"]}"#.utf8)
+        b["mihomo/engine/store.json"] = Data(#"{"token":"changes"}"#.utf8)
+        XCTAssertEqual(SnapshotStore.contentHash(a), SnapshotStore.contentHash(b))
+
+        var c = a
+        c["mihomo/group-edits.json"] = Data(#"{"a":"DIRECT","b":{"x":1,"y":[1,2]}}"#.utf8)
+        XCTAssertNotEqual(SnapshotStore.contentHash(a), SnapshotStore.contentHash(c))
+        var d = a
+        d["profiles/p1.yaml"] = Data("proxies: [x]\n".utf8)
+        XCTAssertNotEqual(SnapshotStore.contentHash(a), SnapshotStore.contentHash(d))
+        // Array order is configuration (group order, rule order).
+        var e = a
+        e["mihomo/group-edits.json"] = Data(#"{"a":"Proxy","b":{"x":1,"y":[2,1]}}"#.utf8)
+        XCTAssertNotEqual(SnapshotStore.contentHash(a), SnapshotStore.contentHash(e))
+    }
+
+    func testSameReasonWithinAMinuteCoalesces() {
+        let t0 = Date(timeIntervalSince1970: 1_800_000_000)
+        let newest = SnapshotMeta(id: "1", date: t0, reason: "编辑策略组前", files: 47, bytes: 1, hash: "h1")
+        XCTAssertTrue(SnapshotStore.shouldSkip(newest: newest, reason: "编辑策略组前", contentHash: "h2", manual: false, now: t0.addingTimeInterval(20)))
+        XCTAssertFalse(SnapshotStore.shouldSkip(newest: newest, reason: "编辑策略组前", contentHash: "h2", manual: false, now: t0.addingTimeInterval(61)))
+        XCTAssertFalse(SnapshotStore.shouldSkip(newest: newest, reason: "添加模块前", contentHash: "h2", manual: false, now: t0.addingTimeInterval(5)))
+        XCTAssertFalse(SnapshotStore.shouldSkip(newest: newest, reason: "编辑策略组前", contentHash: "h2", manual: true, now: t0.addingTimeInterval(5)))
+        XCTAssertTrue(SnapshotStore.shouldSkip(newest: newest, reason: "手动快照", contentHash: "h1", manual: true, now: t0.addingTimeInterval(500)))
+        XCTAssertFalse(SnapshotStore.shouldSkip(newest: nil, reason: "x", contentHash: "h1", manual: false))
+    }
+}

@@ -6,30 +6,58 @@ import Libmihomo
 struct SnapshotsView: View {
     @ObservedObject var snaps = SnapshotStore.shared
     @State private var message: String?
+    // v0.19.8 multi-select delete (device report: 47 snapshots, deleting them one swipe at a time).
+    @State private var selecting = false
+    @State private var selected: Set<String> = []
+    @State private var confirmDelete = false
+
+    private var allSelected: Bool { !snaps.list.isEmpty && selected.count == snaps.list.count }
+    private var selectedPinned: Int { snaps.list.filter { selected.contains($0.id) && $0.pinned }.count }
 
     var body: some View {
         List {
-            Section {
-                Toggle("自动快照", isOn: $snaps.autoEnabled).tint(Theme.accent)
-                Button { if snaps.capture(String(localized: "手动快照"), manual: true) == nil { message = String(localized: "和最近一个快照相同，没有新建") } } label: {
-                    Label("立即创建快照", systemImage: "camera.on.rectangle")
+            if !selecting {
+                Section {
+                    Toggle("自动快照", isOn: $snaps.autoEnabled).tint(Theme.accent)
+                    Button { if snaps.capture(String(localized: "手动快照"), manual: true) == nil { message = String(localized: "和最近一个快照相同，没有新建") } } label: {
+                        Label("立即创建快照", systemImage: "camera.on.rectangle")
+                    }
+                    .accessibilityIdentifier("snapshots.create")
+                } footer: {
+                    Text("导入、编辑、更新或删除配置，添加或删除模块，编辑策略组和恢复备份之前自动保存。内容没有变化时不重复保存；最多保留 \(SnapshotStore.maxCount) 个（已固定的除外）。不含 MitM 证书。")
                 }
-            } footer: {
-                Text("导入、编辑、更新或删除配置，添加或删除模块，编辑策略组和恢复备份之前自动保存。内容没有变化时不重复保存；最多保留 \(SnapshotStore.maxCount) 个（已固定的除外）。不含 MitM 证书。")
+                .listRowBackground(Theme.card)
             }
-            .listRowBackground(Theme.card)
 
             Section {
                 if snaps.list.isEmpty {
                     EmptyStateRow(icon: "clock.arrow.circlepath", title: "还没有快照", message: "下次修改配置前会自动保存一个。")
                 }
                 ForEach(snaps.list) { m in
-                    NavigationLink { SnapshotDetailView(meta: m) } label: { SnapshotRow(m: m) }
-                        .swipeActions {
-                            Button(role: .destructive) { snaps.delete(m) } label: { Label("删除", systemImage: "trash") }
-                            Button { snaps.togglePin(m) } label: { Label(m.pinned ? "取消固定" : "固定", systemImage: m.pinned ? "pin.slash" : "pin") }
-                                .tint(Theme.warn)
+                    if selecting {
+                        Button { toggle(m.id) } label: {
+                            HStack(spacing: 10) {
+                                Image(systemName: selected.contains(m.id) ? "checkmark.circle.fill" : "circle")
+                                    .font(.title3)
+                                    .foregroundStyle(selected.contains(m.id) ? Theme.accent : Color.secondary)
+                                SnapshotRow(m: m)
+                                Spacer(minLength: 0)
+                            }
+                            .contentShape(Rectangle())
                         }
+                        .buttonStyle(.plain)
+                        .accessibilityElement(children: .combine)
+                        .accessibilityAddTraits(selected.contains(m.id) ? .isSelected : [])
+                        .accessibilityIdentifier("snapshots.row")
+                    } else {
+                        NavigationLink { SnapshotDetailView(meta: m) } label: { SnapshotRow(m: m) }
+                            .accessibilityIdentifier("snapshots.row")
+                            .swipeActions {
+                                Button(role: .destructive) { snaps.delete(m) } label: { Label("删除", systemImage: "trash") }
+                                Button { snaps.togglePin(m) } label: { Label(m.pinned ? "取消固定" : "固定", systemImage: m.pinned ? "pin.slash" : "pin") }
+                                    .tint(Theme.warn)
+                            }
+                    }
                 }
             } header: {
                 Text("快照 \(snaps.list.count) · \(Fmt.bytes(Int64(snaps.totalBytes)))")
@@ -40,9 +68,68 @@ struct SnapshotsView: View {
         .scrollContentBackground(.hidden)
         .background(Theme.bg.ignoresSafeArea())
         .navigationTitle("配置快照")
+        .navigationBarBackButtonHidden(selecting)
+        .toolbar {
+            ToolbarItem(placement: .navigationBarTrailing) {
+                if !snaps.list.isEmpty || selecting {
+                    Button(selecting ? "完成" : "选择") {
+                        selecting.toggle()
+                        selected = []
+                    }
+                    .accessibilityIdentifier("snapshots.select")
+                }
+            }
+            ToolbarItem(placement: .navigationBarLeading) {
+                if selecting {
+                    Button(allSelected ? "取消全选" : "全选") {
+                        selected = allSelected ? [] : Set(snaps.list.map(\.id))
+                    }
+                    .accessibilityIdentifier("snapshots.selectAll")
+                }
+            }
+        }
+        .safeAreaInset(edge: .bottom) {
+            if selecting {
+                Button(role: .destructive) { confirmDelete = true } label: {
+                    Text("删除 (\(selected.count))")
+                        .font(.body.weight(.semibold))
+                        .frame(maxWidth: .infinity)
+                        .padding(.vertical, 12)
+                }
+                .buttonStyle(.borderedProminent)
+                .tint(Theme.bad)
+                .disabled(selected.isEmpty)
+                .padding(.horizontal, 16).padding(.vertical, 8)
+                .background(.bar)
+                .accessibilityIdentifier("snapshots.deleteSelected")
+            }
+        }
+        .confirmationDialog("删除 \(selected.count) 个快照？", isPresented: $confirmDelete, titleVisibility: .visible) {
+            Button("删除", role: .destructive) {
+                let freed = snaps.delete(ids: selected)
+                selected = []
+                selecting = false
+                message = String(localized: "已释放 \(Fmt.bytes(Int64(freed)))")
+            }
+            .accessibilityIdentifier("snapshots.confirmDelete")
+        } message: {
+            if selectedPinned > 0 {
+                Text("其中 \(selectedPinned) 个已固定，也会被删除。删除后无法恢复。")
+            } else {
+                Text("删除后无法恢复。")
+            }
+        }
+        .onChange(of: snaps.list) { l in
+            let ids = Set(l.map(\.id))
+            selected = selected.intersection(ids)
+        }
         .alert("快照", isPresented: Binding(get: { message != nil }, set: { if !$0 { message = nil } })) {
             Button("好") { message = nil }
         } message: { Text(message ?? "") }
+    }
+
+    private func toggle(_ id: String) {
+        if selected.contains(id) { selected.remove(id) } else { selected.insert(id) }
     }
 }
 
