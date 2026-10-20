@@ -31,30 +31,46 @@ struct BackupFile: Codable {
 
 enum BackupManager {
     /// Directories / files (relative to the container) that make up a backup.
-    static func items(includeCA: Bool) -> [String] {
+    /// Review 5 P2-1: the scripts' key-value store (BoxJS / Sub-Store / check-in cookies and session tokens).
+    static let scriptStore = "mihomo/engine/store.json"
+
+    /// `includeStore`: false for every copy that leaves the device unencrypted (Files / share / iCloud exports,
+    /// plain WebDAV, the sync folder).
+    static func items(includeCA: Bool, includeStore: Bool = true) -> [String] {
         var out = ["profiles.json", "profiles", "mihomo/overrides.json", "mihomo/dns.json", "mihomo/localdns.json", "mihomo/group-icons.json", "mihomo/rules.json", "mihomo/subscriptions.json", "mihomo/groups.json", "mihomo/netpolicy.json", "mihomo/node-subscriptions.json", "mihomo/group-edits.json",
                    "mihomo/engine/engine.json", "mihomo/engine/store.json", "mihomo/engine/modules", "mihomo/engine/scripts",
                    "mihomo/override-scripts"] // v0.19 覆写脚本 (index.json + <id>.js)
         if includeCA { out.append("mihomo/engine/ca") }
+        if !includeStore { out.removeAll { $0 == scriptStore } }
         return out
     }
 
     static let defaultsKeys = ["activeProfileID"]
 
-    static func make(includeCA: Bool) throws -> (URL, Int) {
-        let (data, n) = try makeData(includeCA: includeCA)
+    static func make(includeCA: Bool, includeStore: Bool) throws -> (URL, Int) {
+        let (data, n) = try makeData(includeCA: includeCA, includeStore: includeStore)
         let f = DateFormatter()
         f.dateFormat = "yyyyMMdd-HHmm"
+        purgeTempExports()
         let url = FileManager.default.temporaryDirectory.appendingPathComponent("Mihomo-备份-\(f.string(from: Date())).json")
-        try data.write(to: url, options: .atomic)
+        try data.write(to: url, options: [.atomic, .completeFileProtection])
         return (url, n)
     }
 
+    /// Review 5 P2-9: removes leftover plaintext backup exports from tmp.
+    static func purgeTempExports() {
+        let fm = FileManager.default
+        let tmp = fm.temporaryDirectory
+        for n in (try? fm.contentsOfDirectory(atPath: tmp.path)) ?? [] where n.hasPrefix("Mihomo-备份-") && n.hasSuffix(".json") {
+            try? fm.removeItem(at: tmp.appendingPathComponent(n))
+        }
+    }
+
     /// The backup JSON of `root` (the App Group container; a scratch directory in unit tests).
-    static func makeData(includeCA: Bool, root: URL = AppShared.containerURL, defaults: UserDefaults = AppShared.defaults) throws -> (Data, Int) {
+    static func makeData(includeCA: Bool, includeStore: Bool = true, root: URL = AppShared.containerURL, defaults: UserDefaults = AppShared.defaults) throws -> (Data, Int) {
         let fm = FileManager.default
         var b = BackupFile()
-        for rel in items(includeCA: includeCA) {
+        for rel in items(includeCA: includeCA, includeStore: includeStore) {
             let u = root.appendingPathComponent(rel)
             var isDir: ObjCBool = false
             guard fm.fileExists(atPath: u.path, isDirectory: &isDir) else { continue }
@@ -195,7 +211,7 @@ struct BackupView: View {
         .background(Theme.bg.ignoresSafeArea())
         .navigationTitle("备份与恢复")
         .onAppear { loadCloud() }
-        .sheet(item: $share) { ActivityView(items: [$0.url]) }
+        .sheet(item: $share, onDismiss: { BackupManager.purgeTempExports() }) { ActivityView(items: [$0.url], cleanup: $0.temporary ? $0.url : nil) }
         .fileExporter(isPresented: $exporting, document: exportDoc, contentType: .json, defaultFilename: exportName) { r in
             if case .failure(let e) = r { message = String(localized: "保存失败：\(e.localizedDescription)") } else { message = String(localized: "已保存") }
         }
@@ -222,13 +238,15 @@ struct BackupView: View {
 
     func export(toFiles: Bool) {
         do {
-            let (url, _) = try BackupManager.make(includeCA: includeCA)
+            // Review 5 P2-1: Files / share exports are never encrypted, so the scripts' store (cookies, tokens) stays out.
+            let (url, _) = try BackupManager.make(includeCA: includeCA, includeStore: false)
             if toFiles {
                 exportDoc = JSONFileDocument(data: try Data(contentsOf: url))
+                try? FileManager.default.removeItem(at: url) // P2-9: the exporter holds the bytes now
                 exportName = url.lastPathComponent
                 exporting = true
             } else {
-                share = ShareItem(url: url)
+                share = ShareItem(url: url, temporary: true)
             }
         } catch {
             message = String(localized: "导出失败：\(error.localizedDescription)")
@@ -238,7 +256,8 @@ struct BackupView: View {
     func backupToICloud() {
         guard let folder = BackupManager.iCloudFolder else { return }
         do {
-            let (url, n) = try BackupManager.make(includeCA: includeCA)
+            let (url, n) = try BackupManager.make(includeCA: includeCA, includeStore: false)
+            defer { try? FileManager.default.removeItem(at: url) } // P2-9
             let dst = folder.appendingPathComponent(url.lastPathComponent)
             try? FileManager.default.removeItem(at: dst)
             try FileManager.default.copyItem(at: url, to: dst)

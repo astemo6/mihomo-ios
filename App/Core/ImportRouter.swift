@@ -32,6 +32,24 @@ enum ImportAction: Identifiable, Equatable {
         case .unsupported(let s): return "u:" + s
         }
     }
+
+    /// Review 5 P1-2: what the startup log may say about an import — kind and size only, never the URL
+    /// (subscription path tokens) or pasted text (ss:// / Loon / Surge lines carry the password).
+    var logSummary: String {
+        func host(_ u: String) -> String { URL(string: u)?.host.map { " host=\($0)" } ?? "" }
+        switch self {
+        case .profileURL(let u, _): return "profileURL bytes=\(u.utf8.count)" + host(u)
+        case .profileText(_, let t): return "profileText bytes=\(t.utf8.count)"
+        case .moduleURL(let u, _): return "moduleURL bytes=\(u.utf8.count)" + host(u)
+        case .moduleText(_, let t, _): return "moduleText bytes=\(t.utf8.count)"
+        case .confText(_, let t): return "confText bytes=\(t.utf8.count)"
+        case .nodesText(let t): return "nodesText bytes=\(t.utf8.count)"
+        case .connect: return "connect"
+        case .disconnect: return "disconnect"
+        case .toggle: return "toggle"
+        case .unsupported(let s): return "unsupported bytes=\(s.utf8.count)"
+        }
+    }
 }
 
 @MainActor
@@ -184,17 +202,28 @@ final class ImportRouter: ObservableObject {
     nonisolated static func readText(at url: URL) -> (text: String?, bytes: Int, uti: String, error: String?) {
         let ok = url.startAccessingSecurityScopedResource()
         defer { if ok { url.stopAccessingSecurityScopedResource() } }
-        let values = try? url.resourceValues(forKeys: [.contentTypeKey, .isDirectoryKey])
+        let values = try? url.resourceValues(forKeys: [.contentTypeKey, .isDirectoryKey, .fileSizeKey, .totalFileSizeKey])
         let uti = values?.contentType?.identifier ?? "?"
         if values?.isDirectory == true {
             return (nil, 0, uti, String(localized: "「\(url.lastPathComponent)」是文件夹，请选择其中的配置文件"))
         }
+        // Review 5 P2-8: refuse big files before copying or reading them (a video opened "in Mihomo" used to be
+        // copied to tmp and loaded whole before the 16 MB check).
+        let limit = 16 << 20
+        let tooBig = String(localized: "文件太大（超过 16 MB），不是配置或模块")
+        if let n = values?.totalFileSize ?? values?.fileSize, n > limit { return (nil, n, uti, tooBig) }
         var data: Data?
         var readErr: Error?
         var coordErr: NSError?
+        var bigSize: Int?
         // v0.13.1: copy into our temp dir inside the scope / coordination, then read the copy (provider files
         // and Inbox copies can disappear or lose access right after the open call).
         NSFileCoordinator(filePresenter: nil).coordinate(readingItemAt: url, options: [.withoutChanges], error: &coordErr) { u in
+            // The coordinated URL is the downloaded copy for iCloud placeholders: check its real size too.
+            if let n = (try? FileManager.default.attributesOfItem(atPath: u.path)[.size] as? NSNumber)?.intValue, n > limit {
+                bigSize = n
+                return
+            }
             let tmp = FileManager.default.temporaryDirectory.appendingPathComponent("import-\(UUID().uuidString)-\(u.lastPathComponent)")
             defer { try? FileManager.default.removeItem(at: tmp) }
             do {
@@ -204,6 +233,7 @@ final class ImportRouter: ObservableObject {
                 do { data = try Data(contentsOf: u) } catch let e { readErr = e }
             }
         }
+        if let n = bigSize { return (nil, n, uti, tooBig) }
         if data == nil, coordErr != nil {
             // Some providers refuse coordination; a plain read still works for them.
             data = try? Data(contentsOf: url)
@@ -213,7 +243,7 @@ final class ImportRouter: ObservableObject {
             return (nil, 0, uti, String(localized: "无法读取文件「\(url.lastPathComponent)」：\(why)"))
         }
         if data.isEmpty { return (nil, 0, uti, String(localized: "文件「\(url.lastPathComponent)」是空的")) }
-        if data.count > 16 << 20 { return (nil, data.count, uti, String(localized: "文件太大（超过 16 MB），不是配置或模块")) }
+        if data.count > limit { return (nil, data.count, uti, tooBig) }
         if let t = decodeText(data) { return (t, data.count, uti, nil) }
         return (nil, data.count, uti, String(localized: "「\(url.lastPathComponent)」不是文本文件，无法导入"))
     }
@@ -561,7 +591,7 @@ struct ImportSheet: View {
         busy = true
         stage = String(localized: "正在导入…")
         ImportRouter.shared.importing = true
-        StartupLog.write("import: start \(action.id.prefix(60))", tag: "app")
+        StartupLog.write("import: start \(action.logSummary)", tag: "app")
         Task { @MainActor in
             await perform()
             ImportRouter.shared.importing = false

@@ -467,3 +467,45 @@ final class ClipboardRuleTests: XCTestCase {
         XCTAssertEqual(bad, [], bad.joined(separator: "\n"))
     }
 }
+
+// Review 5 (core-ext lane): store.json only in encrypted copies, UTC WebDAV names, redirect guard, import log summary.
+final class Review5CoreExtTests: XCTestCase {
+    func testScriptStoreOnlyWhenAsked() throws {
+        let a = scratch()
+        write(a, "profiles.json", "[]")
+        write(a, "mihomo/engine/store.json", #"{"cookie":"SECRET-STORE-MARKER"}"#)
+        let (plain, _) = try BackupManager.makeData(includeCA: false, includeStore: false, root: a, defaults: suite())
+        let obj = try JSONSerialization.jsonObject(with: plain) as? [String: Any]
+        XCTAssertNil((obj?["files"] as? [String: String])?["mihomo/engine/store.json"])
+        let (full, _) = try BackupManager.makeData(includeCA: false, includeStore: true, root: a, defaults: suite())
+        let obj2 = try JSONSerialization.jsonObject(with: full) as? [String: Any]
+        XCTAssertNotNil((obj2?["files"] as? [String: String])?["mihomo/engine/store.json"])
+    }
+
+    func testWebDAVStampsUTCAndLegacy() {
+        let d = Date(timeIntervalSince1970: 1_790_000_000)
+        let name = WebDAVClient.stampName(d) + ".enc.json"
+        XCTAssertTrue(name.contains("Z.enc.json"))
+        XCTAssertEqual(WebDAVFile(name: name).stamp?.timeIntervalSince1970 ?? 0, d.timeIntervalSince1970, accuracy: 1)
+        let legacy = WebDAVClient.prefix + WebDAVClient.stampFormatter.string(from: d) + ".json"
+        XCTAssertEqual(WebDAVFile(name: legacy).stamp?.timeIntervalSince1970 ?? 0, d.timeIntervalSince1970, accuracy: 1)
+        let newer = WebDAVFile(name: WebDAVClient.stampName(d.addingTimeInterval(60)) + ".json")
+        XCTAssertEqual(WebDAVClient.sorted([WebDAVFile(name: legacy), newer]).first?.name, newer.name)
+    }
+
+    func testWebDAVRedirectGuard() {
+        let u = { (s: String) in URL(string: s) }
+        XCTAssertTrue(WebDAVRedirectGuard.allows(from: u("https://dav.example.com/a"), to: u("https://dav.example.com/a/")))
+        XCTAssertTrue(WebDAVRedirectGuard.allows(from: u("http://dav.example.com/a"), to: u("https://dav.example.com/a/")))
+        XCTAssertFalse(WebDAVRedirectGuard.allows(from: u("https://dav.example.com/a"), to: u("http://dav.example.com/a")))
+        XCTAssertFalse(WebDAVRedirectGuard.allows(from: u("https://dav.example.com/a"), to: u("https://evil.example.net/a")))
+    }
+
+    func testImportLogSummaryHasNoSecrets() {
+        let ss = "ss://YWVzLTEyOC1nY206U0VDUkVUUEFTU0AxLjIuMy40OjQ0Mw==#hk"
+        XCTAssertFalse(ImportAction.nodesText(text: ss).logSummary.contains("YWVz"))
+        let sub = ImportAction.profileURL(url: "https://sub.example.com/link/SECRETTOKEN123456?clash=1", name: "x").logSummary
+        XCTAssertFalse(sub.contains("SECRETTOKEN"))
+        XCTAssertTrue(sub.contains("host=sub.example.com"))
+    }
+}

@@ -147,9 +147,11 @@ struct WebDAVFile: Identifiable, Hashable {
     var modified: Date?
     var id: String { name }
     var encrypted: Bool { name.hasSuffix(".enc.json") }
+    /// mihomo-backup-20261018-153000Z(.enc).json (UTC, review 5 P2-4) or the older local-time
     /// mihomo-backup-20261018-153000(.enc).json → that time.
     var stamp: Date? {
         let base = name.replacingOccurrences(of: WebDAVClient.prefix, with: "").replacingOccurrences(of: ".enc.json", with: "").replacingOccurrences(of: ".json", with: "")
+        if base.hasSuffix("Z") { return WebDAVClient.stampFormatterUTC.date(from: String(base.dropLast())) }
         return WebDAVClient.stampFormatter.date(from: base)
     }
 }
@@ -192,8 +194,10 @@ final class WebDAVHTTP: WebDAVTransport {
         let cfg = URLSessionConfiguration.ephemeral
         cfg.timeoutIntervalForRequest = 30
         cfg.requestCachePolicy = .reloadIgnoringLocalCacheData
-        session = URLSession(configuration: cfg)
+        session = URLSession(configuration: cfg, delegate: WebDAVRedirectGuard(), delegateQueue: nil)
     }
+
+    deinit { session.finishTasksAndInvalidate() }
 
     func request(_ url: URL, _ method: String, body: Data? = nil, headers: [String: String] = [:]) async throws -> (Data, Int) {
         var r = URLRequest(url: url)
@@ -278,6 +282,25 @@ final class WebDAVHTTP: WebDAVTransport {
     }
 }
 
+/// Review 5 P2-3: the Basic-auth header is set by hand and NSAllowsArbitraryLoads is on, so a 30x to another host
+/// or from https to http must not be followed (the password, or an unencrypted backup in a PUT, would go where
+/// the user never approved). Same-host, same-or-stronger-scheme redirects (e.g. a missing trailing slash) still work.
+final class WebDAVRedirectGuard: NSObject, URLSessionTaskDelegate {
+    static func allows(from old: URL?, to new: URL?) -> Bool {
+        guard let old, let new, let oh = old.host?.lowercased(), let nh = new.host?.lowercased() else { return false }
+        let oldScheme = old.scheme?.lowercased() ?? "", ns = new.scheme?.lowercased() ?? ""
+        guard oh == nh else { return false }
+        if oldScheme == "https" && ns != "https" { return false }
+        return ns == "https" || ns == "http"
+    }
+
+    func urlSession(_ session: URLSession, task: URLSessionTask, willPerformHTTPRedirection response: HTTPURLResponse,
+                    newRequest request: URLRequest, completionHandler: @escaping (URLRequest?) -> Void) {
+        let from = task.currentRequest?.url ?? task.originalRequest?.url
+        completionHandler(Self.allows(from: from, to: request.url) ? request : nil)
+    }
+}
+
 /// Minimal multistatus parser: href, getlastmodified, getcontentlength, collection flag per response.
 final class PropfindParser: NSObject, XMLParserDelegate {
     struct Entry { var href = ""; var modified: Date?; var length: Int64?; var isCollection = false }
@@ -348,12 +371,24 @@ final class WebDAVMemory: WebDAVTransport {
 
 enum WebDAVClient {
     static let prefix = "mihomo-backup-"
+    /// Names written before review 5: device-local time (parse only).
     static let stampFormatter: DateFormatter = {
         let f = DateFormatter()
         f.locale = Locale(identifier: "en_US_POSIX")
         f.dateFormat = "yyyyMMdd-HHmmss"
         return f
     }()
+    /// Review 5 P2-4: new names are UTC with a trailing Z, so devices in other time zones and the repeated DST
+    /// hour cannot make pruning rank an older backup as newer.
+    static let stampFormatterUTC: DateFormatter = {
+        let f = DateFormatter()
+        f.locale = Locale(identifier: "en_US_POSIX")
+        f.calendar = Calendar(identifier: .gregorian)
+        f.timeZone = TimeZone(identifier: "UTC")
+        f.dateFormat = "yyyyMMdd-HHmmss"
+        return f
+    }()
+    static func stampName(_ date: Date = Date()) -> String { prefix + stampFormatterUTC.string(from: date) + "Z" }
 
     static var demo: Bool { UITestSeed.enabled && UITestSeed.args.contains("-UITestDemoWebDAV") }
 
@@ -376,10 +411,11 @@ enum WebDAVClient {
     static func backup(_ s: WebDAVSettings, password: String? = nil, encryptionPassword: String? = nil) async throws -> (String, Int, Int) {
         if s.includeCA && !s.encrypt { throw WebDAVError.caNeedsEncryption }
         let t = try transport(s, password: password)
-        let (url, n) = try BackupManager.make(includeCA: s.includeCA)
+        // Review 5 P2-1: the scripts' store (cookies, tokens) only goes into encrypted backups.
+        let (url, n) = try BackupManager.make(includeCA: s.includeCA, includeStore: s.encrypt)
         var data = try Data(contentsOf: url)
         try? FileManager.default.removeItem(at: url)
-        var name = prefix + stampFormatter.string(from: Date())
+        var name = stampName()
         if s.encrypt {
             // v0.19: the page passes the password it shows; the Keychain copy is only a fallback (it is not
             // readable when the keychain write failed, which left encrypted backups failing with a KDF error).

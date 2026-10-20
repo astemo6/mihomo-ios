@@ -93,6 +93,15 @@ class MihomoUITestCase: XCTestCase {
         let locale = Env.isEnglish ? "en_US" : "zh_CN"
         a.launchArguments = ["-UITestSeed", "-AppleLanguages", "(\(Env.lang))", "-AppleLocale", locale,
                              "-appearance", Env.style] + extra
+        // Review 5 P2-10: a system alert (VPN configuration, notifications) over the app is dismissed instead of
+        // making the next lookup fail.
+        _ = addUIInterruptionMonitor(withDescription: "system alert") { alert in
+            for k in ["Allow", "允许", "OK", "好", "Don’t Allow", "不允许"] where alert.buttons[k].exists {
+                alert.buttons[k].tap()
+                return true
+            }
+            return false
+        }
         a.launch()
         app = a
         let ready = a.element(id: "uitest.ready")
@@ -184,18 +193,28 @@ class MihomoUITestCase: XCTestCase {
     }
 
     /// Scrolls the frontmost scroll view until `e` is hittable.
+    /// Review 5 P2-10 (en-light 连接方式 flake): wait for the pushed page before the first check, and check again
+    /// after the scroll has settled (a check during deceleration could miss an element that was passing by).
+    /// On failure, dump any SpringBoard alert.
     @discardableResult
     func scrollTo(_ e: XCUIElement, maxSwipes: Int = 12, file: StaticString = #filePath, line: UInt = #line) -> Bool {
-        if e.exists && e.isHittable { return true }
+        if e.waitForExistence(timeout: 1.5), e.isHittable { return true }
+        func visible() -> Bool {
+            if e.exists && e.isHittable { return true }
+            usleep(300_000)
+            return e.exists && e.isHittable
+        }
         for _ in 0..<maxSwipes {
             app.swipeUp(velocity: .slow)
-            if e.exists && e.isHittable { return true }
+            if visible() { return true }
         }
         for _ in 0..<maxSwipes {
             app.swipeDown(velocity: .slow)
-            if e.exists && e.isHittable { return true }
+            if visible() { return true }
         }
-        XCTFail("not found on screen: \(e)", file: file, line: line)
+        let alerts = XCUIApplication(bundleIdentifier: "com.apple.springboard").alerts
+        let alertInfo = alerts.count > 0 ? "\nspringboard alerts: \(alerts.debugDescription)" : ""
+        XCTFail("not found on screen: \(e)\(alertInfo)", file: file, line: line)
         return false
     }
 

@@ -138,7 +138,7 @@ struct ConnectionView: View {
 
     var scopeSection: some View {
         Section {
-            Toggle("接管所有网络流量", isOn: $o.includeAllNetworks)
+            Toggle("接管所有网络流量", isOn: $o.includeAllNetworks).accessibilityIdentifier("conn.includeAll")
             if o.includeAllNetworks {
                 Toggle("排除局域网", isOn: $o.excludeLocalNetworks)
                 if #available(iOS 16.4, *) {
@@ -237,6 +237,7 @@ struct ConnectionView: View {
             Toggle(isOn: Binding(get: { o.allowLan }, set: { setLan($0) })) {
                 Label("局域网共享", systemImage: "wifi.router")
             }
+            .accessibilityIdentifier("conn.allowLan")
             if o.allowLan {
                 if lanAddresses.isEmpty {
                     Text("没有检测到 Wi-Fi 或个人热点地址。连上 Wi-Fi（或打开个人热点）后返回此页。").font(.caption).foregroundStyle(Theme.warn)
