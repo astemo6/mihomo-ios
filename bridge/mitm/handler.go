@@ -23,6 +23,36 @@ import (
 // MaxBody caps any body the engine buffers for rewrite / scripts (memory guard for the ~50 MB extension).
 const MaxBody = 2 << 20
 
+// MaxScriptBody is the body cap for a script that asks for unlimited / larger bodies (max-size=-1, or a
+// max-size above MaxBody): Sub-Store's backend receives whole backups and files in a POST body.
+const MaxScriptBody = 4 << 20
+
+// scriptBodyLimit is the body size handed to a requires-body script: its max-size within the caps.
+func scriptBodyLimit(sc *Script) int {
+	switch {
+	case sc.MaxSize < 0 || sc.MaxSize > MaxScriptBody:
+		return MaxScriptBody
+	case sc.MaxSize == 0:
+		return MaxBody
+	}
+	return sc.MaxSize
+}
+
+// phaseBodyCap is the read cap for one phase's body: MaxBody, raised to a requires-body script's
+// scriptBodyLimit (up to MaxScriptBody) when such a script is among the phase's rules. Rewrites still
+// only take bodies up to MaxBody; the cap only decides how much is read (under the shared budget).
+func phaseBodyCap(rules []*Rule, phase string) int {
+	c := MaxBody
+	for _, r := range rules {
+		if r.Kind == KindScript && r.Script != nil && r.Script.RequiresBody && (phase == "" || r.Phase == phase) {
+			if l := scriptBodyLimit(r.Script); l > c {
+				c = l
+			}
+		}
+	}
+	return c
+}
+
 var tinyGIF = []byte{0x47, 0x49, 0x46, 0x38, 0x39, 0x61, 0x01, 0x00, 0x01, 0x00, 0x80, 0x00, 0x00, 0xff, 0xff, 0xff,
 	0x00, 0x00, 0x00, 0x21, 0xf9, 0x04, 0x01, 0x00, 0x00, 0x00, 0x00, 0x2c, 0x00, 0x00, 0x00, 0x00, 0x01, 0x00, 0x01,
 	0x00, 0x00, 0x02, 0x02, 0x44, 0x01, 0x00, 0x3b}
@@ -206,11 +236,13 @@ func (e *Engine) serveHTTP(w http.ResponseWriter, r *http.Request) {
 			releaseReq()
 		}
 	}()
-	// review5 P0-1 / P2-2: the body is read once, always with MaxBody, after taking a share of the
-	// global body budget. Per-rule limits (script max-size) are compared against the loaded length.
-	loadBody := func() bool {
+	// review5 P0-1 / P2-2: the body is read once, with reqCap (MaxBody, or a max-size=-1 script's
+	// MaxScriptBody), after taking a share of the global body budget. Each caller's limit (MaxBody for
+	// rewrites, scriptBodyLimit for scripts) is compared against the loaded length.
+	reqCap := phaseBodyCap(rules, "request")
+	loadBody := func(limit int) bool {
 		if bodyLoaded {
-			return bodyOK
+			return bodyOK && len(reqBody) <= limit
 		}
 		bodyLoaded = true
 		if r.Body == nil || r.Body == http.NoBody {
@@ -221,11 +253,15 @@ func (e *Engine) serveHTTP(w http.ResponseWriter, r *http.Request) {
 			e.logf("warning", fmt.Sprintf("[MitM] 内存紧张，跳过请求体处理：%s", clip(u, 100)))
 			return false
 		}
-		want := int64(MaxBody)
+		want := int64(reqCap)
 		if r.ContentLength > 0 && r.ContentLength < want {
 			want = r.ContentLength
 		}
-		if r.ContentLength > int64(MaxBody) {
+		if r.ContentLength > int64(limit) {
+			bodyLoaded = false // a later rule with a larger limit may still read it
+			return false
+		}
+		if r.ContentLength > int64(reqCap) {
 			return false
 		}
 		rel := bodyBudget.acquire(r.Context(), want, bodyBudgetWait)
@@ -234,7 +270,7 @@ func (e *Engine) serveHTTP(w http.ResponseWriter, r *http.Request) {
 			return false
 		}
 		releaseReq = rel
-		b, rest, ok := readCapped(r.Body, MaxBody)
+		b, rest, ok := readCapped(r.Body, reqCap)
 		if !ok {
 			r.Body = struct {
 				io.Reader
@@ -246,7 +282,7 @@ func (e *Engine) serveHTTP(w http.ResponseWriter, r *http.Request) {
 		bodyOK = true
 		r.Body = io.NopCloser(bytes.NewReader(b))
 		r.ContentLength = int64(len(b))
-		return true
+		return len(b) <= limit
 	}
 	setBody := func(b []byte) {
 		reqBody = b
@@ -278,7 +314,7 @@ func (e *Engine) serveHTTP(w http.ResponseWriter, r *http.Request) {
 				r.Header.Del("Host")
 			}
 		case KindBody, KindJQ, KindJSON:
-			if rule.matchReq(u, r) && loadBody() {
+			if rule.matchReq(u, r) && loadBody(MaxBody) {
 				nb, err := e.applyBodyRule(rule, reqBody)
 				if err != nil {
 					e.logf("warning", fmt.Sprintf("[MitM] 请求体改写失败（%s）：%s", rule.Desc, err))
@@ -301,7 +337,7 @@ func (e *Engine) serveHTTP(w http.ResponseWriter, r *http.Request) {
 				continue
 			}
 			if rule.Script.RequiresBody {
-				if !loadBody() || len(reqBody) > rule.Script.bodyLimit() {
+				if !loadBody(scriptBodyLimit(rule.Script)) {
 					slot()
 					e.Logs.Add(rule.Script.Name, "warn", "请求体超过上限，跳过脚本")
 					continue
@@ -467,11 +503,13 @@ func (e *Engine) modifyResponse(f *flow, resp *http.Response) error {
 	}()
 	var body []byte
 	loaded, tooBig := false, false
-	// review5 P0-1 / P1-1 / P2-2: loaded once with MaxBody (raw and decoded), under the global body
-	// budget; a body that decodes past the cap is passed through as is.
-	loadBody := func() bool {
+	// review5 P0-1 / P1-1 / P2-2: loaded once with respCap (raw and decoded; MaxBody, or a
+	// max-size=-1 script's MaxScriptBody), under the global body budget; a body that decodes past the
+	// cap is passed through as is. Each caller's limit is compared against the loaded length.
+	respCap := phaseBodyCap(f.rules, "")
+	loadBody := func(limit int) bool {
 		if loaded {
-			return !tooBig
+			return !tooBig && len(body) <= limit
 		}
 		loaded = true
 		tooBig = true
@@ -479,10 +517,14 @@ func (e *Engine) modifyResponse(f *flow, resp *http.Response) error {
 			e.logf("warning", fmt.Sprintf("[MitM] 内存紧张，跳过响应体处理：%s", clip(f.url, 100)))
 			return false
 		}
-		if resp.ContentLength > int64(MaxBody) {
+		if resp.ContentLength > int64(limit) && resp.Header.Get("Content-Encoding") == "" {
+			loaded = false // a later rule with a larger limit may still read it
 			return false
 		}
-		want := int64(MaxBody)
+		if resp.ContentLength > int64(respCap) {
+			return false
+		}
+		want := int64(respCap)
 		if resp.ContentLength > 0 && resp.ContentLength < want && resp.Header.Get("Content-Encoding") == "" {
 			want = resp.ContentLength
 		}
@@ -492,7 +534,7 @@ func (e *Engine) modifyResponse(f *flow, resp *http.Response) error {
 			return false
 		}
 		f.release = rel
-		b, rest, ok := readCapped(resp.Body, MaxBody)
+		b, rest, ok := readCapped(resp.Body, respCap)
 		if !ok {
 			resp.Body = struct {
 				io.Reader
@@ -501,11 +543,11 @@ func (e *Engine) modifyResponse(f *flow, resp *http.Response) error {
 			return false
 		}
 		_ = resp.Body.Close()
-		dec, err := decodeBody(resp.Header.Get("Content-Encoding"), b, MaxBody)
+		dec, err := decodeBody(resp.Header.Get("Content-Encoding"), b, respCap)
 		if err != nil {
 			// leave the body untouched (never pass on a truncated decode)
 			if errors.Is(err, errBodyTooBig) {
-				e.logf("warning", fmt.Sprintf("[MitM] 响应体解压后超过 %d KB，原样放行：%s", MaxBody>>10, clip(f.url, 100)))
+				e.logf("warning", fmt.Sprintf("[MitM] 响应体解压后超过 %d KB，原样放行：%s", respCap>>10, clip(f.url, 100)))
 			}
 			resp.Body = io.NopCloser(bytes.NewReader(b))
 			return false
@@ -516,7 +558,7 @@ func (e *Engine) modifyResponse(f *flow, resp *http.Response) error {
 		tooBig = false
 		body = dec
 		resp.Body = io.NopCloser(bytes.NewReader(body))
-		return true
+		return len(body) <= limit
 	}
 	setBody := func(b []byte) {
 		body = b
@@ -534,7 +576,7 @@ func (e *Engine) modifyResponse(f *flow, resp *http.Response) error {
 			ent.Match(rule.label())
 			applyHeaderOps(resp.Header, rule.Headers, func() string { return "HTTP/1.1 " + resp.Status })
 		case KindBody, KindJQ, KindJSON:
-			if !loadBody() {
+			if !loadBody(MaxBody) {
 				e.logf("warning", fmt.Sprintf("[MitM] 响应体超过 %d KB 或编码不支持，跳过：%s", MaxBody>>10, rule.Desc))
 				continue
 			}
@@ -555,7 +597,7 @@ func (e *Engine) modifyResponse(f *flow, resp *http.Response) error {
 				continue
 			}
 			if rule.Script.RequiresBody {
-				if !loadBody() || len(body) > rule.Script.bodyLimit() {
+				if !loadBody(scriptBodyLimit(rule.Script)) {
 					slot()
 					e.Logs.Add(rule.Script.Name, "warn", "响应体超过上限或编码不支持，跳过脚本")
 					continue

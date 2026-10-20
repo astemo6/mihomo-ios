@@ -42,10 +42,12 @@ func ClassifyText(text string) string {
 	if mitm.IsStash(t) {
 		return "module:stash" // v0.13: rules-only / rule-providers overrides
 	}
-	if classifyConfRe.MatchString(t) {
+	// v0.19.9: a module header wins over [General] (BoxJS's Surge module has a [General] section with
+	// force-http-engine-hosts and was taken for a full config).
+	if classifyConfRe.MatchString(t) && !strings.HasPrefix(t, "#!") {
 		return "conf"
 	}
-	if moduleSectionRe.MatchString(t) || strings.HasPrefix(t, "#!name") {
+	if moduleSectionRe.MatchString(t) || strings.HasPrefix(t, "#!") {
 		rs := &mitm.Ruleset{}
 		rs.ParseText(t, "", nil)
 		if rs.Format != "" && rs.Format != "list" {
@@ -55,6 +57,17 @@ func ClassifyText(text string) string {
 	}
 	if ps, _ := parseNodeText(t); len(ps) > 0 {
 		return "nodes"
+	}
+	// v0.19.9: section-less rewrite snippets (QX `.snippet`, e.g. Sub-Store's QX.snippet:
+	// `hostname=…` + `… url script-analyze-echo-response …`) and QX task gallery JSON (QX-Task.json).
+	rs := &mitm.Ruleset{}
+	rs.ParseText(t, "", nil)
+	if len(rs.Tasks) > 0 || (len(rs.Rules) > 0 && len(rs.Hostnames) > 0) {
+		f := rs.Format
+		if f == "" || f == "list" {
+			f = "qx"
+		}
+		return "module:" + f
 	}
 	return ""
 }
