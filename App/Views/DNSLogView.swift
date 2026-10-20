@@ -54,15 +54,37 @@ final class DNSLogStore: ObservableObject {
         if UITestSeed.enabled { seedDemo() }
     }
 
+    /// 清空 time: the general history (REJECT lines) is shared with 日志 and not cleared from here, so entries
+    /// older than this are skipped when the history is read again.
+    private var clearedAt = Date.distantPast
+
+    /// v0.19.8: the extension records DNS queries and REJECT hits from tunnel start (GET /hark/logs); the page
+    /// rebuilds from that history, then attaches the live /logs stream (lines repeated across the seam skipped).
     func start() {
         guard task == nil, VPNManager.shared.isConnected else { return }
         running = true
         task = Task { [weak self] in
+            var join = LogJoin(history: [])
+            let c = ControllerClient.shared
+            if let dns = try? await c.harkLogs(kind: "dns"), let gen = try? await c.harkLogs(kind: "general", level: "info"),
+               let self, !Task.isCancelled {
+                let cut = self.clearedAt
+                let rejects = (gen.logs ?? []).filter { $0.payload.contains("REJECT") }
+                let all = ((dns.logs ?? []) + rejects)
+                    .filter { Date(timeIntervalSince1970: Double($0.time) / 1000) >= cut }
+                    .sorted { $0.time != $1.time ? $0.time < $1.time : $0.seq < $1.seq }
+                if !all.isEmpty {
+                    self.queries = []
+                    self.blocked = [:]
+                    for e in all { self.ingest(e.payload, at: Date(timeIntervalSince1970: Double(e.time) / 1000)) }
+                }
+                join = LogJoin(history: all)
+            }
             while !Task.isCancelled {
-                for await l in ControllerClient.shared.stream("/logs", query: [URLQueryItem(name: "level", value: "debug")], as: LogPayload.self) {
+                for await l in c.stream("/logs", query: [URLQueryItem(name: "level", value: "debug")], as: LogPayload.self) {
                     guard let self else { return }
                     if Task.isCancelled { break }
-                    if !self.paused { self.ingest(l.payload) }
+                    if !self.paused && !join.isDuplicate(l.payload) { self.ingest(l.payload) }
                 }
                 if Task.isCancelled || !VPNManager.shared.isConnected { break }
                 try? await Task.sleep(nanoseconds: 2_000_000_000)
@@ -81,6 +103,8 @@ final class DNSLogStore: ObservableObject {
     func clear() {
         queries = []
         blocked = [:]
+        clearedAt = Date()
+        Task { try? await ControllerClient.shared.harkClearLogs(kind: "dns") }
     }
 
     // MARK: Parsing
@@ -170,8 +194,8 @@ struct DNSLogView: View {
     }
 
     private var footer: LocalizedStringKey {
-        if !vpn.isConnected { return "未连接 · 显示已记录的内容。连接后打开本页开始记录。" }
-        return store.running ? "打开本页后开始记录，App 退到后台或断开连接时停止。拦截按域名累计 REJECT 规则命中的连接。" : "记录已停止，重新打开本页继续。"
+        if !vpn.isConnected { return "未连接 · 显示已记录的内容。连接后从连接开始记录。" }
+        return store.running ? "从连接开始记录，最多保留最近 2000 条。拦截按域名累计 REJECT 规则命中的连接。" : "记录已停止，重新打开本页继续。"
     }
 
     var body: some View {

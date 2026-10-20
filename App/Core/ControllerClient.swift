@@ -174,6 +174,19 @@ final class ControllerClient {
         try await get([ScriptLogLine].self, "/mitm/logs", query: [URLQueryItem(name: "since", value: String(since))])
     }
     func mitmClearLogs() async throws { try await send("/mitm/logs", method: "DELETE") }
+
+    // MARK: v0.19.8 log history (/hark/logs, bridge/logring.go)
+
+    /// The extension keeps the general log and the DNS queries from tunnel start; the pages read this first and
+    /// then attach the live /logs stream.
+    func harkLogs(kind: String, since: UInt64 = 0, level: String? = nil) async throws -> HarkLogHistory {
+        var q = [URLQueryItem(name: "kind", value: kind), URLQueryItem(name: "since", value: String(since))]
+        if let level { q.append(URLQueryItem(name: "level", value: level)) }
+        return try await get(HarkLogHistory.self, "/hark/logs", query: q)
+    }
+    func harkClearLogs(kind: String) async throws {
+        try await send("/hark/logs", method: "DELETE", query: [URLQueryItem(name: "kind", value: kind)])
+    }
     func mitmRefresh(url: String) async throws { try await send("/mitm/refresh", method: "POST", body: ["url": url], timeout: 40) }
 
     func select(group: String, node: String) async throws {

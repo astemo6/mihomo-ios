@@ -151,16 +151,31 @@ final class LogsModel: ObservableObject {
     @Published var lines: [LogLine] = []
     @Published var paused = false
     private var task: Task<Void, Never>?
+    static let limit = 1000
 
+    init() {
+        if UITestSeed.enabled { seedDemo() }
+    }
+
+    /// v0.19.8: the history the extension kept since the tunnel started (GET /hark/logs) first, then the live
+    /// stream; before this the page was empty until something new was logged while it was open.
     func start(level: String) {
         task?.cancel()
         task = Task { [weak self] in
+            var join = LogJoin(history: [])
+            if let h = try? await ControllerClient.shared.harkLogs(kind: "general", level: level), let self, !Task.isCancelled {
+                let logs = h.logs ?? []
+                let old = logs.map { LogLine(level: $0.type, message: $0.payload, time: Date(timeIntervalSince1970: Double($0.time) / 1000)) }
+                let seen = Set(logs.map(\.payload))
+                self.lines = Array((old + self.lines.filter { !seen.contains($0.message) }).suffix(Self.limit))
+                join = LogJoin(history: logs)
+            }
             while !Task.isCancelled {
                 for await l in ControllerClient.shared.stream("/logs", query: [URLQueryItem(name: "level", value: level)], as: LogPayload.self) {
                     guard let self else { return }
-                    if self.paused { continue }
+                    if self.paused || join.isDuplicate(l.payload) { continue }
                     self.lines.append(LogLine(level: l.type, message: l.payload, time: Date()))
-                    if self.lines.count > 1000 { self.lines.removeFirst(self.lines.count - 1000) }
+                    if self.lines.count > Self.limit { self.lines.removeFirst(self.lines.count - Self.limit) }
                 }
                 try? await Task.sleep(nanoseconds: 2_000_000_000)
             }
@@ -168,6 +183,24 @@ final class LogsModel: ObservableObject {
     }
 
     func stop() { task?.cancel(); task = nil }
+
+    /// 清空: the page and the extension's history (otherwise the next open brings the lines back).
+    func clear() {
+        lines.removeAll()
+        Task { try? await ControllerClient.shared.harkClearLogs(kind: "general") }
+    }
+
+    /// Synthetic lines for the simulator UI tests (documentation names and addresses only).
+    private func seedDemo() {
+        let t = Date()
+        let demo: [(String, String)] = [
+            ("info", "[TCP] 198.18.0.1:50001 --> www.example.com:443 match DomainSuffix(example.com) using Proxy[Demo HK]"),
+            ("info", "[UDP] 198.18.0.1:50002 --> 192.0.2.53:53 match GeoIP(private) using DIRECT"),
+            ("warning", "[Provider] uitest-provider pull error: context deadline exceeded"),
+            ("error", "[Core] demo error line"),
+        ]
+        lines = demo.enumerated().map { i, d in LogLine(level: d.0, message: d.1, time: t.addingTimeInterval(Double(i - demo.count))) }
+    }
 }
 
 struct LogsView: View {
@@ -183,7 +216,7 @@ struct LogsView: View {
 
     var body: some View {
         Group {
-            if !vpn.isConnected { NotConnectedPlaceholder() } else {
+            if !vpn.isConnected && model.lines.isEmpty { NotConnectedPlaceholder() } else {
                 VStack(spacing: 0) {
                     Picker("级别", selection: $level) {
                         Text("调试").tag("debug")
@@ -192,7 +225,12 @@ struct LogsView: View {
                         Text("错误").tag("error")
                     }
                     .pickerStyle(.segmented)
-                    .padding(12)
+                    .padding(.horizontal, 12).padding(.top, 12)
+                    Text("从连接开始记录，最多保留最近 2000 条。")
+                        .font(.caption2).foregroundStyle(.secondary)
+                        .frame(maxWidth: .infinity, alignment: .leading)
+                        .padding(.horizontal, 16).padding(.vertical, 6)
+                        .accessibilityIdentifier("logs.hint")
                     ScrollViewReader { proxy in
                         List(shown) { l in
                             VStack(alignment: .leading, spacing: 2) {
@@ -204,6 +242,7 @@ struct LogsView: View {
                             }
                             .id(l.id)
                             .listRowBackground(Theme.card)
+                            .accessibilityIdentifier("logs.line")
                         }
                         .listStyle(.plain)
                         .scrollContentBackground(.hidden)
@@ -220,7 +259,9 @@ struct LogsView: View {
         .toolbar {
             ToolbarItemGroup(placement: .navigationBarTrailing) {
                 Button { model.paused.toggle() } label: { Image(systemName: model.paused ? "play.fill" : "pause.fill") }
-                Button { model.lines.removeAll() } label: { Image(systemName: "trash") }
+                Button { model.clear() } label: { Image(systemName: "trash") }
+                    .accessibilityLabel(Text("清空"))
+                    .accessibilityIdentifier("logs.clear")
                 Button { UIPasteboard.general.string = model.lines.map { "[\($0.level)] \($0.message)" }.joined(separator: "\n") } label: { Image(systemName: "doc.on.doc") }
             }
         }

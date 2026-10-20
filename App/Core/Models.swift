@@ -203,6 +203,28 @@ struct LogLine: Identifiable, Hashable {
 
 struct LogPayload: Decodable { var type: String; var payload: String }
 
+/// v0.19.8 GET /hark/logs.
+struct HarkLogEntry: Decodable { var seq: UInt64; var time: Int64; var type: String; var payload: String }
+struct HarkLogHistory: Decodable { var seq: UInt64; var logs: [HarkLogEntry]? }
+
+/// Joins the history read from /hark/logs with the live /logs stream: the stream is attached right after the
+/// history read, so the first few streamed lines can repeat its newest entries. A streamed line whose payload is
+/// one of the history's last entries is skipped once, only during the first seconds after attaching.
+struct LogJoin {
+    private var pending: [String: Int] = [:]
+    private let until: Date
+    init(history: [HarkLogEntry], window: TimeInterval = 5, now: Date = Date()) {
+        for e in history.suffix(64) { pending[e.payload, default: 0] += 1 }
+        until = now.addingTimeInterval(window)
+    }
+    /// true when the streamed payload is a repeat of a history entry.
+    mutating func isDuplicate(_ payload: String, now: Date = Date()) -> Bool {
+        guard now <= until, let n = pending[payload], n > 0 else { return false }
+        pending[payload] = n - 1
+        return true
+    }
+}
+
 // MARK: - Formatting helpers
 
 enum Fmt {

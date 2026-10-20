@@ -270,15 +270,31 @@ func TestV0198LogRings(t *testing.T) {
 	if len(all.Logs) != logRingCap {
 		t.Fatalf("ring size %d", len(all.Logs))
 	}
-	if !strings.HasPrefix(all.Logs[0].Payload, "line 50 ") || !strings.HasPrefix(all.Logs[len(all.Logs)-1].Payload, fmt.Sprintf("line %d ", logRingCap+49)) {
-		t.Fatalf("order: %q … %q", all.Logs[0].Payload[:12], all.Logs[len(all.Logs)-1].Payload[:12])
+	// Other tests' cores may log into the same global ring meanwhile (the diag subscriber is process-wide), so
+	// check our own lines only: newest kept, at least the 50 oldest dropped, numbers strictly increasing.
+	prev := -1
+	for _, e := range all.Logs {
+		var n int
+		if _, err := fmt.Sscanf(e.Payload, "line %d ", &n); err != nil {
+			continue
+		}
+		if prev == -1 && n < 50 {
+			t.Fatalf("oldest not dropped: line %d kept", n)
+		}
+		if n <= prev {
+			t.Fatalf("order: line %d after %d", n, prev)
+		}
+		prev = n
+	}
+	if prev != logRingCap+49 {
+		t.Fatalf("newest line = %d", prev)
 	}
 	for i := 1; i < len(all.Logs); i++ {
 		if all.Logs[i].Seq <= all.Logs[i-1].Seq {
 			t.Fatal("seq not increasing")
 		}
 	}
-	if p := all.Logs[0].Payload; len(p) > logPayloadMax+len("…") || !utf8.ValidString(p) {
+	if p := all.Logs[len(all.Logs)-1].Payload; len(p) > logPayloadMax+len("…") || !utf8.ValidString(p) {
 		t.Fatalf("payload not cut cleanly: %d bytes", len(p))
 	}
 	ringFor("general").clear()

@@ -81545,6 +81545,108 @@
           }
         }
       }
+    },
+    "从连接开始记录，最多保留最近 2000 条。": {
+      "localizations": {
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "從連線開始記錄，最多保留最近 2000 條。"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Recorded from when the connection started; the latest 2000 entries are kept."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "接続開始時から記録し、最新 2000 件まで保持します。"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "연결 시작부터 기록하며 최근 2000개까지 보관합니다."
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Записывается с момента подключения; хранятся последние 2000 записей."
+          }
+        }
+      }
+    },
+    "未连接 · 显示已记录的内容。连接后从连接开始记录。": {
+      "localizations": {
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "未連線 · 顯示已記錄的內容。連線後從連線開始記錄。"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Not connected · showing what was recorded. Recording starts when you connect."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "未接続 · 記録済みの内容を表示しています。接続すると記録を開始します。"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "연결되지 않음 · 기록된 내용을 표시합니다. 연결하면 기록을 시작합니다."
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Нет подключения · показано записанное. Запись начнётся после подключения."
+          }
+        }
+      }
+    },
+    "从连接开始记录，最多保留最近 2000 条。拦截按域名累计 REJECT 规则命中的连接。": {
+      "localizations": {
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "從連線開始記錄，最多保留最近 2000 條。攔截按網域累計 REJECT 規則命中的連線。"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Recorded from when the connection started; the latest 2000 entries are kept. Blocked counts connections that hit a REJECT rule, per domain."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "接続開始時から記録し、最新 2000 件まで保持します。ブロックは REJECT ルールに一致した接続をドメインごとに集計します。"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "연결 시작부터 기록하며 최근 2000개까지 보관합니다. 차단은 REJECT 규칙에 걸린 연결을 도메인별로 집계합니다."
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Записывается с момента подключения; хранятся последние 2000 записей. «Блокировки» считают соединения, попавшие под правило REJECT, по доменам."
+          }
+        }
+      }
     }
   },
   "version": "1.0"
