@@ -145,7 +145,8 @@ extension MihomoUITests {
         let tasks = app.element(id: "homepanels.scriptTasks")
         XCTAssertTrue(scrollTo(tasks), "脚本任务 row")
         tasks.tap()
-        XCTAssertTrue(app.navigationBars[L("任务")].waitForExistence(timeout: 6), "脚本任务 → 任务 page")
+        // Assert on the page's own identifier: in en the 任务 title collides with other "Tasks" bars.
+        XCTAssertTrue(app.element(id: "scriptTasksView").waitForExistence(timeout: 6), "脚本任务 → 任务 page")
         snap("v0198-script-tasks")
         // Back to the editor, close it; the tile is part of Home's tree (existence only: the tile sits low on the
         // page and the simulator reports its title as not hittable).

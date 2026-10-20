@@ -227,6 +227,7 @@ struct ScriptTasksView: View {
         .listStyle(.insetGrouped)
         .scrollContentBackground(.hidden)
         .background(Theme.bg.ignoresSafeArea())
+        .accessibilityIdentifier("scriptTasksView")
         .navigationTitle("任务")
         .navigationBarTitleDisplayMode(.inline)
         .refreshable { await load() }
