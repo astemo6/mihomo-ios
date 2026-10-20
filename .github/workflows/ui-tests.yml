@@ -6,6 +6,12 @@
 # - ui: XCUITest target (project-uitests.yml) on an iOS simulator with the synthetic -UITestSeed profile,
 #   zh-Hans and en, light and dark. Screenshots and per-test reports are uploaded as artifacts only.
 # The release workflow (ios.yml) and project.yml are not touched by this file.
+# Org mirror sharding (doubles concurrent macOS runners; free plan = 5 macOS jobs per account/org):
+#   astemo6/mihomo-ios   → go + ui zh-Hans light/dark
+#   astemo666/mihomo-ios → ui en light/dark (no go)
+#   any other repo       → everything
+# Full matrix in one repo: workflow_dispatch shard=all, or [shard:all] in the pushed commit message.
+# scripts/selftest-split.sh pushes a test/** branch to both remotes and waits for both runs.
 name: Self-test
 
 on:
@@ -28,6 +34,12 @@ on:
         type: boolean
         required: false
         default: false
+      shard:
+        description: "auto = split by repository (astemo6 go+zh-Hans, astemo666 en); all = full matrix here"
+        type: choice
+        options: [auto, all]
+        required: false
+        default: auto
 
 permissions:
   contents: read
@@ -38,7 +50,7 @@ concurrency:
 
 jobs:
   go:
-    if: ${{ (github.event_name == 'push' && !contains(github.event.head_commit.message, '[skip-go]')) || (inputs.run_tests && !inputs.skip_go) }}
+    if: ${{ ((github.event_name == 'push' && !contains(github.event.head_commit.message, '[skip-go]')) || (inputs.run_tests && !inputs.skip_go)) && (github.repository != 'astemo666/mihomo-ios' || inputs.shard == 'all' || contains(github.event.head_commit.message, '[shard:all]')) }}
     runs-on: ubuntu-latest
     timeout-minutes: 45
     steps:
@@ -108,7 +120,8 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        combo: ["zh-Hans:light", "en:light", "zh-Hans:dark", "en:dark"]
+        # Shard by repository (see header). Full list when shard=all, [shard:all], or an unknown repository.
+        combo: ${{ fromJSON(((inputs.shard == 'all' || contains(github.event.head_commit.message, '[shard:all]')) && '["zh-Hans:light","en:light","zh-Hans:dark","en:dark"]') || (github.repository == 'astemo666/mihomo-ios' && '["en:light","en:dark"]') || (github.repository == 'astemo6/mihomo-ios' && '["zh-Hans:light","zh-Hans:dark"]') || '["zh-Hans:light","en:light","zh-Hans:dark","en:dark"]') }}
     steps:
       - uses: actions/checkout@v4
       - name: Core version
