@@ -135,8 +135,8 @@ struct MitMView: View {
 
             if let s = status, vpn.isConnected {
                 Section("运行状态") {
-                    LabeledContent("引擎", value: s.running ? "运行中（127.0.0.1:\(s.port)）" : "未运行")
-                    LabeledContent("证书已加载", value: s.caLoaded ? "是" : "否")
+                    LabeledContent("引擎", value: s.running ? String(localized: "运行中（127.0.0.1:\(String(s.port))）") : String(localized: "未运行"))
+                    LabeledContent("证书已加载", value: s.caLoaded ? String(localized: "是") : String(localized: "否"))
                     LabeledContent("规则 / 脚本", value: "\(s.rules) / \(s.scripts)")
                     if !s.pinned.isEmpty {
                         VStack(alignment: .leading, spacing: 4) {
@@ -497,6 +497,14 @@ struct ScriptFormSheet: View {
     @State private var rawLine = ""
     @State private var rawMode = false
     @State private var debugSample = ScriptDebugSample()
+    /// load() runs once: onAppear fires again when 调试运行 is popped, and re-parsing would revert unsaved edits.
+    @State private var loaded = false
+    @State private var initial = ""
+    @State private var confirmDiscard = false
+
+    /// Fingerprint of everything the form saves, to tell whether there are unsaved edits.
+    var fingerprint: String { rawMode ? rawLine : line + "\u{1}" + (source == 0 ? code : "") }
+    var dirty: Bool { loaded && fingerprint != initial }
 
     var line: String {
         var parts = ["type=\(type)", "pattern=\(pattern)"]
@@ -566,16 +574,22 @@ struct ScriptFormSheet: View {
             .navigationTitle(item == nil ? "新建脚本" : "编辑脚本")
             .navigationBarTitleDisplayMode(.inline)
             .toolbar {
-                ToolbarItem(placement: .cancellationAction) { Button("取消") { dismiss() } }
+                ToolbarItem(placement: .cancellationAction) { Button("取消") { if dirty { confirmDiscard = true } else { dismiss() } } }
                 ToolbarItem(placement: .confirmationAction) {
                     Button("保存") { save(); dismiss() }.disabled(rawMode ? rawLine.isEmpty : (pattern.isEmpty || (source == 1 && path.isEmpty)))
                 }
             }
+            .confirmationDialog("放弃修改？", isPresented: $confirmDiscard, titleVisibility: .visible) {
+                Button("放弃修改", role: .destructive) { dismiss() }
+            }
             .onAppear(perform: load)
         }
+        .interactiveDismissDisabled(dirty)
     }
 
     func load() {
+        guard !loaded else { return }
+        defer { loaded = true; initial = fingerprint }
         if item == nil && code.isEmpty {
             code = """
             // $response.body 是字符串（binary-body-mode 时为 Uint8Array）
@@ -642,15 +656,14 @@ struct ScriptFormSheet: View {
 struct LocalScriptsView: View {
     @ObservedObject var store = EngineStore.shared
     @State private var files: [String] = []
+    /// Review 5: deleting a script file asks first (script lines may still point at it) and saves a snapshot.
+    @State private var pendingDelete: [String]?
     var body: some View {
         List {
             ForEach(files, id: \.self) { f in
                 NavigationLink { ScriptWorkbenchView(target: .local(f)) } label: { Text(f).font(.system(.callout, design: .monospaced)) }
             }
-            .onDelete { idx in
-                for i in idx { try? FileManager.default.removeItem(at: EnginePaths.scriptURL(files[i])) }
-                files = store.localScripts()
-            }
+            .onDelete { idx in pendingDelete = idx.map { files[$0] } }
             .listRowBackground(Theme.card)
             if files.isEmpty { EmptyStateRow(icon: "curlybraces", title: "暂无本地脚本").listRowBackground(Theme.card) }
         }
@@ -659,6 +672,17 @@ struct LocalScriptsView: View {
         .background(Theme.bg.ignoresSafeArea())
         .navigationTitle("本地脚本")
         .onAppear { files = store.localScripts() }
+        .deleteConfirmation({ l in l.count == 1 ? Text("删除「\(l[0])」？") : Text("删除 \(l.count) 个脚本？") }, item: $pendingDelete,
+                            message: { l in
+                                let used = l.filter { f in store.config.scripts.contains { $0.line.contains(f) } }
+                                return used.isEmpty ? DeleteText.recoverable : Text("仍有脚本行引用：\(used.joined(separator: "、"))。删除后这些脚本无法运行。")
+                            }) { l in
+            Task {
+                await SnapshotStore.shared.captureAsync(String(localized: "删除本地脚本前"))
+                for f in l { try? FileManager.default.removeItem(at: EnginePaths.scriptURL(f)) }
+                files = store.localScripts()
+            }
+        }
     }
 }
 
@@ -952,7 +976,7 @@ struct ModuleDetailView: View {
         .listStyle(.insetGrouped)
         .scrollContentBackground(.hidden)
         .background(Theme.bg.ignoresSafeArea())
-        .navigationTitle(module?.name ?? "模块")
+        .navigationTitle(module?.name ?? String(localized: "模块"))
         .onAppear { loadPolicies(); ResourceStore.shared.reload() }
         .onChange(of: args) { _ in debounce.schedule { applyArgs() } }
         .onDisappear { debounce.flush() }
@@ -1051,7 +1075,7 @@ struct HTTPRequestDetailView: View {
                     LabeledContent("方法 / 状态", value: "\(d.method) · \(d.status)")
                     if let du = d.duration { LabeledContent("耗时", value: "\(Int(du)) ms") }
                     LabeledContent("大小", value: Fmt.bytes(d.bytes))
-                    LabeledContent("HTTPS 解密", value: d.mitm ? "是" : "否（明文 HTTP）")
+                    LabeledContent("HTTPS 解密", value: d.mitm ? String(localized: "是") : String(localized: "否（明文 HTTP）"))
                 }
                 .listRowBackground(Theme.card)
                 Section {

@@ -16,6 +16,8 @@ struct SubscriptionsView: View {
     @State private var rulesFor: RulesTarget?
     @State private var message: String?
     @State private var busyAll = false
+    @State private var pendingProfileDelete: Profile?
+    @State private var pendingSubDelete: NodeSubscription?
 
     struct RulesTarget: Identifiable {
         let id = UUID()
@@ -104,6 +106,8 @@ struct SubscriptionsView: View {
         .alert("提示", isPresented: Binding(get: { message != nil }, set: { if !$0 { message = nil } })) {
             Button("好", role: .cancel) {}
         } message: { Text(message ?? "") }
+        .profileDeleteConfirmation($pendingProfileDelete, store: store)
+        .nodeSubDeleteConfirmation($pendingSubDelete) { s in await nodes.delete(s) }
     }
 
     // MARK: Cards
@@ -126,7 +130,7 @@ struct SubscriptionsView: View {
                 Button { editingProfile = p } label: { Label("编辑链接 / 名称 / UA / 间隔", systemImage: "pencil") }
                 Button { rulesFor = RulesTarget(profile: p, title: p.name) } label: { Label("节点处理（过滤 / 重命名 / 排序）", systemImage: "line.3.horizontal.decrease.circle") }
                 Button { UIPasteboard.general.string = p.url } label: { Label("复制订阅链接", systemImage: "doc.on.doc") }
-                Button(role: .destructive) { store.delete(p) } label: { Label("删除", systemImage: "trash") }
+                Button(role: .destructive) { pendingProfileDelete = p } label: { Label("删除", systemImage: "trash") }
             }
     }
 
@@ -135,7 +139,7 @@ struct SubscriptionsView: View {
                          info: s.userInfo, updated: s.lastUpdated, intervalHours: s.updateIntervalHours,
                          updating: nodes.updating.contains(s.id), error: s.lastError, alerts: UsageAlerts.rule(for: s.id).enabled)
             .swipeActions(edge: .trailing) {
-                Button(role: .destructive) { Task { await nodes.delete(s) } } label: { Label("删除", systemImage: "trash") }
+                Button(role: .destructive) { pendingSubDelete = s } label: { Label("删除", systemImage: "trash") }
                 Button { editingSub = s } label: { Label("编辑", systemImage: "pencil") }.tint(.indigo)
             }
             .swipeActions(edge: .leading) {
@@ -153,7 +157,7 @@ struct SubscriptionsView: View {
                     }
                 }
                 Button { UIPasteboard.general.string = s.url } label: { Label("复制订阅链接", systemImage: "doc.on.doc") }
-                Button(role: .destructive) { Task { await nodes.delete(s) } } label: { Label("删除", systemImage: "trash") }
+                Button(role: .destructive) { pendingSubDelete = s } label: { Label("删除", systemImage: "trash") }
             }
     }
 
@@ -257,6 +261,9 @@ struct NodeSubEditor: View {
     @State private var error: String?
 
     var groupNames: [String] { offline.result.groups.filter { $0.hidden != true && $0.name != "GLOBAL" }.map(\.name) }
+    /// Chosen groups the active profile doesn't have (they may exist in another profile). Shown and kept on
+    /// save; dropping them silently on a rename was review 5 P2-9.
+    var otherGroups: [String] { (sub?.groups ?? []).filter { !groupNames.contains($0) } }
 
     var body: some View {
         NavigationStack {
@@ -288,6 +295,14 @@ struct NodeSubEditor: View {
                     if customGroups {
                         ForEach(groupNames, id: \.self) { g in
                             Toggle(g, isOn: Binding(get: { groups.contains(g) }, set: { if $0 { groups.insert(g) } else { groups.remove(g) } }))
+                        }
+                        ForEach(otherGroups, id: \.self) { g in
+                            Toggle(isOn: Binding(get: { groups.contains(g) }, set: { if $0 { groups.insert(g) } else { groups.remove(g) } })) {
+                                VStack(alignment: .leading, spacing: 2) {
+                                    Text(verbatim: g)
+                                    Text("不在当前配置").font(.caption2).foregroundStyle(.secondary)
+                                }
+                            }
                         }
                     }
                 } header: { Text("加入的策略组") } footer: {
@@ -323,7 +338,7 @@ struct NodeSubEditor: View {
     func save() async {
         busy = true
         defer { busy = false }
-        let g: [String]? = customGroups && !groups.isEmpty ? groupNames.filter { groups.contains($0) } : nil
+        let g: [String]? = customGroups && !groups.isEmpty ? (groupNames + otherGroups).filter { groups.contains($0) } : nil
         if var s = sub {
             let urlChanged = s.url != url || s.userAgent != ua
             s.url = url; s.name = name; s.userAgent = ua; s.updateIntervalHours = interval; s.groups = g

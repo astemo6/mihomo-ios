@@ -124,6 +124,12 @@ struct ScriptWorkbenchView: View {
     @State private var saveAsName = ""
     @State private var askSaveAs = false
     @State private var note: String?
+    /// The first load happens once; onAppear fires again on every tab switch / pop and must not
+    /// replace an unsaved buffer. Later loads go through switchTo.
+    @State private var loaded = false
+    /// Bumped on every load so a late remote download can't land in another script's buffer.
+    @State private var loadGen = 0
+    @State private var loadTask: Task<Void, Never>?
 
     init(target: Target, sample: ScriptDebugSample? = nil) {
         _target = State(initialValue: target)
@@ -185,7 +191,7 @@ struct ScriptWorkbenchView: View {
                 }
             }
         }
-        .onAppear(perform: load)
+        .onAppear { if !loaded { loaded = true; load() } }
         .sheet(isPresented: $showDebug) {
             ScriptDebugPanel(code: code, path: remote ? path : nil, name: title, sample: $sample)
                 .presentationDetents([.medium, .large])
@@ -265,6 +271,9 @@ struct ScriptWorkbenchView: View {
     }
 
     func load() {
+        loadTask?.cancel(); loadTask = nil
+        loadGen += 1
+        let gen = loadGen
         loadError = nil; remote = false; path = nil
         switch target {
         case .scratch:
@@ -282,8 +291,11 @@ struct ScriptWorkbenchView: View {
                 remote = true
                 let home = AppShared.homeURL.path
                 code = String(localized: "// 正在读取…")
-                Task {
+                loadTask = Task {
                     let src = await Task.detached { (LibmihomoScriptSource(home, p), LibmihomoLastError()) }.value
+                    // The user switched to another script while this downloaded.
+                    guard !Task.isCancelled, gen == loadGen else { return }
+                    loadTask = nil
                     if src.0.isEmpty { loadError = String(localized: "读取远程脚本失败：\(src.1)"); code = "" } else { code = src.0 }
                     saved = code
                 }

@@ -228,10 +228,16 @@ class MihomoUITestCase: XCTestCase {
     func closeSheet() {
         for k in ["取消", "完成", "关闭", "好"] {
             let b = app.navigationBars.buttons.matching(NSPredicate(format: "label == %@", L(k))).firstMatch
-            if b.exists && b.isHittable { b.tap(); usleep(500_000); return }
+            if b.exists && b.isHittable { b.tap(); usleep(500_000); confirmDiscardIfAsked(); return }
         }
         app.swipeDown(velocity: .fast)
         usleep(500_000)
+    }
+
+    /// Review 5: editors with unsaved edits ask 「放弃修改？」 on 取消 and refuse swipe-down.
+    func confirmDiscardIfAsked() {
+        let discard = app.buttons.matching(NSPredicate(format: "label == %@", L("放弃修改"))).firstMatch
+        if discard.waitForExistence(timeout: 1) { discard.tap(); usleep(500_000) }
     }
 
     func tapIfExists(_ e: XCUIElement, timeout: TimeInterval = 4) -> Bool {

@@ -45,7 +45,7 @@ final class ToolsModel: ObservableObject {
         running = true
         defer { running = false }
         if VPNManager.shared.isConnected {
-            via = "经过内核规则"
+            via = String(localized: "经过内核规则")
             do {
                 probes = try await ControllerClient.shared.get([ProbeResult].self, "/tools/http", query: [
                     URLQueryItem(name: "url", value: target), URLQueryItem(name: "count", value: String(count)),
@@ -53,7 +53,7 @@ final class ToolsModel: ObservableObject {
             } catch { self.error = error.localizedDescription }
             return
         }
-        via = "本机直连（未连接）"
+        via = String(localized: "本机直连（未连接）")
         let cfg = URLSessionConfiguration.ephemeral
         cfg.timeoutIntervalForRequest = 8
         cfg.requestCachePolicy = .reloadIgnoringLocalCacheData
@@ -89,7 +89,7 @@ final class ToolsModel: ObservableObject {
         running = true
         defer { running = false }
         if VPNManager.shared.isConnected {
-            via = "经过内核规则"
+            via = String(localized: "经过内核规则")
             do {
                 probes = try await ControllerClient.shared.get([ProbeResult].self, "/tools/tcp", query: [
                     URLQueryItem(name: "host", value: h), URLQueryItem(name: "port", value: String(p)),
@@ -98,7 +98,7 @@ final class ToolsModel: ObservableObject {
             } catch { self.error = error.localizedDescription }
             return
         }
-        via = "本机直连（未连接）"
+        via = String(localized: "本机直连（未连接）")
         for i in 1...count {
             let (ok, ms, err) = await Self.directConnect(host: h, port: p, tls: tls)
             probes.append(ProbeResult(seq: i, ok: ok, ms: ms, error: err))
@@ -134,7 +134,7 @@ final class ToolsModel: ObservableObject {
                 }
             }
             conn.start(queue: .global(qos: .userInitiated))
-            DispatchQueue.global().asyncAfter(deadline: .now() + 6) { finish(false, "超时") }
+            DispatchQueue.global().asyncAfter(deadline: .now() + 6) { finish(false, String(localized: "超时")) }
         }
     }
 
@@ -148,7 +148,7 @@ final class ToolsModel: ObservableObject {
         defer { running = false }
         let t0 = Date()
         if VPNManager.shared.isConnected {
-            via = "内核 DNS"
+            via = String(localized: "内核 DNS")
             do {
                 let data = try await ControllerClient.shared.send("/dns/query", query: [
                     URLQueryItem(name: "name", value: n), URLQueryItem(name: "type", value: type),
@@ -161,7 +161,7 @@ final class ToolsModel: ObservableObject {
                 if answers.isEmpty { let st = (obj["Status"] as? NSNumber)?.intValue ?? -1; error = String(localized: "没有记录（状态 \(st)）") }
             } catch { self.error = error.localizedDescription }
         } else {
-            via = "系统解析（未连接）"
+            via = String(localized: "系统解析（未连接）")
             let res = await Task.detached { Self.systemResolve(n, ipv6: type == "AAAA") }.value
             switch res {
             case .success(let ips): answers = ips.map { DNSAnswerLine(type: $0.contains(":") ? "AAAA" : "A", data: $0, ttl: nil) }
@@ -310,7 +310,9 @@ struct ToolsView: View {
         let loss = Double(model.probes.count - ok.count) / Double(model.probes.count) * 100
         guard !ok.isEmpty else { return String(localized: "全部失败 · 丢失 100%") }
         let ms = ok.map(\.ms)
-        return String(format: "最小 %.0f / 平均 %.0f / 最大 %.0f ms · 丢失 %.0f%%", ms.min() ?? 0, ms.reduce(0, +) / Double(ms.count), ms.max() ?? 0, loss)
+        let mn = Int((ms.min() ?? 0).rounded()), avg = Int((ms.reduce(0, +) / Double(ms.count)).rounded())
+        let mx = Int((ms.max() ?? 0).rounded()), ls = Int(loss.rounded())
+        return String(localized: "最小 \(mn) / 平均 \(avg) / 最大 \(mx) ms · 丢失 \(ls)%")
     }
 
     var resultCard: some View {

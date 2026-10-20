@@ -16,6 +16,8 @@ struct ModulesView: View {
     @State private var url = ""
     @State private var pasting = false
     @State private var addingRuleSet = false
+    /// Review 5: a full trailing swipe on a module / rule set asks first.
+    @State private var pendingDelete: ResourceItem?
 
     var shown: [ResourceItem] {
         filter == "all" ? res.items : res.items.filter { $0.kind == filter }
@@ -97,14 +99,10 @@ struct ModulesView: View {
                         }
                     }
                     .swipeActions(edge: .trailing) {
-                        if it.kind == "module", let id = it.refId, let m = store.config.modules.first(where: { $0.id == id }) {
-                            Button(role: .destructive) { store.deleteModule(m); res.reload() } label: { Label("删除", systemImage: "trash") }
-                        } else if it.kind == "ruleset", it.readOnly != true, let id = it.refId {
-                            Button(role: .destructive) {
-                                CustomRulesStore.shared.rules.removeAll { $0.id == id }
-                                CustomRulesStore.shared.save()
-                                res.reload()
-                            } label: { Label("删除", systemImage: "trash") }
+                        if it.kind == "module", let id = it.refId, store.config.modules.contains(where: { $0.id == id }) {
+                            Button(role: .destructive) { pendingDelete = it } label: { Label("删除", systemImage: "trash") }
+                        } else if it.kind == "ruleset", it.readOnly != true, it.refId != nil {
+                            Button(role: .destructive) { pendingDelete = it } label: { Label("删除", systemImage: "trash") }
                         }
                     }
                 }
@@ -155,6 +153,17 @@ struct ModulesView: View {
         .overlay { if store.busy.contains("add") { ProgressView("下载中…").padding().background(RoundedRectangle(cornerRadius: 12).fill(Theme.cardHi)) } }
         .sheet(isPresented: $pasting, onDismiss: { res.reload() }) { PasteModuleSheet() }
         .sheet(isPresented: $addingRuleSet) { AddRuleSetSheet() }
+        .deleteConfirmation({ it in Text("删除「\(it.name)」？") }, item: $pendingDelete,
+                            message: { it in it.kind == "module" ? DeleteText.recoverable : Text("会从自定义规则中删除这个规则集。") }) { it in
+            guard let id = it.refId else { return }
+            if it.kind == "module", let m = store.config.modules.first(where: { $0.id == id }) {
+                store.deleteModule(m)
+            } else if it.kind == "ruleset" {
+                CustomRulesStore.shared.rules.removeAll { $0.id == id }
+                CustomRulesStore.shared.save()
+            }
+            res.reload()
+        }
     }
 }
 

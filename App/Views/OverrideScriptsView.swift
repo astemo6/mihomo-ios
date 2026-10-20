@@ -12,6 +12,8 @@ struct OverrideScriptsView: View {
     @State private var newScript: OverrideScript?
     @State private var message: String?
     @State private var status: (exists: Bool, fresh: Bool, at: Date?) = (false, false, nil)
+    /// Review 5: deleting asks first and saves a snapshot (the .js file is removed with it).
+    @State private var pendingDelete: [OverrideScript]?
 
     var scripts: [OverrideScript] { store.scripts(profile.id) }
 
@@ -27,10 +29,7 @@ struct OverrideScriptsView: View {
                         .accessibilityIdentifier("scripts.row.\(s.name)")
                 }
                 .onMove { store.move(profile.id, from: $0, to: $1); rerun() }
-                .onDelete { idx in
-                    for i in idx { store.delete(profile.id, scripts[i].id) }
-                    rerun()
-                }
+                .onDelete { idx in pendingDelete = idx.map { scripts[$0] } }
             } header: {
                 Text("按顺序运行")
             } footer: {
@@ -97,6 +96,14 @@ struct OverrideScriptsView: View {
         } message: { Text(message ?? "") }
         .onAppear { status = OverrideScriptStore.status(profile) }
         .onChange(of: store.lastResult[profile.id]) { _ in status = OverrideScriptStore.status(profile) }
+        .deleteConfirmation({ l in l.count == 1 ? Text("删除「\(l[0].name)」？") : Text("删除 \(l.count) 个脚本？") },
+                            item: $pendingDelete, message: { _ in DeleteText.recoverable }) { l in
+            Task {
+                await SnapshotStore.shared.captureAsync(String(localized: "删除覆写脚本前"))
+                for s in l { store.delete(profile.id, s.id) }
+                await store.changed(profile)
+            }
+        }
     }
 
     func newLocal() {
@@ -188,6 +195,7 @@ struct OverrideScriptDetailView: View {
     @State private var message: String?
     @State private var name = ""
     @State private var pending: Task<Void, Never>?
+    @State private var confirmDelete = false
 
     var script: OverrideScript? { store.script(profile.id, scriptID) }
 
@@ -204,6 +212,19 @@ struct OverrideScriptDetailView: View {
             Button("好", role: .cancel) {}
         } message: { Text(message ?? "") }
         .task { name = script?.name ?? ""; loadDeclared() }
+        // Review 5: the name is saved when leaving the page, not only on Return.
+        .onDisappear { if let s = script { rename(s) } }
+        .confirmationDialog(Text("删除「\(script?.name ?? "")」？"), isPresented: $confirmDelete, titleVisibility: .visible) {
+            Button("删除", role: .destructive) {
+                Task {
+                    await SnapshotStore.shared.captureAsync(String(localized: "删除覆写脚本前"))
+                    store.delete(profile.id, scriptID)
+                    rerun()
+                    dismiss()
+                }
+            }
+            Button("取消", role: .cancel) {}
+        } message: { DeleteText.recoverable }
     }
 
     @ViewBuilder
@@ -279,11 +300,7 @@ struct OverrideScriptDetailView: View {
             }
 
             Section {
-                Button(role: .destructive) {
-                    store.delete(profile.id, s.id)
-                    rerun()
-                    dismiss()
-                } label: { Label("删除脚本", systemImage: "trash") }
+                Button(role: .destructive) { confirmDelete = true } label: { Label("删除脚本", systemImage: "trash") }
             }
             .listRowBackground(Theme.card)
         }
@@ -494,8 +511,12 @@ struct OverrideScriptEditor: View {
     @State private var saving = false
     @State private var loaded = false
     @State private var scrollToken = 0
+    @State private var savedText = ""
+    @State private var confirmDiscard = false
 
     var readOnly: Bool { store.script(profile.id, scriptID)?.isRemote ?? false }
+    /// Unsaved code: swipe-down is blocked and 取消 asks first (review 5; was only for new scripts).
+    var dirty: Bool { loaded && !readOnly && text != savedText }
 
     var body: some View {
         NavigationStack {
@@ -525,8 +546,7 @@ struct OverrideScriptEditor: View {
             .toolbar {
                 ToolbarItem(placement: .cancellationAction) {
                     Button(readOnly ? LocalizedStringKey("完成") : LocalizedStringKey("取消")) {
-                        if isNew { store.delete(profile.id, scriptID) }
-                        dismiss()
+                        if dirty { confirmDiscard = true } else { discard() }
                     }
                 }
                 if !readOnly {
@@ -535,14 +555,23 @@ struct OverrideScriptEditor: View {
                     }
                 }
             }
-            .interactiveDismissDisabled(isNew)
+            .interactiveDismissDisabled(isNew || dirty)
+            .confirmationDialog("放弃修改？", isPresented: $confirmDiscard, titleVisibility: .visible) {
+                Button("放弃修改", role: .destructive) { discard() }
+            }
             .onAppear {
                 guard !loaded else { return }
                 loaded = true
                 text = OverrideScriptStore.content(scriptID)
+                savedText = text
                 name = store.script(profile.id, scriptID)?.name ?? ""
             }
         }
+    }
+
+    func discard() {
+        if isNew { store.delete(profile.id, scriptID) }
+        dismiss()
     }
 
     /// Checks the script parses and has main() before saving, then runs the profile's chain so a runtime
@@ -566,6 +595,7 @@ struct OverrideScriptEditor: View {
             default: break
             }
             store.setContent(profile.id, scriptID, src)
+            savedText = src
             if isNew, var s = store.script(profile.id, scriptID) {
                 let n = name.trimmingCharacters(in: .whitespacesAndNewlines)
                 if !n.isEmpty { s.name = n; store.update(profile.id, s) }
