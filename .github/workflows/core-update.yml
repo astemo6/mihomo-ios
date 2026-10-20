@@ -1,7 +1,9 @@
 # 每天检查 MetaCubeX/mihomo 的最新正式版；有新版本时：
 #   1) 在分支 core/mihomo-<tag> 上升级 bridge/go.mod 并提交 "core: mihomo <tag>"
 #   2) 调用 ios.yml 在该分支上做一次完整测试构建（不发布）
-#   3) 构建成功 → 合并到默认分支并触发 ios.yml 生成新 IPA Release；失败 → 开 issue，默认分支保持不变
+#   3) 构建成功 → 开一个 PR（core/mihomo-<tag> → 默认分支），由人审核后合并；
+#      绝不直接推送默认分支、绝不触发发布（默认分支上常有用 [skip ci] 合并、尚未测试的改动）。
+#      无法开 PR（仓库未允许 Actions 建 PR）时改为开 issue。失败 → 开 issue，默认分支保持不变
 # 内核版本只记录在 bridge/go.mod（ios.yml 从 go.mod 读取），因此这里不需要改 workflow 文件
 # （GITHUB_TOKEN 没有修改 .github/workflows 的权限）。
 name: Core auto-update
@@ -107,30 +109,38 @@ jobs:
     needs: [check, test-build]
     if: needs.check.outputs.updated == 'true' && needs.test-build.result == 'success'
     runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      pull-requests: write
+      issues: write
     env:
       GH_TOKEN: ${{ github.token }}
       BR: ${{ needs.check.outputs.branch }}
       TAG: ${{ needs.check.outputs.tag }}
       DEFAULT: ${{ github.event.repository.default_branch }}
     steps:
-      - uses: actions/checkout@v4
-        with:
-          ref: ${{ github.event.repository.default_branch }}
-          fetch-depth: 0
-      - name: Merge into default branch
+      - name: Open pull request (never push or release main)
         run: |
           set -euo pipefail
-          git config user.name "github-actions[bot]"
-          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
-          git fetch origin "$BR"
-          git merge --ff-only "origin/$BR" || git merge --no-edit -m "core: mihomo $TAG" "origin/$BR"
-          git push origin "HEAD:$DEFAULT"
-          git push origin --delete "$BR" || true
-      - name: Trigger release build
-        run: |
-          # GITHUB_TOKEN 的 push 不会触发其他 workflow，但 workflow_dispatch 可以。
-          gh workflow run ios.yml --ref "$DEFAULT" --repo "$GITHUB_REPOSITORY"
-          echo "已触发 ios.yml（$DEFAULT）发布 mihomo $TAG 的 IPA" >> "$GITHUB_STEP_SUMMARY"
+          TITLE="core: mihomo $TAG"
+          RUN_URL="$GITHUB_SERVER_URL/$GITHUB_REPOSITORY/actions/runs/$GITHUB_RUN_ID"
+          BODY=$(printf '自动升级 mihomo 到 %s，测试构建（build_only）已通过：%s\n\n本 workflow 不会推送默认分支，也不会发布 IPA。请审核、跑自测后手动合并并发布。' "$TAG" "$RUN_URL")
+          EXISTING=$(gh pr list --repo "$GITHUB_REPOSITORY" --head "$BR" --state open --json number --jq '.[0].number' || true)
+          if [ -n "$EXISTING" ]; then
+            gh pr comment "$EXISTING" --repo "$GITHUB_REPOSITORY" --body "$BODY"
+            echo "PR #$EXISTING 已更新" >> "$GITHUB_STEP_SUMMARY"
+            exit 0
+          fi
+          if gh pr create --repo "$GITHUB_REPOSITORY" --base "$DEFAULT" --head "$BR" --title "$TITLE" --body "$BODY"; then
+            echo "已开 PR：$BR → $DEFAULT（未合并、未发布）" >> "$GITHUB_STEP_SUMMARY"
+          else
+            ITITLE="内核可升级：mihomo $TAG"
+            IBODY=$(printf '%s\n\n分支 `%s` 已就绪，但 Actions 无法开 PR，请手动开 PR 合并。' "$BODY" "$BR")
+            IEX=$(gh issue list --repo "$GITHUB_REPOSITORY" --state open --search "$ITITLE in:title" --json number --jq '.[0].number' || true)
+            if [ -n "$IEX" ]; then gh issue comment "$IEX" --repo "$GITHUB_REPOSITORY" --body "$IBODY"
+            else gh issue create --repo "$GITHUB_REPOSITORY" --title "$ITITLE" --body "$IBODY"; fi
+            echo "无法开 PR，已开 issue" >> "$GITHUB_STEP_SUMMARY"
+          fi
 
   report-failure:
     needs: [check, test-build]
