@@ -297,9 +297,8 @@ func TestR6MemCacheStaleRefresh(t *testing.T) {
 
 // P2-5: a client stalling mid-ClientHello after CONNECT to an IP is dropped after sniPeekTimeout.
 func TestR6SNIPeekDeadline(t *testing.T) {
-	old := sniPeekTimeout
-	sniPeekTimeout = 200 * time.Millisecond
-	defer func() { sniPeekTimeout = old }()
+	old := sniPeekTimeoutNs.Swap(int64(200 * time.Millisecond))
+	defer sniPeekTimeoutNs.Store(old)
 	h := newHarness(t, &Config{Enabled: true, MitM: true, Hostnames: []string{"*"}}, nil)
 	c, err := net.Dial("tcp", fmt.Sprintf("127.0.0.1:%d", h.e.Port()))
 	if err != nil {
