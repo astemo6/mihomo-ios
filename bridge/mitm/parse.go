@@ -1079,9 +1079,26 @@ func (rs *Ruleset) ParseText(text, source string, args map[string]string) {
 		rs.Format = "list"
 	}
 	// v0.19.9: [Script] is shared by Surge and Loon; Loon's script lines start with the type.
-	if rs.Format == "surge" && loonScriptLineRe.MatchString(text) {
+	// review6 P2-3: only inside [Script] — Surge's own [Header Rewrite] / [Body Rewrite] lines also start
+	// with http-request / http-response, which made every such Surge module show as Loon.
+	if rs.Format == "surge" && hasLoonScriptLine(text) {
 		rs.Format = "loon"
 	}
+}
+
+func hasLoonScriptLine(text string) bool {
+	section := ""
+	for _, l := range strings.Split(text, "\n") {
+		t := strings.TrimSpace(l)
+		if strings.HasPrefix(t, "[") && strings.HasSuffix(t, "]") {
+			section = strings.ToLower(strings.TrimSpace(t[1 : len(t)-1]))
+			continue
+		}
+		if section == "script" && loonScriptLineRe.MatchString(l) {
+			return true
+		}
+	}
+	return false
 }
 
 var loonScriptLineRe = regexp.MustCompile(`(?m)^[ \t]*(?:(?:http-request|http-response)[ \t]|cron[ \t]+["0-9*])`)

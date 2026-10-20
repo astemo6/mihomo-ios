@@ -4,7 +4,6 @@ import (
 	"bytes"
 	"context"
 	"encoding/base64"
-	"encoding/json"
 	"errors"
 	"fmt"
 	"io"
@@ -362,7 +361,10 @@ func (e *Engine) serveHTTP(w http.ResponseWriter, r *http.Request) {
 					h = http.Header{}
 				}
 				code := res.Response.Status
-				if code == 0 {
+				if !validScriptStatus(code) {
+					if code != 0 {
+						e.Logs.Add(rule.Script.Name, "warn", fmt.Sprintf("脚本返回的状态码 %d 无效，按 200 处理", code))
+					}
 					code = 200
 				}
 				writeLocal(w, code, h, res.Response.Body)
@@ -462,6 +464,10 @@ func (e *Engine) serveHTTP(w http.ResponseWriter, r *http.Request) {
 }
 
 const captureLimit = 32 * 1024
+
+// validScriptStatus: a final HTTP status a script may set (review6 P2-1). net/http panics on codes outside
+// 100–999 and 1xx is not a final response, so anything else was a 502 「mitm error」.
+func validScriptStatus(code int) bool { return code >= 200 && code <= 999 }
 
 func writeLocal(w http.ResponseWriter, status int, h http.Header, body []byte) {
 	for k, v := range h {
@@ -566,6 +572,9 @@ func (e *Engine) modifyResponse(f *flow, resp *http.Response) error {
 		resp.Body = io.NopCloser(bytes.NewReader(b))
 		resp.ContentLength = int64(len(b))
 		resp.Header.Set("Content-Length", strconv.Itoa(len(b)))
+		// review6 P1-3: whatever we hand on is plain bytes (a decoded load, a rewrite or a script's body).
+		// A script without requires-body that returns a body left the upstream's gzip/br label on it.
+		resp.Header.Del("Content-Encoding")
 		resp.Header.Del("Transfer-Encoding")
 		resp.TransferEncoding = nil
 	}
@@ -616,7 +625,9 @@ func (e *Engine) modifyResponse(f *flow, resp *http.Response) error {
 				ent.Note("脚本中止：" + rule.Script.Name)
 				return fmt.Errorf("脚本 %s 中止了响应", rule.Script.Name)
 			}
-			if res.Status > 0 {
+			if res.Status > 0 && !validScriptStatus(res.Status) {
+				e.Logs.Add(rule.Script.Name, "warn", fmt.Sprintf("脚本返回的状态码 %d 无效，已忽略", res.Status))
+			} else if res.Status > 0 {
 				resp.StatusCode = res.Status
 				resp.Status = fmt.Sprintf("%d %s", res.Status, http.StatusText(res.Status))
 			}
@@ -777,6 +788,9 @@ func (e *Engine) applyBodyRule(rule *Rule, body []byte) ([]byte, error) {
 		}
 		return body, nil
 	case KindJQ:
+		if err := jsonBodyFits(len(body)); err != nil {
+			return nil, err
+		}
 		expr := rule.JQ
 		if expr == "" && rule.Data != "" {
 			b, err := e.res.Get(rule.Data, 86400)
@@ -787,14 +801,17 @@ func (e *Engine) applyBodyRule(rule *Rule, body []byte) ([]byte, error) {
 		}
 		return runJQ(expr, body)
 	case KindJSON:
-		var v any
-		if err := json.Unmarshal(body, &v); err != nil {
+		if err := jsonBodyFits(len(body)); err != nil {
+			return nil, err
+		}
+		v, err := decodeJSONNumber(body)
+		if err != nil {
 			return nil, fmt.Errorf("不是 JSON")
 		}
 		for _, op := range rule.JSON {
 			v = jsonEdit(v, splitJSONPath(op.Path), op.Op, parseJSONValue(op.Value))
 		}
-		return json.Marshal(v)
+		return encodeJSON(v)
 	}
 	return body, nil
 }
@@ -814,8 +831,8 @@ func runJQ(expr string, body []byte) ([]byte, error) {
 		}
 		jqCache.Put(expr, code)
 	}
-	var v any
-	if err := json.Unmarshal(body, &v); err != nil {
+	v, err := decodeJSONNumber(body)
+	if err != nil {
 		return nil, fmt.Errorf("不是 JSON")
 	}
 	ctx, cancel := context.WithTimeout(context.Background(), 2*time.Second)
@@ -828,12 +845,11 @@ func runJQ(expr string, body []byte) ([]byte, error) {
 	if err, ok := out.(error); ok {
 		return nil, err
 	}
-	return json.Marshal(out)
+	return encodeJSON(out)
 }
 
 func parseJSONValue(s string) any {
-	var v any
-	if err := json.Unmarshal([]byte(s), &v); err == nil {
+	if v, err := decodeJSONNumber([]byte(s)); err == nil {
 		return v
 	}
 	return s
