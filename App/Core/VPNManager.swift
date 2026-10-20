@@ -398,9 +398,19 @@ final class VPNManager: ObservableObject {
         // the 8 s default, and a reply missing after 8 s used to count as success while the core still ran the old
         // config (a group order save then read the old order back and looked like it did nothing).
         let data = await send(.reload, timeout: 45)
-        let msg = data.flatMap { String(data: $0, encoding: .utf8) } ?? ""
         NotificationCenter.default.post(name: .egressMayHaveChanged, object: nil)
-        return msg.isEmpty ? nil : msg
+        return Self.reloadResult(data, stillConnected: isConnected)
+    }
+
+    /// Review 6 R6A-3: nil = applied. No reply while the tunnel is still up means the reload did not finish within
+    /// the timeout (the core may still run the old config) — that used to count as success. No reply because the
+    /// tunnel went down is fine: the next start reads the new config anyway.
+    nonisolated static func reloadResult(_ data: Data?, stillConnected: Bool) -> String? {
+        guard let data else {
+            return stillConnected ? String(localized: "重新加载超时：内核可能仍在使用旧配置，请稍后重试或重新连接。") : nil
+        }
+        let msg = String(decoding: data, as: UTF8.self).trimmingCharacters(in: .whitespacesAndNewlines)
+        return msg.isEmpty || msg == TunnelMessage.reloadOK ? nil : msg
     }
 }
 

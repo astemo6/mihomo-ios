@@ -1867,7 +1867,11 @@ final class MihomoUITests: MihomoUITestCase {
             s = Date()
             tab(i)
             XCTAssertTrue(app.tabBars.buttons.element(boundBy: i).waitForExistence(timeout: 10))
-            XCTAssertLessThan(Date().timeIntervalSince(s), 8, "tab \(i) switch")
+            // Review 6 R6A-7: the time includes XCUITest's accessibility snapshot of a 3000/4500-row tree; 8 s flaked
+            // on CI (13.9 s, run 39422537271). 15 s still catches a main-thread hang (the watchdog kills at ~20 s).
+            let took = Date().timeIntervalSince(s)
+            print("tab \(i) switch: \(String(format: "%.1f", took)) s")
+            XCTAssertLessThan(took, 15, "tab \(i) switch")
         }
         assertAlive("big profile")
     }

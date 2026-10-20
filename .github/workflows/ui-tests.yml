@@ -121,9 +121,17 @@ jobs:
       fail-fast: false
       matrix:
         # Shard by repository (see header). Full list when shard=all, [shard:all], or an unknown repository.
-        combo: ${{ fromJSON(((inputs.shard == 'all' || contains(github.event.head_commit.message, '[shard:all]')) && '["zh-Hans:light","en:light","zh-Hans:dark","en:dark"]') || (github.repository == 'astemo666/mihomo-ios' && '["en:light","en:dark"]') || (github.repository == 'astemo6/mihomo-ios' && '["zh-Hans:light","zh-Hans:dark"]') || '["zh-Hans:light","en:light","zh-Hans:dark","en:dark"]') }}
+        # Review 6 OPT-1: light is split in two test shards (:1 = test01–test21, :2 = the rest + unit tests, so new
+        # tests land there automatically) — one light job took 72–80 min of the 120 min limit, now ~45 min each.
+        combo: ${{ fromJSON(((inputs.shard == 'all' || contains(github.event.head_commit.message, '[shard:all]')) && '["zh-Hans:light:1","zh-Hans:light:2","en:light:1","en:light:2","zh-Hans:dark:0","en:dark:0"]') || (github.repository == 'astemo666/mihomo-ios' && '["en:light:1","en:light:2","en:dark:0"]') || (github.repository == 'astemo6/mihomo-ios' && '["zh-Hans:light:1","zh-Hans:light:2","zh-Hans:dark:0"]') || '["zh-Hans:light:1","zh-Hans:light:2","en:light:1","en:light:2","zh-Hans:dark:0","en:dark:0"]') }}
     steps:
       - uses: actions/checkout@v4
+      - name: Combo
+        run: |
+          combo="${{ matrix.combo }}"
+          LANG_=${combo%%:*}; rest=${combo#*:}; STYLE=${rest%%:*}; SHARD=${rest#*:}
+          SHORT=$([ "$LANG_" = zh-Hans ] && echo zh || echo "$LANG_")-$STYLE$([ "$SHARD" = 0 ] || echo "-$SHARD")
+          { echo "LANG_=$LANG_"; echo "STYLE=$STYLE"; echo "SHARD=$SHARD"; echo "SHORT=$SHORT"; } >> "$GITHUB_ENV"
       - name: Core version
         run: echo "MIHOMO_VERSION=$(awk '$1=="github.com/metacubex/mihomo"{print $2; exit}' bridge/go.mod)" >> "$GITHUB_ENV"
       - name: Select latest Xcode
@@ -171,9 +179,9 @@ jobs:
           ")
           test -n "$DEV"
           echo "DEV=$DEV" >> "$GITHUB_ENV"
+          # Review 6 OPT-4: boot only starts here; the wait (bootstatus, 1.8–3.5 min measured) overlaps the
+          # build-for-testing step and happens right before the tests.
           xcrun simctl boot "$DEV" || true
-          xcrun simctl bootstatus "$DEV" -b
-          xcrun simctl status_bar "$DEV" override --time "9:41" --batteryState charged --batteryLevel 100 || true
       - name: Build for testing
         run: |
           set -o pipefail
@@ -189,6 +197,8 @@ jobs:
           ONLY_INPUT: ${{ inputs.only }}
         run: |
           set +e
+          xcrun simctl bootstatus "$DEV" -b
+          xcrun simctl status_bar "$DEV" override --time "9:41" --batteryState charged --batteryLevel 100 || true
           mkdir -p shots results
           ONLY=()
           if [ -n "$ONLY_INPUT" ]; then ONLY=(-only-testing:"$ONLY_INPUT"); fi
@@ -196,21 +206,33 @@ jobs:
             ONLY+=(-only-testing:"MihomoUITests/MihomoUITests/$t")
           done
           DARK_ONLY=(-only-testing:MihomoUITests/MihomoUITests/test01_TabsAndHome -only-testing:MihomoUITests/MihomoUITests/test03_MoreEveryPage -only-testing:MihomoUITests/MihomoUITests/test04_NodeManager -only-testing:MihomoUITests/MihomoUITests/test05_AddNodeAndEditor)
+          # Review 6 OPT-1: light shard 1 = these tests (31.8 min measured in zh-Hans light), shard 2 = everything else.
+          SHARD1_TESTS="test01_TabsAndHome test02_HomePolicyPicker test03_MoreEveryPage test04_NodeManager test05_AddNodeAndEditor test06a_ImportQX test06b_ImportSurge test06c_ImportClash test06d_ImportLoon test06e_ImportLinks test07_Editors test08_ModulesAndPanels test09_AutoApplySettings test10_ProfileNodeEdit test11_RegionFilters test12_FilterSources test13_RuleChips test14_DNSLog test15_AllRewrites test16_PolicyModeControl test17_RequestsSummary test18_SSIDPermissions test19_RequestTimeline test20_NodeSettings test21_TileEditing"
           FAILED=""
-          combo="${{ matrix.combo }}"
-          LANG_=${combo%%:*}; STYLE=${combo##*:}
           SEL=("${ONLY[@]}")
+          if [ ${#SEL[@]} -gt 0 ] && [ "$SHARD" = 2 ]; then
+            # An explicit [only:] / inputs.only selection runs once, in shard 1.
+            echo "only-testing selection runs in light shard 1; nothing to do here"
+            echo "FAILED=" >> "$GITHUB_ENV"
+            exit 0
+          fi
           if [ ${#SEL[@]} -eq 0 ] && [ "$STYLE" = dark ]; then SEL=("${DARK_ONLY[@]}"); fi
+          if [ ${#SEL[@]} -eq 0 ] && [ "$SHARD" = 1 ]; then
+            for t in $SHARD1_TESTS; do SEL+=(-only-testing:"MihomoUITests/MihomoUITests/$t"); done
+          fi
+          if [ ${#SEL[@]} -eq 0 ] && [ "$SHARD" = 2 ]; then
+            for t in $SHARD1_TESTS; do SEL+=(-skip-testing:"MihomoUITests/MihomoUITests/$t"); done
+          fi
           xcrun simctl ui "$DEV" appearance "$STYLE" || true
           TEST_RUNNER_UI_LANG="$LANG_" TEST_RUNNER_UI_STYLE="$STYLE" TEST_RUNNER_UI_SHOT_DIR="$PWD/shots" \
           xcodebuild -project Mihomo.xcodeproj -scheme MihomoUITests -configuration Debug -sdk iphonesimulator \
-            -destination "id=$DEV" -derivedDataPath build/uit -resultBundlePath "results/$LANG_-$STYLE.xcresult" \
-            "${SEL[@]}" test-without-building 2>&1 | tee "results/$LANG_-$STYLE.log" | grep -E "Test Case|error:|failed|passed|XCTAssert|issue"
+            -destination "id=$DEV" -derivedDataPath build/uit -resultBundlePath "results/$SHORT.xcresult" \
+            "${SEL[@]}" test-without-building 2>&1 | tee "results/$SHORT.log" | grep -E "Test Case|error:|failed|passed|XCTAssert|issue"
           RC=${PIPESTATUS[0]}
           # review 5 P2-10: grep reads to EOF (no `| head`), so SIGPIPE can no longer end the test run early.
-          echo "$LANG_ $STYLE exit $RC"
-          [ "$RC" = 0 ] || tail -n 120 "results/$LANG_-$STYLE.log"
-          [ "$RC" = 0 ] || FAILED="$FAILED $LANG_-$STYLE"
+          echo "$SHORT exit $RC"
+          [ "$RC" = 0 ] || tail -n 120 "results/$SHORT.log"
+          [ "$RC" = 0 ] || FAILED="$FAILED $SHORT"
           {
             echo "### UI self-test"
             for f in shots/*/report-*.md; do
@@ -232,7 +254,7 @@ jobs:
       - uses: actions/upload-artifact@v4
         if: always()
         with:
-          name: ui-screens-${{ matrix.combo == 'zh-Hans:light' && 'zh-light' || matrix.combo == 'en:light' && 'en-light' || matrix.combo == 'zh-Hans:dark' && 'zh-dark' || 'en-dark' }}
+          name: ui-screens-${{ env.SHORT }}
           path: |
             shots/
             crashes/
@@ -241,7 +263,7 @@ jobs:
       - uses: actions/upload-artifact@v4
         if: always()
         with:
-          name: ui-results-${{ matrix.combo == 'zh-Hans:light' && 'zh-light' || matrix.combo == 'en:light' && 'en-light' || matrix.combo == 'zh-Hans:dark' && 'zh-dark' || 'en-dark' }}
+          name: ui-results-${{ env.SHORT }}
           path: |
             results/*.log
             build-uit.log
@@ -250,7 +272,7 @@ jobs:
       - uses: actions/upload-artifact@v4
         if: always()
         with:
-          name: ui-xcresult-${{ matrix.combo == 'zh-Hans:light' && 'zh-light' || matrix.combo == 'en:light' && 'en-light' || matrix.combo == 'zh-Hans:dark' && 'zh-dark' || 'en-dark' }}
+          name: ui-xcresult-${{ env.SHORT }}
           path: results/*.xcresult
           if-no-files-found: ignore
           retention-days: 7

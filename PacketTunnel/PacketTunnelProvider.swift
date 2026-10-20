@@ -32,10 +32,6 @@ final class PacketTunnelProvider: NEPacketTunnelProvider {
     /// timers in an extension that is going away; the late start stops the core it brought up instead.
     private let stopLock = NSLock()
     private var _stopped = false
-    private var stopped: Bool {
-        stopLock.lock(); defer { stopLock.unlock() }
-        return _stopped
-    }
 
     override func startTunnel(options: [String: NSObject]?, completionHandler: @escaping (Error?) -> Void) {
         TunnelErrorLog.clear()
@@ -58,6 +54,12 @@ final class PacketTunnelProvider: NEPacketTunnelProvider {
                 StartupLog.write("startTunnel completed OK, \(ProcessMemory.summary())")
             }
             completionHandler(err)
+        }
+        // Review 6 R6A-1: true once the start was completed (only the watchdog can have done that by the time the
+        // core start returns OK), so a late core start stops the core instead of leaving it running.
+        let startTimedOut: () -> Bool = {
+            lock.lock(); defer { lock.unlock() }
+            return finished
         }
         guard AppShared.containerOK else {
             completionHandler(Self.error("App Group 不可用（\(AppShared.appGroup)）：重签名的描述文件需要包含 App Groups，且主程序和扩展使用同一个组"))
@@ -108,7 +110,7 @@ final class PacketTunnelProvider: NEPacketTunnelProvider {
                     completionHandler(Self.error("无法创建数据包桥接：\(error.localizedDescription)"))
                     return
                 }
-                self.bridge = b
+                self.stopLock.lock(); self.bridge = b; self.stopLock.unlock()
                 StartupLog.write("packet-flow bridge up, core fd \(fd)")
             }
             // Off the NetworkExtension callback queue: LibmihomoStart returns within 20 s at most.
@@ -118,33 +120,43 @@ final class PacketTunnelProvider: NEPacketTunnelProvider {
                 LibmihomoStart(AppShared.homeURL.path, profile.path, fd, &err)
                 StartupLog.write("core start returned\(err.map { ": " + $0.localizedDescription } ?? " OK"), \(ProcessMemory.summary()), \(LibmihomoMemoryStats())")
                 if let err {
-                    self.bridge?.stop()
-                    self.bridge = nil
+                    self.takeBridge()?.stop()
                     LibmihomoDumpDiagnostics()
                     completionHandler(Self.error("内核启动失败：\(err.localizedDescription)"))
                     return
                 }
-                if self.stopped {
-                    StartupLog.write("stopTunnel arrived during core start: stopping the core again")
+                // Review 6 R6A-1: publish the helpers under stopLock, so a stopTunnel either sees them (and stops
+                // them) or has already set `stopped` (and nothing is started). The watchdog may also have failed
+                // the start meanwhile: then the core must not keep running in an extension iOS has written off.
+                let timedOut = startTimedOut()
+                let started: Bool = {
+                    self.stopLock.lock(); defer { self.stopLock.unlock() }
+                    guard !self._stopped, !timedOut else { return false }
+                    let guardian = MemoryGuard()
+                    guardian.start()
+                    self.memoryGuard = guardian
+                    let rec = TrafficRecorder()
+                    rec.start()
+                    self.traffic = rec
+                    let ls = LiveStatsSampler()
+                    ls.start()
+                    self.liveStats = ls
+                    let nw = NetworkWatcher()
+                    nw.start()
+                    self.network = nw
+                    return true
+                }()
+                guard started else {
+                    StartupLog.write(timedOut ? "core start returned after the start watchdog: stopping the core again"
+                                              : "stopTunnel arrived during core start: stopping the core again")
                     LibmihomoStop()
+                    self.takeBridge()?.stop()
                     completionHandler(Self.error("已断开"))
                     return
                 }
-                let guardian = MemoryGuard()
-                guardian.start()
-                self.memoryGuard = guardian
-                let rec = TrafficRecorder()
-                rec.start()
-                self.traffic = rec
-                let ls = LiveStatsSampler()
-                ls.start()
-                self.liveStats = ls
-                let nw = NetworkWatcher()
-                nw.start()
-                self.network = nw
                 completionHandler(nil)
                 DispatchQueue.global().asyncAfter(deadline: .now() + 15) { [weak self] in
-                    StartupLog.write("+15 s: \(ProcessMemory.summary()), \(LibmihomoMemoryStats()), bridge \(self?.bridge?.stats ?? "-")")
+                    StartupLog.write("+15 s: \(ProcessMemory.summary()), \(LibmihomoMemoryStats()), bridge \(self?.currentBridge?.stats ?? "-")")
                 }
             }
         }
@@ -197,20 +209,44 @@ final class PacketTunnelProvider: NEPacketTunnelProvider {
 
     override func stopTunnel(with reason: NEProviderStopReason, completionHandler: @escaping () -> Void) {
         let why = TunnelStopReason.describe(reason.rawValue)
-        StartupLog.write("stopTunnel reason=\(reason.rawValue)（\(why)）, \(ProcessMemory.summary()), bridge \(bridge?.stats ?? "-")")
+        StartupLog.write("stopTunnel reason=\(reason.rawValue)（\(why)）, \(ProcessMemory.summary()), bridge \(currentBridge?.stats ?? "-")")
         TunnelStopReason.record(reason.rawValue)
-        stopLock.lock(); _stopped = true; stopLock.unlock()
+        // Review 6 R6A-1: take the helpers under the same lock the start path publishes them with.
+        stopLock.lock()
+        _stopped = true
+        let (traffic, liveStats, network, memoryGuard) = (self.traffic, self.liveStats, self.network, self.memoryGuard)
+        self.liveStats = nil
+        self.network = nil
+        self.memoryGuard = nil
+        stopLock.unlock()
         traffic?.stop() // flushes the last delta
         liveStats?.stop()
-        liveStats = nil
         network?.stop()
-        network = nil
         memoryGuard?.stop()
         LibmihomoStop()
         LibmihomoDumpDiagnostics()
-        bridge?.stop()
-        bridge = nil
+        takeBridge()?.stop()
         completionHandler()
+    }
+
+    /// The bridge, read under stopLock (written by the start path on another queue).
+    private var currentBridge: PacketFlowBridge? {
+        stopLock.lock(); defer { stopLock.unlock() }
+        return bridge
+    }
+
+    /// Removes and returns the bridge exactly once (start-failure path and stopTunnel can both get here).
+    private func takeBridge() -> PacketFlowBridge? {
+        stopLock.lock(); defer { stopLock.unlock() }
+        let b = bridge
+        bridge = nil
+        return b
+    }
+
+    /// The traffic recorder, read under stopLock (handleAppMessage / sleep run on the NE queue).
+    private var currentTraffic: TrafficRecorder? {
+        stopLock.lock(); defer { stopLock.unlock() }
+        return traffic
     }
 
     override func handleAppMessage(_ messageData: Data, completionHandler: ((Data?) -> Void)?) {
@@ -227,12 +263,14 @@ final class PacketTunnelProvider: NEPacketTunnelProvider {
             // the extension. The completionHandler may be called asynchronously.
             // Read `network` here, on the provider's queue: stopTunnel clears it there too (v0.19.1, was read
             // from the background queue while stopTunnel could be writing it).
-            let nw = network
+            stopLock.lock(); let nw = network; stopLock.unlock()
             DispatchQueue.global(qos: .userInitiated).async {
                 var err: NSError?
                 LibmihomoReload(profile.path, &err)
                 nw?.refreshSettings() // settings saved by the app before it asked for the reload
-                completionHandler?((err?.localizedDescription ?? "").data(using: .utf8))
+                // Review 6 R6A-3: success is a non-empty "ok" (an empty reply can reach the app as nil, which the app
+                // now reads as a timeout).
+                completionHandler?(Data((err?.localizedDescription ?? TunnelMessage.reloadOK).utf8))
             }
         case .directIP:
             // Sockets opened by the provider itself are not routed through its own tunnel,
@@ -247,7 +285,7 @@ final class PacketTunnelProvider: NEPacketTunnelProvider {
         case .version:
             completionHandler?(LibmihomoVersion().data(using: .utf8))
         case .flushStats:
-            traffic?.sampleNow()
+            currentTraffic?.sampleNow()
             LibmihomoFlushRuleHits()
             completionHandler?(nil)
         case .dumpDiagnostics:
@@ -265,7 +303,7 @@ final class PacketTunnelProvider: NEPacketTunnelProvider {
     }
 
     override func sleep(completionHandler: @escaping () -> Void) {
-        traffic?.sample()
+        currentTraffic?.sample()
         LibmihomoFlushRuleHits()
         LibmihomoFreeMemory()
         completionHandler()
@@ -318,6 +356,8 @@ final class MemoryGuard {
     private var lastFree = Date.distantPast
     private var lastPressureLog = Date.distantPast
     private var armed = true
+    /// Review 6 R6A-2: set on `queue` by stop(); a tick already running must not schedule a new timer.
+    private var stopped = false
 
     private let freeAtBytes: UInt64 = 40 << 20
     private let pressureFreeAtBytes: UInt64 = 44 << 20
@@ -326,21 +366,29 @@ final class MemoryGuard {
     private let shedAvailableBelow = 3 << 20
 
     func start() {
-        let p = DispatchSource.makeMemoryPressureSource(eventMask: [.warning, .critical], queue: queue)
-        p.setEventHandler { [weak self] in
-            guard let self, let ev = self.pressure?.data else { return }
-            self.onPressure(critical: ev.contains(.critical))
+        queue.async { [self] in
+            guard !stopped else { return }
+            let p = DispatchSource.makeMemoryPressureSource(eventMask: [.warning, .critical], queue: queue)
+            p.setEventHandler { [weak self] in
+                guard let self, !self.stopped, let ev = self.pressure?.data else { return }
+                self.onPressure(critical: ev.contains(.critical))
+            }
+            p.resume()
+            pressure = p
+            schedule(10)
         }
-        p.resume()
-        pressure = p
-        schedule(10)
     }
 
+    /// Review 6 R6A-2: runs on the guard's own queue (timer / pressure source are only touched there), so a tick
+    /// in flight can no longer re-create the timer after the tunnel stopped.
     func stop() {
-        timer?.cancel()
-        timer = nil
-        pressure?.cancel()
-        pressure = nil
+        queue.sync {
+            stopped = true
+            timer?.cancel()
+            timer = nil
+            pressure?.cancel()
+            pressure = nil
+        }
     }
 
     private func onPressure(critical: Bool) {
@@ -353,6 +401,7 @@ final class MemoryGuard {
     }
 
     private func schedule(_ seconds: Int) {
+        guard !stopped else { return }
         interval = seconds
         timer?.cancel()
         let t = DispatchSource.makeTimerSource(queue: queue)
@@ -363,6 +412,7 @@ final class MemoryGuard {
     }
 
     private func tick() {
+        guard !stopped else { return }
         let fp = ProcessMemory.footprintBytes()
         let avail = ProcessMemory.availableBytes()
         LibmihomoRecordMemorySample(Int64(fp), Int64(avail))

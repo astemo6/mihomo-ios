@@ -509,3 +509,18 @@ final class Review5CoreExtTests: XCTestCase {
         XCTAssertTrue(sub.contains("host=sub.example.com"))
     }
 }
+
+// Review 6 lane 4: app ↔ tunnel reload reply.
+final class Review6AppTests: XCTestCase {
+    func testReloadResult() {
+        // Applied: the extension's "ok" (and an empty reply from an older extension).
+        XCTAssertNil(VPNManager.reloadResult(Data(TunnelMessage.reloadOK.utf8), stillConnected: true))
+        XCTAssertNil(VPNManager.reloadResult(Data(), stillConnected: true))
+        // Core error text is passed through.
+        XCTAssertEqual(VPNManager.reloadResult(Data("yaml: line 3".utf8), stillConnected: true), "yaml: line 3")
+        // No reply while still connected = timeout (used to count as success).
+        XCTAssertNotNil(VPNManager.reloadResult(nil, stillConnected: true))
+        // No reply because the tunnel went down: nothing to report.
+        XCTAssertNil(VPNManager.reloadResult(nil, stillConnected: false))
+    }
+}

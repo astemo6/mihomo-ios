@@ -49,6 +49,9 @@ final class NetworkWatcher {
         return o["flushDNSOnNetworkChange"] as? Bool ?? true
     }
 
+    /// Review 6 R6A-2: set on `queue` by stop(); late path updates / SSID answers / debounced work do nothing.
+    private var stopped = false
+
     func start() {
         refreshSettings()
         monitor.pathUpdateHandler = { [weak self] path in self?.update(path) }
@@ -57,10 +60,16 @@ final class NetworkWatcher {
 
     func stop() {
         monitor.cancel()
-        pending?.cancel()
+        // On the watcher's queue: `pending` / `stopped` are only touched there (stop runs on the NE queue).
+        queue.sync {
+            stopped = true
+            pending?.cancel()
+            pending = nil
+        }
     }
 
     private func update(_ path: Network.NWPath) {
+        guard !stopped else { return }
         seq += 1
         let mySeq = seq
         guard path.status == .satisfied else { return }
@@ -80,7 +89,7 @@ final class NetworkWatcher {
         NEHotspotNetwork.fetchCurrent { [weak self] net in
             let ssid = net?.ssid, bssid = net?.bssid
             self?.queue.async {
-                guard let self, self.seq == mySeq else { return } // superseded by a newer path update
+                guard let self, !self.stopped, self.seq == mySeq else { return } // superseded / stopped
                 self.handle(type: type, ssid: ssid, bssid: bssid, iface: name, expensive: expensive, constrained: constrained)
             }
         }
@@ -107,7 +116,8 @@ final class NetworkWatcher {
         guard prev != json else { return }
         // Debounce flapping (Wi-Fi handover reports several paths in a row).
         pending?.cancel()
-        let work = DispatchWorkItem {
+        let work = DispatchWorkItem { [weak self] in
+            guard let self, !self.stopped else { return }
             // v0.19 网络变化时清空 DNS 缓存 (更多 → 内核设置, on by default).
             if self.flushDNS {
                 LibmihomoFlushDNSCache()
