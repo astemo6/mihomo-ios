@@ -235,7 +235,7 @@ func NodeTestDelay(homeDir, profilePath, name, url string, timeoutMs int) int {
 // built the whole runtime (profile parse, manual merge, node subscriptions, group edits, sub rules) again —
 // N full config builds for N nodes in the memory-capped app process. One build is now shared for 30 s as
 // long as the inputs (profile, overrides, manual nodes, node subscription list, subscription rules,
-// group chains, group edits) are unchanged; concurrent
+// group chains, group edits, DNS override, local DNS, custom rules) are unchanged; concurrent
 // callers wait for the one build instead of each starting their own. The map is only read afterwards.
 var rtCache struct {
 	sync.Mutex
@@ -258,6 +258,10 @@ func runtimeCacheKey(homeDir, profilePath string) string {
 		filepath.Join(homeDir, "groups.json"),
 		// buildRuntimeWith applies 策略组编辑 (group-edits.json) too
 		groupEditsPath(homeDir),
+		// readOverrides loads the DNS settings page files; applyCustomRules reads rules.json
+		filepath.Join(homeDir, "dns.json"),
+		filepath.Join(homeDir, "localdns.json"),
+		filepath.Join(homeDir, "rules.json"),
 	} {
 		if fi, err := os.Stat(p); err == nil {
 			parts = append(parts, fmt.Sprintf("%d.%d", fi.Size(), fi.ModTime().UnixNano()))
