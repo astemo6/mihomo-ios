@@ -18,7 +18,7 @@ func TestV0197RuntimeCacheKeyCoversInputs(t *testing.T) {
 	if err := os.WriteFile(profile, []byte("proxies: []\n"), 0o644); err != nil {
 		t.Fatal(err)
 	}
-	for _, f := range []string{"overrides.json", "subscriptions.json", "groups.json", "group-edits.json", "node-subscriptions.json"} {
+	for _, f := range []string{"overrides.json", "subscriptions.json", "groups.json", "group-edits.json", "node-subscriptions.json", "dns.json", "localdns.json", "rules.json"} {
 		before := runtimeCacheKey(home, profile)
 		if err := os.WriteFile(filepath.Join(home, f), []byte("{}"), 0o644); err != nil {
 			t.Fatal(err)
