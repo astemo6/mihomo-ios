@@ -765,8 +765,14 @@ struct AppIconView: View {
         ("AppIcon-Night", "夜航", "IconPreview-Night"),
         ("AppIcon-Sky", "晴空", "IconPreview-Sky"),
     ]
-    @State private var current = UIApplication.shared.alternateIconName
+    /// A name that is not in `icons` is a leftover from an icon set an older build shipped (石墨 / 极光 before the
+    /// Tern icons); iOS then draws the primary icon, so the picker shows 默认 as selected.
+    @State private var current = AppIconView.known(UIApplication.shared.alternateIconName)
     @State private var error: String?
+
+    static func known(_ name: String?) -> String? {
+        icons.contains { $0.name == name } ? name : nil
+    }
 
     var body: some View {
         List {
@@ -797,10 +803,32 @@ struct AppIconView: View {
     }
 
     func set(_ name: String?) {
-        guard name != current else { return }
+        guard name != current || UIApplication.shared.alternateIconName != name else { return }
+        let stale = UIApplication.shared.alternateIconName.map { Self.known($0) == nil } ?? false
+        apply(name, resetFirst: stale)
+    }
+
+    /// The system keeps the alternate icon name across updates even when the new build no longer has that icon
+    /// (v0.19.13: 石墨 / 极光 were replaced by 夜航 / 晴空). If the stored name is stale, or the first attempt fails,
+    /// go back to the primary icon once and then retry, so the request is not made on top of a missing icon.
+    private func apply(_ name: String?, resetFirst: Bool, retried: Bool = false) {
+        if resetFirst && name != nil {
+            UIApplication.shared.setAlternateIconName(nil) { _ in
+                DispatchQueue.main.async { apply(name, resetFirst: false, retried: true) }
+            }
+            return
+        }
         UIApplication.shared.setAlternateIconName(name) { err in
             DispatchQueue.main.async {
-                if let err { error = err.localizedDescription } else { current = name; error = nil }
+                if let err {
+                    if !retried && name != nil {
+                        apply(name, resetFirst: true)
+                        return
+                    }
+                    let ns = err as NSError
+                    error = "\(ns.localizedDescription) (\(ns.domain) \(ns.code))"
+                    current = Self.known(UIApplication.shared.alternateIconName)
+                } else { current = name; error = nil }
             }
         }
     }
