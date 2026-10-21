@@ -221,13 +221,16 @@ final class MihomoUITests: MihomoUITestCase {
         // Existence only: a List section header is not always hittable, so scrollTo() cannot be used here.
         let cred = app.element(label: L("凭据"))
         let masked = app.element(labelContains: "••••••")
+        // #68: credential rows carry their own accessibility label (no dots) and the en header reads CREDENTIALS,
+        // so also accept any node.cred.label.<key> row.
+        let credRow = app.descendants(matching: .any).matching(NSPredicate(format: "identifier BEGINSWITH %@", "node.cred.label.")).firstMatch
         _ = app.element(label: L("基本")).waitForExistence(timeout: 10)
         usleep(1_000_000)
-        for _ in 0..<8 where !(cred.exists || masked.exists) {
+        for _ in 0..<8 where !(cred.exists || masked.exists || credRow.exists) {
             app.swipeUp(velocity: .slow)
             usleep(400_000)
         }
-        XCTAssertTrue(cred.exists || masked.exists, "credentials section")
+        XCTAssertTrue(cred.exists || masked.exists || credRow.exists, "credentials section")
         let tree = app.debugDescription
         for secret in ["uitest-secret", "00000000-0000-4000-8000", "AAAAAAAAAAAAAAAA"] {
             XCTAssertFalse(tree.contains(secret), "secret visible in node detail: \(secret)")
