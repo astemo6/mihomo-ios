@@ -344,3 +344,41 @@ func TestR7StopCancelsTaskScripts(t *testing.T) {
 		t.Fatalf("run after stop: %v", err)
 	}
 }
+
+// P3-8: Status (/mitm/status) while the engine stops and starts — must be race-free (run with -race).
+func TestR7StatusVsStopNoRace(t *testing.T) {
+	e := New(t.TempDir(), nil, nil)
+	if err := e.Start(); err != nil {
+		t.Fatal(err)
+	}
+	stop := make(chan struct{})
+	var wg sync.WaitGroup
+	wg.Add(1)
+	go func() {
+		defer wg.Done()
+		for {
+			select {
+			case <-stop:
+				return
+			default:
+				st := e.Status()
+				if st.Running != (st.Port != 0) {
+					t.Errorf("inconsistent status %+v", st)
+					return
+				}
+			}
+		}
+	}()
+	for i := 0; i < 20; i++ {
+		e.Stop()
+		if err := e.Start(); err != nil {
+			t.Fatal(err)
+		}
+	}
+	close(stop)
+	wg.Wait()
+	e.Stop()
+	if e.Status().Running || e.Port() != 0 {
+		t.Fatal("still running after Stop")
+	}
+}

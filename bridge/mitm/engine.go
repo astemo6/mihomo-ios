@@ -49,6 +49,9 @@ type Engine struct {
 
 	ln   net.Listener
 	port int
+	// livePort mirrors port for readers outside Start/Stop (r7 P3-8: /mitm/status read ln/port unlocked
+	// while Stop wrote them — a data race under -race). 0 = not running.
+	livePort atomic.Int32
 
 	st atomic.Pointer[state]
 
@@ -114,7 +117,7 @@ func New(home string, dial DialFunc, logf Logger) *Engine {
 func (e *Engine) SetNotifier(n Notifier) { e.notify.Store(&n) }
 
 // Port returns the listening port (0 when not started).
-func (e *Engine) Port() int { return e.port }
+func (e *Engine) Port() int { return int(e.livePort.Load()) }
 
 // Start opens the listener on 127.0.0.1:0 (idempotent).
 func (e *Engine) Start() error {
@@ -127,6 +130,7 @@ func (e *Engine) Start() error {
 	}
 	e.ln = ln
 	e.port = ln.Addr().(*net.TCPAddr).Port
+	e.livePort.Store(int32(e.port))
 	e.tlsCh = make(chan net.Conn, 16)
 	e.srv = &http.Server{
 		Handler:           http.HandlerFunc(e.serveHTTP),
@@ -171,6 +175,7 @@ func (e *Engine) Stop() {
 	e.tmu.Unlock()
 	e.ln = nil
 	e.port = 0
+	e.livePort.Store(0)
 	e.closing.Store(false)
 	e.scripts.Reset()
 }
