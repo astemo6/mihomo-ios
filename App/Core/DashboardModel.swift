@@ -154,6 +154,8 @@ final class DashboardModel: ObservableObject {
         tasks.forEach { $0.cancel() }
         tasks.removeAll()
         up = 0; down = 0; connectionCount = 0; memory = 0
+        // Totals stay on screen after a disconnect (as before); speeds are 0 in either scope.
+        if var t = lastTraffic { t.up = 0; t.down = 0; t.proxyUp = 0; t.proxyDown = 0; lastTraffic = t }
         homeGroups = []
         availableGroups = []
         if !VPNManager.shared.isConnected { ConnectionAnalytics.shared.reset() }
