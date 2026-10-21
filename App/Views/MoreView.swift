@@ -5,10 +5,13 @@ import Libmihomo
 
 struct MoreView: View {
     @EnvironmentObject var vpn: VPNManager
-    @ObservedObject private var dash = DashboardModel.shared
     @EnvironmentObject var store: ProfileStore
     @State private var showOnboarding = false
     @AppStorage(LaunchTab.key) private var launchRaw = 0
+    /// fix/nav-jank: the 首页流量统计 row reads the stored setting instead of observing DashboardModel, which
+    /// publishes every second and rebuilt this list and every pushed page (LazyDestination closures are never
+    /// equal) during push / pop.
+    @AppStorage(TrafficScope.key, store: AppShared.defaults) private var scopeRaw = TrafficScope.all.rawValue
 
     /// Every node 节点与订阅 lists (全部节点); nil before the list loaded. (Kept for callers; feat/surge-ui
     /// no longer shows the count on the 更多 row.)
@@ -93,7 +96,7 @@ struct MoreView: View {
                         MoreRow(id: "开始标签页", title: "开始标签页", symbol: "rectangle.stack", tone: .green, value: (AppSection(rawValue: launchRaw) ?? .home).title)
                     }
                     NavigationLink { LazyDestination { TrafficScopeView() } } label: {
-                        MoreRow(id: "首页流量统计", title: "首页流量统计", symbol: "arrow.up.arrow.down", tone: .teal, value: dash.scope.title)
+                        MoreRow(id: "首页流量统计", title: "首页流量统计", symbol: "arrow.up.arrow.down", tone: .teal, value: (TrafficScope(rawValue: scopeRaw) ?? .all).title)
                     }
                 }
                 .listRowBackground(Theme.card)
@@ -160,13 +163,29 @@ struct MoreRow: View {
 /// this page keeps what changes how the tunnel itself works.
 struct AdvancedSettingsView: View {
     @ObservedObject var engine = EngineStore.shared
-    @State private var connLabel = ""
-    @State private var dnsLabel = ""
+    // fix/nav-jank: the values are there on the first frame. They used to be filled in onAppear, so 连接方式 /
+    // DNS got their trailing text mid-push and the rows re-laid out while sliding in.
+    @State private var connLabel: String
+    @State private var dnsLabel: String
 
-    func refreshLabels() {
+    init() {
+        let l = Self.labels()
+        _connLabel = State(initialValue: l.conn)
+        _dnsLabel = State(initialValue: l.dns)
+    }
+
+    static func labels() -> (conn: String, dns: String) {
         let o = CoreOverrides.load()
-        connLabel = o.isProxyOnly ? String(localized: "仅代理") : o.isMixed ? String(localized: "VPN 混合") : "TUN"
-        dnsLabel = DNSOverrideSettings.load().enabled ? String(localized: "自定义") : String(localized: "配置文件")
+        let conn = o.isProxyOnly ? String(localized: "仅代理") : o.isMixed ? String(localized: "VPN 混合") : "TUN"
+        let dns = DNSOverrideSettings.load().enabled ? String(localized: "自定义") : String(localized: "配置文件")
+        return (conn, dns)
+    }
+
+    /// Back from 连接方式 / DNS: only a changed value is written (no update when nothing changed).
+    func refreshLabels() {
+        let l = Self.labels()
+        if connLabel != l.conn { connLabel = l.conn }
+        if dnsLabel != l.dns { dnsLabel = l.dns }
     }
 
     var body: some View {
@@ -648,7 +667,11 @@ struct DiagnosticsView: View {
         .scrollContentBackground(.hidden)
         .background(Theme.bg.ignoresSafeArea())
         .navigationTitle("诊断")
-        .onAppear { startupLog = StartupLog.read() }
+        // fix/nav-jank: init already read it for the first frame; the re-read (two files) runs off main.
+        .task {
+            let s = await Task.detached(priority: .utility) { StartupLog.read() }.value
+            if s != startupLog { startupLog = s }
+        }
         .sheet(item: $share) { ActivityView(items: [$0.url]) }
     }
 
