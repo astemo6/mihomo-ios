@@ -220,17 +220,49 @@ final class ProfileInspector: ObservableObject {
         result.selected[group] = node // v0.19.8: also the synthesized GLOBAL
     }
 
+    /// hotfix/group-test-offline: the groups (GLOBAL included) as a graph, for expanding groups of groups to nodes.
+    var graph: GroupGraph {
+        var gs: [String: GroupGraph.Group] = [:]
+        for g in result.groups { gs[g.name] = GroupGraph.Group(type: g.type, members: members(of: g), now: current(of: g)) }
+        let global = globalGroup
+        gs["GLOBAL"] = GroupGraph.Group(type: global.type, members: members(of: global), now: current(of: global))
+        let index = nodeIndex
+        return GroupGraph(groups: gs, isTestable: { index[$0] != nil && !GroupGraph.builtins.contains($0) })
+    }
+
+    /// The delay a card shows for `name`: a node's own measurement, or for a group the measurement of the node it
+    /// resolves to (GroupGraph.resolve). nil = not measured.
+    func displayDelay(_ name: String, graph: GroupGraph) -> Int? {
+        if graph.groups[name] != nil { return graph.resolve(name, delays: delays)?.delay }
+        return delays[name]
+    }
+
+    /// Shown once when a test had nothing to dial (e.g. a group of only DIRECT / REJECT); cleared by the page.
+    @Published var notice: String?
+
     /// Delay test without the tunnel (direct from the app), group members in parallel (6 at a time).
-    func test(group g: InspectGroup) async {
-        guard let path = profilePath, !testing.contains(g.name) else { return } // v0.19.3: no parallel duplicate
-        testing.insert(g.name)
-        defer { testing.remove(g.name) }
+    func test(group g: InspectGroup) async { await test(groups: [g]) }
+
+    /// hotfix/group-test-offline: tests the real nodes behind the given groups — member groups are expanded to the
+    /// nodes they reach (provider / filter members included, each node once), so a group made only of groups
+    /// (节点选择 → 自动选择 / 日本 …) is measured too. Every group shows its spinner for the whole run; 全部测速 passes
+    /// all groups at once so a node shared by several groups is dialled once.
+    func test(groups gs: [InspectGroup]) async {
+        guard let path = profilePath else { return }
+        let fresh = gs.map(\.name).filter { !testing.contains($0) } // v0.19.3: no parallel duplicate
+        guard !fresh.isEmpty else { return }
+        testing.formUnion(fresh)
+        defer { testing.subtract(fresh) }
         let home = AppShared.homeURL.path
         // The 测速 setting, not the group's own URL: manual tests use one URL everywhere (live too).
         let st = ControllerClient.testSettings
         let url = st.url
         let timeout = st.timeoutMs
-        let names = members(of: g).filter { nodeIndex[$0] != nil && !["DIRECT", "REJECT"].contains($0) }
+        let names = graph.leaves(of: fresh)
+        guard !names.isEmpty else {
+            notice = fresh.count == 1 ? String(localized: "「\(fresh[0])」里没有可测速的节点") : String(localized: "没有可测速的节点")
+            return
+        }
         // v0.15.2: bind the test sockets to Wi-Fi / cellular so another app's VPN (QX, Surge …) that is up
         // while ours is off does not carry the test through its own node too. The core falls back to
         // normal routing when the bind fails.
