@@ -55,10 +55,11 @@ extension MihomoUITests {
         let a = app.element(labelContains: "first.uitest.example")
         let b = app.element(labelContains: "second.uitest.example")
         XCTAssertTrue(a.waitForExistence(timeout: 6) && b.waitForExistence(timeout: 6), "two rules")
-        XCTAssertTrue(isBefore(a, b), "added in order")
+        // A new custom rule is inserted at the top (ResourceStore.addRule → index 0): the newest is first.
+        XCTAssertTrue(isBefore(b, a), "newest rule listed first")
         // No edit mode on this list: iOS 16+ reorders a List with onMove by long-press drag on the row.
-        let moved = dragRow(b, above: a, dx: app.windows.firstMatch.frame.width * 0.5, press: 1.2)
-        XCTAssertTrue(moved, "second rule dragged above the first")
+        let moved = dragRow(a, above: b, dx: app.windows.firstMatch.frame.width * 0.5, press: 1.2)
+        XCTAssertTrue(moved, "first rule dragged above the second")
         snap("rules-dragged")
         // Leave and come back: the new order is read from rules.json.
         back()
@@ -69,7 +70,7 @@ extension MihomoUITests {
         let a2 = app.element(labelContains: "first.uitest.example")
         let b2 = app.element(labelContains: "second.uitest.example")
         XCTAssertTrue(a2.waitForExistence(timeout: 6) && b2.waitForExistence(timeout: 6))
-        XCTAssertTrue(isBefore(b2, a2), "order kept after reopening")
+        XCTAssertTrue(isBefore(a2, b2), "order kept after reopening")
         assertAlive("rules drag")
     }
 
@@ -129,7 +130,8 @@ extension MihomoUITests {
         name.tap()
         name.typeText("R7 Added")
         snap("nodesub-add")
-        let addBtn = app.navigationBars.buttons[L("添加")]
+        // The list page behind the sheet has its own 添加 bar button: take the sheet's.
+        let addBtn = app.navigationBars[L("添加节点订阅")].buttons[L("添加")].firstMatch
         XCTAssertTrue(addBtn.waitHittable(), "添加 enabled")
         addBtn.tap()
         let row = app.element(id: "nodesub.row.R7 Added")
@@ -145,7 +147,7 @@ extension MihomoUITests {
         XCTAssertEqual(urlField.value as? String, "https://nodes.uitest.invalid/sub?token=r7", "editor loads the URL")
         let name2 = field(L("名称（留空自动获取）"), index: 1)
         replaceText(name2, "R7 Edited")
-        let save = app.navigationBars.buttons[L("保存")]
+        let save = app.navigationBars[L("编辑节点订阅")].buttons[L("保存")].firstMatch
         XCTAssertTrue(save.waitHittable(), "保存 enabled")
         save.tap()
         let renamed = app.element(id: "nodesub.row.R7 Edited")
