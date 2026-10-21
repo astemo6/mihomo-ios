@@ -706,15 +706,17 @@ struct PolicyGroupCard: View {
     static let nonShareable: Set<String> = ["group", "selector", "urltest", "url-test", "fallback", "loadbalance", "load-balance", "relay",
                                             "direct", "reject", "rejectdrop", "reject-drop", "compatible", "pass", "dns"]
 
+    /// Long-press menu of the card header. 编辑策略组 is always offered (live or from the profile file, any mode).
+    @ViewBuilder private var headerMenu: some View {
+        if let onEdit { Button { onEdit() } label: { Label("编辑策略组", systemImage: "slider.horizontal.3") } }
+        if let onIcon { Button { onIcon() } label: { Label("更换图标", systemImage: "photo") } }
+        if let onTop { Button { onTop() } label: { Label("置顶", systemImage: "arrow.up.to.line") } }
+    }
+
     var body: some View {
         VStack(alignment: .leading, spacing: 12) {
             HStack(spacing: 10) {
                 GroupIconView(group: group.name, profileIcon: group.profileIcon, fallback: group.icon, size: 34)
-                    .contextMenu {
-                        if let onEdit { Button { onEdit() } label: { Label("编辑策略组", systemImage: "slider.horizontal.3") } }
-                        if let onIcon { Button { onIcon() } label: { Label("更换图标", systemImage: "photo") } }
-                        if let onTop { Button { onTop() } label: { Label("置顶", systemImage: "arrow.up.to.line") } }
-                    }
                     .accessibilityIdentifier("policy.icon." + group.name)
                 VStack(alignment: .leading, spacing: 2) {
                     HStack(spacing: 6) {
@@ -776,6 +778,11 @@ struct PolicyGroupCard: View {
             }
             .contentShape(Rectangle())
             .onTapGesture { withAnimation(.spring(response: 0.3)) { expanded.toggle() } }
+            // hotfix/group-longpress (device 2026-10-21 「长按策略组无法编辑」): the menu sat on the 34 pt icon only,
+            // while the header's .onDrag (direct reorder) owned a long-press anywhere else, so it lifted the card
+            // and showed nothing. The menu now covers the whole header; the drag still starts by moving the
+            // finger out of the lifted menu preview (UIKit hands a context-menu lift over to the drag session).
+            .contextMenu { headerMenu }
             .modifier(OptionalDrag(provider: onDrag))
 
             if expanded {
