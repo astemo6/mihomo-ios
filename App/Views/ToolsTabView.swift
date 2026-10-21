@@ -236,23 +236,19 @@ struct ToolCard: View {
 
     var body: some View {
         let off = needsVPN && !vpn.isConnected
-        HStack(spacing: 14) {
-            Image(systemName: symbol)
-                .font(.system(size: 20, weight: .semibold))
-                .foregroundStyle(.white)
-                .frame(width: 44, height: 44)
-                .background(RoundedRectangle(cornerRadius: 11, style: .continuous).fill((off ? Theme.neutral : tone.color).gradient))
-                .accessibilityHidden(true)
-            VStack(alignment: .leading, spacing: 5) {
-                Text(LocalizedStringKey(title)).font(.headline).foregroundStyle(off ? Color.secondary : Color.primary)
+        // feat/egern-style: Egern's compact tool card — 30 pt solid tile, 15 pt title, a line of tiny icon + count stats.
+        HStack(spacing: 12) {
+            IconTile(symbol: symbol, tone: tone, dimmed: off, size: 30)
+            VStack(alignment: .leading, spacing: 3) {
+                Text(LocalizedStringKey(title)).font(.subheadline).foregroundStyle(off ? Color.secondary : Color.primary)
                 if off {
-                    Text("需开启 VPN").font(.footnote).foregroundStyle(.secondary)
+                    Text("需开启 VPN").font(.caption2).foregroundStyle(.secondary)
                 } else if !stats.isEmpty {
-                    HStack(spacing: 12) {
+                    HStack(spacing: 10) {
                         ForEach(stats, id: \.self) { s in
-                            HStack(spacing: 4) {
-                                Image(systemName: s.symbol).font(.caption)
-                                Text(verbatim: s.value).font(.subheadline.monospacedDigit()).lineLimit(1)
+                            HStack(spacing: 3) {
+                                Image(systemName: s.symbol).font(.system(size: 9, weight: .medium))
+                                Text(verbatim: s.value).font(.caption2.monospacedDigit()).lineLimit(1)
                             }
                             .foregroundStyle(s.tint ?? Color.secondary)
                             .accessibilityElement(children: .ignore)
@@ -261,12 +257,12 @@ struct ToolCard: View {
                     }
                     .minimumScaleFactor(0.8)
                 } else if let caption {
-                    Text(LocalizedStringKey(caption)).font(.footnote).foregroundStyle(.secondary).lineLimit(1)
+                    Text(LocalizedStringKey(caption)).font(.caption2).foregroundStyle(.secondary).lineLimit(1)
                 }
             }
             Spacer(minLength: 4)
         }
-        .padding(.vertical, 8)
+        .padding(.vertical, 2)
         .accessibilityElement(children: .combine)
         .accessibilityIdentifier("more." + id)
     }
@@ -275,6 +271,6 @@ struct ToolCard: View {
 extension View {
     /// Egern-like gap between the one-card sections (iOS 17+; iOS 16 keeps the default spacing).
     @ViewBuilder func compactSectionSpacing() -> some View {
-        if #available(iOS 17.0, *) { self.listSectionSpacing(14) } else { self }
+        if #available(iOS 17.0, *) { self.listSectionSpacing(10) } else { self }
     }
 }

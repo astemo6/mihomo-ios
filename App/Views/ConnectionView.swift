@@ -302,9 +302,10 @@ struct ConnectionView: View {
 
     var resetSection: some View {
         Section {
-            Button(role: .destructive) { confirmReset = true } label: {
+            // feat/egern-style: a plain blue action row like Egern's 重置 VPN 配置 (the dialog still confirms).
+            Button { confirmReset = true } label: {
                 HStack {
-                    Label("重置 VPN 配置", systemImage: "arrow.counterclockwise.circle")
+                    Text("重置 VPN 配置").foregroundStyle(Theme.accent)
                     Spacer()
                     if resetting { ProgressView().controlSize(.small) }
                 }
