@@ -188,10 +188,10 @@ struct HomeSectionLabel: View {
 
     var body: some View {
         let row = HStack(spacing: 6) {
-            Text(verbatim: title).font(.footnote.weight(.semibold)).foregroundStyle(.secondary).lineLimit(1)
+            Text(verbatim: title).font(.caption).foregroundStyle(.secondary).lineLimit(1)
             Spacer(minLength: 6)
             if let summary {
-                Text(verbatim: summary).font(.caption.monospacedDigit()).foregroundStyle(.secondary).lineLimit(1)
+                Text(verbatim: summary).font(.caption2.monospacedDigit()).foregroundStyle(.secondary).lineLimit(1)
             }
             if let collapsed {
                 Image(systemName: "chevron.down")
@@ -200,8 +200,9 @@ struct HomeSectionLabel: View {
                     .accessibilityHidden(true)
             }
         }
-        .padding(.horizontal, 4)
-        .padding(.bottom, -6)
+        .padding(.horizontal, 6)
+        .padding(.top, 4)
+        .padding(.bottom, -4)
         .contentShape(Rectangle())
         if let toggle {
             Button(action: toggle) { row }
@@ -217,11 +218,10 @@ struct HomeSectionLabel: View {
 private struct AnalysisCardBox<Content: View>: View {
     @ViewBuilder var content: Content
     var body: some View {
-        VStack(alignment: .leading, spacing: 12) { content }
-            .padding(16)
+        VStack(alignment: .leading, spacing: 10) { content }
+            .padding(12)
             .frame(maxWidth: .infinity, alignment: .leading)
-            .background(RoundedRectangle(cornerRadius: 18, style: .continuous).fill(Theme.card))
-            .overlay(RoundedRectangle(cornerRadius: 18, style: .continuous).stroke(Theme.ink(0.06)))
+            .background(RoundedRectangle(cornerRadius: Theme.radius, style: .continuous).fill(Theme.card))
     }
 }
 
@@ -260,7 +260,7 @@ struct HomeConnectionTiles: View {
         let live = vpn.isConnected || HomeAnalysisModel.demo
         if live && !HomeAnalysisCard.set(hiddenRaw).contains(.connections) {
             NavigationLink { LazyDestination { AnalyticsView() } } label: {
-                HStack(spacing: 12) {
+                HStack(spacing: 10) {
                     StatTile(icon: "point.3.connected.trianglepath.dotted", color: Theme.accent, title: "全部连接", value: "\(snap.total)")
                     StatTile(icon: "bolt.horizontal.fill", color: Theme.good, title: "活跃连接", value: "\(snap.active)")
                 }
@@ -290,7 +290,7 @@ struct HomeAnalysisSection: View {
         let collapsed = HomeAnalysisCard.set(collapsedRaw)
         let live = vpn.isConnected || HomeAnalysisModel.demo
         if !shown.isEmpty {
-            VStack(spacing: 14) {
+            VStack(spacing: 10) {
                 if live {
                     ForEach(shown) { c in
                         Group {
@@ -330,7 +330,7 @@ struct HomePolicyShareCard: View {
     var body: some View {
         let total = max(snap.total, 1)
         let parts = Self.parts(snap)
-        VStack(spacing: 14) {
+        VStack(spacing: 10) {
             HomeSectionLabel(title: HomeAnalysisCard.policies.title, summary: snap.total > 0 ? Fmt.bytes(snap.total) : nil,
                              collapsed: collapsed, id: "home.analysis.header.policies", toggle: toggle)
             if !collapsed {
@@ -347,13 +347,13 @@ struct HomePolicyShareCard: View {
                             }
                             .clipShape(RoundedRectangle(cornerRadius: 6, style: .continuous))
                         }
-                        .frame(height: 14)
+                        .frame(height: 10)
                         .accessibilityHidden(true)
-                        VStack(spacing: 8) {
+                        VStack(spacing: 6) {
                             ForEach(Array(parts.enumerated()), id: \.offset) { _, p in
                                 HStack(spacing: 8) {
-                                    Circle().fill(p.2).frame(width: 8, height: 8).accessibilityHidden(true)
-                                    Text(verbatim: p.0).font(.subheadline).lineLimit(1)
+                                    Circle().fill(p.2).frame(width: 7, height: 7).accessibilityHidden(true)
+                                    Text(verbatim: p.0).font(.footnote).lineLimit(1)
                                     Spacer()
                                     Text(verbatim: Fmt.bytes(p.1)).font(.caption.monospacedDigit())
                                     Text(Double(p.1) / Double(total), format: .percent.precision(.fractionLength(0)))
@@ -390,7 +390,7 @@ struct HomeRuleHitsCard: View {
 
     var body: some View {
         let maxHits = max(snap.top.first?.hits ?? 1, 1)
-        VStack(spacing: 14) {
+        VStack(spacing: 10) {
             HomeSectionLabel(title: HomeAnalysisCard.rules.title, summary: snap.count > 0 ? String(localized: "\(snap.count) 条规则") : nil,
                              collapsed: collapsed, id: "home.analysis.header.rules", toggle: toggle)
             if !collapsed {
@@ -400,7 +400,7 @@ struct HomeRuleHitsCard: View {
                     } else {
                         // Egern: one small card per rule, scrolling sideways.
                         ScrollView(.horizontal, showsIndicators: false) {
-                            HStack(spacing: 10) {
+                            HStack(spacing: 8) {
                                 ForEach(snap.top) { r in ring(r, maxHits: maxHits) }
                                 if snap.count > snap.top.count {
                                     NavigationLink { LazyDestination { RuleHitsList() } } label: {
@@ -408,9 +408,9 @@ struct HomeRuleHitsCard: View {
                                             Image(systemName: "chevron.right.circle").font(.title3).foregroundStyle(Theme.accent)
                                             Text("查看全部").font(.caption)
                                         }
-                                        .frame(width: 80)
+                                        .frame(width: 72)
                                         .frame(maxHeight: .infinity)
-                                        .background(RoundedRectangle(cornerRadius: 16, style: .continuous).fill(Theme.card))
+                                        .background(RoundedRectangle(cornerRadius: Theme.radius, style: .continuous).fill(Theme.card))
                                     }
                                     .buttonStyle(.plain)
                                 }
@@ -425,27 +425,41 @@ struct HomeRuleHitsCard: View {
         .onReceive(HomeAnalysisModel.shared.$rules.removeDuplicates()) { if $0 != snap { snap = $0 } }
     }
 
+    /// 「DomainKeyword(example)」 → (DOMAIN-KEYWORD, example); a rule without a payload keeps its name.
+    static func split(_ rule: String) -> (type: String, payload: String?) {
+        guard rule.hasSuffix(")"), let open = rule.firstIndex(of: "("), open > rule.startIndex else { return (rule, nil) }
+        let type = String(rule[..<open])
+        let payload = String(rule[rule.index(after: open)..<rule.index(before: rule.endIndex)])
+        return (Theme.ruleTypeName(type), payload.isEmpty ? nil : payload)
+    }
+
+    /// feat/egern-style: Egern's rule card — ring with the count, the payload, the rule type and policy in small grey.
+    /// The type and the payload are separate one-line texts (「DomainKeyword(example)」 clipped and wrapped before).
     func ring(_ r: ConnectionAnalytics.RuleHit, maxHits: Int) -> some View {
-        VStack(spacing: 8) {
+        let parts = Self.split(r.rule)
+        return VStack(spacing: 4) {
             ZStack {
-                Circle().stroke(Theme.ink(0.08), lineWidth: 6)
+                Circle().stroke(Theme.ink(0.08), lineWidth: 4)
                 Circle().trim(from: 0, to: CGFloat(Double(r.hits) / Double(maxHits)))
-                    .stroke(Theme.accent, style: StrokeStyle(lineWidth: 6, lineCap: .round))
+                    .stroke(Theme.accent, style: StrokeStyle(lineWidth: 4, lineCap: .round))
                     .rotationEffect(.degrees(-90))
-                Text(verbatim: "\(r.hits)").font(.headline.monospacedDigit())
-                    .minimumScaleFactor(0.5).lineLimit(1).padding(.horizontal, 6)
+                Text(verbatim: "\(r.hits)").font(.subheadline.weight(.semibold).monospacedDigit())
+                    .minimumScaleFactor(0.5).lineLimit(1).padding(.horizontal, 5)
             }
-            .frame(width: 64, height: 64)
+            .frame(width: 48, height: 48)
+            .padding(.bottom, 4)
             .accessibilityHidden(true)
-            Text(verbatim: r.rule).font(.caption2.monospaced()).lineLimit(2).multilineTextAlignment(.center)
-                .fixedSize(horizontal: false, vertical: true)
-            Text(verbatim: r.policy).font(.caption2).foregroundStyle(.secondary).lineLimit(1)
+            Text(verbatim: parts.payload ?? parts.type).font(.caption2).lineLimit(1).truncationMode(.middle)
+            if parts.payload != nil {
+                Text(verbatim: parts.type).font(.system(size: 9, weight: .medium)).foregroundStyle(.secondary)
+                    .lineLimit(1).minimumScaleFactor(0.7)
+            }
+            Text(verbatim: r.policy).font(.system(size: 9)).foregroundStyle(.secondary).lineLimit(1)
         }
-        .frame(width: 104)
-        .padding(.vertical, 14).padding(.horizontal, 8)
+        .frame(width: 88)
+        .padding(.vertical, 10).padding(.horizontal, 6)
         .frame(maxHeight: .infinity, alignment: .top)
-        .background(RoundedRectangle(cornerRadius: 16, style: .continuous).fill(Theme.card))
-        .overlay(RoundedRectangle(cornerRadius: 16, style: .continuous).stroke(Theme.ink(0.06)))
+        .background(RoundedRectangle(cornerRadius: Theme.radius, style: .continuous).fill(Theme.card))
         .accessibilityElement(children: .ignore)
         .accessibilityLabel(Text(verbatim: "\(r.rule), \(r.policy)"))
         .accessibilityValue(Text("\(r.hits) 次"))
@@ -461,7 +475,7 @@ struct HomeTopHostsCard: View {
 
     var body: some View {
         let maxB = max(snap.top.first?.bytes ?? 1, 1)
-        VStack(spacing: 14) {
+        VStack(spacing: 10) {
             HomeSectionLabel(title: HomeAnalysisCard.hosts.title, summary: snap.count > 0 ? String(localized: "\(snap.count) 个主机名") : nil,
                              collapsed: collapsed, id: "home.analysis.header.hosts", toggle: toggle)
             if !collapsed {
@@ -469,7 +483,7 @@ struct HomeTopHostsCard: View {
                     if snap.top.isEmpty {
                         Text("还没有流量").font(.footnote).foregroundStyle(.secondary)
                     } else {
-                        VStack(spacing: 10) {
+                        VStack(spacing: 8) {
                             ForEach(snap.top) { h in
                                 HostBarRow(name: h.name, bytes: h.bytes, fraction: Double(h.bytes) / Double(maxB))
                                     .accessibilityElement(children: .combine)
@@ -563,9 +577,9 @@ struct HomeQuickAddButton: View {
             Image(systemName: "plus")
                 .font(.title2.weight(.semibold))
                 .foregroundStyle(Theme.onAccent)
-                .frame(width: 56, height: 56)
+                .frame(width: 50, height: 50)
                 .background(Circle().fill(Theme.accent))
-                .shadow(color: .black.opacity(0.18), radius: 8, y: 3)
+                .shadow(color: .black.opacity(0.12), radius: 5, y: 2)
                 .contentShape(Circle())
         }
         .menuOrder(.fixed) // 添加订阅 stays on top even though the menu opens upwards (Egern order)

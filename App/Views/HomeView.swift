@@ -40,8 +40,17 @@ struct HomeView: View {
     var body: some View {
         NavigationStack {
             ScrollView {
-                VStack(spacing: 14) {
-                    // v0.7: exit-location header (QX reference, in our card style) with the plain toggle.
+                VStack(spacing: 10) {
+                    // feat/egern-style: Egern's header — large title, small capsule 启动 / 停止 on the right; then the
+                    // compact QX-style exit header (运营商 · ASN · IP, user wants it, Egern has none).
+                    HStack(alignment: .center) {
+                        Text("首页").font(.system(size: 28, weight: .bold)).lineLimit(1)
+                            .accessibilityAddTraits(.isHeader)
+                        Spacer(minLength: 8)
+                        HomePowerCapsule()
+                    }
+                    .padding(.horizontal, 4)
+                    .padding(.top, 6)
                     ExitHeader()
                     if store.profiles.isEmpty { HomeEmptyCard() }
                     if vpn.safeModeActive && vpn.status != .disconnected && vpn.status != .invalid { SafeModeCard() }
@@ -77,12 +86,15 @@ struct HomeView: View {
                     }
                 }
                 .padding(.horizontal, 16)
-                .padding(.bottom, 88) // room for the floating + (feat/home-analysis)
+                .padding(.top, 2)
+                .padding(.bottom, 80) // room for the floating + (feat/home-analysis)
             }
             .overlay(alignment: .bottomTrailing) {
                 HomeQuickAddButton().padding(.trailing, 20).padding(.bottom, 16)
             }
             .background(Theme.bg.ignoresSafeArea())
+            // The header (title + 启动 capsule) is part of the page, not a navigation bar: Home has no bar items
+            // that a back gesture or a test's 「first bar button」 could hit.
             .toolbar(.hidden, for: .navigationBar)
             // fix/nav-jank: speed / memory / connection fields publish only while Home is showing.
             .onAppear { DashboardModel.shared.setHomeVisible(true) }
@@ -179,8 +191,7 @@ struct ConnectCard: View {
         }
         .padding(18)
         .frame(maxWidth: .infinity, alignment: .leading)
-        .background(RoundedRectangle(cornerRadius: 18, style: .continuous).fill(Theme.card))
-        .overlay(RoundedRectangle(cornerRadius: 18, style: .continuous).stroke(Theme.ink(0.06)))
+        .background(RoundedRectangle(cornerRadius: Theme.radius, style: .continuous).fill(Theme.card))
     }
 }
 
@@ -206,20 +217,27 @@ struct SafeModeCard: View {
     }
 }
 
+/// feat/egern-style: Egern's settings row — 「出站模式」 on the left, the current mode with ⌃⌄ on the right (menu picker).
 struct ModeCard: View {
     @EnvironmentObject var dash: DashboardModel
     var body: some View {
-        Card {
-            VStack(alignment: .leading, spacing: 10) {
-                Text("出站模式").font(.caption).foregroundStyle(.secondary)
-                Picker("出站模式", selection: Binding(get: { dash.mode }, set: { m in Task { await dash.setMode(m) } })) {
-                    Text("规则").tag("rule")
-                    Text("全局").tag("global")
-                    Text("直连").tag("direct")
-                }
-                .pickerStyle(.segmented)
+        HStack(spacing: 12) {
+            IconTile(symbol: "arrow.triangle.branch", tone: .orange)
+            Text("出站模式")
+            Spacer(minLength: 8)
+            Picker("出站模式", selection: Binding(get: { dash.mode }, set: { m in Task { await dash.setMode(m) } })) {
+                Text("规则模式").tag("rule")
+                Text("全局模式").tag("global")
+                Text("直连模式").tag("direct")
             }
+            .pickerStyle(.menu)
+            .labelsHidden()
+            .tint(Color.secondary)
+            .accessibilityIdentifier("home.mode")
         }
+        .padding(.leading, 12).padding(.trailing, 4).padding(.vertical, 4)
+        .frame(minHeight: 44)
+        .egernCard()
     }
 }
 
@@ -227,14 +245,14 @@ struct TrafficCard: View {
     @EnvironmentObject var dash: DashboardModel
     var body: some View {
         Card {
-            VStack(alignment: .leading, spacing: 12) {
+            VStack(alignment: .leading, spacing: 8) {
                 HStack {
                     SpeedLabel(icon: "arrow.up", color: Theme.up, title: "上传", value: dash.up)
                     Spacer()
                     SpeedLabel(icon: "arrow.down", color: Theme.down, title: "下载", value: dash.down)
                 }
                 TrafficChart(up: dash.upHistory, down: dash.downHistory)
-                    .frame(height: 72)
+                    .frame(height: 56)
                     .overlay(alignment: .topTrailing) { TrafficScopeCaption() }
             }
         }
@@ -256,11 +274,11 @@ struct SpeedLabel: View {
     let icon: String, color: Color, title: String, value: Int64
     var body: some View {
         HStack(spacing: 8) {
-            Image(systemName: icon).font(.caption.bold()).foregroundStyle(color)
-                .frame(width: 24, height: 24).background(Circle().fill(color.opacity(0.15)))
+            Image(systemName: icon).font(.system(size: 10, weight: .bold)).foregroundStyle(.white)
+                .frame(width: 18, height: 18).background(Circle().fill(color))
             VStack(alignment: .leading, spacing: 0) {
                 Text(LocalizedStringKey(title)).font(.caption2).foregroundStyle(.secondary)
-                Text(Fmt.speed(value)).font(.system(.headline, design: .rounded).monospacedDigit())
+                Text(Fmt.speed(value)).font(.subheadline.weight(.medium).monospacedDigit())
             }
         }
     }
@@ -313,7 +331,7 @@ struct TrafficChart: View {
 struct StatsGrid: View {
     @EnvironmentObject var dash: DashboardModel
     var body: some View {
-        LazyVGrid(columns: [GridItem(.flexible(), spacing: 12), GridItem(.flexible(), spacing: 12)], spacing: 12) {
+        LazyVGrid(columns: [GridItem(.flexible(), spacing: 10), GridItem(.flexible(), spacing: 10)], spacing: 10) {
             // feat/traffic-scope: titles say when only proxy traffic is counted.
             StatTile(icon: "arrow.up.circle.fill", color: Theme.up, title: dash.scope == .proxy ? "总上传（仅代理）" : "总上传", value: Fmt.bytes(dash.uploadTotal))
             StatTile(icon: "arrow.down.circle.fill", color: Theme.down, title: dash.scope == .proxy ? "总下载（仅代理）" : "总下载", value: Fmt.bytes(dash.downloadTotal))
@@ -324,17 +342,17 @@ struct StatsGrid: View {
 struct StatTile: View {
     let icon: String, color: Color, title: String, value: String
     var body: some View {
-        HStack(spacing: 10) {
-            Image(systemName: icon).font(.title3).foregroundStyle(color)
-            VStack(alignment: .leading, spacing: 2) {
-                Text(LocalizedStringKey(title)).font(.caption2).foregroundStyle(.secondary)
-                Text(value).font(.system(.subheadline, design: .rounded).weight(.semibold).monospacedDigit())
+        // feat/egern-style: Egern's 全部连接 / 活跃连接 tile — title on top, a small number under it.
+        HStack(spacing: 8) {
+            VStack(alignment: .leading, spacing: 3) {
+                Text(LocalizedStringKey(title)).font(.subheadline).lineLimit(1).minimumScaleFactor(0.8)
+                Text(value).font(.caption.monospacedDigit()).foregroundStyle(.secondary).lineLimit(1)
             }
             Spacer(minLength: 0)
+            Image(systemName: icon).font(.system(size: 13, weight: .semibold)).foregroundStyle(color).accessibilityHidden(true)
         }
-        .padding(14)
-        .background(RoundedRectangle(cornerRadius: 16, style: .continuous).fill(Theme.card))
-        .overlay(RoundedRectangle(cornerRadius: 16, style: .continuous).stroke(Theme.ink(0.06)))
+        .padding(.horizontal, 12).padding(.vertical, 10)
+        .background(RoundedRectangle(cornerRadius: Theme.radius, style: .continuous).fill(Theme.card))
     }
 }
 
@@ -349,22 +367,24 @@ struct ExitInfoRow: View {
     var showOrg = false
     /// Items of the small line; nil = the user's 首页副标题显示 choice (Home). 节点探测 passes the legacy set.
     var fields: Set<ExitDetailField>? = nil
+    /// feat/egern-style: the Home header's smaller type (26 pt flag, headline place, caption2 details).
+    var compact = false
     @AppStorage(ExitDetailField.storageKey, store: AppShared.defaults) private var storedFields = ExitDetailField.defaultValue
 
     var body: some View {
-        HStack(alignment: .center, spacing: 12) {
+        HStack(alignment: .center, spacing: 10) {
             Text(info?.flag ?? "🌐")
-                .font(.system(size: 34))
+                .font(.system(size: compact ? 26 : 34))
                 .accessibilityHidden(true)
-            VStack(alignment: .leading, spacing: 3) {
+            VStack(alignment: .leading, spacing: compact ? 1 : 3) {
                 Text(info?.placeText ?? (loading ? String(localized: "正在查询…") : (failed ? String(localized: "查询失败") : "—")))
-                    .font(.title3.weight(.bold))
+                    .font(compact ? Font.headline : Font.title3.weight(.bold))
                     .lineLimit(1)
                     .minimumScaleFactor(0.7)
                 let detail = info?.detailText(fields: fields ?? ExitDetailField.parse(storedFields)) ?? placeholder
                 if !detail.isEmpty {
                     Text(verbatim: detail)
-                        .font(.caption.monospacedDigit())
+                        .font((compact ? Font.caption2 : Font.caption).monospacedDigit())
                         .foregroundStyle(.secondary)
                         .lineLimit(1)
                         .minimumScaleFactor(0.75)
@@ -389,57 +409,47 @@ struct ExitHeader: View {
 
     var body: some View {
         let on = vpn.isConnected
-        VStack(alignment: .leading, spacing: 12) {
-            HStack(alignment: .center, spacing: 12) {
-                ExitInfoRow(info: ip.exit, loading: ip.loading, failed: ip.failed,
-                            placeholder: on ? String(localized: "出口 · 代理") : String(localized: "出口 · 本机网络"))
-                .contentShape(Rectangle())
-                .onTapGesture {
-                    UIImpactFeedbackGenerator(style: .light).impactOccurred()
-                    ip.scheduleRefresh()
-                }
-                .onLongPressGesture(minimumDuration: 0.45) {
-                    ip.copy()
-                    withAnimation(.spring()) { copied = true }
-                    DispatchQueue.main.asyncAfter(deadline: .now() + 1.4) { withAnimation { copied = false } }
-                }
-                .accessibilityElement(children: .combine)
-                .accessibilityHint(Text("轻点刷新，长按复制"))
-                Spacer(minLength: 8)
-                Toggle("", isOn: Binding(
-                    get: { on || vpn.status == .connecting },
-                    set: { _ in Task { await vpn.toggle() } }
-                ))
-                .labelsHidden()
-                .tint(Theme.good)
-                .disabled(vpn.isBusy || vpn.status == .disconnecting)
-                .accessibilityLabel(Text("代理"))
+        // feat/egern-style: one compact card — flag, place, 运营商 · ASN · IP, and a small status line on the right.
+        VStack(alignment: .leading, spacing: 8) {
+            ExitInfoRow(info: ip.exit, loading: ip.loading, failed: ip.failed,
+                        placeholder: on ? String(localized: "出口 · 代理") : String(localized: "出口 · 本机网络"),
+                        compact: true)
+            .contentShape(Rectangle())
+            .onTapGesture {
+                UIImpactFeedbackGenerator(style: .light).impactOccurred()
+                ip.scheduleRefresh()
             }
-            Divider().overlay(Theme.ink(0.08))
-            HStack(spacing: 6) {
+            .onLongPressGesture(minimumDuration: 0.45) {
+                ip.copy()
+                withAnimation(.spring()) { copied = true }
+                DispatchQueue.main.asyncAfter(deadline: .now() + 1.4) { withAnimation { copied = false } }
+            }
+            .accessibilityElement(children: .combine)
+            .accessibilityHint(Text("轻点刷新，长按复制"))
+            HStack(spacing: 5) {
                 Circle()
                     .fill(on ? Theme.good : Color.secondary.opacity(0.6))
-                    .frame(width: 7, height: 7)
+                    .frame(width: 6, height: 6)
                     .accessibilityHidden(true)
                 if on, let d = vpn.connectedDate {
                     TimelineView(.periodic(from: .now, by: 1)) { ctx in
                         Text("\(vpn.statusText) · \(Fmt.duration(ctx.date.timeIntervalSince(d)))")
-                            .font(.caption.monospacedDigit())
+                            .font(.caption2.monospacedDigit())
                     }
                 } else {
-                    Text(vpn.statusText).font(.caption)
+                    Text(vpn.statusText).font(.caption2)
                 }
-                Spacer()
+                Spacer(minLength: 8)
                 Label(store.active?.displayName ?? String(localized: "未选择"), systemImage: "doc.text")
-                    .font(.caption)
+                    .font(.caption2)
                     .foregroundStyle(.secondary)
                     .lineLimit(1)
             }
+            .foregroundStyle(.secondary)
         }
-        .padding(16)
+        .padding(.horizontal, 12).padding(.vertical, 10)
         .frame(maxWidth: .infinity, alignment: .leading)
-        .background(RoundedRectangle(cornerRadius: 18, style: .continuous).fill(Theme.card))
-        .overlay(RoundedRectangle(cornerRadius: 18, style: .continuous).stroke(Theme.ink(0.06)))
+        .egernCard()
         .overlay(alignment: .topTrailing) {
             if copied {
                 Text("已复制")
@@ -469,19 +479,16 @@ struct HomePolicyCards: View {
     var body: some View {
         VStack(spacing: 0) {
             ForEach(Array(groups.enumerated()), id: \.element.id) { i, g in
-                if i > 0 { Divider().overlay(Theme.ink(0.06)).padding(.leading, 56) }
+                if i > 0 { Divider().overlay(Theme.ink(0.06)).padding(.leading, 52) }
                 NavigationLink {
                     if live { GroupQuickPicker(group: g.name) } else { OfflineGroupPicker(group: g.name) }
                 } label: {
                     HStack(spacing: 12) {
-                        GroupIconView(group: g.name, profileIcon: g.icon, fallback: PolicyGroupDisplay(name: g.name, kind: g.kind, now: nil, members: [], selectable: false).icon, size: 32)
-                        VStack(alignment: .leading, spacing: 3) {
-                            Text(g.name).font(.subheadline.weight(.semibold)).lineLimit(1)
-                            Text(g.chain.dropFirst().joined(separator: " ➤ "))
-                                .font(.caption)
-                                .foregroundStyle(.secondary)
-                                .lineLimit(1)
-                                .truncationMode(.middle)
+                        GroupIconView(group: g.name, profileIcon: g.icon, fallback: PolicyGroupDisplay(name: g.name, kind: g.kind, now: nil, members: [], selectable: false).icon, size: 28)
+                        VStack(alignment: .leading, spacing: 2) {
+                            Text(g.name).font(.subheadline).lineLimit(1)
+                            // feat/egern-style: Egern chain 「日本节点 › 🇯🇵 东京」; middle hops give way, the final node stays.
+                            ChainLine(hops: g.chain.dropFirst().map { FlagSafe.text($0) })
                         }
                         Spacer(minLength: 6)
                         if let d = g.delay {
@@ -489,7 +496,7 @@ struct HomePolicyCards: View {
                         }
                         Image(systemName: "chevron.right").font(.caption2.weight(.semibold)).foregroundStyle(.tertiary)
                     }
-                    .padding(.horizontal, 14).padding(.vertical, 11)
+                    .padding(.horizontal, 12).padding(.vertical, 8)
                     .contentShape(Rectangle())
                 }
                 .buttonStyle(.plain)
@@ -504,8 +511,7 @@ struct HomePolicyCards: View {
                 }
             }
         }
-        .background(RoundedRectangle(cornerRadius: 18, style: .continuous).fill(Theme.card))
-        .overlay(RoundedRectangle(cornerRadius: 18, style: .continuous).stroke(Theme.ink(0.06)))
+        .background(RoundedRectangle(cornerRadius: Theme.radius, style: .continuous).fill(Theme.card))
     }
 }
 

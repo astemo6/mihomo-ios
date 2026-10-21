@@ -185,7 +185,7 @@ struct HomePanelsSection: View {
     var body: some View {
         let items = home.visibleIDs.compactMap { home.item($0, connected: vpn.isConnected) }
         let rows = HomeRow.rows(home.visibleIDs) { home.item($0, connected: vpn.isConnected) }
-        VStack(spacing: 14) {
+        VStack(spacing: 10) {
             if !model.pinned.isEmpty {
                 HStack {
                     Text("面板").font(.footnote.weight(.semibold)).foregroundStyle(.secondary)
@@ -240,8 +240,7 @@ struct HomePanelsSection: View {
                         Image(systemName: "chevron.right").font(.caption).foregroundStyle(.secondary)
                     }
                     .padding(.horizontal, 16).padding(.vertical, 12)
-                    .background(RoundedRectangle(cornerRadius: 18, style: .continuous).fill(Theme.card))
-                    .overlay(RoundedRectangle(cornerRadius: 18, style: .continuous).stroke(Theme.ink(0.06)))
+                    .background(RoundedRectangle(cornerRadius: Theme.radius, style: .continuous).fill(Theme.card))
                 }
                 .buttonStyle(.plain)
             }
