@@ -1,6 +1,6 @@
 # test/selftest: self-tests without a device. Runs on pushes to test/** branches (a workflow_dispatch workflow
 # must exist on the default branch before it can be dispatched) and by workflow_dispatch with run_tests=true
-# once merged. Never releases. A commit message containing [only:<testName>] runs just that UI test, [skip-go]
+# once merged. Never releases. A commit message containing [only:<testName>] runs just that UI test ([unit:<Class>] adds a unit test class), [skip-go]
 # skips the Go job.
 # - go: go vet + the whole bridge test suite with the race detector (Linux).
 # - ui: XCUITest target (project-uitests.yml) on an iOS simulator with the synthetic -UITestSeed profile,
@@ -204,6 +204,10 @@ jobs:
           if [ -n "$ONLY_INPUT" ]; then ONLY=(-only-testing:"$ONLY_INPUT"); fi
           for t in $(printf '%s' "$COMMIT_MSG" | grep -oE '\[only:[A-Za-z0-9_]+\]' | sed -E 's/\[only:(.*)\]/\1/'); do
             ONLY+=(-only-testing:"MihomoUITests/MihomoUITests/$t")
+          done
+          # [unit:<TestClass>] adds a unit test class (MihomoUnitTests) to an [only:] selection.
+          for t in $(printf '%s' "$COMMIT_MSG" | grep -oE '\[unit:[A-Za-z0-9_]+\]' | sed -E 's/\[unit:(.*)\]/\1/'); do
+            ONLY+=(-only-testing:"MihomoUnitTests/$t")
           done
           DARK_ONLY=(-only-testing:MihomoUITests/MihomoUITests/test01_TabsAndHome -only-testing:MihomoUITests/MihomoUITests/test03_MoreEveryPage -only-testing:MihomoUITests/MihomoUITests/test04_NodeManager -only-testing:MihomoUITests/MihomoUITests/test05_AddNodeAndEditor)
           # Review 6 OPT-1: light shard 1 = these tests (31.8 min measured in zh-Hans light), shard 2 = everything else.
