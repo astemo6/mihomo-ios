@@ -684,7 +684,7 @@ struct NodeDetailView: View {
     func secret(_ k: String) async -> String? {
         if let v = secrets[k] { return v }
         guard let cfg = await model.config(of: node), let v = NodeManagerModel.credentialValue(cfg, path: k) else {
-            message = String(localized: "读取节点配置失败")
+            message = String(localized: "读取节点信息失败")
             return nil
         }
         secrets[k] = v

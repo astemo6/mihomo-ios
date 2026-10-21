@@ -482,7 +482,7 @@ final class NodeManagerModel: ObservableObject {
 
     enum CopyError: LocalizedError {
         case notFound
-        var errorDescription: String? { String(localized: "读取节点配置失败") }
+        var errorDescription: String? { String(localized: "读取节点信息失败") }
     }
 
     /// 添加到本地节点: copies a subscription / provider node (every field, secrets unchanged) into the manual
