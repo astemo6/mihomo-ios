@@ -12,6 +12,8 @@ package libmihomo
 //                groups, rules and 策略组编辑 that name the provider keep working.
 
 import (
+	"crypto/sha256"
+	"encoding/hex"
 	"encoding/json"
 	"net/url"
 	"os"
@@ -71,6 +73,14 @@ func setProviderURL(m map[string]any, nu string) {
 	if _, ok := m["x-source"]; ok {
 		m["x-source"] = nu
 	}
+}
+
+// pathForURL gives a provider cache path its own name per link: ./proxies/a.yaml → ./proxies/a-<hash8>.yaml.
+func pathForURL(p, u string) string {
+	sum := sha256.Sum256([]byte(u))
+	h := hex.EncodeToString(sum[:4])
+	ext := filepath.Ext(p)
+	return strings.TrimSuffix(p, ext) + "-" + h + ext
 }
 
 func validProviderFilter(f string) bool {
@@ -147,7 +157,13 @@ func applyProviderOverridesDeferred(raw map[string]any, ov map[string]ProviderOv
 		}
 		if u := strings.TrimSpace(o.URL); u != "" && strings.EqualFold(str(m["type"]), "http") {
 			if pu, err := url.Parse(u); err == nil && (pu.Scheme == "http" || pu.Scheme == "https") && pu.Host != "" {
+				changed := u != providerSourceURL(m)
 				setProviderURL(m, u)
+				// Review 7 P2-3: with an explicit `path:` mihomo keeps using the old link's cached file until
+				// the interval expires; a path per link makes the new link's nodes load on the next reload.
+				if p := str(m["path"]); changed && p != "" {
+					m["path"] = pathForURL(p, u)
+				}
 			} else {
 				warns = append(warns, "节点集「"+name+"」的自定义链接无效，已使用配置里的链接")
 			}
