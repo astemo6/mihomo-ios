@@ -19,7 +19,6 @@ import (
 	"net/http"
 	"net/url"
 	"os"
-	"path/filepath"
 	"strings"
 	"time"
 
@@ -51,7 +50,7 @@ func readCustomRules(home string) []CustomRule {
 	if home == "" {
 		return nil
 	}
-	b, err := os.ReadFile(filepath.Join(home, "rules.json"))
+	b, err := os.ReadFile(customRulesPath(home))
 	if err != nil {
 		return nil
 	}

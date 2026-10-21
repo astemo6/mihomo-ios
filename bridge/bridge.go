@@ -153,7 +153,7 @@ func defaultOverrides() Overrides {
 
 func readOverrides(home string) Overrides {
 	o := defaultOverrides()
-	b, err := os.ReadFile(filepath.Join(home, "overrides.json"))
+	b, err := os.ReadFile(overridesPath(home))
 	if err == nil {
 		_ = json.Unmarshal(b, &o)
 	}
@@ -202,7 +202,7 @@ func readOverrides(home string) Overrides {
 	o.Local = readLocalDNS(home)
 	o.home = home
 	if home != "" {
-		o.manualPath = filepath.Join(filepath.Dir(home), "profiles", "manual-nodes.yaml")
+		o.manualPath = manualNodesPath(home)
 	}
 	return o
 }
