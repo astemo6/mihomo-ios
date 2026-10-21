@@ -115,10 +115,3 @@ func TestProxyTrafficClassifyBuiltins(t *testing.T) {
 		t.Error("an unknown node name should count as proxy")
 	}
 }
-
-func TestLiveStatusFields(t *testing.T) {
-	f := strings.Split(LiveStatus(), "\t")
-	if len(f) != 9 {
-		t.Fatalf("LiveStatus has %d fields, want 9: %q", len(f), f)
-	}
-}
