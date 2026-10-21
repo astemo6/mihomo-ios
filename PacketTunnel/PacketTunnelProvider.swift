@@ -80,6 +80,12 @@ final class PacketTunnelProvider: NEPacketTunnelProvider {
         LibmihomoSetMemoryLimit(Int32(overrides.memoryLimitMB))
         LibmihomoSetMemoryProbe(memoryProbe)
         let proxyOnly = overrides.isProxyOnly
+        // 接管所有网络流量: with includeAllNetworks iOS scopes this extension's own unbound sockets into the tunnel
+        // too, so the core's proxy / DIRECT / DNS sockets must be bound to the physical interface (Go side,
+        // physiface.go). The VPN configuration's value is the one iOS enforces (overrides.json is logged next to it).
+        let includeAll = protocolConfiguration.includeAllNetworks
+        LibmihomoSetBindPhysicalInterface(includeAll)
+        StartupLog.write("tunnel scope: includeAllNetworks \(includeAll ? "on" : "off") (setting \(overrides.includeAllNetworks ? "on" : "off")), excludeLocalNetworks \(protocolConfiguration.excludeLocalNetworks)\(includeAll ? ", " + LibmihomoPhysicalInterfaceStatus() : "")")
         StartupLog.write("mode \(proxyOnly ? "proxy-only (NEProxySettings)" : overrides.isMixed ? "mix (tun + system proxy)" : "tun (NEPacketTunnelFlow bridge)"), quic \(overrides.blockQUIC), routes +\(overrides.includedRoutes.count)/-\(overrides.excludedRoutes.count), mtu \(overrides.tunMTU), GOMEMLIMIT \(overrides.memoryLimitMB) MB\(overrides.safeMode ? ", SAFE MODE" : "")")
         if let v = Bundle.main.object(forInfoDictionaryKey: "CFBundleShortVersionString") as? String {
             StartupLog.write("tunnel \(v) (\(Bundle.main.object(forInfoDictionaryKey: "CFBundleVersion") as? String ?? "?")), \(LibmihomoVersion())")
@@ -156,7 +162,7 @@ final class PacketTunnelProvider: NEPacketTunnelProvider {
                 }
                 completionHandler(nil)
                 DispatchQueue.global().asyncAfter(deadline: .now() + 15) { [weak self] in
-                    StartupLog.write("+15 s: \(ProcessMemory.summary()), \(LibmihomoMemoryStats()), bridge \(self?.currentBridge?.stats ?? "-")")
+                    StartupLog.write("+15 s: \(ProcessMemory.summary()), \(LibmihomoMemoryStats()), bridge \(self?.currentBridge?.stats ?? "-"), \(LibmihomoPhysicalInterfaceStatus())")
                 }
             }
         }
