@@ -1656,7 +1656,10 @@ final class MihomoUITests: MihomoUITestCase {
         XCTAssertTrue(scrollTo(proxyHeader), "Proxy card")
         XCTAssertFalse(app.element(labelContains: "Frankfurt AnyTLS").exists, "Proxy collapsed before the tap")
         proxyHeader.tap()
-        XCTAssertTrue(app.element(labelContains: "Frankfurt AnyTLS").waitForExistence(timeout: 5), "tap expands the group")
+        // Compact rows (#81): the expanded grid (前置代理 / 图标 rows first) puts Frankfurt below the fold, and the
+        // lazy grid only creates it once scrolled near; check the chevron-side change first, then scroll to it.
+        let frankfurt = app.element(labelContains: "Frankfurt AnyTLS")
+        XCTAssertTrue(frankfurt.waitForExistence(timeout: 3) || scrollTo(frankfurt), "tap expands the group")
         snap("policy-expanded-after-order")
 
         // Home's default cards are the first four groups, so they follow the new order.
