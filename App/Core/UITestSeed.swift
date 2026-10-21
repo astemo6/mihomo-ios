@@ -80,6 +80,12 @@ enum UITestSeed {
             if let demo = store.profiles.first(where: { $0.name == "UITest Demo" }), store.activeID != demo.id {
                 _ = await store.setActive(demo)
             }
+            // hotfix/group-test-offline: a profile whose top select group holds only other groups (and one group of
+            // DIRECT only), made active.
+            if args.contains("-UITestGroupsOnly"), !store.profiles.contains(where: { $0.name == "UITest Groups" }) {
+                let p = try await store.addLocal(name: "UITest Groups", text: groupsOnlyYAML)
+                _ = await store.setActive(p)
+            }
             // v0.19.6 stress test: a large profile (3000 nodes in one select group, 10000 rules) becomes the active
             // profile, plus 1500 more manual nodes.
             if args.contains("-UITestBigProfile"), !store.profiles.contains(where: { $0.name == "UITest Big" }) {
@@ -227,6 +233,24 @@ enum UITestSeed {
     }
 
     // MARK: Synthetic data (documentation IP ranges, fake keys)
+
+    /// hotfix/group-test-offline: 「Node Select」 lists only groups (url-test / select / fallback / DIRECT-only).
+    static let groupsOnlyYAML = """
+    mode: rule
+    proxies:
+      - {name: "GT Tokyo A", type: ss, server: 192.0.2.41, port: 8388, cipher: aes-128-gcm, password: uitest-gt-a}
+      - {name: "GT Tokyo B", type: ss, server: 192.0.2.42, port: 8388, cipher: aes-128-gcm, password: uitest-gt-b}
+      - {name: "GT Hong Kong", type: ss, server: 192.0.2.43, port: 8388, cipher: aes-128-gcm, password: uitest-gt-c}
+      - {name: "GT Singapore", type: ss, server: 192.0.2.44, port: 8388, cipher: aes-128-gcm, password: uitest-gt-d}
+    proxy-groups:
+      - {name: Node Select, type: select, proxies: [Auto Select, Japan, Failover, Direct Only]}
+      - {name: Auto Select, type: url-test, proxies: ["GT Tokyo A", "GT Hong Kong"], url: "http://www.gstatic.com/generate_204", interval: 600}
+      - {name: Japan, type: select, proxies: ["GT Tokyo A", "GT Tokyo B"]}
+      - {name: Failover, type: fallback, proxies: ["GT Singapore", "GT Hong Kong"], url: "http://www.gstatic.com/generate_204", interval: 600}
+      - {name: Direct Only, type: select, proxies: [DIRECT]}
+    rules:
+      - MATCH,Node Select
+    """
 
     static let profileYAML = """
     mode: rule
