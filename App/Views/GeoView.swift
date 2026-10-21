@@ -217,7 +217,7 @@ struct GeoView: View {
             .padding(16)
         }
         .background(Theme.bg.ignoresSafeArea())
-        .navigationTitle("地理与规则库")
+        .navigationTitle("地理数据库") // r7 P3-8: same name as the 高级设置 row
         .toolbar {
             ToolbarItem(placement: .navigationBarTrailing) {
                 Button("全部更新") { Task { await model.updateAll() } }

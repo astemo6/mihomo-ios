@@ -336,7 +336,7 @@ final class StorageModel: ObservableObject {
                 .init(id: "providers", title: String(localized: "规则集 / 节点集缓存"), icon: "shippingbox", bytes: provTotal,
                       note: unused.isEmpty ? String(localized: "都被配置引用。") : String(localized: "\(unused.count) 个文件（\(Fmt.bytes(unusedBytes))）不再被任何配置引用。"),
                       action: unused.isEmpty ? .none : .unusedProviders, actionTitle: String(localized: "清除未引用的缓存")),
-                .init(id: "geo", title: String(localized: "地理数据库"), icon: "globe.asia.australia", bytes: geo, note: String(localized: "在「地理与规则库」中管理。"), action: .none),
+                .init(id: "geo", title: String(localized: "地理数据库"), icon: "globe.asia.australia", bytes: geo, note: String(localized: "在 更多 → 高级设置 → 地理数据库 中管理。"), action: .none),
                 .init(id: "snapshots", title: String(localized: "配置快照"), icon: "clock.arrow.circlepath", bytes: snaps, note: String(localized: "保留最近 3 个和已固定的。"), action: .oldSnapshots, actionTitle: String(localized: "删除旧快照")),
                 .init(id: "logs", title: String(localized: "日志与诊断"), icon: "text.alignleft", bytes: logs, note: String(localized: "启动日志、最近错误、内核诊断文件。"), action: .clear, actionTitle: String(localized: "清除日志")),
                 .init(id: "icons", title: String(localized: "图标缓存"), icon: "photo.on.rectangle", bytes: icons, note: String(localized: "策略组图标，需要时重新下载。"), action: .clear, actionTitle: String(localized: "清除图标缓存")),

@@ -21371,36 +21371,36 @@
         }
       }
     },
-    "在「地理与规则库」中管理。": {
+    "在 更多 → 高级设置 → 地理数据库 中管理。": {
       "localizations": {
         "zh-Hant": {
           "stringUnit": {
             "state": "translated",
-            "value": "在「地理與規則庫」中管理。"
+            "value": "在 更多 → 高階設定 → 地理資料庫 中管理。"
           }
         },
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "Managed in Geo and Rule Databases."
+            "value": "Managed in More → Advanced Settings → Geo Databases."
           }
         },
         "ja": {
           "stringUnit": {
             "state": "translated",
-            "value": "「地理・ルールデータベース」で管理します。"
+            "value": "その他 → 詳細設定 → 地理データベースで管理します。"
           }
         },
         "ko": {
           "stringUnit": {
             "state": "translated",
-            "value": "「지리 및 규칙 데이터베이스」에서 관리합니다."
+            "value": "더보기 → 고급 설정 → 지리 데이터베이스에서 관리합니다."
           }
         },
         "ru": {
           "stringUnit": {
             "state": "translated",
-            "value": "Управляются в «Геобазы и базы правил»."
+            "value": "Управляются в разделе «Ещё → Расширенные настройки → Геобазы»."
           }
         }
       }
