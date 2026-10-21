@@ -433,6 +433,7 @@ final class SnapshotStore: ObservableObject {
         "mihomo/engine/scripts": "read on use (Go)",
         "mihomo/override-scripts": "OverrideScriptStore.load",
         "mihomo/engine/ca": "read on use (Go)",
+        "traffic-history.json": "read on use (TrafficHistory.load)",
     ]
 
     static func reloadStores() {

@@ -12,6 +12,11 @@ struct BackupFile: Codable {
     /// Path relative to the App Group container → base64 content.
     var files: [String: String] = [:]
     var defaults: [String: String] = [:]
+    /// r7 (review7 R7A-11): settings that live in defaults (按需连接, 实时活动, 首页 layout, 出口信息, WebDAV address,
+    /// notifications, appearance, start tab, unlock checks …), so a backup → restore migration to a re-signed app
+    /// (new bundle id) keeps them. "g:<key>" = App Group defaults, "s:<key>" = the app's own defaults; the value is
+    /// a base64 binary plist [value]. Full backups only (not snapshots / the sync folder). nil in older backups.
+    var prefs: [String: String]? = nil
 
     init() {}
 
@@ -26,6 +31,7 @@ struct BackupFile: Codable {
         created = (try? c.decodeIfPresent(Date.self, forKey: .created)) ?? Date(timeIntervalSince1970: 0)
         appVersion = (try? c.decodeIfPresent(String.self, forKey: .appVersion)) ?? "?"
         defaults = (try? c.decodeIfPresent([String: String].self, forKey: .defaults)) ?? [:]
+        prefs = try? c.decodeIfPresent([String: String].self, forKey: .prefs)
     }
 }
 
@@ -38,6 +44,7 @@ enum BackupManager {
     /// plain WebDAV, the sync folder).
     static func items(includeCA: Bool, includeStore: Bool = true) -> [String] {
         var out = ["profiles.json", "profiles", "mihomo/overrides.json", "mihomo/dns.json", "mihomo/localdns.json", "mihomo/group-icons.json", "mihomo/rules.json", "mihomo/subscriptions.json", "mihomo/groups.json", "mihomo/netpolicy.json", "mihomo/node-subscriptions.json", "mihomo/group-edits.json", "mihomo/provider-overrides.json",
+                   "mihomo/node-settings.json", // r7 R7A-11: per-node 测速地址 / 备注
                    "mihomo/engine/engine.json", "mihomo/engine/store.json", "mihomo/engine/modules", "mihomo/engine/scripts",
                    "mihomo/override-scripts"] // v0.19 覆写脚本 (index.json + <id>.js)
         if includeCA { out.append("mihomo/engine/ca") }
@@ -47,8 +54,40 @@ enum BackupManager {
 
     static let defaultsKeys = ["activeProfileID"]
 
+    /// r7 R7A-11: files only full backups carry (a snapshot restore must not roll the traffic statistics back).
+    static let fullBackupOnlyItems = ["traffic-history.json"]
+
+    /// r7 R7A-11: defaults keys (prefixes) a full backup carries, from either domain. Device state (sync bookmarks,
+    /// widget / Live Activity caches, onboarding, the remembered App Group, paused on-demand) stays out.
+    static let prefPrefixes = ["onDemandSettings", "liveActivity.enabled", "home.", "panels.", "geo.checker", "switch.closeConnections",
+                               "unlock.", "policy.", "nodes.", "rules.sortByHits", "analytics.range", "webdav.settings", "notify.",
+                               "usageAlerts.rules", "appearance", "ui.launchTab", "moduleGallery.sources", "qx.resourceParserURL"]
+
+    static func isBackedUpPref(_ k: String) -> Bool { prefPrefixes.contains { k.hasPrefix($0) } }
+
+    static func collectPrefs(group: UserDefaults = AppShared.defaults, groupName: String = AppShared.appGroup, standard: UserDefaults = .standard) -> [String: String] {
+        var out: [String: String] = [:]
+        func add(_ tag: String, _ dict: [String: Any]?) {
+            for (k, v) in dict ?? [:] where isBackedUpPref(k) {
+                if let d = try? PropertyListSerialization.data(fromPropertyList: [v], format: .binary, options: 0) { out[tag + k] = d.base64EncodedString() }
+            }
+        }
+        add("g:", group.persistentDomain(forName: groupName))
+        add("s:", Bundle.main.bundleIdentifier.flatMap { standard.persistentDomain(forName: $0) })
+        return out
+    }
+
+    static func applyPrefs(_ prefs: [String: String], group: UserDefaults = AppShared.defaults, standard: UserDefaults = .standard) {
+        for (tagged, b64) in prefs {
+            let tag = tagged.prefix(2), key = String(tagged.dropFirst(2))
+            guard isBackedUpPref(key), let d = Data(base64Encoded: b64),
+                  let arr = try? PropertyListSerialization.propertyList(from: d, format: nil) as? [Any], let v = arr.first else { continue }
+            if tag == "g:" { group.set(v, forKey: key) } else if tag == "s:" { standard.set(v, forKey: key) }
+        }
+    }
+
     static func make(includeCA: Bool, includeStore: Bool) throws -> (URL, Int) {
-        let (data, n) = try makeData(includeCA: includeCA, includeStore: includeStore)
+        let (data, n) = try makeData(includeCA: includeCA, includeStore: includeStore, fullBackup: true)
         let f = DateFormatter()
         f.dateFormat = "yyyyMMdd-HHmm"
         purgeTempExports()
@@ -67,10 +106,12 @@ enum BackupManager {
     }
 
     /// The backup JSON of `root` (the App Group container; a scratch directory in unit tests).
-    static func makeData(includeCA: Bool, includeStore: Bool = true, root: URL = AppShared.containerURL, defaults: UserDefaults = AppShared.defaults) throws -> (Data, Int) {
+    /// fullBackup (r7 R7A-11): also the defaults settings and the traffic statistics (exports, WebDAV, iCloud).
+    static func makeData(includeCA: Bool, includeStore: Bool = true, fullBackup: Bool = false, root: URL = AppShared.containerURL, defaults: UserDefaults = AppShared.defaults) throws -> (Data, Int) {
         let fm = FileManager.default
         var b = BackupFile()
-        for rel in items(includeCA: includeCA, includeStore: includeStore) {
+        if fullBackup { b.prefs = collectPrefs() }
+        for rel in items(includeCA: includeCA, includeStore: includeStore) + (fullBackup ? fullBackupOnlyItems : []) {
             let u = root.appendingPathComponent(rel)
             var isDir: ObjCBool = false
             guard fm.fileExists(atPath: u.path, isDirectory: &isDir) else { continue }
@@ -104,7 +145,7 @@ enum BackupManager {
             throw NSError(domain: "Backup", code: 1, userInfo: [NSLocalizedDescriptionKey: String(localized: "不是 Tern 备份文件")])
         }
         guard b.app == "mihomo-ios" else { throw NSError(domain: "Backup", code: 1, userInfo: [NSLocalizedDescriptionKey: String(localized: "不是 Tern 备份文件")]) }
-        let allowed = items(includeCA: true)
+        let allowed = items(includeCA: true) + fullBackupOnlyItems
         // v0.19.1: decode every entry first. A damaged entry (bad base64, e.g. a truncated download) stops the
         // restore before anything is written, instead of leaving a half-restored mix of old and new files.
         var decoded: [(String, Data)] = []
@@ -124,6 +165,7 @@ enum BackupManager {
             n += 1
         }
         for (k, v) in b.defaults where defaultsKeys.contains(k) { defaults.set(v, forKey: k) }
+        if let p = b.prefs, root == AppShared.containerURL { applyPrefs(p) } // r7 R7A-11 (unit tests use a scratch root)
         return n
     }
 
@@ -206,7 +248,11 @@ struct BackupView: View {
                     }
                 }
             } header: { Text("恢复") } footer: {
-                Text(BackupManager.iCloudFolder == nil ? "当前签名没有 iCloud 容器权限，可以在「保存到文件」时选择 iCloud 云盘，恢复时从那里选择文件。恢复会覆盖同名配置与设置。" : "恢复会覆盖同名配置与设置。")
+                VStack(alignment: .leading, spacing: 6) {
+                    Text(BackupManager.iCloudFolder == nil ? "当前签名没有 iCloud 容器权限，可以在「保存到文件」时选择 iCloud 云盘，恢复时从那里选择文件。恢复会覆盖同名配置与设置。" : "恢复会覆盖同名配置与设置。")
+                    // r7 R7A-11: migration to a re-signed build (new bundle id) while the old app is still installed.
+                    Text("换用重新签名的新 App 时：先在旧 App 里关闭按需连接再导出备份；在新 App 恢复后删除旧 App，否则「设置 → VPN」里两个 Tern 配置会互相抢连接，链接和文件也可能被旧 App 打开。")
+                }
             }
             .listRowBackground(Theme.card)
         }
