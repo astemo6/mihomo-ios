@@ -1,36 +1,36 @@
 {
   "sourceLanguage": "zh-Hans",
   "strings": {
-    "\n规则集 / 节点集：%lld 个已下载，%lld 个失败（可在「更多 → 提供者」中重试）": {
+    "\n规则集 / 节点集：%lld 个已下载，%lld 个失败（可在「更多 → 高级设置 → 规则集与节点集」中重试）": {
       "localizations": {
         "zh-Hant": {
           "stringUnit": {
             "state": "translated",
-            "value": "\n規則集 / 節點集：%lld 個已下載，%lld 個失敗（可在「更多 → 提供者」中重試）"
+            "value": "\n規則集 / 節點集：%lld 個已下載，%lld 個失敗（可在「更多 → 高階設定 → 規則集與節點集」中重試）"
           }
         },
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "\nRule sets / node providers: %lld downloaded, %lld failed (retry in More → Providers)"
+            "value": "\nRule sets / node providers: %lld downloaded, %lld failed (retry in More → Advanced Settings → Rule Sets & Node Sets)"
           }
         },
         "ja": {
           "stringUnit": {
             "state": "translated",
-            "value": "\nルールセット / ノードセット：%lld 件ダウンロード、%lld 件失敗（「その他 → プロバイダ」で再試行）"
+            "value": "\nルールセット / ノードセット：%lld 件ダウンロード、%lld 件失敗（「その他 → 詳細設定 → ルールセットとノードセット」で再試行）"
           }
         },
         "ko": {
           "stringUnit": {
             "state": "translated",
-            "value": "\n규칙 세트 / 노드 세트: %lld개 다운로드, %lld개 실패 (「더 보기 → 제공자」에서 다시 시도)"
+            "value": "\n규칙 세트 / 노드 세트: %lld개 다운로드, %lld개 실패 (「더 보기 → 고급 설정 → 규칙 세트 및 노드 세트」에서 다시 시도)"
           }
         },
         "ru": {
           "stringUnit": {
             "state": "translated",
-            "value": "\nНаборы правил / узлов: загружено %lld, ошибок %lld (повторите в «Ещё → Провайдеры»)"
+            "value": "\nНаборы правил / узлов: загружено %lld, ошибок %lld (повторите в «Ещё → Расширенные настройки → Наборы правил и узлов»)"
           }
         }
       }
@@ -5069,36 +5069,36 @@
         }
       }
     },
-    "Quantumult X 远程分流请在 更多 → 规则 → 自定义 中添加（filter_remote 行）": {
+    "Quantumult X 远程分流请在 更多 → 分流规则 → 自定义 中添加（filter_remote 行）": {
       "localizations": {
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "Add Quantumult X remote filters under More → Rules → Custom (filter_remote lines)"
+            "value": "Add Quantumult X remote filters under More → Routing Rules → Custom (filter_remote lines)"
           }
         },
         "zh-Hant": {
           "stringUnit": {
             "state": "translated",
-            "value": "Quantumult X 遠端分流請在 更多 → 規則 → 自定義 中新增（filter_remote 行）"
+            "value": "Quantumult X 遠端分流請在 更多 → 分流規則 → 自定義 中新增（filter_remote 行）"
           }
         },
         "ja": {
           "stringUnit": {
             "state": "translated",
-            "value": "Quantumult X のリモートフィルターは「その他」→「ルール」→「カスタム」で追加してください（filter_remote 行）"
+            "value": "Quantumult X のリモートフィルターは「その他」→「振り分けルール」→「カスタム」で追加してください（filter_remote 行）"
           }
         },
         "ko": {
           "stringUnit": {
             "state": "translated",
-            "value": "Quantumult X 원격 필터는 더보기 → 규칙 → 사용자 지정에서 추가하세요(filter_remote 줄)"
+            "value": "Quantumult X 원격 필터는 더보기 → 분류 규칙 → 사용자 지정에서 추가하세요(filter_remote 줄)"
           }
         },
         "ru": {
           "stringUnit": {
             "state": "translated",
-            "value": "Удалённые фильтры Quantumult X добавляйте в «Ещё» → «Правила» → «Свои» (строки filter_remote)"
+            "value": "Удалённые фильтры Quantumult X добавляйте в «Ещё» → «Правила маршрутизации» → «Свои» (строки filter_remote)"
           }
         }
       },
@@ -10279,36 +10279,36 @@
         }
       }
     },
-    "不需要的话直接点「开始使用」，以后在 更多 → MitM 设置。": {
+    "不需要的话直接点「开始使用」，以后在 更多 → 高级设置 → HTTPS 解密 中设置。": {
       "localizations": {
         "zh-Hant": {
           "stringUnit": {
             "state": "translated",
-            "value": "不需要的話直接點「開始使用」，以後在 更多 → MitM 設定。"
+            "value": "不需要的話直接點「開始使用」，以後在 更多 → 高階設定 → HTTPS 解密 中設定。"
           }
         },
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "Not needed? Tap “Get Started” and set it up later in More → MitM."
+            "value": "Not needed? Tap “Get Started” and set it up later in More → Advanced Settings → HTTPS Decryption."
           }
         },
         "ja": {
           "stringUnit": {
             "state": "translated",
-            "value": "不要なら「はじめる」を押してください。あとで その他 → MitM で設定できます。"
+            "value": "不要なら「はじめる」を押してください。あとで その他 → 詳細設定 → HTTPS 復号 で設定できます。"
           }
         },
         "ko": {
           "stringUnit": {
             "state": "translated",
-            "value": "필요 없으면 ‘시작하기’를 누르세요. 나중에 더 보기 → MitM에서 설정할 수 있습니다."
+            "value": "필요 없으면 ‘시작하기’를 누르세요. 나중에 더 보기 → 고급 설정 → HTTPS 복호화에서 설정할 수 있습니다."
           }
         },
         "ru": {
           "stringUnit": {
             "state": "translated",
-            "value": "Не нужно? Нажмите «Начать» — настроить можно позже в Ещё → MitM."
+            "value": "Не нужно? Нажмите «Начать» — настроить можно позже в Ещё → Расширенные настройки → Расшифровка HTTPS."
           }
         }
       }
@@ -47248,36 +47248,36 @@
         }
       }
     },
-    "经过 MitM / 重写引擎的 HTTP(S) 请求会显示在这里。需要在 更多 → 重写 / MitM 中启用。": {
+    "经过 MitM / 重写引擎的 HTTP(S) 请求会显示在这里。需要在 更多 → 高级设置 → 重写 / HTTPS 解密 中启用。": {
       "localizations": {
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "HTTP(S) requests that pass through the MitM / rewrite engine show up here. Enable it under More → Rewrite / MitM."
+            "value": "HTTP(S) requests that pass through the MitM / rewrite engine show up here. Enable it under More → Advanced Settings → Rewrite / HTTPS Decryption."
           }
         },
         "zh-Hant": {
           "stringUnit": {
             "state": "translated",
-            "value": "經過 MitM / 重寫引擎的 HTTP(S) 請求會顯示在這裡。需要在 更多 → 重寫 / MitM 中啟用。"
+            "value": "經過 MitM / 重寫引擎的 HTTP(S) 請求會顯示在這裡。需要在 更多 → 高階設定 → 重寫 / HTTPS 解密 中啟用。"
           }
         },
         "ja": {
           "stringUnit": {
             "state": "translated",
-            "value": "MitM / 書き換えエンジンを通る HTTP(S) リクエストがここに表示されます。「その他」→「書き換え / MitM」で有効にしてください。"
+            "value": "MitM / 書き換えエンジンを通る HTTP(S) リクエストがここに表示されます。「その他」→「詳細設定」→「書き換え / HTTPS 復号」で有効にしてください。"
           }
         },
         "ko": {
           "stringUnit": {
             "state": "translated",
-            "value": "MitM / 재작성 엔진을 거치는 HTTP(S) 요청이 여기에 표시됩니다. 더보기 → 재작성 / MitM에서 켜세요."
+            "value": "MitM / 재작성 엔진을 거치는 HTTP(S) 요청이 여기에 표시됩니다. 더 보기 → 고급 설정 → 재작성 / HTTPS 복호화에서 켜세요."
           }
         },
         "ru": {
           "stringUnit": {
             "state": "translated",
-            "value": "Здесь видны HTTP(S)-запросы, прошедшие через движок MitM / перезаписи. Включите его в «Ещё» → «Перезапись / MitM»."
+            "value": "Здесь видны HTTP(S)-запросы, прошедшие через движок MitM / перезаписи. Включите его в «Ещё» → «Расширенные настройки» → «Перезапись / Расшифровка HTTPS»."
           }
         }
       }
@@ -51148,36 +51148,36 @@
         }
       }
     },
-    "规则加入「更多 → 规则 → 自定义规则」，优先于配置文件里的规则；连接中会立即重载。": {
+    "规则加入「更多 → 分流规则 → 自定义规则」，优先于配置文件里的规则；连接中会立即重载。": {
       "localizations": {
         "zh-Hant": {
           "stringUnit": {
             "state": "translated",
-            "value": "規則加入「更多 → 規則 → 自定義規則」，優先於配置檔案裡的規則；連線中會立即過載。"
+            "value": "規則加入「更多 → 分流規則 → 自定義規則」，優先於配置檔案裡的規則；連線中會立即過載。"
           }
         },
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "The rule goes to More → Rules → Custom Rules and is checked before the profile's rules; while connected it applies at once."
+            "value": "The rule goes to More → Routing Rules → Custom Rules and is checked before the profile's rules; while connected it applies at once."
           }
         },
         "ja": {
           "stringUnit": {
             "state": "translated",
-            "value": "ルールは「その他 → ルール → カスタムルール」に追加され、プロファイルのルールより優先されます。接続中はすぐに再読み込みされます。"
+            "value": "ルールは「その他 → 振り分けルール → カスタムルール」に追加され、プロファイルのルールより優先されます。接続中はすぐに再読み込みされます。"
           }
         },
         "ko": {
           "stringUnit": {
             "state": "translated",
-            "value": "규칙은 「더 보기 → 규칙 → 사용자 지정 규칙」에 추가되며 프로파일의 규칙보다 우선합니다. 연결 중에는 바로 다시 불러옵니다."
+            "value": "규칙은 「더 보기 → 분류 규칙 → 사용자 지정 규칙」에 추가되며 프로파일의 규칙보다 우선합니다. 연결 중에는 바로 다시 불러옵니다."
           }
         },
         "ru": {
           "stringUnit": {
             "state": "translated",
-            "value": "Правило попадает в «Ещё → Правила → Свои правила» и проверяется раньше правил профиля; при подключении применяется сразу."
+            "value": "Правило попадает в «Ещё → Правила маршрутизации → Свои правила» и проверяется раньше правил профиля; при подключении применяется сразу."
           }
         }
       }
@@ -51387,36 +51387,36 @@
         }
       }
     },
-    "规则集保存在自定义规则里（更多 → 规则 → 自定义），这里管理它的下载与更新。Surge / Loon / QX 列表与 Egern YAML 规则集会转换为 mihomo 规则；不支持的行会被跳过。连接期间内核也会按间隔自动更新。": {
+    "规则集保存在自定义规则里（更多 → 分流规则 → 自定义），这里管理它的下载与更新。Surge / Loon / QX 列表与 Egern YAML 规则集会转换为 mihomo 规则；不支持的行会被跳过。连接期间内核也会按间隔自动更新。": {
       "localizations": {
         "zh-Hant": {
           "stringUnit": {
             "state": "translated",
-            "value": "規則集儲存在自定義規則裡（更多 → 規則 → 自定義），這裡管理它的下載與更新。Surge / Loon / QX 列表與 Egern YAML 規則集會轉換為 mihomo 規則；不支援的行會被跳過。連線期間核心也會按間隔自動更新。"
+            "value": "規則集儲存在自定義規則裡（更多 → 分流規則 → 自定義），這裡管理它的下載與更新。Surge / Loon / QX 列表與 Egern YAML 規則集會轉換為 mihomo 規則；不支援的行會被跳過。連線期間核心也會按間隔自動更新。"
           }
         },
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "The rule set lives in the custom rules (More → Rules → Custom); this page manages downloading and updating it. Surge / Loon / QX lists and Egern YAML rule sets are converted to mihomo rules; unsupported lines are skipped. While connected the core also updates it at this interval."
+            "value": "The rule set lives in the custom rules (More → Routing Rules → Custom); this page manages downloading and updating it. Surge / Loon / QX lists and Egern YAML rule sets are converted to mihomo rules; unsupported lines are skipped. While connected the core also updates it at this interval."
           }
         },
         "ja": {
           "stringUnit": {
             "state": "translated",
-            "value": "ルールセットはカスタムルール（「その他」→「ルール」→「カスタム」）に保存され、ここではダウンロードと更新を管理します。Surge / Loon / QX のリストと Egern YAML ルールセットは mihomo のルールに変換され、非対応の行はスキップされます。接続中はコアもこの間隔で自動更新します。"
+            "value": "ルールセットはカスタムルール（「その他」→「振り分けルール」→「カスタム」）に保存され、ここではダウンロードと更新を管理します。Surge / Loon / QX のリストと Egern YAML ルールセットは mihomo のルールに変換され、非対応の行はスキップされます。接続中はコアもこの間隔で自動更新します。"
           }
         },
         "ko": {
           "stringUnit": {
             "state": "translated",
-            "value": "규칙 세트는 사용자 지정 규칙(더보기 → 규칙 → 사용자 지정)에 저장되며 여기서는 다운로드와 업데이트를 관리합니다. Surge / Loon / QX 목록과 Egern YAML 규칙 세트는 mihomo 규칙으로 변환되고, 지원하지 않는 줄은 건너뜁니다. 연결된 동안 코어도 이 간격으로 자동 업데이트합니다."
+            "value": "규칙 세트는 사용자 지정 규칙(더 보기 → 분류 규칙 → 사용자 지정)에 저장되며 여기서는 다운로드와 업데이트를 관리합니다. Surge / Loon / QX 목록과 Egern YAML 규칙 세트는 mihomo 규칙으로 변환되고, 지원하지 않는 줄은 건너뜁니다. 연결된 동안 코어도 이 간격으로 자동 업데이트합니다."
           }
         },
         "ru": {
           "stringUnit": {
             "state": "translated",
-            "value": "Набор правил хранится в своих правилах («Ещё» → «Правила» → «Свои»), здесь — его загрузка и обновление. Списки Surge / Loon / QX и наборы Egern YAML преобразуются в правила mihomo; неподдерживаемые строки пропускаются. При подключении ядро тоже обновляет набор с этим интервалом."
+            "value": "Набор правил хранится в своих правилах («Ещё» → «Правила маршрутизации» → «Свои»), здесь — его загрузка и обновление. Списки Surge / Loon / QX и наборы Egern YAML преобразуются в правила mihomo; неподдерживаемые строки пропускаются. При подключении ядро тоже обновляет набор с этим интервалом."
           }
         }
       }
@@ -55667,36 +55667,36 @@
         }
       }
     },
-    "这些选项会覆盖配置文件里的同名字段。DNS 模式在「更多 → DNS」中设置，IPv6 与局域网共享在「更多 → 连接方式」中设置。": {
+    "这些选项会覆盖配置文件里的同名字段。DNS 模式在「更多 → 高级设置 → DNS」中设置，IPv6 与局域网共享在「更多 → 高级设置 → 连接方式」中设置。": {
       "localizations": {
         "zh-Hant": {
           "stringUnit": {
             "state": "translated",
-            "value": "這些選項會覆蓋配置檔案裡的同名欄位。DNS 模式在「更多 → DNS」中設定，IPv6 與區域網共享在「更多 → 連線方式」中設定。"
+            "value": "這些選項會覆蓋配置檔案裡的同名欄位。DNS 模式在「更多 → 高階設定 → DNS」中設定，IPv6 與區域網共享在「更多 → 高階設定 → 連線方式」中設定。"
           }
         },
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "These options override the same fields in the profile. DNS mode is set in More → DNS; IPv6 and LAN sharing in More → Connection Mode."
+            "value": "These options override the same fields in the profile. DNS mode is set in More → Advanced Settings → DNS; IPv6 and LAN sharing in More → Advanced Settings → Connection Method."
           }
         },
         "ja": {
           "stringUnit": {
             "state": "translated",
-            "value": "これらの項目はプロファイルの同名フィールドを上書きします。DNS モードは「その他 → DNS」、IPv6 と LAN 共有は「その他 → 接続方式」で設定します。"
+            "value": "これらの項目はプロファイルの同名フィールドを上書きします。DNS モードは「その他 → 詳細設定 → DNS」、IPv6 と LAN 共有は「その他 → 詳細設定 → 接続方式」で設定します。"
           }
         },
         "ko": {
           "stringUnit": {
             "state": "translated",
-            "value": "이 옵션들은 프로파일의 같은 이름 필드를 덮어씁니다. DNS 모드는 '더 보기 → DNS'에서, IPv6와 LAN 공유는 '더 보기 → 연결 방식'에서 설정합니다."
+            "value": "이 옵션들은 프로파일의 같은 이름 필드를 덮어씁니다. DNS 모드는 '더 보기 → 고급 설정 → DNS'에서, IPv6와 LAN 공유는 '더 보기 → 고급 설정 → 연결 방식'에서 설정합니다."
           }
         },
         "ru": {
           "stringUnit": {
             "state": "translated",
-            "value": "Эти параметры заменяют одноимённые поля профиля. Режим DNS задаётся в «Ещё → DNS», IPv6 и общий доступ в LAN — в «Ещё → Способ подключения»."
+            "value": "Эти параметры заменяют одноимённые поля профиля. Режим DNS задаётся в «Ещё → Расширенные настройки → DNS», IPv6 и общий доступ в LAN — в «Ещё → Расширенные настройки → Способ подключения»."
           }
         }
       }
@@ -61710,37 +61710,37 @@
         }
       }
     },
-    "协议由 mihomo 内核 %@ 提供。节点保存在「手动节点」中；在 更多 → 内核设置 打开「把手动节点加入每个配置」后，可在任何订阅的策略里选择。": {
+    "协议由 mihomo 内核 %@ 提供。节点保存在「手动节点」中；在 更多 → 高级设置 → 内核设置 打开「把手动节点加入每个配置」后，可在任何订阅的策略里选择。": {
       "extractionState": "manual",
       "localizations": {
         "zh-Hant": {
           "stringUnit": {
             "state": "translated",
-            "value": "協議由 mihomo 核心 %@ 提供。節點儲存在「手動節點」中；在 更多 → 核心設定 開啟「把手動節點加入每個配置」後，可在任何訂閱的策略裡選擇。"
+            "value": "協議由 mihomo 核心 %@ 提供。節點儲存在「手動節點」中；在 更多 → 高階設定 → 核心設定 開啟「把手動節點加入每個配置」後，可在任何訂閱的策略裡選擇。"
           }
         },
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "Protocols are provided by the mihomo core %@. Nodes are saved in \"Manual Nodes\"; turn on \"Add manual nodes to every profile\" in More → Core Settings to pick them in any subscription's policies."
+            "value": "Protocols are provided by the mihomo core %@. Nodes are saved in \"Manual Nodes\"; turn on \"Add manual nodes to every profile\" in More → Advanced Settings → Core Settings to pick them in any subscription's policies."
           }
         },
         "ja": {
           "stringUnit": {
             "state": "translated",
-            "value": "プロトコルは mihomo コア %@ が提供します。ノードは「手動ノード」に保存されます。その他 → コア設定で「手動ノードをすべてのプロファイルに追加」をオンにすると、どの購読のポリシーでも選択できます。"
+            "value": "プロトコルは mihomo コア %@ が提供します。ノードは「手動ノード」に保存されます。その他 → 詳細設定 → コア設定で「手動ノードをすべてのプロファイルに追加」をオンにすると、どの購読のポリシーでも選択できます。"
           }
         },
         "ko": {
           "stringUnit": {
             "state": "translated",
-            "value": "프로토콜은 mihomo 코어 %@가 제공합니다. 노드는 '수동 노드'에 저장되며, 더보기 → 코어 설정에서 '수동 노드를 모든 프로파일에 추가'를 켜면 어떤 구독의 정책에서도 선택할 수 있습니다."
+            "value": "프로토콜은 mihomo 코어 %@가 제공합니다. 노드는 '수동 노드'에 저장되며, 더 보기 → 고급 설정 → 코어 설정에서 '수동 노드를 모든 프로파일에 추가'를 켜면 어떤 구독의 정책에서도 선택할 수 있습니다."
           }
         },
         "ru": {
           "stringUnit": {
             "state": "translated",
-            "value": "Протоколы предоставляет ядро mihomo %@. Узлы сохраняются в «Ручных узлах»; включите «Добавлять ручные узлы в каждый профиль» в Ещё → Настройки ядра, чтобы выбирать их в политиках любой подписки."
+            "value": "Протоколы предоставляет ядро mihomo %@. Узлы сохраняются в «Ручных узлах»; включите «Добавлять ручные узлы в каждый профиль» в Ещё → Расширенные настройки → Настройки ядра, чтобы выбирать их в политиках любой подписки."
           }
         }
       }
@@ -64230,37 +64230,37 @@
         }
       }
     },
-    "这个手动节点不在当前配置里：在 更多 → 内核设置 打开「把手动节点加入每个配置」，或把「手动节点」设为当前配置。": {
+    "这个手动节点不在当前配置里：在 更多 → 高级设置 → 内核设置 打开「把手动节点加入每个配置」，或把「手动节点」设为当前配置。": {
       "extractionState": "manual",
       "localizations": {
         "zh-Hant": {
           "stringUnit": {
             "state": "translated",
-            "value": "這個手動節點不在當前配置裡：在 更多 → 核心設定 開啟「把手動節點加入每個配置」，或把「手動節點」設為當前配置。"
+            "value": "這個手動節點不在當前配置裡：在 更多 → 高階設定 → 核心設定 開啟「把手動節點加入每個配置」，或把「手動節點」設為當前配置。"
           }
         },
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "This manual node isn't in the current profile: turn on \"Add manual nodes to every profile\" in More → Core Settings, or make \"Manual Nodes\" the current profile."
+            "value": "This manual node isn't in the current profile: turn on \"Add manual nodes to every profile\" in More → Advanced Settings → Core Settings, or make \"Manual Nodes\" the current profile."
           }
         },
         "ja": {
           "stringUnit": {
             "state": "translated",
-            "value": "この手動ノードは現在のプロファイルにありません。その他 → コア設定で「手動ノードをすべてのプロファイルに追加」をオンにするか、「手動ノード」を現在のプロファイルにしてください。"
+            "value": "この手動ノードは現在のプロファイルにありません。その他 → 詳細設定 → コア設定で「手動ノードをすべてのプロファイルに追加」をオンにするか、「手動ノード」を現在のプロファイルにしてください。"
           }
         },
         "ko": {
           "stringUnit": {
             "state": "translated",
-            "value": "이 수동 노드는 현재 프로파일에 없습니다. 더보기 → 코어 설정에서 '수동 노드를 모든 프로파일에 추가'를 켜거나 '수동 노드'를 현재 프로파일로 설정하세요."
+            "value": "이 수동 노드는 현재 프로파일에 없습니다. 더 보기 → 고급 설정 → 코어 설정에서 '수동 노드를 모든 프로파일에 추가'를 켜거나 '수동 노드'를 현재 프로파일로 설정하세요."
           }
         },
         "ru": {
           "stringUnit": {
             "state": "translated",
-            "value": "Этого ручного узла нет в текущем профиле: включите «Добавлять ручные узлы в каждый профиль» в Ещё → Настройки ядра или сделайте «Ручные узлы» текущим профилем."
+            "value": "Этого ручного узла нет в текущем профиле: включите «Добавлять ручные узлы в каждый профиль» в Ещё → Расширенные настройки → Настройки ядра или сделайте «Ручные узлы» текущим профилем."
           }
         }
       }
@@ -70768,36 +70768,36 @@
         }
       }
     },
-    "留空则跟随 更多 → 测速 的全局地址。": {
+    "留空则跟随 更多 → 高级设置 → 测速设置 的全局地址。": {
       "localizations": {
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "Leave empty to use the global URL from More → Latency Test."
+            "value": "Leave empty to use the global URL from More → Advanced Settings → Latency Test."
           }
         },
         "ja": {
           "stringUnit": {
             "state": "translated",
-            "value": "空欄の場合は「その他 → 遅延テスト」の全体 URL を使います。"
+            "value": "空欄の場合は「その他 → 詳細設定 → 速度測定の設定」の全体 URL を使います。"
           }
         },
         "ko": {
           "stringUnit": {
             "state": "translated",
-            "value": "비워 두면 더보기 → 지연 테스트의 전역 URL을 사용합니다."
+            "value": "비워 두면 더 보기 → 고급 설정 → 지연 테스트 설정의 전역 URL을 사용합니다."
           }
         },
         "ru": {
           "stringUnit": {
             "state": "translated",
-            "value": "Оставьте пустым, чтобы использовать общий URL из «Ещё → Тест задержки»."
+            "value": "Оставьте пустым, чтобы использовать общий URL из «Ещё → Расширенные настройки → Тест задержки»."
           }
         },
         "zh-Hant": {
           "stringUnit": {
             "state": "translated",
-            "value": "留空則跟隨 更多 → 測速 的全域性地址。"
+            "value": "留空則跟隨 更多 → 高階設定 → 測速設定 的全域性地址。"
           }
         }
       }

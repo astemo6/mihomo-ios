@@ -432,7 +432,7 @@ struct NodeDetailView: View {
                 kv("UDP", (info?.udp ?? node.udp) ? String(localized: "支持") : String(localized: "未开启"))
                 sourceRow
                 if !node.inRuntime && node.source.kind == .manual {
-                    Text("这个手动节点不在当前配置里：在 更多 → 内核设置 打开「把手动节点加入每个配置」，或把「手动节点」设为当前配置。")
+                    Text("这个手动节点不在当前配置里：在 更多 → 高级设置 → 内核设置 打开「把手动节点加入每个配置」，或把「手动节点」设为当前配置。")
                         .font(.footnote).foregroundStyle(.secondary)
                 }
             }
@@ -833,7 +833,7 @@ struct NodeSettingsSheet: View {
                             }
                         }
                     }
-                } header: { Text("测速地址") } footer: { Text("留空则跟随 更多 → 测速 的全局地址。") }
+                } header: { Text("测速地址") } footer: { Text("留空则跟随 更多 → 高级设置 → 测速设置 的全局地址。") }
                 if let error { Text(verbatim: error).foregroundStyle(Theme.bad) }
                 if NodeSettingsStore.setting(for: name) != nil {
                     Section {

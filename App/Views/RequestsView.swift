@@ -148,7 +148,7 @@ struct RequestsView: View {
                         if tab == 2 {
                             if http.items.isEmpty {
                                 EmptyStateRow(icon: "lock.open", title: "还没有 HTTP 请求",
-                                              message: "经过 MitM / 重写引擎的 HTTP(S) 请求会显示在这里。需要在 更多 → 重写 / MitM 中启用。")
+                                              message: "经过 MitM / 重写引擎的 HTTP(S) 请求会显示在这里。需要在 更多 → 高级设置 → 重写 / HTTPS 解密 中启用。")
                                     .listRowBackground(Theme.card)
                             }
                             ForEach(httpItems) { r in
@@ -350,7 +350,7 @@ struct QuickRuleSheet: View {
                 }
                 .listRowBackground(Theme.card)
                 Section {
-                    Text("规则加入「更多 → 规则 → 自定义规则」，优先于配置文件里的规则；连接中会立即重载。")
+                    Text("规则加入「更多 → 分流规则 → 自定义规则」，优先于配置文件里的规则；连接中会立即重载。")
                         .font(.footnote).foregroundStyle(.secondary)
                 }
                 .listRowBackground(Color.clear)

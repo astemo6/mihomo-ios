@@ -37,7 +37,7 @@ var errHints = []errHint{
 	{regexp.MustCompile(`(?i)yaml:|unmarshal|mapping values are not allowed|did not find expected`), "配置文件格式错误（YAML）"},
 	{regexp.MustCompile(`(?i)(rule[- ]?provider|ruleset|rule set)`), "规则集加载失败"},
 	{regexp.MustCompile(`(?i)(proxy[- ]?provider)`), "节点集（proxy-provider）加载失败"},
-	{regexp.MustCompile(`(?i)(geosite|geoip|mmdb|metadb|asn\.mmdb|geodata).*(download|not found|no such file|invalid|failed)|(download|can't download).*(geo|mmdb)`), "地理数据库缺失或损坏，且下载失败（可在 更多 → 地理与规则库 更新，或打开国内镜像）"},
+	{regexp.MustCompile(`(?i)(geosite|geoip|mmdb|metadb|asn\.mmdb|geodata).*(download|not found|no such file|invalid|failed)|(download|can't download).*(geo|mmdb)`), "地理数据库缺失或损坏，且下载失败（可在 更多 → 高级设置 → 地理数据库 更新，或打开国内镜像）"},
 	{regexp.MustCompile(`(?i)(proxy group|proxy-group|group).*(not found|doesn't exist|does not exist)|'proxies' missing|use or proxies missing`), "策略组引用了不存在的节点或策略组"},
 	{regexp.MustCompile(`(?i)(proxy|proxies) ?\d*:.*(missing|invalid|unsupported|not support)|parse proxy|unsupport proxy type`), "有节点无法解析（协议参数缺失或不支持）"},
 	{regexp.MustCompile(`(?i)rules\[\d+\]|rule .*(invalid|not found|unsupported)|payload`), "规则写法有误或引用了不存在的策略"},

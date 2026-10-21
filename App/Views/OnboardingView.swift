@@ -180,7 +180,7 @@ struct OnboardingView: View {
                         StepLine(n: 2, text: "设置 → 已下载描述文件 → 安装")
                         StepLine(n: 3, text: "设置 → 通用 → 关于本机 → 证书信任设置 → 打开完全信任")
                     }
-                    Text("不需要的话直接点「开始使用」，以后在 更多 → MitM 设置。").font(.footnote).foregroundStyle(.secondary)
+                    Text("不需要的话直接点「开始使用」，以后在 更多 → 高级设置 → HTTPS 解密 中设置。").font(.footnote).foregroundStyle(.secondary)
                 }
             }
         }

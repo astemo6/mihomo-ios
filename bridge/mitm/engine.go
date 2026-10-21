@@ -196,7 +196,7 @@ func (e *Engine) Reload(cfg *Config, rs *Ruleset) {
 		ca, err := LoadCA(e.home)
 		if err != nil {
 			s.caErr = "未生成 CA 证书"
-			e.logf("warning", "[MitM] 未找到 CA 证书，HTTPS 解密不可用：请在 更多 → MitM 中生成并安装证书")
+			e.logf("warning", "[MitM] 未找到 CA 证书，HTTPS 解密不可用：请在 更多 → 高级设置 → HTTPS 解密 中生成并安装证书")
 		} else {
 			s.ca = ca
 		}

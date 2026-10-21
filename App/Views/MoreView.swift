@@ -429,7 +429,7 @@ struct SettingsView: View {
                 }
                 Toggle("域名嗅探（Sniffer）", isOn: $o.sniffer)
             } header: { Text("内核") } footer: {
-                Text("这些选项会覆盖配置文件里的同名字段。DNS 模式在「更多 → DNS」中设置，IPv6 与局域网共享在「更多 → 连接方式」中设置。")
+                Text("这些选项会覆盖配置文件里的同名字段。DNS 模式在「更多 → 高级设置 → DNS」中设置，IPv6 与局域网共享在「更多 → 高级设置 → 连接方式」中设置。")
             }
             .listRowBackground(Theme.card)
 
