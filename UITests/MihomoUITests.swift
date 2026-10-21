@@ -604,7 +604,9 @@ final class MihomoUITests: MihomoUITestCase {
             for k in ["保存", "保存并重载", "保存并重载内核"] {
                 XCTAssertFalse(app.buttons.matching(NSPredicate(format: "label == %@", L(k))).firstMatch.exists, "\(page): 保存 button still there (\(k))")
             }
-            let sw = connSwitch(toggle)
+            var sw = connSwitch(toggle)
+            // r7 (backlog B09): the light-mode 「switch not found」 flake — leave and re-enter the page once.
+            if !scrollTo(sw, fail: false) { back(); openMore(page); sw = connSwitch(toggle) }
             guard scrollTo(sw) else { back(); continue }
             let before = switchValue(sw)
             toggleSwitch(sw)
@@ -1544,10 +1546,18 @@ final class MihomoUITests: MihomoUITestCase {
         back()
         // 局域网多用户 under 连接方式 → 局域网共享.
         openMore("连接方式")
-        let lan = connSwitch("局域网共享")
+        var lan = connSwitch("局域网共享")
+        // r7 (backlog B09): re-enter the page once when the switch / row is not found (light-mode flake).
+        if !scrollTo(lan, fail: false) { back(); openMore("连接方式"); lan = connSwitch("局域网共享") }
         XCTAssertTrue(scrollTo(lan), "局域网共享 switch")
         if switchValue(lan) != "1" { toggleSwitch(lan) }
-        let users = app.element(id: "lan.users")
+        var users = app.element(id: "lan.users")
+        if !(users.waitForExistence(timeout: 5) && scrollTo(users, fail: false)) {
+            back(); openMore("连接方式")
+            let lanAgain = connSwitch("局域网共享")
+            if scrollTo(lanAgain, fail: false), switchValue(lanAgain) != "1" { toggleSwitch(lanAgain) }
+            users = app.element(id: "lan.users")
+        }
         XCTAssertTrue(scrollTo(users), "其他用户")
         users.tap()
         XCTAssertTrue(app.navigationBars[L("其他用户")].waitForExistence(timeout: 6))
