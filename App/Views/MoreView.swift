@@ -18,8 +18,6 @@ struct MoreView: View {
     /// had opened from this list, or over whatever deeper page was showing.
     enum Route: Hashable { case profiles }
     @State private var path: [Route] = []
-    /// A new id rebuilds the stack, which also pops pages pushed by plain (closure) NavigationLinks.
-    @State private var stackID = UUID()
     /// False until the stack first appeared (a new MoreView, e.g. iPad's per-tab rebuild, starts with an empty stack).
     @State private var appeared = false
 
@@ -117,7 +115,6 @@ struct MoreView: View {
                     .environmentObject(store)
             }
         }
-        .id(stackID)
         // onAppear too: on iPad the detail column is rebuilt per tab (.id(selectedTab)) after the flag was set.
         .onAppear {
             showProfilesIfAsked()
@@ -127,12 +124,13 @@ struct MoreView: View {
     }
 
     /// Exactly one 配置 page on top of 更多, whatever was pushed before.
-    /// r7 P3-9 follow-up: the request arrives in the same update that switches the tab bar to 更多
-    /// (ImportRouter.showProfiles sets selectedTab too). Rebuilding the stack (.id) right then swapped the
-    /// UINavigationController while UITabBarController was adding it to the window, and UINavigationBar
-    /// layoutSubviews threw (SIGABRT, Self-test zh test57 「前往配置」). So the stack is replaced on the next
-    /// main-queue turn, after the tab transition, and only when it can hold pages: on the first appearance the
-    /// stack is new and just gets [配置].
+    /// r7 P3-9 follow-up: the first version rebuilt the stack with `.id(UUID())`. Swapping the
+    /// UINavigationController under a visible navigation bar inside the TabView made UINavigationBar
+    /// layoutSubviews throw (SIGABRT in Self-test test57, both during the tab switch and right after it).
+    /// The stack is never rebuilt now: changing `path` to [] pops to 更多 (that also drops pages pushed by
+    /// closure NavigationLinks, which sit above the path entries), and 配置 is pushed on the next main-queue turn so
+    /// the two changes are not coalesced. Both run after the tab switch that ImportRouter.showProfiles does in
+    /// the same update. A stack that never appeared is empty and just gets [配置].
     func showProfilesIfAsked() {
         guard router.openProfiles else { return }
         router.openProfiles = false
@@ -144,13 +142,18 @@ struct MoreView: View {
                 withTransaction(t) { path = [.profiles] }
                 return
             }
-            // Pages pushed by closure links (every other row, and links inside 配置) are not in `path`, so the
-            // stack is rebuilt rather than trusted: afterwards it is exactly 更多 → 配置.
-            withTransaction(t) {
-                stackID = UUID()
-                path = []
+            // Pages pushed by closure links are only dropped when `path` actually changes. With an empty path
+            // (e.g. 更多 → 高级设置), set it to [配置] first so there is a change, then clear it.
+            if path.isEmpty {
+                withTransaction(t) { path = [.profiles] }
+                DispatchQueue.main.async {
+                    withTransaction(t) { path = [] }
+                    DispatchQueue.main.async { path = [.profiles] }
+                }
+            } else {
+                withTransaction(t) { path = [] }
+                DispatchQueue.main.async { path = [.profiles] }
             }
-            DispatchQueue.main.async { path = [.profiles] }
         }
     }
 }
