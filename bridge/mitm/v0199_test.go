@@ -247,9 +247,9 @@ func TestV0199SubStoreBackend(t *testing.T) {
 	seedScript(t, h.home, substoreRel+"sub-store-0.min.js", simple)
 	rs := Build(h.home, cfg)
 	h.e.Reload(cfg, rs)
-	savedIdle := largeProgIdle
-	largeProgIdle = 2 * time.Second
-	defer func() { largeProgIdle = savedIdle }()
+	savedIdle := largeProgIdleNs.Load()
+	largeProgIdleNs.Store(int64(2 * time.Second))
+	defer largeProgIdleNs.Store(savedIdle)
 
 	base := liveHeap()
 	hp := startHeapPeak()

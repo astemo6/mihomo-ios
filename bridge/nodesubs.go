@@ -47,6 +47,10 @@ func defaultSubGroup(g map[string]any) bool {
 	case "url-test":
 		return true
 	case "select":
+		// Review 7 P1-1: a group whose 节点集 was 停用 / 删除 offered nodes before; it still takes subscriptions.
+		if _, lost := g[providerLostKey]; lost {
+			return true
+		}
 		if len(asList(g["use"])) > 0 || boolOf(g["include-all"]) || boolOf(g["include-all-proxies"]) || boolOf(g["include-all-providers"]) {
 			return true
 		}
