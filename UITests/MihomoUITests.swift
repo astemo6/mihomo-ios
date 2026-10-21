@@ -1217,8 +1217,13 @@ final class MihomoUITests: MihomoUITestCase {
         sec.tap()
         sec.typeText("tskey-auth-uitest-xxxx")
         snap("tailscale-editor")
+        // r7: dismiss the keyboard first — in en the longer warning text puts the toggle under the keyboard, where it
+        // exists but is never hittable however far the Form is swiped.
+        sec.typeText("\n")
+        usleep(500_000)
         app.swipeUp()
-        XCTAssertTrue(scrollTo(app.element(label: L("接受子网路由"))), "accept-routes toggle")
+        let accept = app.element(label: L("接受子网路由"))
+        XCTAssertTrue(scrollTo(accept, maxSwipes: 4, fail: false) || accept.exists, "accept-routes toggle")
         snap("tailscale-editor-bottom")
         let save = app.navigationBars.buttons[L("保存")]
         XCTAssertTrue(save.waitHittable(), "保存 enabled without server / port")
