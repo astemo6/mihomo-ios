@@ -223,9 +223,14 @@ struct GroupIconView: View {
         let url = store.iconURL(group: group, profileIcon: profileIcon)
         let glyph = store.glyph(group: group)
         ZStack {
-            RoundedRectangle(cornerRadius: size * 0.29).fill(Theme.accent.opacity(image == nil ? 0.15 : 0.06))
+            // feat/egern-style: picture icons stand on their own (Egern); symbols get a solid accent tile, white glyph.
+            if image == nil, case .emoji = glyph {
+                RoundedRectangle(cornerRadius: size * 0.25, style: .continuous).fill(Theme.accent.opacity(0.12))
+            } else if image == nil {
+                RoundedRectangle(cornerRadius: size * 0.25, style: .continuous).fill(Theme.accentSolid)
+            }
             if let image {
-                Image(uiImage: image).resizable().scaledToFit().padding(size * 0.1)
+                Image(uiImage: image).resizable().scaledToFit()
             } else if case .emoji(let e) = glyph {
                 // v0.19.8: an emoji / flag icon (筛选节点 flag, 自定义 emoji)
                 if let l = FlagSafe.letters(e), !FlagSafe.renders(e) {
@@ -234,9 +239,9 @@ struct GroupIconView: View {
                     Text(verbatim: e).font(.system(size: size * 0.55))
                 }
             } else if case .symbol(let n) = glyph {
-                Image(systemName: n).font(size > 30 ? .headline : .caption.weight(.semibold)).foregroundStyle(Theme.accent)
+                Image(systemName: n).font(.system(size: size * 0.48, weight: .semibold)).foregroundStyle(.white)
             } else {
-                Image(systemName: fallback).font(size > 30 ? .headline : .caption.weight(.semibold)).foregroundStyle(Theme.accent)
+                Image(systemName: fallback).font(.system(size: size * 0.48, weight: .semibold)).foregroundStyle(.white)
             }
         }
         .frame(width: size, height: size)

@@ -15,6 +15,7 @@ struct MihomoApp: App {
     @Environment(\.scenePhase) private var phase
 
     init() {
+        EgernDensity.applyBars()
         // test/selftest: simulator UI tests only (-UITestSeed); wipes the demo container before any store loads.
         UITestSeed.resetIfNeeded()
         // Bundled geo databases → core home, so profile validation in the app never downloads them either.
@@ -67,11 +68,12 @@ enum AppSection: Int, CaseIterable, Identifiable {
     }
     var icon: String {
         switch self {
-        case .home: return "gauge.with.dots.needle.67percent"
-        case .policy: return "square.grid.2x2.fill"
+        // feat/egern-style: thin outline symbols (the tab bar no longer forces .fill, see RootView).
+        case .home: return "gauge.with.dots.needle.33percent"
+        case .policy: return "paperplane"
         case .requests: return "arrow.left.arrow.right"
-        case .tools: return "wrench.and.screwdriver.fill"
-        case .more: return "ellipsis.circle.fill"
+        case .tools: return "wrench.and.screwdriver"
+        case .more: return "gearshape"
         }
     }
     @ViewBuilder var view: some View {
@@ -104,11 +106,15 @@ struct RootView: View {
             } else {
                 TabView(selection: $router.selectedTab) {
                     ForEach(AppSection.allCases) { s in
-                        s.view.tabItem { Label(LocalizedStringKey(s.title), systemImage: s.icon) }.tag(s.rawValue)
+                        s.view
+                            .tabItem { Label(LocalizedStringKey(s.title), systemImage: s.icon).environment(\.symbolVariants, .none) }
+                            .tag(s.rawValue)
                     }
                 }
             }
         }
+        // feat/egern-style: dense Egern lists — 15 pt body text, 40 pt minimum rows, compact section gaps.
+        .modifier(EgernDensity())
         .overlay(alignment: .bottomLeading) { UITestReadyMarker() }
         .fullScreenCover(isPresented: $showOnboarding) {
             OnboardingView { showOnboarding = false }
@@ -184,7 +190,12 @@ enum Theme {
         dyn(rgb(r * 0.78, g * 0.78, b * 0.78), rgb(r, g, b))
     }
 
+    /// feat/egern-style: corner radius of every card (Egern's subtle ~10–12 pt, was 18).
+    static let radius: CGFloat = 12
+
     static let accent = dyn(rgb(0.0, 0.47, 0.78), rgb(0.29, 0.78, 0.96))
+    /// feat/egern-style: the light-mode accent in both appearances, for solid tiles under a white symbol.
+    static let accentSolid = Color(rgb(0.0, 0.47, 0.78))
     static let bg = dyn(rgb(0.949, 0.953, 0.969), rgb(0.04, 0.043, 0.063))
     static let card = dyn(rgb(1, 1, 1), rgb(0.09, 0.10, 0.13))
     static let cardHi = dyn(rgb(0.918, 0.925, 0.945), rgb(0.13, 0.14, 0.18))
@@ -273,14 +284,21 @@ enum Theme {
 }
 
 struct Card<Content: View>: View {
-    var padding: CGFloat = 16
+    var padding: CGFloat = 12
     @ViewBuilder var content: Content
     var body: some View {
         content
             .padding(padding)
             .frame(maxWidth: .infinity, alignment: .leading)
-            .background(RoundedRectangle(cornerRadius: 18, style: .continuous).fill(Theme.card))
-            .overlay(RoundedRectangle(cornerRadius: 18, style: .continuous).stroke(Theme.ink(0.06)))
+            .egernCard()
+    }
+}
+
+extension View {
+    /// feat/egern-style: the one card surface — flat `Theme.card`, `Theme.radius` corners, no border or shadow
+    /// (Egern's white cards on the grouped background).
+    func egernCard(_ radius: CGFloat = Theme.radius) -> some View {
+        background(RoundedRectangle(cornerRadius: radius, style: .continuous).fill(Theme.card))
     }
 }
 
@@ -312,5 +330,32 @@ struct NotConnectedPlaceholder: View {
                 Task { await vpn.toggle() }
             }
         }
+    }
+}
+
+/// feat/egern-style (user 2026-10-21 「所以你的整体风格可向它看齐」): Egern's compact density for every page.
+/// Text without an explicit font is 15 pt (`.subheadline`, still Dynamic Type), list rows may be 40 pt, grouped
+/// sections sit closer together, and the navigation bar titles are a size smaller (28 pt large, 16 pt inline).
+struct EgernDensity: ViewModifier {
+    @ViewBuilder func body(content: Content) -> some View {
+        let c = content
+            .font(.subheadline)
+            .environment(\.defaultMinListRowHeight, 40)
+        if #available(iOS 17.0, *) {
+            c.listSectionSpacing(.compact)
+        } else {
+            c
+        }
+    }
+
+    /// UIKit bars cannot be styled from SwiftUI; done once at launch.
+    static func applyBars() {
+        let large = UIFont.systemFont(ofSize: 28, weight: .bold)
+        let inline = UIFont.systemFont(ofSize: 16, weight: .semibold)
+        let nav = UINavigationBar.appearance()
+        nav.largeTitleTextAttributes = [.font: UIFontMetrics(forTextStyle: .largeTitle).scaledFont(for: large)]
+        nav.titleTextAttributes = [.font: UIFontMetrics(forTextStyle: .headline).scaledFont(for: inline)]
+        let item = UITabBarItem.appearance()
+        item.setTitleTextAttributes([.font: UIFont.systemFont(ofSize: 10, weight: .regular)], for: .normal)
     }
 }

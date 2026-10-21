@@ -157,22 +157,39 @@ enum TileTone {
         case .neutral: return Theme.neutral
         }
     }
+    /// feat/egern-style: solid tile fill behind a white symbol — the light-mode value of the same tone in both
+    /// appearances (the bright dark-mode values are too light under white). No new colour.
+    var fill: Color {
+        func t(_ r: CGFloat, _ g: CGFloat, _ b: CGFloat) -> Color { Color(Theme.rgb(r * 0.78, g * 0.78, b * 0.78)) }
+        switch self {
+        case .blue: return t(0.25, 0.6, 1.0)
+        case .teal: return t(0.2, 0.8, 0.85)
+        case .green: return t(0.35, 0.85, 0.45)
+        case .orange: return t(1.0, 0.62, 0.2)
+        case .red: return t(1.0, 0.45, 0.45)
+        case .purple: return t(0.55, 0.45, 1.0)
+        case .pink: return t(1.0, 0.4, 0.75)
+        case .accent: return Theme.accentSolid
+        case .neutral: return Color(UIColor(white: 0.60, alpha: 1))
+        }
+    }
 }
 
-/// Rounded-square icon tile for list rows: a soft tint of the tone with the symbol in the tone itself.
-/// Tinted rather than solid so the same tile reads calmly on both the light and the dark card.
+/// Rounded-square icon tile for list rows. feat/egern-style: Egern's small solid tile — the tone as the fill, a white
+/// symbol, 28 pt with 7 pt corners. Dimmed rows use the neutral grey.
 struct IconTile: View {
     let symbol: String
     var tone: TileTone = .accent
     var dimmed = false
+    var size: CGFloat = 28
 
     var body: some View {
         Image(systemName: symbol)
-            .font(.system(size: 15, weight: .semibold))
-            .foregroundStyle(dimmed ? Color.secondary : tone.color)
-            .frame(width: 30, height: 30)
-            .background(RoundedRectangle(cornerRadius: 8, style: .continuous)
-                .fill((dimmed ? Theme.neutral : tone.color).opacity(dimmed ? 0.14 : 0.16)))
+            .font(.system(size: size * 0.5, weight: .semibold))
+            .foregroundStyle(.white)
+            .frame(width: size, height: size)
+            .background(RoundedRectangle(cornerRadius: size * 0.25, style: .continuous)
+                .fill(dimmed ? TileTone.neutral.fill : tone.fill))
             .accessibilityHidden(true)
     }
 }
@@ -190,19 +207,19 @@ struct TileRow: View {
     var dimmed = false
 
     var body: some View {
+        // feat/egern-style: 15 pt title, a small grey subtitle, the value on the right at nearly title size.
         HStack(spacing: 12) {
             IconTile(symbol: symbol, tone: tone, dimmed: dimmed)
             VStack(alignment: .leading, spacing: 1) {
-                Text(LocalizedStringKey(title)).foregroundStyle(dimmed ? Color.secondary : Color.primary)
+                Text(LocalizedStringKey(title)).font(.subheadline).foregroundStyle(dimmed ? Color.secondary : Color.primary)
                 if let subtitle {
-                    Text(LocalizedStringKey(subtitle)).font(.caption).foregroundStyle(.secondary).lineLimit(1)
+                    Text(LocalizedStringKey(subtitle)).font(.caption2).foregroundStyle(.secondary).lineLimit(1)
                 }
             }
             Spacer(minLength: 8)
             if let value {
-                Text(LocalizedStringKey(value)).font(.caption).foregroundStyle(dimmed ? Color.secondary : valueColor).lineLimit(1)
+                Text(LocalizedStringKey(value)).font(.footnote).foregroundStyle(dimmed ? Color.secondary : valueColor).lineLimit(1)
             }
         }
-        .padding(.vertical, 2)
     }
 }
