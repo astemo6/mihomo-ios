@@ -14,7 +14,15 @@ import UIKit
 /// Nothing here is real user data.
 enum UITestSeed {
     static var args: [String] { ProcessInfo.processInfo.arguments }
-    static var enabled: Bool { args.contains("-UITestSeed") }
+    /// r7 (review7 OPT-1): Debug builds only. The UI tests build Debug (ui-tests.yml); a Release build launched with
+    /// -UITestSeed (devicectl / Xcode) must never wipe the container, so the seed and the wipe are compiled out.
+    static var enabled: Bool {
+        #if DEBUG
+        return args.contains("-UITestSeed")
+        #else
+        return false
+        #endif
+    }
 
     static func value(after flag: String) -> String? {
         guard let i = args.firstIndex(of: flag), i + 1 < args.count else { return nil }
@@ -33,6 +41,7 @@ enum UITestSeed {
     static var keepData: Bool { args.contains("-UITestKeepData") }
 
     @MainActor static func resetIfNeeded() {
+        #if DEBUG
         guard enabled, !keepData else { return }
         let fm = FileManager.default
         for dir in [AppShared.containerURL, fm.urls(for: .documentDirectory, in: .userDomainMask)[0]] {
@@ -42,6 +51,7 @@ enum UITestSeed {
         UserDefaults(suiteName: AppShared.appGroup)?.removePersistentDomain(forName: AppShared.appGroup)
         UserDefaults.standard.set(true, forKey: "onboardingDone.v1")
         AppShared.defaults.set("disabled", forKey: IPInfoFetcher.checkerKey)
+        #endif
     }
 
     @MainActor

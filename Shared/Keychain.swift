@@ -15,6 +15,8 @@ enum Keychain {
     /// kSecAttrAccount names used through this wrapper.
     static let controllerSecretAccount = "controller-secret"
     static let lanSharePasswordAccount = "lan-share-password"
+    /// r7 B01: 其他用户 passwords (JSON username → password); the app's recovery copy of secrets.json.
+    static let lanUsersAccount = "lan-extra-users"
 
     private static func baseQuery(account: String) -> [String: Any] {
         [

@@ -26,9 +26,28 @@ func TestR7B04EmptySecretNeverReachesRuntime(t *testing.T) {
 	b, _ := os.ReadFile(filepath.Join(home, "overrides.json"))
 	raw := map[string]any{}
 	_ = json.Unmarshal(b, &raw)
-	if raw["secret"] != o.Secret || raw["mode"] != "rule" || raw["controllerPort"] != float64(9191) {
-		t.Fatalf("secret must be written back, other keys kept: %s", b)
+	if raw["secret"] != "" || raw["mode"] != "rule" || raw["controllerPort"] != float64(9191) {
+		t.Fatalf("overrides.json must stay as it was (r7 B01: no secret in it): %s", b)
 	}
+	sb, _ := os.ReadFile(filepath.Join(home, "secrets.json"))
+	sraw := map[string]any{}
+	_ = json.Unmarshal(sb, &sraw)
+	if sraw["secret"] != o.Secret {
+		t.Fatalf("secret must be written back into secrets.json: %s", sb)
+	}
+	if st, err := os.Stat(filepath.Join(home, "secrets.json")); err != nil || st.Mode().Perm() != 0o600 {
+		t.Fatalf("secrets.json must be 0600: %v %v", st, err)
+	}
+	// Other keys of an existing secrets.json are kept.
+	_ = os.WriteFile(filepath.Join(home, "secrets.json"), []byte(`{"secret":"","lanPassword":"pw","lanUsers":{"u":"p"}}`), 0o600)
+	o3 := readOverrides(home)
+	sb, _ = os.ReadFile(filepath.Join(home, "secrets.json"))
+	sraw = map[string]any{}
+	_ = json.Unmarshal(sb, &sraw)
+	if len(o3.Secret) < 16 || sraw["secret"] != o3.Secret || sraw["lanPassword"] != "pw" {
+		t.Fatalf("secrets.json other keys must be kept: %s", sb)
+	}
+	o = o3
 	if again := readOverrides(home); again.Secret != o.Secret {
 		t.Fatalf("second read must reuse the stored secret: %q vs %q", again.Secret, o.Secret)
 	}
@@ -44,6 +63,9 @@ func TestR7B04EmptySecretNeverReachesRuntime(t *testing.T) {
 	}
 	if _, err := os.Stat(filepath.Join(empty, "overrides.json")); err == nil {
 		t.Fatal("must not create overrides.json")
+	}
+	if _, err := os.Stat(filepath.Join(empty, "secrets.json")); err == nil {
+		t.Fatal("must not create secrets.json")
 	}
 }
 

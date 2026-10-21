@@ -31,6 +31,7 @@ final class SmartGroups: ObservableObject {
 
     func load() {
         if let d = try? Data(contentsOf: Self.url), let m = try? JSONDecoder().decode([String: Settings].self, from: d) { all = m }
+        else if !FileManager.default.fileExists(atPath: Self.url.path) { all = [:] } // r7 R7A-1: reload after restore
     }
 
     func isSmart(_ group: String) -> Bool {

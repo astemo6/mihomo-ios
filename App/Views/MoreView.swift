@@ -588,6 +588,7 @@ struct DiagnosticsView: View {
                 LabeledContent("共享容器") {
                     Text(AppShared.containerOK ? "正常" : "不可用").foregroundStyle(AppShared.containerOK ? Theme.good : Theme.bad)
                 }
+                if let w = AppShared.appGroupWarning { Text(w).font(.footnote).foregroundStyle(Theme.bad) } // r7 B05
                 let groups = AppShared.provisionedAppGroups()
                 LabeledContent("描述文件中的组", value: groups.isEmpty ? String(localized: "（未找到 embedded.mobileprovision）") : groups.sorted().joined(separator: "\n"))
                 LabeledContent("VPN 状态", value: vpn.statusText)
@@ -596,7 +597,7 @@ struct DiagnosticsView: View {
                 LabeledContent("连接方式", value: co.isProxyOnly ? String(localized: "仅代理（NEProxySettings）") : co.isMixed ? String(localized: "VPN 混合（PacketFlowBridge + NEProxySettings）") : String(localized: "全局隧道（PacketFlowBridge）"))
                 if vpn.safeModeActive { LabeledContent("安全模式", value: String(localized: "开启")) }
             } header: { Text("签名与容器") } footer: {
-                Text("重签名后描述文件会替换 entitlements。App 与扩展会在运行时从描述文件读取 App Group 并按字母序选第一个可用的；共享容器不可用时扩展无法读取配置，连接会失败。")
+                Text("重签名后描述文件会替换 entitlements。App、扩展和小组件会记住第一次使用的 App Group，之后优先用它，其次是已有配置的组；共享容器不可用时扩展无法读取配置，连接会失败。")
             }
             .listRowBackground(Theme.card)
             if let e = vpn.lastError {

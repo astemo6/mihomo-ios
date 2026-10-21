@@ -115,6 +115,11 @@ enum GoText {
         case "名称、类型、服务器不能为空": return String(localized: "名称、类型、服务器不能为空")
         case "无法安全地重排策略组（配置使用了 YAML 锚点或特殊格式）": return String(localized: "无法安全地重排策略组（配置使用了 YAML 锚点或特殊格式）")
         case "配置文件中没有可排序的策略组": return String(localized: "配置文件中没有可排序的策略组")
+        // r7 R7A-3: AppShared.appGroupSource labels (诊断 → 来源).
+        case "描述文件": return String(localized: "描述文件")
+        case "已记住": return String(localized: "已记住")
+        case "已有数据": return String(localized: "已有数据")
+        case "默认": return String(localized: "默认")
         default: return s
         }
     }

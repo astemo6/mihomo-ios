@@ -202,7 +202,15 @@ final class VPNManager: ObservableObject {
             o.save()
             safeModeActive = safeMode
             let m = try await ensureManager()
-            if !m.isEnabled {
+            // r7 (review7 R7A-2): the scope in overrides.json (restored backup / snapshot / sync, a page that
+            // short-circuited) must be what iOS enforces — re-applied before every start when it differs.
+            var scopeStale = false
+            if !UITestSeed.enabled, let proto = m.protocolConfiguration as? NETunnelProviderProtocol, !Self.scopeMatches(o, proto) {
+                Self.applyScope(o, to: proto)
+                m.protocolConfiguration = proto
+                scopeStale = true
+            }
+            if !m.isEnabled || scopeStale {
                 m.isEnabled = true
                 do {
                     try await m.saveToPreferences()
@@ -260,6 +268,48 @@ final class VPNManager: ObservableObject {
         if #available(iOS 17.4, *) {
             proto.excludeDeviceCommunication = o.excludeDeviceCommunication
         }
+    }
+
+    /// r7 R7A-2: true when the configuration already carries what applyScope would write.
+    static func scopeMatches(_ o: CoreOverrides, _ proto: NETunnelProviderProtocol) -> Bool {
+        if proto.includeAllNetworks != (o.includeAllNetworks && !o.isProxyOnly) { return false }
+        if proto.excludeLocalNetworks != o.excludeLocalNetworks { return false }
+        if #available(iOS 16.4, *) {
+            if proto.excludeAPNs != o.excludeAPNs || proto.excludeCellularServices != o.excludeCellularServices { return false }
+        }
+        if #available(iOS 17.4, *) {
+            if proto.excludeDeviceCommunication != o.excludeDeviceCommunication { return false }
+        }
+        return true
+    }
+
+    /// r7 R7A-2: after a restore (backup, snapshot, sync folder) or a 连接方式 apply that found nothing changed:
+    /// writes the stored scope into the existing VPN configuration when they differ. Returns true when it had to
+    /// (the running tunnel then needs a reconnect). Never creates a configuration.
+    @discardableResult
+    func syncTunnelScope() async -> Bool {
+        if UITestSeed.enabled { return false }
+        if manager == nil { await load() }
+        guard let m = manager, let proto = m.protocolConfiguration as? NETunnelProviderProtocol else { return false }
+        let o = CoreOverrides.load()
+        if Self.scopeMatches(o, proto) { return false }
+        Self.applyScope(o, to: proto)
+        m.protocolConfiguration = proto
+        do {
+            try await m.saveToPreferences()
+            try await m.loadFromPreferences()
+            NSLog("[Tern] tunnel scope re-applied (includeAllNetworks %d)", proto.includeAllNetworks ? 1 : 0)
+            return true
+        } catch {
+            NSLog("[Tern] tunnel scope sync failed: %@", error.localizedDescription)
+            return false
+        }
+    }
+
+    /// r7 R7A-2: a scope change only applies to a new connection.
+    func reconnectForScope() async {
+        guard isConnected else { return }
+        await restart(safeMode: false)
     }
 
     /// Writes the scope switches into the VPN configuration. Returns an error message or nil.

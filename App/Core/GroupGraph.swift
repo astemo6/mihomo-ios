@@ -61,27 +61,44 @@ struct GroupGraph {
     /// member that answered. With nothing measured yet an automatic group falls back to its listed current member.
     /// nil for relay (a chain's delay is not the delay of one node), an empty group, or a cycle.
     func resolve(_ name: String, delays: [String: Int]) -> Resolution? {
-        var visiting: Set<String> = []
-        return resolve(name, delays: delays, visiting: &visiting)
+        let memo = ResolveMemo()
+        return resolve(name, delays: delays, memo: memo)
     }
 
-    private func resolve(_ name: String, delays: [String: Int], visiting: inout Set<String>) -> Resolution? {
+    /// r7 (review7 OPT-3): results of one `delays` snapshot, shared by every resolve of one chain() call (a 20-member
+    /// select of 100-node url-tests was ~2000 resolves per hop, per policy card, per render). A result is kept only
+    /// when its computation never hit a cycle (those depend on the path and are recomputed).
+    final class ResolveMemo {
+        var map: [String: Resolution?] = [:]
+        var cycles = 0
+        var visiting: Set<String> = []
+    }
+
+    func resolve(_ name: String, delays: [String: Int], memo: ResolveMemo) -> Resolution? {
+        if let hit = memo.map[name] { return hit }
+        let c0 = memo.cycles
+        let r = resolveUncached(name, delays: delays, memo: memo)
+        if memo.cycles == c0 { memo.map[name] = .some(r) }
+        return r
+    }
+
+    private func resolveUncached(_ name: String, delays: [String: Int], memo: ResolveMemo) -> Resolution? {
         guard let g = groups[name] else {
             return Resolution(node: name, delay: isTestable(name) ? delays[name] : nil, how: .selected)
         }
-        guard visiting.insert(name).inserted else { return nil }
-        defer { visiting.remove(name) }
+        guard memo.visiting.insert(name).inserted else { memo.cycles += 1; return nil }
+        defer { memo.visiting.remove(name) }
         switch g.type {
         case "relay":
             return nil
         case "url-test", "load-balance", "fallback":
-            let rs = g.members.compactMap { resolve($0, delays: delays, visiting: &visiting) }
+            let rs = g.members.compactMap { resolve($0, delays: delays, memo: memo) }
             let how: How = g.type == "fallback" ? .firstAvailable : .fastest
             let answered = rs.filter { ($0.delay ?? 0) > 0 }
             let pick: Resolution? = g.type == "fallback" ? answered.first : answered.min { $0.delay! < $1.delay! }
             if let p = pick { return Resolution(node: p.node, delay: p.delay, how: how) }
             guard let now = g.now ?? g.members.first else { return nil }
-            let listed = resolve(now, delays: delays, visiting: &visiting)
+            let listed = resolve(now, delays: delays, memo: memo)
             // Every member timed out (none still unmeasured): nothing answers. Show the listed member as timed out,
             // not as 「最快」.
             let measured = rs.filter { $0.delay != nil }
@@ -91,7 +108,7 @@ struct GroupGraph {
             return listed
         default:
             guard let now = g.now ?? g.members.first else { return nil }
-            return resolve(now, delays: delays, visiting: &visiting)
+            return resolve(now, delays: delays, memo: memo)
         }
     }
 
@@ -136,12 +153,13 @@ struct GroupGraph {
         guard groups[name] != nil else { return c }
         var seen: Set<String> = [name]
         var cur = name
+        let memo = ResolveMemo() // r7 OPT-3
         while let g = groups[cur] {
             if c.hops.count >= maxDepth { c.truncated = true; break }
             var next = g.now
             if let delays, g.type == "url-test" || g.type == "fallback" || g.type == "load-balance",
-               let r = resolve(cur, delays: delays), r.how != .selected,
-               let m = g.members.first(where: { resolve($0, delays: delays)?.node == r.node }) {
+               let r = resolve(cur, delays: delays, memo: memo), r.how != .selected,
+               let m = g.members.first(where: { resolve($0, delays: delays, memo: memo)?.node == r.node }) {
                 next = m
                 c.how = r.how
             }

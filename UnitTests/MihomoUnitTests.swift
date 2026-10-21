@@ -200,14 +200,6 @@ final class CoreOverridesTests: XCTestCase {
         XCTAssertEqual(back, o)
     }
 
-    func testReconcile() {
-        XCTAssertEqual(CoreOverrides.reconcile(json: "j", keychain: nil).value, "j")
-        XCTAssertFalse(CoreOverrides.reconcile(json: "j", keychain: "").jsonNeedsSync)
-        XCTAssertTrue(CoreOverrides.reconcile(json: "", keychain: "k").jsonNeedsSync)
-        XCTAssertEqual(CoreOverrides.reconcile(json: "", keychain: "k").value, "k")
-        XCTAssertFalse(CoreOverrides.reconcile(json: "k", keychain: "k").jsonNeedsSync)
-    }
-
     func testProbePortAvoidsOtherPorts() {
         var o = CoreOverrides()
         o.mixedPort = 7899
@@ -577,5 +569,135 @@ final class RejectClassifierTests: XCTestCase {
         XCTAssertNotNil(s.quicBlocked["2001:db8::1"])
         XCTAssertNil(s.blocked["app.example.com"])
         XCTAssertTrue(s.quicSorted.allSatisfy(\.quic))
+    }
+}
+
+/// r7 (review7 R7A-10): one bad entry no longer empties the whole engine config.
+final class EngineConfigTolerantTests: XCTestCase {
+    func testBadEntriesAreSkippedNotFatal() throws {
+        let json = #"""
+        {"enabled":true,"mitm":"yes","hostnames":["a.com",5],
+         "rules":[{"line":"^http://a reject"},{"id":"x","enabled":true},{"id":"r2","enabled":"no","line":"b"}],
+         "scripts":[],
+         "modules":[{"name":"M","url":"https://e.com/m.sgmodule","enabled":true,"id":"m1"},{"url":"https://e.com/n.sgmodule"},{"name":"no url"}]}
+        """#
+        let c = try JSONDecoder().decode(EngineConfig.self, from: Data(json.utf8))
+        XCTAssertTrue(c.enabled)
+        XCTAssertFalse(c.mitm, "mistyped switch falls back")
+        XCTAssertEqual(c.hostnames, ["a.com"])
+        XCTAssertEqual(c.rules.map(\.line), ["^http://a reject", "b"])
+        XCTAssertFalse(c.rules[0].id.isEmpty, "missing id gets a UUID")
+        XCTAssertTrue(c.rules[1].enabled, "mistyped enabled falls back to true")
+        XCTAssertEqual(c.modules.map(\.id).first, "m1")
+        XCTAssertEqual(c.modules.count, 2)
+        XCTAssertEqual(c.modules[1].name, "n")
+    }
+
+    func testRoundTripKeepsEverything() throws {
+        var c = EngineConfig()
+        c.enabled = true
+        c.rules = [EngineItem(line: "x", note: "n")]
+        c.modules = [EngineModule(name: "A", url: "https://e.com/a", enabled: false, args: ["k": "v"], updatedAt: 1)]
+        let back = try JSONDecoder().decode(EngineConfig.self, from: try JSONEncoder().encode(c))
+        XCTAssertEqual(back, c)
+    }
+}
+
+
+/// r7 (backlog B01 / B02): secrets out of overrides.json, and saves that merge instead of overwriting.
+final class CoreOverridesStoreTests: XCTestCase {
+    private var dir: URL!
+
+    override func setUp() {
+        super.setUp()
+        dir = FileManager.default.temporaryDirectory.appendingPathComponent("r7-overrides-\(UUID().uuidString)", isDirectory: true)
+        try? FileManager.default.createDirectory(at: dir, withIntermediateDirectories: true)
+        CoreOverrides.testStoreDir = dir
+    }
+
+    override func tearDown() {
+        CoreOverrides.testStoreDir = nil
+        try? FileManager.default.removeItem(at: dir)
+        super.tearDown()
+    }
+
+    private func rawOverrides() throws -> [String: Any] {
+        let d = try Data(contentsOf: dir.appendingPathComponent("overrides.json"))
+        return try XCTUnwrap(try JSONSerialization.jsonObject(with: d) as? [String: Any])
+    }
+
+    func testLegacySecretsMigrateOutOfOverrides() throws {
+        let legacy = #"{"secret":"s3cret","mode":"global","lanAuth":{"username":"me","password":"pw"},"lanUsers":[{"username":"tv","password":"1"},{"username":"x"}]}"#
+        try Data(legacy.utf8).write(to: dir.appendingPathComponent("overrides.json"))
+        let o = CoreOverrides.load()
+        XCTAssertEqual(o.secret, "s3cret")
+        XCTAssertEqual(o.mode, "global")
+        XCTAssertEqual(o.lanAuth, .init(username: "me", password: "pw"))
+        XCTAssertEqual(o.lanUsers, [.init(username: "tv", password: "1"), .init(username: "x", password: "")])
+        let raw = try rawOverrides()
+        XCTAssertNil(raw["secret"])
+        XCTAssertNil((raw["lanAuth"] as? [String: Any])?["password"])
+        XCTAssertEqual((raw["lanAuth"] as? [String: Any])?["username"] as? String, "me")
+        XCTAssertFalse(((raw["lanUsers"] as? [[String: Any]]) ?? []).contains { $0["password"] != nil })
+        let sec = try XCTUnwrap(CoreSecrets.read(dir: dir))
+        XCTAssertEqual(sec, CoreSecrets(secret: "s3cret", lanPassword: "pw", lanUsers: ["tv": "1"]))
+        XCTAssertEqual(CoreOverrides.load(), o, "stable across loads")
+    }
+
+    func testFreshSecretIsGeneratedOnceAndKept() {
+        let a = CoreOverrides.load()
+        XCTAssertEqual(a.secret.count, 32)
+        XCTAssertEqual(CoreOverrides.load().secret, a.secret)
+    }
+
+    func testSavesMergeInsteadOfOverwriting() {
+        var a = CoreOverrides.load()
+        var b = CoreOverrides.load()   // e.g. the widget's mode switch, loaded at the same time
+        a.mixedPort = 7999
+        a.save()
+        b.mode = "direct"
+        b.save()
+        let now = CoreOverrides.load()
+        XCTAssertEqual(now.mixedPort, 7999, "b's save keeps a's change")
+        XCTAssertEqual(now.mode, "direct")
+    }
+
+    func testChangingBackToTheLoadedValueIsSaved() {
+        var a = CoreOverrides.load()
+        a.mode = "direct"
+        a.save()
+        a.mode = "rule"
+        a.save()
+        XCTAssertEqual(CoreOverrides.load().mode, "rule")
+    }
+
+    func testLanUserPasswordsKeptBehindUsernames() throws {
+        var a = CoreOverrides.load()
+        a.lanUsers = [.init(username: "tv", password: "p1"), .init(username: "pad", password: "p2")]
+        a.lanAuth = .init(username: "main", password: "mp")
+        a.save()
+        let raw = try rawOverrides()
+        XCTAssertEqual(((raw["lanUsers"] as? [[String: Any]]) ?? []).compactMap { $0["username"] as? String }, ["tv", "pad"])
+        XCTAssertEqual(CoreSecrets.read(dir: dir)?.lanUsers, ["tv": "p1", "pad": "p2"])
+        // An unencrypted backup restored on this device: usernames only in overrides.json, passwords from secrets.json.
+        let back = CoreOverrides.load()
+        XCTAssertEqual(back.lanUsers, a.lanUsers)
+        XCTAssertEqual(back.lanAuth, a.lanAuth)
+        // Removing a user drops its password.
+        var c = back
+        c.lanUsers = [.init(username: "tv", password: "p1")]
+        c.save()
+        XCTAssertEqual(CoreSecrets.read(dir: dir)?.lanUsers, ["tv": "p1"])
+    }
+
+    func testFreshValueReplacesTheFile() {
+        var a = CoreOverrides.load()
+        a.mixedPort = 7999
+        a.save()
+        var fresh = CoreOverrides()   // 恢复默认-style: no merge base
+        fresh.secret = "x"
+        fresh.save()
+        XCTAssertEqual(CoreOverrides.load().mixedPort, CoreOverrides().mixedPort)
+        XCTAssertEqual(CoreOverrides.load().secret, "x")
     }
 }

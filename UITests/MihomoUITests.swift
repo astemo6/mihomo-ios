@@ -604,7 +604,9 @@ final class MihomoUITests: MihomoUITestCase {
             for k in ["保存", "保存并重载", "保存并重载内核"] {
                 XCTAssertFalse(app.buttons.matching(NSPredicate(format: "label == %@", L(k))).firstMatch.exists, "\(page): 保存 button still there (\(k))")
             }
-            let sw = connSwitch(toggle)
+            var sw = connSwitch(toggle)
+            // r7 (backlog B09): the light-mode 「switch not found」 flake — leave and re-enter the page once.
+            if !scrollTo(sw, fail: false) { back(); openMore(page); sw = connSwitch(toggle) }
             guard scrollTo(sw) else { back(); continue }
             let before = switchValue(sw)
             toggleSwitch(sw)
@@ -1544,10 +1546,18 @@ final class MihomoUITests: MihomoUITestCase {
         back()
         // 局域网多用户 under 连接方式 → 局域网共享.
         openMore("连接方式")
-        let lan = connSwitch("局域网共享")
+        var lan = connSwitch("局域网共享")
+        // r7 (backlog B09): re-enter the page once when the switch / row is not found (light-mode flake).
+        if !scrollTo(lan, fail: false) { back(); openMore("连接方式"); lan = connSwitch("局域网共享") }
         XCTAssertTrue(scrollTo(lan), "局域网共享 switch")
         if switchValue(lan) != "1" { toggleSwitch(lan) }
-        let users = app.element(id: "lan.users")
+        var users = app.element(id: "lan.users")
+        if !(users.waitForExistence(timeout: 5) && scrollTo(users, fail: false)) {
+            back(); openMore("连接方式")
+            let lanAgain = connSwitch("局域网共享")
+            if scrollTo(lanAgain, fail: false), switchValue(lanAgain) != "1" { toggleSwitch(lanAgain) }
+            users = app.element(id: "lan.users")
+        }
         XCTAssertTrue(scrollTo(users), "其他用户")
         users.tap()
         XCTAssertTrue(app.navigationBars[L("其他用户")].waitForExistence(timeout: 6))
@@ -1712,7 +1722,14 @@ final class MihomoUITests: MihomoUITestCase {
         let seg = app.buttons.matching(NSPredicate(format: "label == %@", L("文本模式"))).firstMatch
         XCTAssertTrue(tapIfExists(seg, timeout: 4), "文本模式 segment")
         var field = app.textViews.matching(identifier: "rule.text").firstMatch
-        if !field.waitForExistence(timeout: 3) { field = app.textFields.matching(identifier: "rule.text").firstMatch }
+        // r7 (backlog B10): the segment tap is sometimes lost (test33 flake) — tap it again (twice at most).
+        for _ in 0..<2 {
+            if field.waitForExistence(timeout: 3) { break }
+            let tf = app.textFields.matching(identifier: "rule.text").firstMatch
+            if tf.exists { field = tf; break }
+            _ = tapIfExists(seg, timeout: 2)
+        }
+        if !field.exists { field = app.textFields.matching(identifier: "rule.text").firstMatch }
         XCTAssertTrue(field.waitForExistence(timeout: 5), "rule text field")
         field.tap()
         if let v = field.value as? String, !v.isEmpty, v != L("规则") {

@@ -160,6 +160,7 @@ func readOverrides(home string) Overrides {
 	if err == nil {
 		_ = json.Unmarshal(b, &o)
 	}
+	applySecrets(&o, readSecrets(home)) // r7 B01: secrets.json (overrides.json no longer carries them)
 	if strings.TrimSpace(o.Secret) == "" {
 		o.Secret = ensureControllerSecret(home) // B04: the controller never runs without authentication
 	}
