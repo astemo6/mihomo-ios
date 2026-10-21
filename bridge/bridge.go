@@ -700,6 +700,7 @@ func Start(homeDir, configPath string, tunFd int32) error {
 				// its CAS (buffered channel), so this receive returns promptly.
 				return complete(<-done)
 			}
+			proxyTrafficStats.stopRunning() // review 7 P3-2: no sampler ticking on a core that did not start
 			msg := fmt.Sprintf("内核启动超时（%d 秒）：可能在下载 GeoIP/GeoSite 或规则集 / 节点集。请检查网络，或在 更多 → 诊断 查看启动日志", int(startTimeout/time.Second))
 			stage("core start TIMEOUT after %s, %s", startTimeout, memText())
 			DumpDiagnostics()
@@ -747,6 +748,7 @@ func Reload(configPath string) error {
 // the stale apply never started (rule hits / smart groups run as post-apply steps,
 // which are skipped on the stale path).
 func shutdownStaleApplyLocked() {
+	proxyTrafficStats.stopRunning() // review 7 P3-2
 	stopEngine()
 	executor.Shutdown()
 	if gcStop != nil {
