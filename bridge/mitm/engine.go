@@ -148,7 +148,8 @@ func (e *Engine) Start() error {
 		},
 	}
 	e.srv.SetKeepAlivesEnabled(true)
-	go func() { _ = e.srv.Serve(&chanListener{ch: e.tlsCh, addr: ln.Addr(), closed: &e.closing}) }()
+	srv, ch := e.srv, e.tlsCh // r7 P3-8: the goroutine must not read fields a later Stop/Start rewrites
+	go func() { _ = srv.Serve(&chanListener{ch: ch, addr: ln.Addr(), closed: &e.closing}) }()
 	go e.acceptLoop(ln)
 	e.logf("info", fmt.Sprintf("[MitM] 引擎已启动 127.0.0.1:%d", e.port))
 	return nil

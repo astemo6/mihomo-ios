@@ -477,7 +477,7 @@ func TestR7LargeMapLocalStreamed(t *testing.T) {
 		get()
 	}
 	runtime.ReadMemStats(&b)
-	if d := b.TotalAlloc - a.TotalAlloc; d > uint64(len(payload)) {
+	if d := b.TotalAlloc - a.TotalAlloc; d > uint64(len(payload)) && !raceEnabled {
 		t.Fatalf("3 requests allocated %d KB for a %d KB file (read into memory each time?)", d>>10, len(payload)>>10)
 	}
 }
