@@ -62,6 +62,10 @@ func TestR7P32StartTimeoutStopsTrafficSampler(t *testing.T) {
 	}
 	close(release)
 	waitStage(t, logPath, "tearing down stale core", 20*time.Second)
+	// The stage line is written before the teardown runs (under mu): wait for it to finish so the
+	// teardown does not overlap the next test's apply.
+	mu.Lock()
+	mu.Unlock() //nolint:staticcheck // barrier
 	if proxyTrafficSampling() {
 		t.Fatal("proxy-only sampler running after the stale teardown")
 	}

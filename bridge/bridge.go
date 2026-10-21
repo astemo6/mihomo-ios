@@ -34,7 +34,10 @@ var (
 	running atomic.Bool
 	curFd   atomic.Int32
 	curHome atomic.Value // string: set by Start under mu, read lock-free elsewhere
-	gcStop  chan struct{}
+	// gcStop: the idle-span ticker started by startGC. Own lock (review 7 -race): a timed-out Start's apply
+	// keeps running without mu and calls startGC while Stop / the stale teardown may be closing it.
+	gcMu   sync.Mutex
+	gcStop chan struct{}
 	// lastError: written by helpers that run concurrently (8-way offline 测速 calls TestDelay from several
 	// threads); a plain string global was a data race (torn read in LastError). selftest fix.
 	lastError atomic.Value // string
@@ -484,6 +487,8 @@ func startGC(limitMB int) {
 	}
 	debug.SetMemoryLimit(int64(limitMB) << 20)
 	debug.SetGCPercent(gogc)
+	gcMu.Lock()
+	defer gcMu.Unlock()
 	if gcStop != nil {
 		return
 	}
@@ -773,11 +778,18 @@ func shutdownStaleApplyLocked() {
 	proxyTrafficStats.stopRunning() // review 7 P3-2
 	stopEngine()
 	executor.Shutdown()
+	stopGC()
+	debug.FreeOSMemory()
+}
+
+// stopGC stops startGC's ticker (no-op when it is not running).
+func stopGC() {
+	gcMu.Lock()
+	defer gcMu.Unlock()
 	if gcStop != nil {
 		close(gcStop)
 		gcStop = nil
 	}
-	debug.FreeOSMemory()
 }
 
 // Stop tears the core down.
@@ -796,10 +808,7 @@ func Stop() {
 	executor.Shutdown()
 	running.Store(false)
 	DumpDiagnostics()
-	if gcStop != nil {
-		close(gcStop)
-		gcStop = nil
-	}
+	stopGC()
 	debug.FreeOSMemory()
 }
 
