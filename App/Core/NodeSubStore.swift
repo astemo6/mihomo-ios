@@ -167,7 +167,12 @@ final class NodeSubStore: ObservableObject {
 
     /// Node subscriptions apply to every profile: reload a running tunnel and refresh the offline view.
     private func applyChange() async {
-        if VPNManager.shared.isConnected { _ = await VPNManager.shared.reload() }
+        if VPNManager.shared.isConnected {
+            // hotfix/sub-disabled-nodes: the node lists follow the change at once, not after the core reload.
+            await ProfileInspector.shared.load()
+            await NodeManagerModel.shared.reload()
+            _ = await VPNManager.shared.reload()
+        }
         await ProfileInspector.shared.load()
     }
 }

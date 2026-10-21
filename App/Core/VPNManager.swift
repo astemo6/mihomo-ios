@@ -224,8 +224,10 @@ final class VPNManager: ObservableObject {
     // MARK: Tunnel scope / reset (连接方式, v0.7)
 
     /// Public NETunnelProviderProtocol scope switches; the exclude* options only matter with includeAllNetworks.
+    /// 仅代理 has no routes and no packet reader, so includeAllNetworks would capture every app's traffic into a
+    /// tunnel nobody reads (no network at all): the switch only applies in TUN / 混合.
     static func applyScope(_ o: CoreOverrides, to proto: NETunnelProviderProtocol) {
-        proto.includeAllNetworks = o.includeAllNetworks
+        proto.includeAllNetworks = o.includeAllNetworks && !o.isProxyOnly
         proto.excludeLocalNetworks = o.excludeLocalNetworks
         if #available(iOS 16.4, *) {
             proto.excludeAPNs = o.excludeAPNs
