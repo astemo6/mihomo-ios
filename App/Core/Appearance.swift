@@ -76,7 +76,7 @@ struct AppearanceView: View {
             Section {
                 Toggle("实时活动与灵动岛", isOn: $live.enabled).tint(Theme.accent)
                 if live.enabled && !live.systemAllowed {
-                    Text("系统设置中关闭了 Mihomo 的实时活动。").font(.caption).foregroundStyle(Theme.warn)
+                    Text("系统设置中关闭了 Tern 的实时活动。").font(.caption).foregroundStyle(Theme.warn)
                 }
             } footer: {
                 Text("连接时在锁定屏幕和灵动岛显示连接状态、已连接时长、当前节点和速度。需要带小组件的 IPA（-widget）。时长一直走；App 关闭时，速度和节点在系统允许后台刷新时更新，也可以点实时活动上的刷新按钮（iOS 17 及以上）。")

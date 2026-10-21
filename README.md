@@ -1,4 +1,4 @@
-# Mihomo iOS
+# Tern（mihomo 内核的 iOS 客户端，原名 Mihomo iOS）
 
 基于开源 [mihomo](https://github.com/MetaCubeX/mihomo)（Clash Meta）内核的个人 iOS 代理客户端：深色卡片界面，首页只放最常用的东西，进阶功能按类别收在「更多」里。
 
@@ -28,7 +28,7 @@
 | 更多 → 工具与数据 | 网络工具（Ping / TCP / DNS，连接时经过内核规则并显示策略链）、**解锁检测**（按策略 / 节点）、连接分析（按天保存）、流量统计（Swift Charts，按天保存约 120 天）、日志、备份与恢复（文件 / 分享 / iCloud） |
 | 更多 → 设置 | 内核设置（内存上限、隧道 MTU、手动节点合并进每个配置、日志、IPv6、控制器）、App 图标（默认 / 石墨 / 极光）、诊断（**一键导出诊断包**、App Group、扩展 ID、启动日志） |
 | 快捷指令 | 连接、断开、切换连接、切换出站模式、切换节点、**查询状态、切换配置、开关模块、更新订阅、运行脚本**（App Intents）；主屏幕长按图标：连接 / 断开、规则 / 全局 / 直连 |
-| 导入链接 | 只注册自己的 `mihomo://`（`mihomo://install-config?url=`、`install-module?url=`、`connect`、`disconnect`、`toggle`）。粘贴的 `loon://`、`stash://`、`surge:///`、`quantumult-x:///`、`egern:/` 安装链接也能识别，但**不注册**这些 scheme，避免与其他客户端抢链接。可以用「文件」/其他 App 的「用 Mihomo 打开」打开 `.sgmodule` `.plugin` `.stoverride` `.module` `.snippet` `.conf` `.list` `.yaml` 和纯文本；剪贴板有新内容时顶部出现「粘贴导入」横幅 |
+| 导入链接 | 只注册自己的 `mihomo://`（`mihomo://install-config?url=`、`install-module?url=`、`connect`、`disconnect`、`toggle`）。粘贴的 `loon://`、`stash://`、`surge:///`、`quantumult-x:///`、`egern:/` 安装链接也能识别，但**不注册**这些 scheme，避免与其他客户端抢链接。可以用「文件」/其他 App 的「用 Tern 打开」打开 `.sgmodule` `.plugin` `.stoverride` `.module` `.snippet` `.conf` `.list` `.yaml` 和纯文本；剪贴板有新内容时顶部出现「粘贴导入」横幅 |
 | iPad | 横向宽度为常规时用侧边栏（NavigationSplitView）显示五个分区，支持横竖屏与分屏；iPhone 保持底部标签栏 |
 
 ## 更新日志

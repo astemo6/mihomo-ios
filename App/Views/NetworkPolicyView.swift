@@ -46,7 +46,7 @@ struct NetworkPolicyView: View {
             Button("继续") { wifi.requestLocation() }
             Button("取消", role: .cancel) {}
         } message: {
-            Text("iOS 只在 App 获得「使用 App 期间」的精确位置权限时才提供当前 Wi-Fi 的名称。Mihomo 只用它读取 Wi-Fi 名称，不读取、不保存你的位置。不授权也可以手动输入名称。")
+            Text("iOS 只在 App 获得「使用 App 期间」的精确位置权限时才提供当前 Wi-Fi 的名称。Tern 只用它读取 Wi-Fi 名称，不读取、不保存你的位置。不授权也可以手动输入名称。")
         }
     }
 
@@ -71,7 +71,7 @@ struct NetworkPolicyView: View {
                 }
                 if wifi.checked && wifi.ssid == nil {
                     if wifi.locationDenied {
-                        Text("位置权限已关闭，无法读取 Wi-Fi 名称。可在 设置 → Mihomo → 位置 中选择「使用 App 期间」并打开「精确位置」，或手动输入名称。")
+                        Text("位置权限已关闭，无法读取 Wi-Fi 名称。可在 设置 → Tern → 位置 中选择「使用 App 期间」并打开「精确位置」，或手动输入名称。")
                             .font(.caption).foregroundStyle(Theme.warn)
                     } else {
                         Button { showLocationInfo = true } label: { Label("允许读取 Wi-Fi 名称", systemImage: "location") }
