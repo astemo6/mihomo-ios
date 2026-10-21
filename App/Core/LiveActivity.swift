@@ -18,6 +18,7 @@ final class LiveActivityController: ObservableObject {
     @Published var enabled: Bool {
         didSet {
             AppShared.defaults.set(enabled, forKey: Self.key)
+            LiveStats.postWantedChanged() // r7 B19: the tunnel's sampler follows at once
             if enabled { if VPNManager.shared.isConnected { start() } } else { endAll() }
         }
     }
@@ -105,6 +106,10 @@ final class LiveActivityController: ObservableObject {
     /// AppDelegate.didFinishLaunching: background refresh handler + the refresh button's hook.
     static func registerBackgroundWork() {
         LiveActivityHook.refresh = { await LiveActivityController.shared.refreshFromShared() }
+        // r7: the tunnel posts this from stopTunnel (also when stopped from the widget / Control Center).
+        CFNotificationCenterAddObserver(CFNotificationCenterGetDarwinNotifyCenter(), nil, { _, _, _, _, _ in
+            Task { @MainActor in await LiveActivityController.shared.endIfTunnelDown() }
+        }, AppShared.tunnelStoppedNotification as CFString, nil, .deliverImmediately)
         BGTaskScheduler.shared.register(forTaskWithIdentifier: refreshTaskID, using: nil) { task in
             guard let task = task as? BGAppRefreshTask else { return }
             let once = BGTaskOnce(task)
@@ -183,6 +188,16 @@ final class LiveActivityController: ObservableObject {
         lastUpdate = now
         last = (state.up, state.down, state.node)
         await a.update(ActivityContent(state: state, staleDate: staleAt, relevanceScore: 50))
+    }
+
+    /// r7: ends a Live Activity left behind by a tunnel that stopped while the app was not running (widget / Control
+    /// Center / iOS). Called on launch / foreground and on the tunnel's stop notification; cheap when none is shown.
+    func endIfTunnelDown() async {
+        guard #available(iOS 16.2, *), !Activity<MihomoActivityAttributes>.activities.isEmpty else { return }
+        await VPNManager.shared.load()
+        if !VPNManager.shared.isConnected && VPNManager.shared.status != .connecting && VPNManager.shared.status != .reasserting {
+            endAll()
+        }
     }
 
     func endAll() {

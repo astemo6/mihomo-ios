@@ -217,6 +217,9 @@ final class PacketTunnelProvider: NEPacketTunnelProvider {
         let why = TunnelStopReason.describe(reason.rawValue)
         StartupLog.write("stopTunnel reason=\(reason.rawValue)（\(why)）, \(ProcessMemory.summary()), bridge \(currentBridge?.stats ?? "-")")
         TunnelStopReason.record(reason.rawValue)
+        // r7: tell a running app at once (Live Activity end); a suspended app catches up on its next status check.
+        CFNotificationCenterPostNotification(CFNotificationCenterGetDarwinNotifyCenter(),
+                                             CFNotificationName(AppShared.tunnelStoppedNotification as CFString), nil, nil, true)
         // Review 6 R6A-1: take the helpers under the same lock the start path publishes them with.
         stopLock.lock()
         _stopped = true
@@ -455,24 +458,80 @@ final class MemoryGuard {
 
 /// v0.11: speed / totals / main node for the Live Activity, every 10 s and only while the app's
 /// 实时活动 switch is on (one Go call + one small App Group write; nothing allocated otherwise).
+///
+/// r7 (review7 R7A-7): stop() runs on the sampler's own queue (like MemoryGuard / NetworkWatcher since R6A-2), so a
+/// handler already inside LibmihomoLiveStatus() can no longer save the pre-disconnect speed after the "disconnected"
+/// write. r7 (backlog B19): with 实时活动 off the timer no longer wakes the extension every 10 s — it re-checks
+/// every 10 min, and the app's Darwin notification (LiveStats.wantedChangedNotification) switches it at once.
 final class LiveStatsSampler {
     private let queue = DispatchQueue(label: "mihomo.livestats", qos: .utility)
     private var timer: DispatchSourceTimer?
+    /// Queue-confined.
+    private var stopped = false
+    private var sampling = false
+    private var observing = false
+
+    static let idleRecheck: DispatchTimeInterval = .seconds(600)
 
     func start() {
         let t = DispatchSource.makeTimerSource(queue: queue)
-        t.schedule(deadline: .now() + .seconds(5), repeating: .seconds(10), leeway: .seconds(3))
-        t.setEventHandler {
-            guard LiveStats.wanted else { return }
-            LiveStats(status: LibmihomoLiveStatus()).save()
+        t.setEventHandler { [weak self] in self?.tick() }
+        queue.sync {
+            timer = t
+            schedule(wanted: LiveStats.wanted, first: true)
         }
         t.resume()
-        timer = t
+        let me = Unmanaged.passUnretained(self).toOpaque()
+        CFNotificationCenterAddObserver(CFNotificationCenterGetDarwinNotifyCenter(), me, { _, observer, _, _, _ in
+            guard let observer else { return }
+            let s = Unmanaged<LiveStatsSampler>.fromOpaque(observer).takeUnretainedValue()
+            s.wantedChanged()
+        }, LiveStats.wantedChangedNotification as CFString, nil, .deliverImmediately)
+        observing = true
+    }
+
+    /// Queue only.
+    private func schedule(wanted: Bool, first: Bool = false) {
+        guard let t = timer, !stopped else { return }
+        sampling = wanted
+        if wanted {
+            t.schedule(deadline: .now() + .seconds(first ? 5 : 1), repeating: .seconds(10), leeway: .seconds(3))
+        } else {
+            t.schedule(deadline: .now() + Self.idleRecheck, repeating: Self.idleRecheck, leeway: .seconds(60))
+        }
+    }
+
+    private func wantedChanged() {
+        queue.async { [weak self] in
+            guard let self, !self.stopped else { return }
+            let w = LiveStats.wanted
+            if w != self.sampling { self.schedule(wanted: w) }
+        }
+    }
+
+    /// Queue only.
+    private func tick() {
+        guard !stopped else { return }
+        let w = LiveStats.wanted
+        if w != sampling { schedule(wanted: w) }
+        guard w else { return }
+        let s = LiveStats(status: LibmihomoLiveStatus())
+        guard !stopped else { return }
+        s.save()
     }
 
     func stop() {
-        timer?.cancel()
-        timer = nil
+        if observing {
+            CFNotificationCenterRemoveObserver(CFNotificationCenterGetDarwinNotifyCenter(), Unmanaged.passUnretained(self).toOpaque(),
+                                               CFNotificationName(LiveStats.wantedChangedNotification as CFString), nil)
+            observing = false
+        }
+        // Waits for a running handler; the "disconnected" write below is then the last one.
+        queue.sync {
+            stopped = true
+            timer?.cancel()
+            timer = nil
+        }
         if LiveStats.wanted { LiveStats().save() } // disconnected: no stale speed
     }
 }

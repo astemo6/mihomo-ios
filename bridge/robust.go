@@ -13,7 +13,12 @@ import (
 )
 
 // safeApply runs apply and turns a panic into an error (logged with a short stack in the stage log).
-func safeApply(home, configPath string, fd int32) (err error) {
+func safeApply(home, configPath string, fd int32) error {
+	return safeApplyInto(home, configPath, fd, nil)
+}
+
+// safeApplyInto is safeApply that also returns the Overrides the apply used (see applyInto).
+func safeApplyInto(home, configPath string, fd int32, used *Overrides) (err error) {
 	defer func() {
 		if p := recover(); p != nil {
 			st := string(debug.Stack())
@@ -24,7 +29,7 @@ func safeApply(home, configPath string, fd int32) (err error) {
 			err = fmt.Errorf("内核内部错误（已拦截，扩展没有崩溃）：%v。可在 诊断 → 导出诊断包 后反馈；也可以试试安全模式", p)
 		}
 	}()
-	return apply(home, configPath, fd)
+	return applyInto(home, configPath, fd, used)
 }
 
 type errHint struct {

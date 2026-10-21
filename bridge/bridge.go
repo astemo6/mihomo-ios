@@ -34,7 +34,10 @@ var (
 	running atomic.Bool
 	curFd   atomic.Int32
 	curHome atomic.Value // string: set by Start under mu, read lock-free elsewhere
-	gcStop  chan struct{}
+	// gcStop: the idle-span ticker started by startGC. Own lock (review 7 -race): a timed-out Start's apply
+	// keeps running without mu and calls startGC while Stop / the stale teardown may be closing it.
+	gcMu   sync.Mutex
+	gcStop chan struct{}
 	// lastError: written by helpers that run concurrently (8-way offline 测速 calls TestDelay from several
 	// threads); a plain string global was a data race (torn read in LastError). selftest fix.
 	lastError atomic.Value // string
@@ -153,9 +156,13 @@ func defaultOverrides() Overrides {
 
 func readOverrides(home string) Overrides {
 	o := defaultOverrides()
-	b, err := os.ReadFile(filepath.Join(home, "overrides.json"))
+	b, err := os.ReadFile(overridesPath(home))
 	if err == nil {
 		_ = json.Unmarshal(b, &o)
+	}
+	applySecrets(&o, readSecrets(home)) // r7 B01: secrets.json (overrides.json no longer carries them)
+	if strings.TrimSpace(o.Secret) == "" {
+		o.Secret = ensureControllerSecret(home) // B04: the controller never runs without authentication
 	}
 	if o.ControllerPort <= 0 || o.ControllerPort > 65535 {
 		o.ControllerPort = 9090
@@ -202,7 +209,7 @@ func readOverrides(home string) Overrides {
 	o.Local = readLocalDNS(home)
 	o.home = home
 	if home != "" {
-		o.manualPath = filepath.Join(filepath.Dir(home), "profiles", "manual-nodes.yaml")
+		o.manualPath = manualNodesPath(home)
 	}
 	return o
 }
@@ -249,7 +256,7 @@ func buildRuntimeWith(profile []byte, o Overrides, fd int32, inject func(raw map
 	// feat/subs-split: the user's 停用 / 删除 / 编辑 of the profile's own proxy-providers (also in 安全模式:
 	// disabling a broken provider is a way out of a failing start).
 	if o.home != "" && o.profileID != "" {
-		removed, warns := applyProviderOverrides(raw, readProviderOverrides(o.home, o.profileID))
+		removed, warns := applyProviderOverridesDeferred(raw, readProviderOverrides(o.home, o.profileID))
 		for _, w := range warns {
 			log.Warnln("[Provider] %s", w)
 		}
@@ -278,6 +285,8 @@ func buildRuntimeWith(profile []byte, o Overrides, fd int32, inject func(raw map
 			log.Warnln("[Groups] 策略组「%s」引用的订阅已停用或尚未下载，已从 use 中移除", g)
 		}
 	}
+	// Review 7 P1-1: DIRECT fallback for groups that lost every 节点集, only after node subscriptions merged.
+	fillEmptyProviderGroups(raw)
 	if o.home != "" {
 		expandOwnPolicyProviders(raw, o.home) // v0.12 QX lists without force-policy
 	}
@@ -479,6 +488,8 @@ func startGC(limitMB int) {
 	}
 	debug.SetMemoryLimit(int64(limitMB) << 20)
 	debug.SetGCPercent(gogc)
+	gcMu.Lock()
+	defer gcMu.Unlock()
 	if gcStop != nil {
 		return
 	}
@@ -503,10 +514,17 @@ func startGC(limitMB int) {
 	}()
 }
 
-func apply(home, configPath string, fd int32) error {
+func apply(home, configPath string, fd int32) error { return applyInto(home, configPath, fd, nil) }
+
+// applyInto is apply that also hands back the Overrides it used (B33: Reload reads SafeMode from them
+// instead of reading the six override files again).
+func applyInto(home, configPath string, fd int32, used *Overrides) error {
 	C.SetHomeDir(home)
 	C.SetConfig(configPath)
 	o := overridesFor(home, configPath)
+	if used != nil {
+		*used = o
+	}
 	profile, err := readRuntimeProfile(home, configPath, o.SafeMode) // v0.19 覆写脚本 output when current
 	if err != nil {
 		return fmt.Errorf("读取配置失败: %w", err)
@@ -518,16 +536,25 @@ func apply(home, configPath string, fd int32) error {
 	defer restore()
 	stage("config read (%d bytes), building runtime", len(profile))
 	var inject func(raw map[string]any)
+	// r7 P2-2: the engine change (stop / reload) is committed only after the new core config is live;
+	// on a failed build or parse the old engine keeps matching the old core config.
+	var plan *enginePlan
 	if o.SafeMode {
-		stopEngine()
+		plan = stopEnginePlan()
 		stage("SAFE MODE: modules, rewrite, scripts, MitM, custom rules and smart groups are off")
 		log.Warnln("[Bridge] 安全模式：模块、重写、脚本、MitM、自定义规则与智能选择已停用")
 	} else {
-		inject, err = prepareEngine(home)
+		inject, plan, err = planEngine(home)
 		if err != nil {
 			log.Warnln("[MitM] %s", err.Error())
 		}
 	}
+	committed := false
+	defer func() {
+		if !committed {
+			plan.rollback()
+		}
+	}()
 	var groupOrder []string
 	var dnsLine string
 	engineInject := inject
@@ -555,6 +582,8 @@ func apply(home, configPath string, fd int32) error {
 	if err := hub.Parse(rt, guardTailscale); err != nil {
 		return friendlyError(err)
 	}
+	committed = true
+	plan.commit()
 	liveGroupOrder.Store(groupOrder) // v0.19.11 (review 6 P2-3): LiveStatus follows the app's group order
 	// The diag capture goroutine used to call log.Level() while ApplyConfig wrote it (data race found by
 	// the selftest -race run); it now filters by the level this config asked for.
@@ -698,6 +727,7 @@ func Start(homeDir, configPath string, tunFd int32) error {
 				// its CAS (buffered channel), so this receive returns promptly.
 				return complete(<-done)
 			}
+			proxyTrafficStats.stopRunning() // review 7 P3-2: no sampler ticking on a core that did not start
 			msg := fmt.Sprintf("内核启动超时（%d 秒）：可能在下载 GeoIP/GeoSite 或规则集 / 节点集。请检查网络，或在 更多 → 诊断 查看启动日志", int(startTimeout/time.Second))
 			stage("core start TIMEOUT after %s, %s", startTimeout, memText())
 			DumpDiagnostics()
@@ -725,12 +755,13 @@ func Reload(configPath string) error {
 	}
 	flushRuleHits(home) // the new rules start counting at 0
 	proxyTrafficStats.resetClasses()
-	if err := safeApply(home, configPath, fd); err != nil {
+	var used Overrides
+	if err := safeApplyInto(home, configPath, fd, &used); err != nil {
 		setLastError(err.Error())
 		return err
 	}
 	setNetPolicyProfile(configPath)
-	if overridesFor(home, configPath).SafeMode {
+	if used.SafeMode { // B33: the Overrides this apply used, not a second read of the override files
 		stopSmart()
 	} else {
 		startSmart(home, configPath)
@@ -745,13 +776,21 @@ func Reload(configPath string) error {
 // the stale apply never started (rule hits / smart groups run as post-apply steps,
 // which are skipped on the stale path).
 func shutdownStaleApplyLocked() {
+	proxyTrafficStats.stopRunning() // review 7 P3-2
 	stopEngine()
 	executor.Shutdown()
+	stopGC()
+	debug.FreeOSMemory()
+}
+
+// stopGC stops startGC's ticker (no-op when it is not running).
+func stopGC() {
+	gcMu.Lock()
+	defer gcMu.Unlock()
 	if gcStop != nil {
 		close(gcStop)
 		gcStop = nil
 	}
-	debug.FreeOSMemory()
 }
 
 // Stop tears the core down.
@@ -770,10 +809,7 @@ func Stop() {
 	executor.Shutdown()
 	running.Store(false)
 	DumpDiagnostics()
-	if gcStop != nil {
-		close(gcStop)
-		gcStop = nil
-	}
+	stopGC()
 	debug.FreeOSMemory()
 }
 
@@ -813,10 +849,7 @@ func ValidateConfigIn(homeDir, path string) string {
 	if err != nil {
 		return err.Error()
 	}
-	if _, err := executor.ParseWithBytes(rt); err != nil {
-		return err.Error()
-	}
-	return ""
+	return parseRuntimeCached(homeDir, rt) // B32: free right after a node edit validated the same runtime
 }
 
 // Version returns the mihomo core version string.

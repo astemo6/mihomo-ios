@@ -8,7 +8,6 @@ import (
 	"encoding/json"
 	"fmt"
 	"os"
-	"path/filepath"
 	"sort"
 	"strings"
 	"sync"
@@ -88,6 +87,33 @@ func findRuntimeNode(raw map[string]any, name string) (map[string]any, string, b
 		}
 	}
 	return nil, "", false
+}
+
+// findRuntimeNodeIn (review 7 R7A-4) looks a node up in one source only: provider "" = the profile's own
+// proxies, otherwise that proxy-provider (node subscriptions included, by their runtime provider name — the
+// `source` NodeSummary returns and /providers/proxies lists). Same-named nodes of two subscriptions are
+// allowed in mihomo; the name-only lookup returned the alphabetically first provider's node, so the detail
+// of subscription B showed / copied / tested subscription A's credentials and server.
+func findRuntimeNodeIn(raw map[string]any, provider, name string) (map[string]any, bool) {
+	if provider == "" {
+		for _, p := range proxiesOf(raw) {
+			if str(p["name"]) == name {
+				return p, true
+			}
+		}
+		return nil, false
+	}
+	pv, _ := raw["proxy-providers"].(map[string]any)
+	m, ok := pv[provider].(map[string]any)
+	if !ok {
+		return nil, false
+	}
+	for _, p := range providerNodes(m) {
+		if str(p["name"]) == name {
+			return p, true
+		}
+	}
+	return nil, false
 }
 
 // credentialKeys are the secrets a node may carry; the summary only says which ones are set.
@@ -229,7 +255,9 @@ func nodeSummary(m map[string]any, source string) map[string]any {
 // node subscriptions included), or {"error": "…"}.
 func NodeSummary(homeDir, profilePath, name string) string {
 	defer func() { _ = recover() }()
-	raw := runtimeRawWithHome(homeDir, profilePath)
+	// r7: the node detail page asks for summary, config and providers at once; share one build
+	// (keyed by runtimeInputFiles, read-only) instead of a full runtime build per call.
+	raw := cachedRuntimeRaw(homeDir, profilePath)
 	m, src, ok := findRuntimeNode(raw, name)
 	if !ok {
 		b, _ := json.Marshal(map[string]any{"error": "在当前配置里找不到这个节点"})
@@ -239,12 +267,55 @@ func NodeSummary(homeDir, profilePath, name string) string {
 	return string(b)
 }
 
+// NodeSummaryIn is NodeSummary for the node named name in one source (provider "" = the profile's own proxies,
+// else that proxy-provider / node subscription). R7A-4; NodeSummary keeps the name-only lookup.
+func NodeSummaryIn(homeDir, profilePath, provider, name string) string {
+	defer func() { _ = recover() }()
+	raw := runtimeRawWithHome(homeDir, profilePath)
+	m, ok := findRuntimeNodeIn(raw, provider, name)
+	if !ok {
+		b, _ := json.Marshal(map[string]any{"error": "在当前配置里找不到这个节点"})
+		return string(b)
+	}
+	b, _ := json.Marshal(nodeSummary(m, provider))
+	return string(b)
+}
+
+// NodeConfigIn is NodeConfig for the node named name in one source (see NodeSummaryIn). "" when not found.
+func NodeConfigIn(homeDir, profilePath, provider, name string) string {
+	defer func() { _ = recover() }()
+	raw := runtimeRawWithHome(homeDir, profilePath)
+	m, ok := findRuntimeNodeIn(raw, provider, name)
+	if !ok {
+		return ""
+	}
+	b, err := json.Marshal(jsonSafe(m))
+	if err != nil {
+		return ""
+	}
+	return string(b)
+}
+
+// NodeTestDelayIn is NodeTestDelay for the node named name in one source (see NodeSummaryIn).
+func NodeTestDelayIn(homeDir, profilePath, provider, name, url string, timeoutMs int) int {
+	raw := cachedRuntimeRaw(homeDir, profilePath)
+	m, ok := findRuntimeNodeIn(raw, provider, name)
+	if !ok {
+		setLastError("在当前配置里找不到这个节点")
+		return -1
+	}
+	b, _ := json.Marshal(m)
+	return TestDelay(string(b), url, timeoutMs)
+}
+
 // NodeConfig returns the full config of a node of the profile (any source, node subscriptions included) as a
 // JSON object, secrets included, or "" when it is not found. For the node detail's 显示 / 复制 of a credential
 // and 添加到本地节点; the result is never logged.
 func NodeConfig(homeDir, profilePath, name string) string {
 	defer func() { _ = recover() }()
-	raw := runtimeRawWithHome(homeDir, profilePath)
+	// r7: the node detail page asks for summary, config and providers at once; share one build
+	// (keyed by runtimeInputFiles, read-only) instead of a full runtime build per call.
+	raw := cachedRuntimeRaw(homeDir, profilePath)
 	m, _, ok := findRuntimeNode(raw, name)
 	if !ok {
 		return ""
@@ -283,8 +354,7 @@ func NodeTestDelay(homeDir, profilePath, name, url string, timeoutMs int) int {
 // rtCache (selftest fix): 全部测速 in 节点管理 calls NodeTestDelay once per node, 8 at a time, and every call
 // built the whole runtime (profile parse, manual merge, node subscriptions, group edits, sub rules) again —
 // N full config builds for N nodes in the memory-capped app process. One build is now shared for 30 s as
-// long as the inputs (profile, overrides, manual nodes, node subscription list, subscription rules,
-// group chains, group edits, DNS override, local DNS, custom rules) are unchanged; concurrent
+// long as the inputs (runtimeInputFiles) are unchanged; concurrent
 // callers wait for the one build instead of each starting their own. The map is only read afterwards.
 var rtCache struct {
 	sync.Mutex
@@ -295,29 +365,11 @@ var rtCache struct {
 
 const rtCacheTTL = 30 * time.Second
 
+// runtimeCacheKey signs every file in runtimeInputFiles (the one list of build inputs).
 func runtimeCacheKey(homeDir, profilePath string) string {
 	parts := []string{homeDir, profilePath}
-	for _, p := range []string{
-		profilePath,
-		filepath.Join(homeDir, "overrides.json"),
-		filepath.Join(filepath.Dir(homeDir), "profiles", "manual-nodes.yaml"),
-		nodeSubsPath(homeDir),
-		// overridesFor also merges these into the runtime (sub rules + group chains)
-		filepath.Join(homeDir, "subscriptions.json"),
-		filepath.Join(homeDir, "groups.json"),
-		// buildRuntimeWith applies 策略组编辑 (group-edits.json) too
-		groupEditsPath(homeDir),
-		// readOverrides loads the DNS settings page files; applyCustomRules reads rules.json
-		filepath.Join(homeDir, "dns.json"),
-		filepath.Join(homeDir, "localdns.json"),
-		filepath.Join(homeDir, "rules.json"),
-	} {
-		parts = append(parts, statSig(p))
-	}
-	// v0.19.10: the 覆写脚本 output readRuntimeProfile prefers.
-	yp, mp := scriptedPaths(homeDir, profilePath)
-	for _, p := range []string{yp, mp} {
-		parts = append(parts, statSig(p))
+	for _, p := range runtimeInputFiles(homeDir, profilePath) {
+		parts = append(parts, p+"="+statSig(p))
 	}
 	return strings.Join(parts, "|")
 }
@@ -346,4 +398,7 @@ func resetRuntimeCache() {
 	rtCache.Lock()
 	rtCache.raw = nil
 	rtCache.Unlock()
+	ppCache.Lock()
+	ppCache.val = ""
+	ppCache.Unlock()
 }

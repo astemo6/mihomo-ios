@@ -197,7 +197,7 @@ class MihomoUITestCase: XCTestCase {
     /// after the scroll has settled (a check during deceleration could miss an element that was passing by).
     /// On failure, dump any SpringBoard alert.
     @discardableResult
-    func scrollTo(_ e: XCUIElement, maxSwipes: Int = 12, file: StaticString = #filePath, line: UInt = #line) -> Bool {
+    func scrollTo(_ e: XCUIElement, maxSwipes: Int = 12, fail: Bool = true, file: StaticString = #filePath, line: UInt = #line) -> Bool {
         if e.waitForExistence(timeout: 1.5), e.isHittable { return true }
         func visible() -> Bool {
             if e.exists && e.isHittable { return true }
@@ -212,6 +212,19 @@ class MihomoUITestCase: XCTestCase {
             app.swipeDown(velocity: .slow)
             if visible() { return true }
         }
+        // r7 (backlog B09): whole-screen swipes can carry a row past the viewport between two checks (light-mode
+        // 「switch not found」). Last pass: short drags on the frontmost scroll view, checking after each.
+        let scrollers = [app.collectionViews.firstMatch, app.tables.firstMatch, app.scrollViews.firstMatch]
+        if let sv = scrollers.first(where: { $0.exists && $0.isHittable }) {
+            for (from, to) in [(0.7, 0.45), (0.3, 0.55)] {
+                for _ in 0..<maxSwipes {
+                    sv.coordinate(withNormalizedOffset: CGVector(dx: 0.5, dy: from))
+                        .press(forDuration: 0.01, thenDragTo: sv.coordinate(withNormalizedOffset: CGVector(dx: 0.5, dy: to)))
+                    if visible() { return true }
+                }
+            }
+        }
+        guard fail else { return false }
         let alerts = XCUIApplication(bundleIdentifier: "com.apple.springboard").alerts
         let alertInfo = alerts.count > 0 ? "\nspringboard alerts: \(alerts.debugDescription)" : ""
         XCTFail("not found on screen: \(e)\(alertInfo)", file: file, line: line)

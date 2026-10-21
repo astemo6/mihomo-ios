@@ -69,7 +69,7 @@ func GenerateCA(home string) (*CA, error) {
 	suffix := strings.ToUpper(hex.EncodeToString(serial.Bytes()[:3]))
 	tpl := &x509.Certificate{
 		SerialNumber:          serial,
-		Subject:               pkix.Name{CommonName: "Mihomo MitM CA " + suffix, Organization: []string{"Mihomo iOS"}},
+		Subject:               pkix.Name{CommonName: "Tern MitM CA " + suffix, Organization: []string{"Tern"}},
 		NotBefore:             time.Now().Add(-48 * time.Hour),
 		NotAfter:              time.Now().AddDate(10, 0, 0),
 		KeyUsage:              x509.KeyUsageCertSign | x509.KeyUsageCRLSign | x509.KeyUsageDigitalSignature,
@@ -99,11 +99,28 @@ func GenerateCA(home string) (*CA, error) {
 }
 
 func writeAtomic(path string, b []byte, mode os.FileMode) error {
-	tmp := path + ".tmp"
-	if err := os.WriteFile(tmp, b, mode); err != nil {
+	// r7 P3-5: unique temp name (two engines in two processes may write the same cache / CA file).
+	f, err := os.CreateTemp(filepath.Dir(path), filepath.Base(path)+".*.tmp")
+	if err != nil {
 		return err
 	}
-	return os.Rename(tmp, path)
+	tmp := f.Name()
+	_, err = f.Write(b)
+	if err == nil {
+		err = f.Chmod(mode)
+	}
+	if cerr := f.Close(); err == nil {
+		err = cerr
+	}
+	if err != nil {
+		os.Remove(tmp)
+		return err
+	}
+	if err := os.Rename(tmp, path); err != nil {
+		os.Remove(tmp)
+		return err
+	}
+	return nil
 }
 
 // LoadCA reads the CA from the container.
@@ -184,7 +201,7 @@ func (ca *CA) Leaf(host string) (*tls.Certificate, error) {
 	serial, _ := rand.Int(rand.Reader, new(big.Int).Lsh(big.NewInt(1), 120))
 	tpl := &x509.Certificate{
 		SerialNumber: serial,
-		Subject:      pkix.Name{CommonName: host, Organization: []string{"Mihomo MitM"}},
+		Subject:      pkix.Name{CommonName: host, Organization: []string{"Tern MitM"}},
 		NotBefore:    time.Now().Add(-48 * time.Hour),
 		// iOS rejects TLS server certs valid for more than 825 days; stay well under.
 		NotAfter:    time.Now().AddDate(1, 0, 0),

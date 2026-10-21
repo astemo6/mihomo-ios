@@ -6,7 +6,6 @@ import (
 	"fmt"
 	"net/netip"
 	"os"
-	"path/filepath"
 	"sort"
 	"strings"
 
@@ -56,7 +55,7 @@ func readDNSOverride(home string) *DNSOverride {
 	if home == "" {
 		return nil
 	}
-	b, err := os.ReadFile(filepath.Join(home, "dns.json"))
+	b, err := os.ReadFile(dnsOverridePath(home))
 	if err != nil {
 		return nil
 	}

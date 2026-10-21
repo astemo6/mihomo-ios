@@ -13,6 +13,7 @@ import (
 	"os"
 	"path/filepath"
 	"strings"
+	"sync"
 	"testing"
 	"time"
 )
@@ -236,10 +237,13 @@ func TestR6FetchBudget(t *testing.T) {
 	if rel == nil {
 		t.Fatal("could not take the budget")
 	}
+	var relOnce sync.Once
+	defer relOnce.Do(rel) // a failure below must not leave the shared budget held for later tests
+	// r7: the four downloads now run one at a time through the unbudgeted slot (none is skipped).
 	if _, out := h.get("https://api.test.com/go"); out != fmt.Sprint(4<<20) {
 		t.Fatalf("with budget held: %q", out)
 	}
-	rel()
+	relOnce.Do(rel)
 	if n := bodyBudget.inUse(); n != 0 {
 		t.Fatalf("budget after held run: %d", n)
 	}

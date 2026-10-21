@@ -126,6 +126,18 @@ struct ResourceUpdateRow: View {
     var busy = false
     let update: () -> Void
 
+    /// 「https://sub.example.com/api/v1/client/subscribe?token=abc」 → 「sub.example.com/…」; a link without a host
+    /// (local file, malformed) shows only its last path component.
+    static func displayURL(_ s: String) -> String {
+        let t = s.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard let u = URLComponents(string: t), let host = u.host, !host.isEmpty else {
+            return (t as NSString).lastPathComponent
+        }
+        let port = u.port.map { ":\($0)" } ?? ""
+        let rest = (u.path.isEmpty || u.path == "/") && (u.query ?? "").isEmpty && (u.fragment ?? "").isEmpty ? "" : "/…"
+        return host + port + rest
+    }
+
     static let relative: RelativeDateTimeFormatter = {
         let f = RelativeDateTimeFormatter()
         f.unitsStyle = .short
@@ -137,7 +149,9 @@ struct ResourceUpdateRow: View {
             IconTile(symbol: symbol, tone: tone, dimmed: disabled)
             VStack(alignment: .leading, spacing: 3) {
                 Text(verbatim: name).foregroundStyle(disabled ? Color.secondary : Color.primary).lineLimit(1)
-                Text(verbatim: url).font(.caption2.monospaced()).foregroundStyle(.secondary).lineLimit(1).truncationMode(.middle)
+                // r7 P3-6: host only — subscription links usually carry a token (?token=…, /api/v1/client/<token>)
+                // that a screenshot or screen recording would leak.
+                Text(verbatim: Self.displayURL(url)).font(.caption2.monospaced()).foregroundStyle(.secondary).lineLimit(1).truncationMode(.middle)
                 HStack(spacing: 6) {
                     if disabled {
                         Text("已停用")

@@ -17,6 +17,9 @@ struct NodeSource: Hashable, Identifiable {
     var name: String
     /// NodeSubscription.id for .subscription.
     var subID: String? = nil
+    /// Review 7 R7A-4: the proxy-provider's name in the runtime (a node subscription's merged provider can differ
+    /// from its display name). nil = same as `name`.
+    var provider: String? = nil
     /// Provider vehicle ("http" / "file" / "inline") and whether its nodes are on disk (offline view).
     var cached: Bool = true
     var order: Int = 0
@@ -25,6 +28,15 @@ struct NodeSource: Hashable, Identifiable {
     var remote: Bool = false
 
     var id: String { "\(kind.rawValue):\(subID ?? name)" }
+
+    /// R7A-4: where the core looks the node up — "" for the profile's own proxies (manual nodes merged into the
+    /// profile included), else the runtime provider name. Same-named nodes of two subscriptions stay apart.
+    var runtimeProvider: String {
+        switch kind {
+        case .profile, .manual: return ""
+        case .subscription, .provider: return provider ?? name
+        }
+    }
 
     var title: String {
         switch kind {
@@ -155,7 +167,16 @@ final class NodeManagerModel: ObservableObject {
         }
     }
 
-    @Published private(set) var nodes: [ManagedNode] = []
+    @Published private(set) var nodes: [ManagedNode] = [] {
+        didSet {
+            var c: [NodeSource: Int] = [:]
+            for n in nodes { c[n.source, default: 0] += 1 }
+            countBySource = c
+        }
+    }
+    /// r7: node count per source, computed once whenever `nodes` changes (NodeManagerHome reads it per row and
+    /// when sorting by 节点数, instead of filtering every node per row per render).
+    private(set) var countBySource: [NodeSource: Int] = [:]
     @Published private(set) var sources: [NodeSource] = []
     @Published private(set) var loading = false
     @Published private(set) var liveConnected = false
@@ -251,8 +272,8 @@ final class NodeManagerModel: ObservableObject {
         var order = 2
         for pv in r.proxyProviders {
             let sub = subs.first { s in (pv.path ?? "").contains("nodesubs/\(s.id).yaml") }
-            let src = sub.map { NodeSource(kind: .subscription, name: $0.name, subID: $0.id, cached: pv.cached, order: order, updatedAt: pv.cachedDate) }
-                ?? NodeSource(kind: .provider, name: pv.name, cached: pv.cached, order: order, updatedAt: pv.cachedDate)
+            let src = sub.map { NodeSource(kind: .subscription, name: $0.name, subID: $0.id, provider: pv.name, cached: pv.cached, order: order, updatedAt: pv.cachedDate) }
+                ?? NodeSource(kind: .provider, name: pv.name, provider: pv.name, cached: pv.cached, order: order, updatedAt: pv.cachedDate)
             order += 1
             srcs.append(src)
             for p in pv.proxies ?? [] where !Self.isHidden(p.name, p.type) {
@@ -285,7 +306,7 @@ final class NodeManagerModel: ObservableObject {
                     continue
                 }
                 let src: NodeSource
-                if let s = srcs.first(where: { ($0.kind == .provider || $0.kind == .subscription) && $0.name == pv.name }) {
+                if let s = srcs.first(where: { ($0.kind == .provider || $0.kind == .subscription) && $0.runtimeProvider == pv.name }) {
                     src = s
                 } else {
                     src = NodeSource(kind: .provider, name: pv.name, order: order)
@@ -320,7 +341,12 @@ final class NodeManagerModel: ObservableObject {
     /// with the overrides applied) still declares a provider of that name (e.g. a profile provider sharing the name).
     nonisolated static func excludedProviders(runtime: Set<String>, overrides: [String: ProviderOverride], subs: [NodeSubscription]) -> Set<String> {
         var out = Set(overrides.filter { $0.value.disabled == true || $0.value.deleted == true }.map(\.key))
-        out.formUnion(subs.filter { !$0.enabled }.map { $0.name.trimmingCharacters(in: .whitespaces) })
+        // r7: the Go build names a subscription's provider firstNonEmpty(trimmed name, "订阅") (mergeNodeSubs); an
+        // unnamed disabled subscription was matched as "" and never excluded.
+        out.formUnion(subs.filter { !$0.enabled }.map {
+            let n = $0.name.trimmingCharacters(in: .whitespaces)
+            return n.isEmpty ? "订阅" : n
+        })
         out.subtract(runtime)
         out.remove("")
         return out
@@ -328,7 +354,7 @@ final class NodeManagerModel: ObservableObject {
 
     func source(_ kind: NodeSourceKind) -> NodeSource? { sources.first { $0.kind == kind } }
     func source(subID: String) -> NodeSource? { sources.first { $0.subID == subID } }
-    func count(_ src: NodeSource) -> Int { nodes.filter { $0.source == src }.count }
+    func count(_ src: NodeSource) -> Int { countBySource[src] ?? 0 }
 
     static func isHidden(_ name: String, _ type: String) -> Bool {
         ManagedNode.hidden.contains(name) || ManagedNode.nonNodeTypes.contains(type.lowercased())
@@ -350,8 +376,8 @@ final class NodeManagerModel: ObservableObject {
             json = await Task.detached(priority: .userInitiated) { LibmihomoNodeSummaryJSON(s) }.value
         } else if let path = AppShared.activeProfileURL?.path {
             let home = AppShared.homeURL.path
-            let name = n.name
-            json = await Task.detached(priority: .userInitiated) { LibmihomoNodeSummary(home, path, name) }.value
+            let name = n.name, provider = n.source.runtimeProvider
+            json = await Task.detached(priority: .userInitiated) { LibmihomoNodeSummaryIn(home, path, provider, name) }.value
         } else {
             return nil
         }
@@ -370,7 +396,9 @@ final class NodeManagerModel: ObservableObject {
 
     private func measure(_ n: ManagedNode) async -> Int {
         if liveConnected, liveNames.contains(n.name) {
-            if let ms = try? await ControllerClient.shared.proxyDelay(n.name) { return max(ms, 0) }
+            // R7A-4: test the node under its own provider (a same-named node of another subscription is not it).
+            let prov = n.source.runtimeProvider
+            if let ms = try? await ControllerClient.shared.proxyDelay(n.name, provider: prov.isEmpty ? nil : prov, resolved: prov.isEmpty) { return max(ms, 0) }
             return 0
         }
         let st = ControllerClient.testSettings
@@ -378,8 +406,8 @@ final class NodeManagerModel: ObservableObject {
         await bindOfflineInterface()
         if n.inRuntime, let path = AppShared.activeProfileURL?.path {
             let home = AppShared.homeURL.path
-            let name = n.name
-            let ms = await BlockingWork.run { LibmihomoNodeTestDelay(home, path, name, url, timeout) }
+            let name = n.name, provider = n.source.runtimeProvider
+            let ms = await BlockingWork.run { LibmihomoNodeTestDelayIn(home, path, provider, name, url, timeout) }
             return max(ms, 0)
         }
         if let m = manualNode(n), let d = try? JSONSerialization.data(withJSONObject: m), let s = String(data: d, encoding: .utf8) {
@@ -463,8 +491,8 @@ final class NodeManagerModel: ObservableObject {
     func config(of n: ManagedNode) async -> [String: Any]? {
         if let m = manualNode(n) { return m }
         guard let path = AppShared.activeProfileURL?.path else { return nil }
-        let home = AppShared.homeURL.path, name = n.name
-        let json = await Task.detached(priority: .userInitiated) { LibmihomoNodeConfig(home, path, name) }.value
+        let home = AppShared.homeURL.path, name = n.name, provider = n.source.runtimeProvider
+        let json = await Task.detached(priority: .userInitiated) { LibmihomoNodeConfigIn(home, path, provider, name) }.value
         guard !json.isEmpty, let o = try? JSONSerialization.jsonObject(with: Data(json.utf8)) as? [String: Any] else { return nil }
         return o
     }

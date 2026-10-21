@@ -5,9 +5,14 @@ For each core term (配置 → Profile, 节点 → Node, 订阅 → Subscription
 competing word instead of the canonical one. Keys about the iOS "VPN 配置" or foreign Surge / QX configs
 are a different concept and are skipped. Exit code 1 when anything is inconsistent.
 
+r7 brand check: the app is Tern. A user-visible "Mihomo" (capital M: the old app name) in the string catalog
+(keys and every translation), in an Info.plist display name / usage description, or in a UI string literal of the
+Swift sources fails the audit. Lowercase "mihomo" names the core / config format and is allowed, as are legal and
+core attributions (GPL notices, "mihomo core", MetaCubeX).
+
 Usage: scripts/term_audit.py [-q]
 """
-import json, os, re, sys
+import glob, json, os, plistlib, re, sys
 
 CAT = os.path.join(os.path.dirname(__file__), "..", "App", "Localizable.xcstrings")
 CANON = {
@@ -24,6 +29,52 @@ CANON = {
 SKIP = re.compile(r"VPN 配置|Surge|Quantumult|QX|运行配置|未配置|proxy-server-nameserver|规则集 / 节点集缓存|一个 zip|MitM 即可重写")
 
 
+ROOT = os.path.join(os.path.dirname(__file__), "..")
+BRAND = re.compile(r"\bMihomo\b")
+# Attribution and legal text that may keep the upstream name.
+BRAND_OK = re.compile(r"Mihomo[ -]?(core|内核|核心|kernel|カーネル|커널|ядр)|MetaCubeX|General Public License|GPL", re.I)
+# Swift UI string literals: Text("…"), String(localized: "…"), Label / Button / Section / TextField titles,
+# navigationTitle, prompt: / placeholder: arguments.
+UI_LITERAL = re.compile(r'(?:\bText|\bLabel|\bButton|\bSection|\bTextField|\bSecureField|\bToggle|navigationTitle|'
+                        r'String\(localized:|LocalizedStringKey\(|prompt:|placeholder:|title:|message:)\s*\(?\s*"((?:[^"\\]|\\.)*)"')
+PLIST_KEYS = ("CFBundleDisplayName", "CFBundleName")
+
+
+def brand_hits():
+    """User-visible "Mihomo" outside the allowed attributions, as (where, text)."""
+    hits = []
+
+    def check(where, text):
+        if BRAND.search(text) and not BRAND_OK.search(text):
+            hits.append((where, text))
+
+    s = json.load(open(CAT, encoding="utf-8"))["strings"]
+    for k, v in s.items():
+        check("catalog key", k)
+        for lang, loc in v.get("localizations", {}).items():
+            u = loc.get("stringUnit", {}).get("value")
+            if u:
+                check(f"catalog {lang} of {k[:30]!r}", u)
+    for p in sorted(glob.glob(os.path.join(ROOT, "*", "Info.plist"))):
+        try:
+            info = plistlib.load(open(p, "rb"))
+        except Exception:
+            continue
+        for key, val in info.items():
+            if isinstance(val, str) and (key in PLIST_KEYS or key.endswith("UsageDescription")):
+                check(f"{os.path.relpath(p, ROOT)} {key}", val)
+    for p in sorted(glob.glob(os.path.join(ROOT, "**", "*.swift"), recursive=True)):
+        rel = os.path.relpath(p, ROOT)
+        if rel.startswith(("UITests", "UnitTests", "bridge")):
+            continue
+        for n, line in enumerate(open(p, encoding="utf-8"), 1):
+            if line.lstrip().startswith("//"):
+                continue
+            for m in UI_LITERAL.finditer(line):
+                check(f"{rel}:{n}", m.group(1))
+    return hits
+
+
 def main():
     s = json.load(open(CAT, encoding="utf-8"))["strings"]
     bad = 0
@@ -38,7 +89,12 @@ def main():
                     if "-q" not in sys.argv:
                         print(f"{lang}\t{term}\t{k[:40]!r} => {u[:80]!r}")
     print("inconsistent:", bad)
-    sys.exit(1 if bad else 0)
+    brand = brand_hits()
+    for where, text in brand:
+        if "-q" not in sys.argv:
+            print(f"brand\t{where}\t{text[:80]!r}")
+    print("brand leftovers (\"Mihomo\"):", len(brand))
+    sys.exit(1 if bad or brand else 0)
 
 
 if __name__ == "__main__":

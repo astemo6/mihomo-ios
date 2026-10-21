@@ -83,7 +83,7 @@ struct GeoCheckerView: View {
         }
         .scrollContentBackground(.hidden)
         .background(Theme.bg.ignoresSafeArea())
-        .navigationTitle("出口信息查询")
+        .navigationTitle("出口信息来源") // r7 P3-8: same name as the 高级设置 row
         .navigationBarTitleDisplayMode(.inline)
         .onChange(of: choice) { _ in persist() }
         .onDisappear { persist() }

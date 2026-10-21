@@ -116,8 +116,8 @@ struct ScaledSystemFont: ViewModifier {
     let design: Font.Design
     let monospacedDigit: Bool
 
-    init(size: CGFloat, weight: Font.Weight, design: Font.Design, monospacedDigit: Bool) {
-        let style: Font.TextStyle = size <= 11 ? .caption2 : (size <= 13 ? .footnote : .body)
+    init(size: CGFloat, weight: Font.Weight, design: Font.Design, monospacedDigit: Bool, relativeTo: Font.TextStyle? = nil) {
+        let style: Font.TextStyle = relativeTo ?? (size <= 11 ? .caption2 : (size <= 13 ? .footnote : .body))
         _size = ScaledMetric(wrappedValue: size, relativeTo: style)
         self.weight = weight
         self.design = design
@@ -131,8 +131,9 @@ struct ScaledSystemFont: ViewModifier {
 }
 
 extension View {
-    func scaledFont(_ size: CGFloat, weight: Font.Weight = .regular, design: Font.Design = .default, monospacedDigit: Bool = false) -> some View {
-        modifier(ScaledSystemFont(size: size, weight: weight, design: design, monospacedDigit: monospacedDigit))
+    func scaledFont(_ size: CGFloat, weight: Font.Weight = .regular, design: Font.Design = .default, monospacedDigit: Bool = false,
+                    relativeTo: Font.TextStyle? = nil) -> some View {
+        modifier(ScaledSystemFont(size: size, weight: weight, design: design, monospacedDigit: monospacedDigit, relativeTo: relativeTo))
     }
 }
 
@@ -205,6 +206,8 @@ struct TileRow: View {
     var value: String? = nil
     var valueColor: Color = .secondary
     var dimmed = false
+    /// r7 P3-2: user text (a profile name) is shown as typed — no Markdown, no catalog lookup.
+    var valueVerbatim = false
 
     var body: some View {
         // feat/egern-style: 15 pt title, a small grey subtitle, the value on the right at nearly title size.
@@ -218,7 +221,7 @@ struct TileRow: View {
             }
             Spacer(minLength: 8)
             if let value {
-                Text(LocalizedStringKey(value)).font(.footnote).foregroundStyle(dimmed ? Color.secondary : valueColor).lineLimit(1)
+                (valueVerbatim ? Text(verbatim: value) : Text(LocalizedStringKey(value))).font(.footnote).foregroundStyle(dimmed ? Color.secondary : valueColor).lineLimit(1)
             }
         }
     }

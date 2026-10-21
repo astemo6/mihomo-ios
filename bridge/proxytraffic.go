@@ -15,6 +15,12 @@ package libmihomo
 //   - a tracker that disappeared (connection closed) is read one last time through the *TrackerInfo we
 //     kept, so the bytes it moved between the last sample and its close are counted too. The pointer is
 //     dropped right after, so nothing is held past one sample.
+//   - review 7 P2-1: a connection that opened AND closed between two samples is never seen by Range. Its bytes
+//     are still in the manager's global totals, so each sample also reads those totals: the part of their
+//     growth that no seen tracker explains (the "residual") belongs to such short connections. It is split
+//     between proxy and direct by the proxy share of the bytes seen in the same interval (lifetime share when
+//     the interval saw nothing; all proxy when nothing was ever seen). Bytes a tracker read ahead of the
+//     totals read are carried as a negative residual, so over time the split adds up exactly to the totals.
 //
 // Memory: one small entry per LIVE connection (the core already holds far more for each), plus a name →
 // class cache bounded by the profile's node count. No per-connection history, no allocation per byte.
@@ -37,15 +43,21 @@ import (
 type ptEntry struct {
 	up, down int64 // counters at the last sample
 	proxy    bool
-	seen     uint32
+	// uncounted: the core does not push this tracker into its totals (dialer-proxy inner legs / DNS dialers).
+	// Inverted on purpose so an entry made elsewhere with the zero value (e.g. a start-time seed) is counted.
+	uncounted bool
+	seen      uint32
 }
 
 type proxyTraffic struct {
 	mu      sync.Mutex
 	entries map[*statistic.TrackerInfo]*ptEntry
 	classes map[string]bool // leaf name → is a proxy
-	epoch   uint32
-	last    time.Time
+	// provTable (review 7 OPT-1): provider node name → is a proxy, built once per classes generation on the
+	// first leaf that is not a top-level proxy, instead of walking every provider for each unknown leaf.
+	provTable map[string]bool
+	epoch     uint32
+	last      time.Time
 
 	upTotal, downTotal atomic.Int64
 	upRate, downRate   atomic.Int64
@@ -53,9 +65,23 @@ type proxyTraffic struct {
 	stop chan struct{}
 	// classify is replaceable in tests (no running core there).
 	classify func(leaf string) bool
+
+	// P2-1 residual accounting. totals reads the manager's global counters (nil in unit tests that do not
+	// test the residual: other tests' trackers push into the same global manager).
+	totals             func() (up, down int64)
+	haveTot            bool
+	totUp, totDown     int64 // manager totals at the last sample
+	carryUp, carryDown int64 // <= 0: bytes seen trackers counted ahead of the totals read
+	seenProxy, seenAll int64 // lifetime bytes of seen counted trackers (for the share fallback)
 }
 
-var proxyTrafficStats = newProxyTraffic()
+var proxyTrafficStats = newLiveProxyTraffic()
+
+func newLiveProxyTraffic() *proxyTraffic {
+	p := newProxyTraffic()
+	p.totals = statistic.DefaultManager.Total
+	return p
+}
 
 func newProxyTraffic() *proxyTraffic {
 	p := &proxyTraffic{entries: map[*statistic.TrackerInfo]*ptEntry{}, classes: map[string]bool{}}
@@ -87,12 +113,19 @@ func (p *proxyTraffic) classifyLive(leaf string) (proxy bool) {
 	if px, ok := tunnel.Proxies()[leaf]; ok {
 		return !nonProxyType(px.Type())
 	}
-	for _, pv := range tunnel.Providers() {
-		for _, px := range pv.Proxies() {
-			if px.Name() == leaf {
-				return !nonProxyType(px.Type())
+	if p.provTable == nil {
+		t := map[string]bool{}
+		for _, pv := range tunnel.Providers() {
+			for _, px := range pv.Proxies() {
+				if _, dup := t[px.Name()]; !dup { // first provider wins, like the old walk
+					t[px.Name()] = !nonProxyType(px.Type())
+				}
 			}
 		}
+		p.provTable = t
+	}
+	if v, ok := p.provTable[leaf]; ok {
+		return v
 	}
 	return true // an unknown leaf that is not a built-in is a node the core dialled
 }
@@ -125,6 +158,9 @@ func (p *proxyTraffic) leafIsProxy(info *statistic.TrackerInfo) bool {
 	if v, ok := p.classes[leaf]; ok {
 		return v
 	}
+	if len(p.classes) == 0 {
+		p.provTable = nil // new classes generation (start / reload / overflow): providers may have changed
+	}
 	v := p.classify(leaf)
 	if len(p.classes) > 4096 {
 		p.classes = map[string]bool{}
@@ -138,7 +174,34 @@ func (p *proxyTraffic) sample(rangeTrackers func(func(statistic.Tracker) bool), 
 	p.mu.Lock()
 	defer p.mu.Unlock()
 	p.epoch++
-	var dUp, dDown int64
+	if p.last.IsZero() {
+		p.haveTot = false // fresh start: the totals baseline is taken in this sample
+	}
+	var tu, td int64
+	if p.totals != nil {
+		tu, td = p.totals() // before the trackers: their counters may only be ahead of this read, never behind
+	}
+	var dUp, dDown int64     // proxy bytes
+	var allUp, allDown int64 // bytes of every counted tracker (proxy + direct)
+	add := func(info *statistic.TrackerInfo, e *ptEntry) {
+		u, d := info.UploadTotal.Load(), info.DownloadTotal.Load()
+		var du, dd int64
+		if u > e.up {
+			du = u - e.up
+		}
+		if d > e.down {
+			dd = d - e.down
+		}
+		e.up, e.down = u, d
+		if !e.uncounted {
+			allUp += du
+			allDown += dd
+		}
+		if e.proxy {
+			dUp += du
+			dDown += dd
+		}
+	}
 	rangeTrackers(func(t statistic.Tracker) bool {
 		info := t.Info()
 		if info == nil {
@@ -147,20 +210,12 @@ func (p *proxyTraffic) sample(rangeTrackers func(func(statistic.Tracker) bool), 
 		e := p.entries[info]
 		if e == nil {
 			e = &ptEntry{}
-			e.proxy = pushesToManager(t) && p.leafIsProxy(info)
+			e.uncounted = !pushesToManager(t)
+			e.proxy = !e.uncounted && p.leafIsProxy(info)
 			p.entries[info] = e
 		}
 		e.seen = p.epoch
-		if e.proxy {
-			u, d := info.UploadTotal.Load(), info.DownloadTotal.Load()
-			if u > e.up {
-				dUp += u - e.up
-			}
-			if d > e.down {
-				dDown += d - e.down
-			}
-			e.up, e.down = u, d
-		}
+		add(info, e)
 		return true
 	})
 	for info, e := range p.entries {
@@ -168,16 +223,20 @@ func (p *proxyTraffic) sample(rangeTrackers func(func(statistic.Tracker) bool), 
 			continue
 		}
 		// Closed since the last sample: its counters are final now.
-		if e.proxy {
-			u, d := info.UploadTotal.Load(), info.DownloadTotal.Load()
-			if u > e.up {
-				dUp += u - e.up
-			}
-			if d > e.down {
-				dDown += d - e.down
-			}
-		}
+		add(info, e)
 		delete(p.entries, info)
+	}
+	if p.totals != nil {
+		if p.haveTot {
+			ru := (tu - p.totUp) - allUp + p.carryUp
+			rd := (td - p.totDown) - allDown + p.carryDown
+			p.carryUp, p.carryDown = min(ru, 0), min(rd, 0)
+			dUp += p.proxyShare(max(ru, 0), dUp, allUp)
+			dDown += p.proxyShare(max(rd, 0), dDown, allDown)
+		} else {
+			p.carryUp, p.carryDown = 0, 0
+		}
+		p.totUp, p.totDown, p.haveTot = tu, td, true
 	}
 	p.upTotal.Add(dUp)
 	p.downTotal.Add(dDown)
@@ -188,6 +247,23 @@ func (p *proxyTraffic) sample(rangeTrackers func(func(statistic.Tracker) bool), 
 		}
 	}
 	p.last = now
+}
+
+// proxyShare is the proxy part of residual bytes r, given the proxy / all bytes the seen trackers moved in the
+// same interval (and the lifetime split when the interval saw nothing). Also updates the lifetime split.
+func (p *proxyTraffic) proxyShare(r, proxy, all int64) int64 {
+	p.seenProxy += proxy
+	p.seenAll += all
+	if r <= 0 {
+		return 0
+	}
+	switch {
+	case all > 0:
+		return int64(float64(r) * float64(proxy) / float64(all))
+	case p.seenAll > 0:
+		return int64(float64(r) * float64(p.seenProxy) / float64(p.seenAll))
+	}
+	return r // nothing seen yet: short connections are the only traffic; "仅代理" assumes they are proxied
 }
 
 func managerRange(f func(statistic.Tracker) bool) { statistic.DefaultManager.Range(f) }
@@ -206,7 +282,10 @@ func (p *proxyTraffic) start() {
 	stop := make(chan struct{})
 	p.stop = stop
 	p.mu.Unlock()
-	// Connections already open (none on a fresh Start) start counting from now.
+	// r7: connections still open from a previous run in this process (stop → start without the
+	// extension exiting) start counting from now: seed them with their current counters, otherwise
+	// their whole lifetime bytes landed in the first sample at once.
+	p.seed(managerRange)
 	go func() {
 		t := time.NewTicker(time.Second)
 		defer t.Stop()
@@ -219,6 +298,23 @@ func (p *proxyTraffic) start() {
 			}
 		}
 	}()
+}
+
+// seed records every live tracker at its current counters without counting anything.
+func (p *proxyTraffic) seed(rangeTrackers func(func(statistic.Tracker) bool)) {
+	p.mu.Lock()
+	defer p.mu.Unlock()
+	rangeTrackers(func(t statistic.Tracker) bool {
+		info := t.Info()
+		if info == nil {
+			return true
+		}
+		if _, ok := p.entries[info]; !ok {
+			p.entries[info] = &ptEntry{proxy: pushesToManager(t) && p.leafIsProxy(info),
+				up: info.UploadTotal.Load(), down: info.DownloadTotal.Load(), seen: p.epoch}
+		}
+		return true
+	})
 }
 
 // stopRunning ends the sampler (counters keep their last values for a final read).

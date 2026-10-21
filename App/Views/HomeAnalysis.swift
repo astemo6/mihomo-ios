@@ -118,6 +118,9 @@ final class HomeAnalysisModel {
     private var mounted = 0
     private var task: Task<Void, Never>?
     private var lastBuilt = Date.distantPast
+    /// r7: ConnectionAnalytics.version of the last rebuild (and its source) — skip sorting when nothing changed.
+    private var builtVersion = -1
+    private var builtDemo = false
 
     func setHomeVisible(_ v: Bool) { homeVisible = v; update() }
     func setActive(_ v: Bool) { appActive = v; update() }
@@ -146,6 +149,9 @@ final class HomeAnalysisModel {
         guard now.timeIntervalSince(lastBuilt) >= Self.minInterval - 0.05 else { return }
         lastBuilt = now
         let a = source
+        if a.version == builtVersion && builtDemo == Self.demo { return }
+        builtVersion = a.version
+        builtDemo = Self.demo
 
         let c = ConnSnap(total: a.totalConnections, active: a.activeConnections)
         if c != connections { connections = c }
@@ -175,14 +181,6 @@ final class HomeAnalysisModel {
 }
 
 // MARK: - Shared bits
-
-/// Visibility read by both Home blocks (tiles at the top, 策略 / 规则 / 主机名 lower down).
-struct HomeAnalysisVisibility {
-    let hidden: Set<HomeAnalysisCard>
-    let collapsed: Set<HomeAnalysisCard>
-    var live: Bool
-    func shows(_ c: HomeAnalysisCard) -> Bool { !hidden.contains(c) }
-}
 
 /// Egern-style label above a card: title, optional summary, collapse chevron (the whole row is the button).
 struct HomeSectionLabel: View {
@@ -234,7 +232,6 @@ private struct AnalysisCardBox<Content: View>: View {
 /// Context menu shared by every analysis card.
 private struct AnalysisMenu: ViewModifier {
     let card: HomeAnalysisCard
-    @Binding var editing: Bool
     @AppStorage(HomeAnalysisCard.hiddenKey) private var hiddenRaw = ""
     @AppStorage(HomeAnalysisCard.addedKey) private var addedRaw = ""
     func body(content: Content) -> some View {
@@ -252,7 +249,7 @@ private struct AnalysisMenu: ViewModifier {
                     hiddenRaw = HomeAnalysisCard.raw(s)
                 } label: { Label("在首页隐藏", systemImage: "eye.slash") }
             }
-            Button { editing = true } label: { Label("编辑首页面板", systemImage: "slider.horizontal.3") }
+            Button { HomeEditorRouter.shared.open(.panels) } label: { Label("编辑首页面板", systemImage: "slider.horizontal.3") }
         }
     }
 }
@@ -269,7 +266,6 @@ struct HomeConnectionTiles: View {
     @EnvironmentObject var vpn: VPNManager
     @AppStorage(HomeAnalysisCard.hiddenKey) private var hiddenRaw = ""
     @State private var snap = HomeAnalysisModel.shared.connections
-    @State private var editing = false
 
     var body: some View {
         let live = vpn.isConnected || HomeAnalysisModel.demo
@@ -282,11 +278,10 @@ struct HomeConnectionTiles: View {
             }
             .buttonStyle(.plain)
             .accessibilityIdentifier("home.analysis.connections")
-            .modifier(AnalysisMenu(card: .connections, editing: $editing))
+            .modifier(AnalysisMenu(card: .connections))
             .onReceive(HomeAnalysisModel.shared.$connections.removeDuplicates()) { if $0 != snap { snap = $0 } }
             .onAppear { HomeAnalysisModel.shared.mount() }
             .onDisappear { HomeAnalysisModel.shared.unmount() }
-            .sheet(isPresented: $editing) { HomePanelsEditor().environmentObject(vpn) }
         }
     }
 }
@@ -297,7 +292,6 @@ struct HomeAnalysisSection: View {
     @EnvironmentObject var vpn: VPNManager
     @AppStorage(HomeAnalysisCard.addedKey) private var addedRaw = ""
     @AppStorage(HomeAnalysisCard.collapsedKey) private var collapsedRaw = ""
-    @State private var editing = false
 
     var body: some View {
         // Opt-in: only the panels the user added, in the fixed Egern order; nothing (not even the empty state) otherwise.
@@ -317,21 +311,43 @@ struct HomeAnalysisSection: View {
                             case .connections: EmptyView()
                             }
                         }
-                        .modifier(AnalysisMenu(card: c, editing: $editing))
+                        .modifier(AnalysisMenu(card: c))
                     }
                 } else {
+                    // r7: the offline empty state stands for the added cards: the same long-press menu as the
+                    // online cards (remove from Home / collapse / edit), applied to all of them.
+                    let allCollapsed = shown.allSatisfy { collapsed.contains($0) }
                     HomeSectionLabel(title: String(localized: "流量分析"))
                     Card {
-                        EmptyStateRow(icon: "chart.bar.xaxis", title: "连接后开始统计",
-                                      message: "开启代理后，这里会显示各策略的流量、规则命中次数和流量最多的主机名。")
+                        if allCollapsed {
+                            Label("连接后开始统计", systemImage: "chart.bar.xaxis").font(.subheadline).foregroundStyle(.secondary)
+                                .frame(maxWidth: .infinity, alignment: .leading)
+                        } else {
+                            EmptyStateRow(icon: "chart.bar.xaxis", title: "连接后开始统计",
+                                          message: "开启代理后，这里会显示各策略的流量、规则命中次数和流量最多的主机名。")
+                        }
                     }
                     .accessibilityElement(children: .combine)
                     .accessibilityIdentifier("home.analysis.empty")
+                    .contextMenu {
+                        Button(role: .destructive) {
+                            var s = added
+                            for c in shown { s.remove(c) }
+                            withAnimation { addedRaw = HomeAnalysisCard.raw(s) }
+                        } label: { Label("从首页移除", systemImage: "minus.circle") }
+                        Button {
+                            var s = collapsed
+                            if allCollapsed { for c in shown { s.remove(c) } } else { for c in shown { s.insert(c) } }
+                            withAnimation(.easeInOut(duration: 0.2)) { collapsedRaw = HomeAnalysisCard.raw(s) }
+                        } label: {
+                            Label(LocalizedStringKey(allCollapsed ? "展开" : "收起"), systemImage: allCollapsed ? "chevron.down" : "chevron.up")
+                        }
+                        Button { HomeEditorRouter.shared.open(.panels) } label: { Label("编辑首页面板", systemImage: "slider.horizontal.3") }
+                    }
                 }
             }
             .onAppear { HomeAnalysisModel.shared.mount() }
             .onDisappear { HomeAnalysisModel.shared.unmount() }
-            .sheet(isPresented: $editing) { HomePanelsEditor().environmentObject(vpn) }
         }
     }
 }
@@ -342,6 +358,8 @@ struct HomePolicyShareCard: View {
     let collapsed: Bool
     let toggle: () -> Void
     @State private var snap = HomeAnalysisModel.shared.policies
+    /// r7 P3-4: the percent column grows with the text (a fixed 40 pt cut 「100%」 to 「1…」 at large sizes).
+    @ScaledMetric(relativeTo: .caption2) private var percentWidth: CGFloat = 40
 
     var body: some View {
         let total = max(snap.total, 1)
@@ -374,7 +392,8 @@ struct HomePolicyShareCard: View {
                                     Text(verbatim: Fmt.bytes(p.1)).font(.caption.monospacedDigit())
                                     Text(Double(p.1) / Double(total), format: .percent.precision(.fractionLength(0)))
                                         .font(.caption2.monospacedDigit()).foregroundStyle(.secondary)
-                                        .frame(width: 40, alignment: .trailing)
+                                        .lineLimit(1)
+                                        .frame(minWidth: percentWidth, alignment: .trailing)
                                 }
                                 .accessibilityElement(children: .combine)
                             }
@@ -403,6 +422,9 @@ struct HomeRuleHitsCard: View {
     let collapsed: Bool
     let toggle: () -> Void
     @State private var snap = HomeAnalysisModel.shared.rules
+    /// r7 P3-4: card widths follow Dynamic Type with the caption2 / 9 pt texts inside (fixed 88 / 72 pt left only 「…」).
+    @ScaledMetric(relativeTo: .caption2) private var ringCardWidth: CGFloat = 88
+    @ScaledMetric(relativeTo: .caption2) private var moreCardWidth: CGFloat = 72
 
     var body: some View {
         let maxHits = max(snap.top.first?.hits ?? 1, 1)
@@ -424,7 +446,7 @@ struct HomeRuleHitsCard: View {
                                             Image(systemName: "chevron.right.circle").font(.title3).foregroundStyle(Theme.accent)
                                             Text("查看全部").font(.caption)
                                         }
-                                        .frame(width: 72)
+                                        .frame(width: moreCardWidth)
                                         .frame(maxHeight: .infinity)
                                         .background(RoundedRectangle(cornerRadius: Theme.radius, style: .continuous).fill(Theme.card))
                                     }
@@ -467,12 +489,12 @@ struct HomeRuleHitsCard: View {
             .accessibilityHidden(true)
             Text(verbatim: parts.payload ?? parts.type).font(.caption2).lineLimit(1).truncationMode(.middle)
             if parts.payload != nil {
-                Text(verbatim: parts.type).font(.system(size: 9, weight: .medium)).foregroundStyle(.secondary)
+                Text(verbatim: parts.type).scaledFont(9, weight: .medium).foregroundStyle(.secondary)
                     .lineLimit(1).minimumScaleFactor(0.7)
             }
-            Text(verbatim: r.policy).font(.system(size: 9)).foregroundStyle(.secondary).lineLimit(1)
+            Text(verbatim: r.policy).scaledFont(9).foregroundStyle(.secondary).lineLimit(1)
         }
-        .frame(width: 88)
+        .frame(width: ringCardWidth)
         .padding(.vertical, 10).padding(.horizontal, 6)
         .frame(maxHeight: .infinity, alignment: .top)
         .background(RoundedRectangle(cornerRadius: Theme.radius, style: .continuous).fill(Theme.card))
@@ -640,7 +662,11 @@ struct HomeQuickAddButton: View {
                 CustomRuleEditor(rule: CustomRule(line: "")) { r in
                     let custom = CustomRulesStore.shared
                     custom.rules.insert(r, at: 0)
-                    custom.save()
+                    // r7 P3-1: a failed reload is shown here, once the editor has closed.
+                    Task {
+                        guard let e = await custom.saveAndReload() else { return }
+                        if sheet == nil { message = e } else { pendingMessage = e }
+                    }
                 }
             }
         }
@@ -656,7 +682,9 @@ struct HomeQuickAddButton: View {
             scanned = nil
             guard !code.isEmpty else { return }
             nodeText = code
-            DispatchQueue.main.asyncAfter(deadline: .now() + 0.35) { sheet = .node }
+            // r7: this runs in the scanner sheet's onDismiss — the sheet is gone, so the next one is presented right
+            // here (the 0.35 s timer could overlap another sheet opened meanwhile, or fire after the user left).
+            if sheet == nil { sheet = .node }
         }
     }
 }

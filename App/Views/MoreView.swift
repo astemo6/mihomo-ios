@@ -13,6 +13,13 @@ struct MoreView: View {
     /// publishes every second and rebuilt this list and every pushed page (LazyDestination closures are never
     /// equal) during push / pop.
     @AppStorage(TrafficScope.key, store: AppShared.defaults) private var scopeRaw = TrafficScope.all.rawValue
+    /// r7 P3-9: 配置 is a value route, so 「添加配置」 / 「前往配置」 (ImportRouter.showProfiles) can replace the whole
+    /// stack with [配置]. The old navigationDestination(isPresented:) pushed a second 配置 page on top of one the user
+    /// had opened from this list, or over whatever deeper page was showing.
+    enum Route: Hashable { case profiles }
+    @State private var path: [Route] = []
+    /// False until the stack first appeared (a new MoreView, e.g. iPad's per-tab rebuild, starts with an empty stack).
+    @State private var appeared = false
 
     /// Every node 节点与订阅 lists (全部节点); nil before the list loaded. (Kept for callers; feat/surge-ui
     /// no longer shows the count on the 更多 row.)
@@ -22,14 +29,14 @@ struct MoreView: View {
     /// plain-language titles with the technical term as a small subtitle, no counters on the top level,
     /// expert pages under 高级设置. Row ids stay `more.<old zh-Hans key>` so UI tests and muscle memory hold.
     var body: some View {
-        NavigationStack {
+        NavigationStack(path: $path) {
             List {
                 // feat/more-dedup (user 2026-10-21 18:06): the 配置 tab is gone; 配置管理 is the first row here and the
                 // tool-type pages (节点与订阅, 规则, 模块, logs, network tools) are cards on the 工具 tab.
                 Section {
-                    NavigationLink { LazyDestination { ProfilesView() } } label: {
+                    NavigationLink(value: Route.profiles) {
                         MoreRow(id: "配置", title: "配置", symbol: "doc.text.fill", tone: .blue,
-                                value: store.active?.displayName ?? String(localized: "未选择"))
+                                value: store.active?.displayName ?? String(localized: "未选择"), valueVerbatim: true)
                     }
                 }
                 .listRowBackground(Theme.card)
@@ -97,11 +104,55 @@ struct MoreView: View {
             .scrollContentBackground(.hidden)
             .background(Theme.bg.ignoresSafeArea())
             .navigationTitle("更多")
-            .navigationDestination(isPresented: $router.openProfiles) { ProfilesView() }
+            .navigationDestination(for: Route.self) { r in
+                switch r {
+                case .profiles: ProfilesView()
+                }
+            }
             .fullScreenCover(isPresented: $showOnboarding) {
                 OnboardingView { showOnboarding = false }
                     .environmentObject(vpn)
                     .environmentObject(store)
+            }
+        }
+        // onAppear too: on iPad the detail column is rebuilt per tab (.id(selectedTab)) after the flag was set.
+        .onAppear {
+            showProfilesIfAsked()
+            appeared = true
+        }
+        .onChange(of: router.openProfiles) { _ in showProfilesIfAsked() }
+    }
+
+    /// Exactly one 配置 page on top of 更多, whatever was pushed before.
+    /// r7 P3-9 follow-up: the first version rebuilt the stack with `.id(UUID())`. Swapping the
+    /// UINavigationController under a visible navigation bar inside the TabView made UINavigationBar
+    /// layoutSubviews throw (SIGABRT in Self-test test57, both during the tab switch and right after it).
+    /// The stack is never rebuilt now: changing `path` to [] pops to 更多 (that also drops pages pushed by
+    /// closure NavigationLinks, which sit above the path entries), and 配置 is pushed on the next main-queue turn so
+    /// the two changes are not coalesced. Both run after the tab switch that ImportRouter.showProfiles does in
+    /// the same update. A stack that never appeared is empty and just gets [配置].
+    func showProfilesIfAsked() {
+        guard router.openProfiles else { return }
+        router.openProfiles = false
+        let fresh = !appeared
+        DispatchQueue.main.async {
+            var t = Transaction()
+            t.disablesAnimations = true
+            if fresh {
+                withTransaction(t) { path = [.profiles] }
+                return
+            }
+            // Pages pushed by closure links are only dropped when `path` actually changes. With an empty path
+            // (e.g. 更多 → 高级设置), set it to [配置] first so there is a change, then clear it.
+            if path.isEmpty {
+                withTransaction(t) { path = [.profiles] }
+                DispatchQueue.main.async {
+                    withTransaction(t) { path = [] }
+                    DispatchQueue.main.async { path = [.profiles] }
+                }
+            } else {
+                withTransaction(t) { path = [] }
+                DispatchQueue.main.async { path = [.profiles] }
             }
         }
     }
@@ -119,11 +170,12 @@ struct MoreRow: View {
     var value: String? = nil
     var valueColor: Color = .secondary
     var needsVPN = false
+    var valueVerbatim = false
 
     var body: some View {
         let off = needsVPN && !vpn.isConnected
         TileRow(title: title, subtitle: subtitle, symbol: symbol, tone: tone,
-                value: off ? "需开启 VPN" : value, valueColor: valueColor, dimmed: off)
+                value: off ? "需开启 VPN" : value, valueColor: valueColor, dimmed: off, valueVerbatim: !off && valueVerbatim)
             .accessibilityElement(children: .combine)
             .accessibilityIdentifier("more." + id)
     }
@@ -211,7 +263,7 @@ struct TrafficScopeView: View {
                             IconTile(symbol: s == .all ? "globe" : "paperplane", tone: dash.scope == s ? .accent : .neutral)
                             VStack(alignment: .leading, spacing: 2) {
                                 Text(LocalizedStringKey(s.title)).foregroundStyle(.primary)
-                                Text(s == .all ? "经过 Mihomo 的所有流量，包括直连" : "只算经代理节点发出的流量，不含直连和拒绝")
+                                Text(s == .all ? "经过 Tern 的所有流量，包括直连" : "只算经代理节点发出的流量，不含直连和拒绝")
                                     .font(.caption).foregroundStyle(.secondary)
                             }
                             Spacer()
@@ -546,6 +598,9 @@ struct DiagnosticsView: View {
     @State private var share: ShareItem?
     @State private var exportError: String?
     @State private var copied = false
+    /// B24: groups in embedded.mobileprovision, parsed once on appear (it was parsed on every redraw; the memory
+    /// section above redraws periodically). nil = not read yet.
+    @State private var provisioned: [String]?
 
     var body: some View {
         let group = AppShared.appGroup
@@ -588,15 +643,17 @@ struct DiagnosticsView: View {
                 LabeledContent("共享容器") {
                     Text(AppShared.containerOK ? "正常" : "不可用").foregroundStyle(AppShared.containerOK ? Theme.good : Theme.bad)
                 }
-                let groups = AppShared.provisionedAppGroups()
-                LabeledContent("描述文件中的组", value: groups.isEmpty ? String(localized: "（未找到 embedded.mobileprovision）") : groups.sorted().joined(separator: "\n"))
+                if let w = AppShared.appGroupWarning { Text(w).font(.footnote).foregroundStyle(Theme.bad) } // r7 B05
+                if let groups = provisioned { // B24: parsed once on appear
+                    LabeledContent("描述文件中的组", value: groups.isEmpty ? String(localized: "（未找到 embedded.mobileprovision）") : groups.joined(separator: "\n"))
+                }
                 LabeledContent("VPN 状态", value: vpn.statusText)
                 LabeledContent("上次断开原因", value: TunnelStopReason.last() ?? "—")
                 let co = CoreOverrides.load()
                 LabeledContent("连接方式", value: co.isProxyOnly ? String(localized: "仅代理（NEProxySettings）") : co.isMixed ? String(localized: "VPN 混合（PacketFlowBridge + NEProxySettings）") : String(localized: "全局隧道（PacketFlowBridge）"))
                 if vpn.safeModeActive { LabeledContent("安全模式", value: String(localized: "开启")) }
             } header: { Text("签名与容器") } footer: {
-                Text("重签名后描述文件会替换 entitlements。App 与扩展会在运行时从描述文件读取 App Group 并按字母序选第一个可用的；共享容器不可用时扩展无法读取配置，连接会失败。")
+                Text("重签名后描述文件会替换 entitlements。App、扩展和小组件会记住第一次使用的 App Group，之后优先用它，其次是已有配置的组；共享容器不可用时扩展无法读取配置，连接会失败。")
             }
             .listRowBackground(Theme.card)
             if let e = vpn.lastError {
@@ -629,6 +686,7 @@ struct DiagnosticsView: View {
         .scrollContentBackground(.hidden)
         .background(Theme.bg.ignoresSafeArea())
         .navigationTitle("诊断")
+        .onAppear { if provisioned == nil { provisioned = AppShared.provisionedAppGroups().sorted() } }
         // fix/nav-jank: init already read it for the first frame; the re-read (two files) runs off main.
         .task {
             let s = await Task.detached(priority: .utility) { StartupLog.read() }.value

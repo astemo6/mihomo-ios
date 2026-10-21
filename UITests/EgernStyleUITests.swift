@@ -64,6 +64,7 @@ extension MihomoUITests {
 
         // 策略 with the chain seed: collapsed rows, then one expanded.
         app.terminate()
+        allowHan = true // the chain seed's group / node names are Chinese user content on purpose
         launch(["-UITestPolicyChain"])
         tab(1)
         let top = app.element(id: "policy.card.节点选择")

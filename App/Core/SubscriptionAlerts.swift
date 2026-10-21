@@ -257,7 +257,8 @@ enum ScheduledUpdates {
     /// Asks iOS to wake the app when the next subscription is due (never sooner than one hour).
     static func scheduleBackground() {
         var next: Date?
-        for p in ProfileStore.shared.profiles where p.kind == .remote && p.updateIntervalHours > 0 {
+        // r7 R7A-6: a disabled profile is never updated, so it stayed "due" and re-armed the task every hour.
+        for p in ProfileStore.shared.profiles where p.kind == .remote && p.enabled && p.updateIntervalHours > 0 {
             let d = (p.lastUpdated ?? .distantPast).addingTimeInterval(TimeInterval(p.updateIntervalHours * 3600))
             next = min(next ?? d, d)
         }

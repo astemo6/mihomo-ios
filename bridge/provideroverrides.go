@@ -12,12 +12,16 @@ package libmihomo
 //                groups, rules and 策略组编辑 that name the provider keep working.
 
 import (
+	"crypto/sha256"
+	"encoding/hex"
 	"encoding/json"
 	"net/url"
 	"os"
 	"path/filepath"
 	"sort"
 	"strings"
+	"sync"
+	"time"
 
 	"github.com/dlclark/regexp2"
 )
@@ -73,15 +77,59 @@ func setProviderURL(m map[string]any, nu string) {
 	}
 }
 
+// pathForURL gives a provider cache path its own name per link: ./proxies/a.yaml → ./proxies/a-<hash8>.yaml.
+func pathForURL(p, u string) string {
+	sum := sha256.Sum256([]byte(u))
+	h := hex.EncodeToString(sum[:4])
+	ext := filepath.Ext(p)
+	return strings.TrimSuffix(p, ext) + "-" + h + ext
+}
+
 func validProviderFilter(f string) bool {
 	_, err := regexp2.Compile(f, regexp2.None)
 	return err == nil
 }
 
-// applyProviderOverrides applies ov to the profile's own proxy-providers (call it before node subscriptions
-// are merged). Removed providers leave every `use:`; a group left with no member at all gets DIRECT so the
-// config stays valid. Returns the removed provider names and warnings.
+// applyProviderOverrides applies ov and immediately gives a group left with no member DIRECT (used where
+// no node subscription is merged afterwards, e.g. tests and previews). buildRuntime uses
+// applyProviderOverridesDeferred and fillEmptyProviderGroups after node subscriptions and group edits.
 func applyProviderOverrides(raw map[string]any, ov map[string]ProviderOverride) (removed []string, warns []string) {
+	removed, warns = applyProviderOverridesDeferred(raw, ov)
+	fillEmptyProviderGroups(raw)
+	return removed, warns
+}
+
+// providerLostKey marks (inside buildRuntime only) a group that lost a 停用 / 删除 provider from `use:` or
+// that only had include-all-providers. Review 7 P1-1: the DIRECT fallback must run after node subscriptions
+// are merged — otherwise a select group whose only provider was disabled became `proxies: [DIRECT]`, the node
+// subscription skipped it (defaultSubGroup saw a DIRECT-only group) and MATCH traffic went direct.
+const providerLostKey = "x-tern-lost-provider"
+
+// fillEmptyProviderGroups removes the providerLostKey markers; a marked group with no member left at all gets
+// DIRECT so the config stays valid (安全模式 / no node subscription).
+func fillEmptyProviderGroups(raw map[string]any) {
+	pp, _ := raw["proxy-providers"].(map[string]any)
+	for _, gv := range asList(raw["proxy-groups"]) {
+		g, ok := gv.(map[string]any)
+		if !ok {
+			continue
+		}
+		if _, ok := g[providerLostKey]; !ok {
+			continue
+		}
+		delete(g, providerLostKey)
+		onlyProviders := boolOf(g["include-all-providers"]) && !boolOf(g["include-all"]) && !boolOf(g["include-all-proxies"])
+		if len(asList(g["proxies"])) == 0 && len(asList(g["use"])) == 0 &&
+			!boolOf(g["include-all"]) && !boolOf(g["include-all-proxies"]) && (!onlyProviders || len(pp) == 0) {
+			g["proxies"] = []any{"DIRECT"}
+		}
+	}
+}
+
+// applyProviderOverridesDeferred applies ov to the profile's own proxy-providers (call it before node
+// subscriptions are merged). Removed providers leave every `use:`; affected groups are marked with
+// providerLostKey for fillEmptyProviderGroups. Returns the removed provider names and warnings.
+func applyProviderOverridesDeferred(raw map[string]any, ov map[string]ProviderOverride) (removed []string, warns []string) {
 	if len(ov) == 0 {
 		return nil, nil
 	}
@@ -111,7 +159,13 @@ func applyProviderOverrides(raw map[string]any, ov map[string]ProviderOverride) 
 		}
 		if u := strings.TrimSpace(o.URL); u != "" && strings.EqualFold(str(m["type"]), "http") {
 			if pu, err := url.Parse(u); err == nil && (pu.Scheme == "http" || pu.Scheme == "https") && pu.Host != "" {
+				changed := u != providerSourceURL(m)
 				setProviderURL(m, u)
+				// Review 7 P2-3: with an explicit `path:` mihomo keeps using the old link's cached file until
+				// the interval expires; a path per link makes the new link's nodes load on the next reload.
+				if p := str(m["path"]); changed && p != "" {
+					m["path"] = pathForURL(p, u)
+				}
 			} else {
 				warns = append(warns, "节点集「"+name+"」的自定义链接无效，已使用配置里的链接")
 			}
@@ -162,9 +216,8 @@ func applyProviderOverrides(raw map[string]any, ov map[string]ProviderOverride) 
 			}
 		}
 		onlyProviders := boolOf(g["include-all-providers"]) && !boolOf(g["include-all"]) && !boolOf(g["include-all-proxies"])
-		if (had || onlyProviders) && len(asList(g["proxies"])) == 0 && len(asList(g["use"])) == 0 &&
-			!boolOf(g["include-all"]) && !boolOf(g["include-all-proxies"]) && (!onlyProviders || len(pp) == 0) {
-			g["proxies"] = []any{"DIRECT"}
+		if had || onlyProviders {
+			g[providerLostKey] = true
 		}
 	}
 	return removed, warns
@@ -183,7 +236,31 @@ type providerInfo struct {
 // ProfileProviders lists the proxy-providers the profile itself declares (覆写脚本 output when current), before
 // the user's provider overrides, so the app can show 停用 providers (not in the runtime) and the editor's
 // defaults. JSON [providerInfo], sorted by name.
+// ppCache (r7): ProfileProviders parses the whole profile; the node detail / 节点订阅 pages call it with
+// other per-node calls. Reuse the answer for rtCacheTTL while the runtime inputs are unchanged.
+var ppCache struct {
+	sync.Mutex
+	key, val string
+	at       time.Time
+}
+
 func ProfileProviders(homeDir, profilePath string) string {
+	key := runtimeCacheKey(homeDir, profilePath)
+	ppCache.Lock()
+	if ppCache.val != "" && ppCache.key == key && time.Since(ppCache.at) < rtCacheTTL {
+		v := ppCache.val
+		ppCache.Unlock()
+		return v
+	}
+	ppCache.Unlock()
+	v := profileProviders(homeDir, profilePath)
+	ppCache.Lock()
+	ppCache.key, ppCache.val, ppCache.at = key, v, time.Now()
+	ppCache.Unlock()
+	return v
+}
+
+func profileProviders(homeDir, profilePath string) string {
 	out := []providerInfo{}
 	defer func() { _ = recover() }()
 	b, err := readRuntimeProfile(homeDir, profilePath, false)

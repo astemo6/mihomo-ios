@@ -70,6 +70,9 @@ func (r *logRing) add(e logEntry) {
 	}
 	r.mu.Lock()
 	defer r.mu.Unlock()
+	// B11: the seq is taken under the ring lock, so a ring's entries are always in seq order (two subscribers
+	// used to take seqs N, N+1 and add them as N+1, N; a reader's cursor could then skip N).
+	e.Seq = nextLogSeq()
 	if len(r.buf) < r.cap {
 		r.buf = append(r.buf, e)
 		return
@@ -80,19 +83,21 @@ func (r *logRing) add(e logEntry) {
 
 func utf8Start(b byte) bool { return b&0xC0 != 0x80 }
 
-// since returns the entries newer than seq, oldest first.
-func (r *logRing) since(seq uint64) []logEntry {
+// since returns the entries newer than seq, oldest first, and the seq of the ring's newest entry (0 = empty).
+func (r *logRing) since(seq uint64) ([]logEntry, uint64) {
 	r.mu.Lock()
 	defer r.mu.Unlock()
 	out := make([]logEntry, 0, len(r.buf))
 	n := len(r.buf)
+	var last uint64
 	for i := 0; i < n; i++ {
 		e := r.buf[(r.head+i)%n]
 		if e.Seq > seq {
 			out = append(out, e)
 		}
+		last = e.Seq
 	}
-	return out
+	return out, last
 }
 
 func (r *logRing) clear() {
@@ -102,11 +107,14 @@ func (r *logRing) clear() {
 }
 
 // recordLogEvent is called by the extension's log subscriber for every core log event.
-func recordLogEvent(ev log.Event, now time.Time) {
+func recordLogEvent(ev log.Event, now time.Time) { recordLogEventTo(generalLog, dnsLog, ev, now) }
+
+// recordLogEventTo records into the given rings (B11: tests use their own rings instead of the process-wide ones
+// other tests' cores log into).
+func recordLogEventTo(general, dns *logRing, ev log.Event, now time.Time) {
 	e := logEntry{Time: now.UnixMilli(), Type: ev.Type(), Payload: ev.Payload}
 	if ev.LogLevel == log.DEBUG && strings.HasPrefix(ev.Payload, "[DNS] ") {
-		e.Seq = nextLogSeq()
-		dnsLog.add(e)
+		dns.add(e)
 		return // DNS queries flood the debug level; they have their own ring
 	}
 	// The user's level (the config's log-level), but never stricter than INFO, so the page's level picker has
@@ -114,8 +122,7 @@ func recordLogEvent(ev log.Event, now time.Time) {
 	if ev.LogLevel < min(log.LogLevel(diagLevel.Load()), log.INFO) {
 		return
 	}
-	e.Seq = nextLogSeq()
-	generalLog.add(e)
+	general.add(e)
 }
 
 var logLevelRank = map[string]int{"debug": 0, "info": 1, "warning": 2, "error": 3, "silent": 4}
@@ -151,7 +158,11 @@ type logHistoryResult struct {
 }
 
 func logHistory(kind string, since uint64, level string) logHistoryResult {
-	all := ringFor(kind).since(since)
+	return logHistoryFrom(ringFor(kind), since, level)
+}
+
+func logHistoryFrom(r *logRing, since uint64, level string) logHistoryResult {
+	all, last := r.since(since)
 	min, ok := logLevelRank[strings.ToLower(level)]
 	out := all[:0:0]
 	for _, e := range all {
@@ -160,8 +171,7 @@ func logHistory(kind string, since uint64, level string) logHistoryResult {
 		}
 		out = append(out, e)
 	}
-	logSeqMu.Lock()
-	last := logSeq
-	logSeqMu.Unlock()
-	return logHistoryResult{Seq: last, Logs: out}
+	// The cursor is the newest seq this ring held at the read, never the global counter: an entry that got its
+	// seq but was not in the ring yet when we read it must not fall behind the cursor (B11).
+	return logHistoryResult{Seq: max(last, since), Logs: out}
 }

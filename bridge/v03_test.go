@@ -20,6 +20,7 @@ import (
 func TestDNSOverrideSplit(t *testing.T) {
 	home := t.TempDir()
 	C.SetHomeDir(home)
+	copyRepoGeo(t, home) // B12: geosite:cn / GeoIP fallback filter load the repo's Geo/ files, no download
 	d := DNSOverride{Enabled: true, Split: true,
 		Nameserver: []string{"https://223.5.5.5/dns-query", "tls://dot.pub"},
 		Foreign:    []string{"https://1.1.1.1/dns-query", "quic://dns.adguard-dns.com"},

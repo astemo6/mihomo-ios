@@ -40,25 +40,39 @@ func NewStore(home string) *Store {
 }
 
 func (s *Store) readFile() (map[string]string, time.Time, bool) {
+	m, mt, ok, bad := s.readOnce()
+	if bad {
+		// r7: only quarantine after a second read fails too — a writer (the app's 持久化存储 editor, a
+		// restore) replacing the file at that moment must not get a good store renamed to .bad.
+		time.Sleep(50 * time.Millisecond)
+		if m, mt, ok, bad = s.readOnce(); bad {
+			// review6 P2-2: an unreadable file used to read as an empty (or partial) store, and the next
+			// write replaced the whole store with it — every BoxJS setting / Sub-Store subscription gone.
+			// Keep a copy for recovery and keep what is in memory.
+			_ = os.Rename(s.path, s.path+".bad")
+			return nil, time.Time{}, false
+		}
+	}
+	return m, mt, ok
+}
+
+// readOnce reads the store file; bad = it exists, is non-empty and does not decode.
+func (s *Store) readOnce() (map[string]string, time.Time, bool, bool) {
 	fi, err := os.Stat(s.path)
 	if err != nil {
-		return nil, time.Time{}, false
+		return nil, time.Time{}, false, false
 	}
 	m := map[string]string{}
 	f, err := os.Open(s.path)
 	if err != nil {
-		return nil, time.Time{}, false
+		return nil, time.Time{}, false, false
 	}
 	derr := json.NewDecoder(bufio.NewReader(f)).Decode(&m)
 	f.Close()
 	if derr != nil && fi.Size() > 0 {
-		// review6 P2-2: an unreadable file used to read as an empty (or partial) store, and the next
-		// write replaced the whole store with it — every BoxJS setting / Sub-Store subscription gone.
-		// Keep a copy for recovery and keep what is in memory.
-		_ = os.Rename(s.path, s.path+".bad")
-		return nil, time.Time{}, false
+		return nil, time.Time{}, false, true
 	}
-	return m, fi.ModTime(), true
+	return m, fi.ModTime(), true, false
 }
 
 // recomputeSizeLocked recounts the bytes of keys + values (review6 OPT-2: Write keeps a running total
@@ -136,8 +150,14 @@ func (s *Store) flushLocked() error {
 			s.recomputeSizeLocked()
 		}
 	}
+	pending, cleared := s.pending, s.cleared
 	s.pending, s.cleared = nil, false
 	if err := s.writeLocked(); err != nil {
+		// r7 P3-5: keep the changes for the next flush instead of dropping them (they were only in memory).
+		s.pending, s.cleared = pending, cleared
+		if s.timer == nil {
+			s.timer = time.AfterFunc(storeFlushDelay, func() { _ = s.Flush() })
+		}
 		return err
 	}
 	if fi, err := os.Stat(s.path); err == nil {
@@ -149,11 +169,16 @@ func (s *Store) flushLocked() error {
 // writeLocked streams the map as compact JSON, one key at a time (sorted for stable diffs).
 func (s *Store) writeLocked() error {
 	_ = os.MkdirAll(filepath.Dir(s.path), 0o755)
-	tmp := s.path + ".tmp"
-	f, err := os.OpenFile(tmp, os.O_CREATE|os.O_WRONLY|os.O_TRUNC, 0o644)
+	// r7 P3-5: a temp file of our own. Two Store instances on one home (the tunnel's engine and the app's
+	// 脚本调试 / geo checker engine) shared "store.json.tmp": both wrote into one inode, and the second
+	// writer kept writing into the file the first had already renamed to store.json → corrupt JSON →
+	// quarantined as .bad, every BoxJS / Sub-Store value gone.
+	f, err := os.CreateTemp(filepath.Dir(s.path), filepath.Base(s.path)+".*.tmp")
 	if err != nil {
 		return err
 	}
+	tmp := f.Name()
+	_ = f.Chmod(0o644)
 	w := bufio.NewWriterSize(f, 32<<10)
 	keys := make([]string, 0, len(s.data))
 	for k := range s.data {

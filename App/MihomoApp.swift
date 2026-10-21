@@ -20,6 +20,8 @@ struct MihomoApp: App {
         UITestSeed.resetIfNeeded()
         // Bundled geo databases → core home, so profile validation in the app never downloads them either.
         DispatchQueue.global(qos: .utility).async { GeoBootstrap.install() }
+        // r7 B28: scripts' $environment.language follows the UI language (read by the engine on its next load).
+        DispatchQueue.global(qos: .utility).async { EngineConfig.stampLanguage() }
     }
 
     var body: some Scene {
@@ -131,6 +133,7 @@ struct RootView: View {
             if p == .background { SyncFolder.shared.autoPushIfNeeded() }
             // fix/bg-chart: Home's polling stops off screen and resumes without replaying missed samples.
             dash.setActive(p == .active)
+            if p == .active { Task { await LiveActivityController.shared.endIfTunnelDown() } } // r7
         }
         .onAppear {
             // First run only; people upgrading with profiles already set up never see it (更多 → 新手引导 shows it again).

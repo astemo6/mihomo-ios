@@ -8,8 +8,6 @@ struct HomePolicySection: View {
     let live: Bool
     /// Every candidate group in order, needed to materialise the default on 从首页移除.
     let available: [String]
-    @State private var editing = false
-    @EnvironmentObject var vpn: VPNManager
 
     var body: some View {
         // feat/egern-style: small grey section label with a plain accent 编辑 link (Egern).
@@ -17,7 +15,7 @@ struct HomePolicySection: View {
             HStack {
                 Text("策略").font(.caption).foregroundStyle(.secondary)
                 Spacer()
-                Button { editing = true } label: {
+                Button { HomeEditorRouter.shared.open(.groups) } label: {
                     Text("编辑").font(.caption).foregroundStyle(Theme.accent).lineLimit(1)
                 }
                 .buttonStyle(.plain)
@@ -30,9 +28,8 @@ struct HomePolicySection: View {
                                 UIImpactFeedbackGenerator(style: .light).impactOccurred()
                                 withAnimation(.spring(response: 0.3)) { HomeGroupsStore.shared.remove(name, available: available) }
                             },
-                            onEdit: { editing = true })
+                            onEdit: { HomeEditorRouter.shared.open(.groups) })
         }
-        .sheet(isPresented: $editing) { HomeGroupsEditor().environmentObject(vpn) }
     }
 }
 

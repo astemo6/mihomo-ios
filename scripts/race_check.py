@@ -6,7 +6,13 @@ inbound globals written by ApplyConfig), and the bridge tests do exactly that. T
 upstream; any race whose racing access (either side) has its first non-library frame in this repository's
 non-test code fails the check.
 
-usage: race_check.py go-test-race.log [--summary FILE]
+r7 (review7 R7A-12): the -race run's exit code was only echoed, so a test that failed under -race for another reason
+(a panic, the -timeout, a build failure, an assertion only the slower -race schedule trips) left the step green.
+With --exit-code the check also fails when the run failed for anything but race reports: a `--- FAIL` test whose
+own output has no "race detected during execution of test" line, a panic / timeout, a build or setup failure,
+or a non-zero exit with nothing to explain it.
+
+usage: race_check.py go-test-race.log [--summary FILE] [--exit-code N]
 """
 import re
 import sys
@@ -27,6 +33,37 @@ def top_frame(lines):
         f = lines[i + 1].strip() if i + 1 < len(lines) else ""
         return s, f
     return "", ""
+
+
+RACE_LINE = "race detected during execution of test"
+
+
+def non_race_failures(text):
+    """Failures in a -race log that are not explained by race reports."""
+    lines = text.split("\n")
+    bad = []
+    i = 0
+    while i < len(lines):
+        l = lines[i]
+        m = re.match(r"^(\s*)--- FAIL: (\S+)", l)
+        if m:
+            indent = len(m.group(1))
+            body = []
+            j = i + 1
+            while j < len(lines) and lines[j].startswith(" " * (indent + 4)) and lines[j].strip():
+                body.append(lines[j])
+                j += 1
+            # A parent whose subtests failed carries their lines; a race anywhere inside explains it.
+            if not any(RACE_LINE in b for b in body):
+                bad.append(f"{m.group(2)} failed without a race report")
+            i += 1
+            continue
+        if re.match(r"^panic: ", l):
+            bad.append(l.strip()[:160])
+        elif re.match(r"^FAIL\s+\S+\s+\[(build|setup) failed\]", l) or re.match(r"^# \S+", l):
+            bad.append(l.strip()[:160])
+        i += 1
+    return bad
 
 
 def main():
@@ -51,7 +88,14 @@ def main():
             tests[key] = tests.get(key, 0) + 1
         else:
             upstream[key] = upstream.get(key, 0) + 1
+    exit_code = int(sys.argv[sys.argv.index("--exit-code") + 1]) if "--exit-code" in sys.argv else None
+    other = non_race_failures(text) if exit_code not in (None, 0) else []
+    if exit_code not in (None, 0) and not other and not blocks:
+        other = [f"go test -race exited {exit_code} without a failing test or race report"]
     out = [f"race reports: {len(blocks)} (ours {sum(ours.values())}, test-only {sum(tests.values())}, upstream {sum(upstream.values())})"]
+    if other:
+        out.append("## NOT race (fail)")
+        out += [f"- {x}" for x in other]
     for title, d in (("OURS (fail)", ours), ("test code", tests), ("upstream mihomo", upstream)):
         if d:
             out.append(f"## {title}")
@@ -60,7 +104,7 @@ def main():
     if summary:
         with open(summary, "a", encoding="utf-8") as f:
             f.write("### go test -race\n" + "\n".join(out) + "\n")
-    sys.exit(1 if ours or tests else 0)
+    sys.exit(1 if ours or tests or other else 0)
 
 
 if __name__ == "__main__":

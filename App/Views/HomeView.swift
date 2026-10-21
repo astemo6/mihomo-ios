@@ -11,6 +11,12 @@ struct HomeView: View {
     @State private var liveAvailable = DashboardModel.shared.availableGroups
     @ObservedObject private var offline = ProfileInspector.shared
     @ObservedObject private var homeGroups = HomeGroupsStore.shared
+    /// r7 P2-1: the 编辑首页面板 / 编辑首页策略 sheets live here. A card that opened one is often removed by the edit
+    /// itself (last analysis card removed, 连接数 hidden, VPN state flips live ↔ offline cards), which dismissed a
+    /// sheet attached to it mid-edit.
+    @ObservedObject private var editor = HomeEditorRouter.shared
+    /// r7 P3-3 / B07: height of the status bar / Dynamic Island area above the page (no navigation bar here).
+    @State private var topInset: CGFloat = 0
 
     /// v0.8: the same cards while disconnected, from the profile file (selection saved for the next connect).
     /// feat/home-groups: the user's chosen groups for this profile (default = the first four).
@@ -31,7 +37,9 @@ struct HomeView: View {
                 guard let next = byName[n] else { break }
                 cur = next
             }
-            return DashboardModel.HomeGroup(name: g.name, icon: g.icon, kind: g.type, chain: chain, delay: chain.last.flatMap { offline.delays[$0] })
+            // r7 P3-5: stopped while still on a group that has a current member = cut (6 hops or a loop).
+            let cut = chain.last.flatMap { byName[$0] }.flatMap { offline.current(of: $0) } != nil
+            return DashboardModel.HomeGroup(name: g.name, icon: g.icon, kind: g.type, chain: chain, delay: chain.last.flatMap { offline.delays[$0] }, cut: cut)
         }
     }
 
@@ -44,7 +52,8 @@ struct HomeView: View {
                     // feat/egern-style: Egern's header — large title, small capsule 启动 / 停止 on the right; then the
                     // compact QX-style exit header (运营商 · ASN · IP, user wants it, Egern has none).
                     HStack(alignment: .center) {
-                        Text("首页").font(.system(size: 28, weight: .bold)).lineLimit(1)
+                        // r7 P3-4: scales with Dynamic Type like the other tabs' large titles (UIFontMetrics .largeTitle).
+                        Text("首页").scaledFont(28, weight: .bold, relativeTo: .largeTitle).lineLimit(1)
                             .accessibilityAddTraits(.isHeader)
                         Spacer(minLength: 8)
                         HomePowerCapsule()
@@ -92,6 +101,24 @@ struct HomeView: View {
             .overlay(alignment: .bottomTrailing) {
                 HomeQuickAddButton().padding(.trailing, 20).padding(.bottom, 16)
             }
+            // r7 P3-3 / B07: with the navigation bar hidden nothing covered the status bar, so scrolled cards ran
+            // under the clock. A page-coloured strip of exactly the top safe-area height sits there now. The earlier
+            // try (9f106c8) was a 0 pt frame with ignoresSafeArea — still 0 pt high. Here the height is read from a
+            // GeometryReader that respects the safe area, and the strip is placed in a full-height overlay that
+            // ignores it, so it starts at the screen's top edge.
+            .background(GeometryReader { g in
+                Color.clear
+                    .onAppear { topInset = g.safeAreaInsets.top }
+                    .onChange(of: g.safeAreaInsets.top) { topInset = $0 }
+            })
+            .overlay(alignment: .top) {
+                Theme.bg
+                    .frame(height: topInset)
+                    .frame(maxHeight: .infinity, alignment: .top)
+                    .ignoresSafeArea(edges: .top)
+                    .allowsHitTesting(false)
+                    .accessibilityHidden(true)
+            }
             .background(Theme.bg.ignoresSafeArea())
             // The header (title + 启动 capsule) is part of the page, not a navigation bar: Home has no bar items
             // that a back gesture or a test's 「first bar button」 could hit.
@@ -103,6 +130,12 @@ struct HomeView: View {
             .onReceive(DashboardModel.shared.$mode.removeDuplicates()) { if $0 != mode { mode = $0 } }
             .onReceive(DashboardModel.shared.$homeGroups.removeDuplicates()) { if $0 != liveGroups { liveGroups = $0 } }
             .onReceive(DashboardModel.shared.$availableGroups.removeDuplicates()) { if $0 != liveAvailable { liveAvailable = $0 } }
+            .sheet(item: $editor.sheet) { which in
+                switch which {
+                case .panels: HomePanelsEditor().environmentObject(vpn).environmentObject(store)
+                case .groups: HomeGroupsEditor().environmentObject(vpn).environmentObject(store)
+                }
+            }
             .alert("连接失败", isPresented: Binding(get: { vpn.lastError != nil && vpn.showErrorAlert }, set: { if !$0 { vpn.showErrorAlert = false } })) {
                 if vpn.canOfferSafeMode {
                     Button("以安全模式连接") {
@@ -120,6 +153,19 @@ struct HomeView: View {
     }
 }
 
+/// r7 P2-1: which Home editor sheet is open. Cards only call `open`; HomeView (always on screen while Home is)
+/// presents the sheet, so removing the card that opened it no longer closes it.
+@MainActor
+final class HomeEditorRouter: ObservableObject {
+    static let shared = HomeEditorRouter()
+    enum Sheet: String, Identifiable {
+        case panels, groups
+        var id: String { rawValue }
+    }
+    @Published var sheet: Sheet?
+    func open(_ s: Sheet) { sheet = s }
+}
+
 /// feat/surge-ui: first-run Home without any profile — one sentence and the way to add one, instead of
 /// empty policy cards and zero counters.
 struct HomeEmptyCard: View {
@@ -134,64 +180,6 @@ struct HomeEmptyCard: View {
                 .accessibilityIdentifier("home.addProfile")
             }
         }
-    }
-}
-
-struct ConnectCard: View {
-    @EnvironmentObject var vpn: VPNManager
-    @EnvironmentObject var store: ProfileStore
-    @EnvironmentObject var dash: DashboardModel
-
-    var body: some View {
-        let on = vpn.isConnected
-        VStack(alignment: .leading, spacing: 14) {
-            HStack {
-                VStack(alignment: .leading, spacing: 4) {
-                    // v0.6.1: plain state text + a small dot; no accent fill or glow when connected.
-                    HStack(spacing: 6) {
-                        Circle()
-                            .fill(on ? Theme.good : Color.secondary.opacity(0.6))
-                            .frame(width: 7, height: 7)
-                            .accessibilityHidden(true)
-                        Text(on ? "代理已开启" : "代理未开启")
-                            .font(.headline)
-                    }
-                    if on, let d = vpn.connectedDate {
-                        TimelineView(.periodic(from: .now, by: 1)) { ctx in
-                            Text("已运行 \(Fmt.duration(ctx.date.timeIntervalSince(d)))")
-                                .font(.caption.monospacedDigit())
-                                .foregroundStyle(.secondary)
-                        }
-                    } else {
-                        Text(vpn.statusText).font(.caption).foregroundStyle(.secondary)
-                    }
-                }
-                Spacer()
-                Toggle("", isOn: Binding(
-                    get: { on || vpn.status == .connecting },
-                    set: { _ in Task { await vpn.toggle() } }
-                ))
-                .labelsHidden()
-                .tint(Theme.good)
-                .scaleEffect(1.25)
-                .disabled(vpn.isBusy || vpn.status == .disconnecting)
-            }
-            Divider().overlay(Theme.ink(0.08))
-            HStack(spacing: 18) {
-                VStack(alignment: .leading, spacing: 3) {
-                    Label("配置", systemImage: "doc.text").font(.caption2).foregroundStyle(.secondary)
-                    Text(verbatim: store.active?.displayName ?? String(localized: "未选择")).font(.subheadline.weight(.semibold)).lineLimit(1)
-                }
-                Spacer()
-                VStack(alignment: .trailing, spacing: 3) {
-                    Label("当前节点", systemImage: "point.3.connected.trianglepath.dotted").font(.caption2).foregroundStyle(.secondary)
-                    Text(on ? dash.selectedNode : "—").font(.subheadline.weight(.semibold)).lineLimit(1)
-                }
-            }
-        }
-        .padding(18)
-        .frame(maxWidth: .infinity, alignment: .leading)
-        .background(RoundedRectangle(cornerRadius: Theme.radius, style: .continuous).fill(Theme.card))
     }
 }
 
@@ -219,13 +207,14 @@ struct SafeModeCard: View {
 
 /// feat/egern-style: Egern's settings row — 「出站模式」 on the left, the current mode with ⌃⌄ on the right (menu picker).
 struct ModeCard: View {
-    @EnvironmentObject var dash: DashboardModel
+    /// r7: only the mode is mirrored (as PolicyView does); observing DashboardModel re-rendered this card every second.
+    @State private var mode = DashboardModel.shared.mode
     var body: some View {
         HStack(spacing: 12) {
             IconTile(symbol: "arrow.triangle.branch", tone: .orange)
             Text("出站模式")
             Spacer(minLength: 8)
-            Picker("出站模式", selection: Binding(get: { dash.mode }, set: { m in Task { await dash.setMode(m) } })) {
+            Picker("出站模式", selection: Binding(get: { mode }, set: { m in mode = m; Task { await DashboardModel.shared.setMode(m) } })) {
                 Text("规则模式").tag("rule")
                 Text("全局模式").tag("global")
                 Text("直连模式").tag("direct")
@@ -238,6 +227,7 @@ struct ModeCard: View {
         .padding(.leading, 12).padding(.trailing, 4).padding(.vertical, 4)
         .frame(minHeight: 44)
         .egernCard()
+        .onReceive(DashboardModel.shared.$mode.removeDuplicates()) { m in if mode != m { mode = m } }
     }
 }
 
@@ -488,7 +478,8 @@ struct HomePolicyCards: View {
                         VStack(alignment: .leading, spacing: 2) {
                             Text(g.name).font(.subheadline).lineLimit(1)
                             // feat/egern-style: Egern chain 「日本节点 › 🇯🇵 东京」; middle hops give way, the final node stays.
-                            ChainLine(hops: g.chain.dropFirst().map { FlagSafe.text($0) })
+                            // r7 P3-5: same display as 策略 (PolicyChainText): region flag on the final node, 「…」 when cut.
+                            ChainLine(hops: PolicyChainText.homeParts(g.chain, cut: g.cut))
                         }
                         Spacer(minLength: 6)
                         if let d = g.delay {

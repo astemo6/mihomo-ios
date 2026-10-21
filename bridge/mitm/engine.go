@@ -49,6 +49,9 @@ type Engine struct {
 
 	ln   net.Listener
 	port int
+	// livePort mirrors port for readers outside Start/Stop (r7 P3-8: /mitm/status read ln/port unlocked
+	// while Stop wrote them — a data race under -race). 0 = not running.
+	livePort atomic.Int32
 
 	st atomic.Pointer[state]
 
@@ -114,7 +117,7 @@ func New(home string, dial DialFunc, logf Logger) *Engine {
 func (e *Engine) SetNotifier(n Notifier) { e.notify.Store(&n) }
 
 // Port returns the listening port (0 when not started).
-func (e *Engine) Port() int { return e.port }
+func (e *Engine) Port() int { return int(e.livePort.Load()) }
 
 // Start opens the listener on 127.0.0.1:0 (idempotent).
 func (e *Engine) Start() error {
@@ -127,6 +130,7 @@ func (e *Engine) Start() error {
 	}
 	e.ln = ln
 	e.port = ln.Addr().(*net.TCPAddr).Port
+	e.livePort.Store(int32(e.port))
 	e.tlsCh = make(chan net.Conn, 16)
 	e.srv = &http.Server{
 		Handler:           http.HandlerFunc(e.serveHTTP),
@@ -144,7 +148,8 @@ func (e *Engine) Start() error {
 		},
 	}
 	e.srv.SetKeepAlivesEnabled(true)
-	go func() { _ = e.srv.Serve(&chanListener{ch: e.tlsCh, addr: ln.Addr(), closed: &e.closing}) }()
+	srv, ch := e.srv, e.tlsCh // r7 P3-8: the goroutine must not read fields a later Stop/Start rewrites
+	go func() { _ = srv.Serve(&chanListener{ch: ch, addr: ln.Addr(), closed: &e.closing}) }()
 	go e.acceptLoop(ln)
 	e.logf("info", fmt.Sprintf("[MitM] 引擎已启动 127.0.0.1:%d", e.port))
 	return nil
@@ -171,6 +176,7 @@ func (e *Engine) Stop() {
 	e.tmu.Unlock()
 	e.ln = nil
 	e.port = 0
+	e.livePort.Store(0)
 	e.closing.Store(false)
 	e.scripts.Reset()
 }
@@ -346,6 +352,11 @@ func (e *Engine) handleConn(c net.Conn) {
 			// review6 P2-5: peekSNI blocks until the whole ClientHello record arrived; a client that stalls
 			// mid-hello kept this goroutine forever (the read deadline was already cleared).
 			_ = c.SetReadDeadline(time.Now().Add(sniPeekTimeout()))
+			// r7: a ClientHello record larger than the 8 KB reader (post-quantum key shares, big
+			// extensions) was parsed from a cut buffer, so an SNI placed late was missed. Grow the reader
+			// to the record (TLS caps a plaintext record at 16 KB); the wrapper keeps the buffered bytes.
+			br = growForClientHello(br)
+			mc.r = br
 			sni := peekSNI(br)
 			if sni == "" && br.Buffered() < min(5+tlsRecordLen(br), br.Size()) {
 				_ = c.Close() // stalled (or closed) mid-ClientHello
@@ -623,6 +634,21 @@ func (e *Engine) client(policy string, insecure bool) *http.Client {
 }
 
 func base64Std(b []byte) string { return base64.StdEncoding.EncodeToString(b) }
+
+// maxTLSRecord is the largest TLS plaintext record (2^14) — a ClientHello record never exceeds it.
+const maxTLSRecord = 16384
+
+// growForClientHello returns br, or a larger reader over it when the buffered ClientHello record does
+// not fit br's buffer (capped at a maximum TLS record).
+func growForClientHello(br *bufio.Reader) *bufio.Reader {
+	if _, err := br.Peek(5); err != nil {
+		return br
+	}
+	if need := 5 + tlsRecordLen(br); need > br.Size() {
+		return bufio.NewReaderSize(br, min(need, maxTLSRecord+5))
+	}
+	return br
+}
 
 // tlsRecordLen is the length announced by the buffered TLS record header (0 when not buffered).
 func tlsRecordLen(br *bufio.Reader) int {

@@ -10210,6 +10210,40 @@
       },
       "extractionState": "manual"
     },
+    "响应体过大，只显示开头部分": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "The response body is too large; only the beginning is shown"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "レスポンス本文が大きすぎるため、先頭部分のみ表示しています"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "응답 본문이 너무 커서 앞부분만 표시합니다"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Тело ответа слишком большое, показано только начало"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "回應本文過大，只顯示開頭部分"
+          }
+        }
+      }
+    },
     "重新加载超时：内核可能仍在使用旧配置，请稍后重试或重新连接。": {
       "localizations": {
         "en": {
@@ -19691,36 +19725,36 @@
         }
       }
     },
-    "同步文件夹里还没有 Mihomo-sync.json": {
+    "同步文件夹里还没有 Tern-sync.json": {
       "localizations": {
         "zh-Hant": {
           "stringUnit": {
             "state": "translated",
-            "value": "同步資料夾裡還沒有 Mihomo-sync.json"
+            "value": "同步資料夾裡還沒有 Tern-sync.json"
           }
         },
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "The sync folder has no Mihomo-sync.json yet"
+            "value": "The sync folder has no Tern-sync.json yet"
           }
         },
         "ja": {
           "stringUnit": {
             "state": "translated",
-            "value": "同期フォルダにまだ Mihomo-sync.json がありません"
+            "value": "同期フォルダにまだ Tern-sync.json がありません"
           }
         },
         "ko": {
           "stringUnit": {
             "state": "translated",
-            "value": "동기화 폴더에 아직 Mihomo-sync.json이 없습니다"
+            "value": "동기화 폴더에 아직 Tern-sync.json이 없습니다"
           }
         },
         "ru": {
           "stringUnit": {
             "state": "translated",
-            "value": "В папке синхронизации ещё нет Mihomo-sync.json"
+            "value": "В папке синхронизации ещё нет Tern-sync.json"
           }
         }
       }
@@ -21337,36 +21371,36 @@
         }
       }
     },
-    "在「地理与规则库」中管理。": {
+    "在 更多 → 高级设置 → 地理数据库 中管理。": {
       "localizations": {
         "zh-Hant": {
           "stringUnit": {
             "state": "translated",
-            "value": "在「地理與規則庫」中管理。"
+            "value": "在 更多 → 高階設定 → 地理資料庫 中管理。"
           }
         },
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "Managed in Geo and Rule Databases."
+            "value": "Managed in More → Advanced Settings → Geo Databases."
           }
         },
         "ja": {
           "stringUnit": {
             "state": "translated",
-            "value": "「地理・ルールデータベース」で管理します。"
+            "value": "その他 → 詳細設定 → 地理データベースで管理します。"
           }
         },
         "ko": {
           "stringUnit": {
             "state": "translated",
-            "value": "「지리 및 규칙 데이터베이스」에서 관리합니다."
+            "value": "더보기 → 고급 설정 → 지리 데이터베이스에서 관리합니다."
           }
         },
         "ru": {
           "stringUnit": {
             "state": "translated",
-            "value": "Управляются в «Геобазы и базы правил»."
+            "value": "Управляются в разделе «Ещё → Расширенные настройки → Геобазы»."
           }
         }
       }
@@ -40788,7 +40822,7 @@
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "No camera access. Allow it in Settings → Mihomo."
+            "value": "No camera access. Allow it in Settings → Tern."
           }
         },
         "zh-Hant": {
@@ -40812,7 +40846,7 @@
         "ru": {
           "stringUnit": {
             "state": "translated",
-            "value": "Нет доступа к камере. Разрешите его в «Настройки» → Mihomo."
+            "value": "Нет доступа к камере. Разрешите его в «Настройки» → Tern."
           }
         }
       }
@@ -56331,7 +56365,7 @@
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "Connects or disconnects Mihomo."
+            "value": "Connects or disconnects Tern."
           }
         },
         "ja": {
@@ -56349,7 +56383,7 @@
         "ru": {
           "stringUnit": {
             "state": "translated",
-            "value": "Подключает или отключает Mihomo."
+            "value": "Подключает или отключает Tern."
           }
         }
       }
@@ -58399,40 +58433,6 @@
           "stringUnit": {
             "state": "translated",
             "value": "Пересоздать сертификат?"
-          }
-        }
-      }
-    },
-    "重签名后描述文件会替换 entitlements。App 与扩展会在运行时从描述文件读取 App Group 并按字母序选第一个可用的；共享容器不可用时扩展无法读取配置，连接会失败。": {
-      "localizations": {
-        "en": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Re-signing replaces the entitlements from the provisioning profile. The app and the extension read the App Group from the profile at runtime and use the first usable one in alphabetical order; if the shared container is unavailable the extension can't read the profile and connecting fails."
-          }
-        },
-        "zh-Hant": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "重簽名後描述檔案會替換 entitlements。App 與延伸功能會在執行時從描述檔案讀取 App Group 並按字母序選第一個可用的；共享容器不可用時延伸功能無法讀取配置，連線會失敗。"
-          }
-        },
-        "ja": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "再署名すると、プロビジョニングプロファイルの権限で置き換えられます。アプリと拡張は実行時にプロファイルから App Group を読み、アルファベット順で最初に使えるものを使います。共有コンテナが使えない場合、拡張はプロファイルを読めず接続に失敗します。"
-          }
-        },
-        "ko": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "다시 서명하면 프로비저닝 프로파일의 권한으로 바뀝니다. 앱과 확장은 실행 시 프로파일에서 App Group을 읽어 알파벳순으로 처음 사용 가능한 것을 씁니다. 공유 컨테이너를 쓸 수 없으면 확장이 프로파일을 읽지 못해 연결에 실패합니다."
-          }
-        },
-        "ru": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "При переподписи права берутся из профиля обеспечения. Приложение и расширение во время работы читают App Group из профиля и берут первую пригодную по алфавиту; если общий контейнер недоступен, расширение не прочитает профиль и подключение не удастся."
           }
         }
       }
@@ -61435,37 +61435,37 @@
         }
       }
     },
-    "协议由 mihomo 内核 %@ 提供。节点保存在「手动节点」中；在 更多 → 高级设置 → 内核设置 打开「把手动节点加入每个配置」后，可在任何订阅的策略里选择。": {
+    "协议由 mihomo 内核 %@ 提供。节点保存在「手动节点」中；在 工具 → 节点与订阅 → 本地 打开「把手动节点加入每个配置」后，可在任何订阅的策略里选择。": {
       "extractionState": "manual",
       "localizations": {
         "zh-Hant": {
           "stringUnit": {
             "state": "translated",
-            "value": "協議由 mihomo 核心 %@ 提供。節點儲存在「手動節點」中；在 更多 → 高階設定 → 核心設定 開啟「把手動節點加入每個配置」後，可在任何訂閱的策略裡選擇。"
+            "value": "協議由 mihomo 核心 %@ 提供。節點儲存在「手動節點」中；在 工具 → 節點與訂閱 → 本地 開啟「把手動節點加入每個配置」後，可在任何訂閱的策略裡選擇。"
           }
         },
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "Protocols are provided by the mihomo core %@. Nodes are saved in \"Manual Nodes\"; turn on \"Add manual nodes to every profile\" in More → Advanced Settings → Core Settings to pick them in any subscription's policies."
+            "value": "Protocols are provided by the mihomo core %@. Nodes are saved in \"Manual Nodes\"; turn on \"Add manual nodes to every profile\" in Tools → Nodes & subscriptions → Local to pick them in any subscription's policies."
           }
         },
         "ja": {
           "stringUnit": {
             "state": "translated",
-            "value": "プロトコルは mihomo コア %@ が提供します。ノードは「手動ノード」に保存されます。その他 → 詳細設定 → コア設定で「手動ノードをすべてのプロファイルに追加」をオンにすると、どの購読のポリシーでも選択できます。"
+            "value": "プロトコルは mihomo コア %@ が提供します。ノードは「手動ノード」に保存されます。ツール → ノードと購読 → ローカルで「手動ノードをすべてのプロファイルに追加」をオンにすると、どの購読のポリシーでも選択できます。"
           }
         },
         "ko": {
           "stringUnit": {
             "state": "translated",
-            "value": "프로토콜은 mihomo 코어 %@가 제공합니다. 노드는 '수동 노드'에 저장되며, 더 보기 → 고급 설정 → 코어 설정에서 '수동 노드를 모든 프로파일에 추가'를 켜면 어떤 구독의 정책에서도 선택할 수 있습니다."
+            "value": "프로토콜은 mihomo 코어 %@가 제공합니다. 노드는 '수동 노드'에 저장되며, 도구 → 노드 및 구독 → 로컬에서 '수동 노드를 모든 프로파일에 추가'를 켜면 어떤 구독의 정책에서도 선택할 수 있습니다."
           }
         },
         "ru": {
           "stringUnit": {
             "state": "translated",
-            "value": "Протоколы предоставляет ядро mihomo %@. Узлы сохраняются в «Ручных узлах»; включите «Добавлять ручные узлы в каждый профиль» в Ещё → Расширенные настройки → Настройки ядра, чтобы выбирать их в политиках любой подписки."
+            "value": "Протоколы предоставляет ядро mihomo %@. Узлы сохраняются в «Ручных узлах»; включите «Добавлять ручные узлы в каждый профиль» в разделе «Инструменты → Узлы и подписки → Локально», чтобы выбирать их в политиках любой подписки."
           }
         }
       }
@@ -63955,37 +63955,37 @@
         }
       }
     },
-    "这个手动节点不在当前配置里：在 更多 → 高级设置 → 内核设置 打开「把手动节点加入每个配置」，或把「手动节点」设为当前配置。": {
+    "这个手动节点不在当前配置里：在 工具 → 节点与订阅 → 本地 打开「把手动节点加入每个配置」，或把「手动节点」设为当前配置。": {
       "extractionState": "manual",
       "localizations": {
         "zh-Hant": {
           "stringUnit": {
             "state": "translated",
-            "value": "這個手動節點不在當前配置裡：在 更多 → 高階設定 → 核心設定 開啟「把手動節點加入每個配置」，或把「手動節點」設為當前配置。"
+            "value": "這個手動節點不在當前配置裡：在 工具 → 節點與訂閱 → 本地 開啟「把手動節點加入每個配置」，或把「手動節點」設為當前配置。"
           }
         },
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "This manual node isn't in the current profile: turn on \"Add manual nodes to every profile\" in More → Advanced Settings → Core Settings, or make \"Manual Nodes\" the current profile."
+            "value": "This manual node isn't in the current profile: turn on \"Add manual nodes to every profile\" in Tools → Nodes & subscriptions → Local, or make \"Manual Nodes\" the current profile."
           }
         },
         "ja": {
           "stringUnit": {
             "state": "translated",
-            "value": "この手動ノードは現在のプロファイルにありません。その他 → 詳細設定 → コア設定で「手動ノードをすべてのプロファイルに追加」をオンにするか、「手動ノード」を現在のプロファイルにしてください。"
+            "value": "この手動ノードは現在のプロファイルにありません。ツール → ノードと購読 → ローカルで「手動ノードをすべてのプロファイルに追加」をオンにするか、「手動ノード」を現在のプロファイルにしてください。"
           }
         },
         "ko": {
           "stringUnit": {
             "state": "translated",
-            "value": "이 수동 노드는 현재 프로파일에 없습니다. 더 보기 → 고급 설정 → 코어 설정에서 '수동 노드를 모든 프로파일에 추가'를 켜거나 '수동 노드'를 현재 프로파일로 설정하세요."
+            "value": "이 수동 노드는 현재 프로파일에 없습니다. 도구 → 노드 및 구독 → 로컬에서 '수동 노드를 모든 프로파일에 추가'를 켜거나 '수동 노드'를 현재 프로파일로 설정하세요."
           }
         },
         "ru": {
           "stringUnit": {
             "state": "translated",
-            "value": "Этого ручного узла нет в текущем профиле: включите «Добавлять ручные узлы в каждый профиль» в Ещё → Расширенные настройки → Настройки ядра или сделайте «Ручные узлы» текущим профилем."
+            "value": "Этого ручного узла нет в текущем профиле: включите «Добавлять ручные узлы в каждый профиль» в разделе «Инструменты → Узлы и подписки → Локально» или сделайте «Ручные узлы» текущим профилем."
           }
         }
       }
@@ -85996,36 +85996,36 @@
         }
       }
     },
-    "经过 Mihomo 的所有流量，包括直连": {
+    "经过 Tern 的所有流量，包括直连": {
       "localizations": {
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "Everything that passes through Mihomo, including direct connections"
+            "value": "Everything that passes through Tern, including direct connections"
           }
         },
         "ja": {
           "stringUnit": {
             "state": "translated",
-            "value": "Mihomo を通るすべての通信（ダイレクトを含む）"
+            "value": "Tern を通るすべての通信（ダイレクトを含む）"
           }
         },
         "ko": {
           "stringUnit": {
             "state": "translated",
-            "value": "직접 연결을 포함해 Mihomo를 거치는 모든 트래픽"
+            "value": "직접 연결을 포함해 Tern를 거치는 모든 트래픽"
           }
         },
         "ru": {
           "stringUnit": {
             "state": "translated",
-            "value": "Весь трафик через Mihomo, включая прямые подключения"
+            "value": "Весь трафик через Tern, включая прямые подключения"
           }
         },
         "zh-Hant": {
           "stringUnit": {
             "state": "translated",
-            "value": "經過 Mihomo 的所有流量，包括直連"
+            "value": "經過 Tern 的所有流量，包括直連"
           }
         }
       }
@@ -86827,37 +86827,37 @@
         }
       }
     },
-    "「%@」现在是可编辑的手动节点，不受订阅更新影响。它还不在当前配置里：在 更多 → 高级设置 → 内核设置 打开「把手动节点加入每个配置」。": {
+    "「%@」现在是可编辑的手动节点，不受订阅更新影响。它还不在当前配置里：在 工具 → 节点与订阅 → 本地 打开「把手动节点加入每个配置」。": {
       "extractionState": "manual",
       "localizations": {
         "zh-Hant": {
           "stringUnit": {
             "state": "translated",
-            "value": "「%@」現在是可編輯的手動節點，不受訂閱更新影響。它還不在當前配置裡：在 更多 → 高階設定 → 核心設定 開啟「把手動節點加入每個配置」。"
+            "value": "「%@」現在是可編輯的手動節點，不受訂閱更新影響。它還不在當前配置裡：在 工具 → 節點與訂閱 → 本地 開啟「把手動節點加入每個配置」。"
           }
         },
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "“%@” is now an editable manual node; subscription updates won’t change it. It isn’t in the current profile yet: turn on “Add manual nodes to every profile” in More → Advanced Settings → Core Settings."
+            "value": "“%@” is now an editable manual node; subscription updates won’t change it. It isn’t in the current profile yet: turn on “Add manual nodes to every profile” in Tools → Nodes & subscriptions → Local."
           }
         },
         "ja": {
           "stringUnit": {
             "state": "translated",
-            "value": "「%@」は編集可能な手動ノードになりました。購読の更新の影響を受けません。まだ現在のプロファイルにはありません：その他 → 詳細設定 → コア設定で「手動ノードをすべてのプロファイルに追加」をオンにしてください。"
+            "value": "「%@」は編集可能な手動ノードになりました。購読の更新の影響を受けません。まだ現在のプロファイルにはありません：ツール → ノードと購読 → ローカルで「手動ノードをすべてのプロファイルに追加」をオンにしてください。"
           }
         },
         "ko": {
           "stringUnit": {
             "state": "translated",
-            "value": "\"%@\"은(는) 이제 편집 가능한 수동 노드이며 구독 업데이트의 영향을 받지 않습니다. 아직 현재 프로파일에 없습니다: 더 보기 → 고급 설정 → 코어 설정에서 '수동 노드를 모든 프로파일에 추가'를 켜세요."
+            "value": "\"%@\"은(는) 이제 편집 가능한 수동 노드이며 구독 업데이트의 영향을 받지 않습니다. 아직 현재 프로파일에 없습니다: 도구 → 노드 및 구독 → 로컬에서 '수동 노드를 모든 프로파일에 추가'를 켜세요."
           }
         },
         "ru": {
           "stringUnit": {
             "state": "translated",
-            "value": "«%@» теперь редактируемый ручной узел; обновления подписки его не меняют. Его ещё нет в текущем профиле: включите «Добавлять ручные узлы в каждый профиль» в Ещё → Расширенные настройки → Настройки ядра."
+            "value": "«%@» теперь редактируемый ручной узел; обновления подписки его не меняют. Его ещё нет в текущем профиле: включите «Добавлять ручные узлы в каждый профиль» в разделе «Инструменты → Узлы и подписки → Локально»."
           }
         }
       }
@@ -90304,6 +90304,451 @@
           "stringUnit": {
             "state": "translated",
             "value": "Карточки «Политики», «Правила» и «Хосты» по умолчанию скрыты и появляются на главной только после добавления; удалить — долгим нажатием. Данные те же, что в «Анализе соединений»: собираются в текущем подключении, пока приложение открыто, и сбрасываются при отключении."
+          }
+        }
+      }
+    },
+    "描述文件": {
+      "localizations": {
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "描述檔案"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Provisioning profile"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "プロビジョニングプロファイル"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "프로비저닝 프로파일"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Профиль обеспечения"
+          }
+        }
+      },
+      "extractionState": "manual"
+    },
+    "已记住": {
+      "localizations": {
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "已記住"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Remembered"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "記憶済み"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "기억됨"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Запомнена"
+          }
+        }
+      },
+      "extractionState": "manual"
+    },
+    "已有数据": {
+      "localizations": {
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "已有資料"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Has data"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "データあり"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "데이터 있음"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "С данными"
+          }
+        }
+      },
+      "extractionState": "manual"
+    },
+    "密钥与密码": {
+      "localizations": {
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "金鑰與密碼"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Secrets and passwords"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "シークレットとパスワード"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "비밀 키와 비밀번호"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Ключи и пароли"
+          }
+        }
+      }
+    },
+    "隧道范围已同步，重新连接后生效": {
+      "localizations": {
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "隧道範圍已同步，重新連線後生效"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Tunnel scope synced; takes effect after reconnecting"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "トンネル範囲を同期しました。再接続後に有効になります"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "터널 범위를 동기화했습니다. 다시 연결하면 적용됩니다"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Охват туннеля синхронизирован; вступит в силу после переподключения"
+          }
+        }
+      }
+    },
+    "隧道范围已同步": {
+      "localizations": {
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "隧道範圍已同步"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Tunnel scope synced"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "トンネル範囲を同期しました"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "터널 범위를 동기화했습니다"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Охват туннеля синхронизирован"
+          }
+        }
+      }
+    },
+    "共享容器不可用：描述文件里没有本 App 可用的 App Group，扩展读不到配置。": {
+      "localizations": {
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "共享容器不可用：描述檔案裡沒有本 App 可用的 App Group，延伸功能讀不到配置。"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Shared container unavailable: the provisioning profile has no App Group this app can use, so the extension can't read the profile."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "共有コンテナを利用できません：プロビジョニングプロファイルにこの App で使える App Group がないため、拡張機能がプロファイルを読み込めません。"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "공유 컨테이너를 사용할 수 없음: 프로비저닝 프로파일에 이 앱이 쓸 수 있는 App Group이 없어 확장 프로그램이 프로파일을 읽을 수 없습니다."
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Общий контейнер недоступен: в профиле обеспечения нет App Group, доступной приложению, поэтому расширение не может прочитать профиль."
+          }
+        }
+      }
+    },
+    "之前使用的 App Group（%@）已不在描述文件里，原来的数据留在那个容器中。请用旧描述文件签名的版本导出备份，再在这里「从文件恢复」。": {
+      "localizations": {
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "之前使用的 App Group（%@）已不在描述檔案裡，原來的資料留在那個容器中。請用舊描述檔案簽名的版本匯出備份，再在這裡「從檔案恢復」。"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "The App Group used before (%@) is no longer in the provisioning profile; your previous data is still in that container. Export a backup from a build signed with the old profile, then use “Restore from File” here."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "以前使用していた App Group（%@）がプロビジョニングプロファイルにありません。元のデータはそのコンテナに残っています。古いプロファイルで署名したビルドでバックアップを書き出し、ここで「ファイルから復元」してください。"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "이전에 사용하던 App Group(%@)이 프로비저닝 프로파일에 없습니다. 기존 데이터는 그 컨테이너에 남아 있습니다. 이전 프로파일로 서명한 빌드에서 백업을 내보낸 뒤 여기서 「파일에서 복원」하세요."
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Ранее использованной App Group (%@) больше нет в профиле обеспечения; прежние данные остались в том контейнере. Экспортируйте резервную копию из сборки, подписанной старым профилем, и восстановите её здесь через «Восстановить из файла»."
+          }
+        }
+      }
+    },
+    "另一个 App Group 里也有数据（%@）。如果这里的数据不对，请在原来的版本里导出备份后恢复。": {
+      "localizations": {
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "另一個 App Group 裡也有資料（%@）。如果這裡的資料不對，請在原來的版本里匯出備份後恢復。"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Another App Group also has data (%@). If the data here looks wrong, export a backup from the previous build and restore it."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "別の App Group にもデータがあります（%@）。ここのデータが正しくない場合は、以前のビルドでバックアップを書き出して復元してください。"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "다른 App Group에도 데이터가 있습니다(%@). 여기 데이터가 맞지 않으면 이전 빌드에서 백업을 내보낸 뒤 복원하세요."
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "В другой App Group тоже есть данные (%@). Если здешние данные неверны, экспортируйте резервную копию из прежней сборки и восстановите её."
+          }
+        }
+      }
+    },
+    "描述文件的 App Group 列表已变化，App 仍在使用之前的组（%@）。": {
+      "localizations": {
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "描述檔案的 App Group 列表已變化，App 仍在使用之前的組（%@）。"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "The provisioning profile's App Group list has changed; the app keeps using the previous group (%@)."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "プロビジョニングプロファイルの App Group 一覧が変わりました。App は以前のグループ（%@）を使い続けます。"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "프로비저닝 프로파일의 App Group 목록이 바뀌었습니다. 앱은 이전 그룹(%@)을 계속 사용합니다."
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Список App Group в профиле обеспечения изменился; приложение продолжает использовать прежнюю группу (%@)."
+          }
+        }
+      }
+    },
+    "App Group 来自 %@，不是描述文件：小组件和隧道可能看不到 App 的数据。": {
+      "localizations": {
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "App Group 來自 %@，不是描述檔案：小元件和隧道可能看不到 App 的資料。"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "The App Group comes from %@, not the provisioning profile: the widget and the tunnel may not see the app's data."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "App Group はプロビジョニングプロファイルではなく %@ から取得されています：ウィジェットとトンネルが App のデータを参照できない場合があります。"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "App Group이 프로비저닝 프로파일이 아닌 %@에서 왔습니다: 위젯과 터널이 앱 데이터를 보지 못할 수 있습니다."
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "App Group взята из %@, а не из профиля обеспечения: виджет и туннель могут не видеть данные приложения."
+          }
+        }
+      }
+    },
+    "重签名后描述文件会替换 entitlements。App、扩展和小组件会记住第一次使用的 App Group，之后优先用它，其次是已有配置的组；共享容器不可用时扩展无法读取配置，连接会失败。": {
+      "localizations": {
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "重簽名後描述檔案會替換 entitlements。App、延伸功能和小元件會記住第一次使用的 App Group，之後優先用它，其次是已有配置的組；共享容器不可用時延伸功能無法讀取配置，連線會失敗。"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Re-signing replaces the entitlements from the provisioning profile. The app, the extension and the widget remember the App Group they first used and prefer it afterwards, then a group that already holds data; if the shared container is unavailable the extension can't read the profile and connecting fails."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "再署名するとプロビジョニングプロファイルの entitlements に置き換わります。App・拡張機能・ウィジェットは最初に使った App Group を記憶して以後優先し、次にデータのあるグループを使います。共有コンテナを利用できない場合、拡張機能はプロファイルを読めず接続に失敗します。"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "재서명하면 프로비저닝 프로파일의 entitlements로 바뀝니다. 앱, 확장 프로그램, 위젯은 처음 사용한 App Group을 기억해 이후 우선 사용하고, 그다음 데이터가 있는 그룹을 씁니다. 공유 컨테이너를 사용할 수 없으면 확장 프로그램이 프로파일을 읽지 못해 연결에 실패합니다."
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "При переподписании entitlements заменяются профилем обеспечения. Приложение, расширение и виджет запоминают App Group, которую использовали первой, и дальше предпочитают её, затем группу, где уже есть данные; если общий контейнер недоступен, расширение не может прочитать профиль и подключение не удаётся."
+          }
+        }
+      }
+    },
+    "换用重新签名的新 App 时：先在旧 App 里关闭按需连接再导出备份；在新 App 恢复后删除旧 App，否则「设置 → VPN」里两个 Tern 的 VPN 配置会互相抢连接，链接和文件也可能被旧 App 打开。": {
+      "localizations": {
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "換用重新簽名的新 App 時：先在舊 App 裡關閉按需連線再匯出備份；在新 App 恢復後刪除舊 App，否則「設定 → VPN」裡兩個 Tern 的 VPN 配置會互相搶連線，連結和檔案也可能被舊 App 開啟。"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Moving to a re-signed app: turn off Connect On Demand in the old app before exporting the backup, and delete the old app after restoring here — otherwise the two Tern configurations in Settings → VPN compete for the connection, and links and files may open in the old app."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "再署名した新しい App に移行するとき：古い App でオンデマンド接続をオフにしてからバックアップを書き出し、新しい App で復元したら古い App を削除してください。そうしないと「設定 → VPN」の 2 つの Tern 構成が接続を奪い合い、リンクやファイルが古い App で開くことがあります。"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "재서명한 새 앱으로 옮길 때: 이전 앱에서 주문형 연결을 끈 뒤 백업을 내보내고, 새 앱에서 복원한 다음 이전 앱을 삭제하세요. 그렇지 않으면 「설정 → VPN」의 Tern 구성 두 개가 서로 연결을 차지하려 하고, 링크와 파일이 이전 앱에서 열릴 수 있습니다."
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Переход на переподписанное приложение: перед экспортом резервной копии выключите подключение по требованию в старом приложении, а после восстановления здесь удалите старое — иначе две конфигурации Tern в «Настройки → VPN» будут перехватывать подключение, а ссылки и файлы могут открываться в старом приложении."
           }
         }
       }

@@ -46,6 +46,7 @@ func TestEngineThroughCore(t *testing.T) {
 	ov.AllowLan = true
 	ov.ControllerPort = 19190
 	ov.Secret = "s"
+	ov.MixedPort = freeTCPPort(t) // B12: not the shared 7890 (another run / test may hold it)
 	ob, _ := json.Marshal(ov)
 	_ = os.WriteFile(filepath.Join(home, "overrides.json"), ob, 0o644)
 	prof := filepath.Join(home, "p.yaml")
@@ -67,7 +68,7 @@ rules:
 	}
 	pool := x509.NewCertPool()
 	pool.AddCert(ca.Cert)
-	pu, _ := url.Parse("http://127.0.0.1:7890")
+	pu, _ := url.Parse(fmt.Sprintf("http://127.0.0.1:%d", ov.MixedPort))
 	c := &http.Client{Transport: &http.Transport{Proxy: http.ProxyURL(pu), TLSClientConfig: &tls.Config{RootCAs: pool}}, Timeout: 15 * time.Second}
 	var resp *http.Response
 	for i := 0; i < 30; i++ { // listener comes up asynchronously

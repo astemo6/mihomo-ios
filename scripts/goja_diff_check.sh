@@ -8,7 +8,6 @@
 # upstream without being one of the documented patches fails the check.
 set -euo pipefail
 
-VERSION="v0.0.0-20261016120441-313b6b662e53"
 MODULE="github.com/dop251/goja"
 VENDORED="bridge/third_party/goja"
 
@@ -16,6 +15,14 @@ VENDORED="bridge/third_party/goja"
 ALLOWED=" compiler.go compiler_expr.go compiler_stmt.go vm.go "
 
 cd "$(dirname "$0")/.."
+
+# r7 (review7 OPT-2): the pinned version is the require line in bridge/go.mod (was hard-coded here, so a goja bump
+# that only touched go.mod / PATCHED.md kept comparing against the old upstream).
+VERSION=$(awk -v m="$MODULE" '$1==m && $2 ~ /^v/ {print $2; exit}' bridge/go.mod)
+if [ -z "$VERSION" ]; then
+	echo "goja_diff_check: no $MODULE require line in bridge/go.mod" >&2
+	exit 1
+fi
 
 upstream=""
 tmp=""

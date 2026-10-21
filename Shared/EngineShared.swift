@@ -38,6 +38,46 @@ struct EngineModule: Codable, Identifiable, Hashable {
     var interval: Int? = nil
 }
 
+/// r7 R7A-10: tolerant field-by-field decoding; an entry without `line` cannot be used and is skipped by the list.
+extension EngineItem {
+    init(from decoder: Decoder) throws {
+        let c = try decoder.container(keyedBy: CodingKeys.self)
+        line = try c.decode(String.self, forKey: .line)
+        id = (try? c.decodeIfPresent(String.self, forKey: .id)).flatMap { $0 }.flatMap { $0.isEmpty ? nil : $0 } ?? UUID().uuidString
+        enabled = (try? c.decodeIfPresent(Bool.self, forKey: .enabled)) ?? true
+        note = (try? c.decodeIfPresent(String.self, forKey: .note)) ?? nil
+    }
+}
+
+/// r7 R7A-10: a module needs its url; everything else has a default.
+extension EngineModule {
+    init(from decoder: Decoder) throws {
+        let c = try decoder.container(keyedBy: CodingKeys.self)
+        url = try c.decode(String.self, forKey: .url)
+        id = (try? c.decodeIfPresent(String.self, forKey: .id)).flatMap { $0 }.flatMap { $0.isEmpty ? nil : $0 } ?? UUID().uuidString
+        let n = (try? c.decodeIfPresent(String.self, forKey: .name)) ?? nil
+        name = n.flatMap { $0.isEmpty ? nil : $0 } ?? (URL(string: url)?.deletingPathExtension().lastPathComponent ?? url)
+        enabled = (try? c.decodeIfPresent(Bool.self, forKey: .enabled)) ?? true
+        args = (try? c.decodeIfPresent([String: String].self, forKey: .args)) ?? nil
+        policies = (try? c.decodeIfPresent([String: String].self, forKey: .policies)) ?? nil
+        updatedAt = (try? c.decodeIfPresent(Double.self, forKey: .updatedAt)) ?? nil
+        interval = (try? c.decodeIfPresent(Int.self, forKey: .interval)) ?? nil
+    }
+}
+
+/// r7 R7A-10: decodes an array, skipping elements that fail instead of failing the whole array.
+struct LossyList<T: Decodable>: Decodable {
+    var items: [T] = []
+    /// Decodes (and so consumes) any element without reading it.
+    private struct Skip: Decodable { init(from decoder: Decoder) throws {} }
+    init(from decoder: Decoder) throws {
+        var c = try decoder.unkeyedContainer()
+        while !c.isAtEnd {
+            if let v = try? c.decode(T.self) { items.append(v) } else { _ = try? c.decode(Skip.self) }
+        }
+    }
+}
+
 /// Per remote script URL settings from the resource manager (bridge/mitm ScriptResource).
 struct ScriptResourceSetting: Codable, Hashable {
     var disabled: Bool? = nil
@@ -67,30 +107,63 @@ struct EngineConfig: Codable, Equatable {
 
     init(from d: Decoder) throws {
         let c = try d.container(keyedBy: CodingKeys.self)
-        enabled = try c.decodeIfPresent(Bool.self, forKey: .enabled) ?? false
-        mitm = try c.decodeIfPresent(Bool.self, forKey: .mitm) ?? false
-        skipCertVerify = try c.decodeIfPresent(Bool.self, forKey: .skipCertVerify) ?? false
-        h2 = try c.decodeIfPresent(Bool.self, forKey: .h2) ?? true
-        captureBodies = try c.decodeIfPresent(Bool.self, forKey: .captureBodies) ?? true
-        hostnames = try c.decodeIfPresent([String].self, forKey: .hostnames) ?? []
-        rules = try c.decodeIfPresent([EngineItem].self, forKey: .rules) ?? []
-        scripts = try c.decodeIfPresent([EngineItem].self, forKey: .scripts) ?? []
-        modules = try c.decodeIfPresent([EngineModule].self, forKey: .modules) ?? []
+        enabled = (try? c.decodeIfPresent(Bool.self, forKey: .enabled)) ?? false
+        mitm = (try? c.decodeIfPresent(Bool.self, forKey: .mitm)) ?? false
+        skipCertVerify = (try? c.decodeIfPresent(Bool.self, forKey: .skipCertVerify)) ?? false
+        h2 = (try? c.decodeIfPresent(Bool.self, forKey: .h2)) ?? true
+        captureBodies = (try? c.decodeIfPresent(Bool.self, forKey: .captureBodies)) ?? true
+        hostnames = (try? c.decodeIfPresent(LossyList<String>.self, forKey: .hostnames))?.items ?? []
+        // r7 (review7 R7A-10): one bad entry (missing id / line, a mistyped field — a hand-edited backup, an older or
+        // newer build) made the whole decode fail; load() then returned an empty config and the next save() wiped
+        // every module. Lists now skip only the entries that cannot be read.
+        rules = (try? c.decodeIfPresent(LossyList<EngineItem>.self, forKey: .rules))?.items ?? []
+        scripts = (try? c.decodeIfPresent(LossyList<EngineItem>.self, forKey: .scripts))?.items ?? []
+        modules = (try? c.decodeIfPresent(LossyList<EngineModule>.self, forKey: .modules))?.items ?? []
         scriptResources = try? c.decodeIfPresent([String: ScriptResourceSetting].self, forKey: .scriptResources)
         quic = try? c.decodeIfPresent(String.self, forKey: .quic)
         quicAllow = try? c.decodeIfPresent([String].self, forKey: .quicAllow)
     }
 
     static func load() -> EngineConfig {
-        guard let data = try? Data(contentsOf: EnginePaths.configURL),
-              let c = try? JSONDecoder().decode(EngineConfig.self, from: data) else { return EngineConfig() }
+        guard let data = try? Data(contentsOf: EnginePaths.configURL) else { return EngineConfig() }
+        guard let c = try? JSONDecoder().decode(EngineConfig.self, from: data) else {
+            // r7 R7A-10: not even an object (truncated / not JSON). Keep a copy before anything saves over it.
+            let bad = EnginePaths.configURL.deletingLastPathComponent().appendingPathComponent("engine.json.unreadable")
+            if !FileManager.default.fileExists(atPath: bad.path) { try? data.write(to: bad, options: .atomic) }
+            return EngineConfig()
+        }
         return c
     }
 
     func save() {
         let enc = JSONEncoder()
         enc.outputFormatting = [.prettyPrinted, .sortedKeys]
-        if let data = try? enc.encode(self) { try? data.write(to: EnginePaths.configURL, options: .atomic) }
+        guard var data = try? enc.encode(self) else { return }
+        if let lang = Self.uiLanguage, var obj = (try? JSONSerialization.jsonObject(with: data)) as? [String: Any] {
+            obj["language"] = lang
+            if let d = try? JSONSerialization.data(withJSONObject: obj, options: [.prettyPrinted, .sortedKeys]) { data = d }
+        }
+        try? data.write(to: EnginePaths.configURL, options: .atomic)
+    }
+
+    /// r7 B28: the UI language scripts see as $environment.language ("zh-Hans", "en" …). Not a stored
+    /// setting (kept out of Equatable / CodingKeys): stamped into engine.json by save() and at app launch.
+    /// nil outside the app (extension / widget bundles may carry fewer localizations).
+    static var uiLanguage: String? {
+        guard Bundle.main.bundlePath.hasSuffix(".app") else { return nil }
+        return Bundle.main.preferredLocalizations.first
+    }
+
+    /// Writes the current UI language into engine.json when it differs (language switched in Settings).
+    static func stampLanguage() {
+        guard let lang = uiLanguage,
+              let data = try? Data(contentsOf: EnginePaths.configURL),
+              var obj = (try? JSONSerialization.jsonObject(with: data)) as? [String: Any],
+              obj["language"] as? String != lang else { return }
+        obj["language"] = lang
+        if let d = try? JSONSerialization.data(withJSONObject: obj, options: [.prettyPrinted, .sortedKeys]) {
+            try? d.write(to: EnginePaths.configURL, options: .atomic)
+        }
     }
 }
 

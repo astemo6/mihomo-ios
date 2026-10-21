@@ -271,7 +271,8 @@ struct UpdateSubscriptionsIntent: AppIntent {
     func perform() async throws -> some IntentResult & ProvidesDialog {
         await VPNManager.shared.load()
         let store = ProfileStore.shared
-        let count = store.profiles.filter { $0.kind == .remote }.count
+        // r7 R7A-5: refreshAll() skips disabled profiles, so they are not counted either.
+        let count = store.profiles.filter { $0.kind == .remote && $0.enabled }.count
         guard count > 0 else { return .result(dialog: "没有远程订阅") }
         let errors = await store.refreshAll()
         if errors.isEmpty { return .result(dialog: "已更新 \(count) 个订阅") }

@@ -8,6 +8,7 @@ import (
 	"runtime/debug"
 	"sort"
 	"strings"
+	"sync"
 
 	"github.com/astemo6/mihomo-ios/bridge/mitm"
 	"github.com/metacubex/mihomo/log"
@@ -22,17 +23,44 @@ const (
 
 var disablePacing, testOldPacing bool // tests only (A/B measurement)
 
+// Review 7 P3-1: a Reload can enter apply while Start's apply is still pacing; each restoring its own
+// "previous" GOMAXPROCS left the process at 2 P for the rest of the connection. Nested pacing is counted:
+// the first one in saves the original value, the last one out restores it.
+var (
+	pacingMu        sync.Mutex
+	pacingDepth     int
+	pacingSavedProc int
+)
+
 // startupPacing tightens GC and parallelism for the startup burst; the returned func restores them.
 func startupPacing() func() {
 	if disablePacing {
 		return func() {}
 	}
-	prevProcs := runtime.GOMAXPROCS(startupProcs)
+	pacingMu.Lock()
+	if pacingDepth == 0 {
+		pacingSavedProc = runtime.GOMAXPROCS(startupProcs)
+	} else {
+		runtime.GOMAXPROCS(startupProcs)
+	}
+	pacingDepth++
 	debug.SetGCPercent(startupGOGC)
+	pacingMu.Unlock()
+	var once sync.Once
 	return func() {
-		runtime.GOMAXPROCS(prevProcs)
-		debug.SetGCPercent(steadyGOGC)
-		debug.FreeOSMemory()
+		once.Do(func() {
+			pacingMu.Lock()
+			pacingDepth--
+			last := pacingDepth == 0
+			if last {
+				runtime.GOMAXPROCS(pacingSavedProc)
+				debug.SetGCPercent(steadyGOGC)
+			}
+			pacingMu.Unlock()
+			if last {
+				debug.FreeOSMemory()
+			}
+		})
 	}
 }
 

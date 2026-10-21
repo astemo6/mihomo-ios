@@ -6,7 +6,7 @@ extension MihomoUITests {
 
     // MARK: 57. Surge-inspired 更多 + empty states
 
-    func test57_SurgeUIShots() {
+    func test49_SurgeUIShots() {
         launch()
         tab(4)
         XCTAssertTrue(app.navigationBars[L("更多")].waitForExistence(timeout: 8), "更多")
@@ -71,5 +71,29 @@ extension MihomoUITests {
         usleep(800_000)
         XCTAssertTrue(app.tabBars.buttons.element(boundBy: 4).isSelected, "前往配置 opens 更多")
         XCTAssertTrue(app.navigationBars[L("配置")].waitForExistence(timeout: 5), "前往配置 pushes 更多 → 配置")
+
+        // r7 P3-9: 添加配置 while 更多 already shows 配置 (opened from its row) or a deeper page: exactly one 配置
+        // page on top of 更多 — one back lands on 更多, not on a second 配置.
+        back()
+        XCTAssertTrue(app.navigationBars[L("更多")].waitForExistence(timeout: 5), "one back from 配置 → 更多")
+        let row = app.element(id: "more.配置")
+        XCTAssertTrue(scrollTo(row), "更多 → 配置 row")
+        row.tap()
+        XCTAssertTrue(app.navigationBars[L("配置")].waitForExistence(timeout: 5), "配置 from its row")
+        tab(0)
+        XCTAssertTrue(tapIfExists(app.element(id: "home.addProfile"), timeout: 6), "Home 添加配置 again")
+        XCTAssertTrue(app.navigationBars[L("配置")].waitForExistence(timeout: 5), "添加配置 shows 配置")
+        back()
+        XCTAssertTrue(app.navigationBars[L("更多")].waitForExistence(timeout: 5), "no second 配置 page under the first")
+        let adv = app.element(id: "more.高级设置")
+        XCTAssertTrue(scrollTo(adv), "高级设置")
+        adv.tap()
+        XCTAssertTrue(app.navigationBars[L("高级设置")].waitForExistence(timeout: 5), "高级设置 page")
+        tab(0)
+        XCTAssertTrue(tapIfExists(app.element(id: "home.addProfile"), timeout: 6), "Home 添加配置 from a deeper page")
+        XCTAssertTrue(app.navigationBars[L("配置")].waitForExistence(timeout: 5), "添加配置 over 高级设置 shows 配置")
+        back()
+        XCTAssertTrue(app.navigationBars[L("更多")].waitForExistence(timeout: 5), "配置 replaced the deeper stack (back → 更多)")
+        snap("surge-more-after-addprofile")
     }
 }
