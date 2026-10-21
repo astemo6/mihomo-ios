@@ -130,8 +130,8 @@ final class DashboardModel: ObservableObject {
         if a == .dropped && p == .dropped { return }
         lastTraffic = t
         if homeVisible { publishTraffic(animated: a == .appended) }
-        let sp = t.speed(scope)
-        LiveActivityController.shared.traffic(up: sp.up, down: sp.down, node: selectedNode)
+        let sp = t.speed(scope), tot = t.totals(scope)
+        LiveActivityController.shared.traffic(up: sp.up, down: sp.down, totalUp: tot.up, totalDown: tot.down, node: selectedNode)
     }
 
     private func publishTraffic(animated: Bool) {
