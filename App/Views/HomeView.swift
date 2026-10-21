@@ -15,6 +15,8 @@ struct HomeView: View {
     /// itself (last analysis card removed, 连接数 hidden, VPN state flips live ↔ offline cards), which dismissed a
     /// sheet attached to it mid-edit.
     @ObservedObject private var editor = HomeEditorRouter.shared
+    /// r7 P3-3 / B07: height of the status bar / Dynamic Island area above the page (no navigation bar here).
+    @State private var topInset: CGFloat = 0
 
     /// v0.8: the same cards while disconnected, from the profile file (selection saved for the next connect).
     /// feat/home-groups: the user's chosen groups for this profile (default = the first four).
@@ -95,6 +97,24 @@ struct HomeView: View {
             }
             .overlay(alignment: .bottomTrailing) {
                 HomeQuickAddButton().padding(.trailing, 20).padding(.bottom, 16)
+            }
+            // r7 P3-3 / B07: with the navigation bar hidden nothing covered the status bar, so scrolled cards ran
+            // under the clock. A page-coloured strip of exactly the top safe-area height sits there now. The earlier
+            // try (9f106c8) was a 0 pt frame with ignoresSafeArea — still 0 pt high. Here the height is read from a
+            // GeometryReader that respects the safe area, and the strip is placed in a full-height overlay that
+            // ignores it, so it starts at the screen's top edge.
+            .background(GeometryReader { g in
+                Color.clear
+                    .onAppear { topInset = g.safeAreaInsets.top }
+                    .onChange(of: g.safeAreaInsets.top) { topInset = $0 }
+            })
+            .overlay(alignment: .top) {
+                Theme.bg
+                    .frame(height: topInset)
+                    .frame(maxHeight: .infinity, alignment: .top)
+                    .ignoresSafeArea(edges: .top)
+                    .allowsHitTesting(false)
+                    .accessibilityHidden(true)
             }
             .background(Theme.bg.ignoresSafeArea())
             // The header (title + 启动 capsule) is part of the page, not a navigation bar: Home has no bar items
