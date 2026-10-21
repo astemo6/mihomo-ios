@@ -29,9 +29,11 @@ on:
 permissions:
   contents: write
 
+# r7 (backlog B03 / R6A-10): a release run (push to main, or a dispatch without build_only) is queued behind the
+# previous one instead of being cancelled by the next push; build_only runs still cancel each other.
 concurrency:
   group: ios-${{ inputs.ref || github.ref }}-${{ inputs.build_only && 'test' || 'main' }}
-  cancel-in-progress: true
+  cancel-in-progress: ${{ inputs.build_only == true }}
 
 jobs:
   build:
