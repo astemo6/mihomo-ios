@@ -19,11 +19,33 @@ ALTERNATES = ["AppIcon-Night", "AppIcon-Sky"]
 APP = "Payload/Mihomo.app/"
 
 
+def fail(path, msg):
+    print(f"{path}: FAIL")
+    print("  ERROR " + msg)
+    return False
+
+
 def check(path):
+    # r7: a missing file / entry or a broken archive prints a FAIL line (exit 1) instead of a traceback.
     errs = []
-    with zipfile.ZipFile(path) as z:
-        info = plistlib.loads(z.read(APP + "Info.plist"))
-        car = z.read(APP + "Assets.car")
+    try:
+        with zipfile.ZipFile(path) as z:
+            names_in_zip = set(z.namelist())
+            for entry in ("Info.plist", "Assets.car"):
+                if APP + entry not in names_in_zip:
+                    return fail(path, f"IPA has no {APP}{entry}")
+            info = plistlib.loads(z.read(APP + "Info.plist"))
+            car = z.read(APP + "Assets.car")
+    except FileNotFoundError:
+        return fail(path, "file not found")
+    except zipfile.BadZipFile as e:
+        return fail(path, f"not a valid IPA (zip): {e}")
+    except (plistlib.InvalidFileException, ValueError) as e:
+        return fail(path, f"{APP}Info.plist is not a valid plist: {e}")
+    except OSError as e:
+        return fail(path, f"cannot read: {e}")
+    if not isinstance(info, dict):
+        return fail(path, f"{APP}Info.plist is not a dictionary")
     for key in ("CFBundleIcons", "CFBundleIcons~ipad"):
         icons = info.get(key) or {}
         if (icons.get("CFBundlePrimaryIcon") or {}).get("CFBundleIconName") != "AppIcon":
