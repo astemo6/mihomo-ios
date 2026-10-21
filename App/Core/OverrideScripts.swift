@@ -198,6 +198,18 @@ enum JSOverrideEngine {
         return ctx
     }
 
+    /// r7 B18: the time limit counts per VM entry, so define + main + then-helper + stringify could each take
+    /// the full timeout (~30 s on one thread). Before every entry the limit is re-armed with what is left of
+    /// one deadline for the whole run; false = the deadline already passed.
+    private static func arm(_ ctx: JSContext, until deadline: Date) -> Bool {
+        let left = deadline.timeIntervalSinceNow
+        guard left > 0 else { return false }
+        if let setLimit, let ref = ctx.jsGlobalContextRef {
+            setLimit(JSContextGetGroup(ref), max(0.1, left), nil, nil)
+        }
+        return true
+    }
+
     private static func takeError(_ box: Box, _ started: Date, timeout: TimeInterval, kind: ScriptError.Kind) -> ScriptError {
         if Date().timeIntervalSince(started) >= timeout - 0.05 { return ScriptError(kind: .timeout, message: "") }
         let (msg, line) = box.exception ?? ("error", nil)
@@ -240,6 +252,7 @@ enum JSOverrideEngine {
             guard let custom, !custom.isEmpty, let d = try? JSONSerialization.data(withJSONObject: custom) else { return "null" }
             return String(decoding: d, as: UTF8.self)
         }()
+        let deadline = started.addingTimeInterval(runTimeout)
         let res = onThread(timeout: runTimeout) { box in
             let ctx = makeContext(box, timeout: runTimeout)
             // The script starts on line 1 of the wrapper, so error lines match the editor.
@@ -248,11 +261,15 @@ enum JSOverrideEngine {
                 box.lock.lock(); defer { box.lock.unlock() }
                 if box.result == nil { box.result = .failure(takeError(box, started, timeout: runTimeout, kind: k)) }
             }
+            guard arm(ctx, until: deadline) else { return fail(.runtime) }
             guard let fn = ctx.evaluateScript(fnSource), box.exception == nil, !fn.isUndefined else { return fail(.syntax) }
+            guard arm(ctx, until: deadline) else { return fail(.runtime) }
             guard var result = fn.call(withArguments: [configJSON, customJSON, profileName]), box.exception == nil else { return fail(.runtime) }
             // async main(): JavaScriptCore drains microtasks when the outermost call returns.
             if result.isObject, let then = result.objectForKeyedSubscript("then"), !then.isUndefined,
+               arm(ctx, until: deadline),
                let helper = ctx.evaluateScript("(function(p){ var b = {done:false}; p.then(function(v){ b.done = true; b.value = v; }, function(e){ b.done = true; b.error = e; }); return b; })"),
+               arm(ctx, until: deadline),
                let b = helper.call(withArguments: [result]) {
                 if !(b.objectForKeyedSubscript("done")?.toBool() ?? false) {
                     box.lock.lock(); box.result = .failure(ScriptError(kind: .promise, message: "")); box.lock.unlock()
@@ -267,6 +284,7 @@ enum JSOverrideEngine {
                 }
                 result = b.objectForKeyedSubscript("value") ?? result
             }
+            guard arm(ctx, until: deadline) else { return fail(.runtime) }
             guard let ser = ctx.evaluateScript("(function(v){ if (v === undefined || v === null || typeof v !== 'object' || Array.isArray(v)) return '__MIHOMO_NOT_OBJECT__'; return JSON.stringify(v); })"),
                   let text = ser.call(withArguments: [result]), box.exception == nil, text.isString else { return fail(.runtime) }
             let s = text.toString() ?? ""

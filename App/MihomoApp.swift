@@ -20,6 +20,8 @@ struct MihomoApp: App {
         UITestSeed.resetIfNeeded()
         // Bundled geo databases → core home, so profile validation in the app never downloads them either.
         DispatchQueue.global(qos: .utility).async { GeoBootstrap.install() }
+        // r7 B28: scripts' $environment.language follows the UI language (read by the engine on its next load).
+        DispatchQueue.global(qos: .utility).async { EngineConfig.stampLanguage() }
     }
 
     var body: some Scene {

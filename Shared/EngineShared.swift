@@ -138,7 +138,32 @@ struct EngineConfig: Codable, Equatable {
     func save() {
         let enc = JSONEncoder()
         enc.outputFormatting = [.prettyPrinted, .sortedKeys]
-        if let data = try? enc.encode(self) { try? data.write(to: EnginePaths.configURL, options: .atomic) }
+        guard var data = try? enc.encode(self) else { return }
+        if let lang = Self.uiLanguage, var obj = (try? JSONSerialization.jsonObject(with: data)) as? [String: Any] {
+            obj["language"] = lang
+            if let d = try? JSONSerialization.data(withJSONObject: obj, options: [.prettyPrinted, .sortedKeys]) { data = d }
+        }
+        try? data.write(to: EnginePaths.configURL, options: .atomic)
+    }
+
+    /// r7 B28: the UI language scripts see as $environment.language ("zh-Hans", "en" …). Not a stored
+    /// setting (kept out of Equatable / CodingKeys): stamped into engine.json by save() and at app launch.
+    /// nil outside the app (extension / widget bundles may carry fewer localizations).
+    static var uiLanguage: String? {
+        guard Bundle.main.bundlePath.hasSuffix(".app") else { return nil }
+        return Bundle.main.preferredLocalizations.first
+    }
+
+    /// Writes the current UI language into engine.json when it differs (language switched in Settings).
+    static func stampLanguage() {
+        guard let lang = uiLanguage,
+              let data = try? Data(contentsOf: EnginePaths.configURL),
+              var obj = (try? JSONSerialization.jsonObject(with: data)) as? [String: Any],
+              obj["language"] as? String != lang else { return }
+        obj["language"] = lang
+        if let d = try? JSONSerialization.data(withJSONObject: obj, options: [.prettyPrinted, .sortedKeys]) {
+            try? d.write(to: EnginePaths.configURL, options: .atomic)
+        }
     }
 }
 

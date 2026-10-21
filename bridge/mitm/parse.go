@@ -107,6 +107,8 @@ type Rule struct {
 
 	re  *regexp2.Regexp
 	hre *regexp2.Regexp
+	// fre: the URL pattern on Go's RE2 when it means the same there (r7 OPT-1); nil → re.
+	fre *regexp.Regexp
 }
 
 // Ruleset is the merged result of parsing user rules and modules.
@@ -566,7 +568,7 @@ func (rs *Ruleset) ParseLine(line, section, source string) {
 				rs.Errors = append(rs.Errors, fmt.Sprintf("正则无效（%s）：%s", err.Error(), clip(line, 120)))
 				return
 			}
-			r.re = re
+			r.re, r.fre = re, compileURLRe(r.Pattern)
 		}
 		if r.HeaderPattern != "" {
 			re, err := compileRe(r.HeaderPattern)
@@ -1252,7 +1254,7 @@ func (rs *Ruleset) parseStash(text, source string) {
 			rs.Errors = append(rs.Errors, "正则无效："+line)
 			continue
 		}
-		r.re = re
+		r.re, r.fre = re, compileURLRe(r.Pattern)
 		r.Desc = describe(r)
 		rs.Rules = append(rs.Rules, r)
 	}
@@ -1313,7 +1315,7 @@ func (rs *Ruleset) parseStash(text, source string) {
 			if r != nil {
 				r.Source, r.Line = source, l
 				if re, e := compileRe(r.Pattern); e == nil {
-					r.re = re
+					r.re, r.fre = re, compileURLRe(r.Pattern)
 					r.Desc = describe(r)
 					rs.Rules = append(rs.Rules, r)
 				}
