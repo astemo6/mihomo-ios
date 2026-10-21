@@ -153,11 +153,11 @@ enum AppShared {
             return String(localized: "共享容器不可用：描述文件里没有本 App 可用的 App Group，扩展读不到配置。")
         }
         if let lost = rememberedGroupLost {
-            return String(localized: "之前使用的 App Group（\(lost)）已不在描述文件里，原来的配置留在那个容器中。请用旧描述文件签名的版本导出备份，再在这里「从文件恢复」。")
+            return String(localized: "之前使用的 App Group（\(lost)）已不在描述文件里，原来的数据留在那个容器中。请用旧描述文件签名的版本导出备份，再在这里「从文件恢复」。")
         }
         let others = appGroupCandidates.filter { $0.group != appGroup && $0.accepted && ($0.hasData || $0.ours) }
         if !others.isEmpty {
-            return String(localized: "另一个 App Group 里也有配置（\(others.map(\.group).joined(separator: ", "))）。如果这里的配置不对，请在原来的版本里导出备份后恢复。")
+            return String(localized: "另一个 App Group 里也有数据（\(others.map(\.group).joined(separator: ", "))）。如果这里的数据不对，请在原来的版本里导出备份后恢复。")
         }
         if provisionedGroupsChanged {
             return String(localized: "描述文件的 App Group 列表已变化，App 仍在使用之前的组（\(appGroup)）。")

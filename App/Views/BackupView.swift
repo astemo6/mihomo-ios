@@ -255,7 +255,7 @@ struct BackupView: View {
                 VStack(alignment: .leading, spacing: 6) {
                     Text(BackupManager.iCloudFolder == nil ? "当前签名没有 iCloud 容器权限，可以在「保存到文件」时选择 iCloud 云盘，恢复时从那里选择文件。恢复会覆盖同名配置与设置。" : "恢复会覆盖同名配置与设置。")
                     // r7 R7A-11: migration to a re-signed build (new bundle id) while the old app is still installed.
-                    Text("换用重新签名的新 App 时：先在旧 App 里关闭按需连接再导出备份；在新 App 恢复后删除旧 App，否则「设置 → VPN」里两个 Tern 配置会互相抢连接，链接和文件也可能被旧 App 打开。")
+                    Text("换用重新签名的新 App 时：先在旧 App 里关闭按需连接再导出备份；在新 App 恢复后删除旧 App，否则「设置 → VPN」里两个 Tern 的 VPN 配置会互相抢连接，链接和文件也可能被旧 App 打开。")
                 }
             }
             .listRowBackground(Theme.card)
