@@ -193,6 +193,26 @@ final class ProfileStore: ObservableObject {
         (try? String(contentsOf: p.fileURL, encoding: .utf8)) ?? ""
     }
 
+    /// feat/more-dedup (user 2026-10-21 「配置里长按没有导出」): a temp copy of the profile's YAML named after the
+    /// profile, for the share sheet (配置 long-press → 导出, YAML editor toolbar). `text` = the editor's current text.
+    /// It holds node secrets, so the share sheet deletes it when it ends (ShareItem.temporary) and leftovers are purged.
+    func exportFile(of p: Profile, text: String? = nil) -> URL? {
+        let body = text ?? content(of: p)
+        guard !body.isEmpty else { return nil }
+        Self.purgeExports()
+        let dir = Self.exportDir
+        try? FileManager.default.createDirectory(at: dir, withIntermediateDirectories: true)
+        var base = p.name.components(separatedBy: CharacterSet(charactersIn: "/\\:?*\"<>|\n\r")).joined(separator: "_")
+            .trimmingCharacters(in: .whitespacesAndNewlines)
+        if base.isEmpty || base.hasPrefix(".") { base = "profile" + base }
+        let url = dir.appendingPathComponent(String(base.prefix(80)) + ".yaml")
+        do { try body.write(to: url, atomically: true, encoding: .utf8) } catch { return nil }
+        return url
+    }
+
+    nonisolated static var exportDir: URL { FileManager.default.temporaryDirectory.appendingPathComponent("ProfileExport", isDirectory: true) }
+    nonisolated static func purgeExports() { try? FileManager.default.removeItem(at: exportDir) }
+
     // MARK: Validation / conversion
 
     /// Validates YAML text with the real mihomo parser. Returns nil if OK, else the error.

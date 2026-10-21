@@ -88247,6 +88247,41 @@
           }
         }
       }
+    },
+    "配置文件为空或无法读取": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "The profile file is empty or can't be read"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "プロファイルのファイルが空か、読み込めません"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "프로파일 파일이 비어 있거나 읽을 수 없습니다"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Файл профиля пуст или не читается"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "配置檔案為空或無法讀取"
+          }
+        }
+      }
     }
   },
   "version": "1.0"

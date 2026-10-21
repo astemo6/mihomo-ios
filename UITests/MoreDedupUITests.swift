@@ -65,5 +65,23 @@ extension MihomoUITests {
         XCTAssertFalse(app.element(labelContains: L("手动节点（粘贴链接 / 扫码 / 手动填写）")).exists, "配置: 手动节点 row removed")
         XCTAssertFalse(app.navigationBars.buttons[L("节点与订阅")].exists, "配置: 节点与订阅 shortcut removed")
         snap("dedup-profiles")
+
+        // 配置 long-press menu (user 2026-10-21 17:49): 导出 sits right above 删除; the YAML editor has it in its toolbar.
+        let row = app.element(labelContains: "UITest Demo")
+        XCTAssertTrue(row.waitForExistence(timeout: 5), "UITest Demo profile row")
+        row.press(forDuration: 1.3)
+        let export = app.button(L("导出"))
+        let delete = app.button(L("删除"))
+        XCTAssertTrue(export.waitForExistence(timeout: 4), "导出 in the profile long-press menu")
+        XCTAssertTrue(delete.exists, "删除 in the profile long-press menu")
+        XCTAssertLessThan(export.frame.midY, delete.frame.midY, "导出 is above 删除")
+        snap("dedup-profile-menu")
+        XCTAssertTrue(tapIfExists(app.button(L("编辑 YAML")), timeout: 3), "编辑 YAML in the menu")
+        XCTAssertTrue(app.element(id: "yaml.export").waitForExistence(timeout: 5), "导出 in the YAML editor toolbar")
+        snap("dedup-yaml-export")
+        app.element(id: "yaml.export").tap()
+        _ = app.otherElements["ActivityListView"].waitForExistence(timeout: 6) // share sheet (screenshot only, no assert)
+        assertAlive("profile export")
+        snap("dedup-yaml-share")
     }
 }

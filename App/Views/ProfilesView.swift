@@ -15,6 +15,7 @@ struct ProfilesView: View {
     @State private var showSample = false
     @State private var scriptsFor: Profile?
     @State private var pendingDelete: Profile?
+    @State private var share: ShareItem?
 
     var body: some View {
         NavigationStack {
@@ -75,6 +76,7 @@ struct ProfilesView: View {
                                 }
                                 Button { scriptsFor = p } label: { Label("覆写脚本", systemImage: "curlybraces") } // v0.19
                                 Button { editing = p } label: { Label(LocalizedStringKey(p.kind == .remote ? "查看 YAML" : "编辑 YAML"), systemImage: p.kind == .remote ? "doc.text" : "pencil") }
+                                Button { export(p) } label: { Label("导出", systemImage: "square.and.arrow.up") }
                                 Button(role: .destructive) { requestDelete(p) } label: { Label("删除", systemImage: "trash") }
                             }
                             .listRowBackground(Theme.card)
@@ -129,7 +131,14 @@ struct ProfilesView: View {
                 Button("好", role: .cancel) {}
             } message: { Text(message ?? "") }
             .profileDeleteConfirmation($pendingDelete, store: store)
+            .sheet(item: $share, onDismiss: { ProfileStore.purgeExports() }) { ActivityView(items: [$0.url], cleanup: $0.temporary ? $0.url : nil) }
         }
+    }
+
+    /// 导出: the profile's YAML file through the share sheet (保存到文件 / AirDrop / other apps).
+    func export(_ p: Profile) {
+        if let u = store.exportFile(of: p) { share = ShareItem(url: u, temporary: true) }
+        else { message = String(localized: "导出失败：") + String(localized: "配置文件为空或无法读取") }
     }
 
     /// Every profile delete asks first (review 5); a source with 自定义 copies names them in the dialog.
@@ -340,6 +349,15 @@ struct AddRemoteSheet: View {
             .navigationBarTitleDisplayMode(.inline)
             .toolbar {
                 ToolbarItem(placement: .cancellationAction) { Button("取消") { dismiss() } }
+                if let profile {
+                    ToolbarItem(placement: .primaryAction) {
+                        Button {
+                            if let u = store.exportFile(of: profile, text: text) { share = ShareItem(url: u, temporary: true) }
+                            else { error = String(localized: "导出失败：") + String(localized: "配置文件为空或无法读取") }
+                        } label: { Label("导出", systemImage: "square.and.arrow.up") }
+                        .accessibilityIdentifier("yaml.export")
+                    }
+                }
                 ToolbarItem(placement: .confirmationAction) {
                     if busy { ProgressView() } else {
                         Button("添加") { add() }.disabled(url.isEmpty)
@@ -378,6 +396,7 @@ struct YAMLEditorView: View {
     @State private var checkTask: Task<Void, Never>?
     @State private var scrollToken = 0
     @State private var confirmDiscard = false
+    @State private var share: ShareItem?
     private let initialName: String
     private let initialText: String
     /// Unsaved edits: swipe-down is blocked and 取消 asks first (review 5).
@@ -449,6 +468,15 @@ struct YAMLEditorView: View {
                 ToolbarItem(placement: .cancellationAction) {
                     Button(readOnly ? "关闭" : "取消") { if dirty { confirmDiscard = true } else { dismiss() } }
                 }
+                if let profile {
+                    ToolbarItem(placement: .primaryAction) {
+                        Button {
+                            if let u = store.exportFile(of: profile, text: text) { share = ShareItem(url: u, temporary: true) }
+                            else { error = String(localized: "导出失败：") + String(localized: "配置文件为空或无法读取") }
+                        } label: { Label("导出", systemImage: "square.and.arrow.up") }
+                        .accessibilityIdentifier("yaml.export")
+                    }
+                }
                 ToolbarItem(placement: .confirmationAction) {
                     if busy { ProgressView() }
                     else if readOnly { Button("复制为本地配置") { copyAsLocal() } }
@@ -461,6 +489,7 @@ struct YAMLEditorView: View {
             .confirmationDialog("放弃修改？", isPresented: $confirmDiscard, titleVisibility: .visible) {
                 Button("放弃修改", role: .destructive) { dismiss() }
             }
+            .sheet(item: $share, onDismiss: { ProfileStore.purgeExports() }) { ActivityView(items: [$0.url], cleanup: $0.temporary ? $0.url : nil) }
         }
         .interactiveDismissDisabled(dirty)
     }
