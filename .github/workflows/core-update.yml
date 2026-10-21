@@ -97,7 +97,22 @@ jobs:
           go get "github.com/metacubex/mihomo@$TAG"
           go mod tidy
           go vet -tags with_gvisor ./...
-          go test -tags with_gvisor ./...
+          # r7 (review7 R7A-13): like Self-test, failing tests get one retry on their own (several download geo data /
+          # reach public endpoints and flake on the runner's network) before a 「升级失败」 issue is opened.
+          set +e
+          go test -tags with_gvisor -count=1 ./... 2>&1 | tee ../go-test.log
+          RC=${PIPESTATUS[0]}
+          if [ "$RC" != 0 ]; then
+            FAILED=$(grep -E "^--- FAIL: " ../go-test.log | awk '{print $3}' | sort -u | paste -sd'|' -)
+            echo "failed first run: $FAILED"
+            [ -n "$FAILED" ] || exit "$RC"
+            go test -tags with_gvisor -count=1 -run "^(${FAILED})\$" ./... 2>&1 | tee ../go-test-retry.log
+            RC=${PIPESTATUS[0]}
+            echo "- go test retry (${FAILED//|/, }): exit $RC" >> "$GITHUB_STEP_SUMMARY"
+            [ "$RC" = 0 ] || exit "$RC"
+          fi
+          set -e
+          rm -f ../go-test.log ../go-test-retry.log
           cd ..
           git config user.name "github-actions[bot]"
           git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
