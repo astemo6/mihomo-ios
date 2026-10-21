@@ -40,6 +40,10 @@ final class HomePanelStore: ObservableObject {
     }()
     /// Last results written by the engine (panel-cache.json), keyed by panel id.
     @Published var cached: [String: PanelItem] = [:]
+    /// r7 (test67 en): bumped one main-queue turn after every reorder. The editor's 首页面板 section is keyed on it, so
+    /// the List is rebuilt from `PanelsModel.pinned` once UIKit has finished its own row move. Without it a drag could
+    /// save the new order (menu showed 上移 disabled on the new first row) while the table kept drawing the old order.
+    @Published private(set) var orderRevision = 0
     /// Panel names seen while connected, so the editor can name pinned panels while disconnected.
     private var names: [String: String] = (UserDefaults.standard.dictionary(forKey: HomePanelStore.namesKey) as? [String: String]) ?? [:]
 
@@ -117,6 +121,27 @@ final class HomePanelStore: ObservableObject {
     func move(from: IndexSet, to: Int) {
         model.pinned.move(fromOffsets: from, toOffset: to)
         savePinned()
+        orderChanged()
+    }
+
+    /// The saved order as one string (UI-test accessibility value on the editor; Debug builds only).
+    var orderToken: String { model.pinned.joined(separator: ",") }
+
+    private func orderChanged() {
+        DispatchQueue.main.async { self.orderRevision &+= 1 }
+    }
+
+    /// r7: non-drag reorder (editor ⋯ menu / VoiceOver actions). `by` = -1 up, +1 down.
+    func canMove(_ id: String, by: Int) -> Bool {
+        guard let i = model.pinned.firstIndex(of: id) else { return false }
+        return model.pinned.indices.contains(i + by)
+    }
+
+    func step(_ id: String, by: Int) {
+        guard let i = model.pinned.firstIndex(of: id), model.pinned.indices.contains(i + by) else { return }
+        model.pinned.swapAt(i, i + by)
+        savePinned()
+        orderChanged()
     }
 
     func setInterval(_ taskID: String, _ seconds: Int) {
@@ -134,8 +159,10 @@ final class HomePanelStore: ObservableObject {
     /// connected, hands it to the running engine.
     func sync() {
         // drop pins / hidden ids that are no longer pinned
-        tasks.removeAll { !model.pinned.contains($0.panelID) }
-        hidden = hidden.filter { model.pinned.contains($0) }
+        // r7: assign only on a real change — a no-op publish here landed in the same update as the List's onMove.
+        if tasks.contains(where: { !model.pinned.contains($0.panelID) }) { tasks.removeAll { !model.pinned.contains($0.panelID) } }
+        let keptHidden = hidden.filter { model.pinned.contains($0) }
+        if keptHidden != hidden { hidden = keptHidden }
         UserDefaults.standard.set(Array(hidden), forKey: Self.hiddenKey)
         if let d = try? JSONEncoder().encode(tasks) { UserDefaults.standard.set(d, forKey: Self.tasksKey) }
         let body: [String: Any] = [
@@ -304,8 +331,11 @@ struct HomePanelsEditor: View {
                     Text("首页面板")
                 } footer: {
                     Text("拖动调整顺序。关闭开关的面板保留固定，但不在首页显示，也不会在后台刷新。")
+                        .modifier(UITestOrderValue(id: "homepanels.order", order: home.orderToken))
                 }
                 .listRowBackground(Theme.card)
+                // r7: rebuilt from the saved order after every move (drag or 上移 / 下移), never a stale table.
+                .id(home.orderRevision)
 
                 Section {
                     let missing = BuiltinTile.allCases.filter { !model.pinned.contains($0.id) }
@@ -380,16 +410,20 @@ struct HomePanelsEditor: View {
     func row(_ id: String) -> some View {
         if let t = BuiltinTile.from(id) {
             HStack(spacing: 10) {
+                // r7: the row id sits on the icon (what tests always resolved it to): an id on the HStack is pushed
+                // onto every child and would hide the 调整顺序 menu's own id.
                 Image(systemName: t.icon).foregroundStyle(Theme.accent).frame(width: 24)
+                    .accessibilityIdentifier("homepanels.row.\(t.rawValue)")
                 VStack(alignment: .leading, spacing: 2) {
                     Text(verbatim: t.title).font(.subheadline).lineLimit(1)
                     Text("内置卡片").font(.caption2).foregroundStyle(.secondary)
                 }
                 Spacer(minLength: 6)
+                moveMenu(id, tag: t.rawValue)
                 Toggle("在首页显示", isOn: Binding(get: { !home.hidden.contains(id) }, set: { home.setHidden(id, !$0) }))
                     .labelsHidden()
             }
-            .accessibilityIdentifier("homepanels.row.\(t.rawValue)")
+            .modifier(MoveActions(id: id))
         } else {
             panelRow(id)
         }
@@ -428,9 +462,59 @@ struct HomePanelsEditor: View {
                 }
             }
             Spacer(minLength: 6)
+            moveMenu(id, tag: id)
             Toggle("在首页显示", isOn: Binding(get: { !home.hidden.contains(id) }, set: { home.setHidden(id, !$0) }))
                 .labelsHidden()
         }
+        .modifier(MoveActions(id: id))
+    }
+
+    /// r7: 上移 / 下移 without dragging (drag handles stay the main way; this one also works with VoiceOver,
+    /// Switch Control and in UI tests).
+    func moveMenu(_ id: String, tag: String) -> some View {
+        Menu {
+            Button { withAnimation { home.step(id, by: -1) } } label: { Label("上移", systemImage: "arrow.up") }
+                .disabled(!home.canMove(id, by: -1))
+                .accessibilityIdentifier("homepanels.up.\(tag)")
+            Button { withAnimation { home.step(id, by: 1) } } label: { Label("下移", systemImage: "arrow.down") }
+                .disabled(!home.canMove(id, by: 1))
+                .accessibilityIdentifier("homepanels.down.\(tag)")
+        } label: {
+            Image(systemName: "arrow.up.arrow.down.circle")
+                .font(.body)
+                .foregroundStyle(.secondary)
+                .frame(width: 28, height: 28)
+                .contentShape(Rectangle())
+        }
+        .buttonStyle(.borderless)
+        .accessibilityLabel(Text("调整顺序"))
+        .accessibilityIdentifier("homepanels.move.\(tag)")
+    }
+}
+
+/// r7: Debug UI-test builds only (-UITestSeed): exposes a list's saved order as the accessibility value of its footer,
+/// so tests can check the model as well as the drawn rows. Release builds and normal Debug launches are unchanged.
+struct UITestOrderValue: ViewModifier {
+    let id: String
+    let order: String
+    @ViewBuilder
+    func body(content: Content) -> some View {
+        if UITestSeed.enabled {
+            content.accessibilityIdentifier(id).accessibilityValue(Text(verbatim: order))
+        } else {
+            content
+        }
+    }
+}
+
+/// r7: VoiceOver rotor actions 上移 / 下移 on a pinned Home panel row.
+private struct MoveActions: ViewModifier {
+    @ObservedObject var home = HomePanelStore.shared
+    let id: String
+    func body(content: Content) -> some View {
+        content
+            .accessibilityAction(named: Text("上移")) { if home.canMove(id, by: -1) { home.step(id, by: -1) } }
+            .accessibilityAction(named: Text("下移")) { if home.canMove(id, by: 1) { home.step(id, by: 1) } }
     }
 }
 
