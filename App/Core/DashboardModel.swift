@@ -51,6 +51,21 @@ final class DashboardModel: ObservableObject {
     /// fix/bg-chart: polling (and the /memory stream) pause while the app is not active.
     private var active = UIApplication.shared.applicationState != .background
     private var running = false
+    /// fix/nav-jank: Home's speed, totals, memory and connection count are published only while Home is on
+    /// screen. Sampling goes on (the series, the Live Activity and the poll interval keep their data), but other
+    /// tabs no longer get several SwiftUI updates a second for numbers nobody sees; Home catches up on appear.
+    private var homeVisible = true
+    private var lastMemory: Int64 = 0
+    private var lastConnectionCount = 0
+
+    func setHomeVisible(_ visible: Bool) {
+        guard visible != homeVisible else { return }
+        homeVisible = visible
+        guard visible else { return }
+        publishTraffic(animated: false)
+        if memory != lastMemory { memory = lastMemory }
+        if connectionCount != lastConnectionCount { connectionCount = lastConnectionCount }
+    }
 
     func start() {
         stop()
@@ -77,8 +92,9 @@ final class DashboardModel: ObservableObject {
         })
         tasks.append(Task { [weak self] in
             for await m in c.stream("/memory", as: MemorySample.self) {
-                guard !Task.isCancelled else { break }
-                self?.memory = m.inuse
+                guard !Task.isCancelled, let self else { break }
+                self.lastMemory = m.inuse
+                if self.homeVisible && self.memory != m.inuse { self.memory = m.inuse }
             }
         })
         tasks.append(Task { [weak self] in
@@ -89,15 +105,17 @@ final class DashboardModel: ObservableObject {
                 if tick % 5 == 0, let cfg = try? await c.configs(), let m = (cfg["mode"] as? String)?.lowercased(), self?.mode != m {
                     self?.mode = m
                 }
-                if let r = try? await c.connections() {
-                    self?.connectionCount = r.connections?.count ?? 0
+                if let r = try? await c.connections(), let self {
+                    let n = r.connections?.count ?? 0
+                    self.lastConnectionCount = n
+                    if self.homeVisible && self.connectionCount != n { self.connectionCount = n }
                     ConnectionAnalytics.shared.ingest(r.connections ?? [])
                 }
                 if self?.coreVersion.isEmpty == true, let v = try? await c.version() { self?.coreVersion = v }
                 await self?.refreshSelectedNode()
                 // Adaptive interval: a full /connections pull gets heavy with many connections,
                 // so back off while the count is high and return to 2 s once it drops again.
-                let count = self?.connectionCount ?? 0
+                let count = self?.lastConnectionCount ?? 0
                 let pollInterval: UInt64 = count > 2000 ? 10_000_000_000 : count > 800 ? 5_000_000_000 : 2_000_000_000
                 try? await Task.sleep(nanoseconds: pollInterval)
             }
@@ -111,7 +129,7 @@ final class DashboardModel: ObservableObject {
         let p = proxySeries.append(up: t.proxyUp, down: t.proxyDown, requestedAt: requestedAt, receivedAt: receivedAt)
         if a == .dropped && p == .dropped { return }
         lastTraffic = t
-        publishTraffic(animated: a == .appended)
+        if homeVisible { publishTraffic(animated: a == .appended) }
         let sp = t.speed(scope)
         LiveActivityController.shared.traffic(up: sp.up, down: sp.down, node: selectedNode)
     }
@@ -153,7 +171,7 @@ final class DashboardModel: ObservableObject {
         running = false
         tasks.forEach { $0.cancel() }
         tasks.removeAll()
-        up = 0; down = 0; connectionCount = 0; memory = 0
+        up = 0; down = 0; connectionCount = 0; memory = 0; lastMemory = 0; lastConnectionCount = 0
         // Totals stay on screen after a disconnect (as before); speeds are 0 in either scope.
         if var t = lastTraffic { t.up = 0; t.down = 0; t.proxyUp = 0; t.proxyDown = 0; lastTraffic = t }
         homeGroups = []
@@ -171,7 +189,7 @@ final class DashboardModel: ObservableObject {
         while let p = all[name], let now = p.now, !now.isEmpty, hops < 8 {
             name = now; hops += 1
         }
-        selectedNode = name
+        if selectedNode != name { selectedNode = name } // fix/nav-jank: was republished every 2 s
         WidgetSnapshot.update(node: name, policy: firstGroup)
 
         // Home policy cards (feat/home-groups): the user's chosen groups for this profile, in their order;

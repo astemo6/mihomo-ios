@@ -18,10 +18,19 @@ final class EngineStore: ObservableObject {
     @Published var moduleInfo: [String: ParsedEngineText] = [:]
 
     private var reloadTask: Task<Void, Never>?
+    /// fix/nav-jank: bumped by every module parse / CA refresh, so a background result never overwrites a newer one.
+    private var parseGeneration = 0
+    private var caGeneration = 0
 
+    /// fix/nav-jank (「动画有卡顿」): the store is usually created by the first page that needs it (高级设置,
+    /// 模块, MitM …), i.e. during a push. init used to parse every module in Go, build a test leaf and run
+    /// SecTrustEvaluateWithError on the main thread right then. Now engine.json loads synchronously and the
+    /// parse + CA check run off main; views update when they land.
     init() {
-        refreshCA()
-        reparseModules()
+        Task { [weak self] in
+            await self?.refreshCAInBackground()
+            await self?.reparseModulesInBackground()
+        }
     }
 
     var home: String { AppShared.homeURL.path }
@@ -79,6 +88,7 @@ final class EngineStore: ObservableObject {
     // MARK: modules
 
     func reparseModules() {
+        parseGeneration += 1
         var out: [String: ParsedEngineText] = [:]
         for m in config.modules {
             if let text = try? String(contentsOf: EnginePaths.moduleURL(m.id), encoding: .utf8) {
@@ -94,6 +104,8 @@ final class EngineStore: ObservableObject {
     /// the module list changed while parsing.
     func reparseModulesInBackground() async {
         let mods = config.modules
+        parseGeneration += 1
+        let gen = parseGeneration
         let out = await Task.detached(priority: .userInitiated) { () -> [String: ParsedEngineText] in
             var out: [String: ParsedEngineText] = [:]
             for m in mods {
@@ -104,7 +116,7 @@ final class EngineStore: ObservableObject {
             }
             return out
         }.value
-        if config.modules == mods { moduleInfo = out }
+        if config.modules == mods && gen == parseGeneration { moduleInfo = out }
     }
 
     static func download(_ url: String) async throws -> String {
@@ -309,10 +321,26 @@ final class EngineStore: ObservableObject {
     // MARK: CA
 
     func refreshCA() {
+        caGeneration += 1
         if let d = LibmihomoCAInfo(home).data(using: .utf8), let i = try? JSONDecoder().decode(CAInfoModel.self, from: d) {
             caInfo = i
         }
         caTrusted = caInfo.exists ? checkTrust() : nil
+    }
+
+    /// fix/nav-jank: refreshCA off the main thread (Go CA load + test leaf + SecTrust evaluation).
+    func refreshCAInBackground() async {
+        caGeneration += 1
+        let gen = caGeneration
+        let home = self.home
+        let (info, trusted) = await Task.detached(priority: .userInitiated) { () -> (CAInfoModel?, Bool?) in
+            guard let d = LibmihomoCAInfo(home).data(using: .utf8),
+                  let i = try? JSONDecoder().decode(CAInfoModel.self, from: d) else { return (nil, nil) }
+            return (i, i.exists ? EngineStore.checkTrust(home: home) : nil)
+        }.value
+        guard gen == caGeneration else { return }
+        if let info { caInfo = info }
+        caTrusted = trusted
     }
 
     func generateCA() {
@@ -325,7 +353,9 @@ final class EngineStore: ObservableObject {
 
     /// Evaluates a leaf signed by our CA with the system trust store: true only when the profile is
     /// installed AND full trust is enabled in 证书信任设置.
-    func checkTrust() -> Bool {
+    func checkTrust() -> Bool { Self.checkTrust(home: home) }
+
+    nonisolated static func checkTrust(home: String) -> Bool {
         var err: NSError?
         let s = LibmihomoCATrustChain(home, &err)
         let parts = s.split(separator: ",").map(String.init)

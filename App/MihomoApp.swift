@@ -7,8 +7,11 @@ struct MihomoApp: App {
     @StateObject private var vpn = VPNManager.shared
     @StateObject private var router = ImportRouter.shared
     @StateObject private var store = ProfileStore.shared
-    @StateObject private var dash = DashboardModel.shared
-    @StateObject private var ipinfo = IPInfoModel.shared
+    // fix/nav-jank: singletons that publish often (speed every second, the memory stream, IP lookups) are held
+    // without observing. As @StateObject the App re-evaluated its scene on every tick; views that show these
+    // values observe them themselves.
+    private let dash = DashboardModel.shared
+    private let ipinfo = IPInfoModel.shared
     @Environment(\.scenePhase) private var phase
 
     init() {
@@ -82,7 +85,10 @@ enum AppSection: Int, CaseIterable, Identifiable {
 
 struct RootView: View {
     @EnvironmentObject var vpn: VPNManager
-    @EnvironmentObject var dash: DashboardModel
+    /// fix/nav-jank (「动画有卡顿」): not observed. As an @EnvironmentObject every speed / memory / connection
+    /// tick re-rendered the TabView and every tab under it, including NavigationStacks mid push / pop, which
+    /// dropped frames and made large titles snap. Only start / stop / setActive are needed here.
+    private var dash: DashboardModel { DashboardModel.shared }
     @EnvironmentObject var router: ImportRouter
     @EnvironmentObject var store: ProfileStore
     @Environment(\.horizontalSizeClass) private var hSize
