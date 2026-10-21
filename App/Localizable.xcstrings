@@ -84844,6 +84844,312 @@
           }
         }
       }
+    },
+    "首页流量统计": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Home Traffic"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ホームの通信量"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "홈 트래픽"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Трафик на главной"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "首頁流量統計"
+          }
+        }
+      }
+    },
+    "全部流量": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "All Traffic"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "すべての通信"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "전체 트래픽"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Весь трафик"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "全部流量"
+          }
+        }
+      }
+    },
+    "仅代理流量": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Proxy Traffic Only"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "プロキシ経由のみ"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "프록시 트래픽만"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Только трафик прокси"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "僅代理流量"
+          }
+        }
+      }
+    },
+    "经过 Mihomo 的所有流量，包括直连": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Everything that passes through Mihomo, including direct connections"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Mihomo を通るすべての通信（ダイレクトを含む）"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "직접 연결을 포함해 Mihomo를 거치는 모든 트래픽"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Весь трафик через Mihomo, включая прямые подключения"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "經過 Mihomo 的所有流量，包括直連"
+          }
+        }
+      }
+    },
+    "只算经代理节点发出的流量，不含直连和拒绝": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Only traffic sent out through a proxy node; direct and rejected connections are left out"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "プロキシノード経由で送られた通信のみ。ダイレクトと拒否は含みません"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "프록시 노드로 나간 트래픽만 계산하며 직접 연결과 거부는 제외합니다"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Только трафик через прокси-узлы, без прямых и отклонённых подключений"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "只算經代理節點發出的流量，不含直連和拒絕"
+          }
+        }
+      }
+    },
+    "用于首页的网速、总上传 / 总下载、首页卡片和实时活动。选「仅代理流量」时，数字旁会标「仅代理」。「流量统计」页的每日记录不受影响。": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Used for the speed, total upload / download and cards on Home, and for the Live Activity. With “Proxy Traffic Only” the numbers are marked “Proxy Only”. Daily records in Traffic Statistics are not affected."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ホームの速度、合計アップロード / ダウンロード、ホームのカード、ライブアクティビティに使われます。「プロキシ経由のみ」を選ぶと数値に「プロキシのみ」と表示されます。「トラフィック統計」の日ごとの記録には影響しません。"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "홈의 속도, 총 업로드 / 다운로드, 홈 카드와 실시간 현황에 사용됩니다. ‘프록시 트래픽만’을 선택하면 숫자 옆에 ‘프록시만’이 표시됩니다. ‘트래픽 통계’의 일별 기록에는 영향이 없습니다."
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Используется для скорости, общего объёма отправки / загрузки и карточек на главной, а также для Live Activity. При «Только трафик прокси» числа помечаются «Только прокси». Ежедневные записи в «Статистике трафика» не меняются."
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "用於首頁的網速、總上傳 / 總下載、首頁卡片和即時動態。選「僅代理流量」時，數字旁會標「僅代理」。「流量統計」頁的每日記錄不受影響。"
+          }
+        }
+      }
+    },
+    "总上传（仅代理）": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Total Upload (Proxy Only)"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "合計アップロード（プロキシのみ）"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "총 업로드(프록시만)"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Всего отправлено (только прокси)"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "總上傳（僅代理）"
+          }
+        }
+      }
+    },
+    "总下载（仅代理）": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Total Download (Proxy Only)"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "合計ダウンロード（プロキシのみ）"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "총 다운로드(프록시만)"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Всего загружено (только прокси)"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "總下載（僅代理）"
+          }
+        }
+      }
+    },
+    "本次连接 · 仅代理": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "This Session · Proxy Only"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "今回の接続 · プロキシのみ"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "이번 연결 · 프록시만"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Этот сеанс · только прокси"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "本次連線 · 僅代理"
+          }
+        }
+      }
     }
   },
   "version": "1.0"
