@@ -184,7 +184,7 @@ struct OnboardingView: View {
                 }
             }
         }
-        .onAppear { engine.refreshCA() }
+        .task { await engine.refreshCAInBackground() } // fix/nav-jank: off main
     }
 
     // MARK: Actions
