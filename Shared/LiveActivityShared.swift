@@ -14,6 +14,9 @@ struct MihomoActivityAttributes: ActivityAttributes {
         var down: Int64    // bytes/s
         var since: Date    // connected since (drives the running timer)
         var updated: Date
+        /// feat/traffic-scope: true when up / down count proxy traffic only (首页流量统计 = 仅代理流量), so the
+        /// activity can say so. nil (older builds, or 全部流量) = all traffic.
+        var proxyOnly: Bool? = nil
     }
     var profile: String
 }

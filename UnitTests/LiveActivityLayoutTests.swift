@@ -30,9 +30,11 @@ final class LiveActivityLayoutTests: XCTestCase {
         return u
     }
 
-    private func state(node: String, connected: Bool = true, up: Int64 = 34_714, down: Int64 = 145_408) -> MihomoActivityAttributes.ContentState {
+    private func state(node: String, connected: Bool = true, up: Int64 = 34_714, down: Int64 = 145_408, proxyOnly: Bool = false) -> MihomoActivityAttributes.ContentState {
         let now = Date()
-        return .init(connected: connected, node: node, up: up, down: down, since: now.addingTimeInterval(-166), updated: now.addingTimeInterval(-600))
+        var s = MihomoActivityAttributes.ContentState(connected: connected, node: node, up: up, down: down, since: now.addingTimeInterval(-166), updated: now.addingTimeInterval(-600))
+        s.proxyOnly = proxyOnly ? true : nil
+        return s
     }
 
     @discardableResult
@@ -106,6 +108,10 @@ final class LiveActivityLayoutTests: XCTestCase {
             render(islandScene(state(node: Self.shortNode)), name: "island-\(lang)", lang: lang, scheme: .dark)
             render(islandScene(state(node: Self.longNode)), name: "island-long-\(lang)", lang: lang, scheme: .dark)
             render(compactScene(state(node: Self.shortNode)), name: "compact-\(lang)", lang: lang, scheme: .dark)
+            // 首页流量统计 = 仅代理流量: small 「仅代理」 tag under the speeds.
+            let p = render(lockScene(state(node: Self.shortNode, proxyOnly: true)), name: "lock-proxyonly-\(lang)-light", lang: lang, scheme: .light)
+            XCTAssertLessThanOrEqual(p.height - 32, 160, "lock card too tall with 仅代理: \(lang)")
+            render(islandScene(state(node: Self.shortNode, proxyOnly: true)), name: "island-proxyonly-\(lang)", lang: lang, scheme: .dark)
         }
         // Large Dynamic Type (capped at xxLarge by the view), stale and disconnected, big numbers.
         for lang in ["zh-Hans", "ru", "en"] {
@@ -113,6 +119,7 @@ final class LiveActivityLayoutTests: XCTestCase {
             XCTAssertLessThanOrEqual(s.height - 32, 160, "lock card too tall at accessibility3: \(lang)")
             render(lockScene(state(node: Self.longNode)), name: "lock-xxl-\(lang)-dark", lang: lang, scheme: .dark, type: .xxLarge)
             render(lockScene(state(node: Self.shortNode), stale: true), name: "lock-stale-\(lang)-light", lang: lang, scheme: .light)
+            render(lockScene(state(node: Self.longNode, proxyOnly: true), stale: true), name: "lock-proxyonly-stale-axl-\(lang)-dark", lang: lang, scheme: .dark, type: .accessibility3)
             render(lockScene(state(node: "", connected: false, up: 0, down: 0)), name: "lock-off-\(lang)-dark", lang: lang, scheme: .dark)
             render(lockScene(state(node: Self.shortNode, up: 1_023_000, down: 98_765_432)), name: "lock-fast-\(lang)-light", lang: lang, scheme: .light)
             render(islandScene(state(node: Self.longNode), stale: true), name: "island-stale-\(lang)", lang: lang, scheme: .dark, type: .xxxLarge)

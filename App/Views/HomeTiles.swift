@@ -147,8 +147,10 @@ struct SpeedWaveTile: View {
     var body: some View {
         let up = Array(dash.upHistory.suffix(40)), down = Array(dash.downHistory.suffix(40))
         let peak = max((up + down).max() ?? 0, 0)
+        let proxy = dash.scope == .proxy // feat/traffic-scope
+        let peakText = peak > 0 ? String(localized: "峰值 \(Fmt.speed(peak))") : nil
         TileCard(title: BuiltinTile.speed.title, icon: BuiltinTile.speed.icon,
-                 trailing: peak > 0 ? String(localized: "峰值 \(Fmt.speed(peak))") : nil) {
+                 trailing: proxy ? [String(localized: "仅代理"), peakText].compactMap { $0 }.joined(separator: " · ") : peakText) {
             HStack(spacing: 16) {
                 SpeedLabel(icon: "arrow.up", color: Theme.up, title: "上传", value: vpn.isConnected ? dash.up : 0)
                 SpeedLabel(icon: "arrow.down", color: Theme.down, title: "下载", value: vpn.isConnected ? dash.down : 0)
@@ -208,7 +210,7 @@ struct TrafficRingTile: View {
         let total = up + down
         let upFrac = total > 0 ? Double(up) / Double(total) : 0
         TileCard(title: BuiltinTile.traffic.title, icon: BuiltinTile.traffic.icon,
-                 trailing: vpn.isConnected ? String(localized: "本次连接") : String(localized: "未连接")) {
+                 trailing: vpn.isConnected ? (dash.scope == .proxy ? String(localized: "本次连接 · 仅代理") : String(localized: "本次连接")) : String(localized: "未连接")) {
             HStack(spacing: 18) {
                 ZStack {
                     Circle().stroke(Theme.ink(0.08), lineWidth: 11)

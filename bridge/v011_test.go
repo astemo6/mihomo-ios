@@ -174,7 +174,8 @@ func TestImportQXRemainingKeys(t *testing.T) {
 
 func TestLiveStatusShape(t *testing.T) {
 	parts := strings.Split(LiveStatus(), "\t")
-	if len(parts) != 5 {
+	// feat/traffic-scope: 5 original fields + proxyUp, proxyDown, proxyUpTotal, proxyDownTotal.
+	if len(parts) != 9 {
 		t.Fatalf("LiveStatus fields: %q", parts)
 	}
 }

@@ -101,6 +101,15 @@ struct LiveSpeeds: View {
         VStack(alignment: .trailing, spacing: 2) {
             row(symbol: "arrow.up", value: state.up, color: WidgetTheme.up, label: "上传")
             row(symbol: "arrow.down", value: state.down, color: WidgetTheme.accent, label: "下载")
+            // feat/traffic-scope: the numbers count proxy traffic only (首页流量统计 = 仅代理流量).
+            if state.proxyOnly == true {
+                Text("仅代理")
+                    .font(.caption2.weight(.medium))
+                    .foregroundStyle(.secondary)
+                    .lineLimit(1).minimumScaleFactor(0.7)
+                    .padding(.horizontal, 5).padding(.vertical, 1)
+                    .background(Capsule().fill(Color.secondary.opacity(0.15)))
+            }
             if stale {
                 Text("更新于 \(state.updated.formatted(date: .omitted, time: .shortened))")
                     .font(.caption2).foregroundStyle(.secondary)

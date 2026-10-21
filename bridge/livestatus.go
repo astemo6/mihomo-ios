@@ -6,22 +6,24 @@ package libmihomo
 
 import (
 	"strconv"
+	"strings"
 	"sync/atomic"
 
 	"github.com/metacubex/mihomo/adapter/outboundgroup"
 	C "github.com/metacubex/mihomo/constant"
 	"github.com/metacubex/mihomo/tunnel"
-	"github.com/metacubex/mihomo/tunnel/statistic"
 )
 
-// LiveStatus returns "up\tdown\ttotalUp\ttotalDown\tnode": current speed (bytes/s), totals since start,
-// and the node the main policy resolves to (global mode → GLOBAL, else the first group in GLOBAL's
-// order, followed down to a leaf). Empty node when the core is not running.
+// LiveStatus returns "up\tdown\ttotalUp\ttotalDown\tnode\tproxyUp\tproxyDown\tproxyUpTotal\tproxyDownTotal":
+// current speed (bytes/s), totals since start, the node the main policy resolves to (global mode →
+// GLOBAL, else the first group in GLOBAL's order, followed down to a leaf; empty when the core is not
+// running), then (feat/traffic-scope) the same speed / totals for traffic that left through a proxy node
+// only. Older parsers read the first five fields and ignore the rest.
 func LiveStatus() string {
-	up, down := statistic.DefaultManager.Now()
-	tu, td := statistic.DefaultManager.Total()
-	return strconv.FormatInt(up, 10) + "\t" + strconv.FormatInt(down, 10) + "\t" + strconv.FormatInt(tu, 10) + "\t" +
-		strconv.FormatInt(td, 10) + "\t" + liveNode()
+	t := currentAppTraffic()
+	f := func(v int64) string { return strconv.FormatInt(v, 10) }
+	return f(t.Up) + "\t" + f(t.Down) + "\t" + f(t.UpTotal) + "\t" + f(t.DownTotal) + "\t" + strings.ReplaceAll(liveNode(), "\t", " ") +
+		"\t" + f(t.ProxyUp) + "\t" + f(t.ProxyDown) + "\t" + f(t.ProxyUpTotal) + "\t" + f(t.ProxyDownTotal)
 }
 
 func liveNode() (name string) {

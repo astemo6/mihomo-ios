@@ -1,6 +1,7 @@
 import Foundation
 import Combine
 import UIKit
+import SwiftUI
 
 /// Live stats for the Home screen (traffic / memory websockets + connections polling).
 @MainActor
@@ -35,21 +36,43 @@ final class DashboardModel: ObservableObject {
 
     private var tasks: [Task<Void, Never>] = []
 
+    /// feat/traffic-scope: 首页流量统计 (全部流量 / 仅代理流量). Changing it switches Home's numbers at once:
+    /// both scopes are sampled all the time, so the chart keeps its history in either.
+    @Published var scope: TrafficScope = TrafficScope.current {
+        didSet {
+            guard scope != oldValue else { return }
+            TrafficScope.current = scope
+            publishTraffic(animated: false)
+        }
+    }
+    private var allSeries = SpeedSeries()
+    private var proxySeries = SpeedSeries()
+    private var lastTraffic: AppTraffic?
+    /// fix/bg-chart: polling (and the /memory stream) pause while the app is not active.
+    private var active = UIApplication.shared.applicationState != .background
+    private var running = false
+
     func start() {
         stop()
+        running = true
+        guard active else { return } // resumes in setActive(true)
+        startTasks()
+    }
+
+    private func startTasks() {
         let c = ControllerClient.shared
+        // feat/traffic-scope + fix/bg-chart: speed and totals come from one 1 s poll of GET /app/traffic
+        // (both scopes) instead of the /traffic websocket. A websocket queues frames while the app is
+        // suspended and replays them in a burst on return, which made the chart race forward. A poll
+        // has nothing queued; SpeedSeries drops late answers and restarts after a gap.
         tasks.append(Task { [weak self] in
-            for await s in c.stream("/traffic", as: TrafficSample.self) {
-                // AsyncStream.next() doesn't check Task.isCancelled: without this the cancelled
-                // task stays suspended on the stream, which keeps the websocket alive and briefly
-                // double-writes @Published / LiveActivity on a quick reconnect.
-                guard !Task.isCancelled else { break }
-                guard let self else { return }
-                self.up = s.up; self.down = s.down
-                LiveActivityController.shared.traffic(up: s.up, down: s.down, node: self.selectedNode)
-                self.upHistory.append(s.up); self.downHistory.append(s.down)
-                if self.upHistory.count > 60 { self.upHistory.removeFirst(self.upHistory.count - 60) }
-                if self.downHistory.count > 60 { self.downHistory.removeFirst(self.downHistory.count - 60) }
+            while !Task.isCancelled {
+                let asked = Date()
+                if let t = try? await c.get(AppTraffic.self, "/app/traffic", timeout: 3) {
+                    guard !Task.isCancelled, let self else { return }
+                    self.ingest(t, requestedAt: asked, receivedAt: Date())
+                }
+                try? await Task.sleep(nanoseconds: 1_000_000_000)
             }
         })
         tasks.append(Task { [weak self] in
@@ -67,8 +90,6 @@ final class DashboardModel: ObservableObject {
                     self?.mode = m
                 }
                 if let r = try? await c.connections() {
-                    self?.uploadTotal = r.uploadTotal ?? 0
-                    self?.downloadTotal = r.downloadTotal ?? 0
                     self?.connectionCount = r.connections?.count ?? 0
                     ConnectionAnalytics.shared.ingest(r.connections ?? [])
                 }
@@ -84,10 +105,57 @@ final class DashboardModel: ObservableObject {
         Task { if let cfg = try? await c.configs(), let m = cfg["mode"] as? String { self.mode = m.lowercased() } }
     }
 
+    /// One /app/traffic answer: both series get the sample; Home shows the chosen scope.
+    private func ingest(_ t: AppTraffic, requestedAt: Date, receivedAt: Date) {
+        let a = allSeries.append(up: t.up, down: t.down, requestedAt: requestedAt, receivedAt: receivedAt)
+        let p = proxySeries.append(up: t.proxyUp, down: t.proxyDown, requestedAt: requestedAt, receivedAt: receivedAt)
+        if a == .dropped && p == .dropped { return }
+        lastTraffic = t
+        publishTraffic(animated: a == .appended)
+        let sp = t.speed(scope)
+        LiveActivityController.shared.traffic(up: sp.up, down: sp.down, node: selectedNode)
+    }
+
+    private func publishTraffic(animated: Bool) {
+        let series = scope == .proxy ? proxySeries : allSeries
+        let apply = {
+            if let t = self.lastTraffic {
+                let sp = t.speed(self.scope), tot = t.totals(self.scope)
+                self.up = sp.up; self.down = sp.down
+                self.uploadTotal = tot.up; self.downloadTotal = tot.down
+            }
+            self.upHistory = series.up; self.downHistory = series.down
+        }
+        if animated {
+            apply()
+        } else {
+            // A restarted series or a scope switch is drawn in place, never animated from the old shape.
+            var tr = Transaction(animation: nil)
+            tr.disablesAnimations = true
+            withTransaction(tr, apply)
+        }
+    }
+
+    /// fix/bg-chart: RootView forwards scenePhase. Not active → every poll / stream stops (nothing queues);
+    /// active again → polling resumes and the chart restarts from the current sample (SpeedSeries gap rule).
+    func setActive(_ isActive: Bool) {
+        guard isActive != active else { return }
+        active = isActive
+        if isActive {
+            if running && tasks.isEmpty { startTasks() }
+        } else {
+            tasks.forEach { $0.cancel() }
+            tasks.removeAll()
+        }
+    }
+
     func stop() {
+        running = false
         tasks.forEach { $0.cancel() }
         tasks.removeAll()
         up = 0; down = 0; connectionCount = 0; memory = 0
+        // Totals stay on screen after a disconnect (as before); speeds are 0 in either scope.
+        if var t = lastTraffic { t.up = 0; t.down = 0; t.proxyUp = 0; t.proxyDown = 0; lastTraffic = t }
         homeGroups = []
         availableGroups = []
         if !VPNManager.shared.isConnected { ConnectionAnalytics.shared.reset() }

@@ -115,6 +115,8 @@ struct RootView: View {
         .onChange(of: phase) { p in
             // v0.19.8 (user): no clipboard banner; the clipboard is read only from an explicit 粘贴 action.
             if p == .background { SyncFolder.shared.autoPushIfNeeded() }
+            // fix/bg-chart: Home's polling stops off screen and resumes without replaying missed samples.
+            dash.setActive(p == .active)
         }
         .onAppear {
             // First run only; people upgrading with profiles already set up never see it (更多 → 新手引导 shows it again).
@@ -258,7 +260,7 @@ enum Theme {
 
     static func delayText(_ d: Int?) -> String {
         guard let d else { return "—" }
-        return d > 0 ? "\(d) ms" : "超时"
+        return d > 0 ? "\(d) ms" : String(localized: "超时")
     }
 }
 
