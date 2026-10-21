@@ -50,7 +50,7 @@ func proxyTrafficSampling() bool {
 
 // Review 7 P3-2: a timed-out Start stops the proxy-only sampler (also the late stale teardown).
 func TestR7P32StartTimeoutStopsTrafficSampler(t *testing.T) {
-	home, prof, logPath := v0181Home(t, 19391)
+	home, prof, logPath := v0181Home(t, 19771)
 	withStartTimeout(t, time.Millisecond)
 	release := make(chan struct{})
 	testHookApplyDone = func() { <-release }
@@ -69,9 +69,9 @@ func TestR7P32StartTimeoutStopsTrafficSampler(t *testing.T) {
 
 // B33: apply hands its Overrides back, so Reload decides 安全模式 without reading the override files again.
 func TestR7B33ApplyReturnsOverrides(t *testing.T) {
-	home, prof, _ := v0181Home(t, 19392)
+	home, prof, _ := v0181Home(t, 19772)
 	ov := defaultOverrides()
-	ov.ControllerPort, ov.Secret, ov.SafeMode = 19392, "s", true
+	ov.ControllerPort, ov.Secret, ov.SafeMode = 19772, "s", true
 	ob, _ := json.Marshal(ov)
 	_ = os.WriteFile(filepath.Join(home, "overrides.json"), ob, 0o644)
 	var used Overrides
@@ -79,7 +79,7 @@ func TestR7B33ApplyReturnsOverrides(t *testing.T) {
 		t.Fatal(err)
 	}
 	defer executor.Shutdown()
-	if !used.SafeMode || used.ControllerPort != 19392 {
+	if !used.SafeMode || used.ControllerPort != 19772 {
 		t.Fatalf("applyInto must return the Overrides it used: %+v", used)
 	}
 }
@@ -98,7 +98,7 @@ func TestR7P33RegionUnicodeSpace(t *testing.T) {
 
 // Review 7 P3-4: PUT /configs, POST /configs/geo, /restart and /upgrade are refused; PATCH /configs still works.
 func TestR7P34ControllerLockdown(t *testing.T) {
-	home, prof, _ := v0181Home(t, 19393)
+	home, prof, _ := v0181Home(t, 19773)
 	if err := Start(home, prof, 0); err != nil {
 		t.Fatal(err)
 	}
@@ -108,7 +108,7 @@ func TestR7P34ControllerLockdown(t *testing.T) {
 		if body != "" {
 			rd = strings.NewReader(body)
 		}
-		req, _ := http.NewRequest(method, "http://127.0.0.1:19393"+path, rd)
+		req, _ := http.NewRequest(method, "http://127.0.0.1:19773"+path, rd)
 		req.Header.Set("Authorization", "Bearer s")
 		var resp *http.Response
 		var err error
@@ -142,7 +142,7 @@ func TestR7P34ControllerLockdown(t *testing.T) {
 		t.Errorf("GET /configs: %d", got)
 	}
 	// Unauthenticated callers still get 401 before the lock answers.
-	req, _ := http.NewRequest("PUT", "http://127.0.0.1:19393/configs", strings.NewReader("{}"))
+	req, _ := http.NewRequest("PUT", "http://127.0.0.1:19773/configs", strings.NewReader("{}"))
 	if resp, err := http.DefaultClient.Do(req); err == nil {
 		resp.Body.Close()
 		if resp.StatusCode != http.StatusUnauthorized {
