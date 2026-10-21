@@ -298,15 +298,7 @@ struct StatusWidget: Widget {
     }
 }
 
-/// Follows the system appearance (v0.9); same values as the app's Theme.
-enum WidgetTheme {
-    static func dyn(_ l: (CGFloat, CGFloat, CGFloat), _ d: (CGFloat, CGFloat, CGFloat)) -> Color {
-        Color(UIColor { $0.userInterfaceStyle == .dark ? UIColor(red: d.0, green: d.1, blue: d.2, alpha: 1) : UIColor(red: l.0, green: l.1, blue: l.2, alpha: 1) })
-    }
-    static let bg = dyn((1, 1, 1), (0.06, 0.065, 0.09))
-    static let good = dyn((0.09, 0.60, 0.29), (0.25, 0.85, 0.48))
-    static let accent = dyn((0.0, 0.47, 0.78), (0.29, 0.78, 0.96))
-}
+// WidgetTheme lives in Shared/LiveActivityViews.swift (v0.19.14; shared with the Live Activity views).
 
 struct StatusWidgetView: View {
     @Environment(\.widgetFamily) var family
@@ -401,114 +393,35 @@ struct StatusWidgetView: View {
     }
 }
 
-// MARK: - v0.10 实时活动 / 灵动岛
+// MARK: - v0.10 实时活动 / 灵动岛 (layout v0.19.14: views in Shared/LiveActivityViews.swift)
 
 struct ConnectionLiveActivity: Widget {
     var body: some WidgetConfiguration {
         ActivityConfiguration(for: MihomoActivityAttributes.self) { context in
-            LiveActivityLockView(context: context)
+            LiveActivityLockContent(state: context.state, profile: context.attributes.profile, stale: context.isStale)
                 .activityBackgroundTint(WidgetTheme.bg.opacity(0.85))
                 .activitySystemActionForegroundColor(WidgetTheme.accent)
         } dynamicIsland: { context in
             DynamicIsland {
                 DynamicIslandExpandedRegion(.leading) {
-                    Label {
-                        Text(context.state.connected ? "已连接" : "未连接").font(.caption.weight(.semibold))
-                    } icon: {
-                        Circle().fill(context.state.connected ? WidgetTheme.good : Color.secondary).frame(width: 8, height: 8)
-                    }
-                    .padding(.leading, 4)
+                    LiveIslandLeading(state: context.state)
                 }
                 DynamicIslandExpandedRegion(.trailing) {
-                    Text(timerInterval: context.state.since...Date.distantFuture, countsDown: false)
-                        .font(.caption.monospacedDigit()).multilineTextAlignment(.trailing)
-                        .frame(maxWidth: 70).padding(.trailing, 4)
+                    LiveIslandTrailing(state: context.state, stale: context.isStale)
                 }
                 DynamicIslandExpandedRegion(.bottom) {
-                    HStack {
-                        Label(context.state.node.isEmpty ? context.attributes.profile : context.state.node, systemImage: "point.3.connected.trianglepath.dotted")
-                            .font(.caption).lineLimit(1)
-                        Spacer()
-                        LiveSpeeds(state: context.state, stale: context.isStale)
-                        LiveRefreshButton()
-                    }
-                    .padding(.horizontal, 4)
+                    LiveIslandBottom(state: context.state, profile: context.attributes.profile)
                 }
             } compactLeading: {
-                // v0.19.8 (user): ↑ left, ↓ right, always numbers. Past the stale date they are the last known
-                // values, drawn grey (never a bare "—").
-                Text("↑" + LiveActivityFormat.speed(context.state.up))
-                    .font(.caption2.monospacedDigit()).lineLimit(1).minimumScaleFactor(0.7)
-                    .foregroundStyle(context.isStale ? Color.secondary : Color.orange)
+                // v0.19.8 (user): ↑ left, ↓ right, always numbers; stale = last known values in grey.
+                LiveCompactSpeed(up: true, state: context.state, stale: context.isStale)
             } compactTrailing: {
-                Text("↓" + LiveActivityFormat.speed(context.state.down))
-                    .font(.caption2.monospacedDigit()).lineLimit(1).minimumScaleFactor(0.7)
-                    .foregroundStyle(context.isStale ? Color.secondary : WidgetTheme.accent)
+                LiveCompactSpeed(up: false, state: context.state, stale: context.isStale)
             } minimal: {
-                Image(systemName: "network").foregroundStyle(context.state.connected ? WidgetTheme.good : .secondary)
+                Image(systemName: "network")
+                    .foregroundStyle(context.state.connected ? WidgetTheme.good : .secondary)
+                    .accessibilityLabel(Text(context.state.connected ? LocalizedStringKey("已连接") : LocalizedStringKey("未连接")))
             }
         }
-    }
-}
-
-struct LiveSpeeds: View {
-    let state: MihomoActivityAttributes.ContentState
-    /// v0.11: past the stale date the numbers are old (the app was not allowed to run): show when they
-    /// were taken instead of a frozen speed.
-    var stale = false
-    var body: some View {
-        // v0.19.8: both speeds always; stale = the last known values in grey with the time they were taken.
-        VStack(alignment: .trailing, spacing: 1) {
-            HStack(spacing: 8) {
-                Text("↑" + LiveActivityFormat.speed(state.up) + "/s").foregroundStyle(stale ? Color.secondary : Color.orange)
-                Text("↓" + LiveActivityFormat.speed(state.down) + "/s").foregroundStyle(stale ? Color.secondary : WidgetTheme.accent)
-            }
-            .font(.caption.monospacedDigit())
-            if stale {
-                Text("更新于 \(state.updated.formatted(date: .omitted, time: .shortened))")
-                    .font(.caption2).foregroundStyle(.secondary)
-            }
-        }
-    }
-}
-
-/// v0.11: refreshes the activity from the tunnel's latest numbers (runs in the app process).
-struct LiveRefreshButton: View {
-    var body: some View {
-        Button(intent: RefreshLiveActivityIntent()) {
-            Image(systemName: "arrow.clockwise")
-                .font(.caption.weight(.semibold))
-                .frame(width: 28, height: 28)
-                .background(Circle().fill(WidgetTheme.accent.opacity(0.18)))
-        }
-        .buttonStyle(.plain)
-        .foregroundStyle(WidgetTheme.accent)
-        .accessibilityLabel(Text("刷新"))
-    }
-}
-
-struct LiveActivityLockView: View {
-    let context: ActivityViewContext<MihomoActivityAttributes>
-    var body: some View {
-        HStack(spacing: 12) {
-            Image(systemName: "network")
-                .font(.title2)
-                .foregroundStyle(context.state.connected ? WidgetTheme.good : .secondary)
-            VStack(alignment: .leading, spacing: 3) {
-                HStack(spacing: 6) {
-                    Text(context.state.connected ? "Mihomo 已连接" : "Mihomo 未连接").font(.subheadline.weight(.semibold))
-                    Text(timerInterval: context.state.since...Date.distantFuture, countsDown: false)
-                        .font(.caption.monospacedDigit()).foregroundStyle(.secondary)
-                }
-                Text(context.state.node.isEmpty ? context.attributes.profile : context.state.node)
-                    .font(.caption).foregroundStyle(.secondary).lineLimit(1)
-            }
-            Spacer()
-            VStack(alignment: .trailing, spacing: 6) {
-                LiveSpeeds(state: context.state, stale: context.isStale)
-                LiveRefreshButton()
-            }
-        }
-        .padding(14)
     }
 }
