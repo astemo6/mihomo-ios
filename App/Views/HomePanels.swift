@@ -392,7 +392,10 @@ struct HomePanelsEditor: View {
     func row(_ id: String) -> some View {
         if let t = BuiltinTile.from(id) {
             HStack(spacing: 10) {
+                // r7: the row id sits on the icon (what tests always resolved it to): an id on the HStack is pushed
+                // onto every child and would hide the 调整顺序 menu's own id.
                 Image(systemName: t.icon).foregroundStyle(Theme.accent).frame(width: 24)
+                    .accessibilityIdentifier("homepanels.row.\(t.rawValue)")
                 VStack(alignment: .leading, spacing: 2) {
                     Text(verbatim: t.title).font(.subheadline).lineLimit(1)
                     Text("内置卡片").font(.caption2).foregroundStyle(.secondary)
@@ -402,7 +405,6 @@ struct HomePanelsEditor: View {
                 Toggle("在首页显示", isOn: Binding(get: { !home.hidden.contains(id) }, set: { home.setHidden(id, !$0) }))
                     .labelsHidden()
             }
-            .accessibilityIdentifier("homepanels.row.\(t.rawValue)")
             .modifier(MoveActions(id: id))
         } else {
             panelRow(id)

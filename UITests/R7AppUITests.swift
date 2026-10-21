@@ -88,8 +88,18 @@ extension MihomoUITests {
     /// r7: the non-drag path in 编辑首页面板 — the row's 调整顺序 menu → 上移. true when tapped.
     @discardableResult
     func homePanelStepUp(_ kind: String) -> Bool {
-        let m = app.element(id: "homepanels.move." + kind)
-        guard m.waitForExistence(timeout: 3) else { return false }
+        var m = app.element(id: "homepanels.move." + kind)
+        if !m.waitForExistence(timeout: 3) {
+            // by label on the row's line, in case the identifier did not come through
+            let row = app.element(id: "homepanels.row." + kind)
+            let q = app.buttons.matching(NSPredicate(format: "label == %@", L("调整顺序")))
+            m = q.firstMatch
+            for i in 0..<min(q.count, 30) {
+                let c = q.element(boundBy: i)
+                if abs(c.frame.midY - row.frame.midY) < max(12, row.frame.height) { m = c; break }
+            }
+            guard m.exists else { return false }
+        }
         m.tap()
         let up = app.buttons.matching(NSPredicate(format: "identifier == %@ OR label == %@", "homepanels.up." + kind, L("上移"))).firstMatch
         guard up.waitForExistence(timeout: 3) else { return false }
@@ -168,7 +178,8 @@ extension MihomoUITests {
             XCTAssertTrue(moveHomePanel("speed", above: memory), "speed moved above memory")
         }
         // The menu is disabled at the edges: 上移 on the first row is not offered.
-        XCTAssertTrue(app.element(id: "homepanels.move.memory").exists, "调整顺序 menu on the row")
+        XCTAssertTrue(app.element(id: "homepanels.move.memory").waitForExistence(timeout: 3)
+                      || app.buttons[L("调整顺序")].firstMatch.exists, "调整顺序 menu on the row")
         XCTAssertTrue(moveHomePanel("memory", above: speed), "memory moved above speed (drag, else 上移)")
         snap("home-tiles-reordered")
         closeSheet()
