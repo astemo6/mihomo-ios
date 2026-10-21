@@ -349,15 +349,6 @@ struct AddRemoteSheet: View {
             .navigationBarTitleDisplayMode(.inline)
             .toolbar {
                 ToolbarItem(placement: .cancellationAction) { Button("取消") { dismiss() } }
-                if let profile {
-                    ToolbarItem(placement: .primaryAction) {
-                        Button {
-                            if let u = store.exportFile(of: profile, text: text) { share = ShareItem(url: u, temporary: true) }
-                            else { error = String(localized: "导出失败：") + String(localized: "配置文件为空或无法读取") }
-                        } label: { Label("导出", systemImage: "square.and.arrow.up") }
-                        .accessibilityIdentifier("yaml.export")
-                    }
-                }
                 ToolbarItem(placement: .confirmationAction) {
                     if busy { ProgressView() } else {
                         Button("添加") { add() }.disabled(url.isEmpty)
