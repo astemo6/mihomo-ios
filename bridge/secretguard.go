@@ -14,7 +14,6 @@ import (
 	"encoding/json"
 	"fmt"
 	"os"
-	"path/filepath"
 	"strings"
 	"sync"
 	"time"
@@ -45,9 +44,9 @@ func ensureControllerSecret(home string) string {
 	if home == "" {
 		return processSecret()
 	}
-	p := filepath.Join(home, "overrides.json")
+	p := overridesPath(home)
 	defer lockPath(p)()
-	b, err := os.ReadFile(p)
+	b, err := os.ReadFile(overridesPath(home))
 	if err != nil {
 		log.Warnln("[Bridge] 控制器密钥为空且无法写回 overrides.json，本次使用随机密钥")
 		return processSecret()
