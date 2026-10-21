@@ -179,7 +179,6 @@ struct HomePanelsSection: View {
     @ObservedObject var model = PanelsModel.shared
     @ObservedObject var home = HomePanelStore.shared
     @ObservedObject var overrides = PanelOverrideStore.shared
-    @State private var editing = false
     @State private var editPanel: PanelItem?
 
     var body: some View {
@@ -193,7 +192,7 @@ struct HomePanelsSection: View {
                         Text("上次结果").font(.caption2).foregroundStyle(.secondary)
                     }
                     Spacer()
-                    Button("编辑") { editing = true }.font(.footnote).buttonStyle(.borderless)
+                    Button("编辑") { HomeEditorRouter.shared.open(.panels) }.font(.footnote).buttonStyle(.borderless)
                 }
                 .padding(.horizontal, 4)
                 .padding(.bottom, -6)
@@ -206,7 +205,7 @@ struct HomePanelsSection: View {
                     }
                     .contextMenu {
                         Button { home.setHidden(e.item.id, true) } label: { Label("在首页隐藏", systemImage: "eye.slash") }
-                        Button { editing = true } label: { Label("编辑首页面板", systemImage: "slider.horizontal.3") }
+                        Button { HomeEditorRouter.shared.open(.panels) } label: { Label("编辑首页面板", systemImage: "slider.horizontal.3") }
                         PanelEditButton { editPanel = e.item }
                         Button(role: .destructive) { home.unpin(e.item.id) } label: { Label("取消固定", systemImage: "pin.slash") }
                     }
@@ -222,7 +221,7 @@ struct HomePanelsSection: View {
             }
             // feat/egern-style: always offered — the analysis panels (策略 / 规则 / 主机名) are opt-in and added here.
             Group {
-                Button { editing = true } label: {
+                Button { HomeEditorRouter.shared.open(.panels) } label: {
                     Label("添加首页卡片", systemImage: "plus.circle")
                         .font(.footnote.weight(.semibold))
                 }
@@ -245,7 +244,6 @@ struct HomePanelsSection: View {
                 .buttonStyle(.plain)
             }
         }
-        .sheet(isPresented: $editing) { HomePanelsEditor().environmentObject(vpn) }
         .sheet(item: $editPanel) { p in PanelEditSheet(p: p) }
         .task(id: vpn.isConnected) {
             home.loadCache()
@@ -272,7 +270,7 @@ extension HomePanelsSection {
         BuiltinTileView(tile: t)
             .contextMenu {
                 Button { home.setHidden(t.id, true) } label: { Label("在首页隐藏", systemImage: "eye.slash") }
-                Button { editing = true } label: { Label("编辑首页面板", systemImage: "slider.horizontal.3") }
+                Button { HomeEditorRouter.shared.open(.panels) } label: { Label("编辑首页面板", systemImage: "slider.horizontal.3") }
                 Button(role: .destructive) { home.unpin(t.id) } label: { Label("取消固定", systemImage: "pin.slash") }
             }
     }

@@ -240,7 +240,6 @@ private struct AnalysisCardBox<Content: View>: View {
 /// Context menu shared by every analysis card.
 private struct AnalysisMenu: ViewModifier {
     let card: HomeAnalysisCard
-    @Binding var editing: Bool
     @AppStorage(HomeAnalysisCard.hiddenKey) private var hiddenRaw = ""
     @AppStorage(HomeAnalysisCard.addedKey) private var addedRaw = ""
     func body(content: Content) -> some View {
@@ -258,7 +257,7 @@ private struct AnalysisMenu: ViewModifier {
                     hiddenRaw = HomeAnalysisCard.raw(s)
                 } label: { Label("在首页隐藏", systemImage: "eye.slash") }
             }
-            Button { editing = true } label: { Label("编辑首页面板", systemImage: "slider.horizontal.3") }
+            Button { HomeEditorRouter.shared.open(.panels) } label: { Label("编辑首页面板", systemImage: "slider.horizontal.3") }
         }
     }
 }
@@ -275,7 +274,6 @@ struct HomeConnectionTiles: View {
     @EnvironmentObject var vpn: VPNManager
     @AppStorage(HomeAnalysisCard.hiddenKey) private var hiddenRaw = ""
     @State private var snap = HomeAnalysisModel.shared.connections
-    @State private var editing = false
 
     var body: some View {
         let live = vpn.isConnected || HomeAnalysisModel.demo
@@ -288,11 +286,10 @@ struct HomeConnectionTiles: View {
             }
             .buttonStyle(.plain)
             .accessibilityIdentifier("home.analysis.connections")
-            .modifier(AnalysisMenu(card: .connections, editing: $editing))
+            .modifier(AnalysisMenu(card: .connections))
             .onReceive(HomeAnalysisModel.shared.$connections.removeDuplicates()) { if $0 != snap { snap = $0 } }
             .onAppear { HomeAnalysisModel.shared.mount() }
             .onDisappear { HomeAnalysisModel.shared.unmount() }
-            .sheet(isPresented: $editing) { HomePanelsEditor().environmentObject(vpn) }
         }
     }
 }
@@ -303,7 +300,6 @@ struct HomeAnalysisSection: View {
     @EnvironmentObject var vpn: VPNManager
     @AppStorage(HomeAnalysisCard.addedKey) private var addedRaw = ""
     @AppStorage(HomeAnalysisCard.collapsedKey) private var collapsedRaw = ""
-    @State private var editing = false
 
     var body: some View {
         // Opt-in: only the panels the user added, in the fixed Egern order; nothing (not even the empty state) otherwise.
@@ -323,7 +319,7 @@ struct HomeAnalysisSection: View {
                             case .connections: EmptyView()
                             }
                         }
-                        .modifier(AnalysisMenu(card: c, editing: $editing))
+                        .modifier(AnalysisMenu(card: c))
                     }
                 } else {
                     // r7: the offline empty state stands for the added cards: the same long-press menu as the
@@ -354,13 +350,12 @@ struct HomeAnalysisSection: View {
                         } label: {
                             Label(LocalizedStringKey(allCollapsed ? "展开" : "收起"), systemImage: allCollapsed ? "chevron.down" : "chevron.up")
                         }
-                        Button { editing = true } label: { Label("编辑首页面板", systemImage: "slider.horizontal.3") }
+                        Button { HomeEditorRouter.shared.open(.panels) } label: { Label("编辑首页面板", systemImage: "slider.horizontal.3") }
                     }
                 }
             }
             .onAppear { HomeAnalysisModel.shared.mount() }
             .onDisappear { HomeAnalysisModel.shared.unmount() }
-            .sheet(isPresented: $editing) { HomePanelsEditor().environmentObject(vpn) }
         }
     }
 }

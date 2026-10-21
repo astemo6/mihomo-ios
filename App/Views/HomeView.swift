@@ -11,6 +11,10 @@ struct HomeView: View {
     @State private var liveAvailable = DashboardModel.shared.availableGroups
     @ObservedObject private var offline = ProfileInspector.shared
     @ObservedObject private var homeGroups = HomeGroupsStore.shared
+    /// r7 P2-1: the 编辑首页面板 / 编辑首页策略 sheets live here. A card that opened one is often removed by the edit
+    /// itself (last analysis card removed, 连接数 hidden, VPN state flips live ↔ offline cards), which dismissed a
+    /// sheet attached to it mid-edit.
+    @ObservedObject private var editor = HomeEditorRouter.shared
 
     /// v0.8: the same cards while disconnected, from the profile file (selection saved for the next connect).
     /// feat/home-groups: the user's chosen groups for this profile (default = the first four).
@@ -103,6 +107,12 @@ struct HomeView: View {
             .onReceive(DashboardModel.shared.$mode.removeDuplicates()) { if $0 != mode { mode = $0 } }
             .onReceive(DashboardModel.shared.$homeGroups.removeDuplicates()) { if $0 != liveGroups { liveGroups = $0 } }
             .onReceive(DashboardModel.shared.$availableGroups.removeDuplicates()) { if $0 != liveAvailable { liveAvailable = $0 } }
+            .sheet(item: $editor.sheet) { which in
+                switch which {
+                case .panels: HomePanelsEditor().environmentObject(vpn).environmentObject(store)
+                case .groups: HomeGroupsEditor().environmentObject(vpn).environmentObject(store)
+                }
+            }
             .alert("连接失败", isPresented: Binding(get: { vpn.lastError != nil && vpn.showErrorAlert }, set: { if !$0 { vpn.showErrorAlert = false } })) {
                 if vpn.canOfferSafeMode {
                     Button("以安全模式连接") {
@@ -118,6 +128,19 @@ struct HomeView: View {
             }
         }
     }
+}
+
+/// r7 P2-1: which Home editor sheet is open. Cards only call `open`; HomeView (always on screen while Home is)
+/// presents the sheet, so removing the card that opened it no longer closes it.
+@MainActor
+final class HomeEditorRouter: ObservableObject {
+    static let shared = HomeEditorRouter()
+    enum Sheet: String, Identifiable {
+        case panels, groups
+        var id: String { rawValue }
+    }
+    @Published var sheet: Sheet?
+    func open(_ s: Sheet) { sheet = s }
 }
 
 /// feat/surge-ui: first-run Home without any profile — one sentence and the way to add one, instead of
