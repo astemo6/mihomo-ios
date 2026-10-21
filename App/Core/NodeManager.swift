@@ -155,7 +155,16 @@ final class NodeManagerModel: ObservableObject {
         }
     }
 
-    @Published private(set) var nodes: [ManagedNode] = []
+    @Published private(set) var nodes: [ManagedNode] = [] {
+        didSet {
+            var c: [NodeSource: Int] = [:]
+            for n in nodes { c[n.source, default: 0] += 1 }
+            countBySource = c
+        }
+    }
+    /// r7: node count per source, computed once whenever `nodes` changes (NodeManagerHome reads it per row and
+    /// when sorting by 节点数, instead of filtering every node per row per render).
+    private(set) var countBySource: [NodeSource: Int] = [:]
     @Published private(set) var sources: [NodeSource] = []
     @Published private(set) var loading = false
     @Published private(set) var liveConnected = false
@@ -333,7 +342,7 @@ final class NodeManagerModel: ObservableObject {
 
     func source(_ kind: NodeSourceKind) -> NodeSource? { sources.first { $0.kind == kind } }
     func source(subID: String) -> NodeSource? { sources.first { $0.subID == subID } }
-    func count(_ src: NodeSource) -> Int { nodes.filter { $0.source == src }.count }
+    func count(_ src: NodeSource) -> Int { countBySource[src] ?? 0 }
 
     static func isHidden(_ name: String, _ type: String) -> Bool {
         ManagedNode.hidden.contains(name) || ManagedNode.nonNodeTypes.contains(type.lowercased())

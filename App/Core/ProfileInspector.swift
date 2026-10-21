@@ -111,7 +111,14 @@ struct InspectResult: Decodable {
 final class ProfileInspector: ObservableObject {
     static let shared = ProfileInspector()
 
-    @Published private(set) var result = InspectResult()
+    @Published private(set) var result = InspectResult() {
+        // r7: derived values (members per group, node index, graph) are built once per result, not per render.
+        didSet { membersCache = [:]; nodeIndexCache = nil; graphCache = nil }
+    }
+    private struct MembersKey: Equatable { var proxies: [String]; var use: [String]; var filter: String? }
+    private var membersCache: [String: (key: MembersKey, members: [String])] = [:]
+    private var nodeIndexCache: [String: InspectProxy]?
+    private var graphCache: GroupGraph?
     @Published private(set) var loading = false
     @Published private(set) var profilePath: String?
     @Published var delays: [String: Int] = [:]
@@ -119,11 +126,13 @@ final class ProfileInspector: ObservableObject {
 
     /// Every node known offline: profile proxies + cached provider nodes (+ built-ins).
     var nodeIndex: [String: InspectProxy] {
+        if let c = nodeIndexCache { return c }
         var out: [String: InspectProxy] = [:]
         for p in result.proxies { out[p.name] = p }
         for pv in result.proxyProviders { for p in pv.proxies ?? [] where out[p.name] == nil { out[p.name] = p } }
         out["DIRECT"] = out["DIRECT"] ?? InspectProxy(name: "DIRECT", type: "direct")
         out["REJECT"] = out["REJECT"] ?? InspectProxy(name: "REJECT", type: "reject")
+        nodeIndexCache = out
         return out
     }
 
@@ -141,15 +150,20 @@ final class ProfileInspector: ObservableObject {
     /// Members of a group as the core would list them: explicit proxies, then nodes from `use` providers.
     func members(of g: InspectGroup) -> [String] {
         if let m = g.members { return m }
+        let key = MembersKey(proxies: g.proxies, use: g.use, filter: g.filter)
+        if let c = membersCache[g.name], c.key == key { return c.members }
         var out = g.proxies
+        var seen = Set(out)
         let re = g.filter.flatMap { try? NSRegularExpression(pattern: $0) }
         for name in g.use {
             guard let pv = result.proxyProviders.first(where: { $0.name == name }) else { continue }
-            for p in pv.proxies ?? [] where !out.contains(p.name) {
+            for p in pv.proxies ?? [] where !seen.contains(p.name) {
                 if let re, re.firstMatch(in: p.name, range: NSRange(p.name.startIndex..., in: p.name)) == nil { continue }
                 out.append(p.name)
+                seen.insert(p.name)
             }
         }
+        membersCache[g.name] = (key, out)
         return out
     }
 
@@ -222,12 +236,15 @@ final class ProfileInspector: ObservableObject {
 
     /// hotfix/group-test-offline: the groups (GLOBAL included) as a graph, for expanding groups of groups to nodes.
     var graph: GroupGraph {
+        if let c = graphCache { return c }
         var gs: [String: GroupGraph.Group] = [:]
         for g in result.groups { gs[g.name] = GroupGraph.Group(type: g.type, members: members(of: g), now: current(of: g)) }
         let global = globalGroup
         gs["GLOBAL"] = GroupGraph.Group(type: global.type, members: members(of: global), now: current(of: global))
         let index = nodeIndex
-        return GroupGraph(groups: gs, isTestable: { index[$0] != nil && !GroupGraph.builtins.contains($0) })
+        let g = GroupGraph(groups: gs, isTestable: { index[$0] != nil && !GroupGraph.builtins.contains($0) })
+        graphCache = g
+        return g
     }
 
     /// The delay a card shows for `name`: a node's own measurement, or for a group the measurement of the node it

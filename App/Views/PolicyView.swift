@@ -6,7 +6,9 @@ import UniformTypeIdentifiers
 @MainActor
 final class PolicyModel: ObservableObject {
     @Published var groups: [ProxyItem] = []
-    @Published var all: [String: ProxyItem] = [:]
+    @Published var all: [String: ProxyItem] = [:] { didSet { graphCache = nil } }
+    /// r7: the live graph is built once per /proxies snapshot, not on every render and every row.
+    private var graphCache: GroupGraph?
     @Published var testing: Set<String> = []
     @Published var error: String?
 
@@ -81,12 +83,15 @@ final class PolicyModel: ObservableObject {
     /// hotfix/group-test-offline: live groups as a graph (members and the core's `now`), to show which node a member
     /// group is on.
     var graph: GroupGraph {
+        if let c = graphCache { return c }
         var gs: [String: GroupGraph.Group] = [:]
         for (n, p) in all where p.isGroup {
             gs[n] = GroupGraph.Group(type: PolicyGroupDisplay.kind(live: p.type), members: p.all ?? [], now: p.now)
         }
         let a = all
-        return GroupGraph(groups: gs, isTestable: { a[$0] != nil && a[$0]?.isGroup != true && !GroupGraph.builtins.contains($0) })
+        let g = GroupGraph(groups: gs, isTestable: { a[$0] != nil && a[$0]?.isGroup != true && !GroupGraph.builtins.contains($0) })
+        graphCache = g
+        return g
     }
 
     /// A member group's own measurement (the core dials /proxies/{group}/delay through the node it is on); without
@@ -237,6 +242,11 @@ struct PolicyView: View {
     @AppStorage("policy.collapseAuto") private var collapseAuto = false
     @State private var editHome = false
     @State private var sortDelays: [String: Int] = [:]
+    /// r7: bumped whenever sortDelays is retaken, so the sort memo knows the latency snapshot changed.
+    @State private var sortGen = 0
+    /// r7: sorted member lists memoized by (group, members, sort mode, latency snapshot) — a reference held in
+    /// @State so filling it never re-renders; re-sorting every group on every render was the cost on big profiles.
+    @State private var sortMemo = PolicySortMemo()
     @State private var iconTarget: IconTarget?
 
     struct IconTarget: Identifiable { let id = UUID(); let name: String; let profileIcon: String? }
@@ -449,18 +459,25 @@ struct PolicyView: View {
             let graph = model.graph
             for g in model.groups { for m in g.all ?? [] { if let v = model.displayDelay(m, graph: graph) { d[m] = v } } }
             sortDelays = d
+            sortGen &+= 1
         } else {
             // hotfix/group-test-offline: member groups sort by the node they resolve to.
             var d = offline.delays
             let graph = offline.graph
             for name in graph.groups.keys { if let v = offline.displayDelay(name, graph: graph) { d[name] = v } }
             sortDelays = d
+            sortGen &+= 1
         }
     }
 
     private func afterTest() { if autoSort && sortMode == "latency" { snapshotDelays() } }
 
     private func ordered(_ members: [String]) -> [String] {
+        if sortMode != "name" && sortMode != "latency" { return members }
+        return sortMemo.value(members: members, mode: sortMode, gen: sortMode == "latency" ? sortGen : 0) { sortedNow($0) }
+    }
+
+    private func sortedNow(_ members: [String]) -> [String] {
         switch sortMode {
         case "name":
             return members.sorted { $0.localizedStandardCompare($1) == .orderedAscending }
@@ -747,6 +764,23 @@ struct PolicyView: View {
             .onDrop(of: [UTType.text], delegate: GroupListDropDelegate(drop: { dragFinish() }))
         }
         .refreshable { await offline.load() }
+    }
+}
+
+/// r7: memo for PolicyView's sorted member lists. Keyed by the member list itself plus the sort mode and the
+/// latency-snapshot generation; entries for a previous mode / snapshot are dropped when either changes.
+final class PolicySortMemo {
+    private var mode = ""
+    private var gen = -1
+    private var cache: [[String]: [String]] = [:]
+
+    func value(members: [String], mode: String, gen: Int, compute: ([String]) -> [String]) -> [String] {
+        if mode != self.mode || gen != self.gen { cache = [:]; self.mode = mode; self.gen = gen }
+        if let c = cache[members] { return c }
+        let v = compute(members)
+        if cache.count > 512 { cache = [:] }
+        cache[members] = v
+        return v
     }
 }
 
