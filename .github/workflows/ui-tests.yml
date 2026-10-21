@@ -212,8 +212,10 @@ jobs:
             ONLY+=(-only-testing:"MihomoUnitTests/$t")
           done
           DARK_ONLY=(-only-testing:MihomoUITests/MihomoUITests/test01_TabsAndHome -only-testing:MihomoUITests/MihomoUITests/test03_MoreEveryPage -only-testing:MihomoUITests/MihomoUITests/test04_NodeManager -only-testing:MihomoUITests/MihomoUITests/test05_AddNodeAndEditor)
-          # Review 6 OPT-1: light shard 1 = these tests (31.8 min measured in zh-Hans light), shard 2 = everything else.
-          SHARD1_TESTS="test01_TabsAndHome test02_HomePolicyPicker test03_MoreEveryPage test04_NodeManager test05_AddNodeAndEditor test06a_ImportQX test06b_ImportSurge test06c_ImportClash test06d_ImportLoon test06e_ImportLinks test07_Editors test08_ModulesAndPanels test09_AutoApplySettings test10_ProfileNodeEdit test11_RegionFilters test12_FilterSources test13_RuleChips test14_DNSLog test15_AllRewrites test16_PolicyModeControl test17_RequestsSummary test18_SSIDPermissions test19_RequestTimeline test20_NodeSettings test21_TileEditing"
+          # Review 6 OPT-1: light shard 1 = these tests, shard 2 = everything else (new tests land there).
+          # r7 (review7 R7A-9): test22–test30 (~8 min) moved to shard 1 — shard 2 had grown to ~61 min of tests with
+          # test56–test70 (39596801011: light:1 34.9 min, light:2 60.8 min).
+          SHARD1_TESTS="test01_TabsAndHome test02_HomePolicyPicker test03_MoreEveryPage test04_NodeManager test05_AddNodeAndEditor test06a_ImportQX test06b_ImportSurge test06c_ImportClash test06d_ImportLoon test06e_ImportLinks test07_Editors test08_ModulesAndPanels test09_AutoApplySettings test10_ProfileNodeEdit test11_RegionFilters test12_FilterSources test13_RuleChips test14_DNSLog test15_AllRewrites test16_PolicyModeControl test17_RequestsSummary test18_SSIDPermissions test19_RequestTimeline test20_NodeSettings test21_TileEditing test22_TailscaleNode test23_DiagnosticsMemory test24_SampleProfile test25_OverrideScripts test26_HomeTiles test27_LANDetail test28_WebDAV test29_UnlockServices test30_SettingsToggles"
           FAILED=""
           SEL=("${ONLY[@]}")
           if [ ${#SEL[@]} -gt 0 ] && [ "$SHARD" = 2 ]; then
