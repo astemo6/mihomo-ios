@@ -16,6 +16,7 @@ import (
 	"net/http/httptest"
 	"os"
 	"path/filepath"
+	"runtime"
 	"strconv"
 	"strings"
 	"sync"
@@ -444,5 +445,39 @@ func BenchmarkR7URLMatch300(b *testing.B) {
 				r.matchReq(u, req)
 			}
 		}
+	}
+}
+
+// B26: a large map-local file is streamed from disk instead of being read into memory per request.
+func TestR7LargeMapLocalStreamed(t *testing.T) {
+	cfg := &Config{Enabled: true, MitM: true, Hostnames: []string{"api.test.com"}, Rules: items(
+		`^https://api\.test\.com/big data="big.json" header="X-From:map"`)}
+	payload := strings.Repeat(`{"k":"v"},`, 4<<20/10)
+	h := newHarness(t, cfg, map[string]string{"big.json": payload})
+	rs := Build(h.home, cfg)
+	if len(rs.Rules) != 1 || rs.Rules[0].Kind != KindMapLocal || rs.Rules[0].DataType != "file" {
+		t.Fatalf("rule: %+v %v", rs.Rules, rs.Errors)
+	}
+	get := func() {
+		resp, err := h.client.Get("https://api.test.com/big")
+		if err != nil {
+			t.Fatal(err)
+		}
+		n, _ := io.Copy(io.Discard, resp.Body)
+		resp.Body.Close()
+		if n != int64(len(payload)) || resp.Header.Get("Content-Length") != strconv.Itoa(len(payload)) ||
+			resp.Header.Get("X-From") != "map" || resp.Header.Get("Content-Type") != "application/json" {
+			t.Fatalf("got %d bytes, headers %v", n, resp.Header)
+		}
+	}
+	get() // warm up connections
+	var a, b runtime.MemStats
+	runtime.ReadMemStats(&a)
+	for i := 0; i < 3; i++ {
+		get()
+	}
+	runtime.ReadMemStats(&b)
+	if d := b.TotalAlloc - a.TotalAlloc; d > uint64(len(payload)) {
+		t.Fatalf("3 requests allocated %d KB for a %d KB file (read into memory each time?)", d>>10, len(payload)>>10)
 	}
 }

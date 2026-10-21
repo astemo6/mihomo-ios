@@ -11,6 +11,7 @@ import (
 	"net/http"
 	"net/http/httputil"
 	"net/url"
+	"os"
 	"path"
 	"strconv"
 	"strings"
@@ -210,6 +211,9 @@ func (e *Engine) serveHTTP(w http.ResponseWriter, r *http.Request) {
 			continue
 		}
 		ent.Match(rule.label())
+		if e.serveLargeMapLocal(w, rule, ent, capture) {
+			return
+		}
 		body, ctype, err := e.mapLocalData(rule)
 		if err != nil {
 			e.logf("warning", fmt.Sprintf("[MitM] 本地映射数据读取失败：%s", err))
@@ -994,6 +998,62 @@ func (e *Engine) mapLocalData(rule *Rule) ([]byte, string, error) {
 		b, err := e.res.Get(rule.Data, 86400)
 		return b, guessType(rule.Data, b), err
 	}
+}
+
+// serveLargeMapLocal streams a map-local file of memCacheMax or more from disk (r7 B26). Such files are
+// not kept in the resource memory cache, so every matching request read the whole file (up to 8 MB)
+// into memory outside the body budget; now the response is copied from the file with a small buffer.
+// false: not a large file on disk — the caller serves it from memory as before.
+func (e *Engine) serveLargeMapLocal(w http.ResponseWriter, rule *Rule, ent *Entry, capture bool) bool {
+	if rule.DataType != "" && rule.DataType != "file" || rule.Data == "" {
+		return false
+	}
+	p := rule.Data
+	if isRemote(p) {
+		p = CachePath(e.home, rule.Data)
+	} else {
+		p = e.res.LocalPath(p)
+	}
+	f, err := os.Open(p)
+	if err != nil {
+		return false // not downloaded yet: mapLocalData fetches it
+	}
+	defer f.Close()
+	fi, err := f.Stat()
+	if err != nil || !fi.Mode().IsRegular() || fi.Size() < memCacheMax {
+		return false
+	}
+	if isRemote(rule.Data) {
+		e.res.RefreshIfStale(rule.Data, 86400)
+	}
+	head := make([]byte, min(int64(captureLimit), fi.Size()))
+	n, _ := io.ReadFull(f, head)
+	head = head[:n]
+	if _, err := f.Seek(0, io.SeekStart); err != nil {
+		return false
+	}
+	h := w.Header()
+	for k, v := range rule.RespHeaders {
+		h.Set(k, v)
+	}
+	if h.Get("Content-Type") == "" {
+		h.Set("Content-Type", guessType(rule.Data, head))
+	}
+	h.Del("Content-Encoding")
+	h.Del("Transfer-Encoding")
+	h.Set("Content-Length", strconv.FormatInt(fi.Size(), 10))
+	st := rule.Status
+	if st == 0 {
+		st = 200
+	}
+	w.WriteHeader(st)
+	written, _ := io.Copy(w, io.LimitReader(f, fi.Size()))
+	ent.Local(st, h, nil, false)
+	ent.AddBytes(int(written))
+	if capture {
+		ent.RespBody(head, "")
+	}
+	return true
 }
 
 func guessTextType(s string) string {
