@@ -4,9 +4,15 @@ package mitm
 
 import (
 	"bytes"
+	"context"
+	"fmt"
+	"net"
 	"net/http"
+	"net/http/httptest"
+	"strconv"
 	"strings"
 	"sync"
+	"sync/atomic"
 	"testing"
 	"time"
 )
@@ -105,5 +111,42 @@ func TestR7RespRulesMatchFinalURL(t *testing.T) {
 	resp, _ = h.get("https://api.test.com/echo")
 	if v := resp.Header.Get("X-Resp"); v != "hit" {
 		t.Fatalf("direct: X-Resp=%q", v)
+	}
+}
+
+// P3-3: a response script that replaces the body without requires-body closes the upstream body, so the
+// upstream HTTP/1.1 connection is reused.
+func TestR7ReplacedUpstreamBodyClosed(t *testing.T) {
+	cfg := &Config{Enabled: true, MitM: true, Hostnames: []string{"api.test.com"}, Scripts: items(
+		`s = type=http-response,pattern=^https://api\.test\.com/m,script-path=s.js`)}
+	h := newHarness(t, cfg, map[string]string{"s.js": `$done({body: "mock"});`})
+	var conns atomic.Int64
+	payload := bytes.Repeat([]byte("x"), 64<<10)
+	up := httptest.NewUnstartedServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Length", strconv.Itoa(len(payload)))
+		_, _ = w.Write(payload)
+	}))
+	up.Config.ConnState = func(c net.Conn, s http.ConnState) {
+		if s == http.StateNew {
+			conns.Add(1)
+		}
+	}
+	up.StartTLS() // HTTP/1.1 only
+	defer up.Close()
+	addr := up.Listener.Addr().String()
+	h.e.dial = func(ctx context.Context, network, a, policy string) (net.Conn, error) {
+		var d net.Dialer
+		return d.DialContext(ctx, "tcp", addr)
+	}
+	h.e.tmu.Lock()
+	h.e.transport = nil
+	h.e.tmu.Unlock()
+	for i := 0; i < 5; i++ {
+		if _, b := h.get(fmt.Sprintf("https://api.test.com/m?%d", i)); b != "mock" {
+			t.Fatalf("body %q", b)
+		}
+	}
+	if n := conns.Load(); n != 1 {
+		t.Fatalf("upstream connections for 5 sequential mocked requests: %d, want 1", n)
 	}
 }

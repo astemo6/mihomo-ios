@@ -471,6 +471,10 @@ func (e *Engine) serveHTTP(w http.ResponseWriter, r *http.Request) {
 
 const captureLimit = 32 * 1024
 
+// upstreamDrainMax: an upstream body replaced by a script is read to its end before closing when its
+// announced length is at most this (keeps the HTTP/1.1 connection reusable); longer ones are just closed.
+const upstreamDrainMax = 256 << 10
+
 // validScriptStatus: a final HTTP status a script may set (review6 P2-1). net/http panics on codes outside
 // 100–999 and 1xx is not a final response, so anything else was a 502 「mitm error」.
 func validScriptStatus(code int) bool { return code >= 200 && code <= 999 }
@@ -515,6 +519,22 @@ func (e *Engine) modifyResponse(f *flow, resp *http.Response) error {
 	}()
 	var body []byte
 	loaded, tooBig := false, false
+	// r7 P3-3: the upstream body is closed as soon as something else replaces it (a script's mock body),
+	// after draining a small known-length rest so the upstream connection can be reused. ReverseProxy only
+	// closes the body we hand it, so the original stayed open until the request context ended (one new
+	// upstream TCP+TLS connection per mocked request).
+	upstream := resp.Body
+	upstreamDone := false
+	closeUpstream := func() {
+		if upstreamDone || upstream == nil {
+			return
+		}
+		upstreamDone = true
+		if resp.ContentLength >= 0 && resp.ContentLength <= upstreamDrainMax {
+			_, _ = io.Copy(io.Discard, io.LimitReader(upstream, upstreamDrainMax+1))
+		}
+		_ = upstream.Close()
+	}
 	// review5 P0-1 / P1-1 / P2-2: loaded once with respCap (raw and decoded; MaxBody, or a
 	// max-size=-1 script's MaxScriptBody), under the global body budget; a body that decodes past the
 	// cap is passed through as is. Each caller's limit is compared against the loaded length.
@@ -555,6 +575,7 @@ func (e *Engine) modifyResponse(f *flow, resp *http.Response) error {
 			return false
 		}
 		_ = resp.Body.Close()
+		upstreamDone = true
 		dec, err := decodeBody(resp.Header.Get("Content-Encoding"), b, respCap)
 		if err != nil {
 			// leave the body untouched (never pass on a truncated decode)
@@ -581,6 +602,7 @@ func (e *Engine) modifyResponse(f *flow, resp *http.Response) error {
 		if noBody {
 			return
 		}
+		closeUpstream()
 		resp.Body = io.NopCloser(bytes.NewReader(b))
 		resp.ContentLength = int64(len(b))
 		resp.Header.Set("Content-Length", strconv.Itoa(len(b)))
