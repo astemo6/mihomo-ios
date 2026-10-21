@@ -68184,40 +68184,6 @@
         }
       }
     },
-    "拦截 %lld": {
-      "localizations": {
-        "en": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Blocked %lld"
-          }
-        },
-        "ja": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "ブロック %lld"
-          }
-        },
-        "ko": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "차단 %lld"
-          }
-        },
-        "ru": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Заблокировано %lld"
-          }
-        },
-        "zh-Hant": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "攔截 %lld"
-          }
-        }
-      }
-    },
     "未连接 · 显示已记录的内容。连接后打开本页开始记录。": {
       "localizations": {
         "en": {
@@ -81682,40 +81648,6 @@
         }
       }
     },
-    "从连接开始记录，最多保留最近 2000 条。拦截按域名累计 REJECT 规则命中的连接。": {
-      "localizations": {
-        "zh-Hant": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "從連線開始記錄，最多保留最近 2000 條。攔截按網域累計 REJECT 規則命中的連線。"
-          }
-        },
-        "en": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Recorded from when the connection started; the latest 2000 entries are kept. Blocked counts connections that hit a REJECT rule, per domain."
-          }
-        },
-        "ja": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "接続開始時から記録し、最新 2000 件まで保持します。ブロックは REJECT ルールに一致した接続をドメインごとに集計します。"
-          }
-        },
-        "ko": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "연결 시작부터 기록하며 최근 2000개까지 보관합니다. 차단은 REJECT 규칙에 걸린 연결을 도메인별로 집계합니다."
-          }
-        },
-        "ru": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Записывается с момента подключения; хранятся последние 2000 записей. «Блокировки» считают соединения, попавшие под правило REJECT, по доменам."
-          }
-        }
-      }
-    },
     "选择": {
       "localizations": {
         "zh-Hant": {
@@ -84841,6 +84773,482 @@
           "stringUnit": {
             "state": "translated",
             "value": "新增一個訂閱或配置檔案，就可以開始使用了。"
+          }
+        }
+      }
+    },
+    "IP 段 · %@": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "IP range · %@"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "IP 段 · %@"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "IP 範囲 · %@"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "IP 대역 · %@"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Диапазон IP · %@"
+          }
+        }
+      }
+    },
+    "QUIC 已拦截 · 自动改走 TCP": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "QUIC refused · switched to TCP"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "QUIC 已攔截 · 自動改走 TCP"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "QUIC を拒否 · 自動で TCP へ"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "QUIC 거부 · 자동으로 TCP 사용"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "QUIC отклонён · переход на TCP"
+          }
+        }
+      }
+    },
+    "UDP 443（QUIC）": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "UDP 443 (QUIC)"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "UDP 443（QUIC）"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "UDP 443（QUIC）"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "UDP 443(QUIC)"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "UDP 443 (QUIC)"
+          }
+        }
+      }
+    },
+    "UDP 443（QUIC）· MitM 主机": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "UDP 443 (QUIC) · MitM host"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "UDP 443（QUIC）· MitM 主機"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "UDP 443（QUIC）· MitM ホスト"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "UDP 443(QUIC) · MitM 호스트"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "UDP 443 (QUIC) · хост MitM"
+          }
+        }
+      }
+    },
+    "「已拦截」统计被规则拒绝的连接（按域名累计），不是 DNS 查询失败。QUIC 是 HTTP/3 用的 UDP 通道，被拒后 App 会自动改用 TCP，不影响访问，所以单独列出、不计入拦截数。": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "“Blocked” counts connections a rule refused (per domain) — not failed DNS lookups. QUIC is the UDP channel HTTP/3 uses; when it's refused, apps switch to TCP automatically and nothing breaks, so it's listed separately and not counted as blocked."
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "「已攔截」統計被規則拒絕的連線（按網域累計），不是 DNS 查詢失敗。QUIC 是 HTTP/3 用的 UDP 通道，被拒後 App 會自動改用 TCP，不影響存取，所以單獨列出、不計入攔截數。"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "「ブロック済み」はルールで拒否された接続をドメインごとに数えたもので、DNS の失敗ではありません。QUIC は HTTP/3 が使う UDP の通り道で、拒否されてもアプリは自動で TCP に切り替えるため通信に影響はありません。そのため別枠で表示し、ブロック数には含めません。"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "‘차단됨’은 규칙이 거부한 연결을 도메인별로 센 것이며 DNS 조회 실패가 아닙니다. QUIC은 HTTP/3이 쓰는 UDP 통로로, 거부되면 앱이 자동으로 TCP로 전환해 접속에는 영향이 없습니다. 그래서 따로 표시하고 차단 수에 넣지 않습니다."
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "«Заблокировано» — соединения, отклонённые правилом (по доменам), а не ошибки DNS. QUIC — UDP-канал HTTP/3: если его отклонить, приложения сами переходят на TCP и всё работает, поэтому он показан отдельно и не входит в счёт блокировок."
+          }
+        }
+      }
+    },
+    "不影响访问 · UDP 443（HTTP/3）· %lld 个域名": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Nothing breaks · UDP 443 (HTTP/3) · %lld domains"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "不影響存取 · UDP 443（HTTP/3）· %lld 個網域"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "通信に影響なし · UDP 443（HTTP/3）· %lld 件のドメイン"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "접속에 영향 없음 · UDP 443(HTTP/3) · 도메인 %lld개"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Всё работает · UDP 443 (HTTP/3) · доменов: %lld"
+          }
+        }
+      }
+    },
+    "兜底规则": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Final rule"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "兜底規則"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "最終ルール"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "최종 규칙"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Итоговое правило"
+          }
+        }
+      }
+    },
+    "域名 · %@": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Domain · %@"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "網域 · %@"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ドメイン · %@"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "도메인 · %@"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Домен · %@"
+          }
+        }
+      }
+    },
+    "域名关键词 · %@": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Domain keyword · %@"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "網域關鍵字 · %@"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ドメインキーワード · %@"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "도메인 키워드 · %@"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Ключевое слово · %@"
+          }
+        }
+      }
+    },
+    "域名匹配 · %@": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Domain pattern · %@"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "網域匹配 · %@"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ドメインパターン · %@"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "도메인 패턴 · %@"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Шаблон домена · %@"
+          }
+        }
+      }
+    },
+    "域名后缀 · %@": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Domain suffix · %@"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "網域後綴 · %@"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ドメインサフィックス · %@"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "도메인 접미사 · %@"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Суффикс домена · %@"
+          }
+        }
+      }
+    },
+    "已拦截 %lld": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Blocked %lld"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "已攔截 %lld"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ブロック済み %lld"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "차단됨 %lld"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Заблокировано %lld"
+          }
+        }
+      }
+    },
+    "广告与隐私拦截": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Ads & privacy blocks"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "廣告與隱私攔截"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "広告・プライバシーのブロック"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "광고 및 개인정보 차단"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Реклама и трекеры"
+          }
+        }
+      }
+    },
+    "规则集 · %@": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Rule set · %@"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "規則集 · %@"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ルールセット · %@"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "규칙 세트 · %@"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Набор правил · %@"
           }
         }
       }
