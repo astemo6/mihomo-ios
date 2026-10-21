@@ -36,6 +36,7 @@ func TestRuntimeInputFilesCoverBuildReads(t *testing.T) {
 		"scriptedFor: mp":                                    {mp},
 		"scriptedFor: yp":                                    {yp},
 		"readOverrides: overridesPath(home)":                 {overridesPath(home)},
+		"readSecrets: secretsPath(home)":                     {secretsPath(home)},
 		"readDNSOverride: dnsOverridePath(home)":             {dnsOverridePath(home)},
 		"readLocalDNS: localDNSPath(home)":                   {localDNSPath(home)},
 		"readAllSubRules: subRulesPath(home)":                {subRulesPath(home)},

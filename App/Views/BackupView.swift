@@ -39,6 +39,7 @@ enum BackupManager {
     /// Directories / files (relative to the container) that make up a backup.
     /// Review 5 P2-1: the scripts' key-value store (BoxJS / Sub-Store / check-in cookies and session tokens).
     static let scriptStore = "mihomo/engine/store.json"
+    static let secretsItem = "mihomo/secrets.json"
 
     /// `includeStore`: false for every copy that leaves the device unencrypted (Files / share / iCloud exports,
     /// plain WebDAV, the sync folder).
@@ -48,7 +49,10 @@ enum BackupManager {
                    "mihomo/engine/engine.json", "mihomo/engine/store.json", "mihomo/engine/modules", "mihomo/engine/scripts",
                    "mihomo/override-scripts"] // v0.19 覆写脚本 (index.json + <id>.js)
         if includeCA { out.append("mihomo/engine/ca") }
-        if !includeStore { out.removeAll { $0 == scriptStore } }
+        // r7 (backlog B01): the secrets (controller secret, LAN passwords) travel only where the scripts' store does —
+        // encrypted copies and local snapshots; plain exports, plain WebDAV and the sync folder keep usernames only.
+        out.append(secretsItem)
+        if !includeStore { out.removeAll { $0 == scriptStore || $0 == secretsItem } }
         return out
     }
 

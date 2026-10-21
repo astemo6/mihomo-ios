@@ -299,6 +299,8 @@ final class SnapshotStore: ObservableObject {
             "mihomo/provider-overrides.json": String(localized: "节点集设置"),
             "mihomo/engine/engine.json": String(localized: "MitM / 重写设置"),
             "mihomo/engine/store.json": String(localized: "脚本存储"),
+            "mihomo/secrets.json": String(localized: "密钥与密码"), // r7 B01
+            "mihomo/node-settings.json": String(localized: "节点设置"), // r7 R7A-11
         ]
         if let k = known[path] { return k }
         if path.hasPrefix("mihomo/engine/modules/") { return String(localized: "模块 \((path as NSString).lastPathComponent)") }

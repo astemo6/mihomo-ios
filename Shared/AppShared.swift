@@ -273,6 +273,18 @@ struct CoreOverrides: Codable, Equatable {
     /// v0.19 局域网多用户: more username / password pairs accepted on the shared port (besides lanAuth).
     var lanUsers: [LanAuth] = []
 
+    /// r7 (backlog B02): what this value looked like when it was loaded, shared by its copies. save() writes only the
+    /// fields that differ from it on top of the current file (a 3-way merge under the cross-process lock), so the
+    /// app, the widget (mode switch) and the extension no longer overwrite each other's changes. Not encoded;
+    /// never part of ==.
+    fileprivate var mergeBase = MergeBase()
+
+    final class MergeBase: Equatable {
+        var dict: [String: Any]?
+        init(_ d: [String: Any]? = nil) { dict = d }
+        static func == (a: MergeBase, b: MergeBase) -> Bool { true }
+    }
+
     struct LanAuth: Codable, Equatable {
         var username: String = ""
         var password: String = ""
@@ -420,80 +432,240 @@ struct CoreOverrides: Codable, Equatable {
         if !Self.memoryLimitRange.contains(memoryLimitMB) { memoryLimitMB = d.memoryLimitMB }
     }
 
+    /// r7 (backlog B01): where the secrets live. overrides.json carries no secret any more — it goes into backups,
+    /// the sync folder and diagnostics. The controller secret, the LAN-share password and the 其他用户 passwords are
+    /// in <home>/secrets.json (0600, protected until first unlock), which the extension's Go core overlays on
+    /// overrides.json (bridge/secrets.go). The app also mirrors them into the Keychain, but only as a recovery copy
+    /// after a reinstall: after an ipasign / zsign re-sign the Keychain access group (= App Group id) is often not
+    /// readable from the extension, so the extension never depends on it (build-log item 15 / review item 14).
+    /// Precedence when reading: a value still in overrides.json (older build, restored older backup) → secrets.json
+    /// → Keychain (app only) → a new random controller secret.
+    static var storeDir: URL { testStoreDir ?? AppShared.homeURL }
+    /// Unit tests: a scratch directory instead of the App Group (and no Keychain).
+    static var testStoreDir: URL?
+    static var overridesFile: URL { storeDir.appendingPathComponent("overrides.json") }
+    private static var useKeychain: Bool { !AppShared.isExtension && testStoreDir == nil && Bundle.main.bundleURL.pathExtension == "app" }
+
     static func load() -> CoreOverrides {
+        OverridesLock.with(storeDir) { loadLocked() }
+    }
+
+    /// Lock held. Reads overrides.json + secrets.json, migrates secrets out of overrides.json, never loses a value.
+    private static func loadLocked() -> CoreOverrides {
         var o = CoreOverrides()
-        if let data = try? Data(contentsOf: AppShared.overridesURL),
-           let decoded = try? JSONDecoder().decode(CoreOverrides.self, from: data) {
-            o = decoded
+        var raw: [String: Any] = [:]
+        if let data = try? Data(contentsOf: overridesFile) {
+            if let decoded = try? JSONDecoder().decode(CoreOverrides.self, from: data) { o = decoded }
+            raw = ((try? JSONSerialization.jsonObject(with: data)) as? [String: Any]) ?? [:]
         }
-        // The controller secret and the LAN-share password are keychain-backed: read the
-        // keychain first, and migrate a value still sitting in overrides.json (written by
-        // an older build) into the keychain on first read. The JSON copy stays because the
-        // extension's Go bridge reads overrides.json straight into the core (bridge.go
-        // readOverrides -> buildRuntime) — dropping it needs a Go-side change.
-        //
-        // v0.18.1: the keychain survives app deletion, overrides.json does not. After a
-        // reinstall the keychain still holds the old secret while the fresh JSON has none,
-        // so the core would start its controller with an empty secret while the app sends
-        // the old one. Whenever the keychain value wins and differs from the JSON copy,
-        // write it back (save()) so both always agree; the secret is never left empty.
-        let kcSecret = Keychain.read(Keychain.controllerSecretAccount)
-        let kcLan = Keychain.read(Keychain.lanSharePasswordAccount)
-        let (secret, secretSync) = Self.reconcile(json: o.secret, keychain: kcSecret)
-        let (lanPassword, lanSync) = Self.reconcile(json: o.lanAuth.password, keychain: kcLan)
-        o.secret = secret
-        o.lanAuth.password = lanPassword
-        var needsSave = secretSync || lanSync
-        // JSON-only value from an older build: migrate it into the keychain.
-        if kcSecret == nil && !o.secret.isEmpty {
-            Keychain.write(Keychain.controllerSecretAccount, o.secret)
+        let jsonCarriesSecrets = raw["secret"] != nil || (raw["lanAuth"] as? [String: Any])?["password"] != nil
+            || ((raw["lanUsers"] as? [[String: Any]]) ?? []).contains { $0["password"] != nil }
+        let stored = CoreSecrets.read(dir: storeDir)
+        var sec = stored ?? CoreSecrets()
+        // 1) legacy values in overrides.json win (an older build or a restored older backup just wrote them)
+        if !o.secret.isEmpty { sec.secret = o.secret }
+        if !o.lanAuth.password.isEmpty { sec.lanPassword = o.lanAuth.password }
+        var legacySeen: Set<String> = []
+        for u in o.lanUsers where !u.password.isEmpty {
+            if legacySeen.insert(u.username).inserted { sec.lanUsers[u.username] = u.password }
         }
-        if kcLan == nil && !o.lanAuth.password.isEmpty {
-            Keychain.write(Keychain.lanSharePasswordAccount, o.lanAuth.password)
+        // 2) the app's Keychain copy fills what is still missing (reinstall: the container is new, the Keychain is not)
+        var kcSecret: String?, kcLan: String?, kcUsers: [String: String]?
+        if useKeychain {
+            kcSecret = Keychain.read(Keychain.controllerSecretAccount)
+            kcLan = Keychain.read(Keychain.lanSharePasswordAccount)
+            kcUsers = Keychain.read(Keychain.lanUsersAccount).flatMap { try? JSONDecoder().decode([String: String].self, from: Data($0.utf8)) }
+            if sec.secret.isEmpty, let k = kcSecret { sec.secret = k }
+            if sec.lanPassword.isEmpty, let k = kcLan { sec.lanPassword = k }
+            for (u, p) in kcUsers ?? [:] where sec.lanUsers[u] == nil && o.lanUsers.contains(where: { $0.username == u }) { sec.lanUsers[u] = p }
         }
-        if o.secret.isEmpty {
-            o.secret = CoreOverrides.randomSecret()
-            needsSave = true
-        }
-        if needsSave {
-            o.save() // writes overrides.json and the keychain, so the Go core and the app agree
-        }
+        if sec.secret.isEmpty { sec.secret = randomSecret() }
+        o.apply(sec)
+        // Persist: secrets first, then the stripped overrides.json, so a reader never sees a value in neither file.
+        if sec != stored { sec.write(dir: storeDir) }
+        if jsonCarriesSecrets { o.writePublic() }
+        if useKeychain { sec.mirrorToKeychain(secret: kcSecret, lan: kcLan, users: kcUsers) }
+        o.mergeBase = MergeBase(o.jsonObject())
         return o
+    }
+
+    /// Puts the secrets into the in-memory value (what the app, widget and tunnel use).
+    fileprivate mutating func apply(_ sec: CoreSecrets) {
+        secret = sec.secret
+        lanAuth.password = sec.lanPassword
+        lanUsers = lanUsers.map { LanAuth(username: $0.username, password: $0.password.isEmpty ? (sec.lanUsers[$0.username] ?? "") : $0.password) }
+    }
+
+    fileprivate var secrets: CoreSecrets {
+        var m: [String: String] = [:]
+        for u in lanUsers where !u.password.isEmpty && m[u.username] == nil { m[u.username] = u.password } // first wins, like Go
+        return CoreSecrets(secret: secret, lanPassword: lanAuth.password, lanUsers: m)
+    }
+
+    /// Everything, secrets included (merge base / comparison only; never written as is).
+    fileprivate func jsonObject() -> [String: Any] {
+        guard let d = try? JSONEncoder().encode(self), let o = try? JSONSerialization.jsonObject(with: d) as? [String: Any] else { return [:] }
+        return o
+    }
+
+    /// overrides.json without the secrets. Lock held.
+    fileprivate func writePublic() {
+        var obj = jsonObject()
+        obj.removeValue(forKey: "secret")
+        if var la = obj["lanAuth"] as? [String: Any] { la.removeValue(forKey: "password"); obj["lanAuth"] = la }
+        if let users = obj["lanUsers"] as? [[String: Any]] {
+            obj["lanUsers"] = users.map { u -> [String: Any] in var u = u; u.removeValue(forKey: "password"); return u }
+        }
+        if let data = try? JSONSerialization.data(withJSONObject: obj, options: [.sortedKeys]) {
+            try? data.write(to: Self.overridesFile, options: .atomic)
+        }
     }
 
     /// The safe-mode flag as stored in overrides.json (no Keychain access, nothing written).
     static func storedSafeMode() -> Bool {
         struct Flag: Decodable { var safeMode: Bool? }
-        guard let d = try? Data(contentsOf: AppShared.overridesURL),
+        guard let d = try? Data(contentsOf: overridesFile),
               let f = try? JSONDecoder().decode(Flag.self, from: d) else { return false }
         return f.safeMode ?? false
     }
 
+    /// r7 B02: under the cross-process lock, the fields this value changed since it was loaded are written over the
+    /// current file (a field another process changed meanwhile survives). A value built with CoreOverrides()
+    /// (no load) replaces the whole file, as before.
     func save() {
         var me = self
         me.ipv6 = ipv6Mode != "off"
-        // Keep the keychain copy in sync: the app, the widget and the extension all read
-        // the secret / LAN password through Keychain first (see load()).
-        Keychain.write(Keychain.controllerSecretAccount, secret)
-        Keychain.write(Keychain.lanSharePasswordAccount, lanAuth.password)
-        let enc = JSONEncoder()
-        enc.outputFormatting = [.sortedKeys]
-        if let data = try? enc.encode(me) {
-            try? data.write(to: AppShared.overridesURL, options: .atomic)
+        let base = mergeBase
+        OverridesLock.with(Self.storeDir) {
+            var out = me
+            if let b = base.dict {
+                let current = Self.loadLocked()
+                var merged = current.jsonObject()
+                for (k, v) in me.jsonObject() where !Self.jsonEqual(v, b[k]) { merged[k] = v }
+                if let d = try? JSONSerialization.data(withJSONObject: merged),
+                   let m = try? JSONDecoder().decode(CoreOverrides.self, from: d) {
+                    out = m
+                    out.ipv6 = out.ipv6Mode != "off"
+                }
+            }
+            let sec = out.secrets
+            if sec != CoreSecrets.read(dir: Self.storeDir) { sec.write(dir: Self.storeDir) }
+            out.writePublic()
+            if Self.useKeychain { sec.mirrorToKeychain() }
+            base.dict = out.jsonObject() // later saves of this value (and its copies) merge against what was written
         }
     }
 
-    /// Keychain wins when it holds a value (it is what the app, widget and extension send);
-    /// otherwise the JSON copy stays. The flag says overrides.json must be rewritten because
-    /// its copy differs from the winning keychain value (e.g. empty after a reinstall).
-    static func reconcile(json: String, keychain: String?) -> (value: String, jsonNeedsSync: Bool) {
-        guard let k = keychain, !k.isEmpty else { return (json, false) }
-        return (k, k != json)
+    private static func jsonEqual(_ a: Any?, _ b: Any?) -> Bool {
+        switch (a, b) {
+        case (nil, nil): return true
+        case (nil, _), (_, nil): return false
+        case let (x?, y?): return NSDictionary(dictionary: ["v": x]).isEqual(to: ["v": y])
+        }
     }
 
     static func randomSecret() -> String {
         let chars = Array("abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789")
         return String((0..<32).map { _ in chars.randomElement() ?? "x" })
+    }
+}
+
+/// r7 (backlog B01): <home>/secrets.json — the controller secret, the LAN-share password and the 其他用户 passwords
+/// (username → password). Read by the app, the widget and the extension's Go core (bridge/secrets.go); kept out of
+/// unencrypted backups, the sync folder and diagnostics.
+struct CoreSecrets: Codable, Equatable {
+    var secret: String = ""
+    var lanPassword: String = ""
+    var lanUsers: [String: String] = [:]
+
+    init(secret: String = "", lanPassword: String = "", lanUsers: [String: String] = [:]) {
+        self.secret = secret
+        self.lanPassword = lanPassword
+        self.lanUsers = lanUsers
+    }
+
+    init(from decoder: Decoder) throws {
+        let c = try decoder.container(keyedBy: CodingKeys.self)
+        secret = (try? c.decodeIfPresent(String.self, forKey: .secret)) ?? ""
+        lanPassword = (try? c.decodeIfPresent(String.self, forKey: .lanPassword)) ?? ""
+        lanUsers = (try? c.decodeIfPresent([String: String].self, forKey: .lanUsers)) ?? [:]
+    }
+
+    static let fileName = "secrets.json"
+    static func url(dir: URL) -> URL { dir.appendingPathComponent(fileName) }
+
+    /// nil = no (readable) file.
+    static func read(dir: URL) -> CoreSecrets? {
+        guard let d = try? Data(contentsOf: url(dir: dir)) else { return nil }
+        return try? JSONDecoder().decode(CoreSecrets.self, from: d)
+    }
+
+    func write(dir: URL) {
+        let enc = JSONEncoder()
+        enc.outputFormatting = [.sortedKeys]
+        guard let d = try? enc.encode(self) else { return }
+        let u = Self.url(dir: dir)
+        // Readable by the extension from first unlock on (on-demand restarts while locked), never synced.
+        try? d.write(to: u, options: [.atomic, .completeFileProtectionUntilFirstUserAuthentication])
+        try? FileManager.default.setAttributes([.posixPermissions: 0o600], ofItemAtPath: u.path)
+        var rv = URLResourceValues()
+        rv.isExcludedFromBackup = true
+        var mu = u
+        try? mu.setResourceValues(rv)
+    }
+
+    /// App only: the recovery copy in the Keychain (written when it differs from what was read).
+    func mirrorToKeychain(secret kcSecret: String?? = .none, lan kcLan: String?? = .none, users kcUsers: [String: String]?? = .none) {
+        let curSecret = kcSecret ?? Keychain.read(Keychain.controllerSecretAccount)
+        if curSecret != (secret.isEmpty ? nil : secret) { Keychain.write(Keychain.controllerSecretAccount, secret) }
+        let curLan = kcLan ?? Keychain.read(Keychain.lanSharePasswordAccount)
+        if curLan != (lanPassword.isEmpty ? nil : lanPassword) { Keychain.write(Keychain.lanSharePasswordAccount, lanPassword) }
+        let curUsers = kcUsers ?? Keychain.read(Keychain.lanUsersAccount).flatMap { try? JSONDecoder().decode([String: String].self, from: Data($0.utf8)) }
+        if (curUsers ?? [:]) != lanUsers {
+            let enc = JSONEncoder()
+            enc.outputFormatting = [.sortedKeys]
+            let s = lanUsers.isEmpty ? "" : (try? enc.encode(lanUsers)).flatMap { String(data: $0, encoding: .utf8) } ?? ""
+            Keychain.write(Keychain.lanUsersAccount, s)
+        }
+    }
+}
+
+/// r7 (backlog B02 / R6A-9): one writer at a time for overrides.json + secrets.json across the app, the widget and
+/// the extension: flock(2) on <home>/overrides.lock around every load-modify-save, re-entrant within a process.
+/// The wait is bounded (2 s) — iOS may suspend a process at any point, and a stuck lock must not hang the others —
+/// after which the caller proceeds unlocked (the previous behaviour).
+enum OverridesLock {
+    private static let mutex = NSRecursiveLock()
+    private static var depth = 0
+    private static var fd: Int32 = -1
+
+    static func with<T>(_ dir: URL, _ body: () throws -> T) rethrows -> T {
+        mutex.lock()
+        defer { mutex.unlock() }
+        if depth == 0 {
+            AppShared.ensureDir(dir)
+            let f = open(dir.appendingPathComponent("overrides.lock").path, O_CREAT | O_RDWR | O_CLOEXEC, 0o600)
+            if f >= 0 {
+                var locked = flock(f, LOCK_EX | LOCK_NB) == 0
+                var waited = 0
+                while !locked && waited < 200 {
+                    usleep(10_000)
+                    waited += 1
+                    locked = flock(f, LOCK_EX | LOCK_NB) == 0
+                }
+                if locked { fd = f } else { close(f) }
+            }
+        }
+        depth += 1
+        defer {
+            depth -= 1
+            if depth == 0 && fd >= 0 {
+                flock(fd, LOCK_UN)
+                close(fd)
+                fd = -1
+            }
+        }
+        return try body()
     }
 }
 

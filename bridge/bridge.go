@@ -157,6 +157,7 @@ func readOverrides(home string) Overrides {
 	if err == nil {
 		_ = json.Unmarshal(b, &o)
 	}
+	applySecrets(&o, readSecrets(home)) // r7 B01: secrets.json (overrides.json no longer carries them)
 	if o.ControllerPort <= 0 || o.ControllerPort > 65535 {
 		o.ControllerPort = 9090
 	}
