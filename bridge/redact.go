@@ -206,6 +206,28 @@ func looksLikeToken(seg string) bool {
 	if len(seg) >= 20 && digits > 0 {
 		return true
 	}
+	// r7: purely alphabetic random tokens (base52 subscription keys) escaped the rules above. A long
+	// letter run that flips case on at least a third of its characters is a token; CamelCase words
+	// ("GeoSiteDatabaseUpdater") flip far less often and stay.
+	if digits == 0 && letters == len(seg) && len(seg) >= 16 {
+		var up, low, flips int
+		prevUp := seg[0] >= 'A' && seg[0] <= 'Z'
+		for i := 0; i < len(seg); i++ {
+			isUp := seg[i] >= 'A' && seg[i] <= 'Z'
+			if isUp {
+				up++
+			} else {
+				low++
+			}
+			if i > 0 && isUp != prevUp {
+				flips++
+			}
+			prevUp = isUp
+		}
+		if up >= 4 && low >= 4 && flips*3 >= len(seg) {
+			return true
+		}
+	}
 	return letters > 0 && digits >= 2 && len(seg) >= 6 && !strings.Contains(seg, "-") && !strings.Contains(seg, "_")
 }
 

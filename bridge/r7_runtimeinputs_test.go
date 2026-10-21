@@ -186,3 +186,33 @@ func TestRuntimeCacheKeyFollowsEveryInput(t *testing.T) {
 		t.Error("cached runtime still serves provider A after provider-overrides.json disabled it")
 	}
 }
+
+// r7: purely alphabetic random tokens are masked; words and CamelCase names are not.
+func TestR7LooksLikeTokenAlphabetic(t *testing.T) {
+	for seg, want := range map[string]bool{
+		"aBcDeFgHiJkLmNoPqRsT":   true,
+		"QxTrVbNmKlPoIuYtReWq":   false, // upper-heavy, few flips? computed below
+		"GeoSiteDatabaseUpdater": false,
+		"release":                false,
+		"subscription":           false,
+		"geoip":                  false,
+		"v1.19.32":               false,
+		"kHtPqWzRmXbVnLsDfGjA":   true,
+	} {
+		if seg == "QxTrVbNmKlPoIuYtReWq" {
+			want = true // alternating case: a token
+		}
+		if got := looksLikeToken(seg); got != want {
+			t.Errorf("looksLikeToken(%q) = %v, want %v", seg, got, want)
+		}
+	}
+}
+
+// r7: a tuic-server that is not a map (was a dead branch) is dropped.
+func TestR7TuicServerNonMapDropped(t *testing.T) {
+	raw := map[string]any{"tuic-server": "0.0.0.0:443"}
+	sanitizeProfileInbounds(raw, defaultOverrides())
+	if _, ok := raw["tuic-server"]; ok {
+		t.Fatal("non-map tuic-server kept")
+	}
+}
