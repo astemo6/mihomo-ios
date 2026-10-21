@@ -32,6 +32,8 @@ final class DashboardModel: ObservableObject {
         /// Group → … → leaf node, following `now`.
         let chain: [String]
         let delay: Int?
+        /// r7 P3-5: the path stopped on a group (depth limit or a loop), shown as 「…」 like 策略.
+        var cut = false
     }
 
     private var tasks: [Task<Void, Never>] = []
@@ -208,8 +210,9 @@ final class DashboardModel: ObservableObject {
             while let n = all[cur]?.now, !n.isEmpty, chain.count < 6, !chain.contains(n) {
                 chain.append(n); cur = n
             }
+            let cut = !(all[cur]?.now ?? "").isEmpty // still on a group that selects something
             cards.append(HomeGroup(name: g, icon: p.icon, kind: PolicyGroupDisplay.kind(live: p.type), chain: chain,
-                                   delay: all[cur]?.lastDelay(for: NodeSettingsStore.testURL(for: cur))))
+                                   delay: all[cur]?.lastDelay(for: NodeSettingsStore.testURL(for: cur)), cut: cut))
         }
         if cards != homeGroups { homeGroups = cards }
     }

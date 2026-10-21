@@ -37,7 +37,9 @@ struct HomeView: View {
                 guard let next = byName[n] else { break }
                 cur = next
             }
-            return DashboardModel.HomeGroup(name: g.name, icon: g.icon, kind: g.type, chain: chain, delay: chain.last.flatMap { offline.delays[$0] })
+            // r7 P3-5: stopped while still on a group that has a current member = cut (6 hops or a loop).
+            let cut = chain.last.flatMap { byName[$0] }.flatMap { offline.current(of: $0) } != nil
+            return DashboardModel.HomeGroup(name: g.name, icon: g.icon, kind: g.type, chain: chain, delay: chain.last.flatMap { offline.delays[$0] }, cut: cut)
         }
     }
 
@@ -534,7 +536,8 @@ struct HomePolicyCards: View {
                         VStack(alignment: .leading, spacing: 2) {
                             Text(g.name).font(.subheadline).lineLimit(1)
                             // feat/egern-style: Egern chain 「日本节点 › 🇯🇵 东京」; middle hops give way, the final node stays.
-                            ChainLine(hops: g.chain.dropFirst().map { FlagSafe.text($0) })
+                            // r7 P3-5: same display as 策略 (PolicyChainText): region flag on the final node, 「…」 when cut.
+                            ChainLine(hops: PolicyChainText.homeParts(g.chain, cut: g.cut))
                         }
                         Spacer(minLength: 6)
                         if let d = g.delay {
