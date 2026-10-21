@@ -31,7 +31,7 @@ enum NodeFlag {
 
 /// feat/policy-chain: the subtitle of a 策略 card, Egern style: every hop the group goes through, the final node with
 /// its flag — 「日本节点 › 🇯🇵 东京 AZ JP01」. DIRECT / REJECT plainly; 「最快 / 可用」 on the last hop when the offline
-/// page picked it from measurements; 「…」 when the path is cut (cycle or deeper than GroupGraph.chainMaxDepth).
+/// page picked it from measurements; 「…」 before the last hop when the path is cut (cycle or deeper than GroupGraph.chainMaxDepth).
 @MainActor
 enum PolicyChainText {
     static let separator = " › "
@@ -46,12 +46,14 @@ enum PolicyChainText {
         var parts = c.hops.dropLast().map { FlagSafe.text($0) }
         let last = c.hops[c.hops.count - 1]
         let shown = FlagSafe.text(NodeFlag.decorate(last))
+        // r7: 「…」 marks the cut BEFORE the last hop, so the last element is always the last hop reached —
+        // ChainLine keeps the last element visible as the final node.
+        if c.truncated || c.looped { parts.append("…") }
         switch c.how {
         case .selected: parts.append(shown)
         case .fastest: parts.append(String(localized: "最快 \(shown)"))
         case .firstAvailable: parts.append(String(localized: "可用 \(shown)"))
         }
-        if c.truncated || c.looped { parts.append("…") }
         return parts
     }
 }
