@@ -382,3 +382,67 @@ func TestR7StatusVsStopNoRace(t *testing.T) {
 		t.Fatal("still running after Stop")
 	}
 }
+
+// OPT-1: URL patterns RE2 can take are matched on RE2, with the same result as regexp2.
+func TestR7URLMatchRE2SameAsRegexp2(t *testing.T) {
+	pats := []string{
+		`^https?:\/\/api\d\.example\.com\/v1\/(ad|banner|splash)\/.+`,
+		`^https://a\.com/x$`,
+		`\.(js|css)$`,
+		`^https?://(www\.)?youtube\.com/api/stats/ads`,
+		`(?i)^HTTPS://B\.COM/`,
+		`^https://c\.com/(?<id>\d+)`,
+		`^https://d\.com/[^/]+/feed\?`,
+		`^https://e\.com/\w+-\d{2,4}`,
+		`^https://(?!keep\.)f\.com/`, // lookahead → regexp2
+		`^https://g\.com/(a)\1`,      // backreference → regexp2
+		`\bad\b`,                     // word boundary → regexp2
+		`[a-z-[aeiou]]x`,             // .NET class subtraction → regexp2
+	}
+	urls := []string{
+		"https://api1.example.com/v1/ad/x", "http://api9.example.com/v1/banner/1?z", "https://api1.example.com/v2/ad/x",
+		"https://a.com/x", "https://a.com/x/", "https://a.com/x?y", "https://cdn.test/app.js", "https://cdn.test/app.js?v=1",
+		"https://www.youtube.com/api/stats/ads?x", "https://b.com/z", "https://c.com/123", "https://d.com/u/feed?x",
+		"https://e.com/abc-123", "https://f.com/", "https://keep.f.com/", "https://g.com/aa", "https://h.com/ad",
+		"https://b.com/bx",
+	}
+	fast := 0
+	for _, p := range pats {
+		rs := &Ruleset{}
+		rs.ParseLine(p+" - reject", "", "u")
+		if len(rs.Rules) != 1 {
+			t.Fatalf("%s: %v", p, rs.Errors)
+		}
+		r := rs.Rules[0]
+		if r.fre != nil {
+			fast++
+		}
+		for _, u := range urls {
+			got := r.match(u)
+			want, _ := r.re.MatchString(u)
+			if got != want {
+				t.Errorf("%s on %s: fast=%v got %v want %v", p, u, r.fre != nil, got, want)
+			}
+		}
+	}
+	if fast != 8 {
+		t.Errorf("RE2 path taken for %d of the 8 RE2-compatible patterns", fast)
+	}
+}
+
+func BenchmarkR7URLMatch300(b *testing.B) {
+	rs := &Ruleset{}
+	for i := 0; i < 300; i++ {
+		rs.ParseLine(fmt.Sprintf(`^https?:\/\/api%d\.example\.com\/v1\/(ad|banner|splash)\/.+ - reject`, i), "", "u")
+	}
+	u := "https://api.real-host.com/v2/feed/timeline?cursor=abcdefghijklmnopqrstuvwxyz0123456789&count=20&include_entities=true"
+	req, _ := http.NewRequest("GET", u, nil)
+	b.ReportAllocs()
+	for i := 0; i < b.N; i++ {
+		for k := 0; k < 3; k++ { // URL, map-local and phase loops each walk the rules
+			for _, r := range rs.Rules {
+				r.matchReq(u, req)
+			}
+		}
+	}
+}

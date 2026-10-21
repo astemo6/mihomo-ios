@@ -231,7 +231,7 @@ func (rs *Ruleset) addCompiled(r *Rule, source, line string) {
 			rs.Errors = append(rs.Errors, fmt.Sprintf("正则无效（%s）：%s", err.Error(), clip(line, 120)))
 			return
 		}
-		r.re = re
+		r.re, r.fre = re, compileURLRe(r.Pattern)
 	}
 	for i := range r.Headers {
 		if r.Headers[i].Regex != "" {

@@ -265,6 +265,34 @@ func compileFastRe(p string) *regexp.Regexp {
 	return re
 }
 
+// compileURLRe is compileFastRe for URL matching only (r7 OPT-1). A URL has no newline, so '$' (end of
+// input, or before a final newline in .NET) means the same as in RE2 and is allowed. Still refused:
+// \b / \B (word boundaries), .NET class subtraction "-[" (RE2 would read a different class), and
+// anything RE2 cannot compile (lookaround, backreferences, \Z …) — those stay on regexp2.
+func compileURLRe(p string) *regexp.Regexp {
+	if p == "" || strings.Contains(p, "-[") {
+		return nil
+	}
+	esc := false
+	for _, c := range p {
+		if esc {
+			if c == 'b' || c == 'B' {
+				return nil
+			}
+			esc = false
+			continue
+		}
+		if c == '\\' {
+			esc = true
+		}
+	}
+	re, err := regexp.Compile(p)
+	if err != nil {
+		return nil
+	}
+	return re
+}
+
 // replTemplate is a parsed .NET replacement pattern ($1, ${name}, $&, $0, $$). Patterns using $` $'
 // $+ $_ are not supported on the Go path (ok=false keeps the rule on regexp2).
 type replPart struct {
