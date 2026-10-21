@@ -433,6 +433,71 @@ final class NodeManagerModel: ObservableObject {
         await reload()
     }
 
+    func manualNode(named name: String) -> [String: Any]? { manualByName[name] }
+
+    // MARK: Full config (hotfix/node-cred-reveal)
+
+    /// The node's full config, secrets included: only for 显示 / 复制 of one credential on the detail page and
+    /// for 添加到本地节点. Never logged, never kept beyond the caller.
+    func config(of n: ManagedNode) async -> [String: Any]? {
+        if let m = manualNode(n) { return m }
+        guard let path = AppShared.activeProfileURL?.path else { return nil }
+        let home = AppShared.homeURL.path, name = n.name
+        let json = await Task.detached(priority: .userInitiated) { LibmihomoNodeConfig(home, path, name) }.value
+        guard !json.isEmpty, let o = try? JSONSerialization.jsonObject(with: Data(json.utf8)) as? [String: Any] else { return nil }
+        return o
+    }
+
+    /// One credential from a node config; `path` is a key of NodeSummaryInfo.credentials, either top level
+    /// ("uuid") or dotted into option maps / arrays ("reality-opts.public-key", "peers.0.pre-shared-key").
+    nonisolated static func credentialValue(_ node: [String: Any], path: String) -> String? {
+        var cur: Any? = node[path]
+        if cur == nil, path.contains(".") {
+            cur = node
+            for part in path.split(separator: ".").map(String.init) {
+                if let d = cur as? [String: Any] { cur = d[part] }
+                else if let a = cur as? [Any], let i = Int(part), a.indices.contains(i) { cur = a[i] }
+                else { return nil }
+            }
+        }
+        switch cur {
+        case let s as String: return s.isEmpty ? nil : s
+        case let n as NSNumber: return n.stringValue
+        default: return nil
+        }
+    }
+
+    /// A name no node of the current view uses: `base`, else 「base 副本」, 「base 副本 2」, … (the core keys
+    /// /proxies by name, so a copy never shares a name with the subscription node it came from).
+    nonisolated static func localCopyName(_ base: String, taken: Set<String>) -> String {
+        if !taken.contains(base) { return base }
+        var name = String(localized: "\(base) 副本")
+        var i = 2
+        while taken.contains(name) {
+            name = String(localized: "\(base) 副本 \(i)")
+            i += 1
+        }
+        return name
+    }
+
+    enum CopyError: LocalizedError {
+        case notFound
+        var errorDescription: String? { String(localized: "读取节点配置失败") }
+    }
+
+    /// 添加到本地节点: copies a subscription / provider node (every field, secrets unchanged) into the manual
+    /// nodes as an editable node. Returns the new name.
+    @discardableResult
+    func addToLocal(_ n: ManagedNode) async throws -> String {
+        guard var m = await config(of: n) else { throw CopyError.notFound }
+        let base = (m["name"] as? String).flatMap { $0.isEmpty ? nil : $0 } ?? n.name
+        let name = Self.localCopyName(base, taken: Set(manualByName.keys).union(nodes.map(\.name)))
+        m["name"] = name
+        try await ProfileStore.shared.upsertManualNode(m, oldName: nil)
+        await reload(force: true)
+        return name
+    }
+
     func delete(_ n: ManagedNode) async {
         guard let m = manualNode(n), let name = m["name"] as? String else { return }
         await ProfileStore.shared.deleteManualNode(name)

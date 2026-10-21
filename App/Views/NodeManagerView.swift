@@ -1,4 +1,5 @@
 import SwiftUI
+import UniformTypeIdentifiers
 
 /// What a node list shows: everything, some sources, or the nodes whose names match a region pattern.
 struct NodeListScope: Hashable {
@@ -373,6 +374,22 @@ struct NodeDetailView: View {
     // v0.17 按节点设置
     @ObservedObject private var nodeSettings = NodeSettingsStore.shared
     @State private var editSettings = false
+    // hotfix/node-cred-reveal: credentials stay hidden until 显示 (long press or the eye); values are read only
+    // then, kept in memory for this page only and dropped when it disappears or the app leaves the foreground.
+    @Environment(\.scenePhase) private var scenePhase
+    @State private var revealed: Set<String> = []
+    @State private var secrets: [String: String] = [:]
+    @State private var credCopied: String?
+    // 添加到本地节点 (subscription / provider nodes)
+    @State private var addingLocal = false
+    @State private var addedLocal: AddedLocal?
+    @State private var editingCopy: ManualNodesView.EditTarget?
+
+    struct AddedLocal: Identifiable {
+        let name: String
+        let inRuntime: Bool
+        var id: String { name }
+    }
 
     struct ProfileEditTarget: Identifiable {
         let id = UUID()
@@ -454,8 +471,8 @@ struct NodeDetailView: View {
                 }
                 if let c = i.credentials, !c.isEmpty {
                     Section {
-                        ForEach(c, id: \.self) { k in kv(Self.credentialLabel(k), "••••••") }
-                    } header: { Text("凭据") } footer: { Text("出于安全考虑，这里不显示密码、UUID 和密钥。") }
+                        ForEach(c, id: \.self) { k in credentialRow(k) }
+                    } header: { Text("凭据") } footer: { Text("默认隐藏，长按可显示或复制。") }
                     .listRowBackground(Theme.card)
                 }
             } else if loaded, node.live, !(info?.error ?? "").isEmpty {
@@ -490,6 +507,11 @@ struct NodeDetailView: View {
                     Button { Task { await showQR() } } label: { Label("分享链接与二维码", systemImage: "qrcode") }
                 }
                 Button { UIPasteboard.general.string = node.name } label: { Label("复制名称", systemImage: "doc.on.doc") }
+                if node.source.kind == .subscription || node.source.kind == .provider {
+                    Button { Task { await addToLocal() } } label: { Label("添加到本地节点", systemImage: "square.and.arrow.down.on.square") }
+                        .disabled(addingLocal)
+                        .accessibilityIdentifier("node.addLocal")
+                }
                 if let m = manual {
                     Button { editing = ManualNodesView.EditTarget(node: m) } label: { Label("编辑", systemImage: "pencil") }
                     Button {
@@ -535,7 +557,7 @@ struct NodeDetailView: View {
                 }
             } header: { Text("操作") } footer: {
                 if node.source.kind == .subscription || node.source.kind == .provider {
-                    Text("订阅里的节点是只读的，更新订阅后会被覆盖。")
+                    Text("订阅里的节点是只读的；添加到本地后可以编辑，不受订阅更新影响。")
                 } else if editableProfile != nil {
                     Text(store.active?.kind == .remote
                          ? "修改会直接写入这个配置文件（保留其他内容与注释），改名时策略组和规则里的引用一并更新。这是订阅配置：更新订阅后修改会被覆盖。"
@@ -588,12 +610,118 @@ struct NodeDetailView: View {
             }
         }) { t in NodeEditorView(node: t.node).environmentObject(ProfileStore.shared) }
         .sheet(item: $editSub) { s in NodeSubEditor(sub: s).environmentObject(ProfileStore.shared) }
+        .sheet(item: $editingCopy, onDismiss: { Task { await model.reload() } }) { t in
+            NodeEditorView(node: t.node).environmentObject(ProfileStore.shared)
+        }
+        .alert("已添加到本地节点", isPresented: Binding(get: { addedLocal != nil }, set: { if !$0 { addedLocal = nil } }), presenting: addedLocal) { a in
+            Button("编辑") {
+                if let m = model.manualNode(named: a.name) { editingCopy = ManualNodesView.EditTarget(node: m) }
+            }
+            Button("好", role: .cancel) {}
+        } message: { a in
+            a.inRuntime
+                ? Text("「\(a.name)」现在是可编辑的手动节点，不受订阅更新影响。")
+                : Text("「\(a.name)」现在是可编辑的手动节点，不受订阅更新影响。它还不在当前配置里：在 更多 → 高级设置 → 内核设置 打开「把手动节点加入每个配置」。")
+        }
+        .onDisappear { hideSecrets() }
+        .onChange(of: scenePhase) { phase in if phase != .active { hideSecrets() } }
         .confirmationDialog("删除这个手动节点？", isPresented: $confirmDelete, titleVisibility: .visible) {
             Button("删除", role: .destructive) { Task { await model.delete(node); dismiss() } }
         }
         .alert("提示", isPresented: Binding(get: { message != nil }, set: { if !$0 { message = nil } })) {
             Button("好", role: .cancel) {}
         } message: { Text(message ?? "") }
+    }
+
+    // MARK: 凭据 (hotfix/node-cred-reveal)
+
+    @ViewBuilder
+    func credentialRow(_ k: String) -> some View {
+        let label = Self.credentialLabel(k)
+        let shown = revealed.contains(k) ? secrets[k] : nil
+        HStack(alignment: .firstTextBaseline, spacing: 8) {
+            if let v = shown {
+                VStack(alignment: .leading, spacing: 4) {
+                    Text(LocalizedStringKey(label)).foregroundStyle(.secondary)
+                        .accessibilityIdentifier("node.cred.label.\(k)")
+                    // No .textSelection: its own long-press menu would replace 隐藏 / 复制 (复制 is local-only and expires).
+                    Text(verbatim: v)
+                        .font(.callout.monospaced())
+                        .fixedSize(horizontal: false, vertical: true)
+                        .frame(maxWidth: .infinity, alignment: .leading)
+                        .accessibilityIdentifier("node.cred.value.\(k)")
+                }
+            } else {
+                Text(LocalizedStringKey(label)).foregroundStyle(.secondary)
+                    .accessibilityIdentifier("node.cred.label.\(k)")
+                Spacer(minLength: 12)
+                Group {
+                    if credCopied == k { Text("已复制").foregroundStyle(Theme.accent) } else { Text(verbatim: "••••••") }
+                }
+                .font(.callout)
+                .accessibilityLabel(credCopied == k ? Text("已复制") : Text("已隐藏"))
+                .accessibilityHint(Text("长按可显示或复制。"))
+            }
+            Button { Task { await toggleReveal(k) } } label: {
+                Image(systemName: shown != nil ? "eye.slash" : "eye").font(.callout)
+            }
+            .buttonStyle(.borderless)
+            .foregroundStyle(.secondary)
+            .accessibilityLabel(shown != nil ? Text("隐藏凭据") : Text("显示凭据"))
+            .accessibilityValue(Text(LocalizedStringKey(label)))
+            .accessibilityIdentifier("node.cred.eye.\(k)")
+        }
+        .contentShape(Rectangle())
+        .contextMenu {
+            Button { Task { await toggleReveal(k) } } label: {
+                if shown != nil { Label("隐藏", systemImage: "eye.slash") } else { Label("显示", systemImage: "eye") }
+            }
+            Button { Task { await copySecret(k) } } label: { Label("复制", systemImage: "doc.on.doc") }
+        }
+    }
+
+    /// The value of one credential, read from the node config on first use (never logged).
+    func secret(_ k: String) async -> String? {
+        if let v = secrets[k] { return v }
+        guard let cfg = await model.config(of: node), let v = NodeManagerModel.credentialValue(cfg, path: k) else {
+            message = String(localized: "读取节点配置失败")
+            return nil
+        }
+        secrets[k] = v
+        return v
+    }
+
+    func toggleReveal(_ k: String) async {
+        if revealed.contains(k) { revealed.remove(k); return }
+        if await secret(k) != nil { revealed.insert(k) }
+    }
+
+    /// Copies one credential: this device only (no Handoff / Universal Clipboard), cleared after 60 s.
+    func copySecret(_ k: String) async {
+        guard let v = await secret(k) else { return }
+        UIPasteboard.general.setItems([[UTType.plainText.identifier: v]],
+                                      options: [.localOnly: true, .expirationDate: Date().addingTimeInterval(60)])
+        credCopied = k
+        try? await Task.sleep(nanoseconds: 1_500_000_000)
+        if credCopied == k { credCopied = nil }
+    }
+
+    func hideSecrets() {
+        revealed = []
+        secrets = [:]
+        credCopied = nil
+    }
+
+    func addToLocal() async {
+        addingLocal = true
+        defer { addingLocal = false }
+        do {
+            let name = try await model.addToLocal(node)
+            let inRuntime = model.nodes.contains { $0.source.kind == .manual && $0.name == name && $0.inRuntime }
+            addedLocal = AddedLocal(name: name, inRuntime: inRuntime)
+        } catch {
+            message = error.localizedDescription
+        }
     }
 
     // MARK: 按节点设置 (v0.17)
@@ -770,7 +898,16 @@ struct NodeDetailView: View {
         case "obfs-password": return "混淆密码"
         case "private-key-passphrase": return "私钥口令"
         case "short-id": return "Short ID"
-        default: return k
+        case "reality-opts.public-key": return "Reality 公钥"
+        case "reality-opts.short-id": return "Reality Short ID"
+        case "plugin-opts.password": return "插件密码"
+        default:
+            // peers.<i>.public-key / peers.<i>.pre-shared-key (WireGuard with several peers)
+            let parts = k.split(separator: ".").map(String.init)
+            if parts.count == 3, parts[0] == "peers", let i = Int(parts[1]) {
+                return parts[2] == "public-key" ? String(localized: "对端 \(i + 1) 公钥") : String(localized: "对端 \(i + 1) 预共享密钥")
+            }
+            return k
         }
     }
 
