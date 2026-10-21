@@ -26,12 +26,31 @@ extension MihomoUITests {
         return fa.midY < fb.midY
     }
 
-    /// Drags `e`'s handle to just above `target` (up to two tries); true when `e` ends up before `target`.
+    /// The edit-mode reorder control on `e`'s row (UIKit labels it 「Reorder …」 / 「重新排列…」), matched by frame.
+    func reorderControl(for e: XCUIElement) -> XCUIElement? {
+        let q = app.buttons.matching(NSPredicate(format: "label BEGINSWITH %@ OR label BEGINSWITH %@ OR label BEGINSWITH %@",
+                                                 "Reorder", L("重新排列"), L("重新排序")))
+        let mid = e.frame.midY
+        for i in 0..<min(q.count, 30) {
+            let h = q.element(boundBy: i)
+            if h.exists, abs(h.frame.midY - mid) < max(12, e.frame.height / 2) { return h }
+        }
+        return nil
+    }
+
+    /// Drags `e`'s handle to just above `target`; true when `e` ends up before `target`.
+    /// r7: in edit mode the real reorder control is tried first (its x differs per layout / language: the fixed
+    /// 「width − 26」 point missed it in en-light), then the trailing points as before.
     @discardableResult
     func dragRow(_ e: XCUIElement, above target: XCUIElement, dx: CGFloat? = nil, press: TimeInterval = 0.8) -> Bool {
-        for attempt in 0..<2 {
-            let from = rowHandle(e, dx: dx)
-            let to = rowHandle(target, dx: dx).withOffset(CGVector(dx: 0, dy: -target.frame.height * 0.45))
+        let w = app.windows.firstMatch.frame.width
+        var xs: [CGFloat?] = []
+        if dx == nil, let h = reorderControl(for: e) { xs.append(h.frame.midX) }
+        xs.append(dx ?? (w - 26))
+        if dx == nil { xs.append(w - 52) }
+        for (attempt, x) in xs.enumerated() {
+            let from = rowHandle(e, dx: x)
+            let to = rowHandle(target, dx: x).withOffset(CGVector(dx: 0, dy: -target.frame.height * 0.45))
             from.press(forDuration: press, thenDragTo: to, withVelocity: .slow, thenHoldForDuration: 0.4)
             // let the list settle (frames move with the drop animation)
             let deadline = Date().addingTimeInterval(3)
@@ -39,7 +58,7 @@ extension MihomoUITests {
                 if isBefore(e, target) { return true }
                 usleep(250_000)
             }
-            if attempt == 0 { warnings.append("[\(Env.tag)] drag \(e.identifier) retry") }
+            if attempt < xs.count - 1 { warnings.append("[\(Env.tag)] drag \(e.identifier) retry (x \(Int(x ?? -1)))") }
         }
         return isBefore(e, target)
     }
