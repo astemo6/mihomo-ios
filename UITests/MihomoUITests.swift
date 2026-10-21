@@ -411,15 +411,22 @@ final class MihomoUITests: MihomoUITestCase {
     }
 
     /// feat/surge-ui: expert rows live on 更多 → 高级设置; open that page first unless it is already showing.
+    /// Re-tapping the 更多 tab can pop 高级设置 while the row check runs, so let the tab settle first and
+    /// re-enter 高级设置 once if the row vanished (zh-light test09 race on surge-ui, 2026-10-21).
     func openMore(_ key: String) {
         tab(4)
+        usleep(500_000)
         let row = app.element(id: "more." + key)
-        if Self.advancedRows.contains(key) && !(row.waitForExistence(timeout: 1) && row.isHittable) {
-            let adv = app.element(id: "more.高级设置")
-            if !adv.waitForExistence(timeout: 1) { tab(4) }
-            XCTAssertTrue(scrollTo(adv), "高级设置")
-            adv.tap()
-            usleep(700_000)
+        if Self.advancedRows.contains(key) {
+            func enterAdvanced() {
+                let adv = app.element(id: "more.高级设置")
+                if !adv.waitForExistence(timeout: 1) { tab(4); usleep(500_000) }
+                XCTAssertTrue(scrollTo(adv), "高级设置")
+                adv.tap()
+                usleep(800_000)
+            }
+            if !(row.waitForExistence(timeout: 1) && row.isHittable) { enterAdvanced() }
+            if !row.waitForExistence(timeout: 2) { tab(4); usleep(800_000); enterAdvanced() }
         }
         XCTAssertTrue(scrollTo(row), key)
         row.tap()
