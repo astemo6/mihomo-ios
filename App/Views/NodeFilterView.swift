@@ -172,7 +172,9 @@ enum RegionFilterStore {
 struct NodeFilterView: View {
     @EnvironmentObject var store: ProfileStore
     @EnvironmentObject var vpn: VPNManager
-    @ObservedObject private var model = NodeManagerModel.shared
+    /// B25: only the node list (names for counts / name clashes) is mirrored. Observing NodeManagerModel redrew the
+    /// page for every delay result and `testing` change during a speed test.
+    @State private var nodes = NodeManagerModel.shared.nodes
     @ObservedObject private var offline = ProfileInspector.shared
     @State private var filters: [RegionFilter] = []
     @State private var added: Set<String> = []
@@ -229,7 +231,7 @@ struct NodeFilterView: View {
     /// Until the core-side preview arrives (B16: bridge GroupPreview = what the group will contain).
     func count(_ f: RegionFilter) -> Int {
         if let n = previewMembers[f.id] { return n.count }
-        return f.hasSources ? NodeListScope(title: f.name, pattern: f.filter).filter(model.nodes).count : 0
+        return f.hasSources ? NodeListScope(title: f.name, pattern: f.filter).filter(nodes).count : 0
     }
 
     func refreshPreview() async {
@@ -303,6 +305,7 @@ struct NodeFilterView: View {
         .scrollContentBackground(.hidden)
         .background(Theme.bg.ignoresSafeArea())
         .navigationTitle("筛选节点")
+        .onReceive(NodeManagerModel.shared.$nodes.removeDuplicates()) { if $0 != nodes { nodes = $0 } }
         .toolbar {
             ToolbarItemGroup(placement: .topBarTrailing) {
                 EditButton()
@@ -312,7 +315,7 @@ struct NodeFilterView: View {
             }
         }
         .task {
-            if model.nodes.isEmpty { await model.reload() }
+            if nodes.isEmpty { await NodeManagerModel.shared.reload() }
             filters = RegionFilterStore.load(store.activeID)
             loadAdded()
         }
@@ -411,7 +414,7 @@ struct NodeFilterView: View {
     }
 
     func nameTaken(_ name: String, except: String? = nil) -> Bool {
-        name != except && (offline.result.groups.contains(where: { $0.name == name }) || model.nodes.contains(where: { $0.name == name }))
+        name != except && (offline.result.groups.contains(where: { $0.name == name }) || nodes.contains(where: { $0.name == name }))
     }
 
     func addGroup(_ f: RegionFilter) async {
@@ -508,7 +511,9 @@ struct NodeFilterView: View {
 /// Editor for one filter (an editor sheet, so it keeps 保存).
 struct RegionFilterEditor: View {
     @Environment(\.dismiss) private var dismiss
-    @ObservedObject private var model = NodeManagerModel.shared
+    /// B25: only the node list (names for counts / name clashes) is mirrored. Observing NodeManagerModel redrew the
+    /// page for every delay result and `testing` change during a speed test.
+    @State private var nodes = NodeManagerModel.shared.nodes
     @ObservedObject private var offline = ProfileInspector.shared
     @State var filter: RegionFilter
     let isNew: Bool
@@ -530,7 +535,7 @@ struct RegionFilterEditor: View {
         if trimmedName.isEmpty { return String(localized: "名称不能为空") }
         if others.contains(where: { $0.name == trimmedName }) { return String(localized: "已有同名的筛选") }
         if trimmedName != originalName,
-           offline.result.groups.contains(where: { $0.name == trimmedName }) || model.nodes.contains(where: { $0.name == trimmedName }) {
+           offline.result.groups.contains(where: { $0.name == trimmedName }) || nodes.contains(where: { $0.name == trimmedName }) {
             return String(localized: "已有同名的策略组或节点")
         }
         return nil
@@ -645,7 +650,7 @@ struct RegionFilterEditor: View {
                     if let r = await offline.preview([spec])?.first, r.error == nil {
                         matchCount = r.empty == true ? 0 : (r.members ?? []).count
                     } else {
-                        matchCount = NodeListScope(title: "", pattern: filter.filter).filter(model.nodes).count
+                        matchCount = NodeListScope(title: "", pattern: filter.filter).filter(nodes).count
                     }
                 }
                 .listRowBackground(Theme.card)
@@ -684,6 +689,7 @@ struct RegionFilterEditor: View {
                 }
             }
             .onAppear { originalName = isNew ? "" : filter.name }
+            .onReceive(NodeManagerModel.shared.$nodes.removeDuplicates()) { if $0 != nodes { nodes = $0 } }
             .sheet(isPresented: $pickingIcon) {
                 IconPickerSheet(title: trimmedName.isEmpty ? String(localized: "图标") : trimmedName, current: filter.flag, allowsReset: false) { v in
                     if let v, !v.isEmpty { filter.flag = v }
