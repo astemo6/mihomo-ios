@@ -6,18 +6,156 @@ import Libmihomo
 struct MoreView: View {
     @EnvironmentObject var vpn: VPNManager
     @EnvironmentObject var store: ProfileStore
-    @ObservedObject var engine = EngineStore.shared
     @State private var showOnboarding = false
-    /// Not observed (review 5): during 全部测速 every result republished the model and re-rendered this
-    /// root page under the pushed ones. The count is refreshed from its publishers, debounced.
-    private let nodeModel = NodeManagerModel.shared
-    @State private var nodeCount: Int?
-    /// Status texts of the 连接 rows, read once per appearance instead of on every render (Keychain + file).
+    @AppStorage(LaunchTab.key) private var launchRaw = 0
+
+    /// Every node 节点与订阅 lists (全部节点); nil before the list loaded. (Kept for callers; feat/surge-ui
+    /// no longer shows the count on the 更多 row.)
+    static func nodeTotal(_ nodes: [ManagedNode]) -> Int? { nodes.isEmpty ? nil : nodes.count }
+
+    /// feat/surge-ui (user 「现在的感觉有点专业工具风」): calmer 更多 — short section headers, one tile per row,
+    /// plain-language titles with the technical term as a small subtitle, no counters on the top level,
+    /// expert pages under 高级设置. Row ids stay `more.<old zh-Hans key>` so UI tests and muscle memory hold.
+    var body: some View {
+        NavigationStack {
+            List {
+                Section("代理") {
+                    NavigationLink { LazyDestination { NodeManagerView() } } label: {
+                        MoreRow(id: "节点与订阅", title: "节点与订阅", symbol: "server.rack", tone: .blue)
+                    }
+                    NavigationLink { LazyDestination { RulesView() } } label: {
+                        MoreRow(id: "规则", title: "分流规则", symbol: "arrow.triangle.branch", tone: .orange)
+                    }
+                    NavigationLink { LazyDestination { ModulesView() } } label: {
+                        MoreRow(id: "模块与资源", title: "模块", subtitle: "重写 · 脚本 · 规则集", symbol: "puzzlepiece.extension", tone: .purple)
+                    }
+                }
+                .listRowBackground(Theme.card)
+
+                Section {
+                    NavigationLink { LazyDestination { LogsView() } } label: {
+                        MoreRow(id: "日志", title: "运行日志", symbol: "text.alignleft", tone: .neutral, needsVPN: true)
+                    }
+                    NavigationLink { LazyDestination { DNSLogView() } } label: {
+                        MoreRow(id: "DNS 日志", title: "域名解析记录", subtitle: "DNS", symbol: "globe", tone: .blue, needsVPN: true)
+                    }
+                    NavigationLink { LazyDestination { AnalyticsView() } } label: {
+                        MoreRow(id: "连接分析", title: "连接分析", symbol: "chart.pie", tone: .teal, needsVPN: true)
+                    }
+                } header: { Text("运行状态") } footer: {
+                    if !vpn.isConnected { Text("开启 VPN 后可查看。实时请求在「请求」标签页。") }
+                }
+                .listRowBackground(Theme.card)
+
+                Section("工具") {
+                    NavigationLink { LazyDestination { ToolsView() } } label: {
+                        MoreRow(id: "网络工具（Ping / TCP / DNS）", title: "网络诊断", subtitle: "Ping · TCP · DNS", symbol: "stethoscope", tone: .green)
+                    }
+                    NavigationLink { LazyDestination { NetTestView() } } label: {
+                        MoreRow(id: "网络测试（带宽 / NAT 类型）", title: "网速测试", subtitle: "带宽 · NAT 类型", symbol: "speedometer", tone: .orange)
+                    }
+                    NavigationLink { LazyDestination { UnlockView() } } label: {
+                        MoreRow(id: "解锁检测", title: "流媒体解锁", symbol: "play.tv", tone: .pink)
+                    }
+                    NavigationLink { LazyDestination { LANDetailView() } } label: {
+                        MoreRow(id: "内网 IP 与路由器", title: "局域网信息", subtitle: "内网 IP · 路由器", symbol: "wifi.router", tone: .teal)
+                    }
+                }
+                .listRowBackground(Theme.card)
+
+                Section("已保存数据") {
+                    NavigationLink { LazyDestination { StatsView() } } label: {
+                        MoreRow(id: "流量统计", title: "流量统计", symbol: "chart.bar.fill", tone: .red)
+                    }
+                    NavigationLink { LazyDestination { SnapshotsView() } } label: {
+                        MoreRow(id: "配置快照", title: "配置快照", symbol: "clock.arrow.circlepath", tone: .purple)
+                    }
+                    NavigationLink { LazyDestination { BackupView() } } label: {
+                        MoreRow(id: "备份与恢复", title: "备份与恢复", symbol: "externaldrive.badge.icloud", tone: .blue)
+                    }
+                    NavigationLink { LazyDestination { StorageView() } } label: {
+                        MoreRow(id: "存储空间", title: "存储空间", symbol: "internaldrive", tone: .neutral)
+                    }
+                }
+                .listRowBackground(Theme.card)
+
+                Section("外观") {
+                    NavigationLink { LazyDestination { AppearanceView() } } label: {
+                        MoreRow(id: "外观", title: "深色与浅色", symbol: "circle.lefthalf.filled", tone: .accent)
+                    }
+                    if UIApplication.shared.supportsAlternateIcons {
+                        NavigationLink { LazyDestination { AppIconView() } } label: {
+                            MoreRow(id: "App 图标", title: "App 图标", symbol: "app.badge", tone: .orange)
+                        }
+                    }
+                    NavigationLink { LazyDestination { LaunchTabView() } } label: {
+                        MoreRow(id: "开始标签页", title: "开始标签页", symbol: "rectangle.stack", tone: .green, value: (AppSection(rawValue: launchRaw) ?? .home).title)
+                    }
+                }
+                .listRowBackground(Theme.card)
+
+                Section {
+                    NavigationLink { LazyDestination { AdvancedSettingsView() } } label: {
+                        MoreRow(id: "高级设置", title: "高级设置", subtitle: "连接方式 · DNS · 重写 · MitM · 内核", symbol: "gearshape.2", tone: .neutral)
+                    }
+                } header: { Text("高级") }
+                .listRowBackground(Theme.card)
+
+                Section("帮助") {
+                    Button { showOnboarding = true } label: {
+                        MoreRow(id: "新手引导", title: "新手引导", symbol: "sparkles", tone: .accent)
+                    }
+                    .foregroundStyle(.primary)
+                    NavigationLink { LazyDestination { DiagnosticsView() } } label: {
+                        MoreRow(id: "诊断", title: "诊断与反馈", symbol: "waveform.path.ecg", tone: .red,
+                                value: AppShared.containerOK ? nil : "共享容器异常", valueColor: Theme.bad)
+                    }
+                    NavigationLink { LazyDestination { AboutView() } } label: {
+                        MoreRow(id: "关于 / 开源许可", title: "关于", symbol: "info.circle", tone: .neutral)
+                    }
+                }
+                .listRowBackground(Theme.card)
+            }
+            .listStyle(.insetGrouped)
+            .scrollContentBackground(.hidden)
+            .background(Theme.bg.ignoresSafeArea())
+            .navigationTitle("更多")
+            .fullScreenCover(isPresented: $showOnboarding) {
+                OnboardingView { showOnboarding = false }
+                    .environmentObject(vpn)
+                    .environmentObject(store)
+            }
+        }
+    }
+}
+
+/// A 更多 / 高级设置 row. `id` is the stable zh-Hans key behind `more.<id>` (UI tests); `needsVPN` greys the
+/// row with 「需开启 VPN」 while disconnected (still tappable: the page shows why and offers 连接).
+struct MoreRow: View {
+    @ObservedObject private var vpn = VPNManager.shared
+    let id: String
+    let title: String
+    var subtitle: String? = nil
+    let symbol: String
+    var tone: TileTone = .accent
+    var value: String? = nil
+    var valueColor: Color = .secondary
+    var needsVPN = false
+
+    var body: some View {
+        let off = needsVPN && !vpn.isConnected
+        TileRow(title: title, subtitle: subtitle, symbol: symbol, tone: tone,
+                value: off ? "需开启 VPN" : value, valueColor: valueColor, dimmed: off)
+            .accessibilityElement(children: .combine)
+            .accessibilityIdentifier("more." + id)
+    }
+}
+
+/// feat/surge-ui: the expert pages that used to fill 更多, grouped by what they change.
+struct AdvancedSettingsView: View {
+    @ObservedObject var engine = EngineStore.shared
     @State private var connLabel = ""
     @State private var dnsLabel = ""
-
-    /// Every node 节点与订阅 lists (全部节点); nil before the list loaded.
-    static func nodeTotal(_ nodes: [ManagedNode]) -> Int? { nodes.isEmpty ? nil : nodes.count }
 
     func refreshLabels() {
         let o = CoreOverrides.load()
@@ -26,135 +164,107 @@ struct MoreView: View {
     }
 
     var body: some View {
-        NavigationStack {
-            List {
-                Section("连接") {
-                    NavigationLink { LazyDestination { ConnectionView() } } label: {
-                        row("连接方式", "point.3.filled.connected.trianglepath.dotted", connLabel)
-                    }
-                    NavigationLink { LazyDestination { DNSView() } } label: {
-                        row("DNS", "network", dnsLabel)
-                    }
+        let mc = engine.enabledModuleCounts
+        List {
+            Section("网络") {
+                NavigationLink { LazyDestination { ConnectionView() } } label: {
+                    MoreRow(id: "连接方式", title: "连接方式", symbol: "point.3.filled.connected.trianglepath.dotted", tone: .blue, value: connLabel)
                 }
-                .listRowBackground(Theme.card)
-
-                // fb-subs-global (user 「还是分开的」): 节点管理 and 订阅管理 are one page now.
-                Section {
-                    NavigationLink { LazyDestination { NodeManagerView() } } label: { row("节点与订阅", "server.rack", nodeCount.map { "\($0)" }) }
+                NavigationLink { LazyDestination { DNSView() } } label: {
+                    MoreRow(id: "DNS", title: "DNS", symbol: "network", tone: .teal, value: dnsLabel)
                 }
-                .listRowBackground(Theme.card)
+            }
+            .listRowBackground(Theme.card)
 
-                Section("规则与资源") {
-                    NavigationLink { LazyDestination { RulesView() } } label: { row("规则", "list.bullet.rectangle", nil) }
-                    NavigationLink { LazyDestination { ProvidersView() } } label: { row("提供者（规则集 / 节点集）", "shippingbox", nil) }
-                    NavigationLink { LazyDestination { GeoView() } } label: { row("地理与规则库", "globe.asia.australia", nil) }
+            Section {
+                NavigationLink { LazyDestination { LocalModuleView() } } label: {
+                    MoreRow(id: "重写（本地模块）", title: "重写", subtitle: "本地模块", symbol: "arrow.triangle.swap", tone: .orange)
                 }
-                .listRowBackground(Theme.card)
+                NavigationLink { LazyDestination { ScriptsView() } } label: {
+                    MoreRow(id: "脚本", title: "脚本", symbol: "curlybraces", tone: .purple)
+                }
+                NavigationLink { LazyDestination { ScriptTasksView() } } label: {
+                    MoreRow(id: "任务", title: "定时任务", symbol: "clock.arrow.circlepath", tone: .green)
+                }
+                NavigationLink { LazyDestination { MitMView() } } label: {
+                    MoreRow(id: "MitM", title: "HTTPS 解密", subtitle: "MitM", symbol: "lock.open", tone: .red,
+                            value: engine.config.mitm ? "已开启" : (mc.hosts > 0 ? "模块需要开启" : "关闭"),
+                            valueColor: engine.config.mitm ? Theme.good : (mc.hosts > 0 ? Theme.warn : .secondary))
+                }
+            } header: { Text("重写与脚本") } footer: {
+                Text(engine.config.enabled ? "重写与脚本已启用" : "重写与脚本未启用（在模块、重写或脚本页面顶部开启）")
+            }
+            .listRowBackground(Theme.card)
 
-                Section {
-                    NavigationLink { LazyDestination { ModulesView() } } label: {
-                        row("模块与资源", "puzzlepiece.extension", "\(engine.config.modules.filter(\.enabled).count)/\(engine.config.modules.count)")
-                    }
-                    // v0.8.1: own rules / scripts plus what the enabled modules bring, the same numbers 模块与资源 shows.
-                    let mc = engine.enabledModuleCounts
-                    NavigationLink { LazyDestination { LocalModuleView() } } label: {
-                        row("重写（本地模块）", "arrow.triangle.swap", mc.rewrites > 0 ? String(localized: "\(engine.config.rules.count) · 模块 \(mc.rewrites)") : "\(engine.config.rules.count)")
-                    }
-                    NavigationLink { LazyDestination { ScriptsView() } } label: {
-                        row("脚本", "curlybraces", mc.scripts > 0 ? String(localized: "\(engine.config.scripts.count) · 模块 \(mc.scripts)") : "\(engine.config.scripts.count)")
-                    }
-                    NavigationLink { LazyDestination { ScriptTasksView() } } label: { row("任务", "clock.arrow.circlepath", nil) }
-                    NavigationLink { LazyDestination { MitMView() } } label: {
-                        HStack {
-                            Label("MitM", systemImage: "lock.open")
+            Section("规则数据") {
+                NavigationLink { LazyDestination { ProvidersView() } } label: {
+                    MoreRow(id: "提供者（规则集 / 节点集）", title: "规则集与节点集", subtitle: "提供者", symbol: "shippingbox", tone: .orange)
+                }
+                NavigationLink { LazyDestination { GeoView() } } label: {
+                    MoreRow(id: "地理与规则库", title: "地理数据库", subtitle: "GeoIP · GeoSite", symbol: "globe.asia.australia", tone: .green)
+                }
+            }
+            .listRowBackground(Theme.card)
+
+            Section("内核与测速") {
+                NavigationLink { LazyDestination { SettingsView() } } label: {
+                    MoreRow(id: "内核设置", title: "内核设置", symbol: "slider.horizontal.3", tone: .neutral)
+                }
+                NavigationLink { LazyDestination { SpeedTestSettingsView() } } label: {
+                    MoreRow(id: "测速", title: "测速设置", symbol: "bolt.horizontal", tone: .orange)
+                }
+                NavigationLink { LazyDestination { GeoCheckerView() } } label: {
+                    MoreRow(id: "出口信息查询", title: "出口信息来源", symbol: "mappin.and.ellipse", tone: .pink)
+                }
+            }
+            .listRowBackground(Theme.card)
+        }
+        .listStyle(.insetGrouped)
+        .scrollContentBackground(.hidden)
+        .background(Theme.bg.ignoresSafeArea())
+        .navigationTitle("高级设置")
+        .onAppear { refreshLabels() }
+    }
+}
+
+/// 更多 → 开始标签页: which tab the app opens on (UI tests always start on 首页).
+enum LaunchTab {
+    static let key = "ui.launchTab"
+    static var current: AppSection {
+        AppSection(rawValue: UserDefaults.standard.integer(forKey: key)) ?? .home
+    }
+    static var initial: Int { UITestSeed.enabled ? 0 : current.rawValue }
+}
+
+struct LaunchTabView: View {
+    @AppStorage(LaunchTab.key) private var raw = 0
+
+    var body: some View {
+        List {
+            Section {
+                ForEach(AppSection.allCases) { s in
+                    Button { raw = s.rawValue } label: {
+                        HStack(spacing: 12) {
+                            IconTile(symbol: s.icon, tone: raw == s.rawValue ? .accent : .neutral)
+                            Text(LocalizedStringKey(s.title)).foregroundStyle(.primary)
                             Spacer()
-                            if engine.config.mitm {
-                                Text("已开启").font(.caption).foregroundStyle(Theme.good)
-                            } else if mc.hosts > 0 {
-                                Text("关闭 · 模块需要 \(mc.hosts) 个主机").font(.caption).foregroundStyle(Theme.warn)
-                            } else {
-                                Text("关闭").font(.caption).foregroundStyle(.secondary)
+                            if raw == s.rawValue {
+                                Image(systemName: "checkmark").font(.body.weight(.semibold)).foregroundStyle(Theme.accent)
                             }
                         }
-                        .accessibilityIdentifier("more.MitM")
+                        .contentShape(Rectangle())
                     }
-                } header: { Text("模块、重写与 MitM") } footer: {
-                    Text(engine.config.enabled ? "重写与脚本已启用" : "重写与脚本未启用（在模块、重写或脚本页面顶部开启）")
+                    .buttonStyle(.plain)
+                    .accessibilityAddTraits(raw == s.rawValue ? .isSelected : [])
+                    .accessibilityIdentifier("launchTab.\(s.rawValue)")
                 }
-                .listRowBackground(Theme.card)
-
-                Section("工具与数据") {
-                    NavigationLink { LazyDestination { ToolsView() } } label: { row("网络工具（Ping / TCP / DNS）", "stethoscope.circle", nil) }
-                    NavigationLink { LazyDestination { NetTestView() } } label: { row("网络测试（带宽 / NAT 类型）", "speedometer", nil) }
-                    NavigationLink { LazyDestination { LANDetailView() } } label: { row("内网 IP 与路由器", "wifi.router", nil) }
-                    NavigationLink { LazyDestination { UnlockView() } } label: { row("解锁检测", "checkmark.shield", nil) }
-                    NavigationLink { LazyDestination { AnalyticsView() } } label: { row("连接分析", "chart.pie", nil) }
-                    NavigationLink { LazyDestination { StatsView() } } label: { row("流量统计", "chart.bar.xaxis", nil) }
-                    NavigationLink { LazyDestination { LogsView() } } label: { row("日志", "text.alignleft", nil) }
-                    NavigationLink { LazyDestination { DNSLogView() } } label: { row("DNS 日志", "list.bullet.below.rectangle", nil) }
-                    NavigationLink { LazyDestination { BackupView() } } label: { row("备份与恢复", "externaldrive.badge.icloud", nil) }
-                    NavigationLink { LazyDestination { SnapshotsView() } } label: { row("配置快照", "clock.arrow.circlepath", nil) }
-                    NavigationLink { LazyDestination { StorageView() } } label: { row("存储空间", "internaldrive", nil) }
-                }
-                .listRowBackground(Theme.card)
-
-                Section("设置") {
-                    NavigationLink { LazyDestination { AppearanceView() } } label: { row("外观", "circle.lefthalf.filled", nil) }
-                    NavigationLink { LazyDestination { SettingsView() } } label: { row("内核设置", "slider.horizontal.3", nil) }
-                    NavigationLink { LazyDestination { SpeedTestSettingsView() } } label: { row("测速", "bolt.horizontal", nil) }
-                    NavigationLink { LazyDestination { GeoCheckerView() } } label: { row("出口信息查询", "mappin.and.ellipse", nil) }
-                    if UIApplication.shared.supportsAlternateIcons {
-                        NavigationLink { LazyDestination { AppIconView() } } label: { row("App 图标", "app.badge", nil) }
-                    }
-                    NavigationLink { LazyDestination { DiagnosticsView() } } label: {
-                        HStack {
-                            Label("诊断", systemImage: "waveform.path.ecg")
-                            Spacer()
-                            Text(AppShared.containerOK ? "App Group 正常" : "App Group 异常")
-                                .font(.caption).foregroundStyle(AppShared.containerOK ? Theme.good : Theme.bad)
-                        }
-                        .accessibilityIdentifier("more.诊断")
-                    }
-                }
-                .listRowBackground(Theme.card)
-
-                Section {
-                    Button { showOnboarding = true } label: { row("新手引导", "sparkles", nil) }
-                        .foregroundStyle(.primary)
-                    NavigationLink { LazyDestination { AboutView() } } label: { row("关于 / 开源许可", "info.circle", nil) }
-                }
-                .listRowBackground(Theme.card)
-            }
-            .listStyle(.insetGrouped)
-            .scrollContentBackground(.hidden)
-            .background(Theme.bg.ignoresSafeArea())
-            .navigationTitle("更多")
-            .onAppear {
-                refreshLabels()
-                nodeCount = Self.nodeTotal(nodeModel.nodes)
-            }
-            .onReceive(nodeModel.$nodes
-                .debounce(for: .milliseconds(300), scheduler: RunLoop.main)) { n in
-                let c = Self.nodeTotal(n)
-                if c != nodeCount { nodeCount = c }
-            }
-            .fullScreenCover(isPresented: $showOnboarding) {
-                OnboardingView { showOnboarding = false }
-                    .environmentObject(vpn)
-                    .environmentObject(store)
-            }
+            } footer: { Text("下次打开 App 时从这里开始。") }
+            .listRowBackground(Theme.card)
         }
-    }
-
-    func row(_ title: String, _ icon: String, _ value: String?) -> some View {
-        HStack {
-            Label(LocalizedStringKey(title), systemImage: icon)
-            Spacer()
-            if let value { Text(value).font(.caption).foregroundStyle(.secondary) }
-        }
-        // UI tests (test/selftest): the zh-Hans key is the stable id in every language.
-        .accessibilityElement(children: .combine)
-        .accessibilityIdentifier("more." + title)
+        .listStyle(.insetGrouped)
+        .scrollContentBackground(.hidden)
+        .background(Theme.bg.ignoresSafeArea())
+        .navigationTitle("开始标签页")
     }
 }
 

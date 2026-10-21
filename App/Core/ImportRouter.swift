@@ -63,7 +63,8 @@ final class ImportRouter: ObservableObject {
         set { if let a = newValue { present(a) } }
     }
     /// Tab to show after routing (0 首页 … 4 更多).
-    @Published var selectedTab = 0
+    /// feat/surge-ui: starts on the 开始标签页 chosen in 更多 → 开始标签页 (UI tests always start on 首页).
+    @Published var selectedTab = LaunchTab.initial
     /// URLs from the scene's launch options (cold launch); drained once the UI exists if onOpenURL did not.
     var coldLaunchURLs: [URL] = []
     private var recentURLs: [(String, Date)] = []

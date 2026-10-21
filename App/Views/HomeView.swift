@@ -43,6 +43,7 @@ struct HomeView: View {
                 VStack(spacing: 14) {
                     // v0.7: exit-location header (QX reference, in our card style) with the plain toggle.
                     ExitHeader()
+                    if store.profiles.isEmpty { HomeEmptyCard() }
                     if vpn.safeModeActive && vpn.status != .disconnected && vpn.status != .invalid { SafeModeCard() }
                     if vpn.isConnected && !liveGroups.isEmpty {
                         HomePolicySection(groups: liveGroups, live: true, available: liveAvailable)
@@ -92,6 +93,23 @@ struct HomeView: View {
                 Text(vpn.canOfferSafeMode
                      ? (vpn.lastError ?? "") + "\n\n" + String(localized: "安全模式只用配置文件本身连接：暂停模块、重写、脚本、MitM、自定义规则和智能选择，便于判断问题出在哪里。")
                      : (vpn.lastError ?? ""))
+            }
+        }
+    }
+}
+
+/// feat/surge-ui: first-run Home without any profile — one sentence and the way to add one, instead of
+/// empty policy cards and zero counters.
+struct HomeEmptyCard: View {
+    var body: some View {
+        Card {
+            EmptyStateRow(icon: "tray.and.arrow.down", title: "还没有配置", message: "添加一个订阅或配置文件，就可以开始使用了。") {
+                Button { ImportRouter.shared.selectedTab = AppSection.profiles.rawValue } label: {
+                    Text("添加配置").font(.footnote.weight(.semibold))
+                }
+                .buttonStyle(.borderless)
+                .padding(.top, 2)
+                .accessibilityIdentifier("home.addProfile")
             }
         }
     }
