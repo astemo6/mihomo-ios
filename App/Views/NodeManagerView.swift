@@ -43,6 +43,9 @@ struct NodeListView: View {
     @State private var confirmDelete: ManagedNode?
     @State private var message: String?
     @State private var editSub: NodeSubscription?
+    // feat/subs-split: 添加到本地节点 from a subscription / 节点集 node row's long-press menu (same model.addToLocal
+    // as the node detail page, same result alert).
+    @State private var addedLocal: NodeDetailView.AddedLocal?
 
     var sort: NodeManagerModel.SortMode { NodeManagerModel.SortMode(rawValue: sortRaw) ?? .config }
 
@@ -167,6 +170,26 @@ struct NodeListView: View {
         .alert("提示", isPresented: Binding(get: { message != nil }, set: { if !$0 { message = nil } })) {
             Button("好", role: .cancel) {}
         } message: { Text(message ?? "") }
+        .alert("已添加到本地节点", isPresented: Binding(get: { addedLocal != nil }, set: { if !$0 { addedLocal = nil } }), presenting: addedLocal) { a in
+            Button("编辑") {
+                if let m = model.manualNode(named: a.name) { editing = ManualNodesView.EditTarget(node: m) }
+            }
+            Button("好", role: .cancel) {}
+        } message: { a in
+            a.inRuntime
+                ? Text("「\(a.name)」现在是可编辑的手动节点，不受订阅更新影响。")
+                : Text("「\(a.name)」现在是可编辑的手动节点，不受订阅更新影响。它还不在当前配置里：在 更多 → 高级设置 → 内核设置 打开「把手动节点加入每个配置」。")
+        }
+    }
+
+    func addToLocal(_ n: ManagedNode) async {
+        do {
+            let name = try await model.addToLocal(n)
+            let inRuntime = model.nodes.contains { $0.source.kind == .manual && $0.name == name && $0.inRuntime }
+            addedLocal = NodeDetailView.AddedLocal(name: name, inRuntime: inRuntime)
+        } catch {
+            message = error.localizedDescription
+        }
     }
 
     /// Empty sections worth showing: 手动 (with a hint) and providers that are not downloaded yet; not an empty 配置.
@@ -290,6 +313,9 @@ struct NodeListView: View {
                 Button { Task { await model.test(n) } } label: { Label("测速", systemImage: "bolt.horizontal") }
             }
             Button { UIPasteboard.general.string = n.name } label: { Label("复制名称", systemImage: "doc.on.doc") }
+            if n.source.kind == .subscription || n.source.kind == .provider {
+                Button { Task { await addToLocal(n) } } label: { Label("添加到本地节点", systemImage: "square.and.arrow.down.on.square") }
+            }
             if model.manualNode(n) != nil {
                 Button { editing = ManualNodesView.EditTarget(node: model.manualNode(n)) } label: { Label("编辑", systemImage: "pencil") }
                 Button {

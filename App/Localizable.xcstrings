@@ -85290,7 +85290,7 @@
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "Keep: regex, e.g. (?i)港|hk"
+            "value": "Keep: regex, e.g. (?i)hk|hong kong"
           }
         },
         "ja": {

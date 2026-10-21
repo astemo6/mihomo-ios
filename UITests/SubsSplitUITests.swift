@@ -93,6 +93,24 @@ extension MihomoUITests {
         XCTAssertTrue(sub.waitForExistence(timeout: 5), "back on the page")
         snap("subs-split-icon")
 
+        // 添加到本地节点 from a subscription node row's long-press menu (same action as the node detail page, #68).
+        XCTAssertTrue(scrollTo(sub))
+        sub.tap()
+        let subNode = app.element(label: Self.credSubNode)
+        XCTAssertTrue(scrollTo(subNode), "subscription node listed")
+        subNode.press(forDuration: 1.3)
+        let addLocal = app.button(L("添加到本地节点"))
+        XCTAssertTrue(addLocal.waitForExistence(timeout: 4), "添加到本地节点 in the node row menu")
+        snap("subs-split-node-menu")
+        addLocal.tap()
+        let added = app.alerts.firstMatch
+        XCTAssertTrue(added.waitForExistence(timeout: 10), "added confirmation")
+        XCTAssertTrue(added.staticTexts[L("已添加到本地节点")].exists, "confirmation title")
+        snap("subs-split-node-added")
+        added.buttons[L("好")].tap()
+        back()
+        XCTAssertTrue(sub.waitForExistence(timeout: 6), "back on 节点与订阅")
+
         // 删除 (menu) asks first, hides the row, and 恢复已删除的节点集 brings it back.
         XCTAssertTrue(scrollTo(provider))
         provider.press(forDuration: 1.3)
