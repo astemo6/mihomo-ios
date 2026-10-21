@@ -3,6 +3,7 @@ package libmihomo
 import (
 	"encoding/json"
 	"fmt"
+	"net"
 	"os"
 	"path/filepath"
 	"strings"
@@ -92,5 +93,49 @@ func TestR7B11LogRingConcurrentOrder(t *testing.T) {
 	}
 	if len(seen) != 1600 {
 		t.Fatalf("cursor reader missed lines: saw %d of 1600", len(seen))
+	}
+}
+
+// freeTCPPort (B12) returns a loopback port nothing listens on right now.
+func freeTCPPort(t *testing.T) int {
+	t.Helper()
+	l, err := net.Listen("tcp", "127.0.0.1:0")
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer l.Close()
+	return l.Addr().(*net.TCPAddr).Port
+}
+
+// copyRepoGeo (B12) puts the repository's bundled Geo/ files into home (as the app does before Start), so
+// tests that parse geosite / geoip rules never download them. Skips when they are missing and MIHOMO_OFFLINE=1.
+func copyRepoGeo(t *testing.T, home string) {
+	t.Helper()
+	for _, f := range []string{"GeoSite.dat", "geoip.metadb"} {
+		b, err := os.ReadFile(filepath.Join("..", "Geo", f))
+		if err != nil {
+			if os.Getenv("MIHOMO_OFFLINE") == "1" {
+				t.Skipf("offline and no bundled %s", f)
+			}
+			continue // online: mihomo downloads it as before
+		}
+		if err := os.WriteFile(filepath.Join(home, f), b, 0o644); err != nil {
+			t.Fatal(err)
+		}
+	}
+}
+
+// B12: the helpers above actually give a free port and the geo files.
+func TestR7B12OfflineHelpers(t *testing.T) {
+	p := freeTCPPort(t)
+	l, err := net.Listen("tcp", fmt.Sprintf("127.0.0.1:%d", p))
+	if err != nil {
+		t.Fatalf("port %d not free: %v", p, err)
+	}
+	l.Close()
+	home := t.TempDir()
+	copyRepoGeo(t, home)
+	if fi, err := os.Stat(filepath.Join(home, "GeoSite.dat")); err != nil || fi.Size() == 0 {
+		t.Fatalf("GeoSite.dat not copied: %v", err)
 	}
 }
