@@ -572,6 +572,9 @@ struct DiagnosticsView: View {
     @State private var share: ShareItem?
     @State private var exportError: String?
     @State private var copied = false
+    /// B24: groups in embedded.mobileprovision, parsed once on appear (it was parsed on every redraw; the memory
+    /// section above redraws periodically). nil = not read yet.
+    @State private var provisioned: [String]?
 
     var body: some View {
         let group = AppShared.appGroup
@@ -614,8 +617,9 @@ struct DiagnosticsView: View {
                 LabeledContent("共享容器") {
                     Text(AppShared.containerOK ? "正常" : "不可用").foregroundStyle(AppShared.containerOK ? Theme.good : Theme.bad)
                 }
-                let groups = AppShared.provisionedAppGroups()
-                LabeledContent("描述文件中的组", value: groups.isEmpty ? String(localized: "（未找到 embedded.mobileprovision）") : groups.sorted().joined(separator: "\n"))
+                if let groups = provisioned {
+                    LabeledContent("描述文件中的组", value: groups.isEmpty ? String(localized: "（未找到 embedded.mobileprovision）") : groups.joined(separator: "\n"))
+                }
                 LabeledContent("VPN 状态", value: vpn.statusText)
                 LabeledContent("上次断开原因", value: TunnelStopReason.last() ?? "—")
                 let co = CoreOverrides.load()
@@ -655,6 +659,7 @@ struct DiagnosticsView: View {
         .scrollContentBackground(.hidden)
         .background(Theme.bg.ignoresSafeArea())
         .navigationTitle("诊断")
+        .onAppear { if provisioned == nil { provisioned = AppShared.provisionedAppGroups().sorted() } }
         // fix/nav-jank: init already read it for the first frame; the re-read (two files) runs off main.
         .task {
             let s = await Task.detached(priority: .utility) { StartupLog.read() }.value
