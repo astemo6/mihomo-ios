@@ -149,8 +149,17 @@ final class NodeSubStore: ObservableObject {
         guard let u = URL(string: s.url), u.scheme?.hasPrefix("http") == true else { throw ProfileStore.StoreError.badURL }
         var req = URLRequest(url: u, cachePolicy: .reloadIgnoringLocalCacheData, timeoutInterval: 30)
         req.setValue(s.userAgent, forHTTPHeaderField: "User-Agent")
-        let (data, resp) = try await URLSession.shared.data(for: req)
-        let http = resp as? HTTPURLResponse
+        let data: Data
+        let http: HTTPURLResponse?
+        if UITestSeed.enabled, u.host?.hasSuffix("uitest.invalid") == true {
+            // r7 (backlog B13, Debug builds only): the subscription add / edit UI test downloads the seeded node file.
+            data = Data(UITestSeed.subYAML.utf8)
+            http = nil
+        } else {
+            let (d, resp) = try await URLSession.shared.data(for: req)
+            data = d
+            http = resp as? HTTPURLResponse
+        }
         if let c = http?.statusCode, !(200..<300).contains(c) { throw ProfileStore.StoreError.http(c) }
         let path = s.cacheURL.path
         let out = await Task.detached(priority: .userInitiated) {
