@@ -89507,6 +89507,216 @@
           }
         }
       }
+    },
+    "导出最终配置（含覆写）": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Export Final Profile (with Overrides)"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "最終プロファイルを書き出す（上書きを含む）"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "최종 프로파일 내보내기(덮어쓰기 포함)"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Экспорт итогового профиля (с переопределениями)"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "匯出最終配置（含覆寫）"
+          }
+        }
+      }
+    },
+    "最终配置": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "final"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "最終"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "최종"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "итоговый"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "最終配置"
+          }
+        }
+      }
+    },
+    "保存完整备份到「文件」（可选 iCloud 云盘）": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Save Full Backup to Files (iCloud Drive optional)"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "完全バックアップを「ファイル」に保存（iCloud Drive も可）"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "전체 백업을 「파일」에 저장(iCloud Drive 선택 가능)"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Сохранить полную копию в «Файлы» (можно iCloud Drive)"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "儲存完整備份到「檔案」（可選 iCloud 雲盤）"
+          }
+        }
+      }
+    },
+    "分享完整备份…": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Share Full Backup…"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "完全バックアップを共有…"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "전체 백업 공유…"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Поделиться полной копией…"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "分享完整備份…"
+          }
+        }
+      }
+    },
+    "导出完整备份（.json，含全部配置 / 模块 / 设置）": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Export Full Backup (.json, all profiles / modules / settings)"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "完全バックアップを書き出す（.json、全プロファイル / モジュール / 設定）"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "전체 백업 내보내기(.json, 모든 프로파일 / 모듈 / 설정)"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Экспорт полной копии (.json: все профили / модули / настройки)"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "匯出完整備份（.json，含全部配置 / 模組 / 設定）"
+          }
+        }
+      }
+    },
+    "只要导出某一个配置的 YAML 文件：更多 → 配置 → 长按该配置 → 导出。": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "To export a single profile as a YAML file: More → Profiles → long-press the profile → Export."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "1 つのプロファイルだけを YAML ファイルで書き出すには：その他 → プロファイル → プロファイルを長押し → 書き出す。"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "프로파일 하나만 YAML 파일로 내보내려면: 더 보기 → 프로파일 → 프로파일 길게 누르기 → 내보내기."
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Чтобы экспортировать один профиль как YAML-файл: Ещё → Профили → удерживайте профиль → Экспорт."
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "只要匯出某一個配置的 YAML 檔案：更多 → 配置 → 長按該配置 → 匯出。"
+          }
+        }
+      }
     }
   },
   "version": "1.0"

@@ -97,69 +97,77 @@ struct ToolsList: View {
 
     var body: some View {
         List {
-            Section {
-                card("节点与订阅", "节点与订阅", "server.rack", .blue, stats: nodeStats) { NodeManagerView() }
-                card("规则", "分流规则", "arrow.triangle.branch", .orange, stats: [
-                    ToolStat(symbol: "list.bullet", value: "\(stats.profileRules)", label: String(localized: "配置规则 \(stats.profileRules)")),
-                    ToolStat(symbol: "square.stack.3d.up", value: "\(stats.ruleProviders)", label: String(localized: "规则集 \(stats.ruleProviders)")),
-                    ToolStat(symbol: "pencil.line", value: "\(stats.customRulesOn)/\(stats.customRules)", label: String(localized: "自定义规则 \(stats.customRulesOn)/\(stats.customRules)")),
-                ]) { RulesView() }
+            // Egern-style: every tool is its own rounded card (one section per card).
+            Group {
+                cardSection { card("节点与订阅", "节点与订阅", "server.rack", .blue, stats: nodeStats) { NodeManagerView() } }
+                cardSection {
+                    card("规则", "分流规则", "arrow.triangle.branch", .orange, stats: [
+                        ToolStat(symbol: "list.bullet", value: "\(stats.profileRules)", label: String(localized: "配置规则 \(stats.profileRules)")),
+                        ToolStat(symbol: "square.stack.3d.up", value: "\(stats.ruleProviders)", label: String(localized: "规则集 \(stats.ruleProviders)")),
+                        ToolStat(symbol: "pencil.line", value: "\(stats.customRulesOn)/\(stats.customRules)", label: String(localized: "自定义规则 \(stats.customRulesOn)/\(stats.customRules)")),
+                    ]) { RulesView() }
+                }
+                cardSection {
+                    card("模块与资源", "模块", "puzzlepiece.extension", .green, stats: [
+                        ToolStat(symbol: "puzzlepiece", value: "\(stats.modulesOn)/\(stats.modules)", label: String(localized: "已启用模块 \(stats.modulesOn)/\(stats.modules)")),
+                    ] + engineOffStat) { ModulesView() }
+                }
+                cardSection {
+                    card("重写（本地模块）", "重写", "arrow.triangle.swap", .red, stats: [
+                        ToolStat(symbol: "pencil", value: "\(stats.rewritesOn)/\(stats.rewrites)", label: String(localized: "我的重写 \(stats.rewritesOn)/\(stats.rewrites)")),
+                        ToolStat(symbol: "puzzlepiece", value: "\(stats.moduleRewrites)", label: String(localized: "模块重写 \(stats.moduleRewrites)")),
+                        ToolStat(symbol: "globe", value: "\(stats.hostnames)", label: String(localized: "MitM 主机名 \(stats.hostnames)")),
+                    ]) { LocalModuleView() }
+                }
+                cardSection {
+                    card("脚本", "脚本", "curlybraces", .purple, stats: [
+                        ToolStat(symbol: "doc.text", value: "\(stats.scriptsOn)/\(stats.scripts)", label: String(localized: "我的脚本 \(stats.scriptsOn)/\(stats.scripts)")),
+                        ToolStat(symbol: "puzzlepiece", value: "\(stats.moduleScripts)", label: String(localized: "模块脚本 \(stats.moduleScripts)")),
+                    ]) { ScriptsView() }
+                }
+                cardSection {
+                    card("任务", "定时任务", "clock.arrow.circlepath", .teal, stats: [
+                        stats.tasksPaused
+                            ? ToolStat(symbol: "pause.circle", value: String(localized: "已暂停"), label: String(localized: "自动运行已暂停"), tint: Theme.warn)
+                            : ToolStat(symbol: "play.circle", value: String(localized: "自动运行"), label: String(localized: "自动运行")),
+                    ]) { ScriptTasksView() }
+                }
+                cardSection {
+                    card("MitM", "HTTPS 解密", "lock.open", .accent, stats: [
+                        ToolStat(symbol: "power", value: stats.mitmOn ? String(localized: "已开启") : String(localized: "关闭"),
+                                 label: stats.mitmOn ? String(localized: "HTTPS 解密已开启") : String(localized: "HTTPS 解密关闭"),
+                                 tint: stats.mitmOn ? Theme.good : nil),
+                        ToolStat(symbol: "globe", value: "\(stats.hostnames)", label: String(localized: "MitM 主机名 \(stats.hostnames)")),
+                        certStat,
+                    ]) { MitMView() }
+                }
+                cardSection {
+                    card("DNS", "DNS", "network", .orange, stats: [
+                        ToolStat(symbol: "gearshape", value: stats.dnsCustom ? String(localized: "自定义") : String(localized: "配置文件"),
+                                 label: stats.dnsCustom ? String(localized: "DNS 自定义") : String(localized: "DNS 使用配置文件")),
+                    ] + (stats.dnsCustom ? [ToolStat(symbol: "server.rack", value: "\(stats.dnsServers)", label: String(localized: "DNS 服务器 \(stats.dnsServers)"))] : [])) { DNSView() }
+                }
             }
-            .listRowBackground(Theme.card)
-
-            Section {
-                card("模块与资源", "模块", "puzzlepiece.extension", .green, stats: [
-                    ToolStat(symbol: "puzzlepiece", value: "\(stats.modulesOn)/\(stats.modules)", label: String(localized: "已启用模块 \(stats.modulesOn)/\(stats.modules)")),
-                ] + engineOffStat) { ModulesView() }
-                card("重写（本地模块）", "重写", "arrow.triangle.swap", .red, stats: [
-                    ToolStat(symbol: "pencil", value: "\(stats.rewritesOn)/\(stats.rewrites)", label: String(localized: "我的重写 \(stats.rewritesOn)/\(stats.rewrites)")),
-                    ToolStat(symbol: "puzzlepiece", value: "\(stats.moduleRewrites)", label: String(localized: "模块重写 \(stats.moduleRewrites)")),
-                    ToolStat(symbol: "globe", value: "\(stats.hostnames)", label: String(localized: "MitM 主机名 \(stats.hostnames)")),
-                ]) { LocalModuleView() }
-                card("脚本", "脚本", "curlybraces", .purple, stats: [
-                    ToolStat(symbol: "doc.text", value: "\(stats.scriptsOn)/\(stats.scripts)", label: String(localized: "我的脚本 \(stats.scriptsOn)/\(stats.scripts)")),
-                    ToolStat(symbol: "puzzlepiece", value: "\(stats.moduleScripts)", label: String(localized: "模块脚本 \(stats.moduleScripts)")),
-                ]) { ScriptsView() }
-                card("任务", "定时任务", "clock.arrow.circlepath", .teal, stats: [
-                    stats.tasksPaused
-                        ? ToolStat(symbol: "pause.circle", value: String(localized: "已暂停"), label: String(localized: "自动运行已暂停"), tint: Theme.warn)
-                        : ToolStat(symbol: "play.circle", value: String(localized: "自动运行"), label: String(localized: "自动运行")),
-                ]) { ScriptTasksView() }
-            }
-            .listRowBackground(Theme.card)
-
-            Section {
-                card("MitM", "HTTPS 解密", "lock.open", .accent, stats: [
-                    ToolStat(symbol: "power", value: stats.mitmOn ? String(localized: "已开启") : String(localized: "关闭"),
-                             label: stats.mitmOn ? String(localized: "HTTPS 解密已开启") : String(localized: "HTTPS 解密关闭"),
-                             tint: stats.mitmOn ? Theme.good : nil),
-                    ToolStat(symbol: "globe", value: "\(stats.hostnames)", label: String(localized: "MitM 主机名 \(stats.hostnames)")),
-                    certStat,
-                ]) { MitMView() }
-                card("DNS", "DNS", "network", .orange, stats: [
-                    ToolStat(symbol: "gearshape", value: stats.dnsCustom ? String(localized: "自定义") : String(localized: "配置文件"),
-                             label: stats.dnsCustom ? String(localized: "DNS 自定义") : String(localized: "DNS 使用配置文件")),
-                ] + (stats.dnsCustom ? [ToolStat(symbol: "server.rack", value: "\(stats.dnsServers)", label: String(localized: "DNS 服务器 \(stats.dnsServers)"))] : [])) { DNSView() }
-            }
-            .listRowBackground(Theme.card)
-
-            Section {
-                card("日志", "运行日志", "text.alignleft", .neutral, stats: [], needsVPN: true) { LogsView() }
-                card("DNS 日志", "域名解析记录", "globe", .blue, stats: [], needsVPN: true) { DNSLogView() }
-                card("连接分析", "连接分析", "chart.pie", .teal, stats: [], needsVPN: true) { AnalyticsView() }
-            } header: { Text("运行状态") } footer: {
-                if !vpn.isConnected { Text("开启 VPN 后可查看。实时请求在「请求」标签页。") }
-            }
-            .listRowBackground(Theme.card)
-
-            Section("网络") {
-                card("网络工具（Ping / TCP / DNS）", "网络诊断", "stethoscope", .green, caption: "Ping · TCP · DNS") { ToolsView() }
-                card("网络测试（带宽 / NAT 类型）", "网速测试", "speedometer", .orange, caption: "带宽 · NAT 类型") { NetTestView() }
-                card("解锁检测", "流媒体解锁", "play.tv", .pink, caption: "Netflix · YouTube · ChatGPT …") { UnlockView() }
-                card("内网 IP 与路由器", "局域网信息", "wifi.router", .teal, caption: "内网 IP · 路由器") { LANDetailView() }
+            Group {
+                Section {
+                    card("日志", "运行日志", "text.alignleft", .neutral, needsVPN: true) { LogsView() }
+                } header: { Text("运行状态") }
+                cardSection { card("DNS 日志", "域名解析记录", "globe", .blue, needsVPN: true) { DNSLogView() } }
+                Section {
+                    card("连接分析", "连接分析", "chart.pie", .teal, needsVPN: true) { AnalyticsView() }
+                } footer: {
+                    if !vpn.isConnected { Text("开启 VPN 后可查看。实时请求在「请求」标签页。") }
+                }
+                Section {
+                    card("网络工具（Ping / TCP / DNS）", "网络诊断", "stethoscope", .green, caption: "Ping · TCP · DNS") { ToolsView() }
+                } header: { Text("网络") }
+                cardSection { card("网络测试（带宽 / NAT 类型）", "网速测试", "speedometer", .orange, caption: "带宽 · NAT 类型") { NetTestView() } }
+                cardSection { card("解锁检测", "流媒体解锁", "play.tv", .pink, caption: "Netflix · YouTube · ChatGPT …") { UnlockView() } }
+                cardSection { card("内网 IP 与路由器", "局域网信息", "wifi.router", .teal, caption: "内网 IP · 路由器") { LANDetailView() } }
             }
             .listRowBackground(Theme.card)
         }
+        .compactSectionSpacing()
         .listStyle(.insetGrouped)
         .scrollContentBackground(.hidden)
         .background(Theme.bg.ignoresSafeArea())
@@ -172,6 +180,10 @@ struct ToolsList: View {
                 refresh()
             }
         }
+    }
+
+    func cardSection<C: View>(@ViewBuilder _ c: () -> C) -> some View {
+        Section { c() }.listRowBackground(Theme.card)
     }
 
     func refresh() {
@@ -257,5 +269,12 @@ struct ToolCard: View {
         .padding(.vertical, 8)
         .accessibilityElement(children: .combine)
         .accessibilityIdentifier("more." + id)
+    }
+}
+
+extension View {
+    /// Egern-like gap between the one-card sections (iOS 17+; iOS 16 keeps the default spacing).
+    @ViewBuilder func compactSectionSpacing() -> some View {
+        if #available(iOS 17.0, *) { self.listSectionSpacing(14) } else { self }
     }
 }

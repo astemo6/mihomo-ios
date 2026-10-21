@@ -84,6 +84,7 @@ struct ProfilesView: View {
                                 Button { scriptsFor = p } label: { Label("覆写脚本", systemImage: "curlybraces") } // v0.19
                                 Button { editing = p } label: { Label(LocalizedStringKey(p.kind == .remote ? "查看 YAML" : "编辑 YAML"), systemImage: p.kind == .remote ? "doc.text" : "pencil") }
                                 Button { export(p) } label: { Label("导出", systemImage: "square.and.arrow.up") }
+                                Button { exportFinal(p) } label: { Label("导出最终配置（含覆写）", systemImage: "doc.badge.gearshape") }
                                 Button(role: .destructive) { requestDelete(p) } label: { Label("删除", systemImage: "trash") }
                             }
                             .listRowBackground(Theme.card)
@@ -142,7 +143,20 @@ struct ProfilesView: View {
         }
     }
 
-    /// 导出: the profile's YAML file through the share sheet (保存到文件 / AirDrop / other apps).
+    /// 导出最终配置（含覆写）: the merged YAML the core runs (see ProfileStore.exportFinalFile).
+    func exportFinal(_ p: Profile) {
+        busy = true
+        Task {
+            let r = await store.exportFinalFile(of: p)
+            busy = false
+            switch r {
+            case .success(let u): share = ShareItem(url: u, temporary: true)
+            case .failure(let e): message = String(localized: "导出失败：") + e.localizedDescription
+            }
+        }
+    }
+
+    /// 导出: the profile's YAML file (`<name>.yaml`, the profile exactly as stored) through the share sheet.
     func export(_ p: Profile) {
         if let u = store.exportFile(of: p) { share = ShareItem(url: u, temporary: true) }
         else { message = String(localized: "导出失败：") + String(localized: "配置文件为空或无法读取") }

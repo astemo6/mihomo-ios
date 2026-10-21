@@ -67,6 +67,13 @@ extension MihomoUITests {
         snap("dedup-advanced-1")
         back()
 
+        // 备份与恢复: the export is labelled as the full .json backup and points at 配置 → 导出 for one YAML.
+        openMore("备份与恢复")
+        XCTAssertTrue(app.element(id: "backup.exportFiles").waitForExistence(timeout: 5) || scrollTo(app.element(id: "backup.exportFiles")), "完整备份 export")
+        app.swipeUp(velocity: .slow)
+        snap("dedup-backup")
+        back()
+
         // 更新资源: every remote resource with its own 更新 and 更新全部.
         openMore("更新资源")
         XCTAssertTrue(app.navigationBars[L("更新资源")].waitForExistence(timeout: 5), "更新资源 page")
@@ -89,6 +96,7 @@ extension MihomoUITests {
         XCTAssertTrue(export.waitForExistence(timeout: 4), "导出 in the profile long-press menu")
         XCTAssertTrue(delete.exists, "删除 in the profile long-press menu")
         XCTAssertLessThan(export.frame.midY, delete.frame.midY, "导出 is above 删除")
+        XCTAssertTrue(app.button(L("导出最终配置（含覆写）")).exists, "导出最终配置 in the long-press menu")
         snap("dedup-profile-menu")
         XCTAssertTrue(tapIfExists(app.button(L("编辑 YAML")), timeout: 3), "编辑 YAML in the menu")
         XCTAssertTrue(app.element(id: "yaml.export").waitForExistence(timeout: 5), "导出 in the YAML editor toolbar")
