@@ -46,27 +46,46 @@ struct LiveElapsed: View {
     }
 }
 
-/// 「已连接 2:46」 — the label and its time on one line; 「未连接」 alone when disconnected.
+/// 「已连接 2:46」 — the label and its time on one line; 「未连接」 alone when disconnected. When the line does not
+/// fit (long translation + large Dynamic Type) the time moves under the label with a clock glyph instead of
+/// being squeezed, truncated or drawn over the speeds.
 @available(iOS 16.2, *)
 struct LiveStatusLine: View {
     let connected: Bool
     let since: Date
     var titleFont: Font = .headline
     var timeFont: Font = .subheadline
+
+    private var title: some View {
+        Text(connected ? LocalizedStringKey("已连接") : LocalizedStringKey("未连接"))
+            .font(titleFont)
+            .lineLimit(1)
+    }
+
+    private var time: some View {
+        LiveElapsed(since: since)
+            .font(timeFont)
+            .foregroundStyle(.secondary)
+            .fixedSize()
+    }
+
     var body: some View {
-        HStack(alignment: .firstTextBaseline, spacing: 6) {
-            Text(connected ? LocalizedStringKey("已连接") : LocalizedStringKey("未连接"))
-                .font(titleFont)
-                .lineLimit(1)
-                .minimumScaleFactor(0.75)
-                .fixedSize(horizontal: false, vertical: true)
-                .layoutPriority(2)
-            if connected {
-                LiveElapsed(since: since)
-                    .font(timeFont)
-                    .foregroundStyle(.secondary)
-                    .layoutPriority(1)
+        if connected {
+            ViewThatFits(in: .horizontal) {
+                HStack(alignment: .firstTextBaseline, spacing: 6) {
+                    title.fixedSize()
+                    time
+                }
+                VStack(alignment: .leading, spacing: 1) {
+                    title.minimumScaleFactor(0.75)
+                    HStack(spacing: 3) {
+                        Image(systemName: "clock").font(.caption).foregroundStyle(.secondary).accessibilityHidden(true)
+                        time
+                    }
+                }
             }
+        } else {
+            title.minimumScaleFactor(0.75)
         }
     }
 }
