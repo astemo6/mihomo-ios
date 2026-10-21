@@ -174,6 +174,7 @@ final class NodeSubStore: ObservableObject {
             await ProfileInspector.shared.load()
             await NodeManagerModel.shared.reload()
             _ = await VPNManager.shared.reload()
+            return // r7 OPT-4: the inspector already read the changed files above (it was loaded twice)
         }
         await ProfileInspector.shared.load()
     }
