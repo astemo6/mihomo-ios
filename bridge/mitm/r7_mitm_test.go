@@ -8,10 +8,13 @@ import (
 	"context"
 	"crypto/rand"
 	"encoding/hex"
+	"encoding/json"
 	"fmt"
 	"net"
 	"net/http"
 	"net/http/httptest"
+	"os"
+	"path/filepath"
 	"strconv"
 	"strings"
 	"sync"
@@ -195,5 +198,57 @@ func TestR7CaptureGzipPreviewOver32K(t *testing.T) {
 			t.Fatal("no text preview for a >32 KB gzip response")
 		}
 		time.Sleep(50 * time.Millisecond)
+	}
+}
+
+// P3-5: two Store instances flushing at once never corrupt store.json (unique temp files).
+func TestR7StoreConcurrentFlushNoCorruption(t *testing.T) {
+	home := t.TempDir()
+	_ = os.MkdirAll(EngineDir(home), 0o755)
+	a, b := NewStore(home), NewStore(home)
+	big := strings.Repeat("A", 3<<20)
+	for i := 0; i < 30; i++ {
+		a.Write("k", big+fmt.Sprint(i), false)
+		b.Write("j", "small"+fmt.Sprint(i), false)
+		var wg sync.WaitGroup
+		wg.Add(2)
+		go func() { defer wg.Done(); _ = a.Flush() }()
+		go func() { defer wg.Done(); _ = b.Flush() }()
+		wg.Wait()
+		if _, err := os.Stat(filepath.Join(EngineDir(home), "store.json.bad")); err == nil {
+			t.Fatalf("iter %d: store quarantined", i)
+		}
+		raw, _ := os.ReadFile(filepath.Join(EngineDir(home), "store.json"))
+		var m map[string]string
+		if err := json.Unmarshal(raw, &m); err != nil {
+			t.Fatalf("iter %d: corrupt store.json (%d bytes): %v", i, len(raw), err)
+		}
+	}
+	if left, _ := filepath.Glob(filepath.Join(EngineDir(home), "*.tmp")); len(left) > 0 {
+		t.Fatalf("temp files left: %v", left)
+	}
+}
+
+// P3-5: a failed write keeps the pending change for the next flush.
+func TestR7StoreFailedFlushKeepsPending(t *testing.T) {
+	home := t.TempDir()
+	_ = os.MkdirAll(EngineDir(home), 0o755)
+	s := NewStore(home)
+	s.Write("k", "v1", false)
+	dir := EngineDir(home)
+	if err := os.Chmod(dir, 0o500); err != nil {
+		t.Skip(err)
+	}
+	err := s.Flush()
+	_ = os.Chmod(dir, 0o755)
+	if err == nil {
+		t.Skip("directory not read-only here (root?)")
+	}
+	if err := s.Flush(); err != nil {
+		t.Fatal(err)
+	}
+	raw, _ := os.ReadFile(filepath.Join(dir, "store.json"))
+	if !strings.Contains(string(raw), `"k":"v1"`) {
+		t.Fatalf("pending change lost after a failed flush: %s", raw)
 	}
 }

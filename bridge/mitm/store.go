@@ -136,8 +136,14 @@ func (s *Store) flushLocked() error {
 			s.recomputeSizeLocked()
 		}
 	}
+	pending, cleared := s.pending, s.cleared
 	s.pending, s.cleared = nil, false
 	if err := s.writeLocked(); err != nil {
+		// r7 P3-5: keep the changes for the next flush instead of dropping them (they were only in memory).
+		s.pending, s.cleared = pending, cleared
+		if s.timer == nil {
+			s.timer = time.AfterFunc(storeFlushDelay, func() { _ = s.Flush() })
+		}
 		return err
 	}
 	if fi, err := os.Stat(s.path); err == nil {
@@ -149,11 +155,16 @@ func (s *Store) flushLocked() error {
 // writeLocked streams the map as compact JSON, one key at a time (sorted for stable diffs).
 func (s *Store) writeLocked() error {
 	_ = os.MkdirAll(filepath.Dir(s.path), 0o755)
-	tmp := s.path + ".tmp"
-	f, err := os.OpenFile(tmp, os.O_CREATE|os.O_WRONLY|os.O_TRUNC, 0o644)
+	// r7 P3-5: a temp file of our own. Two Store instances on one home (the tunnel's engine and the app's
+	// 脚本调试 / geo checker engine) shared "store.json.tmp": both wrote into one inode, and the second
+	// writer kept writing into the file the first had already renamed to store.json → corrupt JSON →
+	// quarantined as .bad, every BoxJS / Sub-Store value gone.
+	f, err := os.CreateTemp(filepath.Dir(s.path), filepath.Base(s.path)+".*.tmp")
 	if err != nil {
 		return err
 	}
+	tmp := f.Name()
+	_ = f.Chmod(0o644)
 	w := bufio.NewWriterSize(f, 32<<10)
 	keys := make([]string, 0, len(s.data))
 	for k := range s.data {
