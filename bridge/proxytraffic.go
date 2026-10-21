@@ -43,8 +43,10 @@ import (
 type ptEntry struct {
 	up, down int64 // counters at the last sample
 	proxy    bool
-	counted  bool // pushes into the manager's totals (dialer-proxy inner legs / DNS dialers do not)
-	seen     uint32
+	// uncounted: the core does not push this tracker into its totals (dialer-proxy inner legs / DNS dialers).
+	// Inverted on purpose so an entry made elsewhere with the zero value (e.g. a start-time seed) is counted.
+	uncounted bool
+	seen      uint32
 }
 
 type proxyTraffic struct {
@@ -54,8 +56,8 @@ type proxyTraffic struct {
 	// provTable (review 7 OPT-1): provider node name → is a proxy, built once per classes generation on the
 	// first leaf that is not a top-level proxy, instead of walking every provider for each unknown leaf.
 	provTable map[string]bool
-	epoch   uint32
-	last    time.Time
+	epoch     uint32
+	last      time.Time
 
 	upTotal, downTotal atomic.Int64
 	upRate, downRate   atomic.Int64
@@ -191,7 +193,7 @@ func (p *proxyTraffic) sample(rangeTrackers func(func(statistic.Tracker) bool), 
 			dd = d - e.down
 		}
 		e.up, e.down = u, d
-		if e.counted {
+		if !e.uncounted {
 			allUp += du
 			allDown += dd
 		}
@@ -208,8 +210,8 @@ func (p *proxyTraffic) sample(rangeTrackers func(func(statistic.Tracker) bool), 
 		e := p.entries[info]
 		if e == nil {
 			e = &ptEntry{}
-			e.counted = pushesToManager(t)
-			e.proxy = e.counted && p.leafIsProxy(info)
+			e.uncounted = !pushesToManager(t)
+			e.proxy = !e.uncounted && p.leafIsProxy(info)
 			p.entries[info] = e
 		}
 		e.seen = p.epoch
