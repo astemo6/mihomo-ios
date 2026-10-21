@@ -73,4 +73,20 @@ final class ExitDetailTests: XCTestCase {
         XCTAssertEqual(IPInfoFetcher.genericParse(["query": "1.2.3.4", "as": "AS3258 xTom Japan"], source: "x")?.org, "xTom Japan")
         XCTAssertEqual(IPInfoFetcher.genericParse(["ip": "1.2.3.4", "connection": ["org": "xTom"]], source: "x")?.org, "xTom")
     }
+
+    func testFlagTaiwanDrawnAsCN() {
+        XCTAssertEqual(CountryFlag.emoji("TW"), "🇨🇳")
+        XCTAssertEqual(CountryFlag.emoji("tw"), "🇨🇳")
+        XCTAssertEqual(CountryFlag.emoji("JP"), "🇯🇵")
+        XCTAssertEqual(CountryFlag.emoji("HK"), "🇭🇰")
+        XCTAssertNil(CountryFlag.emoji("TWN"))
+        XCTAssertNil(CountryFlag.emoji("1A"))
+        XCTAssertNil(CountryFlag.emoji(nil))
+        var tw = IPInfo(ip: "1.2.3.4", countryCode: "TW", country: "Taiwan", region: nil, city: "Taipei", asn: nil, org: nil, source: "t")
+        XCTAssertEqual(tw.flag, "🇨🇳")
+        XCTAssertEqual(tw.city, "Taipei", "place text untouched")
+        XCTAssertEqual(tw.countryCode, "TW", "country code untouched")
+        tw.countryCode = nil
+        XCTAssertEqual(tw.flag, "🌐")
+    }
 }

@@ -305,12 +305,7 @@ struct UnlockResult: Codable, Hashable, Identifiable {
         }
     }
 
-    var flag: String? {
-        guard let r = region?.uppercased(), r.count == 2, r.allSatisfy({ $0.isASCII && $0.isLetter }) else { return nil }
-        var s = ""
-        for u in r.unicodeScalars { if let v = UnicodeScalar(127397 + u.value) { s.unicodeScalars.append(v) } }
-        return s
-    }
+    var flag: String? { CountryFlag.emoji(region) }
 }
 
 /// Fixed probe table (no scripts). Each check is a couple of plain requests whose answer tells whether the

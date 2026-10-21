@@ -14,15 +14,7 @@ struct IPInfo: Codable, Equatable {
     var customTitle: String? = nil   // v0.12 geo_location_checker script title (replaces the place text)
     var customSubtitle: String? = nil   // geo_location_checker script subtitle (replaces the whole detail line)
 
-    var flag: String {
-        guard let cc = countryCode?.uppercased(), cc.count == 2 else { return "🌐" }
-        var s = ""
-        for u in cc.unicodeScalars {
-            guard let v = UnicodeScalar(127397 + u.value) else { return "🌐" }
-            s.unicodeScalars.append(v)
-        }
-        return s
-    }
+    var flag: String { CountryFlag.emoji(countryCode) ?? "🌐" }
 
     /// Country name in the app's display language (was always zh_CN, so English / Japanese / … UIs showed
     /// 「日本」; found by the v0.19 en UI scan of the 出口 IP card).
@@ -118,6 +110,25 @@ struct IPInfo: Codable, Equatable {
 
     var copyText: String {
         "\(ip)  \(flag) \(locationText)  \(asnText)"
+    }
+}
+
+/// The one country code → flag emoji helper (Home header, 出口 IP card, 解锁检测 regions …).
+/// TW is drawn as 🇨🇳: China-region iOS renders 🇹🇼 blank (user 2026-10-21 「台湾的emoji…改成cn的」). Only the
+/// glyph changes; place text and node names stay as returned.
+enum CountryFlag {
+    static let substitutes: [String: String] = ["TW": "CN"]
+
+    static func emoji(_ code: String?) -> String? {
+        guard var cc = code?.trimmingCharacters(in: .whitespaces).uppercased(), cc.count == 2,
+              cc.unicodeScalars.allSatisfy({ (65...90).contains($0.value) }) else { return nil }
+        cc = substitutes[cc] ?? cc
+        var s = ""
+        for u in cc.unicodeScalars {
+            guard let v = UnicodeScalar(127397 + u.value) else { return nil }
+            s.unicodeScalars.append(v)
+        }
+        return s
     }
 }
 
