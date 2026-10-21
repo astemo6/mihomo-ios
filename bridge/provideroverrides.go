@@ -78,10 +78,46 @@ func validProviderFilter(f string) bool {
 	return err == nil
 }
 
-// applyProviderOverrides applies ov to the profile's own proxy-providers (call it before node subscriptions
-// are merged). Removed providers leave every `use:`; a group left with no member at all gets DIRECT so the
-// config stays valid. Returns the removed provider names and warnings.
+// applyProviderOverrides applies ov and immediately gives a group left with no member DIRECT (used where
+// no node subscription is merged afterwards, e.g. tests and previews). buildRuntime uses
+// applyProviderOverridesDeferred and fillEmptyProviderGroups after node subscriptions and group edits.
 func applyProviderOverrides(raw map[string]any, ov map[string]ProviderOverride) (removed []string, warns []string) {
+	removed, warns = applyProviderOverridesDeferred(raw, ov)
+	fillEmptyProviderGroups(raw)
+	return removed, warns
+}
+
+// providerLostKey marks (inside buildRuntime only) a group that lost a 停用 / 删除 provider from `use:` or
+// that only had include-all-providers. Review 7 P1-1: the DIRECT fallback must run after node subscriptions
+// are merged — otherwise a select group whose only provider was disabled became `proxies: [DIRECT]`, the node
+// subscription skipped it (defaultSubGroup saw a DIRECT-only group) and MATCH traffic went direct.
+const providerLostKey = "x-tern-lost-provider"
+
+// fillEmptyProviderGroups removes the providerLostKey markers; a marked group with no member left at all gets
+// DIRECT so the config stays valid (安全模式 / no node subscription).
+func fillEmptyProviderGroups(raw map[string]any) {
+	pp, _ := raw["proxy-providers"].(map[string]any)
+	for _, gv := range asList(raw["proxy-groups"]) {
+		g, ok := gv.(map[string]any)
+		if !ok {
+			continue
+		}
+		if _, ok := g[providerLostKey]; !ok {
+			continue
+		}
+		delete(g, providerLostKey)
+		onlyProviders := boolOf(g["include-all-providers"]) && !boolOf(g["include-all"]) && !boolOf(g["include-all-proxies"])
+		if len(asList(g["proxies"])) == 0 && len(asList(g["use"])) == 0 &&
+			!boolOf(g["include-all"]) && !boolOf(g["include-all-proxies"]) && (!onlyProviders || len(pp) == 0) {
+			g["proxies"] = []any{"DIRECT"}
+		}
+	}
+}
+
+// applyProviderOverridesDeferred applies ov to the profile's own proxy-providers (call it before node
+// subscriptions are merged). Removed providers leave every `use:`; affected groups are marked with
+// providerLostKey for fillEmptyProviderGroups. Returns the removed provider names and warnings.
+func applyProviderOverridesDeferred(raw map[string]any, ov map[string]ProviderOverride) (removed []string, warns []string) {
 	if len(ov) == 0 {
 		return nil, nil
 	}
@@ -162,9 +198,8 @@ func applyProviderOverrides(raw map[string]any, ov map[string]ProviderOverride) 
 			}
 		}
 		onlyProviders := boolOf(g["include-all-providers"]) && !boolOf(g["include-all"]) && !boolOf(g["include-all-proxies"])
-		if (had || onlyProviders) && len(asList(g["proxies"])) == 0 && len(asList(g["use"])) == 0 &&
-			!boolOf(g["include-all"]) && !boolOf(g["include-all-proxies"]) && (!onlyProviders || len(pp) == 0) {
-			g["proxies"] = []any{"DIRECT"}
+		if had || onlyProviders {
+			g[providerLostKey] = true
 		}
 	}
 	return removed, warns

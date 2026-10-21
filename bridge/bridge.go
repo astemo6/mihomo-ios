@@ -249,7 +249,7 @@ func buildRuntimeWith(profile []byte, o Overrides, fd int32, inject func(raw map
 	// feat/subs-split: the user's 停用 / 删除 / 编辑 of the profile's own proxy-providers (also in 安全模式:
 	// disabling a broken provider is a way out of a failing start).
 	if o.home != "" && o.profileID != "" {
-		removed, warns := applyProviderOverrides(raw, readProviderOverrides(o.home, o.profileID))
+		removed, warns := applyProviderOverridesDeferred(raw, readProviderOverrides(o.home, o.profileID))
 		for _, w := range warns {
 			log.Warnln("[Provider] %s", w)
 		}
@@ -278,6 +278,8 @@ func buildRuntimeWith(profile []byte, o Overrides, fd int32, inject func(raw map
 			log.Warnln("[Groups] 策略组「%s」引用的订阅已停用或尚未下载，已从 use 中移除", g)
 		}
 	}
+	// Review 7 P1-1: DIRECT fallback for groups that lost every 节点集, only after node subscriptions merged.
+	fillEmptyProviderGroups(raw)
 	if o.home != "" {
 		expandOwnPolicyProviders(raw, o.home) // v0.12 QX lists without force-policy
 	}
