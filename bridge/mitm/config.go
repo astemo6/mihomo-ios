@@ -50,6 +50,17 @@ type Config struct {
 	QUIC string `json:"quic,omitempty"`
 	// MitM hosts whose QUIC is NOT blocked (their HTTP/3 traffic then bypasses decryption).
 	QUICAllow []string `json:"quicAllow,omitempty"`
+	// Language: the app's UI language ("zh-Hans", "en" …) for $environment.language (r7 B28); written by
+	// the app, "" → zh-Hans (the old fixed value).
+	Language string `json:"language,omitempty"`
+}
+
+// scriptLanguage is $environment.language for this config.
+func (c *Config) scriptLanguage() string {
+	if c == nil || strings.TrimSpace(c.Language) == "" {
+		return "zh-Hans"
+	}
+	return strings.TrimSpace(c.Language)
 }
 
 // ScriptResource is the user's per-script setting from the resource manager.

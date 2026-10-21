@@ -100,6 +100,7 @@ const egernPrelude = `(function () {
   var hasReq = typeof $request !== 'undefined' && $request;
   var hasResp = typeof $response !== 'undefined' && $response;
   function lc(k) { return String(k).toLowerCase(); }
+  var TO_OBJECT = typeof Symbol === 'function' ? Symbol('toObject') : '__egernToObject';
   function makeHeaders(src) {
     var map = {};
     function put(k, v) {
@@ -129,11 +130,16 @@ const egernPrelude = `(function () {
         return o;
       }
     };
+    // r7 B30: a header named like a method (get / set / has / append / delete / forEach / toObject) is
+    // what property access returns; the methods are what is left when no such header exists. The adapter
+    // itself reaches toObject through a symbol, so such a header never breaks the conversion back.
+    api[TO_OBJECT] = api.toObject;
     return new Proxy(api, {
       get: function (t, p) {
-        if (typeof p !== 'string' || p in t) return t[p];
+        if (typeof p !== 'string') return t[p];
         var e = map[lc(p)];
-        return e ? (e.values.length > 1 ? e.values.slice() : e.values[0]) : undefined;
+        if (e) return e.values.length > 1 ? e.values.slice() : e.values[0];
+        return p in t ? t[p] : undefined;
       },
       set: function (t, p, v) { api.set(p, v); return true; },
       deleteProperty: function (t, p) { api.delete(p); return true; },
@@ -166,6 +172,7 @@ const egernPrelude = `(function () {
   }
   function plainHeaders(h) {
     if (!h) return undefined;
+    if (typeof h[TO_OBJECT] === 'function') return h[TO_OBJECT]();
     if (typeof h.toObject === 'function') return h.toObject();
     return h;
   }

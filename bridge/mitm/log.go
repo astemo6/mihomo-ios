@@ -377,6 +377,11 @@ func (e *Entry) RespBody(b []byte, enc string) {
 		if d, err := decodeBody(enc, b, 8*captureLimit); err == nil {
 			b = d
 			enc = ""
+		} else if d, err := decodePrefix(enc, b, captureLimit); err == nil {
+			// r7 P3-4: a compressed response longer than captureLimit was captured cut, so the full
+			// decode always failed (unexpected EOF) and it showed as binary; preview its decoded start.
+			b = d
+			enc = ""
 		}
 	}
 	s, bin := textOrBinary(b)

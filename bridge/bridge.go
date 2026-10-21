@@ -530,16 +530,25 @@ func applyInto(home, configPath string, fd int32, used *Overrides) error {
 	defer restore()
 	stage("config read (%d bytes), building runtime", len(profile))
 	var inject func(raw map[string]any)
+	// r7 P2-2: the engine change (stop / reload) is committed only after the new core config is live;
+	// on a failed build or parse the old engine keeps matching the old core config.
+	var plan *enginePlan
 	if o.SafeMode {
-		stopEngine()
+		plan = stopEnginePlan()
 		stage("SAFE MODE: modules, rewrite, scripts, MitM, custom rules and smart groups are off")
 		log.Warnln("[Bridge] 安全模式：模块、重写、脚本、MitM、自定义规则与智能选择已停用")
 	} else {
-		inject, err = prepareEngine(home)
+		inject, plan, err = planEngine(home)
 		if err != nil {
 			log.Warnln("[MitM] %s", err.Error())
 		}
 	}
+	committed := false
+	defer func() {
+		if !committed {
+			plan.rollback()
+		}
+	}()
 	var groupOrder []string
 	var dnsLine string
 	engineInject := inject
@@ -567,6 +576,8 @@ func applyInto(home, configPath string, fd int32, used *Overrides) error {
 	if err := hub.Parse(rt, guardTailscale); err != nil {
 		return friendlyError(err)
 	}
+	committed = true
+	plan.commit()
 	liveGroupOrder.Store(groupOrder) // v0.19.11 (review 6 P2-3): LiveStatus follows the app's group order
 	// The diag capture goroutine used to call log.Level() while ApplyConfig wrote it (data race found by
 	// the selftest -race run); it now filters by the level this config asked for.
