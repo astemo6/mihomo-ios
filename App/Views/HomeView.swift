@@ -219,13 +219,14 @@ struct SafeModeCard: View {
 
 /// feat/egern-style: Egern's settings row — 「出站模式」 on the left, the current mode with ⌃⌄ on the right (menu picker).
 struct ModeCard: View {
-    @EnvironmentObject var dash: DashboardModel
+    /// r7: only the mode is mirrored (as PolicyView does); observing DashboardModel re-rendered this card every second.
+    @State private var mode = DashboardModel.shared.mode
     var body: some View {
         HStack(spacing: 12) {
             IconTile(symbol: "arrow.triangle.branch", tone: .orange)
             Text("出站模式")
             Spacer(minLength: 8)
-            Picker("出站模式", selection: Binding(get: { dash.mode }, set: { m in Task { await dash.setMode(m) } })) {
+            Picker("出站模式", selection: Binding(get: { mode }, set: { m in mode = m; Task { await DashboardModel.shared.setMode(m) } })) {
                 Text("规则模式").tag("rule")
                 Text("全局模式").tag("global")
                 Text("直连模式").tag("direct")
@@ -238,6 +239,7 @@ struct ModeCard: View {
         .padding(.leading, 12).padding(.trailing, 4).padding(.vertical, 4)
         .frame(minHeight: 44)
         .egernCard()
+        .onReceive(DashboardModel.shared.$mode.removeDuplicates()) { m in if mode != m { mode = m } }
     }
 }
 

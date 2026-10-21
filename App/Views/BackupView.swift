@@ -52,7 +52,7 @@ enum BackupManager {
         let f = DateFormatter()
         f.dateFormat = "yyyyMMdd-HHmm"
         purgeTempExports()
-        let url = FileManager.default.temporaryDirectory.appendingPathComponent("Mihomo-备份-\(f.string(from: Date())).json")
+        let url = FileManager.default.temporaryDirectory.appendingPathComponent("Tern-备份-\(f.string(from: Date())).json")
         try data.write(to: url, options: [.atomic, .completeFileProtection])
         return (url, n)
     }
@@ -61,7 +61,7 @@ enum BackupManager {
     static func purgeTempExports() {
         let fm = FileManager.default
         let tmp = fm.temporaryDirectory
-        for n in (try? fm.contentsOfDirectory(atPath: tmp.path)) ?? [] where n.hasPrefix("Mihomo-备份-") && n.hasSuffix(".json") {
+        for n in (try? fm.contentsOfDirectory(atPath: tmp.path)) ?? [] where (n.hasPrefix("Tern-备份-") || n.hasPrefix("Mihomo-备份-")) && n.hasSuffix(".json") {
             try? fm.removeItem(at: tmp.appendingPathComponent(n))
         }
     }
@@ -148,7 +148,7 @@ struct BackupView: View {
     @State private var includeCA = false
     @State private var share: ShareItem?
     @State private var exportDoc: JSONFileDocument?
-    @State private var exportName = "Mihomo-备份.json"
+    @State private var exportName = "Tern-备份.json"
     @State private var exporting = false
     @State private var importing = false
     @State private var pendingRestore: Data?

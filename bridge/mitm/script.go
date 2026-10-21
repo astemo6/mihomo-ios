@@ -1363,32 +1363,21 @@ func (rc *runCtx) do(fr *fetchReq) *fetchResp {
 		return &fetchResp{err: err}
 	}
 	defer resp.Body.Close()
-	// review6 P1-2: script downloads share the global body budget with rewrite / script bodies. Six
-	// parallel 3 MB $httpClient.get calls peaked at +58 MB (the extension has ~50 MB). The budget is held
-	// until the callback has run (see deliverFetch); when it cannot be had within fetchBudgetWait the
-	// download still goes ahead unless the heap is already high, so a script that itself holds a body
-	// share never deadlocks on its own fetch.
+	// review6 P1-2 / r7: script downloads share the global body budget with rewrite / script bodies,
+	// charged as they are read and held until the callback has run (see deliverFetch, fetchbudget.go).
 	if heapHigh() {
 		return &fetchResp{err: errors.New("内存紧张，已跳过下载（保护隧道内存）")}
 	}
-	want := int64(MaxScriptBody)
-	if resp.ContentLength >= 0 && resp.ContentLength < want && resp.Header.Get("Content-Encoding") == "" {
-		want = resp.ContentLength
-	}
-	release := bodyBudget.acquire(ctx, want, fetchBudgetWait)
-	if release == nil {
-		if ctx.Err() != nil {
-			return &fetchResp{err: ctx.Err()}
-		}
-		if heapHigh() {
-			return &fetchResp{err: errors.New("内存紧张，已跳过下载（保护隧道内存）")}
-		}
-		release = func() {}
-	}
+	charge := &fetchCharge{ctx: ctx}
+	release := charge.release
 	fail := func(err error) *fetchResp { release(); return &fetchResp{err: err} }
+	cl := resp.ContentLength
+	if resp.Header.Get("Content-Encoding") != "" {
+		cl = -1 // compressed: the announced length is not what we end up holding
+	}
 	// v0.19.9 (review 5 P2-5): read one byte past the cap and fail loudly instead of handing the script a
 	// silently truncated body (it then failed later in JSON.parse).
-	b, err := readSized(resp.Body, resp.ContentLength, MaxScriptBody)
+	b, err := charge.read(resp.Body, cl, MaxScriptBody)
 	if err != nil {
 		return fail(err)
 	}
@@ -1401,6 +1390,10 @@ func (rc *runCtx) do(fr *fetchReq) *fetchResp {
 			return fail(fmt.Errorf("响应体超过 %d MB", MaxScriptBody>>20))
 		}
 		if derr == nil {
+			// compressed and decoded bodies are both alive here: charge them
+			if err := charge.ensure(int64(len(b) + len(d))); err != nil {
+				return fail(err)
+			}
 			b = d
 			resp.Header.Del("Content-Encoding")
 			resp.Header.Del("Content-Length")
@@ -1409,7 +1402,8 @@ func (rc *runCtx) do(fr *fetchReq) *fetchResp {
 	return &fetchResp{status: resp.StatusCode, header: resp.Header, body: b, release: release}
 }
 
-// fetchBudgetWait is how long a script download waits for body budget before going ahead anyway.
+// fetchBudgetWait is how long a script download waits for body budget before trying the single
+// unbudgeted slot (fetchbudget.go).
 var fetchBudgetWait = 2 * time.Second
 
 // deliverFetch posts a fetch result to the event loop and returns its body budget once the callback

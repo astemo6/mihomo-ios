@@ -217,6 +217,9 @@ final class PacketTunnelProvider: NEPacketTunnelProvider {
         let why = TunnelStopReason.describe(reason.rawValue)
         StartupLog.write("stopTunnel reason=\(reason.rawValue)（\(why)）, \(ProcessMemory.summary()), bridge \(currentBridge?.stats ?? "-")")
         TunnelStopReason.record(reason.rawValue)
+        // r7: tell a running app at once (Live Activity end); a suspended app catches up on its next status check.
+        CFNotificationCenterPostNotification(CFNotificationCenterGetDarwinNotifyCenter(),
+                                             CFNotificationName(AppShared.tunnelStoppedNotification as CFString), nil, nil, true)
         // Review 6 R6A-1: take the helpers under the same lock the start path publishes them with.
         stopLock.lock()
         _stopped = true

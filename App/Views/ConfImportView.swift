@@ -171,7 +171,7 @@ struct ConfReportSection: View {
                 } else if let rep = r.report {
                     Section {
                         HStack {
-                            Label(rep.format == "qx" ? "Quantumult X 配置" : "Surge 配置", systemImage: "arrow.triangle.2.circlepath.doc.on.clipboard")
+                            Label(LocalizedStringKey(rep.format == "qx" ? "Quantumult X 配置" : "Surge 配置"), systemImage: "arrow.triangle.2.circlepath.doc.on.clipboard")
                                 .font(.headline)
                             Spacer()
                             Text("→ mihomo").font(.caption.weight(.bold)).foregroundStyle(Theme.accent)

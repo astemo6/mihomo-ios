@@ -18,6 +18,8 @@ import (
 	"path/filepath"
 	"sort"
 	"strings"
+	"sync"
+	"time"
 
 	"github.com/dlclark/regexp2"
 )
@@ -183,7 +185,31 @@ type providerInfo struct {
 // ProfileProviders lists the proxy-providers the profile itself declares (覆写脚本 output when current), before
 // the user's provider overrides, so the app can show 停用 providers (not in the runtime) and the editor's
 // defaults. JSON [providerInfo], sorted by name.
+// ppCache (r7): ProfileProviders parses the whole profile; the node detail / 节点订阅 pages call it with
+// other per-node calls. Reuse the answer for rtCacheTTL while the runtime inputs are unchanged.
+var ppCache struct {
+	sync.Mutex
+	key, val string
+	at       time.Time
+}
+
 func ProfileProviders(homeDir, profilePath string) string {
+	key := runtimeCacheKey(homeDir, profilePath)
+	ppCache.Lock()
+	if ppCache.val != "" && ppCache.key == key && time.Since(ppCache.at) < rtCacheTTL {
+		v := ppCache.val
+		ppCache.Unlock()
+		return v
+	}
+	ppCache.Unlock()
+	v := profileProviders(homeDir, profilePath)
+	ppCache.Lock()
+	ppCache.key, ppCache.val, ppCache.at = key, v, time.Now()
+	ppCache.Unlock()
+	return v
+}
+
+func profileProviders(homeDir, profilePath string) string {
 	out := []providerInfo{}
 	defer func() { _ = recover() }()
 	b, err := readRuntimeProfile(homeDir, profilePath, false)

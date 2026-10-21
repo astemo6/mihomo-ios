@@ -118,6 +118,9 @@ final class HomeAnalysisModel {
     private var mounted = 0
     private var task: Task<Void, Never>?
     private var lastBuilt = Date.distantPast
+    /// r7: ConnectionAnalytics.version of the last rebuild (and its source) — skip sorting when nothing changed.
+    private var builtVersion = -1
+    private var builtDemo = false
 
     func setHomeVisible(_ v: Bool) { homeVisible = v; update() }
     func setActive(_ v: Bool) { appActive = v; update() }
@@ -146,6 +149,9 @@ final class HomeAnalysisModel {
         guard now.timeIntervalSince(lastBuilt) >= Self.minInterval - 0.05 else { return }
         lastBuilt = now
         let a = source
+        if a.version == builtVersion && builtDemo == Self.demo { return }
+        builtVersion = a.version
+        builtDemo = Self.demo
 
         let c = ConnSnap(total: a.totalConnections, active: a.activeConnections)
         if c != connections { connections = c }
@@ -320,13 +326,36 @@ struct HomeAnalysisSection: View {
                         .modifier(AnalysisMenu(card: c, editing: $editing))
                     }
                 } else {
+                    // r7: the offline empty state stands for the added cards: the same long-press menu as the
+                    // online cards (remove from Home / collapse / edit), applied to all of them.
+                    let allCollapsed = shown.allSatisfy { collapsed.contains($0) }
                     HomeSectionLabel(title: String(localized: "流量分析"))
                     Card {
-                        EmptyStateRow(icon: "chart.bar.xaxis", title: "连接后开始统计",
-                                      message: "开启代理后，这里会显示各策略的流量、规则命中次数和流量最多的主机名。")
+                        if allCollapsed {
+                            Label("连接后开始统计", systemImage: "chart.bar.xaxis").font(.subheadline).foregroundStyle(.secondary)
+                                .frame(maxWidth: .infinity, alignment: .leading)
+                        } else {
+                            EmptyStateRow(icon: "chart.bar.xaxis", title: "连接后开始统计",
+                                          message: "开启代理后，这里会显示各策略的流量、规则命中次数和流量最多的主机名。")
+                        }
                     }
                     .accessibilityElement(children: .combine)
                     .accessibilityIdentifier("home.analysis.empty")
+                    .contextMenu {
+                        Button(role: .destructive) {
+                            var s = added
+                            for c in shown { s.remove(c) }
+                            withAnimation { addedRaw = HomeAnalysisCard.raw(s) }
+                        } label: { Label("从首页移除", systemImage: "minus.circle") }
+                        Button {
+                            var s = collapsed
+                            if allCollapsed { for c in shown { s.remove(c) } } else { for c in shown { s.insert(c) } }
+                            withAnimation(.easeInOut(duration: 0.2)) { collapsedRaw = HomeAnalysisCard.raw(s) }
+                        } label: {
+                            Label(LocalizedStringKey(allCollapsed ? "展开" : "收起"), systemImage: allCollapsed ? "chevron.down" : "chevron.up")
+                        }
+                        Button { editing = true } label: { Label("编辑首页面板", systemImage: "slider.horizontal.3") }
+                    }
                 }
             }
             .onAppear { HomeAnalysisModel.shared.mount() }
@@ -656,7 +685,9 @@ struct HomeQuickAddButton: View {
             scanned = nil
             guard !code.isEmpty else { return }
             nodeText = code
-            DispatchQueue.main.asyncAfter(deadline: .now() + 0.35) { sheet = .node }
+            // r7: this runs in the scanner sheet's onDismiss — the sheet is gone, so the next one is presented right
+            // here (the 0.35 s timer could overlap another sheet opened meanwhile, or fire after the user left).
+            if sheet == nil { sheet = .node }
         }
     }
 }

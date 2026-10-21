@@ -54,7 +54,9 @@ func sanitizeProfileInbounds(raw map[string]any, o Overrides) {
 	drop("tunnels")
 
 	// legacy top-level inbound servers
-	if m := asMap(raw["tuic-server"]); m != nil {
+	// r7: asMap never returns nil, so the old `else` (a tuic-server that is not a map) was dead and such a
+	// value stayed in the config; a type assertion makes it reachable.
+	if m, isMap := raw["tuic-server"].(map[string]any); isMap {
 		if l := strings.TrimSpace(asString(m["listen"])); l != "" {
 			if nl, changed, ok := loopbackHostList(l); !ok {
 				drop("tuic-server")

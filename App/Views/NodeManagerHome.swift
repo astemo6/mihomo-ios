@@ -64,7 +64,10 @@ struct NodeManagerView: View {
         return ids
     }
 
-    var localCount: Int { model.nodes.filter { localIDs.contains($0.source.id) }.count }
+    var localCount: Int {
+        let ids = localIDs
+        return model.countBySource.reduce(0) { ids.contains($1.key.id) ? $0 + $1.value : $0 }
+    }
 
     enum SubRow: Identifiable {
         case profile(Profile)

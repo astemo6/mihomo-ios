@@ -33,11 +33,14 @@ import (
 var (
 	bindPhysical   atomic.Bool
 	physMu         sync.Mutex
-	physReported   string    // name from NWPathMonitor ("" = none yet / no path)
-	physScanned    string    // cached answer of currentPhysical
-	physScannedAt  time.Time // when physScanned was taken
-	physSource     string    // where physScanned came from
-	physLastLogged string    // last interface written to the stage log (one line per change)
+	physReported   string                 // name from NWPathMonitor ("" = none yet / no path)
+	physScanned    string                 // cached answer of currentPhysical
+	physScannedAt  time.Time              // when physScanned was taken
+	physSource     string                 // where physScanned came from
+	physLastLogged string                 // last interface written to the stage log (one line per change)
+	physLoggedFast atomic.Pointer[string] // r7: lock-free copy of physLastLogged for the per-dial fast path
+	physScanned6   string                 // r7: cached interface for IPv6 destinations
+	physScanned6At time.Time
 	physBoundDials atomic.Uint64
 	physUnbound    atomic.Uint64 // dials that found no physical interface (left unbound)
 )
@@ -76,6 +79,7 @@ func SetPhysicalInterface(name string) {
 	physReported = name
 	if changed {
 		physScannedAt = time.Time{} // re-resolve on the next dial
+		physScanned6At = time.Time{}
 	}
 	physMu.Unlock()
 	if changed {
@@ -107,6 +111,11 @@ func (physFinder) FindInterfaceName(dst netip.Addr) string {
 		return "" // loopback, link-local, multicast, fake-ip / tunnel addresses
 	}
 	name, src := currentPhysical()
+	// r7: an IPv6 destination needs an interface that has a global IPv6 address (Wi-Fi without IPv6
+	// while cellular has it, or the reverse); otherwise the bound dial fails at once.
+	if dst.IsValid() && dst.Is6() {
+		name, src = currentPhysical6(name, src)
+	}
 	if name == "" {
 		physUnbound.Add(1)
 		return ""
@@ -144,6 +153,65 @@ func currentPhysical() (string, string) {
 		physScanned, physSource = "", "none found"
 	}
 	return physScanned, physSource
+}
+
+// currentPhysical6 returns the interface for an IPv6 destination: the general pick when it has a global
+// IPv6 address, else an en* / pdp_ip* interface that has one (cached like currentPhysical); the general
+// pick when none has (the dial then fails as it would have anyway).
+func currentPhysical6(name, src string) (string, string) {
+	physMu.Lock()
+	defer physMu.Unlock()
+	if !physScanned6At.IsZero() && time.Since(physScanned6At) < physScanTTL {
+		if physScanned6 == "" {
+			return name, src
+		}
+		return physScanned6, src + ", IPv6"
+	}
+	physScanned6At = time.Now()
+	physScanned6 = ""
+	if name != "" {
+		if ifi, err := net.InterfaceByName(name); err == nil {
+			if _, v6 := interfaceAddrKinds(*ifi); v6 {
+				physScanned6 = name
+				return name, src
+			}
+		}
+	}
+	physScanned6 = scanPhysical6(net.Interfaces)
+	if physScanned6 == "" {
+		return name, src
+	}
+	return physScanned6, src + ", IPv6"
+}
+
+// scanPhysical6: an up en* (first) or pdp_ip* interface with a global IPv6 address.
+func scanPhysical6(list func() ([]net.Interface, error)) string {
+	ifs, err := list()
+	if err != nil {
+		return ""
+	}
+	best, bestRank := "", 99
+	for _, ifi := range ifs {
+		if ifi.Flags&net.FlagUp == 0 || ifi.Flags&net.FlagLoopback != 0 {
+			continue
+		}
+		rank := 0
+		switch {
+		case strings.HasPrefix(ifi.Name, "en"):
+			rank = 1
+		case strings.HasPrefix(ifi.Name, "pdp_ip"):
+			rank = 2
+		default:
+			continue
+		}
+		if _, v6 := interfaceAddrKinds(ifi); !v6 {
+			continue
+		}
+		if rank < bestRank || (rank == bestRank && ifi.Name < best) {
+			best, bestRank = ifi.Name, rank
+		}
+	}
+	return best
 }
 
 func interfaceUsable(name string) bool {
@@ -230,6 +298,10 @@ var interfaceAddrKinds = func(ifi net.Interface) (v4, v6 bool) {
 }
 
 func logPhysical(name, src string) {
+	// r7: called on every bound dial; the common case (unchanged) no longer takes the global lock.
+	if p := physLoggedFast.Load(); p != nil && *p == name {
+		return
+	}
 	physMu.Lock()
 	if physLastLogged == name {
 		physMu.Unlock()
@@ -237,6 +309,8 @@ func logPhysical(name, src string) {
 	}
 	prev := physLastLogged
 	physLastLogged = name
+	n := name
+	physLoggedFast.Store(&n)
 	physMu.Unlock()
 	if prev == "" {
 		stage("core sockets bound to %s (%s)", ifaceOrDash(name), src)
