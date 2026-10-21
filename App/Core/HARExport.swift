@@ -69,7 +69,7 @@ enum HARExport {
         let entries = details.filter { $0.method != "TLS" }.sorted { $0.time < $1.time }.map(entry)
         let har: [String: Any] = ["log": [
             "version": "1.2",
-            "creator": ["name": "Mihomo iOS", "version": version],
+            "creator": ["name": "Tern", "version": version],
             "pages": [Any](),
             "entries": entries,
         ]]
@@ -89,7 +89,7 @@ enum HARExport {
         let data = try document(details)
         let f = DateFormatter()
         f.dateFormat = "yyyyMMdd-HHmmss"
-        let url = FileManager.default.temporaryDirectory.appendingPathComponent("Mihomo-\(f.string(from: Date())).har")
+        let url = FileManager.default.temporaryDirectory.appendingPathComponent("Tern-\(f.string(from: Date())).har")
         try data.write(to: url, options: .atomic)
         return url
     }

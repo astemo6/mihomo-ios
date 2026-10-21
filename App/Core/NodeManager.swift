@@ -155,7 +155,16 @@ final class NodeManagerModel: ObservableObject {
         }
     }
 
-    @Published private(set) var nodes: [ManagedNode] = []
+    @Published private(set) var nodes: [ManagedNode] = [] {
+        didSet {
+            var c: [NodeSource: Int] = [:]
+            for n in nodes { c[n.source, default: 0] += 1 }
+            countBySource = c
+        }
+    }
+    /// r7: node count per source, computed once whenever `nodes` changes (NodeManagerHome reads it per row and
+    /// when sorting by 节点数, instead of filtering every node per row per render).
+    private(set) var countBySource: [NodeSource: Int] = [:]
     @Published private(set) var sources: [NodeSource] = []
     @Published private(set) var loading = false
     @Published private(set) var liveConnected = false
@@ -320,7 +329,12 @@ final class NodeManagerModel: ObservableObject {
     /// with the overrides applied) still declares a provider of that name (e.g. a profile provider sharing the name).
     nonisolated static func excludedProviders(runtime: Set<String>, overrides: [String: ProviderOverride], subs: [NodeSubscription]) -> Set<String> {
         var out = Set(overrides.filter { $0.value.disabled == true || $0.value.deleted == true }.map(\.key))
-        out.formUnion(subs.filter { !$0.enabled }.map { $0.name.trimmingCharacters(in: .whitespaces) })
+        // r7: the Go build names a subscription's provider firstNonEmpty(trimmed name, "订阅") (mergeNodeSubs); an
+        // unnamed disabled subscription was matched as "" and never excluded.
+        out.formUnion(subs.filter { !$0.enabled }.map {
+            let n = $0.name.trimmingCharacters(in: .whitespaces)
+            return n.isEmpty ? "订阅" : n
+        })
         out.subtract(runtime)
         out.remove("")
         return out
@@ -328,7 +342,7 @@ final class NodeManagerModel: ObservableObject {
 
     func source(_ kind: NodeSourceKind) -> NodeSource? { sources.first { $0.kind == kind } }
     func source(subID: String) -> NodeSource? { sources.first { $0.subID == subID } }
-    func count(_ src: NodeSource) -> Int { nodes.filter { $0.source == src }.count }
+    func count(_ src: NodeSource) -> Int { countBySource[src] ?? 0 }
 
     static func isHidden(_ name: String, _ type: String) -> Bool {
         ManagedNode.hidden.contains(name) || ManagedNode.nonNodeTypes.contains(type.lowercased())

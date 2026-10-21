@@ -52,7 +52,8 @@ final class PolicyChainTests: XCTestCase {
         let c = g.chain(from: "A")
         XCTAssertEqual(c.hops, ["B", "C"])
         XCTAssertTrue(c.looped)
-        XCTAssertEqual(PolicyChainText.text(c), "B › C › …")
+        XCTAssertEqual(PolicyChainText.text(c), "B › … › C")
+        XCTAssertEqual(PolicyChainText.parts(c).last, "C", "r7: the last hop stays last (ChainLine keeps it visible)")
     }
 
     func testDepthCap() {
@@ -62,7 +63,9 @@ final class PolicyChainTests: XCTestCase {
         let c = graph(gs, nodes: ["N"]).chain(from: "G0")
         XCTAssertEqual(c.hops.count, GroupGraph.chainMaxDepth)
         XCTAssertTrue(c.truncated)
-        XCTAssertTrue(PolicyChainText.text(c).hasSuffix(" › …"))
+        let parts = PolicyChainText.parts(c)
+        XCTAssertEqual(parts.last, c.hops.last, "r7: truncation must not push the last hop out of the final slot")
+        XCTAssertEqual(parts[parts.count - 2], "…")
     }
 
     func testMissingNowStops() {

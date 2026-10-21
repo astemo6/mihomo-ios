@@ -14,7 +14,7 @@ enum DiagnosticsExporter {
         let dir = FileManager.default.temporaryDirectory.appendingPathComponent("diagnostics", isDirectory: true)
         try? FileManager.default.removeItem(at: dir) // keep only the newest bundle around
         try FileManager.default.createDirectory(at: dir, withIntermediateDirectories: true)
-        let out = dir.appendingPathComponent("Mihomo-diagnostics-\(stamp).zip")
+        let out = dir.appendingPathComponent("Tern-diagnostics-\(stamp).zip")
         let home = AppShared.homeURL.path
         let profile = AppShared.activeProfileURL?.path ?? ""
         try await Task.detached(priority: .userInitiated) {

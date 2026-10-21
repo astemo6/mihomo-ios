@@ -5,6 +5,8 @@ import Foundation
 /// so project.yml is the only place they are configured.
 enum AppShared {
     static let defaultAppGroup = "group.com.astemo6.mihomo"
+    /// r7: Darwin notification the tunnel posts from stopTunnel (the app ends its Live Activity when it is running).
+    static var tunnelStoppedNotification: String { appGroup + ".tunnelStopped" }
 
     /// true inside the PacketTunnel extension (its bundle is a .appex).
     static let isExtension: Bool = Bundle.main.bundlePath.hasSuffix(".appex")

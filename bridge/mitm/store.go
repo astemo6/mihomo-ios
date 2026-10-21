@@ -40,25 +40,39 @@ func NewStore(home string) *Store {
 }
 
 func (s *Store) readFile() (map[string]string, time.Time, bool) {
+	m, mt, ok, bad := s.readOnce()
+	if bad {
+		// r7: only quarantine after a second read fails too — a writer (the app's 持久化存储 editor, a
+		// restore) replacing the file at that moment must not get a good store renamed to .bad.
+		time.Sleep(50 * time.Millisecond)
+		if m, mt, ok, bad = s.readOnce(); bad {
+			// review6 P2-2: an unreadable file used to read as an empty (or partial) store, and the next
+			// write replaced the whole store with it — every BoxJS setting / Sub-Store subscription gone.
+			// Keep a copy for recovery and keep what is in memory.
+			_ = os.Rename(s.path, s.path+".bad")
+			return nil, time.Time{}, false
+		}
+	}
+	return m, mt, ok
+}
+
+// readOnce reads the store file; bad = it exists, is non-empty and does not decode.
+func (s *Store) readOnce() (map[string]string, time.Time, bool, bool) {
 	fi, err := os.Stat(s.path)
 	if err != nil {
-		return nil, time.Time{}, false
+		return nil, time.Time{}, false, false
 	}
 	m := map[string]string{}
 	f, err := os.Open(s.path)
 	if err != nil {
-		return nil, time.Time{}, false
+		return nil, time.Time{}, false, false
 	}
 	derr := json.NewDecoder(bufio.NewReader(f)).Decode(&m)
 	f.Close()
 	if derr != nil && fi.Size() > 0 {
-		// review6 P2-2: an unreadable file used to read as an empty (or partial) store, and the next
-		// write replaced the whole store with it — every BoxJS setting / Sub-Store subscription gone.
-		// Keep a copy for recovery and keep what is in memory.
-		_ = os.Rename(s.path, s.path+".bad")
-		return nil, time.Time{}, false
+		return nil, time.Time{}, false, true
 	}
-	return m, fi.ModTime(), true
+	return m, fi.ModTime(), true, false
 }
 
 // recomputeSizeLocked recounts the bytes of keys + values (review6 OPT-2: Write keeps a running total
