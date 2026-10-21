@@ -17,7 +17,6 @@ import (
 	"strings"
 
 	C "github.com/metacubex/mihomo/constant"
-	"github.com/metacubex/mihomo/hub/executor"
 	"go.yaml.in/yaml/v3"
 )
 
@@ -394,10 +393,7 @@ func validateProfileBytes(home, path string, b []byte) string {
 	if err != nil {
 		return err.Error()
 	}
-	if _, err := executor.ParseWithBytes(rt); err != nil {
-		return err.Error()
-	}
-	return ""
+	return parseRuntimeCached(home, rt) // B32
 }
 
 // commit validates the edited document and writes it, keeping the previous file as <path>.bak. An error the

@@ -177,3 +177,50 @@ func TestR7B31ClassifyHugeTextBounded(t *testing.T) {
 		t.Fatalf("surge conf: %q", c)
 	}
 }
+
+// B32: a node edit parses the edited runtime once; the original's re-check and a validate of the committed
+// file reuse the cached result.
+func TestR7B32ValidationCached(t *testing.T) {
+	var calls int
+	old := validateParse
+	validateParse = func(rt []byte) error { calls++; return old(rt) }
+	defer func() { validateParse = old }()
+	validateMu.Lock()
+	validateCache = map[[32]byte]validateEntry{}
+	validateMu.Unlock()
+
+	home := t.TempDir()
+	p := filepath.Join(home, "p.yaml")
+	_ = os.WriteFile(p, []byte("proxies:\n  - {name: a, type: ss, server: 1.2.3.4, port: 1, cipher: aes-128-gcm, password: x}\nrules:\n  - MATCH,a\n"), 0o644)
+	if e := ValidateConfigIn(home, p); e != "" {
+		t.Fatal(e)
+	}
+	if e := ValidateConfigIn(home, p); e != "" || calls != 1 {
+		t.Fatalf("second validate of the same runtime must be cached: calls=%d err=%q", calls, e)
+	}
+	// Edit a node: one parse for the edited runtime …
+	if e := ProfileNodeUpsert(home, p, `{"name":"a","type":"ss","server":"5.6.7.8","port":1,"cipher":"aes-128-gcm","password":"x"}`, "a"); e != "" {
+		t.Fatal(e)
+	}
+	if calls != 2 {
+		t.Fatalf("edit: want 1 more parse, calls=%d", calls)
+	}
+	// … and the app's validate of the committed file afterwards is free.
+	if e := ValidateConfigIn(home, p); e != "" || calls != 2 {
+		t.Fatalf("validate after commit must hit the cache: calls=%d err=%q", calls, e)
+	}
+	// A profile that already fails (rule → unknown policy): the edit is re-checked against the original, whose
+	// result the earlier validate cached — only the edited runtime is parsed.
+	p2 := filepath.Join(home, "p2.yaml")
+	_ = os.WriteFile(p2, []byte("proxies:\n  - {name: a, type: ss, server: 1.2.3.4, port: 1, cipher: aes-128-gcm, password: x}\nrules:\n  - MATCH,nope\n"), 0o644)
+	if e := ValidateConfigIn(home, p2); e == "" {
+		t.Fatal("fixture must fail")
+	}
+	before := calls
+	if e := ProfileNodeUpsert(home, p2, `{"name":"a","type":"ss","server":"5.6.7.8","port":1,"cipher":"aes-128-gcm","password":"x"}`, "a"); e != "" {
+		t.Fatalf("edit of an already failing profile must be allowed: %s", e)
+	}
+	if calls-before != 1 {
+		t.Fatalf("failing original: want only the edited runtime parsed, got %d parses", calls-before)
+	}
+}

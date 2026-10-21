@@ -828,10 +828,7 @@ func ValidateConfigIn(homeDir, path string) string {
 	if err != nil {
 		return err.Error()
 	}
-	if _, err := executor.ParseWithBytes(rt); err != nil {
-		return err.Error()
-	}
-	return ""
+	return parseRuntimeCached(homeDir, rt) // B32: free right after a node edit validated the same runtime
 }
 
 // Version returns the mihomo core version string.
