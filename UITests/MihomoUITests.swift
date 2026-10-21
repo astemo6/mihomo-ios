@@ -92,21 +92,44 @@ final class MihomoUITests: MihomoUITestCase {
 
     /// feat/surge-ui: rows on 更多 itself, then the expert rows that moved to 更多 → 高级设置. Ids are the old
     /// zh-Hans keys (titles changed to plain language).
+    /// feat/more-dedup (user 2026-10-21 18:06): 更多 keeps settings-type rows (配置 first); tool-type pages are
+    /// cards on the 工具 tab (tab 3, which replaced 配置). Card ids keep `more.<old key>`.
     static let moreRows = [
-        "节点与订阅", "规则", "模块与资源", "日志", "DNS 日志", "连接分析", "网络工具（Ping / TCP / DNS）", "网络测试（带宽 / NAT 类型）",
-        "解锁检测", "内网 IP 与路由器", "流量统计", "配置快照", "备份与恢复", "存储空间", "外观", "App 图标", "开始标签页", "首页流量统计",
+        "配置", "流量统计", "配置快照", "备份与恢复", "更新资源", "存储空间", "外观", "App 图标", "开始标签页", "首页流量统计",
         "诊断", "关于 / 开源许可",
     ]
-    static let advancedRows = [
-        "连接方式", "DNS", "MitM", "地理与规则库", "内核设置", "测速", "出口信息查询",
+    static let toolRows = [
+        "节点与订阅", "规则", "模块与资源", "重写（本地模块）", "脚本", "任务", "MitM", "DNS", "日志", "DNS 日志", "连接分析",
+        "网络工具（Ping / TCP / DNS）", "网络测试（带宽 / NAT 类型）", "解锁检测", "内网 IP 与路由器",
     ]
-    /// feat/more-dedup: 重写 / 脚本 / 定时任务 / 配置里的规则集 live only on 更多 → 模块 (ids unchanged).
+    static let advancedRows = [
+        "连接方式", "地理与规则库", "内核设置", "测速", "出口信息查询",
+    ]
+    /// 工具 → 模块 keeps the profile's rule sets and the browse pages (ids unchanged).
     static let moduleRows = [
-        "重写（本地模块）", "脚本", "任务", "规则集（配置）", "模块库", "全部重写规则",
+        "规则集（配置）", "模块库", "全部重写规则",
     ]
 
     func test03_MoreEveryPage() {
         launch()
+        // 工具: every card opens and comes back to 工具.
+        tab(3)
+        XCTAssertTrue(app.navigationBars[L("工具")].waitForExistence(timeout: 6), "工具 tab")
+        snap("tools")
+        for (i, key) in Self.toolRows.enumerated() {
+            let row = app.element(id: "more." + key)
+            guard scrollTo(row) else { issues.append("[\(Env.tag)] 工具 → \(key) missing"); continue }
+            row.tap()
+            usleep(900_000)
+            snap(String(format: "tools-%02d", i))
+            assertAlive("工具 → \(key)")
+            back()
+            if !app.navigationBars[L("工具")].waitForExistence(timeout: 4) {
+                issues.append("[\(Env.tag)] 工具 → \(key): did not return to 工具")
+                tab(3)
+            }
+        }
+        app.swipeDown(velocity: .fast); app.swipeDown(velocity: .fast)
         tab(4)
         snap("more")
         for (i, key) in Self.moreRows.enumerated() {
@@ -162,6 +185,7 @@ final class MihomoUITests: MihomoUITestCase {
         }
         back()
         // 新手引导 opens full screen and closes.
+        tab(4)
         let onboarding = app.element(id: "more.新手引导")
         if scrollTo(onboarding) {
             onboarding.tap()
@@ -175,7 +199,7 @@ final class MihomoUITests: MihomoUITestCase {
 
     func test04_NodeManager() {
         launch()
-        tab(4)
+        tab(3)
         let row = app.element(id: "more.节点与订阅")
         XCTAssertTrue(scrollTo(row))
         row.tap()
@@ -307,7 +331,7 @@ final class MihomoUITests: MihomoUITestCase {
 
     func test05_AddNodeAndEditor() {
         launch()
-        tab(4)
+        tab(3)
         let row = app.element(id: "more.节点与订阅")
         XCTAssertTrue(scrollTo(row))
         row.tap()
@@ -414,7 +438,7 @@ final class MihomoUITests: MihomoUITestCase {
         XCTAssertTrue(done, "import \(file) finished")
         closeSheet()
         if expectProfile {
-            tab(3)
+            openProfiles()
             snap("import-\(file)-profiles")
         }
     }
@@ -438,13 +462,15 @@ final class MihomoUITests: MihomoUITestCase {
     /// Re-tapping the 更多 tab can pop 高级设置 while the row check runs, so let the tab settle first and
     /// re-enter 高级设置 once if the row vanished (zh-light test09 race on surge-ui, 2026-10-21).
     func openMore(_ key: String) {
-        tab(4)
+        // feat/more-dedup: tool-type pages (and 模块's sub-pages) are on the 工具 tab.
+        let onTools = Self.toolRows.contains(key) || Self.moduleRows.contains(key)
+        tab(onTools ? 3 : 4)
         usleep(500_000)
         let row = app.element(id: "more." + key)
         if Self.moduleRows.contains(key) {
             let mod = app.element(id: "more.模块与资源")
             if !(row.waitForExistence(timeout: 1) && row.isHittable) {
-                if !mod.waitForExistence(timeout: 1) { tab(4); usleep(500_000) }
+                if !mod.waitForExistence(timeout: 1) { tab(3); usleep(500_000) }
                 XCTAssertTrue(scrollTo(mod), "模块")
                 mod.tap()
                 usleep(800_000)
@@ -463,6 +489,19 @@ final class MihomoUITests: MihomoUITestCase {
         XCTAssertTrue(scrollTo(row), key)
         row.tap()
         usleep(800_000)
+    }
+
+    /// feat/more-dedup: 配置管理 is 更多 → 配置 (the 配置 tab became 工具).
+    func openProfiles() {
+        tab(4)
+        usleep(400_000)
+        if app.navigationBars[L("配置")].exists { return }
+        if !app.navigationBars[L("更多")].exists { tab(4); usleep(400_000) }
+        let row = app.element(id: "more.配置")
+        app.swipeDown(velocity: .fast)
+        XCTAssertTrue(scrollTo(row), "更多 → 配置")
+        row.tap()
+        XCTAssertTrue(app.navigationBars[L("配置")].waitForExistence(timeout: 6), "配置 page")
     }
 
     func test07_Editors() {
@@ -1155,7 +1194,7 @@ final class MihomoUITests: MihomoUITestCase {
 
     func test22_TailscaleNode() {
         launch()
-        tab(4)
+        tab(3)
         let row = app.element(id: "more.节点与订阅")
         XCTAssertTrue(scrollTo(row))
         row.tap()
@@ -1237,7 +1276,7 @@ final class MihomoUITests: MihomoUITestCase {
 
     func test24_SampleProfile() {
         launch()
-        tab(3)
+        openProfiles()
         let entry = app.element(id: "profiles.sample")
         XCTAssertTrue(scrollTo(entry), "示例配置 entry in 配置")
         entry.tap()
@@ -1881,7 +1920,7 @@ final class MihomoUITests: MihomoUITestCase {
         launch(["-UITestSecondProfile"])
         tab(1)
         XCTAssertTrue(app.element(id: "policy.card.Proxy").waitForExistence(timeout: 10), "demo groups")
-        tab(3)
+        openProfiles()
         let second = app.staticTexts["UITest Second"]
         XCTAssertTrue(scrollTo(second), "second profile listed")
         second.tap()
@@ -1894,7 +1933,7 @@ final class MihomoUITests: MihomoUITestCase {
         tab(0)
         XCTAssertTrue(app.element(id: "home.card.Second Select").waitForExistence(timeout: 10), "Home follows the switch")
         XCTAssertFalse(app.element(id: "home.card.Proxy").exists, "Home still shows the previous profile")
-        tab(3)
+        openProfiles()
         let demo = app.staticTexts["UITest Demo"]
         XCTAssertTrue(scrollTo(demo))
         demo.tap()
@@ -1929,7 +1968,7 @@ final class MihomoUITests: MihomoUITestCase {
         XCTAssertLessThan(Date().timeIntervalSince(s), 15, "策略 tab")
         snap("big-policy")
         // 节点管理 → 全部节点: 3000 profile + 1500 manual nodes, search narrows the list.
-        tab(4)
+        tab(3)
         let row = app.element(id: "more.节点与订阅")
         XCTAssertTrue(scrollTo(row))
         s = Date()

@@ -661,7 +661,7 @@ struct PolicyView: View {
                 if AppShared.activeProfileURL == nil {
                     // feat/surge-ui: friendly empty state with the way out.
                     EmptyStateView(icon: "square.grid.2x2", title: "还没有可用的策略", message: "添加并选择一个配置后，策略组会显示在这里。",
-                                   actionTitle: "前往配置", actionID: "policy.emptyAction") { ImportRouter.shared.selectedTab = AppSection.profiles.rawValue }
+                                   actionTitle: "前往配置", actionID: "policy.emptyAction") { ImportRouter.shared.showProfiles() }
                 } else if let e = offline.result.error, offline.result.groups.isEmpty {
                     ErrorRow(message: e)
                 } else {

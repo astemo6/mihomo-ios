@@ -51,7 +51,7 @@ final class ControllerClient {
                     return detail.isEmpty || detail.lowercased().contains("not found")
                         ? String(localized: "内核没有这个接口：扩展可能还在运行旧版本，断开后重新连接一次。") : detail
                 case 503: return detail.lowercased().contains("engine not running")
-                    ? String(localized: "脚本引擎未运行：先在「更多 → 模块」开启重写与脚本，再重新连接。") : String(localized: "内核暂时不可用：\(detail)")
+                    ? String(localized: "脚本引擎未运行：先在「工具 → 模块」开启重写与脚本，再重新连接。") : String(localized: "内核暂时不可用：\(detail)")
                 case 408, 504: return String(localized: "请求超时：\(detail)")
                 default: return detail.isEmpty ? "HTTP \(c)" : String(localized: "内核返回错误（HTTP \(c)）：\(detail)")
                 }

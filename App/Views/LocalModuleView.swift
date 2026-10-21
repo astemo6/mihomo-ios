@@ -39,7 +39,7 @@ struct RewriteForm: Codable, Equatable {
 }
 
 /// 本地模块: the user's own rewrite rules and MitM hostnames (engine.json `rules` / `hostnames`, the same
-/// store the engine reads), edited through forms or as text. Opened only from 更多 → 模块 → 我的重写
+/// store the engine reads), edited through forms or as text. Opened only from 工具 → 模块 → 我的重写
 /// (feat/more-dedup: no second entry in 高级设置; the 启用 switch and 全部重写规则 live on the 模块 page).
 struct LocalModuleView: View {
     @ObservedObject var store = EngineStore.shared

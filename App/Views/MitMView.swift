@@ -57,7 +57,7 @@ struct KindBadge: View {
     }
 }
 
-/// feat/more-dedup: the 启用重写与脚本 switch lives only on 更多 → 模块. Pages under it (我的重写, 脚本) show
+/// feat/more-dedup: the 启用重写与脚本 switch lives only on 工具 → 模块. Pages under it (我的重写, 脚本) show
 /// this row instead, and only while the engine is off: what it means and a one-tap 开启.
 struct EngineOffNotice: View {
     @ObservedObject var store = EngineStore.shared

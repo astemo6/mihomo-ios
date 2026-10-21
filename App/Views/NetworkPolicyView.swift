@@ -163,7 +163,7 @@ struct NetworkPolicyView: View {
     var rulesSection: some View {
         Section {
             if insp.result.groups.isEmpty && !insp.loading {
-                EmptyStateRow(icon: "square.stack.3d.up", title: "没有可用的策略组", message: "先在「配置」中选择一个配置。")
+                EmptyStateRow(icon: "square.stack.3d.up", title: "没有可用的策略组", message: "先在「更多 → 配置」中选择一个配置。")
             }
             ForEach(rules) { r in
                 NavigationLink {

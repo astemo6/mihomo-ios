@@ -52,14 +52,16 @@ struct MihomoApp: App {
 /// The five top-level sections: a TabView on iPhone (compact width), a NavigationSplitView sidebar on
 /// iPad / regular width. Each section keeps its own NavigationStack, so the views are identical.
 enum AppSection: Int, CaseIterable, Identifiable {
-    case home, policy, requests, profiles, more
+    /// feat/more-dedup (user 2026-10-21 18:06): the 配置 tab became 工具 (Egern-style cards); 配置管理 is a row
+    /// at the top of 更多. Raw value 3 kept, so a stored 开始标签页 of 3 now opens 工具.
+    case home, policy, requests, tools, more
     var id: Int { rawValue }
     var title: String {
         switch self {
         case .home: return "首页"
         case .policy: return "策略"
         case .requests: return "请求"
-        case .profiles: return "配置"
+        case .tools: return "工具"
         case .more: return "更多"
         }
     }
@@ -68,7 +70,7 @@ enum AppSection: Int, CaseIterable, Identifiable {
         case .home: return "gauge.with.dots.needle.67percent"
         case .policy: return "square.grid.2x2.fill"
         case .requests: return "arrow.left.arrow.right"
-        case .profiles: return "doc.text.fill"
+        case .tools: return "wrench.and.screwdriver.fill"
         case .more: return "ellipsis.circle.fill"
         }
     }
@@ -77,7 +79,7 @@ enum AppSection: Int, CaseIterable, Identifiable {
         case .home: HomeView()
         case .policy: PolicyView()
         case .requests: RequestsView()
-        case .profiles: ProfilesView()
+        case .tools: ToolsTabView()
         case .more: MoreView()
         }
     }
@@ -303,7 +305,7 @@ struct NotConnectedPlaceholder: View {
     var body: some View {
         if store.profiles.isEmpty {
             EmptyStateView(icon: "bolt.horizontal.circle", title: text, message: "还没有配置，先添加一个订阅或配置文件。",
-                           actionTitle: "添加配置", actionID: "empty.addProfile") { ImportRouter.shared.selectedTab = AppSection.profiles.rawValue }
+                           actionTitle: "添加配置", actionID: "empty.addProfile") { ImportRouter.shared.showProfiles() }
         } else {
             EmptyStateView(icon: "bolt.horizontal.circle", title: text, message: vpn.status == .connecting ? "正在连接…" : "开启 VPN 后这里会实时更新。",
                            actionTitle: vpn.isConnected || vpn.status == .connecting ? nil : "连接", actionID: "empty.connect") {

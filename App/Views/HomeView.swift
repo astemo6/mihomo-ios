@@ -107,7 +107,7 @@ struct HomeEmptyCard: View {
     var body: some View {
         Card {
             EmptyStateRow(icon: "tray.and.arrow.down", title: "还没有配置", message: "添加一个订阅或配置文件，就可以开始使用了。") {
-                Button { ImportRouter.shared.selectedTab = AppSection.profiles.rawValue } label: {
+                Button { ImportRouter.shared.showProfiles() } label: {
                     Text("添加配置").font(.footnote.weight(.semibold))
                 }
                 .buttonStyle(.borderless)

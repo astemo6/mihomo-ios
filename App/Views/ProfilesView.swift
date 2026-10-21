@@ -17,8 +17,15 @@ struct ProfilesView: View {
     @State private var pendingDelete: Profile?
     @State private var share: ShareItem?
 
+    /// feat/more-dedup: pushed from 更多 → 配置 (no NavigationStack of its own); the old 配置 tab is gone.
+    var embedded = true
+
     var body: some View {
-        NavigationStack {
+        if embedded { content } else { NavigationStack { content } }
+    }
+
+    @ViewBuilder var content: some View {
+        Group {
             List {
                 if store.profiles.isEmpty {
                     Section {

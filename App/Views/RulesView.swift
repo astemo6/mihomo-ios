@@ -602,7 +602,7 @@ struct CustomRuleEditor: View {
 
 // MARK: - Providers
 
-/// 更多 → 模块 → 配置里的规则集: the profile's rule-providers (feat/more-dedup). The profile's 节点集
+/// 工具 → 模块 → 配置里的规则集: the profile's rule-providers (feat/more-dedup). The profile's 节点集
 /// (proxy-providers) are managed only on 节点与订阅, so this page no longer lists them.
 struct ProvidersView: View {
     @EnvironmentObject var vpn: VPNManager

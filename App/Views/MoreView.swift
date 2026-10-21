@@ -6,6 +6,7 @@ import Libmihomo
 struct MoreView: View {
     @EnvironmentObject var vpn: VPNManager
     @EnvironmentObject var store: ProfileStore
+    @ObservedObject private var router = ImportRouter.shared
     @State private var showOnboarding = false
     @AppStorage(LaunchTab.key) private var launchRaw = 0
     /// fix/nav-jank: the 首页流量统计 row reads the stored setting instead of observing DashboardModel, which
@@ -23,46 +24,12 @@ struct MoreView: View {
     var body: some View {
         NavigationStack {
             List {
-                Section("代理") {
-                    NavigationLink { LazyDestination { NodeManagerView() } } label: {
-                        MoreRow(id: "节点与订阅", title: "节点与订阅", symbol: "server.rack", tone: .blue)
-                    }
-                    NavigationLink { LazyDestination { RulesView() } } label: {
-                        MoreRow(id: "规则", title: "分流规则", symbol: "arrow.triangle.branch", tone: .orange)
-                    }
-                    NavigationLink { LazyDestination { ModulesView() } } label: {
-                        MoreRow(id: "模块与资源", title: "模块", subtitle: "重写 · 脚本 · 定时任务 · 规则集", symbol: "puzzlepiece.extension", tone: .purple)
-                    }
-                }
-                .listRowBackground(Theme.card)
-
+                // feat/more-dedup (user 2026-10-21 18:06): the 配置 tab is gone; 配置管理 is the first row here and the
+                // tool-type pages (节点与订阅, 规则, 模块, logs, network tools) are cards on the 工具 tab.
                 Section {
-                    NavigationLink { LazyDestination { LogsView() } } label: {
-                        MoreRow(id: "日志", title: "运行日志", symbol: "text.alignleft", tone: .neutral, needsVPN: true)
-                    }
-                    NavigationLink { LazyDestination { DNSLogView() } } label: {
-                        MoreRow(id: "DNS 日志", title: "域名解析记录", subtitle: "DNS", symbol: "globe", tone: .blue, needsVPN: true)
-                    }
-                    NavigationLink { LazyDestination { AnalyticsView() } } label: {
-                        MoreRow(id: "连接分析", title: "连接分析", symbol: "chart.pie", tone: .teal, needsVPN: true)
-                    }
-                } header: { Text("运行状态") } footer: {
-                    if !vpn.isConnected { Text("开启 VPN 后可查看。实时请求在「请求」标签页。") }
-                }
-                .listRowBackground(Theme.card)
-
-                Section("工具") {
-                    NavigationLink { LazyDestination { ToolsView() } } label: {
-                        MoreRow(id: "网络工具（Ping / TCP / DNS）", title: "网络诊断", subtitle: "Ping · TCP · DNS", symbol: "stethoscope", tone: .green)
-                    }
-                    NavigationLink { LazyDestination { NetTestView() } } label: {
-                        MoreRow(id: "网络测试（带宽 / NAT 类型）", title: "网速测试", subtitle: "带宽 · NAT 类型", symbol: "speedometer", tone: .orange)
-                    }
-                    NavigationLink { LazyDestination { UnlockView() } } label: {
-                        MoreRow(id: "解锁检测", title: "流媒体解锁", symbol: "play.tv", tone: .pink)
-                    }
-                    NavigationLink { LazyDestination { LANDetailView() } } label: {
-                        MoreRow(id: "内网 IP 与路由器", title: "局域网信息", subtitle: "内网 IP · 路由器", symbol: "wifi.router", tone: .teal)
+                    NavigationLink { LazyDestination { ProfilesView() } } label: {
+                        MoreRow(id: "配置", title: "配置", symbol: "doc.text.fill", tone: .blue,
+                                value: store.active?.displayName ?? String(localized: "未选择"))
                     }
                 }
                 .listRowBackground(Theme.card)
@@ -76,6 +43,9 @@ struct MoreView: View {
                     }
                     NavigationLink { LazyDestination { BackupView() } } label: {
                         MoreRow(id: "备份与恢复", title: "备份与恢复", symbol: "externaldrive.badge.icloud", tone: .blue)
+                    }
+                    NavigationLink { LazyDestination { UpdateResourcesView() } } label: {
+                        MoreRow(id: "更新资源", title: "更新资源", subtitle: "订阅 · 模块 · 规则集 · 脚本", symbol: "arrow.triangle.2.circlepath", tone: .green)
                     }
                     NavigationLink { LazyDestination { StorageView() } } label: {
                         MoreRow(id: "存储空间", title: "存储空间", symbol: "internaldrive", tone: .neutral)
@@ -103,7 +73,7 @@ struct MoreView: View {
 
                 Section {
                     NavigationLink { LazyDestination { AdvancedSettingsView() } } label: {
-                        MoreRow(id: "高级设置", title: "高级设置", subtitle: "连接方式 · DNS · MitM · 内核", symbol: "gearshape.2", tone: .neutral)
+                        MoreRow(id: "高级设置", title: "高级设置", subtitle: "连接方式 · 内核 · 测速", symbol: "gearshape.2", tone: .neutral)
                     }
                 } header: { Text("高级") }
                 .listRowBackground(Theme.card)
@@ -127,6 +97,7 @@ struct MoreView: View {
             .scrollContentBackground(.hidden)
             .background(Theme.bg.ignoresSafeArea())
             .navigationTitle("更多")
+            .navigationDestination(isPresented: $router.openProfiles) { ProfilesView() }
             .fullScreenCover(isPresented: $showOnboarding) {
                 OnboardingView { showOnboarding = false }
                     .environmentObject(vpn)
@@ -159,7 +130,7 @@ struct MoreRow: View {
 }
 
 /// feat/surge-ui: the expert pages that used to fill 更多, grouped by what they change.
-/// feat/more-dedup: 重写 / 脚本 / 定时任务 / 规则集 live only on 更多 → 模块, 节点集 only on 节点与订阅;
+/// feat/more-dedup: 重写 / 脚本 / 定时任务 / 规则集 live only on 工具 → 模块, 节点集 only on 节点与订阅;
 /// this page keeps what changes how the tunnel itself works.
 struct AdvancedSettingsView: View {
     @ObservedObject var engine = EngineStore.shared
@@ -189,29 +160,20 @@ struct AdvancedSettingsView: View {
     }
 
     var body: some View {
-        let mc = engine.enabledModuleCounts
         List {
             Section("网络") {
                 NavigationLink { LazyDestination { ConnectionView() } } label: {
                     MoreRow(id: "连接方式", title: "连接方式", symbol: "point.3.filled.connected.trianglepath.dotted", tone: .blue, value: connLabel)
                 }
-                NavigationLink { LazyDestination { DNSView() } } label: {
-                    MoreRow(id: "DNS", title: "DNS", symbol: "network", tone: .teal, value: dnsLabel)
-                }
             }
             .listRowBackground(Theme.card)
 
             Section {
-                NavigationLink { LazyDestination { MitMView() } } label: {
-                    MoreRow(id: "MitM", title: "HTTPS 解密", subtitle: "MitM", symbol: "lock.open", tone: .red,
-                            value: engine.config.mitm ? "已开启" : (mc.hosts > 0 ? "模块需要开启" : "关闭"),
-                            valueColor: engine.config.mitm ? Theme.good : (mc.hosts > 0 ? Theme.warn : .secondary))
-                }
                 NavigationLink { LazyDestination { GeoView() } } label: {
                     MoreRow(id: "地理与规则库", title: "地理数据库", subtitle: "GeoIP · GeoSite", symbol: "globe.asia.australia", tone: .green)
                 }
-            } header: { Text("解密与数据") } footer: {
-                Text("重写、脚本、定时任务和规则集都在「更多 → 模块」；模块里的重写和脚本要处理 HTTPS 请求时需要在这里开启解密。")
+            } header: { Text("数据") } footer: {
+                Text("HTTPS 解密、DNS、模块、重写、脚本和规则都在「工具」标签页。")
             }
             .listRowBackground(Theme.card)
 
@@ -477,7 +439,7 @@ struct SettingsView: View {
                 }
                 Toggle("域名嗅探（Sniffer）", isOn: $o.sniffer)
             } header: { Text("内核") } footer: {
-                Text("这些选项会覆盖配置文件里的同名字段。DNS 模式在「更多 → 高级设置 → DNS」中设置，IPv6 与局域网共享在「更多 → 高级设置 → 连接方式」中设置。")
+                Text("这些选项会覆盖配置文件里的同名字段。DNS 模式在「工具 → DNS」中设置，IPv6 与局域网共享在「更多 → 高级设置 → 连接方式」中设置。")
             }
             .listRowBackground(Theme.card)
 

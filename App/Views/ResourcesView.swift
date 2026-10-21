@@ -2,7 +2,7 @@ import SwiftUI
 import UIKit
 import Libmihomo
 
-// 更多 → 模块 (id more.模块与资源): the one place for modules (every format, with badges) and the remote resources
+// 工具 → 模块 (id more.模块与资源): the one place for modules (every format, with badges) and the remote resources
 // they and the custom rules use — rewrite sets, rule sets, scripts — each with an update interval,
 // last update, enable switch and last error. Update-all at the top. No second screen elsewhere.
 
@@ -34,22 +34,13 @@ struct ModulesView: View {
             }
             .listRowBackground(Theme.card)
 
-            // feat/more-dedup: the one home for 重写 / 脚本 / 定时任务 / 规则集 (高级设置 no longer lists them).
+            // feat/more-dedup: 重写 / 脚本 / 定时任务 are their own cards on the 工具 tab (Egern-style); 模块 keeps the
+            // profile's rule-providers and the browse pages.
             Section {
-                NavigationLink { LazyDestination { LocalModuleView() } } label: {
-                    MoreRow(id: "重写（本地模块）", title: "我的重写", subtitle: String(localized: "\(store.config.rules.count) 条重写 · \(store.config.hostnames.count) 个 MitM 主机名"),
-                            symbol: "arrow.triangle.swap", tone: .orange)
-                }
-                NavigationLink { LazyDestination { ScriptsView() } } label: {
-                    MoreRow(id: "脚本", title: "脚本", symbol: "curlybraces", tone: .purple)
-                }
-                NavigationLink { LazyDestination { ScriptTasksView() } } label: {
-                    MoreRow(id: "任务", title: "定时任务", subtitle: "定时 · 网络变化 · 手动运行", symbol: "clock.arrow.circlepath", tone: .green)
-                }
                 NavigationLink { LazyDestination { ProvidersView() } } label: {
                     MoreRow(id: "规则集（配置）", title: "配置里的规则集", subtitle: "rule-providers", symbol: "list.bullet.rectangle", tone: .teal)
                 }
-            } header: { Text("我的") }
+            } header: { Text("配置") }
             .listRowBackground(Theme.card)
 
             Section {
@@ -310,7 +301,7 @@ struct ResourceDetailView: View {
                     }
                 } footer: {
                     switch it.kind {
-                    case "ruleset": Text("规则集保存在自定义规则里（更多 → 分流规则 → 自定义），这里管理它的下载与更新。Surge / Loon / QX 列表与 Egern YAML 规则集会转换为 mihomo 规则；不支持的行会被跳过。连接期间内核也会按间隔自动更新。")
+                    case "ruleset": Text("规则集保存在自定义规则里（工具 → 分流规则 → 自定义），这里管理它的下载与更新。Surge / Loon / QX 列表与 Egern YAML 规则集会转换为 mihomo 规则；不支持的行会被跳过。连接期间内核也会按间隔自动更新。")
                     case "script": Text("停用后，引用这个脚本的所有规则、定时任务和面板都不再运行（模块本身保持启用）。连接期间引擎会按间隔在后台刷新脚本。")
                     default: EmptyView()
                     }
