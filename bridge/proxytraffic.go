@@ -51,6 +51,9 @@ type proxyTraffic struct {
 	mu      sync.Mutex
 	entries map[*statistic.TrackerInfo]*ptEntry
 	classes map[string]bool // leaf name → is a proxy
+	// provTable (review 7 OPT-1): provider node name → is a proxy, built once per classes generation on the
+	// first leaf that is not a top-level proxy, instead of walking every provider for each unknown leaf.
+	provTable map[string]bool
 	epoch   uint32
 	last    time.Time
 
@@ -108,12 +111,19 @@ func (p *proxyTraffic) classifyLive(leaf string) (proxy bool) {
 	if px, ok := tunnel.Proxies()[leaf]; ok {
 		return !nonProxyType(px.Type())
 	}
-	for _, pv := range tunnel.Providers() {
-		for _, px := range pv.Proxies() {
-			if px.Name() == leaf {
-				return !nonProxyType(px.Type())
+	if p.provTable == nil {
+		t := map[string]bool{}
+		for _, pv := range tunnel.Providers() {
+			for _, px := range pv.Proxies() {
+				if _, dup := t[px.Name()]; !dup { // first provider wins, like the old walk
+					t[px.Name()] = !nonProxyType(px.Type())
+				}
 			}
 		}
+		p.provTable = t
+	}
+	if v, ok := p.provTable[leaf]; ok {
+		return v
 	}
 	return true // an unknown leaf that is not a built-in is a node the core dialled
 }
@@ -145,6 +155,9 @@ func (p *proxyTraffic) leafIsProxy(info *statistic.TrackerInfo) bool {
 	leaf := info.Chain[0]
 	if v, ok := p.classes[leaf]; ok {
 		return v
+	}
+	if len(p.classes) == 0 {
+		p.provTable = nil // new classes generation (start / reload / overflow): providers may have changed
 	}
 	v := p.classify(leaf)
 	if len(p.classes) > 4096 {

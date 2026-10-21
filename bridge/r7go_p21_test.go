@@ -93,3 +93,26 @@ func TestR7P21CarryNoDoubleCount(t *testing.T) {
 		t.Fatalf("want 300 (no double count), got %d", got)
 	}
 }
+
+// Review 7 OPT-1: provider nodes are classified from a table built once per classes generation.
+func TestR7OPT1ProviderTableRebuiltPerGeneration(t *testing.T) {
+	p := newProxyTraffic()
+	p.classes["x"] = true
+	p.provTable = map[string]bool{"stale": false}
+	_ = p.leafIsProxy(&statistic.TrackerInfo{Chain: C.Chain{"y"}})
+	if p.provTable == nil {
+		t.Fatal("table must survive within a generation")
+	}
+	p.resetClasses()
+	_ = p.leafIsProxy(&statistic.TrackerInfo{Chain: C.Chain{"DIRECT"}})
+	if p.provTable != nil {
+		t.Fatal("a new classes generation must drop the provider table")
+	}
+	// Live classify with no core: unknown leaf builds an (empty) table once and counts as a proxy.
+	if !p.classifyLive("香港 01") || p.provTable == nil {
+		t.Fatal("unknown leaf: proxy, table built")
+	}
+	if p.classifyLive("DIRECT") {
+		t.Fatal("DIRECT is never a proxy")
+	}
+}
