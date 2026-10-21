@@ -25,6 +25,9 @@ final class ConnectionAnalytics: ObservableObject {
     @Published private(set) var since = Date()
 
     private var last: [String: (up: Int64, down: Int64)] = [:]
+    /// r7: bumped whenever policies / rules / hosts / counts change, so readers (HomeAnalysisModel) can skip a re-sort
+    /// when nothing moved.
+    private(set) var version = 0
     /// feat/home-analysis: the UI-test demo instance never writes the saved day history.
     var recordsHistory = true
     private static let hostCap = 600
@@ -32,6 +35,7 @@ final class ConnectionAnalytics: ObservableObject {
     func reset() {
         policies = [:]; rules = [:]; hosts = [:]; last = [:]
         totalConnections = 0; activeConnections = 0; since = Date()
+        version &+= 1
     }
 
     func ingest(_ conns: [ConnectionItem]) {
@@ -39,6 +43,7 @@ final class ConnectionAnalytics: ObservableObject {
         seen.reserveCapacity(conns.count)
         var pol = policies, hs = hosts, rs = rules
         var newCount = 0
+        var moved = false
         var stepPol: [String: Bytes] = [:], stepHost: [String: Bytes] = [:]
         for c in conns {
             let policy = c.chains?.last ?? "DIRECT"
@@ -52,6 +57,7 @@ final class ConnectionAnalytics: ObservableObject {
             let du = max(0, c.upload - (prev?.up ?? 0))
             let dd = max(0, c.download - (prev?.down ?? 0))
             if du > 0 || dd > 0 {
+                moved = true
                 pol[policy, default: Bytes()].up += du
                 pol[policy, default: Bytes()].down += dd
                 let h = Self.hostName(c.metadata)
@@ -71,6 +77,7 @@ final class ConnectionAnalytics: ObservableObject {
         last = seen
         policies = pol; hosts = hs; rules = rs
         if recordsHistory { AnalyticsHistory.shared.add(policies: stepPol, hosts: stepHost) }
+        if moved || newCount > 0 || activeConnections != conns.count { version &+= 1 }
         totalConnections += newCount
         activeConnections = conns.count
     }
