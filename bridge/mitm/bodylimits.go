@@ -102,6 +102,53 @@ func inflateLimited(b []byte, limit int) ([]byte, error) {
 	return readAllLimited(fr, limit)
 }
 
+// decodePrefix decodes the start of a compressed body that may have been cut (the capture keeps only
+// the first captureLimit bytes of the stream), returning up to limit decoded bytes. A truncated stream
+// is fine as long as some output came out (r7 P3-4).
+func decodePrefix(enc string, b []byte, limit int) ([]byte, error) {
+	var r io.Reader
+	switch strings.ToLower(strings.TrimSpace(enc)) {
+	case "gzip", "x-gzip":
+		gr, err := gzip.NewReader(bytes.NewReader(b))
+		if err != nil {
+			return nil, err
+		}
+		r = gr
+	case "deflate":
+		if len(b) > 2 && b[0] == 0x1f && b[1] == 0x8b {
+			gr, err := gzip.NewReader(bytes.NewReader(b))
+			if err != nil {
+				return nil, err
+			}
+			r = gr
+		} else if zr, err := zlib.NewReader(bytes.NewReader(b)); err == nil {
+			r = zr
+		} else {
+			r = flate.NewReader(bytes.NewReader(b))
+		}
+	case "br":
+		r = brotli.NewReader(bytes.NewReader(b))
+	case "zstd":
+		zr, err := zstd.NewReader(bytes.NewReader(b), zstd.WithDecoderLowmem(true), zstd.WithDecoderConcurrency(1), zstd.WithDecoderMaxMemory(uint64(limit)+1<<20))
+		if err != nil {
+			return nil, err
+		}
+		defer zr.Close()
+		r = zr
+	default:
+		return nil, fmt.Errorf("不支持的编码 %s", enc)
+	}
+	buf := make([]byte, limit)
+	n, err := io.ReadFull(r, buf)
+	if n == 0 {
+		if err == nil || err == io.EOF {
+			return []byte{}, nil
+		}
+		return nil, err
+	}
+	return buf[:n], nil
+}
+
 // ---- global body budget ----
 
 // bodyBudgetBytes bounds the body bytes all concurrent flows may hold for rewrites / scripts. With a

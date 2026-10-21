@@ -4,7 +4,10 @@ package mitm
 
 import (
 	"bytes"
+	"compress/gzip"
 	"context"
+	"crypto/rand"
+	"encoding/hex"
 	"fmt"
 	"net"
 	"net/http"
@@ -148,5 +151,49 @@ func TestR7ReplacedUpstreamBodyClosed(t *testing.T) {
 	}
 	if n := conns.Load(); n != 1 {
 		t.Fatalf("upstream connections for 5 sequential mocked requests: %d, want 1", n)
+	}
+}
+
+// P3-4: a captured gzip response whose compressed size is over 32 KB still gets a text preview.
+func TestR7CaptureGzipPreviewOver32K(t *testing.T) {
+	cfg := &Config{Enabled: true, MitM: true, Hostnames: []string{"api.test.com"}, Rules: items(`^https://api\.test\.com/none - reject`)}
+	h := newHarness(t, cfg, nil)
+	raw := make([]byte, 60<<10)
+	_, _ = rand.Read(raw)
+	text := []byte(hex.EncodeToString(raw)) // 120 KB text, ~60 KB gzip
+	var gz bytes.Buffer
+	zw := gzip.NewWriter(&gz)
+	_, _ = zw.Write(text)
+	_ = zw.Close()
+	if gz.Len() <= captureLimit {
+		t.Fatalf("fixture too small: %d", gz.Len())
+	}
+	h.up.Config.Handler = http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Encoding", "gzip")
+		w.Header().Set("Content-Type", "text/plain")
+		_, _ = w.Write(gz.Bytes())
+	})
+	h.get("https://api.test.com/g")
+	deadline := time.Now().Add(2 * time.Second)
+	for {
+		var got string
+		for _, s := range h.e.Requests.List(0) {
+			ent := h.e.Requests.Get(s.ID)
+			ent.mu.Lock()
+			if strings.HasSuffix(ent.URL, "/g") {
+				got = ent.RespBodyS
+			}
+			ent.mu.Unlock()
+		}
+		if got != "" {
+			if !strings.HasPrefix(string(text), got[:64]) {
+				t.Fatalf("preview is not the decoded text: %q", got[:64])
+			}
+			return
+		}
+		if time.Now().After(deadline) {
+			t.Fatal("no text preview for a >32 KB gzip response")
+		}
+		time.Sleep(50 * time.Millisecond)
 	}
 }
