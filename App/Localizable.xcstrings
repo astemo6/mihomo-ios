@@ -4279,173 +4279,173 @@
         }
       }
     },
-    "Mihomo": {
+    "Tern": {
       "localizations": {
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "Mihomo"
+            "value": "Tern"
           }
         },
         "zh-Hant": {
           "stringUnit": {
             "state": "translated",
-            "value": "Mihomo"
+            "value": "Tern"
           }
         },
         "ja": {
           "stringUnit": {
             "state": "translated",
-            "value": "Mihomo"
+            "value": "Tern"
           }
         },
         "ko": {
           "stringUnit": {
             "state": "translated",
-            "value": "Mihomo"
+            "value": "Tern"
           }
         },
         "ru": {
           "stringUnit": {
             "state": "translated",
-            "value": "Mihomo"
+            "value": "Tern"
           }
         }
       }
     },
-    "Mihomo 已连接": {
+    "Tern 已连接": {
       "localizations": {
         "zh-Hant": {
           "stringUnit": {
             "state": "translated",
-            "value": "Mihomo 已連線"
+            "value": "Tern 已連線"
           }
         },
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "Mihomo Connected"
+            "value": "Tern Connected"
           }
         },
         "ja": {
           "stringUnit": {
             "state": "translated",
-            "value": "Mihomo 接続中"
+            "value": "Tern 接続中"
           }
         },
         "ko": {
           "stringUnit": {
             "state": "translated",
-            "value": "Mihomo 연결됨"
+            "value": "Tern 연결됨"
           }
         },
         "ru": {
           "stringUnit": {
             "state": "translated",
-            "value": "Mihomo подключён"
+            "value": "Tern подключён"
           }
         }
       }
     },
-    "Mihomo 未连接": {
+    "Tern 未连接": {
       "localizations": {
         "zh-Hant": {
           "stringUnit": {
             "state": "translated",
-            "value": "Mihomo 未連線"
+            "value": "Tern 未連線"
           }
         },
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "Mihomo Not Connected"
+            "value": "Tern Not Connected"
           }
         },
         "ja": {
           "stringUnit": {
             "state": "translated",
-            "value": "Mihomo 未接続"
+            "value": "Tern 未接続"
           }
         },
         "ko": {
           "stringUnit": {
             "state": "translated",
-            "value": "Mihomo 연결 안 됨"
+            "value": "Tern 연결 안 됨"
           }
         },
         "ru": {
           "stringUnit": {
             "state": "translated",
-            "value": "Mihomo не подключён"
+            "value": "Tern не подключён"
           }
         }
       }
     },
-    "Mihomo 直接识别 Quantumult X / Surge / Clash / sing-box / 分享链接等格式，不需要资源解析器。这里只保存 Quantumult X 配置中的 resource_parser_url，不会下载或运行。": {
+    "Tern 直接识别 Quantumult X / Surge / Clash / sing-box / 分享链接等格式，不需要资源解析器。这里只保存 Quantumult X 配置中的 resource_parser_url，不会下载或运行。": {
       "localizations": {
         "zh-Hant": {
           "stringUnit": {
             "state": "translated",
-            "value": "Mihomo 直接識別 Quantumult X / Surge / Clash / sing-box / 分享連結等格式，不需要資源解析器。這裡只儲存 Quantumult X 配置中的 resource_parser_url，不會下載或執行。"
+            "value": "Tern 直接識別 Quantumult X / Surge / Clash / sing-box / 分享連結等格式，不需要資源解析器。這裡只儲存 Quantumult X 配置中的 resource_parser_url，不會下載或執行。"
           }
         },
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "Mihomo reads Quantumult X, Surge, Clash, sing-box, share links and more directly, so no resource parser is needed. This only stores the resource_parser_url from a Quantumult X profile; it is never downloaded or run."
+            "value": "Tern reads Quantumult X, Surge, Clash, sing-box, share links and more directly, so no resource parser is needed. This only stores the resource_parser_url from a Quantumult X profile; it is never downloaded or run."
           }
         },
         "ja": {
           "stringUnit": {
             "state": "translated",
-            "value": "Mihomo は Quantumult X / Surge / Clash / sing-box / 共有リンクなどの形式を直接認識するため、リソースパーサーは不要です。ここには Quantumult X プロファイルの resource_parser_url を保存するだけで、ダウンロードも実行もしません。"
+            "value": "Tern は Quantumult X / Surge / Clash / sing-box / 共有リンクなどの形式を直接認識するため、リソースパーサーは不要です。ここには Quantumult X プロファイルの resource_parser_url を保存するだけで、ダウンロードも実行もしません。"
           }
         },
         "ko": {
           "stringUnit": {
             "state": "translated",
-            "value": "Mihomo는 Quantumult X / Surge / Clash / sing-box / 공유 링크 등의 형식을 직접 인식하므로 리소스 파서가 필요 없습니다. 여기에는 Quantumult X 프로파일의 resource_parser_url만 저장하며 다운로드하거나 실행하지 않습니다."
+            "value": "Tern는 Quantumult X / Surge / Clash / sing-box / 공유 링크 등의 형식을 직접 인식하므로 리소스 파서가 필요 없습니다. 여기에는 Quantumult X 프로파일의 resource_parser_url만 저장하며 다운로드하거나 실행하지 않습니다."
           }
         },
         "ru": {
           "stringUnit": {
             "state": "translated",
-            "value": "Mihomo сам понимает форматы Quantumult X, Surge, Clash, sing-box, ссылки и др., парсер ресурсов не нужен. Здесь только хранится resource_parser_url из профиля Quantumult X — он не загружается и не запускается."
+            "value": "Tern сам понимает форматы Quantumult X, Surge, Clash, sing-box, ссылки и др., парсер ресурсов не нужен. Здесь только хранится resource_parser_url из профиля Quantumult X — он не загружается и не запускается."
           }
         }
       }
     },
-    "Mihomo 通过系统的 VPN（网络扩展）接管流量。点下面的按钮后，iOS 会询问是否「添加 VPN 配置」，选择「允许」并验证面容 / 密码。": {
+    "Tern 通过系统的 VPN（网络扩展）接管流量。点下面的按钮后，iOS 会询问是否「添加 VPN 配置」，选择「允许」并验证面容 / 密码。": {
       "extractionState": "manual",
       "localizations": {
         "zh-Hant": {
           "stringUnit": {
             "state": "translated",
-            "value": "Mihomo 透過系統的 VPN（網路延伸功能）接管流量。點下面的按鈕後，iOS 會詢問是否「新增 VPN 配置」，選擇「允許」並驗證面容 / 密碼。"
+            "value": "Tern 透過系統的 VPN（網路延伸功能）接管流量。點下面的按鈕後，iOS 會詢問是否「新增 VPN 配置」，選擇「允許」並驗證面容 / 密碼。"
           }
         },
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "Mihomo routes traffic through the system VPN (Network Extension). Tap the button below, choose “Allow” when iOS asks to add VPN configurations, then confirm with Face ID or your passcode."
+            "value": "Tern routes traffic through the system VPN (Network Extension). Tap the button below, choose “Allow” when iOS asks to add VPN configurations, then confirm with Face ID or your passcode."
           }
         },
         "ja": {
           "stringUnit": {
             "state": "translated",
-            "value": "Mihomo はシステムの VPN（ネットワーク拡張）で通信を処理します。下のボタンを押し、「VPN 構成の追加」で「許可」を選んで Face ID / パスコードで確認してください。"
+            "value": "Tern はシステムの VPN（ネットワーク拡張）で通信を処理します。下のボタンを押し、「VPN 構成の追加」で「許可」を選んで Face ID / パスコードで確認してください。"
           }
         },
         "ko": {
           "stringUnit": {
             "state": "translated",
-            "value": "Mihomo는 시스템 VPN(네트워크 확장)으로 트래픽을 처리합니다. 아래 버튼을 누르고 ‘VPN 구성 추가’에서 ‘허용’을 선택한 뒤 Face ID / 암호로 확인하세요."
+            "value": "Tern는 시스템 VPN(네트워크 확장)으로 트래픽을 처리합니다. 아래 버튼을 누르고 ‘VPN 구성 추가’에서 ‘허용’을 선택한 뒤 Face ID / 암호로 확인하세요."
           }
         },
         "ru": {
           "stringUnit": {
             "state": "translated",
-            "value": "Mihomo пропускает трафик через системный VPN (Network Extension). Нажмите кнопку ниже, выберите «Разрешить» на запрос iOS о добавлении VPN и подтвердите Face ID или код."
+            "value": "Tern пропускает трафик через системный VPN (Network Extension). Нажмите кнопку ниже, выберите «Разрешить» на запрос iOS о добавлении VPN и подтвердите Face ID или код."
           }
         }
       }
@@ -6304,36 +6304,36 @@
         }
       }
     },
-    "VPN 配置已停用：在 设置 → VPN 中选中 Mihomo，或重新连接。": {
+    "VPN 配置已停用：在 设置 → VPN 中选中 Tern，或重新连接。": {
       "localizations": {
         "zh-Hant": {
           "stringUnit": {
             "state": "translated",
-            "value": "VPN 配置已停用：在 設定 → VPN 中選中 Mihomo，或重新連線。"
+            "value": "VPN 配置已停用：在 設定 → VPN 中選中 Tern，或重新連線。"
           }
         },
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "The VPN configuration is disabled: select Mihomo in Settings → VPN, or connect again."
+            "value": "The VPN configuration is disabled: select Tern in Settings → VPN, or connect again."
           }
         },
         "ja": {
           "stringUnit": {
             "state": "translated",
-            "value": "VPN 構成が無効です：設定 → VPN で Mihomo を選ぶか、もう一度接続してください。"
+            "value": "VPN 構成が無効です：設定 → VPN で Tern を選ぶか、もう一度接続してください。"
           }
         },
         "ko": {
           "stringUnit": {
             "state": "translated",
-            "value": "VPN 구성이 비활성화됨: 설정 → VPN에서 Mihomo를 선택하거나 다시 연결하세요."
+            "value": "VPN 구성이 비활성화됨: 설정 → VPN에서 Tern를 선택하거나 다시 연결하세요."
           }
         },
         "ru": {
           "stringUnit": {
             "state": "translated",
-            "value": "Конфигурация VPN отключена: выберите Mihomo в Настройки → VPN или подключитесь снова."
+            "value": "Конфигурация VPN отключена: выберите Tern в Настройки → VPN или подключитесь снова."
           }
         }
       }
@@ -7601,36 +7601,36 @@
         }
       }
     },
-    "iOS 只在 App 获得「使用 App 期间」的精确位置权限时才提供当前 Wi-Fi 的名称。Mihomo 只用它读取 Wi-Fi 名称，不读取、不保存你的位置。不授权也可以手动输入名称。": {
+    "iOS 只在 App 获得「使用 App 期间」的精确位置权限时才提供当前 Wi-Fi 的名称。Tern 只用它读取 Wi-Fi 名称，不读取、不保存你的位置。不授权也可以手动输入名称。": {
       "localizations": {
         "zh-Hant": {
           "stringUnit": {
             "state": "translated",
-            "value": "iOS 只在 App 獲得「使用 App 期間」的精確位置許可權時才提供當前 Wi-Fi 的名稱。Mihomo 只用它讀取 Wi-Fi 名稱，不讀取、不儲存你的位置。不授權也可以手動輸入名稱。"
+            "value": "iOS 只在 App 獲得「使用 App 期間」的精確位置許可權時才提供當前 Wi-Fi 的名稱。Tern 只用它讀取 Wi-Fi 名稱，不讀取、不儲存你的位置。不授權也可以手動輸入名稱。"
           }
         },
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "iOS only provides the current Wi-Fi name when the app has precise location access “While Using the App”. Mihomo uses it only to read the Wi-Fi name and never reads or stores your location. You can also type names manually."
+            "value": "iOS only provides the current Wi-Fi name when the app has precise location access “While Using the App”. Tern uses it only to read the Wi-Fi name and never reads or stores your location. You can also type names manually."
           }
         },
         "ja": {
           "stringUnit": {
             "state": "translated",
-            "value": "iOS は、App に「App の使用中」の正確な位置情報の許可がある場合にのみ現在の Wi-Fi 名を提供します。Mihomo は Wi-Fi 名の取得にのみ使用し、位置情報を読み取ったり保存したりしません。許可しなくても手動で入力できます。"
+            "value": "iOS は、App に「App の使用中」の正確な位置情報の許可がある場合にのみ現在の Wi-Fi 名を提供します。Tern は Wi-Fi 名の取得にのみ使用し、位置情報を読み取ったり保存したりしません。許可しなくても手動で入力できます。"
           }
         },
         "ko": {
           "stringUnit": {
             "state": "translated",
-            "value": "iOS는 앱에 「앱을 사용하는 동안」 정확한 위치 권한이 있을 때만 현재 Wi-Fi 이름을 제공합니다. Mihomo는 Wi-Fi 이름을 읽는 데만 사용하며 위치를 읽거나 저장하지 않습니다. 권한 없이 직접 입력할 수도 있습니다."
+            "value": "iOS는 앱에 「앱을 사용하는 동안」 정확한 위치 권한이 있을 때만 현재 Wi-Fi 이름을 제공합니다. Tern는 Wi-Fi 이름을 읽는 데만 사용하며 위치를 읽거나 저장하지 않습니다. 권한 없이 직접 입력할 수도 있습니다."
           }
         },
         "ru": {
           "stringUnit": {
             "state": "translated",
-            "value": "iOS сообщает имя текущей сети Wi-Fi, только если у приложения есть точная геопозиция «При использовании». Mihomo использует её только для имени Wi-Fi и не читает и не хранит ваше местоположение. Имена можно ввести вручную."
+            "value": "iOS сообщает имя текущей сети Wi-Fi, только если у приложения есть точная геопозиция «При использовании». Tern использует её только для имени Wi-Fi и не читает и не хранит ваше местоположение. Имена можно ввести вручную."
           }
         }
       }
@@ -10210,36 +10210,36 @@
       },
       "extractionState": "manual"
     },
-    "不是 Mihomo 备份文件": {
+    "不是 Tern 备份文件": {
       "localizations": {
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "Not a Mihomo backup file"
+            "value": "Not a Tern backup file"
           }
         },
         "zh-Hant": {
           "stringUnit": {
             "state": "translated",
-            "value": "不是 Mihomo 備份檔案"
+            "value": "不是 Tern 備份檔案"
           }
         },
         "ja": {
           "stringUnit": {
             "state": "translated",
-            "value": "Mihomo のバックアップファイルではありません"
+            "value": "Tern のバックアップファイルではありません"
           }
         },
         "ko": {
           "stringUnit": {
             "state": "translated",
-            "value": "Mihomo 백업 파일이 아닙니다"
+            "value": "Tern 백업 파일이 아닙니다"
           }
         },
         "ru": {
           "stringUnit": {
             "state": "translated",
-            "value": "Это не файл резервной копии Mihomo"
+            "value": "Это не файл резервной копии Tern"
           }
         }
       },
@@ -12367,36 +12367,36 @@
         }
       }
     },
-    "位置权限已关闭，无法读取 Wi-Fi 名称。可在 设置 → Mihomo → 位置 中选择「使用 App 期间」并打开「精确位置」，或手动输入名称。": {
+    "位置权限已关闭，无法读取 Wi-Fi 名称。可在 设置 → Tern → 位置 中选择「使用 App 期间」并打开「精确位置」，或手动输入名称。": {
       "localizations": {
         "zh-Hant": {
           "stringUnit": {
             "state": "translated",
-            "value": "位置許可權已關閉，無法讀取 Wi-Fi 名稱。可在 設定 → Mihomo → 位置 中選擇「使用 App 期間」並開啟「精確位置」，或手動輸入名稱。"
+            "value": "位置許可權已關閉，無法讀取 Wi-Fi 名稱。可在 設定 → Tern → 位置 中選擇「使用 App 期間」並開啟「精確位置」，或手動輸入名稱。"
           }
         },
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "Location access is off, so the Wi-Fi name can't be read. Choose “While Using the App” and turn on Precise Location in Settings → Mihomo → Location, or type the name."
+            "value": "Location access is off, so the Wi-Fi name can't be read. Choose “While Using the App” and turn on Precise Location in Settings → Tern → Location, or type the name."
           }
         },
         "ja": {
           "stringUnit": {
             "state": "translated",
-            "value": "位置情報がオフのため Wi-Fi 名を読み取れません。設定 → Mihomo → 位置情報 で「App の使用中」を選び「正確な位置情報」をオンにするか、手動で入力してください。"
+            "value": "位置情報がオフのため Wi-Fi 名を読み取れません。設定 → Tern → 位置情報 で「App の使用中」を選び「正確な位置情報」をオンにするか、手動で入力してください。"
           }
         },
         "ko": {
           "stringUnit": {
             "state": "translated",
-            "value": "위치 권한이 꺼져 있어 Wi-Fi 이름을 읽을 수 없습니다. 설정 → Mihomo → 위치에서 「앱을 사용하는 동안」을 선택하고 「정확한 위치」를 켜거나 직접 입력하세요."
+            "value": "위치 권한이 꺼져 있어 Wi-Fi 이름을 읽을 수 없습니다. 설정 → Tern → 위치에서 「앱을 사용하는 동안」을 선택하고 「정확한 위치」를 켜거나 직접 입력하세요."
           }
         },
         "ru": {
           "stringUnit": {
             "state": "translated",
-            "value": "Доступ к геопозиции выключен — имя Wi-Fi недоступно. Выберите «При использовании» и включите «Точная геопозиция» в Настройки → Mihomo → Геопозиция или введите имя вручную."
+            "value": "Доступ к геопозиции выключен — имя Wi-Fi недоступно. Выберите «При использовании» и включите «Точная геопозиция» в Настройки → Tern → Геопозиция или введите имя вручную."
           }
         }
       }
@@ -16506,36 +16506,36 @@
         }
       }
     },
-    "切换 Mihomo 连接": {
+    "切换 Tern 连接": {
       "localizations": {
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "Toggle Mihomo Connection"
+            "value": "Toggle Tern Connection"
           }
         },
         "zh-Hant": {
           "stringUnit": {
             "state": "translated",
-            "value": "切換 Mihomo 連線"
+            "value": "切換 Tern 連線"
           }
         },
         "ja": {
           "stringUnit": {
             "state": "translated",
-            "value": "Mihomo の接続を切り替え"
+            "value": "Tern の接続を切り替え"
           }
         },
         "ko": {
           "stringUnit": {
             "state": "translated",
-            "value": "Mihomo 연결 전환"
+            "value": "Tern 연결 전환"
           }
         },
         "ru": {
           "stringUnit": {
             "state": "translated",
-            "value": "Переключить подключение Mihomo"
+            "value": "Переключить подключение Tern"
           }
         }
       }
@@ -21440,36 +21440,36 @@
         }
       }
     },
-    "在「文件」中选择一个文件夹（例如 iCloud 云盘里新建的 Mihomo 文件夹）。另一台设备选择同一个文件夹即可同步。不需要 iCloud 权限，重签后也能用。": {
+    "在「文件」中选择一个文件夹（例如 iCloud 云盘里新建的 Tern 文件夹）。另一台设备选择同一个文件夹即可同步。不需要 iCloud 权限，重签后也能用。": {
       "localizations": {
         "zh-Hant": {
           "stringUnit": {
             "state": "translated",
-            "value": "在「檔案」中選擇一個資料夾（例如 iCloud 雲盤裡新建的 Mihomo 資料夾）。另一臺裝置選擇同一個資料夾即可同步。不需要 iCloud 許可權，重籤後也能用。"
+            "value": "在「檔案」中選擇一個資料夾（例如 iCloud 雲盤裡新建的 Tern 資料夾）。另一臺裝置選擇同一個資料夾即可同步。不需要 iCloud 許可權，重籤後也能用。"
           }
         },
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "Choose a folder in Files (for example a Mihomo folder in iCloud Drive). Pick the same folder on another device to sync. No iCloud entitlement needed, so it works after re-signing."
+            "value": "Choose a folder in Files (for example a Tern folder in iCloud Drive). Pick the same folder on another device to sync. No iCloud entitlement needed, so it works after re-signing."
           }
         },
         "ja": {
           "stringUnit": {
             "state": "translated",
-            "value": "「ファイル」でフォルダを選びます（例：iCloud Drive に作った Mihomo フォルダ）。別の端末で同じフォルダを選ぶと同期できます。iCloud の権限は不要で、再署名後も使えます。"
+            "value": "「ファイル」でフォルダを選びます（例：iCloud Drive に作った Tern フォルダ）。別の端末で同じフォルダを選ぶと同期できます。iCloud の権限は不要で、再署名後も使えます。"
           }
         },
         "ko": {
           "stringUnit": {
             "state": "translated",
-            "value": "「파일」에서 폴더를 선택하세요(예: iCloud Drive에 만든 Mihomo 폴더). 다른 기기에서 같은 폴더를 선택하면 동기화됩니다. iCloud 권한이 필요 없어 재서명 후에도 사용할 수 있습니다."
+            "value": "「파일」에서 폴더를 선택하세요(예: iCloud Drive에 만든 Tern 폴더). 다른 기기에서 같은 폴더를 선택하면 동기화됩니다. iCloud 권한이 필요 없어 재서명 후에도 사용할 수 있습니다."
           }
         },
         "ru": {
           "stringUnit": {
             "state": "translated",
-            "value": "Выберите папку в «Файлах» (например, папку Mihomo в iCloud Drive). На другом устройстве выберите ту же папку. Права iCloud не нужны — работает и после переподписи."
+            "value": "Выберите папку в «Файлах» (например, папку Tern в iCloud Drive). На другом устройстве выберите ту же папку. Права iCloud не нужны — работает и после переподписи."
           }
         }
       }
@@ -33031,36 +33031,36 @@
         }
       }
     },
-    "断开 Mihomo": {
+    "断开 Tern": {
       "localizations": {
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "Disconnect Mihomo"
+            "value": "Disconnect Tern"
           }
         },
         "zh-Hant": {
           "stringUnit": {
             "state": "translated",
-            "value": "斷開 Mihomo"
+            "value": "斷開 Tern"
           }
         },
         "ja": {
           "stringUnit": {
             "state": "translated",
-            "value": "Mihomo を切断"
+            "value": "Tern を切断"
           }
         },
         "ko": {
           "stringUnit": {
             "state": "translated",
-            "value": "Mihomo 연결 끊기"
+            "value": "Tern 연결 끊기"
           }
         },
         "ru": {
           "stringUnit": {
             "state": "translated",
-            "value": "Отключить Mihomo"
+            "value": "Отключить Tern"
           }
         }
       }
@@ -38002,36 +38002,36 @@
         }
       }
     },
-    "查询 Mihomo 状态": {
+    "查询 Tern 状态": {
       "localizations": {
         "zh-Hant": {
           "stringUnit": {
             "state": "translated",
-            "value": "查詢 Mihomo 狀態"
+            "value": "查詢 Tern 狀態"
           }
         },
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "Get Mihomo Status"
+            "value": "Get Tern Status"
           }
         },
         "ja": {
           "stringUnit": {
             "state": "translated",
-            "value": "Mihomo の状態を取得"
+            "value": "Tern の状態を取得"
           }
         },
         "ko": {
           "stringUnit": {
             "state": "translated",
-            "value": "Mihomo 상태 확인"
+            "value": "Tern 상태 확인"
           }
         },
         "ru": {
           "stringUnit": {
             "state": "translated",
-            "value": "Статус Mihomo"
+            "value": "Статус Tern"
           }
         }
       }
@@ -40852,7 +40852,7 @@
         }
       }
     },
-    "没有相机权限，请在 设置 → Mihomo 中允许访问相机。": {
+    "没有相机权限，请在 设置 → Tern 中允许访问相机。": {
       "localizations": {
         "en": {
           "stringUnit": {
@@ -40863,19 +40863,19 @@
         "zh-Hant": {
           "stringUnit": {
             "state": "translated",
-            "value": "沒有相機許可權，請在 設定 → Mihomo 中允許訪問相機。"
+            "value": "沒有相機許可權，請在 設定 → Tern 中允許訪問相機。"
           }
         },
         "ja": {
           "stringUnit": {
             "state": "translated",
-            "value": "カメラへのアクセスがありません。「設定」→「Mihomo」で許可してください。"
+            "value": "カメラへのアクセスがありません。「設定」→「Tern」で許可してください。"
           }
         },
         "ko": {
           "stringUnit": {
             "state": "translated",
-            "value": "카메라 접근 권한이 없습니다. 설정 → Mihomo에서 허용하세요."
+            "value": "카메라 접근 권한이 없습니다. 설정 → Tern에서 허용하세요."
           }
         },
         "ru": {
@@ -46904,36 +46904,36 @@
       },
       "extractionState": "manual"
     },
-    "系统设置中关闭了 Mihomo 的实时活动。": {
+    "系统设置中关闭了 Tern 的实时活动。": {
       "localizations": {
         "zh-Hant": {
           "stringUnit": {
             "state": "translated",
-            "value": "系統設定中關閉了 Mihomo 的實時活動。"
+            "value": "系統設定中關閉了 Tern 的實時活動。"
           }
         },
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "Live Activities for Mihomo are turned off in Settings."
+            "value": "Live Activities for Tern are turned off in Settings."
           }
         },
         "ja": {
           "stringUnit": {
             "state": "translated",
-            "value": "設定で Mihomo のライブアクティビティがオフになっています。"
+            "value": "設定で Tern のライブアクティビティがオフになっています。"
           }
         },
         "ko": {
           "stringUnit": {
             "state": "translated",
-            "value": "설정에서 Mihomo의 실시간 현황이 꺼져 있습니다."
+            "value": "설정에서 Tern의 실시간 현황이 꺼져 있습니다."
           }
         },
         "ru": {
           "stringUnit": {
             "state": "translated",
-            "value": "Live Activity для Mihomo выключены в Настройках."
+            "value": "Live Activity для Tern выключены в Настройках."
           }
         }
       }
@@ -52754,36 +52754,36 @@
       },
       "extractionState": "manual"
     },
-    "请先打开 Mihomo 添加 VPN 配置": {
+    "请先打开 Tern 添加 VPN 配置": {
       "localizations": {
         "zh-Hant": {
           "stringUnit": {
             "state": "translated",
-            "value": "請先開啟 Mihomo 新增 VPN 配置"
+            "value": "請先開啟 Tern 新增 VPN 配置"
           }
         },
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "Open Mihomo first to add the VPN configuration"
+            "value": "Open Tern first to add the VPN configuration"
           }
         },
         "ja": {
           "stringUnit": {
             "state": "translated",
-            "value": "先に Mihomo を開いて VPN 構成を追加してください"
+            "value": "先に Tern を開いて VPN 構成を追加してください"
           }
         },
         "ko": {
           "stringUnit": {
             "state": "translated",
-            "value": "먼저 Mihomo를 열어 VPN 구성을 추가하세요"
+            "value": "먼저 Tern를 열어 VPN 구성을 추가하세요"
           }
         },
         "ru": {
           "stringUnit": {
             "state": "translated",
-            "value": "Сначала откройте Mihomo и добавьте конфигурацию VPN"
+            "value": "Сначала откройте Tern и добавьте конфигурацию VPN"
           }
         }
       }
@@ -56010,36 +56010,36 @@
         }
       }
     },
-    "连接 Mihomo": {
+    "连接 Tern": {
       "localizations": {
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "Connect Mihomo"
+            "value": "Connect Tern"
           }
         },
         "zh-Hant": {
           "stringUnit": {
             "state": "translated",
-            "value": "連線 Mihomo"
+            "value": "連線 Tern"
           }
         },
         "ja": {
           "stringUnit": {
             "state": "translated",
-            "value": "Mihomo を接続"
+            "value": "Tern を接続"
           }
         },
         "ko": {
           "stringUnit": {
             "state": "translated",
-            "value": "Mihomo 연결"
+            "value": "Tern 연결"
           }
         },
         "ru": {
           "stringUnit": {
             "state": "translated",
-            "value": "Подключить Mihomo"
+            "value": "Подключить Tern"
           }
         }
       }
@@ -56595,12 +56595,12 @@
       },
       "extractionState": "manual"
     },
-    "连接或断开 Mihomo。": {
+    "连接或断开 Tern。": {
       "localizations": {
         "zh-Hant": {
           "stringUnit": {
             "state": "translated",
-            "value": "連線或斷開 Mihomo。"
+            "value": "連線或斷開 Tern。"
           }
         },
         "en": {
@@ -56612,13 +56612,13 @@
         "ja": {
           "stringUnit": {
             "state": "translated",
-            "value": "Mihomo を接続または切断します。"
+            "value": "Tern を接続または切断します。"
           }
         },
         "ko": {
           "stringUnit": {
             "state": "translated",
-            "value": "Mihomo를 연결하거나 끊습니다."
+            "value": "Tern를 연결하거나 끊습니다."
           }
         },
         "ru": {
@@ -66256,76 +66256,6 @@
           "stringUnit": {
             "state": "translated",
             "value": "По умолчанию"
-          }
-        }
-      }
-    },
-    "石墨": {
-      "extractionState": "manual",
-      "localizations": {
-        "zh-Hant": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "石墨"
-          }
-        },
-        "en": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Graphite"
-          }
-        },
-        "ja": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "グラファイト"
-          }
-        },
-        "ko": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "그래파이트"
-          }
-        },
-        "ru": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Графит"
-          }
-        }
-      }
-    },
-    "极光": {
-      "extractionState": "manual",
-      "localizations": {
-        "zh-Hant": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "極光"
-          }
-        },
-        "en": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Aurora"
-          }
-        },
-        "ja": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "オーロラ"
-          }
-        },
-        "ko": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "오로라"
-          }
-        },
-        "ru": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Аврора"
           }
         }
       }
@@ -77262,36 +77192,36 @@
         }
       }
     },
-    "不是 Mihomo 加密备份": {
+    "不是 Tern 加密备份": {
       "localizations": {
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "Not an encrypted Mihomo backup"
+            "value": "Not an encrypted Tern backup"
           }
         },
         "ja": {
           "stringUnit": {
             "state": "translated",
-            "value": "Mihomo の暗号化バックアップではありません"
+            "value": "Tern の暗号化バックアップではありません"
           }
         },
         "ko": {
           "stringUnit": {
             "state": "translated",
-            "value": "Mihomo 암호화 백업이 아닙니다"
+            "value": "Tern 암호화 백업이 아닙니다"
           }
         },
         "ru": {
           "stringUnit": {
             "state": "translated",
-            "value": "Это не зашифрованная копия Mihomo"
+            "value": "Это не зашифрованная копия Tern"
           }
         },
         "zh-Hant": {
           "stringUnit": {
             "state": "translated",
-            "value": "不是 Mihomo 加密備份"
+            "value": "不是 Tern 加密備份"
           }
         }
       }
@@ -85691,6 +85621,108 @@
           "stringUnit": {
             "state": "translated",
             "value": "本次連線 · 僅代理"
+          }
+        }
+      }
+    },
+    "航线（默认）": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Route (Default)"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "航線（預設）"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "航路（デフォルト）"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "항로 (기본)"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Маршрут (по умолчанию)"
+          }
+        }
+      }
+    },
+    "夜航": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Night Flight"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "夜航"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "夜間飛行"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "야간 비행"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Ночной полёт"
+          }
+        }
+      }
+    },
+    "晴空": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Clear Sky"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "晴空"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "晴天"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "맑은 하늘"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Ясное небо"
           }
         }
       }

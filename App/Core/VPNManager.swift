@@ -133,7 +133,7 @@ final class VPNManager: ObservableObject {
         proto.disconnectOnSleep = false
         Self.applyScope(CoreOverrides.load(), to: proto)
         m.protocolConfiguration = proto
-        m.localizedDescription = "Mihomo"
+        m.localizedDescription = "Tern"
         m.isEnabled = true
         do {
             try await m.saveToPreferences()
@@ -285,7 +285,7 @@ final class VPNManager: ObservableObject {
         if ns.domain == NEVPNErrorDomain, let code = NEVPNError.Code(rawValue: ns.code) {
             switch code {
             case .configurationInvalid: return String(localized: "VPN 配置无效（扩展 ID 可能与签名不符）。") + " (\(raw))"
-            case .configurationDisabled: return String(localized: "VPN 配置已停用：在 设置 → VPN 中选中 Mihomo，或重新连接。")
+            case .configurationDisabled: return String(localized: "VPN 配置已停用：在 设置 → VPN 中选中 Tern，或重新连接。")
             case .connectionFailed: return String(localized: "网络扩展连接失败。") + " (\(raw))"
             case .configurationStale: return String(localized: "VPN 配置已被其他地方修改，请重试一次。")
             case .configurationReadWriteFailed: return String(localized: "无法保存 VPN 配置：可能拒绝了「添加 VPN 配置」，或签名缺少 Network Extension 权限。")

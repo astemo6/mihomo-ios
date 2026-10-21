@@ -30,7 +30,7 @@ enum BackupCrypto {
         var errorDescription: String? {
             switch self {
             case .wrongPassword: return String(localized: "密码不对，或备份已损坏")
-            case .badFile: return String(localized: "不是 Mihomo 加密备份")
+            case .badFile: return String(localized: "不是 Tern 加密备份")
             case .kdf: return String(localized: "无法生成密钥")
             }
         }

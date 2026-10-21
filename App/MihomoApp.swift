@@ -153,7 +153,7 @@ struct SplitRootView: View {
             .listStyle(.sidebar)
             .scrollContentBackground(.hidden)
             .background(Theme.bg.ignoresSafeArea())
-            .navigationTitle("Mihomo")
+            .navigationTitle("Tern")
         } detail: {
             (AppSection(rawValue: router.selectedTab) ?? .home).view
                 .id(router.selectedTab)

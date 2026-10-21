@@ -237,7 +237,7 @@ struct SyncFolderView: View {
                     Button { picking = true } label: { Label("选择文件夹…", systemImage: "folder.badge.plus") }
                 }
             } footer: {
-                Text("在「文件」中选择一个文件夹（例如 iCloud 云盘里新建的 Mihomo 文件夹）。另一台设备选择同一个文件夹即可同步。不需要 iCloud 权限，重签后也能用。")
+                Text("在「文件」中选择一个文件夹（例如 iCloud 云盘里新建的 Tern 文件夹）。另一台设备选择同一个文件夹即可同步。不需要 iCloud 权限，重签后也能用。")
             }
             .listRowBackground(Theme.card)
 
