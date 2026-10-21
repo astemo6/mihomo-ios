@@ -51,7 +51,7 @@ jobs:
       KEYCHAIN_PASSWORD: ${{ secrets.KEYCHAIN_PASSWORD }}
       EXPORT_METHOD: ${{ secrets.EXPORT_METHOD }}
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v5
         with:
           ref: ${{ inputs.ref || github.ref }}
 
@@ -69,14 +69,14 @@ jobs:
           sudo xcode-select -s "$XC/Contents/Developer"
           xcodebuild -version
 
-      - uses: actions/setup-go@v5
+      - uses: actions/setup-go@v6
         with:
           go-version-file: bridge/go.mod
           cache-dependency-path: bridge/go.sum
 
       - name: Cache Libmihomo.xcframework
         id: fwcache
-        uses: actions/cache/restore@v4
+        uses: actions/cache/restore@v5
         with:
           path: Frameworks/Libmihomo.xcframework
           key: libmihomo-${{ env.MIHOMO_VERSION }}-${{ hashFiles('bridge/**', '.github/workflows/ios.yml') }}
@@ -100,7 +100,7 @@ jobs:
       # Saved right away (not in the post step) so a later Swift compile error does not discard it.
       - name: Save Libmihomo.xcframework cache
         if: steps.fwcache.outputs.cache-hit != 'true'
-        uses: actions/cache/save@v4
+        uses: actions/cache/save@v5
         with:
           path: Frameworks/Libmihomo.xcframework
           key: ${{ steps.fwcache.outputs.cache-primary-key }}
@@ -205,7 +205,7 @@ jobs:
           find "$HOME/Library/Developer/Xcode/DerivedData" -name '*.stringsdata' -path '*Mihomo.build*' -exec cp {} stringsdata/ \; 2>/dev/null || true
           ls stringsdata | wc -l
 
-      - uses: actions/upload-artifact@v4
+      - uses: actions/upload-artifact@v6
         if: always()
         with:
           name: stringsdata
@@ -368,7 +368,7 @@ jobs:
           python3 "$GITHUB_WORKSPACE/scripts/shared_check.py" resigned.ipa "$GITHUB_WORKSPACE/$IPA" | tail -n 1
           echo "- re-sign check: framework + tunnel + app signed with one identity, codesign --verify --deep --strict OK" >> "$GITHUB_STEP_SUMMARY"
 
-      - uses: actions/upload-artifact@v4
+      - uses: actions/upload-artifact@v6
         with:
           name: Mihomo-ipa
           path: |

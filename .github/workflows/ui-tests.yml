@@ -54,8 +54,8 @@ jobs:
     runs-on: ubuntu-latest
     timeout-minutes: 45
     steps:
-      - uses: actions/checkout@v4
-      - uses: actions/setup-go@v5
+      - uses: actions/checkout@v5
+      - uses: actions/setup-go@v6
         with:
           go-version-file: bridge/go.mod
           cache-dependency-path: bridge/go.sum
@@ -102,7 +102,7 @@ jobs:
         if: failure()
         run: |
           grep -E "^(--- FAIL|FAIL|panic:)" -A12 go-test.log go-test-retry.log 2>/dev/null | head -n 300 || true
-      - uses: actions/upload-artifact@v4
+      - uses: actions/upload-artifact@v6
         if: always()
         with:
           name: go-test-logs
@@ -127,7 +127,7 @@ jobs:
         # tests land there automatically) — one light job took 72–80 min of the 120 min limit, now ~45 min each.
         combo: ${{ fromJSON(((inputs.shard == 'all' || contains(github.event.head_commit.message, '[shard:all]')) && '["zh-Hans:light:1","zh-Hans:light:2","en:light:1","en:light:2","zh-Hans:dark:0","en:dark:0"]') || (github.repository == 'astemo666/mihomo-ios' && '["en:light:1","en:light:2","en:dark:0"]') || (github.repository == 'astemo6/mihomo-ios' && '["zh-Hans:light:1","zh-Hans:light:2","zh-Hans:dark:0"]') || '["zh-Hans:light:1","zh-Hans:light:2","en:light:1","en:light:2","zh-Hans:dark:0","en:dark:0"]') }}
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v5
       - name: Combo
         run: |
           combo="${{ matrix.combo }}"
@@ -141,13 +141,13 @@ jobs:
           XC=$(ls -d /Applications/Xcode_*.app | sed -E 's/.*Xcode_([0-9.]+)\.app/\1 &/' | grep -v -i beta | sort -V | tail -n1 | cut -d' ' -f2)
           sudo xcode-select -s "$XC/Contents/Developer"
           xcodebuild -version
-      - uses: actions/setup-go@v5
+      - uses: actions/setup-go@v6
         with:
           go-version-file: bridge/go.mod
           cache-dependency-path: bridge/go.sum
       - name: Cache simulator Libmihomo
         id: simfw
-        uses: actions/cache@v4
+        uses: actions/cache@v5
         with:
           path: Frameworks/Libmihomo.xcframework
           key: libmihomo-sim-${{ env.MIHOMO_VERSION }}-${{ hashFiles('bridge/**') }}
@@ -257,7 +257,7 @@ jobs:
           cp ~/Library/Logs/DiagnosticReports/Mihomo* crashes/ 2>/dev/null || true
           find "$HOME/Library/Developer/CoreSimulator/Devices/$DEV" -name "Mihomo*.ips" -exec cp {} crashes/ \; 2>/dev/null || true
           ls -la crashes
-      - uses: actions/upload-artifact@v4
+      - uses: actions/upload-artifact@v6
         if: always()
         with:
           name: ui-screens-${{ env.SHORT }}
@@ -266,7 +266,7 @@ jobs:
             crashes/
           if-no-files-found: warn
           retention-days: 14
-      - uses: actions/upload-artifact@v4
+      - uses: actions/upload-artifact@v6
         if: always()
         with:
           name: ui-results-${{ env.SHORT }}
@@ -275,7 +275,7 @@ jobs:
             build-uit.log
           if-no-files-found: warn
           retention-days: 14
-      - uses: actions/upload-artifact@v4
+      - uses: actions/upload-artifact@v6
         if: always()
         with:
           name: ui-xcresult-${{ env.SHORT }}
