@@ -25,13 +25,13 @@ enum WidgetTheme {
     static let up = Color.orange
 }
 
-/// The running connected time. Reserves the width of "00:00:00" so the layout never shifts as digits change
+/// The running connected time. Reserves the width of "0:00:00" (up to 9 h 59 min; longer spills one digit) so the layout never shifts as digits change
 /// (Text(timerInterval:) alone takes all the width it is offered, which is what pushed "2:46" into the middle).
 @available(iOS 16.2, *)
 struct LiveElapsed: View {
     let since: Date
     var body: some View {
-        Text(verbatim: "00:00:00")
+        Text(verbatim: "0:00:00")
             .hidden()
             .overlay(alignment: .leading) {
                 Text(timerInterval: since...Date.distantFuture, countsDown: false)
