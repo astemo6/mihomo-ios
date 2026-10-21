@@ -427,6 +427,13 @@ struct ScriptsView: View {
                     .swipeActions(edge: .leading) {
                         Button { debugging = it } label: { Label("调试", systemImage: "play.fill") }.tint(Theme.accent)
                     }
+                    // fb-subs-global: any .swipeActions on a row turns off the delete swipe .onDelete synthesises, so
+                    // left swipe on a script did nothing since the 调试 action was added. Explicit trailing 删除.
+                    .swipeActions(edge: .trailing) {
+                        Button(role: .destructive) {
+                            store.config.scripts.removeAll { $0.id == it.id }; store.save()
+                        } label: { Label("删除", systemImage: "trash") }
+                    }
                     .contextMenu {
                         Button { editing = it } label: { Label("编辑", systemImage: "pencil") }
                         Button { debugging = it } label: { Label("在调试台打开", systemImage: "play.fill") }

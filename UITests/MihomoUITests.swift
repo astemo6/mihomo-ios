@@ -91,7 +91,7 @@ final class MihomoUITests: MihomoUITestCase {
     // MARK: 3. 更多: every row opens and comes back
 
     static let moreRows = [
-        "连接方式", "DNS", "节点管理", "订阅管理", "规则", "提供者（规则集 / 节点集）", "地理与规则库", "模块与资源",
+        "连接方式", "DNS", "节点与订阅", "规则", "提供者（规则集 / 节点集）", "地理与规则库", "模块与资源",
         "重写（本地模块）", "脚本", "任务", "MitM", "网络工具（Ping / TCP / DNS）", "网络测试（带宽 / NAT 类型）", "内网 IP 与路由器", "解锁检测",
         "连接分析", "流量统计", "日志", "DNS 日志", "备份与恢复", "配置快照", "存储空间", "外观", "内核设置", "测速", "出口信息查询",
         "App 图标", "诊断", "关于 / 开源许可",
@@ -130,10 +130,10 @@ final class MihomoUITests: MihomoUITestCase {
     func test04_NodeManager() {
         launch()
         tab(4)
-        let row = app.element(id: "more.节点管理")
+        let row = app.element(id: "more.节点与订阅")
         XCTAssertTrue(scrollTo(row))
         row.tap()
-        XCTAssertTrue(app.navigationBars[L("节点管理")].waitForExistence(timeout: 8))
+        XCTAssertTrue(app.navigationBars[L("节点与订阅")].waitForExistence(timeout: 8))
         XCTAssertTrue(app.element(label: "Demo Sub").waitForExistence(timeout: 8), "node subscription row")
         snap("nodes-home")
 
@@ -259,10 +259,11 @@ final class MihomoUITests: MihomoUITestCase {
     func test05_AddNodeAndEditor() {
         launch()
         tab(4)
-        let row = app.element(id: "more.节点管理")
+        let row = app.element(id: "more.节点与订阅")
         XCTAssertTrue(scrollTo(row))
         row.tap()
-        XCTAssertTrue(tapIfExists(app.button(L("添加节点")), timeout: 8), "+")
+        XCTAssertTrue(tapIfExists(app.element(id: "nodes.add"), timeout: 8), "+")
+        XCTAssertTrue(tapIfExists(app.button(L("添加节点")), timeout: 4), "添加节点 in the + menu")
         XCTAssertTrue(app.navigationBars[L("添加节点")].waitForExistence(timeout: 8))
         snap("add-node")
 
@@ -540,7 +541,7 @@ final class MihomoUITests: MihomoUITestCase {
     }
 
     func openAllNodes() {
-        openMore("节点管理")
+        openMore("节点与订阅")
         XCTAssertTrue(tapIfExists(app.element(label: L("全部节点")), timeout: 8), "全部节点")
     }
 
@@ -590,7 +591,7 @@ final class MihomoUITests: MihomoUITestCase {
 
     func test11_RegionFilters() {
         launch(["-UITestMissingFlags", "TW"])
-        openMore("节点管理")
+        openMore("节点与订阅")
         XCTAssertTrue(tapIfExists(app.element(label: L("筛选节点")), timeout: 8))
         let jp = app.element(id: "filter.JP")
         XCTAssertTrue(jp.waitForExistence(timeout: 8), "JP filter")
@@ -638,7 +639,7 @@ final class MihomoUITests: MihomoUITestCase {
 
         // New filter via +
         tab(4)
-        openMore("节点管理")
+        openMore("节点与订阅")
         XCTAssertTrue(tapIfExists(app.element(label: L("筛选节点")), timeout: 8))
         XCTAssertTrue(tapIfExists(app.element(id: "filters.add"), timeout: 4), "+")
         let n2 = app.textFields.matching(identifier: "filter.name").firstMatch
@@ -654,7 +655,7 @@ final class MihomoUITests: MihomoUITestCase {
     // v0.15.4: Loon-style 节点来源 per filter (本地节点 / 全部订阅 / chosen subscriptions) + 关键词 / 排除关键词.
     func test12_FilterSources() {
         launch()
-        openMore("节点管理")
+        openMore("节点与订阅")
         XCTAssertTrue(tapIfExists(app.element(label: L("筛选节点")), timeout: 8))
         XCTAssertTrue(tapIfExists(app.element(id: "filters.add"), timeout: 4), "+")
         let name = app.textFields.matching(identifier: "filter.name").firstMatch
@@ -1072,10 +1073,11 @@ final class MihomoUITests: MihomoUITestCase {
     func test22_TailscaleNode() {
         launch()
         tab(4)
-        let row = app.element(id: "more.节点管理")
+        let row = app.element(id: "more.节点与订阅")
         XCTAssertTrue(scrollTo(row))
         row.tap()
-        XCTAssertTrue(tapIfExists(app.button(L("添加节点")), timeout: 8), "+")
+        XCTAssertTrue(tapIfExists(app.element(id: "nodes.add"), timeout: 8), "+")
+        XCTAssertTrue(tapIfExists(app.button(L("添加节点")), timeout: 4), "添加节点 in the + menu")
         let ts = app.buttons["Tailscale"]
         XCTAssertTrue(scrollTo(ts), "Tailscale in 新协议")
         ts.tap()
@@ -1840,11 +1842,11 @@ final class MihomoUITests: MihomoUITestCase {
         snap("big-policy")
         // 节点管理 → 全部节点: 3000 profile + 1500 manual nodes, search narrows the list.
         tab(4)
-        let row = app.element(id: "more.节点管理")
+        let row = app.element(id: "more.节点与订阅")
         XCTAssertTrue(scrollTo(row))
         s = Date()
         row.tap()
-        XCTAssertTrue(app.navigationBars[L("节点管理")].waitForExistence(timeout: 15))
+        XCTAssertTrue(app.navigationBars[L("节点与订阅")].waitForExistence(timeout: 15))
         XCTAssertTrue(tapIfExists(app.element(label: L("全部节点"))))
         XCTAssertTrue(app.element(label: "Big 00000").waitForExistence(timeout: 20), "big profile node listed")
         XCTAssertLessThan(Date().timeIntervalSince(s), 25, "全部节点 with 4500 nodes")

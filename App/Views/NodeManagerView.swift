@@ -672,7 +672,6 @@ struct NodeDetailView: View {
             } else {
                 kv("来源", node.source.name)
             }
-            NavigationLink { SubscriptionsView() } label: { Label("订阅管理", systemImage: "tray.full") }
         case .provider:
             NavigationLink { ProvidersView() } label: { kv("来源", String(localized: "节点集") + " · " + node.source.name) }
         }

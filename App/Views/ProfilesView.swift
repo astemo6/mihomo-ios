@@ -67,6 +67,7 @@ struct ProfilesView: View {
                             }
                             .contextMenu {
                                 Button { select(p) } label: { Label("设为当前配置", systemImage: "checkmark.circle") }
+                                    .disabled(!p.enabled)
                                 if p.copyModified == true, store.source(of: p) != nil {
                                     Button { regenerate(p) } label: { Label("从订阅重新生成", systemImage: "arrow.triangle.2.circlepath") }
                                 }
@@ -95,7 +96,7 @@ struct ProfilesView: View {
                 ToolbarItemGroup(placement: .navigationBarLeading) {
                     Button { updateAll() } label: { Label("全部更新", systemImage: "arrow.triangle.2.circlepath") }
                         .disabled(busy || !store.profiles.contains { $0.kind == .remote })
-                    Button { showSubs = true } label: { Label("订阅管理", systemImage: "tray.full") }
+                    Button { showSubs = true } label: { Label("节点与订阅", systemImage: "server.rack") }
                 }
                 ToolbarItem(placement: .navigationBarTrailing) {
                     Menu {
@@ -111,7 +112,7 @@ struct ProfilesView: View {
             }
             .navigationDestination(isPresented: $showManual) { ManualNodesView() }
             .navigationDestination(isPresented: $showSample) { SampleProfileView() }
-            .navigationDestination(isPresented: $showSubs) { SubscriptionsView() }
+            .navigationDestination(isPresented: $showSubs) { NodeManagerView() }
             .overlay { if busy { ProgressView().padding(20).background(RoundedRectangle(cornerRadius: 12).fill(Theme.cardHi)) } }
             .sheet(isPresented: $showAddRemote, onDismiss: { if let m = pendingMessage { pendingMessage = nil; message = m } }) { AddRemoteSheet { msg in pendingMessage = msg } }
             .sheet(isPresented: $showNewLocal) {
@@ -149,6 +150,8 @@ struct ProfilesView: View {
     }
 
     func select(_ p: Profile) {
+        // fb-subs-global: a disabled subscription cannot become the active profile.
+        if let block = store.activationBlock(p) { message = block; return }
         Task {
             if let err = await store.setActive(p) { message = String(localized: "已切换，但重载失败：\(err)") }
         }
@@ -233,6 +236,10 @@ struct ProfileRow: View {
                         .font(.caption2.weight(.semibold))
                         .padding(.horizontal, 6).padding(.vertical, 2)
                         .background(Capsule().fill((profile.kind == .remote ? Theme.accent : Theme.tone(1.0, 0.62, 0.2)).opacity(0.2)))
+                    if !profile.enabled {
+                        Text("已停用").font(.caption2).foregroundStyle(.secondary)
+                            .accessibilityIdentifier("profiles.disabled." + profile.id)
+                    }
                     Spacer()
                     if updating { ProgressView().controlSize(.small) }
                 }
@@ -289,6 +296,7 @@ struct ProfileRow: View {
             }
         }
         .padding(.vertical, 4)
+        .opacity(profile.enabled ? 1 : 0.55)
     }
 }
 

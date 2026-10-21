@@ -83348,6 +83348,312 @@
           }
         }
       }
+    },
+    "该配置已停用，启用后才能设为当前配置": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "This profile is disabled. Enable it to make it the current profile."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "このプロファイルは無効です。有効にすると現在のプロファイルにできます。"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "이 프로파일은 비활성화되어 있습니다. 활성화해야 현재 프로파일로 설정할 수 있습니다."
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Этот профиль отключён. Включите его, чтобы сделать текущим."
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "該配置已停用，啟用後才能設為當前配置"
+          }
+        }
+      }
+    },
+    "当前配置不能停用": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "The current profile can't be disabled"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "現在のプロファイルは無効にできません"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "현재 프로파일은 비활성화할 수 없습니다"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Текущий профиль нельзя отключить"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "當前配置不能停用"
+          }
+        }
+      }
+    },
+    "右滑更新；左滑删除或停用；长按查看更多操作。": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Swipe right to update; swipe left to delete or disable; touch and hold for more."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "右スワイプで更新、左スワイプで削除または無効化、長押しでその他の操作。"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "오른쪽으로 밀어 업데이트, 왼쪽으로 밀어 삭제 또는 비활성화, 길게 눌러 더 많은 작업."
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Смахните вправо, чтобы обновить; влево — удалить или отключить; удерживайте для других действий."
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "右滑更新；左滑刪除或停用；長按檢視更多操作。"
+          }
+        }
+      }
+    },
+    "点右上角 + 添加配置订阅或节点订阅。": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Tap + at the top right to add a profile subscription or a node subscription."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "右上の + でプロファイル購読またはノード購読を追加します。"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "오른쪽 위 +를 눌러 프로파일 구독 또는 노드 구독을 추가하세요."
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Нажмите + вверху справа, чтобы добавить подписку на профиль или на узлы."
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "點右上角 + 新增配置訂閱或節點訂閱。"
+          }
+        }
+      }
+    },
+    "启用订阅后，节点会加入配置。": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Enable the subscription to add its nodes to the profiles."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "購読を有効にすると、ノードがプロファイルに追加されます。"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "구독을 활성화하면 노드가 프로파일에 추가됩니다."
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Включите подписку, чтобы её узлы добавились в профили."
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "啟用訂閱後，節點會加入配置。"
+          }
+        }
+      }
+    },
+    "添加配置订阅": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Add Profile Subscription"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "プロファイル購読を追加"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "프로파일 구독 추가"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Добавить подписку на профиль"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "新增配置訂閱"
+          }
+        }
+      }
+    },
+    "节点集 · 来自配置": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Node set · from the profile"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ノードセット · プロファイルから"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "노드 세트 · 프로파일에서"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Набор узлов · из профиля"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "節點集 · 來自配置"
+          }
+        }
+      }
+    },
+    "全局模式下所有连接走 GLOBAL，分流规则用的 %lld 个策略组已隐藏；切回「规则」显示。": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "In Global mode every connection uses GLOBAL, so the %lld policy groups used by rules are hidden. Switch back to Rules to show them."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "グローバルモードではすべての接続が GLOBAL を通るため、ルール用の %lld 個のポリシーグループを非表示にしています。「ルール」に戻すと表示されます。"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "전역 모드에서는 모든 연결이 GLOBAL을 사용하므로 규칙용 정책 그룹 %lld개를 숨깁니다. '규칙'으로 되돌리면 표시됩니다."
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "В глобальном режиме все соединения идут через GLOBAL, поэтому %lld групп политик для правил скрыты. Вернитесь в режим «Правила», чтобы их показать."
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "全域模式下所有連線走 GLOBAL，分流規則用的 %lld 個策略組已隱藏；切回「規則」顯示。"
+          }
+        }
+      }
+    },
+    "「%@」已停用，启用后才能设为当前配置": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "“%@” is disabled. Enable it to make it the current profile."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "「%@」は無効です。有効にすると現在のプロファイルにできます。"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "'%@'은(는) 비활성화되어 있습니다. 활성화해야 현재 프로파일로 설정할 수 있습니다."
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "«%@» отключён. Включите его, чтобы сделать текущим профилем."
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "「%@」已停用，啟用後才能設為當前配置"
+          }
+        }
+      }
     }
   },
   "version": "1.0"

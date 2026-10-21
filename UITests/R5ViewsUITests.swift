@@ -3,11 +3,11 @@ import XCTest
 /// Review 5 (views lane) paths, offline on the simulator. Same helpers as MihomoUITests.
 extension MihomoUITests {
 
-    // MARK: 48. 订阅管理: deleting a node subscription asks first (same dialog as 节点管理)
+    // MARK: 48. 节点与订阅: deleting a node subscription asks first (same dialog as 节点管理)
 
     func test48_SubscriptionsDeleteAsks() {
         launch()
-        openMore("订阅管理")
+        openMore("节点与订阅")
         let row = app.element(labelContains: "Demo Sub")
         XCTAssertTrue(scrollTo(row), "Demo Sub card")
         row.swipeLeft()

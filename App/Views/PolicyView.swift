@@ -548,7 +548,8 @@ struct PolicyView: View {
                 TestTargetCaption(live: true)
                 orderHeader
                 let liveAuto = model.groups.filter { PolicyGroupDisplay.isAutomatic(PolicyGroupDisplay.kind(live: $0.type)) }
-                ForEach(GroupOrderRow.arranged(PolicyModeFilter.apply(model.groups, mode: mode) { $0.name }, by: dragOrder) { $0.name }) { g in
+                GlobalModeHiddenNote(count: PolicyModeFilter.hiddenCount(model.groups, mode: mode, name: { $0.name }, now: { $0.now }))
+                ForEach(GroupOrderRow.arranged(PolicyModeFilter.apply(model.groups, mode: mode, name: { $0.name }, now: { $0.now }), by: dragOrder) { $0.name }) { g in
                   if collapseAuto && PolicyGroupDisplay.isAutomatic(PolicyGroupDisplay.kind(live: g.type)) {
                     if g.id == liveAuto.first?.id { CollapsedAutoRow(count: liveAuto.count) { expandAuto() } }
                   } else {
@@ -614,7 +615,9 @@ struct PolicyView: View {
                     let index = offline.nodeIndex
                     let groupNames = Set(offline.result.groups.map(\.name))
                     let profileGroups = offline.result.groups.filter { $0.hidden != true && $0.name != "GLOBAL" }
-                    let visible = PolicyModeFilter.apply(profileGroups + [offline.globalGroup], mode: mode) { $0.name }
+                    let all = profileGroups + [offline.globalGroup]
+                    let visible = PolicyModeFilter.apply(all, mode: mode, name: { $0.name }, now: { offline.current(of: $0) })
+                    GlobalModeHiddenNote(count: mode == "global" ? all.count - visible.count : 0)
                     let offAuto = visible.filter { PolicyGroupDisplay.isAutomatic($0.type) }
                     if !visible.isEmpty { orderHeader }
                     ForEach(GroupOrderRow.arranged(visible, by: dragOrder) { $0.name }) { g in
@@ -972,11 +975,43 @@ struct CollapsedAutoRow: View {
 /// v0.16: 规则 / 全局 / 直连 right above the policy cards, the same switch as Home's 出站模式 (DashboardModel.setMode:
 /// saved in the overrides, applied live and connections reset while connected). Selection only, not a connection state.
 /// v0.19.8 (user): 规则 / 直连 hide the GLOBAL card (it routes nothing then); 全局 shows it first.
+/// fb-subs-global (user 「全局下，策略里下方的域名规则不需要显示」): in 全局 every connection goes through GLOBAL,
+/// so the groups below it (the targets of the domain rules) route nothing. 全局 shows GLOBAL plus the group chain it
+/// currently selects (GLOBAL → 节点选择 → …, so a node can still be picked inside it); 规则 shows them all again.
 enum PolicyModeFilter {
-    static func apply<T>(_ items: [T], mode: String, name: (T) -> String) -> [T] {
+    static func apply<T>(_ items: [T], mode: String, name: (T) -> String, now: (T) -> String? = { _ in nil }) -> [T] {
         let rest = items.filter { name($0) != "GLOBAL" }
         guard mode == "global" else { return rest }
-        return items.filter { name($0) == "GLOBAL" } + rest
+        guard let global = items.first(where: { name($0) == "GLOBAL" }) else { return rest }
+        var out = [global]
+        var seen: Set<String> = ["GLOBAL"]
+        var cur = now(global)
+        while let c = cur, !seen.contains(c), let g = items.first(where: { name($0) == c }) {
+            out.append(g)
+            seen.insert(c)
+            cur = now(g)
+        }
+        return out
+    }
+
+    /// How many groups 全局 hides (0 in the other modes).
+    static func hiddenCount<T>(_ items: [T], mode: String, name: (T) -> String, now: (T) -> String? = { _ in nil }) -> Int {
+        guard mode == "global", items.contains(where: { name($0) == "GLOBAL" }) else { return 0 }
+        return items.count - apply(items, mode: mode, name: name, now: now).count
+    }
+}
+
+/// 全局: one line saying the rule groups are hidden (not a connection state).
+struct GlobalModeHiddenNote: View {
+    let count: Int
+    var body: some View {
+        if count > 0 {
+            Label("全局模式下所有连接走 GLOBAL，分流规则用的 \(count) 个策略组已隐藏；切回「规则」显示。", systemImage: "eye.slash")
+                .font(.caption2).foregroundStyle(.secondary)
+                .frame(maxWidth: .infinity, alignment: .leading)
+                .padding(.horizontal, 4)
+                .accessibilityIdentifier("policy.globalHidden")
+        }
     }
 }
 
