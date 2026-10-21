@@ -384,7 +384,9 @@ struct ConnectionView: View {
             || old.includeAllNetworks != cur.includeAllNetworks || old.excludeLocalNetworks != cur.excludeLocalNetworks
             || old.excludeAPNs != cur.excludeAPNs || old.excludeCellularServices != cur.excludeCellularServices
             || old.excludeDeviceCommunication != cur.excludeDeviceCommunication
-        let scopeChanged = old.includeAllNetworks != cur.includeAllNetworks || old.excludeLocalNetworks != cur.excludeLocalNetworks
+        // tunnelMode too: 仅代理 never carries includeAllNetworks (VPNManager.applyScope).
+        let scopeChanged = old.tunnelMode != cur.tunnelMode
+            || old.includeAllNetworks != cur.includeAllNetworks || old.excludeLocalNetworks != cur.excludeLocalNetworks
             || old.excludeAPNs != cur.excludeAPNs || old.excludeCellularServices != cur.excludeCellularServices
             || old.excludeDeviceCommunication != cur.excludeDeviceCommunication
         let reload = old.blockQUIC != cur.blockQUIC || old.ipPreference != cur.ipPreference || old.lanLocalOnly != cur.lanLocalOnly || old.lanAuth != cur.lanAuth || old.lanUsers != cur.lanUsers

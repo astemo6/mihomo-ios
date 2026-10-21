@@ -529,15 +529,22 @@ func apply(home, configPath string, fd int32) error {
 		}
 	}
 	var groupOrder []string
+	var dnsLine string
 	engineInject := inject
 	rt, err := buildRuntimeWith(profile, o, fd, func(raw map[string]any) {
 		if engineInject != nil {
 			engineInject(raw)
 		}
 		groupOrder = runtimeGroupNames(raw)
+		if fd > 0 {
+			dnsLine = dnsPlanLine(asMap(raw["dns"]))
+		}
 	})
 	if err != nil {
 		return err
+	}
+	if dnsLine != "" {
+		stage("%s; %s", dnsLine, PhysicalInterfaceStatus()) // includeAllNetworks diagnostics
 	}
 	_ = os.WriteFile(filepath.Join(home, "runtime.yaml"), rt, 0o644)
 	writeRuntimeGroupOrder(home, groupOrder) // v0.19.8: the app's group order source (GLOBAL may be user-defined)

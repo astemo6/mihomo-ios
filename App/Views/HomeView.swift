@@ -77,6 +77,9 @@ struct HomeView: View {
             }
             .background(Theme.bg.ignoresSafeArea())
             .toolbar(.hidden, for: .navigationBar)
+            // fix/nav-jank: speed / memory / connection fields publish only while Home is showing.
+            .onAppear { DashboardModel.shared.setHomeVisible(true) }
+            .onDisappear { DashboardModel.shared.setHomeVisible(false) }
             .task(id: "\(store.activeID ?? "")|\(disconnected)") { if disconnected { await offline.load() } }
             .onReceive(DashboardModel.shared.$mode.removeDuplicates()) { if $0 != mode { mode = $0 } }
             .onReceive(DashboardModel.shared.$homeGroups.removeDuplicates()) { if $0 != liveGroups { liveGroups = $0 } }

@@ -72,6 +72,10 @@ final class NetworkWatcher {
         guard !stopped else { return }
         seq += 1
         let mySeq = seq
+        // 接管所有网络流量: the interface the core binds its sockets to (only used while includeAllNetworks is on).
+        // Immediately, not debounced: new dials must leave through the network the device is on now.
+        let physical = path.status == .satisfied ? (path.availableInterfaces.first?.name ?? "") : ""
+        LibmihomoSetPhysicalInterface(physical)
         guard path.status == .satisfied else { return }
         let iface = path.availableInterfaces.first
         let type: String
