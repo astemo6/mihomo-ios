@@ -237,8 +237,18 @@ func TestV0198EditedGlobalGroup(t *testing.T) {
 
 // v0.19.8: 日志 / DNS 日志 history kept from tunnel start in bounded rings, read with a seq cursor.
 func TestV0198LogRings(t *testing.T) {
-	generalLog.clear()
-	dnsLog.clear()
+	// B11: private rings — other tests' cores log into the process-wide ones concurrently.
+	gen, dns := &logRing{cap: logRingCap}, &logRing{cap: logRingCap, max: dnsLogPayloadMax}
+	ringOf := func(kind string) *logRing {
+		if kind == "dns" {
+			return dns
+		}
+		return gen
+	}
+	logHistory := func(kind string, since uint64, level string) logHistoryResult {
+		return logHistoryFrom(ringOf(kind), since, level)
+	}
+	recordLogEvent := func(ev log.Event, now time.Time) { recordLogEventTo(gen, dns, ev, now) }
 	now := time.Now()
 	ev := func(l log.LogLevel, p string) log.Event { return log.Event{LogLevel: l, Payload: p} }
 	recordLogEvent(ev(log.INFO, "[TCP] a --> b"), now)
@@ -270,8 +280,7 @@ func TestV0198LogRings(t *testing.T) {
 	if len(all.Logs) != logRingCap {
 		t.Fatalf("ring size %d", len(all.Logs))
 	}
-	// Other tests' cores may log into the same global ring meanwhile (the diag subscriber is process-wide), so
-	// check our own lines only: newest kept, at least the 50 oldest dropped, numbers strictly increasing.
+	// Our own ring: every line is ours; newest kept, at least the 50 oldest dropped, numbers strictly increasing.
 	prev := -1
 	for _, e := range all.Logs {
 		var n int
@@ -297,7 +306,7 @@ func TestV0198LogRings(t *testing.T) {
 	if p := all.Logs[len(all.Logs)-1].Payload; len(p) > logPayloadMax+len("…") || !utf8.ValidString(p) {
 		t.Fatalf("payload not cut cleanly: %d bytes", len(p))
 	}
-	ringFor("general").clear()
+	ringOf("general").clear()
 	if len(logHistory("general", 0, "").Logs) != 0 {
 		t.Fatal("clear")
 	}
