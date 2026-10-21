@@ -91,3 +91,19 @@ func TestR7HeadKeepsContentLength(t *testing.T) {
 		t.Fatalf("GET: %d bytes, Content-Length %q", len(body), resp.Header.Get("Content-Length"))
 	}
 }
+
+// P3-2: a response rule listed before a URL-changing request script matches the final URL.
+func TestR7RespRulesMatchFinalURL(t *testing.T) {
+	cfg := &Config{Enabled: true, MitM: true, Hostnames: []string{"api.test.com"}, Rules: items(
+		`http-response ^https://api\.test\.com/echo header-add X-Resp hit`),
+		Scripts: items(`rw = type=http-request,pattern=^https://api\.test\.com/old,script-path=rw.js`)}
+	h := newHarness(t, cfg, map[string]string{"rw.js": `$done({url: "https://api.test.com/echo"});`})
+	resp, _ := h.get("https://api.test.com/old")
+	if v := resp.Header.Get("X-Resp"); v != "hit" {
+		t.Fatalf("rewritten request: X-Resp=%q", v)
+	}
+	resp, _ = h.get("https://api.test.com/echo")
+	if v := resp.Header.Get("X-Resp"); v != "hit" {
+		t.Fatalf("direct: X-Resp=%q", v)
+	}
+}

@@ -290,13 +290,9 @@ func (e *Engine) serveHTTP(w http.ResponseWriter, r *http.Request) {
 		r.ContentLength = int64(len(b))
 		r.Header.Set("Content-Length", strconv.Itoa(len(b)))
 	}
-	var respRules []*Rule
 	for _, rule := range rules {
 		if rule.Phase == "response" {
-			if rule.Kind != KindURL && rule.Kind != KindMapLocal && rule.matchReq(u, r) {
-				respRules = append(respRules, rule)
-			}
-			continue
+			continue // matched below against the final URL
 		}
 		switch rule.Kind {
 		case KindHeader:
@@ -393,6 +389,16 @@ func (e *Engine) serveHTTP(w http.ResponseWriter, r *http.Request) {
 			if res.BodySet {
 				setBody(res.Body)
 			}
+		}
+	}
+
+	// r7 P3-2: response-phase rules are matched once the request phase is over, against the final URL
+	// and headers. Collected inside the loop above, a response rule listed before a URL-changing request
+	// script was matched against the old URL.
+	var respRules []*Rule
+	for _, rule := range rules {
+		if rule.Phase == "response" && rule.Kind != KindURL && rule.Kind != KindMapLocal && rule.matchReq(u, r) {
+			respRules = append(respRules, rule)
 		}
 	}
 
