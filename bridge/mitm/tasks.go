@@ -10,6 +10,7 @@ package mitm
 //	Stash   cron.script[] (name/cron/timeout/argument) + script-providers;  tiles[] (name/interval/title/content/icon/backgroundColor)
 
 import (
+	"context"
 	"crypto/sha1"
 	"encoding/hex"
 	"encoding/json"
@@ -296,12 +297,15 @@ type tasker struct {
 	pstates map[string]*PanelState
 	stop    chan struct{}
 	wake    chan struct{}
-	network map[string]any
-	lastNet string
-	now     func() time.Time
-	viewed  time.Time // last time the app showed panels (GET /mitm/panels)
-	prefs   TaskPrefs
-	history map[string][]RunRecord
+	// r7 P3-7: running task scripts derive from runCtx; shutdown (Engine.Stop) cancels it.
+	runCtx    context.Context
+	runCancel context.CancelFunc
+	network   map[string]any
+	lastNet   string
+	now       func() time.Time
+	viewed    time.Time // last time the app showed panels (GET /mitm/panels)
+	prefs     TaskPrefs
+	history   map[string][]RunRecord
 	// feat/panels (homepanels.go)
 	base  []*Panel              // panels from modules; t.panels = base + pinned scripts
 	home  HomePanels            // home-panels.json
@@ -378,7 +382,21 @@ func (t *tasker) shutdown() {
 		close(t.stop)
 		t.stop = nil
 	}
+	if t.runCancel != nil {
+		t.runCancel()
+		t.runCtx, t.runCancel = nil, nil
+	}
 	t.mu.Unlock()
+}
+
+// context is the parent of task script runs (cancelled by shutdown).
+func (t *tasker) context() context.Context {
+	t.mu.Lock()
+	defer t.mu.Unlock()
+	if t.runCtx == nil {
+		t.runCtx, t.runCancel = context.WithCancel(context.Background())
+	}
+	return t.runCtx
 }
 
 func (t *tasker) loop(stop chan struct{}) {
@@ -695,7 +713,11 @@ func (t *tasker) refreshPanel(id string) (*PanelState, error) {
 // RunTask executes a cron / event / generic script (no $request / $response). Returns the object
 // passed to $done (if any).
 func (s *ScriptRunner) RunTask(tk *Task, network map[string]any, extra map[string]any) (map[string]any, error) {
-	rc, err := s.execute(nil, tk.Script, nil, nil, s.taskSem, false, 300*time.Second, 30*time.Second, func(rc *runCtx) {
+	var parent context.Context
+	if s.e.tasks != nil {
+		parent = s.e.tasks.context()
+	}
+	rc, err := s.execute(parent, tk.Script, nil, nil, s.taskSem, false, 300*time.Second, 30*time.Second, func(rc *runCtx) {
 		rt := rc.rt
 		if network != nil {
 			_ = rt.Set("$network", network)

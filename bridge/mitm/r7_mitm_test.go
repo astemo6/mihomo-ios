@@ -316,3 +316,31 @@ func TestR7ScriptStopsWhenClientGone(t *testing.T) {
 	}
 }
 
+// P3-7: Engine.Stop cancels running task scripts.
+func TestR7StopCancelsTaskScripts(t *testing.T) {
+	home := t.TempDir()
+	_ = os.MkdirAll(ScriptsDir(home), 0o755)
+	_ = os.WriteFile(filepath.Join(ScriptsDir(home), "spin.js"), []byte(`while (true) {}`), 0o644)
+	e := New(home, nil, nil)
+	if err := e.Start(); err != nil {
+		t.Fatal(err)
+	}
+	tk := &Task{ID: "spin", Kind: "generic", Script: &Script{Name: "spin", Path: "spin.js", Timeout: 300}}
+	done := make(chan error, 1)
+	go func() { _, err := e.scripts.RunTask(tk, nil, nil); done <- err }()
+	time.Sleep(300 * time.Millisecond)
+	e.Stop()
+	select {
+	case err := <-done:
+		if err == nil || !strings.Contains(err.Error(), "已停止") {
+			t.Fatalf("task ended with %v", err)
+		}
+	case <-time.After(3 * time.Second):
+		t.Fatal("task script kept running after Engine.Stop")
+	}
+	// a later run on a restarted engine works again
+	_ = os.WriteFile(filepath.Join(ScriptsDir(home), "ok.js"), []byte(`$done({})`), 0o644)
+	if _, err := e.scripts.RunTask(&Task{ID: "ok", Kind: "generic", Script: &Script{Name: "ok", Path: "ok.js"}}, nil, nil); err != nil {
+		t.Fatalf("run after stop: %v", err)
+	}
+}
