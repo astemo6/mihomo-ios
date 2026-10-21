@@ -7,6 +7,7 @@ import SwiftUI
 // states. PNGs go to $UI_SHOT_DIR/liveact (the Self-test "shots" artifact) and into the .xcresult.
 // The Lock Screen card is asserted to stay inside the Live Activity height (160 pt).
 
+@available(iOS 17.0, *)
 @MainActor
 final class LiveActivityLayoutTests: XCTestCase {
 
@@ -95,7 +96,6 @@ final class LiveActivityLayoutTests: XCTestCase {
     }
 
     func testRenderLiveActivityLayouts() throws {
-        guard #available(iOS 17.0, *) else { throw XCTSkip("Live Activity views need iOS 17") }
         for lang in Self.langs {
             for scheme in [ColorScheme.light, .dark] {
                 let tag = "\(lang)-\(scheme == .light ? "light" : "dark")"
