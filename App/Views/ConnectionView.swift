@@ -375,7 +375,16 @@ struct ConnectionView: View {
         cur.lanAuth = CoreOverrides.LanAuth(username: o.lanAuth.username.trimmingCharacters(in: .whitespaces), password: o.lanAuth.password)
         cur.lanUsers = o.lanUsers // v0.19 局域网多用户 (was not saved)
         let onDemandChanged = onDemand != savedOnDemand
-        guard cur != old || onDemandChanged else { return }
+        // r7 R7A-2: nothing changed on the page, but the VPN configuration may still carry another scope (restored
+        // backup, older build) — re-apply it then instead of returning, so the page can always fix it.
+        guard cur != old || onDemandChanged else {
+            Task {
+                if await vpn.syncTunnelScope() {
+                    status = vpn.isConnected ? String(localized: "隧道范围已同步，重新连接后生效") : String(localized: "隧道范围已同步")
+                }
+            }
+            return
+        }
         cur.save()
         savedOnDemand = onDemand
         saved = cur
