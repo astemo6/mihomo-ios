@@ -73,7 +73,11 @@ const largeProgSource = 512 << 10
 
 // largeProgIdle is how long a large compiled program is kept after its last run (a burst of API calls
 // from a web UI reuses it; then the memory goes back to the tunnel).
-var largeProgIdle = 45 * time.Second
+var largeProgIdleNs atomic.Int64 // atomic: a test shortens it while release timers from earlier runs read it (-race)
+
+func init() { largeProgIdleNs.Store(int64(45 * time.Second)) }
+
+func largeProgIdle() time.Duration { return time.Duration(largeProgIdleNs.Load()) }
 
 type compileCall struct {
 	done chan struct{}
@@ -295,7 +299,7 @@ func (s *ScriptRunner) touchLarge(key string) {
 	s.lastUse[key] = time.Now()
 	s.mu.Unlock()
 	if !scheduled {
-		s.scheduleRelease(key, largeProgIdle)
+		s.scheduleRelease(key, largeProgIdle())
 	}
 }
 
@@ -307,9 +311,9 @@ func (s *ScriptRunner) scheduleRelease(key string, after time.Duration) {
 			s.mu.Unlock()
 			return
 		}
-		if idle := time.Since(last); idle < largeProgIdle {
+		if idle := time.Since(last); idle < largeProgIdle() {
 			s.mu.Unlock()
-			s.scheduleRelease(key, largeProgIdle-idle)
+			s.scheduleRelease(key, largeProgIdle()-idle)
 			return
 		}
 		delete(s.lastUse, key)

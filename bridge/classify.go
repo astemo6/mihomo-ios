@@ -25,10 +25,14 @@ var (
 // (Surge / QX / Loon / Stash / Egern module or rewrite snippet), "nodes" (share links / proxy
 // lines) or "" (not recognised).
 func ClassifyText(text string) string {
-	t := strings.TrimSpace(strings.TrimPrefix(text, "\ufeff"))
-	if t == "" {
+	full := strings.TrimSpace(strings.TrimPrefix(text, "\ufeff"))
+	if full == "" {
 		return ""
 	}
+	// B31 (review 7 checklist): the markers this decides on are all near the top; the regex scans, the module
+	// parser and the node parser on a 50 MB single line took ~15 s. They now read at most classifyHeadMax
+	// bytes (cut at a line end); only the cheap substring checks for a YAML profile see the whole text.
+	t := classifyHead(full)
 	if isQXConf(t) {
 		return "conf"
 	}
@@ -38,7 +42,7 @@ func ClassifyText(text string) string {
 	if strings.Contains(t, "\nhttp:") || strings.HasPrefix(t, "http:\n") || strings.Contains(t, "script-providers:") {
 		return "module:stash"
 	}
-	if strings.Contains(t, "proxies:") || strings.Contains(t, "proxy-providers:") || strings.Contains(t, "proxy-groups:") {
+	if strings.Contains(full, "proxies:") || strings.Contains(full, "proxy-providers:") || strings.Contains(full, "proxy-groups:") {
 		return "profile"
 	}
 	if mitm.IsStash(t) {
@@ -74,6 +78,22 @@ func ClassifyText(text string) string {
 		return "module:" + f
 	}
 	return ""
+}
+
+// classifyHeadMax bounds what ClassifyText scans (B31).
+const classifyHeadMax = 256 << 10
+
+// classifyHead is t cut to classifyHeadMax bytes at the last line end; a single huge line (a base64
+// subscription) is cut at a multiple of 4 bytes so its decoded prefix still parses.
+func classifyHead(t string) string {
+	if len(t) <= classifyHeadMax {
+		return t
+	}
+	h := t[:classifyHeadMax]
+	if i := strings.LastIndexByte(h, '\n'); i > 0 {
+		return h[:i]
+	}
+	return h[:len(h)-len(h)%4]
 }
 
 // isManagedConf: Surge's managed-profile header ("#!MANAGED-CONFIG <url> interval=… strict=…").

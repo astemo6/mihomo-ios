@@ -37,6 +37,8 @@ func TestRuntimeInputFilesCoverBuildReads(t *testing.T) {
 		"scriptedFor: yp":                                    {yp},
 		"readOverrides: overridesPath(home)":                 {overridesPath(home)},
 		"readSecrets: secretsPath(home)":                     {secretsPath(home)},
+		"ensureControllerSecret: overridesPath(home)":        {overridesPath(home)}, // B04: only checks that overrides.json exists
+		"ensureControllerSecret: sp":                         {secretsPath(home)},   // B04 write-back of an empty secret (r7 B01: into secrets.json)
 		"readDNSOverride: dnsOverridePath(home)":             {dnsOverridePath(home)},
 		"readLocalDNS: localDNSPath(home)":                   {localDNSPath(home)},
 		"readAllSubRules: subRulesPath(home)":                {subRulesPath(home)},

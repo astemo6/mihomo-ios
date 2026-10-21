@@ -89,6 +89,33 @@ func findRuntimeNode(raw map[string]any, name string) (map[string]any, string, b
 	return nil, "", false
 }
 
+// findRuntimeNodeIn (review 7 R7A-4) looks a node up in one source only: provider "" = the profile's own
+// proxies, otherwise that proxy-provider (node subscriptions included, by their runtime provider name — the
+// `source` NodeSummary returns and /providers/proxies lists). Same-named nodes of two subscriptions are
+// allowed in mihomo; the name-only lookup returned the alphabetically first provider's node, so the detail
+// of subscription B showed / copied / tested subscription A's credentials and server.
+func findRuntimeNodeIn(raw map[string]any, provider, name string) (map[string]any, bool) {
+	if provider == "" {
+		for _, p := range proxiesOf(raw) {
+			if str(p["name"]) == name {
+				return p, true
+			}
+		}
+		return nil, false
+	}
+	pv, _ := raw["proxy-providers"].(map[string]any)
+	m, ok := pv[provider].(map[string]any)
+	if !ok {
+		return nil, false
+	}
+	for _, p := range providerNodes(m) {
+		if str(p["name"]) == name {
+			return p, true
+		}
+	}
+	return nil, false
+}
+
 // credentialKeys are the secrets a node may carry; the summary only says which ones are set.
 var credentialKeys = []string{"password", "uuid", "username", "private-key", "pre-shared-key", "public-key", "psk",
 	"auth", "auth-str", "auth_str", "token", "auth-key", "obfs-password", "private-key-passphrase", "short-id"}
@@ -238,6 +265,47 @@ func NodeSummary(homeDir, profilePath, name string) string {
 	}
 	b, _ := json.Marshal(nodeSummary(m, src))
 	return string(b)
+}
+
+// NodeSummaryIn is NodeSummary for the node named name in one source (provider "" = the profile's own proxies,
+// else that proxy-provider / node subscription). R7A-4; NodeSummary keeps the name-only lookup.
+func NodeSummaryIn(homeDir, profilePath, provider, name string) string {
+	defer func() { _ = recover() }()
+	raw := runtimeRawWithHome(homeDir, profilePath)
+	m, ok := findRuntimeNodeIn(raw, provider, name)
+	if !ok {
+		b, _ := json.Marshal(map[string]any{"error": "在当前配置里找不到这个节点"})
+		return string(b)
+	}
+	b, _ := json.Marshal(nodeSummary(m, provider))
+	return string(b)
+}
+
+// NodeConfigIn is NodeConfig for the node named name in one source (see NodeSummaryIn). "" when not found.
+func NodeConfigIn(homeDir, profilePath, provider, name string) string {
+	defer func() { _ = recover() }()
+	raw := runtimeRawWithHome(homeDir, profilePath)
+	m, ok := findRuntimeNodeIn(raw, provider, name)
+	if !ok {
+		return ""
+	}
+	b, err := json.Marshal(jsonSafe(m))
+	if err != nil {
+		return ""
+	}
+	return string(b)
+}
+
+// NodeTestDelayIn is NodeTestDelay for the node named name in one source (see NodeSummaryIn).
+func NodeTestDelayIn(homeDir, profilePath, provider, name, url string, timeoutMs int) int {
+	raw := cachedRuntimeRaw(homeDir, profilePath)
+	m, ok := findRuntimeNodeIn(raw, provider, name)
+	if !ok {
+		setLastError("在当前配置里找不到这个节点")
+		return -1
+	}
+	b, _ := json.Marshal(m)
+	return TestDelay(string(b), url, timeoutMs)
 }
 
 // NodeConfig returns the full config of a node of the profile (any source, node subscriptions included) as a

@@ -31,15 +31,23 @@ func TestR7SecretsOverlay(t *testing.T) {
 	if o := readOverrides(home); o.Secret != "old-json" {
 		t.Errorf("legacy secret %q", o.Secret)
 	}
-	// missing / broken secrets.json: nothing overlaid, no panic
+	// missing / broken secrets.json: nothing overlaid, no panic — and (B04) never an empty controller secret:
+	// a missing file gets a random secret written into secrets.json, a broken one is left alone.
 	_ = os.Remove(secretsPath(home))
 	mustWrite(t, filepath.Join(home, "overrides.json"), `{}`)
-	if o := readOverrides(home); o.Secret != "" {
-		t.Errorf("no secrets file: %q", o.Secret)
+	o1 := readOverrides(home)
+	if len(o1.Secret) < 16 {
+		t.Errorf("no secrets file: %q", o1.Secret)
+	}
+	if s := readSecrets(home); s == nil || s.Secret != o1.Secret {
+		t.Errorf("no secrets file: random secret not stored in secrets.json: %+v", s)
 	}
 	mustWrite(t, secretsPath(home), `not json`)
-	if o := readOverrides(home); o.Secret != "" {
+	if o := readOverrides(home); len(o.Secret) < 16 {
 		t.Errorf("broken secrets file: %q", o.Secret)
+	}
+	if b, _ := os.ReadFile(secretsPath(home)); string(b) != "not json" {
+		t.Errorf("broken secrets.json must not be overwritten: %q", b)
 	}
 }
 

@@ -18,6 +18,8 @@ import (
 	"github.com/astemo6/mihomo-ios/bridge/mitm"
 )
 
+var v0141MixedPort int
+
 func v0141Setup(t *testing.T, ctrlPort int, profile string, hosts []string) (home string) {
 	t.Helper()
 	home = t.TempDir()
@@ -32,6 +34,8 @@ func v0141Setup(t *testing.T, ctrlPort int, profile string, hosts []string) (hom
 	ov.AllowLan = true
 	ov.ControllerPort = ctrlPort
 	ov.Secret = "s"
+	ov.MixedPort = freeTCPPort(t) // B12: not the shared 7890
+	v0141MixedPort = ov.MixedPort
 	ob, _ := json.Marshal(ov)
 	_ = os.WriteFile(filepath.Join(home, "overrides.json"), ob, 0o644)
 	prof := filepath.Join(home, "p.yaml")
@@ -113,7 +117,7 @@ rules:
   - MATCH,__MITM__
 `, []string{"loop.test:" + upPort})
 	defer Stop()
-	pu, _ := url.Parse("http://127.0.0.1:7890")
+	pu, _ := url.Parse(fmt.Sprintf("http://127.0.0.1:%d", v0141MixedPort))
 	c := &http.Client{Transport: &http.Transport{Proxy: http.ProxyURL(pu), TLSClientConfig: &tls.Config{InsecureSkipVerify: true}}, Timeout: 20 * time.Second}
 	start := time.Now()
 	var err error
