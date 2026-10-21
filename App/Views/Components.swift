@@ -116,8 +116,8 @@ struct ScaledSystemFont: ViewModifier {
     let design: Font.Design
     let monospacedDigit: Bool
 
-    init(size: CGFloat, weight: Font.Weight, design: Font.Design, monospacedDigit: Bool) {
-        let style: Font.TextStyle = size <= 11 ? .caption2 : (size <= 13 ? .footnote : .body)
+    init(size: CGFloat, weight: Font.Weight, design: Font.Design, monospacedDigit: Bool, relativeTo: Font.TextStyle? = nil) {
+        let style: Font.TextStyle = relativeTo ?? (size <= 11 ? .caption2 : (size <= 13 ? .footnote : .body))
         _size = ScaledMetric(wrappedValue: size, relativeTo: style)
         self.weight = weight
         self.design = design
@@ -131,8 +131,9 @@ struct ScaledSystemFont: ViewModifier {
 }
 
 extension View {
-    func scaledFont(_ size: CGFloat, weight: Font.Weight = .regular, design: Font.Design = .default, monospacedDigit: Bool = false) -> some View {
-        modifier(ScaledSystemFont(size: size, weight: weight, design: design, monospacedDigit: monospacedDigit))
+    func scaledFont(_ size: CGFloat, weight: Font.Weight = .regular, design: Font.Design = .default, monospacedDigit: Bool = false,
+                    relativeTo: Font.TextStyle? = nil) -> some View {
+        modifier(ScaledSystemFont(size: size, weight: weight, design: design, monospacedDigit: monospacedDigit, relativeTo: relativeTo))
     }
 }
 

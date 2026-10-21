@@ -366,6 +366,8 @@ struct HomePolicyShareCard: View {
     let collapsed: Bool
     let toggle: () -> Void
     @State private var snap = HomeAnalysisModel.shared.policies
+    /// r7 P3-4: the percent column grows with the text (a fixed 40 pt cut 「100%」 to 「1…」 at large sizes).
+    @ScaledMetric(relativeTo: .caption2) private var percentWidth: CGFloat = 40
 
     var body: some View {
         let total = max(snap.total, 1)
@@ -398,7 +400,8 @@ struct HomePolicyShareCard: View {
                                     Text(verbatim: Fmt.bytes(p.1)).font(.caption.monospacedDigit())
                                     Text(Double(p.1) / Double(total), format: .percent.precision(.fractionLength(0)))
                                         .font(.caption2.monospacedDigit()).foregroundStyle(.secondary)
-                                        .frame(width: 40, alignment: .trailing)
+                                        .lineLimit(1)
+                                        .frame(minWidth: percentWidth, alignment: .trailing)
                                 }
                                 .accessibilityElement(children: .combine)
                             }
@@ -427,6 +430,9 @@ struct HomeRuleHitsCard: View {
     let collapsed: Bool
     let toggle: () -> Void
     @State private var snap = HomeAnalysisModel.shared.rules
+    /// r7 P3-4: card widths follow Dynamic Type with the caption2 / 9 pt texts inside (fixed 88 / 72 pt left only 「…」).
+    @ScaledMetric(relativeTo: .caption2) private var ringCardWidth: CGFloat = 88
+    @ScaledMetric(relativeTo: .caption2) private var moreCardWidth: CGFloat = 72
 
     var body: some View {
         let maxHits = max(snap.top.first?.hits ?? 1, 1)
@@ -448,7 +454,7 @@ struct HomeRuleHitsCard: View {
                                             Image(systemName: "chevron.right.circle").font(.title3).foregroundStyle(Theme.accent)
                                             Text("查看全部").font(.caption)
                                         }
-                                        .frame(width: 72)
+                                        .frame(width: moreCardWidth)
                                         .frame(maxHeight: .infinity)
                                         .background(RoundedRectangle(cornerRadius: Theme.radius, style: .continuous).fill(Theme.card))
                                     }
@@ -491,12 +497,12 @@ struct HomeRuleHitsCard: View {
             .accessibilityHidden(true)
             Text(verbatim: parts.payload ?? parts.type).font(.caption2).lineLimit(1).truncationMode(.middle)
             if parts.payload != nil {
-                Text(verbatim: parts.type).font(.system(size: 9, weight: .medium)).foregroundStyle(.secondary)
+                Text(verbatim: parts.type).scaledFont(9, weight: .medium).foregroundStyle(.secondary)
                     .lineLimit(1).minimumScaleFactor(0.7)
             }
-            Text(verbatim: r.policy).font(.system(size: 9)).foregroundStyle(.secondary).lineLimit(1)
+            Text(verbatim: r.policy).scaledFont(9).foregroundStyle(.secondary).lineLimit(1)
         }
-        .frame(width: 88)
+        .frame(width: ringCardWidth)
         .padding(.vertical, 10).padding(.horizontal, 6)
         .frame(maxHeight: .infinity, alignment: .top)
         .background(RoundedRectangle(cornerRadius: Theme.radius, style: .continuous).fill(Theme.card))

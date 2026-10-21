@@ -50,7 +50,8 @@ struct HomeView: View {
                     // feat/egern-style: Egern's header — large title, small capsule 启动 / 停止 on the right; then the
                     // compact QX-style exit header (运营商 · ASN · IP, user wants it, Egern has none).
                     HStack(alignment: .center) {
-                        Text("首页").font(.system(size: 28, weight: .bold)).lineLimit(1)
+                        // r7 P3-4: scales with Dynamic Type like the other tabs' large titles (UIFontMetrics .largeTitle).
+                        Text("首页").scaledFont(28, weight: .bold, relativeTo: .largeTitle).lineLimit(1)
                             .accessibilityAddTraits(.isHeader)
                         Spacer(minLength: 8)
                         HomePowerCapsule()

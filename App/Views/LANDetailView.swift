@@ -78,13 +78,20 @@ struct LANDetailView: View {
             // LabeledContent's value slot still rendered as a stray grey box (「网络」 low, 「计费」 clipped) on device.
             // The tags are now part of a single Text (no background, no nested stacks), so the row keeps the
             // standard height and the value stays right-aligned and vertically centred.
-            HStack(alignment: .center, spacing: 12) {
-                Text("网络类型").layoutPriority(1)
-                Spacer(minLength: 8)
-                typeValue
-                    .lineLimit(1)
-                    .minimumScaleFactor(0.8)
-                    .multilineTextAlignment(.trailing)
+            // r7 P3-4: when the single line does not fit (large text, 蜂窝网络 · 计费网络 · 低数据模式) the value moves
+            // under the title and wraps, instead of truncating the warnings at the end first. Plain stacks only —
+            // no capsules or LabeledContent (the v0.19.13 grey box).
+            ViewThatFits(in: .horizontal) {
+                HStack(alignment: .center, spacing: 12) {
+                    Text("网络类型").layoutPriority(1)
+                    Spacer(minLength: 8)
+                    typeValue.lineLimit(1).fixedSize(horizontal: true, vertical: false)
+                }
+                VStack(alignment: .leading, spacing: 2) {
+                    Text("网络类型")
+                    typeValue.fixedSize(horizontal: false, vertical: true)
+                }
+                .frame(maxWidth: .infinity, alignment: .leading)
             }
             .accessibilityElement(children: .combine)
             .accessibilityIdentifier("lan.type")
