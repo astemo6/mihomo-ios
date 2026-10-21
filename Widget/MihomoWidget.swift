@@ -28,7 +28,8 @@ struct MihomoWidgets: WidgetBundle {
 enum VPNControl {
     static func manager() async -> NETunnelProviderManager? {
         guard let all = try? await NETunnelProviderManager.loadAllFromPreferences() else { return nil }
-        return all.first { ($0.protocolConfiguration as? NETunnelProviderProtocol)?.providerBundleIdentifier == AppShared.tunnelBundleID } ?? all.first
+        // r7: only our own tunnel (bundle id) — never another configuration as a fallback; nil = ControlError.noConfiguration.
+        return all.first { ($0.protocolConfiguration as? NETunnelProviderProtocol)?.providerBundleIdentifier == AppShared.tunnelBundleID }
     }
 
     static func status() async -> NEVPNStatus {

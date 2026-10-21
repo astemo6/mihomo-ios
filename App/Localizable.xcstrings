@@ -85996,36 +85996,36 @@
         }
       }
     },
-    "经过 Mihomo 的所有流量，包括直连": {
+    "经过 Tern 的所有流量，包括直连": {
       "localizations": {
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "Everything that passes through Mihomo, including direct connections"
+            "value": "Everything that passes through Tern, including direct connections"
           }
         },
         "ja": {
           "stringUnit": {
             "state": "translated",
-            "value": "Mihomo を通るすべての通信（ダイレクトを含む）"
+            "value": "Tern を通るすべての通信（ダイレクトを含む）"
           }
         },
         "ko": {
           "stringUnit": {
             "state": "translated",
-            "value": "직접 연결을 포함해 Mihomo를 거치는 모든 트래픽"
+            "value": "직접 연결을 포함해 Tern를 거치는 모든 트래픽"
           }
         },
         "ru": {
           "stringUnit": {
             "state": "translated",
-            "value": "Весь трафик через Mihomo, включая прямые подключения"
+            "value": "Весь трафик через Tern, включая прямые подключения"
           }
         },
         "zh-Hant": {
           "stringUnit": {
             "state": "translated",
-            "value": "經過 Mihomo 的所有流量，包括直連"
+            "value": "經過 Tern 的所有流量，包括直連"
           }
         }
       }

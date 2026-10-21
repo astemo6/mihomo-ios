@@ -91,8 +91,7 @@ final class VPNManager: ObservableObject {
     func load() async {
         do {
             let managers = try await NETunnelProviderManager.loadAllFromPreferences()
-            let mine = managers.first { ($0.protocolConfiguration as? NETunnelProviderProtocol)?.providerBundleIdentifier == AppShared.tunnelBundleID }
-            manager = mine ?? managers.first
+            manager = Self.pickManager(managers)
             if let m = manager {
                 try await fixStaleManager(m)
                 update(from: m.connection)
@@ -103,21 +102,46 @@ final class VPNManager: ObservableObject {
         }
     }
 
+    /// The VPN configuration's server address / name. r7 (user 2026-10-21 「不用刻意保留」): renamed from
+    /// "Mihomo"; existing configurations are matched by the tunnel bundle id (never by this name) and renamed in
+    /// place by fixStaleManager, so no second VPN profile appears and the widget / Control Center / intents
+    /// (which match the bundle id too) keep finding it.
+    static let serverAddress = "Tern"
+    static let legacyServerAddresses: Set<String> = ["Mihomo", "Tern"]
+
+    /// This app's configuration: our tunnel bundle id first; then one carrying our (old or new) name, saved by a
+    /// build with another tunnel bundle id (re-signing); then — NE only lists this app's own configurations —
+    /// the first one, which fixStaleManager re-points.
+    static func pickManager(_ managers: [NETunnelProviderManager]) -> NETunnelProviderManager? {
+        func proto(_ m: NETunnelProviderManager) -> NETunnelProviderProtocol? { m.protocolConfiguration as? NETunnelProviderProtocol }
+        return managers.first { proto($0)?.providerBundleIdentifier == AppShared.tunnelBundleID }
+            ?? managers.first { legacyServerAddresses.contains(proto($0)?.serverAddress ?? "") }
+            ?? managers.first
+    }
+
     /// A manager saved by a build with another tunnel bundle id (e.g. before re-signing) would start a
-    /// non-existent extension. Point it at the current one and save again.
+    /// non-existent extension. Point it at the current one and save again. r7: also renames a configuration
+    /// still called "Mihomo" to "Tern" in place.
     private func fixStaleManager(_ m: NETunnelProviderManager) async throws {
-        guard let proto = m.protocolConfiguration as? NETunnelProviderProtocol,
-              proto.providerBundleIdentifier != AppShared.tunnelBundleID else { return }
-        NSLog("[Mihomo] fixing providerBundleIdentifier %@ -> %@", proto.providerBundleIdentifier ?? "nil", AppShared.tunnelBundleID)
+        guard let proto = m.protocolConfiguration as? NETunnelProviderProtocol else { return }
+        let staleID = proto.providerBundleIdentifier != AppShared.tunnelBundleID
+        let staleName = proto.serverAddress != Self.serverAddress || m.localizedDescription != "Tern"
+        guard staleID || staleName else { return }
+        // Renaming a running configuration could make iOS reconnect it: rename only while it is down.
+        if !staleID && !(m.connection.status == .disconnected || m.connection.status == .invalid) { return }
+        NSLog("[Tern] updating VPN configuration (bundle id %@ -> %@, name %@ -> Tern)", proto.providerBundleIdentifier ?? "nil", AppShared.tunnelBundleID, proto.serverAddress ?? "nil")
         proto.providerBundleIdentifier = AppShared.tunnelBundleID
+        proto.serverAddress = Self.serverAddress
+        m.localizedDescription = "Tern"
         m.protocolConfiguration = proto
-        m.isEnabled = true
+        if staleID { m.isEnabled = true } // a rename alone must not take over from another VPN in use
         do {
             try await m.saveToPreferences()
             try await m.loadFromPreferences()
         } catch {
-            NSLog("[Mihomo] saveToPreferences (fix stale) failed: %@", error.localizedDescription)
-            throw error
+            NSLog("[Tern] saveToPreferences (fix stale) failed: %@", error.localizedDescription)
+            if staleID { throw error } // a failed rename alone is harmless: the old name keeps working
+            try? await m.loadFromPreferences()
         }
     }
 
@@ -129,7 +153,7 @@ final class VPNManager: ObservableObject {
         let m = NETunnelProviderManager()
         let proto = NETunnelProviderProtocol()
         proto.providerBundleIdentifier = AppShared.tunnelBundleID
-        proto.serverAddress = "Mihomo"
+        proto.serverAddress = Self.serverAddress
         proto.disconnectOnSleep = false
         Self.applyScope(CoreOverrides.load(), to: proto)
         m.protocolConfiguration = proto

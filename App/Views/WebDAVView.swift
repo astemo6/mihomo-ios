@@ -21,7 +21,7 @@ struct WebDAVView: View {
     var body: some View {
         List {
             Section {
-                TextField("https://dav.example.com/dav/Mihomo/", text: $s.url)
+                TextField("https://dav.example.com/dav/Tern/", text: $s.url)
                     .keyboardType(.URL).textInputAutocapitalization(.never).autocorrectionDisabled()
                     .accessibilityIdentifier("webdav.url")
                 TextField("用户名", text: $s.username)

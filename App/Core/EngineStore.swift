@@ -376,7 +376,7 @@ final class EngineStore: ObservableObject {
             message = err?.localizedDescription ?? "请先生成证书"
             return nil
         }
-        let url = FileManager.default.temporaryDirectory.appendingPathComponent("Mihomo-CA.mobileconfig")
+        let url = FileManager.default.temporaryDirectory.appendingPathComponent("Tern-CA.mobileconfig")
         try? data.write(to: url, options: .atomic)
         return url
     }
@@ -384,7 +384,7 @@ final class EngineStore: ObservableObject {
     func certFile() -> URL? {
         var err: NSError?
         guard let data = LibmihomoCACertDER(home, &err), err == nil else { return nil }
-        let url = FileManager.default.temporaryDirectory.appendingPathComponent("Mihomo-CA.cer")
+        let url = FileManager.default.temporaryDirectory.appendingPathComponent("Tern-CA.cer")
         try? data.write(to: url, options: .atomic)
         return url
     }
@@ -400,7 +400,7 @@ final class EngineStore: ObservableObject {
         return url
     }
 
-    nonisolated static var p12TempURL: URL { FileManager.default.temporaryDirectory.appendingPathComponent("Mihomo-CA.p12") }
+    nonisolated static var p12TempURL: URL { FileManager.default.temporaryDirectory.appendingPathComponent("Tern-CA.p12") }
 
     /// Review 5 P2-9: the exported .p12 (private key) does not stay in tmp after the share sheet closes.
     nonisolated static func purgeP12() { try? FileManager.default.removeItem(at: p12TempURL) }
