@@ -40,9 +40,9 @@ func TestR7FetchChargeIncremental(t *testing.T) {
 
 // r7: with the budget exhausted only one download runs unbudgeted at a time, and it is size-capped.
 func TestR7FetchUnbudgetedCapped(t *testing.T) {
-	oldWait := fetchBudgetWait
-	fetchBudgetWait = 50 * time.Millisecond
-	defer func() { fetchBudgetWait = oldWait }()
+	oldWait, oldSlot := fetchBudgetWait, fetchSlotWait
+	fetchBudgetWait, fetchSlotWait = 50*time.Millisecond, 50*time.Millisecond
+	defer func() { fetchBudgetWait, fetchSlotWait = oldWait, oldSlot }()
 	rel := bodyBudget.acquire(t.Context(), bodyBudgetBytes, time.Second)
 	if rel == nil {
 		t.Fatal("budget")

@@ -23,6 +23,12 @@ const fetchChunk = 256 << 10
 // fetchUnbudgetedMax caps a download that runs outside the budget (anti-deadlock path).
 var fetchUnbudgetedMax int64 = 2 << 20
 
+// fetchSlotWait bounds how long a download waits for the unbudgeted slot (another unbudgeted download is
+// running). Downloads queue for the slot rather than failing after fetchBudgetWait, so a script that fires
+// several requests while the budget is held elsewhere gets them one after another (the script's own
+// timeout / ctx still applies).
+var fetchSlotWait = 10 * time.Second
+
 // unbudgetedFetch is the single unbudgeted-download slot.
 var unbudgetedFetch = make(chan struct{}, 1)
 
@@ -70,7 +76,7 @@ func (c *fetchCharge) ensure(total int64) error {
 	if total > fetchUnbudgetedMax {
 		return fmt.Errorf("内存预算不足，响应体超过 %d MB 已跳过", fetchUnbudgetedMax>>20)
 	}
-	t := time.NewTimer(fetchBudgetWait)
+	t := time.NewTimer(fetchSlotWait)
 	defer t.Stop()
 	select {
 	case unbudgetedFetch <- struct{}{}:
