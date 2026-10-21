@@ -81,7 +81,7 @@ targets:
         excludes: ["**/*.entitlements"]
       # The Live Activity attributes are app + widget only (keeps ActivityKit out of the tunnel's memory).
       - path: Shared
-        excludes: ["LiveActivityShared.swift"]
+        excludes: ["LiveActivityShared.swift", "LiveActivityViews.swift"]
       # Bundled MetaCubeX/meta-rules-dat databases, copied into the core home dir before start.
       - path: Geo
         buildPhase: resources

@@ -329,7 +329,7 @@ struct StatTile: View {
 }
 
 
-/// Flag + exit location large, "time zone · ASN · IP" small. Shared by the Home header and 节点探测 (v0.8).
+/// Flag + exit location large, the chosen detail items (运营商 · ASN · IP by default) small. Shared by the Home header and 节点探测 (v0.8).
 struct ExitInfoRow: View {
     let info: IPInfo?
     let loading: Bool
@@ -337,6 +337,9 @@ struct ExitInfoRow: View {
     let placeholder: String
     /// Third line with the operator (节点探测 shows it; Home keeps two lines).
     var showOrg = false
+    /// Items of the small line; nil = the user's 首页副标题显示 choice (Home). 节点探测 passes the legacy set.
+    var fields: Set<ExitDetailField>? = nil
+    @AppStorage(ExitDetailField.storageKey, store: AppShared.defaults) private var storedFields = ExitDetailField.defaultValue
 
     var body: some View {
         HStack(alignment: .center, spacing: 12) {
@@ -348,12 +351,16 @@ struct ExitInfoRow: View {
                     .font(.title3.weight(.bold))
                     .lineLimit(1)
                     .minimumScaleFactor(0.7)
-                Text(info?.detailText ?? placeholder)
-                    .font(.caption.monospacedDigit())
-                    .foregroundStyle(.secondary)
-                    .lineLimit(1)
-                    .minimumScaleFactor(0.75)
-                if showOrg, let org = info?.org, !org.isEmpty {
+                let detail = info?.detailText(fields: fields ?? ExitDetailField.parse(storedFields)) ?? placeholder
+                if !detail.isEmpty {
+                    Text(verbatim: detail)
+                        .font(.caption.monospacedDigit())
+                        .foregroundStyle(.secondary)
+                        .lineLimit(1)
+                        .minimumScaleFactor(0.75)
+                        .accessibilityIdentifier("home.exit.detail")
+                }
+                if showOrg, info?.customSubtitle == nil, let org = info?.org, !org.isEmpty {
                     Text(org).font(.caption).foregroundStyle(.secondary).lineLimit(1)
                 }
             }
@@ -362,7 +369,7 @@ struct ExitInfoRow: View {
     }
 }
 
-/// Home header (v0.7): flag + exit location large, "time zone · ASN · IP" small, a plain toggle, and one
+/// Home header (v0.7): flag + exit location large, "运营商 · ASN · IP" (首页副标题显示) small, a plain toggle, and one
 /// status line. Tap refreshes the exit info, long-press copies it (as the old IP card did).
 struct ExitHeader: View {
     @EnvironmentObject var vpn: VPNManager

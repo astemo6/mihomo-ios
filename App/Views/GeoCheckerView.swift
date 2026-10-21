@@ -11,6 +11,7 @@ struct GeoCheckerView: View {
     @State private var testing = false
     @State private var result: IPInfo?
     @State private var message: String?
+    @AppStorage(ExitDetailField.storageKey, store: AppShared.defaults) private var detailFields = ExitDetailField.defaultValue
 
     var body: some View {
         Form {
@@ -23,6 +24,23 @@ struct GeoCheckerView: View {
                 }
             } footer: {
                 Text("首页的国旗、地区、ASN 与 IP 来自这里选择的接口（对应 Quantumult X 的 geo_location_checker）。查询经过当前连接，所以显示的是代理出口。「关闭」不发出任何查询。")
+            }
+            .listRowBackground(Theme.card)
+
+            Section {
+                ForEach(ExitDetailField.allCases) { f in
+                    Toggle(isOn: detailBinding(f)) { Text(Self.label(f)) }
+                        .accessibilityIdentifier("geo.detail." + f.rawValue)
+                }
+                VStack(alignment: .leading, spacing: 2) {
+                    Text("预览").font(.caption).foregroundStyle(.secondary)
+                    Text(verbatim: previewText)
+                        .font(.caption.monospacedDigit())
+                        .lineLimit(1).minimumScaleFactor(0.75)
+                        .accessibilityIdentifier("geo.detail.preview")
+                }
+            } header: { Text("首页副标题显示") } footer: {
+                Text("选择首页地区下方那一行显示的内容。运营商未知时改显示时区。自定义脚本设置了第二行时，以脚本为准。")
             }
             .listRowBackground(Theme.card)
 
@@ -69,6 +87,31 @@ struct GeoCheckerView: View {
         .navigationBarTitleDisplayMode(.inline)
         .onChange(of: choice) { _ in persist() }
         .onDisappear { persist() }
+    }
+
+    static func label(_ f: ExitDetailField) -> LocalizedStringKey {
+        switch f {
+        case .isp: return "运营商"
+        case .asn: return "ASN"
+        case .timezone: return "时区"
+        case .ip: return "IP 地址"
+        }
+    }
+
+    func detailBinding(_ f: ExitDetailField) -> Binding<Bool> {
+        Binding(
+            get: { ExitDetailField.parse(detailFields).contains(f) },
+            set: { on in
+                var set = ExitDetailField.parse(detailFields)
+                if on { set.insert(f) } else { set.remove(f) }
+                detailFields = ExitDetailField.encode(set)
+            })
+    }
+
+    var previewText: String {
+        guard let info = result ?? ipinfo.exit else { return "—" }
+        let t = info.detailText(fields: ExitDetailField.parse(detailFields))
+        return t.isEmpty ? String(localized: "（不显示）") : t
     }
 
     func persist() {

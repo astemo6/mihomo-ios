@@ -88,7 +88,7 @@ struct NodeProbeSheet: View {
                 let e = store.entry(policy)
                 Section {
                     ExitInfoRow(info: e?.exit, loading: exitLoading, failed: exitError != nil,
-                                placeholder: String(localized: "出口 · \(policy)"), showOrg: true)
+                                placeholder: String(localized: "出口 · \(policy)"), showOrg: true, fields: ExitDetailField.legacy)
                         .padding(.vertical, 4)
                     if let exitError { ErrorRow(message: exitError) }
                     Button {
@@ -206,7 +206,7 @@ struct UnlockView: View {
                 let e = store.entry(policy)
                 Section {
                     ExitInfoRow(info: e?.exit, loading: running && e?.exit == nil, failed: false,
-                                placeholder: String(localized: "出口 · \(policy)"), showOrg: true)
+                                placeholder: String(localized: "出口 · \(policy)"), showOrg: true, fields: ExitDetailField.legacy)
                         .padding(.vertical, 4)
                     if let r = e?.unlock, !r.isEmpty { UnlockResultRows(results: r) }
                     if let error { ErrorRow(message: error) }

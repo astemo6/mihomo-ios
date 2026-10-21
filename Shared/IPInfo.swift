@@ -12,16 +12,9 @@ struct IPInfo: Codable, Equatable {
     var source: String?
     var timezone: String? = nil   // "Asia/Tokyo" (v0.7 Home header)
     var customTitle: String? = nil   // v0.12 geo_location_checker script title (replaces the place text)
+    var customSubtitle: String? = nil   // geo_location_checker script subtitle (replaces the whole detail line)
 
-    var flag: String {
-        guard let cc = countryCode?.uppercased(), cc.count == 2 else { return "🌐" }
-        var s = ""
-        for u in cc.unicodeScalars {
-            guard let v = UnicodeScalar(127397 + u.value) else { return "🌐" }
-            s.unicodeScalars.append(v)
-        }
-        return s
-    }
+    var flag: String { CountryFlag.emoji(countryCode) ?? "🌐" }
 
     /// Country name in the app's display language (was always zh_CN, so English / Japanese / … UIs showed
     /// 「日本」; found by the v0.19 en UI scan of the 出口 IP card).
@@ -57,14 +50,108 @@ struct IPInfo: Codable, Equatable {
         return parts.isEmpty ? String(localized: "未知位置") : parts.joined(separator: " ")
     }
 
-    /// Header detail line: time zone · ASN · IP.
-    var detailText: String {
-        [timezone, asn, ip].compactMap { $0 }.filter { !$0.isEmpty }.joined(separator: " · ")
+    /// Header detail line in the user's choice (首页副标题显示, default 运营商 · ASN · IP).
+    var detailText: String { detailText(fields: ExitDetailField.stored) }
+
+    /// The detail line for the given items, always in the fixed order 运营商 · ASN · 时区 · IP. A QX
+    /// geo_location_checker script subtitle wins over the choice. 运营商 unknown → the time zone takes its
+    /// place, unless 时区 is chosen anyway. Never invents a value: unknown items are left out.
+    func detailText(fields: Set<ExitDetailField>) -> String {
+        if let s = customSubtitle?.trimmingCharacters(in: .whitespacesAndNewlines), !s.isEmpty { return s }
+        let tz = timezone?.trimmingCharacters(in: .whitespaces) ?? ""
+        var parts: [String] = []
+        for f in ExitDetailField.allCases where fields.contains(f) {
+            switch f {
+            case .isp:
+                if let o = Self.shortOrg(org) { parts.append(o) }
+                else if !fields.contains(.timezone), !tz.isEmpty { parts.append(tz) }
+            case .asn:
+                if let a = asn?.trimmingCharacters(in: .whitespaces), !a.isEmpty { parts.append(a) }
+            case .timezone:
+                if !tz.isEmpty { parts.append(tz) }
+            case .ip:
+                if !ip.isEmpty { parts.append(ip) }
+            }
+        }
+        return parts.joined(separator: " · ")
+    }
+
+    /// "xTom Japan Corporation" → "xTom Japan", "Cloudflare, Inc." → "Cloudflare"; longer than `max`
+    /// characters → middle truncated ("Hong Kong Te…ture Limited"). nil when empty.
+    static func shortOrg(_ s: String?, max: Int = 24) -> String? {
+        guard let raw = s?.trimmingCharacters(in: .whitespacesAndNewlines), !raw.isEmpty else { return nil }
+        let suffixes = ["co., ltd.", "co.,ltd.", "co., ltd", "co.,ltd", "co. ltd.", "co. ltd", "co ltd", "pty. ltd.", "pty ltd",
+                        "pte. ltd.", "pte ltd", "sdn. bhd.", "sdn bhd", "gmbh & co. kg", "gmbh", "mbh", "l.l.c.", "llc", "ltd.", "ltd",
+                        "limited", "inc.", "inc", "incorporated", "corporation", "corp.", "corp", "s.a.", "s.a", "s.r.l.", "srl",
+                        "sas", "b.v.", "bv", "ag", "oy", "ab", "k.k.", "plc", "company", "co."]
+        var t = raw
+        var changed = true
+        while changed {
+            changed = false
+            t = t.trimmingCharacters(in: CharacterSet(charactersIn: " ,"))
+            let low = t.lowercased()
+            for suf in suffixes {
+                for sep in [" ", ","] where low.hasSuffix(sep + suf) {
+                    t = String(t.dropLast(sep.count + suf.count))
+                    changed = true
+                    break
+                }
+                if changed { break }
+            }
+        }
+        t = t.trimmingCharacters(in: CharacterSet(charactersIn: " ,"))
+        if t.count < 2 { t = raw }
+        if t.count > max, max > 4 {
+            let keep = max - 1
+            t = String(t.prefix((keep + 1) / 2)).trimmingCharacters(in: .whitespaces) + "…" + String(t.suffix(keep / 2)).trimmingCharacters(in: .whitespaces)
+        }
+        return t
     }
 
     var copyText: String {
         "\(ip)  \(flag) \(locationText)  \(asnText)"
     }
+}
+
+/// The one country code → flag emoji helper (Home header, 出口 IP card, 解锁检测 regions …).
+/// TW is drawn as 🇨🇳: China-region iOS renders 🇹🇼 blank (user 2026-10-21 「台湾的emoji…改成cn的」). Only the
+/// glyph changes; place text and node names stay as returned.
+enum CountryFlag {
+    static let substitutes: [String: String] = ["TW": "CN"]
+
+    static func emoji(_ code: String?) -> String? {
+        guard var cc = code?.trimmingCharacters(in: .whitespaces).uppercased(), cc.count == 2,
+              cc.unicodeScalars.allSatisfy({ (65...90).contains($0.value) }) else { return nil }
+        cc = substitutes[cc] ?? cc
+        var s = ""
+        for u in cc.unicodeScalars {
+            guard let v = UnicodeScalar(127397 + u.value) else { return nil }
+            s.unicodeScalars.append(v)
+        }
+        return s
+    }
+}
+
+/// Items of the Home header's small line (更多 → 高级设置 → 出口信息来源 → 首页副标题显示). Toggles only; the line
+/// always uses this order. Stored in the App Group as a comma list (key `home.exitDetail`).
+enum ExitDetailField: String, CaseIterable, Identifiable {
+    case isp, asn, timezone, ip
+    var id: String { rawValue }
+
+    static let storageKey = "home.exitDetail"
+    static let defaultValue = "isp,asn,ip"
+    static let legacy: Set<ExitDetailField> = [.timezone, .asn, .ip]
+
+    static func parse(_ s: String?) -> Set<ExitDetailField> {
+        guard let s else { return parse(defaultValue) }
+        return Set(s.split(separator: ",").compactMap { ExitDetailField(rawValue: $0.trimmingCharacters(in: .whitespaces)) })
+    }
+
+    static func encode(_ set: Set<ExitDetailField>) -> String {
+        allCases.filter { set.contains($0) }.map(\.rawValue).joined(separator: ",")
+    }
+
+    static var stored: Set<ExitDetailField> { parse(AppShared.defaults.string(forKey: storageKey)) }
 }
 
 enum IPInfoFetcher {
