@@ -228,7 +228,9 @@ func nodeSummary(m map[string]any, source string) map[string]any {
 // node subscriptions included), or {"error": "…"}.
 func NodeSummary(homeDir, profilePath, name string) string {
 	defer func() { _ = recover() }()
-	raw := runtimeRawWithHome(homeDir, profilePath)
+	// r7: the node detail page asks for summary, config and providers at once; share one build
+	// (keyed by runtimeInputFiles, read-only) instead of a full runtime build per call.
+	raw := cachedRuntimeRaw(homeDir, profilePath)
 	m, src, ok := findRuntimeNode(raw, name)
 	if !ok {
 		b, _ := json.Marshal(map[string]any{"error": "在当前配置里找不到这个节点"})
@@ -243,7 +245,9 @@ func NodeSummary(homeDir, profilePath, name string) string {
 // and 添加到本地节点; the result is never logged.
 func NodeConfig(homeDir, profilePath, name string) string {
 	defer func() { _ = recover() }()
-	raw := runtimeRawWithHome(homeDir, profilePath)
+	// r7: the node detail page asks for summary, config and providers at once; share one build
+	// (keyed by runtimeInputFiles, read-only) instead of a full runtime build per call.
+	raw := cachedRuntimeRaw(homeDir, profilePath)
 	m, _, ok := findRuntimeNode(raw, name)
 	if !ok {
 		return ""
@@ -326,4 +330,7 @@ func resetRuntimeCache() {
 	rtCache.Lock()
 	rtCache.raw = nil
 	rtCache.Unlock()
+	ppCache.Lock()
+	ppCache.val = ""
+	ppCache.Unlock()
 }
