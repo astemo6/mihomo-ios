@@ -568,6 +568,7 @@ struct HomeQuickAddButton: View {
                 .shadow(color: .black.opacity(0.18), radius: 8, y: 3)
                 .contentShape(Circle())
         }
+        .menuOrder(.fixed) // 添加订阅 stays on top even though the menu opens upwards (Egern order)
         .accessibilityLabel(Text("快速添加"))
         .accessibilityIdentifier("home.quickAdd")
         .sheet(item: $sheet, onDismiss: afterSheet) { s in
