@@ -407,6 +407,34 @@ final class SnapshotStore: ObservableObject {
         return n
     }
 
+    /// r7 (review7 R7A-1): how each backup / snapshot / sync item reaches the app after a restore. Every in-memory
+    /// store that caches one of these files and writes its whole list back MUST be reloaded in reloadStores(),
+    /// otherwise its next save silently undoes the restore (v0.19.1 override scripts, r7 node subscriptions /
+    /// 节点集设置 / 智能选择 / group icons). UnitTests ReloadCoverageTests fails on any item missing here.
+    static let reloadCoverage: [String: String] = [
+        "profiles.json": "ProfileStore.load",
+        "profiles": "ProfileStore.load (files read on use)",
+        "mihomo/overrides.json": "read on use (CoreOverrides.load) + tunnel scope sync",
+        "mihomo/secrets.json": "read on use (CoreOverrides.load)",
+        "mihomo/dns.json": "read on use (DNS page loads on appear)",
+        "mihomo/localdns.json": "read on use (DNS page loads on appear)",
+        "mihomo/group-icons.json": "GroupIconStore.reload",
+        "mihomo/rules.json": "CustomRulesStore.load",
+        "mihomo/subscriptions.json": "read on use (Go)",
+        "mihomo/groups.json": "SmartGroups.load",
+        "mihomo/netpolicy.json": "read on use (NetworkPolicyStore.loadAll)",
+        "mihomo/node-subscriptions.json": "NodeSubStore.load",
+        "mihomo/node-settings.json": "NodeSettingsStore.reload",
+        "mihomo/group-edits.json": "read on use (Go)",
+        "mihomo/provider-overrides.json": "ProviderOverrideStore.reload",
+        "mihomo/engine/engine.json": "EngineStore.config",
+        "mihomo/engine/store.json": "read on use (Go)",
+        "mihomo/engine/modules": "EngineStore.reparseModules",
+        "mihomo/engine/scripts": "read on use (Go)",
+        "mihomo/override-scripts": "OverrideScriptStore.load",
+        "mihomo/engine/ca": "read on use (Go)",
+    ]
+
     static func reloadStores() {
         let store = ProfileStore.shared
         store.load()
@@ -417,6 +445,25 @@ final class SnapshotStore: ObservableObject {
         // v0.19.1: override scripts are part of a snapshot / backup (override-scripts/index.json). Without this
         // the store kept the pre-restore list and its next save wrote that list over the restored index.
         OverrideScriptStore.shared.load()
-        Task { if VPNManager.shared.isConnected { _ = await VPNManager.shared.reload() } }
+        // r7 R7A-1: the same for 节点订阅, 节点集设置, 智能选择, group icons and per-node settings.
+        NodeSubStore.shared.load()
+        ProviderOverrideStore.shared.reload()
+        SmartGroups.shared.load()
+        GroupIconStore.shared.reload()
+        NodeSettingsStore.shared.reload()
+        Task { @MainActor in
+            // r7 R7A-2: the restored 连接方式 scope must reach the iOS VPN configuration too.
+            let scopeChanged = await VPNManager.shared.syncTunnelScope()
+            await ProviderOverrideStore.shared.loadDeclared(ProfileStore.shared.active, force: true)
+            await NodeManagerModel.shared.reload(force: true)
+            if VPNManager.shared.isConnected {
+                if scopeChanged {
+                    // Routes / includeAllNetworks only apply on a new connection.
+                    await VPNManager.shared.reconnectForScope()
+                } else {
+                    _ = await VPNManager.shared.reload()
+                }
+            }
+        }
     }
 }

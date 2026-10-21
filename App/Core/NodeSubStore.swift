@@ -37,6 +37,8 @@ final class NodeSubStore: ObservableObject {
 
     func load() {
         if let d = try? Data(contentsOf: Self.url), let l = try? JSONDecoder().decode([NodeSubscription].self, from: d) { subs = l }
+        // r7 R7A-1: reloaded after a restore; a restored state without the file has no node subscriptions.
+        else if !FileManager.default.fileExists(atPath: Self.url.path) { subs = [] }
     }
 
     private func persist() {
