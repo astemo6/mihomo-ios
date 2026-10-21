@@ -37,6 +37,18 @@ struct LiveStats: Codable, Equatable {
     var totalDown: Int64 = 0
     var node: String = ""
     var time: Date = .distantPast
+    /// feat/traffic-scope: the same numbers for traffic that left through a proxy node only (DIRECT / REJECT
+    /// excluded), measured in the tunnel. Optional so samples stored by an older build still decode.
+    var proxyUp: Int64? = nil
+    var proxyDown: Int64? = nil
+    var proxyTotalUp: Int64? = nil
+    var proxyTotalDown: Int64? = nil
+
+    /// Speed (bytes/s) in the user's 首页流量统计 scope; nil proxy fields (older tunnel) fall back to 0, never to
+    /// the all-traffic numbers.
+    func speed(_ scope: TrafficScope) -> (up: Int64, down: Int64) {
+        scope == .proxy ? (proxyUp ?? 0, proxyDown ?? 0) : (up, down)
+    }
 
     private static let key = "liveStats.v1"
     /// The app's 实时活动 switch (外观); the extension samples only while it is on.
@@ -51,7 +63,8 @@ struct LiveStats: Codable, Equatable {
         if let d = try? JSONEncoder().encode(self) { AppShared.defaults.set(d, forKey: Self.key) }
     }
 
-    /// Parses LibmihomoLiveStatus(): "up\tdown\ttotalUp\ttotalDown\tnode".
+    /// Parses LibmihomoLiveStatus(): "up\tdown\ttotalUp\ttotalDown\tnode" plus, since feat/traffic-scope,
+    /// "\tproxyUp\tproxyDown\tproxyUpTotal\tproxyDownTotal".
     init(status: String, time: Date = Date()) {
         let f = status.components(separatedBy: "\t")
         if f.count >= 5 {
@@ -59,8 +72,32 @@ struct LiveStats: Codable, Equatable {
             totalUp = Int64(f[2]) ?? 0; totalDown = Int64(f[3]) ?? 0
             node = f[4]
         }
+        if f.count >= 9 {
+            proxyUp = Int64(f[5]); proxyDown = Int64(f[6])
+            proxyTotalUp = Int64(f[7]); proxyTotalDown = Int64(f[8])
+        }
         self.time = time
     }
 
     init() {}
+}
+
+/// feat/traffic-scope (user 2026-10-21 「首页的流量是显示走代理的还是全部的 做个选项」): what Home's speed, totals,
+/// tiles and the Live Activity count. 全部流量 = everything the core relays (DIRECT included, the default and
+/// the behaviour before); 仅代理流量 = only connections whose outbound is a proxy node (not DIRECT / REJECT).
+/// Stored in the App Group so the app and the Live Activity path read the same choice.
+enum TrafficScope: String, CaseIterable, Identifiable {
+    case all
+    case proxy
+
+    var id: String { rawValue }
+    static let key = "home.trafficScope"
+
+    static var current: TrafficScope {
+        get { TrafficScope(rawValue: AppShared.defaults.string(forKey: key) ?? "") ?? .all }
+        set { AppShared.defaults.set(newValue.rawValue, forKey: key) }
+    }
+
+    /// zh-Hans source keys.
+    var title: String { self == .all ? "全部流量" : "仅代理流量" }
 }

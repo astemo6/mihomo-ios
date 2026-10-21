@@ -250,7 +250,7 @@ struct NodeManagerView: View {
                         .onChange(of: parserURL) { ResourceParserSetting.url = $0 }
                 }
             } footer: {
-                Text("Mihomo 直接识别 Quantumult X / Surge / Clash / sing-box / 分享链接等格式，不需要资源解析器。这里只保存 Quantumult X 配置中的 resource_parser_url，不会下载或运行。")
+                Text("Tern 直接识别 Quantumult X / Surge / Clash / sing-box / 分享链接等格式，不需要资源解析器。这里只保存 Quantumult X 配置中的 resource_parser_url，不会下载或运行。")
             }
             .listRowBackground(Theme.card)
         }

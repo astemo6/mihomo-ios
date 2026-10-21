@@ -94,7 +94,7 @@ final class MihomoUITests: MihomoUITestCase {
     /// zh-Hans keys (titles changed to plain language).
     static let moreRows = [
         "节点与订阅", "规则", "模块与资源", "日志", "DNS 日志", "连接分析", "网络工具（Ping / TCP / DNS）", "网络测试（带宽 / NAT 类型）",
-        "解锁检测", "内网 IP 与路由器", "流量统计", "配置快照", "备份与恢复", "存储空间", "外观", "App 图标", "开始标签页",
+        "解锁检测", "内网 IP 与路由器", "流量统计", "配置快照", "备份与恢复", "存储空间", "外观", "App 图标", "开始标签页", "首页流量统计",
         "诊断", "关于 / 开源许可",
     ]
     static let advancedRows = [
@@ -782,14 +782,27 @@ final class MihomoUITests: MihomoUITestCase {
             if cancel.exists { cancel.tap() }
             usleep(500_000)
         } else { issues.append("[\(Env.tag)] DNS 日志: no search field") }
-        let blockedTab = app.buttons[L10n.f("拦截 %lld", 3)].firstMatch
-        XCTAssertTrue(blockedTab.waitForExistence(timeout: 5), "拦截 3 tab")
+        // Device report 2026-10-21: QUIC refusals (UDP 443 → TCP fallback) are their own group, not counted as 已拦截.
+        let blockedTab = app.buttons[L10n.f("已拦截 %lld", 3)].firstMatch
+        XCTAssertTrue(blockedTab.waitForExistence(timeout: 5), "已拦截 3 tab (3 QUIC hits not counted)")
         blockedTab.tap()
         let ads = app.element(labelContains: "ads.example.com")
         XCTAssertTrue(ads.waitForExistence(timeout: 5), "blocked domain listed")
         XCTAssertTrue(ads.label.contains("2"), "tally 2 for ads.example.com: \(ads.label)")
         XCTAssertTrue(app.element(labelContains: "tracker.example.net").exists, "REJECT-DROP via group counted")
+        XCTAssertFalse(app.element(labelContains: "Network,udp").exists, "no raw AND(((Network,udp)…)) rule text")
+        let quic = app.element(id: "dnslog.quic")
+        XCTAssertTrue(quic.waitForExistence(timeout: 5), "QUIC group row")
+        XCTAssertTrue(quic.label.contains(L("QUIC 已拦截 · 自动改走 TCP")), "QUIC group title: \(quic.label)")
+        XCTAssertTrue(quic.label.contains("3"), "QUIC count 3: \(quic.label)")
+        XCTAssertFalse(app.element(labelContains: "app.example.com").exists, "QUIC domains collapsed by default")
         snap("dnslog-blocked")
+        quic.tap()
+        let app1 = app.element(labelContains: "app.example.com")
+        XCTAssertTrue(app1.waitForExistence(timeout: 5), "QUIC domain listed after expanding")
+        XCTAssertTrue(app1.label.contains(L("UDP 443（QUIC）")), "humanised QUIC rule: \(app1.label)")
+        XCTAssertTrue(app.element(labelContains: "video.example.org").exists, "阻止 QUIC 始终 rule recognised")
+        snap("dnslog-quic")
         XCTAssertTrue(tapIfExists(app.element(id: "dnslog.clear")), "清空")
         XCTAssertTrue(app.element(label: L("没有被拦截的域名")).waitForExistence(timeout: 5), "cleared")
         snap("dnslog-cleared")
@@ -1921,5 +1934,38 @@ final class MihomoUITests: MihomoUITestCase {
             XCTAssertLessThan(took, 15, "tab \(i) switch")
         }
         assertAlive("big profile")
+    }
+
+    // MARK: 70. feat/traffic-scope 首页流量统计 (全部流量 / 仅代理流量)
+
+    func test70_TrafficScope() {
+        launch()
+        // Default: all traffic, no 「仅代理」 tag on Home.
+        XCTAssertTrue(scrollTo(app.element(label: L("总上传"))), "总上传 tile")
+        XCTAssertFalse(app.element(id: "home.trafficScope.proxy").exists, "no proxy-only tag by default")
+        openMore("首页流量统计")
+        XCTAssertTrue(app.navigationBars[L("首页流量统计")].waitForExistence(timeout: 6), "首页流量统计 page")
+        let all = app.element(id: "trafficScope.all"), proxy = app.element(id: "trafficScope.proxy")
+        XCTAssertTrue(all.waitForExistence(timeout: 4) && proxy.exists)
+        XCTAssertTrue(all.isSelected, "全部流量 is the default")
+        proxy.tap()
+        usleep(400_000)
+        XCTAssertTrue(proxy.isSelected, "仅代理流量 selected")
+        snap("traffic-scope")
+        back()
+        let row = app.element(id: "more.首页流量统计")
+        XCTAssertTrue(row.waitForExistence(timeout: 4))
+        XCTAssertTrue(row.label.contains(L("仅代理流量")), "row shows the choice: \(row.label)")
+        tab(0)
+        XCTAssertTrue(scrollTo(app.element(id: "home.trafficScope.proxy")), "「仅代理」 tag on the speed card")
+        XCTAssertTrue(app.element(label: L("总上传（仅代理）")).exists, "totals say proxy only")
+        snap("home-traffic-scope-proxy")
+        // Back to the default so the choice cannot leak into a screenshot of another test run in this launch.
+        openMore("首页流量统计")
+        XCTAssertTrue(all.waitForExistence(timeout: 4))
+        all.tap()
+        usleep(300_000)
+        XCTAssertTrue(all.isSelected)
+        assertAlive("traffic scope")
     }
 }

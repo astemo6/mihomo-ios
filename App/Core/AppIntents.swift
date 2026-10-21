@@ -18,7 +18,7 @@ enum OutboundModeOption: String, AppEnum {
 }
 
 struct ConnectIntent: AppIntent {
-    static var title: LocalizedStringResource = "连接 Mihomo"
+    static var title: LocalizedStringResource = "连接 Tern"
     static var description = IntentDescription("连接代理（使用当前配置）。")
     static var openAppWhenRun = false
 
@@ -38,7 +38,7 @@ struct ConnectIntent: AppIntent {
 }
 
 struct DisconnectIntent: AppIntent {
-    static var title: LocalizedStringResource = "断开 Mihomo"
+    static var title: LocalizedStringResource = "断开 Tern"
     static var description = IntentDescription("断开代理。")
     static var openAppWhenRun = false
 
@@ -50,7 +50,7 @@ struct DisconnectIntent: AppIntent {
 }
 
 struct ToggleIntent: AppIntent {
-    static var title: LocalizedStringResource = "切换 Mihomo 连接"
+    static var title: LocalizedStringResource = "切换 Tern 连接"
     static var description = IntentDescription("已连接时断开，未连接时连接。")
     static var openAppWhenRun = false
 
@@ -136,7 +136,7 @@ struct SwitchNodeIntent: AppIntent {
 // MARK: - v0.8 Shortcuts: status, profile, module, subscriptions, script
 
 struct StatusIntent: AppIntent {
-    static var title: LocalizedStringResource = "查询 Mihomo 状态"
+    static var title: LocalizedStringResource = "查询 Tern 状态"
     static var description = IntentDescription("返回连接状态、出站模式、当前节点与配置，可在快捷指令中继续使用。")
     static var openAppWhenRun = false
 
