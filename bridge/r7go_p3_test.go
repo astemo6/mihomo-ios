@@ -81,3 +81,15 @@ func TestR7B33ApplyReturnsOverrides(t *testing.T) {
 		t.Fatalf("applyInto must return the Overrides it used: %+v", used)
 	}
 }
+
+// Review 7 P3-3: the region fast path treats tab / NBSP / full-width space like the regex's \s.
+func TestR7P33RegionUnicodeSpace(t *testing.T) {
+	for name, want := range map[string]string{
+		"Hong\u00a0Kong 01": "HK", "New\tYork 02": "US", "Los\u3000Angeles": "US", "United\u2009States": "US",
+		"Hong Kong 03": "HK", "HongKong": "HK", "Nowhere 1": "",
+	} {
+		if got, _ := detectRegion(name); got != want {
+			t.Errorf("%q: want %q, got %q", name, want, got)
+		}
+	}
+}
