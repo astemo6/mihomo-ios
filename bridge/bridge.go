@@ -246,6 +246,17 @@ func buildRuntimeWith(profile []byte, o Overrides, fd int32, inject func(raw map
 	if o.MergeManual && o.manualPath != "" {
 		mergeManualNodes(raw, o.manualPath)
 	}
+	// feat/subs-split: the user's 停用 / 删除 / 编辑 of the profile's own proxy-providers (also in 安全模式:
+	// disabling a broken provider is a way out of a failing start).
+	if o.home != "" && o.profileID != "" {
+		removed, warns := applyProviderOverrides(raw, readProviderOverrides(o.home, o.profileID))
+		for _, w := range warns {
+			log.Warnln("[Provider] %s", w)
+		}
+		if len(removed) > 0 {
+			log.Infoln("[Provider] 已停用或删除的节点集未加载：%s", strings.Join(removed, "、"))
+		}
+	}
 	// v0.9 订阅管理: node subscriptions from the override store, then the user's group edits.
 	if o.home != "" && !o.SafeMode {
 		all := readAllSubRules(o.home)

@@ -296,6 +296,7 @@ final class SnapshotStore: ObservableObject {
             "mihomo/netpolicy.json": String(localized: "按网络切换策略"),
             "mihomo/node-subscriptions.json": String(localized: "节点订阅"),
             "mihomo/group-edits.json": String(localized: "策略组编辑"),
+            "mihomo/provider-overrides.json": String(localized: "节点集设置"),
             "mihomo/engine/engine.json": String(localized: "MitM / 重写设置"),
             "mihomo/engine/store.json": String(localized: "脚本存储"),
         ]

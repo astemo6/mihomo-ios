@@ -37,7 +37,7 @@ enum BackupManager {
     /// `includeStore`: false for every copy that leaves the device unencrypted (Files / share / iCloud exports,
     /// plain WebDAV, the sync folder).
     static func items(includeCA: Bool, includeStore: Bool = true) -> [String] {
-        var out = ["profiles.json", "profiles", "mihomo/overrides.json", "mihomo/dns.json", "mihomo/localdns.json", "mihomo/group-icons.json", "mihomo/rules.json", "mihomo/subscriptions.json", "mihomo/groups.json", "mihomo/netpolicy.json", "mihomo/node-subscriptions.json", "mihomo/group-edits.json",
+        var out = ["profiles.json", "profiles", "mihomo/overrides.json", "mihomo/dns.json", "mihomo/localdns.json", "mihomo/group-icons.json", "mihomo/rules.json", "mihomo/subscriptions.json", "mihomo/groups.json", "mihomo/netpolicy.json", "mihomo/node-subscriptions.json", "mihomo/group-edits.json", "mihomo/provider-overrides.json",
                    "mihomo/engine/engine.json", "mihomo/engine/store.json", "mihomo/engine/modules", "mihomo/engine/scripts",
                    "mihomo/override-scripts"] // v0.19 覆写脚本 (index.json + <id>.js)
         if includeCA { out.append("mihomo/engine/ca") }
