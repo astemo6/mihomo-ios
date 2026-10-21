@@ -59,6 +59,7 @@ final class DashboardModel: ObservableObject {
     private var lastConnectionCount = 0
 
     func setHomeVisible(_ visible: Bool) {
+        HomeAnalysisModel.shared.setHomeVisible(visible) // feat/home-analysis: its 2 s snapshot runs only on Home
         guard visible != homeVisible else { return }
         homeVisible = visible
         guard visible else { return }
@@ -157,6 +158,7 @@ final class DashboardModel: ObservableObject {
     /// fix/bg-chart: RootView forwards scenePhase. Not active → every poll / stream stops (nothing queues);
     /// active again → polling resumes and the chart restarts from the current sample (SpeedSeries gap rule).
     func setActive(_ isActive: Bool) {
+        HomeAnalysisModel.shared.setActive(isActive)
         guard isActive != active else { return }
         active = isActive
         if isActive {

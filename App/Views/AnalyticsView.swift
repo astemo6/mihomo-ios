@@ -25,6 +25,8 @@ final class ConnectionAnalytics: ObservableObject {
     @Published private(set) var since = Date()
 
     private var last: [String: (up: Int64, down: Int64)] = [:]
+    /// feat/home-analysis: the UI-test demo instance never writes the saved day history.
+    var recordsHistory = true
     private static let hostCap = 600
 
     func reset() {
@@ -68,7 +70,7 @@ final class ConnectionAnalytics: ObservableObject {
         }
         last = seen
         policies = pol; hosts = hs; rules = rs
-        AnalyticsHistory.shared.add(policies: stepPol, hosts: stepHost)
+        if recordsHistory { AnalyticsHistory.shared.add(policies: stepPol, hosts: stepHost) }
         totalConnections += newCount
         activeConnections = conns.count
     }
