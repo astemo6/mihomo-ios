@@ -1,6 +1,7 @@
 package libmihomo
 
 import (
+	"encoding/base64"
 	"encoding/json"
 	"fmt"
 	"net"
@@ -137,5 +138,42 @@ func TestR7B12OfflineHelpers(t *testing.T) {
 	copyRepoGeo(t, home)
 	if fi, err := os.Stat(filepath.Join(home, "GeoSite.dat")); err != nil || fi.Size() == 0 {
 		t.Fatalf("GeoSite.dat not copied: %v", err)
+	}
+}
+
+// B31: ClassifyText on a 50 MB single line is bounded; big real inputs classify as before.
+func TestR7B31ClassifyHugeTextBounded(t *testing.T) {
+	huge := strings.Repeat("a", 50<<20)
+	st := time.Now()
+	if c := ClassifyText(huge); c != "" {
+		t.Fatalf("junk classified as %q", c)
+	}
+	if d := time.Since(st); d > 2*time.Second {
+		t.Fatalf("ClassifyText took %v on 50 MB", d)
+	}
+	// A big profile whose `proxies:` sits after the head still is a profile.
+	big := "rules:\n" + strings.Repeat("  - DOMAIN,example.com,DIRECT\n", 20000) + "proxies:\n  - {name: a, type: ss}\n"
+	if c := ClassifyText(big); c != "profile" {
+		t.Fatalf("big profile: %q", c)
+	}
+	// Many share links (> head) are still nodes; so is a long single-line base64 subscription.
+	var sb strings.Builder
+	for i := 0; i < 8000; i++ {
+		fmt.Fprintf(&sb, "ss://YWVzLTEyOC1nY206cGFzcw@1.2.3.%d:8388#n%d\n", i%250, i)
+	}
+	links := sb.String()
+	if len(links) <= classifyHeadMax {
+		t.Fatalf("fixture too small: %d", len(links))
+	}
+	if c := ClassifyText(links); c != "nodes" {
+		t.Fatalf("share links: %q", c)
+	}
+	if c := ClassifyText(base64.StdEncoding.EncodeToString([]byte(links))); c != "nodes" {
+		t.Fatalf("base64 subscription: %q", c)
+	}
+	// A Surge config head still decides.
+	conf := "[General]\nloglevel = notify\n[Proxy]\nA = ss, 1.2.3.4, 1, encrypt-method=aes-128-gcm, password=x\n[Rule]\n" + strings.Repeat("DOMAIN,example.com,DIRECT\n", 20000)
+	if c := ClassifyText(conf); c != "conf" {
+		t.Fatalf("surge conf: %q", c)
 	}
 }
