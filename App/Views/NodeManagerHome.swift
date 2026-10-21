@@ -395,10 +395,8 @@ struct NodeManagerView: View {
     /// The core reloads (when connected), then the offline view and the declared list are read again.
     func applyProviderChange() async {
         // hotfix/sub-disabled-nodes: show the change right away; the core reload below can take a while (provider downloads).
-        if vpn.isConnected {
-            await ProfileInspector.shared.load()
-            await model.reload()
-        }
+        // r7 OPT-4: only the node list here — ProfileInspector.load parses the whole profile and runs once, after the reload.
+        if vpn.isConnected { await model.reload() }
         if vpn.isConnected, let e = await VPNManager.shared.reload() { message = e }
         await ProfileInspector.shared.load()
         await model.reload()
