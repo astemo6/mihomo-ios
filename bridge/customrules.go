@@ -21,6 +21,7 @@ import (
 	"os"
 	"strings"
 	"time"
+	"unsafe"
 
 	mhttp "github.com/metacubex/http"
 
@@ -392,7 +393,10 @@ func convertNodesText(data []byte) ([]byte, int, error) {
 	if bytes.Contains(data, []byte("proxies:")) {
 		return data, -1, nil
 	}
-	t := strings.TrimSpace(strings.TrimPrefix(string(data), "\ufeff"))
+	// r7: trim on the bytes and view them as a string without the second 16 MB copy string(data) made.
+	// data is a private download buffer that nothing writes after this point.
+	tb := bytes.TrimSpace(bytes.TrimPrefix(data, []byte("\ufeff")))
+	t := unsafe.String(unsafe.SliceData(tb), len(tb))
 	ps, _ := parseNodeText(t)
 	if len(ps) == 0 {
 		return nil, 0, errors.New("no nodes recognised")
@@ -430,7 +434,13 @@ func convertRoutes(r chi.Router) {
 			w.WriteHeader(mhttp.StatusBadGateway)
 			return
 		}
-		data, _ := io.ReadAll(io.LimitReader(resp.Body, 16<<20))
+		// r7: no silent cut — a body past the cap is refused instead of being parsed half.
+		data, rerr := io.ReadAll(io.LimitReader(resp.Body, 16<<20+1))
+		if rerr != nil || len(data) > 16<<20 {
+			log.Warnln("[Nodes] %s: download failed or larger than 16 MB", redactURL(src))
+			w.WriteHeader(mhttp.StatusBadGateway)
+			return
+		}
 		out, n, err := convertNodesText(data)
 		if err != nil {
 			log.Warnln("[Nodes] %s: %v", redactURL(src), err)
