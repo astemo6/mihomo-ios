@@ -1918,9 +1918,9 @@ final class MihomoUITests: MihomoUITestCase {
         assertAlive("big profile")
     }
 
-    // MARK: 40. feat/traffic-scope 首页流量统计 (全部流量 / 仅代理流量)
+    // MARK: 70. feat/traffic-scope 首页流量统计 (全部流量 / 仅代理流量)
 
-    func test40_TrafficScope() {
+    func test70_TrafficScope() {
         launch()
         // Default: all traffic, no 「仅代理」 tag on Home.
         XCTAssertTrue(scrollTo(app.element(label: L("总上传"))), "总上传 tile")
