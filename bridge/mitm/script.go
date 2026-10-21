@@ -274,6 +274,9 @@ func (s *ScriptRunner) scriptSize(sc *Script) int64 {
 	return 0
 }
 
+// knownSize is the source size used for the large-bundle decision.
+func (s *ScriptRunner) knownSize(sc *Script) int64 { return s.scriptSize(sc) }
+
 // touchLarge records a run of a large program and schedules its release after largeProgIdle.
 func (s *ScriptRunner) touchLarge(key string) {
 	s.mu.Lock()
@@ -364,24 +367,72 @@ func (rc *runCtx) post(j loopJob) {
 
 // Run executes a script rule. resp == nil means request phase.
 func (s *ScriptRunner) Run(parent context.Context, rule *Rule, req, resp *ScriptHTTP) (*ScriptResult, error) {
-	return s.run(rule, req, resp, s.sem)
+	return s.run(parent, rule, req, resp, s.sem, false)
+}
+
+// Slot is an HTTP-script slot taken by Reserve. big: the large-bundle lock (bigSem) is held too.
+type Slot struct {
+	once sync.Once
+	s    *ScriptRunner
+	big  bool
+}
+
+// Release gives the slot (and the large-bundle lock) back; idempotent.
+func (sl *Slot) Release() {
+	if sl == nil {
+		return
+	}
+	sl.once.Do(func() {
+		<-sl.s.sem
+		if sl.big {
+			<-sl.s.bigSem
+		}
+	})
 }
 
 // Reserve takes an HTTP-script slot ahead of RunReserved (review5 P0-1: the slot is taken before the
-// body is loaded, so queued scripts don't each hold a body). The returned release is idempotent.
-func (s *ScriptRunner) Reserve(rule *Rule) (func(), error) {
+// body is loaded, so queued scripts don't each hold a body).
+// r7 P2-1: a large bundle (≥ largeProgSource) takes the large-bundle lock FIRST and only then an HTTP
+// slot — the same order as task scripts (bigSem → taskSem). Waiting for bigSem while holding one of the
+// two HTTP slots let two large requests starve every other HTTP script for the length of a Sub-Store
+// sync.
+func (s *ScriptRunner) Reserve(parent context.Context, rule *Rule) (*Slot, error) {
+	if parent == nil {
+		parent = context.Background()
+	}
+	wait := scriptTimeout(rule.Script, 120*time.Second, 10*time.Second)
+	deadline := time.NewTimer(wait)
+	defer deadline.Stop()
+	sl := &Slot{s: s}
+	if s.knownSize(rule.Script) >= largeProgSource {
+		select {
+		case s.bigSem <- struct{}{}:
+			sl.big = true
+		case <-deadline.C:
+			return nil, errors.New("脚本排队超时")
+		case <-parent.Done():
+			return nil, errors.New("客户端已断开，跳过脚本")
+		}
+	}
 	select {
 	case s.sem <- struct{}{}:
-	case <-time.After(scriptTimeout(rule.Script, 120*time.Second, 10*time.Second)):
+	case <-deadline.C:
+		if sl.big {
+			<-s.bigSem
+		}
 		return nil, errors.New("脚本排队超时")
+	case <-parent.Done():
+		if sl.big {
+			<-s.bigSem
+		}
+		return nil, errors.New("客户端已断开，跳过脚本")
 	}
-	var once sync.Once
-	return func() { once.Do(func() { <-s.sem }) }, nil
+	return sl, nil
 }
 
 // RunReserved is Run for a caller already holding a slot from Reserve.
-func (s *ScriptRunner) RunReserved(parent context.Context, rule *Rule, req, resp *ScriptHTTP) (*ScriptResult, error) {
-	return s.run(rule, req, resp, nil)
+func (s *ScriptRunner) RunReserved(parent context.Context, sl *Slot, rule *Rule, req, resp *ScriptHTTP) (*ScriptResult, error) {
+	return s.run(parent, rule, req, resp, nil, sl != nil && sl.big)
 }
 
 func scriptTimeout(sc *Script, maxTimeout, defTimeout time.Duration) time.Duration {
@@ -399,8 +450,8 @@ func scriptTimeout(sc *Script, maxTimeout, defTimeout time.Duration) time.Durati
 // MaxBody, or up to MaxScriptBody for max-size=-1 / above MaxBody).
 func (sc *Script) bodyLimit() int { return scriptBodyLimit(sc) }
 
-func (s *ScriptRunner) run(rule *Rule, req, resp *ScriptHTTP, sem chan struct{}) (*ScriptResult, error) {
-	rc, err := s.execute(rule.Script, req, resp, sem, 120*time.Second, 10*time.Second, nil)
+func (s *ScriptRunner) run(parent context.Context, rule *Rule, req, resp *ScriptHTTP, sem chan struct{}, holdsBig bool) (*ScriptResult, error) {
+	rc, err := s.execute(parent, rule.Script, req, resp, sem, holdsBig, 120*time.Second, 10*time.Second, nil)
 	if err != nil {
 		return nil, err
 	}
@@ -412,7 +463,9 @@ func (s *ScriptRunner) run(rule *Rule, req, resp *ScriptHTTP, sem chan struct{})
 
 // execute compiles + runs one script in a fresh runtime and drives its event loop until $done or until
 // nothing is pending. req == nil => task script (no $request / $response).
-func (s *ScriptRunner) execute(sc *Script, req, resp *ScriptHTTP, sem chan struct{}, maxTimeout, defTimeout time.Duration, setup func(*runCtx)) (rcOut *runCtx, errOut error) {
+// parent: the run stops when it ends (client gone, engine stopped); nil = no parent. holdsBig: the
+// caller already holds bigSem (Reserve for a large bundle).
+func (s *ScriptRunner) execute(parent context.Context, sc *Script, req, resp *ScriptHTTP, sem chan struct{}, holdsBig bool, maxTimeout, defTimeout time.Duration, setup func(*runCtx)) (rcOut *runCtx, errOut error) {
 	// v0.19.3: a Go panic inside a native helper must not take the tunnel down (task scripts run on the
 	// scheduler goroutine, which has no net/http recover around it).
 	defer func() {
@@ -421,8 +474,9 @@ func (s *ScriptRunner) execute(sc *Script, req, resp *ScriptHTTP, sem chan struc
 		}
 	}()
 	timeout := scriptTimeout(sc, maxTimeout, defTimeout)
-	// v0.19.9: large bundles compile and run one at a time (see bigSem).
-	if s.scriptSize(sc) >= largeProgSource {
+	// v0.19.9: large bundles compile and run one at a time (see bigSem). Lock order everywhere:
+	// bigSem → sem / taskSem (r7 P2-1).
+	if !holdsBig && s.knownSize(sc) >= largeProgSource {
 		select {
 		case s.bigSem <- struct{}{}:
 		case <-time.After(timeout):

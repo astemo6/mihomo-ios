@@ -329,7 +329,7 @@ func (e *Engine) serveHTTP(w http.ResponseWriter, r *http.Request) {
 			sreq := &ScriptHTTP{URL: u, Method: r.Method, Header: r.Header, Host: r.Host}
 			// review5 P0-1: take the script slot before loading the body, so queued scripts don't
 			// each hold a body while they wait.
-			slot, err := e.scripts.Reserve(rule)
+			slot, err := e.scripts.Reserve(r.Context(), rule)
 			if err != nil {
 				e.Logs.Add(rule.Script.Name, "error", err.Error())
 				ent.Note("脚本错误：" + rule.Script.Name)
@@ -337,15 +337,15 @@ func (e *Engine) serveHTTP(w http.ResponseWriter, r *http.Request) {
 			}
 			if rule.Script.RequiresBody {
 				if !loadBody(scriptBodyLimit(rule.Script)) {
-					slot()
+					slot.Release()
 					e.Logs.Add(rule.Script.Name, "warn", "请求体超过上限，跳过脚本")
 					continue
 				}
 				sreq.Body, sreq.HasBody = reqBody, true
 			}
 			ent.Match(rule.label())
-			res, err := e.scripts.RunReserved(r.Context(), rule, sreq, nil)
-			slot()
+			res, err := e.scripts.RunReserved(r.Context(), slot, rule, sreq, nil)
+			slot.Release()
 			if err != nil {
 				e.Logs.Add(rule.Script.Name, "error", err.Error())
 				ent.Note("脚本错误：" + rule.Script.Name)
@@ -599,7 +599,7 @@ func (e *Engine) modifyResponse(f *flow, resp *http.Response) error {
 		case KindScript:
 			sreq := &ScriptHTTP{URL: f.url, Method: resp.Request.Method, Header: resp.Request.Header, Host: resp.Request.Host}
 			sresp := &ScriptHTTP{Status: resp.StatusCode, Header: resp.Header}
-			slot, err := e.scripts.Reserve(rule)
+			slot, err := e.scripts.Reserve(resp.Request.Context(), rule)
 			if err != nil {
 				e.Logs.Add(rule.Script.Name, "error", err.Error())
 				ent.Note("脚本错误：" + rule.Script.Name)
@@ -607,15 +607,15 @@ func (e *Engine) modifyResponse(f *flow, resp *http.Response) error {
 			}
 			if rule.Script.RequiresBody {
 				if !loadBody(scriptBodyLimit(rule.Script)) {
-					slot()
+					slot.Release()
 					e.Logs.Add(rule.Script.Name, "warn", "响应体超过上限或编码不支持，跳过脚本")
 					continue
 				}
 				sresp.Body, sresp.HasBody = body, true
 			}
 			ent.Match(rule.label())
-			res, err := e.scripts.RunReserved(resp.Request.Context(), rule, sreq, sresp)
-			slot()
+			res, err := e.scripts.RunReserved(resp.Request.Context(), slot, rule, sreq, sresp)
+			slot.Release()
 			if err != nil {
 				e.Logs.Add(rule.Script.Name, "error", err.Error())
 				ent.Note("脚本错误：" + rule.Script.Name)

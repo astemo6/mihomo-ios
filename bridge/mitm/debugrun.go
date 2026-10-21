@@ -198,7 +198,7 @@ func DebugRun(home string, in DebugInput, dial DialFunc) (out DebugOutput) {
 	}
 
 	runner := e.scripts
-	rc, err := runner.execute(sc, req, resp, make(chan struct{}, 1), 60*time.Second, 10*time.Second, setup)
+	rc, err := runner.execute(nil, sc, req, resp, make(chan struct{}, 1), false, 60*time.Second, 10*time.Second, setup)
 	if err != nil {
 		out.Error = err.Error()
 		return

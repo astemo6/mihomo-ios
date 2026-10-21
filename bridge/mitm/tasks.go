@@ -695,7 +695,7 @@ func (t *tasker) refreshPanel(id string) (*PanelState, error) {
 // RunTask executes a cron / event / generic script (no $request / $response). Returns the object
 // passed to $done (if any).
 func (s *ScriptRunner) RunTask(tk *Task, network map[string]any, extra map[string]any) (map[string]any, error) {
-	rc, err := s.execute(tk.Script, nil, nil, s.taskSem, 300*time.Second, 30*time.Second, func(rc *runCtx) {
+	rc, err := s.execute(nil, tk.Script, nil, nil, s.taskSem, false, 300*time.Second, 30*time.Second, func(rc *runCtx) {
 		rt := rc.rt
 		if network != nil {
 			_ = rt.Set("$network", network)
