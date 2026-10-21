@@ -10210,6 +10210,40 @@
       },
       "extractionState": "manual"
     },
+    "响应体过大，只显示开头部分": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "The response body is too large; only the beginning is shown"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "レスポンス本文が大きすぎるため、先頭部分のみ表示しています"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "응답 본문이 너무 커서 앞부분만 표시합니다"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Тело ответа слишком большое, показано только начало"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "回應本文過大，只顯示開頭部分"
+          }
+        }
+      }
+    },
     "重新加载超时：内核可能仍在使用旧配置，请稍后重试或重新连接。": {
       "localizations": {
         "en": {
@@ -19691,36 +19725,36 @@
         }
       }
     },
-    "同步文件夹里还没有 Mihomo-sync.json": {
+    "同步文件夹里还没有 Tern-sync.json": {
       "localizations": {
         "zh-Hant": {
           "stringUnit": {
             "state": "translated",
-            "value": "同步資料夾裡還沒有 Mihomo-sync.json"
+            "value": "同步資料夾裡還沒有 Tern-sync.json"
           }
         },
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "The sync folder has no Mihomo-sync.json yet"
+            "value": "The sync folder has no Tern-sync.json yet"
           }
         },
         "ja": {
           "stringUnit": {
             "state": "translated",
-            "value": "同期フォルダにまだ Mihomo-sync.json がありません"
+            "value": "同期フォルダにまだ Tern-sync.json がありません"
           }
         },
         "ko": {
           "stringUnit": {
             "state": "translated",
-            "value": "동기화 폴더에 아직 Mihomo-sync.json이 없습니다"
+            "value": "동기화 폴더에 아직 Tern-sync.json이 없습니다"
           }
         },
         "ru": {
           "stringUnit": {
             "state": "translated",
-            "value": "В папке синхронизации ещё нет Mihomo-sync.json"
+            "value": "В папке синхронизации ещё нет Tern-sync.json"
           }
         }
       }
@@ -40788,7 +40822,7 @@
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "No camera access. Allow it in Settings → Mihomo."
+            "value": "No camera access. Allow it in Settings → Tern."
           }
         },
         "zh-Hant": {
@@ -40812,7 +40846,7 @@
         "ru": {
           "stringUnit": {
             "state": "translated",
-            "value": "Нет доступа к камере. Разрешите его в «Настройки» → Mihomo."
+            "value": "Нет доступа к камере. Разрешите его в «Настройки» → Tern."
           }
         }
       }
@@ -56331,7 +56365,7 @@
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "Connects or disconnects Mihomo."
+            "value": "Connects or disconnects Tern."
           }
         },
         "ja": {
@@ -56349,7 +56383,7 @@
         "ru": {
           "stringUnit": {
             "state": "translated",
-            "value": "Подключает или отключает Mihomo."
+            "value": "Подключает или отключает Tern."
           }
         }
       }

@@ -4,12 +4,15 @@ import SwiftUI
 import UniformTypeIdentifiers
 
 // v0.10 同步文件夹: profiles, modules, overrides and the rest of a backup (no MitM CA) kept in one file,
-// Mihomo-sync.json, in a folder the user picks once in the Files picker — typically iCloud Drive. Works
+// Tern-sync.json (read falls back to the pre-rename Mihomo-sync.json), in a folder the user picks once in the Files picker — typically iCloud Drive. Works
 // without an iCloud container entitlement (re-signed builds have none): access goes through a
 // security-scoped bookmark. Optional: push automatically when the app goes to the background and the
 // configuration changed since the last push.
 
-private let syncFileName = "Mihomo-sync.json"
+private let syncFileName = "Tern-sync.json"
+/// r7: the name builds before the Tern rename wrote. Reads fall back to it so an existing sync folder (or another
+/// device still on an older build) keeps working; writes always go to Tern-sync.json.
+private let legacySyncFileName = "Mihomo-sync.json"
 
 @MainActor
 final class SyncFolder: ObservableObject {
@@ -68,7 +71,7 @@ final class SyncFolder: ObservableObject {
             switch self {
             case .noFolder: return String(localized: "还没有选择同步文件夹")
             case .noAccess: return String(localized: "无法访问同步文件夹，请重新选择")
-            case .noFile: return String(localized: "同步文件夹里还没有 Mihomo-sync.json")
+            case .noFile: return String(localized: "同步文件夹里还没有 Tern-sync.json")
             }
         }
     }
@@ -83,7 +86,7 @@ final class SyncFolder: ObservableObject {
     nonisolated private static func withFile<T>(folder: URL, writing: Bool, _ body: (URL) throws -> T) throws -> T {
         guard folder.startAccessingSecurityScopedResource() else { throw SyncError.noAccess }
         defer { folder.stopAccessingSecurityScopedResource() }
-        let file = folder.appendingPathComponent(syncFileName)
+        let file = folder.appendingPathComponent(writing ? syncFileName : readFileName(folder: folder))
         var coordErr: NSError?
         var result: Result<T, Error>?
         let c = NSFileCoordinator()
@@ -96,6 +99,21 @@ final class SyncFolder: ObservableObject {
         if let coordErr { throw coordErr }
         guard let result else { throw SyncError.noAccess }
         return try result.get()
+    }
+
+    /// The file a read uses: Tern-sync.json, else the legacy Mihomo-sync.json; when both exist, the newer one
+    /// (an older build on another device may still be pushing the legacy name). Call inside the folder's scope.
+    nonisolated static func readFileName(folder: URL) -> String {
+        let fm = FileManager.default
+        let new = folder.appendingPathComponent(syncFileName)
+        let old = folder.appendingPathComponent(legacySyncFileName)
+        try? fm.startDownloadingUbiquitousItem(at: new)
+        try? fm.startDownloadingUbiquitousItem(at: old)
+        let hasNew = fm.fileExists(atPath: new.path), hasOld = fm.fileExists(atPath: old.path)
+        guard hasOld else { return syncFileName }
+        guard hasNew else { return legacySyncFileName }
+        func mtime(_ u: URL) -> Date { (try? u.resourceValues(forKeys: [.contentModificationDateKey]).contentModificationDate) ?? .distantPast }
+        return mtime(old) > mtime(new) ? legacySyncFileName : syncFileName
     }
 
     /// The sync file's bytes and file count. Review 5 P2-1: never the scripts' store (cookies, tokens) — the
