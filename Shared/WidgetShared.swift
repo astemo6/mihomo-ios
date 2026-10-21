@@ -50,6 +50,15 @@ struct LiveStats: Codable, Equatable {
         scope == .proxy ? (proxyUp ?? 0, proxyDown ?? 0) : (up, down)
     }
 
+    /// Session totals (bytes) in the same scope; nil when the proxy totals are unknown (older tunnel).
+    func totals(_ scope: TrafficScope) -> (up: Int64, down: Int64)? {
+        if scope == .proxy {
+            guard let u = proxyTotalUp, let d = proxyTotalDown else { return nil }
+            return (u, d)
+        }
+        return (totalUp, totalDown)
+    }
+
     private static let key = "liveStats.v1"
     /// The app's 实时活动 switch (外观); the extension samples only while it is on.
     static var wanted: Bool { AppShared.defaults.bool(forKey: "liveActivity.enabled") }

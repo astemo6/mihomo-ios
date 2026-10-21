@@ -17,6 +17,10 @@ struct MihomoActivityAttributes: ActivityAttributes {
         /// feat/traffic-scope: true when up / down count proxy traffic only (首页流量统计 = 仅代理流量), so the
         /// activity can say so. nil (older builds, or 全部流量) = all traffic.
         var proxyOnly: Bool? = nil
+        /// hotfix/liveact-lockscreen: session totals (bytes) in the same scope, shown instead of the speeds once the
+        /// activity is stale. nil = unknown (older builds).
+        var totalUp: Int64? = nil
+        var totalDown: Int64? = nil
     }
     var profile: String
 }

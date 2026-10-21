@@ -49,29 +49,52 @@ final class LiveActivityController: ObservableObject {
         state.proxyOnly = TrafficScope.current == .proxy ? true : nil
         let live = current
         if let a = live.first {
-            Task { await a.update(ActivityContent(state: state, staleDate: nil)) }
+            Task { await a.update(ActivityContent(state: state, staleDate: nil, relevanceScore: 50)) }
             // A second activity (e.g. from a relaunch race) would show twice on the Lock Screen.
             for extra in live.dropFirst() { Task { await extra.end(nil, dismissalPolicy: .immediate) } }
             return
         }
         let attrs = MihomoActivityAttributes(profile: ProfileStore.shared.active?.name ?? "Tern")
-        _ = try? Activity.request(attributes: attrs, content: ActivityContent(state: state, staleDate: nil), pushType: nil)
+        _ = try? Activity.request(attributes: attrs, content: ActivityContent(state: state, staleDate: nil, relevanceScore: 50), pushType: nil)
     }
 
-    /// Called from the dashboard's traffic poll with numbers in the 首页流量统计 scope; throttled to one update every 3 s.
-    func traffic(up: Int64, down: Int64, node: String) {
+    // hotfix/liveact-lockscreen (device 2026-10-21: iOS asked 「要继续允许 Tern 的实时活动吗」 and the Lock Screen showed
+    // speeds four minutes old). ActivityKit updates are kept rare: at most one every `minInterval`, and only when
+    // something the card shows changed meaningfully; otherwise one keep-alive every `keepAlive` so the card doesn't go
+    // stale while the app is open. The stale date is ~2× the cadence: past it the card drops the instant speeds and
+    // shows totals + 「更新于」. The elapsed time is drawn by the system (Text style .relative) and needs no updates.
+    static let minInterval: TimeInterval = 15
+    static let keepAlive: TimeInterval = 30
+    static let staleAfter: TimeInterval = 45
+
+    /// True when the card would look different enough to spend an update: node / scope changed, or a speed moved by
+    /// more than 30 % and at least 8 KB/s (idle ↔ busy still counts).
+    nonisolated static func meaningful(old: (up: Int64, down: Int64), new: (up: Int64, down: Int64)) -> Bool {
+        func moved(_ a: Int64, _ b: Int64) -> Bool {
+            let d = abs(a - b)
+            return d >= 8 * 1024 && Double(d) > 0.3 * Double(max(a, b, 1))
+        }
+        return moved(old.up, new.up) || moved(old.down, new.down)
+    }
+
+    /// Called from the dashboard's traffic poll with numbers in the 首页流量统计 scope (every ~2 s); throttled as above.
+    func traffic(up: Int64, down: Int64, totalUp: Int64, totalDown: Int64, node: String) {
         guard enabled, #available(iOS 16.2, *), let a = current.first else { return }
         let now = Date()
-        guard now.timeIntervalSince(lastUpdate) >= 3 else { return }
-        if last == (up, down, node) && now.timeIntervalSince(lastUpdate) < 20 { return } // still refresh the stale date
+        let age = now.timeIntervalSince(lastUpdate)
+        guard age >= Self.minInterval else { return }
+        let proxyOnly: Bool? = TrafficScope.current == .proxy ? true : nil
+        let changed = node != last.node || proxyOnly != a.content.state.proxyOnly
+            || Self.meaningful(old: (last.up, last.down), new: (up, down))
+        guard changed || age >= Self.keepAlive else { return }
         lastUpdate = now
         last = (up, down, node)
         let since = VPNManager.shared.connectedDate ?? a.content.state.since
         var state = MihomoActivityAttributes.ContentState(connected: true, node: node, up: up, down: down, since: since, updated: now)
-        state.proxyOnly = TrafficScope.current == .proxy ? true : nil
-        // v0.19.8: updates arrive every 3 s while the app runs; 30 s without one means the app was suspended, so the
-        // numbers turn grey (still shown) rather than looking live.
-        Task { await a.update(ActivityContent(state: state, staleDate: now.addingTimeInterval(30))) }
+        state.proxyOnly = proxyOnly
+        state.totalUp = totalUp
+        state.totalDown = totalDown
+        Task { await a.update(ActivityContent(state: state, staleDate: now.addingTimeInterval(Self.staleAfter), relevanceScore: 50)) }
     }
 
     // MARK: v0.11 updates while the app is closed
@@ -110,9 +133,11 @@ final class LiveActivityController: ObservableObject {
         backgroundTask = UIApplication.shared.beginBackgroundTask(withName: "LiveActivity") { [weak self] in
             self?.endBackgroundTask()
         }
+        // hotfix/liveact-lockscreen: two refreshes ~15 s apart (was five, 5 s apart) — enough to carry the newest
+        // tunnel sample (written every 10 s) onto the card without a burst of ActivityKit updates.
         Task { @MainActor in
-            for _ in 0..<5 {
-                try? await Task.sleep(nanoseconds: 5_000_000_000)
+            for _ in 0..<2 {
+                try? await Task.sleep(nanoseconds: UInt64(Self.minInterval * 1_000_000_000))
                 if UIApplication.shared.applicationState == .active { break }
                 await refreshFromShared()
             }
@@ -145,11 +170,19 @@ final class LiveActivityController: ObservableObject {
             state.up = sp.up
             state.down = sp.down
             state.updated = s.time
+            let tot = s.totals(TrafficScope.current)
+            state.totalUp = tot?.up
+            state.totalDown = tot?.down
         }
         state.proxyOnly = TrafficScope.current == .proxy ? true : nil
         state.since = VPNManager.shared.connectedDate ?? state.since
-        let staleAt = max(state.updated.addingTimeInterval(45), now.addingTimeInterval(fresh ? 30 : 0))
-        await a.update(ActivityContent(state: state, staleDate: staleAt))
+        // Stale ~2× the cadence after the sample was taken, so 「更新于」 and the hidden speeds stay honest. Nothing new
+        // and already stale: skip the update (it would change nothing on screen).
+        let staleAt = state.updated.addingTimeInterval(Self.staleAfter)
+        if state == a.content.state && staleAt <= now { return }
+        lastUpdate = now
+        last = (state.up, state.down, state.node)
+        await a.update(ActivityContent(state: state, staleDate: staleAt, relevanceScore: 50))
     }
 
     func endAll() {
