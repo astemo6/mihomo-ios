@@ -295,7 +295,9 @@ func detectRegion(name string) (string, int) {
 			}
 		}
 	}
-	lower := strings.ToLower(name)
+	// Review 7 P3-3: `\s?` literals were expanded to " " / "" only; the regex's \s also matches tab, NBSP,
+	// full-width space… so those count as a plain space for the literal scan.
+	lower := strings.ToLower(spaceFold(name))
 	litHit := map[int]bool{}
 	markLit := func(l string) {
 		for _, ri := range litRegions[l] {
@@ -342,6 +344,21 @@ func detectRegion(name string) (string, int) {
 		}
 	}
 	return "", len(regions)
+}
+
+// spaceFold maps every Unicode white-space rune to ' ' (no allocation when there is none).
+func spaceFold(s string) string {
+	for _, r := range s {
+		if r != ' ' && unicode.IsSpace(r) {
+			return strings.Map(func(r rune) rune {
+				if unicode.IsSpace(r) {
+					return ' '
+				}
+				return r
+			}, s)
+		}
+	}
+	return s
 }
 
 func isRegionalIndicator(r rune) bool { return r >= 0x1F1E6 && r <= 0x1F1FF }

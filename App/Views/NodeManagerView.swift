@@ -946,6 +946,8 @@ struct NodeDetailView: View {
 
     func link() async -> Result<String, NodeShare.ShareError> {
         if let m = manual { return NodeShare.link(node: m) }
+        // R7A-4: the node of THIS source (provider + name); a by-name link could be another subscription's node.
+        if let m = await model.config(of: node) { return NodeShare.link(node: m) }
         return await NodeShare.link(named: node.name)
     }
 
