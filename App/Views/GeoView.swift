@@ -84,6 +84,7 @@ final class GeoModel: NSObject, ObservableObject, URLSessionDownloadDelegate {
         var o = CoreOverrides.load()
         o.geoMirror = m
         o.save()
+        IconCache.mirrorChanged() // B23
         overrides = o
     }
 

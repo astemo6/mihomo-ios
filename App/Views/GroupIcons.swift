@@ -113,9 +113,24 @@ final class IconCache {
         SHA256.hash(data: Data(url.utf8)).prefix(16).map { String(format: "%02x", $0) }.joined()
     }
 
+    /// B23: the 镜像 choice, read from CoreOverrides (a file + two Keychain reads) at most every 30 s instead of for
+    /// every icon. 地理数据库 → 镜像 calls `mirrorChanged()` so a change applies to the next download at once.
+    private static let mirrorLock = NSLock()
+    private static var mirrorCache: (useMirror: Bool, at: Date)?
+    static func useMirror() -> Bool {
+        mirrorLock.lock(); defer { mirrorLock.unlock() }
+        if let c = mirrorCache, Date().timeIntervalSince(c.at) < 30 { return c.useMirror }
+        let v = CoreOverrides.load().geoMirror != "github"
+        mirrorCache = (v, Date())
+        return v
+    }
+    static func mirrorChanged() {
+        mirrorLock.lock(); mirrorCache = nil; mirrorLock.unlock()
+    }
+
     /// raw.githubusercontent.com → testingcf.jsdelivr.net (unless the user picked GitHub for downloads).
     static func mirrored(_ s: String) -> String {
-        guard CoreOverrides.load().geoMirror != "github", let u = URL(string: s), u.host == "raw.githubusercontent.com" else { return s }
+        guard let u = URL(string: s), u.host == "raw.githubusercontent.com", useMirror() else { return s }
         let parts = u.path.split(separator: "/").map(String.init)
         guard parts.count >= 4 else { return s }
         let rest = parts[3...].joined(separator: "/")
