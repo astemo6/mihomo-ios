@@ -182,14 +182,6 @@ final class HomeAnalysisModel {
 
 // MARK: - Shared bits
 
-/// Visibility read by both Home blocks (tiles at the top, 策略 / 规则 / 主机名 lower down).
-struct HomeAnalysisVisibility {
-    let hidden: Set<HomeAnalysisCard>
-    let collapsed: Set<HomeAnalysisCard>
-    var live: Bool
-    func shows(_ c: HomeAnalysisCard) -> Bool { !hidden.contains(c) }
-}
-
 /// Egern-style label above a card: title, optional summary, collapse chevron (the whole row is the button).
 struct HomeSectionLabel: View {
     let title: String

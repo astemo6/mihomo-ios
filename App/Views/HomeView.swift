@@ -183,64 +183,6 @@ struct HomeEmptyCard: View {
     }
 }
 
-struct ConnectCard: View {
-    @EnvironmentObject var vpn: VPNManager
-    @EnvironmentObject var store: ProfileStore
-    @EnvironmentObject var dash: DashboardModel
-
-    var body: some View {
-        let on = vpn.isConnected
-        VStack(alignment: .leading, spacing: 14) {
-            HStack {
-                VStack(alignment: .leading, spacing: 4) {
-                    // v0.6.1: plain state text + a small dot; no accent fill or glow when connected.
-                    HStack(spacing: 6) {
-                        Circle()
-                            .fill(on ? Theme.good : Color.secondary.opacity(0.6))
-                            .frame(width: 7, height: 7)
-                            .accessibilityHidden(true)
-                        Text(on ? "代理已开启" : "代理未开启")
-                            .font(.headline)
-                    }
-                    if on, let d = vpn.connectedDate {
-                        TimelineView(.periodic(from: .now, by: 1)) { ctx in
-                            Text("已运行 \(Fmt.duration(ctx.date.timeIntervalSince(d)))")
-                                .font(.caption.monospacedDigit())
-                                .foregroundStyle(.secondary)
-                        }
-                    } else {
-                        Text(vpn.statusText).font(.caption).foregroundStyle(.secondary)
-                    }
-                }
-                Spacer()
-                Toggle("", isOn: Binding(
-                    get: { on || vpn.status == .connecting },
-                    set: { _ in Task { await vpn.toggle() } }
-                ))
-                .labelsHidden()
-                .tint(Theme.good)
-                .scaleEffect(1.25)
-                .disabled(vpn.isBusy || vpn.status == .disconnecting)
-            }
-            Divider().overlay(Theme.ink(0.08))
-            HStack(spacing: 18) {
-                VStack(alignment: .leading, spacing: 3) {
-                    Label("配置", systemImage: "doc.text").font(.caption2).foregroundStyle(.secondary)
-                    Text(verbatim: store.active?.displayName ?? String(localized: "未选择")).font(.subheadline.weight(.semibold)).lineLimit(1)
-                }
-                Spacer()
-                VStack(alignment: .trailing, spacing: 3) {
-                    Label("当前节点", systemImage: "point.3.connected.trianglepath.dotted").font(.caption2).foregroundStyle(.secondary)
-                    Text(on ? dash.selectedNode : "—").font(.subheadline.weight(.semibold)).lineLimit(1)
-                }
-            }
-        }
-        .padding(18)
-        .frame(maxWidth: .infinity, alignment: .leading)
-        .background(RoundedRectangle(cornerRadius: Theme.radius, style: .continuous).fill(Theme.card))
-    }
-}
-
 /// Shown only while a safe-mode connection runs: what is off, and the way back.
 struct SafeModeCard: View {
     @EnvironmentObject var vpn: VPNManager
