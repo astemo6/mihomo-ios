@@ -74,10 +74,7 @@ func writeJSONFile(path string, v any) {
 	if err != nil {
 		return
 	}
-	tmp := path + ".tmp"
-	if os.WriteFile(tmp, b, 0o644) == nil {
-		_ = os.Rename(tmp, path)
-	}
+	_ = writeAtomic(path, b, 0o644) // r7 P3-5: unique temp name
 }
 
 // loadPersistedLocked reads prefs (every reload) and history (first time). t.mu held.

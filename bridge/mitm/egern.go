@@ -231,7 +231,7 @@ func (rs *Ruleset) addCompiled(r *Rule, source, line string) {
 			rs.Errors = append(rs.Errors, fmt.Sprintf("正则无效（%s）：%s", err.Error(), clip(line, 120)))
 			return
 		}
-		r.re = re
+		r.re, r.fre = re, compileURLRe(r.Pattern)
 	}
 	for i := range r.Headers {
 		if r.Headers[i].Regex != "" {
@@ -250,6 +250,9 @@ func (rs *Ruleset) addCompiled(r *Rule, source, line string) {
 			return
 		}
 		r.Body[i].re = re
+		// r7 P2-3: same RE2 fast path as ParseLine (bodies > 512 KB were skipped, smaller ones paid the
+		// backtracking engine's 4 B/char copy).
+		r.Body[i].fast, r.Body[i].fastTmpl, _ = fastBodyRe(r.Body[i].Regex, r.Body[i].Repl)
 	}
 	if r.Desc == "" {
 		r.Desc = describe(r)
