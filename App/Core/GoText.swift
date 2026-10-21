@@ -120,7 +120,6 @@ enum GoText {
         case "已记住": return String(localized: "已记住")
         case "已有数据": return String(localized: "已有数据")
         case "默认": return String(localized: "默认")
-        case "不可用": return String(localized: "不可用")
         default: return s
         }
     }
