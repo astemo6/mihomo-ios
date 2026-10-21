@@ -92,10 +92,6 @@ struct HomeView: View {
             .overlay(alignment: .bottomTrailing) {
                 HomeQuickAddButton().padding(.trailing, 20).padding(.bottom, 16)
             }
-            // Content scrolling up passes under a strip of page background instead of under the status bar text.
-            .overlay(alignment: .top) {
-                Theme.bg.frame(height: 0).ignoresSafeArea(edges: .top).allowsHitTesting(false)
-            }
             .background(Theme.bg.ignoresSafeArea())
             // The header (title + 启动 capsule) is part of the page, not a navigation bar: Home has no bar items
             // that a back gesture or a test's 「first bar button」 could hit.
