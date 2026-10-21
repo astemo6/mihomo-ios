@@ -93,9 +93,11 @@ jobs:
         run: |
           set +e
           go test -race -count=1 -timeout 30m ./... > ../go-test-race.log 2>&1
-          echo "go test -race exit ${PIPESTATUS[0]} (failures from upstream races are expected)"
+          RC=$?
+          echo "go test -race exit $RC (failures from upstream races are expected)"
           grep -E "^(--- FAIL|ok |FAIL)" ../go-test-race.log | head -n 80
-          python3 ../scripts/race_check.py ../go-test-race.log --summary "$GITHUB_STEP_SUMMARY"
+          # r7 R7A-12: the exit code counts too — only failures explained by upstream race reports pass.
+          python3 ../scripts/race_check.py ../go-test-race.log --summary "$GITHUB_STEP_SUMMARY" --exit-code "$RC"
       - name: Failed tests (on failure)
         if: failure()
         run: |
