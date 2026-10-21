@@ -40,10 +40,33 @@ final class SpeedSeriesTests: XCTestCase {
         let before = s
         // Asked before suspension, answered 20 s later: stale.
         XCTAssertEqual(s.append(up: 99, down: 99, requestedAt: t0.addingTimeInterval(1), receivedAt: t0.addingTimeInterval(21)), .dropped)
-        XCTAssertEqual(s, before)
+        XCTAssertEqual(s.up, before.up)
+        XCTAssertEqual(s.lastAt, before.lastAt)
+        // r7 R7A-8: the stale answer only marks a heartbeat at its request time; 20 s later is still a gap.
+        var bg = s
+        XCTAssertEqual(bg.append(up: 3, down: 3, requestedAt: t0.addingTimeInterval(22), receivedAt: t0.addingTimeInterval(22.1)), .restarted)
         // Older than the newest sample.
         XCTAssertEqual(s.append(up: 50, down: 50, requestedAt: t0.addingTimeInterval(-1), receivedAt: t0.addingTimeInterval(-0.5)), .dropped)
-        XCTAssertEqual(s, before)
+        XCTAssertEqual(s.up, before.up)
+        XCTAssertEqual(s.lastAt, before.lastAt)
+    }
+
+    /// r7 R7A-8: slow answers (3 s each) in a row keep the chart instead of wiping it every time.
+    func testSlowAnswersDoNotRestart() {
+        var s = SpeedSeries()
+        for i in 0..<10 {
+            let at = t0.addingTimeInterval(Double(i))
+            s.append(up: 1_000, down: 1_000, requestedAt: at, receivedAt: at)
+        }
+        var t = t0.addingTimeInterval(9)
+        for _ in 0..<3 { // ask 1 s after the last answer, answered 3 s later → dropped
+            let ask = t.addingTimeInterval(1)
+            XCTAssertEqual(s.append(up: 5, down: 5, requestedAt: ask, receivedAt: ask.addingTimeInterval(3)), .dropped)
+            t = ask.addingTimeInterval(3)
+        }
+        let ask = t.addingTimeInterval(1)
+        XCTAssertEqual(s.append(up: 2_000, down: 2_000, requestedAt: ask, receivedAt: ask.addingTimeInterval(0.1)), .appended)
+        XCTAssertEqual(s.up.filter { $0 == 1_000 }.count, 10, "the earlier samples are kept")
     }
 
     func testScopedNumbers() {
