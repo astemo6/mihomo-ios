@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"context"
 	"io"
+	"net/http"
 	"strings"
 	"testing"
 	"time"
@@ -61,5 +62,30 @@ func TestR7FetchUnbudgetedCapped(t *testing.T) {
 	big.release()
 	if len(unbudgetedFetch) != 0 {
 		t.Fatal("unbudgeted slot leaked")
+	}
+}
+
+// r7: a replayed response longer than MaxBody is marked truncated (not silently cut).
+func TestR7ReplayTruncatedMarked(t *testing.T) {
+	cfg := &Config{Enabled: true, MitM: true, Hostnames: []string{"api.test.com"}, Rules: items(`^https://api\.test\.com/nothing - reject`)}
+	h := newHarness(t, cfg, nil)
+	r, _ := h.client.Get("https://api.test.com/x")
+	if r != nil {
+		r.Body.Close()
+	}
+	var id int64
+	for _, s := range h.e.Requests.List(0) {
+		if strings.HasSuffix(s.URL, "/x") {
+			id = s.ID
+		}
+	}
+	if id == 0 {
+		t.Fatal("not captured")
+	}
+	big := bytes.Repeat([]byte("q"), MaxBody+10)
+	h.up.Config.Handler = http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) { _, _ = w.Write(big) })
+	res, err := h.e.Replay(id, nil)
+	if err != nil || !res.Truncated || res.Length != MaxBody {
+		t.Fatalf("replay: %v truncated=%v len=%d", err, res.Truncated, res.Length)
 	}
 }

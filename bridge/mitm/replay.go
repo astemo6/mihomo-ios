@@ -29,6 +29,9 @@ type ReplayResult struct {
 	Length   int               `json:"length"`
 	Duration float64           `json:"duration"` // ms
 	Error    string            `json:"error,omitempty"`
+	// r7: the response was longer than MaxBody; Body / Length hold the first MaxBody bytes and the
+	// request-log entry carries a note — never a silent cut.
+	Truncated bool `json:"truncated,omitempty"`
 }
 
 // Replay re-sends captured request id (optionally edited) straight upstream through the core
@@ -119,7 +122,17 @@ func (e *Engine) Replay(id int64, edit *ReplayRequest) (*ReplayResult, error) {
 		return res, nil
 	}
 	defer resp.Body.Close()
-	b, _ := io.ReadAll(io.LimitReader(resp.Body, MaxBody))
+	// r7: read one byte past the cap so an over-long body is reported, not silently cut; a read error is
+	// reported too instead of showing a partial body as complete.
+	b, rerr := io.ReadAll(io.LimitReader(resp.Body, MaxBody+1))
+	if len(b) > MaxBody {
+		b = b[:MaxBody]
+		res.Truncated = true
+		ent.Note(fmt.Sprintf("响应体超过 %d MB，只保留前 %d MB", MaxBody>>20, MaxBody>>20))
+	}
+	if rerr != nil {
+		res.Error = "读取响应失败：" + shortErr(rerr)
+	}
 	res.Status = resp.StatusCode
 	res.Headers = flatHeaders(resp.Header)
 	res.Length = len(b)

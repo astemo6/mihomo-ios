@@ -1221,6 +1221,10 @@ struct ReplayResultView: View {
                 Spacer()
                 Button(showBody ? "收起" : "查看响应") { showBody.toggle() }.font(.caption).buttonStyle(.borderless)
             }
+            if r.truncated == true {
+                Text("响应体过大，只显示开头部分").font(.caption).foregroundStyle(Theme.warn)
+            }
+            if let e = r.error, !e.isEmpty { Text(verbatim: e).font(.caption).foregroundStyle(Theme.bad) }
             if showBody {
                 ForEach(r.headers.keys.sorted(), id: \.self) { k in
                     Text("\(k): \(r.headers[k] ?? "")").scaledFont(10, design: .monospaced).foregroundStyle(.secondary).textSelection(.enabled)
