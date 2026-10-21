@@ -119,6 +119,18 @@ final class HomePanelStore: ObservableObject {
         savePinned()
     }
 
+    /// r7: non-drag reorder (editor ⋯ menu / VoiceOver actions). `by` = -1 up, +1 down.
+    func canMove(_ id: String, by: Int) -> Bool {
+        guard let i = model.pinned.firstIndex(of: id) else { return false }
+        return model.pinned.indices.contains(i + by)
+    }
+
+    func step(_ id: String, by: Int) {
+        guard let i = model.pinned.firstIndex(of: id), model.pinned.indices.contains(i + by) else { return }
+        model.pinned.swapAt(i, i + by)
+        savePinned()
+    }
+
     func setInterval(_ taskID: String, _ seconds: Int) {
         guard let i = tasks.firstIndex(where: { $0.id == taskID }) else { return }
         tasks[i].interval = seconds
@@ -386,10 +398,12 @@ struct HomePanelsEditor: View {
                     Text("内置卡片").font(.caption2).foregroundStyle(.secondary)
                 }
                 Spacer(minLength: 6)
+                moveMenu(id, tag: t.rawValue)
                 Toggle("在首页显示", isOn: Binding(get: { !home.hidden.contains(id) }, set: { home.setHidden(id, !$0) }))
                     .labelsHidden()
             }
             .accessibilityIdentifier("homepanels.row.\(t.rawValue)")
+            .modifier(MoveActions(id: id))
         } else {
             panelRow(id)
         }
@@ -428,9 +442,44 @@ struct HomePanelsEditor: View {
                 }
             }
             Spacer(minLength: 6)
+            moveMenu(id, tag: id)
             Toggle("在首页显示", isOn: Binding(get: { !home.hidden.contains(id) }, set: { home.setHidden(id, !$0) }))
                 .labelsHidden()
         }
+        .modifier(MoveActions(id: id))
+    }
+
+    /// r7: 上移 / 下移 without dragging (drag handles stay the main way; this one also works with VoiceOver,
+    /// Switch Control and in UI tests).
+    func moveMenu(_ id: String, tag: String) -> some View {
+        Menu {
+            Button { withAnimation { home.step(id, by: -1) } } label: { Label("上移", systemImage: "arrow.up") }
+                .disabled(!home.canMove(id, by: -1))
+                .accessibilityIdentifier("homepanels.up.\(tag)")
+            Button { withAnimation { home.step(id, by: 1) } } label: { Label("下移", systemImage: "arrow.down") }
+                .disabled(!home.canMove(id, by: 1))
+                .accessibilityIdentifier("homepanels.down.\(tag)")
+        } label: {
+            Image(systemName: "arrow.up.arrow.down.circle")
+                .font(.body)
+                .foregroundStyle(.secondary)
+                .frame(width: 28, height: 28)
+                .contentShape(Rectangle())
+        }
+        .buttonStyle(.borderless)
+        .accessibilityLabel(Text("调整顺序"))
+        .accessibilityIdentifier("homepanels.move.\(tag)")
+    }
+}
+
+/// r7: VoiceOver rotor actions 上移 / 下移 on a pinned Home panel row.
+private struct MoveActions: ViewModifier {
+    @ObservedObject var home = HomePanelStore.shared
+    let id: String
+    func body(content: Content) -> some View {
+        content
+            .accessibilityAction(named: Text("上移")) { if home.canMove(id, by: -1) { home.step(id, by: -1) } }
+            .accessibilityAction(named: Text("下移")) { if home.canMove(id, by: 1) { home.step(id, by: 1) } }
     }
 }
 

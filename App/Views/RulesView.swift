@@ -49,6 +49,18 @@ final class CustomRulesStore: ObservableObject {
         Task { if let e = await saveAndReload() { message = e } }
     }
 
+    /// r7: non-drag reorder (swipe / VoiceOver). `by` = -1 up, +1 down.
+    func canStep(_ id: CustomRule.ID, by: Int) -> Bool {
+        guard let i = rules.firstIndex(where: { $0.id == id }) else { return false }
+        return rules.indices.contains(i + by)
+    }
+
+    func step(_ id: CustomRule.ID, by: Int) {
+        guard let i = rules.firstIndex(where: { $0.id == id }), rules.indices.contains(i + by) else { return }
+        rules.swapAt(i, i + by)
+        save()
+    }
+
     /// r7 P3-1: the same write + recheck + reload, with the reload error returned to the caller instead of parked in
     /// `message` (only 分流规则 shows that; a rule added from Home's quick add surfaced there much later).
     func saveAndReload() async -> String? {
@@ -220,6 +232,25 @@ struct RulesView: View {
                     }
                     .contentShape(Rectangle())
                     .onTapGesture { editing = r }
+                    // r7: 上移 / 下移 without the long-press drag (swipe right, or VoiceOver actions).
+                    .swipeActions(edge: .leading, allowsFullSwipe: false) {
+                        if custom.canStep(r.id, by: 1) {
+                            Button { withAnimation { custom.step(r.id, by: 1) } } label: { Label("下移", systemImage: "arrow.down") }
+                                .tint(Theme.accent.opacity(0.75))
+                        }
+                        if custom.canStep(r.id, by: -1) {
+                            Button { withAnimation { custom.step(r.id, by: -1) } } label: { Label("上移", systemImage: "arrow.up") }
+                                .tint(Theme.accent)
+                        }
+                    }
+                    // Explicit swipeActions turn off the Delete swipe synthesized by onDelete: keep it here.
+                    .swipeActions(edge: .trailing) {
+                        Button(role: .destructive) {
+                            custom.rules.removeAll { $0.id == r.id }; custom.save()
+                        } label: { Label("删除", systemImage: "trash") }
+                    }
+                    .accessibilityAction(named: Text("上移")) { custom.step(r.id, by: -1) }
+                    .accessibilityAction(named: Text("下移")) { custom.step(r.id, by: 1) }
                 }
                 .onDelete { custom.rules.remove(atOffsets: $0); custom.save() }
                 .onMove { custom.rules.move(fromOffsets: $0, toOffset: $1); custom.save() }

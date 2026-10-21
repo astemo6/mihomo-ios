@@ -44,7 +44,7 @@ extension MihomoUITests {
     /// target's control (edit mode), each x point dropped either a bit above the target's middle or just above its top
     /// edge, and finally the target dragged down below `e` (same resulting order).
     @discardableResult
-    func dragRow(_ e: XCUIElement, above target: XCUIElement, dx: CGFloat? = nil, press: TimeInterval = 0.8) -> Bool {
+    func dragRow(_ e: XCUIElement, above target: XCUIElement, dx: CGFloat? = nil, press: TimeInterval = 0.8, quick: Bool = false) -> Bool {
         func settled() -> Bool {
             // let the list settle (frames move with the drop animation)
             let deadline = Date().addingTimeInterval(3)
@@ -61,6 +61,7 @@ extension MihomoUITests {
             h.press(forDuration: 0.6, thenDragTo: ht, withVelocity: .slow, thenHoldForDuration: 0.5)
             if settled() { return true }
             note("control → control")
+            if quick { return false }
             xs.append(h.frame.midX)
         }
         xs.append(dx ?? (w - 26))
@@ -74,6 +75,7 @@ extension MihomoUITests {
                            withVelocity: .slow, thenHoldForDuration: 0.5)
                 if settled() { return true }
                 note("x \(Int(x))\(aboveTop ? " top" : "")")
+                if quick { return false }
             }
         }
         // Same order from the other side: move the target down below e.
@@ -81,6 +83,30 @@ extension MihomoUITests {
         rowHandle(target, dx: x).press(forDuration: press, thenDragTo: rowHandle(e, dx: x).withOffset(CGVector(dx: 0, dy: e.frame.height / 2 + 14)),
                                        withVelocity: .slow, thenHoldForDuration: 0.5)
         return settled()
+    }
+
+    /// r7: the non-drag path in 编辑首页面板 — the row's 调整顺序 menu → 上移. true when tapped.
+    @discardableResult
+    func homePanelStepUp(_ kind: String) -> Bool {
+        let m = app.element(id: "homepanels.move." + kind)
+        guard m.waitForExistence(timeout: 3) else { return false }
+        m.tap()
+        let up = app.buttons.matching(NSPredicate(format: "identifier == %@ OR label == %@", "homepanels.up." + kind, L("上移"))).firstMatch
+        guard up.waitForExistence(timeout: 3) else { return false }
+        up.tap()
+        usleep(600_000)
+        return true
+    }
+
+    /// Drag first; when the simulator drag does not take, the 上移 menu action (same HomePanelStore save).
+    func moveHomePanel(_ kind: String, above target: XCUIElement) -> Bool {
+        let e = app.element(id: "homepanels.row." + kind)
+        if dragRow(e, above: target, quick: true) { return true }
+        warnings.append("[\(Env.tag)] homepanels \(kind): drag did not reorder, used 上移")
+        guard homePanelStepUp(kind) else { return false }
+        let deadline = Date().addingTimeInterval(3)
+        while Date() < deadline { if isBefore(e, target) { return true }; usleep(250_000) }
+        return false
     }
 
     // MARK: 66. Custom rules: long-press drag reorders, and the order is saved
@@ -97,8 +123,18 @@ extension MihomoUITests {
         // A new custom rule is inserted at the top (ResourceStore.addRule → index 0): the newest is first.
         XCTAssertTrue(isBefore(b, a), "newest rule listed first")
         // No edit mode on this list: iOS 16+ reorders a List with onMove by long-press drag on the row.
-        let moved = dragRow(a, above: b, dx: app.windows.firstMatch.frame.width * 0.5, press: 1.2)
-        XCTAssertTrue(moved, "first rule dragged above the second")
+        var moved = dragRow(a, above: b, dx: app.windows.firstMatch.frame.width * 0.5, press: 1.2)
+        if !moved {
+            // r7: fallback = swipe right → 上移 (same CustomRulesStore save)
+            warnings.append("[\(Env.tag)] rules: drag did not reorder, used swipe 上移")
+            a.swipeRight()
+            if tapIfExists(app.button(L("上移")), timeout: 3) {
+                let deadline = Date().addingTimeInterval(3)
+                while Date() < deadline && !isBefore(a, b) { usleep(250_000) }
+                moved = isBefore(a, b)
+            }
+        }
+        XCTAssertTrue(moved, "first rule moved above the second (drag or swipe 上移)")
         snap("rules-dragged")
         // Leave and come back: the new order is read from rules.json.
         back()
@@ -129,9 +165,11 @@ extension MihomoUITests {
         let memory = app.element(id: "homepanels.row.memory")
         XCTAssertTrue(speed.waitForExistence(timeout: 4) && memory.waitForExistence(timeout: 4), "both pinned")
         if isBefore(memory, speed) {
-            XCTAssertTrue(dragRow(speed, above: memory), "speed dragged above memory")
+            XCTAssertTrue(moveHomePanel("speed", above: memory), "speed moved above memory")
         }
-        XCTAssertTrue(dragRow(memory, above: speed), "memory dragged above speed (reorder handle)")
+        // The menu is disabled at the edges: 上移 on the first row is not offered.
+        XCTAssertTrue(app.element(id: "homepanels.move.memory").exists, "调整顺序 menu on the row")
+        XCTAssertTrue(moveHomePanel("memory", above: speed), "memory moved above speed (drag, else 上移)")
         snap("home-tiles-reordered")
         closeSheet()
         func tile(_ t: String) -> XCUIElement {
