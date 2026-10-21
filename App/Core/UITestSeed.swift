@@ -86,6 +86,11 @@ enum UITestSeed {
                 let p = try await store.addLocal(name: "UITest Groups", text: groupsOnlyYAML)
                 _ = await store.setActive(p)
             }
+            // feat/policy-chain: nested groups with CJK names (节点选择 → 日本节点 → 东京 …) for the chain subtitles on 策略.
+            if args.contains("-UITestPolicyChain"), !store.profiles.contains(where: { $0.name == "UITest Chain" }) {
+                let p = try await store.addLocal(name: "UITest Chain", text: policyChainYAML)
+                _ = await store.setActive(p)
+            }
             // v0.19.6 stress test: a large profile (3000 nodes in one select group, 10000 rules) becomes the active
             // profile, plus 1500 more manual nodes.
             if args.contains("-UITestBigProfile"), !store.profiles.contains(where: { $0.name == "UITest Big" }) {
@@ -286,6 +291,29 @@ enum UITestSeed {
       - {name: Direct Only, type: select, proxies: [DIRECT]}
     rules:
       - MATCH,Node Select
+    """
+
+    /// feat/policy-chain: 流媒体 → 节点选择 → 日本节点 → 东京 AZ JP01 (three hops), automatic groups, a node that already
+    /// carries its flag, DIRECT / REJECT groups. Servers on 192.0.2.x (TEST-NET-1) never answer.
+    static let policyChainYAML = """
+    mode: rule
+    proxies:
+      - {name: "东京 AZ JP01", type: ss, server: 192.0.2.51, port: 8388, cipher: aes-128-gcm, password: uitest-pc-a}
+      - {name: "大阪 JP02", type: ss, server: 192.0.2.52, port: 8388, cipher: aes-128-gcm, password: uitest-pc-b}
+      - {name: "香港 HK01", type: ss, server: 192.0.2.53, port: 8388, cipher: aes-128-gcm, password: uitest-pc-c}
+      - {name: "新加坡 SG01", type: ss, server: 192.0.2.54, port: 8388, cipher: aes-128-gcm, password: uitest-pc-d}
+      - {name: "🇺🇸 洛杉矶 US01", type: ss, server: 192.0.2.55, port: 8388, cipher: aes-128-gcm, password: uitest-pc-e}
+    proxy-groups:
+      - {name: 节点选择, type: select, proxies: [日本节点, 自动选择, 故障转移, 香港节点, DIRECT]}
+      - {name: 流媒体, type: select, proxies: [节点选择, 日本节点, DIRECT]}
+      - {name: 日本节点, type: select, proxies: ["东京 AZ JP01", "大阪 JP02"]}
+      - {name: 自动选择, type: url-test, proxies: ["香港 HK01", "新加坡 SG01"], url: "http://www.gstatic.com/generate_204", interval: 600}
+      - {name: 故障转移, type: fallback, proxies: ["🇺🇸 洛杉矶 US01", "新加坡 SG01"], url: "http://www.gstatic.com/generate_204", interval: 600}
+      - {name: 香港节点, type: select, proxies: ["香港 HK01"]}
+      - {name: 国内直连, type: select, proxies: [DIRECT, 节点选择]}
+      - {name: 广告拦截, type: select, proxies: [REJECT, DIRECT]}
+    rules:
+      - MATCH,节点选择
     """
 
     static let profileYAML = """

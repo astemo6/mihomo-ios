@@ -51,7 +51,10 @@ extension MihomoUITests {
         XCTAssertEqual(memberDelay("Node Select", "Direct Only").label, "—", "DIRECT is never measured")
         let via = app.element(id: "policy.member.Node Select.Japan.via")
         XCTAssertTrue(via.exists && via.label.contains("GT Tokyo A"), "Japan shows the node it is on (got \(via.label))")
-        XCTAssertTrue(app.element(id: "policy.via.Node Select").exists, "header names the node Node Select resolves to")
+        // feat/policy-chain: the header shows the whole path (Auto Select › 🇯🇵 GT Tokyo A) instead of 「→ node」.
+        let chain = app.element(id: "policy.chain.Node Select")
+        XCTAssertTrue(chain.exists && chain.label.contains("Auto Select › ") && chain.label.contains("GT Tokyo A"),
+                      "header names the path Node Select resolves to (got \(chain.label))")
         snap("grptest-done")
 
         // A group with nothing to dial says so instead of doing nothing.

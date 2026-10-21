@@ -13,21 +13,37 @@ final class PolicyModel: ObservableObject {
     func load() async {
         await SmartGroups.shared.refreshStatus()
         do {
-            let p = try await ControllerClient.shared.proxies()
-            all = p
-            // v0.19.8: the runtime's own group order (GLOBAL lists only its members once it is user-defined).
-            var gs = LiveGroupOrder.names(p).compactMap { p[$0] }.filter { $0.isGroup && $0.hidden != true && $0.name != "GLOBAL" }
-            if let g = p["GLOBAL"] { gs.append(g) }
-            if let pending = pendingOrder, Date() < pending.until {
-                groups = gs
-                applyOrder(pending.names) // a reload still applying: keep the saved order on screen
-            } else {
-                pendingOrder = nil
-                groups = gs
-            }
+            apply(try await ControllerClient.shared.proxies())
             error = nil
         } catch {
             self.error = error.localizedDescription
+        }
+    }
+
+    /// feat/policy-chain: url-test / fallback / load-balance switch nodes on their own, so the chain subtitle would
+    /// go stale between pulls. While 策略 is on screen and connected, re-read /proxies every 10 s and publish only
+    /// when some group's pick (now / fixed) or the group list changed — delay history alone does not re-render.
+    func refreshSelections() async {
+        guard let p = try? await ControllerClient.shared.proxies() else { return }
+        func picks(_ m: [String: ProxyItem]) -> [String: String] {
+            var out: [String: String] = [:]
+            for (n, x) in m where x.isGroup { out[n] = (x.now ?? "") + "|" + (x.fixed ?? "") }
+            return out
+        }
+        if picks(p) != picks(all) { apply(p) }
+    }
+
+    private func apply(_ p: [String: ProxyItem]) {
+        all = p
+        // v0.19.8: the runtime's own group order (GLOBAL lists only its members once it is user-defined).
+        var gs = LiveGroupOrder.names(p).compactMap { p[$0] }.filter { $0.isGroup && $0.hidden != true && $0.name != "GLOBAL" }
+        if let g = p["GLOBAL"] { gs.append(g) }
+        if let pending = pendingOrder, Date() < pending.until {
+            groups = gs
+            applyOrder(pending.names) // a reload still applying: keep the saved order on screen
+        } else {
+            pendingOrder = nil
+            groups = gs
         }
     }
 
@@ -530,6 +546,15 @@ struct PolicyView: View {
             interactions = vpn.isConnected ? await TaskCatalog.interactions() : []
             await refreshMovableAsync()
         }
+        // feat/policy-chain: keep the chain subtitles current while connected (automatic groups switch by themselves).
+        .task(id: vpn.isConnected) {
+            guard vpn.isConnected else { return }
+            while !Task.isCancelled {
+                try? await Task.sleep(nanoseconds: 10_000_000_000)
+                if Task.isCancelled || !vpn.isConnected { break }
+                await model.refreshSelections()
+            }
+        }
         .modifier(InteractionRunner(request: $interaction))
         // hotfix/group-test-offline: a 测速 with nothing to dial says so instead of doing nothing.
         .overlay(alignment: .bottom) {
@@ -633,7 +658,8 @@ struct PolicyView: View {
                                     onInteract: { id, node in
                                         if let t = interactions.first(where: { $0.id == id }) { interaction = InteractionRequest(task: t, node: node) }
                                     },
-                                    resolved: { model.resolution($0, graph: graph) })
+                                    resolved: { model.resolution($0, graph: graph) },
+                                    chain: graph.chain(from: g.name))
                     .onDrop(of: [UTType.text], delegate: dropTarget(g.name))
                   }
                 }
@@ -703,7 +729,8 @@ struct PolicyView: View {
                                         onEdit: { editGroup = EditGroupTarget(name: g.name) },
                                         onTop: topAction(g.name),
                                         onDrag: dragAction(g.name),
-                                        resolved: { graph.groups[$0] != nil ? graph.resolve($0, delays: offline.delays) : nil })
+                                        resolved: { graph.groups[$0] != nil ? graph.resolve($0, delays: offline.delays) : nil },
+                                        chain: graph.chain(from: g.name, delays: offline.delays))
                         .onDrop(of: [UTType.text], delegate: dropTarget(g.name))
                       }
                     }
@@ -757,6 +784,9 @@ struct PolicyGroupCard: View {
     var onInteract: ((String, String) -> Void)? = nil
     /// hotfix/group-test-offline: for a member that is a group, the node it resolves to (nil = not a group).
     var resolved: ((String) -> GroupGraph.Resolution?)? = nil
+    /// feat/policy-chain: the whole path down to the final node (Egern 策略), shown as the subtitle. nil = the old
+    /// 「当前 → 节点」 line.
+    var chain: GroupGraph.Chain? = nil
 
     /// 「→ 节点」 for a selected node, 「最快 节点」 / 「可用 节点」 when the offline page picked it from measurements.
     static func resolutionText(_ r: GroupGraph.Resolution) -> String {
@@ -816,8 +846,16 @@ struct PolicyGroupCard: View {
                         }
                     }
                     HStack(spacing: 6) {
+                      if let chain {
+                        // feat/policy-chain: 「日本节点 › 🇯🇵 东京 AZ JP01」; a long path gives way in the middle so the
+                        // group's own pick and the final node both stay readable.
+                        Text(verbatim: PolicyChainText.text(chain)).font(.caption).foregroundStyle(.secondary)
+                            .lineLimit(1).truncationMode(.middle)
+                            .accessibilityIdentifier("policy.chain." + group.name)
+                      } else {
                         Text(verbatim: FlagSafe.text(group.now ?? "—")).font(.caption).foregroundStyle(.secondary).lineLimit(1)
-                        if let n = group.now, let r = resolved?(n), r.node != n {
+                      }
+                        if chain == nil, let n = group.now, let r = resolved?(n), r.node != n {
                             Text(verbatim: Self.resolutionText(r)).font(.caption).foregroundStyle(.tertiary).lineLimit(1)
                                 .accessibilityIdentifier("policy.via." + group.name)
                         }
