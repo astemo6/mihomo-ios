@@ -45,7 +45,8 @@ final class LiveActivityController: ObservableObject {
     func start() {
         guard enabled, #available(iOS 16.2, *), ActivityAuthorizationInfo().areActivitiesEnabled else { return }
         let since = VPNManager.shared.connectedDate ?? Date()
-        let state = MihomoActivityAttributes.ContentState(connected: true, node: DashboardModel.shared.selectedNode, up: 0, down: 0, since: since, updated: Date())
+        var state = MihomoActivityAttributes.ContentState(connected: true, node: DashboardModel.shared.selectedNode, up: 0, down: 0, since: since, updated: Date())
+        state.proxyOnly = TrafficScope.current == .proxy ? true : nil
         let live = current
         if let a = live.first {
             Task { await a.update(ActivityContent(state: state, staleDate: nil)) }
@@ -57,7 +58,7 @@ final class LiveActivityController: ObservableObject {
         _ = try? Activity.request(attributes: attrs, content: ActivityContent(state: state, staleDate: nil), pushType: nil)
     }
 
-    /// Called from the dashboard's traffic stream; throttled to one update every 3 s.
+    /// Called from the dashboard's traffic poll with numbers in the 首页流量统计 scope; throttled to one update every 3 s.
     func traffic(up: Int64, down: Int64, node: String) {
         guard enabled, #available(iOS 16.2, *), let a = current.first else { return }
         let now = Date()
@@ -66,7 +67,8 @@ final class LiveActivityController: ObservableObject {
         lastUpdate = now
         last = (up, down, node)
         let since = VPNManager.shared.connectedDate ?? a.content.state.since
-        let state = MihomoActivityAttributes.ContentState(connected: true, node: node, up: up, down: down, since: since, updated: now)
+        var state = MihomoActivityAttributes.ContentState(connected: true, node: node, up: up, down: down, since: since, updated: now)
+        state.proxyOnly = TrafficScope.current == .proxy ? true : nil
         // v0.19.8: updates arrive every 3 s while the app runs; 30 s without one means the app was suspended, so the
         // numbers turn grey (still shown) rather than looking live.
         Task { await a.update(ActivityContent(state: state, staleDate: now.addingTimeInterval(30))) }
@@ -139,10 +141,12 @@ final class LiveActivityController: ObservableObject {
         // they were taken; the activity draws them grey past the stale date instead of a bare "—". Before, an old
         // sample became 0 / 0 with a 1 s stale date, so the island showed "—" almost all the time.
         if s.time > state.updated || fresh {
-            state.up = s.up
-            state.down = s.down
+            let sp = s.speed(TrafficScope.current) // feat/traffic-scope: same scope as Home
+            state.up = sp.up
+            state.down = sp.down
             state.updated = s.time
         }
+        state.proxyOnly = TrafficScope.current == .proxy ? true : nil
         state.since = VPNManager.shared.connectedDate ?? state.since
         let staleAt = max(state.updated.addingTimeInterval(45), now.addingTimeInterval(fresh ? 30 : 0))
         await a.update(ActivityContent(state: state, staleDate: staleAt))

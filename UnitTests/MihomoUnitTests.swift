@@ -524,3 +524,58 @@ final class Review6AppTests: XCTestCase {
         XCTAssertNil(VPNManager.reloadResult(nil, stillConnected: false))
     }
 }
+
+// Device report 2026-10-21 (「为什么有好多dns被拦截了」): QUIC refusals must not count as blocks in DNS 日志.
+final class RejectClassifierTests: XCTestCase {
+    func testQUICRuleForms() {
+        // As mihomo v1.19.32 logs them (rules/logic/logic.go Payload()).
+        XCTAssertTrue(RejectClassifier.isQUIC(rule: "AND(((Network,udp) && (DstPort,443)))"))
+        XCTAssertTrue(RejectClassifier.isQUIC(rule: "AND(((Network,udp) && (DstPort,443) && (NOT,(!(InType,INNER)))))"))
+        XCTAssertTrue(RejectClassifier.isQUIC(rule: "AND(((Network,udp) && (DstPort,443/8443) && (RuleSet,__mitm_hosts) && (NOT,(!(RuleSet,__quic_allow)))))"))
+        XCTAssertTrue(RejectClassifier.isMitMQUIC(rule: "AND(((Network,udp) && (DstPort,443/8443) && (RuleSet,__mitm_hosts)))"))
+        // Profile / import spellings (mihomo, Surge, QX-converted).
+        XCTAssertTrue(RejectClassifier.isQUIC(rule: "AND,((NETWORK,UDP),(DST-PORT,443))"))
+        XCTAssertTrue(RejectClassifier.isQUIC(rule: "AND,((NETWORK,UDP),(DST-PORT,443),(NOT,((IN-TYPE,INNER))))"))
+        XCTAssertTrue(RejectClassifier.isQUIC(rule: "AND,((PROTOCOL,UDP),(DEST-PORT,443))"))
+        XCTAssertTrue(RejectClassifier.isQUIC(rule: "AND,((PROTOCOL,QUIC))"))
+        XCTAssertTrue(RejectClassifier.isQUIC(rule: "AND((DstPort,400-500) && (Network,udp))"))
+        // A bare UDP rule only when the connection is UDP to 443.
+        XCTAssertTrue(RejectClassifier.isQUIC(rule: "Network(udp)", network: "UDP", port: 443))
+        XCTAssertFalse(RejectClassifier.isQUIC(rule: "Network(udp)", network: "UDP", port: 53))
+    }
+
+    func testRealBlocksStayBlocks() {
+        XCTAssertFalse(RejectClassifier.isQUIC(rule: "DomainSuffix(ads.example.com)", network: "UDP", port: 443))
+        XCTAssertFalse(RejectClassifier.isQUIC(rule: "RuleSet(ads)", network: "UDP", port: 443))
+        XCTAssertFalse(RejectClassifier.isQUIC(rule: "AND(((Network,tcp) && (DstPort,443)))"))
+        XCTAssertFalse(RejectClassifier.isQUIC(rule: "AND(((Network,udp) && (DstPort,53)))"))
+        XCTAssertFalse(RejectClassifier.isQUIC(rule: "AND(((NOT,(!(Network,udp))) && (DstPort,443)))"))
+        XCTAssertFalse(RejectClassifier.isQUIC(rule: "OR(((Network,udp) || (DstPort,443)))"))
+        XCTAssertFalse(RejectClassifier.isQUIC(rule: "REJECT"))
+    }
+
+    func testFriendlyLabels() {
+        XCTAssertFalse(RejectClassifier.friendlyRule("AND(((Network,udp) && (DstPort,443)))").contains("Network"))
+        XCTAssertTrue(RejectClassifier.friendlyRule("AND(((Network,udp) && (DstPort,443)))").contains("QUIC"))
+        XCTAssertTrue(RejectClassifier.friendlyRule("DomainSuffix(ads.example.com)").hasSuffix("· ads.example.com"))
+        XCTAssertTrue(RejectClassifier.friendlyRule("RuleSet(ads)").hasSuffix("· ads"))
+        XCTAssertEqual(RejectClassifier.friendlyRule("SrcPort(5000)"), "SrcPort(5000)")
+    }
+
+    @MainActor
+    func testStoreSeparatesQUICFromBlocks() {
+        let s = DNSLogStore()
+        s.ingest("[TCP] 198.18.0.1:50001 --> ads.example.com:443 match DomainSuffix(ads.example.com) using REJECT")
+        s.ingest("[UDP] 198.18.0.1:50003 --> tracker.example.net:443 match RuleSet(ads) using AdBlock[REJECT-DROP]")
+        s.ingest("[UDP] 198.18.0.1:50004 --> app.example.com:443 match AND(((Network,udp) && (DstPort,443))) using REJECT")
+        s.ingest("[UDP] 198.18.0.1:50005 --> app.example.com:443 match AND(((Network,udp) && (DstPort,443))) using REJECT")
+        s.ingest("[UDP] 198.18.0.1:50006 --> [2001:db8::1]:443 match AND(((Network,udp) && (DstPort,443) && (NOT,(!(InType,INNER))))) using REJECT")
+        XCTAssertEqual(s.blockedTotal, 2, "real blocks only")
+        XCTAssertEqual(s.quicTotal, 3)
+        XCTAssertEqual(s.quicSorted.first?.domain, "app.example.com")
+        XCTAssertEqual(s.quicSorted.first?.port, 443)
+        XCTAssertNotNil(s.quicBlocked["2001:db8::1"])
+        XCTAssertNil(s.blocked["app.example.com"])
+        XCTAssertTrue(s.quicSorted.allSatisfy(\.quic))
+    }
+}
