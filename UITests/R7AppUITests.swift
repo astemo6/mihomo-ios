@@ -39,28 +39,48 @@ extension MihomoUITests {
     }
 
     /// Drags `e`'s handle to just above `target`; true when `e` ends up before `target`.
-    /// r7: in edit mode the real reorder control is tried first (its x differs per layout / language: the fixed
-    /// 「width − 26」 point missed it in en-light), then the trailing points as before.
+    /// r7: simulator drags are flaky (test67 en-light, test66 zh-light failed at a fixed point while the same drag
+    /// passed elsewhere). Tries, stopping at the first that reorders: the real reorder control dragged onto the
+    /// target's control (edit mode), each x point dropped either a bit above the target's middle or just above its top
+    /// edge, and finally the target dragged down below `e` (same resulting order).
     @discardableResult
     func dragRow(_ e: XCUIElement, above target: XCUIElement, dx: CGFloat? = nil, press: TimeInterval = 0.8) -> Bool {
-        let w = app.windows.firstMatch.frame.width
-        var xs: [CGFloat?] = []
-        if dx == nil, let h = reorderControl(for: e) { xs.append(h.frame.midX) }
-        xs.append(dx ?? (w - 26))
-        if dx == nil { xs.append(w - 52) }
-        for (attempt, x) in xs.enumerated() {
-            let from = rowHandle(e, dx: x)
-            let to = rowHandle(target, dx: x).withOffset(CGVector(dx: 0, dy: -target.frame.height * 0.45))
-            from.press(forDuration: press, thenDragTo: to, withVelocity: .slow, thenHoldForDuration: 0.4)
+        func settled() -> Bool {
             // let the list settle (frames move with the drop animation)
             let deadline = Date().addingTimeInterval(3)
             while Date() < deadline {
                 if isBefore(e, target) { return true }
                 usleep(250_000)
             }
-            if attempt < xs.count - 1 { warnings.append("[\(Env.tag)] drag \(e.identifier) retry (x \(Int(x ?? -1)))") }
+            return false
         }
-        return isBefore(e, target)
+        func note(_ what: String) { warnings.append("[\(Env.tag)] drag \(e.identifier) retry (\(what))") }
+        let w = app.windows.firstMatch.frame.width
+        var xs: [CGFloat] = []
+        if dx == nil, let h = reorderControl(for: e), let ht = reorderControl(for: target) {
+            h.press(forDuration: 0.6, thenDragTo: ht, withVelocity: .slow, thenHoldForDuration: 0.5)
+            if settled() { return true }
+            note("control → control")
+            xs.append(h.frame.midX)
+        }
+        xs.append(dx ?? (w - 26))
+        if dx == nil { xs.append(w - 52) }
+        for x in xs {
+            for aboveTop in [false, true] {
+                let from = rowHandle(e, dx: x)
+                let base = rowHandle(target, dx: x)
+                let dy = aboveTop ? -(target.frame.height / 2 + 14) : -target.frame.height * 0.45
+                from.press(forDuration: press, thenDragTo: base.withOffset(CGVector(dx: 0, dy: dy)),
+                           withVelocity: .slow, thenHoldForDuration: 0.5)
+                if settled() { return true }
+                note("x \(Int(x))\(aboveTop ? " top" : "")")
+            }
+        }
+        // Same order from the other side: move the target down below e.
+        let x = xs.first ?? (w - 26)
+        rowHandle(target, dx: x).press(forDuration: press, thenDragTo: rowHandle(e, dx: x).withOffset(CGVector(dx: 0, dy: e.frame.height / 2 + 14)),
+                                       withVelocity: .slow, thenHoldForDuration: 0.5)
+        return settled()
     }
 
     // MARK: 66. Custom rules: long-press drag reorders, and the order is saved
