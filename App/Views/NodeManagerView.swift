@@ -481,7 +481,7 @@ struct NodeDetailView: View {
                 kv("UDP", (info?.udp ?? node.udp) ? String(localized: "支持") : String(localized: "未开启"))
                 sourceRow
                 if !node.inRuntime && node.source.kind == .manual {
-                    Text("这个手动节点不在当前配置里：在 更多 → 高级设置 → 内核设置 打开「把手动节点加入每个配置」，或把「手动节点」设为当前配置。")
+                    Text("这个手动节点不在当前配置里：在 工具 → 节点与订阅 → 本地 打开「把手动节点加入每个配置」，或把「手动节点」设为当前配置。")
                         .font(.footnote).foregroundStyle(.secondary)
                 }
             }
@@ -653,7 +653,7 @@ struct NodeDetailView: View {
         } message: { a in
             a.inRuntime
                 ? Text("「\(a.name)」现在是可编辑的手动节点，不受订阅更新影响。")
-                : Text("「\(a.name)」现在是可编辑的手动节点，不受订阅更新影响。它还不在当前配置里：在 更多 → 高级设置 → 内核设置 打开「把手动节点加入每个配置」。")
+                : Text("「\(a.name)」现在是可编辑的手动节点，不受订阅更新影响。它还不在当前配置里：在 工具 → 节点与订阅 → 本地 打开「把手动节点加入每个配置」。")
         }
         .onDisappear { hideSecrets() }
         .onChange(of: scenePhase) { phase in if phase != .active { hideSecrets() } }
@@ -1056,7 +1056,7 @@ struct AddedLocalAlert: ViewModifier {
             if a.inRuntime {
                 Text("「\(a.name)」现在是可编辑的手动节点，不受订阅更新影响。")
             } else {
-                Text("「\(a.name)」现在是可编辑的手动节点，不受订阅更新影响。它还不在当前配置里：在 更多 → 高级设置 → 内核设置 打开「把手动节点加入每个配置」。")
+                Text("「\(a.name)」现在是可编辑的手动节点，不受订阅更新影响。它还不在当前配置里：在 工具 → 节点与订阅 → 本地 打开「把手动节点加入每个配置」。")
             }
         }
     }

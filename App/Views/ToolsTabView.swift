@@ -271,20 +271,23 @@ struct ToolCard: View {
                 if off {
                     Text("需开启 VPN").font(.caption2).foregroundStyle(.secondary)
                 } else if !stats.isEmpty {
-                    HStack(spacing: 10) {
-                        ForEach(stats, id: \.self) { s in
-                            HStack(spacing: 3) {
-                                Image(systemName: s.symbol).font(.system(size: 9, weight: .medium))
-                                Text(verbatim: s.value).font(.caption2.monospacedDigit()).lineLimit(1)
+                    // r7 P3-4: one line while it fits; otherwise (long ru values, accessibility sizes) two per line
+                    // instead of truncating every value.
+                    ViewThatFits(in: .horizontal) {
+                        HStack(spacing: 10) { ForEach(stats, id: \.self) { statView($0) } }
+                            .fixedSize(horizontal: true, vertical: false)
+                        VStack(alignment: .leading, spacing: 2) {
+                            ForEach(Array(stride(from: 0, to: stats.count, by: 2)), id: \.self) { i in
+                                HStack(spacing: 10) {
+                                    statView(stats[i])
+                                    if i + 1 < stats.count { statView(stats[i + 1]) }
+                                }
                             }
-                            .foregroundStyle(s.tint ?? Color.secondary)
-                            .accessibilityElement(children: .ignore)
-                            .accessibilityLabel(Text(verbatim: s.label))
                         }
                     }
-                    .minimumScaleFactor(0.8)
                 } else if let caption {
-                    Text(LocalizedStringKey(caption)).font(.caption2).foregroundStyle(.secondary).lineLimit(1)
+                    Text(LocalizedStringKey(caption)).font(.caption2).foregroundStyle(.secondary).lineLimit(2)
+                        .fixedSize(horizontal: false, vertical: true)
                 }
             }
             Spacer(minLength: 4)
@@ -292,6 +295,16 @@ struct ToolCard: View {
         .padding(.vertical, 2)
         .accessibilityElement(children: .combine)
         .accessibilityIdentifier("more." + id)
+    }
+
+    func statView(_ s: ToolStat) -> some View {
+        HStack(spacing: 3) {
+            Image(systemName: s.symbol).scaledFont(9, weight: .medium)
+            Text(verbatim: s.value).font(.caption2.monospacedDigit()).lineLimit(1)
+        }
+        .foregroundStyle(s.tint ?? Color.secondary)
+        .accessibilityElement(children: .ignore)
+        .accessibilityLabel(Text(verbatim: s.label))
     }
 }
 

@@ -65,4 +65,15 @@ enum PolicyChainText {
         }
         return parts
     }
+
+    /// r7 P3-5: Home's policy cards — the hops after the group (DashboardModel.HomeGroup.chain without its first
+    /// element), displayed like `parts`: 「…」 before the last hop when the path was cut, the last hop flagged.
+    static func homeParts(_ chain: [String], cut: Bool) -> [String] {
+        let hops = Array(chain.dropFirst())
+        guard let last = hops.last else { return ["—"] }
+        var out = hops.dropLast().map { FlagSafe.text($0) }
+        if cut { out.append("…") }
+        out.append(FlagSafe.text(NodeFlag.decorate(last)))
+        return out
+    }
 }

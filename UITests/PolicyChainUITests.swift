@@ -22,6 +22,9 @@ extension MihomoUITests {
     // MARK: 64. 策略: chain subtitles
 
     func test51_PolicyChainShots() {
+        // The chain seed's group and node names are Chinese on purpose (user content), so en skips the
+        // untranslated-text check here (UI strings are covered by the other tests).
+        allowHan = true
         launch(["-UITestPolicyChain"])
         tab(1)
         let top = app.element(id: "policy.card.节点选择")

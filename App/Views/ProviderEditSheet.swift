@@ -6,6 +6,7 @@ import SwiftUI
 struct ProviderEditSheet: View {
     let profileID: String
     let info: ProfileProviderInfo
+    /// Runs after the sheet closed (r7 P3-7): the parent reloads in the background and shows a failure in its alert.
     let onSave: () async -> Void
     @ObservedObject private var store = ProviderOverrideStore.shared
     @Environment(\.dismiss) private var dismiss
@@ -15,7 +16,6 @@ struct ProviderEditSheet: View {
     @State private var filter = ""
     @State private var exclude = ""
     @State private var error: String?
-    @State private var saving = false
 
     static let intervals: [(Int, LocalizedStringKey)] = [(0, "跟随配置"), (3600, "每小时"), (21600, "每 6 小时"), (43200, "每 12 小时"), (86400, "每天"), (604800, "每周")]
 
@@ -72,7 +72,7 @@ struct ProviderEditSheet: View {
                         Button("恢复默认", role: .destructive) {
                             let icon = store.get(profileID, info.name).icon
                             store.set(profileID, info.name, ProviderOverride(disabled: store.get(profileID, info.name).disabled, icon: icon))
-                            Task { await onSave(); dismiss() }
+                            finish()
                         }
                         .accessibilityIdentifier("provider.edit.reset")
                     } footer: { Text("清除这里的修改，使用配置里的设置（图标和停用状态保留）。") }
@@ -86,9 +86,7 @@ struct ProviderEditSheet: View {
             .toolbar {
                 ToolbarItem(placement: .cancellationAction) { Button("取消") { dismiss() } }
                 ToolbarItem(placement: .confirmationAction) {
-                    if saving { ProgressView() } else {
-                        Button("保存") { save() }.accessibilityIdentifier("provider.edit.save")
-                    }
+                    Button("保存") { save() }.accessibilityIdentifier("provider.edit.save")
                 }
             }
             .onAppear {
@@ -122,7 +120,6 @@ struct ProviderEditSheet: View {
             return
         }
         error = nil
-        saving = true
         store.update(profileID, info.name) { o in
             o.name = n.isEmpty || n == info.name ? nil : n
             o.url = u.isEmpty || u == info.url ? nil : u
@@ -130,10 +127,14 @@ struct ProviderEditSheet: View {
             o.filter = f.isEmpty ? nil : f
             o.excludeFilter = x.isEmpty ? nil : x
         }
-        Task {
-            await onSave()
-            saving = false
-            dismiss()
-        }
+        finish()
+    }
+
+    /// r7 P3-7: the override is written already; close now and let the parent apply it (VPN reload, provider
+    /// download — easily ten seconds or more) in the background instead of spinning here until it finishes.
+    func finish() {
+        let apply = onSave
+        dismiss()
+        Task { await apply() }
     }
 }

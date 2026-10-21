@@ -57,6 +57,35 @@ extension MihomoUITests {
         usleep(600_000)
         XCTAssertTrue(app.element(id: "home.analysis.hosts").waitForExistence(timeout: 3), "主机名 expanded")
 
+        // r7 P2-1: the editor opened from a card's long-press menu stays open while its own edits remove that card
+        // (it was attached to the card, so removing the last analysis card / hiding 连接数 dismissed it mid-edit).
+        let pol = app.element(id: "home.analysis.policies")
+        XCTAssertTrue(scrollTo(pol), "策略 card for the menu")
+        pol.press(forDuration: 1.2)
+        let editItem = app.buttons[L("编辑首页面板")].firstMatch
+        XCTAssertTrue(editItem.waitForExistence(timeout: 4), "long-press menu 编辑首页面板")
+        editItem.tap()
+        XCTAssertTrue(app.navigationBars[L("编辑首页面板")].waitForExistence(timeout: 6), "editor from the card menu")
+        for c in ["policies", "rules", "hosts"] {
+            let b = app.element(id: "homepanels.analysis." + c)
+            XCTAssertTrue(scrollTo(b), "remove \(c)")
+            b.tap()
+            usleep(500_000)
+        }
+        XCTAssertTrue(app.navigationBars[L("编辑首页面板")].exists, "editor still open after the last analysis card was removed")
+        let connSwitch = app.switches["homepanels.analysis.connections"].firstMatch
+        if scrollTo(connSwitch) {
+            connSwitch.tap(); usleep(500_000)
+            XCTAssertTrue(app.navigationBars[L("编辑首页面板")].exists, "editor still open after hiding 连接数")
+            connSwitch.tap(); usleep(300_000)
+        } else {
+            issues.append("[\(Env.tag)] 连接数 switch not found in 编辑首页面板")
+        }
+        snap("home-analysis-editor-kept")
+        closeSheet()
+        XCTAssertFalse(app.element(id: "home.analysis.policies").waitForExistence(timeout: 2), "策略 removed")
+        app.swipeDown(velocity: .fast); app.swipeDown(velocity: .fast)
+
         // Floating + → quick-add menu (Egern style).
         let plus = app.element(id: "home.quickAdd")
         XCTAssertTrue(plus.waitForExistence(timeout: 5), "floating +")

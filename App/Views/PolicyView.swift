@@ -855,7 +855,7 @@ struct PolicyGroupCard: View {
                         Text(group.name).font(.subheadline).lineLimit(1)
                             .accessibilityIdentifier("policy.card." + group.name)
                         Text(group.label)
-                            .font(.system(size: 9, weight: .semibold))
+                            .scaledFont(9, weight: .semibold) // r7 P3-4: follows Dynamic Type like the other badges
                             .foregroundStyle(.secondary)
                             .padding(.horizontal, 5).padding(.vertical, 1)
                             .lineLimit(1) // v0.19.8: a capsule tag never wraps (tall grey box with large text)

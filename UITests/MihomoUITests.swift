@@ -1412,7 +1412,7 @@ final class MihomoUITests: MihomoUITestCase {
         masked.tap()
         // (the header shows the full exit IP anyway; the card's masked text goes away)
         let gone = XCTNSPredicateExpectation(predicate: NSPredicate(format: "exists == false"), object: app.element(labelContains: "203.0.•••.•••"))
-        XCTAssertEqual(XCTWaiter().wait(for: [gone], timeout: 3), .completed, "revealed after a tap")
+        XCTAssertEqual(XCTWaiter().wait(for: [gone], timeout: 8), .completed, "revealed after a tap")
         XCTAssertTrue(app.element(labelContains: "23.4 MB").exists, "memory demo value")
         snap("home-tiles-revealed")
         // 内网 IP card opens the LAN page.

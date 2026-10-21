@@ -15,7 +15,9 @@ struct NodeManagerView: View {
     @ObservedObject private var updater = ProviderUpdater.shared
     @ObservedObject private var providerOV = ProviderOverrideStore.shared
     @AppStorage("nodes.subSort") private var subSort = "config"
-    @State private var mergeManual = CoreOverrides.load().mergeManual
+    /// r7 OPT-3: read in onAppear only. A State initial value is evaluated on every init (CoreOverrides.load = a file
+    /// and two Keychain reads), and LazyDestination re-creates this view whenever 工具 redraws.
+    @State private var mergeManual = false
     @State private var parserURL = ResourceParserSetting.url
     @State private var refreshing = false
     @State private var message: String?
@@ -33,6 +35,10 @@ struct NodeManagerView: View {
     @State private var confirmDeleteProvider: ProviderTarget?
     @State private var editingProvider: ProviderTarget?
     @State private var iconTarget: IconTarget?
+    /// r7 OPT-2: per-row file / defaults reads (cache file present, usage alerts on), refreshed when the lists change
+    /// or a sheet closes — not on every redraw (each delay result during 全部测速 redraws this page).
+    @State private var downloadedSubs: Set<String> = []
+    @State private var alertIDs: Set<String> = []
 
     struct ProviderTarget: Identifiable {
         let name: String
@@ -295,11 +301,13 @@ struct NodeManagerView: View {
             await providerOV.loadDeclared(manualActive ? nil : store.active, force: true)
         }
         .onChange(of: store.activeID) { _ in Task { await providerOV.loadDeclared(manualActive ? nil : store.active, force: true) } }
-        .onAppear { mergeManual = CoreOverrides.load().mergeManual }
+        .onAppear { mergeManual = CoreOverrides.load().mergeManual; refreshRowMeta() }
+        .onReceive(nodeSubs.$subs) { refreshRowMeta(subs: $0) }
+        .onReceive(store.$profiles) { refreshRowMeta(profiles: $0) }
         .onChange(of: vpn.isConnected) { _ in Task { await model.reload() } }
-        .sheet(isPresented: $showAddSub, onDismiss: { Task { await model.reload() } }) { NodeSubEditor(sub: nil).environmentObject(store) }
-        .sheet(item: $editingSub, onDismiss: { Task { await model.reload() } }) { s in NodeSubEditor(sub: s).environmentObject(store) }
-        .sheet(item: $editingProfile) { p in ProfileSubEditor(profile: p).environmentObject(store) }
+        .sheet(isPresented: $showAddSub, onDismiss: { refreshRowMeta(); Task { await model.reload() } }) { NodeSubEditor(sub: nil).environmentObject(store) }
+        .sheet(item: $editingSub, onDismiss: { refreshRowMeta(); Task { await model.reload() } }) { s in NodeSubEditor(sub: s).environmentObject(store) }
+        .sheet(item: $editingProfile, onDismiss: { refreshRowMeta() }) { p in ProfileSubEditor(profile: p).environmentObject(store) }
         .sheet(isPresented: $showAddRemote, onDismiss: {
             if let m = pendingMessage { pendingMessage = nil; message = m }
             Task { await ProfileInspector.shared.load(); await model.reload() }
@@ -332,6 +340,17 @@ struct NodeManagerView: View {
         }
         .nodeSubDeleteConfirmation($confirmDeleteSub) { s in await nodeSubs.delete(s); await model.reload() }
         .profileDeleteConfirmation($confirmDeleteProfile, store: store)
+    }
+
+    /// r7 OPT-2: what the rows show from disk / defaults, read once per change of the lists.
+    func refreshRowMeta(subs: [NodeSubscription]? = nil, profiles: [Profile]? = nil) {
+        let subs = subs ?? nodeSubs.subs
+        let profiles = profiles ?? store.profiles
+        let fm = FileManager.default
+        let d = Set(subs.filter { fm.fileExists(atPath: $0.cacheURL.path) }.map(\.id))
+        let a = Set((subs.map(\.id) + profiles.map(\.id)).filter { UsageAlerts.rule(for: $0).enabled })
+        if d != downloadedSubs { downloadedSubs = d }
+        if a != alertIDs { alertIDs = a }
     }
 
     /// One subscription refreshed from a swipe / menu: spinner on the row, result in an alert only on failure.
@@ -376,10 +395,8 @@ struct NodeManagerView: View {
     /// The core reloads (when connected), then the offline view and the declared list are read again.
     func applyProviderChange() async {
         // hotfix/sub-disabled-nodes: show the change right away; the core reload below can take a while (provider downloads).
-        if vpn.isConnected {
-            await ProfileInspector.shared.load()
-            await model.reload()
-        }
+        // r7 OPT-4: only the node list here — ProfileInspector.load parses the whole profile and runs once, after the reload.
+        if vpn.isConnected { await model.reload() }
         if vpn.isConnected, let e = await VPNManager.shared.reload() { message = e }
         await ProfileInspector.shared.load()
         await model.reload()
@@ -423,8 +440,8 @@ struct NodeManagerView: View {
                 SubscriptionRowLabel(icon: "tray.full", color: Theme.good, name: sub.name, kind: String(localized: "节点订阅"),
                                      count: src.map(model.count) ?? sub.count ?? 0, info: sub.userInfo, updated: sub.lastUpdated,
                                      error: sub.lastError, updating: nodeSubs.updating.contains(sub.id), disabled: !sub.enabled,
-                                     downloaded: FileManager.default.fileExists(atPath: sub.cacheURL.path),
-                                     alerts: UsageAlerts.rule(for: sub.id).enabled, customIcon: sub.icon)
+                                     downloaded: downloadedSubs.contains(sub.id),
+                                     alerts: alertIDs.contains(sub.id), customIcon: sub.icon)
             }
             .accessibilityIdentifier("nodesub.row." + sub.name)
             // right swipe 更新
@@ -531,7 +548,7 @@ struct NodeManagerView: View {
         let label = SubscriptionRowLabel(icon: "doc.text", color: Theme.accent, name: p.displayName, kind: String(localized: "配置订阅"),
                                          count: count(.profile(p)), info: p.userInfo, updated: p.lastUpdated, error: nil,
                                          updating: store.updating.contains(p.id), disabled: !p.enabled, downloaded: true,
-                                         active: active, alerts: UsageAlerts.rule(for: p.id).enabled)
+                                         active: active, alerts: alertIDs.contains(p.id))
         Group {
             if active, let src = activeProfileSource {
                 NavigationLink {
