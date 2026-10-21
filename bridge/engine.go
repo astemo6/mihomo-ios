@@ -116,12 +116,32 @@ func engineLog(level, msg string) {
 }
 
 // prepareEngine loads engine.json; when anything is enabled it lazily starts the engine and returns
-// the config injector. Nothing is allocated when MitM / rewrite / scripts are all off.
+// the config injector. Nothing is allocated when MitM / rewrite / scripts are all off. The engine change
+// takes effect at once (tests, callers without a core parse); apply() uses planEngine instead.
 func prepareEngine(home string) (func(raw map[string]any), error) {
+	inject, plan, err := planEngine(home)
+	plan.commit()
+	return inject, err
+}
+
+// enginePlan is the engine change a config apply needs, held back until the new core config is live
+// (r7 P2-2): commit after hub.Parse succeeded, rollback when the runtime build or the parse failed.
+// Before, the engine was stopped / reloaded first, so for the seconds a large parse takes — and for good
+// when it failed — the running core still pointed __MITM__ (all port-80 TCP, MitM hosts) at a closed
+// port, or the engine already ran the new rules / tasks beside the old routing.
+type enginePlan struct {
+	commit   func()
+	rollback func()
+}
+
+func noPlan() *enginePlan { return &enginePlan{commit: func() {}, rollback: func() {}} }
+
+// planEngine is prepareEngine with the engine change deferred to the returned plan.
+func planEngine(home string) (func(raw map[string]any), *enginePlan, error) {
 	cfg := mitm.LoadConfig(home)
-	inject, err := prepareEngineWith(home, cfg)
+	inject, plan, err := planEngineWith(home, cfg)
 	if cfg.QUIC != "all" {
-		return inject, err
+		return inject, plan, err
 	}
 	// Block QUIC for all traffic (user setting); works even when the engine is off.
 	return func(raw map[string]any) {
@@ -130,10 +150,34 @@ func prepareEngine(home string) (func(raw map[string]any), error) {
 		}
 		rules, _ := raw["rules"].([]any)
 		raw["rules"] = append([]any{mitm.QUICBlockAllRule}, rules...)
-	}, err
+	}, plan, err
+}
+
+// stopEnginePlan is stopEngine deferred to commit (safe mode).
+func stopEnginePlan() *enginePlan {
+	engMu.Lock()
+	cur := eng
+	engMu.Unlock()
+	return &enginePlan{
+		commit: func() {
+			engMu.Lock()
+			if eng != nil && eng == cur {
+				eng.Stop()
+				eng = nil
+			}
+			engMu.Unlock()
+		},
+		rollback: func() {},
+	}
 }
 
 func prepareEngineWith(home string, cfg *mitm.Config) (func(raw map[string]any), error) {
+	inject, plan, err := planEngineWith(home, cfg)
+	plan.commit()
+	return inject, err
+}
+
+func planEngineWith(home string, cfg *mitm.Config) (func(raw map[string]any), *enginePlan, error) {
 	rs := mitm.Build(home, cfg)
 	needListener := (cfg.MitM && len(rs.Hostnames) > 0) || (cfg.Enabled && len(rs.Rules) > 0)
 	needTasks := cfg.Enabled && (len(rs.Tasks) > 0 || len(rs.Panels) > 0) // cron / event / generic scripts, panels
@@ -141,15 +185,24 @@ func prepareEngineWith(home string, cfg *mitm.Config) (func(raw map[string]any),
 	engMu.Lock()
 	defer engMu.Unlock()
 	if !needListener && !needTasks {
-		if eng != nil {
-			eng.Stop()
-			eng = nil
+		plan := noPlan()
+		if cur := eng; cur != nil {
+			// Stop only once the new config (without __MITM__) is live.
+			plan.commit = func() {
+				engMu.Lock()
+				if eng == cur {
+					eng.Stop()
+					eng = nil
+				}
+				engMu.Unlock()
+			}
 		}
 		if cfg.Enabled && len(rs.CoreRules) > 0 {
-			return coreOnly, nil
+			return coreOnly, plan, nil
 		}
-		return nil, nil
+		return nil, plan, nil
 	}
+	created := false
 	if eng == nil {
 		eng = mitm.New(home, coreDial, engineLog)
 		installNotifier(eng)
@@ -161,21 +214,46 @@ func prepareEngineWith(home string, cfg *mitm.Config) (func(raw map[string]any),
 				log.Infoln("[Script] %s: %s", l.Script, l.Msg)
 			}
 		})
+		created = true
 	}
+	// Starting the listener early is harmless (nothing is steered to it until the new config is live)
+	// and gives the injector its port.
 	if err := eng.Start(); err != nil {
-		eng = nil
-		return nil, fmt.Errorf("引擎启动失败：%w", err)
+		if created {
+			eng = nil
+		}
+		return nil, noPlan(), fmt.Errorf("引擎启动失败：%w", err)
 	}
-	eng.Reload(cfg, rs)
+	cur := eng
+	plan := &enginePlan{
+		commit: func() {
+			engMu.Lock()
+			if eng == cur {
+				eng.Reload(cfg, rs)
+			}
+			engMu.Unlock()
+		},
+		rollback: func() {
+			if !created {
+				return // the old engine keeps its old rules, matching the old core config
+			}
+			engMu.Lock()
+			if eng == cur {
+				eng.Stop()
+				eng = nil
+			}
+			engMu.Unlock()
+		},
+	}
 	if !needListener {
 		// Only task scripts / panels: the engine runs, but no traffic is steered to it.
 		if len(rs.CoreRules) > 0 {
-			return coreOnly, nil
+			return coreOnly, plan, nil
 		}
-		return nil, nil
+		return nil, plan, nil
 	}
 	port := eng.Port()
-	return func(raw map[string]any) { mitm.Inject(raw, port, rs, cfg); addRemoteModuleRules(raw, rs.CoreRules) }, nil
+	return func(raw map[string]any) { mitm.Inject(raw, port, rs, cfg); addRemoteModuleRules(raw, rs.CoreRules) }, plan, nil
 }
 
 // geoLookup backs $utils.geoip / ipasn / ipaso with mihomo's MMDB readers. The readers log.Fatal when

@@ -27,7 +27,8 @@ type Status struct {
 
 func (e *Engine) Status() Status {
 	st := e.state()
-	s := Status{Running: e.ln != nil, Port: e.port, Enabled: st.cfg.Enabled, MitM: st.cfg.MitM, CALoaded: st.ca != nil,
+	port := e.Port()
+	s := Status{Running: port != 0, Port: port, Enabled: st.cfg.Enabled, MitM: st.cfg.MitM, CALoaded: st.ca != nil,
 		Hostnames: st.rs.Hostnames, CoreRules: len(st.rs.CoreRules), Errors: st.rs.Errors, Unsupported: len(st.rs.Unsupported), Pinned: []string{}}
 	for _, r := range st.rs.Rules {
 		if r.Kind == KindScript {

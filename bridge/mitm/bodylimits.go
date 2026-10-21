@@ -102,6 +102,53 @@ func inflateLimited(b []byte, limit int) ([]byte, error) {
 	return readAllLimited(fr, limit)
 }
 
+// decodePrefix decodes the start of a compressed body that may have been cut (the capture keeps only
+// the first captureLimit bytes of the stream), returning up to limit decoded bytes. A truncated stream
+// is fine as long as some output came out (r7 P3-4).
+func decodePrefix(enc string, b []byte, limit int) ([]byte, error) {
+	var r io.Reader
+	switch strings.ToLower(strings.TrimSpace(enc)) {
+	case "gzip", "x-gzip":
+		gr, err := gzip.NewReader(bytes.NewReader(b))
+		if err != nil {
+			return nil, err
+		}
+		r = gr
+	case "deflate":
+		if len(b) > 2 && b[0] == 0x1f && b[1] == 0x8b {
+			gr, err := gzip.NewReader(bytes.NewReader(b))
+			if err != nil {
+				return nil, err
+			}
+			r = gr
+		} else if zr, err := zlib.NewReader(bytes.NewReader(b)); err == nil {
+			r = zr
+		} else {
+			r = flate.NewReader(bytes.NewReader(b))
+		}
+	case "br":
+		r = brotli.NewReader(bytes.NewReader(b))
+	case "zstd":
+		zr, err := zstd.NewReader(bytes.NewReader(b), zstd.WithDecoderLowmem(true), zstd.WithDecoderConcurrency(1), zstd.WithDecoderMaxMemory(uint64(limit)+1<<20))
+		if err != nil {
+			return nil, err
+		}
+		defer zr.Close()
+		r = zr
+	default:
+		return nil, fmt.Errorf("不支持的编码 %s", enc)
+	}
+	buf := make([]byte, limit)
+	n, err := io.ReadFull(r, buf)
+	if n == 0 {
+		if err == nil || err == io.EOF {
+			return []byte{}, nil
+		}
+		return nil, err
+	}
+	return buf[:n], nil
+}
+
 // ---- global body budget ----
 
 // bodyBudgetBytes bounds the body bytes all concurrent flows may hold for rewrites / scripts. With a
@@ -209,6 +256,34 @@ func compileFastRe(p string) *regexp.Regexp {
 		}
 		if c == '$' {
 			return nil
+		}
+	}
+	re, err := regexp.Compile(p)
+	if err != nil {
+		return nil
+	}
+	return re
+}
+
+// compileURLRe is compileFastRe for URL matching only (r7 OPT-1). A URL has no newline, so '$' (end of
+// input, or before a final newline in .NET) means the same as in RE2 and is allowed. Still refused:
+// \b / \B (word boundaries), .NET class subtraction "-[" (RE2 would read a different class), and
+// anything RE2 cannot compile (lookaround, backreferences, \Z …) — those stay on regexp2.
+func compileURLRe(p string) *regexp.Regexp {
+	if p == "" || strings.Contains(p, "-[") {
+		return nil
+	}
+	esc := false
+	for _, c := range p {
+		if esc {
+			if c == 'b' || c == 'B' {
+				return nil
+			}
+			esc = false
+			continue
+		}
+		if c == '\\' {
+			esc = true
 		}
 	}
 	re, err := regexp.Compile(p)

@@ -11,6 +11,7 @@ import (
 	"net/http"
 	"net/http/httputil"
 	"net/url"
+	"os"
 	"path"
 	"strconv"
 	"strings"
@@ -57,6 +58,10 @@ var tinyGIF = []byte{0x47, 0x49, 0x46, 0x38, 0x39, 0x61, 0x01, 0x00, 0x01, 0x00,
 	0x00, 0x00, 0x02, 0x02, 0x44, 0x01, 0x00, 0x3b}
 
 func (r *Rule) match(u string) bool {
+	if r.fre != nil {
+		// r7 OPT-1: RE2 on the string (no []rune copy per rule per request).
+		return r.fre.MatchString(u)
+	}
 	if r.re == nil {
 		return false
 	}
@@ -206,6 +211,9 @@ func (e *Engine) serveHTTP(w http.ResponseWriter, r *http.Request) {
 			continue
 		}
 		ent.Match(rule.label())
+		if e.serveLargeMapLocal(w, rule, ent, capture) {
+			return
+		}
 		body, ctype, err := e.mapLocalData(rule)
 		if err != nil {
 			e.logf("warning", fmt.Sprintf("[MitM] 本地映射数据读取失败：%s", err))
@@ -290,13 +298,9 @@ func (e *Engine) serveHTTP(w http.ResponseWriter, r *http.Request) {
 		r.ContentLength = int64(len(b))
 		r.Header.Set("Content-Length", strconv.Itoa(len(b)))
 	}
-	var respRules []*Rule
 	for _, rule := range rules {
 		if rule.Phase == "response" {
-			if rule.Kind != KindURL && rule.Kind != KindMapLocal && rule.matchReq(u, r) {
-				respRules = append(respRules, rule)
-			}
-			continue
+			continue // matched below against the final URL
 		}
 		switch rule.Kind {
 		case KindHeader:
@@ -329,7 +333,7 @@ func (e *Engine) serveHTTP(w http.ResponseWriter, r *http.Request) {
 			sreq := &ScriptHTTP{URL: u, Method: r.Method, Header: r.Header, Host: r.Host}
 			// review5 P0-1: take the script slot before loading the body, so queued scripts don't
 			// each hold a body while they wait.
-			slot, err := e.scripts.Reserve(rule)
+			slot, err := e.scripts.Reserve(r.Context(), rule)
 			if err != nil {
 				e.Logs.Add(rule.Script.Name, "error", err.Error())
 				ent.Note("脚本错误：" + rule.Script.Name)
@@ -337,15 +341,15 @@ func (e *Engine) serveHTTP(w http.ResponseWriter, r *http.Request) {
 			}
 			if rule.Script.RequiresBody {
 				if !loadBody(scriptBodyLimit(rule.Script)) {
-					slot()
+					slot.Release()
 					e.Logs.Add(rule.Script.Name, "warn", "请求体超过上限，跳过脚本")
 					continue
 				}
 				sreq.Body, sreq.HasBody = reqBody, true
 			}
 			ent.Match(rule.label())
-			res, err := e.scripts.RunReserved(r.Context(), rule, sreq, nil)
-			slot()
+			res, err := e.scripts.RunReserved(r.Context(), slot, rule, sreq, nil)
+			slot.Release()
 			if err != nil {
 				e.Logs.Add(rule.Script.Name, "error", err.Error())
 				ent.Note("脚本错误：" + rule.Script.Name)
@@ -393,6 +397,16 @@ func (e *Engine) serveHTTP(w http.ResponseWriter, r *http.Request) {
 			if res.BodySet {
 				setBody(res.Body)
 			}
+		}
+	}
+
+	// r7 P3-2: response-phase rules are matched once the request phase is over, against the final URL
+	// and headers. Collected inside the loop above, a response rule listed before a URL-changing request
+	// script was matched against the old URL.
+	var respRules []*Rule
+	for _, rule := range rules {
+		if rule.Phase == "response" && rule.Kind != KindURL && rule.Kind != KindMapLocal && rule.matchReq(u, r) {
+			respRules = append(respRules, rule)
 		}
 	}
 
@@ -465,6 +479,10 @@ func (e *Engine) serveHTTP(w http.ResponseWriter, r *http.Request) {
 
 const captureLimit = 32 * 1024
 
+// upstreamDrainMax: an upstream body replaced by a script is read to its end before closing when its
+// announced length is at most this (keeps the HTTP/1.1 connection reusable); longer ones are just closed.
+const upstreamDrainMax = 256 << 10
+
 // validScriptStatus: a final HTTP status a script may set (review6 P2-1). net/http panics on codes outside
 // 100–999 and 1xx is not a final response, so anything else was a 502 「mitm error」.
 func validScriptStatus(code int) bool { return code >= 200 && code <= 999 }
@@ -509,6 +527,22 @@ func (e *Engine) modifyResponse(f *flow, resp *http.Response) error {
 	}()
 	var body []byte
 	loaded, tooBig := false, false
+	// r7 P3-3: the upstream body is closed as soon as something else replaces it (a script's mock body),
+	// after draining a small known-length rest so the upstream connection can be reused. ReverseProxy only
+	// closes the body we hand it, so the original stayed open until the request context ended (one new
+	// upstream TCP+TLS connection per mocked request).
+	upstream := resp.Body
+	upstreamDone := false
+	closeUpstream := func() {
+		if upstreamDone || upstream == nil {
+			return
+		}
+		upstreamDone = true
+		if resp.ContentLength >= 0 && resp.ContentLength <= upstreamDrainMax {
+			_, _ = io.Copy(io.Discard, io.LimitReader(upstream, upstreamDrainMax+1))
+		}
+		_ = upstream.Close()
+	}
 	// review5 P0-1 / P1-1 / P2-2: loaded once with respCap (raw and decoded; MaxBody, or a
 	// max-size=-1 script's MaxScriptBody), under the global body budget; a body that decodes past the
 	// cap is passed through as is. Each caller's limit is compared against the loaded length.
@@ -549,6 +583,7 @@ func (e *Engine) modifyResponse(f *flow, resp *http.Response) error {
 			return false
 		}
 		_ = resp.Body.Close()
+		upstreamDone = true
 		dec, err := decodeBody(resp.Header.Get("Content-Encoding"), b, respCap)
 		if err != nil {
 			// leave the body untouched (never pass on a truncated decode)
@@ -566,9 +601,16 @@ func (e *Engine) modifyResponse(f *flow, resp *http.Response) error {
 		resp.Body = io.NopCloser(bytes.NewReader(body))
 		return len(body) <= limit
 	}
+	// r7 P3-1: a response that carries no body by definition (HEAD, 204, 304) keeps its framing headers:
+	// its Content-Length describes the entity a GET would return (download size probes), not this body.
+	noBody := resp.Request.Method == http.MethodHead || resp.StatusCode == http.StatusNoContent || resp.StatusCode == http.StatusNotModified
 	setBody := func(b []byte) {
 		body = b
 		loaded = true
+		if noBody {
+			return
+		}
+		closeUpstream()
 		resp.Body = io.NopCloser(bytes.NewReader(b))
 		resp.ContentLength = int64(len(b))
 		resp.Header.Set("Content-Length", strconv.Itoa(len(b)))
@@ -599,7 +641,7 @@ func (e *Engine) modifyResponse(f *flow, resp *http.Response) error {
 		case KindScript:
 			sreq := &ScriptHTTP{URL: f.url, Method: resp.Request.Method, Header: resp.Request.Header, Host: resp.Request.Host}
 			sresp := &ScriptHTTP{Status: resp.StatusCode, Header: resp.Header}
-			slot, err := e.scripts.Reserve(rule)
+			slot, err := e.scripts.Reserve(resp.Request.Context(), rule)
 			if err != nil {
 				e.Logs.Add(rule.Script.Name, "error", err.Error())
 				ent.Note("脚本错误：" + rule.Script.Name)
@@ -607,15 +649,15 @@ func (e *Engine) modifyResponse(f *flow, resp *http.Response) error {
 			}
 			if rule.Script.RequiresBody {
 				if !loadBody(scriptBodyLimit(rule.Script)) {
-					slot()
+					slot.Release()
 					e.Logs.Add(rule.Script.Name, "warn", "响应体超过上限或编码不支持，跳过脚本")
 					continue
 				}
 				sresp.Body, sresp.HasBody = body, true
 			}
 			ent.Match(rule.label())
-			res, err := e.scripts.RunReserved(resp.Request.Context(), rule, sreq, sresp)
-			slot()
+			res, err := e.scripts.RunReserved(resp.Request.Context(), slot, rule, sreq, sresp)
+			slot.Release()
 			if err != nil {
 				e.Logs.Add(rule.Script.Name, "error", err.Error())
 				ent.Note("脚本错误：" + rule.Script.Name)
@@ -633,7 +675,9 @@ func (e *Engine) modifyResponse(f *flow, resp *http.Response) error {
 			}
 			if res.Header != nil {
 				resp.Header = res.Header
-				resp.Header.Del("Content-Length")
+				if !noBody {
+					resp.Header.Del("Content-Length")
+				}
 				if loaded && !tooBig {
 					resp.Header.Del("Content-Encoding")
 				}
@@ -954,6 +998,62 @@ func (e *Engine) mapLocalData(rule *Rule) ([]byte, string, error) {
 		b, err := e.res.Get(rule.Data, 86400)
 		return b, guessType(rule.Data, b), err
 	}
+}
+
+// serveLargeMapLocal streams a map-local file of memCacheMax or more from disk (r7 B26). Such files are
+// not kept in the resource memory cache, so every matching request read the whole file (up to 8 MB)
+// into memory outside the body budget; now the response is copied from the file with a small buffer.
+// false: not a large file on disk — the caller serves it from memory as before.
+func (e *Engine) serveLargeMapLocal(w http.ResponseWriter, rule *Rule, ent *Entry, capture bool) bool {
+	if rule.DataType != "" && rule.DataType != "file" || rule.Data == "" {
+		return false
+	}
+	p := rule.Data
+	if isRemote(p) {
+		p = CachePath(e.home, rule.Data)
+	} else {
+		p = e.res.LocalPath(p)
+	}
+	f, err := os.Open(p)
+	if err != nil {
+		return false // not downloaded yet: mapLocalData fetches it
+	}
+	defer f.Close()
+	fi, err := f.Stat()
+	if err != nil || !fi.Mode().IsRegular() || fi.Size() < memCacheMax {
+		return false
+	}
+	if isRemote(rule.Data) {
+		e.res.RefreshIfStale(rule.Data, 86400)
+	}
+	head := make([]byte, min(int64(captureLimit), fi.Size()))
+	n, _ := io.ReadFull(f, head)
+	head = head[:n]
+	if _, err := f.Seek(0, io.SeekStart); err != nil {
+		return false
+	}
+	h := w.Header()
+	for k, v := range rule.RespHeaders {
+		h.Set(k, v)
+	}
+	if h.Get("Content-Type") == "" {
+		h.Set("Content-Type", guessType(rule.Data, head))
+	}
+	h.Del("Content-Encoding")
+	h.Del("Transfer-Encoding")
+	h.Set("Content-Length", strconv.FormatInt(fi.Size(), 10))
+	st := rule.Status
+	if st == 0 {
+		st = 200
+	}
+	w.WriteHeader(st)
+	written, _ := io.Copy(w, io.LimitReader(f, fi.Size()))
+	ent.Local(st, h, nil, false)
+	ent.AddBytes(int(written))
+	if capture {
+		ent.RespBody(head, "")
+	}
+	return true
 }
 
 func guessTextType(s string) string {
