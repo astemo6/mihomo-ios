@@ -60,6 +60,30 @@ final class PolicyModel: ObservableObject {
 
     /// Results of this session's live 测速 (0 = timeout), newest wins over the core's history.
     @Published var liveDelays: [String: Int] = [:]
+    @Published var notice: String?
+
+    /// hotfix/group-test-offline: live groups as a graph (members and the core's `now`), to show which node a member
+    /// group is on.
+    var graph: GroupGraph {
+        var gs: [String: GroupGraph.Group] = [:]
+        for (n, p) in all where p.isGroup {
+            gs[n] = GroupGraph.Group(type: PolicyGroupDisplay.kind(live: p.type), members: p.all ?? [], now: p.now)
+        }
+        let a = all
+        return GroupGraph(groups: gs, isTestable: { a[$0] != nil && a[$0]?.isGroup != true && !GroupGraph.builtins.contains($0) })
+    }
+
+    /// A member group's own measurement (the core dials /proxies/{group}/delay through the node it is on); without
+    /// one yet, the measurement of the node the core has it on. Nodes: their own delay.
+    func displayDelay(_ name: String, graph: GroupGraph) -> Int? {
+        if let d = delay(of: name) { return d }
+        return graph.follow(name).flatMap { delay(of: $0) }
+    }
+
+    func resolution(_ name: String, graph: GroupGraph) -> GroupGraph.Resolution? {
+        guard let n = graph.follow(name) else { return nil }
+        return GroupGraph.Resolution(node: n, delay: displayDelay(name, graph: graph), how: .selected)
+    }
 
     func delay(of name: String) -> Int? {
         if let d = liveDelays[name] { return d }
@@ -103,7 +127,9 @@ final class PolicyModel: ObservableObject {
         defer { testing.remove(group.name) }
         // v0.19.8: members as the running core has them right now (the list on screen can be older).
         let fresh = (try? await ControllerClient.shared.proxies())?[group.name]?.all ?? group.all ?? []
-        let members = fresh.filter { $0 != "DIRECT" && $0 != "REJECT" && $0 != "REJECT-DROP" && $0 != "PASS" && $0 != "COMPATIBLE" }
+        let members = fresh.filter { !GroupGraph.builtins.contains($0) }
+        // hotfix/group-test-offline: say so instead of a tap that does nothing (a group of only DIRECT / REJECT).
+        guard !members.isEmpty else { notice = String(localized: "「\(group.name)」里没有可测速的节点"); return }
         var failure: String?
         do {
             // v0.15.2: bounded concurrency (10 at a time) instead of /group/delay firing every member at once.
@@ -404,10 +430,15 @@ struct PolicyView: View {
     private func snapshotDelays() {
         if vpn.isConnected {
             var d: [String: Int] = [:]
-            for g in model.groups { for m in g.all ?? [] { if let v = model.delay(of: m) { d[m] = v } } }
+            let graph = model.graph
+            for g in model.groups { for m in g.all ?? [] { if let v = model.displayDelay(m, graph: graph) { d[m] = v } } }
             sortDelays = d
         } else {
-            sortDelays = offline.delays
+            // hotfix/group-test-offline: member groups sort by the node they resolve to.
+            var d = offline.delays
+            let graph = offline.graph
+            for name in graph.groups.keys { if let v = offline.displayDelay(name, graph: graph) { d[name] = v } }
+            sortDelays = d
         }
     }
 
@@ -483,7 +514,7 @@ struct PolicyView: View {
                             if vpn.isConnected {
                                 for g in model.groups where g.name != "GLOBAL" { await model.test(g) }
                             } else {
-                                for g in offline.result.groups where g.hidden != true { await offline.test(group: g) }
+                                await offline.test(groups: offline.result.groups.filter { $0.hidden != true })
                             }
                             afterTest()
                         }
@@ -500,6 +531,24 @@ struct PolicyView: View {
             await refreshMovableAsync()
         }
         .modifier(InteractionRunner(request: $interaction))
+        // hotfix/group-test-offline: a 测速 with nothing to dial says so instead of doing nothing.
+        .overlay(alignment: .bottom) {
+            if let n = offline.notice ?? model.notice {
+                Label(n, systemImage: "speedometer")
+                    .font(.footnote.weight(.semibold))
+                    .padding(.horizontal, 14).padding(.vertical, 10)
+                    .background(Capsule().fill(Theme.cardHi))
+                    .overlay(Capsule().stroke(Theme.ink(0.08)))
+                    .padding(.bottom, 16)
+                    .transition(.opacity)
+                    .accessibilityIdentifier("policy.notice")
+                    .task(id: n) {
+                        try? await Task.sleep(nanoseconds: 3_000_000_000)
+                        offline.notice = nil
+                        model.notice = nil
+                    }
+            }
+        }
         // Review 5: mirror only the outbound mode (fires with the current value on appear, then on every change).
         .onReceive(DashboardModel.shared.$mode.removeDuplicates()) { m in if mode != m { mode = m } }
         .onChange(of: sortMode) { _ in snapshotDelays() }
@@ -547,6 +596,7 @@ struct PolicyView: View {
                 if let e = model.error { Text(e).font(.footnote).foregroundStyle(Theme.bad) }
                 TestTargetCaption(live: true)
                 orderHeader
+                let graph = model.graph
                 let liveAuto = model.groups.filter { PolicyGroupDisplay.isAutomatic(PolicyGroupDisplay.kind(live: $0.type)) }
                 GlobalModeHiddenNote(count: PolicyModeFilter.hiddenCount(model.groups, mode: mode, name: { $0.name }, now: { $0.now }))
                 ForEach(GroupOrderRow.arranged(PolicyModeFilter.apply(model.groups, mode: mode, name: { $0.name }, now: { $0.now }), by: dragOrder) { $0.name }) { g in
@@ -564,7 +614,7 @@ struct PolicyView: View {
                                     expanded: binding(g.name),
                                     nodeType: { model.all[$0]?.type },
                                     nodeUDP: { model.all[$0]?.udp == true },
-                                    delay: { model.delay(of: $0) },
+                                    delay: { model.displayDelay($0, graph: graph) },
                                     onTest: { Task { await model.test(g); afterTest() } },
                                     onSelect: { n in Task { await model.select(g, n) } },
                                     smart: smartBinding(d),
@@ -582,7 +632,8 @@ struct PolicyView: View {
                                     interactions: interactions.map { ($0.id, $0.script.name) },
                                     onInteract: { id, node in
                                         if let t = interactions.first(where: { $0.id == id }) { interaction = InteractionRequest(task: t, node: node) }
-                                    })
+                                    },
+                                    resolved: { model.resolution($0, graph: graph) })
                     .onDrop(of: [UTType.text], delegate: dropTarget(g.name))
                   }
                 }
@@ -616,6 +667,7 @@ struct PolicyView: View {
                 } else {
                     let index = offline.nodeIndex
                     let groupNames = Set(offline.result.groups.map(\.name))
+                    let graph = offline.graph
                     let profileGroups = offline.result.groups.filter { $0.hidden != true && $0.name != "GLOBAL" }
                     let all = profileGroups + [offline.globalGroup]
                     let visible = PolicyModeFilter.apply(all, mode: mode, name: { $0.name }, now: { offline.current(of: $0) })
@@ -636,7 +688,7 @@ struct PolicyView: View {
                                             return groupNames.contains(name) ? "group" : nil
                                         },
                                         nodeUDP: { index[$0]?.udp == true },
-                                        delay: { offline.delays[$0] },
+                                        delay: { offline.displayDelay($0, graph: graph) },
                                         onTest: { Task { await offline.test(group: g); afterTest() } },
                                         onSelect: { n in
                                             offline.select(group: g.name, node: n)
@@ -650,7 +702,8 @@ struct PolicyView: View {
                                         onIcon: { iconTarget = IconTarget(name: g.name, profileIcon: g.icon) },
                                         onEdit: { editGroup = EditGroupTarget(name: g.name) },
                                         onTop: topAction(g.name),
-                                        onDrag: dragAction(g.name))
+                                        onDrag: dragAction(g.name),
+                                        resolved: { graph.groups[$0] != nil ? graph.resolve($0, delays: offline.delays) : nil })
                         .onDrop(of: [UTType.text], delegate: dropTarget(g.name))
                       }
                     }
@@ -702,6 +755,18 @@ struct PolicyGroupCard: View {
     /// v0.11: QX interaction scripts (id, name) run on a member with $environment.params = its name.
     var interactions: [(String, String)] = []
     var onInteract: ((String, String) -> Void)? = nil
+    /// hotfix/group-test-offline: for a member that is a group, the node it resolves to (nil = not a group).
+    var resolved: ((String) -> GroupGraph.Resolution?)? = nil
+
+    /// 「→ 节点」 for a selected node, 「最快 节点」 / 「可用 节点」 when the offline page picked it from measurements.
+    static func resolutionText(_ r: GroupGraph.Resolution) -> String {
+        let n = FlagSafe.text(r.node)
+        switch r.how {
+        case .selected: return "→ " + n
+        case .fastest: return String(localized: "最快 \(n)")
+        case .firstAvailable: return String(localized: "可用 \(n)")
+        }
+    }
 
     static let unprobeable: Set<String> = ["REJECT", "REJECT-DROP", "PASS", "COMPATIBLE"]
 
@@ -752,6 +817,10 @@ struct PolicyGroupCard: View {
                     }
                     HStack(spacing: 6) {
                         Text(verbatim: FlagSafe.text(group.now ?? "—")).font(.caption).foregroundStyle(.secondary).lineLimit(1)
+                        if let n = group.now, let r = resolved?(n), r.node != n {
+                            Text(verbatim: Self.resolutionText(r)).font(.caption).foregroundStyle(.tertiary).lineLimit(1)
+                                .accessibilityIdentifier("policy.via." + group.name)
+                        }
                         if let n = group.now, let d = delay(n) {
                             Text(Theme.delayText(d))
                                 .font(.caption2.monospacedDigit())
@@ -773,6 +842,8 @@ struct PolicyGroupCard: View {
                     }
                 }
                 .buttonStyle(.plain)
+                .accessibilityLabel(Text("测速"))
+                .accessibilityIdentifier("policy.test." + group.name)
                 Image(systemName: "chevron.down")
                     .font(.caption.bold())
                     .foregroundStyle(.secondary)
@@ -849,7 +920,9 @@ struct PolicyGroupCard: View {
                                  selected: group.now == name,
                                  enabled: group.selectable || onPin != nil,
                                  pinned: group.pinned == name,
-                                 badge: badge?(name))
+                                 badge: badge?(name),
+                                 via: resolved?(name).map(Self.resolutionText),
+                                 axID: "policy.member." + group.name + "." + name)
                         .onTapGesture {
                             if group.selectable { onSelect(name) }
                             else if let onPin { onPin(group.pinned == name ? nil : name) }
@@ -895,6 +968,10 @@ struct NodeCell: View {
     let enabled: Bool
     var pinned: Bool = false
     var badge: (ok: Int, total: Int)? = nil
+    /// hotfix/group-test-offline: a member group's current node (「→ 节点」 / 「最快 节点」), shown instead of 「策略组」.
+    var via: String? = nil
+    /// UI tests: `<axID>.delay` / `<axID>.via` on the delay and current-node texts.
+    var axID: String? = nil
 
     var body: some View {
         VStack(alignment: .leading, spacing: 6) {
@@ -903,7 +980,12 @@ struct NodeCell: View {
                 .lineLimit(2)
                 .frame(maxWidth: .infinity, minHeight: 34, alignment: .topLeading)
             HStack {
-                if let t = type {
+                if let via {
+                    // Live member groups carry the core type (Selector / URLTest …), offline ones "group": both show
+                    // the node they are on instead.
+                    Text(verbatim: via).scaledFont(9, weight: .bold).foregroundStyle(.secondary).lineLimit(1)
+                        .accessibilityIdentifier((axID ?? "node") + ".via")
+                } else if let t = type {
                     if t == "group" {
                         Text("策略组").scaledFont(9, weight: .bold).foregroundStyle(.secondary)
                     } else {
@@ -922,6 +1004,7 @@ struct NodeCell: View {
                 Text(Theme.delayText(delay))
                     .scaledFont(11, weight: .semibold, monospacedDigit: true)
                     .foregroundStyle(Theme.delayColor(delay))
+                    .accessibilityIdentifier((axID ?? "node") + ".delay")
             }
         }
         .padding(10)
