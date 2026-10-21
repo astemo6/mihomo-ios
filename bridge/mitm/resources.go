@@ -198,4 +198,19 @@ func (r *Resources) Prefetch(rs *Ruleset) {
 			r.e.logf("warning", "[MitM] "+err.Error())
 		}
 	}
+	// r7 P3-6: cron / event / generic (panel) scripts too — on a first run they were downloaded inside
+	// the tunnel and, with no file to size yet, compiled outside the large-bundle lock.
+	for _, tk := range rs.Tasks {
+		if tk == nil || tk.Script == nil {
+			continue
+		}
+		p := tk.Script.Path
+		if p == "" || !isRemote(p) || seen[p] {
+			continue
+		}
+		seen[p] = true
+		if _, err := r.Get(p, tk.Script.UpdateInterval); err != nil {
+			r.e.logf("warning", "[MitM] "+err.Error())
+		}
+	}
 }

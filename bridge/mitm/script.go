@@ -274,8 +274,19 @@ func (s *ScriptRunner) scriptSize(sc *Script) int64 {
 	return 0
 }
 
-// knownSize is the source size used for the large-bundle decision.
-func (s *ScriptRunner) knownSize(sc *Script) int64 { return s.scriptSize(sc) }
+// knownSize is the source size used for the large-bundle decision. r7 P3-6: a remote script that is
+// not downloaded yet sized as 0, so its first run compiled a 1.3 MB bundle outside bigSem; it is
+// downloaded (into the cache, deduplicated per URL) before deciding.
+func (s *ScriptRunner) knownSize(sc *Script) int64 {
+	if n := s.scriptSize(sc); n > 0 || sc.Source != nil || !isRemote(sc.Path) {
+		return n
+	}
+	b, err := s.e.res.Get(sc.Path, sc.UpdateInterval)
+	if err != nil {
+		return 0 // program() reports the download error
+	}
+	return int64(len(b))
+}
 
 // touchLarge records a run of a large program and schedules its release after largeProgIdle.
 func (s *ScriptRunner) touchLarge(key string) {

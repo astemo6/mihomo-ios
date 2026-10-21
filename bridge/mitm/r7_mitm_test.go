@@ -10,6 +10,7 @@ import (
 	"encoding/hex"
 	"encoding/json"
 	"fmt"
+	"io"
 	"net"
 	"net/http"
 	"net/http/httptest"
@@ -250,5 +251,38 @@ func TestR7StoreFailedFlushKeepsPending(t *testing.T) {
 	raw, _ := os.ReadFile(filepath.Join(dir, "store.json"))
 	if !strings.Contains(string(raw), `"k":"v1"`) {
 		t.Fatalf("pending change lost after a failed flush: %s", raw)
+	}
+}
+
+// P3-6: a remote task / panel script that is not downloaded yet is sized after downloading (so its first
+// run waits for the large-bundle lock), and Prefetch downloads task scripts too.
+func TestR7TaskScriptsPrefetchedAndSized(t *testing.T) {
+	big := "var x = 1;\n" + strings.Repeat("// pad pad pad pad pad pad pad pad pad pad pad pad pad pad pad pad\n", (largeProgSource/66)+10) + "$done({});"
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		_, _ = io.WriteString(w, big)
+	}))
+	defer srv.Close()
+	addr := srv.Listener.Addr().String()
+	dial := func(ctx context.Context, network, a, policy string) (net.Conn, error) {
+		var d net.Dialer
+		return d.DialContext(ctx, "tcp", addr)
+	}
+	home := t.TempDir()
+	e := New(home, dial, nil)
+	tk := &Task{ID: "t1", Kind: "generic", Script: &Script{Name: "big", Path: "http://s.test/first.js", Timeout: 1}}
+	e.scripts.bigSem <- struct{}{} // another large bundle is running
+	_, err := e.scripts.RunTask(tk, nil, nil)
+	<-e.scripts.bigSem
+	if err == nil || !strings.Contains(err.Error(), "排队超时") {
+		t.Fatalf("first run of an undownloaded large task script did not wait for the large-bundle lock: %v", err)
+	}
+	if _, err := os.Stat(CachePath(home, tk.Script.Path)); err != nil {
+		t.Fatalf("not cached: %v", err)
+	}
+
+	rs := &Ruleset{Tasks: []*Task{{ID: "t2", Kind: "cron", Script: &Script{Name: "c", Path: "http://s.test/cron.js"}}}}
+	e.res.Prefetch(rs)
+	if _, err := os.Stat(CachePath(home, "http://s.test/cron.js")); err != nil {
+		t.Fatalf("Prefetch skipped the task script: %v", err)
 	}
 }
