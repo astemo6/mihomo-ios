@@ -37,7 +37,12 @@ enum PolicyChainText {
     static let separator = " › "
 
     static func text(_ c: GroupGraph.Chain) -> String {
-        guard !c.hops.isEmpty else { return "—" }
+        parts(c).joined(separator: separator)
+    }
+
+    /// The display hops of `text(_:)` one by one (feat/egern-style ChainLine keeps the last one visible).
+    static func parts(_ c: GroupGraph.Chain) -> [String] {
+        guard !c.hops.isEmpty else { return ["—"] }
         var parts = c.hops.dropLast().map { FlagSafe.text($0) }
         let last = c.hops[c.hops.count - 1]
         let shown = FlagSafe.text(NodeFlag.decorate(last))
@@ -47,6 +52,6 @@ enum PolicyChainText {
         case .firstAvailable: parts.append(String(localized: "可用 \(shown)"))
         }
         if c.truncated || c.looped { parts.append("…") }
-        return parts.joined(separator: separator)
+        return parts
     }
 }
