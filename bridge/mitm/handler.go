@@ -566,9 +566,15 @@ func (e *Engine) modifyResponse(f *flow, resp *http.Response) error {
 		resp.Body = io.NopCloser(bytes.NewReader(body))
 		return len(body) <= limit
 	}
+	// r7 P3-1: a response that carries no body by definition (HEAD, 204, 304) keeps its framing headers:
+	// its Content-Length describes the entity a GET would return (download size probes), not this body.
+	noBody := resp.Request.Method == http.MethodHead || resp.StatusCode == http.StatusNoContent || resp.StatusCode == http.StatusNotModified
 	setBody := func(b []byte) {
 		body = b
 		loaded = true
+		if noBody {
+			return
+		}
 		resp.Body = io.NopCloser(bytes.NewReader(b))
 		resp.ContentLength = int64(len(b))
 		resp.Header.Set("Content-Length", strconv.Itoa(len(b)))
@@ -633,7 +639,9 @@ func (e *Engine) modifyResponse(f *flow, resp *http.Response) error {
 			}
 			if res.Header != nil {
 				resp.Header = res.Header
-				resp.Header.Del("Content-Length")
+				if !noBody {
+					resp.Header.Del("Content-Length")
+				}
 				if loaded && !tooBig {
 					resp.Header.Del("Content-Encoding")
 				}

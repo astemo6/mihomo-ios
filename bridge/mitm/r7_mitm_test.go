@@ -4,6 +4,7 @@ package mitm
 
 import (
 	"bytes"
+	"net/http"
 	"strings"
 	"sync"
 	"testing"
@@ -62,5 +63,31 @@ func TestR7EgernBodyRewriteFast(t *testing.T) {
 	}
 	if bytes.Contains(out, []byte(`"ad":true`)) || !bytes.Contains(out, []byte(`"ad":false`)) {
 		t.Fatal("not rewritten")
+	}
+}
+
+// P3-1: HEAD through a requires-body response script keeps the upstream Content-Length.
+func TestR7HeadKeepsContentLength(t *testing.T) {
+	cfg := &Config{Enabled: true, MitM: true, Hostnames: []string{"api.test.com"}, Scripts: items(
+		`s = type=http-response,pattern=^https://api\.test\.com/h,requires-body=1,script-path=s.js`)}
+	h := newHarness(t, cfg, map[string]string{"s.js": `$done({headers: $response.headers});`})
+	h.up.Config.Handler = http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Length", "12345")
+		if r.Method != "HEAD" {
+			_, _ = w.Write(make([]byte, 12345))
+		}
+	})
+	req, _ := http.NewRequest("HEAD", "https://api.test.com/h", nil)
+	resp, err := h.client.Do(req)
+	if err != nil {
+		t.Fatal(err)
+	}
+	resp.Body.Close()
+	if cl := resp.Header.Get("Content-Length"); cl != "12345" {
+		t.Fatalf("HEAD Content-Length = %q, want 12345", cl)
+	}
+	resp, body := h.get("https://api.test.com/h")
+	if len(body) != 12345 || resp.Header.Get("Content-Length") != "12345" {
+		t.Fatalf("GET: %d bytes, Content-Length %q", len(body), resp.Header.Get("Content-Length"))
 	}
 }
