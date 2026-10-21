@@ -499,3 +499,26 @@ $done({body: JSON.stringify(r)});`
 		t.Fatalf("btoa: %+v", r)
 	}
 }
+
+// B28: $environment.language comes from engine.json's language (default zh-Hans).
+func TestR7EnvironmentLanguage(t *testing.T) {
+	code := `$done({body: $environment.language});`
+	home := t.TempDir()
+	out := DebugRun(home, DebugInput{Code: code, Type: "http-request", Request: &DebugHTTP{URL: "https://a.test/"}}, nil)
+	if out.Result == nil || out.Result.Body != "zh-Hans" {
+		t.Fatalf("default: %+v", out)
+	}
+	_ = os.MkdirAll(EngineDir(home), 0o755)
+	_ = os.WriteFile(filepath.Join(EngineDir(home), "engine.json"), []byte(`{"enabled":true,"language":"en"}`), 0o644)
+	out = DebugRun(home, DebugInput{Code: code, Type: "http-request", Request: &DebugHTTP{URL: "https://a.test/"}}, nil)
+	if out.Result == nil || out.Result.Body != "en" {
+		t.Fatalf("debug run: %+v", out)
+	}
+	// tunnel engine: from the loaded config
+	cfg := &Config{Enabled: true, MitM: true, Hostnames: []string{"api.test.com"}, Language: "en",
+		Scripts: items(`l = type=http-request,pattern=^https://api\.test\.com/lang,script-path=l.js`)}
+	h := newHarness(t, cfg, map[string]string{"l.js": `$done({response: {status: 200, body: $environment.language}});`})
+	if _, body := h.get("https://api.test.com/lang"); body != "en" {
+		t.Fatalf("engine: %q", body)
+	}
+}

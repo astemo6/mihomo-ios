@@ -127,6 +127,8 @@ func DebugRun(home string, in DebugInput, dial DialFunc) (out DebugOutput) {
 		dial = directDial
 	}
 	e := New(home, dial, func(string, string) {})
+	// r7 B28: the app's UI language from engine.json, as in the tunnel.
+	e.st.Store(&state{cfg: &Config{Language: LoadConfig(home).Language}, rs: &Ruleset{}, hosts: NewHostMatcher(nil)})
 	defer func() { _ = e.Store.Flush() }() // v0.19.9: store writes are coalesced; the run's writes land now
 	name := in.Name
 	if name == "" {

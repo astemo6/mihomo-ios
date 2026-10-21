@@ -946,7 +946,11 @@ func (rc *runCtx) installCommon(set func(string, any)) {
 	env := rt.NewObject()
 	_ = env.Set("surge-version", "5.20.0")
 	_ = env.Set("surge-build", "3000")
-	_ = env.Set("language", "zh-Hans")
+	lang := "zh-Hans"
+	if st := rc.e.st.Load(); st != nil {
+		lang = st.cfg.scriptLanguage()
+	}
+	_ = env.Set("language", lang)
 	_ = env.Set("system", "iOS")
 	_ = env.Set("mihomo-ios", true)
 	set("$environment", env)
