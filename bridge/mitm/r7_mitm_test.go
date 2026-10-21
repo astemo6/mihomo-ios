@@ -481,3 +481,21 @@ func TestR7LargeMapLocalStreamed(t *testing.T) {
 		t.Fatalf("3 requests allocated %d KB for a %d KB file (read into memory each time?)", d>>10, len(payload)>>10)
 	}
 }
+
+// B27: btoa throws InvalidCharacterError above U+00FF; Latin-1 input still encodes.
+func TestR7BtoaRejectsNonLatin1(t *testing.T) {
+	code := `let r = {latin: btoa("h\u00e9llo\u00ff")};
+try { btoa("中"); r.err = "none" } catch (e) { r.err = e.name }
+$done({body: JSON.stringify(r)});`
+	out := DebugRun(t.TempDir(), DebugInput{Code: code, Type: "http-request", Request: &DebugHTTP{URL: "https://a.test/"}}, nil)
+	if !out.OK || out.Result == nil {
+		t.Fatalf("run: %+v", out)
+	}
+	var r struct{ Latin, Err string }
+	if err := json.Unmarshal([]byte(out.Result.Body), &r); err != nil {
+		t.Fatal(err)
+	}
+	if r.Latin != "aOlsbG//" || r.Err != "InvalidCharacterError" {
+		t.Fatalf("btoa: %+v", r)
+	}
+}

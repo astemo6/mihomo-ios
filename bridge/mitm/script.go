@@ -1149,6 +1149,12 @@ func (rc *runCtx) installCommon(set func(string, any)) {
 		s := call.Argument(0).String()
 		b := make([]byte, 0, len(s))
 		for _, r := range s {
+			if r > 0xFF {
+				// r7 B27: browsers / JSC throw InvalidCharacterError; byte(r) silently produced wrong output.
+				ex := rt.NewTypeError("Failed to execute 'btoa': The string to be encoded contains characters outside of the Latin1 range.")
+				_ = ex.Set("name", "InvalidCharacterError")
+				panic(ex)
+			}
 			b = append(b, byte(r))
 		}
 		return rt.ToValue(base64.StdEncoding.EncodeToString(b))
