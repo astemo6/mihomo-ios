@@ -406,6 +406,8 @@ struct YAMLEditorView: View {
     @State private var check: ProfileCheckResult?
     @State private var checking = false
     @State private var checkTask: Task<Void, Never>?
+    /// B22: the newest check; an older (cancelled) one never leaves the spinner on, the newest always clears it.
+    @State private var checkGen = 0
     @State private var scrollToken = 0
     @State private var confirmDiscard = false
     @State private var share: ShareItem?
@@ -543,10 +545,15 @@ struct YAMLEditorView: View {
 
     func scheduleCheck(delay: UInt64) {
         checkTask?.cancel()
+        checkGen &+= 1
+        let gen = checkGen
         let t = text
         let path = profile?.fileURL.path ?? AppShared.homeURL.appendingPathComponent("new-profile.yaml").path
         let home = AppShared.homeURL.path
         checkTask = Task {
+            // B22: cancelled mid-check with no newer check (page closed, or cancelled by hand) used to return with
+            // `checking` still true — a spinner that never stopped.
+            defer { if gen == checkGen { checking = false } }
             if delay > 0 { try? await Task.sleep(nanoseconds: delay) }
             guard !Task.isCancelled else { return }
             checking = true
