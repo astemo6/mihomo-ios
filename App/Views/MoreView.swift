@@ -800,7 +800,10 @@ struct AppIconView: View {
         guard name != current else { return }
         UIApplication.shared.setAlternateIconName(name) { err in
             DispatchQueue.main.async {
-                if let err { error = err.localizedDescription } else { current = name; error = nil }
+                if let err {
+                    let ns = err as NSError
+                    error = "\(ns.localizedDescription) (\(ns.domain) \(ns.code))"
+                } else { current = name; error = nil }
             }
         }
     }

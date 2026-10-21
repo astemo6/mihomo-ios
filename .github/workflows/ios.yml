@@ -316,6 +316,8 @@ jobs:
           # Launch-crash guards (install name, rpaths, system-only deps, minos, one Go runtime per process, framework
           # Info.plist, signatures; static IPAs still static) + the size report of BOTH variants for the step summary.
           python3 scripts/shared_check.py "$IPA_SHARED" "$IPA" --summary "$GITHUB_STEP_SUMMARY"
+          # Alternate icons (夜航 / 晴空) present in BOTH IPAs: Info.plist CFBundleAlternateIcons + Assets.car renditions.
+          python3 scripts/icon_check.py "$IPA" "$IPA_SHARED"
 
       # Re-sign check: a real (self-signed, trusted for code signing) identity signs the shared-core app the way
       # one-profile re-signers do — framework without entitlements, then extension and app with theirs.
