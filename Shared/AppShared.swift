@@ -471,7 +471,10 @@ struct CoreOverrides: Codable, Equatable {
         }
         // 2) the app's Keychain copy fills what is still missing (reinstall: the container is new, the Keychain is not)
         var kcSecret: String?, kcLan: String?, kcUsers: [String: String]?
-        if useKeychain {
+        // Only when secrets.json is missing (reinstall, first start of this build) or has no secret: the Keychain is
+        // not read on every load (load() runs on many UI paths).
+        let readKeychain = useKeychain && (stored == nil || sec.secret.isEmpty)
+        if readKeychain {
             kcSecret = Keychain.read(Keychain.controllerSecretAccount)
             kcLan = Keychain.read(Keychain.lanSharePasswordAccount)
             kcUsers = Keychain.read(Keychain.lanUsersAccount).flatMap { try? JSONDecoder().decode([String: String].self, from: Data($0.utf8)) }
@@ -484,7 +487,9 @@ struct CoreOverrides: Codable, Equatable {
         // Persist: secrets first, then the stripped overrides.json, so a reader never sees a value in neither file.
         if sec != stored { sec.write(dir: storeDir) }
         if jsonCarriesSecrets { o.writePublic() }
-        if useKeychain { sec.mirrorToKeychain(secret: kcSecret, lan: kcLan, users: kcUsers) }
+        if useKeychain && sec != stored {
+            if readKeychain { sec.mirrorToKeychain(secret: kcSecret, lan: kcLan, users: kcUsers) } else { sec.mirrorToKeychain() }
+        }
         o.mergeBase = MergeBase(o.jsonObject())
         return o
     }
@@ -549,9 +554,11 @@ struct CoreOverrides: Codable, Equatable {
                 }
             }
             let sec = out.secrets
-            if sec != CoreSecrets.read(dir: Self.storeDir) { sec.write(dir: Self.storeDir) }
+            if sec != CoreSecrets.read(dir: Self.storeDir) {
+                sec.write(dir: Self.storeDir)
+                if Self.useKeychain { sec.mirrorToKeychain() }
+            }
             out.writePublic()
-            if Self.useKeychain { sec.mirrorToKeychain() }
             base.dict = out.jsonObject() // later saves of this value (and its copies) merge against what was written
         }
     }
