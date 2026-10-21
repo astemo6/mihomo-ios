@@ -74,20 +74,19 @@ struct LANDetailView: View {
 
     var networkSection: some View {
         Section {
-            // v0.19.8: the tags wrapped inside the value (「计费」 clipped, 「网络」 low in a tall grey box). One line each;
-            // when the row is too narrow (large text) they go under the value.
-            LabeledContent("网络类型") {
-                ViewThatFits(in: .horizontal) {
-                    HStack(spacing: 6) {
-                        Text(verbatim: typeText).lineLimit(1)
-                        tags
-                    }
-                    VStack(alignment: .trailing, spacing: 4) {
-                        Text(verbatim: typeText)
-                        HStack(spacing: 6) { tags }
-                    }
-                }
+            // v0.19.14: one plain row like 网关 / 路由器. The v0.19.8 ViewThatFits with capsule tags inside
+            // LabeledContent's value slot still rendered as a stray grey box (「网络」 low, 「计费」 clipped) on device.
+            // The tags are now part of a single Text (no background, no nested stacks), so the row keeps the
+            // standard height and the value stays right-aligned and vertically centred.
+            HStack(alignment: .center, spacing: 12) {
+                Text("网络类型").layoutPriority(1)
+                Spacer(minLength: 8)
+                typeValue
+                    .lineLimit(1)
+                    .minimumScaleFactor(0.8)
+                    .multilineTextAlignment(.trailing)
             }
+            .accessibilityElement(children: .combine)
             .accessibilityIdentifier("lan.type")
             if info.pathType == "wifi" || info.interfaces.contains(where: { $0.name == "en0" }) {
                 LabeledContent("Wi-Fi 名称") {
@@ -104,17 +103,12 @@ struct LANDetailView: View {
         .listRowBackground(Theme.card)
     }
 
-    @ViewBuilder var tags: some View {
-        if info.expensive { tag("计费网络") }
-        if info.constrained { tag("低数据模式") }
-    }
-
-    func tag(_ t: LocalizedStringKey) -> some View {
-        Text(t).font(.caption2.weight(.semibold))
-            .lineLimit(1).fixedSize()
-            .padding(.horizontal, 6).padding(.vertical, 2)
-            .background(Capsule().fill(Theme.warn.opacity(0.18)))
-            .foregroundStyle(Theme.warn)
+    /// 蜂窝网络 · 计费网络 · 低数据模式 as one Text (value colour, tags in the warning colour).
+    var typeValue: Text {
+        var t = Text(verbatim: typeText).foregroundColor(.secondary)
+        if info.expensive { t = t + Text(verbatim: " · ").foregroundColor(.secondary) + Text("计费网络").font(.footnote.weight(.semibold)).foregroundColor(Theme.warn) }
+        if info.constrained { t = t + Text(verbatim: " · ").foregroundColor(.secondary) + Text("低数据模式").font(.footnote.weight(.semibold)).foregroundColor(Theme.warn) }
+        return t
     }
 
     var interfacesSection: some View {
@@ -251,5 +245,5 @@ struct LANDetailView: View {
     static let demo = LocalNetworkInfo(
         interfaces: [LocalInterface(name: "en0", ipv4: ["192.0.2.23"], ipv6: ["fe80::1c2b:3a4d:5e6f:7081"], subnet: "192.0.2.0/24"),
                      LocalInterface(name: "pdp_ip0", ipv4: ["198.51.100.77"], subnet: nil)],
-        gateway: "192.0.2.1", gatewayGuessed: false, dns: ["192.0.2.1", "2001:db8::53"], pathType: "wifi", expensive: false, constrained: false)
+        gateway: "192.0.2.1", gatewayGuessed: false, dns: ["192.0.2.1", "2001:db8::53"], pathType: "wifi", expensive: true, constrained: false)
 }
