@@ -3,7 +3,7 @@ import Libmihomo
 
 /// v0.16 全部重写规则: every rewrite / script rule from 本地模块 and each imported module in one searchable
 /// list (type, phase, description, source module). Disabled ones (switch off, module off, engine off) are dimmed.
-/// Reached from 模块与资源 and 本地模块; read-only, a row opens its module.
+/// Reached from 更多 → 模块 only (feat/more-dedup); read-only, a row opens its module.
 struct AllRewritesView: View {
     @ObservedObject private var store = EngineStore.shared
     @State private var search = ""

@@ -87477,6 +87477,776 @@
           }
         }
       }
+    },
+    "我的": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Mine"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "マイ"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "내 항목"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Мои"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "我的"
+          }
+        }
+      }
+    },
+    "浏览": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Browse"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ブラウズ"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "둘러보기"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Обзор"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "瀏覽"
+          }
+        }
+      }
+    },
+    "我的重写": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "My Rewrites"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "マイ書き換え"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "내 재작성"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Мои перезаписи"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "我的重寫"
+          }
+        }
+      }
+    },
+    "配置里的规则集": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Profile Rule Sets"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "プロファイルのルールセット"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "프로파일 규칙 세트"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Наборы правил профиля"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "配置裡的規則集"
+          }
+        }
+      }
+    },
+    "定时 · 网络变化 · 手动运行": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Scheduled · Network change · Manual"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "定期 · ネットワーク変更 · 手動実行"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "예약 · 네트워크 변경 · 수동 실행"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "По расписанию · смена сети · вручную"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "定時 · 網路變化 · 手動執行"
+          }
+        }
+      }
+    },
+    "rule-providers": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "rule-providers"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "rule-providers"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "rule-providers"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "rule-providers"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "rule-providers"
+          }
+        }
+      }
+    },
+    "解密与数据": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Decryption & Data"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "復号とデータ"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "복호화 및 데이터"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Расшифровка и данные"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "解密與資料"
+          }
+        }
+      }
+    },
+    "重写、脚本、定时任务和规则集都在「更多 → 模块」；模块里的重写和脚本要处理 HTTPS 请求时需要在这里开启解密。": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Rewrites, scripts, scheduled tasks and rule sets are all under More → Modules. Turn on decryption here when module rewrites and scripts need to handle HTTPS requests."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "書き換え、スクリプト、定期タスク、ルールセットはすべて「その他 → モジュール」にあります。モジュールの書き換えやスクリプトで HTTPS リクエストを扱うには、ここで復号をオンにします。"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "재작성, 스크립트, 예약 작업, 규칙 세트는 모두 「더 보기 → 모듈」에 있습니다. 모듈의 재작성과 스크립트가 HTTPS 요청을 처리하려면 여기서 복호화를 켜세요."
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Перезаписи, скрипты, задания по расписанию и наборы правил — в «Ещё → Модули». Включите здесь расшифровку, если перезаписям и скриптам модулей нужно обрабатывать HTTPS-запросы."
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "重寫、腳本、定時任務和規則集都在「更多 → 模組」；模組裡的重寫和腳本要處理 HTTPS 請求時需要在這裡開啟解密。"
+          }
+        }
+      }
+    },
+    "重写 · 脚本 · 定时任务 · 规则集": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Rewrites · Scripts · Tasks · Rule Sets"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "書き換え · スクリプト · 定期タスク · ルールセット"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "재작성 · 스크립트 · 예약 작업 · 규칙 세트"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Перезапись · скрипты · задания · наборы правил"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "重寫 · 腳本 · 定時任務 · 規則集"
+          }
+        }
+      }
+    },
+    "连接方式 · DNS · MitM · 内核": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Connection · DNS · MitM · Core"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "接続方法 · DNS · MitM · コア"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "연결 방식 · DNS · MitM · 코어"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Подключение · DNS · MitM · ядро"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "連線方式 · DNS · MitM · 核心"
+          }
+        }
+      }
+    },
+    "重写与脚本已关闭，这里的规则暂不生效。": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Rewrites and scripts are off; these rules don't apply for now."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "書き換えとスクリプトはオフです。ここのルールは現在適用されません。"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "재작성과 스크립트가 꺼져 있어 여기의 규칙은 지금 적용되지 않습니다."
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Перезапись и скрипты выключены — эти правила сейчас не действуют."
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "重寫與腳本已關閉，這裡的規則暫不生效。"
+          }
+        }
+      }
+    },
+    "重写与脚本已开启（在「模块」页顶部开关）": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Rewrites and scripts are on (switch at the top of Modules)"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "書き換えとスクリプトはオン（「モジュール」上部で切り替え）"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "재작성과 스크립트 켜짐(「모듈」 상단에서 전환)"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Перезапись и скрипты включены (переключатель вверху «Модулей»)"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "重寫與腳本已開啟（在「模組」頁頂部開關）"
+          }
+        }
+      }
+    },
+    "当前配置没有规则集": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "This profile has no rule sets"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "このプロファイルにはルールセットがありません"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "이 프로파일에는 규칙 세트가 없습니다"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "В этом профиле нет наборов правил"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "當前配置沒有規則集"
+          }
+        }
+      }
+    },
+    "自己添加的远程规则集在「模块」页的规则集里。": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Remote rule sets you added yourself are under Rule Sets on the Modules page."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "自分で追加したリモートルールセットは「モジュール」のルールセットにあります。"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "직접 추가한 원격 규칙 세트는 「모듈」 페이지의 규칙 세트에 있습니다."
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Добавленные вами удалённые наборы правил — в разделе «Наборы правил» на странице «Модули»."
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "自己新增的遠端規則集在「模組」頁的規則集裡。"
+          }
+        }
+      }
+    },
+    "连接一次，或在「节点与订阅」里右滑更新后显示节点。": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Nodes appear after connecting once, or after swiping right to update in Nodes & Subscriptions."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "一度接続するか、「ノードと購読」で右スワイプして更新するとノードが表示されます。"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "한 번 연결하거나 「노드 및 구독」에서 오른쪽으로 밀어 업데이트하면 노드가 표시됩니다."
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Узлы появятся после первого подключения или после обновления смахиванием вправо в «Узлах и подписках»."
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "連線一次，或在「節點與訂閱」裡右滑更新後顯示節點。"
+          }
+        }
+      }
+    },
+    "脚本引擎未运行：先在「更多 → 模块」开启重写与脚本，再重新连接。": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "The script engine isn't running: turn on rewrites and scripts in More → Modules, then reconnect."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "スクリプトエンジンが動いていません。「その他 → モジュール」で書き換えとスクリプトをオンにしてから再接続してください。"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "스크립트 엔진이 실행 중이 아닙니다. 「더 보기 → 모듈」에서 재작성과 스크립트를 켠 뒤 다시 연결하세요."
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Движок скриптов не запущен: включите перезапись и скрипты в «Ещё → Модули» и подключитесь снова."
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "腳本引擎未執行：先在「更多 → 模組」開啟重寫與腳本，再重新連線。"
+          }
+        }
+      }
+    },
+    "这是一个脚本链接：请在 更多 → 模块 → 脚本 中添加脚本规则，或导入引用它的模块": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "This is a script link: add a script rule in More → Modules → Scripts, or import a module that uses it"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "これはスクリプトのリンクです。「その他 → モジュール → スクリプト」でスクリプトルールを追加するか、これを参照するモジュールを読み込んでください"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "스크립트 링크입니다. 「더 보기 → 모듈 → 스크립트」에서 스크립트 규칙을 추가하거나 이를 참조하는 모듈을 가져오세요"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Это ссылка на скрипт: добавьте правило скрипта в «Ещё → Модули → Скрипты» или импортируйте модуль, который его использует"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "這是一個腳本連結：請在 更多 → 模組 → 腳本 中新增腳本規則，或匯入引用它的模組"
+          }
+        }
+      }
+    },
+    "（%lld 个下载失败，可在「更多 → 模块」中更新）\n": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": " (%lld failed to download; update them in More → Modules)\n"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "（%lld 件のダウンロードに失敗。「その他 → モジュール」で更新できます）\n"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": " (%lld개 다운로드 실패, 「더 보기 → 모듈」에서 업데이트 가능)\n"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": " (не загружено: %lld; обновите в «Ещё → Модули»)\n"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "（%lld 個下載失敗，可在「更多 → 模組」中更新）\n"
+          }
+        }
+      }
+    },
+    "\n规则集 / 节点集：%lld 个已下载，%lld 个失败（规则集在「更多 → 模块 → 配置里的规则集」、节点集在「节点与订阅」中重试）": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "\nRule sets / node sets: %lld downloaded, %lld failed (retry rule sets in More → Modules → Profile Rule Sets, node sets in Nodes & Subscriptions)"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "\nルールセット / ノードセット：%lld 件ダウンロード、%lld 件失敗（ルールセットは「その他 → モジュール → プロファイルのルールセット」、ノードセットは「ノードと購読」で再試行）"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "\n규칙 세트 / 노드 세트: %lld개 다운로드, %lld개 실패 (규칙 세트는 「더 보기 → 모듈 → 프로파일 규칙 세트」, 노드 세트는 「노드 및 구독」에서 다시 시도)"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "\nНаборы правил / узлов: загружено %lld, ошибок %lld (повторите: наборы правил — в «Ещё → Модули → Наборы правил профиля», наборы узлов — в «Узлах и подписках»)"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "\n規則集 / 節點集：%lld 個已下載，%lld 個失敗（規則集在「更多 → 模組 → 配置裡的規則集」、節點集在「節點與訂閱」中重試）"
+          }
+        }
+      }
+    },
+    "经过 MitM / 重写引擎的 HTTP(S) 请求会显示在这里。需要在 更多 → 模块 开启重写与脚本，并在 更多 → 高级设置 → HTTPS 解密 中开启。": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "HTTP(S) requests that pass through the MitM / rewrite engine appear here. Turn on rewrites and scripts in More → Modules, and decryption in More → Advanced Settings → HTTPS Decryption."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "MitM / 書き換えエンジンを通る HTTP(S) リクエストがここに表示されます。「その他 → モジュール」で書き換えとスクリプトを、「その他 → 詳細設定 → HTTPS 復号」で復号をオンにしてください。"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "MitM / 재작성 엔진을 거치는 HTTP(S) 요청이 여기에 표시됩니다. 「더 보기 → 모듈」에서 재작성과 스크립트를, 「더 보기 → 고급 설정 → HTTPS 복호화」에서 복호화를 켜세요."
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Здесь видны HTTP(S)-запросы, прошедшие через движок MitM / перезаписи. Включите перезапись и скрипты в «Ещё → Модули», а расшифровку — в «Ещё → Расширенные настройки → Расшифровка HTTPS»."
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "經過 MitM / 重寫引擎的 HTTP(S) 請求會顯示在這裡。需要在 更多 → 模組 開啟重寫與腳本，並在 更多 → 高階設定 → HTTPS 解密 中開啟。"
+          }
+        }
+      }
+    },
+    "还没有缓存。在列表里点更新即可由 App 直接下载；连接后内核也会下载。": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Not cached yet. Tap update in the list to download it in the app; the core also downloads it once connected."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "まだキャッシュがありません。一覧で更新をタップすると App が直接ダウンロードします。接続中はコアもダウンロードします。"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "아직 캐시가 없습니다. 목록에서 업데이트를 탭하면 앱이 직접 다운로드합니다. 연결되면 코어도 다운로드합니다."
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Кэша ещё нет. Нажмите «Обновить» в списке, чтобы приложение скачало его; после подключения его загрузит и ядро."
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "還沒有快取。在列表裡點更新即可由 App 直接下載；連線後核心也會下載。"
+          }
+        }
+      }
+    },
+    "内置数据库随扩展安装，首次连接无需下载。更新后 GeoIP / ASN 立即生效，GEOSITE / GEOIP(dat) 会重载配置。规则集（rule-providers）在「更多 → 模块 → 配置里的规则集」中更新。": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "The built-in databases ship with the extension, so the first connection needs no download. GeoIP / ASN updates apply immediately; GEOSITE / GEOIP (dat) reload the profile. Rule sets (rule-providers) are updated under More → Modules → Profile Rule Sets."
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "內建資料庫隨延伸功能安裝，首次連線無需下載。更新後 GeoIP / ASN 立即生效，GEOSITE / GEOIP(dat) 會過載配置。規則集（rule-providers）在「更多 → 模組 → 配置裡的規則集」中更新。"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "内蔵データベースは拡張に同梱されているため、初回接続時のダウンロードは不要です。GeoIP / ASN の更新はすぐに反映され、GEOSITE / GEOIP（dat）はプロファイルを再読み込みします。ルールセット（rule-providers）は「その他 → モジュール → プロファイルのルールセット」で更新します。"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "내장 데이터베이스는 확장에 포함되어 있어 첫 연결 시 다운로드가 필요 없습니다. GeoIP / ASN 업데이트는 즉시 적용되고 GEOSITE / GEOIP(dat)는 프로파일을 다시 불러옵니다. 규칙 세트(rule-providers)는 「더 보기 → 모듈 → 프로파일 규칙 세트」에서 업데이트합니다."
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Встроенные базы поставляются с расширением, поэтому первое подключение обходится без загрузки. Обновления GeoIP / ASN применяются сразу; GEOSITE / GEOIP (dat) перезагружают профиль. Наборы правил (rule-providers) обновляются в «Ещё → Модули → Наборы правил профиля»."
+          }
+        }
+      }
     }
   },
   "version": "1.0"

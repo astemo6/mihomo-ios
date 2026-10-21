@@ -2,7 +2,7 @@ import SwiftUI
 import UIKit
 import Libmihomo
 
-// 更多 → 模块与资源: the one place for modules (every format, with badges) and the remote resources
+// 更多 → 模块 (id more.模块与资源): the one place for modules (every format, with badges) and the remote resources
 // they and the custom rules use — rewrite sets, rule sets, scripts — each with an update interval,
 // last update, enable switch and last error. Update-all at the top. No second screen elsewhere.
 
@@ -31,6 +31,38 @@ struct ModulesView: View {
                 Toggle(isOn: Binding(get: { store.config.enabled }, set: { store.config.enabled = $0; store.save() })) {
                     Label("启用重写与脚本", systemImage: "puzzlepiece.extension")
                 }
+            }
+            .listRowBackground(Theme.card)
+
+            // feat/more-dedup: the one home for 重写 / 脚本 / 定时任务 / 规则集 (高级设置 no longer lists them).
+            Section {
+                NavigationLink { LazyDestination { LocalModuleView() } } label: {
+                    MoreRow(id: "重写（本地模块）", title: "我的重写", subtitle: String(localized: "\(store.config.rules.count) 条重写 · \(store.config.hostnames.count) 个 MitM 主机名"),
+                            symbol: "arrow.triangle.swap", tone: .orange)
+                }
+                NavigationLink { LazyDestination { ScriptsView() } } label: {
+                    MoreRow(id: "脚本", title: "脚本", symbol: "curlybraces", tone: .purple)
+                }
+                NavigationLink { LazyDestination { ScriptTasksView() } } label: {
+                    MoreRow(id: "任务", title: "定时任务", subtitle: "定时 · 网络变化 · 手动运行", symbol: "clock.arrow.circlepath", tone: .green)
+                }
+                NavigationLink { LazyDestination { ProvidersView() } } label: {
+                    MoreRow(id: "规则集（配置）", title: "配置里的规则集", subtitle: "rule-providers", symbol: "list.bullet.rectangle", tone: .teal)
+                }
+            } header: { Text("我的") }
+            .listRowBackground(Theme.card)
+
+            Section {
+                NavigationLink { LazyDestination { ModuleGalleryView() } } label: {
+                    MoreRow(id: "模块库", title: "模块库", subtitle: "浏览、搜索并预览索引来源里的模块", symbol: "books.vertical", tone: .blue)
+                }
+                NavigationLink { LazyDestination { AllRewritesView() } } label: {
+                    MoreRow(id: "全部重写规则", title: "全部重写规则", subtitle: "所有模块的重写和脚本规则，平铺可搜索", symbol: "list.bullet.rectangle.portrait", tone: .neutral)
+                }
+            } header: { Text("浏览") }
+            .listRowBackground(Theme.card)
+
+            Section {
                 Picker("类型", selection: $filter) {
                     Text("全部").tag("all")
                     Text("模块 \(count("module"))").tag("module")
@@ -38,52 +70,8 @@ struct ModulesView: View {
                     Text("脚本 \(count("script"))").tag("script")
                 }
                 .pickerStyle(.segmented)
-            } footer: {
-                Text("所有格式的模块都在这里：Surge .sgmodule、Quantumult X 重写、Loon .plugin、Stash .stoverride、Egern .yaml 模块和重写列表，角标显示来源格式。远程规则集（自定义规则里的 RULE-SET / filter_remote，以及模块引用的规则集）和模块引用的远程脚本也列在这里：每项可单独开关、设置更新间隔，失败原因显示在条目下方。打开 App 时自动更新到期的资源。")
-            }
-            .listRowBackground(Theme.card)
-
-            if filter == "all" || filter == "module" {
-                Section {
-                    NavigationLink { LocalModuleView() } label: {
-                        HStack(spacing: 10) {
-                            Image(systemName: "person.crop.square").foregroundStyle(Theme.accent)
-                            VStack(alignment: .leading, spacing: 2) {
-                                Text("本地模块").font(.subheadline.weight(.semibold))
-                                Text("\(store.config.rules.count) 条重写 · \(store.config.hostnames.count) 个 MitM 主机名").font(.caption).foregroundStyle(.secondary)
-                            }
-                            Spacer()
-                            Text("本地").scaledFont(9, weight: .bold)
-                                .padding(.horizontal, 5).padding(.vertical, 2)
-                                .lineLimit(1) // v0.19.8: a capsule tag never wraps (tall grey box with large text)
-                                .background(Capsule().fill(Theme.good.opacity(0.18)))
-                                .foregroundStyle(Theme.good)
-                        }
-                    }
-                    NavigationLink { ModuleGalleryView() } label: {
-                        HStack(spacing: 10) {
-                            Image(systemName: "books.vertical").foregroundStyle(Theme.accent)
-                            VStack(alignment: .leading, spacing: 2) {
-                                Text("模块库").font(.subheadline.weight(.semibold))
-                                Text("浏览、搜索并预览索引来源里的模块").font(.caption).foregroundStyle(.secondary)
-                            }
-                        }
-                    }
-                    NavigationLink { AllRewritesView() } label: {
-                        HStack(spacing: 10) {
-                            Image(systemName: "list.bullet.rectangle.portrait").foregroundStyle(Theme.accent)
-                            VStack(alignment: .leading, spacing: 2) {
-                                Text("全部重写规则").font(.subheadline.weight(.semibold))
-                                Text("所有模块的重写和脚本规则，平铺可搜索").font(.caption).foregroundStyle(.secondary)
-                            }
-                        }
-                    }
-                    .accessibilityIdentifier("modules.allRewrites")
-                }
-                .listRowBackground(Theme.card)
-            }
-
-            Section {
+                    .listRowBackground(Color.clear)
+                    .listRowInsets(EdgeInsets(top: 4, leading: 0, bottom: 4, trailing: 0))
                 if shown.isEmpty {
                     EmptyStateRow(icon: filter == "ruleset" ? "list.bullet.rectangle" : "puzzlepiece.extension",
                                   title: filter == "ruleset" ? "没有规则集" : filter == "script" ? "没有远程脚本" : filter == "module" ? "没有模块" : "还没有模块或资源",
@@ -112,13 +100,15 @@ struct ModulesView: View {
                     Spacer()
                     if res.updatingAll { ProgressView().scaleEffect(0.7) }
                 }
+            } footer: {
+                Text("所有格式的模块都在这里：Surge .sgmodule、Quantumult X 重写、Loon .plugin、Stash .stoverride、Egern .yaml 模块和重写列表，角标显示来源格式。远程规则集（自定义规则里的 RULE-SET / filter_remote，以及模块引用的规则集）和模块引用的远程脚本也列在这里：每项可单独开关、设置更新间隔，失败原因显示在条目下方。打开 App 时自动更新到期的资源。")
             }
             .listRowBackground(Theme.card)
         }
         .listStyle(.insetGrouped)
         .scrollContentBackground(.hidden)
         .background(Theme.bg.ignoresSafeArea())
-        .navigationTitle("模块与资源")
+        .navigationTitle("模块")
         .refreshable { await res.updateAll() }
         .toolbar {
             ToolbarItemGroup(placement: .navigationBarTrailing) {

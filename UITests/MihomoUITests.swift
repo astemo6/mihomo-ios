@@ -98,8 +98,11 @@ final class MihomoUITests: MihomoUITestCase {
         "诊断", "关于 / 开源许可",
     ]
     static let advancedRows = [
-        "连接方式", "DNS", "重写（本地模块）", "脚本", "任务", "MitM", "提供者（规则集 / 节点集）", "地理与规则库",
-        "内核设置", "测速", "出口信息查询",
+        "连接方式", "DNS", "MitM", "地理与规则库", "内核设置", "测速", "出口信息查询",
+    ]
+    /// feat/more-dedup: 重写 / 脚本 / 定时任务 / 配置里的规则集 live only on 更多 → 模块 (ids unchanged).
+    static let moduleRows = [
+        "重写（本地模块）", "脚本", "任务", "规则集（配置）", "模块库", "全部重写规则",
     ]
 
     func test03_MoreEveryPage() {
@@ -137,6 +140,24 @@ final class MihomoUITests: MihomoUITestCase {
             if !app.navigationBars[L("高级设置")].waitForExistence(timeout: 4) {
                 issues.append("[\(Env.tag)] 高级设置 → \(key): did not return")
                 openMore("高级设置")
+            }
+        }
+        back()
+        // 模块: every row opens and comes back to 模块.
+        openMore("模块与资源")
+        XCTAssertTrue(app.navigationBars[L("模块")].waitForExistence(timeout: 5), "模块 page")
+        snap("more-modules")
+        for (i, key) in Self.moduleRows.enumerated() {
+            let row = app.element(id: "more." + key)
+            guard scrollTo(row) else { issues.append("[\(Env.tag)] 模块 → \(key) missing"); continue }
+            row.tap()
+            usleep(900_000)
+            snap(String(format: "more-mod-%02d", i))
+            assertAlive("模块 → \(key)")
+            back()
+            if !app.navigationBars[L("模块")].waitForExistence(timeout: 4) {
+                issues.append("[\(Env.tag)] 模块 → \(key): did not return")
+                openMore("模块与资源")
             }
         }
         back()
@@ -420,7 +441,15 @@ final class MihomoUITests: MihomoUITestCase {
         tab(4)
         usleep(500_000)
         let row = app.element(id: "more." + key)
-        if Self.advancedRows.contains(key) {
+        if Self.moduleRows.contains(key) {
+            let mod = app.element(id: "more.模块与资源")
+            if !(row.waitForExistence(timeout: 1) && row.isHittable) {
+                if !mod.waitForExistence(timeout: 1) { tab(4); usleep(500_000) }
+                XCTAssertTrue(scrollTo(mod), "模块")
+                mod.tap()
+                usleep(800_000)
+            }
+        } else if Self.advancedRows.contains(key) {
             func enterAdvanced() {
                 let adv = app.element(id: "more.高级设置")
                 if !adv.waitForExistence(timeout: 1) { tab(4); usleep(500_000) }
@@ -492,7 +521,7 @@ final class MihomoUITests: MihomoUITestCase {
         openMore("模块与资源")
         snap("modules")
         XCTAssertTrue(app.element(label: "UITest Panel Module").waitForExistence(timeout: 6), "seeded module listed")
-        let gallery = app.element(label: L("模块库"))
+        let gallery = app.element(id: "more.模块库")
         if scrollTo(gallery) {
             gallery.tap()
             usleep(1_500_000)
@@ -816,7 +845,7 @@ final class MihomoUITests: MihomoUITestCase {
     func test15_AllRewrites() {
         launch()
         openMore("模块与资源")
-        let entry = app.element(id: "modules.allRewrites")
+        let entry = app.element(id: "more.全部重写规则")
         XCTAssertTrue(scrollTo(entry), "全部重写规则 entry")
         entry.tap()
         XCTAssertTrue(app.navigationBars[L("全部重写规则")].waitForExistence(timeout: 6), "page opens")
@@ -837,12 +866,10 @@ final class MihomoUITests: MihomoUITestCase {
         } else { issues.append("[\(Env.tag)] 全部重写规则: no search field") }
         back()
         back()
-        // Also reachable from 本地模块.
+        // feat/more-dedup: 我的重写 (本地模块) no longer carries a second 全部重写规则 entry.
         openMore("重写（本地模块）")
-        let local = app.element(id: "localmodule.allRewrites")
-        XCTAssertTrue(local.waitForExistence(timeout: 6), "entry in 本地模块")
-        local.tap()
-        XCTAssertTrue(app.navigationBars[L("全部重写规则")].waitForExistence(timeout: 6), "page opens from 本地模块")
+        XCTAssertTrue(app.element(id: "localmodule.add").waitForExistence(timeout: 6), "我的重写 opens")
+        XCTAssertFalse(app.element(id: "localmodule.allRewrites").exists, "no duplicate 全部重写规则 entry")
     }
 
     // MARK: 16. v0.16 策略 mode control drives the same mode as Home

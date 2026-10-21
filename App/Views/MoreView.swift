@@ -28,7 +28,7 @@ struct MoreView: View {
                         MoreRow(id: "规则", title: "分流规则", symbol: "arrow.triangle.branch", tone: .orange)
                     }
                     NavigationLink { LazyDestination { ModulesView() } } label: {
-                        MoreRow(id: "模块与资源", title: "模块", subtitle: "重写 · 脚本 · 规则集", symbol: "puzzlepiece.extension", tone: .purple)
+                        MoreRow(id: "模块与资源", title: "模块", subtitle: "重写 · 脚本 · 定时任务 · 规则集", symbol: "puzzlepiece.extension", tone: .purple)
                     }
                 }
                 .listRowBackground(Theme.card)
@@ -100,7 +100,7 @@ struct MoreView: View {
 
                 Section {
                     NavigationLink { LazyDestination { AdvancedSettingsView() } } label: {
-                        MoreRow(id: "高级设置", title: "高级设置", subtitle: "连接方式 · DNS · 重写 · MitM · 内核", symbol: "gearshape.2", tone: .neutral)
+                        MoreRow(id: "高级设置", title: "高级设置", subtitle: "连接方式 · DNS · MitM · 内核", symbol: "gearshape.2", tone: .neutral)
                     }
                 } header: { Text("高级") }
                 .listRowBackground(Theme.card)
@@ -156,6 +156,8 @@ struct MoreRow: View {
 }
 
 /// feat/surge-ui: the expert pages that used to fill 更多, grouped by what they change.
+/// feat/more-dedup: 重写 / 脚本 / 定时任务 / 规则集 live only on 更多 → 模块, 节点集 only on 节点与订阅;
+/// this page keeps what changes how the tunnel itself works.
 struct AdvancedSettingsView: View {
     @ObservedObject var engine = EngineStore.shared
     @State private var connLabel = ""
@@ -181,32 +183,16 @@ struct AdvancedSettingsView: View {
             .listRowBackground(Theme.card)
 
             Section {
-                NavigationLink { LazyDestination { LocalModuleView() } } label: {
-                    MoreRow(id: "重写（本地模块）", title: "重写", subtitle: "本地模块", symbol: "arrow.triangle.swap", tone: .orange)
-                }
-                NavigationLink { LazyDestination { ScriptsView() } } label: {
-                    MoreRow(id: "脚本", title: "脚本", symbol: "curlybraces", tone: .purple)
-                }
-                NavigationLink { LazyDestination { ScriptTasksView() } } label: {
-                    MoreRow(id: "任务", title: "定时任务", symbol: "clock.arrow.circlepath", tone: .green)
-                }
                 NavigationLink { LazyDestination { MitMView() } } label: {
                     MoreRow(id: "MitM", title: "HTTPS 解密", subtitle: "MitM", symbol: "lock.open", tone: .red,
                             value: engine.config.mitm ? "已开启" : (mc.hosts > 0 ? "模块需要开启" : "关闭"),
                             valueColor: engine.config.mitm ? Theme.good : (mc.hosts > 0 ? Theme.warn : .secondary))
                 }
-            } header: { Text("重写与脚本") } footer: {
-                Text(engine.config.enabled ? "重写与脚本已启用" : "重写与脚本未启用（在模块、重写或脚本页面顶部开启）")
-            }
-            .listRowBackground(Theme.card)
-
-            Section("规则数据") {
-                NavigationLink { LazyDestination { ProvidersView() } } label: {
-                    MoreRow(id: "提供者（规则集 / 节点集）", title: "规则集与节点集", subtitle: "提供者", symbol: "shippingbox", tone: .orange)
-                }
                 NavigationLink { LazyDestination { GeoView() } } label: {
                     MoreRow(id: "地理与规则库", title: "地理数据库", subtitle: "GeoIP · GeoSite", symbol: "globe.asia.australia", tone: .green)
                 }
+            } header: { Text("解密与数据") } footer: {
+                Text("重写、脚本、定时任务和规则集都在「更多 → 模块」；模块里的重写和脚本要处理 HTTPS 请求时需要在这里开启解密。")
             }
             .listRowBackground(Theme.card)
 
@@ -487,13 +473,6 @@ struct SettingsView: View {
             .listRowBackground(Theme.card)
 
             Section {
-                Toggle("把手动节点加入每个配置", isOn: $o.mergeManual)
-            } header: { Text("节点") } footer: {
-                Text("开启后「手动节点」配置里的节点和同名策略组会合并进当前使用的订阅，可以在策略页直接选择。")
-            }
-            .listRowBackground(Theme.card)
-
-            Section {
                 Stepper(value: $o.memoryLimitMB, in: CoreOverrides.memoryLimitRange, step: 1) {
                     HStack {
                         Text("内核内存上限")
@@ -556,7 +535,6 @@ struct SettingsView: View {
         var cur = old
         cur.logLevel = o.logLevel
         cur.sniffer = o.sniffer
-        cur.mergeManual = o.mergeManual
         cur.memoryLimitMB = o.memoryLimitMB
         cur.tunMTU = o.tunMTU
         cur.secret = o.secret

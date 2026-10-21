@@ -318,7 +318,7 @@ final class ImportRouter: ObservableObject {
         if !text.contains("\n"), !text.contains(" "), text.hasPrefix("http://") || text.hasPrefix("https://"), let u = URL(string: text) {
             let ext = u.pathExtension.lowercased()
             if moduleExtensions.contains(ext) { return .moduleURL(url: text, source: "URL") }
-            if ext == "js" { return .unsupported("这是一个脚本链接：请在 更多 → 高级设置 → 脚本 中添加脚本规则，或导入引用它的模块") }
+            if ext == "js" { return .unsupported("这是一个脚本链接：请在 更多 → 模块 → 脚本 中添加脚本规则，或导入引用它的模块") }
             if ext == "list" { return .unsupported("这是一个规则列表：请在 更多 → 模块 → + → 添加远程规则集 中添加") }
             return .profileURL(url: text, name: name)
         }

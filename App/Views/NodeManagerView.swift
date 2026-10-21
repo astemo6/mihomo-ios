@@ -12,6 +12,8 @@ struct NodeListScope: Hashable {
     var subID: String? = nil
     /// v0.15.4: exact member names (a 筛选节点 filter as the core expands it); overrides pattern.
     var names: Set<String>? = nil
+    /// feat/more-dedup: 节点与订阅 → 本地节点 (the old 手动节点 page's 导出为订阅文本 lives here now).
+    var localNodes = false
 
     static let all = NodeListScope(title: String(localized: "全部节点"))
 
@@ -39,13 +41,14 @@ struct NodeListView: View {
     @AppStorage("nodes.sort") private var sortRaw = NodeManagerModel.SortMode.config.rawValue
     @State private var query = ""
     @State private var protocolFilter = ""
-    @State private var editing: ManualNodesView.EditTarget?
+    @State private var editing: NodeEditTarget?
     @State private var confirmDelete: ManagedNode?
     @State private var message: String?
     @State private var editSub: NodeSubscription?
     // feat/subs-split: 添加到本地节点 from a subscription / 节点集 node row's long-press menu (same model.addToLocal
     // as the node detail page, same result alert).
     @State private var addedLocal: NodeDetailView.AddedLocal?
+    @State private var exportSub = false
 
     var sort: NodeManagerModel.SortMode { NodeManagerModel.SortMode(rawValue: sortRaw) ?? .config }
 
@@ -79,6 +82,16 @@ struct NodeListView: View {
     }
 
     var scoped: [ManagedNode] { scope.filter(model.nodes) }
+
+    /// feat/more-dedup: 本地节点 only — 导出为订阅文本 (was on the removed 手动节点 page).
+    @ViewBuilder
+    func localExportItems(empty: Bool) -> some View {
+        if scope.localNodes {
+            Divider()
+            Button { exportSub = true } label: { Label("导出为订阅文本", systemImage: "square.and.arrow.up") }
+                .disabled(empty)
+        }
+    }
 
     var body: some View {
         let sc = scoped
@@ -130,6 +143,7 @@ struct NodeListView: View {
                         Text("全部协议").tag("")
                         ForEach(protocols, id: \.self) { t in Text(ProxyItem.label(for: t)).tag(t) }
                     } label: { Label("协议", systemImage: "line.3.horizontal.decrease") }
+                    localExportItems(empty: sc.isEmpty)
                     if let id = scope.subID, let sub = nodeSubs.subs.first(where: { $0.id == id }) {
                         Divider()
                         Button {
@@ -161,6 +175,7 @@ struct NodeListView: View {
             }
         }
         .task { if model.nodes.isEmpty { await model.reload() } }
+        .sheet(isPresented: $exportSub) { SubscriptionExportSheet() }
         .sheet(item: $editSub, onDismiss: { Task { await model.reload() } }) { s in NodeSubEditor(sub: s).environmentObject(ProfileStore.shared) }
         .sheet(item: $editing, onDismiss: { Task { await model.reload() } }) { t in NodeEditorView(node: t.node).environmentObject(ProfileStore.shared) }
         .confirmationDialog("删除这个手动节点？", isPresented: Binding(get: { confirmDelete != nil }, set: { if !$0 { confirmDelete = nil } }),
@@ -170,7 +185,7 @@ struct NodeListView: View {
         .alert("提示", isPresented: Binding(get: { message != nil }, set: { if !$0 { message = nil } })) {
             Button("好", role: .cancel) {}
         } message: { Text(message ?? "") }
-        .modifier(AddedLocalAlert(added: $addedLocal) { m in editing = ManualNodesView.EditTarget(node: m) })
+        .modifier(AddedLocalAlert(added: $addedLocal) { m in editing = NodeEditTarget(node: m) })
     }
 
     func addToLocal(_ n: ManagedNode) async {
@@ -275,7 +290,7 @@ struct NodeListView: View {
             if src.cached {
                 EmptyStateRow(icon: "icloud.and.arrow.down", title: "没有节点")
             } else {
-                EmptyStateRow(icon: "icloud.and.arrow.down", title: "还没有下载", message: "连接一次，或在订阅 / 提供者页面更新后显示节点。")
+                EmptyStateRow(icon: "icloud.and.arrow.down", title: "还没有下载", message: "连接一次，或在「节点与订阅」里右滑更新后显示节点。")
             }
         case .profile:
             EmptyStateRow(icon: "doc.text", title: "配置里没有内联节点")
@@ -291,7 +306,7 @@ struct NodeListView: View {
         .swipeActions(edge: .trailing) {
             if model.manualNode(n) != nil {
                 Button(role: .destructive) { confirmDelete = n } label: { Label("删除", systemImage: "trash") }
-                Button { editing = ManualNodesView.EditTarget(node: model.manualNode(n)) } label: { Label("编辑", systemImage: "pencil") }
+                Button { editing = NodeEditTarget(node: model.manualNode(n)) } label: { Label("编辑", systemImage: "pencil") }
                     .tint(.orange)
             }
             if canTest(n) {
@@ -308,7 +323,7 @@ struct NodeListView: View {
                 Button { Task { await addToLocal(n) } } label: { Label("添加到本地节点", systemImage: "square.and.arrow.down.on.square") }
             }
             if model.manualNode(n) != nil {
-                Button { editing = ManualNodesView.EditTarget(node: model.manualNode(n)) } label: { Label("编辑", systemImage: "pencil") }
+                Button { editing = NodeEditTarget(node: model.manualNode(n)) } label: { Label("编辑", systemImage: "pencil") }
                 Button {
                     Task {
                         do { try await model.duplicate(n) } catch { message = error.localizedDescription }
@@ -373,7 +388,7 @@ struct NodeDetailView: View {
     @State private var info: NodeSummaryInfo?
     @State private var loaded = false
     @State private var share: ShareTarget?
-    @State private var editing: ManualNodesView.EditTarget?
+    @State private var editing: NodeEditTarget?
     @State private var editSub: NodeSubscription?
     @State private var confirmDelete = false
     @State private var message: String?
@@ -400,7 +415,7 @@ struct NodeDetailView: View {
     // 添加到本地节点 (subscription / provider nodes)
     @State private var addingLocal = false
     @State private var addedLocal: AddedLocal?
-    @State private var editingCopy: ManualNodesView.EditTarget?
+    @State private var editingCopy: NodeEditTarget?
 
     struct AddedLocal: Identifiable {
         let name: String
@@ -530,7 +545,7 @@ struct NodeDetailView: View {
                         .accessibilityIdentifier("node.addLocal")
                 }
                 if let m = manual {
-                    Button { editing = ManualNodesView.EditTarget(node: m) } label: { Label("编辑", systemImage: "pencil") }
+                    Button { editing = NodeEditTarget(node: m) } label: { Label("编辑", systemImage: "pencil") }
                     Button {
                         Task {
                             do { try await model.duplicate(node); message = String(localized: "已复制一份") } catch { message = error.localizedDescription }
@@ -632,7 +647,7 @@ struct NodeDetailView: View {
         }
         .alert("已添加到本地节点", isPresented: Binding(get: { addedLocal != nil }, set: { if !$0 { addedLocal = nil } }), presenting: addedLocal) { a in
             Button("编辑") {
-                if let m = model.manualNode(named: a.name) { editingCopy = ManualNodesView.EditTarget(node: m) }
+                if let m = model.manualNode(named: a.name) { editingCopy = NodeEditTarget(node: m) }
             }
             Button("好", role: .cancel) {}
         } message: { a in
@@ -804,7 +819,7 @@ struct NodeDetailView: View {
         case .profile:
             kv("来源", String(localized: "配置") + " · " + node.source.name)
         case .manual:
-            NavigationLink { ManualNodesView() } label: { kv("来源", String(localized: "手动节点")) }
+            kv("来源", String(localized: "手动节点"))
         case .subscription:
             if let s = nodeSubs.subs.first(where: { $0.id == node.source.subID }) {
                 Button { editSub = s } label: {
@@ -818,7 +833,8 @@ struct NodeDetailView: View {
                 kv("来源", node.source.name)
             }
         case .provider:
-            NavigationLink { ProvidersView() } label: { kv("来源", String(localized: "节点集") + " · " + node.source.name) }
+            // feat/more-dedup: 节点集 are managed on 节点与订阅 (the old 提供者 page no longer lists them).
+            kv("来源", String(localized: "节点集") + " · " + node.source.name)
         }
     }
 

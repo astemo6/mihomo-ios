@@ -39,8 +39,8 @@ struct RewriteForm: Codable, Equatable {
 }
 
 /// 本地模块: the user's own rewrite rules and MitM hostnames (engine.json `rules` / `hostnames`, the same
-/// store the engine reads), edited through forms or as text. Shown pinned at the top of 模块与资源 and
-/// opened from 更多 → 重写.
+/// store the engine reads), edited through forms or as text. Opened only from 更多 → 模块 → 我的重写
+/// (feat/more-dedup: no second entry in 高级设置; the 启用 switch and 全部重写规则 live on the 模块 page).
 struct LocalModuleView: View {
     @ObservedObject var store = EngineStore.shared
     @State private var editing: EditTarget?
@@ -72,7 +72,7 @@ struct LocalModuleView: View {
             }
         }
         .background(Theme.bg.ignoresSafeArea())
-        .navigationTitle("本地模块")
+        .navigationTitle("我的重写")
         .toolbar {
             ToolbarItemGroup(placement: .navigationBarTrailing) {
                 Button {
@@ -105,13 +105,7 @@ struct LocalModuleView: View {
     var formList: some View {
         List {
             Section {
-                Toggle(isOn: Binding(get: { store.config.enabled }, set: { store.config.enabled = $0; store.save() })) {
-                    Label("启用重写与脚本", systemImage: "arrow.triangle.swap")
-                }
-                NavigationLink { AllRewritesView() } label: {
-                    Label("全部重写规则（含模块）", systemImage: "list.bullet.rectangle.portrait")
-                }
-                .accessibilityIdentifier("localmodule.allRewrites")
+                EngineOffNotice()
             } footer: {
                 VStack(alignment: .leading, spacing: 4) {
                     Text("本地模块是你自己的重写规则和 MitM 主机名，与导入的模块一起生效、优先于它们。点 + 用表单添加，或点「文本」直接编辑；Surge、Quantumult X、Loon 写法都能识别。")

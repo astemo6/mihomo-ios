@@ -602,11 +602,12 @@ struct CustomRuleEditor: View {
 
 // MARK: - Providers
 
+/// 更多 → 模块 → 配置里的规则集: the profile's rule-providers (feat/more-dedup). The profile's 节点集
+/// (proxy-providers) are managed only on 节点与订阅, so this page no longer lists them.
 struct ProvidersView: View {
     @EnvironmentObject var vpn: VPNManager
     @ObservedObject private var offline = ProfileInspector.shared
     @ObservedObject private var updater = ProviderUpdater.shared
-    @State private var proxyProviders: [ProviderItem] = []
     @State private var ruleProviders: [ProviderItem] = []
     @State private var updating: Set<String> = []
     @State private var error: String?
@@ -616,7 +617,7 @@ struct ProvidersView: View {
             if vpn.isConnected { liveList } else { offlineList }
         }
         .background(Theme.bg.ignoresSafeArea())
-        .navigationTitle("提供者")
+        .navigationTitle("配置里的规则集")
         .toolbar {
             ToolbarItem(placement: .navigationBarTrailing) {
                 if !vpn.isConnected {
@@ -626,13 +627,13 @@ struct ProvidersView: View {
                             Text("\(updater.done)/\(updater.total)").font(.caption.monospacedDigit()).foregroundStyle(.secondary)
                         }
                     } else {
-                        Button("全部更新") { Task { await updater.updateAll() } }
+                        Button("全部更新") { Task { await updater.updateAll(only: Set(offline.result.ruleProviders.map { $0.kind + ":" + $0.name })) } }
+                            .disabled(offline.result.ruleProviders.isEmpty)
                     }
                 }
                 if vpn.isConnected {
                     Button("全部更新") {
                         Task {
-                            for p in proxyProviders where p.vehicleType == "HTTP" { try? await ControllerClient.shared.updateProxyProvider(p.name) }
                             for p in ruleProviders where p.vehicleType == "HTTP" { try? await ControllerClient.shared.updateRuleProvider(p.name) }
                             await load()
                         }
@@ -646,21 +647,16 @@ struct ProvidersView: View {
     var liveList: some View {
         List {
             if let error { Text(error).font(.footnote).foregroundStyle(Theme.bad).listRowBackground(Theme.card) }
-            Section("节点集 \(proxyProviders.count)") {
-                ForEach(proxyProviders) { p in
-                    row(p, detail: String(localized: "\(p.proxies?.count ?? 0) 个节点") + " · " + (p.vehicleType ?? ""), key: "p:" + p.name) {
-                        try await ControllerClient.shared.updateProxyProvider(p.name)
-                    }
+            Section {
+                if ruleProviders.isEmpty {
+                    EmptyStateRow(icon: "list.bullet.rectangle", title: "当前配置没有规则集", message: "自己添加的远程规则集在「模块」页的规则集里。")
                 }
-            }
-            .listRowBackground(Theme.card)
-            Section("规则集 \(ruleProviders.count)") {
                 ForEach(ruleProviders) { p in
                     row(p, detail: String(localized: "\(p.ruleCount ?? 0) 条") + " · \(p.behavior ?? "") · \(p.vehicleType ?? "")", key: "r:" + p.name) {
                         try await ControllerClient.shared.updateRuleProvider(p.name)
                     }
                 }
-            }
+            } header: { Text("规则集 \(ruleProviders.count)") }
             .listRowBackground(Theme.card)
         }
         .listStyle(.insetGrouped)
@@ -673,11 +669,10 @@ struct ProvidersView: View {
             Label("未连接 · 来自配置文件与本地缓存", systemImage: "doc.text.magnifyingglass")
                 .font(.caption.weight(.semibold)).foregroundStyle(.secondary)
                 .listRowBackground(Color.clear)
-            Section("节点集 \(offline.result.proxyProviders.count)") {
-                ForEach(offline.result.proxyProviders) { p in offlineRow(p) }
-            }
-            .listRowBackground(Theme.card)
             Section {
+                if offline.result.ruleProviders.isEmpty {
+                    EmptyStateRow(icon: "list.bullet.rectangle", title: "当前配置没有规则集", message: "自己添加的远程规则集在「模块」页的规则集里。")
+                }
                 ForEach(offline.result.ruleProviders) { p in offlineRow(p) }
             } header: { Text("规则集 \(offline.result.ruleProviders.count)") } footer: {
                 Text("未连接时由 App 直接下载并转换（使用 GitHub 镜像设置），连接后内核会按更新间隔从源地址刷新。")
@@ -740,7 +735,6 @@ struct ProvidersView: View {
 
     func load() async {
         do {
-            proxyProviders = try await ControllerClient.shared.proxyProviders()
             ruleProviders = try await ControllerClient.shared.ruleProviders()
         } catch { self.error = error.localizedDescription }
     }
@@ -818,7 +812,7 @@ struct OfflineProviderDetail: View {
                 .listRowBackground(Theme.card)
             }
             if !p.cached && p.vehicle != "inline" {
-                Text("还没有缓存。在「提供者」页点更新即可由 App 直接下载；连接后内核也会下载。").font(.footnote).foregroundStyle(.secondary)
+                Text("还没有缓存。在列表里点更新即可由 App 直接下载；连接后内核也会下载。").font(.footnote).foregroundStyle(.secondary)
                     .listRowBackground(Color.clear)
             }
         }

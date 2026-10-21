@@ -7,13 +7,11 @@ struct ProfilesView: View {
     @State private var showAddRemote = false
     @State private var showNewLocal = false
     @State private var message: String?
-    /// v0.19.3: the add-subscription sheet's result, shown after the sheet is gone (see ManualNodesView).
+    /// v0.19.3: the add-subscription sheet's result, shown after the sheet is gone (the same pattern as other add sheets).
     @State private var pendingMessage: String?
     @State private var busy = false
     @State private var editing: Profile?
-    @State private var showManual = false
     @State private var subRulesFor: Profile?
-    @State private var showSubs = false
     @State private var showSample = false
     @State private var scriptsFor: Profile?
     @State private var pendingDelete: Profile?
@@ -33,9 +31,6 @@ struct ProfilesView: View {
                     .listRowBackground(Theme.card)
                 }
                 Section {
-                    NavigationLink { ManualNodesView() } label: {
-                        Label("手动节点（粘贴链接 / 扫码 / 手动填写）", systemImage: "plus.viewfinder")
-                    }
                     NavigationLink { SampleProfileView() } label: {
                         Label("示例配置", systemImage: "text.book.closed")
                     }
@@ -56,7 +51,7 @@ struct ProfilesView: View {
                                 if p.id != ProfileStore.manualID {
                                     Button { subRulesFor = p } label: { Label("节点处理", systemImage: "line.3.horizontal.decrease.circle") }.tint(.teal)
                                 }
-                                Button { scriptsFor = p } label: { Label("脚本", systemImage: "curlybraces") }.tint(.purple)
+                                Button { scriptsFor = p } label: { Label("覆写脚本", systemImage: "curlybraces") }.tint(.purple)
                             }
                             .swipeActions(edge: .leading) {
                                 if p.copyModified == true, store.source(of: p) != nil {
@@ -96,7 +91,6 @@ struct ProfilesView: View {
                 ToolbarItemGroup(placement: .navigationBarLeading) {
                     Button { updateAll() } label: { Label("全部更新", systemImage: "arrow.triangle.2.circlepath") }
                         .disabled(busy || !store.profiles.contains { $0.kind == .remote })
-                    Button { showSubs = true } label: { Label("节点与订阅", systemImage: "server.rack") }
                 }
                 ToolbarItem(placement: .navigationBarTrailing) {
                     Menu {
@@ -105,14 +99,10 @@ struct ProfilesView: View {
                         Button { ImportRouter.shared.pickFile() } label: { Label("从文件导入（YAML / Surge·QX .conf）", systemImage: "folder") }
                         Button { importConfFromClipboard() } label: { Label("粘贴 Surge / QX 配置（.conf）", systemImage: "arrow.triangle.2.circlepath.doc.on.clipboard") }
                         Button { showNewLocal = true } label: { Label("新建本地配置", systemImage: "square.and.pencil") }
-                        Button { showSample = true } label: { Label("示例配置", systemImage: "text.book.closed") }
-                        Button { showManual = true } label: { Label("添加单个节点", systemImage: "plus.viewfinder") }
                     } label: { Image(systemName: "plus.circle.fill").font(.title3) }
                 }
             }
-            .navigationDestination(isPresented: $showManual) { ManualNodesView() }
             .navigationDestination(isPresented: $showSample) { SampleProfileView() }
-            .navigationDestination(isPresented: $showSubs) { NodeManagerView() }
             .overlay { if busy { ProgressView().padding(20).background(RoundedRectangle(cornerRadius: 12).fill(Theme.cardHi)) } }
             .sheet(isPresented: $showAddRemote, onDismiss: { if let m = pendingMessage { pendingMessage = nil; message = m } }) { AddRemoteSheet { msg in pendingMessage = msg } }
             .sheet(isPresented: $showNewLocal) {
