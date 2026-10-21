@@ -32,6 +32,7 @@ func runtimeInputFiles(home, profilePath string) []string {
 		profilePath,
 		yp, mp, // 覆写脚本 output readRuntimeProfile prefers (scriptedFor)
 		overridesPath(home),         // readOverrides
+		secretsPath(home),           // readOverrides → readSecrets (r7 B01)
 		dnsOverridePath(home),       // readOverrides → readDNSOverride
 		localDNSPath(home),          // readOverrides → readLocalDNS
 		manualNodesPath(home),       // mergeManualNodes

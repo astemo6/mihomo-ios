@@ -62,6 +62,12 @@ struct LiveStats: Codable, Equatable {
     private static let key = "liveStats.v1"
     /// The app's 实时活动 switch (外观); the extension samples only while it is on.
     static var wanted: Bool { AppShared.defaults.bool(forKey: "liveActivity.enabled") }
+    /// r7 (B19): posted by the app when the switch changes, so the tunnel's sampler starts / idles at once.
+    static var wantedChangedNotification: String { AppShared.appGroup + ".liveStatsWanted" }
+    static func postWantedChanged() {
+        CFNotificationCenterPostNotification(CFNotificationCenterGetDarwinNotifyCenter(),
+                                             CFNotificationName(wantedChangedNotification as CFString), nil, nil, true)
+    }
 
     static func load() -> LiveStats {
         guard let d = AppShared.defaults.data(forKey: key), let s = try? JSONDecoder().decode(LiveStats.self, from: d) else { return LiveStats() }

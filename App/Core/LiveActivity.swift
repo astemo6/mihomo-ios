@@ -18,6 +18,7 @@ final class LiveActivityController: ObservableObject {
     @Published var enabled: Bool {
         didSet {
             AppShared.defaults.set(enabled, forKey: Self.key)
+            LiveStats.postWantedChanged() // r7 B19: the tunnel's sampler follows at once
             if enabled { if VPNManager.shared.isConnected { start() } } else { endAll() }
         }
     }
