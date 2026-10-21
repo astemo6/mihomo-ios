@@ -6,7 +6,7 @@ extension MihomoUITests {
 
     // MARK: 57. Surge-inspired 更多 + empty states
 
-    func test57_SurgeUIShots() {
+    func test49_SurgeUIShots() {
         launch()
         tab(4)
         XCTAssertTrue(app.navigationBars[L("更多")].waitForExistence(timeout: 8), "更多")

@@ -21,7 +21,7 @@ extension MihomoUITests {
 
     // MARK: 64. 策略: chain subtitles
 
-    func test64_PolicyChainShots() {
+    func test51_PolicyChainShots() {
         launch(["-UITestPolicyChain"])
         tab(1)
         let top = app.element(id: "policy.card.节点选择")

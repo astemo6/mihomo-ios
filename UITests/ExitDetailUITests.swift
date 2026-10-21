@@ -7,7 +7,7 @@ extension MihomoUITests {
 
     // MARK: 62. 首页副标题显示
 
-    func test62_HomeExitSubtitle() {
+    func test50_HomeExitSubtitle() {
         launch(["-UITestDemoExitIP"])
         let full = app.element(labelContains: "Example Net · AS64500 · 203.0.113.45")
         XCTAssertTrue(full.waitForExistence(timeout: 8), "Home header shows 运营商 · ASN · IP by default")
