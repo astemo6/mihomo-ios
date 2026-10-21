@@ -94,6 +94,36 @@ func findRuntimeNode(raw map[string]any, name string) (map[string]any, string, b
 var credentialKeys = []string{"password", "uuid", "username", "private-key", "pre-shared-key", "public-key", "psk",
 	"auth", "auth-str", "auth_str", "token", "auth-key", "obfs-password", "private-key-passphrase", "short-id"}
 
+// nestedCredentialKeys lists secrets inside option maps as dotted paths (reality-opts.public-key,
+// plugin-opts.password, peers.0.pre-shared-key). Names only; NodeConfig has the values.
+func nestedCredentialKeys(m map[string]any) []string {
+	var out []string
+	if ro, ok := m["reality-opts"].(map[string]any); ok {
+		for _, k := range []string{"public-key", "short-id"} {
+			if str(ro[k]) != "" {
+				out = append(out, "reality-opts."+k)
+			}
+		}
+	}
+	if po, ok := m["plugin-opts"].(map[string]any); ok && str(po["password"]) != "" {
+		out = append(out, "plugin-opts.password")
+	}
+	if peers, ok := m["peers"].([]any); ok {
+		for i, p := range peers {
+			pm, ok := p.(map[string]any)
+			if !ok {
+				continue
+			}
+			for _, k := range []string{"public-key", "pre-shared-key"} {
+				if str(pm[k]) != "" {
+					out = append(out, fmt.Sprintf("peers.%d.%s", i, k))
+				}
+			}
+		}
+	}
+	return out
+}
+
 // nodeSummary keeps what the 节点管理 detail shows: protocol, address, transport / TLS options and which
 // credentials exist — never their values (and no paths / headers / reality keys).
 func nodeSummary(m map[string]any, source string) map[string]any {
@@ -185,6 +215,7 @@ func nodeSummary(m map[string]any, source string) map[string]any {
 			out["peers"] = len(peers)
 		}
 	}
+	creds = append(creds, nestedCredentialKeys(m)...)
 	if creds == nil {
 		creds = []string{}
 	}
@@ -205,6 +236,23 @@ func NodeSummary(homeDir, profilePath, name string) string {
 		return string(b)
 	}
 	b, _ := json.Marshal(nodeSummary(m, src))
+	return string(b)
+}
+
+// NodeConfig returns the full config of a node of the profile (any source, node subscriptions included) as a
+// JSON object, secrets included, or "" when it is not found. For the node detail's 显示 / 复制 of a credential
+// and 添加到本地节点; the result is never logged.
+func NodeConfig(homeDir, profilePath, name string) string {
+	defer func() { _ = recover() }()
+	raw := runtimeRawWithHome(homeDir, profilePath)
+	m, _, ok := findRuntimeNode(raw, name)
+	if !ok {
+		return ""
+	}
+	b, err := json.Marshal(jsonSafe(m))
+	if err != nil {
+		return ""
+	}
 	return string(b)
 }
 

@@ -761,9 +761,9 @@ struct AboutView: View {
 
 struct AppIconView: View {
     static let icons: [(name: String?, title: String, preview: String)] = [
-        (nil, "默认", "IconPreview-Default"),
-        ("AppIcon-Graphite", "石墨", "IconPreview-Graphite"),
-        ("AppIcon-Aurora", "极光", "IconPreview-Aurora"),
+        (nil, "航线（默认）", "IconPreview-Default"),
+        ("AppIcon-Night", "夜航", "IconPreview-Night"),
+        ("AppIcon-Sky", "晴空", "IconPreview-Sky"),
     ]
     @State private var current = UIApplication.shared.alternateIconName
     @State private var error: String?

@@ -59,7 +59,7 @@ final class LiveActivityLayoutTests: XCTestCase {
 
     /// The Lock Screen card on a wallpaper, like the device screenshot.
     private func lockScene(_ s: MihomoActivityAttributes.ContentState, stale: Bool = false) -> some View {
-        LiveActivityLockContent(state: s, profile: "Mihomo", stale: stale)
+        LiveActivityLockContent(state: s, profile: "Tern", stale: stale)
             .frame(width: Self.cardWidth)
             .background(RoundedRectangle(cornerRadius: 24, style: .continuous).fill(WidgetTheme.bg.opacity(0.85)))
             .padding(16)
@@ -74,7 +74,7 @@ final class LiveActivityLayoutTests: XCTestCase {
                 Spacer(minLength: 8)
                 LiveIslandTrailing(state: s, stale: stale)
             }
-            LiveIslandBottom(state: s, profile: "Mihomo")
+            LiveIslandBottom(state: s, profile: "Tern")
         }
         .padding(.horizontal, 18).padding(.vertical, 16)
         .frame(width: Self.cardWidth)

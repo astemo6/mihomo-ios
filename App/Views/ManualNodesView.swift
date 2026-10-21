@@ -208,7 +208,7 @@ struct QRScannerSheet: View {
                 if denied {
                     VStack(spacing: 12) {
                         Image(systemName: "camera.fill").font(.largeTitle)
-                        Text("没有相机权限，请在 设置 → Mihomo 中允许访问相机。").multilineTextAlignment(.center)
+                        Text("没有相机权限，请在 设置 → Tern 中允许访问相机。").multilineTextAlignment(.center)
                     }.padding()
                 } else {
                     QRScannerView(onCode: onCode).ignoresSafeArea()
