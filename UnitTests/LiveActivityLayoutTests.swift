@@ -30,10 +30,12 @@ final class LiveActivityLayoutTests: XCTestCase {
         return u
     }
 
-    private func state(node: String, connected: Bool = true, up: Int64 = 34_714, down: Int64 = 145_408, proxyOnly: Bool = false) -> MihomoActivityAttributes.ContentState {
+    private func state(node: String, connected: Bool = true, up: Int64 = 34_714, down: Int64 = 145_408, proxyOnly: Bool = false,
+                       totals: Bool = true, elapsed: TimeInterval = 166) -> MihomoActivityAttributes.ContentState {
         let now = Date()
-        var s = MihomoActivityAttributes.ContentState(connected: connected, node: node, up: up, down: down, since: now.addingTimeInterval(-166), updated: now.addingTimeInterval(-600))
+        var s = MihomoActivityAttributes.ContentState(connected: connected, node: node, up: up, down: down, since: now.addingTimeInterval(-elapsed), updated: now.addingTimeInterval(-240))
         s.proxyOnly = proxyOnly ? true : nil
+        if totals { s.totalUp = 12_345_678; s.totalDown = 987_654_321 }
         return s
     }
 
@@ -123,6 +125,25 @@ final class LiveActivityLayoutTests: XCTestCase {
             render(lockScene(state(node: "", connected: false, up: 0, down: 0)), name: "lock-off-\(lang)-dark", lang: lang, scheme: .dark)
             render(lockScene(state(node: Self.shortNode, up: 1_023_000, down: 98_765_432)), name: "lock-fast-\(lang)-light", lang: lang, scheme: .light)
             render(islandScene(state(node: Self.longNode), stale: true), name: "island-stale-\(lang)", lang: lang, scheme: .dark, type: .xxxLarge)
+            // hotfix/liveact-lockscreen: stale without totals (older state) shows no numbers, only 「更新于」.
+            render(lockScene(state(node: Self.shortNode, totals: false), stale: true), name: "lock-stale-nototals-\(lang)-dark", lang: lang, scheme: .dark)
+            // Elapsed over an hour: 「已连接 2小时46分钟」 on one line, still inside the card.
+            let h = render(lockScene(state(node: Self.longNode, elapsed: 2 * 3600 + 46 * 60)), name: "lock-hours-\(lang)-light", lang: lang, scheme: .light, type: .xxLarge)
+            XCTAssertLessThanOrEqual(h.height - 32, 160, "lock card too tall with hours: \(lang)")
+            render(islandScene(state(node: Self.shortNode, elapsed: 2 * 3600 + 46 * 60)), name: "island-hours-\(lang)", lang: lang, scheme: .dark)
         }
+    }
+
+    /// hotfix/liveact-lockscreen: only meaningful speed changes spend an ActivityKit update.
+    func testMeaningfulSpeedChange() {
+        let m = LiveActivityController.meaningful
+        XCTAssertFalse(m((0, 0), (0, 0)))
+        XCTAssertFalse(m((100_000, 500_000), (110_000, 520_000)), "±10 % is noise")
+        XCTAssertFalse(m((0, 2_000), (0, 6_000)), "a few KB/s at idle is noise")
+        XCTAssertTrue(m((0, 0), (0, 300_000)), "idle → busy")
+        XCTAssertTrue(m((0, 400_000), (0, 20_000)), "busy → idle")
+        XCTAssertTrue(m((50_000, 0), (200_000, 0)), "upload jump")
+        XCTAssertGreaterThanOrEqual(LiveActivityController.minInterval, 15)
+        XCTAssertGreaterThanOrEqual(LiveActivityController.staleAfter, LiveActivityController.keepAlive)
     }
 }

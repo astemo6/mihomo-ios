@@ -8,7 +8,7 @@ import AppIntents
 // the Lock Screen and Dynamic Island content as plain views over (state, profile, stale), so the widget draws
 // them and the unit tests render them with ImageRenderer. App + widget only (the tunnel excludes this file).
 //
-// Lock Screen:  [icon]  已连接 2:46            ↑ 33.9K/s   (⟳)
+// Lock Screen:  [icon]  已连接 2分钟46秒         ↑ 33.9K/s   (⟳)
 //                       🇯🇵 东京 Green CDN      ↓ 142K/s
 // Rules: the status word is one line and never wraps; the elapsed time always sits right after its label
 // (never a bare number) and keeps a fixed width so nothing jumps while it counts; long node names truncate
@@ -25,16 +25,33 @@ enum WidgetTheme {
     static let up = Color.orange
 }
 
-/// The running connected time. Reserves the width of "0:00:00" (up to 9 h 59 min; longer spills one digit) so the layout never shifts as digits change
-/// (Text(timerInterval:) alone takes all the width it is offered, which is what pushed "2:46" into the middle).
+/// The running connected time as a duration with units: 「14分钟2秒」, 「2小时46分钟」 ("14 min, 2 sec", "2 hr, 46 min").
+/// hotfix/liveact-lockscreen (device 2026-10-21 16:26): Text(timerInterval:) drew 「已连接 14:02」, which reads like a
+/// clock time (connected at 14:02) although it meant 14 min 02 s. Text(date, style: .relative) is drawn and ticked by
+/// the system like the timer (no ActivityKit updates needed) but always carries its units. Reserves the width of
+/// "23 hr, 59 min" in the current language so the line never shifts as it counts.
 @available(iOS 16.2, *)
 struct LiveElapsed: View {
     let since: Date
+    @Environment(\.locale) private var locale
+
+    /// The widest value we expect to show, formatted the way the relative style formats it (short units, two fields).
+    private var sample: String {
+        let f = DateComponentsFormatter()
+        f.unitsStyle = .short
+        f.allowedUnits = [.hour, .minute]
+        f.maximumUnitCount = 2
+        var cal = Calendar.current
+        cal.locale = locale
+        f.calendar = cal
+        return f.string(from: 23 * 3600 + 59 * 60) ?? "23 hr, 59 min"
+    }
+
     var body: some View {
-        Text(verbatim: "0:00:00")
+        Text(verbatim: sample)
             .hidden()
             .overlay(alignment: .leading) {
-                Text(timerInterval: since...Date.distantFuture, countsDown: false)
+                Text(since, style: .relative)
                     .multilineTextAlignment(.leading)
                     .frame(maxWidth: .infinity, alignment: .leading)
             }
@@ -42,7 +59,7 @@ struct LiveElapsed: View {
             .lineLimit(1)
             .accessibilityElement(children: .ignore)
             .accessibilityLabel(Text("已连接时长"))
-            .accessibilityValue(Text(timerInterval: since...Date.distantFuture, countsDown: false))
+            .accessibilityValue(Text(since, style: .relative))
     }
 }
 
@@ -53,8 +70,10 @@ struct LiveElapsed: View {
 struct LiveStatusLine: View {
     let connected: Bool
     let since: Date
-    var titleFont: Font = .headline
-    var timeFont: Font = .subheadline
+    // hotfix/liveact-lockscreen (user 16:27 「字体太大」): one step smaller than v0.19.14's headline / subheadline;
+    // the status word stays semibold so it still leads the card.
+    var titleFont: Font = .subheadline.weight(.semibold)
+    var timeFont: Font = .footnote
 
     private var title: some View {
         Text(connected ? LocalizedStringKey("已连接") : LocalizedStringKey("未连接"))
@@ -90,17 +109,34 @@ struct LiveStatusLine: View {
     }
 }
 
-/// ↑ / ↓ stacked, tabular digits, fixed minimum width ("888.8K/s"). Stale = last known values in grey plus
-/// the time they were taken.
+/// ↑ / ↓ stacked, tabular digits, fixed minimum width ("888.8K/s").
+/// Stale (no update for about twice the update interval, ActivityKit's staleDate): an old instant speed means nothing,
+/// so the rows show the session totals instead (「累计」, grey) when the state carries them, otherwise no numbers at
+/// all; either way with the time the numbers were taken (「更新于 下午4:22」).
 @available(iOS 16.2, *)
 struct LiveSpeeds: View {
     let state: MihomoActivityAttributes.ContentState
     var stale = false
     var font: Font = .footnote
+
+    private var totals: (up: Int64, down: Int64)? {
+        guard let u = state.totalUp, let d = state.totalDown else { return nil }
+        return (u, d)
+    }
+
     var body: some View {
         VStack(alignment: .trailing, spacing: 2) {
-            row(symbol: "arrow.up", value: state.up, color: WidgetTheme.up, label: "上传")
-            row(symbol: "arrow.down", value: state.down, color: WidgetTheme.accent, label: "下载")
+            if !stale {
+                row(symbol: "arrow.up", text: LiveActivityFormat.speed(state.up) + "/s", color: WidgetTheme.up, label: "上传")
+                row(symbol: "arrow.down", text: LiveActivityFormat.speed(state.down) + "/s", color: WidgetTheme.accent, label: "下载")
+            } else if let t = totals {
+                Text("累计")
+                    .font(.caption2.weight(.medium))
+                    .foregroundStyle(.secondary)
+                    .lineLimit(1).minimumScaleFactor(0.7)
+                row(symbol: "arrow.up", text: LiveActivityFormat.speed(t.up), color: .secondary, label: "上传")
+                row(symbol: "arrow.down", text: LiveActivityFormat.speed(t.down), color: .secondary, label: "下载")
+            }
             // feat/traffic-scope: the numbers count proxy traffic only (首页流量统计 = 仅代理流量).
             if state.proxyOnly == true {
                 Text("仅代理")
@@ -120,19 +156,19 @@ struct LiveSpeeds: View {
         .fixedSize(horizontal: true, vertical: false)
     }
 
-    private func row(symbol: String, value: Int64, color: Color, label: LocalizedStringKey) -> some View {
+    private func row(symbol: String, text: String, color: Color, label: LocalizedStringKey) -> some View {
         HStack(spacing: 3) {
             Image(systemName: symbol).font(.caption2.weight(.bold))
             Text(verbatim: "888.8K/s").hidden()
                 .overlay(alignment: .trailing) {
-                    Text(verbatim: LiveActivityFormat.speed(value) + "/s").lineLimit(1)
+                    Text(verbatim: text).lineLimit(1)
                 }
         }
-        .foregroundStyle(stale ? Color.secondary : color)
+        .foregroundStyle(color)
         .lineLimit(1)
         .accessibilityElement(children: .ignore)
         .accessibilityLabel(Text(label))
-        .accessibilityValue(Text(verbatim: LiveActivityFormat.speed(value) + "/s"))
+        .accessibilityValue(Text(verbatim: text))
     }
 }
 
@@ -192,7 +228,7 @@ struct LiveActivityLockContent: View {
             LiveStatusIcon(connected: state.connected)
             VStack(alignment: .leading, spacing: 3) {
                 LiveStatusLine(connected: state.connected, since: state.since)
-                LiveNodeLine(state: state, profile: profile).font(.subheadline)
+                LiveNodeLine(state: state, profile: profile).font(.footnote)
             }
             .frame(maxWidth: .infinity, alignment: .leading)
             .layoutPriority(1)
@@ -218,13 +254,11 @@ struct LiveIslandLeading: View {
                     .font(.caption.weight(.semibold))
                     .lineLimit(1).minimumScaleFactor(0.7)
                 if state.connected {
-                    // Labelled by the status word right above it and by a clock glyph; never a bare number.
-                    HStack(spacing: 3) {
-                        Image(systemName: "clock").font(.caption2).accessibilityHidden(true)
-                        LiveElapsed(since: state.since)
-                    }
-                    .font(.caption2)
-                    .foregroundStyle(.secondary)
+                    // A duration with units (「14分钟2秒」), under the status word; never a bare number.
+                    LiveElapsed(since: state.since)
+                        .font(.caption2)
+                        .foregroundStyle(.secondary)
+                        .fixedSize()
                 }
             }
         }
@@ -251,7 +285,7 @@ struct LiveIslandBottom: View {
     var body: some View {
         HStack(spacing: 10) {
             LiveNodeLine(state: state, profile: profile)
-                .font(.footnote)
+                .font(.caption)
                 .frame(maxWidth: .infinity, alignment: .leading)
             LiveRefreshButton(size: 28)
         }
