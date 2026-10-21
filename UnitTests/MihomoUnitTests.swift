@@ -579,3 +579,34 @@ final class RejectClassifierTests: XCTestCase {
         XCTAssertTrue(s.quicSorted.allSatisfy(\.quic))
     }
 }
+
+/// r7 (review7 R7A-10): one bad entry no longer empties the whole engine config.
+final class EngineConfigTolerantTests: XCTestCase {
+    func testBadEntriesAreSkippedNotFatal() throws {
+        let json = #"""
+        {"enabled":true,"mitm":"yes","hostnames":["a.com",5],
+         "rules":[{"line":"^http://a reject"},{"id":"x","enabled":true},{"id":"r2","enabled":"no","line":"b"}],
+         "scripts":[],
+         "modules":[{"name":"M","url":"https://e.com/m.sgmodule","enabled":true,"id":"m1"},{"url":"https://e.com/n.sgmodule"},{"name":"no url"}]}
+        """#
+        let c = try JSONDecoder().decode(EngineConfig.self, from: Data(json.utf8))
+        XCTAssertTrue(c.enabled)
+        XCTAssertFalse(c.mitm, "mistyped switch falls back")
+        XCTAssertEqual(c.hostnames, ["a.com"])
+        XCTAssertEqual(c.rules.map(\.line), ["^http://a reject", "b"])
+        XCTAssertFalse(c.rules[0].id.isEmpty, "missing id gets a UUID")
+        XCTAssertTrue(c.rules[1].enabled, "mistyped enabled falls back to true")
+        XCTAssertEqual(c.modules.map(\.id).first, "m1")
+        XCTAssertEqual(c.modules.count, 2)
+        XCTAssertEqual(c.modules[1].name, "n")
+    }
+
+    func testRoundTripKeepsEverything() throws {
+        var c = EngineConfig()
+        c.enabled = true
+        c.rules = [EngineItem(line: "x", note: "n")]
+        c.modules = [EngineModule(name: "A", url: "https://e.com/a", enabled: false, args: ["k": "v"], updatedAt: 1)]
+        let back = try JSONDecoder().decode(EngineConfig.self, from: try JSONEncoder().encode(c))
+        XCTAssertEqual(back, c)
+    }
+}
