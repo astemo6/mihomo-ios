@@ -66,7 +66,7 @@ enum GeoChecker {
         if let e = r.error, !e.isEmpty { await setError(e); return info }
         if info == nil, let ip = r.ip, !ip.isEmpty { info = IPInfo(ip: ip, source: url.host) }
         info?.customTitle = r.title
-        if let sub = r.subtitle, !sub.isEmpty { info?.org = sub; info?.asn = nil }
+        if let sub = r.subtitle, !sub.isEmpty { info?.org = sub; info?.asn = nil; info?.customSubtitle = sub }
         await setError("")
         return info
     }
