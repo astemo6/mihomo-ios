@@ -173,6 +173,42 @@ enum UITestSeed {
         return (try? JSONDecoder().decode([ConnectionItem].self, from: Data(json.utf8))) ?? []
     }
 
+    /// feat/home-analysis demo (UI tests only, -UITestDemoAnalytics): a private ConnectionAnalytics filled from
+    /// synthetic connections (example.* hosts, documentation IPs). Never the live session, never saved to history.
+    @MainActor static func demoAnalytics() -> ConnectionAnalytics {
+        let a = ConnectionAnalytics()
+        a.recordsHistory = false
+        // (host, final policy, leaf, rule, payload, connections, MB down per connection)
+        let rows: [(String, String, String, String, String, Int, Double)] = [
+            ("video.example.com", "Proxy", "🇯🇵 Tokyo 01", "DomainSuffix", "example.com", 12, 6.2),
+            ("cdn.example.net", "Streaming", "🇸🇬 Singapore 02", "RuleSet", "streaming", 9, 3.1),
+            ("api.example.org", "AI", "🇺🇸 San Jose 02", "DomainKeyword", "example", 18, 0.35),
+            ("updates.example.com", "DIRECT", "DIRECT", "GeoIP", "CN", 31, 0.12),
+            ("photos.example.net", "Apple", "DIRECT", "DomainSuffix", "example.net", 7, 0.9),
+            ("static.example.org", "Proxy", "🇯🇵 Tokyo 01", "Match", "", 14, 0.25),
+            ("ads.example.com", "REJECT", "REJECT", "RuleSet", "reject", 23, 0),
+            ("mail.example.com", "Auto", "🇺🇸 San Jose 02", "DomainSuffix", "example.com", 5, 0.4),
+        ]
+        var conns: [ConnectionItem] = []
+        var n = 0
+        for (host, policy, leaf, rule, payload, count, mb) in rows {
+            for i in 0..<count {
+                n += 1
+                let down = Int64(mb * 1_048_576 * (0.6 + 0.8 * Double(i % 5) / 4))
+                let chains = policy == leaf ? [policy] : [leaf, policy]
+                conns.append(ConnectionItem(id: "demo-\(n)",
+                                            metadata: ConnectionMetadata(network: "tcp", type: "Tun", destinationIP: "192.0.2.\(n % 250 + 1)",
+                                                                         destinationPort: "443", host: host),
+                                            upload: down / 40 + 2048, download: down, start: nil, chains: chains,
+                                            rule: rule, rulePayload: payload))
+            }
+        }
+        a.ingest(conns)
+        // A second snapshot: 20 of them are still open (活跃连接).
+        a.ingest(Array(conns.prefix(20)))
+        return a
+    }
+
     /// v0.17 磁贴编辑 demo (UI tests only): a Surge script panel and a static Stash tile.
     static func demoPanels() -> [PanelItem] {
         let now = Date().timeIntervalSince1970 - 120

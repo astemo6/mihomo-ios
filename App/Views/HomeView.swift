@@ -51,8 +51,12 @@ struct HomeView: View {
                         HomePolicySection(groups: offlineCards, live: false, available: offlineAvailable)
                     }
                     ModeCard()
+                    // feat/home-analysis: Egern 分析 order — 连接数 tiles, 网络, 策略, 规则, 主机名, then 面板.
+                    HomeConnectionTiles()
+                    HomeSectionLabel(title: String(localized: "网络"), id: "home.section.network")
                     TrafficCard()
                     StatsGrid()
+                    HomeAnalysisSection()
                     HomePanelsSection() // feat/panels
 
                     if let err = vpn.lastError {
@@ -73,7 +77,10 @@ struct HomeView: View {
                     }
                 }
                 .padding(.horizontal, 16)
-                .padding(.bottom, 24)
+                .padding(.bottom, 88) // room for the floating + (feat/home-analysis)
+            }
+            .overlay(alignment: .bottomTrailing) {
+                HomeQuickAddButton().padding(.trailing, 20).padding(.bottom, 16)
             }
             .background(Theme.bg.ignoresSafeArea())
             .toolbar(.hidden, for: .navigationBar)

@@ -20,6 +20,10 @@ struct AddNodeView: View {
     @State private var showPhotoPicker = false
     @State private var detectTask: Task<Void, Never>?
     @FocusState private var focused: Bool
+    /// feat/home-analysis: Home's quick-add 扫描添加节点 opens this page with the scanned text (shown, not added).
+    let initialText: String
+
+    init(initialText: String = "") { self.initialText = initialText }
 
     struct Target: Identifiable {
         let id = UUID()
@@ -168,6 +172,7 @@ struct AddNodeView: View {
             }
         }
         .photosPicker(isPresented: $showPhotoPicker, selection: $photoItem, matching: .images)
+        .onAppear { if paste.isEmpty && !initialText.isEmpty { paste = initialText } }
         .onChange(of: photoItem) { item in
             guard let item else { return }
             Task {

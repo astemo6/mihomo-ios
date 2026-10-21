@@ -336,6 +336,9 @@ struct HomePanelsEditor: View {
                 }
                 .listRowBackground(Theme.card)
 
+                HomeAnalysisEditorSection() // feat/home-analysis
+                    .listRowBackground(Theme.card)
+
                 Section {
                     Button { showPanels = true } label: { addRow("全部面板", icon: "square.grid.2x2", enabled: vpn.isConnected) }
                         .disabled(!vpn.isConnected)
