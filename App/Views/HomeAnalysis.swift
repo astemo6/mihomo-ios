@@ -685,7 +685,9 @@ struct HomeQuickAddButton: View {
             scanned = nil
             guard !code.isEmpty else { return }
             nodeText = code
-            DispatchQueue.main.asyncAfter(deadline: .now() + 0.35) { sheet = .node }
+            // r7: this runs in the scanner sheet's onDismiss — the sheet is gone, so the next one is presented right
+            // here (the 0.35 s timer could overlap another sheet opened meanwhile, or fire after the user left).
+            if sheet == nil { sheet = .node }
         }
     }
 }

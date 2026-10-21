@@ -10,6 +10,10 @@ enum NodeFlag {
         (try? NSRegularExpression(pattern: r.filter)).map { (CountryFlag.emoji(r.code) ?? r.flag, $0) }
     }
     private static var cache: [String: String] = [:]
+    /// r7: insertion order for FIFO eviction (a full clear at 2000 re-ran every regex for the whole visible list).
+    private static var order: [String] = []
+    private static var head = 0
+    static let cacheLimit = 2000
 
     /// The region flag for `name`, nil when it has one already, is a built-in policy or matches no region.
     static func flag(for name: String) -> String? {
@@ -17,8 +21,13 @@ enum NodeFlag {
         if let c = cache[name] { return c.isEmpty ? nil : c }
         let range = NSRange(name.startIndex..., in: name)
         let f = patterns.first { $0.re.firstMatch(in: name, range: range) != nil }?.flag
-        if cache.count > 2000 { cache.removeAll() }
+        if cache.count >= cacheLimit {
+            cache.removeValue(forKey: order[head])
+            head += 1
+            if head > cacheLimit { order.removeFirst(head); head = 0 } // compact now and then, O(1) amortised
+        }
         cache[name] = f ?? ""
+        order.append(name)
         return f
     }
 
