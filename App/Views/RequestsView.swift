@@ -41,14 +41,16 @@ final class RequestsModel: ObservableObject {
         }
     }
 
-    func stop() { task?.cancel(); task = nil }
+    func stop() { task?.cancel(); task = nil; lastSample = nil }
 
     private func poll() async {
         guard let r = try? await ControllerClient.shared.connections() else { return }
         let now = r.connections ?? []
         let up = r.uploadTotal ?? 0, down = r.downloadTotal ?? 0
         let t = Date()
-        if let last = lastSample, t.timeIntervalSince(last.0) > 0.2 {
+        // fix/bg-chart: only between polls a second or so apart. After the app was in the background (or
+        // paused) the gap is long, and a speed averaged over it would be a made-up number.
+        if let last = lastSample, t.timeIntervalSince(last.0) > 0.2, t.timeIntervalSince(last.0) <= SpeedSeries.maxGap {
             let dt = t.timeIntervalSince(last.0)
             upSpeed = max(0, Int64(Double(up - last.1) / dt))
             downSpeed = max(0, Int64(Double(down - last.2) / dt))
@@ -103,6 +105,8 @@ struct RequestsView: View {
     @State private var harProgress: (Int, Int)?
     @State private var harShare: ShareItem?
     @State private var harError: String?
+    @Environment(\.scenePhase) private var scenePhase
+    @State private var onScreen = false
 
     var items: [ConnectionItem] {
         let list = tab == 0 ? model.active : model.recent
@@ -223,9 +227,13 @@ struct RequestsView: View {
                 Button("好") { harError = nil }
             } message: { Text(harError ?? "") }
         }
-        .onAppear { if vpn.isConnected { model.start(); http.start() } }
-        .onDisappear { model.stop(); http.stop() }
+        .onAppear { onScreen = true; if vpn.isConnected { model.start(); http.start() } }
+        .onDisappear { onScreen = false; model.stop(); http.stop() }
         .onChange(of: vpn.isConnected) { on in if on { model.start(); http.start() } else { model.stop(); http.stop() } }
+        // fix/bg-chart: nothing polls while the app is not on screen; on return the speed restarts from fresh samples.
+        .onChange(of: scenePhase) { p in
+            if p == .active { if onScreen && vpn.isConnected { model.start(); http.start() } } else { model.stop(); http.stop() }
+        }
     }
 }
 

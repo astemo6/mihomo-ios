@@ -94,7 +94,7 @@ final class MihomoUITests: MihomoUITestCase {
     /// zh-Hans keys (titles changed to plain language).
     static let moreRows = [
         "节点与订阅", "规则", "模块与资源", "日志", "DNS 日志", "连接分析", "网络工具（Ping / TCP / DNS）", "网络测试（带宽 / NAT 类型）",
-        "解锁检测", "内网 IP 与路由器", "流量统计", "配置快照", "备份与恢复", "存储空间", "外观", "App 图标", "开始标签页",
+        "解锁检测", "内网 IP 与路由器", "流量统计", "配置快照", "备份与恢复", "存储空间", "外观", "App 图标", "开始标签页", "首页流量统计",
         "诊断", "关于 / 开源许可",
     ]
     static let advancedRows = [
@@ -1934,5 +1934,38 @@ final class MihomoUITests: MihomoUITestCase {
             XCTAssertLessThan(took, 15, "tab \(i) switch")
         }
         assertAlive("big profile")
+    }
+
+    // MARK: 70. feat/traffic-scope 首页流量统计 (全部流量 / 仅代理流量)
+
+    func test70_TrafficScope() {
+        launch()
+        // Default: all traffic, no 「仅代理」 tag on Home.
+        XCTAssertTrue(scrollTo(app.element(label: L("总上传"))), "总上传 tile")
+        XCTAssertFalse(app.element(id: "home.trafficScope.proxy").exists, "no proxy-only tag by default")
+        openMore("首页流量统计")
+        XCTAssertTrue(app.navigationBars[L("首页流量统计")].waitForExistence(timeout: 6), "首页流量统计 page")
+        let all = app.element(id: "trafficScope.all"), proxy = app.element(id: "trafficScope.proxy")
+        XCTAssertTrue(all.waitForExistence(timeout: 4) && proxy.exists)
+        XCTAssertTrue(all.isSelected, "全部流量 is the default")
+        proxy.tap()
+        usleep(400_000)
+        XCTAssertTrue(proxy.isSelected, "仅代理流量 selected")
+        snap("traffic-scope")
+        back()
+        let row = app.element(id: "more.首页流量统计")
+        XCTAssertTrue(row.waitForExistence(timeout: 4))
+        XCTAssertTrue(row.label.contains(L("仅代理流量")), "row shows the choice: \(row.label)")
+        tab(0)
+        XCTAssertTrue(scrollTo(app.element(id: "home.trafficScope.proxy")), "「仅代理」 tag on the speed card")
+        XCTAssertTrue(app.element(label: L("总上传（仅代理）")).exists, "totals say proxy only")
+        snap("home-traffic-scope-proxy")
+        // Back to the default so the choice cannot leak into a screenshot of another test run in this launch.
+        openMore("首页流量统计")
+        XCTAssertTrue(all.waitForExistence(timeout: 4))
+        all.tap()
+        usleep(300_000)
+        XCTAssertTrue(all.isSelected)
+        assertAlive("traffic scope")
     }
 }

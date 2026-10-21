@@ -570,6 +570,7 @@ func Start(homeDir, configPath string, tunFd int32) error {
 	setNetPolicyProfile(configPath)
 	startDiagCapture(homeDir)
 	stage("core start begin (fd=%d)", tunFd)
+	proxyTrafficStats.start() // feat/traffic-scope: proxy-only totals count from this connect
 	tunnel.OnSuspend()
 	safe := overridesFor(homeDir, configPath).SafeMode
 	// New apply generation: a previous timed-out apply that finishes late must not
@@ -650,6 +651,7 @@ func Start(homeDir, configPath string, tunFd int32) error {
 	defer tick.Stop()
 	complete := func(err error) error {
 		if err != nil {
+			proxyTrafficStats.stopRunning()
 			setLastError(err.Error())
 			log.Errorln("[Bridge] start failed: %s", err.Error())
 			DumpDiagnostics()
@@ -704,6 +706,7 @@ func Reload(configPath string) error {
 		return errors.New("core not started")
 	}
 	flushRuleHits(home) // the new rules start counting at 0
+	proxyTrafficStats.resetClasses()
 	if err := safeApply(home, configPath, fd); err != nil {
 		setLastError(err.Error())
 		return err
@@ -744,6 +747,8 @@ func Stop() {
 	stopRuleHits(curHomeStr())
 	stopEngine()
 	stopSmart()
+	proxyTrafficStats.sample(managerRange, time.Now()) // count bytes moved since the last tick
+	proxyTrafficStats.stopRunning()
 	executor.Shutdown()
 	running.Store(false)
 	DumpDiagnostics()

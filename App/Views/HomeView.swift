@@ -225,7 +225,19 @@ struct TrafficCard: View {
                 }
                 TrafficChart(up: dash.upHistory, down: dash.downHistory)
                     .frame(height: 72)
+                    .overlay(alignment: .topTrailing) { TrafficScopeCaption() }
             }
+        }
+    }
+}
+
+/// feat/traffic-scope: a quiet 「仅代理」 tag on speed views while 首页流量统计 = 仅代理流量 (nothing otherwise).
+struct TrafficScopeCaption: View {
+    @EnvironmentObject var dash: DashboardModel
+    var body: some View {
+        if dash.scope == .proxy {
+            Text("仅代理").font(.caption2).foregroundStyle(.secondary)
+                .accessibilityIdentifier("home.trafficScope.proxy")
         }
     }
 }
@@ -292,8 +304,9 @@ struct StatsGrid: View {
     @EnvironmentObject var dash: DashboardModel
     var body: some View {
         LazyVGrid(columns: [GridItem(.flexible(), spacing: 12), GridItem(.flexible(), spacing: 12)], spacing: 12) {
-            StatTile(icon: "arrow.up.circle.fill", color: Theme.up, title: "总上传", value: Fmt.bytes(dash.uploadTotal))
-            StatTile(icon: "arrow.down.circle.fill", color: Theme.down, title: "总下载", value: Fmt.bytes(dash.downloadTotal))
+            // feat/traffic-scope: titles say when only proxy traffic is counted.
+            StatTile(icon: "arrow.up.circle.fill", color: Theme.up, title: dash.scope == .proxy ? "总上传（仅代理）" : "总上传", value: Fmt.bytes(dash.uploadTotal))
+            StatTile(icon: "arrow.down.circle.fill", color: Theme.down, title: dash.scope == .proxy ? "总下载（仅代理）" : "总下载", value: Fmt.bytes(dash.downloadTotal))
         }
     }
 }
