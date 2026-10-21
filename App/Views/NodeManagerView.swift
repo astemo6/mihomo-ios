@@ -170,16 +170,7 @@ struct NodeListView: View {
         .alert("提示", isPresented: Binding(get: { message != nil }, set: { if !$0 { message = nil } })) {
             Button("好", role: .cancel) {}
         } message: { Text(message ?? "") }
-        .alert("已添加到本地节点", isPresented: Binding(get: { addedLocal != nil }, set: { if !$0 { addedLocal = nil } }), presenting: addedLocal) { a in
-            Button("编辑") {
-                if let m = model.manualNode(named: a.name) { editing = ManualNodesView.EditTarget(node: m) }
-            }
-            Button("好", role: .cancel) {}
-        } message: { a in
-            a.inRuntime
-                ? Text("「\(a.name)」现在是可编辑的手动节点，不受订阅更新影响。")
-                : Text("「\(a.name)」现在是可编辑的手动节点，不受订阅更新影响。它还不在当前配置里：在 更多 → 高级设置 → 内核设置 打开「把手动节点加入每个配置」。")
-        }
+        .modifier(AddedLocalAlert(added: $addedLocal) { m in editing = ManualNodesView.EditTarget(node: m) })
     }
 
     func addToLocal(_ n: ManagedNode) async {
@@ -1026,6 +1017,28 @@ struct NodeSettingsSheet: View {
                 let s = NodeSettingsStore.setting(for: name)
                 note = s?.note ?? ""
                 url = s?.testURL ?? ""
+            }
+        }
+    }
+}
+
+/// feat/subs-split: the 已添加到本地节点 result alert for the node list (split out of NodeListView.body so the
+/// type checker stays fast); same text as NodeDetailView's.
+struct AddedLocalAlert: ViewModifier {
+    @Binding var added: NodeDetailView.AddedLocal?
+    let edit: ([String: Any]) -> Void
+
+    func body(content: Content) -> some View {
+        content.alert("已添加到本地节点", isPresented: Binding(get: { added != nil }, set: { if !$0 { added = nil } }), presenting: added) { a in
+            Button("编辑") {
+                if let m = NodeManagerModel.shared.manualNode(named: a.name) { edit(m) }
+            }
+            Button("好", role: .cancel) {}
+        } message: { a in
+            if a.inRuntime {
+                Text("「\(a.name)」现在是可编辑的手动节点，不受订阅更新影响。")
+            } else {
+                Text("「\(a.name)」现在是可编辑的手动节点，不受订阅更新影响。它还不在当前配置里：在 更多 → 高级设置 → 内核设置 打开「把手动节点加入每个配置」。")
             }
         }
     }
