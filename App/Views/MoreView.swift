@@ -20,6 +20,8 @@ struct MoreView: View {
     @State private var path: [Route] = []
     /// A new id rebuilds the stack, which also pops pages pushed by plain (closure) NavigationLinks.
     @State private var stackID = UUID()
+    /// False until the stack first appeared (a new MoreView, e.g. iPad's per-tab rebuild, starts with an empty stack).
+    @State private var appeared = false
 
     /// Every node 节点与订阅 lists (全部节点); nil before the list loaded. (Kept for callers; feat/surge-ui
     /// no longer shows the count on the 更多 row.)
@@ -117,18 +119,39 @@ struct MoreView: View {
         }
         .id(stackID)
         // onAppear too: on iPad the detail column is rebuilt per tab (.id(selectedTab)) after the flag was set.
-        .onAppear { showProfilesIfAsked() }
+        .onAppear {
+            showProfilesIfAsked()
+            appeared = true
+        }
         .onChange(of: router.openProfiles) { _ in showProfilesIfAsked() }
     }
 
     /// Exactly one 配置 page on top of 更多, whatever was pushed before.
+    /// r7 P3-9 follow-up: the request arrives in the same update that switches the tab bar to 更多
+    /// (ImportRouter.showProfiles sets selectedTab too). Rebuilding the stack (.id) right then swapped the
+    /// UINavigationController while UITabBarController was adding it to the window, and UINavigationBar
+    /// layoutSubviews threw (SIGABRT, Self-test zh test57 「前往配置」). So the stack is replaced on the next
+    /// main-queue turn, after the tab transition, and only when it can hold pages: on the first appearance the
+    /// stack is new and just gets [配置].
     func showProfilesIfAsked() {
         guard router.openProfiles else { return }
         router.openProfiles = false
-        // Pages pushed by closure links (every other row, and links inside 配置) are not in `path`, so the stack is
-        // rebuilt rather than trusted: afterwards it is exactly 更多 → 配置.
-        stackID = UUID()
-        path = [.profiles]
+        let fresh = !appeared
+        DispatchQueue.main.async {
+            var t = Transaction()
+            t.disablesAnimations = true
+            if fresh {
+                withTransaction(t) { path = [.profiles] }
+                return
+            }
+            // Pages pushed by closure links (every other row, and links inside 配置) are not in `path`, so the
+            // stack is rebuilt rather than trusted: afterwards it is exactly 更多 → 配置.
+            withTransaction(t) {
+                stackID = UUID()
+                path = []
+            }
+            DispatchQueue.main.async { path = [.profiles] }
+        }
     }
 }
 
