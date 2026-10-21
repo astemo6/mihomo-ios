@@ -101,9 +101,9 @@ enum BackupManager {
         dec.dateDecodingStrategy = .iso8601
         let b: BackupFile
         do { b = try dec.decode(BackupFile.self, from: data) } catch {
-            throw NSError(domain: "Backup", code: 1, userInfo: [NSLocalizedDescriptionKey: String(localized: "不是 Mihomo 备份文件")])
+            throw NSError(domain: "Backup", code: 1, userInfo: [NSLocalizedDescriptionKey: String(localized: "不是 Tern 备份文件")])
         }
-        guard b.app == "mihomo-ios" else { throw NSError(domain: "Backup", code: 1, userInfo: [NSLocalizedDescriptionKey: String(localized: "不是 Mihomo 备份文件")]) }
+        guard b.app == "mihomo-ios" else { throw NSError(domain: "Backup", code: 1, userInfo: [NSLocalizedDescriptionKey: String(localized: "不是 Tern 备份文件")]) }
         let allowed = items(includeCA: true)
         // v0.19.1: decode every entry first. A damaged entry (bad base64, e.g. a truncated download) stops the
         // restore before anything is written, instead of leaving a half-restored mix of old and new files.

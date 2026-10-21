@@ -5,6 +5,7 @@ import Libmihomo
 
 struct MoreView: View {
     @EnvironmentObject var vpn: VPNManager
+    @ObservedObject private var dash = DashboardModel.shared
     @EnvironmentObject var store: ProfileStore
     @State private var showOnboarding = false
     @AppStorage(LaunchTab.key) private var launchRaw = 0
@@ -90,6 +91,9 @@ struct MoreView: View {
                     }
                     NavigationLink { LazyDestination { LaunchTabView() } } label: {
                         MoreRow(id: "开始标签页", title: "开始标签页", symbol: "rectangle.stack", tone: .green, value: (AppSection(rawValue: launchRaw) ?? .home).title)
+                    }
+                    NavigationLink { LazyDestination { TrafficScopeView() } } label: {
+                        MoreRow(id: "首页流量统计", title: "首页流量统计", symbol: "arrow.up.arrow.down", tone: .teal, value: dash.scope.title)
                     }
                 }
                 .listRowBackground(Theme.card)
@@ -224,6 +228,45 @@ struct AdvancedSettingsView: View {
         .background(Theme.bg.ignoresSafeArea())
         .navigationTitle("高级设置")
         .onAppear { refreshLabels() }
+    }
+}
+
+/// 更多 → 首页流量统计 (feat/traffic-scope): what Home's speed, totals, tiles and the Live Activity count.
+struct TrafficScopeView: View {
+    @ObservedObject private var dash = DashboardModel.shared
+
+    var body: some View {
+        List {
+            Section {
+                ForEach(TrafficScope.allCases) { s in
+                    Button { dash.scope = s } label: {
+                        HStack(spacing: 12) {
+                            IconTile(symbol: s == .all ? "globe" : "paperplane", tone: dash.scope == s ? .accent : .neutral)
+                            VStack(alignment: .leading, spacing: 2) {
+                                Text(LocalizedStringKey(s.title)).foregroundStyle(.primary)
+                                Text(s == .all ? "经过 Mihomo 的所有流量，包括直连" : "只算经代理节点发出的流量，不含直连和拒绝")
+                                    .font(.caption).foregroundStyle(.secondary)
+                            }
+                            Spacer()
+                            if dash.scope == s {
+                                Image(systemName: "checkmark").font(.body.weight(.semibold)).foregroundStyle(Theme.accent)
+                            }
+                        }
+                        .contentShape(Rectangle())
+                    }
+                    .buttonStyle(.plain)
+                    .accessibilityAddTraits(dash.scope == s ? .isSelected : [])
+                    .accessibilityIdentifier("trafficScope.\(s.rawValue)")
+                }
+            } footer: {
+                Text("用于首页的网速、总上传 / 总下载、首页卡片和实时活动。选「仅代理流量」时，数字旁会标「仅代理」。「流量统计」页的每日记录不受影响。")
+            }
+            .listRowBackground(Theme.card)
+        }
+        .listStyle(.insetGrouped)
+        .scrollContentBackground(.hidden)
+        .background(Theme.bg.ignoresSafeArea())
+        .navigationTitle("首页流量统计")
     }
 }
 
@@ -718,9 +761,9 @@ struct AboutView: View {
 
 struct AppIconView: View {
     static let icons: [(name: String?, title: String, preview: String)] = [
-        (nil, "默认", "IconPreview-Default"),
-        ("AppIcon-Graphite", "石墨", "IconPreview-Graphite"),
-        ("AppIcon-Aurora", "极光", "IconPreview-Aurora"),
+        (nil, "航线（默认）", "IconPreview-Default"),
+        ("AppIcon-Night", "夜航", "IconPreview-Night"),
+        ("AppIcon-Sky", "晴空", "IconPreview-Sky"),
     ]
     @State private var current = UIApplication.shared.alternateIconName
     @State private var error: String?

@@ -10,6 +10,11 @@ import UIKit
 //   [DNS] cache hit example.com --> [93.184.216.34] A, expire at 2026-…          dns/resolver.go
 //   [DNS] resolve example.com error: …                                          tunnel/tunnel.go
 //   [TCP] 198.18.0.1:5000 --> ads.example.com:443 match DomainSuffix(example.com) using REJECT   tunnel/tunnel.go
+//
+// The 已拦截 tab is built from those REJECT *connection* lines, not from DNS answers (the core never refuses a DNS
+// query here). Device report 2026-10-21: most hits were the QUIC fallback rule (UDP 443 → REJECT, apps retry over
+// TCP), which read as hundreds of "blocked DNS". QUIC refusals now have their own collapsed group and count
+// (RejectClassifier), and the tab counts only real blocks.
 
 struct DNSLogEntry: Identifiable, Hashable {
     let id = UUID()
@@ -28,6 +33,13 @@ struct BlockedDomain: Identifiable, Hashable {
     var count: Int
     var rule: String
     var last: Date
+    /// QUIC (HTTP/3) refused so the app falls back to TCP — not a real block.
+    var quic = false
+    var network = ""
+    var port: Int?
+
+    /// Readable rule: 「UDP 443（QUIC）」, 「域名后缀 · ads.example.com」…
+    var ruleLabel: String { RejectClassifier.friendlyRule(rule, network: network, port: port) }
 }
 
 @MainActor
@@ -35,17 +47,23 @@ final class DNSLogStore: ObservableObject {
     static let shared = DNSLogStore()
 
     @Published private(set) var queries: [DNSLogEntry] = []   // newest first
-    @Published private(set) var blocked: [String: BlockedDomain] = [:]
+    @Published private(set) var blocked: [String: BlockedDomain] = [:]      // real blocks (ads, trackers, user rules)
+    @Published private(set) var quicBlocked: [String: BlockedDomain] = [:]  // QUIC refused → TCP fallback
     @Published var paused = false
     @Published private(set) var running = false
     static let limit = 2000
     private var task: Task<Void, Never>?
     private var bgObserver: NSObjectProtocol?
 
-    var blockedSorted: [BlockedDomain] {
-        blocked.values.sorted { $0.count != $1.count ? $0.count > $1.count : $0.last > $1.last }
-    }
+    var blockedSorted: [BlockedDomain] { Self.sorted(blocked) }
+    var quicSorted: [BlockedDomain] { Self.sorted(quicBlocked) }
+    /// Real blocks only; QUIC fallbacks are counted separately (quicTotal).
     var blockedTotal: Int { blocked.values.reduce(0) { $0 + $1.count } }
+    var quicTotal: Int { quicBlocked.values.reduce(0) { $0 + $1.count } }
+
+    private static func sorted(_ d: [String: BlockedDomain]) -> [BlockedDomain] {
+        d.values.sorted { $0.count != $1.count ? $0.count > $1.count : $0.last > $1.last }
+    }
 
     init() {
         bgObserver = NotificationCenter.default.addObserver(forName: UIApplication.didEnterBackgroundNotification, object: nil, queue: .main) { [weak self] _ in
@@ -81,6 +99,7 @@ final class DNSLogStore: ObservableObject {
                 if !all.isEmpty {
                     self.queries = []
                     self.blocked = [:]
+                    self.quicBlocked = [:]
                     for e in all { self.ingest(e.payload, at: Date(timeIntervalSince1970: Double(e.time) / 1000)) }
                 }
                 join = LogJoin(history: all)
@@ -109,6 +128,7 @@ final class DNSLogStore: ObservableObject {
     func clear() {
         queries = []
         blocked = [:]
+        quicBlocked = [:]
         clearedAt = Date()
         Task { try? await ControllerClient.shared.harkClearLogs(kind: "dns") }
     }
@@ -119,7 +139,7 @@ final class DNSLogStore: ObservableObject {
     private static let answerRE = re(#"^\[DNS\] (\S+) --> (.*) (\S+) from (\S+)$"#)
     private static let cacheRE = re(#"^\[DNS\] cache hit (\S+) --> (.*) (\S+), expire at"#)
     private static let errorRE = re(#"^\[DNS\] resolve (\S+) error: (.*)$"#)
-    private static let rejectRE = re(#"^\[(?:TCP|UDP)\] \S+ --> (\S+) (?:match (.+) )?using (\S*REJECT\S*)$"#)
+    private static let rejectRE = re(#"^\[(TCP|UDP)\] .+? --> (\S+) (?:match (.+) )?using (\S*REJECT\S*)$"#)
 
     private static func groups(_ r: NSRegularExpression, _ s: String) -> [String]? {
         let ns = s as NSString
@@ -136,6 +156,13 @@ final class DNSLogStore: ObservableObject {
         if address.hasPrefix("["), let end = address.firstIndex(of: "]") { return String(address[address.index(after: address.startIndex)..<end]) }
         if let colon = address.lastIndex(of: ":"), address.filter({ $0 == ":" }).count == 1 { return String(address[..<colon]) }
         return address
+    }
+
+    /// "host:443" / "[2001:db8::1]:443" → 443.
+    private static func port(of address: String) -> Int? {
+        guard let colon = address.lastIndex(of: ":") else { return nil }
+        if !address.hasPrefix("[") && address.filter({ $0 == ":" }).count != 1 { return nil }
+        return Int(address[address.index(after: colon)...])
     }
 
     private static func answerText(_ s: String) -> String {
@@ -156,13 +183,18 @@ final class DNSLogStore: ObservableObject {
             queries.insert(e, at: 0)
             if queries.count > Self.limit { queries.removeLast(queries.count - Self.limit) }
         } else if line.hasPrefix("[TCP]") || line.hasPrefix("[UDP]"), line.contains("REJECT"), let g = Self.groups(Self.rejectRE, line) {
-            let h = Self.host(of: g[0])
+            let h = Self.host(of: g[1])
             guard !h.isEmpty else { return }
-            var b = blocked[h] ?? BlockedDomain(domain: h, count: 0, rule: "", last: time)
+            let rule = g[2].isEmpty ? g[3] : g[2]
+            let port = Self.port(of: g[1])
+            let quic = RejectClassifier.isQUIC(rule: rule, network: g[0], port: port)
+            var b = (quic ? quicBlocked[h] : blocked[h]) ?? BlockedDomain(domain: h, count: 0, rule: "", last: time, quic: quic)
             b.count += 1
             b.last = time
-            b.rule = g[1].isEmpty ? g[2] : g[1]
-            blocked[h] = b
+            b.rule = rule
+            b.network = g[0]
+            b.port = port
+            if quic { quicBlocked[h] = b } else { blocked[h] = b }
         }
     }
 
@@ -177,6 +209,9 @@ final class DNSLogStore: ObservableObject {
             "[TCP] 198.18.0.1:50001 --> ads.example.com:443 match DomainSuffix(ads.example.com) using REJECT",
             "[TCP] 198.18.0.1:50002 --> ads.example.com:443 match DomainSuffix(ads.example.com) using REJECT",
             "[UDP] 198.18.0.1:50003 --> tracker.example.net:443 match RuleSet(ads) using AdBlock[REJECT-DROP]",
+            "[UDP] 198.18.0.1:50004 --> app.example.com:443 match AND(((Network,udp) && (DstPort,443))) using REJECT",
+            "[UDP] 198.18.0.1:50005 --> app.example.com:443 match AND(((Network,udp) && (DstPort,443))) using REJECT",
+            "[UDP] 198.18.0.1:50006 --> video.example.org:443 match AND(((Network,udp) && (DstPort,443) && (NOT,(!(InType,INNER))))) using REJECT",
         ]
         for (i, l) in lines.enumerated() { ingest(l, at: t.addingTimeInterval(Double(i - lines.count))) }
     }
@@ -187,6 +222,7 @@ struct DNSLogView: View {
     @ObservedObject private var store = DNSLogStore.shared
     @State private var tab = 0
     @State private var search = ""
+    @State private var showQUIC = false
 
     private var shownQueries: [DNSLogEntry] {
         guard !search.isEmpty else { return store.queries }
@@ -196,32 +232,71 @@ struct DNSLogView: View {
     private var shownBlocked: [BlockedDomain] {
         let all = store.blockedSorted
         guard !search.isEmpty else { return all }
-        return all.filter { $0.domain.localizedCaseInsensitiveContains(search) || $0.rule.localizedCaseInsensitiveContains(search) }
+        return all.filter { matches($0) }
+    }
+
+    private var shownQUIC: [BlockedDomain] {
+        let all = store.quicSorted
+        guard !search.isEmpty else { return all }
+        return all.filter { matches($0) }
+    }
+
+    private func matches(_ b: BlockedDomain) -> Bool {
+        b.domain.localizedCaseInsensitiveContains(search) || b.rule.localizedCaseInsensitiveContains(search)
+            || b.ruleLabel.localizedCaseInsensitiveContains(search)
     }
 
     private var footer: LocalizedStringKey {
+        // 已拦截 is built from REJECT connections, not DNS answers: say so on that tab whatever the recording state.
+        if tab == 1 { return "「已拦截」统计被规则拒绝的连接（按域名累计），不是 DNS 查询失败。QUIC 是 HTTP/3 用的 UDP 通道，被拒后 App 会自动改用 TCP，不影响访问，所以单独列出、不计入拦截数。" }
         if !vpn.isConnected { return "未连接 · 显示已记录的内容。连接后从连接开始记录。" }
-        return store.running ? "从连接开始记录，最多保留最近 2000 条。拦截按域名累计 REJECT 规则命中的连接。" : "记录已停止，重新打开本页继续。"
+        return store.running ? "从连接开始记录，最多保留最近 2000 条。" : "记录已停止，重新打开本页继续。"
+    }
+
+    private var isEmpty: Bool {
+        tab == 0 ? shownQueries.isEmpty : (shownBlocked.isEmpty && shownQUIC.isEmpty)
     }
 
     var body: some View {
         List {
             Picker("", selection: $tab) {
                 Text("查询 \(store.queries.count)").tag(0)
-                Text("拦截 \(store.blockedTotal)").tag(1)
+                Text("已拦截 \(store.blockedTotal)").tag(1)
             }
             .pickerStyle(.segmented)
             .listRowBackground(Color.clear)
             .accessibilityIdentifier("dnslog.tabs")
 
-            Section {
-                if tab == 0 {
+            if tab == 0 {
+                Section {
                     ForEach(shownQueries) { e in DNSQueryRow(e: e).listRowBackground(Theme.card) }
-                } else {
-                    ForEach(shownBlocked) { b in BlockedDomainRow(b: b).listRowBackground(Theme.card) }
+                } footer: {
+                    Text(footer)
                 }
-            } footer: {
-                Text(footer)
+            } else {
+                if !shownBlocked.isEmpty {
+                    Section {
+                        ForEach(shownBlocked) { b in BlockedDomainRow(b: b).listRowBackground(Theme.card) }
+                    } header: {
+                        Text("广告与隐私拦截")
+                    }
+                }
+                if !shownQUIC.isEmpty {
+                    Section {
+                        Button {
+                            withAnimation(.easeInOut(duration: 0.2)) { showQUIC.toggle() }
+                        } label: {
+                            QUICSummaryRow(count: store.quicTotal, domains: store.quicBlocked.count, expanded: showQUIC || !search.isEmpty)
+                        }
+                        .buttonStyle(.plain)
+                        .listRowBackground(Theme.card)
+                        .accessibilityIdentifier("dnslog.quic")
+                        if showQUIC || !search.isEmpty {
+                            ForEach(shownQUIC) { b in BlockedDomainRow(b: b).listRowBackground(Theme.card) }
+                        }
+                    }
+                }
+                Section {} footer: { Text(footer) }
             }
         }
         .listStyle(.insetGrouped)
@@ -229,7 +304,7 @@ struct DNSLogView: View {
         .background(Theme.bg.ignoresSafeArea())
         .searchable(text: $search, placement: .navigationBarDrawer(displayMode: .always), prompt: "搜索域名")
         .overlay {
-            if (tab == 0 ? shownQueries.isEmpty : shownBlocked.isEmpty) && search.isEmpty {
+            if isEmpty && search.isEmpty {
                 EmptyStateView(icon: tab == 0 ? "network" : "hand.raised", title: tab == 0 ? "没有 DNS 查询" : "没有被拦截的域名")
                     .allowsHitTesting(false)
             }
@@ -291,17 +366,50 @@ struct BlockedDomainRow: View {
         HStack(spacing: 10) {
             VStack(alignment: .leading, spacing: 3) {
                 Text(verbatim: b.domain).font(.system(.subheadline, design: .monospaced)).lineLimit(1).truncationMode(.middle)
-                Text(verbatim: b.rule).font(.caption2).foregroundStyle(.secondary).lineLimit(1)
+                Text(verbatim: b.ruleLabel).font(.caption2).foregroundStyle(.secondary).lineLimit(1).truncationMode(.middle)
             }
             Spacer(minLength: 6)
+            // QUIC fallbacks are not a problem: neutral grey count, red only for real blocks.
             Text(verbatim: "\(b.count)")
                 .font(.system(.subheadline, design: .rounded).weight(.semibold).monospacedDigit())
                 .padding(.horizontal, 8).padding(.vertical, 2)
                 .lineLimit(1) // v0.19.8: a capsule tag never wraps (tall grey box with large text)
-                .background(Capsule().fill(Theme.bad.opacity(0.14)))
-                .foregroundStyle(Theme.bad)
+                .background(Capsule().fill(b.quic ? Theme.ink(0.08) : Theme.bad.opacity(0.14)))
+                .foregroundStyle(b.quic ? Color.secondary : Theme.bad)
         }
         .accessibilityElement(children: .combine)
-        .accessibilityIdentifier("dnslog.blocked")
+        .accessibilityIdentifier(b.quic ? "dnslog.quicDomain" : "dnslog.blocked")
+    }
+}
+
+/// Collapsed group for QUIC refusals: what happened in plain words, the technical term as the subtitle.
+struct QUICSummaryRow: View {
+    let count: Int
+    let domains: Int
+    let expanded: Bool
+    var body: some View {
+        HStack(spacing: 10) {
+            Image(systemName: "arrow.triangle.swap")
+                .font(.system(size: 13, weight: .semibold))
+                .foregroundStyle(Theme.good)
+                .frame(width: 28, height: 28)
+                .background(RoundedRectangle(cornerRadius: 7, style: .continuous).fill(Theme.good.opacity(0.14)))
+            VStack(alignment: .leading, spacing: 3) {
+                Text("QUIC 已拦截 · 自动改走 TCP").font(.subheadline.weight(.medium))
+                Text("不影响访问 · UDP 443（HTTP/3）· \(domains) 个域名").font(.caption2).foregroundStyle(.secondary)
+            }
+            Spacer(minLength: 6)
+            Text(verbatim: "\(count)")
+                .font(.system(.subheadline, design: .rounded).weight(.semibold).monospacedDigit())
+                .foregroundStyle(.secondary)
+                .lineLimit(1)
+            Image(systemName: "chevron.right")
+                .font(.caption.weight(.semibold))
+                .foregroundStyle(.tertiary)
+                .rotationEffect(.degrees(expanded ? 90 : 0))
+        }
+        .contentShape(Rectangle())
+        .accessibilityElement(children: .combine)
+        .accessibilityAddTraits(.isButton)
     }
 }
