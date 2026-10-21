@@ -6,6 +6,8 @@ import (
 	"context"
 	"io"
 	"net/http"
+	"os"
+	"path/filepath"
 	"strings"
 	"testing"
 	"time"
@@ -112,5 +114,32 @@ func TestR7PeekSNILargeClientHello(t *testing.T) {
 	br = growForClientHello(br)
 	if got := peekSNI(br); got != host {
 		t.Fatalf("SNI %q, want %q", got, host)
+	}
+}
+
+// r7: a store file that is unreadable on the first read but fine on the re-read is not quarantined.
+func TestR7StoreQuarantineAfterReread(t *testing.T) {
+	home := t.TempDir()
+	s := NewStore(home)
+	_ = os.MkdirAll(filepath.Dir(s.path), 0o755)
+	_ = os.WriteFile(s.path, []byte(`{"a":`), 0o644)
+	go func() {
+		time.Sleep(10 * time.Millisecond)
+		_ = os.WriteFile(s.path+".tmp", []byte(`{"a":"1"}`), 0o644)
+		_ = os.Rename(s.path+".tmp", s.path)
+	}()
+	m, _, ok := s.readFile()
+	if !ok || m["a"] != "1" {
+		t.Fatalf("read %v %v", m, ok)
+	}
+	if _, err := os.Stat(s.path + ".bad"); err == nil {
+		t.Fatal("quarantined a store that re-read fine")
+	}
+	_ = os.WriteFile(s.path, []byte(`{"a":`), 0o644)
+	if _, _, ok := s.readFile(); ok {
+		t.Fatal("broken store read as ok")
+	}
+	if _, err := os.Stat(s.path + ".bad"); err != nil {
+		t.Fatal("persistently broken store not quarantined")
 	}
 }
