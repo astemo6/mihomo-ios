@@ -13,6 +13,13 @@ struct MoreView: View {
     /// publishes every second and rebuilt this list and every pushed page (LazyDestination closures are never
     /// equal) during push / pop.
     @AppStorage(TrafficScope.key, store: AppShared.defaults) private var scopeRaw = TrafficScope.all.rawValue
+    /// r7 P3-9: 配置 is a value route, so 「添加配置」 / 「前往配置」 (ImportRouter.showProfiles) can replace the whole
+    /// stack with [配置]. The old navigationDestination(isPresented:) pushed a second 配置 page on top of one the user
+    /// had opened from this list, or over whatever deeper page was showing.
+    enum Route: Hashable { case profiles }
+    @State private var path: [Route] = []
+    /// A new id rebuilds the stack, which also pops pages pushed by plain (closure) NavigationLinks.
+    @State private var stackID = UUID()
 
     /// Every node 节点与订阅 lists (全部节点); nil before the list loaded. (Kept for callers; feat/surge-ui
     /// no longer shows the count on the 更多 row.)
@@ -22,12 +29,12 @@ struct MoreView: View {
     /// plain-language titles with the technical term as a small subtitle, no counters on the top level,
     /// expert pages under 高级设置. Row ids stay `more.<old zh-Hans key>` so UI tests and muscle memory hold.
     var body: some View {
-        NavigationStack {
+        NavigationStack(path: $path) {
             List {
                 // feat/more-dedup (user 2026-10-21 18:06): the 配置 tab is gone; 配置管理 is the first row here and the
                 // tool-type pages (节点与订阅, 规则, 模块, logs, network tools) are cards on the 工具 tab.
                 Section {
-                    NavigationLink { LazyDestination { ProfilesView() } } label: {
+                    NavigationLink(value: Route.profiles) {
                         MoreRow(id: "配置", title: "配置", symbol: "doc.text.fill", tone: .blue,
                                 value: store.active?.displayName ?? String(localized: "未选择"), valueVerbatim: true)
                     }
@@ -97,13 +104,31 @@ struct MoreView: View {
             .scrollContentBackground(.hidden)
             .background(Theme.bg.ignoresSafeArea())
             .navigationTitle("更多")
-            .navigationDestination(isPresented: $router.openProfiles) { ProfilesView() }
+            .navigationDestination(for: Route.self) { r in
+                switch r {
+                case .profiles: ProfilesView()
+                }
+            }
             .fullScreenCover(isPresented: $showOnboarding) {
                 OnboardingView { showOnboarding = false }
                     .environmentObject(vpn)
                     .environmentObject(store)
             }
         }
+        .id(stackID)
+        // onAppear too: on iPad the detail column is rebuilt per tab (.id(selectedTab)) after the flag was set.
+        .onAppear { showProfilesIfAsked() }
+        .onChange(of: router.openProfiles) { _ in showProfilesIfAsked() }
+    }
+
+    /// Exactly one 配置 page on top of 更多, whatever was pushed before.
+    func showProfilesIfAsked() {
+        guard router.openProfiles else { return }
+        router.openProfiles = false
+        // Pages pushed by closure links (every other row, and links inside 配置) are not in `path`, so the stack is
+        // rebuilt rather than trusted: afterwards it is exactly 更多 → 配置.
+        stackID = UUID()
+        path = [.profiles]
     }
 }
 
