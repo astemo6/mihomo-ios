@@ -53,7 +53,7 @@ final class LiveActivityController: ObservableObject {
             for extra in live.dropFirst() { Task { await extra.end(nil, dismissalPolicy: .immediate) } }
             return
         }
-        let attrs = MihomoActivityAttributes(profile: ProfileStore.shared.active?.name ?? "Mihomo")
+        let attrs = MihomoActivityAttributes(profile: ProfileStore.shared.active?.name ?? "Tern")
         _ = try? Activity.request(attributes: attrs, content: ActivityContent(state: state, staleDate: nil), pushType: nil)
     }
 

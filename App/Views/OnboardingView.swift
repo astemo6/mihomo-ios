@@ -132,7 +132,7 @@ struct OnboardingView: View {
 
     private var vpnStep: some View {
         VStack(alignment: .leading, spacing: 16) {
-            StepHeader(icon: "lock.shield", title: "允许 VPN 配置", text: "Mihomo 通过系统的 VPN（网络扩展）接管流量。点下面的按钮后，iOS 会询问是否「添加 VPN 配置」，选择「允许」并验证面容 / 密码。")
+            StepHeader(icon: "lock.shield", title: "允许 VPN 配置", text: "Tern 通过系统的 VPN（网络扩展）接管流量。点下面的按钮后，iOS 会询问是否「添加 VPN 配置」，选择「允许」并验证面容 / 密码。")
             Card {
                 VStack(alignment: .leading, spacing: 12) {
                     if vpn.hasConfiguration {

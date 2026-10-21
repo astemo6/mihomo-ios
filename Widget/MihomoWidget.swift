@@ -77,13 +77,13 @@ enum VPNControl {
 
     enum ControlError: Error, CustomLocalizedStringResourceConvertible {
         case noConfiguration
-        var localizedStringResource: LocalizedStringResource { "请先打开 Mihomo 添加 VPN 配置" }
+        var localizedStringResource: LocalizedStringResource { "请先打开 Tern 添加 VPN 配置" }
     }
 }
 
 struct ToggleTunnelIntent: AppIntent {
     static var title: LocalizedStringResource = "切换代理"
-    static var description = IntentDescription("连接或断开 Mihomo。")
+    static var description = IntentDescription("连接或断开 Tern。")
     static var openAppWhenRun = false
 
     func perform() async throws -> some IntentResult {
@@ -220,11 +220,11 @@ struct TunnelToggleControl: ControlWidget {
 
     var body: some ControlWidgetConfiguration {
         StaticControlConfiguration(kind: Self.kind, provider: Provider()) { on in
-            ControlWidgetToggle("Mihomo", isOn: on, action: SetTunnelIntent()) { isOn in
+            ControlWidgetToggle("Tern", isOn: on, action: SetTunnelIntent()) { isOn in
                 Label(isOn ? "已连接" : "未连接", systemImage: isOn ? "bolt.horizontal.circle.fill" : "bolt.horizontal.circle")
             }
         }
-        .displayName("Mihomo")
+        .displayName("Tern")
         .description("连接或断开代理")
     }
 
@@ -259,7 +259,7 @@ struct StatusEntry: TimelineEntry {
 
 struct StatusProvider: TimelineProvider {
     func placeholder(in context: Context) -> StatusEntry {
-        StatusEntry(date: Date(), status: .connected, snapshot: WidgetSnapshot(node: "🇯🇵 Tokyo 01", policy: "Proxy", profile: "Mihomo"), profile: "Mihomo")
+        StatusEntry(date: Date(), status: .connected, snapshot: WidgetSnapshot(node: "🇯🇵 Tokyo 01", policy: "Proxy", profile: "Tern"), profile: "Tern")
     }
 
     func getSnapshot(in context: Context, completion: @escaping (StatusEntry) -> Void) {
@@ -292,7 +292,7 @@ struct StatusWidget: Widget {
             StatusWidgetView(entry: entry)
                 .containerBackground(for: .widget) { WidgetTheme.bg }
         }
-        .configurationDisplayName("Mihomo")
+        .configurationDisplayName("Tern")
         .description("连接状态、当前节点和开关")
         .supportedFamilies([.systemSmall, .systemMedium, .accessoryRectangular, .accessoryCircular, .accessoryInline])
     }
@@ -496,7 +496,7 @@ struct LiveActivityLockView: View {
                 .foregroundStyle(context.state.connected ? WidgetTheme.good : .secondary)
             VStack(alignment: .leading, spacing: 3) {
                 HStack(spacing: 6) {
-                    Text(context.state.connected ? "Mihomo 已连接" : "Mihomo 未连接").font(.subheadline.weight(.semibold))
+                    Text(context.state.connected ? "Tern 已连接" : "Tern 未连接").font(.subheadline.weight(.semibold))
                     Text(timerInterval: context.state.since...Date.distantFuture, countsDown: false)
                         .font(.caption.monospacedDigit()).foregroundStyle(.secondary)
                 }
