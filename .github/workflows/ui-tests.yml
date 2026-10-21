@@ -123,7 +123,7 @@ jobs:
       fail-fast: false
       matrix:
         # Shard by repository (see header). Full list when shard=all, [shard:all], or an unknown repository.
-        # Review 6 OPT-1: light is split in two test shards (:1 = test01–test21, :2 = the rest + unit tests, so new
+        # Review 6 OPT-1: light is split in two test shards (:1 = test01–test30 since r7, :2 = the rest + unit tests, so new
         # tests land there automatically) — one light job took 72–80 min of the 120 min limit, now ~45 min each.
         combo: ${{ fromJSON(((inputs.shard == 'all' || contains(github.event.head_commit.message, '[shard:all]')) && '["zh-Hans:light:1","zh-Hans:light:2","en:light:1","en:light:2","zh-Hans:dark:0","en:dark:0"]') || (github.repository == 'astemo666/mihomo-ios' && '["en:light:1","en:light:2","en:dark:0"]') || (github.repository == 'astemo6/mihomo-ios' && '["zh-Hans:light:1","zh-Hans:light:2","zh-Hans:dark:0"]') || '["zh-Hans:light:1","zh-Hans:light:2","en:light:1","en:light:2","zh-Hans:dark:0","en:dark:0"]') }}
     steps:
@@ -134,25 +134,42 @@ jobs:
           LANG_=${combo%%:*}; rest=${combo#*:}; STYLE=${rest%%:*}; SHARD=${rest#*:}
           SHORT=$([ "$LANG_" = zh-Hans ] && echo zh || echo "$LANG_")-$STYLE$([ "$SHARD" = 0 ] || echo "-$SHARD")
           { echo "LANG_=$LANG_"; echo "STYLE=$STYLE"; echo "SHARD=$SHARD"; echo "SHORT=$SHORT"; } >> "$GITHUB_ENV"
+      # r7 (backlog B16): an explicit selection ([only:] / [unit:] / inputs.only) runs in light shard 1 only. Shard 2
+      # used to build the framework, the project and the test bundle first and only then exit; it now skips them.
+      - name: Selection
+        env:
+          COMMIT_MSG: ${{ github.event.head_commit.message }}
+          ONLY_INPUT: ${{ inputs.only }}
+        run: |
+          SKIP=0
+          if [ "$SHARD" = 2 ] && { [ -n "$ONLY_INPUT" ] || printf '%s' "$COMMIT_MSG" | grep -qE '\[(only|unit):[A-Za-z0-9_]+\]'; }; then
+            SKIP=1
+            echo "only-testing selection runs in light shard 1; this shard skips build and tests"
+          fi
+          echo "SKIP_SHARD=$SKIP" >> "$GITHUB_ENV"
       - name: Core version
+        if: env.SKIP_SHARD != '1'
         run: echo "MIHOMO_VERSION=$(awk '$1=="github.com/metacubex/mihomo"{print $2; exit}' bridge/go.mod)" >> "$GITHUB_ENV"
       - name: Select latest Xcode
+        if: env.SKIP_SHARD != '1'
         run: |
           XC=$(ls -d /Applications/Xcode_*.app | sed -E 's/.*Xcode_([0-9.]+)\.app/\1 &/' | grep -v -i beta | sort -V | tail -n1 | cut -d' ' -f2)
           sudo xcode-select -s "$XC/Contents/Developer"
           xcodebuild -version
       - uses: actions/setup-go@v6
+        if: env.SKIP_SHARD != '1'
         with:
           go-version-file: bridge/go.mod
           cache-dependency-path: bridge/go.sum
       - name: Cache simulator Libmihomo
         id: simfw
+        if: env.SKIP_SHARD != '1'
         uses: actions/cache@v5
         with:
           path: Frameworks/Libmihomo.xcframework
           key: libmihomo-sim-${{ env.MIHOMO_VERSION }}-${{ hashFiles('bridge/**') }}
       - name: Build Libmihomo.xcframework (simulator)
-        if: steps.simfw.outputs.cache-hit != 'true'
+        if: env.SKIP_SHARD != '1' && steps.simfw.outputs.cache-hit != 'true'
         working-directory: bridge
         run: |
           set -euo pipefail
@@ -165,10 +182,12 @@ jobs:
             -ldflags "-s -w -X github.com/metacubex/mihomo/constant.Version=${MIHOMO_VERSION} -X github.com/astemo6/mihomo-ios/bridge.CoreVersion=${MIHOMO_VERSION}" \
             -o ../Frameworks/Libmihomo.xcframework .
       - name: Generate project (with UI tests)
+        if: env.SKIP_SHARD != '1'
         run: |
           brew install xcodegen
           xcodegen generate --spec project-uitests.yml
       - name: Pick simulator
+        if: env.SKIP_SHARD != '1'
         run: |
           DEV=$(xcrun simctl list devices available -j | python3 -c "
           import json,sys
@@ -185,6 +204,7 @@ jobs:
           # build-for-testing step and happens right before the tests.
           xcrun simctl boot "$DEV" || true
       - name: Build for testing
+        if: env.SKIP_SHARD != '1'
         run: |
           set -o pipefail
           xcodebuild -project Mihomo.xcodeproj -scheme MihomoUITests -configuration Debug -sdk iphonesimulator \
@@ -194,6 +214,7 @@ jobs:
           # review 5 P2-10: no `| head` downstream of xcodebuild (SIGPIPE); full log in build-uit.log, tail on failure.
           grep -q "TEST BUILD SUCCEEDED" build-uit.log || { tail -n 150 build-uit.log; exit 1; }
       - name: Run UI tests
+        if: env.SKIP_SHARD != '1'
         env:
           COMMIT_MSG: ${{ github.event.head_commit.message }}
           ONLY_INPUT: ${{ inputs.only }}
@@ -253,14 +274,14 @@ jobs:
           cat shots/*/report-*.md 2>/dev/null | grep -E "^\[|^# " | head -n 400
           echo "FAILED=$FAILED" >> "$GITHUB_ENV"
       - name: Crash logs
-        if: always()
+        if: always() && env.SKIP_SHARD != '1'
         run: |
           mkdir -p crashes
           cp ~/Library/Logs/DiagnosticReports/Mihomo* crashes/ 2>/dev/null || true
           find "$HOME/Library/Developer/CoreSimulator/Devices/$DEV" -name "Mihomo*.ips" -exec cp {} crashes/ \; 2>/dev/null || true
           ls -la crashes
       - uses: actions/upload-artifact@v6
-        if: always()
+        if: always() && env.SKIP_SHARD != '1'
         with:
           name: ui-screens-${{ env.SHORT }}
           path: |
@@ -269,7 +290,7 @@ jobs:
           if-no-files-found: warn
           retention-days: 14
       - uses: actions/upload-artifact@v6
-        if: always()
+        if: always() && env.SKIP_SHARD != '1'
         with:
           name: ui-results-${{ env.SHORT }}
           path: |
@@ -278,7 +299,7 @@ jobs:
           if-no-files-found: warn
           retention-days: 14
       - uses: actions/upload-artifact@v6
-        if: always()
+        if: always() && env.SKIP_SHARD != '1'
         with:
           name: ui-xcresult-${{ env.SHORT }}
           path: results/*.xcresult
