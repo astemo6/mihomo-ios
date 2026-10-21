@@ -115,3 +115,19 @@ func TestProxyTrafficClassifyBuiltins(t *testing.T) {
 		t.Error("an unknown node name should count as proxy")
 	}
 }
+
+// r7: stop → start in the same process: connections still open are seeded at their current counters,
+// so their earlier bytes are not counted at once.
+func TestR7ProxyTrafficSeedOnRestart(t *testing.T) {
+	p := newProxyTraffic()
+	p.classify = func(leaf string) bool { return !builtinNonProxy[leaf] }
+	old, _ := newTestTracker(t, C.Chain{"香港 01", "Proxy"}, true)
+	old.Info().DownloadTotal.Add(5 << 20)
+	rng := func(f func(statistic.Tracker) bool) { f(old) }
+	p.seed(rng)
+	old.Info().DownloadTotal.Add(1_000)
+	p.sample(rng, time.Unix(1_700_000_000, 0))
+	if d := p.downTotal.Load(); d != 1_000 {
+		t.Fatalf("down total %d after restart, want only the 1000 bytes moved since", d)
+	}
+}
