@@ -108,15 +108,36 @@ extension MihomoUITests {
         return true
     }
 
-    /// Drag first; when the simulator drag does not take, the 上移 menu action (same HomePanelStore save).
-    func moveHomePanel(_ kind: String, above target: XCUIElement) -> Bool {
-        let e = app.element(id: "homepanels.row." + kind)
-        if dragRow(e, above: target, quick: true) { return true }
-        warnings.append("[\(Env.tag)] homepanels \(kind): drag did not reorder, used 上移")
-        guard homePanelStepUp(kind) else { return false }
-        let deadline = Date().addingTimeInterval(3)
-        while Date() < deadline { if isBefore(e, target) { return true }; usleep(250_000) }
+    /// r7: the editor's saved order (Debug UI-test accessibility value on the 首页面板 footer), as tile kinds.
+    func homePanelOrder() -> [String] {
+        let e = app.element(id: "homepanels.order")
+        guard e.waitForExistence(timeout: 3), let v = e.value as? String else { return [] }
+        return v.split(separator: ",").map { String($0).replacingOccurrences(of: "builtin.", with: "") }
+    }
+
+    /// true when `kind` is saved before `target` AND the freshly queried rows draw it before `target` (waits up to 4 s:
+    /// the editor rebuilds its section one turn after a move).
+    func homePanelBefore(_ kind: String, _ target: String) -> Bool {
+        let deadline = Date().addingTimeInterval(4)
+        while Date() < deadline {
+            let o = homePanelOrder()
+            if let a = o.firstIndex(of: kind), let b = o.firstIndex(of: target), a < b,
+               isBefore(app.element(id: "homepanels.row." + kind), app.element(id: "homepanels.row." + target)) { return true }
+            usleep(250_000)
+        }
         return false
+    }
+
+    /// en: the 调整顺序 → 上移 menu first (the simulator drag on the en reorder control is unreliable); zh: drag first.
+    /// Either way the saved order and the visible rows must both show `kind` above `target`.
+    func moveHomePanel(_ kind: String, above target: String) -> Bool {
+        let e = app.element(id: "homepanels.row." + kind)
+        let t = app.element(id: "homepanels.row." + target)
+        if !Env.isEnglish, dragRow(e, above: t, quick: true), homePanelBefore(kind, target) { return true }
+        if homePanelBefore(kind, target) { return true }
+        if !Env.isEnglish { warnings.append("[\(Env.tag)] homepanels \(kind): drag did not reorder, used 上移") }
+        guard homePanelStepUp(kind) else { return false }
+        return homePanelBefore(kind, target)
     }
 
     // MARK: 66. Custom rules: long-press drag reorders, and the order is saved
@@ -145,6 +166,14 @@ extension MihomoUITests {
             }
         }
         XCTAssertTrue(moved, "first rule moved above the second (drag or swipe 上移)")
+        // r7: the saved order (Debug UI-test value on the section footer) matches what the list draws.
+        let ov = app.element(id: "rules.custom.order")
+        if ov.waitForExistence(timeout: 3), let v = ov.value as? String,
+           let ra = v.range(of: "first.uitest.example"), let rb = v.range(of: "second.uitest.example") {
+            XCTAssertTrue(ra.lowerBound < rb.lowerBound, "saved rule order \(v)")
+        } else {
+            XCTFail("rules.custom.order value")
+        }
         snap("rules-dragged")
         // Leave and come back: the new order is read from rules.json.
         back()
@@ -174,13 +203,16 @@ extension MihomoUITests {
         let speed = app.element(id: "homepanels.row.speed")
         let memory = app.element(id: "homepanels.row.memory")
         XCTAssertTrue(speed.waitForExistence(timeout: 4) && memory.waitForExistence(timeout: 4), "both pinned")
-        if isBefore(memory, speed) {
-            XCTAssertTrue(moveHomePanel("speed", above: memory), "speed moved above memory")
+        let start = homePanelOrder()
+        if let m = start.firstIndex(of: "memory"), let sp = start.firstIndex(of: "speed"), m < sp {
+            XCTAssertTrue(moveHomePanel("speed", above: "memory"), "speed moved above memory")
         }
+        XCTAssertFalse(homePanelOrder().isEmpty, "homepanels.order value (Debug UI-test builds)")
         // The menu is disabled at the edges: 上移 on the first row is not offered.
         XCTAssertTrue(app.element(id: "homepanels.move.memory").waitForExistence(timeout: 3)
                       || app.buttons[L("调整顺序")].firstMatch.exists, "调整顺序 menu on the row")
-        XCTAssertTrue(moveHomePanel("memory", above: speed), "memory moved above speed (drag, else 上移)")
+        XCTAssertTrue(moveHomePanel("memory", above: "speed"), "memory moved above speed: saved order \(homePanelOrder()) and visible rows")
+        XCTAssertTrue(homePanelBefore("memory", "speed"), "editor list shows the saved order")
         snap("home-tiles-reordered")
         closeSheet()
         func tile(_ t: String) -> XCUIElement {
@@ -195,7 +227,7 @@ extension MihomoUITests {
         XCTAssertTrue(scrollTo(add))
         add.tap()
         XCTAssertTrue(app.element(id: "homepanels.row.memory").waitForExistence(timeout: 6))
-        XCTAssertTrue(isBefore(app.element(id: "homepanels.row.memory"), app.element(id: "homepanels.row.speed")), "order saved")
+        XCTAssertTrue(homePanelBefore("memory", "speed"), "order saved (value \(homePanelOrder()) + rows)")
         closeSheet()
         assertAlive("home tile reorder")
     }

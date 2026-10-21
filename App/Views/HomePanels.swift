@@ -40,6 +40,10 @@ final class HomePanelStore: ObservableObject {
     }()
     /// Last results written by the engine (panel-cache.json), keyed by panel id.
     @Published var cached: [String: PanelItem] = [:]
+    /// r7 (test67 en): bumped one main-queue turn after every reorder. The editor's 首页面板 section is keyed on it, so
+    /// the List is rebuilt from `PanelsModel.pinned` once UIKit has finished its own row move. Without it a drag could
+    /// save the new order (menu showed 上移 disabled on the new first row) while the table kept drawing the old order.
+    @Published private(set) var orderRevision = 0
     /// Panel names seen while connected, so the editor can name pinned panels while disconnected.
     private var names: [String: String] = (UserDefaults.standard.dictionary(forKey: HomePanelStore.namesKey) as? [String: String]) ?? [:]
 
@@ -117,6 +121,14 @@ final class HomePanelStore: ObservableObject {
     func move(from: IndexSet, to: Int) {
         model.pinned.move(fromOffsets: from, toOffset: to)
         savePinned()
+        orderChanged()
+    }
+
+    /// The saved order as one string (UI-test accessibility value on the editor; Debug builds only).
+    var orderToken: String { model.pinned.joined(separator: ",") }
+
+    private func orderChanged() {
+        DispatchQueue.main.async { self.orderRevision &+= 1 }
     }
 
     /// r7: non-drag reorder (editor ⋯ menu / VoiceOver actions). `by` = -1 up, +1 down.
@@ -129,6 +141,7 @@ final class HomePanelStore: ObservableObject {
         guard let i = model.pinned.firstIndex(of: id), model.pinned.indices.contains(i + by) else { return }
         model.pinned.swapAt(i, i + by)
         savePinned()
+        orderChanged()
     }
 
     func setInterval(_ taskID: String, _ seconds: Int) {
@@ -146,8 +159,10 @@ final class HomePanelStore: ObservableObject {
     /// connected, hands it to the running engine.
     func sync() {
         // drop pins / hidden ids that are no longer pinned
-        tasks.removeAll { !model.pinned.contains($0.panelID) }
-        hidden = hidden.filter { model.pinned.contains($0) }
+        // r7: assign only on a real change — a no-op publish here landed in the same update as the List's onMove.
+        if tasks.contains(where: { !model.pinned.contains($0.panelID) }) { tasks.removeAll { !model.pinned.contains($0.panelID) } }
+        let keptHidden = hidden.filter { model.pinned.contains($0) }
+        if keptHidden != hidden { hidden = keptHidden }
         UserDefaults.standard.set(Array(hidden), forKey: Self.hiddenKey)
         if let d = try? JSONEncoder().encode(tasks) { UserDefaults.standard.set(d, forKey: Self.tasksKey) }
         let body: [String: Any] = [
@@ -316,8 +331,11 @@ struct HomePanelsEditor: View {
                     Text("首页面板")
                 } footer: {
                     Text("拖动调整顺序。关闭开关的面板保留固定，但不在首页显示，也不会在后台刷新。")
+                        .modifier(UITestOrderValue(id: "homepanels.order", order: home.orderToken))
                 }
                 .listRowBackground(Theme.card)
+                // r7: rebuilt from the saved order after every move (drag or 上移 / 下移), never a stale table.
+                .id(home.orderRevision)
 
                 Section {
                     let missing = BuiltinTile.allCases.filter { !model.pinned.contains($0.id) }
@@ -471,6 +489,21 @@ struct HomePanelsEditor: View {
         .buttonStyle(.borderless)
         .accessibilityLabel(Text("调整顺序"))
         .accessibilityIdentifier("homepanels.move.\(tag)")
+    }
+}
+
+/// r7: Debug UI-test builds only (-UITestSeed): exposes a list's saved order as the accessibility value of its footer,
+/// so tests can check the model as well as the drawn rows. Release builds and normal Debug launches are unchanged.
+struct UITestOrderValue: ViewModifier {
+    let id: String
+    let order: String
+    @ViewBuilder
+    func body(content: Content) -> some View {
+        if UITestSeed.enabled {
+            content.accessibilityIdentifier(id).accessibilityValue(Text(verbatim: order))
+        } else {
+            content
+        }
     }
 }
 

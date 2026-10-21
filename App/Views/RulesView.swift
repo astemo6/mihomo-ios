@@ -32,6 +32,9 @@ final class CustomRulesStore: ObservableObject {
     @Published var rules: [CustomRule] = []
     @Published var checks: [String: RuleCheck] = [:]
     @Published var message: String?
+    /// r7: bumped one main-queue turn after a reorder; the custom rules section is keyed on it so the List redraws from
+    /// `rules` after UIKit's own row move (same staleness guard as 编辑首页面板).
+    @Published private(set) var orderRevision = 0
 
     static var url: URL { AppShared.homeURL.appendingPathComponent("rules.json") }
 
@@ -59,6 +62,20 @@ final class CustomRulesStore: ObservableObject {
         guard let i = rules.firstIndex(where: { $0.id == id }), rules.indices.contains(i + by) else { return }
         rules.swapAt(i, i + by)
         save()
+        orderChanged()
+    }
+
+    func move(from: IndexSet, to: Int) {
+        rules.move(fromOffsets: from, toOffset: to)
+        save()
+        orderChanged()
+    }
+
+    /// The saved order (rule lines joined with " | "), for the Debug UI-test accessibility value.
+    var orderToken: String { rules.map(\.line).joined(separator: " | ") }
+
+    private func orderChanged() {
+        DispatchQueue.main.async { self.orderRevision &+= 1 }
     }
 
     /// r7 P3-1: the same write + recheck + reload, with the reload error returned to the caller instead of parked in
@@ -253,11 +270,13 @@ struct RulesView: View {
                     .accessibilityAction(named: Text("下移")) { custom.step(r.id, by: 1) }
                 }
                 .onDelete { custom.rules.remove(atOffsets: $0); custom.save() }
-                .onMove { custom.rules.move(fromOffsets: $0, toOffset: $1); custom.save() }
+                .onMove { custom.move(from: $0, to: $1) }
             } footer: {
                 Text("策略名会对应到当前配置的策略组；找不到时使用第一个手动选择组并标黄。远程列表通过内核下载并转换为 mihomo 规则集；QX filter_remote 没有 force-policy 时整份列表走 proxy（第一个手动选择组）。")
+                    .modifier(UITestOrderValue(id: "rules.custom.order", order: custom.orderToken))
             }
             .listRowBackground(Theme.card)
+            .id(custom.orderRevision)
         }
         .listStyle(.insetGrouped)
         .scrollContentBackground(.hidden)
