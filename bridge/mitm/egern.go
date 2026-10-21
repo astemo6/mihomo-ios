@@ -250,6 +250,9 @@ func (rs *Ruleset) addCompiled(r *Rule, source, line string) {
 			return
 		}
 		r.Body[i].re = re
+		// r7 P2-3: same RE2 fast path as ParseLine (bodies > 512 KB were skipped, smaller ones paid the
+		// backtracking engine's 4 B/char copy).
+		r.Body[i].fast, r.Body[i].fastTmpl, _ = fastBodyRe(r.Body[i].Regex, r.Body[i].Repl)
 	}
 	if r.Desc == "" {
 		r.Desc = describe(r)
