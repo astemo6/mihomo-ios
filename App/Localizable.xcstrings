@@ -61469,37 +61469,37 @@
         }
       }
     },
-    "协议由 mihomo 内核 %@ 提供。节点保存在「手动节点」中；在 更多 → 高级设置 → 内核设置 打开「把手动节点加入每个配置」后，可在任何订阅的策略里选择。": {
+    "协议由 mihomo 内核 %@ 提供。节点保存在「手动节点」中；在 工具 → 节点与订阅 → 本地 打开「把手动节点加入每个配置」后，可在任何订阅的策略里选择。": {
       "extractionState": "manual",
       "localizations": {
         "zh-Hant": {
           "stringUnit": {
             "state": "translated",
-            "value": "協議由 mihomo 核心 %@ 提供。節點儲存在「手動節點」中；在 更多 → 高階設定 → 核心設定 開啟「把手動節點加入每個配置」後，可在任何訂閱的策略裡選擇。"
+            "value": "協議由 mihomo 核心 %@ 提供。節點儲存在「手動節點」中；在 工具 → 節點與訂閱 → 本地 開啟「把手動節點加入每個配置」後，可在任何訂閱的策略裡選擇。"
           }
         },
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "Protocols are provided by the mihomo core %@. Nodes are saved in \"Manual Nodes\"; turn on \"Add manual nodes to every profile\" in More → Advanced Settings → Core Settings to pick them in any subscription's policies."
+            "value": "Protocols are provided by the mihomo core %@. Nodes are saved in \"Manual Nodes\"; turn on \"Add manual nodes to every profile\" in Tools → Nodes & subscriptions → Local to pick them in any subscription's policies."
           }
         },
         "ja": {
           "stringUnit": {
             "state": "translated",
-            "value": "プロトコルは mihomo コア %@ が提供します。ノードは「手動ノード」に保存されます。その他 → 詳細設定 → コア設定で「手動ノードをすべてのプロファイルに追加」をオンにすると、どの購読のポリシーでも選択できます。"
+            "value": "プロトコルは mihomo コア %@ が提供します。ノードは「手動ノード」に保存されます。ツール → ノードと購読 → ローカルで「手動ノードをすべてのプロファイルに追加」をオンにすると、どの購読のポリシーでも選択できます。"
           }
         },
         "ko": {
           "stringUnit": {
             "state": "translated",
-            "value": "프로토콜은 mihomo 코어 %@가 제공합니다. 노드는 '수동 노드'에 저장되며, 더 보기 → 고급 설정 → 코어 설정에서 '수동 노드를 모든 프로파일에 추가'를 켜면 어떤 구독의 정책에서도 선택할 수 있습니다."
+            "value": "프로토콜은 mihomo 코어 %@가 제공합니다. 노드는 '수동 노드'에 저장되며, 도구 → 노드 및 구독 → 로컬에서 '수동 노드를 모든 프로파일에 추가'를 켜면 어떤 구독의 정책에서도 선택할 수 있습니다."
           }
         },
         "ru": {
           "stringUnit": {
             "state": "translated",
-            "value": "Протоколы предоставляет ядро mihomo %@. Узлы сохраняются в «Ручных узлах»; включите «Добавлять ручные узлы в каждый профиль» в Ещё → Расширенные настройки → Настройки ядра, чтобы выбирать их в политиках любой подписки."
+            "value": "Протоколы предоставляет ядро mihomo %@. Узлы сохраняются в «Ручных узлах»; включите «Добавлять ручные узлы в каждый профиль» в разделе «Инструменты → Узлы и подписки → Локально», чтобы выбирать их в политиках любой подписки."
           }
         }
       }
@@ -63989,37 +63989,37 @@
         }
       }
     },
-    "这个手动节点不在当前配置里：在 更多 → 高级设置 → 内核设置 打开「把手动节点加入每个配置」，或把「手动节点」设为当前配置。": {
+    "这个手动节点不在当前配置里：在 工具 → 节点与订阅 → 本地 打开「把手动节点加入每个配置」，或把「手动节点」设为当前配置。": {
       "extractionState": "manual",
       "localizations": {
         "zh-Hant": {
           "stringUnit": {
             "state": "translated",
-            "value": "這個手動節點不在當前配置裡：在 更多 → 高階設定 → 核心設定 開啟「把手動節點加入每個配置」，或把「手動節點」設為當前配置。"
+            "value": "這個手動節點不在當前配置裡：在 工具 → 節點與訂閱 → 本地 開啟「把手動節點加入每個配置」，或把「手動節點」設為當前配置。"
           }
         },
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "This manual node isn't in the current profile: turn on \"Add manual nodes to every profile\" in More → Advanced Settings → Core Settings, or make \"Manual Nodes\" the current profile."
+            "value": "This manual node isn't in the current profile: turn on \"Add manual nodes to every profile\" in Tools → Nodes & subscriptions → Local, or make \"Manual Nodes\" the current profile."
           }
         },
         "ja": {
           "stringUnit": {
             "state": "translated",
-            "value": "この手動ノードは現在のプロファイルにありません。その他 → 詳細設定 → コア設定で「手動ノードをすべてのプロファイルに追加」をオンにするか、「手動ノード」を現在のプロファイルにしてください。"
+            "value": "この手動ノードは現在のプロファイルにありません。ツール → ノードと購読 → ローカルで「手動ノードをすべてのプロファイルに追加」をオンにするか、「手動ノード」を現在のプロファイルにしてください。"
           }
         },
         "ko": {
           "stringUnit": {
             "state": "translated",
-            "value": "이 수동 노드는 현재 프로파일에 없습니다. 더 보기 → 고급 설정 → 코어 설정에서 '수동 노드를 모든 프로파일에 추가'를 켜거나 '수동 노드'를 현재 프로파일로 설정하세요."
+            "value": "이 수동 노드는 현재 프로파일에 없습니다. 도구 → 노드 및 구독 → 로컬에서 '수동 노드를 모든 프로파일에 추가'를 켜거나 '수동 노드'를 현재 프로파일로 설정하세요."
           }
         },
         "ru": {
           "stringUnit": {
             "state": "translated",
-            "value": "Этого ручного узла нет в текущем профиле: включите «Добавлять ручные узлы в каждый профиль» в Ещё → Расширенные настройки → Настройки ядра или сделайте «Ручные узлы» текущим профилем."
+            "value": "Этого ручного узла нет в текущем профиле: включите «Добавлять ручные узлы в каждый профиль» в разделе «Инструменты → Узлы и подписки → Локально» или сделайте «Ручные узлы» текущим профилем."
           }
         }
       }
@@ -86861,37 +86861,37 @@
         }
       }
     },
-    "「%@」现在是可编辑的手动节点，不受订阅更新影响。它还不在当前配置里：在 更多 → 高级设置 → 内核设置 打开「把手动节点加入每个配置」。": {
+    "「%@」现在是可编辑的手动节点，不受订阅更新影响。它还不在当前配置里：在 工具 → 节点与订阅 → 本地 打开「把手动节点加入每个配置」。": {
       "extractionState": "manual",
       "localizations": {
         "zh-Hant": {
           "stringUnit": {
             "state": "translated",
-            "value": "「%@」現在是可編輯的手動節點，不受訂閱更新影響。它還不在當前配置裡：在 更多 → 高階設定 → 核心設定 開啟「把手動節點加入每個配置」。"
+            "value": "「%@」現在是可編輯的手動節點，不受訂閱更新影響。它還不在當前配置裡：在 工具 → 節點與訂閱 → 本地 開啟「把手動節點加入每個配置」。"
           }
         },
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "“%@” is now an editable manual node; subscription updates won’t change it. It isn’t in the current profile yet: turn on “Add manual nodes to every profile” in More → Advanced Settings → Core Settings."
+            "value": "“%@” is now an editable manual node; subscription updates won’t change it. It isn’t in the current profile yet: turn on “Add manual nodes to every profile” in Tools → Nodes & subscriptions → Local."
           }
         },
         "ja": {
           "stringUnit": {
             "state": "translated",
-            "value": "「%@」は編集可能な手動ノードになりました。購読の更新の影響を受けません。まだ現在のプロファイルにはありません：その他 → 詳細設定 → コア設定で「手動ノードをすべてのプロファイルに追加」をオンにしてください。"
+            "value": "「%@」は編集可能な手動ノードになりました。購読の更新の影響を受けません。まだ現在のプロファイルにはありません：ツール → ノードと購読 → ローカルで「手動ノードをすべてのプロファイルに追加」をオンにしてください。"
           }
         },
         "ko": {
           "stringUnit": {
             "state": "translated",
-            "value": "\"%@\"은(는) 이제 편집 가능한 수동 노드이며 구독 업데이트의 영향을 받지 않습니다. 아직 현재 프로파일에 없습니다: 더 보기 → 고급 설정 → 코어 설정에서 '수동 노드를 모든 프로파일에 추가'를 켜세요."
+            "value": "\"%@\"은(는) 이제 편집 가능한 수동 노드이며 구독 업데이트의 영향을 받지 않습니다. 아직 현재 프로파일에 없습니다: 도구 → 노드 및 구독 → 로컬에서 '수동 노드를 모든 프로파일에 추가'를 켜세요."
           }
         },
         "ru": {
           "stringUnit": {
             "state": "translated",
-            "value": "«%@» теперь редактируемый ручной узел; обновления подписки его не меняют. Его ещё нет в текущем профиле: включите «Добавлять ручные узлы в каждый профиль» в Ещё → Расширенные настройки → Настройки ядра."
+            "value": "«%@» теперь редактируемый ручной узел; обновления подписки его не меняют. Его ещё нет в текущем профиле: включите «Добавлять ручные узлы в каждый профиль» в разделе «Инструменты → Узлы и подписки → Локально»."
           }
         }
       }
