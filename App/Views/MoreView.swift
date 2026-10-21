@@ -29,7 +29,7 @@ struct MoreView: View {
                 Section {
                     NavigationLink { LazyDestination { ProfilesView() } } label: {
                         MoreRow(id: "配置", title: "配置", symbol: "doc.text.fill", tone: .blue,
-                                value: store.active?.displayName ?? String(localized: "未选择"))
+                                value: store.active?.displayName ?? String(localized: "未选择"), valueVerbatim: true)
                     }
                 }
                 .listRowBackground(Theme.card)
@@ -119,11 +119,12 @@ struct MoreRow: View {
     var value: String? = nil
     var valueColor: Color = .secondary
     var needsVPN = false
+    var valueVerbatim = false
 
     var body: some View {
         let off = needsVPN && !vpn.isConnected
         TileRow(title: title, subtitle: subtitle, symbol: symbol, tone: tone,
-                value: off ? "需开启 VPN" : value, valueColor: valueColor, dimmed: off)
+                value: off ? "需开启 VPN" : value, valueColor: valueColor, dimmed: off, valueVerbatim: !off && valueVerbatim)
             .accessibilityElement(children: .combine)
             .accessibilityIdentifier("more." + id)
     }
