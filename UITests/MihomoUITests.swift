@@ -1352,6 +1352,11 @@ final class MihomoUITests: MihomoUITestCase {
         XCTAssertTrue(app.element(id: "lan.openRouter").exists, "打开路由器后台")
         XCTAssertTrue(app.element(id: "lan.iface.en0").exists, "Wi-Fi interface")
         XCTAssertTrue(app.element(labelContains: "192.0.2.23").exists, "LAN address")
+        // v0.19.14: 网络类型 is one plain row (device: stray grey 「网络」 box) — tag inline, row no taller than 网关.
+        let type = app.element(id: "lan.type")
+        XCTAssertTrue(type.exists, "网络类型 row")
+        XCTAssertTrue(type.label.contains(L("计费网络")), "tag inline: \(type.label)")
+        XCTAssertLessThanOrEqual(type.frame.height, gw.frame.height + 6, "网络类型 row height \(type.frame.height) vs 网关 \(gw.frame.height)")
         snap("lan-detail")
         let share = app.element(id: "lan.share.off")
         XCTAssertTrue(scrollTo(share), "局域网共享 row")

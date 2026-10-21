@@ -260,7 +260,7 @@ enum Theme {
 
     static func delayText(_ d: Int?) -> String {
         guard let d else { return "—" }
-        return d > 0 ? "\(d) ms" : "超时"
+        return d > 0 ? "\(d) ms" : String(localized: "超时")
     }
 }
 
