@@ -61,24 +61,112 @@ enum AppShared {
     /// Where each candidate came from, for 诊断.
     static private(set) var appGroupSource = ""
 
+    /// r7 (review7 R7A-3 / backlog B05): one candidate App Group as 诊断 shows it.
+    struct AppGroupCandidate: Equatable {
+        var group: String
+        var source: String      // 描述文件 · Info.plist · 默认
+        var accepted: Bool      // the system gives us its container
+        var hasData: Bool       // profiles.json there
+        var ours: Bool          // the marker file names this app
+    }
+
+    /// UserDefaults.standard keys (per process: app, tunnel, widget each remember their own choice).
+    static let rememberedGroupKey = "tern.appGroup.chosen"
+    static let rememberedProvisionedKey = "tern.appGroup.provisioned"
+    /// Written by the app into the container it uses: the main app bundle id (another app of the same team that
+    /// shares a group in the profile never matches).
+    static let groupMarkerName = ".tern-app-group"
+
+    static private(set) var appGroupCandidates: [AppGroupCandidate] = []
+    /// The provisioned group list changed since the choice was remembered (profile renewed / regenerated).
+    static private(set) var provisionedGroupsChanged = false
+    /// The remembered group is no longer granted by the profile: its data is out of reach.
+    static private(set) var rememberedGroupLost: String?
+
+    static func containerURL(forGroup g: String) -> URL? {
+        FileManager.default.containerURL(forSecurityApplicationGroupIdentifier: g)
+    }
+
     /// App Group resolved at runtime so any re-signing (which replaces entitlements) still shares one
-    /// container between app and extension: groups from embedded.mobileprovision in sorted order,
-    /// then the Info.plist value, then the built-in default. First one the system accepts wins.
+    /// container between app and extension.
+    ///
+    /// r7 R7A-3: the choice is no longer stateless ("first sorted group the system accepts" — a renewed profile with
+    /// one more group sorted earlier, or without the current one, moved app, tunnel and widget to an empty
+    /// container). Order, first accepted wins:
+    /// 1. the group this process used last time (UserDefaults.standard);
+    /// 2. a group whose marker file names this app;
+    /// 3. a group that already holds profiles.json;
+    /// 4. as before: profile groups in sorted order, then the Info.plist value, then the built-in default.
+    /// Every process applies the same rules to the same containers, so app, tunnel and widget agree.
     static let appGroup: String = {
         let plist = Bundle.main.object(forInfoDictionaryKey: "MihomoAppGroup") as? String ?? defaultAppGroup
-        var candidates: [(String, String)] = []
         var mine = provisionedAppGroups()
         if mine.isEmpty && isExtension { mine = provisionedAppGroups(mainAppBundle) }
-        for g in mine.sorted() { candidates.append((g, "描述文件")) }
-        candidates.append((plist, "Info.plist"))
-        candidates.append((defaultAppGroup, "默认"))
-        for (g, src) in candidates where FileManager.default.containerURL(forSecurityApplicationGroupIdentifier: g) != nil {
-            appGroupSource = src
-            return g
+        var ordered: [(String, String)] = mine.sorted().map { ($0, "描述文件") }
+        for (g, src) in [(plist, "Info.plist"), (defaultAppGroup, "默认")] where !ordered.contains(where: { $0.0 == g }) {
+            ordered.append((g, src))
         }
-        appGroupSource = "不可用"
-        return plist
+        let fm = FileManager.default
+        var cands: [AppGroupCandidate] = []
+        for (g, src) in ordered {
+            let url = containerURL(forGroup: g)
+            let has = url.map { fm.fileExists(atPath: $0.appendingPathComponent("profiles.json").path) } ?? false
+            let marker = url.flatMap { try? String(contentsOf: $0.appendingPathComponent(groupMarkerName), encoding: .utf8) }
+            let ours = marker?.trimmingCharacters(in: .whitespacesAndNewlines) == mainAppBundleID
+            cands.append(AppGroupCandidate(group: g, source: src, accepted: url != nil, hasData: has, ours: ours))
+        }
+        appGroupCandidates = cands
+        let std = UserDefaults.standard
+        let remembered = std.string(forKey: rememberedGroupKey)
+        let prevList = std.stringArray(forKey: rememberedProvisionedKey)
+        if let prevList, !mine.isEmpty, prevList.sorted() != mine.sorted() { provisionedGroupsChanged = true }
+        if !mine.isEmpty { std.set(mine.sorted(), forKey: rememberedProvisionedKey) }
+
+        func pick() -> (String, String)? {
+            if let r = remembered, cands.contains(where: { $0.group == r && $0.accepted }) { return (r, "已记住") }
+            if let r = remembered { rememberedGroupLost = r }
+            if let c = cands.first(where: { $0.accepted && $0.ours }) { return (c.group, "已有数据") }
+            if let c = cands.first(where: { $0.accepted && $0.hasData }) { return (c.group, "已有数据") }
+            if let c = cands.first(where: { $0.accepted }) { return (c.group, c.source) }
+            return nil
+        }
+        guard let picked = pick() else {
+            appGroupSource = "不可用"
+            return plist
+        }
+        let (g, src) = picked
+        appGroupSource = src
+        std.set(g, forKey: rememberedGroupKey)
+        if !isExtension, let url = containerURL(forGroup: g) {
+            let m = url.appendingPathComponent(groupMarkerName)
+            if (try? String(contentsOf: m, encoding: .utf8))?.trimmingCharacters(in: .whitespacesAndNewlines) != mainAppBundleID {
+                try? Data(mainAppBundleID.utf8).write(to: m, options: .atomic)
+            }
+        }
+        return g
     }()
+
+    /// r7 B05: a warning for 诊断 when the App Group may not be the one holding the user's data, nil when all is well.
+    static var appGroupWarning: String? {
+        _ = appGroup
+        if !containerOK {
+            return String(localized: "共享容器不可用：描述文件里没有本 App 可用的 App Group，扩展读不到配置。")
+        }
+        if let lost = rememberedGroupLost {
+            return String(localized: "之前使用的 App Group（\(lost)）已不在描述文件里，原来的配置留在那个容器中。请用旧描述文件签名的版本导出备份，再在这里「从文件恢复」。")
+        }
+        let others = appGroupCandidates.filter { $0.group != appGroup && $0.accepted && ($0.hasData || $0.ours) }
+        if !others.isEmpty {
+            return String(localized: "另一个 App Group 里也有配置（\(others.map(\.group).joined(separator: ", "))）。如果这里的配置不对，请在原来的版本里导出备份后恢复。")
+        }
+        if provisionedGroupsChanged {
+            return String(localized: "描述文件的 App Group 列表已变化，App 仍在使用之前的组（\(appGroup)）。")
+        }
+        if appGroupSource == "Info.plist" || appGroupSource == "默认" {
+            return String(localized: "App Group 来自 \(appGroupSource)，不是描述文件：小组件和隧道可能看不到 App 的数据。")
+        }
+        return nil
+    }
 
     /// true when the App Group container is really shared (false => app and extension can't see each other's files).
     static var containerOK: Bool { FileManager.default.containerURL(forSecurityApplicationGroupIdentifier: appGroup) != nil }

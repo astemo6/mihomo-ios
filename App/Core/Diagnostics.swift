@@ -81,6 +81,9 @@ enum DiagnosticsExporter {
             "tunnel.id=\(AppShared.tunnelBundleID)",
             "appgroup=\(AppShared.appGroup) source=\(AppShared.appGroupSource) container=\(AppShared.containerOK ? "OK" : "UNAVAILABLE")",
             "appgroup.provisioned=\(AppShared.provisionedAppGroups().joined(separator: ","))",
+            // r7 R7A-3 / B05: every candidate with what decided the choice.
+            "appgroup.candidates=" + AppShared.appGroupCandidates.map { "\($0.group)[\($0.source)\($0.accepted ? "" : ",denied")\($0.hasData ? ",data" : "")\($0.ours ? ",marker" : "")]" }.joined(separator: " "),
+            "appgroup.warning=\(AppShared.appGroupWarning ?? "-")",
             "vpn.status=\(vpn.statusText) configured=\(vpn.hasConfiguration)",
             "vpn.lastError=\(vpn.lastError ?? "-")",
             "tunnel.lastStop=\(TunnelStopReason.last() ?? "-")",
