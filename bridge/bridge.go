@@ -157,6 +157,9 @@ func readOverrides(home string) Overrides {
 	if err == nil {
 		_ = json.Unmarshal(b, &o)
 	}
+	if strings.TrimSpace(o.Secret) == "" {
+		o.Secret = ensureControllerSecret(home) // B04: the controller never runs without authentication
+	}
 	if o.ControllerPort <= 0 || o.ControllerPort > 65535 {
 		o.ControllerPort = 9090
 	}
