@@ -1722,7 +1722,14 @@ final class MihomoUITests: MihomoUITestCase {
         let seg = app.buttons.matching(NSPredicate(format: "label == %@", L("文本模式"))).firstMatch
         XCTAssertTrue(tapIfExists(seg, timeout: 4), "文本模式 segment")
         var field = app.textViews.matching(identifier: "rule.text").firstMatch
-        if !field.waitForExistence(timeout: 3) { field = app.textFields.matching(identifier: "rule.text").firstMatch }
+        // r7 (backlog B10): the segment tap is sometimes lost (test33 flake) — tap it again (twice at most).
+        for _ in 0..<2 {
+            if field.waitForExistence(timeout: 3) { break }
+            let tf = app.textFields.matching(identifier: "rule.text").firstMatch
+            if tf.exists { field = tf; break }
+            _ = tapIfExists(seg, timeout: 2)
+        }
+        if !field.exists { field = app.textFields.matching(identifier: "rule.text").firstMatch }
         XCTAssertTrue(field.waitForExistence(timeout: 5), "rule text field")
         field.tap()
         if let v = field.value as? String, !v.isEmpty, v != L("规则") {
