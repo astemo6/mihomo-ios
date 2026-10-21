@@ -243,6 +243,11 @@ final class NodeManagerModel: ObservableObject {
         }
 
         let subs = NodeSubStore.shared.subs
+        // hotfix/sub-disabled-nodes: 节点集 the user 停用 / 删除 and 停用 node subscriptions are not in the runtime. A core
+        // that has not finished (or failed) its reload still serves them, so the live lists below skip them.
+        let excluded = Self.excludedProviders(runtime: Set(r.proxyProviders.map(\.name)),
+                                              overrides: ProviderOverrideStore.shared.overrides(manualActive ? nil : store.activeID),
+                                              subs: subs)
         var order = 2
         for pv in r.proxyProviders {
             let sub = subs.first { s in (pv.path ?? "").contains("nodesubs/\(s.id).yaml") }
@@ -273,7 +278,12 @@ final class NodeManagerModel: ObservableObject {
             }
             for k in liveGroups.keys { liveGroups[k]?.sort() }
             let providers = (try? await ControllerClient.shared.proxyProviders()) ?? []
+            var excludedNodes: Set<String> = []
             for pv in providers {
+                if excluded.contains(pv.name) {
+                    for p in pv.proxies ?? [] { excludedNodes.insert(p.name) }
+                    continue
+                }
                 let src: NodeSource
                 if let s = srcs.first(where: { ($0.kind == .provider || $0.kind == .subscription) && $0.name == pv.name }) {
                     src = s
@@ -291,7 +301,7 @@ final class NodeManagerModel: ObservableObject {
             for i in out.indices { out[i].live = liveNames.contains(out[i].name) }
             // The core may know nodes the offline view could not build (e.g. a runtime difference): list them under 配置.
             let known = Set(out.map(\.name))
-            for name in liveNames.sorted() where !known.contains(name) {
+            for name in liveNames.sorted() where !known.contains(name) && !excludedNodes.contains(name) {
                 guard let p = proxies[name] else { continue }
                 var n = ManagedNode(name: name, type: ManagedNode.normalize(p.type), server: nil, port: nil, udp: p.udp ?? false,
                                     source: manualActive ? manualSource : profileSource, inRuntime: true)
@@ -303,6 +313,17 @@ final class NodeManagerModel: ObservableObject {
         nodes = out
         let ids = Set(out.map(\.id))
         delays = delays.filter { ids.contains($0.key) }
+    }
+
+    /// hotfix/sub-disabled-nodes: provider names that must not be listed from the core: the profile's 节点集 that are
+    /// 停用 / 删除 in the override store and 停用 node subscriptions — unless the current runtime (built from the profile
+    /// with the overrides applied) still declares a provider of that name (e.g. a profile provider sharing the name).
+    nonisolated static func excludedProviders(runtime: Set<String>, overrides: [String: ProviderOverride], subs: [NodeSubscription]) -> Set<String> {
+        var out = Set(overrides.filter { $0.value.disabled == true || $0.value.deleted == true }.map(\.key))
+        out.formUnion(subs.filter { !$0.enabled }.map { $0.name.trimmingCharacters(in: .whitespaces) })
+        out.subtract(runtime)
+        out.remove("")
+        return out
     }
 
     func source(_ kind: NodeSourceKind) -> NodeSource? { sources.first { $0.kind == kind } }
