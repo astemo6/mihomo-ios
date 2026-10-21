@@ -1593,7 +1593,20 @@ final class MihomoUITests: MihomoUITestCase {
 
         // 1. Direct drag: long-press Apple's header and drop it on Proxy.
         XCTAssertTrue(card("Apple").waitForExistence(timeout: 6), "Apple card")
-        card("Apple").press(forDuration: 1.2, thenDragTo: card("Proxy"), withVelocity: .slow, thenHoldForDuration: 0.8)
+        // feat/egern-style rows are ~46 pt: a drop on Proxy's name is too short a move for UIKit to hand the
+        // context-menu lift over to a drag session. Drag past Proxy (into the 策略组 header above it, a list drop
+        // target); crossing Proxy's card reorders, the list drop saves. One retry with a longer move.
+        func dragApple(_ extra: CGFloat) {
+            let from = card("Apple").coordinate(withNormalizedOffset: CGVector(dx: 0.5, dy: 0.5))
+            let to = card("Proxy").coordinate(withNormalizedOffset: CGVector(dx: 0.5, dy: 0.5)).withOffset(CGVector(dx: 0, dy: -extra))
+            from.press(forDuration: 1.2, thenDragTo: to, withVelocity: .slow, thenHoldForDuration: 0.8)
+        }
+        dragApple(36)
+        if !above("Apple", "Proxy", 5) {
+            warnings.append("drag: first attempt did not reorder, retrying with a longer move")
+            if app.buttons[L("置顶")].exists { app.coordinate(withNormalizedOffset: CGVector(dx: 0.5, dy: 0.06)).tap(); usleep(600_000) }
+            dragApple(70)
+        }
         XCTAssertTrue(above("Apple", "Proxy", 8), "drag: Apple dropped above Proxy")
         snap("policy-dragged")
         // The first reorder never rewrites the original: it creates 「UITest Demo (自定义)」 and switches to it.
