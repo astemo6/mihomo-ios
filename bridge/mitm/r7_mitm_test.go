@@ -522,3 +522,37 @@ func TestR7EnvironmentLanguage(t *testing.T) {
 		t.Fatalf("engine: %q", body)
 	}
 }
+
+// B30: Egern adapter — a header named like a method is returned by property access, the adapter still
+// converts the headers back, and methods work when no such header exists.
+func TestR7EgernHeaderNamedLikeMethod(t *testing.T) {
+	code := `export default async function (ctx) {
+  const h = ctx.request.headers;
+  const seen = { get: h.get, del: h['delete'] };
+  return { headers: h, body: JSON.stringify(seen) };
+}`
+	out := DebugRun(t.TempDir(), DebugInput{Code: code, Type: "http-request", Request: &DebugHTTP{URL: "https://a.test/",
+		Headers: map[string]string{"Get": "header-get", "Delete": "header-del"}}}, nil)
+	if !out.OK || out.Result == nil {
+		t.Fatalf("run: %+v", out)
+	}
+	var r struct{ Get, Del string }
+	if err := json.Unmarshal([]byte(out.Result.Body), &r); err != nil {
+		t.Fatalf("%v: %s", err, out.Result.Body)
+	}
+	if r.Get != "header-get" || r.Del != "header-del" {
+		t.Fatalf("property access: %+v", r)
+	}
+	if out.Result.Headers["Get"] != "header-get" {
+		t.Fatalf("headers not converted back: %v", out.Result.Headers)
+	}
+	// no clashing header: the methods are there
+	code2 := `export default async function (ctx) {
+  ctx.request.headers.set('X-A', '1');
+  return { headers: ctx.request.headers, body: String(ctx.request.headers.has('x-a')) };
+}`
+	out = DebugRun(t.TempDir(), DebugInput{Code: code2, Type: "http-request", Request: &DebugHTTP{URL: "https://a.test/"}}, nil)
+	if !out.OK || out.Result == nil || out.Result.Body != "true" || out.Result.Headers["X-A"] != "1" {
+		t.Fatalf("methods: %+v", out)
+	}
+}
