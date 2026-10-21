@@ -90,11 +90,16 @@ final class MihomoUITests: MihomoUITestCase {
 
     // MARK: 3. 更多: every row opens and comes back
 
+    /// feat/surge-ui: rows on 更多 itself, then the expert rows that moved to 更多 → 高级设置. Ids are the old
+    /// zh-Hans keys (titles changed to plain language).
     static let moreRows = [
-        "连接方式", "DNS", "节点与订阅", "规则", "提供者（规则集 / 节点集）", "地理与规则库", "模块与资源",
-        "重写（本地模块）", "脚本", "任务", "MitM", "网络工具（Ping / TCP / DNS）", "网络测试（带宽 / NAT 类型）", "内网 IP 与路由器", "解锁检测",
-        "连接分析", "流量统计", "日志", "DNS 日志", "备份与恢复", "配置快照", "存储空间", "外观", "内核设置", "测速", "出口信息查询",
-        "App 图标", "诊断", "关于 / 开源许可",
+        "节点与订阅", "规则", "模块与资源", "日志", "DNS 日志", "连接分析", "网络工具（Ping / TCP / DNS）", "网络测试（带宽 / NAT 类型）",
+        "解锁检测", "内网 IP 与路由器", "流量统计", "配置快照", "备份与恢复", "存储空间", "外观", "App 图标", "开始标签页",
+        "诊断", "关于 / 开源许可",
+    ]
+    static let advancedRows = [
+        "连接方式", "DNS", "重写（本地模块）", "脚本", "任务", "MitM", "提供者（规则集 / 节点集）", "地理与规则库",
+        "内核设置", "测速", "出口信息查询",
     ]
 
     func test03_MoreEveryPage() {
@@ -115,6 +120,26 @@ final class MihomoUITests: MihomoUITestCase {
                 tab(4)
             }
         }
+        // 高级设置: every row opens and comes back to 高级设置.
+        let adv = app.element(id: "more.高级设置")
+        XCTAssertTrue(scrollTo(adv), "高级设置")
+        adv.tap()
+        usleep(800_000)
+        snap("more-advanced")
+        for (i, key) in Self.advancedRows.enumerated() {
+            let row = app.element(id: "more." + key)
+            guard scrollTo(row) else { issues.append("[\(Env.tag)] 高级设置 → \(key) missing"); continue }
+            row.tap()
+            usleep(900_000)
+            snap(String(format: "more-adv-%02d", i))
+            assertAlive("高级设置 → \(key)")
+            back()
+            if !app.navigationBars[L("高级设置")].waitForExistence(timeout: 4) {
+                issues.append("[\(Env.tag)] 高级设置 → \(key): did not return")
+                openMore("高级设置")
+            }
+        }
+        back()
         // 新手引导 opens full screen and closes.
         let onboarding = app.element(id: "more.新手引导")
         if scrollTo(onboarding) {
@@ -385,9 +410,24 @@ final class MihomoUITests: MihomoUITestCase {
         return app.switches[L(label)]
     }
 
+    /// feat/surge-ui: expert rows live on 更多 → 高级设置; open that page first unless it is already showing.
+    /// Re-tapping the 更多 tab can pop 高级设置 while the row check runs, so let the tab settle first and
+    /// re-enter 高级设置 once if the row vanished (zh-light test09 race on surge-ui, 2026-10-21).
     func openMore(_ key: String) {
         tab(4)
+        usleep(500_000)
         let row = app.element(id: "more." + key)
+        if Self.advancedRows.contains(key) {
+            func enterAdvanced() {
+                let adv = app.element(id: "more.高级设置")
+                if !adv.waitForExistence(timeout: 1) { tab(4); usleep(500_000) }
+                XCTAssertTrue(scrollTo(adv), "高级设置")
+                adv.tap()
+                usleep(800_000)
+            }
+            if !(row.waitForExistence(timeout: 1) && row.isHittable) { enterAdvanced() }
+            if !row.waitForExistence(timeout: 2) { tab(4); usleep(800_000); enterAdvanced() }
+        }
         XCTAssertTrue(scrollTo(row), key)
         row.tap()
         usleep(800_000)

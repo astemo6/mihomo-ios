@@ -48,6 +48,8 @@ enum UITestSeed {
     static func seedIfNeeded() async {
         guard enabled, !ready else { return }
         defer { ready = true }
+        // feat/surge-ui: first-run look (no profile at all) for the empty-state screenshots.
+        if args.contains("-UITestNoProfile") { return }
         let store = ProfileStore.shared
         if keepData && !store.profiles.isEmpty {
             await ProfileInspector.shared.load()

@@ -289,7 +289,18 @@ struct ProtocolBadge: View {
 
 struct NotConnectedPlaceholder: View {
     var text = "连接后可查看"
+    @ObservedObject private var vpn = VPNManager.shared
+    @ObservedObject private var store = ProfileStore.shared
+    /// feat/surge-ui: the empty page offers the next step — 连接, or 添加配置 when there is nothing to connect with.
     var body: some View {
-        EmptyStateView(icon: "bolt.horizontal.circle", title: text)
+        if store.profiles.isEmpty {
+            EmptyStateView(icon: "bolt.horizontal.circle", title: text, message: "还没有配置，先添加一个订阅或配置文件。",
+                           actionTitle: "添加配置", actionID: "empty.addProfile") { ImportRouter.shared.selectedTab = AppSection.profiles.rawValue }
+        } else {
+            EmptyStateView(icon: "bolt.horizontal.circle", title: text, message: vpn.status == .connecting ? "正在连接…" : "开启 VPN 后这里会实时更新。",
+                           actionTitle: vpn.isConnected || vpn.status == .connecting ? nil : "连接", actionID: "empty.connect") {
+                Task { await vpn.toggle() }
+            }
+        }
     }
 }

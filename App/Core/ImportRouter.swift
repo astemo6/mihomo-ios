@@ -63,7 +63,8 @@ final class ImportRouter: ObservableObject {
         set { if let a = newValue { present(a) } }
     }
     /// Tab to show after routing (0 首页 … 4 更多).
-    @Published var selectedTab = 0
+    /// feat/surge-ui: starts on the 开始标签页 chosen in 更多 → 开始标签页 (UI tests always start on 首页).
+    @Published var selectedTab = LaunchTab.initial
     /// URLs from the scene's launch options (cold launch); drained once the UI exists if onOpenURL did not.
     var coldLaunchURLs: [URL] = []
     private var recentURLs: [(String, Date)] = []
@@ -182,7 +183,7 @@ final class ImportRouter: ObservableObject {
                     return .profileURL(url: u, name: "")
                 }
                 if obj["filter_remote"] != nil {
-                    return .unsupported("Quantumult X 远程分流请在 更多 → 规则 → 自定义 中添加（filter_remote 行）")
+                    return .unsupported("Quantumult X 远程分流请在 更多 → 分流规则 → 自定义 中添加（filter_remote 行）")
                 }
             }
             return .unsupported(s)
@@ -317,8 +318,8 @@ final class ImportRouter: ObservableObject {
         if !text.contains("\n"), !text.contains(" "), text.hasPrefix("http://") || text.hasPrefix("https://"), let u = URL(string: text) {
             let ext = u.pathExtension.lowercased()
             if moduleExtensions.contains(ext) { return .moduleURL(url: text, source: "URL") }
-            if ext == "js" { return .unsupported("这是一个脚本链接：请在 更多 → 脚本 中添加脚本规则，或导入引用它的模块") }
-            if ext == "list" { return .unsupported("这是一个规则列表：请在 更多 → 模块与资源 → + → 添加远程规则集 中添加") }
+            if ext == "js" { return .unsupported("这是一个脚本链接：请在 更多 → 高级设置 → 脚本 中添加脚本规则，或导入引用它的模块") }
+            if ext == "list" { return .unsupported("这是一个规则列表：请在 更多 → 模块 → + → 添加远程规则集 中添加") }
             return .profileURL(url: text, name: name)
         }
         let c = LibmihomoClassifyText(text)

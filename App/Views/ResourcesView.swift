@@ -320,7 +320,7 @@ struct ResourceDetailView: View {
                     }
                 } footer: {
                     switch it.kind {
-                    case "ruleset": Text("规则集保存在自定义规则里（更多 → 规则 → 自定义），这里管理它的下载与更新。Surge / Loon / QX 列表与 Egern YAML 规则集会转换为 mihomo 规则；不支持的行会被跳过。连接期间内核也会按间隔自动更新。")
+                    case "ruleset": Text("规则集保存在自定义规则里（更多 → 分流规则 → 自定义），这里管理它的下载与更新。Surge / Loon / QX 列表与 Egern YAML 规则集会转换为 mihomo 规则；不支持的行会被跳过。连接期间内核也会按间隔自动更新。")
                     case "script": Text("停用后，引用这个脚本的所有规则、定时任务和面板都不再运行（模块本身保持启用）。连接期间引擎会按间隔在后台刷新脚本。")
                     default: EmptyView()
                     }
