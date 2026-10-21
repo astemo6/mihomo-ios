@@ -68,7 +68,8 @@ extension EngineModule {
 /// r7 R7A-10: decodes an array, skipping elements that fail instead of failing the whole array.
 struct LossyList<T: Decodable>: Decodable {
     var items: [T] = []
-    private struct Skip: Decodable {}
+    /// Decodes (and so consumes) any element without reading it.
+    private struct Skip: Decodable { init(from decoder: Decoder) throws {} }
     init(from decoder: Decoder) throws {
         var c = try decoder.unkeyedContainer()
         while !c.isAtEnd {
