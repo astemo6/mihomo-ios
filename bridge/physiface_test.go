@@ -16,7 +16,8 @@ func resetPhys(t *testing.T) {
 	SetBindPhysicalInterface(false)
 	physMu.Lock()
 	physReported, physScanned, physSource, physLastLogged = "", "", "", ""
-	physScannedAt = time.Time{}
+	physScannedAt, physScanned6At, physScanned6 = time.Time{}, time.Time{}, ""
+	physLoggedFast.Store(nil)
 	physMu.Unlock()
 	physBoundDials.Store(0)
 	physUnbound.Store(0)
@@ -152,4 +153,20 @@ func loopbackName(t *testing.T) string {
 	}
 	t.Skip("no loopback interface")
 	return ""
+}
+
+// r7: IPv6 destinations pick an interface with a global IPv6 address.
+func TestR7ScanPhysical6(t *testing.T) {
+	old := interfaceAddrKinds
+	defer func() { interfaceAddrKinds = old }()
+	interfaceAddrKinds = func(ifi net.Interface) (bool, bool) { return ifi.Name == "en0", ifi.Name == "pdp_ip0" }
+	list := func() ([]net.Interface, error) {
+		return []net.Interface{{Name: "en0", Flags: net.FlagUp}, {Name: "pdp_ip0", Flags: net.FlagUp}, {Name: "utun3", Flags: net.FlagUp}}, nil
+	}
+	if n := scanPhysical(list); n != "en0" {
+		t.Fatalf("general pick %q", n)
+	}
+	if n := scanPhysical6(list); n != "pdp_ip0" {
+		t.Fatalf("IPv6 pick %q, want pdp_ip0 (the only one with IPv6)", n)
+	}
 }

@@ -68,6 +68,8 @@ struct ReplayResult: Decodable {
     var length: Int
     var duration: Double
     var error: String?
+    /// r7: the body was longer than the engine's cap and shows only its beginning.
+    var truncated: Bool?
 }
 
 struct TaskRunResult: Decodable {

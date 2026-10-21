@@ -4,7 +4,6 @@ import (
 	"encoding/json"
 	"net/netip"
 	"os"
-	"path/filepath"
 	"strings"
 )
 
@@ -28,7 +27,7 @@ func readLocalDNS(home string) *LocalDNS {
 	if home == "" {
 		return nil
 	}
-	b, err := os.ReadFile(filepath.Join(home, "localdns.json"))
+	b, err := os.ReadFile(localDNSPath(home))
 	if err != nil {
 		return nil
 	}

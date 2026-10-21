@@ -282,7 +282,10 @@ func (p *proxyTraffic) start() {
 	stop := make(chan struct{})
 	p.stop = stop
 	p.mu.Unlock()
-	// Connections already open (none on a fresh Start) start counting from now.
+	// r7: connections still open from a previous run in this process (stop → start without the
+	// extension exiting) start counting from now: seed them with their current counters, otherwise
+	// their whole lifetime bytes landed in the first sample at once.
+	p.seed(managerRange)
 	go func() {
 		t := time.NewTicker(time.Second)
 		defer t.Stop()
@@ -295,6 +298,23 @@ func (p *proxyTraffic) start() {
 			}
 		}
 	}()
+}
+
+// seed records every live tracker at its current counters without counting anything.
+func (p *proxyTraffic) seed(rangeTrackers func(func(statistic.Tracker) bool)) {
+	p.mu.Lock()
+	defer p.mu.Unlock()
+	rangeTrackers(func(t statistic.Tracker) bool {
+		info := t.Info()
+		if info == nil {
+			return true
+		}
+		if _, ok := p.entries[info]; !ok {
+			p.entries[info] = &ptEntry{proxy: pushesToManager(t) && p.leafIsProxy(info),
+				up: info.UploadTotal.Load(), down: info.DownloadTotal.Load(), seen: p.epoch}
+		}
+		return true
+	})
 }
 
 // stopRunning ends the sampler (counters keep their last values for a final read).

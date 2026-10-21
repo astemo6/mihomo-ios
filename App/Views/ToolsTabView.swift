@@ -4,7 +4,7 @@ import SwiftUI
 // Large rounded cards — colored square icon, title, a row of small icon + count stats — for every tool-type
 // page (节点与订阅, 分流规则, 模块, 重写, 脚本, 定时任务, HTTPS 解密, DNS, logs and network tools). Settings-type
 // pages stay in 更多; 配置管理 is the first row of 更多. Card ids keep the old `more.<zh-Hans key>` so UI tests
-// and deep links hold. Counts are a snapshot taken when the tab appears (nothing here observes a
+// and deep links hold. Counts are a snapshot taken when the tab appears, computed off the main thread (nothing here observes a
 // frequently-publishing store, see fix/nav-jank).
 
 /// One small stat under a card title: an SF Symbol and a short value ("3", "13/15", "已信任").
@@ -44,25 +44,45 @@ struct ToolStats: Equatable {
     var dnsCustom = false
     var dnsServers = 0
 
-    @MainActor static func current() -> ToolStats {
-        var s = ToolStats()
-        let ps = ProfileStore.shared
-        s.profileSubs = ps.profiles.filter { $0.kind == .remote }.count
-        s.nodeSubs = NodeSubStore.shared.subs.count
+    /// r7: the stores' current values are copied on the main actor (copy-on-write, cheap); the counting,
+    /// filtering and the two small settings-file reads (task prefs, DNS override) run off the main thread.
+    @MainActor static func current() async -> ToolStats {
+        let profiles = ProfileStore.shared.profiles
+        let nodeSubs = NodeSubStore.shared.subs.count
         let insp = ProfileInspector.shared
-        let builtins: Set<String> = ["DIRECT", "REJECT", "REJECT-DROP", "PASS", "COMPATIBLE"]
-        let names = Set(insp.nodeIndex.keys).subtracting(builtins)
-        s.nodes = names.count
-        let measured = names.compactMap { insp.delays[$0] }
-        s.nodesTested = measured.count
-        s.nodesAlive = measured.filter { $0 > 0 }.count
-        s.profileRules = insp.result.rules.count
-        s.ruleProviders = insp.result.ruleProviders.count
-        let cr = CustomRulesStore.shared.rules
-        s.customRules = cr.count
-        s.customRulesOn = cr.filter(\.enabled).count
+        let result = insp.result
+        let delays = insp.delays
+        let customRules = CustomRulesStore.shared.rules
         let es = EngineStore.shared
         let cfg = es.config
+        let moduleInfo = es.moduleInfo
+        let caExists = es.caInfo.exists
+        let caTrusted = es.caTrusted
+        return await Task.detached(priority: .userInitiated) {
+            ToolStats.compute(profiles: profiles, nodeSubs: nodeSubs, result: result, delays: delays, customRules: customRules,
+                    cfg: cfg, moduleInfo: moduleInfo, caExists: caExists, caTrusted: caTrusted)
+        }.value
+    }
+
+    static func compute(profiles: [Profile], nodeSubs: Int, result: InspectResult, delays: [String: Int],
+                        customRules: [CustomRule], cfg: EngineConfig, moduleInfo: [String: ParsedEngineText],
+                        caExists: Bool, caTrusted: Bool?) -> ToolStats {
+        var s = ToolStats()
+        s.profileSubs = profiles.filter { $0.kind == .remote }.count
+        s.nodeSubs = nodeSubs
+        // Same node set as ProfileInspector.nodeIndex (profile proxies + cached provider nodes), minus built-ins.
+        let builtins: Set<String> = ["DIRECT", "REJECT", "REJECT-DROP", "PASS", "COMPATIBLE"]
+        var names = Set(result.proxies.map(\.name))
+        for pv in result.proxyProviders { for p in pv.proxies ?? [] { names.insert(p.name) } }
+        names.subtract(builtins)
+        s.nodes = names.count
+        let measured = names.compactMap { delays[$0] }
+        s.nodesTested = measured.count
+        s.nodesAlive = measured.filter { $0 > 0 }.count
+        s.profileRules = result.rules.count
+        s.ruleProviders = result.ruleProviders.count
+        s.customRules = customRules.count
+        s.customRulesOn = customRules.filter(\.enabled).count
         s.engineOn = cfg.enabled
         s.modules = cfg.modules.count
         s.modulesOn = cfg.modules.filter(\.enabled).count
@@ -70,14 +90,21 @@ struct ToolStats: Equatable {
         s.rewritesOn = cfg.rules.filter(\.enabled).count
         s.scripts = cfg.scripts.count
         s.scriptsOn = cfg.scripts.filter(\.enabled).count
-        let mc = es.enabledModuleCounts
-        s.moduleRewrites = mc.rewrites
-        s.moduleScripts = mc.scripts
-        s.hostnames = cfg.hostnames.filter { !$0.hasPrefix("-") }.count + mc.hosts
+        // Same totals as EngineStore.enabledModuleCounts.
+        var mr = 0, ms = 0, mh = 0
+        for m in cfg.modules where m.enabled {
+            guard let p = moduleInfo[m.id] else { continue }
+            ms += p.rules.filter { $0.kind == "script" }.count
+            mr += p.rules.filter { $0.kind != "script" }.count
+            mh += p.hostnames.filter { !$0.hasPrefix("-") }.count
+        }
+        s.moduleRewrites = mr
+        s.moduleScripts = ms
+        s.hostnames = cfg.hostnames.filter { !$0.hasPrefix("-") }.count + mh
         s.tasksPaused = TaskPrefs.load().paused
         s.mitmOn = cfg.mitm
-        s.caExists = es.caInfo.exists
-        s.caTrusted = es.caTrusted
+        s.caExists = caExists
+        s.caTrusted = caTrusted
         let dns = DNSOverrideSettings.load()
         s.dnsCustom = dns.enabled
         s.dnsServers = dns.nameserver.count + dns.foreign.count
@@ -92,7 +119,7 @@ struct ToolsTabView: View {
 }
 
 struct ToolsList: View {
-    @State private var stats = ToolStats.current()
+    @State private var stats = ToolStats()
     @ObservedObject private var vpn = VPNManager.shared
 
     var body: some View {
@@ -172,12 +199,12 @@ struct ToolsList: View {
         .scrollContentBackground(.hidden)
         .background(Theme.bg.ignoresSafeArea())
         .navigationTitle("工具")
-        .onAppear { refresh() }
+        .onAppear { Task { await refresh() } }
         .task {
             // The offline node / rule counts come from the profile inspector; load it once if nothing did yet.
             if ProfileInspector.shared.profilePath != AppShared.activeProfileURL?.path {
                 await ProfileInspector.shared.load()
-                refresh()
+                await refresh()
             }
         }
     }
@@ -186,8 +213,8 @@ struct ToolsList: View {
         Section { c() }.listRowBackground(Theme.card)
     }
 
-    func refresh() {
-        let s = ToolStats.current()
+    func refresh() async {
+        let s = await ToolStats.current()
         if s != stats { stats = s }
     }
 

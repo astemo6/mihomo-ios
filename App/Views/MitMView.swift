@@ -240,7 +240,7 @@ struct MitMView: View {
                     Text("安装步骤").font(.caption.weight(.semibold))
                     Text("1. 点「安装证书（通过 Safari）」，在弹窗中选择「允许」下载描述文件（或用「分享 / 存储描述文件」存到“文件”后在“文件”App 中点开）。")
                     Text("2. 打开 设置 → 已下载描述文件（或 通用 → VPN 与设备管理）→ 安装，输入锁屏密码。")
-                    Text("3. 打开 设置 → 通用 → 关于本机 → 证书信任设置，打开「\(store.caInfo.subject ?? "Mihomo MitM CA")」的完全信任。")
+                    Text("3. 打开 设置 → 通用 → 关于本机 → 证书信任设置，打开「\(store.caInfo.subject ?? "Tern MitM CA")」的完全信任。")
                     Text("4. 回到本页，状态变为「已安装并完全信任」即可开启 HTTPS 解密。")
                 }
             }
@@ -1183,7 +1183,7 @@ struct HTTPRequestDetailView: View {
 
     func shareHAR(_ d: HTTPRequestDetail) {
         guard let data = try? HARExport.document([d]) else { return }
-        let url = FileManager.default.temporaryDirectory.appendingPathComponent("Mihomo-request-\(d.id).har")
+        let url = FileManager.default.temporaryDirectory.appendingPathComponent("Tern-request-\(d.id).har")
         if (try? data.write(to: url, options: .atomic)) != nil { harShare = ShareItem(url: url) }
     }
 
@@ -1221,6 +1221,10 @@ struct ReplayResultView: View {
                 Spacer()
                 Button(showBody ? "收起" : "查看响应") { showBody.toggle() }.font(.caption).buttonStyle(.borderless)
             }
+            if r.truncated == true {
+                Text("响应体过大，只显示开头部分").font(.caption).foregroundStyle(Theme.warn)
+            }
+            if let e = r.error, !e.isEmpty { Text(verbatim: e).font(.caption).foregroundStyle(Theme.bad) }
             if showBody {
                 ForEach(r.headers.keys.sorted(), id: \.self) { k in
                     Text("\(k): \(r.headers[k] ?? "")").scaledFont(10, design: .monospaced).foregroundStyle(.secondary).textSelection(.enabled)

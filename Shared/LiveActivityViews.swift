@@ -47,8 +47,24 @@ struct LiveElapsed: View {
         return f.string(from: 23 * 3600 + 59 * 60) ?? "23 hr, 59 min"
     }
 
+    /// r7: past 24 h the relative style switches to days (「1天2小时」 / "1 day, 2 hr"); reserve that width too so a long
+    /// session is not squeezed. The system ticks the text without re-rendering the view, so both are reserved up front.
+    private var daySample: String {
+        let f = DateComponentsFormatter()
+        f.unitsStyle = .short
+        f.allowedUnits = [.day, .hour]
+        f.maximumUnitCount = 2
+        var cal = Calendar.current
+        cal.locale = locale
+        f.calendar = cal
+        return f.string(from: 6 * 86400 + 23 * 3600) ?? "6 days, 23 hr"
+    }
+
     var body: some View {
-        Text(verbatim: sample)
+        ZStack(alignment: .leading) {
+            Text(verbatim: sample)
+            Text(verbatim: daySample)
+        }
             .hidden()
             .overlay(alignment: .leading) {
                 Text(since, style: .relative)

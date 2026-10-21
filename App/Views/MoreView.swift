@@ -211,7 +211,7 @@ struct TrafficScopeView: View {
                             IconTile(symbol: s == .all ? "globe" : "paperplane", tone: dash.scope == s ? .accent : .neutral)
                             VStack(alignment: .leading, spacing: 2) {
                                 Text(LocalizedStringKey(s.title)).foregroundStyle(.primary)
-                                Text(s == .all ? "经过 Mihomo 的所有流量，包括直连" : "只算经代理节点发出的流量，不含直连和拒绝")
+                                Text(s == .all ? "经过 Tern 的所有流量，包括直连" : "只算经代理节点发出的流量，不含直连和拒绝")
                                     .font(.caption).foregroundStyle(.secondary)
                             }
                             Spacer()
