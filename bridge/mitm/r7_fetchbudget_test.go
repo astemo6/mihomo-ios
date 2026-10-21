@@ -1,6 +1,7 @@
 package mitm
 
 import (
+	"bufio"
 	"bytes"
 	"context"
 	"io"
@@ -87,5 +88,29 @@ func TestR7ReplayTruncatedMarked(t *testing.T) {
 	res, err := h.e.Replay(id, nil)
 	if err != nil || !res.Truncated || res.Length != MaxBody {
 		t.Fatalf("replay: %v truncated=%v len=%d", err, res.Truncated, res.Length)
+	}
+}
+
+// r7: a ClientHello bigger than the 8 KB reader with the SNI after a large extension is still parsed.
+func TestR7PeekSNILargeClientHello(t *testing.T) {
+	ext := func(typ int, data []byte) []byte {
+		return append([]byte{byte(typ >> 8), byte(typ), byte(len(data) >> 8), byte(len(data))}, data...)
+	}
+	host := "big.example.com"
+	sniData := append([]byte{0, byte(len(host) + 3), 0, 0, byte(len(host))}, host...)
+	exts := append(ext(0x15, make([]byte, 10000)), ext(0, sniData)...)
+	body := append(make([]byte, 34), 0)         // version+random, session id len 0
+	body = append(body, 0, 2, 0x13, 0x01, 1, 0) // one cipher suite, one compression method
+	body = append(body, byte(len(exts)>>8), byte(len(exts)))
+	body = append(body, exts...)
+	hs := append([]byte{1, 0, byte(len(body) >> 8), byte(len(body))}, body...)
+	rec := append([]byte{0x16, 3, 1, byte(len(hs) >> 8), byte(len(hs))}, hs...)
+	br := bufio.NewReaderSize(bytes.NewReader(rec), 8192)
+	if got := peekSNI(br); got == host {
+		t.Log("(8 KB reader happened to fit)")
+	}
+	br = growForClientHello(br)
+	if got := peekSNI(br); got != host {
+		t.Fatalf("SNI %q, want %q", got, host)
 	}
 }
