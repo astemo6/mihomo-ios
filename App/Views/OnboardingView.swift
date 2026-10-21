@@ -82,7 +82,7 @@ struct OnboardingView: View {
 
     private var profileStep: some View {
         VStack(alignment: .leading, spacing: 16) {
-            StepHeader(icon: "doc.badge.plus", title: "导入配置", text: "粘贴订阅链接，或从剪贴板导入配置 / 节点链接。也可以稍后在「配置」页添加。")
+            StepHeader(icon: "doc.badge.plus", title: "导入配置", text: "粘贴订阅链接，或从剪贴板导入配置 / 节点链接。也可以稍后在「更多 → 配置」添加。")
             if let p = store.active ?? store.profiles.first {
                 Card { Label { Text("已有配置：\(p.name)") } icon: { Image(systemName: "checkmark.circle.fill").foregroundStyle(Theme.good) } }
             }
@@ -180,7 +180,7 @@ struct OnboardingView: View {
                         StepLine(n: 2, text: "设置 → 已下载描述文件 → 安装")
                         StepLine(n: 3, text: "设置 → 通用 → 关于本机 → 证书信任设置 → 打开完全信任")
                     }
-                    Text("不需要的话直接点「开始使用」，以后在 更多 → 高级设置 → HTTPS 解密 中设置。").font(.footnote).foregroundStyle(.secondary)
+                    Text("不需要的话直接点「开始使用」，以后在 工具 → HTTPS 解密 中设置。").font(.footnote).foregroundStyle(.secondary)
                 }
             }
         }

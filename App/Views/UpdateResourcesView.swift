@@ -1,0 +1,171 @@
+import SwiftUI
+
+// 更多 → 更新资源 (feat/more-dedup, user 2026-10-21 18:06, Egern-style): every remote resource in one list —
+// 配置订阅, 节点订阅, 模块, 规则集, 远程脚本 — each with its link, last update, failure and its own 更新, plus
+// 「更新全部」 in the toolbar. Each item still updates through its own store (ProfileStore / NodeSubStore /
+// ResourceStore), so nothing is downloaded differently from the pages that own them.
+
+struct UpdateResourcesView: View {
+    @ObservedObject private var profiles = ProfileStore.shared
+    @ObservedObject private var subs = NodeSubStore.shared
+    @ObservedObject private var res = ResourceStore.shared
+    /// Profile update errors of this visit (profiles.json keeps no last error).
+    @State private var profileErrors: [String: String] = [:]
+    @State private var updatingAll = false
+    @State private var message: String?
+
+    var remoteProfiles: [Profile] { profiles.profiles.filter { $0.kind == .remote } }
+    func items(_ kind: String) -> [ResourceItem] { res.items.filter { $0.kind == kind && $0.isRemote } }
+
+    var body: some View {
+        List {
+            if remoteProfiles.isEmpty && subs.subs.isEmpty && res.items.allSatisfy({ !$0.isRemote }) {
+                Section {
+                    EmptyStateRow(icon: "arrow.triangle.2.circlepath", title: "没有远程资源",
+                                  message: "添加的订阅、远程模块、规则集和脚本会列在这里，可以逐个或一次全部更新。")
+                }
+                .listRowBackground(Theme.card)
+            }
+            if !remoteProfiles.isEmpty {
+                Section {
+                    ForEach(remoteProfiles) { p in
+                        ResourceUpdateRow(kind: "profile", name: p.displayName, url: p.url ?? "", symbol: "doc.text.fill", tone: .blue,
+                                          updated: p.lastUpdated, error: profileErrors[p.id], disabled: !p.enabled,
+                                          busy: profiles.updating.contains(p.id)) {
+                            Task {
+                                let e = await profiles.refresh(p)
+                                profileErrors[p.id] = e
+                            }
+                        }
+                    }
+                } header: { Text("配置订阅 \(remoteProfiles.count)") }
+                .listRowBackground(Theme.card)
+            }
+            if !subs.subs.isEmpty {
+                Section {
+                    ForEach(subs.subs) { s in
+                        ResourceUpdateRow(kind: "nodesub", name: s.name, url: s.url, symbol: "tray.2.fill", tone: .teal,
+                                          updated: s.lastUpdated, error: s.lastError, disabled: !s.enabled,
+                                          busy: subs.updating.contains(s.id)) {
+                            Task { _ = await subs.refresh(s) }
+                        }
+                    }
+                } header: { Text("节点订阅 \(subs.subs.count)") }
+                .listRowBackground(Theme.card)
+            }
+            resourceSection("module", symbol: "puzzlepiece.extension.fill", tone: .green) { Text("模块 \($0)") }
+            resourceSection("ruleset", symbol: "list.bullet.rectangle.fill", tone: .orange) { Text("规则集 \($0)") }
+            resourceSection("script", symbol: "curlybraces", tone: .purple) { Text("脚本 \($0)") }
+            Section {} footer: {
+                Text("配置文件里的规则集和节点集（rule-providers / proxy-providers）由内核按配置更新，也可在「工具 → 模块 → 配置里的规则集」和「工具 → 节点与订阅」中手动更新。")
+            }
+        }
+        .listStyle(.insetGrouped)
+        .scrollContentBackground(.hidden)
+        .background(Theme.bg.ignoresSafeArea())
+        .navigationTitle("更新资源")
+        .toolbar {
+            ToolbarItem(placement: .navigationBarTrailing) {
+                if updatingAll { ProgressView() } else {
+                    Button("更新全部") { Task { await updateAll() } }
+                        .accessibilityIdentifier("res.updateAll")
+                }
+            }
+        }
+        .task { await res.reloadInBackground() }
+        .alert("更新资源", isPresented: Binding(get: { message != nil }, set: { if !$0 { message = nil } })) {
+            Button("好", role: .cancel) {}
+        } message: { Text(message ?? "") }
+    }
+
+    @ViewBuilder
+    func resourceSection(_ kind: String, symbol: String, tone: TileTone, header: @escaping (Int) -> Text) -> some View {
+        let list = items(kind)
+        if !list.isEmpty {
+            Section {
+                ForEach(list) { it in
+                    ResourceUpdateRow(kind: kind, name: it.name, url: it.url, symbol: symbol, tone: tone,
+                                      updated: it.updatedAt > 0 ? Date(timeIntervalSince1970: it.updatedAt) : nil,
+                                      error: it.error, disabled: !it.enabled,
+                                      busy: res.busy.contains(it.key) || res.updatingAll) {
+                        Task { await res.update(it); res.message = nil }
+                    }
+                }
+            } header: { header(list.count) }
+            .listRowBackground(Theme.card)
+        }
+    }
+
+    /// Profiles, then node subscriptions, then modules / rule sets / scripts (ResourceStore does modules first).
+    func updateAll() async {
+        updatingAll = true
+        defer { updatingAll = false }
+        var failed = 0
+        for p in remoteProfiles where p.enabled {
+            let e = await profiles.refresh(p)
+            profileErrors[p.id] = e
+            if e != nil { failed += 1 }
+        }
+        failed += await subs.refreshAll().count
+        await res.updateAll()
+        res.message = nil
+        failed += res.items.filter { $0.isRemote && $0.enabled && !($0.error ?? "").isEmpty }.count
+        message = failed == 0 ? String(localized: "已全部更新") : String(localized: "\(failed) 项更新失败，详见列表")
+    }
+}
+
+struct ResourceUpdateRow: View {
+    let kind: String
+    let name: String
+    let url: String
+    let symbol: String
+    var tone: TileTone = .accent
+    var updated: Date?
+    var error: String?
+    var disabled = false
+    var busy = false
+    let update: () -> Void
+
+    static let relative: RelativeDateTimeFormatter = {
+        let f = RelativeDateTimeFormatter()
+        f.unitsStyle = .short
+        return f
+    }()
+
+    var body: some View {
+        HStack(alignment: .top, spacing: 12) {
+            IconTile(symbol: symbol, tone: tone, dimmed: disabled)
+            VStack(alignment: .leading, spacing: 3) {
+                Text(verbatim: name).foregroundStyle(disabled ? Color.secondary : Color.primary).lineLimit(1)
+                Text(verbatim: url).font(.caption2.monospaced()).foregroundStyle(.secondary).lineLimit(1).truncationMode(.middle)
+                HStack(spacing: 6) {
+                    if disabled {
+                        Text("已停用")
+                    } else if let updated {
+                        Text("更新于 \(Self.relative.localizedString(for: updated, relativeTo: Date()))")
+                    } else {
+                        Text("从未更新")
+                    }
+                }
+                .font(.caption).foregroundStyle(.secondary)
+                if let error, !error.isEmpty {
+                    Label { Text(verbatim: error).lineLimit(2) } icon: { Image(systemName: "exclamationmark.triangle.fill") }
+                        .font(.caption).foregroundStyle(Theme.bad)
+                }
+            }
+            Spacer(minLength: 6)
+            if busy {
+                ProgressView().frame(width: 30, height: 30)
+            } else {
+                Button(action: update) {
+                    Image(systemName: "arrow.clockwise").font(.body.weight(.semibold)).frame(width: 30, height: 30)
+                }
+                .buttonStyle(.borderless)
+                .disabled(disabled)
+                .accessibilityLabel(Text("更新"))
+                .accessibilityIdentifier("res.update.\(kind).\(name)")
+            }
+        }
+        .padding(.vertical, 2)
+    }
+}

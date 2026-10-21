@@ -215,10 +215,9 @@ struct PanelCard: View {
         .padding(14)
         .frame(maxWidth: .infinity, alignment: .leading)
         .background(
-            RoundedRectangle(cornerRadius: 18, style: .continuous)
+            RoundedRectangle(cornerRadius: Theme.radius, style: .continuous)
                 .fill(Color(hex: p.backgroundColor).map { $0.opacity(0.22) } ?? Theme.card)
         )
-        .overlay(RoundedRectangle(cornerRadius: 18, style: .continuous).stroke(Theme.ink(0.06)))
     }
 
     /// Panel icons are SF Symbol names; fall back for empty / unknown names.

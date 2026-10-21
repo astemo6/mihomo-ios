@@ -193,6 +193,50 @@ final class ProfileStore: ObservableObject {
         (try? String(contentsOf: p.fileURL, encoding: .utf8)) ?? ""
     }
 
+    /// feat/more-dedup (user 2026-10-21 「配置里长按没有导出」): a temp copy of the profile's YAML named after the
+    /// profile, for the share sheet (配置 long-press → 导出, YAML editor toolbar). `text` = the editor's current text.
+    /// It holds node secrets, so the share sheet deletes it when it ends (ShareItem.temporary) and leftovers are purged.
+    func exportFile(of p: Profile, text: String? = nil) -> URL? {
+        let body = text ?? content(of: p)
+        guard !body.isEmpty else { return nil }
+        Self.purgeExports()
+        let dir = Self.exportDir
+        try? FileManager.default.createDirectory(at: dir, withIntermediateDirectories: true)
+        var base = p.name.components(separatedBy: CharacterSet(charactersIn: "/\\:?*\"<>|\n\r")).joined(separator: "_")
+            .trimmingCharacters(in: .whitespacesAndNewlines)
+        if base.isEmpty || base.hasPrefix(".") { base = "profile" + base }
+        let url = dir.appendingPathComponent(String(base.prefix(80)) + ".yaml")
+        do { try body.write(to: url, atomically: true, encoding: .utf8) } catch { return nil }
+        return url
+    }
+
+    /// 「导出最终配置（含覆写）」: the YAML the core runs for this profile (覆写脚本, 节点处理, 节点订阅, node-set
+    /// edits, core overrides; credentials as in the profile; controller / probe plumbing removed), built in Go
+    /// off the main thread, as `<name> · 最终配置.yaml`.
+    func exportFinalFile(of p: Profile) async -> Result<URL, Error> {
+        let home = AppShared.homeURL.path
+        let path = p.fileURL.path
+        let r: Result<String, Error> = await Task.detached(priority: .userInitiated) {
+            var err: NSError?
+            let s = LibmihomoFinalConfig(home, path, &err)
+            if let err { return .failure(err) }
+            return .success(s)
+        }.value
+        switch r {
+        case .failure(let e): return .failure(e)
+        case .success(let text):
+            var q = p
+            q.name = p.name + " · " + String(localized: "最终配置")
+            guard let u = exportFile(of: q, text: text) else {
+                return .failure(NSError(domain: "Tern", code: 1, userInfo: [NSLocalizedDescriptionKey: String(localized: "配置文件为空或无法读取")]))
+            }
+            return .success(u)
+        }
+    }
+
+    nonisolated static var exportDir: URL { FileManager.default.temporaryDirectory.appendingPathComponent("ProfileExport", isDirectory: true) }
+    nonisolated static func purgeExports() { try? FileManager.default.removeItem(at: exportDir) }
+
     // MARK: Validation / conversion
 
     /// Validates YAML text with the real mihomo parser. Returns nil if OK, else the error.

@@ -86,6 +86,11 @@ enum UITestSeed {
                 let p = try await store.addLocal(name: "UITest Groups", text: groupsOnlyYAML)
                 _ = await store.setActive(p)
             }
+            // feat/policy-chain: nested groups with CJK names (节点选择 → 日本节点 → 东京 …) for the chain subtitles on 策略.
+            if args.contains("-UITestPolicyChain"), !store.profiles.contains(where: { $0.name == "UITest Chain" }) {
+                let p = try await store.addLocal(name: "UITest Chain", text: policyChainYAML)
+                _ = await store.setActive(p)
+            }
             // v0.19.6 stress test: a large profile (3000 nodes in one select group, 10000 rules) becomes the active
             // profile, plus 1500 more manual nodes.
             if args.contains("-UITestBigProfile"), !store.profiles.contains(where: { $0.name == "UITest Big" }) {
@@ -173,6 +178,42 @@ enum UITestSeed {
         return (try? JSONDecoder().decode([ConnectionItem].self, from: Data(json.utf8))) ?? []
     }
 
+    /// feat/home-analysis demo (UI tests only, -UITestDemoAnalytics): a private ConnectionAnalytics filled from
+    /// synthetic connections (example.* hosts, documentation IPs). Never the live session, never saved to history.
+    @MainActor static func demoAnalytics() -> ConnectionAnalytics {
+        let a = ConnectionAnalytics()
+        a.recordsHistory = false
+        // (host, final policy, leaf, rule, payload, connections, MB down per connection)
+        let rows: [(String, String, String, String, String, Int, Double)] = [
+            ("video.example.com", "Proxy", "🇯🇵 Tokyo 01", "DomainSuffix", "example.com", 12, 6.2),
+            ("cdn.example.net", "Streaming", "🇸🇬 Singapore 02", "RuleSet", "streaming", 9, 3.1),
+            ("api.example.org", "AI", "🇺🇸 San Jose 02", "DomainKeyword", "example", 18, 0.35),
+            ("updates.example.com", "DIRECT", "DIRECT", "GeoIP", "CN", 31, 0.12),
+            ("photos.example.net", "Apple", "DIRECT", "DomainSuffix", "example.net", 7, 0.9),
+            ("static.example.org", "Proxy", "🇯🇵 Tokyo 01", "Match", "", 14, 0.25),
+            ("ads.example.com", "REJECT", "REJECT", "RuleSet", "reject", 23, 0),
+            ("mail.example.com", "Auto", "🇺🇸 San Jose 02", "DomainSuffix", "example.com", 5, 0.4),
+        ]
+        var conns: [ConnectionItem] = []
+        var n = 0
+        for (host, policy, leaf, rule, payload, count, mb) in rows {
+            for i in 0..<count {
+                n += 1
+                let down = Int64(mb * 1_048_576 * (0.6 + 0.8 * Double(i % 5) / 4))
+                let chains = policy == leaf ? [policy] : [leaf, policy]
+                conns.append(ConnectionItem(id: "demo-\(n)",
+                                            metadata: ConnectionMetadata(network: "tcp", type: "Tun", destinationIP: "192.0.2.\(n % 250 + 1)",
+                                                                         destinationPort: "443", host: host),
+                                            upload: down / 40 + 2048, download: down, start: nil, chains: chains,
+                                            rule: rule, rulePayload: payload))
+            }
+        }
+        a.ingest(conns)
+        // A second snapshot: 20 of them are still open (活跃连接).
+        a.ingest(Array(conns.prefix(20)))
+        return a
+    }
+
     /// v0.17 磁贴编辑 demo (UI tests only): a Surge script panel and a static Stash tile.
     static func demoPanels() -> [PanelItem] {
         let now = Date().timeIntervalSince1970 - 120
@@ -250,6 +291,29 @@ enum UITestSeed {
       - {name: Direct Only, type: select, proxies: [DIRECT]}
     rules:
       - MATCH,Node Select
+    """
+
+    /// feat/policy-chain: 流媒体 → 节点选择 → 日本节点 → 东京 AZ JP01 (three hops), automatic groups, a node that already
+    /// carries its flag, DIRECT / REJECT groups. Servers on 192.0.2.x (TEST-NET-1) never answer.
+    static let policyChainYAML = """
+    mode: rule
+    proxies:
+      - {name: "东京 AZ JP01", type: ss, server: 192.0.2.51, port: 8388, cipher: aes-128-gcm, password: uitest-pc-a}
+      - {name: "大阪 JP02", type: ss, server: 192.0.2.52, port: 8388, cipher: aes-128-gcm, password: uitest-pc-b}
+      - {name: "香港 HK01", type: ss, server: 192.0.2.53, port: 8388, cipher: aes-128-gcm, password: uitest-pc-c}
+      - {name: "新加坡 SG01", type: ss, server: 192.0.2.54, port: 8388, cipher: aes-128-gcm, password: uitest-pc-d}
+      - {name: "🇺🇸 洛杉矶 US01", type: ss, server: 192.0.2.55, port: 8388, cipher: aes-128-gcm, password: uitest-pc-e}
+    proxy-groups:
+      - {name: 节点选择, type: select, proxies: [日本节点, 自动选择, 故障转移, 香港节点, DIRECT]}
+      - {name: 流媒体, type: select, proxies: [节点选择, 日本节点, DIRECT]}
+      - {name: 日本节点, type: select, proxies: ["东京 AZ JP01", "大阪 JP02"]}
+      - {name: 自动选择, type: url-test, proxies: ["香港 HK01", "新加坡 SG01"], url: "http://www.gstatic.com/generate_204", interval: 600}
+      - {name: 故障转移, type: fallback, proxies: ["🇺🇸 洛杉矶 US01", "新加坡 SG01"], url: "http://www.gstatic.com/generate_204", interval: 600}
+      - {name: 香港节点, type: select, proxies: ["香港 HK01"]}
+      - {name: 国内直连, type: select, proxies: [DIRECT, 节点选择]}
+      - {name: 广告拦截, type: select, proxies: [REJECT, DIRECT]}
+    rules:
+      - MATCH,节点选择
     """
 
     static let profileYAML = """

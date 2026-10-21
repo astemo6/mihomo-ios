@@ -13,21 +13,37 @@ final class PolicyModel: ObservableObject {
     func load() async {
         await SmartGroups.shared.refreshStatus()
         do {
-            let p = try await ControllerClient.shared.proxies()
-            all = p
-            // v0.19.8: the runtime's own group order (GLOBAL lists only its members once it is user-defined).
-            var gs = LiveGroupOrder.names(p).compactMap { p[$0] }.filter { $0.isGroup && $0.hidden != true && $0.name != "GLOBAL" }
-            if let g = p["GLOBAL"] { gs.append(g) }
-            if let pending = pendingOrder, Date() < pending.until {
-                groups = gs
-                applyOrder(pending.names) // a reload still applying: keep the saved order on screen
-            } else {
-                pendingOrder = nil
-                groups = gs
-            }
+            apply(try await ControllerClient.shared.proxies())
             error = nil
         } catch {
             self.error = error.localizedDescription
+        }
+    }
+
+    /// feat/policy-chain: url-test / fallback / load-balance switch nodes on their own, so the chain subtitle would
+    /// go stale between pulls. While 策略 is on screen and connected, re-read /proxies every 10 s and publish only
+    /// when some group's pick (now / fixed) or the group list changed — delay history alone does not re-render.
+    func refreshSelections() async {
+        guard let p = try? await ControllerClient.shared.proxies() else { return }
+        func picks(_ m: [String: ProxyItem]) -> [String: String] {
+            var out: [String: String] = [:]
+            for (n, x) in m where x.isGroup { out[n] = (x.now ?? "") + "|" + (x.fixed ?? "") }
+            return out
+        }
+        if picks(p) != picks(all) { apply(p) }
+    }
+
+    private func apply(_ p: [String: ProxyItem]) {
+        all = p
+        // v0.19.8: the runtime's own group order (GLOBAL lists only its members once it is user-defined).
+        var gs = LiveGroupOrder.names(p).compactMap { p[$0] }.filter { $0.isGroup && $0.hidden != true && $0.name != "GLOBAL" }
+        if let g = p["GLOBAL"] { gs.append(g) }
+        if let pending = pendingOrder, Date() < pending.until {
+            groups = gs
+            applyOrder(pending.names) // a reload still applying: keep the saved order on screen
+        } else {
+            pendingOrder = nil
+            groups = gs
         }
     }
 
@@ -530,6 +546,15 @@ struct PolicyView: View {
             interactions = vpn.isConnected ? await TaskCatalog.interactions() : []
             await refreshMovableAsync()
         }
+        // feat/policy-chain: keep the chain subtitles current while connected (automatic groups switch by themselves).
+        .task(id: vpn.isConnected) {
+            guard vpn.isConnected else { return }
+            while !Task.isCancelled {
+                try? await Task.sleep(nanoseconds: 10_000_000_000)
+                if Task.isCancelled || !vpn.isConnected { break }
+                await model.refreshSelections()
+            }
+        }
         .modifier(InteractionRunner(request: $interaction))
         // hotfix/group-test-offline: a 测速 with nothing to dial says so instead of doing nothing.
         .overlay(alignment: .bottom) {
@@ -591,7 +616,7 @@ struct PolicyView: View {
 
     var liveList: some View {
         ScrollView {
-            LazyVStack(spacing: 12) {
+            LazyVStack(spacing: 8) {
                 PolicyModeBar()
                 if let e = model.error { Text(e).font(.footnote).foregroundStyle(Theme.bad) }
                 TestTargetCaption(live: true)
@@ -633,7 +658,8 @@ struct PolicyView: View {
                                     onInteract: { id, node in
                                         if let t = interactions.first(where: { $0.id == id }) { interaction = InteractionRequest(task: t, node: node) }
                                     },
-                                    resolved: { model.resolution($0, graph: graph) })
+                                    resolved: { model.resolution($0, graph: graph) },
+                                    chain: graph.chain(from: g.name))
                     .onDrop(of: [UTType.text], delegate: dropTarget(g.name))
                   }
                 }
@@ -646,7 +672,7 @@ struct PolicyView: View {
 
     var offlineList: some View {
         ScrollView {
-            LazyVStack(spacing: 12) {
+            LazyVStack(spacing: 8) {
                 PolicyModeBar()
                 HStack(spacing: 6) {
                     Image(systemName: "doc.text.magnifyingglass")
@@ -661,7 +687,7 @@ struct PolicyView: View {
                 if AppShared.activeProfileURL == nil {
                     // feat/surge-ui: friendly empty state with the way out.
                     EmptyStateView(icon: "square.grid.2x2", title: "还没有可用的策略", message: "添加并选择一个配置后，策略组会显示在这里。",
-                                   actionTitle: "前往配置", actionID: "policy.emptyAction") { ImportRouter.shared.selectedTab = AppSection.profiles.rawValue }
+                                   actionTitle: "前往配置", actionID: "policy.emptyAction") { ImportRouter.shared.showProfiles() }
                 } else if let e = offline.result.error, offline.result.groups.isEmpty {
                     ErrorRow(message: e)
                 } else {
@@ -703,7 +729,8 @@ struct PolicyView: View {
                                         onEdit: { editGroup = EditGroupTarget(name: g.name) },
                                         onTop: topAction(g.name),
                                         onDrag: dragAction(g.name),
-                                        resolved: { graph.groups[$0] != nil ? graph.resolve($0, delays: offline.delays) : nil })
+                                        resolved: { graph.groups[$0] != nil ? graph.resolve($0, delays: offline.delays) : nil },
+                                        chain: graph.chain(from: g.name, delays: offline.delays))
                         .onDrop(of: [UTType.text], delegate: dropTarget(g.name))
                       }
                     }
@@ -757,6 +784,9 @@ struct PolicyGroupCard: View {
     var onInteract: ((String, String) -> Void)? = nil
     /// hotfix/group-test-offline: for a member that is a group, the node it resolves to (nil = not a group).
     var resolved: ((String) -> GroupGraph.Resolution?)? = nil
+    /// feat/policy-chain: the whole path down to the final node (Egern 策略), shown as the subtitle. nil = the old
+    /// 「当前 → 节点」 line.
+    var chain: GroupGraph.Chain? = nil
 
     /// 「→ 节点」 for a selected node, 「最快 节点」 / 「可用 节点」 when the offline page picked it from measurements.
     static func resolutionText(_ r: GroupGraph.Resolution) -> String {
@@ -781,17 +811,19 @@ struct PolicyGroupCard: View {
     }
 
     var body: some View {
-        VStack(alignment: .leading, spacing: 12) {
+        // feat/egern-style: one compact row per group (28 pt icon, 15 pt name, chain subtitle); tap expands.
+        VStack(alignment: .leading, spacing: 10) {
             HStack(spacing: 10) {
-                GroupIconView(group: group.name, profileIcon: group.profileIcon, fallback: group.icon, size: 34)
+                GroupIconView(group: group.name, profileIcon: group.profileIcon, fallback: group.icon, size: 28)
                     .accessibilityIdentifier("policy.icon." + group.name)
                 VStack(alignment: .leading, spacing: 2) {
                     HStack(spacing: 6) {
-                        Text(group.name).font(.headline).lineLimit(1)
+                        Text(group.name).font(.subheadline).lineLimit(1)
                             .accessibilityIdentifier("policy.card." + group.name)
                         Text(group.label)
-                            .font(.caption2.weight(.semibold))
-                            .padding(.horizontal, 6).padding(.vertical, 2)
+                            .font(.system(size: 9, weight: .semibold))
+                            .foregroundStyle(.secondary)
+                            .padding(.horizontal, 5).padding(.vertical, 1)
                             .lineLimit(1) // v0.19.8: a capsule tag never wraps (tall grey box with large text)
                             .background(Capsule().fill(Theme.ink(0.1)))
                         if via != nil {
@@ -816,9 +848,17 @@ struct PolicyGroupCard: View {
                         }
                     }
                     HStack(spacing: 6) {
-                        Text(verbatim: FlagSafe.text(group.now ?? "—")).font(.caption).foregroundStyle(.secondary).lineLimit(1)
-                        if let n = group.now, let r = resolved?(n), r.node != n {
-                            Text(verbatim: Self.resolutionText(r)).font(.caption).foregroundStyle(.tertiary).lineLimit(1)
+                      if let chain {
+                        // feat/policy-chain: 「日本节点 › 🇯🇵 东京 AZ JP01」; a long path gives way in the middle so the
+                        // group's own pick and the final node both stay readable.
+                        // feat/egern-style: middle hops shorten first, the final node keeps its room (phone width).
+                        ChainLine(hops: PolicyChainText.parts(chain), label: PolicyChainText.text(chain))
+                            .accessibilityIdentifier("policy.chain." + group.name)
+                      } else {
+                        Text(verbatim: FlagSafe.text(group.now ?? "—")).font(.caption2).foregroundStyle(.secondary).lineLimit(1)
+                      }
+                        if chain == nil, let n = group.now, let r = resolved?(n), r.node != n {
+                            Text(verbatim: Self.resolutionText(r)).font(.caption2).foregroundStyle(.tertiary).lineLimit(1)
                                 .accessibilityIdentifier("policy.via." + group.name)
                         }
                         if let n = group.now, let d = delay(n) {
@@ -911,7 +951,7 @@ struct PolicyGroupCard: View {
                     }
                     .buttonStyle(.plain)
                 }
-                LazyVGrid(columns: [GridItem(.flexible(), spacing: 8), GridItem(.flexible(), spacing: 8)], spacing: 8) {
+                LazyVGrid(columns: [GridItem(.flexible(), spacing: 6), GridItem(.flexible(), spacing: 6)], spacing: 6) {
                     ForEach(group.members, id: \.self) { name in
                         NodeCell(name: name,
                                  type: nodeType(name),
@@ -953,9 +993,8 @@ struct PolicyGroupCard: View {
                 }
             }
         }
-        .padding(14)
-        .background(RoundedRectangle(cornerRadius: 18, style: .continuous).fill(Theme.card))
-        .overlay(RoundedRectangle(cornerRadius: 18, style: .continuous).stroke(Theme.ink(0.06)))
+        .padding(.horizontal, 12).padding(.vertical, 9)
+        .background(RoundedRectangle(cornerRadius: Theme.radius, style: .continuous).fill(Theme.card))
     }
 }
 
@@ -974,11 +1013,11 @@ struct NodeCell: View {
     var axID: String? = nil
 
     var body: some View {
-        VStack(alignment: .leading, spacing: 6) {
+        VStack(alignment: .leading, spacing: 4) {
             Text(verbatim: FlagSafe.text(name))
-                .font(.footnote.weight(selected ? .semibold : .regular))
+                .font(.caption.weight(selected ? .semibold : .regular))
                 .lineLimit(2)
-                .frame(maxWidth: .infinity, minHeight: 34, alignment: .topLeading)
+                .frame(maxWidth: .infinity, minHeight: 30, alignment: .topLeading)
             HStack {
                 if let via {
                     // Live member groups carry the core type (Selector / URLTest …), offline ones "group": both show
@@ -1007,14 +1046,14 @@ struct NodeCell: View {
                     .accessibilityIdentifier((axID ?? "node") + ".delay")
             }
         }
-        .padding(10)
+        .padding(.horizontal, 9).padding(.vertical, 7)
         .background(
-            RoundedRectangle(cornerRadius: 12, style: .continuous)
-                .fill(selected ? Theme.accent.opacity(0.22) : Theme.cardHi)
+            RoundedRectangle(cornerRadius: 8, style: .continuous)
+                .fill(selected ? Theme.accent.opacity(0.16) : Theme.cardHi)
         )
         .overlay(
-            RoundedRectangle(cornerRadius: 12, style: .continuous)
-                .stroke(selected ? Theme.accent : Color.clear, lineWidth: 1.2)
+            RoundedRectangle(cornerRadius: 8, style: .continuous)
+                .stroke(selected ? Theme.accent : Color.clear, lineWidth: 1)
         )
         .opacity(enabled || selected ? 1 : 0.75)
     }
@@ -1048,15 +1087,14 @@ struct CollapsedAutoRow: View {
     var body: some View {
         Button(action: onExpand) {
             HStack(spacing: 10) {
-                Image(systemName: "bolt.horizontal.circle").foregroundStyle(Theme.accent)
-                Text("\(count) 个自动策略已折叠").font(.subheadline.weight(.semibold))
+                IconTile(symbol: "bolt.horizontal", tone: .accent)
+                Text("\(count) 个自动策略已折叠").font(.subheadline)
                 Spacer()
                 Text("展开").font(.caption).foregroundStyle(.secondary)
                 Image(systemName: "chevron.down").font(.caption).foregroundStyle(.secondary)
             }
-            .padding(.horizontal, 16).padding(.vertical, 12)
-            .background(RoundedRectangle(cornerRadius: 18, style: .continuous).fill(Theme.card))
-            .overlay(RoundedRectangle(cornerRadius: 18, style: .continuous).stroke(Theme.ink(0.06)))
+            .padding(.horizontal, 12).padding(.vertical, 9)
+            .background(RoundedRectangle(cornerRadius: Theme.radius, style: .continuous).fill(Theme.card))
             .contentShape(Rectangle())
         }
         .buttonStyle(.plain)

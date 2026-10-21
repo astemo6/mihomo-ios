@@ -57,6 +57,27 @@ struct KindBadge: View {
     }
 }
 
+/// feat/more-dedup: the 启用重写与脚本 switch lives only on 工具 → 模块. Pages under it (我的重写, 脚本) show
+/// this row instead, and only while the engine is off: what it means and a one-tap 开启.
+struct EngineOffNotice: View {
+    @ObservedObject var store = EngineStore.shared
+    var body: some View {
+        if !store.config.enabled {
+            HStack(spacing: 10) {
+                Image(systemName: "pause.circle").foregroundStyle(Theme.warn)
+                Text("重写与脚本已关闭，这里的规则暂不生效。").font(.footnote)
+                Spacer(minLength: 6)
+                Button("开启") { store.config.enabled = true; store.save() }
+                    .font(.footnote.weight(.semibold)).buttonStyle(.borderless)
+                    .accessibilityIdentifier("engine.turnOn")
+            }
+        } else {
+            Label("重写与脚本已开启（在「模块」页顶部开关）", systemImage: "checkmark.circle")
+                .font(.footnote).foregroundStyle(.secondary)
+        }
+    }
+}
+
 struct EngineSwitchFooter: View {
     @EnvironmentObject var vpn: VPNManager
     var body: some View {
@@ -409,9 +430,7 @@ struct ScriptsView: View {
     var body: some View {
         List {
             Section {
-                Toggle(isOn: Binding(get: { store.config.enabled }, set: { store.config.enabled = $0; store.save() })) {
-                    Label("启用重写与脚本", systemImage: "curlybraces")
-                }
+                EngineOffNotice()
             } footer: { EngineSwitchFooter() }
             .listRowBackground(Theme.card)
 
@@ -447,8 +466,7 @@ struct ScriptsView: View {
 
             Section("工具") {
                 NavigationLink { ScriptWorkbenchView(target: .scratch) } label: { Label("脚本调试台", systemImage: "play.rectangle") }
-                NavigationLink { ScriptTasksView() } label: { Label("任务（定时 / 网络变化 / 交互）", systemImage: "clock.arrow.circlepath") }
-                NavigationLink { ScriptLogsView() } label: { Label("运行日志", systemImage: "text.alignleft") }
+                NavigationLink { ScriptLogsView() } label: { Label("脚本日志", systemImage: "text.alignleft") }
                 NavigationLink { ScriptNoticesView() } label: { Label("脚本通知记录", systemImage: "bell") }
                 NavigationLink { StoreView() } label: { Label("持久化存储（$persistentStore / $prefs）", systemImage: "externaldrive") }
                 NavigationLink { LocalScriptsView() } label: { Label("本地脚本文件", systemImage: "folder") }

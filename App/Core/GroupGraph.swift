@@ -107,4 +107,49 @@ struct GroupGraph {
         }
         return cur
     }
+
+    // MARK: feat/policy-chain — the whole path a group takes (Egern 策略: 「日本节点 › 🇯🇵 东京 AZ JP01」)
+
+    /// The members a group goes through down to where it ends: each group's pick, in order, the last hop being a node,
+    /// DIRECT / REJECT, or a group whose pick is not known (relay, empty). The group itself is not included.
+    struct Chain: Equatable {
+        var hops: [String] = []
+        /// Stopped after `maxDepth` hops while still on a group.
+        var truncated = false
+        /// The next hop was a group already on the path (A → B → A).
+        var looped = false
+        /// How the last automatic group on the path picked (offline measurements); `.selected` = the selection /
+        /// the core's own choice.
+        var how: How = .selected
+
+        var final: String? { hops.last }
+    }
+
+    static let chainMaxDepth = 5
+
+    /// Live (`delays` nil): follows each group's `now`, which the core already chose for url-test / fallback /
+    /// load-balance. Offline (`delays` given): an automatic group with measurements goes to the member its
+    /// `resolve` pick came from (so the path ends on the node whose delay the card shows); otherwise its current
+    /// member. Cycles stop the path; it never goes deeper than `maxDepth` hops.
+    func chain(from name: String, delays: [String: Int]? = nil, maxDepth: Int = GroupGraph.chainMaxDepth) -> Chain {
+        var c = Chain()
+        guard groups[name] != nil else { return c }
+        var seen: Set<String> = [name]
+        var cur = name
+        while let g = groups[cur] {
+            if c.hops.count >= maxDepth { c.truncated = true; break }
+            var next = g.now
+            if let delays, g.type == "url-test" || g.type == "fallback" || g.type == "load-balance",
+               let r = resolve(cur, delays: delays), r.how != .selected,
+               let m = g.members.first(where: { resolve($0, delays: delays)?.node == r.node }) {
+                next = m
+                c.how = r.how
+            }
+            guard let n = next, !n.isEmpty else { break }
+            if groups[n] != nil, !seen.insert(n).inserted { c.looped = true; break }
+            c.hops.append(n)
+            cur = n
+        }
+        return c
+    }
 }

@@ -592,7 +592,7 @@ struct TaskResultSheet: View {
                     .textSelection(.enabled)
                     .frame(maxWidth: .infinity, alignment: .leading)
                     .padding(16)
-                    .background(RoundedRectangle(cornerRadius: 16, style: .continuous).fill(Theme.card))
+                    .background(RoundedRectangle(cornerRadius: Theme.radius, style: .continuous).fill(Theme.card))
                     .padding()
             }
             .background(Theme.bg.ignoresSafeArea())

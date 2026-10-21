@@ -12,21 +12,19 @@ struct HomePolicySection: View {
     @EnvironmentObject var vpn: VPNManager
 
     var body: some View {
-        VStack(spacing: 8) {
+        // feat/egern-style: small grey section label with a plain accent 编辑 link (Egern).
+        VStack(spacing: 6) {
             HStack {
-                Text("策略").font(.footnote.weight(.semibold)).foregroundStyle(.secondary)
+                Text("策略").font(.caption).foregroundStyle(.secondary)
                 Spacer()
                 Button { editing = true } label: {
-                    Text("编辑")
-                        .font(.caption.weight(.semibold))
-                        .padding(.horizontal, 12).padding(.vertical, 4)
-                        .lineLimit(1) // v0.19.8: a capsule tag never wraps (tall grey box with large text)
-                        .background(Capsule().fill(Theme.ink(0.08)))
+                    Text("编辑").font(.caption).foregroundStyle(Theme.accent).lineLimit(1)
                 }
                 .buttonStyle(.plain)
                 .accessibilityLabel(Text("编辑首页策略"))
             }
-            .padding(.horizontal, 4)
+            .padding(.horizontal, 6)
+            .padding(.top, 4)
             HomePolicyCards(groups: groups, live: live,
                             onRemove: { name in
                                 UIImpactFeedbackGenerator(style: .light).impactOccurred()

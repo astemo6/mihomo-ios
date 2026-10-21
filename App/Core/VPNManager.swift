@@ -160,7 +160,7 @@ final class VPNManager: ObservableObject {
             return
         }
         guard AppShared.activeProfileURL != nil else {
-            lastError = String(localized: "请先在「配置」中添加并选择一个配置")
+            lastError = String(localized: "请先在「更多 → 配置」中添加并选择一个配置")
             return
         }
         isBusy = true

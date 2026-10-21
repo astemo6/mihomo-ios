@@ -11,10 +11,13 @@ extension MihomoUITests {
         tab(4)
         XCTAssertTrue(app.navigationBars[L("更多")].waitForExistence(timeout: 8), "更多")
         snap("surge-more-1")
+        // feat/more-dedup: the tunnel pages are cards on the 工具 tab now.
+        tab(3)
         let logs = app.element(id: "more.日志")
-        XCTAssertTrue(scrollTo(logs), "运行日志 row")
-        XCTAssertTrue(app.element(labelContains: L("需开启 VPN")).exists, "tunnel rows greyed while disconnected")
+        XCTAssertTrue(scrollTo(logs), "运行日志 card")
+        XCTAssertTrue(app.element(labelContains: L("需开启 VPN")).exists, "tunnel cards greyed while disconnected")
         snap("surge-more-2-status")
+        tab(4)
         let stats = app.element(id: "more.流量统计")
         XCTAssertTrue(scrollTo(stats), "已保存数据")
         snap("surge-more-3-tools")
@@ -66,6 +69,7 @@ extension MihomoUITests {
         snap("surge-policy-empty")
         go.tap()
         usleep(800_000)
-        XCTAssertTrue(app.tabBars.buttons.element(boundBy: 3).isSelected, "前往配置 opens 配置")
+        XCTAssertTrue(app.tabBars.buttons.element(boundBy: 4).isSelected, "前往配置 opens 更多")
+        XCTAssertTrue(app.navigationBars[L("配置")].waitForExistence(timeout: 5), "前往配置 pushes 更多 → 配置")
     }
 }

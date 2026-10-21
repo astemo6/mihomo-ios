@@ -7,19 +7,25 @@ struct ProfilesView: View {
     @State private var showAddRemote = false
     @State private var showNewLocal = false
     @State private var message: String?
-    /// v0.19.3: the add-subscription sheet's result, shown after the sheet is gone (see ManualNodesView).
+    /// v0.19.3: the add-subscription sheet's result, shown after the sheet is gone (the same pattern as other add sheets).
     @State private var pendingMessage: String?
     @State private var busy = false
     @State private var editing: Profile?
-    @State private var showManual = false
     @State private var subRulesFor: Profile?
-    @State private var showSubs = false
     @State private var showSample = false
     @State private var scriptsFor: Profile?
     @State private var pendingDelete: Profile?
+    @State private var share: ShareItem?
+
+    /// feat/more-dedup: pushed from 更多 → 配置 (no NavigationStack of its own); the old 配置 tab is gone.
+    var embedded = true
 
     var body: some View {
-        NavigationStack {
+        if embedded { content } else { NavigationStack { content } }
+    }
+
+    @ViewBuilder var content: some View {
+        Group {
             List {
                 if store.profiles.isEmpty {
                     Section {
@@ -33,9 +39,6 @@ struct ProfilesView: View {
                     .listRowBackground(Theme.card)
                 }
                 Section {
-                    NavigationLink { ManualNodesView() } label: {
-                        Label("手动节点（粘贴链接 / 扫码 / 手动填写）", systemImage: "plus.viewfinder")
-                    }
                     NavigationLink { SampleProfileView() } label: {
                         Label("示例配置", systemImage: "text.book.closed")
                     }
@@ -56,7 +59,7 @@ struct ProfilesView: View {
                                 if p.id != ProfileStore.manualID {
                                     Button { subRulesFor = p } label: { Label("节点处理", systemImage: "line.3.horizontal.decrease.circle") }.tint(.teal)
                                 }
-                                Button { scriptsFor = p } label: { Label("脚本", systemImage: "curlybraces") }.tint(.purple)
+                                Button { scriptsFor = p } label: { Label("覆写脚本", systemImage: "curlybraces") }.tint(.purple)
                             }
                             .swipeActions(edge: .leading) {
                                 if p.copyModified == true, store.source(of: p) != nil {
@@ -80,6 +83,8 @@ struct ProfilesView: View {
                                 }
                                 Button { scriptsFor = p } label: { Label("覆写脚本", systemImage: "curlybraces") } // v0.19
                                 Button { editing = p } label: { Label(LocalizedStringKey(p.kind == .remote ? "查看 YAML" : "编辑 YAML"), systemImage: p.kind == .remote ? "doc.text" : "pencil") }
+                                Button { export(p) } label: { Label("导出", systemImage: "square.and.arrow.up") }
+                                Button { exportFinal(p) } label: { Label("导出最终配置（含覆写）", systemImage: "doc.badge.gearshape") }
                                 Button(role: .destructive) { requestDelete(p) } label: { Label("删除", systemImage: "trash") }
                             }
                             .listRowBackground(Theme.card)
@@ -96,7 +101,6 @@ struct ProfilesView: View {
                 ToolbarItemGroup(placement: .navigationBarLeading) {
                     Button { updateAll() } label: { Label("全部更新", systemImage: "arrow.triangle.2.circlepath") }
                         .disabled(busy || !store.profiles.contains { $0.kind == .remote })
-                    Button { showSubs = true } label: { Label("节点与订阅", systemImage: "server.rack") }
                 }
                 ToolbarItem(placement: .navigationBarTrailing) {
                     Menu {
@@ -105,14 +109,10 @@ struct ProfilesView: View {
                         Button { ImportRouter.shared.pickFile() } label: { Label("从文件导入（YAML / Surge·QX .conf）", systemImage: "folder") }
                         Button { importConfFromClipboard() } label: { Label("粘贴 Surge / QX 配置（.conf）", systemImage: "arrow.triangle.2.circlepath.doc.on.clipboard") }
                         Button { showNewLocal = true } label: { Label("新建本地配置", systemImage: "square.and.pencil") }
-                        Button { showSample = true } label: { Label("示例配置", systemImage: "text.book.closed") }
-                        Button { showManual = true } label: { Label("添加单个节点", systemImage: "plus.viewfinder") }
                     } label: { Image(systemName: "plus.circle.fill").font(.title3) }
                 }
             }
-            .navigationDestination(isPresented: $showManual) { ManualNodesView() }
             .navigationDestination(isPresented: $showSample) { SampleProfileView() }
-            .navigationDestination(isPresented: $showSubs) { NodeManagerView() }
             .overlay { if busy { ProgressView().padding(20).background(RoundedRectangle(cornerRadius: 12).fill(Theme.cardHi)) } }
             .sheet(isPresented: $showAddRemote, onDismiss: { if let m = pendingMessage { pendingMessage = nil; message = m } }) { AddRemoteSheet { msg in pendingMessage = msg } }
             .sheet(isPresented: $showNewLocal) {
@@ -139,7 +139,27 @@ struct ProfilesView: View {
                 Button("好", role: .cancel) {}
             } message: { Text(message ?? "") }
             .profileDeleteConfirmation($pendingDelete, store: store)
+            .sheet(item: $share, onDismiss: { ProfileStore.purgeExports() }) { ActivityView(items: [$0.url], cleanup: $0.temporary ? $0.url : nil) }
         }
+    }
+
+    /// 导出最终配置（含覆写）: the merged YAML the core runs (see ProfileStore.exportFinalFile).
+    func exportFinal(_ p: Profile) {
+        busy = true
+        Task {
+            let r = await store.exportFinalFile(of: p)
+            busy = false
+            switch r {
+            case .success(let u): share = ShareItem(url: u, temporary: true)
+            case .failure(let e): message = String(localized: "导出失败：") + e.localizedDescription
+            }
+        }
+    }
+
+    /// 导出: the profile's YAML file (`<name>.yaml`, the profile exactly as stored) through the share sheet.
+    func export(_ p: Profile) {
+        if let u = store.exportFile(of: p) { share = ShareItem(url: u, temporary: true) }
+        else { message = String(localized: "导出失败：") + String(localized: "配置文件为空或无法读取") }
     }
 
     /// Every profile delete asks first (review 5); a source with 自定义 copies names them in the dialog.
@@ -388,6 +408,7 @@ struct YAMLEditorView: View {
     @State private var checkTask: Task<Void, Never>?
     @State private var scrollToken = 0
     @State private var confirmDiscard = false
+    @State private var share: ShareItem?
     private let initialName: String
     private let initialText: String
     /// Unsaved edits: swipe-down is blocked and 取消 asks first (review 5).
@@ -459,6 +480,15 @@ struct YAMLEditorView: View {
                 ToolbarItem(placement: .cancellationAction) {
                     Button(readOnly ? "关闭" : "取消") { if dirty { confirmDiscard = true } else { dismiss() } }
                 }
+                if let profile {
+                    ToolbarItem(placement: .primaryAction) {
+                        Button {
+                            if let u = store.exportFile(of: profile, text: text) { share = ShareItem(url: u, temporary: true) }
+                            else { error = String(localized: "导出失败：") + String(localized: "配置文件为空或无法读取") }
+                        } label: { Label("导出", systemImage: "square.and.arrow.up") }
+                        .accessibilityIdentifier("yaml.export")
+                    }
+                }
                 ToolbarItem(placement: .confirmationAction) {
                     if busy { ProgressView() }
                     else if readOnly { Button("复制为本地配置") { copyAsLocal() } }
@@ -471,6 +501,7 @@ struct YAMLEditorView: View {
             .confirmationDialog("放弃修改？", isPresented: $confirmDiscard, titleVisibility: .visible) {
                 Button("放弃修改", role: .destructive) { dismiss() }
             }
+            .sheet(item: $share, onDismiss: { ProfileStore.purgeExports() }) { ActivityView(items: [$0.url], cleanup: $0.temporary ? $0.url : nil) }
         }
         .interactiveDismissDisabled(dirty)
     }

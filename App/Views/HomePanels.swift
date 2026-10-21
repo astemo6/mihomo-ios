@@ -185,7 +185,7 @@ struct HomePanelsSection: View {
     var body: some View {
         let items = home.visibleIDs.compactMap { home.item($0, connected: vpn.isConnected) }
         let rows = HomeRow.rows(home.visibleIDs) { home.item($0, connected: vpn.isConnected) }
-        VStack(spacing: 14) {
+        VStack(spacing: 10) {
             if !model.pinned.isEmpty {
                 HStack {
                     Text("面板").font(.footnote.weight(.semibold)).foregroundStyle(.secondary)
@@ -220,8 +220,8 @@ struct HomePanelsSection: View {
                     .fixedSize(horizontal: false, vertical: true)
                 }
             }
-            if model.pinned.isEmpty {
-                // v0.19: the way in when nothing is pinned yet (built-in cards need no module).
+            // feat/egern-style: always offered — the analysis panels (策略 / 规则 / 主机名) are opt-in and added here.
+            Group {
                 Button { editing = true } label: {
                     Label("添加首页卡片", systemImage: "plus.circle")
                         .font(.footnote.weight(.semibold))
@@ -240,8 +240,7 @@ struct HomePanelsSection: View {
                         Image(systemName: "chevron.right").font(.caption).foregroundStyle(.secondary)
                     }
                     .padding(.horizontal, 16).padding(.vertical, 12)
-                    .background(RoundedRectangle(cornerRadius: 18, style: .continuous).fill(Theme.card))
-                    .overlay(RoundedRectangle(cornerRadius: 18, style: .continuous).stroke(Theme.ink(0.06)))
+                    .background(RoundedRectangle(cornerRadius: Theme.radius, style: .continuous).fill(Theme.card))
                 }
                 .buttonStyle(.plain)
             }
@@ -335,6 +334,9 @@ struct HomePanelsEditor: View {
                     Text("网速、流量、运行时长、出口 IP（默认打码）、内网 IP、内存和流媒体解锁，由 App 绘制，不需要模块。两张小卡片并排显示。")
                 }
                 .listRowBackground(Theme.card)
+
+                HomeAnalysisEditorSection() // feat/home-analysis
+                    .listRowBackground(Theme.card)
 
                 Section {
                     Button { showPanels = true } label: { addRow("全部面板", icon: "square.grid.2x2", enabled: vpn.isConnected) }

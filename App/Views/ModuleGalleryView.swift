@@ -1,6 +1,6 @@
 import SwiftUI
 
-// 更多 → 模块与资源 → 模块库 (v0.15): browse and search modules from the index sources, preview what a
+// 工具 → 模块与资源 → 模块库 (v0.15): browse and search modules from the index sources, preview what a
 // module changes (rewrites, scripts, MitM hostnames, rules, tasks, panels, arguments) before adding it,
 // and switch modules that are already added on or off right in the list.
 

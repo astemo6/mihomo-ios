@@ -183,12 +183,16 @@ struct BackupView: View {
             }
             .listRowBackground(Theme.card)
 
-            Section("导出") {
-                Button { export(toFiles: true) } label: { Label("保存到「文件」（可选 iCloud 云盘）", systemImage: "folder") }
-                Button { export(toFiles: false) } label: { Label("分享…", systemImage: "square.and.arrow.up") }
+            // User 2026-10-21 18:54 (exported 「配置」 came out as JSON): this is the full backup bundle, not one profile.
+            Section {
+                Button { export(toFiles: true) } label: { Label("保存完整备份到「文件」（可选 iCloud 云盘）", systemImage: "folder") }
+                    .accessibilityIdentifier("backup.exportFiles")
+                Button { export(toFiles: false) } label: { Label("分享完整备份…", systemImage: "square.and.arrow.up") }
                 if BackupManager.iCloudFolder != nil {
                     Button { backupToICloud() } label: { Label("备份到 iCloud", systemImage: "icloud.and.arrow.up") }
                 }
+            } header: { Text("导出完整备份（.json，含全部配置 / 模块 / 设置）") } footer: {
+                Text("只要导出某一个配置的 YAML 文件：更多 → 配置 → 长按该配置 → 导出。")
             }
             .listRowBackground(Theme.card)
 

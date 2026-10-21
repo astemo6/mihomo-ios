@@ -177,7 +177,7 @@ struct NodeManagerView: View {
                 NavigationLink {
                     NodeListView(scope: NodeListScope(title: String(localized: "本地节点"), sourceIDs: localIDs,
                                                       emptyTitle: String(localized: "还没有本地节点"),
-                                                      emptyMessage: String(localized: "点右上角 + 粘贴分享链接、扫码或选择协议填写。")))
+                                                      emptyMessage: String(localized: "点右上角 + 粘贴分享链接、扫码或选择协议填写。"), localNodes: true))
                 } label: {
                     HStack(spacing: 12) {
                         SourceIcon(systemName: "internaldrive", color: Theme.accent)
@@ -477,7 +477,7 @@ struct NodeManagerView: View {
         NavigationLink {
             NodeListView(scope: NodeListScope(title: title, sourceIDs: [s?.id ?? NodeSource(kind: .provider, name: name).id],
                                               emptyTitle: disabled ? String(localized: "节点集已停用") : String(localized: "还没有下载"),
-                                              emptyMessage: disabled ? String(localized: "启用后，节点会重新加入配置。") : String(localized: "连接一次，或在订阅 / 提供者页面更新后显示节点。")))
+                                              emptyMessage: disabled ? String(localized: "启用后，节点会重新加入配置。") : String(localized: "连接一次，或在「节点与订阅」里右滑更新后显示节点。")))
         } label: {
             SubscriptionRowLabel(icon: "shippingbox", color: Theme.warn, name: title, kind: String(localized: "节点集 · 来自配置"),
                                  count: disabled ? nil : count, info: nil, updated: s?.updatedAt, error: disabled ? nil : updater.errors[key],
