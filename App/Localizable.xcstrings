@@ -90273,6 +90273,40 @@
           }
         }
       }
+    },
+    "策略、规则和主机名卡片默认不显示，添加后才出现在首页，长按卡片可移除。数据与「连接分析」相同：本次连接期间、App 打开时采样，断开后清零。": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "The Policies, Rules and Hostnames cards are off by default and appear on Home only after you add them; long-press a card to remove it. Same data as Connection Analysis: sampled during this connection while the app is open, cleared on disconnect."
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "策略、規則和主機名卡片預設不顯示，新增後才出現在首頁，長按卡片可移除。資料與「連線分析」相同：本次連線期間、App 開啟時取樣，中斷連線後清零。"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ポリシー・ルール・ホスト名のカードは初期状態では表示されず、追加するとホームに表示されます。長押しで削除できます。データは「接続分析」と同じで、今回の接続中にアプリを開いている間だけ収集し、切断するとリセットされます。"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "정책·규칙·호스트 이름 카드는 기본적으로 표시되지 않으며 추가해야 홈에 나타납니다. 카드를 길게 눌러 제거할 수 있습니다. 데이터는 「연결 분석」과 같으며 이번 연결 중 앱이 열려 있을 때만 수집되고 연결을 끊으면 초기화됩니다."
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Карточки «Политики», «Правила» и «Хосты» по умолчанию скрыты и появляются на главной только после добавления; удалить — долгим нажатием. Данные те же, что в «Анализе соединений»: собираются в текущем подключении, пока приложение открыто, и сбрасываются при отключении."
+          }
+        }
+      }
     }
   },
   "version": "1.0"

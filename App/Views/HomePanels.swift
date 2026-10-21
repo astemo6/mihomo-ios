@@ -220,8 +220,8 @@ struct HomePanelsSection: View {
                     .fixedSize(horizontal: false, vertical: true)
                 }
             }
-            if model.pinned.isEmpty {
-                // v0.19: the way in when nothing is pinned yet (built-in cards need no module).
+            // feat/egern-style: always offered — the analysis panels (策略 / 规则 / 主机名) are opt-in and added here.
+            Group {
                 Button { editing = true } label: {
                     Label("添加首页卡片", systemImage: "plus.circle")
                         .font(.footnote.weight(.semibold))

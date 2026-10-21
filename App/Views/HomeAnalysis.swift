@@ -45,7 +45,13 @@ enum HomeAnalysisCard: String, CaseIterable, Identifiable {
     }
 
     /// Hidden (编辑首页面板 / context menu) and collapsed cards, stored as comma-separated raw values.
+    /// `hiddenKey` applies to 连接数 only (shown by default).
     static let hiddenKey = "home.analysis.hidden"
+    /// feat/egern-style (user 2026-10-21 20:02 「首页新添加的那些显示做成可添加的面板 选择了才有」): 策略 / 规则 / 主机名
+    /// are opt-in panels — off until added in 添加首页卡片, removed from their long-press menu or the editor.
+    static let addedKey = "home.analysis.added"
+    static let optIn: [HomeAnalysisCard] = [.policies, .rules, .hosts]
+    var isOptIn: Bool { self != .connections }
     static let collapsedKey = "home.analysis.collapsed"
 
     static func set(_ raw: String) -> Set<HomeAnalysisCard> {
@@ -230,13 +236,22 @@ private struct AnalysisMenu: ViewModifier {
     let card: HomeAnalysisCard
     @Binding var editing: Bool
     @AppStorage(HomeAnalysisCard.hiddenKey) private var hiddenRaw = ""
+    @AppStorage(HomeAnalysisCard.addedKey) private var addedRaw = ""
     func body(content: Content) -> some View {
         content.contextMenu {
-            Button {
-                var s = HomeAnalysisCard.set(hiddenRaw)
-                s.insert(card)
-                hiddenRaw = HomeAnalysisCard.raw(s)
-            } label: { Label("在首页隐藏", systemImage: "eye.slash") }
+            if card.isOptIn {
+                Button(role: .destructive) {
+                    var s = HomeAnalysisCard.set(addedRaw)
+                    s.remove(card)
+                    withAnimation { addedRaw = HomeAnalysisCard.raw(s) }
+                } label: { Label("从首页移除", systemImage: "minus.circle") }
+            } else {
+                Button {
+                    var s = HomeAnalysisCard.set(hiddenRaw)
+                    s.insert(card)
+                    hiddenRaw = HomeAnalysisCard.raw(s)
+                } label: { Label("在首页隐藏", systemImage: "eye.slash") }
+            }
             Button { editing = true } label: { Label("编辑首页面板", systemImage: "slider.horizontal.3") }
         }
     }
@@ -280,13 +295,14 @@ struct HomeConnectionTiles: View {
 
 struct HomeAnalysisSection: View {
     @EnvironmentObject var vpn: VPNManager
-    @AppStorage(HomeAnalysisCard.hiddenKey) private var hiddenRaw = ""
+    @AppStorage(HomeAnalysisCard.addedKey) private var addedRaw = ""
     @AppStorage(HomeAnalysisCard.collapsedKey) private var collapsedRaw = ""
     @State private var editing = false
 
     var body: some View {
-        let hidden = HomeAnalysisCard.set(hiddenRaw)
-        let shown = [HomeAnalysisCard.policies, .rules, .hosts].filter { !hidden.contains($0) }
+        // Opt-in: only the panels the user added, in the fixed Egern order; nothing (not even the empty state) otherwise.
+        let added = HomeAnalysisCard.set(addedRaw)
+        let shown = HomeAnalysisCard.optIn.filter { added.contains($0) }
         let collapsed = HomeAnalysisCard.set(collapsedRaw)
         let live = vpn.isConnected || HomeAnalysisModel.demo
         if !shown.isEmpty {
@@ -508,9 +524,11 @@ struct HomeTopHostsCard: View {
 
 // MARK: - 编辑首页面板 section
 
-/// Show / hide toggles for the analysis cards, inside the existing 编辑首页面板 sheet.
+/// 添加首页卡片 → 流量分析: 连接数 is a show / hide switch (on by default); 策略 / 规则 / 主机名 are opt-in panels with
+/// an add (+) or remove (−) button.
 struct HomeAnalysisEditorSection: View {
     @AppStorage(HomeAnalysisCard.hiddenKey) private var hiddenRaw = ""
+    @AppStorage(HomeAnalysisCard.addedKey) private var addedRaw = ""
 
     var body: some View {
         Section {
@@ -522,21 +540,37 @@ struct HomeAnalysisEditorSection: View {
                         Text(verbatim: c.caption).font(.caption2).foregroundStyle(.secondary)
                     }
                     Spacer(minLength: 6)
-                    Toggle("在首页显示", isOn: Binding(
-                        get: { !HomeAnalysisCard.set(hiddenRaw).contains(c) },
-                        set: { on in
-                            var s = HomeAnalysisCard.set(hiddenRaw)
+                    if c.isOptIn {
+                        let on = HomeAnalysisCard.set(addedRaw).contains(c)
+                        Button {
+                            var s = HomeAnalysisCard.set(addedRaw)
                             if on { s.remove(c) } else { s.insert(c) }
-                            hiddenRaw = HomeAnalysisCard.raw(s)
-                        }))
-                        .labelsHidden()
+                            addedRaw = HomeAnalysisCard.raw(s)
+                        } label: {
+                            Image(systemName: on ? "minus.circle.fill" : "plus.circle.fill")
+                                .font(.title3)
+                                .foregroundStyle(on ? Theme.bad : Theme.good)
+                        }
+                        .buttonStyle(.borderless)
+                        .accessibilityLabel(Text(on ? "从首页移除" : "添加"))
                         .accessibilityIdentifier("homepanels.analysis.\(c.rawValue)")
+                    } else {
+                        Toggle("在首页显示", isOn: Binding(
+                            get: { !HomeAnalysisCard.set(hiddenRaw).contains(c) },
+                            set: { on in
+                                var s = HomeAnalysisCard.set(hiddenRaw)
+                                if on { s.remove(c) } else { s.insert(c) }
+                                hiddenRaw = HomeAnalysisCard.raw(s)
+                            }))
+                            .labelsHidden()
+                            .accessibilityIdentifier("homepanels.analysis.\(c.rawValue)")
+                    }
                 }
             }
         } header: {
             Text("流量分析")
         } footer: {
-            Text("数据与「连接分析」相同：本次连接期间、App 打开时采样，断开后清零。轻点标题可收起。")
+            Text("策略、规则和主机名卡片默认不显示，添加后才出现在首页，长按卡片可移除。数据与「连接分析」相同：本次连接期间、App 打开时采样，断开后清零。")
         }
     }
 }

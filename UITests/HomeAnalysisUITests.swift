@@ -5,10 +5,30 @@ import XCTest
 /// ConnectionAnalytics (example.* hosts), never the live session.
 extension MihomoUITests {
 
+    /// feat/egern-style (user 20:02): 策略 / 规则 / 主机名 are opt-in panels. Opens 添加首页卡片 and adds them.
+    func addAnalysisPanels(_ cards: [String] = ["policies", "rules", "hosts"], shot: String? = nil) {
+        let add = app.element(id: "home.addTiles")
+        XCTAssertTrue(scrollTo(add), "添加首页卡片")
+        add.tap()
+        XCTAssertTrue(app.navigationBars[L("编辑首页面板")].waitForExistence(timeout: 6), "添加首页卡片 editor")
+        for c in cards {
+            let b = app.element(id: "homepanels.analysis." + c)
+            XCTAssertTrue(scrollTo(b), "analysis panel \(c)")
+            if let shot, c == cards.first { snap(shot) }
+            b.tap()
+            usleep(300_000)
+        }
+        closeSheet()
+        app.swipeDown(velocity: .fast); app.swipeDown(velocity: .fast); app.swipeDown(velocity: .fast)
+    }
+
     // MARK: 64. Home analysis + quick add
 
     func test64_HomeAnalysis() {
         launch(["-UITestDemoAnalytics"])
+        XCTAssertFalse(app.element(id: "home.analysis.policies").exists, "analysis panels are off by default")
+        XCTAssertFalse(app.element(id: "home.analysis.empty").exists, "no empty state by default")
+        addAnalysisPanels()
         let tiles = app.element(id: "home.analysis.connections")
         XCTAssertTrue(scrollTo(tiles), "全部连接 / 活跃连接 tiles")
         XCTAssertTrue(app.element(labelContains: L("全部连接")).exists, "全部连接")
@@ -59,9 +79,11 @@ extension MihomoUITests {
         closeSheet()
         assertAlive("home analysis")
 
-        // VPN off without demo data: one empty state, no fake numbers.
+        // VPN off without demo data: nothing by default; one empty state once a panel is added, no fake numbers.
         app.terminate()
         launch()
+        XCTAssertFalse(app.element(id: "home.analysis.empty").waitForExistence(timeout: 2), "no empty state until a panel is added")
+        addAnalysisPanels(["hosts"])
         let empty = app.element(id: "home.analysis.empty")
         XCTAssertTrue(scrollTo(empty), "empty state while disconnected")
         XCTAssertFalse(app.element(id: "home.analysis.connections").exists, "no connection tiles while off")
