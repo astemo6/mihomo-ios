@@ -664,7 +664,11 @@ struct HomeQuickAddButton: View {
                 CustomRuleEditor(rule: CustomRule(line: "")) { r in
                     let custom = CustomRulesStore.shared
                     custom.rules.insert(r, at: 0)
-                    custom.save()
+                    // r7 P3-1: a failed reload is shown here, once the editor has closed.
+                    Task {
+                        guard let e = await custom.saveAndReload() else { return }
+                        if sheet == nil { message = e } else { pendingMessage = e }
+                    }
                 }
             }
         }

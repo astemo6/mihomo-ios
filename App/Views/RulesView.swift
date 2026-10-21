@@ -46,13 +46,18 @@ final class CustomRulesStore: ObservableObject {
     }
 
     func save() {
+        Task { if let e = await saveAndReload() { message = e } }
+    }
+
+    /// r7 P3-1: the same write + recheck + reload, with the reload error returned to the caller instead of parked in
+    /// `message` (only 分流规则 shows that; a rule added from Home's quick add surfaced there much later).
+    func saveAndReload() async -> String? {
         let enc = JSONEncoder()
         enc.outputFormatting = [.prettyPrinted, .sortedKeys]
         if let d = try? enc.encode(File(rules: rules)) { try? d.write(to: Self.url, options: .atomic) }
-        Task {
-            await recheck()
-            if VPNManager.shared.isConnected, let e = await VPNManager.shared.reload() { message = String(localized: "重载失败：\(e)") }
-        }
+        await recheck()
+        if VPNManager.shared.isConnected, let e = await VPNManager.shared.reload() { return String(localized: "重载失败：\(e)") }
+        return nil
     }
 
     func recheck() async {
