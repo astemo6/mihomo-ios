@@ -1,8 +1,8 @@
 import XCTest
 
 /// feat/subs-split (user 2026-10-21 「将这里的配置订阅与节点订阅拆开」): 节点与订阅 has a 配置订阅 section and a 节点订阅
-/// section; a profile's 节点集 (proxy-provider) works like a node subscription — right swipe 更新, left swipe 删除 / 停用,
-/// long-press 图标 / 更新 / 编辑 / 停用 / 复制链接 / 删除 — through the override store.
+/// section; a profile's 节点集 (proxy-provider) works like a node subscription — right swipe 更新, left swipe 复制链接 only,
+/// long-press 图标 / 更新 / 编辑 / 禁用 / 复制链接 / 删除 — through the override store.
 extension MihomoUITests {
 
     func header(_ key: String, _ n: Int) -> XCUIElement {
@@ -30,24 +30,40 @@ extension MihomoUITests {
         app.swipeDown(velocity: .slow)
         snap("subs-split-sections")
 
-        // Left swipe: 删除 + 停用 (no 复制链接 any more).
+        // Node subscription swipes: right 更新, left 复制链接 only (user 11:55).
+        XCTAssertTrue(scrollTo(sub))
+        sub.swipeLeft()
+        XCTAssertTrue(app.button(L("复制链接")).waitForExistence(timeout: 3), "复制链接 in the trailing swipe")
+        XCTAssertFalse(app.button(L("删除")).exists, "no 删除 in the swipe")
+        XCTAssertFalse(app.button(L("禁用")).exists || app.button(L("停用")).exists, "no 禁用 in the swipe")
+        snap("subs-split-sub-swipe-left")
+        XCTAssertTrue(tapIfExists(app.button(L("复制链接")), timeout: 3))
+        sub.swipeRight()
+        XCTAssertTrue(app.button(L("更新")).waitForExistence(timeout: 3), "更新 in the leading swipe")
+        snap("subs-split-sub-swipe-right")
+        app.navigationBars.firstMatch.tap() // close the swipe
+        usleep(400_000)
+
+        // A file 节点集 has no link: its left swipe offers nothing (no 删除 / 禁用).
         XCTAssertTrue(scrollTo(provider))
         provider.swipeLeft()
-        XCTAssertTrue(app.button(L("删除")).waitForExistence(timeout: 3), "删除 in the trailing swipe of a 节点集")
-        XCTAssertFalse(app.button(L("复制链接")).exists, "no 复制链接 in the swipe")
-        snap("subs-split-provider-swipe")
-        XCTAssertTrue(tapIfExists(app.button(L("停用")), timeout: 3), "停用 in the trailing swipe")
-        XCTAssertTrue(app.element(labelContains: L("已停用")).waitForExistence(timeout: 8), "row shows 已停用")
-        XCTAssertTrue(provider.waitForExistence(timeout: 4), "a 停用 节点集 stays listed")
-        snap("subs-split-provider-disabled")
+        usleep(600_000)
+        XCTAssertFalse(app.button(L("删除")).exists, "no 删除 in the 节点集 swipe")
+        XCTAssertFalse(app.button(L("禁用")).exists, "no 禁用 in the 节点集 swipe")
 
-        // Long-press menu (Loon-like), 启用 from it.
+        // Long-press menu (Loon-like): 图标 / 更新 / 编辑 / 禁用 / 删除 (no link for a file 节点集); 禁用 from it.
+        XCTAssertTrue(scrollTo(provider))
         provider.press(forDuration: 1.3)
-        for k in ["图标", "更新", "编辑", "启用", "删除"] {
+        for k in ["图标", "更新", "编辑", "禁用", "删除"] {
             XCTAssertTrue(app.button(L(k)).waitForExistence(timeout: 4), "menu: \(k)")
         }
         snap("subs-split-provider-menu")
-        XCTAssertTrue(tapIfExists(app.button(L("启用")), timeout: 3), "启用 from the menu")
+        XCTAssertTrue(tapIfExists(app.button(L("禁用")), timeout: 3), "禁用 from the menu")
+        XCTAssertTrue(app.element(labelContains: L("已停用")).waitForExistence(timeout: 8), "row shows 已停用")
+        XCTAssertTrue(provider.waitForExistence(timeout: 4), "a disabled 节点集 stays listed")
+        snap("subs-split-provider-disabled")
+        provider.press(forDuration: 1.3)
+        XCTAssertTrue(tapIfExists(app.button(L("启用")), timeout: 4), "启用 from the menu")
         let enabled = XCTNSPredicateExpectation(predicate: NSPredicate(format: "exists == false"), object: app.element(labelContains: L("已停用")))
         XCTAssertEqual(XCTWaiter().wait(for: [enabled], timeout: 8), .completed, "enabled again")
 
@@ -65,9 +81,10 @@ extension MihomoUITests {
         // Node subscription menu: same items, 图标 opens the shared picker.
         XCTAssertTrue(scrollTo(sub))
         sub.press(forDuration: 1.3)
-        for k in ["图标", "更新", "编辑", "停用", "复制链接", "删除"] {
+        for k in ["图标", "更新", "编辑", "禁用", "复制链接", "删除"] {
             XCTAssertTrue(app.button(L(k)).waitForExistence(timeout: 4), "node subscription menu: \(k)")
         }
+        snap("subs-split-sub-menu")
         XCTAssertTrue(tapIfExists(app.button(L("图标")), timeout: 3), "图标")
         let pick = app.element(id: "icon.pick.🎯")
         XCTAssertTrue(scrollTo(pick), "🎯 in 常用")
@@ -76,10 +93,10 @@ extension MihomoUITests {
         XCTAssertTrue(sub.waitForExistence(timeout: 5), "back on the page")
         snap("subs-split-icon")
 
-        // 删除 asks first, hides the row, and 恢复已删除的节点集 brings it back.
+        // 删除 (menu) asks first, hides the row, and 恢复已删除的节点集 brings it back.
         XCTAssertTrue(scrollTo(provider))
-        provider.swipeLeft()
-        XCTAssertTrue(tapIfExists(app.button(L("删除")), timeout: 3), "删除 in the trailing swipe")
+        provider.press(forDuration: 1.3)
+        XCTAssertTrue(tapIfExists(app.button(L("删除")), timeout: 4), "删除 in the menu")
         let confirm = app.element(id: "provider.confirmDelete")
         XCTAssertTrue(confirm.waitForExistence(timeout: 4), "delete confirmation")
         snap("subs-split-provider-delete-confirm")

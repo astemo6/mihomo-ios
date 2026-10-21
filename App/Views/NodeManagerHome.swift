@@ -3,7 +3,7 @@ import SwiftUI
 /// 更多 → 节点与订阅 (fb-subs-global, user 「还是分开的」): one page for nodes and subscriptions. feat/subs-split (user
 /// 2026-10-21 「将这里的配置订阅与节点订阅拆开」): 配置订阅 (remote profiles) and 节点订阅 (the app's node subscriptions and
 /// the 节点集 / proxy-providers of the current profile) are two sections. Every node subscription row works the same,
-/// Loon-like: right swipe 更新, left swipe 删除 / 停用, long-press 图标 / 更新 / 编辑 / 停用 / 复制链接 / 删除. A profile's
+/// Loon-like: right swipe 更新, left swipe 复制链接 only, long-press 图标 / 更新 / 编辑 / 禁用 / 复制链接 / 删除. A profile's
 /// 节点集 is changed through the override store (ProviderOverrideStore), never in the profile file. Then 本地节点,
 /// 全部节点 and 筛选节点 (Loon's 所有节点 page in the main style). It replaces the separate 订阅管理 page.
 struct NodeManagerView: View {
@@ -169,7 +169,7 @@ struct NodeManagerView: View {
                     .accessibilityIdentifier("provider.restoreDeleted")
                 }
             } header: { Text("节点订阅 \(nodeRows.count)") } footer: {
-                if !nodeRows.isEmpty { Text("右滑更新；左滑删除或停用；长按更换图标、编辑或复制链接。") }
+                if !nodeRows.isEmpty { Text("右滑更新；左滑复制链接；长按查看更多操作。") }
             }
             .listRowBackground(Theme.card)
 
@@ -419,18 +419,15 @@ struct NodeManagerView: View {
                                      alerts: UsageAlerts.rule(for: sub.id).enabled, customIcon: sub.icon)
             }
             .accessibilityIdentifier("nodesub.row." + sub.name)
-            // v0.19.8 (user 「在订阅上左滑/右滑要能更新或者删除该订阅」): right swipe 更新, left swipe 删除 / 停用.
+            // right swipe 更新
             .swipeActions(edge: .leading) {
                 Button { Task { await refreshSub(sub) } } label: { Label("更新", systemImage: "arrow.clockwise") }
                     .tint(.blue)
                     .disabled(!sub.enabled || nodeSubs.updating.contains(sub.id))
             }
+            // feat/subs-split (user 11:55): left swipe = 复制链接 only; 禁用 / 删除 live in the long-press menu.
             .swipeActions(edge: .trailing) {
-                Button(role: .destructive) { confirmDeleteSub = sub } label: { Label("删除", systemImage: "trash") }
-                Button { Task { await toggleSub(sub) } } label: {
-                    Label(LocalizedStringKey(sub.enabled ? "停用" : "启用"), systemImage: sub.enabled ? "pause.circle" : "play.circle")
-                }
-                .tint(sub.enabled ? .orange : Theme.good)
+                Button { UIPasteboard.general.string = sub.url } label: { Label("复制链接", systemImage: "doc.on.doc") }.tint(.gray)
             }
             .contextMenu {
                 Section {
@@ -446,7 +443,7 @@ struct NodeManagerView: View {
                         }
                     }
                     Button { Task { await toggleSub(sub) } } label: {
-                        Label(LocalizedStringKey(sub.enabled ? "停用" : "启用"), systemImage: sub.enabled ? "nosign" : "play.circle")
+                        Label(LocalizedStringKey(sub.enabled ? "禁用" : "启用"), systemImage: sub.enabled ? "nosign" : "play.circle")
                     }
                     Button { UIPasteboard.general.string = sub.url } label: { Label("复制链接", systemImage: "doc.on.doc") }
                 }
@@ -489,11 +486,9 @@ struct NodeManagerView: View {
             }
         }
         .swipeActions(edge: .trailing) {
-            Button(role: .destructive) { confirmDeleteProvider = ProviderTarget(name: name) } label: { Label("删除", systemImage: "trash") }
-            Button { Task { await toggleProvider(name) } } label: {
-                Label(LocalizedStringKey(disabled ? "启用" : "停用"), systemImage: disabled ? "play.circle" : "pause.circle")
+            if let link {
+                Button { UIPasteboard.general.string = link } label: { Label("复制链接", systemImage: "doc.on.doc") }.tint(.gray)
             }
-            .tint(disabled ? Theme.good : .orange)
         }
         .contextMenu {
             Section {
@@ -507,7 +502,7 @@ struct NodeManagerView: View {
                     .disabled(!canUpdate)
                 Button { editingProvider = ProviderTarget(name: name) } label: { Label("编辑", systemImage: "pencil") }
                 Button { Task { await toggleProvider(name) } } label: {
-                    Label(LocalizedStringKey(disabled ? "启用" : "停用"), systemImage: disabled ? "play.circle" : "nosign")
+                    Label(LocalizedStringKey(disabled ? "启用" : "禁用"), systemImage: disabled ? "play.circle" : "nosign")
                 }
                 if let link {
                     Button { UIPasteboard.general.string = link } label: { Label("复制链接", systemImage: "doc.on.doc") }

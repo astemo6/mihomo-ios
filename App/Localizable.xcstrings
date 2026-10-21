@@ -85049,40 +85049,6 @@
         }
       }
     },
-    "右滑更新；左滑删除或停用；长按更换图标、编辑或复制链接。": {
-      "localizations": {
-        "en": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Swipe right to update; swipe left to delete or disable; touch and hold to change the icon, edit or copy the link."
-          }
-        },
-        "ja": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "右スワイプで更新、左スワイプで削除または無効化、長押しでアイコン変更・編集・リンクのコピー。"
-          }
-        },
-        "ko": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "오른쪽으로 밀어 업데이트, 왼쪽으로 밀어 삭제 또는 비활성화, 길게 눌러 아이콘 변경·편집·링크 복사."
-          }
-        },
-        "ru": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Смахните вправо, чтобы обновить; влево — удалить или отключить; удерживайте, чтобы сменить значок, изменить или скопировать ссылку."
-          }
-        },
-        "zh-Hant": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "右滑更新；左滑刪除或停用；長按更換圖示、編輯或複製連結。"
-          }
-        }
-      }
-    },
     "删除节点集「%@」？": {
       "localizations": {
         "en": {
@@ -85691,6 +85657,74 @@
           "stringUnit": {
             "state": "translated",
             "value": "篩選表示式無效"
+          }
+        }
+      }
+    },
+    "禁用": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Disable"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "無効にする"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "비활성화"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Отключить"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "禁用"
+          }
+        }
+      }
+    },
+    "右滑更新；左滑复制链接；长按查看更多操作。": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Swipe right to update; swipe left to copy the link; touch and hold for more."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "右スワイプで更新、左スワイプでリンクをコピー、長押しでその他の操作。"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "오른쪽으로 밀어 업데이트, 왼쪽으로 밀어 링크 복사, 길게 눌러 더 많은 작업."
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Смахните вправо, чтобы обновить; влево — скопировать ссылку; удерживайте для других действий."
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "右滑更新；左滑複製連結；長按檢視更多操作。"
           }
         }
       }
