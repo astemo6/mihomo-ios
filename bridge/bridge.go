@@ -505,10 +505,17 @@ func startGC(limitMB int) {
 	}()
 }
 
-func apply(home, configPath string, fd int32) error {
+func apply(home, configPath string, fd int32) error { return applyInto(home, configPath, fd, nil) }
+
+// applyInto is apply that also hands back the Overrides it used (B33: Reload reads SafeMode from them
+// instead of reading the six override files again).
+func applyInto(home, configPath string, fd int32, used *Overrides) error {
 	C.SetHomeDir(home)
 	C.SetConfig(configPath)
 	o := overridesFor(home, configPath)
+	if used != nil {
+		*used = o
+	}
 	profile, err := readRuntimeProfile(home, configPath, o.SafeMode) // v0.19 覆写脚本 output when current
 	if err != nil {
 		return fmt.Errorf("读取配置失败: %w", err)
@@ -728,12 +735,13 @@ func Reload(configPath string) error {
 	}
 	flushRuleHits(home) // the new rules start counting at 0
 	proxyTrafficStats.resetClasses()
-	if err := safeApply(home, configPath, fd); err != nil {
+	var used Overrides
+	if err := safeApplyInto(home, configPath, fd, &used); err != nil {
 		setLastError(err.Error())
 		return err
 	}
 	setNetPolicyProfile(configPath)
-	if overridesFor(home, configPath).SafeMode {
+	if used.SafeMode { // B33: the Overrides this apply used, not a second read of the override files
 		stopSmart()
 	} else {
 		startSmart(home, configPath)
