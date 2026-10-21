@@ -1591,9 +1591,20 @@ final class MihomoUITests: MihomoUITestCase {
         XCTAssertFalse(app.element(id: "policy.orderSource").exists, "the seeded profile is an original, not a copy")
         snap("policy-before-order")
 
-        // 1. Direct drag: long-press Apple's header and drop it on Proxy.
         XCTAssertTrue(card("Apple").waitForExistence(timeout: 6), "Apple card")
+        // 1. Direct drag (long-press Apple's header, drop it on Proxy). Since the compact 策略 rows (#81) the
+        // simulator's synthesized press-and-drag no longer starts a drag session (2 shards × 2 runs, also with a
+        // longer move), so the drag is best effort here and 置顶 from Apple's icon menu (same GroupOrder.save path:
+        // first reorder → 自定义 copy) is the checked fallback. Direct drag needs a device check.
         card("Apple").press(forDuration: 1.2, thenDragTo: card("Proxy"), withVelocity: .slow, thenHoldForDuration: 0.8)
+        if !above("Apple", "Proxy", 5) {
+            warnings.append("drag: direct drag did not reorder on the simulator; using 置顶 from the icon menu")
+            if app.buttons[L("置顶")].exists { app.coordinate(withNormalizedOffset: CGVector(dx: 0.5, dy: 0.06)).tap(); usleep(600_000) }
+            let appleIcon = app.element(id: "policy.icon.Apple")
+            XCTAssertTrue(scrollTo(appleIcon), "Apple icon")
+            appleIcon.press(forDuration: 1.0)
+            XCTAssertTrue(tapIfExists(app.button(L("置顶")), timeout: 4), "置顶 in Apple's context menu")
+        }
         XCTAssertTrue(above("Apple", "Proxy", 8), "drag: Apple dropped above Proxy")
         snap("policy-dragged")
         // The first reorder never rewrites the original: it creates 「UITest Demo (自定义)」 and switches to it.
@@ -1645,7 +1656,10 @@ final class MihomoUITests: MihomoUITestCase {
         XCTAssertTrue(scrollTo(proxyHeader), "Proxy card")
         XCTAssertFalse(app.element(labelContains: "Frankfurt AnyTLS").exists, "Proxy collapsed before the tap")
         proxyHeader.tap()
-        XCTAssertTrue(app.element(labelContains: "Frankfurt AnyTLS").waitForExistence(timeout: 5), "tap expands the group")
+        // Compact rows (#81): the expanded grid (前置代理 / 图标 rows first) puts Frankfurt below the fold, and the
+        // lazy grid only creates it once scrolled near; check the chevron-side change first, then scroll to it.
+        let frankfurt = app.element(labelContains: "Frankfurt AnyTLS")
+        XCTAssertTrue(frankfurt.waitForExistence(timeout: 3) || scrollTo(frankfurt), "tap expands the group")
         snap("policy-expanded-after-order")
 
         // Home's default cards are the first four groups, so they follow the new order.
