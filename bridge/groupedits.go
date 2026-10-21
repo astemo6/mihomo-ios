@@ -514,8 +514,12 @@ func GroupSpecs(homeDir, profilePath string) string {
 				}
 			}
 			var pv, px []string
+			ov := readProviderOverrides(homeDir, profileIDFromPath(profilePath))
 			if pp, ok := raw["proxy-providers"].(map[string]any); ok {
 				for n := range pp {
+					if o, ok := ov[n]; ok && o.Deleted {
+						continue // feat/subs-split: 删除 hides it from the group editor too
+					}
 					pv = append(pv, n)
 				}
 			}

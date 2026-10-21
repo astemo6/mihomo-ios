@@ -1,8 +1,10 @@
 import SwiftUI
 
-/// 更多 → 节点与订阅 (fb-subs-global, user 「还是分开的」): one page for nodes and subscriptions. 订阅 lists every
-/// subscription — config subscriptions (remote profiles), node subscriptions and the providers of the current
-/// profile — with the same swipes everywhere (right 更新, left 删除 / 停用) and context menus; then 本地节点,
+/// 更多 → 节点与订阅 (fb-subs-global, user 「还是分开的」): one page for nodes and subscriptions. feat/subs-split (user
+/// 2026-10-21 「将这里的配置订阅与节点订阅拆开」): 配置订阅 (remote profiles) and 节点订阅 (the app's node subscriptions and
+/// the 节点集 / proxy-providers of the current profile) are two sections. Every node subscription row works the same,
+/// Loon-like: right swipe 更新, left swipe 复制链接 only, long-press 图标 / 更新 / 编辑 / 禁用 / 复制链接 / 删除. A profile's
+/// 节点集 is changed through the override store (ProviderOverrideStore), never in the profile file. Then 本地节点,
 /// 全部节点 and 筛选节点 (Loon's 所有节点 page in the main style). It replaces the separate 订阅管理 page.
 struct NodeManagerView: View {
     @EnvironmentObject var store: ProfileStore
@@ -11,6 +13,7 @@ struct NodeManagerView: View {
     @ObservedObject private var nodeSubs = NodeSubStore.shared
     @ObservedObject private var offline = ProfileInspector.shared
     @ObservedObject private var updater = ProviderUpdater.shared
+    @ObservedObject private var providerOV = ProviderOverrideStore.shared
     @AppStorage("nodes.subSort") private var subSort = "config"
     @State private var mergeManual = CoreOverrides.load().mergeManual
     @State private var parserURL = ResourceParserSetting.url
@@ -26,6 +29,22 @@ struct NodeManagerView: View {
     @State private var showAddRemote = false
     @State private var showAddNode = false
     @State private var pendingMessage: String?
+    /// feat/subs-split: 节点集 (profile proxy-provider) actions.
+    @State private var confirmDeleteProvider: ProviderTarget?
+    @State private var editingProvider: ProviderTarget?
+    @State private var iconTarget: IconTarget?
+
+    struct ProviderTarget: Identifiable {
+        let name: String
+        var id: String { name }
+    }
+
+    struct IconTarget: Identifiable {
+        let id: String
+        let title: String
+        let current: String?
+        let apply: (String?) -> Void
+    }
 
     struct RulesTarget: Identifiable {
         let id = UUID()
@@ -50,33 +69,55 @@ struct NodeManagerView: View {
     enum SubRow: Identifiable {
         case profile(Profile)
         case nodeSub(NodeSubscription)
-        case provider(NodeSource)
+        /// A 节点集 of the current profile; nil source = 停用 (not in the runtime, listed from the override store).
+        case provider(String, NodeSource?)
         var id: String {
             switch self {
             case .profile(let p): return "profile:" + p.id
-            case .provider(let s): return s.id
+            case .provider(let n, _): return "provider:" + n
             case .nodeSub(let s): return "sub:" + s.id
             }
         }
         var name: String {
             switch self {
             case .profile(let p): return p.displayName
-            case .provider(let s): return s.name
+            case .provider(let n, _): return n
             case .nodeSub(let s): return s.name
             }
         }
     }
 
-    var subRows: [SubRow] {
-        var rows: [SubRow] = store.profiles.filter { $0.kind == .remote }.map { .profile($0) }
-        rows += nodeSubs.subs.map { .nodeSub($0) }
-        let ours = Set(nodeSubs.subs.map(\.name))
-        rows += model.sources.filter { $0.kind == .provider && !ours.contains($0.name) }.map { .provider($0) }
+    func sorted(_ rows: [SubRow]) -> [SubRow] {
         switch subSort {
         case "name": return rows.sorted { $0.name.localizedStandardCompare($1.name) == .orderedAscending }
         case "count": return rows.sorted { (count($0) ?? -1) > (count($1) ?? -1) }
         default: return rows
         }
+    }
+
+    /// 配置订阅: remote profiles.
+    var configRows: [SubRow] { sorted(store.profiles.filter { $0.kind == .remote }.map { .profile($0) }) }
+
+    var providerOverrides: [String: ProviderOverride] { providerOV.overrides(manualActive ? nil : store.activeID) }
+
+    /// 节点订阅: the app's node subscriptions, then the current profile's 节点集 (停用 ones included, 删除 ones hidden).
+    var nodeRows: [SubRow] {
+        var rows: [SubRow] = nodeSubs.subs.map { .nodeSub($0) }
+        let ours = Set(nodeSubs.subs.map(\.name))
+        let ov = providerOverrides
+        let live = model.sources.filter { $0.kind == .provider && !ours.contains($0.name) && ov[$0.name]?.deleted != true }
+        rows += live.map { .provider($0.name, $0) }
+        let shown = Set(live.map(\.name))
+        rows += providerOV.declared.map(\.name)
+            .filter { ov[$0]?.disabled == true && ov[$0]?.deleted != true && !shown.contains($0) && !ours.contains($0) }
+            .map { .provider($0, nil) }
+        return sorted(rows)
+    }
+
+    /// 删除 节点集 of the current profile that the profile still declares (恢复已删除的节点集).
+    var deletedProviders: [String] {
+        let ov = providerOverrides
+        return providerOV.declared.map(\.name).filter { ov[$0]?.deleted == true }
     }
 
     /// The active remote profile's own nodes (the core / offline inspector only knows the active profile).
@@ -88,7 +129,7 @@ struct NodeManagerView: View {
     func count(_ r: SubRow) -> Int? {
         switch r {
         case .profile(let p): return p.id == store.activeID ? activeProfileSource.map(model.count) : nil
-        case .provider(let s): return model.count(s)
+        case .provider(_, let s): return s.map(model.count)
         case .nodeSub(let s): return model.source(subID: s.id).map(model.count) ?? s.count ?? 0
         }
     }
@@ -104,12 +145,31 @@ struct NodeManagerView: View {
     var body: some View {
         List {
             Section {
-                if subRows.isEmpty {
-                    EmptyStateRow(icon: "tray", title: "还没有订阅", message: "点右上角 + 添加配置订阅或节点订阅。")
+                if configRows.isEmpty {
+                    EmptyStateRow(icon: "doc.text", title: "还没有配置订阅", message: "点右上角 + 添加配置订阅。")
                 }
-                ForEach(subRows) { r in subscriptionRow(r) }
-            } header: { Text("订阅 \(subRows.count)") } footer: {
-                if !subRows.isEmpty { Text("右滑更新；左滑删除或停用；长按查看更多操作。") }
+                ForEach(configRows) { r in subscriptionRow(r) }
+            } header: { Text("配置订阅 \(configRows.count)") } footer: {
+                if !configRows.isEmpty { Text("轻点切换为当前配置。右滑更新；左滑删除或停用；长按查看更多操作。") }
+            }
+            .listRowBackground(Theme.card)
+
+            Section {
+                if nodeRows.isEmpty {
+                    EmptyStateRow(icon: "tray", title: "还没有节点订阅", message: "点右上角 + 添加节点订阅；配置里的节点集也会列在这里。")
+                }
+                ForEach(nodeRows) { r in subscriptionRow(r) }
+                if !deletedProviders.isEmpty, let id = store.activeID {
+                    Button {
+                        providerOV.restoreDeleted(id)
+                        Task { await applyProviderChange() }
+                    } label: {
+                        Label("恢复已删除的节点集（\(deletedProviders.count)）", systemImage: "arrow.uturn.backward")
+                    }
+                    .accessibilityIdentifier("provider.restoreDeleted")
+                }
+            } header: { Text("节点订阅 \(nodeRows.count)") } footer: {
+                if !nodeRows.isEmpty { Text("右滑更新；左滑复制链接；长按查看更多操作。") }
             }
             .listRowBackground(Theme.card)
 
@@ -226,9 +286,12 @@ struct NodeManagerView: View {
         }
         .navigationDestination(isPresented: $showAddNode) { AddNodeView() }
         .task {
+            providerOV.reload()
             await offline.load()
             await model.reload()
+            await providerOV.loadDeclared(manualActive ? nil : store.active, force: true)
         }
+        .onChange(of: store.activeID) { _ in Task { await providerOV.loadDeclared(manualActive ? nil : store.active, force: true) } }
         .onAppear { mergeManual = CoreOverrides.load().mergeManual }
         .onChange(of: vpn.isConnected) { _ in Task { await model.reload() } }
         .sheet(isPresented: $showAddSub, onDismiss: { Task { await model.reload() } }) { NodeSubEditor(sub: nil).environmentObject(store) }
@@ -248,6 +311,22 @@ struct NodeManagerView: View {
         .alert("提示", isPresented: Binding(get: { message != nil }, set: { if !$0 { message = nil } })) {
             Button("好", role: .cancel) {}
         } message: { Text(message ?? "") }
+        .sheet(item: $iconTarget) { t in IconPickerSheet(title: t.title, current: t.current) { v in t.apply(v) } }
+        .sheet(item: $editingProvider) { t in
+            if let id = store.activeID {
+                ProviderEditSheet(profileID: id, info: providerOV.declared.first { $0.name == t.name } ?? ProfileProviderInfo(name: t.name, vehicle: "")) {
+                    await applyProviderChange()
+                }
+            }
+        }
+        .deleteConfirmation({ t in Text("删除节点集「\(t.name)」？") }, item: $confirmDeleteProvider,
+                            message: { _ in Text("只从这个配置里移除：它不再加载，引用它的策略组改用其他节点（没有其他节点时用 DIRECT）。配置文件不会改动，更新配置也不会让它回来；可以在本页底部「恢复已删除的节点集」找回。") },
+                            id: "provider.confirmDelete") { t in
+            guard let id = store.activeID else { return }
+            SnapshotStore.shared.capture(String(localized: "删除节点集前"))
+            providerOV.update(id, t.name) { $0.deleted = true }
+            Task { await applyProviderChange() }
+        }
         .nodeSubDeleteConfirmation($confirmDeleteSub) { s in await nodeSubs.delete(s); await model.reload() }
         .profileDeleteConfirmation($confirmDeleteProfile, store: store)
     }
@@ -284,6 +363,26 @@ struct NodeManagerView: View {
         await model.reload()
     }
 
+    /// feat/subs-split: 停用 / 启用 a 节点集 of the current profile (override store; reversible).
+    func toggleProvider(_ name: String) async {
+        guard let id = store.activeID else { return }
+        providerOV.update(id, name) { $0.disabled = $0.disabled == true ? nil : true }
+        await applyProviderChange()
+    }
+
+    /// The core reloads (when connected), then the offline view and the declared list are read again.
+    func applyProviderChange() async {
+        if vpn.isConnected, let e = await VPNManager.shared.reload() { message = e }
+        await ProfileInspector.shared.load()
+        await model.reload()
+        await providerOV.loadDeclared(manualActive ? nil : store.active, force: true)
+    }
+
+    func providerTitle(_ name: String) -> String {
+        if let n = providerOverrides[name]?.name?.trimmingCharacters(in: .whitespaces), !n.isEmpty { return n }
+        return name
+    }
+
     /// 更新全部订阅: enabled remote profiles + node subscriptions + downloadable providers of the current profile.
     func updateAll() async {
         refreshing = true
@@ -317,64 +416,100 @@ struct NodeManagerView: View {
                                      count: src.map(model.count) ?? sub.count ?? 0, info: sub.userInfo, updated: sub.lastUpdated,
                                      error: sub.lastError, updating: nodeSubs.updating.contains(sub.id), disabled: !sub.enabled,
                                      downloaded: FileManager.default.fileExists(atPath: sub.cacheURL.path),
-                                     alerts: UsageAlerts.rule(for: sub.id).enabled)
+                                     alerts: UsageAlerts.rule(for: sub.id).enabled, customIcon: sub.icon)
             }
             .accessibilityIdentifier("nodesub.row." + sub.name)
-            // v0.19.8 (user 「在订阅上左滑/右滑要能更新或者删除该订阅」): right swipe 更新, left swipe 删除 / 停用.
+            // right swipe 更新
             .swipeActions(edge: .leading) {
                 Button { Task { await refreshSub(sub) } } label: { Label("更新", systemImage: "arrow.clockwise") }
                     .tint(.blue)
                     .disabled(!sub.enabled || nodeSubs.updating.contains(sub.id))
             }
+            // feat/subs-split (user 11:55): left swipe = 复制链接 only; 禁用 / 删除 live in the long-press menu.
             .swipeActions(edge: .trailing) {
-                Button(role: .destructive) { confirmDeleteSub = sub } label: { Label("删除", systemImage: "trash") }
-                Button { Task { await toggleSub(sub) } } label: {
-                    Label(LocalizedStringKey(sub.enabled ? "停用" : "启用"), systemImage: sub.enabled ? "pause.circle" : "play.circle")
-                }
-                .tint(sub.enabled ? .orange : Theme.good)
+                Button { UIPasteboard.general.string = sub.url } label: { Label("复制链接", systemImage: "doc.on.doc") }.tint(.gray)
             }
             .contextMenu {
-                Button { Task { await refreshSub(sub) } } label: { Label("更新订阅", systemImage: "arrow.clockwise") }
-                    .disabled(!sub.enabled)
-                Button { Task { await toggleSub(sub) } } label: {
-                    Label(LocalizedStringKey(sub.enabled ? "停用" : "启用"), systemImage: sub.enabled ? "pause.circle" : "play.circle")
-                }
-                Button { editingSub = sub } label: { Label("编辑链接 / 名称 / UA / 间隔", systemImage: "pencil") }
-                if let p = store.active {
-                    Button { rulesFor = RulesTarget(profile: p, key: sub.rulesKey, path: sub.cacheURL.path, title: sub.name) } label: {
-                        Label("节点处理（过滤 / 重命名 / 排序）", systemImage: "line.3.horizontal.decrease.circle")
+                Section {
+                    Button { iconTarget = IconTarget(id: "sub:" + sub.id, title: sub.name, current: sub.icon) { v in nodeSubs.setIcon(sub.id, v?.isEmpty == true ? nil : v) } } label: {
+                        Label("图标", systemImage: "photo")
                     }
+                    Button { Task { await refreshSub(sub) } } label: { Label("更新", systemImage: "arrow.clockwise") }
+                        .disabled(!sub.enabled)
+                    Button { editingSub = sub } label: { Label("编辑", systemImage: "pencil") }
+                    if let p = store.active {
+                        Button { rulesFor = RulesTarget(profile: p, key: sub.rulesKey, path: sub.cacheURL.path, title: sub.name) } label: {
+                            Label("节点处理（过滤 / 重命名 / 排序）", systemImage: "line.3.horizontal.decrease.circle")
+                        }
+                    }
+                    Button { Task { await toggleSub(sub) } } label: {
+                        Label(LocalizedStringKey(sub.enabled ? "禁用" : "启用"), systemImage: sub.enabled ? "nosign" : "play.circle")
+                    }
+                    Button { UIPasteboard.general.string = sub.url } label: { Label("复制链接", systemImage: "doc.on.doc") }
                 }
-                Button { UIPasteboard.general.string = sub.url } label: { Label("复制订阅链接", systemImage: "doc.on.doc") }
-                Button(role: .destructive) { confirmDeleteSub = sub } label: { Label("删除", systemImage: "trash") }
-            }
-        case .provider(let s):
-            let pv = httpProviders[s.name]
-            let key = "proxy:" + s.name
-            NavigationLink {
-                NodeListView(scope: NodeListScope(title: s.name, sourceIDs: [s.id],
-                                                  emptyTitle: String(localized: "还没有下载"),
-                                                  emptyMessage: String(localized: "连接一次，或在订阅 / 提供者页面更新后显示节点。")))
-            } label: {
-                SubscriptionRowLabel(icon: "shippingbox", color: Theme.warn, name: s.name, kind: String(localized: "节点集 · 来自配置"),
-                                     count: model.count(s), info: nil, updated: s.updatedAt, error: updater.errors[key],
-                                     updating: updater.busy.contains(key), disabled: false, downloaded: s.cached || model.count(s) > 0)
-            }
-            .accessibilityIdentifier("provider.row." + s.name)
-            .swipeActions(edge: .leading) {
-                if pv != nil {
-                    Button { Task { await updater.update(key); await model.reload() } } label: { Label("更新", systemImage: "arrow.clockwise") }.tint(.blue)
+                Section {
+                    Button(role: .destructive) { confirmDeleteSub = sub } label: { Label("删除", systemImage: "trash") }
                 }
             }
-            // A provider belongs to the profile (delete / disable it there); the left swipe copies its link.
-            .swipeActions(edge: .trailing) {
-                if let u = pv?.url {
-                    Button { UIPasteboard.general.string = u } label: { Label("复制链接", systemImage: "doc.on.doc") }.tint(.gray)
+        case .provider(let name, let s):
+            providerRow(name, s)
+        }
+    }
+
+    /// feat/subs-split: a 节点集 of the current profile, with the same actions as a node subscription. 停用 / 删除 /
+    /// 编辑 / 图标 go to the override store (provider-overrides.json); the profile file is never rewritten.
+    @ViewBuilder
+    func providerRow(_ name: String, _ s: NodeSource?) -> some View {
+        let ov = providerOverrides[name] ?? ProviderOverride()
+        let disabled = ov.disabled == true
+        let pv = httpProviders[name]
+        let declared = providerOV.declared.first { $0.name == name }
+        let key = "proxy:" + name
+        let canUpdate = !disabled && pv != nil
+        let link = pv?.url ?? declared?.url
+        let title = providerTitle(name)
+        let count = s.map(model.count) ?? 0
+        NavigationLink {
+            NodeListView(scope: NodeListScope(title: title, sourceIDs: [s?.id ?? NodeSource(kind: .provider, name: name).id],
+                                              emptyTitle: disabled ? String(localized: "节点集已停用") : String(localized: "还没有下载"),
+                                              emptyMessage: disabled ? String(localized: "启用后，节点会重新加入配置。") : String(localized: "连接一次，或在订阅 / 提供者页面更新后显示节点。")))
+        } label: {
+            SubscriptionRowLabel(icon: "shippingbox", color: Theme.warn, name: title, kind: String(localized: "节点集 · 来自配置"),
+                                 count: disabled ? nil : count, info: nil, updated: s?.updatedAt, error: disabled ? nil : updater.errors[key],
+                                 updating: updater.busy.contains(key), disabled: disabled, downloaded: (s?.cached ?? false) || count > 0,
+                                 customIcon: ov.icon)
+        }
+        .accessibilityIdentifier("provider.row." + name)
+        .swipeActions(edge: .leading) {
+            if canUpdate {
+                Button { Task { await updater.update(key); await model.reload() } } label: { Label("更新", systemImage: "arrow.clockwise") }.tint(.blue)
+            }
+        }
+        .swipeActions(edge: .trailing) {
+            if let link {
+                Button { UIPasteboard.general.string = link } label: { Label("复制链接", systemImage: "doc.on.doc") }.tint(.gray)
+            }
+        }
+        .contextMenu {
+            Section {
+                Button {
+                    iconTarget = IconTarget(id: "provider:" + name, title: title, current: ov.icon) { v in
+                        guard let id = store.activeID else { return }
+                        providerOV.update(id, name) { $0.icon = v?.isEmpty == true ? nil : v }
+                    }
+                } label: { Label("图标", systemImage: "photo") }
+                Button { Task { await updater.update(key); await model.reload() } } label: { Label("更新", systemImage: "arrow.clockwise") }
+                    .disabled(!canUpdate)
+                Button { editingProvider = ProviderTarget(name: name) } label: { Label("编辑", systemImage: "pencil") }
+                Button { Task { await toggleProvider(name) } } label: {
+                    Label(LocalizedStringKey(disabled ? "启用" : "禁用"), systemImage: disabled ? "play.circle" : "nosign")
+                }
+                if let link {
+                    Button { UIPasteboard.general.string = link } label: { Label("复制链接", systemImage: "doc.on.doc") }
                 }
             }
-            .contextMenu {
-                if pv != nil { Button { Task { await updater.update(key); await model.reload() } } label: { Label("更新", systemImage: "arrow.clockwise") } }
-                if let u = pv?.url { Button { UIPasteboard.general.string = u } label: { Label("复制订阅链接", systemImage: "doc.on.doc") } }
+            Section {
+                Button(role: .destructive) { confirmDeleteProvider = ProviderTarget(name: name) } label: { Label("删除", systemImage: "trash") }
             }
         }
     }
@@ -460,10 +595,19 @@ struct SubscriptionRowLabel: View {
     /// The active profile (config subscriptions only).
     var active = false
     var alerts = false
+    /// feat/subs-split: the user's 图标 (image URL, "sf:<symbol>" or emoji); nil = the kind's symbol.
+    var customIcon: String? = nil
 
     var body: some View {
         HStack(spacing: 12) {
-            SourceIcon(systemName: icon, color: disabled ? .secondary : color)
+            if let c = customIcon, !c.isEmpty {
+                IconGlyph(value: c, size: 22)
+                    .frame(width: 32, height: 32)
+                    .background(RoundedRectangle(cornerRadius: 9, style: .continuous).fill(color.opacity(0.15)))
+                    .accessibilityHidden(true)
+            } else {
+                SourceIcon(systemName: icon, color: disabled ? .secondary : color)
+            }
             VStack(alignment: .leading, spacing: 2) {
                 HStack(spacing: 4) {
                     Text(verbatim: name).font(.subheadline.weight(.semibold)).lineLimit(1)

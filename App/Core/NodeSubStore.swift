@@ -17,6 +17,8 @@ struct NodeSubscription: Codable, Identifiable, Hashable {
     var userInfo: SubscriptionUserInfo? = nil
     var count: Int? = nil
     var lastError: String? = nil
+    /// feat/subs-split: 图标 (an image URL, "sf:<symbol>" or an emoji, like group-icons.json); nil = the default.
+    var icon: String? = nil
 
     var cacheURL: URL { AppShared.homeURL.appendingPathComponent("nodesubs/\(id).yaml") }
     var rulesKey: String { "nodesub-" + id }
@@ -65,6 +67,13 @@ final class NodeSubStore: ObservableObject {
         set(s)
         if let oldName, oldName != s.name { RegionFilterStore.renameSource(oldName, to: s.name) }
         await applyChange()
+    }
+
+    /// feat/subs-split: 图标 only — display, so no reload of the core.
+    func setIcon(_ id: String, _ icon: String?) {
+        guard var s = subs.first(where: { $0.id == id }) else { return }
+        s.icon = icon
+        set(s)
     }
 
     func delete(_ s: NodeSubscription) async {

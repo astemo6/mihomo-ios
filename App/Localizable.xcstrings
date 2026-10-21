@@ -84707,6 +84707,890 @@
         }
       }
     },
+    "还没有配置订阅": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "No profile subscriptions yet"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "プロファイル購読はまだありません"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "아직 프로파일 구독이 없습니다"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Подписок на профили пока нет"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "還沒有配置訂閱"
+          }
+        }
+      }
+    },
+    "点右上角 + 添加配置订阅。": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Tap + at the top right to add a profile subscription."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "右上の + でプロファイル購読を追加します。"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "오른쪽 위 +를 눌러 프로파일 구독을 추가하세요."
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Нажмите + вверху справа, чтобы добавить подписку на профиль."
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "點右上角 + 新增配置訂閱。"
+          }
+        }
+      }
+    },
+    "轻点切换为当前配置。右滑更新；左滑删除或停用；长按查看更多操作。": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Tap to make it the current profile. Swipe right to update; swipe left to delete or disable; touch and hold for more."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "タップで現在のプロファイルに切り替え。右スワイプで更新、左スワイプで削除または無効化、長押しでその他の操作。"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "탭하면 현재 프로파일로 전환합니다. 오른쪽으로 밀어 업데이트, 왼쪽으로 밀어 삭제 또는 비활성화, 길게 눌러 더 많은 작업."
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Нажмите, чтобы сделать профиль текущим. Смахните вправо, чтобы обновить; влево — удалить или отключить; удерживайте для других действий."
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "輕點切換為當前配置。右滑更新；左滑刪除或停用；長按檢視更多操作。"
+          }
+        }
+      }
+    },
+    "还没有节点订阅": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "No node subscriptions yet"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ノード購読はまだありません"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "아직 노드 구독이 없습니다"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Подписок на узлы пока нет"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "還沒有節點訂閱"
+          }
+        }
+      }
+    },
+    "点右上角 + 添加节点订阅；配置里的节点集也会列在这里。": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Tap + at the top right to add a node subscription. The profile's node sets are listed here too."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "右上の + でノード購読を追加します。プロファイルのノードセットもここに表示されます。"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "오른쪽 위 +를 눌러 노드 구독을 추가하세요. 프로파일의 노드 세트도 여기에 표시됩니다."
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Нажмите + вверху справа, чтобы добавить подписку на узлы. Наборы узлов из профиля тоже показаны здесь."
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "點右上角 + 新增節點訂閱；配置裡的節點集也會列在這裡。"
+          }
+        }
+      }
+    },
+    "恢复已删除的节点集（%lld）": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Restore Deleted Node Sets (%lld)"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "削除したノードセットを復元（%lld）"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "삭제한 노드 세트 복원(%lld)"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Восстановить удалённые наборы узлов (%lld)"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "恢復已刪除的節點集（%lld）"
+          }
+        }
+      }
+    },
+    "删除节点集「%@」？": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Delete the node set “%@”?"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ノードセット「%@」を削除しますか？"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "노드 세트 '%@'을(를) 삭제할까요?"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Удалить набор узлов «%@»?"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "刪除節點集「%@」？"
+          }
+        }
+      }
+    },
+    "只从这个配置里移除：它不再加载，引用它的策略组改用其他节点（没有其他节点时用 DIRECT）。配置文件不会改动，更新配置也不会让它回来；可以在本页底部「恢复已删除的节点集」找回。": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Removed from this profile only: it is no longer loaded, and policy groups that use it fall back to their other nodes (DIRECT when they have none). The profile file is not changed and updating the profile won't bring it back; use Restore Deleted Node Sets at the bottom of this page."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "このプロファイルからのみ削除します。読み込まれなくなり、これを使うポリシーグループは他のノード（なければ DIRECT）を使います。プロファイルファイルは変更されず、プロファイルを更新しても戻りません。このページ下部の「削除したノードセットを復元」で戻せます。"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "이 프로파일에서만 제거합니다. 더 이상 불러오지 않으며, 이를 사용하는 정책 그룹은 다른 노드(없으면 DIRECT)를 사용합니다. 프로파일 파일은 바뀌지 않고 프로파일을 업데이트해도 돌아오지 않습니다. 이 페이지 아래의 '삭제한 노드 세트 복원'으로 되돌릴 수 있습니다."
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Удаляется только из этого профиля: набор больше не загружается, а группы политик, которые его используют, переходят на другие узлы (на DIRECT, если других нет). Файл профиля не меняется, и обновление профиля его не вернёт; воспользуйтесь «Восстановить удалённые наборы узлов» внизу этой страницы."
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "只從這個配置裡移除：它不再載入，引用它的策略組改用其他節點（沒有其他節點時用 DIRECT）。配置檔案不會改動，更新配置也不會讓它回來；可以在本頁底部「恢復已刪除的節點集」找回。"
+          }
+        }
+      }
+    },
+    "删除节点集前": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Before deleting a node set"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ノードセット削除前"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "노드 세트 삭제 전"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Перед удалением набора узлов"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "刪除節點集前"
+          }
+        }
+      }
+    },
+    "节点集已停用": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Node set disabled"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ノードセットは無効です"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "노드 세트가 비활성화됨"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Набор узлов отключён"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "節點集已停用"
+          }
+        }
+      }
+    },
+    "启用后，节点会重新加入配置。": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Enable it to add its nodes back to the profile."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "有効にすると、ノードがプロファイルに戻ります。"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "활성화하면 노드가 프로파일에 다시 추가됩니다."
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Включите его, чтобы узлы снова добавились в профиль."
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "啟用後，節點會重新加入配置。"
+          }
+        }
+      }
+    },
+    "节点集设置": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Node set settings"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ノードセットの設定"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "노드 세트 설정"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Настройки наборов узлов"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "節點集設定"
+          }
+        }
+      }
+    },
+    "跟随配置": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "As in the profile"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "プロファイルに従う"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "프로파일 설정 따름"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Как в профиле"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "跟隨配置"
+          }
+        }
+      }
+    },
+    "只改本页显示的名称；策略组和规则仍按配置里的名称「%@」引用它。": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Changes only the name shown here; policy groups and rules still refer to it by its profile name “%@”."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ここに表示される名前だけを変更します。ポリシーグループとルールは引き続きプロファイル上の名前「%@」で参照します。"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "여기에 표시되는 이름만 바꿉니다. 정책 그룹과 규칙은 계속 프로파일의 이름 '%@'(으)로 참조합니다."
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Меняется только отображаемое здесь имя; группы политик и правила по-прежнему ссылаются на него по имени из профиля «%@»."
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "只改本頁顯示的名稱；策略組和規則仍按配置裡的名稱「%@」引用它。"
+          }
+        }
+      }
+    },
+    "订阅链接": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Subscription Link"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "購読リンク"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "구독 링크"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Ссылка подписки"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "訂閱連結"
+          }
+        }
+      }
+    },
+    "留空使用配置里的链接；配置里的更新间隔是 %lld 秒。": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Leave empty to use the profile's link. The profile updates it every %lld seconds."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "空欄ならプロファイルのリンクを使います。プロファイルの更新間隔は %lld 秒です。"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "비워 두면 프로파일의 링크를 사용합니다. 프로파일의 업데이트 간격은 %lld초입니다."
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Оставьте пустым, чтобы использовать ссылку из профиля. В профиле интервал обновления — %lld с."
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "留空使用配置裡的連結；配置裡的更新間隔是 %lld 秒。"
+          }
+        }
+      }
+    },
+    "留空使用配置里的链接。": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Leave empty to use the profile's link."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "空欄ならプロファイルのリンクを使います。"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "비워 두면 프로파일의 링크를 사용합니다."
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Оставьте пустым, чтобы использовать ссылку из профиля."
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "留空使用配置裡的連結。"
+          }
+        }
+      }
+    },
+    "保留：正则，如 (?i)港|hk": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Keep: regex, e.g. (?i)hk|hong kong"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "残す：正規表現（例 (?i)港|hk）"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "유지: 정규식, 예: (?i)港|hk"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Оставить: регулярное выражение, напр. (?i)港|hk"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "保留：正則，如 (?i)港|hk"
+          }
+        }
+      }
+    },
+    "排除：正则，如 到期|剩余": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Exclude: regex, e.g. expire|remaining"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "除外：正規表現（例 到期|剩余）"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "제외: 정규식, 예: 到期|剩余"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Исключить: регулярное выражение, напр. expire|remaining"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "排除：正則，如 到期|剩餘"
+          }
+        }
+      }
+    },
+    "留空使用配置里的设置。": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Leave empty to use the profile's settings."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "空欄ならプロファイルの設定を使います。"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "비워 두면 프로파일의 설정을 사용합니다."
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Оставьте пустым, чтобы использовать настройки профиля."
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "留空使用配置裡的設定。"
+          }
+        }
+      }
+    },
+    "清除这里的修改，使用配置里的设置（图标和停用状态保留）。": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Clears these changes and uses the profile's settings (the icon and disabled state are kept)."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ここでの変更を消してプロファイルの設定を使います（アイコンと無効状態は保持）。"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "여기서 바꾼 내용을 지우고 프로파일의 설정을 사용합니다(아이콘과 비활성화 상태는 유지)."
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Сбрасывает эти изменения и использует настройки профиля (значок и отключение сохраняются)."
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "清除這裡的修改，使用配置裡的設定（圖示和停用狀態保留）。"
+          }
+        }
+      }
+    },
+    "编辑节点集": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Edit Node Set"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ノードセットを編集"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "노드 세트 편집"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Изменить набор узлов"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "編輯節點集"
+          }
+        }
+      }
+    },
+    "请输入以 http:// 或 https:// 开头的链接": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Enter a link starting with http:// or https://"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "http:// または https:// で始まるリンクを入力してください"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "http:// 또는 https://로 시작하는 링크를 입력하세요"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Введите ссылку, начинающуюся с http:// или https://"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "請輸入以 http:// 或 https:// 開頭的連結"
+          }
+        }
+      }
+    },
+    "筛选表达式无效": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Invalid filter expression"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "フィルター式が無効です"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "필터 표현식이 잘못되었습니다"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Недопустимое выражение фильтра"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "篩選表示式無效"
+          }
+        }
+      }
+    },
+    "禁用": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Disable"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "無効にする"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "비활성화"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Отключить"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "禁用"
+          }
+        }
+      }
+    },
+    "右滑更新；左滑复制链接；长按查看更多操作。": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Swipe right to update; swipe left to copy the link; touch and hold for more."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "右スワイプで更新、左スワイプでリンクをコピー、長押しでその他の操作。"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "오른쪽으로 밀어 업데이트, 왼쪽으로 밀어 링크 복사, 길게 눌러 더 많은 작업."
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Смахните вправо, чтобы обновить; влево — скопировать ссылку; удерживайте для других действий."
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "右滑更新；左滑複製連結；長按檢視更多操作。"
+          }
+        }
+      }
+    },
     "最快 %@": {
       "localizations": {
         "zh-Hant": {
