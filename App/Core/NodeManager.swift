@@ -320,7 +320,12 @@ final class NodeManagerModel: ObservableObject {
     /// with the overrides applied) still declares a provider of that name (e.g. a profile provider sharing the name).
     nonisolated static func excludedProviders(runtime: Set<String>, overrides: [String: ProviderOverride], subs: [NodeSubscription]) -> Set<String> {
         var out = Set(overrides.filter { $0.value.disabled == true || $0.value.deleted == true }.map(\.key))
-        out.formUnion(subs.filter { !$0.enabled }.map { $0.name.trimmingCharacters(in: .whitespaces) })
+        // r7: the Go build names a subscription's provider firstNonEmpty(trimmed name, "订阅") (mergeNodeSubs); an
+        // unnamed disabled subscription was matched as "" and never excluded.
+        out.formUnion(subs.filter { !$0.enabled }.map {
+            let n = $0.name.trimmingCharacters(in: .whitespaces)
+            return n.isEmpty ? "订阅" : n
+        })
         out.subtract(runtime)
         out.remove("")
         return out
