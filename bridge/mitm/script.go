@@ -485,6 +485,9 @@ func (s *ScriptRunner) execute(parent context.Context, sc *Script, req, resp *Sc
 		}
 	}()
 	timeout := scriptTimeout(sc, maxTimeout, defTimeout)
+	if parent == nil {
+		parent = context.Background()
+	}
 	// v0.19.9: large bundles compile and run one at a time (see bigSem). Lock order everywhere:
 	// bigSem → sem / taskSem (r7 P2-1).
 	if !holdsBig && s.knownSize(sc) >= largeProgSource {
@@ -492,6 +495,8 @@ func (s *ScriptRunner) execute(parent context.Context, sc *Script, req, resp *Sc
 		case s.bigSem <- struct{}{}:
 		case <-time.After(timeout):
 			return nil, errors.New("脚本排队超时")
+		case <-parent.Done():
+			return nil, errScriptCancelled
 		}
 		defer func() { <-s.bigSem }()
 	}
@@ -504,8 +509,13 @@ func (s *ScriptRunner) execute(parent context.Context, sc *Script, req, resp *Sc
 		case sem <- struct{}{}:
 		case <-time.After(timeout):
 			return nil, errors.New("脚本排队超时")
+		case <-parent.Done():
+			return nil, errScriptCancelled
 		}
 		defer func() { <-sem }()
+	}
+	if parent.Err() != nil {
+		return nil, errScriptCancelled
 	}
 
 	ctx, cancel := context.WithTimeout(context.Background(), timeout)
@@ -531,12 +541,23 @@ func (s *ScriptRunner) execute(parent context.Context, sc *Script, req, resp *Sc
 	}
 	stop := context.AfterFunc(ctx, func() { rt.Interrupt("timeout") })
 	defer stop()
+	// r7 B29 / P3-7: the client went away (HTTP scripts) or the engine stopped (task scripts): stop the
+	// run instead of letting it go on to its timeout (up to 300 s for a task, with network + store writes).
+	stopParent := context.AfterFunc(parent, func() { rt.Interrupt(cancelInterrupt) })
+	defer stopParent()
 	stopGuard := startMemGuard(ctx, rt)
 	defer stopGuard()
 
+	jsFail := func(err error) error {
+		var ie *goja.InterruptedError
+		if parent.Err() != nil && errors.As(err, &ie) {
+			return errScriptCancelled // interrupted because the parent ended (whatever value won)
+		}
+		return s.jsErr(sc, err, timeout)
+	}
 	_, err = rt.RunProgram(prog)
 	if err != nil {
-		return nil, s.jsErr(sc, err, timeout)
+		return nil, jsFail(err)
 	}
 	for !rc.done {
 		if rc.pending <= 0 && len(rc.jobs) == 0 {
@@ -557,8 +578,10 @@ func (s *ScriptRunner) execute(parent context.Context, sc *Script, req, resp *Sc
 				j()
 			}()
 			if err != nil {
-				return nil, s.jsErr(sc, err, timeout)
+				return nil, jsFail(err)
 			}
+		case <-parent.Done():
+			return nil, errScriptCancelled
 		case <-ctx.Done():
 			return nil, fmt.Errorf("脚本执行超时（%s）", timeout)
 		}
@@ -574,6 +597,8 @@ func (s *ScriptRunner) jsErr(sc *Script, err error, timeout time.Duration) error
 	if errors.As(err, &ie) {
 		if v, _ := ie.Value().(string); v == memInterrupt {
 			return errors.New("脚本内存占用过高，已终止（保护隧道内存）")
+		} else if v == cancelInterrupt {
+			return errScriptCancelled
 		}
 		return fmt.Errorf("脚本执行超时（%s）", timeout)
 	}
@@ -592,6 +617,11 @@ func (s *ScriptRunner) jsErr(sc *Script, err error, timeout time.Duration) error
 const scriptMaxCallStack = 3000
 
 const memInterrupt = "memory"
+
+// cancelInterrupt: the run's parent context ended (client disconnected, engine stopped).
+const cancelInterrupt = "cancelled"
+
+var errScriptCancelled = errors.New("脚本已停止（客户端已断开或引擎已停止）")
 
 // memGuardHook lets tests force a limit; nil in production.
 var memGuardLimit = func() int64 { return debug.SetMemoryLimit(-1) }

@@ -286,3 +286,33 @@ func TestR7TaskScriptsPrefetchedAndSized(t *testing.T) {
 		t.Fatalf("Prefetch skipped the task script: %v", err)
 	}
 }
+
+// B29: an HTTP script stops when its client goes away instead of running to its timeout.
+func TestR7ScriptStopsWhenClientGone(t *testing.T) {
+	cfg := &Config{Enabled: true, MitM: true, Hostnames: []string{"api.test.com"}, Scripts: items(
+		`spin = type=http-request,pattern=^https://api\.test\.com/spin,script-path=spin.js,timeout=20`)}
+	h := newHarness(t, cfg, map[string]string{"spin.js": `while (true) {}`})
+	ctx, cancel := context.WithTimeout(context.Background(), 400*time.Millisecond)
+	defer cancel()
+	req, _ := http.NewRequestWithContext(ctx, "GET", "https://api.test.com/spin", nil)
+	if resp, err := h.client.Do(req); err == nil {
+		resp.Body.Close()
+	}
+	deadline := time.Now().Add(3 * time.Second)
+	for LiveRuntimes() > 0 {
+		if time.Now().After(deadline) {
+			t.Fatalf("script still running %v after the client left", time.Since(deadline.Add(-3*time.Second)))
+		}
+		time.Sleep(20 * time.Millisecond)
+	}
+	found := false
+	for _, l := range h.e.Logs.List(0, "") {
+		if l.Script == "spin" && strings.Contains(l.Msg, "已停止") {
+			found = true
+		}
+	}
+	if !found {
+		t.Fatal("no 已停止 log for the cancelled script")
+	}
+}
+
