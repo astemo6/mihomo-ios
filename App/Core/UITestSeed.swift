@@ -329,11 +329,11 @@ enum UITestSeed {
     """
 
     static let httpProviderYAML = """
-          Demo HTTP Provider:
-            type: http
-            url: https://provider.uitest.invalid/nodes.yaml
-            path: ./proxies/uitest-http-provider.yaml
-            interval: 86400
+      Demo HTTP Provider:
+        type: http
+        url: https://provider.uitest.invalid/nodes.yaml
+        path: ./proxies/uitest-http-provider.yaml
+        interval: 86400
 
     """
 

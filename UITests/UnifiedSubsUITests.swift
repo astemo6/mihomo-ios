@@ -8,6 +8,13 @@ extension MihomoUITests {
 
     static let subMenu = ["更新", "编辑", "复制地址", "关闭", "删除"]
 
+    /// Dismisses an open menu (the + menu or a row's long-press menu) without choosing an item: taps the empty
+    /// middle of the navigation bar (a swipe could land on a menu item and trigger it).
+    func dismissMenu() {
+        app.coordinate(withNormalizedOffset: CGVector(dx: 0.5, dy: 0.09)).tap()
+        usleep(600_000)
+    }
+
     func closeSwipe() {
         app.navigationBars.firstMatch.tap()
         usleep(400_000)
@@ -80,6 +87,7 @@ extension MihomoUITests {
     func test78_RewritePage() {
         launch()
         tab(3)
+        if !app.navigationBars[L("工具")].waitForExistence(timeout: 5) { tab(3) } // first tap right after launch can be lost
         XCTAssertTrue(app.navigationBars[L("工具")].waitForExistence(timeout: 8), "工具 tab")
         for gone in ["模块与资源", "重写（本地模块）", "脚本"] {
             XCTAssertFalse(app.element(id: "more." + gone).exists, "old card \(gone) gone")
@@ -119,9 +127,8 @@ extension MihomoUITests {
             XCTAssertTrue(app.button(L(k)).waitForExistence(timeout: 3), "+ menu: \(k)")
         }
         snap("rewrite-add-menu")
-        app.swipeDown()
-        usleep(500_000)
-        if app.button(L(Self.subMenu[0])).exists { app.navigationBars.firstMatch.tap() }
+        dismissMenu()
+        if app.button(L("从 URL 添加订阅")).exists { dismissMenu() }
 
         for key in Self.moduleRows { XCTAssertTrue(scrollTo(app.element(id: "more." + key)), "重写 lists \(key)") }
         snap("rewrite-page-bottom")
@@ -153,8 +160,7 @@ extension MihomoUITests {
         // 配置订阅
         checkSwipes(profile, confirmID: "profile.confirmDelete", shot: "profile")
         checkMenu(profile, shot: "profile")
-        app.navigationBars.firstMatch.tap() // dismiss the menu
-        usleep(500_000)
+        dismissMenu()
         checkSheetEditURL(profile, newURL: "https://profile.uitest.invalid/new.yaml", shot: "profile")
         // The switch is the 停用 flag (the active profile is another one, so it can be switched off).
         let psw = app.element(id: "subs.profile.UITest Remote.toggle")
@@ -167,8 +173,7 @@ extension MihomoUITests {
         // 节点订阅
         checkSwipes(sub, confirmID: "nodesub.confirmDelete", shot: "nodesub")
         checkMenu(sub, shot: "nodesub")
-        app.navigationBars.firstMatch.tap()
-        usleep(500_000)
+        dismissMenu()
         checkSheetEditURL(sub, newURL: "https://nodes.uitest.invalid/new?token=1", shot: "nodesub")
 
         // 节点集 (http provider of the current profile)
@@ -184,8 +189,7 @@ extension MihomoUITests {
         snap("unified-provider-swipe-right")
         closeSwipe()
         checkMenu(provider, shot: "provider")
-        app.navigationBars.firstMatch.tap()
-        usleep(500_000)
+        dismissMenu()
         checkSheetEditURL(provider, newURL: "https://provider.uitest.invalid/other.yaml", shot: "provider")
         assertAlive("unified subscriptions")
     }

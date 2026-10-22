@@ -81,7 +81,16 @@ extension MihomoUITests {
         XCTAssertTrue(added.staticTexts[L("已添加到本地节点")].exists, "confirmation title")
         snap("subs-split-node-added")
         added.buttons[L("好")].tap()
-        XCTAssertTrue(tapIfExists(app.element(id: "sub.sheet.close"), timeout: 4) || { app.swipeDown(velocity: .fast); return true }(), "close the sheet")
+        usleep(600_000)
+        // 查看节点 is pushed inside the sheet: back to the sheet's root first, then close it.
+        let close = app.element(id: "sub.sheet.close")
+        if !close.waitForExistence(timeout: 2) {
+            let back = app.navigationBars["Demo Sub"].buttons.element(boundBy: 0)
+            if back.exists { back.tap() } else { app.navigationBars.buttons.element(boundBy: 0).tap() }
+        }
+        XCTAssertTrue(tapIfExists(close, timeout: 4), "close the sheet")
+        let sheetGone = XCTNSPredicateExpectation(predicate: NSPredicate(format: "exists == false"), object: close)
+        _ = XCTWaiter().wait(for: [sheetGone], timeout: 5)
         XCTAssertTrue(sub.waitForExistence(timeout: 6), "back on 节点与订阅")
         snap("subs-split-icon")
 

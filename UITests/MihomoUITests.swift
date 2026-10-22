@@ -294,7 +294,9 @@ final class MihomoUITests: MihomoUITestCase {
         back()
 
         // 筛选节点 → 加为策略组 / 移除
-        XCTAssertTrue(tapIfExists(app.element(label: L("筛选节点"))))
+        let filterRow = app.element(label: L("筛选节点"))
+        XCTAssertTrue(scrollTo(filterRow), "筛选节点 row") // en: two-line rows push it under the tab bar
+        filterRow.tap()
         let jp = app.element(label: L("日本节点"))
         XCTAssertTrue(jp.waitForExistence(timeout: 8), "region JP")
         snap("nodes-filter-regions")
