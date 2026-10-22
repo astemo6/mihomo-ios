@@ -59,6 +59,11 @@ extension MihomoUITests {
     func checkMenu(_ row: XCUIElement, shot: String) {
         XCTAssertTrue(scrollTo(row))
         row.press(forDuration: 1.3)
+        // A press right after a swipe can only close the leftover swipe state: press once more.
+        if !app.button(L(Self.subMenu[1])).waitForExistence(timeout: 3) {
+            _ = scrollTo(row, fail: false)
+            row.press(forDuration: 1.3)
+        }
         var lastY: CGFloat = -1
         for k in Self.subMenu {
             let b = app.button(L(k))
@@ -184,7 +189,7 @@ extension MihomoUITests {
         checkSwipes(sub, confirmID: "nodesub.confirmDelete", shot: "nodesub")
         checkMenu(sub, shot: "nodesub")
         dismissMenu()
-        checkSheetEditURL(sub, newURL: "https://nodes.uitest.invalid/new?token=1", shot: "nodesub")
+        checkSheetEditURL(sub, newURL: "https://nodes.example.invalid/new?token=1", shot: "nodesub")
 
         // 节点集 (http provider of the current profile)
         XCTAssertTrue(scrollTo(provider), "http 节点集 row")
