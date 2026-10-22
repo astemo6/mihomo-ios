@@ -382,16 +382,19 @@ struct PolicyTrafficView: View {
                                     HStack(spacing: 10) {
                                         Label(Fmt.bytes(p.bytes.up), systemImage: "arrow.up").foregroundStyle(Theme.up)
                                         Label(Fmt.bytes(p.bytes.down), systemImage: "arrow.down").foregroundStyle(Theme.down)
-                                        if let n = counts[p.name] { Text("\(n) 次命中").foregroundStyle(.secondary) }
                                     }
                                     .font(.caption2.monospacedDigit())
-                                    .lineLimit(1)
-                                    .minimumScaleFactor(0.8)
+                                    .fixedSize()
                                 }
                                 Spacer(minLength: 6)
-                                Text(Double(p.bytes.total) / Double(total), format: .percent.precision(.fractionLength(0)))
-                                    .font(.caption.monospacedDigit()).foregroundStyle(.secondary)
-                                    .fixedSize()
+                                VStack(alignment: .trailing, spacing: 2) {
+                                    Text(Double(p.bytes.total) / Double(total), format: .percent.precision(.fractionLength(0)))
+                                        .font(.caption.monospacedDigit()).foregroundStyle(.secondary)
+                                    if let n = counts[p.name] {
+                                        Text("\(n) 次命中").font(.caption2.monospacedDigit()).foregroundStyle(.secondary)
+                                    }
+                                }
+                                .fixedSize()
                             }
                         }
                         .listRowBackground(Theme.card)
