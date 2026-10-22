@@ -38,44 +38,7 @@ extension MihomoUITests {
         assertAlive("filter rename + icon")
     }
 
-    // MARK: 41. 节点订阅: swipes (right 更新, left 复制链接 only) + menu 禁用 / 启用 / 删除
-
-    func test41_SubscriptionSwipeDisable() {
-        launch()
-        openMore("节点与订阅")
-        let row = app.element(id: "nodesub.row.Demo Sub")
-        XCTAssertTrue(scrollTo(row), "Demo Sub row")
-        // feat/subs-split (user 11:55): the left swipe only copies the link.
-        row.swipeLeft()
-        XCTAssertTrue(app.button(L("复制链接")).waitForExistence(timeout: 3), "复制链接 in the trailing swipe")
-        XCTAssertFalse(app.button(L("删除")).exists, "no 删除 in the swipe")
-        XCTAssertFalse(app.button(L("禁用")).exists || app.button(L("停用")).exists, "no 禁用 in the swipe")
-        snap("v0198-sub-copy-swipe")
-        XCTAssertTrue(tapIfExists(app.button(L("复制链接")), timeout: 3))
-        // 禁用 / 启用 from the long-press menu.
-        row.press(forDuration: 1.3)
-        XCTAssertTrue(tapIfExists(app.button(L("禁用")), timeout: 4), "禁用 in the menu")
-        XCTAssertTrue(app.element(labelContains: L("已停用")).waitForExistence(timeout: 6), "row shows 已停用")
-        snap("v0198-sub-disabled")
-        row.press(forDuration: 1.3)
-        XCTAssertTrue(tapIfExists(app.button(L("启用")), timeout: 4), "启用 in the menu")
-        let gone = XCTNSPredicateExpectation(predicate: NSPredicate(format: "exists == false"), object: app.element(labelContains: L("已停用")))
-        XCTAssertEqual(XCTWaiter().wait(for: [gone], timeout: 6), .completed, "enabled again")
-        // 删除 (menu) asks first; cancel keeps the row.
-        row.press(forDuration: 1.3)
-        XCTAssertTrue(tapIfExists(app.button(L("删除")), timeout: 4), "删除 in the menu")
-        XCTAssertTrue(app.element(id: "nodesub.confirmDelete").waitForExistence(timeout: 4), "delete confirmation")
-        snap("v0198-sub-delete-confirm")
-        let cancel = app.buttons.matching(NSPredicate(format: "label == %@", L("取消"))).firstMatch
-        if cancel.exists { cancel.tap() } else { app.swipeDown() }
-        usleep(500_000)
-        XCTAssertTrue(row.exists, "cancel keeps the subscription")
-        // Leading swipe offers 更新.
-        row.swipeRight()
-        XCTAssertTrue(app.button(L("更新")).waitForExistence(timeout: 3), "更新 in the leading swipe")
-        snap("v0198-sub-update-swipe")
-        assertAlive("subscription swipe")
-    }
+    // MARK: 41. (moved) 节点订阅 swipes / menu are covered by test79_UnifiedSubscriptionRows (unified rows, fix/modules-only).
 
     // MARK: 42. 策略组顺序: drag down and up on the cards
 

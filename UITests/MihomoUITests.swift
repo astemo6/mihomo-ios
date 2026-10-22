@@ -99,15 +99,16 @@ final class MihomoUITests: MihomoUITestCase {
         "诊断", "关于 / 开源许可",
     ]
     static let toolRows = [
-        "节点与订阅", "规则", "模块与资源", "重写（本地模块）", "脚本", "任务", "MitM", "DNS", "日志", "DNS 日志", "连接分析",
+        "节点与订阅", "规则", "重写", "任务", "MitM", "DNS", "日志", "DNS 日志", "连接分析",
         "网络工具（Ping / TCP / DNS）", "网络测试（带宽 / NAT 类型）", "解锁检测", "内网 IP 与路由器",
     ]
     static let advancedRows = [
         "连接方式", "地理与规则库", "内核设置", "测速", "出口信息查询",
     ]
-    /// 工具 → 模块 keeps the profile's rule sets and the browse pages (ids unchanged).
+    /// 工具 → 重写 (QX-style merge of 模块 / 重写 / 脚本) keeps the browse pages (ids unchanged); the profile's rule
+    /// sets (规则集（配置）) moved to 分流规则.
     static let moduleRows = [
-        "规则集（配置）", "模块库", "全部重写规则",
+        "模块库", "全部重写规则",
     ]
 
     func test03_MoreEveryPage() {
@@ -167,8 +168,8 @@ final class MihomoUITests: MihomoUITestCase {
         }
         back()
         // 模块: every row opens and comes back to 模块.
-        openMore("模块与资源")
-        XCTAssertTrue(app.navigationBars[L("模块")].waitForExistence(timeout: 5), "模块 page")
+        openMore("重写")
+        XCTAssertTrue(app.navigationBars[L("重写")].waitForExistence(timeout: 5), "重写 page")
         snap("more-modules")
         for (i, key) in Self.moduleRows.enumerated() {
             let row = app.element(id: "more." + key)
@@ -178,9 +179,9 @@ final class MihomoUITests: MihomoUITestCase {
             snap(String(format: "more-mod-%02d", i))
             assertAlive("模块 → \(key)")
             back()
-            if !app.navigationBars[L("模块")].waitForExistence(timeout: 4) {
-                issues.append("[\(Env.tag)] 模块 → \(key): did not return")
-                openMore("模块与资源")
+            if !app.navigationBars[L("重写")].waitForExistence(timeout: 4) {
+                issues.append("[\(Env.tag)] 重写 → \(key): did not return")
+                openMore("重写")
             }
         }
         back()
@@ -204,7 +205,7 @@ final class MihomoUITests: MihomoUITestCase {
         XCTAssertTrue(scrollTo(row))
         row.tap()
         XCTAssertTrue(app.navigationBars[L("节点与订阅")].waitForExistence(timeout: 8))
-        XCTAssertTrue(app.element(label: "Demo Sub").waitForExistence(timeout: 8), "node subscription row")
+        XCTAssertTrue(app.element(id: "nodesub.row.Demo Sub").waitForExistence(timeout: 8), "node subscription row")
         snap("nodes-home")
 
         // 全部节点
@@ -293,7 +294,9 @@ final class MihomoUITests: MihomoUITestCase {
         back()
 
         // 筛选节点 → 加为策略组 / 移除
-        XCTAssertTrue(tapIfExists(app.element(label: L("筛选节点"))))
+        let filterRow = app.element(label: L("筛选节点"))
+        XCTAssertTrue(scrollTo(filterRow), "筛选节点 row") // en: two-line rows push it under the tab bar
+        filterRow.tap()
         let jp = app.element(label: L("日本节点"))
         XCTAssertTrue(jp.waitForExistence(timeout: 8), "region JP")
         snap("nodes-filter-regions")
@@ -315,14 +318,21 @@ final class MihomoUITests: MihomoUITestCase {
         back()
         back()
 
-        // Node subscription list
-        XCTAssertTrue(tapIfExists(app.element(label: "Demo Sub")))
+        // Node subscription list: tap → the shared subscription sheet → 查看节点 (unified rows, fix/modules-only).
+        let subRow = app.element(id: "nodesub.row.Demo Sub")
+        XCTAssertTrue(scrollTo(subRow), "node subscription row") // en: the page is still scrolled down from 筛选节点
+        subRow.tap()
+        XCTAssertTrue(tapIfExists(app.button(L("查看节点")), timeout: 6), "查看节点 in the sheet")
         // B13: 🇹🇼 is drawn as a TW badge where the system can't render it (the name's flag is replaced in the row).
         XCTAssertTrue(app.element(labelContains: "Taipei Sub").waitForExistence(timeout: 8), "subscription nodes")
         snap("nodes-sub")
         back()
+        XCTAssertTrue(tapIfExists(app.element(id: "sub.sheet.close"), timeout: 4), "close the sheet")
+        usleep(600_000)
         // 本地节点
-        XCTAssertTrue(tapIfExists(app.element(label: L("本地节点"))))
+        let localRow = app.element(label: L("本地节点"))
+        XCTAssertTrue(scrollTo(localRow), "本地节点 row")
+        localRow.tap()
         XCTAssertTrue(scrollTo(app.element(label: "Manual Hy2")), "local nodes")
         snap("nodes-local")
     }
@@ -463,15 +473,16 @@ final class MihomoUITests: MihomoUITestCase {
     /// re-enter 高级设置 once if the row vanished (zh-light test09 race on surge-ui, 2026-10-21).
     func openMore(_ key: String) {
         // feat/more-dedup: tool-type pages (and 模块's sub-pages) are on the 工具 tab.
-        let onTools = Self.toolRows.contains(key) || Self.moduleRows.contains(key)
+        let onTools = Self.toolRows.contains(key) || Self.moduleRows.contains(key) || key == "规则集（配置）"
         tab(onTools ? 3 : 4)
         usleep(500_000)
         let row = app.element(id: "more." + key)
-        if Self.moduleRows.contains(key) {
-            let mod = app.element(id: "more.模块与资源")
+        if Self.moduleRows.contains(key) || key == "规则集（配置）" {
+            let parent = key == "规则集（配置）" ? "规则" : "重写"
+            let mod = app.element(id: "more." + parent)
             if !(row.waitForExistence(timeout: 1) && row.isHittable) {
                 if !mod.waitForExistence(timeout: 1) { tab(3); usleep(500_000) }
-                XCTAssertTrue(scrollTo(mod), "模块")
+                XCTAssertTrue(scrollTo(mod), parent)
                 mod.tap()
                 usleep(800_000)
             }
@@ -517,8 +528,8 @@ final class MihomoUITests: MihomoUITestCase {
         snap("rules-custom")
         back()
 
-        // Rewrite (本地模块)
-        openMore("重写（本地模块）")
+        // Rewrite (重写 → 本地)
+        openMore("重写")
         XCTAssertTrue(tapIfExists(app.element(id: "localmodule.add"), timeout: 5), "rewrite +")
         XCTAssertTrue(tapIfExists(app.button(L("拒绝请求（reject）")), timeout: 4), "reject entry")
         let pat = app.textFields.firstMatch
@@ -535,8 +546,8 @@ final class MihomoUITests: MihomoUITestCase {
         back()
 
         // Script
-        openMore("脚本")
-        XCTAssertTrue(tapIfExists(app.element(id: "scripts.add"), timeout: 5), "scripts +")
+        openMore("重写")
+        XCTAssertTrue(tapIfExists(app.element(id: "localmodule.add"), timeout: 5), "重写 + (scripts)")
         XCTAssertTrue(tapIfExists(app.button(L("新建 / 导入脚本")), timeout: 4), "new script")
         usleep(800_000)
         snap("editor-script")
@@ -557,9 +568,9 @@ final class MihomoUITests: MihomoUITestCase {
 
     func test08_ModulesAndPanels() {
         launch()
-        openMore("模块与资源")
+        openMore("重写")
         snap("modules")
-        XCTAssertTrue(app.element(label: "UITest Panel Module").waitForExistence(timeout: 6), "seeded module listed")
+        XCTAssertTrue(app.element(id: "module.row.UITest Panel Module").waitForExistence(timeout: 6), "seeded module listed")
         let gallery = app.element(id: "more.模块库")
         if scrollTo(gallery) {
             gallery.tap()
@@ -885,7 +896,7 @@ final class MihomoUITests: MihomoUITestCase {
 
     func test15_AllRewrites() {
         launch()
-        openMore("模块与资源")
+        openMore("重写")
         let entry = app.element(id: "more.全部重写规则")
         XCTAssertTrue(scrollTo(entry), "全部重写规则 entry")
         entry.tap()
@@ -907,10 +918,9 @@ final class MihomoUITests: MihomoUITestCase {
         } else { issues.append("[\(Env.tag)] 全部重写规则: no search field") }
         back()
         back()
-        // feat/more-dedup: 我的重写 (本地模块) no longer carries a second 全部重写规则 entry.
-        openMore("重写（本地模块）")
-        XCTAssertTrue(app.element(id: "localmodule.add").waitForExistence(timeout: 6), "我的重写 opens")
-        XCTAssertFalse(app.element(id: "localmodule.allRewrites").exists, "no duplicate 全部重写规则 entry")
+        // QX-style 重写: one page with the + menu (subscriptions, local rewrites, scripts).
+        openMore("重写")
+        XCTAssertTrue(app.element(id: "localmodule.add").waitForExistence(timeout: 6), "重写 opens")
     }
 
     // MARK: 16. v0.16 策略 mode control drives the same mode as Home
@@ -1780,8 +1790,8 @@ final class MihomoUITests: MihomoUITestCase {
         snap("rules-after-delete")
         back()
 
-        // 本地模块: add a reject rewrite, then delete it.
-        openMore("重写（本地模块）")
+        // 重写 → 本地: add a reject rewrite, then delete it.
+        openMore("重写")
         XCTAssertTrue(tapIfExists(app.element(id: "localmodule.add"), timeout: 5), "rewrite +")
         XCTAssertTrue(tapIfExists(app.button(L("拒绝请求（reject）")), timeout: 4), "reject entry")
         let pat = app.textFields.firstMatch

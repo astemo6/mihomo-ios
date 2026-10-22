@@ -82,7 +82,7 @@ struct AllRewritesView: View {
             Section {
                 ForEach(list) { r in
                     NavigationLink {
-                        if let id = r.moduleID { ModuleDetailView(moduleID: id) } else { LocalModuleView() }
+                        if let id = r.moduleID { ModuleDetailView(moduleID: id) } else { RewriteView() }
                     } label: { RewriteFlatRow(row: r) }
                     .listRowBackground(Theme.card)
                 }

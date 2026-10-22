@@ -3,7 +3,7 @@ import SwiftUI
 // fb-subs-global: the 订阅管理 page and its cards moved into 节点与订阅 (NodeManagerHome.swift, user 「还是分开的」).
 // The editors and notification sections below are shared by it.
 
-/// Add / edit a node subscription: URL, name, UA, interval, groups that include it.
+/// Add a node subscription: URL, name, UA, interval, groups that include it (editing one is NodeSubSheet).
 struct NodeSubEditor: View {
     let sub: NodeSubscription?
     @Environment(\.dismiss) private var dismiss
@@ -115,76 +115,6 @@ struct NodeSubEditor: View {
                 self.error = error.localizedDescription
             }
         }
-    }
-}
-
-/// Edit a config subscription's URL / name / UA / interval.
-struct ProfileSubEditor: View {
-    let profile: Profile
-    @EnvironmentObject var store: ProfileStore
-    @Environment(\.dismiss) private var dismiss
-    @State private var url = ""
-    @State private var name = ""
-    @State private var ua = "clash.meta"
-    @State private var interval = 24
-    @State private var alert = UsageAlertRule()
-    @State private var error: String?
-    @State private var busy = false
-
-    var body: some View {
-        NavigationStack {
-            Form {
-                Section("订阅") {
-                    TextField("订阅链接 https://…", text: $url)
-                        .keyboardType(.URL).textInputAutocapitalization(.never).autocorrectionDisabled()
-                    TextField("名称", text: $name)
-                }
-                .listRowBackground(Theme.card)
-                Section("选项") {
-                    Picker("User-Agent", selection: $ua) {
-                        Text("clash.meta").tag("clash.meta")
-                        Text("mihomo").tag("mihomo")
-                        Text("clash-verge/v2").tag("clash-verge/v2")
-                    }
-                    Picker("自动更新", selection: $interval) {
-                        Text("关闭").tag(0)
-                        Text("每 6 小时").tag(6)
-                        Text("每 12 小时").tag(12)
-                        Text("每天").tag(24)
-                        Text("每周").tag(168)
-                    }
-                }
-                .listRowBackground(Theme.card)
-                UsageAlertSection(rule: $alert)
-                if let error { Section { Text(error).foregroundStyle(Theme.bad).font(.footnote) }.listRowBackground(Theme.card) }
-            }
-            .scrollContentBackground(.hidden)
-            .background(Theme.bg.ignoresSafeArea())
-            .navigationTitle("编辑订阅").navigationBarTitleDisplayMode(.inline)
-            .toolbar {
-                ToolbarItem(placement: .cancellationAction) { Button("取消") { dismiss() } }
-                ToolbarItem(placement: .confirmationAction) {
-                    if busy { ProgressView() } else { Button("保存") { Task { await save() } }.disabled(!url.hasPrefix("http") || name.isEmpty) }
-                }
-            }
-            .onAppear {
-                url = profile.url ?? ""; name = profile.name; ua = profile.userAgent; interval = profile.updateIntervalHours
-                alert = UsageAlerts.rule(for: profile.id)
-            }
-        }
-    }
-
-    func save() async {
-        busy = true
-        defer { busy = false }
-        var p = profile
-        let changed = p.url != url || p.userAgent != ua
-        p.url = url; p.name = name; p.userAgent = ua; p.updateIntervalHours = interval
-        store.update(p)
-        UsageAlerts.setRule(alert, for: p.id)
-        UsageAlerts.evaluate(id: p.id, name: p.name, info: p.userInfo)
-        if changed, let e = await store.refresh(p) { error = e; return }
-        dismiss()
     }
 }
 

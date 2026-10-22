@@ -197,6 +197,11 @@ struct RulesView: View {
     var profileRules: some View {
         let rows = self.rows // built once per render (it was evaluated for the list and again for the overlay)
         return List {
+            // QX-style 重写 merge: the profile's rule-providers are linked from here (they used to be on 模块).
+            NavigationLink { LazyDestination { ProvidersView() } } label: {
+                MoreRow(id: "规则集（配置）", title: "配置里的规则集", subtitle: "rule-providers", symbol: "list.bullet.rectangle", tone: .teal)
+            }
+            .listRowBackground(Theme.card)
             if !vpn.isConnected {
                 Label("未连接 · 来自配置文件（含自定义规则）", systemImage: "doc.text.magnifyingglass")
                     .font(.caption.weight(.semibold)).foregroundStyle(.secondary)

@@ -57,27 +57,6 @@ struct KindBadge: View {
     }
 }
 
-/// feat/more-dedup: the 启用重写与脚本 switch lives only on 工具 → 模块. Pages under it (我的重写, 脚本) show
-/// this row instead, and only while the engine is off: what it means and a one-tap 开启.
-struct EngineOffNotice: View {
-    @ObservedObject var store = EngineStore.shared
-    var body: some View {
-        if !store.config.enabled {
-            HStack(spacing: 10) {
-                Image(systemName: "pause.circle").foregroundStyle(Theme.warn)
-                Text("重写与脚本已关闭，这里的规则暂不生效。").font(.footnote)
-                Spacer(minLength: 6)
-                Button("开启") { store.config.enabled = true; store.save() }
-                    .font(.footnote.weight(.semibold)).buttonStyle(.borderless)
-                    .accessibilityIdentifier("engine.turnOn")
-            }
-        } else {
-            Label("重写与脚本已开启（在「模块」页顶部开关）", systemImage: "checkmark.circle")
-                .font(.footnote).foregroundStyle(.secondary)
-        }
-    }
-}
-
 struct EngineSwitchFooter: View {
     @EnvironmentObject var vpn: VPNManager
     var body: some View {
@@ -419,90 +398,6 @@ struct LineEditorSheet: View {
 }
 
 // MARK: - Scripts
-
-struct ScriptsView: View {
-    @ObservedObject var store = EngineStore.shared
-    @State private var adding = false
-    @State private var addingRaw = false
-    @State private var editing: EngineItem?
-    @State private var debugging: EngineItem?
-
-    var body: some View {
-        List {
-            Section {
-                EngineOffNotice()
-            } footer: { EngineSwitchFooter() }
-            .listRowBackground(Theme.card)
-
-            Section("脚本 \(store.config.scripts.count)") {
-                if store.config.scripts.isEmpty {
-                    Text("点 + 新建本地脚本、通过 URL 导入，或直接粘贴 Surge / QX / Loon 脚本行。").font(.footnote).foregroundStyle(.secondary)
-                }
-                ForEach(store.config.scripts) { it in
-                    RuleRow(item: it) { on in
-                        if let i = store.config.scripts.firstIndex(where: { $0.id == it.id }) { store.config.scripts[i].enabled = on; store.save() }
-                    }
-                    .contentShape(Rectangle())
-                    .onTapGesture { editing = it }
-                    .swipeActions(edge: .leading) {
-                        Button { debugging = it } label: { Label("调试", systemImage: "play.fill") }.tint(Theme.accent)
-                    }
-                    // fb-subs-global: any .swipeActions on a row turns off the delete swipe .onDelete synthesises, so
-                    // left swipe on a script did nothing since the 调试 action was added. Explicit trailing 删除.
-                    .swipeActions(edge: .trailing) {
-                        Button(role: .destructive) {
-                            store.config.scripts.removeAll { $0.id == it.id }; store.save()
-                        } label: { Label("删除", systemImage: "trash") }
-                    }
-                    .contextMenu {
-                        Button { editing = it } label: { Label("编辑", systemImage: "pencil") }
-                        Button { debugging = it } label: { Label("在调试台打开", systemImage: "play.fill") }
-                    }
-                }
-                .onDelete { idx in store.config.scripts.remove(atOffsets: idx); store.save() }
-                .onMove { from, to in store.config.scripts.move(fromOffsets: from, toOffset: to); store.save() }
-            }
-            .listRowBackground(Theme.card)
-
-            Section("工具") {
-                NavigationLink { ScriptWorkbenchView(target: .scratch) } label: { Label("脚本调试台", systemImage: "play.rectangle") }
-                NavigationLink { ScriptLogsView() } label: { Label("脚本日志", systemImage: "text.alignleft") }
-                NavigationLink { ScriptNoticesView() } label: { Label("脚本通知记录", systemImage: "bell") }
-                NavigationLink { StoreView() } label: { Label("持久化存储（$persistentStore / $prefs）", systemImage: "externaldrive") }
-                NavigationLink { LocalScriptsView() } label: { Label("本地脚本文件", systemImage: "folder") }
-                Button { store.requestNotificationPermission() } label: { Label("允许脚本通知", systemImage: "bell.badge") }
-            }
-            .listRowBackground(Theme.card)
-
-            Section("兼容的脚本 API") {
-                Text("$request、$response、$done、$httpClient（get/post/put/delete/head/options/patch，支持 policy、binary-mode、insecure、auto-redirect）、$persistentStore（所有脚本共享）、$notification.post、$utils（geoip / ipasn / ipaso / ungzip）、$httpAPI（策略查询 / 切换、出站模式、重载配置）、$network、$script、$environment、$argument、console、setTimeout；Quantumult X：$task.fetch、$prefs、$notify；另提供 TextEncoder/TextDecoder、atob/btoa。脚本类型：http-request、http-response、cron（定时，连接期间执行）、event（network-changed）、generic（手动运行 / 面板）。Surge、Loon、Quantumult X、Stash、Egern（兼容写法）都能识别；暂不支持 Surge type=dns / type=rule 与 Egern 原生 ctx 脚本。")
-                    .font(.caption).foregroundStyle(.secondary)
-            }
-            .listRowBackground(Theme.card)
-        }
-        .listStyle(.insetGrouped)
-        .scrollContentBackground(.hidden)
-        .background(Theme.bg.ignoresSafeArea())
-        .navigationTitle("脚本")
-        .toolbar {
-            ToolbarItemGroup(placement: .navigationBarTrailing) {
-                EditButton()
-                Menu {
-                    Button { adding = true } label: { Label("新建 / 导入脚本", systemImage: "doc.badge.plus") }
-                    Button { addingRaw = true } label: { Label("粘贴脚本行", systemImage: "text.badge.plus") }
-                } label: { Image(systemName: "plus") }
-                .accessibilityIdentifier("scripts.add")
-            }
-        }
-        .sheet(isPresented: $adding) { ScriptFormSheet(item: nil) }
-        .sheet(isPresented: $addingRaw) { LineEditorSheet(title: "粘贴脚本行", scripts: true, item: nil) }
-        .sheet(item: $editing) { ScriptFormSheet(item: $0) }
-        .navigationDestination(isPresented: Binding(get: { debugging != nil }, set: { if !$0 { debugging = nil } })) {
-            if let it = debugging { ScriptWorkbenchView(target: .item(it)) }
-        }
-        .onAppear { if !store.config.scripts.isEmpty { store.requestNotificationPermission() } }
-    }
-}
 
 /// Form for a Surge-style script line, with an inline editor for local scripts.
 struct ScriptFormSheet: View {

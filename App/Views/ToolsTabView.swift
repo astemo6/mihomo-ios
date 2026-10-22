@@ -2,7 +2,7 @@ import SwiftUI
 
 // feat/more-dedup (user 2026-10-21 18:06, modelled on Egern's 工具 page): the 工具 tab replaces the old 配置 tab.
 // Large rounded cards — colored square icon, title, a row of small icon + count stats — for every tool-type
-// page (节点与订阅, 分流规则, 模块, 重写, 脚本, 定时任务, HTTPS 解密, DNS, logs and network tools). Settings-type
+// page (节点与订阅, 分流规则, 重写 (QX-style: subscriptions + local rules + scripts), 定时任务, HTTPS 解密, DNS, logs and network tools). Settings-type
 // pages stay in 更多; 配置管理 is the first row of 更多. Card ids keep the old `more.<zh-Hans key>` so UI tests
 // and deep links hold. Counts are a snapshot taken when the tab appears, computed off the main thread (nothing here observes a
 // frequently-publishing store, see fix/nav-jank).
@@ -37,6 +37,8 @@ struct ToolStats: Equatable {
     var scripts = 0
     var scriptsOn = 0
     var moduleScripts = 0
+    /// 重写 card: enabled local rewrites + local scripts + the rules of enabled subscriptions.
+    var rewriteRules: Int { rewritesOn + scriptsOn + moduleRewrites + moduleScripts }
     var tasksPaused = false
     var mitmOn = false
     var caExists = false
@@ -134,23 +136,14 @@ struct ToolsList: View {
                         ToolStat(symbol: "pencil.line", value: "\(stats.customRulesOn)/\(stats.customRules)", label: String(localized: "自定义规则 \(stats.customRulesOn)/\(stats.customRules)")),
                     ]) { RulesView() }
                 }
+                // QX-style (user 2026-10-22): one 重写 card replaced 模块 / 重写 / 脚本 — subscriptions, local rules and
+                // script tools are on one page.
                 cardSection {
-                    card("模块与资源", "模块", "puzzlepiece.extension", .green, stats: [
-                        ToolStat(symbol: "puzzlepiece", value: "\(stats.modulesOn)/\(stats.modules)", label: String(localized: "已启用模块 \(stats.modulesOn)/\(stats.modules)")),
-                    ] + engineOffStat) { ModulesView() }
-                }
-                cardSection {
-                    card("重写（本地模块）", "重写", "arrow.triangle.swap", .red, stats: [
-                        ToolStat(symbol: "pencil", value: "\(stats.rewritesOn)/\(stats.rewrites)", label: String(localized: "我的重写 \(stats.rewritesOn)/\(stats.rewrites)")),
-                        ToolStat(symbol: "puzzlepiece", value: "\(stats.moduleRewrites)", label: String(localized: "模块重写 \(stats.moduleRewrites)")),
+                    card("重写", "重写", "arrow.triangle.swap", .red, stats: [
+                        ToolStat(symbol: "link", value: "\(stats.modulesOn)/\(stats.modules)", label: String(localized: "订阅 \(stats.modulesOn)/\(stats.modules)")),
+                        ToolStat(symbol: "list.bullet", value: "\(stats.rewriteRules)", label: String(localized: "规则 \(stats.rewriteRules)")),
                         ToolStat(symbol: "globe", value: "\(stats.hostnames)", label: String(localized: "MitM 主机名 \(stats.hostnames)")),
-                    ]) { LocalModuleView() }
-                }
-                cardSection {
-                    card("脚本", "脚本", "curlybraces", .purple, stats: [
-                        ToolStat(symbol: "doc.text", value: "\(stats.scriptsOn)/\(stats.scripts)", label: String(localized: "我的脚本 \(stats.scriptsOn)/\(stats.scripts)")),
-                        ToolStat(symbol: "puzzlepiece", value: "\(stats.moduleScripts)", label: String(localized: "模块脚本 \(stats.moduleScripts)")),
-                    ]) { ScriptsView() }
+                    ] + engineOffStat) { RewriteView() }
                 }
                 cardSection {
                     card("任务", "定时任务", "clock.arrow.circlepath", .teal, stats: [

@@ -44,6 +44,12 @@ final class ResourceStore: ObservableObject {
 
     var home: String { AppShared.homeURL.path }
 
+    nonisolated static func intervalText(_ s: Int) -> String {
+        if s % 86400 == 0 { return String(localized: "\(s / 86400) 天") }
+        if s % 3600 == 0 { return String(localized: "\(s / 3600) 小时") }
+        return String(localized: "\(max(1, s / 60)) 分钟")
+    }
+
     func reload() {
         let home = self.home
         let json = LibmihomoResourceList(home)
@@ -148,6 +154,17 @@ final class ResourceStore: ObservableObject {
         }
     }
 
+    /// One resource from the subscription sheet (立即更新 / save with a new address): returns the error text, nil
+    /// when it downloaded; reloads the tunnel when the content changed.
+    func refresh(key: String) async -> String? {
+        reload()
+        guard let it = items.first(where: { $0.key == key }) else { return String(localized: "找不到这个订阅") }
+        let changed = await download(it)
+        await finish(changed: changed)
+        if let e = items.first(where: { $0.key == key })?.error, !e.isEmpty { return e }
+        return nil
+    }
+
     func update(_ it: ResourceItem) async {
         let changed = await download(it)
         await finish(changed: changed)
@@ -183,19 +200,5 @@ final class ResourceStore: ObservableObject {
         guard Date().timeIntervalSince(lastDueCheck) > 600 else { return }
         lastDueCheck = Date()
         await updateAll(onlyDue: true)
-    }
-
-    // MARK: add
-
-    /// Adds a remote rule set to the custom rules (rules.json) — its single home.
-    func addRuleSet(url: String, policy: String, domainSet: Bool, interval: Int) async {
-        let u = url.trimmingCharacters(in: .whitespacesAndNewlines)
-        guard u.hasPrefix("http") else { message = String(localized: "请输入 http(s) 链接"); return }
-        let line = "\(domainSet ? "DOMAIN-SET" : "RULE-SET"),\(u),\(policy)"
-        let rs = CustomRulesStore.shared
-        rs.rules.insert(CustomRule(line: line, enabled: true, interval: interval), at: 0)
-        rs.save()
-        reload()
-        if let it = items.first(where: { $0.url == u && $0.kind == "ruleset" }) { await update(it) }
     }
 }
