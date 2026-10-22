@@ -39,6 +39,13 @@ struct TabRootPinnedChrome<Header: View>: ViewModifier {
     @State private var headerBottom: CGFloat = 0
 
     private var scrolled: Bool { probeY < headerBottom - 0.5 }
+    /// Pull-down overscroll (rubber band). The header rides down with the content like a system large title,
+    /// instead of staying put while the cards pull away and leave a blank gap (user 2026-10-23 screen recording:
+    /// 「首页这个动画有问题」).
+    private var overscroll: CGFloat {
+        guard probeY != .greatestFiniteMagnitude, headerBottom > 0 else { return 0 }
+        return max(0, probeY - headerBottom)
+    }
 
     func body(content: Content) -> some View {
         content
@@ -75,11 +82,14 @@ struct TabRootPinnedChrome<Header: View>: ViewModifier {
                     .accessibilityHidden(true)
                 )
                 .background(GeometryReader { g in
+                    // Measured in layout space (before the overscroll offset below), so riding down never feeds
+                    // back into headerBottom.
                     Color.clear
                         .onAppear { headerBottom = g.frame(in: .global).maxY }
-                        .onChange(of: g.frame(in: .global).maxY) { headerBottom = $0 }
+                        .onChange(of: g.frame(in: .global).maxY) { if overscroll == 0 { headerBottom = $0 } }
                 })
                 .animation(.easeInOut(duration: 0.15), value: scrolled)
+                .offset(y: overscroll)
             }
     }
 }
