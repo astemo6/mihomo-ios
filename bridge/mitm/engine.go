@@ -2,6 +2,7 @@ package mitm
 
 import (
 	"bufio"
+	"bytes"
 	"context"
 	"crypto/tls"
 	"encoding/base64"
@@ -380,10 +381,62 @@ func (e *Engine) handleConn(c net.Conn) {
 		return
 	}
 	if looksLikeHTTP(br) && st.cfg.Enabled {
-		e.handOff(mc)
-		return
+		// P0-1 (v0.19.17): WeChat's mmtls short links are plain-HTTP POSTs to port 80 whose binary body (and
+		// the Upgrade: mmtls header, a hop-by-hop header for net/http) must reach the server byte for byte.
+		// Through the HTTP handler the request was re-serialised (Upgrade dropped, header case changed), and
+		// WeChat kept spinning. No rewrite can do anything useful with them: tunnel them untouched.
+		_ = c.SetReadDeadline(time.Now().Add(sniPeekTimeout()))
+		opaque := isOpaqueHTTP(peekHTTPHead(br))
+		_ = c.SetReadDeadline(time.Time{})
+		if !opaque {
+			e.handOff(mc)
+			return
+		}
 	}
 	e.passThrough(mc, target)
+}
+
+// peekHTTPHead returns the buffered request head (up to the blank line, or as much as the reader holds)
+// without consuming it.
+func peekHTTPHead(br *bufio.Reader) []byte {
+	for {
+		n := br.Buffered()
+		b, _ := br.Peek(n)
+		if i := bytes.Index(b, []byte("\r\n\r\n")); i >= 0 {
+			return b[:i+4]
+		}
+		if n >= br.Size() {
+			return b
+		}
+		if _, err := br.Peek(n + 1); err != nil {
+			b, _ = br.Peek(br.Buffered())
+			return b
+		}
+	}
+}
+
+// isOpaqueHTTP: a plain-HTTP request whose body is an opaque binary protocol that must not be re-encoded
+// (WeChat mmtls: POST /mmtls/<hex> with Upgrade: mmtls).
+func isOpaqueHTTP(head []byte) bool {
+	line, rest, _ := bytes.Cut(head, []byte("\r\n"))
+	if f := bytes.Fields(line); len(f) >= 2 {
+		target := f[1]
+		if i := bytes.Index(target, []byte("://")); i >= 0 { // absolute-form
+			if j := bytes.IndexByte(target[i+3:], '/'); j >= 0 {
+				target = target[i+3+j:]
+			}
+		}
+		if bytes.HasPrefix(target, []byte("/mmtls/")) {
+			return true
+		}
+	}
+	for _, h := range bytes.Split(rest, []byte("\r\n")) {
+		k, v, ok := bytes.Cut(h, []byte(":"))
+		if ok && strings.EqualFold(strings.TrimSpace(string(k)), "Upgrade") && strings.Contains(strings.ToLower(string(v)), "mmtls") {
+			return true
+		}
+	}
+	return false
 }
 
 func looksLikeHTTP(br *bufio.Reader) bool {
