@@ -673,6 +673,8 @@ struct ProvidersView: View {
     @ObservedObject private var updater = ProviderUpdater.shared
     @State private var ruleProviders: [ProviderItem] = []
     @State private var updating: Set<String> = []
+    /// User 2026-10-22 「规则集我怎么没法添加新的规则订阅」: + adds a remote rule list as a custom RULE-SET rule.
+    @State private var adding = false
     @State private var error: String?
 
     var body: some View {
@@ -681,7 +683,17 @@ struct ProvidersView: View {
         }
         .background(Theme.bg.ignoresSafeArea())
         .navigationTitle("配置里的规则集")
+        .sheet(isPresented: $adding) {
+            CustomRuleEditor(rule: CustomRule(line: "RULE-SET,,")) { r in
+                CustomRulesStore.shared.rules.insert(r, at: 0)
+                CustomRulesStore.shared.save()
+            }
+        }
         .toolbar {
+            ToolbarItem(placement: .navigationBarTrailing) {
+                Button { adding = true } label: { Image(systemName: "plus") }
+                    .accessibilityLabel(Text("添加规则集")).accessibilityIdentifier("providers.add")
+            }
             ToolbarItem(placement: .navigationBarTrailing) {
                 if !vpn.isConnected {
                     if updater.running {
@@ -712,7 +724,7 @@ struct ProvidersView: View {
             if let error { Text(error).font(.footnote).foregroundStyle(Theme.bad).listRowBackground(Theme.card) }
             Section {
                 if ruleProviders.isEmpty {
-                    EmptyStateRow(icon: "list.bullet.rectangle", title: "当前配置没有规则集", message: "自己添加的远程规则集在「模块」页的规则集里。")
+                    EmptyStateRow(icon: "list.bullet.rectangle", title: "当前配置没有规则集", message: "点右上角 + 添加远程规则集（Surge / QX / Clash 列表），它会作为自定义规则排在配置规则之前。")
                 }
                 ForEach(ruleProviders) { p in
                     row(p, detail: String(localized: "\(p.ruleCount ?? 0) 条") + " · \(p.behavior ?? "") · \(p.vehicleType ?? "")", key: "r:" + p.name) {
@@ -734,7 +746,7 @@ struct ProvidersView: View {
                 .listRowBackground(Color.clear)
             Section {
                 if offline.result.ruleProviders.isEmpty {
-                    EmptyStateRow(icon: "list.bullet.rectangle", title: "当前配置没有规则集", message: "自己添加的远程规则集在「模块」页的规则集里。")
+                    EmptyStateRow(icon: "list.bullet.rectangle", title: "当前配置没有规则集", message: "点右上角 + 添加远程规则集（Surge / QX / Clash 列表），它会作为自定义规则排在配置规则之前。")
                 }
                 ForEach(offline.result.ruleProviders) { p in offlineRow(p) }
             } header: { Text("规则集 \(offline.result.ruleProviders.count)") } footer: {

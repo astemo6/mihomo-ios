@@ -94146,6 +94146,74 @@
           }
         }
       }
+    },
+    "添加规则集": {
+      "localizations": {
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "新增規則集"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Add rule set"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ルールセットを追加"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "규칙 세트 추가"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Добавить набор правил"
+          }
+        }
+      }
+    },
+    "点右上角 + 添加远程规则集（Surge / QX / Clash 列表），它会作为自定义规则排在配置规则之前。": {
+      "localizations": {
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "點右上角 + 新增遠端規則集（Surge / QX / Clash 列表），它會作為自訂規則排在設定規則之前。"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Tap + to add a remote rule set (Surge / QX / Clash list). It is added as a custom rule, ahead of the profile's rules."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "右上の + でリモートのルールセット（Surge / QX / Clash リスト）を追加します。カスタムルールとしてプロファイルのルールより前に入ります。"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "오른쪽 위 + 를 눌러 원격 규칙 세트(Surge / QX / Clash 목록)를 추가합니다. 사용자 규칙으로 프로파일 규칙보다 앞에 들어갑니다."
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Нажмите +, чтобы добавить удалённый набор правил (список Surge / QX / Clash). Он добавляется как своё правило перед правилами профиля."
+          }
+        }
+      }
     }
   },
   "version": "1.0"
