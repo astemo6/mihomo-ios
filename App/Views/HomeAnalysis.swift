@@ -549,7 +549,7 @@ struct HomeRuleHitsCard: View {
     }
 
     /// feat/egern-style: Egern's rule card — ring with the count, then (fix/rule-labels, 「下方的描述与 Egern 看齐」) the
-    /// payload, a human rule-type name and the policy with its 策略-card colour dot, each one line (RuleDisplay; the app's
+    /// rule / rule-set name and the policy, each one line, as in Egern (RuleDisplay; the app's
     /// own engine rules read 「HTTP 明文（端口 80）」 · 重写 · 重写引擎, never 「((Network,tcp)…」 · AND · __MITM__).
     func ring(_ r: ConnectionAnalytics.RuleHit, maxHits: Int) -> some View {
         let parts = RuleDisplay.describe(r.rule, policy: r.policy)
@@ -566,15 +566,10 @@ struct HomeRuleHitsCard: View {
             .frame(width: 48, height: 48)
             .padding(.bottom, 4)
             .accessibilityHidden(true)
+            // Egern (user's reference recording, 2026-10-22): two lines only — the rule / rule-set name, then the
+            // policy in grey. The rule type stays in the VoiceOver label.
             Text(verbatim: parts.primary).font(.caption2).lineLimit(1).truncationMode(.middle)
-            if !parts.type.isEmpty {
-                Text(verbatim: parts.type).scaledFont(9, weight: .medium).foregroundStyle(.secondary)
-                    .lineLimit(1).truncationMode(.middle)
-            }
-            HStack(spacing: 3) {
-                Circle().fill(HomePolicyShareCard.color(of: r.policy, in: policies)).frame(width: 5, height: 5)
-                Text(verbatim: policy).scaledFont(9).foregroundStyle(.secondary).lineLimit(1).truncationMode(.middle)
-            }
+            Text(verbatim: policy).scaledFont(9).foregroundStyle(.secondary).lineLimit(1).truncationMode(.middle)
         }
         .frame(width: ringCardWidth)
         .padding(.vertical, 10).padding(.horizontal, 6)

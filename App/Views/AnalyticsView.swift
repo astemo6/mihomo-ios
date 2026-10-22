@@ -526,16 +526,12 @@ struct RuleHitsList: View {
                         HStack {
                             VStack(alignment: .leading, spacing: 3) {
                                 Text(verbatim: parts.primary).font(.subheadline).lineLimit(1).truncationMode(.middle)
-                                HStack(spacing: 6) {
-                                    if !parts.type.isEmpty { RuleTypeTag(type: parts.type, key: parts.key) }
-                                    Circle().fill(HomePolicyShareCard.color(of: r.policy, in: policies)).frame(width: 6, height: 6)
-                                        .accessibilityHidden(true)
-                                    Text(verbatim: RuleDisplay.policyName(r.policy)).font(.caption).foregroundStyle(.secondary)
-                                        .lineLimit(1).truncationMode(.middle)
-                                }
+                                // Egern 规则 page: the policy as a grey subtitle (no type tag, no dot).
+                                Text(verbatim: RuleDisplay.policyName(r.policy)).font(.caption).foregroundStyle(.secondary)
+                                    .lineLimit(1).truncationMode(.middle)
                             }
                             Spacer(minLength: 6)
-                            Text("\(r.hits)").font(.subheadline.weight(.semibold).monospacedDigit())
+                            Text("\(r.hits)").font(.subheadline.monospacedDigit()).foregroundStyle(.secondary)
                         }
                     }
                     .listRowBackground(r.id == focus ? Theme.accent.opacity(0.14) : Theme.card)
