@@ -17,7 +17,8 @@ import SwiftUI
 /// button. Pushed sub-pages are untouched and keep their normal inline titles.
 ///
 /// 2026-10-22 evening (user: 「Tern 每页最上方加上标题吧，现在这样太空了，不协调」): the title is drawn again, Egern style —
-/// a centred inline headline in the bar on standard roots, and a centred title row above 首页's pinned header.
+/// a large title on standard roots (collapsing to the centred inline title on scroll, like Egern's 「分析」), and a
+/// bold left-aligned title row above 首页's pinned header.
 struct TabRootChrome: ViewModifier {
     let title: LocalizedStringKey
     var showsTitle: Bool = true
@@ -25,19 +26,8 @@ struct TabRootChrome: ViewModifier {
     func body(content: Content) -> some View {
         content
             .navigationTitle(title)
-            .navigationBarTitleDisplayMode(.inline)
+            .navigationBarTitleDisplayMode(showsTitle ? .large : .inline)
             .toolbar(.visible, for: .navigationBar)
-            .toolbar {
-                ToolbarItem(placement: .principal) {
-                    Text(title)
-                        .font(.headline)
-                        .lineLimit(1)
-                        // Hidden visually, still read by VoiceOver as the page heading.
-                        .foregroundStyle(showsTitle ? Color.primary : Color.clear)
-                        .accessibilityAddTraits(.isHeader)
-                        .accessibilityIdentifier("tabroot.title")
-                }
-            }
     }
 }
 
@@ -59,9 +49,10 @@ struct TabRootPinnedChrome<Header: View>: ViewModifier {
                 VStack(spacing: 0) {
                     // Egern-style centred page title, same height as the other tabs' inline bar row.
                     Text(title)
-                        .font(.headline)
+                        .font(.title.weight(.bold))
                         .lineLimit(1)
-                        .frame(maxWidth: .infinity)
+                        .frame(maxWidth: .infinity, alignment: .leading)
+                        .padding(.horizontal, 16)
                         .frame(height: 44)
                         .accessibilityAddTraits(.isHeader)
                         .accessibilityIdentifier("tabroot.title")
