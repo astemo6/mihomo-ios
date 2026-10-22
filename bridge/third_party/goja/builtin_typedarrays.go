@@ -1364,7 +1364,7 @@ func (r *Runtime) typedArray_from(call FunctionCall) Value {
 	if mapFn := call.Argument(1); mapFn != _undefined {
 		mapFc = r.toCallable(mapFn)
 	}
-	// Tern: ToObject (spec 23.2.2.1 GetMethod(source, @@iterator)) so a primitive string is iterated as
+	// mihomo-ios patch: ToObject (spec 23.2.2.1 GetMethod(source, @@iterator)) so a primitive string is iterated as
 	// in V8 / JavaScriptCore — Uint8Array.from(binaryString, c => c.charCodeAt(0)) (喜马拉雅 EP decrypt).
 	source := call.Argument(0).ToObject(r)
 	usingIter := toMethod(source.self.getSym(SymIterator, nil))

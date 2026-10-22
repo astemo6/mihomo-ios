@@ -65,14 +65,15 @@ extension MihomoUITests {
         XCTAssertEqual(placeTop, placeTopScrolled, accuracy: 1, "Home header does not scroll away")
         for n in ["policy", "requests", "tools", "more"] {
             XCTAssertNotNil(barHeights[n], "\(n): navigation bar")
-            // 44 pt row; 请求 and 更多 (settings search, PR #92) also carry a search drawer (~52 pt) under the row.
-            // A large title would add ~52 more.
-            let limit: CGFloat = (n == "requests" || n == "more") ? 110 : 60
-            if let h = barHeights[n] { XCTAssertLessThan(h, limit, "\(n): no large title (bar \(h) pt)") }
+            // User 2026-10-22 「现在这样太空了」: tab roots show a large title again (44 pt row + ~52 pt title);
+            // 请求 and 更多 also carry a search drawer (~52 pt) under it.
+            let floor: CGFloat = (n == "requests" || n == "more") ? 130 : 80
+            if let h = barHeights[n] { XCTAssertGreaterThan(h, floor, "\(n): large title (bar \(h) pt)") }
         }
-        let values = tops.values
+        // 首页 has its own pinned exit header above the bold 首页 title; the other four tabs share one top.
+        let values = tops.filter { $0.key != "home" }.values
         if let lo = values.min(), let hi = values.max() {
-            XCTAssertLessThanOrEqual(hi - lo, 12, "same top on every tab: \(tops)")
+            XCTAssertLessThanOrEqual(hi - lo, 12, "same top on the four bar tabs: \(tops)")
         }
         XCTAssertEqual(tops.count, 5, "top measured on all five tabs: \(tops)")
     }

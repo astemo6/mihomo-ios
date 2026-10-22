@@ -111,8 +111,20 @@ extension MihomoUITests {
         back(); back(); back()
 
         // 查看全部 (end of the rule rings) → 规则.
+        // The tile ends a horizontal ring strip: bring the card on screen, then swipe the strip left. (scrollTo
+        // swipes vertically only, and an off-screen tile has no valid activation point to test hittability.)
         let allRules = app.element(id: "home.analysis.rules.all")
-        if scrollTo(allRules, fail: false) {
+        let rulesCard = app.element(id: "home.analysis.rules")
+        var allRulesShown = false
+        if scrollTo(rulesCard, fail: false) {
+            for _ in 0..<6 {
+                if allRules.exists && allRules.frame.maxX <= app.frame.maxX && allRules.frame.minX >= 0 { allRulesShown = true; break }
+                let strip = app.buttons.matching(identifier: "home.analysis.rule").firstMatch
+                (strip.exists ? strip : rulesCard).swipeLeft()
+                usleep(400_000)
+            }
+        }
+        if allRulesShown {
             allRules.tap()
             assertNavBar(L("规则"), "查看全部")
             XCTAssertTrue(app.element(id: "rulehits.row.GeoIP(CN).DIRECT").waitForExistence(timeout: 6), "GeoIP(CN) row in 规则")

@@ -12,7 +12,7 @@ MODULE="github.com/dop251/goja"
 VENDORED="bridge/third_party/goja"
 
 # Files PATCHED.md documents as locally patched (plus PATCHED.md itself).
-ALLOWED=" compiler.go compiler_expr.go compiler_stmt.go vm.go "
+ALLOWED=" compiler.go compiler_expr.go compiler_stmt.go vm.go builtin_typedarrays.go "
 
 cd "$(dirname "$0")/.."
 
