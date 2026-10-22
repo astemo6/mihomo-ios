@@ -471,9 +471,17 @@ struct HomePolicyShareCard: View {
     static func parts(_ snap: HomeAnalysisModel.PolicySnap) -> [(String, Int64, Color)] {
         let colors = AnalyticsView.palette
         var out: [(String, Int64, Color)] = []
-        for (i, p) in snap.top.enumerated() { out.append((p.name, p.bytes, colors[i % (colors.count - 1)])) }
+        for (i, p) in snap.top.enumerated() { out.append((RuleDisplay.policyName(p.name), p.bytes, colors[i % (colors.count - 1)])) }
         if snap.rest > 0 { out.append((String(localized: "其他"), snap.rest, colors.last ?? .gray)) }
         return out
+    }
+
+    /// fix/rule-labels: a policy's legend colour (raw policy name, as the snapshot keys it) — the 规则 card and 规则命中 put the
+    /// same dot next to the policy a rule chose. Policies outside the top ones share 其他's neutral colour.
+    static func color(of policy: String, in snap: HomeAnalysisModel.PolicySnap) -> Color {
+        let colors = AnalyticsView.palette
+        if let i = snap.top.firstIndex(where: { $0.name == policy }) { return colors[i % (colors.count - 1)] }
+        return colors.last ?? .gray
     }
 }
 
@@ -483,6 +491,8 @@ struct HomeRuleHitsCard: View {
     let collapsed: Bool
     let toggle: () -> Void
     @State private var snap = HomeAnalysisModel.shared.rules
+    /// fix/rule-labels: for the policy dot under each ring (same colours as the 策略 card legend).
+    @State private var policies = HomeAnalysisModel.shared.policies
     /// r7 P3-4: card widths follow Dynamic Type with the caption2 / 9 pt texts inside (fixed 88 / 72 pt left only 「…」).
     @ScaledMetric(relativeTo: .caption2) private var ringCardWidth: CGFloat = 88
     @ScaledMetric(relativeTo: .caption2) private var moreCardWidth: CGFloat = 72
@@ -535,20 +545,15 @@ struct HomeRuleHitsCard: View {
             }
         }
         .onReceive(HomeAnalysisModel.shared.$rules.removeDuplicates()) { if $0 != snap { snap = $0 } }
+        .onReceive(HomeAnalysisModel.shared.$policies.removeDuplicates()) { if $0 != policies { policies = $0 } }
     }
 
-    /// 「DomainKeyword(example)」 → (DOMAIN-KEYWORD, example); a rule without a payload keeps its name.
-    static func split(_ rule: String) -> (type: String, payload: String?) {
-        guard rule.hasSuffix(")"), let open = rule.firstIndex(of: "("), open > rule.startIndex else { return (rule, nil) }
-        let type = String(rule[..<open])
-        let payload = String(rule[rule.index(after: open)..<rule.index(before: rule.endIndex)])
-        return (Theme.ruleTypeName(type), payload.isEmpty ? nil : payload)
-    }
-
-    /// feat/egern-style: Egern's rule card — ring with the count, the payload, the rule type and policy in small grey.
-    /// The type and the payload are separate one-line texts (「DomainKeyword(example)」 clipped and wrapped before).
+    /// feat/egern-style: Egern's rule card — ring with the count, then (fix/rule-labels, 「下方的描述与 Egern 看齐」) the
+    /// payload, a human rule-type name and the policy with its 策略-card colour dot, each one line (RuleDisplay; the app's
+    /// own engine rules read 「HTTP 明文（端口 80）」 · 重写 · 重写引擎, never 「((Network,tcp)…」 · AND · __MITM__).
     func ring(_ r: ConnectionAnalytics.RuleHit, maxHits: Int) -> some View {
-        let parts = Self.split(r.rule)
+        let parts = RuleDisplay.describe(r.rule, policy: r.policy)
+        let policy = RuleDisplay.policyName(r.policy)
         return VStack(spacing: 4) {
             ZStack {
                 Circle().stroke(Theme.ink(0.08), lineWidth: 4)
@@ -561,19 +566,22 @@ struct HomeRuleHitsCard: View {
             .frame(width: 48, height: 48)
             .padding(.bottom, 4)
             .accessibilityHidden(true)
-            Text(verbatim: parts.payload ?? parts.type).font(.caption2).lineLimit(1).truncationMode(.middle)
-            if parts.payload != nil {
+            Text(verbatim: parts.primary).font(.caption2).lineLimit(1).truncationMode(.middle)
+            if !parts.type.isEmpty {
                 Text(verbatim: parts.type).scaledFont(9, weight: .medium).foregroundStyle(.secondary)
-                    .lineLimit(1).minimumScaleFactor(0.7)
+                    .lineLimit(1).truncationMode(.middle)
             }
-            Text(verbatim: r.policy).scaledFont(9).foregroundStyle(.secondary).lineLimit(1)
+            HStack(spacing: 3) {
+                Circle().fill(HomePolicyShareCard.color(of: r.policy, in: policies)).frame(width: 5, height: 5)
+                Text(verbatim: policy).scaledFont(9).foregroundStyle(.secondary).lineLimit(1).truncationMode(.middle)
+            }
         }
         .frame(width: ringCardWidth)
         .padding(.vertical, 10).padding(.horizontal, 6)
         .frame(maxHeight: .infinity, alignment: .top)
         .background(RoundedRectangle(cornerRadius: Theme.radius, style: .continuous).fill(Theme.card))
         .accessibilityElement(children: .ignore)
-        .accessibilityLabel(Text(verbatim: "\(r.rule), \(r.policy)"))
+        .accessibilityLabel(Text(verbatim: [parts.primary, parts.type, policy].filter { !$0.isEmpty }.joined(separator: ", ")))
         .accessibilityValue(Text("\(r.hits) 次"))
     }
 }

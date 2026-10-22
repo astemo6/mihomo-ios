@@ -291,15 +291,18 @@ struct RulesView: View {
 /// v0.16: rule types are tinted by category (Theme.ruleTypeColor); other tags (provider vehicle / behavior) stay neutral.
 struct RuleTypeTag: View {
     let type: String
+    /// fix/rule-labels: the profile spelling (DOMAIN-SUFFIX, AND) when `type` is a human name (「域名后缀」) — picks the
+    /// tint and keeps the `ruletype.<TYPE>` accessibility id stable.
+    var key: String? = nil
     var body: some View {
-        if let c = Theme.ruleTypeColor(type) {
+        if let c = Theme.ruleTypeColor(key ?? type) {
             Text(verbatim: type).font(.caption2.weight(.semibold))
                 .padding(.horizontal, 5).padding(.vertical, 1)
                 .lineLimit(1) // v0.19.8: a capsule tag never wraps (tall grey box with large text)
                 .background(Capsule().fill(c.opacity(0.16)))
                 .foregroundStyle(c)
                 .lineLimit(1).fixedSize()
-                .accessibilityIdentifier("ruletype." + type)
+                .accessibilityIdentifier("ruletype." + (key ?? type))
         } else {
             Text(verbatim: type).font(.caption2.weight(.semibold))
                 .padding(.horizontal, 5).padding(.vertical, 1)

@@ -359,7 +359,7 @@ struct AnalyticsView: View {
     func legendRow(color: Color, name: String, bytes: ConnectionAnalytics.Bytes, share: Double) -> some View {
         HStack(spacing: 8) {
             Circle().fill(color).frame(width: 8, height: 8).accessibilityHidden(true)
-            Text(name).font(.subheadline).lineLimit(1)
+            Text(verbatim: RuleDisplay.policyName(name)).font(.subheadline).lineLimit(1)
             Spacer()
             Text(Fmt.bytes(bytes.total)).font(.caption.monospacedDigit())
             Text(share.formatted(.percent.precision(.fractionLength(0)))).font(.caption2.monospacedDigit()).foregroundStyle(.secondary)
@@ -394,8 +394,12 @@ struct AnalyticsView: View {
                                         Text("\(r.hits)").font(.caption.weight(.bold).monospacedDigit())
                                     }
                                     .frame(width: 46, height: 46)
-                                    Text(r.rule).font(.caption2.monospaced()).lineLimit(2)
-                                    Text(r.policy).font(.caption2).foregroundStyle(.secondary).lineLimit(1)
+                                    let parts = RuleDisplay.describe(r.rule, policy: r.policy)
+                                    Text(verbatim: parts.primary).font(.caption2).lineLimit(1).truncationMode(.middle)
+                                    if !parts.type.isEmpty {
+                                        Text(verbatim: parts.type).font(.caption2).foregroundStyle(.secondary).lineLimit(1)
+                                    }
+                                    Text(verbatim: RuleDisplay.policyName(r.policy)).font(.caption2).foregroundStyle(.secondary).lineLimit(1)
                                 }
                                 .frame(width: 128, alignment: .leading)
                                 .padding(10)
@@ -504,6 +508,8 @@ struct RuleHitsList: View {
     /// feat/home-drilldown: the source Home reads (the UI-test demo instance under -UITestDemoAnalytics), copied every 2 s
     /// while the page is on screen instead of observing the session store.
     @State private var list: [ConnectionAnalytics.RuleHit] = []
+    /// fix/rule-labels: the 策略 card's order, for the policy colour dot on each row (copied with the list).
+    @State private var policies = HomeAnalysisModel.PolicySnap()
     @State private var scrolled = false
     var body: some View {
         ScrollViewReader { proxy in
@@ -514,12 +520,21 @@ struct RuleHitsList: View {
                 ForEach(list) { r in
                     // feat/home-drilldown: each rule opens 连接 filtered by it (and the policy it chose).
                     NavigationLink { ConnectionsListView(filter: ConnFilter(rules: [r.rule], policies: [r.policy])) } label: {
+                        // fix/rule-labels: Egern-style — payload, then the rule type tag and the policy with its colour dot
+                        // (RuleDisplay; the app's own engine rules never show 「__MITM__」 or the raw logical rule).
+                        let parts = RuleDisplay.describe(r.rule, policy: r.policy)
                         HStack {
-                            VStack(alignment: .leading, spacing: 2) {
-                                Text(r.rule).font(.footnote.monospaced()).lineLimit(2)
-                                Text(r.policy).font(.caption2).foregroundStyle(.secondary)
+                            VStack(alignment: .leading, spacing: 3) {
+                                Text(verbatim: parts.primary).font(.subheadline).lineLimit(1).truncationMode(.middle)
+                                HStack(spacing: 6) {
+                                    if !parts.type.isEmpty { RuleTypeTag(type: parts.type, key: parts.key) }
+                                    Circle().fill(HomePolicyShareCard.color(of: r.policy, in: policies)).frame(width: 6, height: 6)
+                                        .accessibilityHidden(true)
+                                    Text(verbatim: RuleDisplay.policyName(r.policy)).font(.caption).foregroundStyle(.secondary)
+                                        .lineLimit(1).truncationMode(.middle)
+                                }
                             }
-                            Spacer()
+                            Spacer(minLength: 6)
                             Text("\(r.hits)").font(.subheadline.weight(.semibold).monospacedDigit())
                         }
                     }
@@ -539,6 +554,8 @@ struct RuleHitsList: View {
             while !Task.isCancelled {
                 let l = HomeAnalysisModel.shared.source.ruleList
                 if l != list { list = l }
+                let p = HomeAnalysisModel.shared.policies
+                if p != policies { policies = p }
                 try? await Task.sleep(nanoseconds: 2_000_000_000)
             }
         }

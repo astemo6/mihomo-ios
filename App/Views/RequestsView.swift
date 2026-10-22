@@ -291,12 +291,15 @@ struct ConnectionRow: View {
                 Text(m.joined(separator: " · ")).font(.caption2).foregroundStyle(Theme.accent).lineLimit(2)
             }
             HStack(spacing: 6) {
+                // fix/rule-labels: human rule type + payload and policy names (RuleDisplay) — the engine's own rule and
+                // outbound read 「重写 · HTTP 明文（端口 80）」 / 「重写引擎」, never the logical rule text or 「__MITM__」.
                 if let r = c.rule, !r.isEmpty {
-                    RuleTypeTag(type: Theme.ruleTypeName(r))
-                    if let p = c.rulePayload, !p.isEmpty { Text(verbatim: p).lineLimit(1).truncationMode(.middle).foregroundStyle(.secondary) }
+                    let parts = RuleDisplay.describe(type: r, payload: c.rulePayload, policy: c.chains?.first)
+                    if !parts.type.isEmpty { RuleTypeTag(type: parts.type, key: parts.key) }
+                    Text(verbatim: parts.primary).lineLimit(1).truncationMode(.middle).foregroundStyle(.secondary)
                 }
                 Spacer(minLength: 4)
-                if isMitM { PolicyChip(name: String(localized: "MitM 引擎")) } else if !c.chainText.isEmpty { PolicyChip(name: c.chainText) }
+                if !c.chainText.isEmpty { PolicyChip(name: RuleDisplay.chainText(c.chains)) }
             }
             .font(.caption)
             HStack(spacing: 10) {

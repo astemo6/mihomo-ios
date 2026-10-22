@@ -111,7 +111,8 @@ extension MihomoUITests {
         back(); back(); back()
 
         // 规则 ring → 规则命中 (never the connections straight away) → that rule's connections → detail.
-        let ring = app.buttons.matching(NSPredicate(format: "label CONTAINS %@", "GeoIP(CN)")).firstMatch
+        // fix/rule-labels: the ring reads Egern-style 「CN, GeoIP, DIRECT」 (payload, type, policy), not 「GeoIP(CN)」.
+        let ring = app.buttons.matching(NSPredicate(format: "label BEGINSWITH %@", "CN, GeoIP")).firstMatch
         XCTAssertTrue(scrollTo(ring), "GeoIP rule ring")
         ring.tap()
         assertNavBar(L("规则命中"), "rule ring opens the rule overview")

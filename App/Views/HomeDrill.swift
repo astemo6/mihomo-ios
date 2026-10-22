@@ -71,7 +71,10 @@ struct ConnFilter: Equatable {
         if !policies.isEmpty && !policies.contains(Self.policy(c)) { return false }
         if let host, ConnectionAnalytics.hostName(c.metadata) != host { return false }
         if !q.isEmpty {
-            let hay = [c.metadata.displayHost, c.chainText, c.ruleText, c.metadata.destinationIP ?? ""].joined(separator: " ").lowercased()
+            // fix/rule-labels: the raw names and the shown ones (「重写引擎」「域名后缀」…) both match.
+            let shown = RuleDisplay.describe(type: c.rule, payload: c.rulePayload, policy: c.chains?.first)
+            let hay = [c.metadata.displayHost, c.chainText, c.ruleText, c.metadata.destinationIP ?? "",
+                       RuleDisplay.chainText(c.chains), shown.primary, shown.type].joined(separator: " ").lowercased()
             if !hay.contains(q) { return false }
         }
         return true
@@ -287,7 +290,7 @@ struct ConnFilterSheet: View {
     var body: some View {
         NavigationStack {
             List {
-                let shown = search.isEmpty ? options : options.filter { $0.key.localizedCaseInsensitiveContains(search) }
+                let shown = search.isEmpty ? options : options.filter { $0.key.localizedCaseInsensitiveContains(search) || label($0.key).localizedCaseInsensitiveContains(search) }
                 if shown.isEmpty {
                     Text("没有可选项").font(.footnote).foregroundStyle(.secondary).listRowBackground(Theme.card)
                 }
@@ -297,12 +300,13 @@ struct ConnFilterSheet: View {
                     } label: {
                         HStack(spacing: 10) {
                             VStack(alignment: .leading, spacing: 2) {
+                                // fix/rule-labels: shown via RuleDisplay; the selection keeps the raw key.
                                 if kind == .rules {
-                                    let p = HomeRuleHitsCard.split(o.key)
-                                    Text(verbatim: p.payload ?? p.type).font(.subheadline).lineLimit(2)
-                                    if p.payload != nil { Text(verbatim: p.type).font(.caption2).foregroundStyle(.secondary) }
+                                    let p = RuleDisplay.describe(o.key)
+                                    Text(verbatim: p.primary).font(.subheadline).lineLimit(1).truncationMode(.middle)
+                                    if !p.type.isEmpty { Text(verbatim: p.type).font(.caption2).foregroundStyle(.secondary) }
                                 } else {
-                                    Text(verbatim: o.key).font(.subheadline).lineLimit(1)
+                                    Text(verbatim: RuleDisplay.policyName(o.key)).font(.subheadline).lineLimit(1)
                                 }
                             }
                             Spacer(minLength: 6)
@@ -333,6 +337,13 @@ struct ConnFilterSheet: View {
             }
         }
         .presentationDetents([.medium, .large])
+    }
+
+    /// The text an option is shown with (search matches it as well as the raw key).
+    private func label(_ key: String) -> String {
+        if kind == .policies { return RuleDisplay.policyName(key) }
+        let p = RuleDisplay.describe(key)
+        return p.primary + " " + p.type
     }
 }
 
@@ -374,13 +385,13 @@ struct PolicyTrafficView: View {
                 Section {
                     ForEach(Array(list.enumerated()), id: \.element.id) { i, p in
                         NavigationLink {
-                            ConnectionsListView(filter: ConnFilter(policies: [p.name]), title: p.name)
+                            ConnectionsListView(filter: ConnFilter(policies: [p.name]), title: RuleDisplay.policyName(p.name))
                         } label: {
                             HStack(spacing: 10) {
                                 Circle().fill(i < 12 ? colors[i % (colors.count - 1)] : (colors.last ?? .gray)).frame(width: 9, height: 9)
                                     .accessibilityHidden(true)
                                 VStack(alignment: .leading, spacing: 3) {
-                                    Text(verbatim: p.name).font(.subheadline).lineLimit(1)
+                                    Text(verbatim: RuleDisplay.policyName(p.name)).font(.subheadline).lineLimit(1)
                                     HStack(spacing: 10) {
                                         Label(Fmt.bytes(p.bytes.up), systemImage: "arrow.up").foregroundStyle(Theme.up)
                                         Label(Fmt.bytes(p.bytes.down), systemImage: "arrow.down").foregroundStyle(Theme.down)
