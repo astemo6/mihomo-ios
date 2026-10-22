@@ -260,6 +260,9 @@ struct CoreOverrides: Codable, Equatable {
     var excludeAPNs: Bool = true
     var excludeCellularServices: Bool = true
     var excludeDeviceCommunication: Bool = true
+    /// User 2026-10-22 「加一个功能开关，打开后 FaceTime 就能走代理」: forces includeAllNetworks on and APNs into the
+    /// tunnel (VPNManager.applyScope), and the core prepends FaceTime / APNs rules to the proxy group (bridge facetime.go).
+    var faceTimeProxy: Bool = false
     /// 局域网共享: optional username / password, and only LAN source addresses.
     var lanAuth = LanAuth()
     var lanLocalOnly: Bool = true
@@ -375,6 +378,7 @@ struct CoreOverrides: Codable, Equatable {
         case testURL, testTimeoutMs, overrideHealthCheck
         case includedRoutes, excludedRoutes, skipProxy, blockQUIC
         case includeAllNetworks, excludeLocalNetworks, excludeAPNs, excludeCellularServices, excludeDeviceCommunication
+        case faceTimeProxy
         case lanAuth, lanLocalOnly, ipv6Mode, ipPreference
         case flushDNSOnNetworkChange, lanUsers
     }
@@ -414,6 +418,7 @@ struct CoreOverrides: Codable, Equatable {
         excludeAPNs = get(.excludeAPNs, d.excludeAPNs)
         excludeCellularServices = get(.excludeCellularServices, d.excludeCellularServices)
         excludeDeviceCommunication = get(.excludeDeviceCommunication, d.excludeDeviceCommunication)
+        faceTimeProxy = get(.faceTimeProxy, d.faceTimeProxy)
         lanAuth = get(.lanAuth, d.lanAuth)
         lanLocalOnly = get(.lanLocalOnly, d.lanLocalOnly)
         // Files from before v0.8 have only the bool.

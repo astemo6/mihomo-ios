@@ -145,7 +145,7 @@ func currentPhysical() (string, string) {
 		return physScanned, physSource
 	}
 	physScannedAt = time.Now()
-	if physReported != "" && interfaceUsable(physReported) {
+	if physReported != "" && isPhysicalName(physReported) && interfaceUsable(physReported) {
 		physScanned, physSource = physReported, "NWPathMonitor"
 	} else if n := scanPhysical(net.Interfaces); n != "" {
 		physScanned, physSource = n, "interface scan"
@@ -212,6 +212,12 @@ func scanPhysical6(list func() ([]net.Interface, error)) string {
 		}
 	}
 	return best
+}
+
+// isPhysicalName: Wi-Fi / Ethernet (en*) or cellular (pdp_ip*). A tunnel interface (utun*, ipsec*) reported
+// by the path monitor would loop the core's sockets back into the tunnel, so it falls back to the scan.
+var isPhysicalName = func(name string) bool {
+	return strings.HasPrefix(name, "en") || strings.HasPrefix(name, "pdp_ip")
 }
 
 func interfaceUsable(name string) bool {

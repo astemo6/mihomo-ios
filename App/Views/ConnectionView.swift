@@ -138,11 +138,13 @@ struct ConnectionView: View {
 
     var scopeSection: some View {
         Section {
-            Toggle("接管所有网络流量", isOn: $o.includeAllNetworks).accessibilityIdentifier("conn.includeAll")
-            if o.includeAllNetworks {
+            Toggle("FaceTime 走代理", isOn: $o.faceTimeProxy).accessibilityIdentifier("conn.facetime")
+            Toggle("接管所有网络流量", isOn: o.faceTimeProxy ? .constant(true) : $o.includeAllNetworks)
+                .disabled(o.faceTimeProxy).accessibilityIdentifier("conn.includeAll")
+            if o.includeAllNetworks || o.faceTimeProxy {
                 Toggle("排除局域网", isOn: $o.excludeLocalNetworks)
                 if #available(iOS 16.4, *) {
-                    Toggle("排除推送通知（APNs）", isOn: $o.excludeAPNs)
+                    Toggle("排除推送通知（APNs）", isOn: o.faceTimeProxy ? .constant(false) : $o.excludeAPNs).disabled(o.faceTimeProxy)
                     Toggle("排除运营商服务（电话、短信、VoLTE）", isOn: $o.excludeCellularServices)
                 }
                 if #available(iOS 17.4, *) {
@@ -150,7 +152,9 @@ struct ConnectionView: View {
                 }
             }
         } header: { Text("隧道范围") } footer: {
-            Text(o.includeAllNetworks
+            Text(o.faceTimeProxy
+                 ? "FaceTime 走代理：自动接管所有网络流量、推送通知（APNs）也进隧道，并把 FaceTime 的呼叫与音视频（APNs 5223、UDP 3478–3497 / 16384–16402）交给主代理组。节点需要支持 UDP。更改后重新连接生效。"
+                 : o.includeAllNetworks
                  ? "开启后系统把几乎所有流量（包括其他 App 自行绕过 VPN 的连接）都交给隧道；连接中断时这些流量会被阻断，直到重新连接。下面的排除项保留常用的系统服务。更改后立即写入 VPN 配置。"
                  : "关闭（默认）：按下方的路由接管流量，系统服务可以绕过隧道。")
         }
@@ -367,6 +371,7 @@ struct ConnectionView: View {
         cur.excludeAPNs = o.excludeAPNs
         cur.excludeCellularServices = o.excludeCellularServices
         cur.excludeDeviceCommunication = o.excludeDeviceCommunication
+        cur.faceTimeProxy = o.faceTimeProxy
         cur.includedRoutes = o.includedRoutes
         cur.excludedRoutes = o.excludedRoutes
         cur.skipProxy = o.skipProxy
@@ -393,12 +398,12 @@ struct ConnectionView: View {
             || old.excludedRoutes != cur.excludedRoutes || old.skipProxy != cur.skipProxy
             || old.includeAllNetworks != cur.includeAllNetworks || old.excludeLocalNetworks != cur.excludeLocalNetworks
             || old.excludeAPNs != cur.excludeAPNs || old.excludeCellularServices != cur.excludeCellularServices
-            || old.excludeDeviceCommunication != cur.excludeDeviceCommunication
+            || old.excludeDeviceCommunication != cur.excludeDeviceCommunication || old.faceTimeProxy != cur.faceTimeProxy
         // tunnelMode too: 仅代理 never carries includeAllNetworks (VPNManager.applyScope).
         let scopeChanged = old.tunnelMode != cur.tunnelMode
             || old.includeAllNetworks != cur.includeAllNetworks || old.excludeLocalNetworks != cur.excludeLocalNetworks
             || old.excludeAPNs != cur.excludeAPNs || old.excludeCellularServices != cur.excludeCellularServices
-            || old.excludeDeviceCommunication != cur.excludeDeviceCommunication
+            || old.excludeDeviceCommunication != cur.excludeDeviceCommunication || old.faceTimeProxy != cur.faceTimeProxy
         let reload = old.blockQUIC != cur.blockQUIC || old.ipPreference != cur.ipPreference || old.lanLocalOnly != cur.lanLocalOnly || old.lanAuth != cur.lanAuth || old.lanUsers != cur.lanUsers
         let settings = onDemand
         Task {

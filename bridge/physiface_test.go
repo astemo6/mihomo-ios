@@ -64,6 +64,9 @@ func TestScanPhysicalPrefersWiFiThenCellular(t *testing.T) {
 }
 
 func TestPhysFinderOnlyWhileIncludeAllNetworks(t *testing.T) {
+	old := isPhysicalName
+	isPhysicalName = func(string) bool { return true } // the sandbox has only lo / eth*
+	defer func() { isPhysicalName = old }()
 	resetPhys(t)
 	defer resetPhys(t)
 	lo := loopbackName(t)
@@ -102,6 +105,9 @@ func TestPhysFinderOnlyWhileIncludeAllNetworks(t *testing.T) {
 }
 
 func TestPhysReportedGoneFallsBackToScan(t *testing.T) {
+	old := isPhysicalName
+	isPhysicalName = func(string) bool { return true } // the sandbox has only lo / eth*
+	defer func() { isPhysicalName = old }()
 	resetPhys(t)
 	defer resetPhys(t)
 	SetBindPhysicalInterface(true)

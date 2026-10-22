@@ -166,6 +166,8 @@ struct ResourceUpdateRow: View {
     var owner: String? = nil
     var busy = false
     let update: () -> Void
+    /// User 2026-10-22: 「默认折叠，展开后才显示」 — the source line stays hidden until the row is tapped.
+    @State private var expanded = false
 
     /// 「https://sub.example.com/api/v1/client/subscribe?token=abc」 → 「sub.example.com/…」; a link without a host
     /// (local file, malformed) shows only its last path component.
@@ -189,12 +191,18 @@ struct ResourceUpdateRow: View {
         HStack(alignment: .top, spacing: 12) {
             IconTile(symbol: symbol, tone: tone, dimmed: disabled)
             VStack(alignment: .leading, spacing: 3) {
-                Text(verbatim: name).foregroundStyle(disabled ? Color.secondary : Color.primary).lineLimit(1)
+                HStack(spacing: 4) {
+                    Text(verbatim: name).foregroundStyle(disabled ? Color.secondary : Color.primary).lineLimit(1)
+                    if let owner, !owner.isEmpty {
+                        Image(systemName: expanded ? "chevron.up" : "chevron.down")
+                            .font(.caption2.weight(.semibold)).foregroundStyle(.tertiary)
+                    }
+                }
                 // r7 P3-6: host only — subscription links usually carry a token (?token=…, /api/v1/client/<token>)
                 // that a screenshot or screen recording would leak.
                 Text(verbatim: Self.displayURL(url)).font(.caption2.monospaced()).foregroundStyle(.secondary).lineLimit(1).truncationMode(.middle)
-                if let owner, !owner.isEmpty {
-                    Text("来自 \(owner)").font(.caption).foregroundStyle(.secondary).lineLimit(1).truncationMode(.tail)
+                if expanded, let owner, !owner.isEmpty {
+                    Text("来自 \(owner)").font(.caption).foregroundStyle(.secondary).fixedSize(horizontal: false, vertical: true)
                 }
                 HStack(spacing: 6) {
                     if disabled {
@@ -210,6 +218,11 @@ struct ResourceUpdateRow: View {
                     Label { Text(verbatim: error).lineLimit(2) } icon: { Image(systemName: "exclamationmark.triangle.fill") }
                         .font(.caption).foregroundStyle(Theme.bad)
                 }
+            }
+            .contentShape(Rectangle())
+            .onTapGesture {
+                guard let owner, !owner.isEmpty else { return }
+                withAnimation(.easeInOut(duration: 0.15)) { expanded.toggle() }
             }
             Spacer(minLength: 6)
             if busy {

@@ -75,6 +75,7 @@ func curHomeStr() string {
 // Overrides mirrors the JSON the Swift side writes to <home>/overrides.json.
 type Overrides struct {
 	LogLevel       string `json:"logLevel"`       // silent/error/warning/info/debug
+	FaceTimeProxy  bool   `json:"faceTimeProxy"`  // 连接方式 → FaceTime 走代理 (facetime.go)
 	IPv6           bool   `json:"ipv6"`           // enable IPv6 in core + DNS
 	AllowLan       bool   `json:"allowLan"`       // default false
 	DNSMode        string `json:"dnsMode"`        // fake-ip | redir-host
@@ -422,6 +423,9 @@ func buildRuntimeWith(profile []byte, o Overrides, fd int32, inject func(raw map
 	}
 	if !o.SafeMode {
 		applyCustomRules(raw, o)
+	}
+	if o.FaceTimeProxy {
+		applyFaceTimeRules(raw)
 	}
 	if inject != nil {
 		inject(raw)

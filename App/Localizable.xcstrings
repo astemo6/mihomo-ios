@@ -93772,6 +93772,74 @@
           }
         }
       }
+    },
+    "FaceTime 走代理": {
+      "localizations": {
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "FaceTime 走代理"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Route FaceTime via proxy"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "FaceTime をプロキシ経由"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "FaceTime 프록시 경유"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "FaceTime через прокси"
+          }
+        }
+      }
+    },
+    "FaceTime 走代理：自动接管所有网络流量、推送通知（APNs）也进隧道，并把 FaceTime 的呼叫与音视频（APNs 5223、UDP 3478–3497 / 16384–16402）交给主代理组。节点需要支持 UDP。更改后重新连接生效。": {
+      "localizations": {
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "FaceTime 走代理：自動接管所有網路流量、推播通知（APNs）也進隧道，並把 FaceTime 的通話與音視訊（APNs 5223、UDP 3478–3497 / 16384–16402）交給主代理組。節點需要支援 UDP。變更後重新連線生效。"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Route FaceTime via proxy: turns on Include all networks, keeps push notifications (APNs) inside the tunnel, and sends FaceTime calls and media (APNs 5223, UDP 3478–3497 / 16384–16402) to the main proxy group. The node must support UDP. Takes effect after reconnecting."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "FaceTime をプロキシ経由：すべてのネットワークを含め、プッシュ通知（APNs）もトンネルに入れ、FaceTime の通話とメディア（APNs 5223、UDP 3478–3497 / 16384–16402）をメインのプロキシグループへ送ります。ノードは UDP 対応が必要です。再接続後に有効になります。"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "FaceTime 프록시 경유: 모든 네트워크를 포함하고 푸시 알림(APNs)도 터널로 보내며, FaceTime 통화와 미디어(APNs 5223, UDP 3478–3497 / 16384–16402)를 기본 프록시 그룹으로 보냅니다. 노드가 UDP를 지원해야 합니다. 다시 연결하면 적용됩니다."
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "FaceTime через прокси: включает «Весь трафик», оставляет push-уведомления (APNs) в туннеле и направляет звонки и медиа FaceTime (APNs 5223, UDP 3478–3497 / 16384–16402) в основную группу прокси. Узел должен поддерживать UDP. Вступает в силу после переподключения."
+          }
+        }
+      }
     }
   },
   "version": "1.0"
