@@ -215,6 +215,10 @@ func TestHostMatcherCertNames(t *testing.T) {
 // gives it an IP, the CONNECT carries that IP (mihomo has no host), TLS has the domain as SNI or no SNI
 // at all, and the Host header names the API domain.
 func TestXimalayaEndToEnd(t *testing.T) {
+	if raceEnabled {
+		// The obfuscated real script runs ~1 s in goja and >10 s (the script timeout) under -race.
+		t.Skip("real ximalaya script is too slow under the race detector")
+	}
 	src := ximalayaFile(t)
 	home := t.TempDir()
 	ca, err := GenerateCA(home)
