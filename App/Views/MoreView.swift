@@ -103,7 +103,7 @@ struct MoreView: View {
             .listStyle(.insetGrouped)
             .scrollContentBackground(.hidden)
             .background(Theme.bg.ignoresSafeArea())
-            .navigationTitle("更多")
+            .tabRootChrome("更多")
             .navigationDestination(for: Route.self) { r in
                 switch r {
                 case .profiles: ProfilesView()

@@ -506,7 +506,7 @@ struct PolicyView: View {
                 } else if vpn.isConnected { liveList } else { offlineList }
             }
             .background(Theme.bg.ignoresSafeArea())
-            .navigationTitle(reorderMode ? LocalizedStringKey("编辑排序") : LocalizedStringKey("策略"))
+            .tabRootChrome(reorderMode ? LocalizedStringKey("编辑排序") : LocalizedStringKey("策略"), showsTitle: reorderMode)
             .toolbar {
               if reorderMode {
                 ToolbarItem(placement: .cancellationAction) {

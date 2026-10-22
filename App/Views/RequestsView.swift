@@ -195,7 +195,7 @@ struct RequestsView: View {
                 }
             }
             .background(Theme.bg.ignoresSafeArea())
-            .navigationTitle("请求")
+            .tabRootChrome("请求")
             .toolbar {
                 ToolbarItemGroup(placement: .navigationBarTrailing) {
                     Button { model.paused.toggle() } label: { Image(systemName: model.paused ? "play.fill" : "pause.fill") }

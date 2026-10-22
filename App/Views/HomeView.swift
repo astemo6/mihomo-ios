@@ -15,8 +15,6 @@ struct HomeView: View {
     /// itself (last analysis card removed, 连接数 hidden, VPN state flips live ↔ offline cards), which dismissed a
     /// sheet attached to it mid-edit.
     @ObservedObject private var editor = HomeEditorRouter.shared
-    /// r7 P3-3 / B07: height of the status bar / Dynamic Island area above the page (no navigation bar here).
-    @State private var topInset: CGFloat = 0
 
     /// v0.8: the same cards while disconnected, from the profile file (selection saved for the next connect).
     /// feat/home-groups: the user's chosen groups for this profile (default = the first four).
@@ -49,18 +47,6 @@ struct HomeView: View {
         NavigationStack {
             ScrollView {
                 VStack(spacing: 10) {
-                    // feat/egern-style: Egern's header — large title, small capsule 启动 / 停止 on the right; then the
-                    // compact QX-style exit header (运营商 · ASN · IP, user wants it, Egern has none).
-                    HStack(alignment: .center) {
-                        // r7 P3-4: scales with Dynamic Type like the other tabs' large titles (UIFontMetrics .largeTitle).
-                        Text("首页").scaledFont(28, weight: .bold, relativeTo: .largeTitle).lineLimit(1)
-                            .accessibilityAddTraits(.isHeader)
-                        Spacer(minLength: 8)
-                        HomePowerCapsule()
-                    }
-                    .padding(.horizontal, 4)
-                    .padding(.top, 6)
-                    ExitHeader()
                     if store.profiles.isEmpty { HomeEmptyCard() }
                     if vpn.safeModeActive && vpn.status != .disconnected && vpn.status != .invalid { SafeModeCard() }
                     if vpn.isConnected && !liveGroups.isEmpty {
@@ -95,34 +81,18 @@ struct HomeView: View {
                     }
                 }
                 .padding(.horizontal, 16)
-                .padding(.top, 2)
+                .padding(.top, 4)
+                .background(alignment: .top) { TabRootScrollProbe() }
                 .padding(.bottom, 80) // room for the floating + (feat/home-analysis)
             }
             .overlay(alignment: .bottomTrailing) {
                 HomeQuickAddButton().padding(.trailing, 20).padding(.bottom, 16)
             }
-            // r7 P3-3 / B07: with the navigation bar hidden nothing covered the status bar, so scrolled cards ran
-            // under the clock. A page-coloured strip of exactly the top safe-area height sits there now. The earlier
-            // try (9f106c8) was a 0 pt frame with ignoresSafeArea — still 0 pt high. Here the height is read from a
-            // GeometryReader that respects the safe area, and the strip is placed in a full-height overlay that
-            // ignores it, so it starts at the screen's top edge.
-            .background(GeometryReader { g in
-                Color.clear
-                    .onAppear { topInset = g.safeAreaInsets.top }
-                    .onChange(of: g.safeAreaInsets.top) { topInset = $0 }
-            })
-            .overlay(alignment: .top) {
-                Theme.bg
-                    .frame(height: topInset)
-                    .frame(maxHeight: .infinity, alignment: .top)
-                    .ignoresSafeArea(edges: .top)
-                    .allowsHitTesting(false)
-                    .accessibilityHidden(true)
-            }
             .background(Theme.bg.ignoresSafeArea())
-            // The header (title + 启动 capsule) is part of the page, not a navigation bar: Home has no bar items
-            // that a back gesture or a test's 「first bar button」 could hit.
-            .toolbar(.hidden, for: .navigationBar)
+            // fix/tab-top-spacing: no page title (the tab bar names it). The Quantumult X-style exit header (flag +
+            // place, VPN switch; 运营商 · ASN · IP) is pinned where the other tabs have their slim bar row and never
+            // scrolls away; scrolled cards pass under its bar material (replaces the r7 B07 status-bar strip).
+            .tabRootChrome("首页") { ExitHeader() }
             // fix/nav-jank: speed / memory / connection fields publish only while Home is showing.
             .onAppear { DashboardModel.shared.setHomeVisible(true) }
             .onDisappear { DashboardModel.shared.setHomeVisible(false) }
@@ -389,21 +359,50 @@ struct ExitInfoRow: View {
     }
 }
 
-/// Home header (v0.7): flag + exit location large, "运营商 · ASN · IP" (首页副标题显示) small, a plain toggle, and one
-/// status line. Tap refreshes the exit info, long-press copies it (as the old IP card did).
+/// Home header, Quantumult X style (fix/tab-top-spacing, user 2026-10-22 + QX reference video): pinned at the top of
+/// 首页 by TabRootChrome (never scrolls away). Row 1: flag + exit location, large semibold, with the VPN switch on the
+/// right. Row 2: small grey 「运营商 · ASN · IP」 (首页副标题显示) behind a status dot (green = connected). Unknown values
+/// show the existing placeholders (正在查询… / 查询失败 / — and 出口 · 本机网络 / 代理), never invented ones.
+/// Tap refreshes the exit info, long-press copies it (as the old IP card did).
 struct ExitHeader: View {
     @EnvironmentObject var vpn: VPNManager
-    @EnvironmentObject var store: ProfileStore
     @EnvironmentObject var ip: IPInfoModel
+    @AppStorage(ExitDetailField.storageKey, store: AppShared.defaults) private var storedFields = ExitDetailField.defaultValue
     @State private var copied = false
 
     var body: some View {
         let on = vpn.isConnected
-        // feat/egern-style: one compact card — flag, place, 运营商 · ASN · IP, and a small status line on the right.
-        VStack(alignment: .leading, spacing: 8) {
-            ExitInfoRow(info: ip.exit, loading: ip.loading, failed: ip.failed,
-                        placeholder: on ? String(localized: "出口 · 代理") : String(localized: "出口 · 本机网络"),
-                        compact: true)
+        let info = ip.exit
+        let place = info?.placeText ?? (ip.loading ? String(localized: "正在查询…") : (ip.failed ? String(localized: "查询失败") : "—"))
+        let placeholder = on ? String(localized: "出口 · 代理") : String(localized: "出口 · 本机网络")
+        let detail = info?.detailText(fields: ExitDetailField.parse(storedFields)) ?? placeholder
+        HStack(alignment: .center, spacing: 10) {
+            VStack(alignment: .leading, spacing: 2) {
+                HStack(spacing: 6) {
+                    Text(info?.flag ?? "🌐")
+                        .scaledFont(19, relativeTo: .title3)
+                        .accessibilityHidden(true)
+                    Text(place)
+                        .scaledFont(20, weight: .semibold, relativeTo: .title3)
+                        .lineLimit(1)
+                        .minimumScaleFactor(0.7)
+                }
+                HStack(spacing: 4) {
+                    Circle()
+                        .fill(on ? Theme.good : Color.secondary.opacity(0.6))
+                        .frame(width: 6, height: 6)
+                        .accessibilityHidden(true)
+                    if !detail.isEmpty {
+                        Text(verbatim: detail)
+                            .font(.caption2.monospacedDigit())
+                            .lineLimit(1)
+                            .minimumScaleFactor(0.75)
+                            .accessibilityIdentifier("home.exit.detail")
+                    }
+                }
+                .foregroundStyle(.secondary)
+            }
+            .frame(maxWidth: .infinity, alignment: .leading)
             .contentShape(Rectangle())
             .onTapGesture {
                 UIImpactFeedbackGenerator(style: .light).impactOccurred()
@@ -415,44 +414,45 @@ struct ExitHeader: View {
                 DispatchQueue.main.asyncAfter(deadline: .now() + 1.4) { withAnimation { copied = false } }
             }
             .accessibilityElement(children: .combine)
+            .accessibilityValue(Text(vpn.statusText))
+            .accessibilityIdentifier("home.exit.place")
             .accessibilityHint(Text("轻点刷新，长按复制"))
-            HStack(spacing: 5) {
-                Circle()
-                    .fill(on ? Theme.good : Color.secondary.opacity(0.6))
-                    .frame(width: 6, height: 6)
-                    .accessibilityHidden(true)
-                if on, let d = vpn.connectedDate {
-                    TimelineView(.periodic(from: .now, by: 1)) { ctx in
-                        Text("\(vpn.statusText) · \(Fmt.duration(ctx.date.timeIntervalSince(d)))")
-                            .font(.caption2.monospacedDigit())
-                    }
-                } else {
-                    Text(vpn.statusText).font(.caption2)
+            .overlay(alignment: .topTrailing) {
+                if copied {
+                    Text("已复制")
+                        .font(.caption2.bold())
+                        .padding(.horizontal, 8).padding(.vertical, 3)
+                        .lineLimit(1) // v0.19.8: a capsule tag never wraps (tall grey box with large text)
+                        .background(Capsule().fill(Theme.good))
+                        .foregroundStyle(Theme.onAccent)
+                        .transition(.scale.combined(with: .opacity))
                 }
-                Spacer(minLength: 8)
-                Label(store.active?.displayName ?? String(localized: "未选择"), systemImage: "doc.text")
-                    .font(.caption2)
-                    .foregroundStyle(.secondary)
-                    .lineLimit(1)
             }
-            .foregroundStyle(.secondary)
-        }
-        .padding(.horizontal, 12).padding(.vertical, 10)
-        .frame(maxWidth: .infinity, alignment: .leading)
-        .egernCard()
-        .overlay(alignment: .topTrailing) {
-            if copied {
-                Text("已复制")
-                    .font(.caption2.bold())
-                    .padding(.horizontal, 8).padding(.vertical, 3)
-                    .lineLimit(1) // v0.19.8: a capsule tag never wraps (tall grey box with large text)
-                    .background(Capsule().fill(Theme.good))
-                    .foregroundStyle(Theme.onAccent)
-                    .offset(x: -8, y: -8)
-                    .transition(.scale.combined(with: .opacity))
-            }
+            HomePowerSwitch()
         }
         .onAppear { if ip.exit == nil && !ip.loading { ip.scheduleRefresh() } }
+    }
+}
+
+/// The VPN switch in the pinned Home header (QX: a plain switch on the right of the exit location). Same action and
+/// accessibility id as the old 启动 / 停止 capsule.
+struct HomePowerSwitch: View {
+    @ObservedObject private var vpn = VPNManager.shared
+
+    var body: some View {
+        let busy = vpn.isBusy || vpn.status == .connecting || vpn.status == .disconnecting
+        let on = vpn.isConnected || vpn.status == .connecting
+        Toggle("", isOn: Binding(get: { on }, set: { want in
+            guard want != on else { return }
+            UIImpactFeedbackGenerator(style: .light).impactOccurred()
+            Task { await vpn.toggle() }
+        }))
+        .labelsHidden()
+        .tint(Theme.good)
+        .disabled(busy)
+        .accessibilityLabel(Text(vpn.isConnected ? "停止" : "启动"))
+        .accessibilityValue(Text(vpn.isConnected ? "已连接" : "未连接"))
+        .accessibilityIdentifier("home.power")
     }
 }
 
