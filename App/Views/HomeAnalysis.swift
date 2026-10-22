@@ -5,8 +5,8 @@ import SwiftUI
 //   策略: bytes per final policy (head of each connection's chain), stacked bar + legend
 //   规则: hit counts of the busiest rules as rings, horizontal scroll
 //   主机名: hostnames by bytes with mini bars
-// Data: the same session data as 连接分析 (ConnectionAnalytics, fed by the /connections poll DashboardModel
-// already runs). Nothing new is polled from the core and nothing is invented: VPN off → one empty state.
+// Data: the same session data as 连接分析 (ConnectionAnalytics). P0-2: recorded in the tunnel (also while the app is in
+// the background or killed) and copied in on DashboardModel's 2 s poll. Nothing is invented: VPN off → one empty state.
 // Performance (fix/nav-jank rule, PR #75): nothing above these cards observes a store that publishes often.
 // HomeAnalysisModel is not an ObservableObject; it copies a small, capped snapshot out of ConnectionAnalytics at
 // most every 2 s, only while Home is on screen, the app is active and an analysis view is mounted, and publishes
@@ -171,14 +171,14 @@ final class HomeAnalysisModel {
         if p != policies { policies = p }
 
         var r = RuleSnap()
-        r.count = a.rules.count
+        r.count = a.ruleCount
         r.top = Array(a.rules.values.sorted { $0.hits != $1.hits ? $0.hits > $1.hits : $0.id < $1.id }.prefix(Self.ruleCount))
         if r != rules { rules = r }
 
         // 主机名 (ConnectionAnalytics keeps at most ~1200)
         var h = HostSnap()
         let hs = a.hosts.filter { $0.value.total > 0 }
-        h.count = hs.count
+        h.count = a.hostCount
         h.top = hs.sorted { $0.value.total != $1.value.total ? $0.value.total > $1.value.total : $0.key < $1.key }
             .prefix(Self.hostCount).map { Share(name: $0.key, bytes: $0.value.total) }
         if h != hosts { hosts = h }
@@ -623,7 +623,7 @@ struct HomeAnalysisEditorSection: View {
         } header: {
             Text("流量分析")
         } footer: {
-            Text("策略、规则、主机名和 DNS 卡片默认不显示，添加后才出现在首页，长按卡片可移除。轻点卡片查看详情。数据与「连接分析」相同：本次连接期间、App 打开时采样，断开后清零。")
+            Text("策略、规则、主机名和 DNS 卡片默认不显示，添加后才出现在首页，长按卡片可移除。轻点卡片查看详情。数据与「连接分析」相同：本次连接期间由隧道持续记录（App 在后台或被关闭时也记录），断开后清零。")
         }
     }
 }

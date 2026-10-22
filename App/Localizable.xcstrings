@@ -11509,36 +11509,36 @@
         }
       }
     },
-    "从本次连接开始（%@）统计，数据只在 App 打开时采样，断开后清零。": {
+    "从本次连接开始（%@）统计，由隧道持续记录（App 在后台或被关闭时也记录），断开后清零。": {
       "localizations": {
         "zh-Hant": {
           "stringUnit": {
             "state": "translated",
-            "value": "從本次連線開始（%@）統計，資料只在 App 開啟時取樣，斷開後清零。"
+            "value": "從本次連線開始（%@）統計，由隧道持續記錄（App 在背景或被關閉時也記錄），斷開後清零。"
           }
         },
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "Counted since this connection started (%@), sampled only while the app is open, cleared on disconnect."
+            "value": "Counted since this connection started (%@), recorded continuously by the tunnel (also while the app is in the background or closed), cleared on disconnect."
           }
         },
         "ja": {
           "stringUnit": {
             "state": "translated",
-            "value": "今回の接続（%@）からの集計です。App を開いている間だけ記録し、切断するとリセットされます。"
+            "value": "今回の接続（%@）からの集計です。トンネルが継続して記録し（App がバックグラウンドにあるときや終了しているときも記録）、切断するとリセットされます。"
           }
         },
         "ko": {
           "stringUnit": {
             "state": "translated",
-            "value": "이번 연결(%@)부터 집계합니다. 앱이 열려 있을 때만 수집하며 연결을 끊으면 초기화됩니다."
+            "value": "이번 연결(%@)부터 집계합니다. 터널이 계속 기록하며(앱이 백그라운드에 있거나 닫혀 있을 때도 기록) 연결을 끊으면 초기화됩니다."
           }
         },
         "ru": {
           "stringUnit": {
             "state": "translated",
-            "value": "С начала этого подключения (%@); данные собираются только при открытом приложении и сбрасываются при отключении."
+            "value": "С начала этого подключения (%@); данные непрерывно записывает туннель (в том числе когда приложение в фоне или закрыто), сбрасываются при отключении."
           }
         }
       }
@@ -91353,36 +91353,36 @@
         }
       }
     },
-    "只在 App 打开且已连接时采样，没有采样的时段留空（不补画）。分钟、小时是该时段内已采样秒的平均速度；App 退出后清空。按住图表左右拖动查看某一时刻。": {
+    "连接期间由隧道每秒记录（App 在后台或被关闭时也记录），没有记录的时段留空（不补画）。秒保留 10 分钟、分钟保留 3 小时、小时保留 48 小时；分钟、小时是该时段内每秒速度的平均值。按住图表左右拖动查看某一时刻。": {
       "localizations": {
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "連線期間由隧道每秒記錄（App 在背景或被關閉時也記錄），沒有記錄的時段留空（不補畫）。秒保留 10 分鐘、分鐘保留 3 小時、小時保留 48 小時；分鐘、小時是該時段內每秒速度的平均值。按住圖表左右拖動檢視某一時刻。"
+          }
+        },
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "Sampled only while the app is open and connected; unsampled stretches stay empty (never filled in). Minutes and hours show the average speed of the sampled seconds in that period; cleared when the app quits. Press and drag on the chart to inspect a moment."
+            "value": "Recorded by the tunnel every second while connected (also while the app is in the background or closed); stretches with no record stay empty (never filled in). Seconds are kept for 10 minutes, minutes for 3 hours and hours for 48 hours; minutes and hours show the average of the per-second speeds in that period. Press and drag on the chart to inspect a moment."
           }
         },
         "ja": {
           "stringUnit": {
             "state": "translated",
-            "value": "App を開いて接続している間だけ記録し、記録のない時間帯は空白のままです（補完しません）。分・時間はその時間帯に記録した秒の平均速度です。App を終了するとクリアされます。グラフを押したまま左右にドラッグすると、その時点を確認できます。"
+            "value": "接続中はトンネルが毎秒記録し（App がバックグラウンドにあるときや終了しているときも記録）、記録のない時間帯は空白のままです（補完しません）。秒は 10 分間、分は 3 時間、時間は 48 時間保持します。分・時間はその時間帯の毎秒の速度の平均です。グラフを押したまま左右にドラッグすると、その時点を確認できます。"
           }
         },
         "ko": {
           "stringUnit": {
             "state": "translated",
-            "value": "앱이 열려 있고 연결된 동안에만 기록하며, 기록되지 않은 구간은 비워 둡니다(채우지 않음). 분·시간은 해당 구간에 기록된 초의 평균 속도입니다. 앱을 종료하면 지워집니다. 차트를 길게 눌러 좌우로 끌면 특정 시점을 볼 수 있습니다."
+            "value": "연결 중에는 터널이 매초 기록하며(앱이 백그라운드에 있거나 닫혀 있을 때도 기록), 기록되지 않은 구간은 비워 둡니다(채우지 않음). 초는 10분, 분은 3시간, 시간은 48시간 동안 보관합니다. 분·시간은 해당 구간의 초당 속도 평균입니다. 차트를 길게 눌러 좌우로 끌면 특정 시점을 볼 수 있습니다."
           }
         },
         "ru": {
           "stringUnit": {
             "state": "translated",
-            "value": "Данные собираются только пока приложение открыто и подключено; пропуски остаются пустыми (не дорисовываются). Минуты и часы — средняя скорость по записанным секундам за период; очищается при выходе из приложения. Нажмите и ведите по графику, чтобы посмотреть момент."
-          }
-        },
-        "zh-Hant": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "只在 App 開啟且已連線時取樣，沒有采樣的時段留空（不補畫）。分鐘、小時是該時段內已取樣秒的平均速度；App 退出後清空。按住圖表左右拖動檢視某一時刻。"
+            "value": "Пока есть подключение, туннель записывает скорость каждую секунду (в том числе когда приложение в фоне или закрыто); периоды без записи остаются пустыми (не дорисовываются). Секунды хранятся 10 минут, минуты — 3 часа, часы — 48 часов; минуты и часы — средняя посекундная скорость за период. Нажмите и ведите по графику, чтобы посмотреть момент."
           }
         }
       }
@@ -91693,36 +91693,36 @@
         }
       }
     },
-    "当前连接和连接后最近关闭的连接（App 打开期间记录，最多 %lld 条）。规则命中次数统计整个连接期间，可能多于这里列出的连接。": {
+    "当前连接和连接后最近关闭的连接（由隧道持续记录，App 在后台或被关闭时也记录，最多 %lld 条）。规则命中次数统计整个连接期间，可能多于这里列出的连接。": {
       "localizations": {
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "當前連線和連線後最近關閉的連線（由隧道持續記錄，App 在背景或被關閉時也記錄，最多 %lld 條）。規則命中次數統計整個連線期間，可能多於這裡列出的連線。"
+          }
+        },
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "Open connections and the ones closed recently since connecting (recorded while the app is open, up to %lld). Rule hit counts cover the whole session and can exceed the connections listed here."
+            "value": "Open connections and the ones closed recently since connecting (recorded continuously by the tunnel, also while the app is in the background or closed; up to %lld). Rule hit counts cover the whole session and can exceed the connections listed here."
           }
         },
         "ja": {
           "stringUnit": {
             "state": "translated",
-            "value": "現在の接続と、接続後に最近閉じた接続（App を開いている間に記録、最大 %lld 件）。ルールのヒット数は接続期間全体の集計のため、ここに表示される接続より多い場合があります。"
+            "value": "現在の接続と、接続後に最近閉じた接続（トンネルが継続して記録し、App がバックグラウンドにあるときや終了しているときも記録、最大 %lld 件）。ルールのヒット数は接続期間全体の集計のため、ここに表示される接続より多い場合があります。"
           }
         },
         "ko": {
           "stringUnit": {
             "state": "translated",
-            "value": "현재 연결과 연결 이후 최근에 닫힌 연결(앱이 열려 있는 동안 기록, 최대 %lld개). 규칙 일치 횟수는 연결 기간 전체를 집계하므로 여기 표시된 연결보다 많을 수 있습니다."
+            "value": "현재 연결과 연결 이후 최근에 닫힌 연결(터널이 계속 기록하며 앱이 백그라운드에 있거나 닫혀 있을 때도 기록, 최대 %lld개). 규칙 일치 횟수는 연결 기간 전체를 집계하므로 여기 표시된 연결보다 많을 수 있습니다."
           }
         },
         "ru": {
           "stringUnit": {
             "state": "translated",
-            "value": "Открытые соединения и недавно закрытые после подключения (записываются, пока приложение открыто, не более %lld). Число совпадений правил считается за весь сеанс и может быть больше списка."
-          }
-        },
-        "zh-Hant": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "當前連線和連線後最近關閉的連線（App 開啟期間記錄，最多 %lld 條）。規則命中次數統計整個連線期間，可能多於這裡列出的連線。"
+            "value": "Открытые соединения и недавно закрытые после подключения (туннель записывает их непрерывно, в том числе когда приложение в фоне или закрыто; не более %lld). Число совпадений правил считается за весь сеанс и может быть больше списка."
           }
         }
       }
@@ -91863,36 +91863,36 @@
         }
       }
     },
-    "本次连接期间各策略（规则选中的策略组）的流量，App 打开时采样，断开后清零。轻点查看经过该策略的连接。": {
+    "本次连接期间各策略（规则选中的策略组）的流量，由隧道持续记录（App 在后台或被关闭时也记录），断开后清零。轻点查看经过该策略的连接。": {
       "localizations": {
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "本次連線期間各策略（規則選中的策略組）的流量，由隧道持續記錄（App 在背景或被關閉時也記錄），斷開後清零。輕點檢視經過該策略的連線。"
+          }
+        },
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "Traffic per policy (the group a rule chose) during this session, sampled while the app is open and reset on disconnect. Tap to see the connections through that policy."
+            "value": "Traffic per policy (the group a rule chose) during this session, recorded continuously by the tunnel (also while the app is in the background or closed) and reset on disconnect. Tap to see the connections through that policy."
           }
         },
         "ja": {
           "stringUnit": {
             "state": "translated",
-            "value": "この接続期間中のポリシー（ルールが選んだポリシーグループ）ごとの通信量です。App を開いている間に記録し、切断するとリセットされます。タップするとそのポリシーを通った接続を表示します。"
+            "value": "この接続期間中のポリシー（ルールが選んだポリシーグループ）ごとの通信量です。トンネルが継続して記録し（App がバックグラウンドにあるときや終了しているときも記録）、切断するとリセットされます。タップするとそのポリシーを通った接続を表示します。"
           }
         },
         "ko": {
           "stringUnit": {
             "state": "translated",
-            "value": "이번 연결 동안 정책(규칙이 선택한 정책 그룹)별 트래픽입니다. 앱이 열려 있을 때 기록하며 연결이 끊기면 초기화됩니다. 탭하면 해당 정책을 거친 연결을 봅니다."
+            "value": "이번 연결 동안 정책(규칙이 선택한 정책 그룹)별 트래픽입니다. 터널이 계속 기록하며(앱이 백그라운드에 있거나 닫혀 있을 때도 기록) 연결이 끊기면 초기화됩니다. 탭하면 해당 정책을 거친 연결을 봅니다."
           }
         },
         "ru": {
           "stringUnit": {
             "state": "translated",
-            "value": "Трафик по политикам (группа, выбранная правилом) за этот сеанс; записывается, пока приложение открыто, и сбрасывается при отключении. Нажмите, чтобы увидеть соединения через эту политику."
-          }
-        },
-        "zh-Hant": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "本次連線期間各策略（規則選中的策略組）的流量，App 開啟時取樣，斷開後清零。輕點檢視經過該策略的連線。"
+            "value": "Трафик по политикам (группа, выбранная правилом) за этот сеанс; туннель записывает его непрерывно (в том числе когда приложение в фоне или закрыто), сбрасывается при отключении. Нажмите, чтобы увидеть соединения через эту политику."
           }
         }
       }
@@ -92271,36 +92271,36 @@
         }
       }
     },
-    "策略、规则、主机名和 DNS 卡片默认不显示，添加后才出现在首页，长按卡片可移除。轻点卡片查看详情。数据与「连接分析」相同：本次连接期间、App 打开时采样，断开后清零。": {
+    "策略、规则、主机名和 DNS 卡片默认不显示，添加后才出现在首页，长按卡片可移除。轻点卡片查看详情。数据与「连接分析」相同：本次连接期间由隧道持续记录（App 在后台或被关闭时也记录），断开后清零。": {
       "localizations": {
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "策略、規則、主機名和 DNS 卡片預設不顯示，新增後才出現在首頁，長按卡片可移除。輕點卡片檢視詳情。資料與「連線分析」相同：本次連線期間由隧道持續記錄（App 在背景或被關閉時也記錄），斷開後清零。"
+          }
+        },
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "Policy, rule, hostname and DNS cards are off by default and appear on Home once added; long-press a card to remove it. Tap a card for details. Same data as Connection Analytics: sampled during this session while the app is open, reset on disconnect."
+            "value": "Policy, rule, hostname and DNS cards are off by default and appear on Home once added; long-press a card to remove it. Tap a card for details. Same data as Connection Analytics: recorded continuously by the tunnel during this session (also while the app is in the background or closed), reset on disconnect."
           }
         },
         "ja": {
           "stringUnit": {
             "state": "translated",
-            "value": "ポリシー・ルール・ホスト名・DNS カードは初期状態では表示されず、追加するとホームに表示されます。カードを長押しすると削除できます。カードをタップすると詳細を表示します。データは「接続分析」と同じで、この接続期間中に App を開いている間だけ記録し、切断するとリセットされます。"
+            "value": "ポリシー・ルール・ホスト名・DNS カードは初期状態では表示されず、追加するとホームに表示されます。カードを長押しすると削除できます。カードをタップすると詳細を表示します。データは「接続分析」と同じで、この接続期間中はトンネルが継続して記録し（App がバックグラウンドにあるときや終了しているときも記録）、切断するとリセットされます。"
           }
         },
         "ko": {
           "stringUnit": {
             "state": "translated",
-            "value": "정책, 규칙, 호스트 이름, DNS 카드는 기본적으로 표시되지 않으며 추가하면 홈에 나타납니다. 카드를 길게 눌러 제거할 수 있습니다. 카드를 탭하면 자세히 볼 수 있습니다. 데이터는 '연결 분석'과 같으며, 이번 연결 동안 앱이 열려 있을 때 기록하고 연결이 끊기면 초기화됩니다."
+            "value": "정책, 규칙, 호스트 이름, DNS 카드는 기본적으로 표시되지 않으며 추가하면 홈에 나타납니다. 카드를 길게 눌러 제거할 수 있습니다. 카드를 탭하면 자세히 볼 수 있습니다. 데이터는 '연결 분석'과 같으며, 이번 연결 동안 터널이 계속 기록하고(앱이 백그라운드에 있거나 닫혀 있을 때도 기록) 연결이 끊기면 초기화됩니다."
           }
         },
         "ru": {
           "stringUnit": {
             "state": "translated",
-            "value": "Карточки политик, правил, хостов и DNS по умолчанию скрыты и появляются на главной после добавления; долгое нажатие удаляет карточку. Нажмите на карточку, чтобы открыть подробности. Те же данные, что в «Анализе соединений»: собираются за сеанс, пока приложение открыто, и сбрасываются при отключении."
-          }
-        },
-        "zh-Hant": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "策略、規則、主機名和 DNS 卡片預設不顯示，新增後才出現在首頁，長按卡片可移除。輕點卡片檢視詳情。資料與「連線分析」相同：本次連線期間、App 開啟時取樣，斷開後清零。"
+            "value": "Карточки политик, правил, хостов и DNS по умолчанию скрыты и появляются на главной после добавления; долгое нажатие удаляет карточку. Нажмите на карточку, чтобы открыть подробности. Те же данные, что в «Анализе соединений»: туннель непрерывно записывает их за сеанс (в том числе когда приложение в фоне или закрыто), сбрасываются при отключении."
           }
         }
       }

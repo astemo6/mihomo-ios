@@ -9,10 +9,11 @@ import Charts
 //   规则 ring → 连接 filtered by that rule; 查看全部 → 规则命中 → 连接
 //   主机名 → 主机名 (↑↓ per host) → 连接 filtered by that host
 //   DNS (opt-in) → DNS 日志
-// Data is what the app already has: ConnectionAnalytics (session totals + the connections it saw open and close),
-// the 请求 poll (RequestsModel) while a page is open, and NetworkHistory (samples DashboardModel already takes).
-// Nothing is invented; where a window is limited (closed connections capped, samples only while the app is open)
-// the page says so. Pages are pushed leaves: they poll only while on screen, and filtering runs off the main thread.
+// Data: ConnectionAnalytics (session totals + closed connections — P0-2: recorded in the tunnel, also while the app is
+// in the background or killed), the 请求 poll (RequestsModel) while a page is open, and NetworkHistory (the tunnel's
+// per-second speed history merged with the samples DashboardModel takes). Nothing is invented; where a window is
+// limited (closed connections capped, history windows) the page says so. Pages are pushed leaves: they poll only while
+// on screen, and filtering runs off the main thread.
 
 // MARK: - Shared chrome
 
@@ -147,7 +148,7 @@ struct ConnectionsListView: View {
                 Text("\(rows.count) 条连接 · 活跃 \(activeCount)")
                     .accessibilityIdentifier("connlist.count")
             } footer: {
-                Text("当前连接和连接后最近关闭的连接（App 打开期间记录，最多 \(ConnectionAnalytics.closedCap) 条）。规则命中次数统计整个连接期间，可能多于这里列出的连接。")
+                Text("当前连接和连接后最近关闭的连接（由隧道持续记录，App 在后台或被关闭时也记录，最多 \(ConnectionAnalytics.closedCap) 条）。规则命中次数统计整个连接期间，可能多于这里列出的连接。")
             }
         }
         .listStyle(.insetGrouped)
@@ -401,7 +402,7 @@ struct PolicyTrafficView: View {
                         .accessibilityIdentifier("policytraffic.row.\(p.name)")
                     }
                 } footer: {
-                    Text("本次连接期间各策略（规则选中的策略组）的流量，App 打开时采样，断开后清零。轻点查看经过该策略的连接。")
+                    Text("本次连接期间各策略（规则选中的策略组）的流量，由隧道持续记录（App 在后台或被关闭时也记录），断开后清零。轻点查看经过该策略的连接。")
                 }
             }
         }
@@ -426,9 +427,11 @@ struct PolicyTrafficView: View {
 
 // MARK: - 网络 history
 
-/// Speed samples for the 网络 page: the 1 s /app/traffic answers DashboardModel already takes (both scopes), kept as
-/// the last 10 minutes of seconds plus per-minute (3 h) and per-hour (48 h) averages of the sampled seconds.
-/// Only while the app is open and connected; nothing is filled in for time the app did not sample. In memory only.
+/// Speed samples for the 网络 page, kept as the last 10 minutes of seconds plus per-minute (3 h) and per-hour (48 h)
+/// averages of the recorded seconds (both scopes). P0-2: the tunnel records them every second, also while the app is in
+/// the background or killed (bridge/statsrecorder.go, saved across reconnects); merge(_:) takes its history and the
+/// 1 s /app/traffic answers DashboardModel takes fill in after the tunnel's newest point. Nothing is filled in for
+/// time nobody recorded.
 @MainActor
 final class NetworkHistory {
     static let shared = NetworkHistory()
@@ -456,6 +459,44 @@ final class NetworkHistory {
         Self.fold(s, into: &minutes, step: 60, cap: Self.minuteCap)
         Self.fold(s, into: &hours, step: 3600, cap: Self.hourCap)
         version &+= 1
+    }
+
+    /// P0-2: the tunnel's history replaces everything up to its newest point; the app's own samples (and buckets)
+    /// after it are kept, so the chart never shows a second twice.
+    func merge(_ h: TunnelSpeedHistory) {
+        guard h.at > 0 else { return }
+        let cut = Date(timeIntervalSince1970: TimeInterval(h.at))
+        var secs: [Sample] = []
+        secs.reserveCapacity(h.seconds.count + 8)
+        for p in h.seconds where p.count >= 5 {
+            secs.append(Sample(t: Date(timeIntervalSince1970: TimeInterval(p[0])), up: max(p[1], 0), down: max(p[2], 0),
+                               pUp: max(p[3], 0), pDown: max(p[4], 0)))
+        }
+        secs.append(contentsOf: seconds.filter { $0.t > cut })
+        if secs.count > Self.secondCap { secs.removeFirst(secs.count - Self.secondCap) }
+        seconds = secs
+        minutes = Self.merged(h.minutes, own: minutes, cap: Self.minuteCap)
+        hours = Self.merged(h.hours, own: hours, cap: Self.hourCap)
+        version &+= 1
+    }
+
+    private static func merged(_ rows: [[Int64]], own: [Bucket], cap: Int) -> [Bucket] {
+        var out: [Bucket] = []
+        out.reserveCapacity(rows.count + 2)
+        for p in rows where p.count >= 6 && p[5] > 0 {
+            out.append(Bucket(start: Date(timeIntervalSince1970: TimeInterval(p[0])), up: p[1], down: p[2], pUp: p[3], pDown: p[4], n: Int(p[5])))
+        }
+        let last = out.last?.start ?? .distantPast
+        out.append(contentsOf: own.filter { $0.start > last })
+        if out.count > cap { out.removeFirst(out.count - cap) }
+        return out
+    }
+
+    /// P0-2: fetch the tunnel's speed history and merge it (the 网络 page, while it is on screen).
+    func refreshFromTunnel() async {
+        guard !HomeAnalysisModel.demo, VPNManager.shared.isConnected,
+              let h = try? await ControllerClient.shared.get(TunnelSpeedHistory.self, "/app/stats/speed", timeout: 5) else { return }
+        merge(h)
     }
 
     private static func fold(_ s: Sample, into list: inout [Bucket], step: TimeInterval, cap: Int) {
@@ -566,7 +607,7 @@ struct NetworkView: View {
                 }
                 .padding(.vertical, 4)
             } footer: {
-                Text("只在 App 打开且已连接时采样，没有采样的时段留空（不补画）。分钟、小时是该时段内已采样秒的平均速度；App 退出后清空。按住图表左右拖动查看某一时刻。")
+                Text("连接期间由隧道每秒记录（App 在后台或被关闭时也记录），没有记录的时段留空（不补画）。秒保留 10 分钟、分钟保留 3 小时、小时保留 48 小时；分钟、小时是该时段内每秒速度的平均值。按住图表左右拖动查看某一时刻。")
             }
             .listRowBackground(Theme.card)
 
@@ -601,7 +642,11 @@ struct NetworkView: View {
         .onReceive(model.$active) { _ in recomputeConns() }
         .task {
             NetworkHistory.shared.fillDemoIfNeeded()
+            var tick = 0
             while !Task.isCancelled {
+                // P0-2: the tunnel's history (also what it recorded while the app was away), every 10 s on screen.
+                if tick % 10 == 0 { await NetworkHistory.shared.refreshFromTunnel() }
+                tick += 1
                 rebuild(force: false)
                 try? await Task.sleep(nanoseconds: 1_000_000_000)
             }
