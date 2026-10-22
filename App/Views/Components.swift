@@ -226,3 +226,38 @@ struct TileRow: View {
         }
     }
 }
+
+/// feat/geo-mirror-edit: the visible state of a paused live list (请求, DNS 日志, 日志). Tapping it resumes.
+struct PausedChip: View {
+    let id: String
+    let resume: () -> Void
+
+    var body: some View {
+        Button(action: resume) {
+            HStack(spacing: 6) {
+                Image(systemName: "pause.circle.fill").font(.footnote.weight(.semibold))
+                Text("已暂停刷新 · 点按继续").font(.caption.weight(.semibold)).lineLimit(1).minimumScaleFactor(0.8)
+            }
+            .padding(.horizontal, 12).padding(.vertical, 6)
+            .background(Capsule().fill(Theme.warn.opacity(0.16)))
+            .foregroundStyle(Theme.warn)
+        }
+        .buttonStyle(.plain)
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .accessibilityLabel(Text("已暂停刷新 · 点按继续"))
+        .accessibilityHint(Text("继续刷新"))
+        .accessibilityIdentifier(id)
+    }
+}
+
+/// The toolbar pause / play button shared by the same three pages.
+struct PauseToggleButton: View {
+    @Binding var paused: Bool
+    let id: String
+
+    var body: some View {
+        Button { paused.toggle() } label: { Image(systemName: paused ? "play.fill" : "pause.fill") }
+            .accessibilityLabel(Text(LocalizedStringKey(paused ? "继续刷新" : "暂停刷新")))
+            .accessibilityIdentifier(id)
+    }
+}

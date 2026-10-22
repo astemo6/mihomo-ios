@@ -230,8 +230,10 @@ struct CoreOverrides: Codable, Equatable {
     /// Local HTTP/SOCKS port for proxy-only mode and LAN sharing.
     var mixedPort: Int = 7890
     var tunMTU: Int = 4064
-    /// jsdelivr (testingcf CDN, default) · fastly · github
+    /// jsdelivr (testingcf CDN, default) · fastly · github · custom (geoMirrorBase)
     var geoMirror: String = "jsdelivr"
+    /// Base URL for geoMirror "custom"; the file name is appended (bridge GeoCustomBase validates it).
+    var geoMirrorBase: String = ""
     /// Custom URL per database kind (mmdb / geosite / asn / geoip); missing = mirror default.
     var geoURLs: [String: String] = [:]
     /// Add the 手动节点 profile's nodes (and its group) to every profile.
@@ -369,7 +371,7 @@ struct CoreOverrides: Codable, Equatable {
 
     enum CodingKeys: String, CodingKey {
         case logLevel, ipv6, allowLan, dnsMode, sniffer, controllerPort, secret, mode, memoryLimitMB
-        case tunnelMode, mixedPort, tunMTU, geoMirror, geoURLs, mergeManual, safeMode
+        case tunnelMode, mixedPort, tunMTU, geoMirror, geoMirrorBase, geoURLs, mergeManual, safeMode
         case testURL, testTimeoutMs, overrideHealthCheck
         case includedRoutes, excludedRoutes, skipProxy, blockQUIC
         case includeAllNetworks, excludeLocalNetworks, excludeAPNs, excludeCellularServices, excludeDeviceCommunication
@@ -396,6 +398,7 @@ struct CoreOverrides: Codable, Equatable {
         mixedPort = get(.mixedPort, d.mixedPort)
         tunMTU = get(.tunMTU, d.tunMTU)
         geoMirror = get(.geoMirror, d.geoMirror)
+        geoMirrorBase = get(.geoMirrorBase, d.geoMirrorBase)
         geoURLs = get(.geoURLs, d.geoURLs)
         mergeManual = get(.mergeManual, d.mergeManual)
         safeMode = get(.safeMode, d.safeMode)

@@ -86,7 +86,8 @@ type Overrides struct {
 	TunnelMode     string `json:"tunnelMode"`     // "tun" (default, NEPacketTunnelFlow) | "mix" (tun + system HTTP proxy) | "proxy" (NEProxySettings only)
 	MixedPort      int    `json:"mixedPort"`      // local HTTP/SOCKS port for proxy-only mode / LAN sharing
 	TunMTU         int    `json:"tunMTU"`         // MTU of the packet-flow bridge (default 4064, like Hako)
-	GeoMirror      string `json:"geoMirror"`      // jsdelivr (default, testingcf CDN) / fastly / github — always replaces the profile's geox-url
+	GeoMirror      string `json:"geoMirror"`      // jsdelivr (default, testingcf CDN) / fastly / github / custom — always replaces the profile's geox-url
+	GeoMirrorBase  string `json:"geoMirrorBase"`  // base URL for GeoMirror "custom" (file name appended); invalid/empty = jsDelivr
 
 	GeoURLs     map[string]string `json:"geoURLs"`     // custom per-database URLs (mmdb/geoip/geosite/asn), "" = mirror default
 	MergeManual bool              `json:"mergeManual"` // add the 手动节点 profile's nodes (+ group) to every profile

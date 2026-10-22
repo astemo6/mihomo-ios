@@ -69,6 +69,32 @@ func GeoBaseURL(mirror string) string {
 	}
 }
 
+// GeoCustomBase normalises a user mirror base for GeoMirror "custom": https only, with a host, ending in "/".
+// Returns "" when base is not usable (the jsDelivr default is used then).
+func GeoCustomBase(base string) string {
+	b := strings.TrimSpace(base)
+	u, err := url.Parse(b)
+	if err != nil || !strings.EqualFold(u.Scheme, "https") || u.Host == "" || u.RawQuery != "" || u.Fragment != "" || strings.ContainsAny(b, " \t") {
+		return ""
+	}
+	if !strings.HasSuffix(b, "/") {
+		b += "/"
+	}
+	return b
+}
+
+// geoBase is the download base for o: the custom base when GeoMirror is "custom" and the base is valid,
+// else the named mirror.
+func geoBase(o Overrides) string {
+	if o.GeoMirror == "custom" {
+		if b := GeoCustomBase(o.GeoMirrorBase); b != "" {
+			return b
+		}
+		return geoMirrorBase
+	}
+	return GeoBaseURL(o.GeoMirror)
+}
+
 func geoxMirror(mirror string) map[string]any {
 	return geoxFor(Overrides{GeoMirror: mirror})
 }
@@ -89,7 +115,7 @@ func geoURL(o Overrides, kind string) string {
 	}
 	for _, g := range geoKinds {
 		if g.Kind == kind {
-			return GeoBaseURL(o.GeoMirror) + g.Remote
+			return geoBase(o) + g.Remote
 		}
 	}
 	return ""
@@ -105,6 +131,11 @@ func normalizeURL(u string) string {
 
 // GeoDefaultURL is the URL used for kind when no custom URL is set (mirror: "" / jsdelivr, fastly, github).
 func GeoDefaultURL(kind, mirror string) string { return geoURL(Overrides{GeoMirror: mirror}, kind) }
+
+// GeoMirrorURL is GeoDefaultURL with the custom base for mirror "custom" (the 地理数据库 page's 默认地址 and preview).
+func GeoMirrorURL(kind, mirror, base string) string {
+	return geoURL(Overrides{GeoMirror: mirror, GeoMirrorBase: base}, kind)
+}
 
 // githubToMirror maps raw GitHub URLs to jsDelivr (reachable from mainland China):
 //

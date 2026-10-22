@@ -141,6 +141,11 @@ struct RequestsView: View {
                         ConnectionSummaryBar(model: model) { confirmCloseAll = true }
                             .listRowInsets(EdgeInsets())
                             .listRowBackground(Color.clear)
+                        if model.paused {
+                            PausedChip(id: "requests.paused") { model.paused = false }
+                                .listRowInsets(EdgeInsets(top: 2, leading: 4, bottom: 2, trailing: 4))
+                                .listRowBackground(Color.clear)
+                        }
                         Picker("", selection: $tab) {
                             Text("活跃 \(model.active.count)").tag(0)
                             Text("最近 \(model.recent.count)").tag(1)
@@ -198,7 +203,7 @@ struct RequestsView: View {
             .navigationTitle("请求")
             .toolbar {
                 ToolbarItemGroup(placement: .navigationBarTrailing) {
-                    Button { model.paused.toggle() } label: { Image(systemName: model.paused ? "play.fill" : "pause.fill") }
+                    PauseToggleButton(paused: $model.paused, id: "requests.pause")
                     if tab == 2 {
                         Button { exportHAR() } label: { Image(systemName: "square.and.arrow.up") }
                             .disabled(httpItems.isEmpty || harProgress != nil)

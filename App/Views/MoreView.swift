@@ -417,6 +417,10 @@ struct LogsView: View {
                         .frame(maxWidth: .infinity, alignment: .leading)
                         .padding(.horizontal, 16).padding(.vertical, 6)
                         .accessibilityIdentifier("logs.hint")
+                    if model.paused {
+                        PausedChip(id: "logs.paused") { model.paused = false }
+                            .padding(.horizontal, 16).padding(.bottom, 6)
+                    }
                     ScrollViewReader { proxy in
                         List(shown) { l in
                             VStack(alignment: .leading, spacing: 2) {
@@ -445,7 +449,7 @@ struct LogsView: View {
         .navigationTitle("日志")
         .toolbar {
             ToolbarItemGroup(placement: .navigationBarTrailing) {
-                Button { model.paused.toggle() } label: { Image(systemName: model.paused ? "play.fill" : "pause.fill") }
+                PauseToggleButton(paused: $model.paused, id: "logs.pause")
                 Button { model.clear() } label: { Image(systemName: "trash") }
                     .accessibilityLabel(Text("清空"))
                     .accessibilityIdentifier("logs.clear")
