@@ -65,8 +65,9 @@ extension MihomoUITests {
         XCTAssertEqual(placeTop, placeTopScrolled, accuracy: 1, "Home header does not scroll away")
         for n in ["policy", "requests", "tools", "more"] {
             XCTAssertNotNil(barHeights[n], "\(n): navigation bar")
-            // 44 pt row; 请求 also carries its search drawer (~52 pt) under the row. A large title would add ~52 more.
-            let limit: CGFloat = n == "requests" ? 110 : 60
+            // 44 pt row; 请求 and 更多 (settings search, PR #92) also carry a search drawer (~52 pt) under the row.
+            // A large title would add ~52 more.
+            let limit: CGFloat = (n == "requests" || n == "more") ? 110 : 60
             if let h = barHeights[n] { XCTAssertLessThan(h, limit, "\(n): no large title (bar \(h) pt)") }
         }
         let values = tops.values
