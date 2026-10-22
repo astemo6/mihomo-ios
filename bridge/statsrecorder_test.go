@@ -445,8 +445,12 @@ func TestStatsRecorderMemoryBound(t *testing.T) {
 			if churned > int64(512<<10) {
 				t.Fatalf("heap grew %d B under churn: a table is not bounded", churned)
 			}
-			if encodeAlloc > tc.encodeLimit {
-				t.Fatalf("save allocated %d B > %d", encodeAlloc, tc.encodeLimit)
+			encodeLimit := tc.encodeLimit
+			if raceEnabled {
+				encodeLimit += encodeLimit / 10 // race-detector shadow allocations; the plain run checks the real bound
+			}
+			if encodeAlloc > encodeLimit {
+				t.Fatalf("save allocated %d B > %d", encodeAlloc, encodeLimit)
 			}
 			runtime.KeepAlive(r)
 		})

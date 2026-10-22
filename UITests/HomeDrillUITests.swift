@@ -110,7 +110,26 @@ extension MihomoUITests {
         XCTAssertTrue(app.element(id: "conndetail.tabs").waitForExistence(timeout: 6), "policy → connection detail")
         back(); back(); back()
 
-        // 查看全部 (end of the rule rings) → 规则.
+        // 规则 ring → 连接 filtered by that rule → detail. The ring reads 「CN, GeoIP, DIRECT」 for VoiceOver.
+        let ring = app.buttons.matching(NSPredicate(format: "label BEGINSWITH %@", "CN, GeoIP")).firstMatch
+        XCTAssertTrue(scrollTo(ring), "GeoIP rule ring")
+        ring.tap()
+        assertNavBar(L("连接"), "rule ring opens the connections")
+        XCTAssertEqual(chipValue("connlist.chip.rules"), "1", "filtered by the rule")
+        XCTAssertTrue(app.element(id: "connlist.row").waitForExistence(timeout: 6), "rule connections")
+        snap("drill-11-rule-connections")
+        app.element(id: "connlist.chip.rules").tap()
+        let picked = L10n.f("已选择 %lld 项", 1)
+        XCTAssertTrue(app.navigationBars[picked].waitForExistence(timeout: 5), "rule sheet 「\(picked)」")
+        snap("drill-12-rule-sheet")
+        closeSheet()
+        let ruleConn = app.element(id: "connlist.row")
+        XCTAssertTrue(ruleConn.waitForExistence(timeout: 6), "rule connections after the sheet")
+        ruleConn.tap()
+        XCTAssertTrue(app.element(id: "conndetail.tabs").waitForExistence(timeout: 6), "rule → connection detail")
+        back(); back()
+
+        // 查看全部 (end of the rule rings) → 规则. Last in the rules part: it leaves the strip scrolled to its end.
         // The tile ends a horizontal ring strip: bring the card on screen, then swipe the strip left. (scrollTo
         // swipes vertically only, and an off-screen tile has no valid activation point to test hittability.)
         let allRules = app.element(id: "home.analysis.rules.all")
@@ -134,25 +153,6 @@ extension MihomoUITests {
         } else {
             issues.append("[\(Env.tag)] 查看全部 tile not found")
         }
-
-        // 规则 ring → 连接 filtered by that rule → detail. The ring reads 「CN, GeoIP, DIRECT」 for VoiceOver.
-        let ring = app.buttons.matching(NSPredicate(format: "label BEGINSWITH %@", "CN, GeoIP")).firstMatch
-        XCTAssertTrue(scrollTo(ring), "GeoIP rule ring")
-        ring.tap()
-        assertNavBar(L("连接"), "rule ring opens the connections")
-        XCTAssertEqual(chipValue("connlist.chip.rules"), "1", "filtered by the rule")
-        XCTAssertTrue(app.element(id: "connlist.row").waitForExistence(timeout: 6), "rule connections")
-        snap("drill-11-rule-connections")
-        app.element(id: "connlist.chip.rules").tap()
-        let picked = L10n.f("已选择 %lld 项", 1)
-        XCTAssertTrue(app.navigationBars[picked].waitForExistence(timeout: 5), "rule sheet 「\(picked)」")
-        snap("drill-12-rule-sheet")
-        closeSheet()
-        let ruleConn = app.element(id: "connlist.row")
-        XCTAssertTrue(ruleConn.waitForExistence(timeout: 6), "rule connections after the sheet")
-        ruleConn.tap()
-        XCTAssertTrue(app.element(id: "conndetail.tabs").waitForExistence(timeout: 6), "rule → connection detail")
-        back(); back()
 
         // 主机名 → 主机名 (↑↓) → one host's connections → detail.
         let hosts = app.element(id: "home.analysis.hosts")
