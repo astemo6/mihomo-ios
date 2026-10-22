@@ -88,6 +88,47 @@ final class GeoModel: NSObject, ObservableObject, URLSessionDownloadDelegate {
         overrides = o
     }
 
+    /// feat/geo-mirror-edit: the jsDelivr template a custom base starts from.
+    static let templateBase = "https://testingcf.jsdelivr.net/gh/MetaCubeX/meta-rules-dat@release/"
+
+    /// A usable custom base (https, host, no query, no spaces) with a trailing "/", else nil. Same rules as the
+    /// bridge's GeoCustomBase, so what the page previews is what the core downloads.
+    nonisolated static func normalizedBase(_ text: String) -> String? {
+        let t = text.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !t.isEmpty, !t.contains(" "), let u = URLComponents(string: t), u.scheme?.lowercased() == "https",
+              let h = u.host, !h.isEmpty, u.query == nil, u.fragment == nil else { return nil }
+        return t.hasSuffix("/") ? t : t + "/"
+    }
+
+    /// Saves the custom base and selects 自定义. Returns false when the address is not usable.
+    @discardableResult
+    func setCustomBase(_ text: String) -> Bool {
+        guard let b = Self.normalizedBase(text) else { return false }
+        var o = CoreOverrides.load()
+        o.geoMirror = "custom"
+        o.geoMirrorBase = b
+        o.save()
+        IconCache.mirrorChanged()
+        overrides = o
+        return true
+    }
+
+    /// 重置: forget the custom base and go back to the default mirror (jsDelivr).
+    func resetCustomBase() {
+        var o = CoreOverrides.load()
+        o.geoMirror = "jsdelivr"
+        o.geoMirrorBase = ""
+        o.save()
+        IconCache.mirrorChanged()
+        overrides = o
+    }
+
+    /// The base the 默认地址 boxes use right now.
+    var currentBase: String {
+        let u = LibmihomoGeoMirrorURL("mmdb", overrides.geoMirror, overrides.geoMirrorBase)
+        return u.hasSuffix("geoip.metadb") ? String(u.dropLast("geoip.metadb".count)) : u
+    }
+
     func setCustomURL(_ kind: String, _ url: String) {
         var o = CoreOverrides.load()
         let t = url.trimmingCharacters(in: .whitespacesAndNewlines)
@@ -96,7 +137,7 @@ final class GeoModel: NSObject, ObservableObject, URLSessionDownloadDelegate {
         overrides = o
     }
 
-    func defaultURL(_ kind: String) -> String { LibmihomoGeoDefaultURL(kind, overrides.geoMirror) }
+    func defaultURL(_ kind: String) -> String { LibmihomoGeoMirrorURL(kind, overrides.geoMirror, overrides.geoMirrorBase) }
 
     func effectiveURL(_ kind: String) -> String {
         if let u = overrides.geoURLs[kind], !u.isEmpty { return u }
@@ -204,6 +245,8 @@ struct GeoView: View {
     @StateObject private var model = GeoModel()
     @State private var editing: String?
     @State private var urlText = ""
+    @State private var baseText = ""
+    @FocusState private var baseFocused: Bool
 
     var body: some View {
         ScrollView {
@@ -225,7 +268,10 @@ struct GeoView: View {
                     .disabled(!model.progress.isEmpty)
             }
         }
-        .onAppear { model.refresh() }
+        .onAppear {
+            model.refresh()
+            baseText = model.overrides.geoMirrorBase.isEmpty ? model.currentBase : model.overrides.geoMirrorBase
+        }
         .alert("自定义下载地址", isPresented: Binding(get: { editing != nil }, set: { if !$0 { editing = nil } })) {
             TextField("https://…", text: $urlText).textInputAutocapitalization(.never).autocorrectionDisabled().keyboardType(.URL)
             Button("保存") { if let k = editing { model.setCustomURL(k, urlText) }; editing = nil }
@@ -243,16 +289,109 @@ struct GeoView: View {
                 }
             }
             .tint(Theme.accent)
+            .accessibilityIdentifier("geo.mirror.toggle")
             if model.chinaMirror {
-                Picker("镜像", selection: Binding(get: { model.overrides.geoMirror }, set: { model.setMirror($0) })) {
-                    Text("jsDelivr（testingcf）").tag("jsdelivr")
+                Picker("镜像", selection: Binding(get: { model.overrides.geoMirror }, set: { m in
+                    if m == "custom" {
+                        // Start from the saved custom base, else from the address in use (a template to edit).
+                        if model.overrides.geoMirrorBase.isEmpty { baseText = model.currentBase } else { baseText = model.overrides.geoMirrorBase }
+                    }
+                    model.setMirror(m)
+                })) {
+                    Text("jsDelivr").tag("jsdelivr")
                     Text("Fastly").tag("fastly")
+                    Text("自定义").tag("custom")
                 }
                 .pickerStyle(.segmented)
+                .accessibilityIdentifier("geo.mirror.picker")
+                if model.overrides.geoMirror == "custom" {
+                    customBaseEditor
+                } else {
+                    Text(verbatim: model.currentBase)
+                        .scaledFont(9, design: .monospaced).foregroundStyle(.secondary)
+                        .lineLimit(1).truncationMode(.middle)
+                        .accessibilityIdentifier("geo.mirror.base")
+                }
             }
         }
         .padding(16)
         .background(RoundedRectangle(cornerRadius: Theme.radius, style: .continuous).fill(Theme.card))
+    }
+
+    /// 自定义 mirror: an editable base URL (the file name is appended), a live preview for geoip.metadb, 保存 / 重置.
+    var customBaseEditor: some View {
+        let normalized = GeoModel.normalizedBase(baseText)
+        let saved = model.overrides.geoMirrorBase
+        let dirty = normalized != nil && normalized != saved
+        return VStack(alignment: .leading, spacing: 6) {
+            Text("镜像地址").font(.caption2.weight(.semibold)).foregroundStyle(.secondary)
+            HStack(spacing: 6) {
+                TextField(GeoModel.templateBase, text: $baseText)
+                    .scaledFont(11, design: .monospaced)
+                    .textInputAutocapitalization(.never)
+                    .autocorrectionDisabled()
+                    .keyboardType(.URL)
+                    .submitLabel(.done)
+                    .focused($baseFocused)
+                    .onSubmit { if dirty { model.setCustomBase(baseText) } }
+                    .accessibilityIdentifier("geo.mirror.field")
+                // Always in the row (hidden while empty): inserting / removing a view next to the field while
+                // clearing it and moving focus in the same update left the field focused but not taking typed
+                // text (UI test r2). Clearing leaves focus where the user put it.
+                Button {
+                    baseText = ""
+                } label: {
+                    Image(systemName: "xmark.circle.fill").foregroundStyle(.secondary)
+                }
+                .buttonStyle(.plain)
+                .opacity(baseText.isEmpty ? 0 : 1)
+                .disabled(baseText.isEmpty)
+                .accessibilityHidden(baseText.isEmpty)
+                .accessibilityLabel(Text("清除"))
+                .accessibilityIdentifier("geo.mirror.clear")
+            }
+                .padding(.horizontal, 10).padding(.vertical, 8)
+                .background(RoundedRectangle(cornerRadius: 10, style: .continuous).fill(Theme.cardHi))
+                .overlay(RoundedRectangle(cornerRadius: 10, style: .continuous)
+                    .stroke(normalized == nil && !baseText.isEmpty ? Theme.bad.opacity(0.7) : Color.clear, lineWidth: 1))
+            if let n = normalized {
+                VStack(alignment: .leading, spacing: 2) {
+                    Text("预览（geoip.metadb）").font(.caption2).foregroundStyle(.secondary)
+                    Text(verbatim: n + "geoip.metadb")
+                        .scaledFont(9, design: .monospaced).foregroundStyle(Theme.accent)
+                        .lineLimit(2).textSelection(.enabled)
+                        .accessibilityIdentifier("geo.mirror.preview")
+                }
+            } else {
+                Label("请输入以 https:// 开头的有效地址", systemImage: "exclamationmark.triangle.fill")
+                    .font(.caption2).foregroundStyle(Theme.bad)
+                    .accessibilityIdentifier("geo.mirror.invalid")
+            }
+            Text("文件名会自动接在地址后面，例如 geoip.metadb、geosite.dat。")
+                .font(.caption2).foregroundStyle(.secondary)
+            if saved.isEmpty {
+                Text("尚未保存，暂用 jsDelivr").font(.caption2).foregroundStyle(Theme.warn)
+                    .accessibilityIdentifier("geo.mirror.unsaved")
+            }
+            HStack(spacing: 10) {
+                Button {
+                    baseFocused = false
+                    model.setCustomBase(baseText)
+                } label: { Text("保存").font(.caption.weight(.semibold)).frame(maxWidth: .infinity) }
+                .buttonStyle(.borderedProminent)
+                .tint(Theme.accent)
+                .disabled(!dirty)
+                .accessibilityIdentifier("geo.mirror.save")
+                Button(role: .destructive) {
+                    baseFocused = false
+                    model.resetCustomBase()
+                    baseText = model.currentBase
+                } label: { Text("重置").font(.caption.weight(.semibold)).frame(maxWidth: .infinity) }
+                .buttonStyle(.bordered)
+                .accessibilityIdentifier("geo.mirror.reset")
+            }
+            .controlSize(.small)
+        }
     }
 
     func statusChip(_ f: GeoFileInfo) -> some View {
@@ -266,6 +405,7 @@ struct GeoView: View {
             .lineLimit(1) // v0.19.8: a capsule tag never wraps (tall grey box with large text)
             .background(Capsule().fill(color.opacity(0.18)))
             .foregroundStyle(color)
+            .accessibilityIdentifier("geo.status.\(f.kind)")
     }
 
     func card(_ f: GeoFileInfo) -> some View {
@@ -286,14 +426,7 @@ struct GeoView: View {
                     Text(f.purpose).font(.caption2).foregroundStyle(.secondary).lineLimit(2)
                 }
                 Spacer()
-                Button {
-                    Task { await model.update(f.kind) }
-                } label: {
-                    Image(systemName: "arrow.down.circle.fill").font(.title2)
-                }
-                .buttonStyle(.plain)
-                .foregroundStyle(busy ? Color.secondary : Theme.accent)
-                .disabled(busy)
+                actionButton(f, busy: busy)
             }
 
             HStack(spacing: 14) {
@@ -329,7 +462,8 @@ struct GeoView: View {
                     .font(.caption2.weight(.semibold))
                     .buttonStyle(.borderless)
                 }
-                Text(model.effectiveURL(f.kind)).scaledFont(9, design: .monospaced).foregroundStyle(.secondary).lineLimit(2).textSelection(.enabled)
+                Text(verbatim: model.effectiveURL(f.kind)).scaledFont(9, design: .monospaced).foregroundStyle(.secondary).lineLimit(2).textSelection(.enabled)
+                    .accessibilityIdentifier("geo.url.\(f.kind)")
                 if custom != nil {
                     Text("默认：\(model.defaultURL(f.kind))").scaledFont(9, design: .monospaced).foregroundStyle(Color.secondary.opacity(0.7)).lineLimit(1).truncationMode(.middle)
                 }
@@ -339,6 +473,41 @@ struct GeoView: View {
         }
         .padding(16)
         .background(RoundedRectangle(cornerRadius: Theme.radius, style: .continuous).fill(Theme.card))
+    }
+
+    /// feat/geo-mirror-edit: download arrow only while not installed; installed → 更新 (arrow.clockwise);
+    /// a spinner while downloading; red 重试 after an error or for a damaged file.
+    @ViewBuilder
+    func actionButton(_ f: GeoFileInfo, busy: Bool) -> some View {
+        let failed = !(model.errors[f.kind] ?? f.error ?? "").isEmpty
+        if busy {
+            ProgressView()
+                .tint(Theme.accent)
+                .frame(width: 32, height: 32)
+                .accessibilityLabel(Text("下载中"))
+                .accessibilityIdentifier("geo.busy.\(f.kind)")
+        } else {
+            let st = actionStyle(f, failed: failed)
+            Button {
+                Task { await model.update(f.kind) }
+            } label: {
+                Image(systemName: st.symbol)
+                    .font(.subheadline.weight(.bold))
+                    .foregroundStyle(st.soft ? st.color : Color.white)
+                    .frame(width: 32, height: 32)
+                    .background(Circle().fill(st.soft ? st.color.opacity(0.14) : st.color))
+            }
+            .buttonStyle(.plain)
+            .accessibilityLabel(Text(LocalizedStringKey(st.label)))
+            .accessibilityIdentifier(st.id)
+        }
+    }
+
+    /// soft = tinted circle (installed → 更新, the quiet action); solid = the call to action (下载, red 重试).
+    func actionStyle(_ f: GeoFileInfo, failed: Bool) -> (symbol: String, color: Color, label: String, id: String, soft: Bool) {
+        if failed { return ("arrow.clockwise", Theme.bad, "重试", "geo.retry.\(f.kind)", false) }
+        if f.exists == true { return ("arrow.clockwise", Theme.accent, "更新", "geo.update.\(f.kind)", true) }
+        return ("arrow.down", Theme.accent, "下载", "geo.download.\(f.kind)", false)
     }
 
     func metric(_ title: String, _ value: String) -> some View {

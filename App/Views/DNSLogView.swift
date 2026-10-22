@@ -266,6 +266,11 @@ struct DNSLogView: View {
             .pickerStyle(.segmented)
             .listRowBackground(Color.clear)
             .accessibilityIdentifier("dnslog.tabs")
+            if store.paused && (vpn.isConnected || UITestSeed.enabled) {
+                PausedChip(id: "dnslog.paused") { store.paused = false }
+                    .listRowInsets(EdgeInsets(top: 2, leading: 4, bottom: 2, trailing: 4))
+                    .listRowBackground(Color.clear)
+            }
 
             if tab == 0 {
                 Section {
@@ -313,9 +318,8 @@ struct DNSLogView: View {
         .navigationBarTitleDisplayMode(.inline)
         .toolbar {
             ToolbarItemGroup(placement: .navigationBarTrailing) {
-                if vpn.isConnected {
-                    Button { store.paused.toggle() } label: { Image(systemName: store.paused ? "play.fill" : "pause.fill") }
-                        .accessibilityLabel(Text(LocalizedStringKey(store.paused ? "继续" : "暂停")))
+                if vpn.isConnected || UITestSeed.enabled { // UI tests: seeded demo lines, no VPN
+                    PauseToggleButton(paused: $store.paused, id: "dnslog.pause")
                 }
                 Button(role: .destructive) { store.clear() } label: { Image(systemName: "trash") }
                     .disabled(store.queries.isEmpty && store.blocked.isEmpty)
