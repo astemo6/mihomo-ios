@@ -107,11 +107,14 @@ final class ConnectionAnalytics: ObservableObject {
     static func build(_ s: TunnelStats) -> TunnelBuilt {
         var b = TunnelBuilt()
         b.policies.reserveCapacity(s.policies.count)
-        for p in s.policies { b.policies[p.name] = Bytes(up: p.up, down: p.down) }
+        // Egern parity (user, 2026-10-22): the hop into the rewrite engine (policy __MITM__, 「HTTPS 解密（MitM）」 /
+        // 「HTTP 明文（端口 80）」) is not a rule hit of its own — the engine's upstream connection carries the real rule,
+        // policy, host and bytes — so it is left out of 策略 / 规则 / 主机名 rather than counted twice.
+        for p in s.policies where p.name != RuleDisplay.engineOutbound { b.policies[p.name] = Bytes(up: p.up, down: p.down) }
         b.hosts.reserveCapacity(s.hosts.count)
         for h in s.hosts { b.hosts[h.name] = Bytes(up: h.up, down: h.down) }
         b.rules.reserveCapacity(s.rules.count)
-        for r in s.rules {
+        for r in s.rules where r.policy != RuleDisplay.engineOutbound {
             let hit = RuleHit(rule: r.rule, policy: r.policy, hits: r.hits)
             b.rules[hit.id] = hit
         }
@@ -153,6 +156,7 @@ final class ConnectionAnalytics: ObservableObject {
         var stepPol: [String: Bytes] = [:], stepHost: [String: Bytes] = [:]
         for c in conns {
             let policy = c.chains?.last ?? "DIRECT"
+            if policy == RuleDisplay.engineOutbound { continue } // engine hop; see build(_:)
             let prev = last[c.id]
             if prev == nil {
                 newCount += 1
@@ -527,16 +531,17 @@ struct RuleHitsList: View {
                         let parts = RuleDisplay.describe(r.rule, policy: r.policy)
                         HStack {
                             VStack(alignment: .leading, spacing: 3) {
-                                Text(verbatim: parts.primary).font(.subheadline).lineLimit(1).truncationMode(.middle)
+                                Text(verbatim: parts.primary).font(.body).lineLimit(1).truncationMode(.middle)
                                 // Egern 规则 page: the policy as a grey subtitle (no type tag, no dot).
                                 Text(verbatim: RuleDisplay.policyName(r.policy)).font(.caption).foregroundStyle(.secondary)
                                     .lineLimit(1).truncationMode(.middle)
                             }
                             Spacer(minLength: 6)
-                            Text("\(r.hits)").font(.subheadline.monospacedDigit()).foregroundStyle(.secondary)
+                            Text("\(r.hits)").font(.body.monospacedDigit()).foregroundStyle(.secondary)
                         }
                     }
-                    .listRowBackground(r.id == focus ? Theme.accent.opacity(0.14) : Theme.card)
+                    // Egern: plain rows, no tinted 「current」 row.
+                    .listRowBackground(Theme.card)
                     .accessibilityIdentifier("rulehits.row.\(r.rule).\(r.policy)")
                     .id(r.id)
                 }

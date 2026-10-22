@@ -249,6 +249,10 @@ func statsHostName(m *C.Metadata) string {
 	return "?"
 }
 
+// statsEngineOutbound is the hop into the rewrite engine (App RuleDisplay.engineOutbound). Like Egern, it is not
+// counted under 策略 / 规则 / 主机名: the engine's upstream connection carries the real rule, policy, host and bytes.
+const statsEngineOutbound = "__MITM__"
+
 // statsPolicy mirrors the App's chains.last ?? "DIRECT".
 func statsPolicy(info *statistic.TrackerInfo) string {
 	if info == nil || len(info.Chain) == 0 {
@@ -340,6 +344,10 @@ func (r *statsRecorder) resetCountersLocked(now time.Time) {
 // opened: a tracker seen for the first time. Caller holds r.mu.
 func (r *statsRecorder) openedLocked(info *statistic.TrackerInfo, policy string) {
 	r.total++
+	if policy == statsEngineOutbound {
+		r.version++
+		return
+	}
 	rule := statsRuleText(info)
 	h := r.rules.touch(rule + "\x01" + policy)
 	if h.Hits == 0 {
@@ -351,7 +359,7 @@ func (r *statsRecorder) openedLocked(info *statistic.TrackerInfo, policy string)
 
 // bytes: growth of a counted tracker. Caller holds r.mu.
 func (r *statsRecorder) bytesLocked(policy, host string, du, dd int64) {
-	if du == 0 && dd == 0 {
+	if (du == 0 && dd == 0) || policy == statsEngineOutbound {
 		return
 	}
 	p := r.policies.touch(policy)
