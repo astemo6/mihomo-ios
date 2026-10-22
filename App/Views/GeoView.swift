@@ -335,17 +335,20 @@ struct GeoView: View {
                     .focused($baseFocused)
                     .onSubmit { if dirty { model.setCustomBase(baseText) } }
                     .accessibilityIdentifier("geo.mirror.field")
-                if !baseText.isEmpty {
-                    Button {
-                        baseText = ""
-                        baseFocused = true
-                    } label: {
-                        Image(systemName: "xmark.circle.fill").foregroundStyle(.secondary)
-                    }
-                    .buttonStyle(.plain)
-                    .accessibilityLabel(Text("清除"))
-                    .accessibilityIdentifier("geo.mirror.clear")
+                // Always in the row (hidden while empty): inserting / removing a view next to the field while
+                // clearing it and moving focus in the same update left the field focused but not taking typed
+                // text (UI test r2). Clearing leaves focus where the user put it.
+                Button {
+                    baseText = ""
+                } label: {
+                    Image(systemName: "xmark.circle.fill").foregroundStyle(.secondary)
                 }
+                .buttonStyle(.plain)
+                .opacity(baseText.isEmpty ? 0 : 1)
+                .disabled(baseText.isEmpty)
+                .accessibilityHidden(baseText.isEmpty)
+                .accessibilityLabel(Text("清除"))
+                .accessibilityIdentifier("geo.mirror.clear")
             }
                 .padding(.horizontal, 10).padding(.vertical, 8)
                 .background(RoundedRectangle(cornerRadius: 10, style: .continuous).fill(Theme.cardHi))
