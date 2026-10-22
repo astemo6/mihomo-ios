@@ -95,6 +95,7 @@ struct UpdateResourcesView: View {
                     ResourceUpdateRow(kind: kind, name: it.name, url: it.url, symbol: symbol, tone: tone,
                                       updated: it.updatedAt > 0 ? Date(timeIntervalSince1970: it.updatedAt) : nil,
                                       error: it.error, disabled: !it.enabled,
+                                      owner: kind == "script" ? it.owner : nil,
                                       busy: res.busy.contains(it.key) || res.updatingAll) {
                         Task { await res.update(it); res.message = nil }
                     }
@@ -160,6 +161,9 @@ struct ResourceUpdateRow: View {
     var updated: Date?
     var error: String?
     var disabled = false
+    /// User 2026-10-22: a remote script's source — the rewrite subscription(s) / modules that reference it, or 脚本
+    /// for the user's own script lines.
+    var owner: String? = nil
     var busy = false
     let update: () -> Void
 
@@ -189,6 +193,9 @@ struct ResourceUpdateRow: View {
                 // r7 P3-6: host only — subscription links usually carry a token (?token=…, /api/v1/client/<token>)
                 // that a screenshot or screen recording would leak.
                 Text(verbatim: Self.displayURL(url)).font(.caption2.monospaced()).foregroundStyle(.secondary).lineLimit(1).truncationMode(.middle)
+                if let owner, !owner.isEmpty {
+                    Text("来自 \(owner)").font(.caption).foregroundStyle(.secondary).lineLimit(1).truncationMode(.tail)
+                }
                 HStack(spacing: 6) {
                     if disabled {
                         Text("已停用")
