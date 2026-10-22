@@ -25,6 +25,12 @@ final class ConnectionAnalytics: ObservableObject {
     @Published private(set) var since = Date()
 
     private var last: [String: (up: Int64, down: Int64)] = [:]
+    /// feat/home-drilldown: the connections of the newest snapshot, and the ones that dropped out of it since the tunnel
+    /// connected (newest first, capped). Not published — readers (the 连接 / 网络 pages) copy them when they need
+    /// them, so the 2 s ingest never re-renders anything by itself. closedAt = the poll that no longer listed them.
+    private(set) var activeItems: [ConnectionItem] = []
+    private(set) var closedItems: [ConnectionItem] = []
+    static let closedCap = 500
     /// r7: bumped whenever policies / rules / hosts / counts change, so readers (HomeAnalysisModel) can skip a re-sort
     /// when nothing moved.
     private(set) var version = 0
@@ -34,6 +40,7 @@ final class ConnectionAnalytics: ObservableObject {
 
     func reset() {
         policies = [:]; rules = [:]; hosts = [:]; last = [:]
+        activeItems = []; closedItems = []
         totalConnections = 0; activeConnections = 0; since = Date()
         version &+= 1
     }
@@ -74,6 +81,16 @@ final class ConnectionAnalytics: ObservableObject {
             let keep = hs.sorted { $0.value.total > $1.value.total }.prefix(Self.hostCap)
             hs = Dictionary(uniqueKeysWithValues: keep.map { ($0.key, $0.value) })
         }
+        if !activeItems.isEmpty {
+            let now = Date()
+            var gone = activeItems.filter { seen[$0.id] == nil }
+            if !gone.isEmpty {
+                for i in gone.indices { gone[i].closedAt = now }
+                closedItems.insert(contentsOf: gone.reversed(), at: 0)
+                if closedItems.count > Self.closedCap { closedItems.removeLast(closedItems.count - Self.closedCap) }
+            }
+        }
+        activeItems = conns
         last = seen
         policies = pol; hosts = hs; rules = rs
         if recordsHistory { AnalyticsHistory.shared.add(policies: stepPol, hosts: stepHost) }
@@ -82,7 +99,7 @@ final class ConnectionAnalytics: ObservableObject {
         activeConnections = conns.count
     }
 
-    static func hostName(_ m: ConnectionMetadata) -> String {
+    nonisolated static func hostName(_ m: ConnectionMetadata) -> String {
         if let h = m.host, !h.isEmpty { return h }
         if let h = m.sniffHost, !h.isEmpty { return h }
         return m.destinationIP ?? "?"
@@ -378,18 +395,31 @@ struct HostBarRow: View {
 }
 
 struct RuleHitsList: View {
-    @ObservedObject private var a = ConnectionAnalytics.shared
+    /// feat/home-drilldown: the source Home reads (the UI-test demo instance under -UITestDemoAnalytics), copied every 2 s
+    /// while the page is on screen instead of observing the session store.
+    @State private var list: [ConnectionAnalytics.RuleHit] = []
     var body: some View {
-        List(a.ruleList) { r in
-            HStack {
-                VStack(alignment: .leading, spacing: 2) {
-                    Text(r.rule).font(.footnote.monospaced()).lineLimit(2)
-                    Text(r.policy).font(.caption2).foregroundStyle(.secondary)
+        List(list) { r in
+            // feat/home-drilldown: each rule opens 连接 filtered by it (and the policy it chose).
+            NavigationLink { ConnectionsListView(filter: ConnFilter(rules: [r.rule], policies: [r.policy])) } label: {
+                HStack {
+                    VStack(alignment: .leading, spacing: 2) {
+                        Text(r.rule).font(.footnote.monospaced()).lineLimit(2)
+                        Text(r.policy).font(.caption2).foregroundStyle(.secondary)
+                    }
+                    Spacer()
+                    Text("\(r.hits)").font(.subheadline.weight(.semibold).monospacedDigit())
                 }
-                Spacer()
-                Text("\(r.hits)").font(.subheadline.weight(.semibold).monospacedDigit())
             }
             .listRowBackground(Theme.card)
+            .accessibilityIdentifier("rulehits.row")
+        }
+        .task {
+            while !Task.isCancelled {
+                let l = HomeAnalysisModel.shared.source.ruleList
+                if l != list { list = l }
+                try? await Task.sleep(nanoseconds: 2_000_000_000)
+            }
         }
         .scrollContentBackground(.hidden)
         .background(Theme.bg.ignoresSafeArea())
@@ -404,8 +434,19 @@ struct HostTrafficList: View {
         let maxB = max(list.first?.bytes.total ?? 1, 1)
         let shown = search.isEmpty ? list : list.filter { $0.name.localizedCaseInsensitiveContains(search) }
         List(shown) { h in
-            HostBarRow(name: h.name, bytes: h.bytes.total, fraction: Double(h.bytes.total) / Double(maxB))
-                .listRowBackground(Theme.card)
+            // feat/home-drilldown (Egern 主机名): ↑↓ per host, tap → that host's connections.
+            NavigationLink { ConnectionsListView(filter: ConnFilter(host: h.name), title: h.name) } label: {
+                VStack(alignment: .leading, spacing: 4) {
+                    HostBarRow(name: h.name, bytes: h.bytes.total, fraction: Double(h.bytes.total) / Double(maxB))
+                    HStack(spacing: 10) {
+                        Label(Fmt.bytes(h.bytes.up), systemImage: "arrow.up").foregroundStyle(Theme.up)
+                        Label(Fmt.bytes(h.bytes.down), systemImage: "arrow.down").foregroundStyle(Theme.down)
+                    }
+                    .font(.caption2.monospacedDigit())
+                }
+            }
+            .listRowBackground(Theme.card)
+            .accessibilityIdentifier("hosttraffic.row.\(h.name)")
         }
         .scrollContentBackground(.hidden)
         .background(Theme.bg.ignoresSafeArea())

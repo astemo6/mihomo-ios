@@ -131,6 +131,7 @@ final class DashboardModel: ObservableObject {
         let a = allSeries.append(up: t.up, down: t.down, requestedAt: requestedAt, receivedAt: receivedAt)
         let p = proxySeries.append(up: t.proxyUp, down: t.proxyDown, requestedAt: requestedAt, receivedAt: receivedAt)
         if a == .dropped && p == .dropped { return }
+        NetworkHistory.shared.add(t, at: receivedAt) // feat/home-drilldown: 网络 page (秒 / 分钟 / 小时)
         lastTraffic = t
         if homeVisible { publishTraffic(animated: a == .appended) }
         let sp = t.speed(scope), tot = t.totals(scope)

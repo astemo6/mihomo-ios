@@ -46,28 +46,252 @@ struct ConnectionDetailView: View {
     @State private var probe: TimelineProbe?
     @State private var probing = false
     @State private var probeError: String?
+    /// feat/home-drilldown (Egern): 摘要 / 请求 / 响应.
+    @State private var tab = 0
+    @State private var http: [HTTPRequestSummary] = []
+    @State private var httpLoaded = false
+    @State private var httpPick: Int64?
+    @State private var httpDetail: HTTPRequestDetail?
+    @State private var geo: IPInfo?
+    @State private var geoState = 0 // 0 idle, 1 loading, 2 failed
 
     var record: TimelineRecord? { model.timeline[c.id] }
     var current: ConnectionItem { model.active.first { $0.id == c.id } ?? model.recent.first { $0.id == c.id } ?? c }
 
     var body: some View {
         List {
-            Section {
-                ConnectionRow(c: current)
-                if let r = c.metadata.remoteDestination, !r.isEmpty {
-                    LabeledContent("远端地址") { Text(verbatim: r).font(.caption.monospaced()) }
-                }
+            Picker("", selection: $tab) {
+                Text("摘要").tag(0)
+                Text("请求").tag(1)
+                Text("响应").tag(2)
             }
-            .listRowBackground(Theme.card)
+            .pickerStyle(.segmented)
+            .listRowBackground(Color.clear)
+            .accessibilityIdentifier("conndetail.tabs")
 
-            passiveSection
-            probeSection
+            if tab == 0 {
+                Section {
+                    ConnectionRow(c: current)
+                    if let r = c.metadata.remoteDestination, !r.isEmpty {
+                        LabeledContent("远端地址") { Text(verbatim: r).font(.caption.monospaced()) }
+                    }
+                }
+                .listRowBackground(Theme.card)
+                passiveSection
+                if let h = http.first { httpSummary(h) }
+                addressSection
+                ruleSection
+                locationSection
+                stateSection
+                probeSection
+            } else {
+                httpSection(request: tab == 1)
+            }
         }
         .listStyle(.insetGrouped)
         .scrollContentBackground(.hidden)
         .background(Theme.bg.ignoresSafeArea())
         .navigationTitle(Text(verbatim: c.metadata.displayHost))
         .navigationBarTitleDisplayMode(.inline)
+        .task { await loadHTTP() }
+        .onChange(of: httpPick) { id in
+            httpDetail = nil
+            guard let id else { return }
+            Task { httpDetail = try? await ControllerClient.shared.mitmRequest(id) }
+        }
+    }
+
+    // MARK: 摘要
+
+    func httpSummary(_ h: HTTPRequestSummary) -> some View {
+        Section {
+            LabeledContent("方法") { Text(verbatim: h.method).monospaced() }
+            VStack(alignment: .leading, spacing: 3) {
+                Text("URL").font(.caption).foregroundStyle(.secondary)
+                Text(verbatim: h.url).scaledFont(11, design: .monospaced).textSelection(.enabled).lineLimit(4)
+            }
+            LabeledContent("状态码") { Text(verbatim: h.status > 0 ? "\(h.status)" : "—").monospacedDigit() }
+        } header: {
+            Text(verbatim: "HTTP")
+        }
+        .listRowBackground(Theme.card)
+    }
+
+    var addressSection: some View {
+        let m = current.metadata
+        return Section {
+            row("地址", m.displayHost, mono: true)
+            if let p = m.sourcePort, !p.isEmpty { row("本地端口", p, mono: true) }
+            if let ip = m.sourceIP, !ip.isEmpty { row("来源 IP", ip, mono: true) }
+            row("协议", (m.network ?? "tcp").uppercased())
+            if let t = m.type, !t.isEmpty { row("入站", t) }
+            if let ip = m.destinationIP, !ip.isEmpty { row("IP", ip, mono: true) }
+            if let p = m.process, !p.isEmpty { row("进程", p) }
+        } header: {
+            Text("地址")
+        }
+        .listRowBackground(Theme.card)
+    }
+
+    var ruleSection: some View {
+        Section {
+            LabeledContent("规则") {
+                HStack(spacing: 6) {
+                    if let r = current.rule, !r.isEmpty { RuleTypeTag(type: Theme.ruleTypeName(r)) }
+                    if let p = current.rulePayload, !p.isEmpty { Text(verbatim: p).font(.caption.monospaced()).lineLimit(1).truncationMode(.middle) }
+                    if (current.rule ?? "").isEmpty { Text(verbatim: "—").foregroundStyle(.secondary) }
+                }
+            }
+            if !current.chainText.isEmpty {
+                LabeledContent("策略链") { PolicyChip(name: current.chainText) }
+            }
+        } header: {
+            Text("规则")
+        }
+        .listRowBackground(Theme.card)
+    }
+
+    /// The destination IP's region / ASN, looked up only when asked (the IP is sent to the lookup service).
+    @ViewBuilder var locationSection: some View {
+        if let ip = current.metadata.destinationIP, !ip.isEmpty {
+            Section {
+                if let g = geo {
+                    row("地区", "\(g.flag) \(g.placeText)")
+                    if let a = g.asn, !a.isEmpty { row("ASN", a, mono: true) }
+                    if let o = g.org, !o.isEmpty { row("ASO", o) }
+                } else {
+                    Button {
+                        geoState = 1
+                        Task {
+                            geo = await IPInfoFetcher.lookup(ip: ip)
+                            geoState = geo == nil ? 2 : 0
+                        }
+                    } label: {
+                        HStack {
+                            Label("查询 IP 归属", systemImage: "mappin.and.ellipse")
+                            Spacer()
+                            if geoState == 1 { ProgressView() }
+                        }
+                    }
+                    .disabled(geoState == 1)
+                    .accessibilityIdentifier("conndetail.geo")
+                    if geoState == 2 { Text("查询失败").font(.caption).foregroundStyle(Theme.bad) }
+                }
+            } header: {
+                Text("位置")
+            } footer: {
+                Text("轻点后向 ipinfo.io / ip-api.com 查询目标 IP 的归属地。")
+            }
+            .listRowBackground(Theme.card)
+        }
+    }
+
+    var stateSection: some View {
+        let cur = current
+        return Section {
+            if let s = cur.startDate {
+                row("开始时间", s.formatted(date: .abbreviated, time: .standard))
+                row("时长", Fmt.duration((cur.closedAt ?? Date()).timeIntervalSince(s)))
+            }
+            if let f = record?.firstDown { row("首字节", String(localized: "建立后 \(f.text)")) }
+            row("状态", cur.closedAt == nil ? String(localized: "活跃") : String(localized: "已关闭"))
+            row("上传", Fmt.bytes(cur.upload))
+            row("下载", Fmt.bytes(cur.download))
+        } header: {
+            Text("状态")
+        }
+        .listRowBackground(Theme.card)
+    }
+
+    func row(_ title: LocalizedStringKey, _ value: String, mono: Bool = false) -> some View {
+        LabeledContent(title) {
+            Text(verbatim: value)
+                .font(mono ? .callout.monospaced() : .callout)
+                .lineLimit(2).truncationMode(.middle)
+                .textSelection(.enabled)
+        }
+    }
+
+    // MARK: 请求 / 响应
+
+    /// HTTP requests the HTTP engine logged for this host while the connection was open (MitM / plain HTTP only).
+    func loadHTTP() async {
+        defer { httpLoaded = true }
+        let host = (current.metadata.host?.isEmpty == false ? current.metadata.host : current.metadata.sniffHost)?.lowercased() ?? ""
+        guard !host.isEmpty, VPNManager.shared.isConnected, let all = try? await ControllerClient.shared.mitmRequests() else { return }
+        let from = (current.startDate ?? .distantPast).addingTimeInterval(-2)
+        let to = (current.closedAt ?? Date()).addingTimeInterval(2)
+        let found = all.filter { r in
+            var h = r.host.lowercased()
+            if let i = h.lastIndex(of: ":"), !h.hasSuffix("]"), h.filter({ $0 == ":" }).count == 1 { h = String(h[..<i]) }
+            return h == host && r.date >= from && r.date <= to && r.method != "TLS"
+        }
+        .sorted { $0.time < $1.time }
+        http = found
+        if httpPick == nil { httpPick = found.first?.id }
+    }
+
+    @ViewBuilder func httpSection(request: Bool) -> some View {
+        if http.isEmpty {
+            Section {
+                EmptyStateRow(icon: "lock.open", title: httpLoaded ? "没有记录到这条连接的 HTTP 内容" : "正在读取…",
+                              message: "只有经过 HTTPS 解密（或明文 HTTP）并开启重写与脚本的连接才有请求和响应内容。")
+                    .accessibilityIdentifier("conndetail.http.none")
+                NavigationLink { MitMView() } label: { Label("开启 HTTPS 解密", systemImage: "lock.open") }
+                    .accessibilityIdentifier("conndetail.mitm")
+            }
+            .listRowBackground(Theme.card)
+        } else {
+            if http.count > 1 {
+                Section {
+                    ForEach(http) { r in
+                        Button { httpPick = r.id } label: {
+                            HStack {
+                                HTTPRequestRow(r: r)
+                                if httpPick == r.id { Image(systemName: "checkmark").foregroundStyle(Theme.accent) }
+                            }
+                        }
+                        .buttonStyle(.plain)
+                    }
+                } header: {
+                    Text("\(http.count) 个请求")
+                }
+                .listRowBackground(Theme.card)
+            }
+            if let d = httpDetail {
+                let first = request ? "\(d.method) \(d.url)" : "HTTP \(d.status)"
+                let headers = (request ? d.reqHeaders : d.respHeaders) ?? [:]
+                Section {
+                    Text(verbatim: first).scaledFont(11, design: .monospaced).textSelection(.enabled)
+                    ForEach(headers.keys.sorted(), id: \.self) { k in
+                        VStack(alignment: .leading, spacing: 1) {
+                            Text(verbatim: k).font(.caption2.weight(.semibold)).foregroundStyle(Theme.accent)
+                            Text(verbatim: headers[k] ?? "").scaledFont(11, design: .monospaced).textSelection(.enabled)
+                        }
+                    }
+                } header: {
+                    Text(verbatim: "HEADERS")
+                }
+                .listRowBackground(Theme.card)
+                Section {
+                    let content = request ? d.reqBody : d.respBody
+                    let bin = request ? d.reqBodyBinary : d.respBodyBinary
+                    if let content, !content.isEmpty {
+                        Text(HTTPRequestDetailView.pretty(content)).scaledFont(11, design: .monospaced).textSelection(.enabled).lineLimit(400)
+                    } else if let bin, bin > 0 {
+                        Text("二进制或压缩内容（\(Fmt.bytes(Int64(bin)))）").font(.caption).foregroundStyle(.secondary)
+                    } else {
+                        Text("无内容或未记录（仅记录前 32 KB）").font(.caption).foregroundStyle(.secondary)
+                    }
+                    NavigationLink { HTTPRequestDetailView(id: d.id) } label: { Label("请求详情", systemImage: "doc.text.magnifyingglass") }
+                } header: {
+                    Text(verbatim: "BODY")
+                }
+                .listRowBackground(Theme.card)
+            } else {
+                ProgressView().frame(maxWidth: .infinity).listRowBackground(Color.clear)
+            }
+        }
     }
 
     // MARK: 本次连接 (passive)
