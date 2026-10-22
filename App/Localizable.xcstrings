@@ -7464,40 +7464,6 @@
         }
       }
     },
-    "https://…/rules.list": {
-      "localizations": {
-        "zh-Hant": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "https://…/rules.list"
-          }
-        },
-        "en": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "https://…/rules.list"
-          }
-        },
-        "ja": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "https://…/rules.list"
-          }
-        },
-        "ko": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "https://…/rules.list"
-          }
-        },
-        "ru": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "https://…/rules.list"
-          }
-        }
-      }
-    },
     "https://…/script.js": {
       "localizations": {
         "en": {
@@ -12641,40 +12607,6 @@
         }
       }
     },
-    "使用者": {
-      "localizations": {
-        "zh-Hant": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "使用者"
-          }
-        },
-        "en": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Used By"
-          }
-        },
-        "ja": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "使用元"
-          }
-        },
-        "ko": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "사용처"
-          }
-        },
-        "ru": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Используется в"
-          }
-        }
-      }
-    },
     "使用自定义 DNS": {
       "localizations": {
         "en": {
@@ -13561,40 +13493,6 @@
         }
       }
     },
-    "停用后，引用这个脚本的所有规则、定时任务和面板都不再运行（模块本身保持启用）。连接期间引擎会按间隔在后台刷新脚本。": {
-      "localizations": {
-        "zh-Hant": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "停用後，引用這個腳本的所有規則、定時任務和面板都不再執行（模組本身保持啟用）。連線期間引擎會按間隔在背景重新整理腳本。"
-          }
-        },
-        "en": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "When off, every rule, scheduled task and panel that uses this script stops running (the module itself stays enabled). While connected, the engine refreshes the script in the background at this interval."
-          }
-        },
-        "ja": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "オフにすると、このスクリプトを使うすべてのルール、定期タスク、パネルが動作しなくなります（モジュール自体は有効のまま）。接続中はエンジンがこの間隔でスクリプトをバックグラウンド更新します。"
-          }
-        },
-        "ko": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "끄면 이 스크립트를 사용하는 모든 규칙, 예약 작업, 패널이 실행되지 않습니다(모듈 자체는 켜진 상태 유지). 연결된 동안 엔진이 이 간격으로 스크립트를 백그라운드에서 새로 고칩니다."
-          }
-        },
-        "ru": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Если выключить, все правила, задачи по расписанию и панели с этим скриптом перестанут работать (сам модуль останется включён). При подключении движок обновляет скрипт в фоне с этим интервалом."
-          }
-        }
-      }
-    },
     "健康检查": {
       "extractionState": "manual",
       "localizations": {
@@ -14105,40 +14003,6 @@
           "stringUnit": {
             "state": "translated",
             "value": "Все"
-          }
-        }
-      }
-    },
-    "全部 %lld": {
-      "localizations": {
-        "zh-Hant": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "全部 %lld"
-          }
-        },
-        "en": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "All %lld"
-          }
-        },
-        "ja": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "すべて %lld"
-          }
-        },
-        "ko": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "전체 %lld"
-          }
-        },
-        "ru": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Все: %lld"
           }
         }
       }
@@ -20166,41 +20030,6 @@
           "stringUnit": {
             "state": "translated",
             "value": "Панели появятся здесь, когда вы включите модуль с Surge [Panel] или Stash tiles."
-          }
-        }
-      }
-    },
-    "启用的模块和脚本行引用的远程脚本会出现在这里。": {
-      "extractionState": "manual",
-      "localizations": {
-        "zh-Hant": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "啟用的模組和腳本行引用的遠端腳本會出現在這裡。"
-          }
-        },
-        "en": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Remote scripts used by enabled modules and script lines appear here."
-          }
-        },
-        "ja": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "有効なモジュールとスクリプト行が参照するリモートスクリプトがここに表示されます。"
-          }
-        },
-        "ko": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "켜진 모듈과 스크립트 줄이 참조하는 원격 스크립트가 여기에 표시됩니다."
-          }
-        },
-        "ru": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Здесь появятся удалённые скрипты из включённых модулей и строк скриптов."
           }
         }
       }
@@ -29506,74 +29335,6 @@
         }
       }
     },
-    "所有格式的模块都在这里：Surge .sgmodule、Quantumult X 重写、Loon .plugin、Stash .stoverride、Egern .yaml 模块和重写列表，角标显示来源格式。远程规则集（自定义规则里的 RULE-SET / filter_remote，以及模块引用的规则集）和模块引用的远程脚本也列在这里：每项可单独开关、设置更新间隔，失败原因显示在条目下方。打开 App 时自动更新到期的资源。": {
-      "localizations": {
-        "zh-Hant": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "所有格式的模組都在這裡：Surge .sgmodule、Quantumult X 重寫、Loon .plugin、Stash .stoverride、Egern .yaml 模組和重寫列表，角標顯示來源格式。遠端規則集（自定義規則裡的 RULE-SET / filter_remote，以及模組引用的規則集）和模組引用的遠端腳本也列在這裡：每項可單獨開關、設定更新間隔，失敗原因顯示在條目下方。開啟 App 時自動更新到期的資源。"
-          }
-        },
-        "en": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Modules of every format live here: Surge .sgmodule, Quantumult X rewrites, Loon .plugin, Stash .stoverride, Egern .yaml modules and rewrite lists, with a badge for the source format. Remote rule sets (RULE-SET / filter_remote in custom rules, plus rule sets referenced by modules) and remote scripts used by modules are listed here too: each can be switched on or off and given its own update interval, and failures are shown under the item. Due resources update when you open the app."
-          }
-        },
-        "ja": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "あらゆる形式のモジュールがここにあります：Surge .sgmodule、Quantumult X 書き換え、Loon .plugin、Stash .stoverride、Egern .yaml モジュール、書き換えリスト。バッジで元の形式を示します。リモートのルールセット（カスタムルールの RULE-SET / filter_remote と、モジュールが参照するルールセット）やモジュールが使うリモートスクリプトもここに並びます。項目ごとにオン/オフと更新間隔を設定でき、失敗した理由は項目の下に表示されます。期限が来たリソースはアプリを開いたときに自動更新されます。"
-          }
-        },
-        "ko": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "모든 형식의 모듈이 여기에 있습니다: Surge .sgmodule, Quantumult X 재작성, Loon .plugin, Stash .stoverride, Egern .yaml 모듈, 재작성 목록. 배지로 원래 형식을 표시합니다. 원격 규칙 세트(사용자 지정 규칙의 RULE-SET / filter_remote 및 모듈이 참조하는 규칙 세트)와 모듈이 쓰는 원격 스크립트도 여기에 표시됩니다. 항목마다 켜고 끄거나 업데이트 간격을 정할 수 있고, 실패 이유는 항목 아래에 표시됩니다. 기한이 된 리소스는 앱을 열 때 자동으로 업데이트됩니다."
-          }
-        },
-        "ru": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Здесь модули всех форматов: Surge .sgmodule, перезапись Quantumult X, Loon .plugin, Stash .stoverride, модули Egern .yaml и списки перезаписи — значок показывает исходный формат. Здесь же удалённые наборы правил (RULE-SET / filter_remote в своих правилах и наборы, на которые ссылаются модули) и удалённые скрипты модулей: каждый можно включить или выключить и задать свой интервал обновления, ошибки видны под элементом. Устаревшие ресурсы обновляются при открытии приложения."
-          }
-        }
-      }
-    },
-    "所有格式的模块都在这里：Surge .sgmodule、Quantumult X 重写片段、Loon .plugin、Stash .stoverride 和重写列表，角标显示来源格式。模块 [Rule] 中的策略名会对应到当前配置的策略组，找不到时可在模块详情里指定。": {
-      "localizations": {
-        "en": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Modules of every format live here: Surge .sgmodule, Quantumult X rewrite snippets, Loon .plugin, Stash .stoverride and rewrite lists, with a badge for the source format. Policy names in a module's [Rule] map to groups of the current profile; if one is missing you can choose it in the module details."
-          }
-        },
-        "zh-Hant": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "所有格式的模組都在這裡：Surge .sgmodule、Quantumult X 重寫片段、Loon .plugin、Stash .stoverride 和重寫列表，角標顯示來源格式。模組 [Rule] 中的策略名會對應到當前配置的策略組，找不到時可在模組詳情裡指定。"
-          }
-        },
-        "ja": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "あらゆる形式のモジュールがここにあります：Surge .sgmodule、Quantumult X 書き換えスニペット、Loon .plugin、Stash .stoverride、書き換えリスト。バッジで元の形式を示します。モジュールの [Rule] のポリシー名は現在のプロファイルのグループに対応し、見つからない場合はモジュールの詳細で選べます。"
-          }
-        },
-        "ko": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "모든 형식의 모듈이 여기에 있습니다: Surge .sgmodule, Quantumult X 재작성 스니펫, Loon .plugin, Stash .stoverride, 재작성 목록. 배지로 원래 형식을 표시합니다. 모듈 [Rule]의 정책 이름은 현재 프로파일의 그룹에 대응하며, 없으면 모듈 상세에서 선택할 수 있습니다."
-          }
-        },
-        "ru": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Здесь модули всех форматов: Surge .sgmodule, фрагменты перезаписи Quantumult X, Loon .plugin, Stash .stoverride и списки перезаписи — значок показывает исходный формат. Имена политик в [Rule] модуля сопоставляются с группами текущего профиля; если группы нет, выберите её в деталях модуля."
-          }
-        }
-      }
-    },
     "手动": {
       "localizations": {
         "en": {
@@ -32446,40 +32207,6 @@
           "stringUnit": {
             "state": "translated",
             "value": "Поддерживаются маски * и ?, префикс - для исключения и :порт (по умолчанию 443). Можно вставить несколько через запятую. Это тот же список, что и хосты в «Локальном модуле»."
-          }
-        }
-      }
-    },
-    "支持 Surge / Loon / Stash 规则列表、Quantumult X 分流列表、Egern YAML 规则集。添加后会写入自定义规则（置顶），并立即下载一次。": {
-      "localizations": {
-        "zh-Hant": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "支援 Surge / Loon / Stash 規則列表、Quantumult X 分流列表、Egern YAML 規則集。新增後會寫入自定義規則（置頂），並立即下載一次。"
-          }
-        },
-        "en": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Supports Surge / Loon / Stash rule lists, Quantumult X filter lists and Egern YAML rule sets. It is added to the top of the custom rules and downloaded right away."
-          }
-        },
-        "ja": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Surge / Loon / Stash のルールリスト、Quantumult X のフィルターリスト、Egern YAML ルールセットに対応。追加するとカスタムルールの先頭に書き込まれ、すぐに一度ダウンロードされます。"
-          }
-        },
-        "ko": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Surge / Loon / Stash 규칙 목록, Quantumult X 필터 목록, Egern YAML 규칙 세트를 지원합니다. 추가하면 사용자 지정 규칙 맨 위에 기록되고 바로 한 번 다운로드됩니다."
-          }
-        },
-        "ru": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Поддерживаются списки правил Surge / Loon / Stash, списки фильтров Quantumult X и наборы правил Egern YAML. Набор добавляется в начало своих правил и сразу загружается."
           }
         }
       }
@@ -40919,41 +40646,6 @@
         }
       }
     },
-    "没有规则集": {
-      "extractionState": "manual",
-      "localizations": {
-        "zh-Hant": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "沒有規則集"
-          }
-        },
-        "en": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "No Rule Sets"
-          }
-        },
-        "ja": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "ルールセットなし"
-          }
-        },
-        "ko": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "규칙 세트 없음"
-          }
-        },
-        "ru": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Нет наборов правил"
-          }
-        }
-      }
-    },
     "没有记录": {
       "localizations": {
         "en": {
@@ -41019,41 +40711,6 @@
           "stringUnit": {
             "state": "translated",
             "value": "Нет вывода"
-          }
-        }
-      }
-    },
-    "没有远程脚本": {
-      "extractionState": "manual",
-      "localizations": {
-        "zh-Hant": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "沒有遠端腳本"
-          }
-        },
-        "en": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "No Remote Scripts"
-          }
-        },
-        "ja": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "リモートスクリプトなし"
-          }
-        },
-        "ko": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "원격 스크립트 없음"
-          }
-        },
-        "ru": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Нет удалённых скриптов"
           }
         }
       }
@@ -42702,40 +42359,6 @@
         }
       }
     },
-    "添加规则集": {
-      "localizations": {
-        "zh-Hant": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "新增規則集"
-          }
-        },
-        "en": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Add Rule Set"
-          }
-        },
-        "ja": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "ルールセットを追加"
-          }
-        },
-        "ko": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "규칙 세트 추가"
-          }
-        },
-        "ru": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Добавить набор правил"
-          }
-        }
-      }
-    },
     "添加订阅": {
       "localizations": {
         "en": {
@@ -42834,40 +42457,6 @@
           "stringUnit": {
             "state": "translated",
             "value": "Добавить URL подписки"
-          }
-        }
-      }
-    },
-    "添加远程规则集": {
-      "localizations": {
-        "zh-Hant": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "新增遠端規則集"
-          }
-        },
-        "en": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Add Remote Rule Set"
-          }
-        },
-        "ja": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "リモートルールセットを追加"
-          }
-        },
-        "ko": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "원격 규칙 세트 추가"
-          }
-        },
-        "ru": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Добавить удалённый набор правил"
           }
         }
       }
@@ -43549,40 +43138,6 @@
           "stringUnit": {
             "state": "translated",
             "value": "Нажмите +, чтобы создать локальный скрипт, импортировать по URL или вставить строку скрипта Surge / QX / Loon."
-          }
-        }
-      }
-    },
-    "点 + 添加远程规则集": {
-      "localizations": {
-        "zh-Hant": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "點 + 新增遠端規則集"
-          }
-        },
-        "en": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Tap + to add a remote rule set"
-          }
-        },
-        "ja": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "+ をタップしてリモートルールセットを追加"
-          }
-        },
-        "ko": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "+를 탭해 원격 규칙 세트를 추가하세요"
-          }
-        },
-        "ru": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Нажмите +, чтобы добавить удалённый набор правил"
           }
         }
       }
@@ -44370,40 +43925,6 @@
           "stringUnit": {
             "state": "translated",
             "value": "Уведомления о трафике"
-          }
-        }
-      }
-    },
-    "由模块引用，随模块启用或停用。": {
-      "localizations": {
-        "zh-Hant": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "由模組引用，隨模組啟用或停用。"
-          }
-        },
-        "en": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Referenced by a module; enabled and disabled with it."
-          }
-        },
-        "ja": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "モジュールから参照されており、モジュールと一緒に有効/無効になります。"
-          }
-        },
-        "ko": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "모듈이 참조하며 모듈과 함께 켜지고 꺼집니다."
-          }
-        },
-        "ru": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Используется модулем и включается и выключается вместе с ним."
           }
         }
       }
@@ -47038,40 +46559,6 @@
           "stringUnit": {
             "state": "translated",
             "value": "Чистый нисходящий канал"
-          }
-        }
-      }
-    },
-    "纯域名列表（DOMAIN-SET）": {
-      "localizations": {
-        "zh-Hant": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "純域名列表（DOMAIN-SET）"
-          }
-        },
-        "en": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Domain-only list (DOMAIN-SET)"
-          }
-        },
-        "ja": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "ドメインのみのリスト（DOMAIN-SET）"
-          }
-        },
-        "ko": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "도메인 전용 목록(DOMAIN-SET)"
-          }
-        },
-        "ru": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Только домены (DOMAIN-SET)"
           }
         }
       }
@@ -53403,41 +52890,6 @@
         }
       }
     },
-    "资源": {
-      "extractionState": "manual",
-      "localizations": {
-        "zh-Hant": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "資源"
-          }
-        },
-        "en": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Resource"
-          }
-        },
-        "ja": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "リソース"
-          }
-        },
-        "ko": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "리소스"
-          }
-        },
-        "ru": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Ресурс"
-          }
-        }
-      }
-    },
     "资源解析器地址（resource_parser_url）": {
       "localizations": {
         "zh-Hant": {
@@ -54976,41 +54428,6 @@
           "stringUnit": {
             "state": "translated",
             "value": "Этот узел ещё не проверялся"
-          }
-        }
-      }
-    },
-    "还没有模块或资源": {
-      "extractionState": "manual",
-      "localizations": {
-        "zh-Hant": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "還沒有模組或資源"
-          }
-        },
-        "en": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "No Modules or Resources Yet"
-          }
-        },
-        "ja": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "モジュールやリソースはまだありません"
-          }
-        },
-        "ko": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "아직 모듈이나 리소스 없음"
-          }
-        },
-        "ru": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Модулей и ресурсов пока нет"
           }
         }
       }
@@ -82833,40 +82250,6 @@
         }
       }
     },
-    "会从自定义规则中删除这个规则集。": {
-      "localizations": {
-        "en": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "The rule set is removed from your custom rules."
-          }
-        },
-        "ja": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "このルールセットをカスタムルールから削除します。"
-          }
-        },
-        "ko": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "사용자 지정 규칙에서 이 규칙 세트를 삭제합니다."
-          }
-        },
-        "ru": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Набор правил будет удалён из своих правил."
-          }
-        },
-        "zh-Hant": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "會從自定義規則中刪除這個規則集。"
-          }
-        }
-      }
-    },
     "，%lld 个定时任务": {
       "extractionState": "manual",
       "localizations": {
@@ -90854,6 +90237,40 @@
           "stringUnit": {
             "state": "translated",
             "value": "調整順序"
+          }
+        }
+      }
+    },
+    "所有格式的模块都在这里：Surge .sgmodule、Quantumult X 重写、Loon .plugin、Stash .stoverride、Egern .yaml 模块和重写列表，角标显示来源格式。模块引用的远程脚本和规则集随模块一起更新，也可以在 更多 → 更新资源 里单独更新。打开 App 时自动更新到期的模块和资源。": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Modules in every format live here: Surge .sgmodule, Quantumult X rewrites, Loon .plugin, Stash .stoverride, Egern .yaml modules and rewrite lists; the badge shows the source format. Remote scripts and rule sets a module uses are updated with it, or one by one in More → Update Resources. Due modules and resources update when the app opens."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "あらゆる形式のモジュールはここにあります：Surge .sgmodule、Quantumult X 書き換え、Loon .plugin、Stash .stoverride、Egern .yaml モジュールと書き換えリスト。バッジは元の形式を示します。モジュールが参照するリモートスクリプトとルールセットはモジュールと一緒に更新され、その他 → リソースを更新 で個別にも更新できます。期限が来たモジュールとリソースは App を開いたときに自動更新されます。"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "모든 형식의 모듈이 여기에 있습니다: Surge .sgmodule, Quantumult X 재작성, Loon .plugin, Stash .stoverride, Egern .yaml 모듈 및 재작성 목록. 배지는 원본 형식을 표시합니다. 모듈이 참조하는 원격 스크립트와 규칙 세트는 모듈과 함께 업데이트되며, 더보기 → 리소스 업데이트에서 개별로도 업데이트할 수 있습니다. 기한이 된 모듈과 리소스는 앱을 열 때 자동으로 업데이트됩니다."
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Здесь модули любых форматов: Surge .sgmodule, перезаписи Quantumult X, Loon .plugin, Stash .stoverride, модули Egern .yaml и списки перезаписи; значок показывает исходный формат. Удалённые скрипты и наборы правил модуля обновляются вместе с ним, а по отдельности — в «Ещё → Обновление ресурсов». Просроченные модули и ресурсы обновляются при открытии приложения."
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "所有格式的模組都在這裡：Surge .sgmodule、Quantumult X 重寫、Loon .plugin、Stash .stoverride、Egern .yaml 模組和重寫列表，角標顯示來源格式。模組引用的遠端腳本和規則集隨模組一起更新，也可以在 更多 → 更新資源 裡單獨更新。開啟 App 時自動更新到期的模組和資源。"
           }
         }
       }
