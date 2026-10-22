@@ -5,7 +5,7 @@ import XCTest
 extension MihomoUITests {
 
     // MARK: 56. 节点与订阅: a config subscription switched off (unified rows: the switch is its 停用 flag) cannot become
-    // the current profile; swipes / menu are covered by test72.
+    // the current profile; swipes / menu are covered by test79.
 
     func test56_ProfileSubscriptionSwipe() {
         launch(["-UITestRemoteProfile"])

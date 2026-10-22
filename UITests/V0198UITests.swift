@@ -38,7 +38,7 @@ extension MihomoUITests {
         assertAlive("filter rename + icon")
     }
 
-    // MARK: 41. (moved) 节点订阅 swipes / menu are covered by test72_UnifiedSubscriptionRows (unified rows, fix/modules-only).
+    // MARK: 41. (moved) 节点订阅 swipes / menu are covered by test79_UnifiedSubscriptionRows (unified rows, fix/modules-only).
 
     // MARK: 42. 策略组顺序: drag down and up on the cards
 

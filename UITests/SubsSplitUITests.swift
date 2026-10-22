@@ -30,7 +30,7 @@ extension MihomoUITests {
         app.swipeDown(velocity: .slow)
         snap("subs-split-sections")
 
-        // Unified rows (fix/modules-only): swipes and the edit sheet are covered by test72; here the 节点集 menu
+        // Unified rows (fix/modules-only): swipes and the edit sheet are covered by test79; here the 节点集 menu
         // (关闭 / 启用, 编辑 → shared sheet) and the node subscription sheet's 图标 / 查看节点.
         XCTAssertTrue(scrollTo(provider))
         provider.press(forDuration: 1.3)

@@ -75,9 +75,9 @@ extension MihomoUITests {
         usleep(800_000)
     }
 
-    // MARK: 71. 重写 (QX-style): one card, 订阅 = modules with the unified rows, 本地, browse entries
+    // MARK: 78. 重写 (QX-style): one card, 订阅 = modules with the unified rows, 本地, browse entries
 
-    func test71_RewritePage() {
+    func test78_RewritePage() {
         launch()
         tab(3)
         XCTAssertTrue(app.navigationBars[L("工具")].waitForExistence(timeout: 8), "工具 tab")
@@ -135,9 +135,9 @@ extension MihomoUITests {
         assertAlive("重写")
     }
 
-    // MARK: 72. 节点与订阅: 配置订阅 / 节点订阅 / 节点集 share swipes, menu and the edit sheet
+    // MARK: 79. 节点与订阅: 配置订阅 / 节点订阅 / 节点集 share swipes, menu and the edit sheet
 
-    func test72_UnifiedSubscriptionRows() {
+    func test79_UnifiedSubscriptionRows() {
         launch(["-UITestRemoteProfile", "-UITestHTTPProvider"])
         openMore("节点与订阅")
         XCTAssertTrue(app.navigationBars[L("节点与订阅")].waitForExistence(timeout: 8), "节点与订阅")
