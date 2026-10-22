@@ -87584,41 +87584,6 @@
         }
       }
     },
-    "配置文件里的规则集和节点集（rule-providers / proxy-providers）由内核按配置更新，也可在「工具 → 分流规则 → 配置里的规则集」和「工具 → 节点与订阅」中手动更新。": {
-      "extractionState": "manual",
-      "localizations": {
-        "en": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Rule sets and node sets inside profiles (rule-providers / proxy-providers) are updated by the core as the profile says; you can also update them in Tools → Routing Rules → Profile Rule Sets and Tools → Nodes & Subscriptions."
-          }
-        },
-        "ja": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "プロファイル内のルールセットとノードセット（rule-providers / proxy-providers）はプロファイルの設定に従ってコアが更新します。「ツール → 振り分けルール → プロファイルのルールセット」と「ツール → ノードと購読」で手動更新もできます。"
-          }
-        },
-        "ko": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "프로파일 안의 규칙 세트와 노드 세트(rule-providers / proxy-providers)는 프로파일 설정에 따라 코어가 업데이트합니다. 「도구 → 분류 규칙 → 프로파일 규칙 세트」와 「도구 → 노드 및 구독」에서 직접 업데이트할 수도 있습니다."
-          }
-        },
-        "ru": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Наборы правил и узлов внутри профилей (rule-providers / proxy-providers) обновляет ядро по настройкам профиля; вручную — в «Инструменты → Правила маршрутизации → Наборы правил профиля» и «Инструменты → Узлы и подписки»."
-          }
-        },
-        "zh-Hant": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "配置檔案裡的規則集和節點集（rule-providers / proxy-providers）由核心按配置更新，也可在「工具 → 分流規則 → 配置裡的規則集」和「工具 → 節點與訂閱」中手動更新。"
-          }
-        }
-      }
-    },
     "更新全部": {
       "extractionState": "manual",
       "localizations": {
@@ -93633,6 +93598,143 @@
           "stringUnit": {
             "state": "translated",
             "value": "Фильтры применяются к узлам из наборов и «Включить все…»; предпросмотр — по кэшированным узлам."
+          }
+        }
+      }
+    },
+    "向右轻扫或按住某一项可以启用 / 停用。配置文件里的规则集和节点集（rule-providers / proxy-providers）由内核按配置更新，也可在「工具 → 分流规则 → 配置里的规则集」和「工具 → 节点与订阅」中手动更新。": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Swipe right or touch and hold an item to enable / disable it. Rule sets and node sets inside profiles (rule-providers / proxy-providers) are updated by the core as the profile says; you can also update them in Tools → Routing Rules → Profile Rule Sets and Tools → Nodes & Subscriptions."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "項目を右にスワイプまたは長押しで有効 / 無効を切り替えられます。プロファイル内のルールセットとノードセット（rule-providers / proxy-providers）はプロファイルの設定に従ってコアが更新します。「ツール → 振り分けルール → プロファイルのルールセット」と「ツール → ノードと購読」で手動更新もできます。"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "항목을 오른쪽으로 쓸거나 길게 눌러 사용 / 사용 안 함을 전환합니다. 프로파일 안의 규칙 세트와 노드 세트(rule-providers / proxy-providers)는 프로파일 설정에 따라 코어가 업데이트합니다. 「도구 → 분류 규칙 → 프로파일 규칙 세트」와 「도구 → 노드 및 구독」에서 직접 업데이트할 수도 있습니다."
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Смахните вправо или удерживайте элемент, чтобы включить / выключить его. Наборы правил и узлов внутри профилей (rule-providers / proxy-providers) обновляет ядро по настройкам профиля; вручную — в «Инструменты → Правила маршрутизации → Наборы правил профиля» и «Инструменты → Узлы и подписки»."
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "向右輕掃或按住某一項可以啟用 / 停用。配置檔案裡的規則集和節點集（rule-providers / proxy-providers）由核心按配置更新，也可在「工具 → 分流規則 → 配置裡的規則集」和「工具 → 節點與訂閱」中手動更新。"
+          }
+        }
+      }
+    },
+    "删除失败：%@": {
+      "localizations": {
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "刪除失敗：%@"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Couldn’t delete: %@"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "削除できませんでした：%@"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "삭제 실패: %@"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Не удалось удалить: %@"
+          }
+        }
+      }
+    },
+    "删除 %@？": {
+      "localizations": {
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "刪除 %@？"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Delete %@?"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%@ を削除しますか？"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%@을(를) 삭제할까요?"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Удалить %@?"
+          }
+        }
+      }
+    },
+    "配置里的规则或 DNS 仍需要它时，内核会在下次加载时重新下载。": {
+      "localizations": {
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "配置裡的規則或 DNS 仍需要它時，內核會在下次載入時重新下載。"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "If a rule or DNS setting in the profile still needs it, the core downloads it again on the next load."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "プロファイルのルールや DNS がまだ必要とする場合、次回の読み込み時にコアが再ダウンロードします。"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "프로필의 규칙이나 DNS가 여전히 필요하면 다음 로드 때 코어가 다시 다운로드합니다."
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Если правило или DNS в профиле всё ещё его используют, ядро скачает его снова при следующей загрузке."
           }
         }
       }

@@ -37,6 +37,9 @@ struct UpdateResourcesView: View {
                                 profileErrors[p.id] = e
                             }
                         }
+                        .enableActions(enabled: p.enabled, id: "profile.\(p.displayName)") { on in
+                            if let e = profiles.setEnabled(p, on) { message = e }
+                        }
                     }
                 } header: { Text("配置订阅 \(remoteProfiles.count)") }
                 .listRowBackground(Theme.card)
@@ -49,6 +52,11 @@ struct UpdateResourcesView: View {
                                           busy: subs.updating.contains(s.id)) {
                             Task { _ = await subs.refresh(s) }
                         }
+                        .enableActions(enabled: s.enabled, id: "nodesub.\(s.name)") { on in
+                            var c = s
+                            c.enabled = on
+                            Task { await subs.save(c) }
+                        }
                     }
                 } header: { Text("节点订阅 \(subs.subs.count)") }
                 .listRowBackground(Theme.card)
@@ -57,7 +65,7 @@ struct UpdateResourcesView: View {
             resourceSection("ruleset", symbol: "list.bullet.rectangle.fill", tone: .orange) { Text("规则集 \($0)") }
             resourceSection("script", symbol: "curlybraces", tone: .purple) { Text("脚本 \($0)") }
             Section {} footer: {
-                Text("配置文件里的规则集和节点集（rule-providers / proxy-providers）由内核按配置更新，也可在「工具 → 分流规则 → 配置里的规则集」和「工具 → 节点与订阅」中手动更新。")
+                Text("向右轻扫或按住某一项可以启用 / 停用。配置文件里的规则集和节点集（rule-providers / proxy-providers）由内核按配置更新，也可在「工具 → 分流规则 → 配置里的规则集」和「工具 → 节点与订阅」中手动更新。")
             }
         }
         .listStyle(.insetGrouped)
@@ -90,6 +98,15 @@ struct UpdateResourcesView: View {
                                       busy: res.busy.contains(it.key) || res.updatingAll) {
                         Task { await res.update(it); res.message = nil }
                     }
+                    .enableActions(enabled: it.enabled, id: "\(kind).\(it.name)") { on in
+                        if kind == "module", let id = it.refId {
+                            // Same path as 工具 → 模块 (also turns the rewrite engine on when a module is enabled).
+                            EngineStore.shared.setModuleEnabled(id, on)
+                            res.reload()
+                        } else {
+                            res.setEnabled(it, on)
+                        }
+                    }
                 }
             } header: { header(list.count) }
             .listRowBackground(Theme.card)
@@ -111,6 +128,26 @@ struct UpdateResourcesView: View {
         res.message = nil
         failed += res.items.filter { $0.isRemote && $0.enabled && !($0.error ?? "").isEmpty }.count
         message = failed == 0 ? String(localized: "已全部更新") : String(localized: "\(failed) 项更新失败，详见列表")
+    }
+}
+
+private extension View {
+    /// User 2026-10-22: 「点进去没有启用的选项，禁用的启用不了，启用的无法禁用」 — each row can be turned on / off right
+    /// here: swipe right, or touch and hold.
+    func enableActions(enabled: Bool, id: String, set: @escaping (Bool) -> Void) -> some View {
+        self
+            .swipeActions(edge: .leading, allowsFullSwipe: true) {
+                Button { set(!enabled) } label: {
+                    Label(LocalizedStringKey(enabled ? "停用" : "启用"), systemImage: enabled ? "pause.circle" : "play.circle")
+                }
+                .tint(enabled ? Color.gray : Theme.good)
+                .accessibilityIdentifier("res.toggle.\(id)")
+            }
+            .contextMenu {
+                Button { set(!enabled) } label: {
+                    Label(LocalizedStringKey(enabled ? "停用" : "启用"), systemImage: enabled ? "pause.circle" : "play.circle")
+                }
+            }
     }
 }
 
