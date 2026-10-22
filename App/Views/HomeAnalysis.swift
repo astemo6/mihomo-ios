@@ -187,39 +187,77 @@ final class HomeAnalysisModel {
 
 // MARK: - Shared bits
 
-/// Egern-style label above a card: title, optional summary, collapse chevron (the whole row is the button).
+/// Egern-style label above a card: title, optional summary, collapse chevron.
+/// Without `open` the whole row is the collapse button (as before). With `open` (feat/home-drill-egern, P1: the card
+/// and its title row both open the card's overview list) the title / summary part is a NavigationLink to that
+/// overview, and collapsing is limited to the chevron's own small button, so the title row never steals a tap meant
+/// for the card.
 struct HomeSectionLabel: View {
     let title: String
     var summary: String? = nil
     var collapsed: Bool? = nil
     var id: String? = nil
     var toggle: (() -> Void)? = nil
+    var open: (() -> AnyView)? = nil
 
-    var body: some View {
-        let row = HStack(spacing: 6) {
+    private var titleRow: some View {
+        HStack(spacing: 6) {
             Text(verbatim: title).font(.caption).foregroundStyle(.secondary).lineLimit(1)
             Spacer(minLength: 6)
             if let summary {
                 Text(verbatim: summary).font(.caption2.monospacedDigit()).foregroundStyle(.secondary).lineLimit(1)
             }
-            if let collapsed {
-                Image(systemName: "chevron.down")
-                    .font(.caption2.weight(.semibold)).foregroundStyle(.tertiary)
-                    .rotationEffect(.degrees(collapsed ? -90 : 0))
-                    .accessibilityHidden(true)
-            }
         }
-        .padding(.horizontal, 6)
-        .padding(.top, 4)
-        .padding(.bottom, -4)
-        .contentShape(Rectangle())
-        if let toggle {
-            Button(action: toggle) { row }
+    }
+
+    private var chevron: some View {
+        Image(systemName: "chevron.down")
+            .font(.caption2.weight(.semibold)).foregroundStyle(.tertiary)
+            .rotationEffect(.degrees((collapsed ?? false) ? -90 : 0))
+            .accessibilityHidden(true)
+    }
+
+    var body: some View {
+        if let open, let toggle, !(collapsed ?? false) {
+            HStack(spacing: 6) {
+                NavigationLink { LazyDestination { open() } } label: {
+                    titleRow.contentShape(Rectangle())
+                }
                 .buttonStyle(.plain)
-                .accessibilityValue(Text(LocalizedStringKey((collapsed ?? false) ? "收起" : "展开")))
+                .accessibilityIdentifier((id ?? "home.analysis.header") + ".open")
+                // Hit area a little larger than the glyph, without changing the row's height.
+                Button(action: toggle) {
+                    chevron
+                        .frame(width: 36, height: 30)
+                        .contentShape(Rectangle())
+                }
+                .buttonStyle(.plain)
+                .padding(.vertical, -8)
+                .padding(.trailing, -10)
+                .accessibilityLabel(Text(verbatim: title))
+                .accessibilityValue(Text(LocalizedStringKey("展开")))
                 .accessibilityIdentifier(id ?? "")
+            }
+            .padding(.horizontal, 6)
+            .padding(.top, 4)
+            .padding(.bottom, -4)
         } else {
-            row.accessibilityElement(children: .combine).accessibilityIdentifier(id ?? "")
+            let row = HStack(spacing: 6) {
+                titleRow
+                if collapsed != nil { chevron }
+            }
+            .padding(.horizontal, 6)
+            .padding(.top, 4)
+            .padding(.bottom, -4)
+            .contentShape(Rectangle())
+            if let toggle {
+                Button(action: toggle) { row }
+                    .buttonStyle(.plain)
+                    .accessibilityValue(Text(LocalizedStringKey((collapsed ?? false) ? "收起" : "展开")))
+                    .accessibilityIdentifier(id ?? "")
+            } else {
+                row.accessibilityElement(children: .combine).accessibilityIdentifier(id ?? "")
+            }
         }
     }
 }
@@ -384,7 +422,8 @@ struct HomePolicyShareCard: View {
         let parts = Self.parts(snap)
         VStack(spacing: 10) {
             HomeSectionLabel(title: HomeAnalysisCard.policies.title, summary: snap.total > 0 ? Fmt.bytes(snap.total) : nil,
-                             collapsed: collapsed, id: "home.analysis.header.policies", toggle: toggle)
+                             collapsed: collapsed, id: "home.analysis.header.policies", toggle: toggle,
+                             open: { AnyView(PolicyTrafficView()) })
             if !collapsed {
                 // feat/home-drilldown: 策略 → 策略流量 (each policy ↑↓) → its connections.
                 NavigationLink { LazyDestination { PolicyTrafficView() } } label: {
@@ -452,36 +491,41 @@ struct HomeRuleHitsCard: View {
         let maxHits = max(snap.top.first?.hits ?? 1, 1)
         VStack(spacing: 10) {
             HomeSectionLabel(title: HomeAnalysisCard.rules.title, summary: snap.count > 0 ? String(localized: "\(snap.count) 条规则") : nil,
-                             collapsed: collapsed, id: "home.analysis.header.rules", toggle: toggle)
+                             collapsed: collapsed, id: "home.analysis.header.rules", toggle: toggle,
+                             open: { AnyView(RuleHitsList()) })
             if !collapsed {
                 Group {
                     if snap.top.isEmpty {
-                        AnalysisCardBox { Text("还没有命中记录").font(.footnote).foregroundStyle(.secondary) }
+                        NavigationLink { LazyDestination { RuleHitsList() } } label: {
+                            AnalysisCardBox(chevron: true) { Text("还没有命中记录").font(.footnote).foregroundStyle(.secondary) }
+                        }
+                        .buttonStyle(PressableCardStyle())
                     } else {
                         // Egern: one small card per rule, scrolling sideways.
                         ScrollView(.horizontal, showsIndicators: false) {
                             HStack(spacing: 8) {
-                                // feat/home-drilldown: a ring opens 连接 filtered by that rule (and the policy it chose).
+                                // feat/home-drill-egern (P1, Egern's hierarchy): a ring, like the rest of the card,
+                                // opens 规则命中 (every rule: name, policy, hits, ›) with that rule picked out; its row
+                                // then opens the connections. Never straight from a Home ring to the connections.
                                 ForEach(snap.top) { r in
                                     NavigationLink {
-                                        LazyDestination { ConnectionsListView(filter: ConnFilter(rules: [r.rule], policies: [r.policy])) }
+                                        LazyDestination { RuleHitsList(focus: r.id) }
                                     } label: { ring(r, maxHits: maxHits) }
                                     .buttonStyle(PressableCardStyle())
                                     .accessibilityIdentifier("home.analysis.rule")
                                 }
-                                if snap.count > snap.top.count {
-                                    NavigationLink { LazyDestination { RuleHitsList() } } label: {
-                                        VStack(spacing: 6) {
-                                            Image(systemName: "chevron.right.circle").font(.title3).foregroundStyle(Theme.accent)
-                                            Text("查看全部").font(.caption)
-                                        }
-                                        .frame(width: moreCardWidth)
-                                        .frame(maxHeight: .infinity)
-                                        .background(RoundedRectangle(cornerRadius: Theme.radius, style: .continuous).fill(Theme.card))
+                                NavigationLink { LazyDestination { RuleHitsList() } } label: {
+                                    VStack(spacing: 6) {
+                                        Image(systemName: "chevron.right.circle").font(.title3).foregroundStyle(Theme.accent)
+                                        Text("查看全部").font(.caption)
                                     }
-                                    .buttonStyle(PressableCardStyle())
-                                    .accessibilityIdentifier("home.analysis.rules.all")
+                                    .frame(width: moreCardWidth)
+                                    .frame(maxHeight: .infinity)
+                                    .background(RoundedRectangle(cornerRadius: Theme.radius, style: .continuous).fill(Theme.card))
+                                    .contentShape(Rectangle())
                                 }
+                                .buttonStyle(PressableCardStyle())
+                                .accessibilityIdentifier("home.analysis.rules.all")
                             }
                             .fixedSize(horizontal: false, vertical: true)
                         }
@@ -545,12 +589,11 @@ struct HomeTopHostsCard: View {
         let maxB = max(snap.top.first?.bytes ?? 1, 1)
         VStack(spacing: 10) {
             HomeSectionLabel(title: HomeAnalysisCard.hosts.title, summary: snap.count > 0 ? String(localized: "\(snap.count) 个主机名") : nil,
-                             collapsed: collapsed, id: "home.analysis.header.hosts", toggle: toggle)
+                             collapsed: collapsed, id: "home.analysis.header.hosts", toggle: toggle,
+                             open: { AnyView(Self.overview()) })
             if !collapsed {
                 // feat/home-drilldown (Egern): 主机名 → every host with ↑↓ → that host's connections.
-                NavigationLink {
-                    LazyDestination { HostTrafficList(list: HomeAnalysisModel.shared.source.hostList) }
-                } label: {
+                NavigationLink { LazyDestination { Self.overview() } } label: {
                 AnalysisCardBox(chevron: true) {
                     if snap.top.isEmpty {
                         Text("还没有流量").font(.footnote).foregroundStyle(.secondary)
@@ -572,6 +615,12 @@ struct HomeTopHostsCard: View {
             }
         }
         .onReceive(HomeAnalysisModel.shared.$hosts.removeDuplicates()) { if $0 != snap { snap = $0 } }
+    }
+
+    /// The overview this card (and its title) opens: every host with ↑↓; a row opens that host's connections.
+    /// Never a single host's connections straight from Home (P1, Egern's hierarchy).
+    @MainActor static func overview() -> HostTrafficList {
+        HostTrafficList(list: HomeAnalysisModel.shared.source.hostList)
     }
 }
 

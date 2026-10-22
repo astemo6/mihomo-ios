@@ -6,7 +6,8 @@ import Charts
 //   全部连接 / 活跃连接 → 连接 (filter chips 规则▾ 策略▾ 主机 HTTP 活跃 已拦截)
 //   网络 speed card / 网速波形图 → 网络 (秒 / 分钟 / 小时 chart, scrub, connections at that moment) → connection detail
 //   策略 → 策略流量 (per policy ↑↓) → 连接 filtered by that policy
-//   规则 ring → 连接 filtered by that rule; 查看全部 → 规则命中 → 连接
+//   规则 (any ring, 查看全部 or the title) → 规则命中 → 连接 filtered by that rule (feat/home-drill-egern P1: always the
+//   overview first, like Egern — never a Home row straight to its connections)
 //   主机名 → 主机名 (↑↓ per host) → 连接 filtered by that host
 //   DNS (opt-in) → DNS 日志
 // Data: ConnectionAnalytics (session totals + closed connections — P0-2: recorded in the tunnel, also while the app is
