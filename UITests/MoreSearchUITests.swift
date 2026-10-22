@@ -30,9 +30,9 @@ extension MihomoUITests {
         usleep(500_000)
     }
 
-    // MARK: 72. 更多 search: 地理 → 地理数据库, mitm → HTTPS 解密, empty state
+    // MARK: 76. 更多 search: 地理 → 地理数据库, mitm → HTTPS 解密, empty state
 
-    func test72_MoreSearch() {
+    func test76_MoreSearch() {
         launch()
         tab(4)
         XCTAssertTrue(app.navigationBars[L("更多")].waitForExistence(timeout: 6), "更多")
@@ -87,9 +87,9 @@ extension MihomoUITests {
         assertAlive("more search")
     }
 
-    // MARK: 73. 更多 → 外观 → 实时活动与灵动岛 row + page
+    // MARK: 77. 更多 → 外观 → 实时活动与灵动岛 row + page
 
-    func test73_LiveActivityRow() {
+    func test77_LiveActivityRow() {
         launch()
         tab(4)
         let row = app.element(id: "more.实时活动")

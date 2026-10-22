@@ -200,8 +200,9 @@ enum SettingsSearchIndex {
         return t.lowercased().filter { !$0.isWhitespace }
     }
 
-    /// Words whose usual reading the transliterator gets wrong in this context (重写 = chóng xiě).
-    static let readings: [String: String] = ["重写": "崇写", "重置": "崇置", "重新": "崇新"]
+    /// Readings the transliterator gets wrong in this app's vocabulary (重写 = chóng xiě; ICU reads 地 as de, here it is
+    /// always dì as in 地理 / 本地). Replaced by a same-length character with the wanted reading before transliteration.
+    static let readings: [String: String] = ["重写": "崇写", "重置": "崇置", "重新": "崇新", "地": "第"]
 
     /// Per character: full pinyin syllable and its initial (letters / digits stay themselves; others are dropped).
     static func syllables(_ s: String) -> [(char: Int, full: String, initial: String)] {
@@ -216,21 +217,41 @@ enum SettingsSearchIndex {
     private static var cache: [String: [(char: Int, full: String, initial: String)]] = [:]
     private static let cacheLock = NSLock()
 
+    static func isHan(_ ch: Character) -> Bool {
+        ch.unicodeScalars.contains { (0x4E00...0x9FFF).contains($0.value) || (0x3400...0x4DBF).contains($0.value) }
+    }
+
+    static func latin(_ s: String) -> String {
+        ((s.applyingTransform(.mandarinToLatin, reverse: false) ?? s).applyingTransform(.stripDiacritics, reverse: false) ?? s).lowercased()
+    }
+
+    /// Han runs are transliterated as a whole (ICU picks the reading from the neighbouring characters, e.g. 地理 = di li,
+    /// while 地 alone reads de), then split into one syllable per character; per character as a fallback.
     private static func computeSyllables(_ s: String) -> [(char: Int, full: String, initial: String)] {
         var src = s
         for (w, r) in readings { src = src.replacingOccurrences(of: w, with: r) }
+        let chars = Array(src)
         var out: [(char: Int, full: String, initial: String)] = []
-        for (i, ch) in src.enumerated() {
-            let str = String(ch)
-            if ch.unicodeScalars.contains(where: { (0x4E00...0x9FFF).contains($0.value) || (0x3400...0x4DBF).contains($0.value) }) {
-                let latin = (str.applyingTransform(.mandarinToLatin, reverse: false) ?? str)
-                    .applyingTransform(.stripDiacritics, reverse: false) ?? str
-                let p = latin.lowercased().filter(\.isLetter)
-                if let f = p.first { out.append((char: i, full: p, initial: String(f))) }
-            } else if ch.isLetter || ch.isNumber {
-                let l = normalize(str)
+        var i = 0
+        while i < chars.count {
+            let ch = chars[i]
+            if isHan(ch) {
+                var j = i
+                while j < chars.count, isHan(chars[j]) { j += 1 }
+                let run = String(chars[i..<j])
+                var parts = latin(run).split(whereSeparator: { !$0.isLetter }).map(String.init)
+                if parts.count != j - i { parts = chars[i..<j].map { latin(String($0)).filter(\.isLetter) } }
+                for (k, p) in parts.enumerated() {
+                    if let f = p.first { out.append((char: i + k, full: p, initial: String(f))) }
+                }
+                i = j
+                continue
+            }
+            if ch.isLetter || ch.isNumber {
+                let l = normalize(String(ch))
                 if let f = l.first { out.append((char: i, full: l, initial: String(f))) }
             }
+            i += 1
         }
         return out
     }

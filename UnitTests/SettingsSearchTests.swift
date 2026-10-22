@@ -84,7 +84,7 @@ final class SettingsSearchTests: XCTestCase {
 
     func testPinyin() {
         XCTAssertEqual(SettingsSearchIndex.pinyinRange("dlsjk", in: "地理数据库"), 0..<5)
-        XCTAssertEqual(SettingsSearchIndex.pinyinRange("dili", in: "地理数据库"), 0..<2)
+        XCTAssertEqual(SettingsSearchIndex.pinyinRange("dili", in: "地理数据库"), 0..<2, "\(SettingsSearchIndex.syllables("地理数据库").map { $0.full })")
         XCTAssertEqual(SettingsSearchIndex.pinyinRange("sjk", in: "地理数据库"), 2..<5)
         XCTAssertEqual(SettingsSearchIndex.pinyinRange("chongxie", in: "重写"), 0..<2, "polyphone reading")
         XCTAssertNil(SettingsSearchIndex.pinyinRange("xyz", in: "地理数据库"))
