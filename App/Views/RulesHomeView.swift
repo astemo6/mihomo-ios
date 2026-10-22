@@ -50,7 +50,7 @@ struct RulesView: View {
         let byName = providersByName
         var seen = Set<String>()
         var out: [SetRule] = []
-        for r in ruleTriples where r.type.uppercased() == "RULE-SET" && !r.proxy.hasPrefix("__") && !r.payload.hasPrefix("__") {
+        for r in ruleTriples where LocalRulesView.isRuleSet(r.type) && !r.proxy.hasPrefix("__") && !r.payload.hasPrefix("__") {
             if let u = byName[r.payload]?.url, mine.contains(u) { continue }
             if seen.insert(r.payload).inserted { out.append(SetRule(name: r.payload, policy: r.proxy)) }
         }

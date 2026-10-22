@@ -186,13 +186,19 @@ struct LocalRulesView: View {
     /// A 本地 rule: not a rule set (those are 订阅 on 规则), not the final MATCH (shown as Final there), and not the
     /// engine's own MitM plumbing (`__MITM__` hop, `__mitm_hosts` set) that the user never wrote.
     nonisolated static func isLocal(type: String, payload: String, proxy: String) -> Bool {
-        let t = type.uppercased()
-        if t == "RULE-SET" || t == "MATCH" || t == "FINAL" { return false }
+        // The running core reports rule sets as "RuleSet", the profile as "RULE-SET" (user 2026-10-23: 订阅
+        // 规则集 showed up under 本地规则 while connected).
+        let t = type.uppercased().replacingOccurrences(of: "-", with: "").replacingOccurrences(of: "_", with: "")
+        if t == "RULESET" || t == "MATCH" || t == "FINAL" { return false }
         if proxy.hasPrefix("__") || payload.contains("__mitm") || payload.contains("__MITM") { return false }
         return true
     }
 
     var localCustom: [CustomRule] { custom.localRules }
+
+    nonisolated static func isRuleSet(_ type: String) -> Bool {
+        type.uppercased().replacingOccurrences(of: "-", with: "").replacingOccurrences(of: "_", with: "") == "RULESET"
+    }
 
     var body: some View {
         VStack(spacing: 0) {
