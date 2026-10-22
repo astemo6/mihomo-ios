@@ -458,7 +458,16 @@ func validateBytes(profile []byte) string {
 // ConvertShareLinks turns a list of ss/vmess/vless/trojan/hysteria2/tuic URIs (optionally
 // base64 encoded, i.e. a v2rayN style subscription) into a minimal mihomo YAML config.
 // Returns "" on failure; use LastError() for the reason.
+//
+// P0-1 (v0.19.17): a whole Quantumult X / Surge config (a 配置订阅 that serves .conf) is converted with
+// ImportConf instead, so its policy groups and rules survive (they used to be replaced by a node-only
+// template on every download).
 func ConvertShareLinks(text string) string {
+	if confProfileFormat(text) != "" {
+		if y, ok := confAsProfile(text); ok {
+			return y
+		}
+	}
 	b, err := convertLinks([]byte(text))
 	if err != nil {
 		setLastError(err.Error())

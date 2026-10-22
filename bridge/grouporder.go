@@ -691,7 +691,7 @@ func ForgetProfile(homeDir, profileID, profilePath string) string {
 		}
 	}
 	if profilePath != "" {
-		for _, side := range []string{profilePath + ".bak", copyGenPath(profilePath), selectionsPath(profilePath)} {
+		for _, side := range []string{profilePath + ".bak", copyGenPath(profilePath), selectionsPath(profilePath), confSourcePath(profilePath)} {
 			_ = os.Remove(side)
 		}
 	}

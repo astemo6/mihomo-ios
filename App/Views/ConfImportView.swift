@@ -116,6 +116,11 @@ enum ConfImport {
         guard let yaml = r.yaml, !yaml.isEmpty else { throw ProfileStore.StoreError.empty }
         await progress(String(localized: "正在校验配置…"))
         let p = try await store.addLocal(name: name.isEmpty ? "导入的配置" : name, text: yaml)
+        // P0-1: keep the original .conf next to the profile so rules the conversion (or a later edit) lost can be
+        // restored from it (bridge RestoreConfRules); removed with the profile (ForgetProfile).
+        let sourcePath = p.fileURL.path
+        let saveErr = await Task.detached(priority: .utility) { LibmihomoSaveConfSource(sourcePath, text) }.value
+        if !saveErr.isEmpty { StartupLog.write("conf import: source not saved: \(saveErr)", tag: "app") }
         var msg = String(localized: "已导入配置「\(p.name)」")
         if let m = r.module, !m.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
             await MainActor.run { EngineStore.shared.addModule(text: m, name: p.name + "（重写）") }
