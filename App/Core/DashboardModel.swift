@@ -84,6 +84,8 @@ final class DashboardModel: ObservableObject {
         // suspended and replays them in a burst on return, which made the chart race forward. A poll
         // has nothing queued; SpeedSeries drops late answers and restarts after a gap.
         tasks.append(Task { [weak self] in
+            // P0-2: on connect / return to the foreground, start from what the tunnel recorded meanwhile.
+            await self?.seedFromTunnel()
             while !Task.isCancelled {
                 let asked = Date()
                 if let t = try? await c.get(AppTraffic.self, "/app/traffic", timeout: 3) {
@@ -114,6 +116,8 @@ final class DashboardModel: ObservableObject {
                     if self.homeVisible && self.connectionCount != n { self.connectionCount = n }
                     ConnectionAnalytics.shared.ingest(r.connections ?? [])
                 }
+                // P0-2: policies / rules / hosts / closed connections recorded in the tunnel (also in the background).
+                await ConnectionAnalytics.shared.refreshFromTunnel()
                 if self?.coreVersion.isEmpty == true, let v = try? await c.version() { self?.coreVersion = v }
                 await self?.refreshSelectedNode()
                 // Adaptive interval: a full /connections pull gets heavy with many connections,
@@ -124,6 +128,34 @@ final class DashboardModel: ObservableObject {
             }
         })
         Task { if let cfg = try? await c.configs(), let m = cfg["mode"] as? String { self.mode = m.lowercased() } }
+    }
+
+    /// P0-2: the tunnel records the speed every second, also while the app is in the background. Its history fills the
+    /// 网络 page (NetworkHistory), and the last minute it recorded becomes Home's chart, so returning to the app shows
+    /// the minute before instead of an empty chart. Nothing happens when the tunnel has no recent points (older
+    /// extension, or nothing recorded within SpeedSeries.maxGap).
+    private func seedFromTunnel() async {
+        guard !Task.isCancelled,
+              let h = try? await ControllerClient.shared.get(TunnelSpeedHistory.self, "/app/stats/speed", timeout: 3),
+              !Task.isCancelled else { return }
+        NetworkHistory.shared.merge(h)
+        guard h.at > 0 else { return }
+        let at = Date(timeIntervalSince1970: TimeInterval(h.at))
+        guard Date().timeIntervalSince(at) <= SpeedSeries.maxGap else { return }
+        if let last = allSeries.lastAt, last > at { return } // the app already has newer samples of its own
+        // The newest unbroken run (no step longer than maxGap), at most one chart's worth, oldest first.
+        var run: [[Int64]] = []
+        for p in h.seconds.reversed() {
+            guard p.count >= 5 else { continue }
+            if let newer = run.last, TimeInterval(newer[0] - p[0]) > SpeedSeries.maxGap { break }
+            run.append(p)
+            if run.count == SpeedSeries.capacity { break }
+        }
+        guard !run.isEmpty else { return }
+        run.reverse()
+        allSeries.seed(up: run.map { $0[1] }, down: run.map { $0[2] }, lastAt: at)
+        proxySeries.seed(up: run.map { $0[3] }, down: run.map { $0[4] }, lastAt: at)
+        if homeVisible { publishTraffic(animated: false) }
     }
 
     /// One /app/traffic answer: both series get the sample; Home shows the chosen scope.

@@ -92,4 +92,45 @@ final class SpeedSeriesTests: XCTestCase {
         let data = Data(#"{"up":1,"down":2,"totalUp":3,"totalDown":4,"node":"n","time":0}"#.utf8)
         XCTAssertNoThrow(try JSONDecoder().decode(LiveStats.self, from: data))
     }
+
+    // P0-2: the last minute the tunnel recorded becomes the chart on return; the normal cadence continues from it.
+    func testSeedFromTunnelThenAppend() {
+        var s = SpeedSeries()
+        let last = t0.addingTimeInterval(9)
+        s.seed(up: (1...10).map { Int64($0) }, down: Array(repeating: 5, count: 10), lastAt: last)
+        XCTAssertEqual(s.up.count, SpeedSeries.capacity)
+        XCTAssertEqual(s.up.suffix(10), ArraySlice((1...10).map { Int64($0) }))
+        XCTAssertEqual(s.up.dropLast(10).filter { $0 != 0 }.count, 0, "padded with the empty baseline")
+        XCTAssertEqual(s.lastAt, last)
+        let next = last.addingTimeInterval(1)
+        XCTAssertEqual(s.append(up: 11, down: 5, requestedAt: next, receivedAt: next), .appended)
+        XCTAssertEqual(s.up.last, 11)
+    }
+
+    // P0-2: GET /app/stats as the tunnel writes it (bridge/statsrecorder.go writeAppStats).
+    func testTunnelStatsDecodes() throws {
+        let json = #"""
+        {"session":1700000000000,"since":1700000000000,"version":7,"totalConnections":3,"ruleCount":2,"hostCount":2,"closedSeq":1,"full":true,
+        "policies":[{"name":"Proxy","up":500,"down":5000}],
+        "rules":[{"rule":"DomainSuffix(example.com)","policy":"Proxy","hits":1}],
+        "hosts":[{"name":"a.example.com","up":500,"down":5000}],
+        "closed":[{"seq":1,"id":"6f1c","metadata":{"network":"tcp","type":"Tun","sourceIP":"198.18.0.1","destinationIP":"",
+        "sourcePort":"51000","destinationPort":"443","host":"a.example.com","sniffHost":"","process":"","remoteDestination":""},
+        "upload":500,"download":5000,"start":"2023-11-14T22:13:20Z","chains":["HK 01","Proxy"],"rule":"DomainSuffix",
+        "rulePayload":"example.com","closedAt":1700000002000}]}
+        """#
+        let s = try JSONDecoder().decode(TunnelStats.self, from: Data(json.utf8))
+        XCTAssertEqual(s.totalConnections, 3)
+        XCTAssertEqual(s.closed.count, 1)
+        let c = s.closed[0].item
+        XCTAssertEqual(c.id, "6f1c")
+        XCTAssertEqual(c.chains?.last, "Proxy")
+        XCTAssertEqual(c.ruleText, "DomainSuffix(example.com)")
+        XCTAssertEqual(c.closedAt, Date(timeIntervalSince1970: 1_700_000_002))
+        XCTAssertNotNil(c.startDate)
+        let speed = #"{"at":1700000002,"seconds":[[1700000001,1,2,3,4],[1700000002,5,6,7,8]],"minutes":[[1699999980,6,8,10,12,2]],"hours":[]}"#
+        let h = try JSONDecoder().decode(TunnelSpeedHistory.self, from: Data(speed.utf8))
+        XCTAssertEqual(h.seconds.count, 2)
+        XCTAssertEqual(h.minutes.first?.last, 2)
+    }
 }

@@ -1,9 +1,11 @@
 import SwiftUI
 
-/// 连接分析 (v0.7, Egern-style analytics, NOT on Home): traffic per policy, rule hit counts and top hosts,
-/// accumulated in the app from the /connections snapshots DashboardModel already polls every 2 s.
-/// Nothing runs in the Network Extension, so its memory budget is untouched. Session-scoped: resets
-/// when the tunnel disconnects (or from the toolbar).
+/// 连接分析 (v0.7, Egern-style analytics, NOT on Home): traffic per policy, rule hit counts and top hosts.
+/// P0-2: the tunnel records them (bridge/statsrecorder.go, also while the app is in the background or killed) and
+/// refreshFromTunnel copies them in on DashboardModel's 2 s poll; ingest then only keeps the live connection list
+/// (and the per-day history steps). Against an extension that has no /app/stats yet (an older build still running)
+/// they are accumulated in the app from the /connections snapshots, as before. Session-scoped: resets when the
+/// tunnel disconnects (or from the toolbar).
 @MainActor
 final class ConnectionAnalytics: ObservableObject {
     static let shared = ConnectionAnalytics()
@@ -38,11 +40,108 @@ final class ConnectionAnalytics: ObservableObject {
     var recordsHistory = true
     private static let hostCap = 600
 
+    /// P0-2: true once the tunnel's /app/stats answered in this session. policies / rules / hosts / totalConnections /
+    /// closedItems then come from the tunnel; ingest keeps only the live list.
+    private(set) var tunnelBacked = false
+    private var tunnelSession: Int64 = 0
+    private var tunnelClosedSeq: Int64 = 0
+    private var tunnelRuleCount: Int?
+    private var tunnelHostCount: Int?
+    /// Bumped by reset(): an answer asked for before it is dropped.
+    private var generation = 0
+    /// 清零本次连接 sent to the tunnel and not answered yet: no tunnel answer is applied meanwhile.
+    private var tunnelResetPending = false
+    /// How many hosts / rules each 2 s poll asks for (busiest first); the counts cover all of them.
+    static let tunnelHostLimit = 600
+    static let tunnelRuleLimit = 300
+
+    /// Rules / hosts the session counted (the tunnel's full counts when it records them).
+    var ruleCount: Int { tunnelRuleCount ?? rules.count }
+    var hostCount: Int { tunnelHostCount ?? hosts.values.filter { $0.total > 0 }.count }
+
     func reset() {
         policies = [:]; rules = [:]; hosts = [:]; last = [:]
         activeItems = []; closedItems = []
         totalConnections = 0; activeConnections = 0; since = Date()
+        tunnelBacked = false; tunnelSession = 0; tunnelClosedSeq = 0; tunnelRuleCount = nil; tunnelHostCount = nil
+        generation &+= 1
         version &+= 1
+    }
+
+    /// 清零本次连接 (toolbar): the app's copy and the tunnel's counters (the speed history stays).
+    func userReset() {
+        reset()
+        guard recordsHistory, VPNManager.shared.isConnected else { return }
+        tunnelResetPending = true
+        Task { [weak self] in
+            _ = try? await ControllerClient.shared.send("/app/stats", method: "DELETE", timeout: 3)
+            guard let self else { return }
+            self.generation &+= 1
+            self.tunnelResetPending = false
+        }
+    }
+
+    /// P0-2: copy the tunnel's session stats in (DashboardModel's 2 s poll). Closed connections come incrementally
+    /// (closedAfter). The JSON is decoded off the main thread (ControllerClient.get is a nonisolated async call); only the
+    /// dictionaries (≤ 256 policies + 600 hosts + 300 rules) are built here. No answer (older extension, timeout)
+    /// changes nothing: the in-app sampling in ingest goes on until the tunnel answers.
+    func refreshFromTunnel() async {
+        guard recordsHistory, !tunnelResetPending else { return }
+        let g = generation
+        let q = [URLQueryItem(name: "session", value: String(tunnelSession)),
+                 URLQueryItem(name: "closedAfter", value: String(tunnelClosedSeq)),
+                 URLQueryItem(name: "hosts", value: String(Self.tunnelHostLimit)),
+                 URLQueryItem(name: "rules", value: String(Self.tunnelRuleLimit))]
+        guard let s = try? await ControllerClient.shared.get(TunnelStats.self, "/app/stats", query: q, timeout: 5) else { return }
+        guard g == generation, !tunnelResetPending else { return }
+        apply(s, Self.build(s))
+    }
+
+    struct TunnelBuilt {
+        var policies: [String: Bytes] = [:]
+        var hosts: [String: Bytes] = [:]
+        var rules: [String: RuleHit] = [:]
+        var closed: [ConnectionItem] = []
+    }
+
+    static func build(_ s: TunnelStats) -> TunnelBuilt {
+        var b = TunnelBuilt()
+        b.policies.reserveCapacity(s.policies.count)
+        for p in s.policies { b.policies[p.name] = Bytes(up: p.up, down: p.down) }
+        b.hosts.reserveCapacity(s.hosts.count)
+        for h in s.hosts { b.hosts[h.name] = Bytes(up: h.up, down: h.down) }
+        b.rules.reserveCapacity(s.rules.count)
+        for r in s.rules {
+            let hit = RuleHit(rule: r.rule, policy: r.policy, hits: r.hits)
+            b.rules[hit.id] = hit
+        }
+        b.closed = s.closed.map(\.item) // newest first
+        return b
+    }
+
+    private func apply(_ s: TunnelStats, _ b: TunnelBuilt) {
+        var changed = false
+        if s.full || s.session != tunnelSession {
+            if closedItems != b.closed { closedItems = b.closed; changed = true }
+        } else if !b.closed.isEmpty {
+            var list = b.closed + closedItems
+            if list.count > Self.closedCap { list.removeLast(list.count - Self.closedCap) }
+            closedItems = list
+            changed = true
+        }
+        if policies != b.policies { policies = b.policies; changed = true }
+        if hosts != b.hosts { hosts = b.hosts; changed = true }
+        if rules != b.rules { rules = b.rules; changed = true }
+        if totalConnections != s.totalConnections { totalConnections = s.totalConnections; changed = true }
+        if tunnelRuleCount != s.ruleCount || tunnelHostCount != s.hostCount { changed = true }
+        let start = Date(timeIntervalSince1970: TimeInterval(s.since) / 1000)
+        if abs(since.timeIntervalSince(start)) > 0.5 { since = start }
+        tunnelSession = s.session
+        tunnelClosedSeq = s.closedSeq
+        tunnelRuleCount = s.ruleCount
+        tunnelHostCount = s.hostCount
+        tunnelBacked = true
+        if changed { version &+= 1 }
     }
 
     func ingest(_ conns: [ConnectionItem]) {
@@ -81,7 +180,7 @@ final class ConnectionAnalytics: ObservableObject {
             let keep = hs.sorted { $0.value.total > $1.value.total }.prefix(Self.hostCap)
             hs = Dictionary(uniqueKeysWithValues: keep.map { ($0.key, $0.value) })
         }
-        if !activeItems.isEmpty {
+        if !tunnelBacked && !activeItems.isEmpty {
             let now = Date()
             var gone = activeItems.filter { seen[$0.id] == nil }
             if !gone.isEmpty {
@@ -92,10 +191,14 @@ final class ConnectionAnalytics: ObservableObject {
         }
         activeItems = conns
         last = seen
-        policies = pol; hosts = hs; rules = rs
+        // P0-2: once the tunnel records the session, its numbers are the ones shown (refreshFromTunnel); the steps
+        // below still feed the per-day history, which is sampled here while the app is open.
+        if !tunnelBacked {
+            policies = pol; hosts = hs; rules = rs
+            totalConnections += newCount
+        }
         if recordsHistory { AnalyticsHistory.shared.add(policies: stepPol, hosts: stepHost) }
         if moved || newCount > 0 || activeConnections != conns.count { version &+= 1 }
-        totalConnections += newCount
         activeConnections = conns.count
     }
 
@@ -145,7 +248,7 @@ struct AnalyticsView: View {
                     if range == 0 { rulesCard }
                     hostsCard
                     Text(range == 0
-                         ? String(localized: "从本次连接开始（\(a.since.formatted(date: .omitted, time: .shortened))）统计，数据只在 App 打开时采样，断开后清零。")
+                         ? String(localized: "从本次连接开始（\(a.since.formatted(date: .omitted, time: .shortened))）统计，由隧道持续记录（App 在后台或被关闭时也记录），断开后清零。")
                          : String(localized: "直连 / 代理、策略与主机名来自 App 打开期间的采样，按天保存（最多 90 天）；Wi-Fi / 蜂窝来自隧道每 2 分钟记录的全部流量。规则命中只统计本次连接。"))
                         .font(.caption2).foregroundStyle(.secondary)
                         .frame(maxWidth: .infinity, alignment: .leading)
@@ -159,7 +262,7 @@ struct AnalyticsView: View {
         .toolbar {
             ToolbarItem(placement: .navigationBarTrailing) {
                 Menu {
-                    Button { a.reset() } label: { Label("清零本次连接", systemImage: "arrow.counterclockwise") }
+                    Button { a.userReset() } label: { Label("清零本次连接", systemImage: "arrow.counterclockwise") }
                     Button(role: .destructive) { confirmClear = true } label: { Label("清除历史", systemImage: "trash") }
                 } label: { Image(systemName: "arrow.counterclockwise") }
                 .accessibilityLabel(Text("清零"))

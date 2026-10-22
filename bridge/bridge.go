@@ -627,6 +627,7 @@ func Start(homeDir, configPath string, tunFd int32) error {
 	setNetPolicyProfile(configPath)
 	startDiagCapture(homeDir)
 	stage("core start begin (fd=%d)", tunFd)
+	statsRec.begin(homeDir)   // P0-2: connections / hits / per-policy+host bytes / speed history, recorded here
 	proxyTrafficStats.start() // feat/traffic-scope: proxy-only totals count from this connect
 	tunnel.OnSuspend()
 	safe := overridesFor(homeDir, configPath).SafeMode
@@ -709,6 +710,7 @@ func Start(homeDir, configPath string, tunFd int32) error {
 	complete := func(err error) error {
 		if err != nil {
 			proxyTrafficStats.stopRunning()
+			statsRec.end("", false) // P0-2: stop the saver; the file stays as the last run left it
 			setLastError(err.Error())
 			log.Errorln("[Bridge] start failed: %s", err.Error())
 			DumpDiagnostics()
@@ -738,6 +740,7 @@ func Start(homeDir, configPath string, tunFd int32) error {
 				return complete(<-done)
 			}
 			proxyTrafficStats.stopRunning() // review 7 P3-2: no sampler ticking on a core that did not start
+			statsRec.end("", false)
 			msg := fmt.Sprintf("内核启动超时（%d 秒）：可能在下载 GeoIP/GeoSite 或规则集 / 节点集。请检查网络，或在 更多 → 诊断 查看启动日志", int(startTimeout/time.Second))
 			stage("core start TIMEOUT after %s, %s", startTimeout, memText())
 			DumpDiagnostics()
@@ -787,6 +790,7 @@ func Reload(configPath string) error {
 // which are skipped on the stale path).
 func shutdownStaleApplyLocked() {
 	proxyTrafficStats.stopRunning() // review 7 P3-2
+	statsRec.end("", false)
 	stopEngine()
 	executor.Shutdown()
 	stopGC()
@@ -816,6 +820,7 @@ func Stop() {
 	stopSmart()
 	proxyTrafficStats.sample(managerRange, time.Now()) // count bytes moved since the last tick
 	proxyTrafficStats.stopRunning()
+	statsRec.end(curHomeStr(), true) // P0-2: final save, marked clean (the next connect starts from zero)
 	executor.Shutdown()
 	running.Store(false)
 	DumpDiagnostics()
