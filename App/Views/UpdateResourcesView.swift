@@ -57,7 +57,7 @@ struct UpdateResourcesView: View {
             resourceSection("ruleset", symbol: "list.bullet.rectangle.fill", tone: .orange) { Text("规则集 \($0)") }
             resourceSection("script", symbol: "curlybraces", tone: .purple) { Text("脚本 \($0)") }
             Section {} footer: {
-                Text("配置文件里的规则集和节点集（rule-providers / proxy-providers）由内核按配置更新，也可在「工具 → 模块 → 配置里的规则集」和「工具 → 节点与订阅」中手动更新。")
+                Text("配置文件里的规则集和节点集（rule-providers / proxy-providers）由内核按配置更新，也可在「工具 → 分流规则 → 配置里的规则集」和「工具 → 节点与订阅」中手动更新。")
             }
         }
         .listStyle(.insetGrouped)

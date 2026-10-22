@@ -86533,212 +86533,212 @@
         }
       }
     },
-    "脚本引擎未运行：先在「工具 → 模块」开启重写与脚本，再重新连接。": {
+    "脚本引擎未运行：先在「工具 → 重写」开启重写与脚本，再重新连接。": {
       "extractionState": "manual",
       "localizations": {
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "The script engine isn't running: turn on rewrites and scripts in Tools → Modules, then reconnect."
+            "value": "The script engine isn't running: turn on rewrites and scripts in Tools → Rewrite, then reconnect."
           }
         },
         "ja": {
           "stringUnit": {
             "state": "translated",
-            "value": "スクリプトエンジンが動いていません。「ツール → モジュール」で書き換えとスクリプトをオンにしてから再接続してください。"
+            "value": "スクリプトエンジンが動いていません。「ツール → 書き換え」で書き換えとスクリプトをオンにしてから再接続してください。"
           }
         },
         "ko": {
           "stringUnit": {
             "state": "translated",
-            "value": "스크립트 엔진이 실행 중이 아닙니다. 「도구 → 모듈」에서 재작성과 스크립트를 켠 뒤 다시 연결하세요."
+            "value": "스크립트 엔진이 실행 중이 아닙니다. 「도구 → 재작성」에서 재작성과 스크립트를 켠 뒤 다시 연결하세요."
           }
         },
         "ru": {
           "stringUnit": {
             "state": "translated",
-            "value": "Движок скриптов не запущен: включите перезапись и скрипты в «Инструменты → Модули» и подключитесь снова."
+            "value": "Движок скриптов не запущен: включите перезапись и скрипты в «Инструменты → Перезапись» и подключитесь снова."
           }
         },
         "zh-Hant": {
           "stringUnit": {
             "state": "translated",
-            "value": "腳本引擎未執行：先在「工具 → 模組」開啟重寫與腳本，再重新連線。"
+            "value": "腳本引擎未執行：先在「工具 → 重寫」開啟重寫與腳本，再重新連線。"
           }
         }
       }
     },
-    "这是一个脚本链接：请在 工具 → 模块 → 脚本 中添加脚本规则，或导入引用它的模块": {
+    "这是一个脚本链接：请在 工具 → 重写 中添加脚本规则，或导入引用它的模块": {
       "extractionState": "manual",
       "localizations": {
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "This is a script link: add a script rule in Tools → Modules → Scripts, or import a module that uses it"
+            "value": "This is a script link: add a script rule in Tools → Rewrite, or import a module that uses it"
           }
         },
         "ja": {
           "stringUnit": {
             "state": "translated",
-            "value": "これはスクリプトのリンクです。「ツール → モジュール → スクリプト」でスクリプトルールを追加するか、これを参照するモジュールを読み込んでください"
+            "value": "これはスクリプトのリンクです。「ツール → 書き換え」でスクリプトルールを追加するか、これを参照するモジュールを読み込んでください"
           }
         },
         "ko": {
           "stringUnit": {
             "state": "translated",
-            "value": "스크립트 링크입니다. 「도구 → 모듈 → 스크립트」에서 스크립트 규칙을 추가하거나 이를 참조하는 모듈을 가져오세요"
+            "value": "스크립트 링크입니다. 「도구 → 재작성」에서 스크립트 규칙을 추가하거나 이를 참조하는 모듈을 가져오세요"
           }
         },
         "ru": {
           "stringUnit": {
             "state": "translated",
-            "value": "Это ссылка на скрипт: добавьте правило скрипта в «Инструменты → Модули → Скрипты» или импортируйте модуль, который его использует"
+            "value": "Это ссылка на скрипт: добавьте правило скрипта в «Инструменты → Перезапись» или импортируйте модуль, который его использует"
           }
         },
         "zh-Hant": {
           "stringUnit": {
             "state": "translated",
-            "value": "這是一個腳本連結：請在 工具 → 模組 → 腳本 中新增腳本規則，或匯入引用它的模組"
+            "value": "這是一個腳本連結：請在 工具 → 重寫 中新增腳本規則，或匯入引用它的模組"
           }
         }
       }
     },
-    "（%lld 个下载失败，可在「工具 → 模块」中更新）\n": {
+    "（%lld 个下载失败，可在「工具 → 重写」中更新）\n": {
       "extractionState": "manual",
       "localizations": {
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": " (%lld failed to download; update them in Tools → Modules)\n"
+            "value": " (%lld failed to download; update them in Tools → Rewrite)\n"
           }
         },
         "ja": {
           "stringUnit": {
             "state": "translated",
-            "value": "（%lld 件のダウンロードに失敗。「ツール → モジュール」で更新できます）\n"
+            "value": "（%lld 件のダウンロードに失敗。「ツール → 書き換え」で更新できます）\n"
           }
         },
         "ko": {
           "stringUnit": {
             "state": "translated",
-            "value": " (%lld개 다운로드 실패, 「도구 → 모듈」에서 업데이트 가능)\n"
+            "value": " (%lld개 다운로드 실패, 「도구 → 재작성」에서 업데이트 가능)\n"
           }
         },
         "ru": {
           "stringUnit": {
             "state": "translated",
-            "value": " (не загружено: %lld; обновите в «Инструменты → Модули»)\n"
+            "value": " (не загружено: %lld; обновите в «Инструменты → Перезапись»)\n"
           }
         },
         "zh-Hant": {
           "stringUnit": {
             "state": "translated",
-            "value": "（%lld 個下載失敗，可在「工具 → 模組」中更新）\n"
+            "value": "（%lld 個下載失敗，可在「工具 → 重寫」中更新）\n"
           }
         }
       }
     },
-    "\n规则集 / 节点集：%lld 个已下载，%lld 个失败（规则集在「工具 → 模块 → 配置里的规则集」、节点集在「节点与订阅」中重试）": {
+    "\n规则集 / 节点集：%lld 个已下载，%lld 个失败（规则集在「工具 → 分流规则 → 配置里的规则集」、节点集在「节点与订阅」中重试）": {
       "extractionState": "manual",
       "localizations": {
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "\nRule sets / node sets: %lld downloaded, %lld failed (retry rule sets in Tools → Modules → Profile Rule Sets, node sets in Nodes & Subscriptions)"
+            "value": "\nRule sets / node sets: %lld downloaded, %lld failed (retry rule sets in Tools → Routing Rules → Profile Rule Sets, node sets in Nodes & Subscriptions)"
           }
         },
         "ja": {
           "stringUnit": {
             "state": "translated",
-            "value": "\nルールセット / ノードセット：%lld 件ダウンロード、%lld 件失敗（ルールセットは「ツール → モジュール → プロファイルのルールセット」、ノードセットは「ノードと購読」で再試行）"
+            "value": "\nルールセット / ノードセット：%lld 件ダウンロード、%lld 件失敗（ルールセットは「ツール → 振り分けルール → プロファイルのルールセット」、ノードセットは「ノードと購読」で再試行）"
           }
         },
         "ko": {
           "stringUnit": {
             "state": "translated",
-            "value": "\n규칙 세트 / 노드 세트: %lld개 다운로드, %lld개 실패 (규칙 세트는 「도구 → 모듈 → 프로파일 규칙 세트」, 노드 세트는 「노드 및 구독」에서 다시 시도)"
+            "value": "\n규칙 세트 / 노드 세트: %lld개 다운로드, %lld개 실패 (규칙 세트는 「도구 → 분류 규칙 → 프로파일 규칙 세트」, 노드 세트는 「노드 및 구독」에서 다시 시도)"
           }
         },
         "ru": {
           "stringUnit": {
             "state": "translated",
-            "value": "\nНаборы правил / узлов: загружено %lld, ошибок %lld (повторите: наборы правил — в «Инструменты → Модули → Наборы правил профиля», наборы узлов — в «Узлах и подписках»)"
+            "value": "\nНаборы правил / узлов: загружено %lld, ошибок %lld (повторите: наборы правил — в «Инструменты → Правила маршрутизации → Наборы правил профиля», наборы узлов — в «Узлах и подписках»)"
           }
         },
         "zh-Hant": {
           "stringUnit": {
             "state": "translated",
-            "value": "\n規則集 / 節點集：%lld 個已下載，%lld 個失敗（規則集在「工具 → 模組 → 配置裡的規則集」、節點集在「節點與訂閱」中重試）"
+            "value": "\n規則集 / 節點集：%lld 個已下載，%lld 個失敗（規則集在「工具 → 分流規則 → 配置裡的規則集」、節點集在「節點與訂閱」中重試）"
           }
         }
       }
     },
-    "经过 MitM / 重写引擎的 HTTP(S) 请求会显示在这里。需要在 工具 → 模块 开启重写与脚本，并在 工具 → HTTPS 解密 中开启。": {
+    "经过 MitM / 重写引擎的 HTTP(S) 请求会显示在这里。需要在 工具 → 重写 开启重写与脚本，并在 工具 → HTTPS 解密 中开启。": {
       "extractionState": "manual",
       "localizations": {
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "HTTP(S) requests that pass through the MitM / rewrite engine appear here. Turn on rewrites and scripts in Tools → Modules, and decryption in Tools → HTTPS Decryption."
+            "value": "HTTP(S) requests that pass through the MitM / rewrite engine appear here. Turn on rewrites and scripts in Tools → Rewrite, and decryption in Tools → HTTPS Decryption."
           }
         },
         "ja": {
           "stringUnit": {
             "state": "translated",
-            "value": "MitM / 書き換えエンジンを通る HTTP(S) リクエストがここに表示されます。「ツール → モジュール」で書き換えとスクリプトを、「ツール → HTTPS 復号」で復号をオンにしてください。"
+            "value": "MitM / 書き換えエンジンを通る HTTP(S) リクエストがここに表示されます。「ツール → 書き換え」で書き換えとスクリプトを、「ツール → HTTPS 復号」で復号をオンにしてください。"
           }
         },
         "ko": {
           "stringUnit": {
             "state": "translated",
-            "value": "MitM / 재작성 엔진을 거치는 HTTP(S) 요청이 여기에 표시됩니다. 「도구 → 모듈」에서 재작성과 스크립트를, 「도구 → HTTPS 복호화」에서 복호화를 켜세요."
+            "value": "MitM / 재작성 엔진을 거치는 HTTP(S) 요청이 여기에 표시됩니다. 「도구 → 재작성」에서 재작성과 스크립트를, 「도구 → HTTPS 복호화」에서 복호화를 켜세요."
           }
         },
         "ru": {
           "stringUnit": {
             "state": "translated",
-            "value": "Здесь видны HTTP(S)-запросы, прошедшие через движок MitM / перезаписи. Включите перезапись и скрипты в «Инструменты → Модули», а расшифровку — в «Инструменты → Расшифровка HTTPS»."
+            "value": "Здесь видны HTTP(S)-запросы, прошедшие через движок MitM / перезаписи. Включите перезапись и скрипты в «Инструменты → Перезапись», а расшифровку — в «Инструменты → Расшифровка HTTPS»."
           }
         },
         "zh-Hant": {
           "stringUnit": {
             "state": "translated",
-            "value": "經過 MitM / 重寫引擎的 HTTP(S) 請求會顯示在這裡。需要在 工具 → 模組 開啟重寫與腳本，並在 工具 → HTTPS 解密 中開啟。"
+            "value": "經過 MitM / 重寫引擎的 HTTP(S) 請求會顯示在這裡。需要在 工具 → 重寫 開啟重寫與腳本，並在 工具 → HTTPS 解密 中開啟。"
           }
         }
       }
     },
-    "内置数据库随扩展安装，首次连接无需下载。更新后 GeoIP / ASN 立即生效，GEOSITE / GEOIP(dat) 会重载配置。规则集（rule-providers）在「工具 → 模块 → 配置里的规则集」中更新。": {
+    "内置数据库随扩展安装，首次连接无需下载。更新后 GeoIP / ASN 立即生效，GEOSITE / GEOIP(dat) 会重载配置。规则集（rule-providers）在「工具 → 分流规则 → 配置里的规则集」中更新。": {
       "extractionState": "manual",
       "localizations": {
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "The built-in databases ship with the extension, so the first connection needs no download. GeoIP / ASN updates apply immediately; GEOSITE / GEOIP (dat) reload the profile. Rule sets (rule-providers) are updated under Tools → Modules → Profile Rule Sets."
+            "value": "The built-in databases ship with the extension, so the first connection needs no download. GeoIP / ASN updates apply immediately; GEOSITE / GEOIP (dat) reload the profile. Rule sets (rule-providers) are updated under Tools → Routing Rules → Profile Rule Sets."
           }
         },
         "zh-Hant": {
           "stringUnit": {
             "state": "translated",
-            "value": "內建資料庫隨延伸功能安裝，首次連線無需下載。更新後 GeoIP / ASN 立即生效，GEOSITE / GEOIP(dat) 會過載配置。規則集（rule-providers）在「工具 → 模組 → 配置裡的規則集」中更新。"
+            "value": "內建資料庫隨延伸功能安裝，首次連線無需下載。更新後 GeoIP / ASN 立即生效，GEOSITE / GEOIP(dat) 會過載配置。規則集（rule-providers）在「工具 → 分流規則 → 配置裡的規則集」中更新。"
           }
         },
         "ja": {
           "stringUnit": {
             "state": "translated",
-            "value": "内蔵データベースは拡張に同梱されているため、初回接続時のダウンロードは不要です。GeoIP / ASN の更新はすぐに反映され、GEOSITE / GEOIP（dat）はプロファイルを再読み込みします。ルールセット（rule-providers）は「ツール → モジュール → プロファイルのルールセット」で更新します。"
+            "value": "内蔵データベースは拡張に同梱されているため、初回接続時のダウンロードは不要です。GeoIP / ASN の更新はすぐに反映され、GEOSITE / GEOIP（dat）はプロファイルを再読み込みします。ルールセット（rule-providers）は「ツール → 振り分けルール → プロファイルのルールセット」で更新します。"
           }
         },
         "ko": {
           "stringUnit": {
             "state": "translated",
-            "value": "내장 데이터베이스는 확장에 포함되어 있어 첫 연결 시 다운로드가 필요 없습니다. GeoIP / ASN 업데이트는 즉시 적용되고 GEOSITE / GEOIP(dat)는 프로파일을 다시 불러옵니다. 규칙 세트(rule-providers)는 「도구 → 모듈 → 프로파일 규칙 세트」에서 업데이트합니다."
+            "value": "내장 데이터베이스는 확장에 포함되어 있어 첫 연결 시 다운로드가 필요 없습니다. GeoIP / ASN 업데이트는 즉시 적용되고 GEOSITE / GEOIP(dat)는 프로파일을 다시 불러옵니다. 규칙 세트(rule-providers)는 「도구 → 분류 규칙 → 프로파일 규칙 세트」에서 업데이트합니다."
           }
         },
         "ru": {
           "stringUnit": {
             "state": "translated",
-            "value": "Встроенные базы поставляются с расширением, поэтому первое подключение обходится без загрузки. Обновления GeoIP / ASN применяются сразу; GEOSITE / GEOIP (dat) перезагружают профиль. Наборы правил (rule-providers) обновляются в «Инструменты → Модули → Наборы правил профиля»."
+            "value": "Встроенные базы поставляются с расширением, поэтому первое подключение обходится без загрузки. Обновления GeoIP / ASN применяются сразу; GEOSITE / GEOIP (dat) перезагружают профиль. Наборы правил (rule-providers) обновляются в «Инструменты → Правила маршрутизации → Наборы правил профиля»."
           }
         }
       }
@@ -87618,37 +87618,37 @@
         }
       }
     },
-    "配置文件里的规则集和节点集（rule-providers / proxy-providers）由内核按配置更新，也可在「工具 → 模块 → 配置里的规则集」和「工具 → 节点与订阅」中手动更新。": {
+    "配置文件里的规则集和节点集（rule-providers / proxy-providers）由内核按配置更新，也可在「工具 → 分流规则 → 配置里的规则集」和「工具 → 节点与订阅」中手动更新。": {
       "extractionState": "manual",
       "localizations": {
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "Rule sets and node sets inside profiles (rule-providers / proxy-providers) are updated by the core as the profile says; you can also update them in Tools → Modules → Profile Rule Sets and Tools → Nodes & Subscriptions."
+            "value": "Rule sets and node sets inside profiles (rule-providers / proxy-providers) are updated by the core as the profile says; you can also update them in Tools → Routing Rules → Profile Rule Sets and Tools → Nodes & Subscriptions."
           }
         },
         "ja": {
           "stringUnit": {
             "state": "translated",
-            "value": "プロファイル内のルールセットとノードセット（rule-providers / proxy-providers）はプロファイルの設定に従ってコアが更新します。「ツール → モジュール → プロファイルのルールセット」と「ツール → ノードと購読」で手動更新もできます。"
+            "value": "プロファイル内のルールセットとノードセット（rule-providers / proxy-providers）はプロファイルの設定に従ってコアが更新します。「ツール → 振り分けルール → プロファイルのルールセット」と「ツール → ノードと購読」で手動更新もできます。"
           }
         },
         "ko": {
           "stringUnit": {
             "state": "translated",
-            "value": "프로파일 안의 규칙 세트와 노드 세트(rule-providers / proxy-providers)는 프로파일 설정에 따라 코어가 업데이트합니다. 「도구 → 모듈 → 프로파일 규칙 세트」와 「도구 → 노드 및 구독」에서 직접 업데이트할 수도 있습니다."
+            "value": "프로파일 안의 규칙 세트와 노드 세트(rule-providers / proxy-providers)는 프로파일 설정에 따라 코어가 업데이트합니다. 「도구 → 분류 규칙 → 프로파일 규칙 세트」와 「도구 → 노드 및 구독」에서 직접 업데이트할 수도 있습니다."
           }
         },
         "ru": {
           "stringUnit": {
             "state": "translated",
-            "value": "Наборы правил и узлов внутри профилей (rule-providers / proxy-providers) обновляет ядро по настройкам профиля; вручную — в «Инструменты → Модули → Наборы правил профиля» и «Инструменты → Узлы и подписки»."
+            "value": "Наборы правил и узлов внутри профилей (rule-providers / proxy-providers) обновляет ядро по настройкам профиля; вручную — в «Инструменты → Правила маршрутизации → Наборы правил профиля» и «Инструменты → Узлы и подписки»."
           }
         },
         "zh-Hant": {
           "stringUnit": {
             "state": "translated",
-            "value": "配置檔案裡的規則集和節點集（rule-providers / proxy-providers）由核心按配置更新，也可在「工具 → 模組 → 配置裡的規則集」和「工具 → 節點與訂閱」中手動更新。"
+            "value": "配置檔案裡的規則集和節點集（rule-providers / proxy-providers）由核心按配置更新，也可在「工具 → 分流規則 → 配置裡的規則集」和「工具 → 節點與訂閱」中手動更新。"
           }
         }
       }

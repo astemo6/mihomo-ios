@@ -34,14 +34,13 @@ extension SearchDestination: Identifiable {
         case .geoChecker: GeoCheckerView()
         case .diagnostics: DiagnosticsView()
         case .about: AboutView()
-        // 工具 (modrow lane: 模块 / 重写 / 脚本 may merge into one 重写 page — retarget these three lines).
+        // 工具. PR #90 merged 模块 / 重写 / 脚本 into one QX-style 重写 page (subscriptions = modules, local rewrites,
+        // local scripts); their entries all open it. 模块库 / 全部重写规则 / script tools are links on that page.
         case .nodes: NodeManagerView()
         case .rules: RulesView()
-        case .modules: ModulesView()
+        case .modules, .rewrites, .scripts: RewriteView()
         case .moduleGallery: ModuleGalleryView()
         case .allRewrites: AllRewritesView()
-        case .rewrites: LocalModuleView()
-        case .scripts: ScriptsView()
         case .scriptLogs: ScriptLogsView()
         case .scriptNotices: ScriptNoticesView()
         case .scriptStore: StoreView()

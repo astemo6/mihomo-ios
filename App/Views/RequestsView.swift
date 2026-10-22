@@ -157,7 +157,7 @@ struct RequestsView: View {
                         if tab == 2 {
                             if http.items.isEmpty {
                                 EmptyStateRow(icon: "lock.open", title: "还没有 HTTP 请求",
-                                              message: "经过 MitM / 重写引擎的 HTTP(S) 请求会显示在这里。需要在 工具 → 模块 开启重写与脚本，并在 工具 → HTTPS 解密 中开启。")
+                                              message: "经过 MitM / 重写引擎的 HTTP(S) 请求会显示在这里。需要在 工具 → 重写 开启重写与脚本，并在 工具 → HTTPS 解密 中开启。")
                                     .listRowBackground(Theme.card)
                             }
                             ForEach(httpItems) { r in

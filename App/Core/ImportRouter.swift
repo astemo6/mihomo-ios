@@ -325,8 +325,8 @@ final class ImportRouter: ObservableObject {
         if !text.contains("\n"), !text.contains(" "), text.hasPrefix("http://") || text.hasPrefix("https://"), let u = URL(string: text) {
             let ext = u.pathExtension.lowercased()
             if moduleExtensions.contains(ext) { return .moduleURL(url: text, source: "URL") }
-            if ext == "js" { return .unsupported("这是一个脚本链接：请在 工具 → 模块 → 脚本 中添加脚本规则，或导入引用它的模块") }
-            if ext == "list" { return .unsupported("这是一个规则列表：请在 工具 → 模块 → + → 添加远程规则集 中添加") }
+            if ext == "js" { return .unsupported("这是一个脚本链接：请在 工具 → 重写 中添加脚本规则，或导入引用它的模块") }
+            if ext == "list" { return .unsupported("这是一个规则列表：请在 工具 → 分流规则 → + 中选择「RULE-SET」添加") }
             return .profileURL(url: text, name: name)
         }
         let c = LibmihomoClassifyText(text)

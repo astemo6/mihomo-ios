@@ -222,7 +222,7 @@ struct MoreRow: View {
 }
 
 /// feat/surge-ui: the expert pages that used to fill 更多, grouped by what they change.
-/// feat/more-dedup: 重写 / 脚本 / 定时任务 / 规则集 live only on 工具 → 模块, 节点集 only on 节点与订阅;
+/// feat/more-dedup: 重写 / 脚本 / 定时任务 / 规则集 live only on 工具 → 重写, 节点集 only on 节点与订阅;
 /// this page keeps what changes how the tunnel itself works.
 struct AdvancedSettingsView: View {
     @ObservedObject var engine = EngineStore.shared
