@@ -149,7 +149,7 @@ enum ConfImport {
         await progress(String(localized: "正在下载规则集 / 节点集…"))
         let pr = await ProviderUpdater.shared.updateAll(profile: p)
         if pr.failed > 0 {
-            msg += String(localized: "\n规则集 / 节点集：\(pr.ok) 个已下载，\(pr.failed) 个失败（规则集在「工具 → 分流规则 → 配置里的规则集」、节点集在「节点与订阅」中重试）")
+            msg += String(localized: "\n规则集 / 节点集：\(pr.ok) 个已下载，\(pr.failed) 个失败（规则集在「工具 → 规则 → 订阅」、节点集在「节点与订阅」中重试）")
         }
         return msg
     }

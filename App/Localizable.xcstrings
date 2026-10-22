@@ -42836,40 +42836,6 @@
         }
       }
     },
-    "点右上角 + 添加。自定义规则排在配置规则之前，可以直接粘贴 Surge / Quantumult X / Loon / mihomo 写法，也可以添加远程规则列表（RULE-SET / DOMAIN-SET / filter_remote）。": {
-      "localizations": {
-        "en": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Tap + to add. Custom rules come before the profile's rules; paste Surge / Quantumult X / Loon / mihomo syntax directly, or add remote rule lists (RULE-SET / DOMAIN-SET / filter_remote)."
-          }
-        },
-        "zh-Hant": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "點右上角 + 新增。自定義規則排在配置規則之前，可以直接貼上 Surge / Quantumult X / Loon / mihomo 寫法，也可以新增遠端規則列表（RULE-SET / DOMAIN-SET / filter_remote）。"
-          }
-        },
-        "ja": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "+ をタップして追加します。カスタムルールはプロファイルのルールより先に評価されます。Surge / Quantumult X / Loon / mihomo の構文をそのまま貼り付けるか、リモートのルールリスト（RULE-SET / DOMAIN-SET / filter_remote）を追加できます。"
-          }
-        },
-        "ko": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "+를 탭해 추가하세요. 사용자 지정 규칙은 프로파일 규칙보다 먼저 적용됩니다. Surge / Quantumult X / Loon / mihomo 구문을 그대로 붙여넣거나 원격 규칙 목록(RULE-SET / DOMAIN-SET / filter_remote)을 추가할 수 있습니다."
-          }
-        },
-        "ru": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Нажмите +, чтобы добавить. Свои правила идут раньше правил профиля; вставляйте синтаксис Surge / Quantumult X / Loon / mihomo напрямую или добавляйте удалённые списки (RULE-SET / DOMAIN-SET / filter_remote)."
-          }
-        }
-      }
-    },
     "点右上角 + 添加订阅链接，或从文件 / 剪贴板导入 mihomo（Clash Meta）YAML 配置。也支持 ss/vmess/vless/trojan/hysteria2/tuic 分享链接列表。": {
       "localizations": {
         "en": {
@@ -86604,41 +86570,6 @@
         }
       }
     },
-    "\n规则集 / 节点集：%lld 个已下载，%lld 个失败（规则集在「工具 → 分流规则 → 配置里的规则集」、节点集在「节点与订阅」中重试）": {
-      "extractionState": "manual",
-      "localizations": {
-        "en": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "\nRule sets / node sets: %lld downloaded, %lld failed (retry rule sets in Tools → Routing Rules → Profile Rule Sets, node sets in Nodes & Subscriptions)"
-          }
-        },
-        "ja": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "\nルールセット / ノードセット：%lld 件ダウンロード、%lld 件失敗（ルールセットは「ツール → 振り分けルール → プロファイルのルールセット」、ノードセットは「ノードと購読」で再試行）"
-          }
-        },
-        "ko": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "\n규칙 세트 / 노드 세트: %lld개 다운로드, %lld개 실패 (규칙 세트는 「도구 → 분류 규칙 → 프로파일 규칙 세트」, 노드 세트는 「노드 및 구독」에서 다시 시도)"
-          }
-        },
-        "ru": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "\nНаборы правил / узлов: загружено %lld, ошибок %lld (повторите: наборы правил — в «Инструменты → Правила маршрутизации → Наборы правил профиля», наборы узлов — в «Узлах и подписках»)"
-          }
-        },
-        "zh-Hant": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "\n規則集 / 節點集：%lld 個已下載，%lld 個失敗（規則集在「工具 → 分流規則 → 配置裡的規則集」、節點集在「節點與訂閱」中重試）"
-          }
-        }
-      }
-    },
     "经过 MitM / 重写引擎的 HTTP(S) 请求会显示在这里。需要在 工具 → 重写 开启重写与脚本，并在 工具 → HTTPS 解密 中开启。": {
       "extractionState": "manual",
       "localizations": {
@@ -86670,41 +86601,6 @@
           "stringUnit": {
             "state": "translated",
             "value": "經過 MitM / 重寫引擎的 HTTP(S) 請求會顯示在這裡。需要在 工具 → 重寫 開啟重寫與腳本，並在 工具 → HTTPS 解密 中開啟。"
-          }
-        }
-      }
-    },
-    "内置数据库随扩展安装，首次连接无需下载。更新后 GeoIP / ASN 立即生效，GEOSITE / GEOIP(dat) 会重载配置。规则集（rule-providers）在「工具 → 分流规则 → 配置里的规则集」中更新。": {
-      "extractionState": "manual",
-      "localizations": {
-        "en": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "The built-in databases ship with the extension, so the first connection needs no download. GeoIP / ASN updates apply immediately; GEOSITE / GEOIP (dat) reload the profile. Rule sets (rule-providers) are updated under Tools → Routing Rules → Profile Rule Sets."
-          }
-        },
-        "zh-Hant": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "內建資料庫隨延伸功能安裝，首次連線無需下載。更新後 GeoIP / ASN 立即生效，GEOSITE / GEOIP(dat) 會過載配置。規則集（rule-providers）在「工具 → 分流規則 → 配置裡的規則集」中更新。"
-          }
-        },
-        "ja": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "内蔵データベースは拡張に同梱されているため、初回接続時のダウンロードは不要です。GeoIP / ASN の更新はすぐに反映され、GEOSITE / GEOIP（dat）はプロファイルを再読み込みします。ルールセット（rule-providers）は「ツール → 振り分けルール → プロファイルのルールセット」で更新します。"
-          }
-        },
-        "ko": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "내장 데이터베이스는 확장에 포함되어 있어 첫 연결 시 다운로드가 필요 없습니다. GeoIP / ASN 업데이트는 즉시 적용되고 GEOSITE / GEOIP(dat)는 프로파일을 다시 불러옵니다. 규칙 세트(rule-providers)는 「도구 → 분류 규칙 → 프로파일 규칙 세트」에서 업데이트합니다."
-          }
-        },
-        "ru": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Встроенные базы поставляются с расширением, поэтому первое подключение обходится без загрузки. Обновления GeoIP / ASN применяются сразу; GEOSITE / GEOIP (dat) перезагружают профиль. Наборы правил (rule-providers) обновляются в «Инструменты → Правила маршрутизации → Наборы правил профиля»."
           }
         }
       }
@@ -93602,41 +93498,6 @@
         }
       }
     },
-    "向右轻扫或按住某一项可以启用 / 停用。配置文件里的规则集和节点集（rule-providers / proxy-providers）由内核按配置更新，也可在「工具 → 分流规则 → 配置里的规则集」和「工具 → 节点与订阅」中手动更新。": {
-      "extractionState": "manual",
-      "localizations": {
-        "en": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Swipe right or touch and hold an item to enable / disable it. Rule sets and node sets inside profiles (rule-providers / proxy-providers) are updated by the core as the profile says; you can also update them in Tools → Routing Rules → Profile Rule Sets and Tools → Nodes & Subscriptions."
-          }
-        },
-        "ja": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "項目を右にスワイプまたは長押しで有効 / 無効を切り替えられます。プロファイル内のルールセットとノードセット（rule-providers / proxy-providers）はプロファイルの設定に従ってコアが更新します。「ツール → 振り分けルール → プロファイルのルールセット」と「ツール → ノードと購読」で手動更新もできます。"
-          }
-        },
-        "ko": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "항목을 오른쪽으로 쓸거나 길게 눌러 사용 / 사용 안 함을 전환합니다. 프로파일 안의 규칙 세트와 노드 세트(rule-providers / proxy-providers)는 프로파일 설정에 따라 코어가 업데이트합니다. 「도구 → 분류 규칙 → 프로파일 규칙 세트」와 「도구 → 노드 및 구독」에서 직접 업데이트할 수도 있습니다."
-          }
-        },
-        "ru": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Смахните вправо или удерживайте элемент, чтобы включить / выключить его. Наборы правил и узлов внутри профилей (rule-providers / proxy-providers) обновляет ядро по настройкам профиля; вручную — в «Инструменты → Правила маршрутизации → Наборы правил профиля» и «Инструменты → Узлы и подписки»."
-          }
-        },
-        "zh-Hant": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "向右輕掃或按住某一項可以啟用 / 停用。配置檔案裡的規則集和節點集（rule-providers / proxy-providers）由核心按配置更新，也可在「工具 → 分流規則 → 配置裡的規則集」和「工具 → 節點與訂閱」中手動更新。"
-          }
-        }
-      }
-    },
     "删除失败：%@": {
       "localizations": {
         "zh-Hant": {
@@ -94147,70 +94008,447 @@
         }
       }
     },
-    "添加规则集": {
+    "\n规则集 / 节点集：%lld 个已下载，%lld 个失败（规则集在「工具 → 规则 → 订阅」、节点集在「节点与订阅」中重试）": {
+      "extractionState": "manual",
       "localizations": {
-        "zh-Hant": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "新增規則集"
-          }
-        },
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "Add rule set"
+            "value": "\nRule sets / node sets: %lld downloaded, %lld failed (retry rule sets in Tools → Rules → Subscriptions, node sets in Nodes & Subscriptions)"
           }
         },
         "ja": {
           "stringUnit": {
             "state": "translated",
-            "value": "ルールセットを追加"
+            "value": "\nルールセット / ノードセット：%lld 件ダウンロード、%lld 件失敗（ルールセットは「ツール → ルール → 購読」、ノードセットは「ノードと購読」で再試行）"
           }
         },
         "ko": {
           "stringUnit": {
             "state": "translated",
-            "value": "규칙 세트 추가"
+            "value": "\n규칙 세트 / 노드 세트: %lld개 다운로드, %lld개 실패 (규칙 세트는 「도구 → 규칙 → 구독」, 노드 세트는 「노드 및 구독」에서 다시 시도)"
           }
         },
         "ru": {
           "stringUnit": {
             "state": "translated",
-            "value": "Добавить набор правил"
+            "value": "\nНаборы правил / узлов: загружено %lld, ошибок %lld (повторите: наборы правил — в «Инструменты → Правила → Подписки», наборы узлов — в «Узлах и подписках»)"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "\n規則集 / 節點集：%lld 個已下載，%lld 個失敗（規則集在「工具 → 規則 → 訂閱」、節點集在「節點與訂閱」中重試）"
           }
         }
       }
     },
-    "点右上角 + 添加远程规则集（Surge / QX / Clash 列表），它会作为自定义规则排在配置规则之前。": {
+    "内置数据库随扩展安装，首次连接无需下载。更新后 GeoIP / ASN 立即生效，GEOSITE / GEOIP(dat) 会重载配置。规则集（rule-providers）在「工具 → 规则 → 订阅」中更新。": {
+      "extractionState": "manual",
       "localizations": {
-        "zh-Hant": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "點右上角 + 新增遠端規則集（Surge / QX / Clash 列表），它會作為自訂規則排在設定規則之前。"
-          }
-        },
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "Tap + to add a remote rule set (Surge / QX / Clash list). It is added as a custom rule, ahead of the profile's rules."
+            "value": "The built-in databases ship with the extension, so the first connection needs no download. GeoIP / ASN updates apply immediately; GEOSITE / GEOIP (dat) reload the profile. Rule sets (rule-providers) are updated under Tools → Rules → Subscriptions."
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "內建資料庫隨延伸功能安裝，首次連線無需下載。更新後 GeoIP / ASN 立即生效，GEOSITE / GEOIP(dat) 會過載配置。規則集（rule-providers）在「工具 → 規則 → 訂閱」中更新。"
           }
         },
         "ja": {
           "stringUnit": {
             "state": "translated",
-            "value": "右上の + でリモートのルールセット（Surge / QX / Clash リスト）を追加します。カスタムルールとしてプロファイルのルールより前に入ります。"
+            "value": "内蔵データベースは拡張に同梱されているため、初回接続時のダウンロードは不要です。GeoIP / ASN の更新はすぐに反映され、GEOSITE / GEOIP（dat）はプロファイルを再読み込みします。ルールセット（rule-providers）は「ツール → ルール → 購読」で更新します。"
           }
         },
         "ko": {
           "stringUnit": {
             "state": "translated",
-            "value": "오른쪽 위 + 를 눌러 원격 규칙 세트(Surge / QX / Clash 목록)를 추가합니다. 사용자 규칙으로 프로파일 규칙보다 앞에 들어갑니다."
+            "value": "내장 데이터베이스는 확장에 포함되어 있어 첫 연결 시 다운로드가 필요 없습니다. GeoIP / ASN 업데이트는 즉시 적용되고 GEOSITE / GEOIP(dat)는 프로파일을 다시 불러옵니다. 규칙 세트(rule-providers)는 「도구 → 규칙 → 구독」에서 업데이트합니다."
           }
         },
         "ru": {
           "stringUnit": {
             "state": "translated",
-            "value": "Нажмите +, чтобы добавить удалённый набор правил (список Surge / QX / Clash). Он добавляется как своё правило перед правилами профиля."
+            "value": "Встроенные базы поставляются с расширением, поэтому первое подключение обходится без загрузки. Обновления GeoIP / ASN применяются сразу; GEOSITE / GEOIP (dat) перезагружают профиль. Наборы правил (rule-providers) обновляются в «Инструменты → Правила → Подписки»."
+          }
+        }
+      }
+    },
+    "向右轻扫或按住某一项可以启用 / 停用。配置文件里的规则集和节点集（rule-providers / proxy-providers）由内核按配置更新，也可在「工具 → 规则 → 订阅」和「工具 → 节点与订阅」中手动更新。": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Swipe right or touch and hold an item to enable / disable it. Rule sets and node sets inside profiles (rule-providers / proxy-providers) are updated by the core as the profile says; you can also update them in Tools → Rules → Subscriptions and Tools → Nodes & Subscriptions."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "項目を右にスワイプまたは長押しで有効 / 無効を切り替えられます。プロファイル内のルールセットとノードセット（rule-providers / proxy-providers）はプロファイルの設定に従ってコアが更新します。「ツール → ルール → 購読」と「ツール → ノードと購読」で手動更新もできます。"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "항목을 오른쪽으로 쓸거나 길게 눌러 사용 / 사용 안 함을 전환합니다. 프로파일 안의 규칙 세트와 노드 세트(rule-providers / proxy-providers)는 프로파일 설정에 따라 코어가 업데이트합니다. 「도구 → 규칙 → 구독」와 「도구 → 노드 및 구독」에서 직접 업데이트할 수도 있습니다."
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Смахните вправо или удерживайте элемент, чтобы включить / выключить его. Наборы правил и узлов внутри профилей (rule-providers / proxy-providers) обновляет ядро по настройкам профиля; вручную — в «Инструменты → Правила → Подписки» и «Инструменты → Узлы и подписки»."
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "向右輕掃或按住某一項可以啟用 / 停用。配置檔案裡的規則集和節點集（rule-providers / proxy-providers）由核心按配置更新，也可在「工具 → 規則 → 訂閱」和「工具 → 節點與訂閱」中手動更新。"
+          }
+        }
+      }
+    },
+    "点右上角 + 添加。自定义规则排在配置规则之前，可以直接粘贴 Surge / Quantumult X / Loon / mihomo 写法；远程规则列表在上一页的「订阅」里添加。": {
+      "localizations": {
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "點右上角 + 新增。自訂規則排在設定規則之前，可以直接貼上 Surge / Quantumult X / Loon / mihomo 寫法；遠端規則列表在上一頁的「訂閱」裡新增。"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Tap + to add. Custom rules come before the profile's rules; paste Surge / Quantumult X / Loon / mihomo syntax. Remote rule lists are added under Subscriptions on the previous page."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "右上の + で追加します。カスタムルールはプロファイルのルールより先に評価され、Surge / Quantumult X / Loon / mihomo の書き方をそのまま貼り付けられます。リモートのルールリストは前のページの「購読」で追加します。"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "오른쪽 위 + 로 추가합니다. 사용자 규칙은 프로파일 규칙보다 먼저 적용되며 Surge / Quantumult X / Loon / mihomo 문법을 그대로 붙여 넣을 수 있습니다. 원격 규칙 목록은 이전 페이지의 「구독」에서 추가합니다."
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Нажмите +, чтобы добавить. Свои правила идут перед правилами профиля; можно вставить синтаксис Surge / Quantumult X / Loon / mihomo. Удалённые списки правил добавляются в «Подписках» на предыдущей странице."
+          }
+        }
+      }
+    },
+    "本地规则": {
+      "localizations": {
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "本地規則"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Local Rules"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ローカルルール"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "로컬 규칙"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Локальные правила"
+          }
+        }
+      }
+    },
+    "兜底": {
+      "localizations": {
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "兜底"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Fallback"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "フォールバック"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "기본값"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Резерв"
+          }
+        }
+      }
+    },
+    "兜底规则会在其他规则都没有匹配时使用。命中统计在「本地规则」里。": {
+      "localizations": {
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "兜底規則會在其他規則都沒有匹配時使用。命中統計在「本地規則」裡。"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "The fallback rule is used when no other rule matches. Hit statistics are under Local Rules."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "フォールバックルールは他のどのルールにも一致しないときに使われます。ヒット統計は「ローカルルール」にあります。"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "기본 규칙은 다른 규칙이 하나도 일치하지 않을 때 사용됩니다. 적중 통계는 「로컬 규칙」에 있습니다."
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Резервное правило применяется, когда не совпало ни одно другое. Статистика совпадений — в «Локальных правилах»."
+          }
+        }
+      }
+    },
+    "还没有规则订阅。点右上角 + 添加远程规则列表（Surge / QX / Loon / Clash 格式）。": {
+      "localizations": {
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "還沒有規則訂閱。點右上角 + 新增遠端規則列表（Surge / QX / Loon / Clash 格式）。"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "No rule subscriptions yet. Tap + to add a remote rule list (Surge / QX / Loon / Clash format)."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ルールの購読はまだありません。右上の + でリモートのルールリスト（Surge / QX / Loon / Clash 形式）を追加します。"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "아직 규칙 구독이 없습니다. 오른쪽 위 + 로 원격 규칙 목록(Surge / QX / Loon / Clash 형식)을 추가하세요."
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Подписок на правила пока нет. Нажмите +, чтобы добавить удалённый список правил (формат Surge / QX / Loon / Clash)."
+          }
+        }
+      }
+    },
+    "没有匹配的订阅": {
+      "localizations": {
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "沒有符合的訂閱"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "No matching subscriptions"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "一致する購読はありません"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "일치하는 구독 없음"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Нет подходящих подписок"
+          }
+        }
+      }
+    },
+    "添加规则订阅": {
+      "localizations": {
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "新增規則訂閱"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Add rule subscription"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ルールの購読を追加"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "규칙 구독 추가"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Добавить подписку на правила"
+          }
+        }
+      }
+    },
+    "已启用": {
+      "localizations": {
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "已啟用"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Enabled"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "有効"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "사용 중"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Включено"
+          }
+        }
+      }
+    },
+    "向右轻扫或按住某一项可以启用 / 停用。有更新时自动下载并应用到当前配置。": {
+      "localizations": {
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "向右輕掃或按住某一項可以啟用 / 停用。有更新時自動下載並套用到目前設定。"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Swipe right or touch and hold an item to enable / disable it. Updates are downloaded and applied to the current profile automatically."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "項目を右にスワイプまたは長押しで有効 / 無効を切り替えられます。更新は自動でダウンロードされ、現在のプロファイルに適用されます。"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "항목을 오른쪽으로 쓸거나 길게 눌러 사용 / 사용 안 함을 전환합니다. 업데이트는 자동으로 내려받아 현재 프로파일에 적용됩니다."
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Смахните вправо или удерживайте элемент, чтобы включить / выключить его. Обновления загружаются и применяются к текущему профилю автоматически."
+          }
+        }
+      }
+    },
+    "点右上角 + 添加节点订阅。": {
+      "localizations": {
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "點右上角 + 新增節點訂閱。"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Tap + to add a node subscription."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "右上の + でノードの購読を追加します。"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "오른쪽 위 + 로 노드 구독을 추가하세요."
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Нажмите +, чтобы добавить подписку на узлы."
           }
         }
       }

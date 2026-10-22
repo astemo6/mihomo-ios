@@ -150,7 +150,7 @@ struct NodeManagerView: View {
 
             Section {
                 if nodeRows.isEmpty {
-                    EmptyStateRow(icon: "tray", title: "还没有节点订阅", message: "点右上角 + 添加节点订阅；配置里的节点集也会列在这里。")
+                    EmptyStateRow(icon: "tray", title: "还没有节点订阅", message: "点右上角 + 添加节点订阅。")
                 }
                 ForEach(nodeRows) { r in subscriptionRow(r) }
                 if !deletedProviders.isEmpty, let id = store.activeID {
@@ -448,7 +448,7 @@ struct NodeManagerView: View {
         let declared = providerOV.declared.first { $0.name == name }
         let count = s.map(model.count) ?? 0
         let http = (declared?.vehicle ?? httpProviders[name]?.vehicle) == "http"
-        return SubscriptionStatus(source: String(localized: "节点集 · 来自配置"), remote: http, updated: s?.updatedAt,
+        return SubscriptionStatus(source: String(localized: "节点集"), remote: http, updated: s?.updatedAt,
                                   interval: ov.interval ?? declared?.interval ?? 0, error: disabled ? nil : updater.errors["proxy:" + name],
                                   disabled: disabled, downloaded: (s?.cached ?? false) || count > 0)
     }

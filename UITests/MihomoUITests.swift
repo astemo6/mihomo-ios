@@ -502,6 +502,15 @@ final class MihomoUITests: MihomoUITestCase {
         usleep(800_000)
     }
 
+    /// Loon-style 规则 (2026-10-22): the profile's rules and the custom rules are one level down, in 本地规则.
+    func openLocalRules() {
+        openMore("规则")
+        let local = app.element(id: "rules.local")
+        XCTAssertTrue(local.waitForExistence(timeout: 6), "规则 → 本地规则")
+        local.tap()
+        usleep(800_000)
+    }
+
     /// feat/more-dedup: 配置管理 is 更多 → 配置 (the 配置 tab became 工具).
     func openProfiles() {
         tab(4)
@@ -518,7 +527,7 @@ final class MihomoUITests: MihomoUITestCase {
     func test07_Editors() {
         launch()
         // Custom rule
-        openMore("规则")
+        openLocalRules()
         app.buttons[L10n.f("自定义 %lld", 0)].firstMatch.tap()
         XCTAssertTrue(tapIfExists(app.element(id: "rules.add"), timeout: 5), "rules +")
         typeRuleText("DOMAIN-SUFFIX,uitest.example.com,Proxy")
@@ -526,6 +535,7 @@ final class MihomoUITests: MihomoUITestCase {
         app.element(id: "rule.save").tap()
         XCTAssertTrue(app.element(labelContains: "uitest.example.com").waitForExistence(timeout: 6), "rule saved")
         snap("rules-custom")
+        back()
         back()
 
         // Rewrite (重写 → 本地)
@@ -832,15 +842,17 @@ final class MihomoUITests: MihomoUITestCase {
     func test13_RuleChips() {
         launch()
         openMore("规则")
+        // Loon-style 规则: MATCH is the Final card on 规则; the other rules are in 本地规则.
+        XCTAssertTrue(app.element(id: "rules.final").waitForExistence(timeout: 10), "Final card")
+        snap("rules-home")
+        app.element(id: "rules.local").tap()
+        usleep(800_000)
         XCTAssertTrue(app.element(id: "ruletype.DOMAIN-SUFFIX").waitForExistence(timeout: 10), "DOMAIN-SUFFIX chip")
         XCTAssertTrue(app.element(id: "policychip.Apple").exists, "policy chip Apple")
         XCTAssertTrue(app.element(id: "ruletype.DOMAIN-KEYWORD").exists, "DOMAIN-KEYWORD chip")
         XCTAssertTrue(app.element(id: "policychip.Streaming").exists, "policy chip Streaming")
         XCTAssertTrue(app.element(id: "ruletype.IP-CIDR").exists, "IP-CIDR chip")
         XCTAssertTrue(app.element(id: "policychip.DIRECT").exists, "policy chip DIRECT")
-        let match = app.element(id: "ruletype.MATCH")
-        if !match.exists { app.swipeUp() }
-        XCTAssertTrue(match.waitForExistence(timeout: 5), "MATCH chip")
         snap("rules-chips")
     }
 
@@ -1765,7 +1777,7 @@ final class MihomoUITests: MihomoUITestCase {
 
     func test33_RulesAndRewriteAddDelete() {
         launch()
-        openMore("规则")
+        openLocalRules()
         app.buttons[L10n.f("自定义 %lld", 0)].firstMatch.tap()
         addCustomRule("DOMAIN-SUFFIX,a1.uitest.example,Proxy")
         addCustomRule("DOMAIN,b2.uitest.example,DIRECT")
@@ -1781,7 +1793,8 @@ final class MihomoUITests: MihomoUITestCase {
         assertAlive("rule delete")
         // Leave and come back: the remaining rule is read from disk again.
         back()
-        openMore("规则")
+        back()
+        openLocalRules()
         let tab1 = app.buttons[L10n.f("自定义 %lld", 1)].firstMatch
         XCTAssertTrue(tab1.waitForExistence(timeout: 6), "custom count is 1 after the delete")
         if tab1.exists { tab1.tap() }

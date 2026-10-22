@@ -69,7 +69,26 @@ final class ProviderUpdater: ObservableObject {
             }
         }
         await ProfileInspector.shared.load()
+        // User 2026-10-22 「不管是订阅还是节点，有更新后自动更新配置文件」: a fresh download takes effect right away.
+        if res.ok > 0, VPNManager.shared.isConnected, p.id == ProfileStore.shared.activeID {
+            _ = await VPNManager.shared.reload()
+        }
         return res
+    }
+
+    private var lastDueCheck = Date.distantPast
+
+    /// The active profile's rule sets / node sets whose cache is older than their interval (default one day).
+    /// While connected the core refreshes them on its own interval, so this runs only when disconnected.
+    func autoUpdateIfNeeded() async {
+        guard !running, !VPNManager.shared.isConnected, Date().timeIntervalSince(lastDueCheck) > 600,
+              let p = ProfileStore.shared.active else { return }
+        lastDueCheck = Date()
+        let path = p.fileURL.path
+        let tasks = await Task.detached(priority: .utility) { Self.plan(profilePath: path) }.value
+        let now = Date().timeIntervalSince1970
+        let due = tasks.filter { now - $0.updated >= Double($0.interval > 0 ? $0.interval : 86400) }
+        if !due.isEmpty { await updateAll(profile: p, only: Set(due.map(\.id))) }
     }
 
     func update(_ id: String) async {

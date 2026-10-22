@@ -72,7 +72,46 @@ final class CustomRulesStore: ObservableObject {
     }
 
     /// The saved order (rule lines joined with " | "), for the Debug UI-test accessibility value.
-    var orderToken: String { rules.map(\.line).joined(separator: " | ") }
+    var orderToken: String { localRules.map(\.line).joined(separator: " | ") }
+
+    // Loon-style 规则 (2026-10-22 「按订阅与本地的分开」): remote lists are 订阅 on the 规则 page, the rest are 本地规则.
+    /// The list URL of a remote custom rule (RULE-SET / DOMAIN-SET / QX filter_remote / bare URL), nil for a local rule.
+    nonisolated static func remoteURL(_ line: String) -> String? {
+        for f in line.split(separator: ",").prefix(2) {
+            let t = f.trimmingCharacters(in: .whitespaces)
+            if t.lowercased().hasPrefix("http://") || t.lowercased().hasPrefix("https://") { return t }
+        }
+        return nil
+    }
+    var remoteRules: [CustomRule] { rules.filter { Self.remoteURL($0.line) != nil } }
+    var localRules: [CustomRule] { rules.filter { Self.remoteURL($0.line) == nil } }
+
+    /// Reorder inside one subset (本地 or 订阅): the subset's members keep the slots they occupy in `rules`.
+    private func applySubsetOrder(_ newOrder: [CustomRule]) {
+        let ids = Set(newOrder.map(\.id))
+        var it = newOrder.makeIterator()
+        rules = rules.map { ids.contains($0.id) ? (it.next() ?? $0) : $0 }
+        save()
+        orderChanged()
+    }
+
+    func moveSubset(_ subset: [CustomRule], from: IndexSet, to: Int) {
+        var list = subset
+        list.move(fromOffsets: from, toOffset: to)
+        applySubsetOrder(list)
+    }
+
+    func canStepSubset(_ subset: [CustomRule], _ id: CustomRule.ID, by: Int) -> Bool {
+        guard let i = subset.firstIndex(where: { $0.id == id }) else { return false }
+        return subset.indices.contains(i + by)
+    }
+
+    func stepSubset(_ subset: [CustomRule], _ id: CustomRule.ID, by: Int) {
+        guard let i = subset.firstIndex(where: { $0.id == id }), subset.indices.contains(i + by) else { return }
+        var list = subset
+        list.swapAt(i, i + by)
+        applySubsetOrder(list)
+    }
 
     private func orderChanged() {
         DispatchQueue.main.async { self.orderRevision &+= 1 }
@@ -107,9 +146,9 @@ final class CustomRulesStore: ObservableObject {
     }
 }
 
-// MARK: - Rules page
+// MARK: - 本地规则 (the profile's own rules + local custom rules, with hit statistics)
 
-struct RulesView: View {
+struct LocalRulesView: View {
     @EnvironmentObject var vpn: VPNManager
     @ObservedObject private var offline = ProfileInspector.shared
     @ObservedObject private var custom = CustomRulesStore.shared
@@ -128,6 +167,7 @@ struct RulesView: View {
         var all: [Row] = vpn.isConnected
             ? live.enumerated().map { Row(index: $0.offset, type: $0.element.type, payload: $0.element.payload, proxy: $0.element.proxy, size: $0.element.size, session: $0.element.extra?.hitCount) }
             : offline.result.rules.enumerated().map { Row(index: $0.offset, type: $0.element.type, payload: $0.element.payload, proxy: $0.element.proxy, size: nil, session: nil) }
+        all = all.filter { Self.isLocal(type: $0.type, payload: $0.payload, proxy: $0.proxy) }
         if !search.isEmpty {
             let q = search.lowercased()
             all = all.filter { $0.payload.lowercased().contains(q) || $0.type.lowercased().contains(q) || $0.proxy.lowercased().contains(q) }
@@ -143,18 +183,29 @@ struct RulesView: View {
         return all
     }
 
+    /// A 本地 rule: not a rule set (those are 订阅 on 规则), not the final MATCH (shown as Final there), and not the
+    /// engine's own MitM plumbing (`__MITM__` hop, `__mitm_hosts` set) that the user never wrote.
+    nonisolated static func isLocal(type: String, payload: String, proxy: String) -> Bool {
+        let t = type.uppercased()
+        if t == "RULE-SET" || t == "MATCH" || t == "FINAL" { return false }
+        if proxy.hasPrefix("__") || payload.contains("__mitm") || payload.contains("__MITM") { return false }
+        return true
+    }
+
+    var localCustom: [CustomRule] { custom.localRules }
+
     var body: some View {
         VStack(spacing: 0) {
             Picker("", selection: $tab) {
                 Text("配置规则").tag(0)
-                Text("自定义 \(custom.rules.count)").tag(1)
+                Text("自定义 \(localCustom.count)").tag(1)
             }
             .pickerStyle(.segmented)
             .padding(.horizontal, 16).padding(.vertical, 8)
             if tab == 0 { profileRules } else { customRules }
         }
         .background(Theme.bg.ignoresSafeArea())
-        .navigationTitle("规则")
+        .navigationTitle("本地规则")
         .toolbar {
             ToolbarItem(placement: .navigationBarTrailing) {
                 if tab == 1 {
@@ -197,11 +248,6 @@ struct RulesView: View {
     var profileRules: some View {
         let rows = self.rows // built once per render (it was evaluated for the list and again for the overlay)
         return List {
-            // QX-style 重写 merge: the profile's rule-providers are linked from here (they used to be on 模块).
-            NavigationLink { LazyDestination { ProvidersView() } } label: {
-                MoreRow(id: "规则集（配置）", title: "配置里的规则集", subtitle: "rule-providers", symbol: "list.bullet.rectangle", tone: .teal)
-            }
-            .listRowBackground(Theme.card)
             if !vpn.isConnected {
                 Label("未连接 · 来自配置文件（含自定义规则）", systemImage: "doc.text.magnifyingglass")
                     .font(.caption.weight(.semibold)).foregroundStyle(.secondary)
@@ -244,11 +290,11 @@ struct RulesView: View {
     var customRules: some View {
         List {
             Section {
-                if custom.rules.isEmpty {
-                    Text("点右上角 + 添加。自定义规则排在配置规则之前，可以直接粘贴 Surge / Quantumult X / Loon / mihomo 写法，也可以添加远程规则列表（RULE-SET / DOMAIN-SET / filter_remote）。")
+                if localCustom.isEmpty {
+                    Text("点右上角 + 添加。自定义规则排在配置规则之前，可以直接粘贴 Surge / Quantumult X / Loon / mihomo 写法；远程规则列表在上一页的「订阅」里添加。")
                         .font(.footnote).foregroundStyle(.secondary)
                 }
-                ForEach(custom.rules) { r in
+                ForEach(localCustom) { r in
                     CustomRuleRow(rule: r, check: custom.checks[r.id]) { on in
                         if let i = custom.rules.firstIndex(where: { $0.id == r.id }) { custom.rules[i].enabled = on; custom.save() }
                     }
@@ -256,12 +302,12 @@ struct RulesView: View {
                     .onTapGesture { editing = r }
                     // r7: 上移 / 下移 without the long-press drag (swipe right, or VoiceOver actions).
                     .swipeActions(edge: .leading, allowsFullSwipe: false) {
-                        if custom.canStep(r.id, by: 1) {
-                            Button { withAnimation { custom.step(r.id, by: 1) } } label: { Label("下移", systemImage: "arrow.down") }
+                        if custom.canStepSubset(localCustom, r.id, by: 1) {
+                            Button { withAnimation { custom.stepSubset(localCustom, r.id, by: 1) } } label: { Label("下移", systemImage: "arrow.down") }
                                 .tint(Theme.accent.opacity(0.75))
                         }
-                        if custom.canStep(r.id, by: -1) {
-                            Button { withAnimation { custom.step(r.id, by: -1) } } label: { Label("上移", systemImage: "arrow.up") }
+                        if custom.canStepSubset(localCustom, r.id, by: -1) {
+                            Button { withAnimation { custom.stepSubset(localCustom, r.id, by: -1) } } label: { Label("上移", systemImage: "arrow.up") }
                                 .tint(Theme.accent)
                         }
                     }
@@ -271,11 +317,14 @@ struct RulesView: View {
                             custom.rules.removeAll { $0.id == r.id }; custom.save()
                         } label: { Label("删除", systemImage: "trash") }
                     }
-                    .accessibilityAction(named: Text("上移")) { custom.step(r.id, by: -1) }
-                    .accessibilityAction(named: Text("下移")) { custom.step(r.id, by: 1) }
+                    .accessibilityAction(named: Text("上移")) { custom.stepSubset(localCustom, r.id, by: -1) }
+                    .accessibilityAction(named: Text("下移")) { custom.stepSubset(localCustom, r.id, by: 1) }
                 }
-                .onDelete { custom.rules.remove(atOffsets: $0); custom.save() }
-                .onMove { custom.move(from: $0, to: $1) }
+                .onDelete { offs in
+                    let ids = Set(offs.map { localCustom[$0].id })
+                    custom.rules.removeAll { ids.contains($0.id) }; custom.save()
+                }
+                .onMove { custom.moveSubset(localCustom, from: $0, to: $1) }
             } footer: {
                 Text("策略名会对应到当前配置的策略组；找不到时使用第一个手动选择组并标黄。远程列表通过内核下载并转换为 mihomo 规则集；QX filter_remote 没有 force-policy 时整份列表走 proxy（第一个手动选择组）。")
                     .modifier(UITestOrderValue(id: "rules.custom.order", order: custom.orderToken))
@@ -664,156 +713,6 @@ struct CustomRuleEditor: View {
 }
 
 // MARK: - Providers
-
-/// 工具 → 分流规则 → 配置里的规则集: the profile's rule-providers (feat/more-dedup). The profile's 节点集
-/// (proxy-providers) are managed only on 节点与订阅, so this page no longer lists them.
-struct ProvidersView: View {
-    @EnvironmentObject var vpn: VPNManager
-    @ObservedObject private var offline = ProfileInspector.shared
-    @ObservedObject private var updater = ProviderUpdater.shared
-    @State private var ruleProviders: [ProviderItem] = []
-    @State private var updating: Set<String> = []
-    /// User 2026-10-22 「规则集我怎么没法添加新的规则订阅」: + adds a remote rule list as a custom RULE-SET rule.
-    @State private var adding = false
-    @State private var error: String?
-
-    var body: some View {
-        Group {
-            if vpn.isConnected { liveList } else { offlineList }
-        }
-        .background(Theme.bg.ignoresSafeArea())
-        .navigationTitle("配置里的规则集")
-        .sheet(isPresented: $adding) {
-            CustomRuleEditor(rule: CustomRule(line: "RULE-SET,,")) { r in
-                CustomRulesStore.shared.rules.insert(r, at: 0)
-                CustomRulesStore.shared.save()
-            }
-        }
-        .toolbar {
-            ToolbarItem(placement: .navigationBarTrailing) {
-                Button { adding = true } label: { Image(systemName: "plus") }
-                    .accessibilityLabel(Text("添加规则集")).accessibilityIdentifier("providers.add")
-            }
-            ToolbarItem(placement: .navigationBarTrailing) {
-                if !vpn.isConnected {
-                    if updater.running {
-                        HStack(spacing: 6) {
-                            ProgressView()
-                            Text("\(updater.done)/\(updater.total)").font(.caption.monospacedDigit()).foregroundStyle(.secondary)
-                        }
-                    } else {
-                        Button("全部更新") { Task { await updater.updateAll(only: Set(offline.result.ruleProviders.map { $0.kind + ":" + $0.name })) } }
-                            .disabled(offline.result.ruleProviders.isEmpty)
-                    }
-                }
-                if vpn.isConnected {
-                    Button("全部更新") {
-                        Task {
-                            for p in ruleProviders where p.vehicleType == "HTTP" { try? await ControllerClient.shared.updateRuleProvider(p.name) }
-                            await load()
-                        }
-                    }
-                }
-            }
-        }
-        .task(id: vpn.isConnected) { if vpn.isConnected { await load() } else { await offline.load() } }
-    }
-
-    var liveList: some View {
-        List {
-            if let error { Text(error).font(.footnote).foregroundStyle(Theme.bad).listRowBackground(Theme.card) }
-            Section {
-                if ruleProviders.isEmpty {
-                    EmptyStateRow(icon: "list.bullet.rectangle", title: "当前配置没有规则集", message: "点右上角 + 添加远程规则集（Surge / QX / Clash 列表），它会作为自定义规则排在配置规则之前。")
-                }
-                ForEach(ruleProviders) { p in
-                    row(p, detail: String(localized: "\(p.ruleCount ?? 0) 条") + " · \(p.behavior ?? "") · \(p.vehicleType ?? "")", key: "r:" + p.name) {
-                        try await ControllerClient.shared.updateRuleProvider(p.name)
-                    }
-                }
-            } header: { Text("规则集 \(ruleProviders.count)") }
-            .listRowBackground(Theme.card)
-        }
-        .listStyle(.insetGrouped)
-        .scrollContentBackground(.hidden)
-        .refreshable { await load() }
-    }
-
-    var offlineList: some View {
-        List {
-            Label("未连接 · 来自配置文件与本地缓存", systemImage: "doc.text.magnifyingglass")
-                .font(.caption.weight(.semibold)).foregroundStyle(.secondary)
-                .listRowBackground(Color.clear)
-            Section {
-                if offline.result.ruleProviders.isEmpty {
-                    EmptyStateRow(icon: "list.bullet.rectangle", title: "当前配置没有规则集", message: "点右上角 + 添加远程规则集（Surge / QX / Clash 列表），它会作为自定义规则排在配置规则之前。")
-                }
-                ForEach(offline.result.ruleProviders) { p in offlineRow(p) }
-            } header: { Text("规则集 \(offline.result.ruleProviders.count)") } footer: {
-                Text("未连接时由 App 直接下载并转换（使用 GitHub 镜像设置），连接后内核会按更新间隔从源地址刷新。")
-            }
-            .listRowBackground(Theme.card)
-        }
-        .listStyle(.insetGrouped)
-        .scrollContentBackground(.hidden)
-        .refreshable { await offline.load() }
-    }
-
-    @ViewBuilder
-    func offlineRow(_ p: InspectProvider) -> some View {
-        let key = p.kind + ":" + p.name
-        HStack {
-            NavigationLink { OfflineProviderDetail(p: p) } label: {
-                OfflineProviderRow(p: p, error: updater.errors[key])
-            }
-            if p.vehicle == "http" {
-                if updater.busy.contains(key) {
-                    ProgressView()
-                } else {
-                    Button { Task { await updater.update(key) } } label: { Image(systemName: "arrow.clockwise") }
-                        .buttonStyle(.borderless)
-                        .disabled(updater.running)
-                        .accessibilityLabel(Text("更新"))
-                }
-            }
-        }
-    }
-
-    @ViewBuilder
-    func row(_ p: ProviderItem, detail: String, key: String, update: @escaping () async throws -> Void) -> some View {
-        HStack {
-            VStack(alignment: .leading, spacing: 3) {
-                Text(p.name).font(.subheadline.weight(.semibold))
-                Text(detail).font(.caption2).foregroundStyle(.secondary)
-                if let u = p.updatedAt, let d = ConnectionItem.iso.date(from: u) ?? ConnectionItem.isoNoFrac.date(from: u) {
-                    Text("更新于 \(d.formatted(.relative(presentation: .named)))").font(.caption2).foregroundStyle(.secondary)
-                }
-                if let s = p.subscriptionInfo, let t = s.Total, t > 0 {
-                    Text("已用 \(Fmt.bytes((s.Upload ?? 0) + (s.Download ?? 0))) / \(Fmt.bytes(t))").font(.caption2).foregroundStyle(.secondary)
-                }
-            }
-            Spacer()
-            if updating.contains(key) { ProgressView() } else {
-                Button {
-                    Task {
-                        updating.insert(key)
-                        do { try await update(); error = nil } catch { self.error = error.localizedDescription }
-                        updating.remove(key)
-                        await load()
-                    }
-                } label: { Image(systemName: "arrow.clockwise") }
-                .buttonStyle(.borderless)
-                .disabled(p.vehicleType != "HTTP")
-            }
-        }
-    }
-
-    func load() async {
-        do {
-            ruleProviders = try await ControllerClient.shared.ruleProviders()
-        } catch { self.error = error.localizedDescription }
-    }
-}
 
 struct OfflineProviderRow: View {
     let p: InspectProvider

@@ -144,7 +144,7 @@ extension MihomoUITests {
 
     func test66_RulesDragMove() {
         launch()
-        openMore("规则")
+        openLocalRules()
         app.buttons[L10n.f("自定义 %lld", 0)].firstMatch.tap()
         addCustomRule("DOMAIN-SUFFIX,first.uitest.example,Proxy")
         addCustomRule("DOMAIN,second.uitest.example,DIRECT")
@@ -177,7 +177,8 @@ extension MihomoUITests {
         snap("rules-dragged")
         // Leave and come back: the new order is read from rules.json.
         back()
-        openMore("规则")
+        back()
+        openLocalRules()
         let tab2 = app.buttons[L10n.f("自定义 %lld", 2)].firstMatch
         XCTAssertTrue(tab2.waitForExistence(timeout: 6), "two custom rules after reopening")
         if tab2.exists { tab2.tap() }

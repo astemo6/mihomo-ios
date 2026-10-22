@@ -9,6 +9,11 @@ struct UpdateResourcesView: View {
     @ObservedObject private var profiles = ProfileStore.shared
     @ObservedObject private var subs = NodeSubStore.shared
     @ObservedObject private var res = ResourceStore.shared
+    // User 2026-10-22 「不要特别体现配置自带…直接展开」: the profile's own rule sets / node sets sit in the same
+    // 规则集 / 节点订阅 sections as the ones the user added, with no "from the profile" label.
+    @ObservedObject private var offline = ProfileInspector.shared
+    @ObservedObject private var providers = ProviderUpdater.shared
+    @ObservedObject private var vpn = VPNManager.shared
     /// Profile update errors of this visit (profiles.json keeps no last error).
     @State private var profileErrors: [String: String] = [:]
     @State private var updatingAll = false
@@ -17,9 +22,46 @@ struct UpdateResourcesView: View {
     var remoteProfiles: [Profile] { profiles.profiles.filter { $0.kind == .remote } }
     func items(_ kind: String) -> [ResourceItem] { res.items.filter { $0.kind == kind && $0.isRemote } }
 
+    /// The active profile's downloadable rule sets, minus the user's own (already listed as ResourceItems).
+    var profileRuleSets: [InspectProvider] {
+        let mine = Set(items("ruleset").map(\.url))
+        return offline.result.ruleProviders.filter { $0.vehicle == "http" && !mine.contains($0.url ?? "") }
+    }
+
+    /// The active profile's downloadable node sets, minus the ones generated from the user's node subscriptions.
+    var profileNodeSets: [InspectProvider] {
+        let mine = Set(subs.subs.map(\.name))
+        return offline.result.proxyProviders.filter { $0.vehicle == "http" && !mine.contains($0.name) }
+    }
+
+    @ViewBuilder
+    func providerRow(_ p: InspectProvider, symbol: String, tone: TileTone) -> some View {
+        ResourceUpdateRow(kind: p.kind == "proxy" ? "nodesub" : "ruleset", name: p.name, url: p.url ?? "", symbol: symbol, tone: tone,
+                          updated: p.cachedDate, error: providers.errors[p.id],
+                          busy: providers.busy.contains(p.id)) {
+            Task { await updateProvider(p) }
+        }
+    }
+
+    /// Connected: the core downloads and swaps it in place. Disconnected: the app downloads it (ProviderUpdater
+    /// reloads the tunnel itself when it is up).
+    func updateProvider(_ p: InspectProvider) async {
+        if vpn.isConnected {
+            do {
+                if p.kind == "proxy" { try await ControllerClient.shared.updateProxyProvider(p.name) }
+                else { try await ControllerClient.shared.updateRuleProvider(p.name) }
+            } catch {
+                await providers.update(p.id)
+            }
+        } else {
+            await providers.update(p.id)
+        }
+        await offline.load()
+    }
+
     var body: some View {
         List {
-            if remoteProfiles.isEmpty && subs.subs.isEmpty && res.items.allSatisfy({ !$0.isRemote }) {
+            if remoteProfiles.isEmpty && subs.subs.isEmpty && res.items.allSatisfy({ !$0.isRemote }) && profileRuleSets.isEmpty && profileNodeSets.isEmpty {
                 Section {
                     EmptyStateRow(icon: "arrow.triangle.2.circlepath", title: "没有远程资源",
                                   message: "添加的订阅、远程模块、规则集和脚本会列在这里，可以逐个或一次全部更新。")
@@ -44,7 +86,7 @@ struct UpdateResourcesView: View {
                 } header: { Text("配置订阅 \(remoteProfiles.count)") }
                 .listRowBackground(Theme.card)
             }
-            if !subs.subs.isEmpty {
+            if !subs.subs.isEmpty || !profileNodeSets.isEmpty {
                 Section {
                     ForEach(subs.subs) { s in
                         ResourceUpdateRow(kind: "nodesub", name: s.name, url: s.url, symbol: "tray.2.fill", tone: .teal,
@@ -58,14 +100,15 @@ struct UpdateResourcesView: View {
                             Task { await subs.save(c) }
                         }
                     }
-                } header: { Text("节点订阅 \(subs.subs.count)") }
+                    ForEach(profileNodeSets) { p in providerRow(p, symbol: "tray.2.fill", tone: .teal) }
+                } header: { Text("节点订阅 \(subs.subs.count + profileNodeSets.count)") }
                 .listRowBackground(Theme.card)
             }
             resourceSection("module", symbol: "puzzlepiece.extension.fill", tone: .green) { Text("模块 \($0)") }
-            resourceSection("ruleset", symbol: "list.bullet.rectangle.fill", tone: .orange) { Text("规则集 \($0)") }
+            resourceSection("ruleset", symbol: "list.bullet.rectangle.fill", tone: .orange, extra: profileRuleSets) { Text("规则集 \($0)") }
             resourceSection("script", symbol: "curlybraces", tone: .purple) { Text("脚本 \($0)") }
             Section {} footer: {
-                Text("向右轻扫或按住某一项可以启用 / 停用。配置文件里的规则集和节点集（rule-providers / proxy-providers）由内核按配置更新，也可在「工具 → 分流规则 → 配置里的规则集」和「工具 → 节点与订阅」中手动更新。")
+                Text("向右轻扫或按住某一项可以启用 / 停用。有更新时自动下载并应用到当前配置。")
             }
         }
         .listStyle(.insetGrouped)
@@ -80,16 +123,16 @@ struct UpdateResourcesView: View {
                 }
             }
         }
-        .task { await res.reloadInBackground() }
+        .task { await res.reloadInBackground(); await offline.load() }
         .alert("更新资源", isPresented: Binding(get: { message != nil }, set: { if !$0 { message = nil } })) {
             Button("好", role: .cancel) {}
         } message: { Text(message ?? "") }
     }
 
     @ViewBuilder
-    func resourceSection(_ kind: String, symbol: String, tone: TileTone, header: @escaping (Int) -> Text) -> some View {
+    func resourceSection(_ kind: String, symbol: String, tone: TileTone, extra: [InspectProvider] = [], header: @escaping (Int) -> Text) -> some View {
         let list = items(kind)
-        if !list.isEmpty {
+        if !list.isEmpty || !extra.isEmpty {
             Section {
                 ForEach(list) { it in
                     ResourceUpdateRow(kind: kind, name: it.name, url: it.url, symbol: symbol, tone: tone,
@@ -109,7 +152,8 @@ struct UpdateResourcesView: View {
                         }
                     }
                 }
-            } header: { header(list.count) }
+                ForEach(extra) { p in providerRow(p, symbol: symbol, tone: tone) }
+            } header: { header(list.count + extra.count) }
             .listRowBackground(Theme.card)
         }
     }
@@ -126,6 +170,13 @@ struct UpdateResourcesView: View {
         }
         failed += await subs.refreshAll().count
         await res.updateAll()
+        let sets = profileRuleSets + profileNodeSets
+        if vpn.isConnected {
+            for p in sets { await updateProvider(p) }
+        } else if !sets.isEmpty {
+            failed += await providers.updateAll(only: Set(sets.map(\.id))).failed
+            await offline.load()
+        }
         res.message = nil
         failed += res.items.filter { $0.isRemote && $0.enabled && !($0.error ?? "").isEmpty }.count
         message = failed == 0 ? String(localized: "已全部更新") : String(localized: "\(failed) 项更新失败，详见列表")
