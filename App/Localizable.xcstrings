@@ -94520,6 +94520,142 @@
           }
         }
       }
+    },
+    "预设图标": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Preset icon"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "預設圖示"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "プリセットアイコン"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "기본 제공 아이콘"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Предустановленный значок"
+          }
+        }
+      }
+    },
+    "%lld 个节点集更新失败": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%lld node sets failed to update"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%lld 個節點集更新失敗"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%lld 個のノードセットの更新に失敗"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "노드 세트 %lld개 업데이트 실패"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Не удалось обновить наборы узлов: %lld"
+          }
+        }
+      }
+    },
+    "搜索": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Search"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "搜尋"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "検索"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "검색"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Поиск"
+          }
+        }
+      }
+    },
+    "App 自带的 GeoIP / GeoSite 会恢复为内置版本；其他数据库在配置仍需要时，内核会在下次加载时重新下载。": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "The GeoIP / GeoSite bundled with the app are restored to the built-in version; other databases are downloaded again on the next load if the profile still needs them."
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "App 內建的 GeoIP / GeoSite 會恢復為內建版本；其他資料庫在配置仍需要時，核心會在下次載入時重新下載。"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "アプリ同梱の GeoIP / GeoSite は内蔵版に戻ります。その他のデータベースは、設定でまだ必要な場合に次回読み込み時にコアが再ダウンロードします。"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "앱에 포함된 GeoIP / GeoSite는 내장 버전으로 복원됩니다. 다른 데이터베이스는 프로파일에서 여전히 필요하면 다음 로드 시 코어가 다시 다운로드합니다."
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Встроенные в приложение GeoIP / GeoSite будут восстановлены до встроенной версии; другие базы ядро загрузит снова при следующей загрузке, если они всё ещё нужны профилю."
+          }
+        }
+      }
     }
   },
   "version": "1.0"

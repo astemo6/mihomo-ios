@@ -34,8 +34,8 @@ struct RulesView: View {
     }
 
     var localCount: Int {
+        // The rule list already contains the applied custom rules (review 0.19.18 N1: they were counted twice).
         ruleTriples.filter { LocalRulesView.isLocal(type: $0.type, payload: $0.payload, proxy: $0.proxy) }.count
-            + custom.localRules.count
     }
 
     var providersByName: [String: InspectProvider] {

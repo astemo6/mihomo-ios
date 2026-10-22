@@ -180,8 +180,14 @@ final class GeoModel: NSObject, ObservableObject, URLSessionDownloadDelegate {
             return
         }
         errors[kind] = nil
+        // Review 0.19.18 S2: geoip.metadb / GeoSite.dat ship with the app; put the bundled copy back right away
+        // (launch and tunnel start would do it anyway) instead of leaving the core to download it, which is often
+        // blocked. Other databases are downloaded again by the core when the profile still needs them.
+        if GeoBootstrap.files.contains(where: { $0.caseInsensitiveCompare(f.file) == .orderedSame }) {
+            await Task.detached(priority: .utility) { _ = GeoBootstrap.install() }.value
+        }
         refresh()
-        if VPNManager.shared.isConnected { _ = await VPNManager.shared.reload() }
+        if VPNManager.shared.isConnected, let err = await VPNManager.shared.reload() { errors[kind] = err }
     }
 
     func updateAll() async {
@@ -293,7 +299,7 @@ struct GeoView: View {
                 removing = nil
             }
         } message: {
-            Text("配置里的规则或 DNS 仍需要它时，内核会在下次加载时重新下载。")
+            Text("App 自带的 GeoIP / GeoSite 会恢复为内置版本；其他数据库在配置仍需要时，内核会在下次加载时重新下载。")
         }
         .alert("自定义下载地址", isPresented: Binding(get: { editing != nil }, set: { if !$0 { editing = nil } })) {
             TextField("https://…", text: $urlText).textInputAutocapitalization(.never).autocorrectionDisabled().keyboardType(.URL)

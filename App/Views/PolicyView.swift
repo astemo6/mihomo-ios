@@ -693,7 +693,7 @@ struct PolicyView: View {
                 PolicyModeBar()
                 HStack(spacing: 6) {
                     Image(systemName: "doc.text.magnifyingglass")
-                    Text("未连接 · 来自配置文件")
+                    Text("未连接")
                     Spacer()
                     if offline.loading { ProgressView().controlSize(.small) }
                 }

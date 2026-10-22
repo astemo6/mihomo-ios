@@ -46,17 +46,20 @@ struct UpdateResourcesView: View {
     /// Connected: the core downloads and swaps it in place. Disconnected: the app downloads it (ProviderUpdater
     /// reloads the tunnel itself when it is up).
     func updateProvider(_ p: InspectProvider) async {
-        if vpn.isConnected {
-            do {
-                if p.kind == "proxy" { try await ControllerClient.shared.updateProxyProvider(p.name) }
-                else { try await ControllerClient.shared.updateRuleProvider(p.name) }
-            } catch {
-                await providers.update(p.id)
-            }
-        } else {
-            await providers.update(p.id)
-        }
+        if !(await coreUpdate(p)) { await providers.update(p.id) }
         await offline.load()
+    }
+
+    /// Connected: asks the core to refresh the set in place (no reload). False when disconnected or the core failed.
+    func coreUpdate(_ p: InspectProvider) async -> Bool {
+        guard vpn.isConnected else { return false }
+        do {
+            if p.kind == "proxy" { try await ControllerClient.shared.updateProxyProvider(p.name) }
+            else { try await ControllerClient.shared.updateRuleProvider(p.name) }
+            return true
+        } catch {
+            return false
+        }
     }
 
     var body: some View {
@@ -171,12 +174,14 @@ struct UpdateResourcesView: View {
         failed += await subs.refreshAll().count
         await res.updateAll()
         let sets = profileRuleSets + profileNodeSets
-        if vpn.isConnected {
-            for p in sets { await updateProvider(p) }
-        } else if !sets.isEmpty {
-            failed += await providers.updateAll(only: Set(sets.map(\.id))).failed
-            await offline.load()
+        // Review 0.19.18 S1: sets the core could not refresh are downloaded by the app in ONE batch, so the
+        // tunnel reloads at most once (not once per failed set).
+        var fallback: [String] = []
+        for p in sets where !(await coreUpdate(p)) { fallback.append(p.id) }
+        if !fallback.isEmpty {
+            failed += await providers.updateAll(only: Set(fallback)).failed
         }
+        if !sets.isEmpty { await offline.load() }
         res.message = nil
         failed += res.items.filter { $0.isRemote && $0.enabled && !($0.error ?? "").isEmpty }.count
         message = failed == 0 ? String(localized: "已全部更新") : String(localized: "\(failed) 项更新失败，详见列表")

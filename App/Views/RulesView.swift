@@ -249,7 +249,7 @@ struct LocalRulesView: View {
         let rows = self.rows // built once per render (it was evaluated for the list and again for the overlay)
         return List {
             if !vpn.isConnected {
-                Label("未连接 · 来自配置文件（含自定义规则）", systemImage: "doc.text.magnifyingglass")
+                Label("未连接", systemImage: "doc.text.magnifyingglass")
                     .font(.caption.weight(.semibold)).foregroundStyle(.secondary)
                     .listRowBackground(Color.clear)
             }

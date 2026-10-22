@@ -399,7 +399,7 @@ struct NodeManagerView: View {
         let keys = Set(httpProviders.keys.map { "proxy:" + $0 })
         if !keys.isEmpty {
             let r = await updater.updateAll(only: keys)
-            if r.failed > 0 { errs.append(String(localized: "\(r.failed) 个配置内节点集更新失败")) }
+            if r.failed > 0 { errs.append(String(localized: "\(r.failed) 个节点集更新失败")) }
         }
         await ProfileInspector.shared.load()
         await model.reload()

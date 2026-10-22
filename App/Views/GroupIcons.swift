@@ -444,7 +444,7 @@ struct IconPickerSheet: View {
 
     var sourceText: String {
         if let c = current { return c.isEmpty ? String(localized: "默认符号（你的选择）") : String(localized: "你选择的图标") }
-        if profileIcon?.isEmpty == false { return String(localized: "来自配置文件") }
+        if profileIcon?.isEmpty == false { return String(localized: "预设图标") }
         return String(localized: "默认符号")
     }
 
