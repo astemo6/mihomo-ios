@@ -6,6 +6,10 @@ import XCTest
 /// installed, 更新 (arrow.clockwise) once it is, red 重试 after an error.
 /// Paused indicators: 请求 / DNS 日志 / 日志 show 「已暂停刷新 · 点按继续」 while paused (tap resumes) and the toolbar
 /// button reads 暂停刷新 / 继续刷新.
+private extension XCUIElement {
+    var hasKeyboardFocusSafe: Bool { (value(forKey: "hasKeyboardFocus") as? Bool) ?? false }
+}
+
 extension MihomoUITests {
 
     private func geoMirrorSegment(_ key: String) -> XCUIElement {
@@ -14,13 +18,12 @@ extension MihomoUITests {
         return seg.buttons[L(key)]
     }
 
+    /// The field's own clear button (a tap lands the caret mid-text, so deleting from there leaves a tail).
     private func clearAndType(_ field: XCUIElement, _ text: String) {
-        field.tap()
-        usleep(300_000)
-        let current = (field.value as? String) ?? ""
-        if !current.isEmpty {
-            field.typeText(String(repeating: XCUIKeyboardKey.delete.rawValue, count: current.count + 2))
-        }
+        let clear = app.buttons["geo.mirror.clear"]
+        if clear.exists { clear.tap(); usleep(300_000) }
+        if !field.hasKeyboardFocusSafe { field.tap(); usleep(300_000) }
+        XCTAssertEqual(((field.value as? String) ?? ""), field.placeholderValue ?? "", "field cleared")
         field.typeText(text)
         usleep(300_000)
     }

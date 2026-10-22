@@ -325,19 +325,32 @@ struct GeoView: View {
         let dirty = normalized != nil && normalized != saved
         return VStack(alignment: .leading, spacing: 6) {
             Text("镜像地址").font(.caption2.weight(.semibold)).foregroundStyle(.secondary)
-            TextField(GeoModel.templateBase, text: $baseText)
-                .scaledFont(11, design: .monospaced)
-                .textInputAutocapitalization(.never)
-                .autocorrectionDisabled()
-                .keyboardType(.URL)
-                .submitLabel(.done)
-                .focused($baseFocused)
-                .onSubmit { if dirty { model.setCustomBase(baseText) } }
+            HStack(spacing: 6) {
+                TextField(GeoModel.templateBase, text: $baseText)
+                    .scaledFont(11, design: .monospaced)
+                    .textInputAutocapitalization(.never)
+                    .autocorrectionDisabled()
+                    .keyboardType(.URL)
+                    .submitLabel(.done)
+                    .focused($baseFocused)
+                    .onSubmit { if dirty { model.setCustomBase(baseText) } }
+                    .accessibilityIdentifier("geo.mirror.field")
+                if !baseText.isEmpty {
+                    Button {
+                        baseText = ""
+                        baseFocused = true
+                    } label: {
+                        Image(systemName: "xmark.circle.fill").foregroundStyle(.secondary)
+                    }
+                    .buttonStyle(.plain)
+                    .accessibilityLabel(Text("清除"))
+                    .accessibilityIdentifier("geo.mirror.clear")
+                }
+            }
                 .padding(.horizontal, 10).padding(.vertical, 8)
                 .background(RoundedRectangle(cornerRadius: 10, style: .continuous).fill(Theme.cardHi))
                 .overlay(RoundedRectangle(cornerRadius: 10, style: .continuous)
                     .stroke(normalized == nil && !baseText.isEmpty ? Theme.bad.opacity(0.7) : Color.clear, lineWidth: 1))
-                .accessibilityIdentifier("geo.mirror.field")
             if let n = normalized {
                 VStack(alignment: .leading, spacing: 2) {
                     Text("预览（geoip.metadb）").font(.caption2).foregroundStyle(.secondary)
