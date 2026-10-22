@@ -385,10 +385,13 @@ struct PolicyTrafficView: View {
                                         if let n = counts[p.name] { Text("\(n) 次命中").foregroundStyle(.secondary) }
                                     }
                                     .font(.caption2.monospacedDigit())
+                                    .lineLimit(1)
+                                    .minimumScaleFactor(0.8)
                                 }
                                 Spacer(minLength: 6)
                                 Text(Double(p.bytes.total) / Double(total), format: .percent.precision(.fractionLength(0)))
                                     .font(.caption.monospacedDigit()).foregroundStyle(.secondary)
+                                    .fixedSize()
                             }
                         }
                         .listRowBackground(Theme.card)
