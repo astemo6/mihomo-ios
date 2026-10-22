@@ -119,8 +119,9 @@ extension MihomoUITests {
         if scrollTo(rulesCard, fail: false) {
             for _ in 0..<6 {
                 if allRules.exists && allRules.frame.maxX <= app.frame.maxX && allRules.frame.minX >= 0 { allRulesShown = true; break }
-                let strip = app.buttons.matching(identifier: "home.analysis.rule").firstMatch
-                (strip.exists ? strip : rulesCard).swipeLeft()
+                // Swipe the strip itself: after one swipe the first ring button is off screen (empty frame).
+                guard rulesCard.exists, !rulesCard.frame.isEmpty else { break }
+                rulesCard.swipeLeft()
                 usleep(400_000)
             }
         }
