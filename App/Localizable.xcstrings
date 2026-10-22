@@ -94452,6 +94452,40 @@
           }
         }
       }
+    },
+    "去模块库添加": {
+      "localizations": {
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "去模組庫新增"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Add from Module Gallery"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "モジュールギャラリーから追加"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "모듈 갤러리에서 추가"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Добавить из каталога модулей"
+          }
+        }
+      }
     }
   },
   "version": "1.0"
