@@ -312,7 +312,8 @@ struct NodeManagerView: View {
             if let id = store.activeID {
                 ProviderSubSheet(profileID: id, info: providerOV.declared.first { $0.name == t.name } ?? ProfileProviderInfo(name: t.name, vehicle: httpProviders[t.name] == nil ? "" : "http", url: httpProviders[t.name]?.url),
                                  status: providerStatus(t.name, model.sources.first { $0.kind == .provider && $0.name == t.name }),
-                                 onDelete: { SnapshotStore.shared.capture(String(localized: "删除节点集前")); store.activeID.map { pid in providerOV.update(pid, t.name) { $0.deleted = true } }; Task { await applyProviderChange() } },
+                                 nodes: providerScope(t.name),
+                                 onDelete: { deleteProvider(t.name) },
                                  onApply: { await applyProviderChange() })
             }
         }
@@ -450,6 +451,23 @@ struct NodeManagerView: View {
         return SubscriptionStatus(source: String(localized: "节点集 · 来自配置"), remote: http, updated: s?.updatedAt,
                                   interval: ov.interval ?? declared?.interval ?? 0, error: disabled ? nil : updater.errors["proxy:" + name],
                                   disabled: disabled, downloaded: (s?.cached ?? false) || count > 0)
+    }
+
+    /// 删除 a 节点集 (override store; 恢复已删除的节点集 brings it back).
+    func deleteProvider(_ name: String) {
+        guard let id = store.activeID else { return }
+        SnapshotStore.shared.capture(String(localized: "删除节点集前"))
+        providerOV.update(id, name) { $0.deleted = true }
+        Task { await applyProviderChange() }
+    }
+
+    /// The node list of a 节点集 (opened from its sheet).
+    func providerScope(_ name: String) -> NodeListScope {
+        let s = model.sources.first { $0.kind == .provider && $0.name == name }
+        let disabled = providerOverrides[name]?.disabled == true
+        return NodeListScope(title: providerTitle(name), sourceIDs: [s?.id ?? NodeSource(kind: .provider, name: name).id],
+                             emptyTitle: disabled ? String(localized: "节点集已停用") : String(localized: "还没有下载"),
+                             emptyMessage: disabled ? String(localized: "启用后，节点会重新加入配置。") : String(localized: "连接一次，或在「节点与订阅」里右滑更新后显示节点。"))
     }
 
     @ViewBuilder

@@ -249,6 +249,8 @@ struct ProviderSubSheet: View {
     let profileID: String
     let info: ProfileProviderInfo
     let status: SubscriptionStatus
+    /// Its nodes (节点集 node list).
+    var nodes: NodeListScope? = nil
     var onDelete: () -> Void
     /// Reload after a change (VPN reload, offline view); runs after the sheet closed.
     let onApply: () async -> Void
@@ -262,10 +264,12 @@ struct ProviderSubSheet: View {
     @State private var pickingIcon = false
     private let initial: ProviderOverride
 
-    init(profileID: String, info: ProfileProviderInfo, status: SubscriptionStatus, onDelete: @escaping () -> Void, onApply: @escaping () async -> Void) {
+    init(profileID: String, info: ProfileProviderInfo, status: SubscriptionStatus, nodes: NodeListScope? = nil,
+         onDelete: @escaping () -> Void, onApply: @escaping () async -> Void) {
         self.profileID = profileID
         self.info = info
         self.status = status
+        self.nodes = nodes
         self.onDelete = onDelete
         self.onApply = onApply
         let o = ProviderOverrideStore.shared.get(profileID, info.name)
@@ -278,6 +282,12 @@ struct ProviderSubSheet: View {
     }
 
     var isHTTP: Bool { info.vehicle == "http" }
+    var updateAction: (() async -> String?)? {
+        guard isHTTP else { return nil }
+        let k = key
+        let u = updater
+        return { @MainActor in await u.update(k); return u.errors[k] }
+    }
     var key: String { "proxy:" + info.name }
 
     var dirty: Bool {
@@ -290,7 +300,7 @@ struct ProviderSubSheet: View {
                           nameFooter: Text("只改本页显示的名称；策略组和规则仍按配置里的名称「\(info.name)」引用它。"),
                           url: isHTTP ? $url : nil, interval: $interval, zeroInterval: "跟随配置", status: status,
                           updating: updater.busy.contains(key), dirty: dirty, save: save,
-                          update: isHTTP ? { await updater.update(key); return updater.errors[key] } : nil,
+                          update: updateAction,
                           deleteTitle: Text("删除节点集「\(info.name)」？"),
                           deleteMessage: Text("只从这个配置里移除：它不再加载，引用它的策略组改用其他节点（没有其他节点时用 DIRECT）。配置文件不会改动，更新配置也不会让它回来；可以在本页底部「恢复已删除的节点集」找回。"),
                           delete: onDelete) {
@@ -305,6 +315,9 @@ struct ProviderSubSheet: View {
             .listRowBackground(Theme.card)
             Section {
                 Button { pickingIcon = true } label: { Label("图标", systemImage: "photo") }
+                if let nodes {
+                    NavigationLink { NodeListView(scope: nodes) } label: { Label("查看节点", systemImage: "list.bullet") }
+                }
                 if !initial.isEmpty {
                     Button("恢复默认", role: .destructive) {
                         store.set(profileID, info.name, ProviderOverride(disabled: initial.disabled, icon: initial.icon))
@@ -371,6 +384,12 @@ struct ModuleSubSheet: View {
 
     var current: EngineModule { store.config.modules.first { $0.id == module.id } ?? module }
     var remote: Bool { !module.url.isEmpty }
+    var updateAction: (() async -> String?)? {
+        guard remote else { return nil }
+        let r = res
+        let k = "module:" + module.id
+        return { @MainActor in await r.refresh(key: k) }
+    }
     var dirty: Bool { name != module.name || url != module.url || interval != (module.interval ?? 86400) }
     var item: ResourceItem? { res.items.first { $0.key == "module:" + module.id } }
 
@@ -378,7 +397,7 @@ struct ModuleSubSheet: View {
         SubscriptionSheet(title: "重写订阅", name: $name, url: remote ? $url : nil, interval: $interval, zeroInterval: nil,
                           status: ModuleSubSheet.status(current, item: item, info: store.moduleInfo[module.id]),
                           updating: store.busy.contains(module.id) || res.busy.contains("module:" + module.id), dirty: dirty, save: save,
-                          update: remote ? { await res.refresh(key: "module:" + module.id) } : nil,
+                          update: updateAction,
                           deleteTitle: Text("删除「\(module.name)」？"), deleteMessage: DeleteText.recoverable,
                           delete: { onDelete(current) }) {
             Section {

@@ -1334,40 +1334,6 @@
         }
       }
     },
-    "%lld 项": {
-      "localizations": {
-        "zh-Hant": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "%lld 項"
-          }
-        },
-        "en": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "%lld items"
-          }
-        },
-        "ja": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "%lld 件"
-          }
-        },
-        "ko": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "%lld개"
-          }
-        },
-        "ru": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Элементов: %lld"
-          }
-        }
-      }
-    },
     "%lld%%": {
       "extractionState": "manual",
       "localizations": {
@@ -8081,40 +8047,6 @@
         }
       }
     },
-    "· 每 %@": {
-      "localizations": {
-        "zh-Hant": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "· 每 %@"
-          }
-        },
-        "en": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "· every %@"
-          }
-        },
-        "ja": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "· %@ ごと"
-          }
-        },
-        "ko": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "· %@마다"
-          }
-        },
-        "ru": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "· каждые %@"
-          }
-        }
-      }
-    },
     "—": {
       "localizations": {
         "en": {
@@ -11437,40 +11369,6 @@
           "stringUnit": {
             "state": "translated",
             "value": "Импорт по URL"
-          }
-        }
-      }
-    },
-    "从 URL 导入模块": {
-      "localizations": {
-        "zh-Hant": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "從 URL 匯入模組"
-          }
-        },
-        "en": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Import Module from URL"
-          }
-        },
-        "ja": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "URL からモジュールを読み込む"
-          }
-        },
-        "ko": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "URL에서 모듈 가져오기"
-          }
-        },
-        "ru": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Импорт модуля по URL"
           }
         }
       }
@@ -30940,40 +30838,6 @@
         }
       }
     },
-    "按顺序匹配，拖动调整先后（点右上角「编辑」）。": {
-      "localizations": {
-        "zh-Hant": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "按順序匹配，拖動調整先後（點右上角「編輯」）。"
-          }
-        },
-        "en": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Matched in order; drag to reorder (tap Edit at the top right)."
-          }
-        },
-        "ja": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "上から順に照合します。ドラッグで並べ替え（右上の「編集」）。"
-          }
-        },
-        "ko": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "순서대로 일치시킵니다. 끌어서 순서를 바꾸세요(오른쪽 위 '편집')."
-          }
-        },
-        "ru": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Проверяются по порядку; перетащите, чтобы изменить (кнопка «Изменить» справа вверху)."
-          }
-        }
-      }
-    },
     "损坏": {
       "localizations": {
         "en": {
@@ -36768,40 +36632,6 @@
       },
       "extractionState": "manual"
     },
-    "本地模块是你自己的重写规则和 MitM 主机名，与导入的模块一起生效、优先于它们。点 + 用表单添加，或点「文本」直接编辑；Surge、Quantumult X、Loon 写法都能识别。": {
-      "localizations": {
-        "zh-Hant": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "本地模組是你自己的重寫規則和 MitM 主機名，與匯入的模組一起生效、優先於它們。點 + 用表單新增，或點「文字」直接編輯；Surge、Quantumult X、Loon 寫法都能識別。"
-          }
-        },
-        "en": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "The Local Module is your own rewrite rules and MitM hostnames; it works together with imported modules and takes precedence. Tap + to add with a form, or Text to edit directly; Surge, Quantumult X and Loon syntax are all understood."
-          }
-        },
-        "ja": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "ローカルモジュールは自分の書き換えルールと MitM ホスト名で、読み込んだモジュールと一緒に、より優先して適用されます。+ でフォームから追加、「テキスト」で直接編集。Surge、Quantumult X、Loon の書式に対応。"
-          }
-        },
-        "ko": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "로컬 모듈은 직접 만든 재작성 규칙과 MitM 호스트명으로, 가져온 모듈과 함께 적용되며 그보다 우선합니다. + 로 양식에서 추가하거나 '텍스트'로 직접 편집하세요. Surge, Quantumult X, Loon 문법을 모두 인식합니다."
-          }
-        },
-        "ru": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Локальный модуль — ваши правила перезаписи и хосты MitM; работает вместе с импортированными модулями и имеет приоритет. Нажмите +, чтобы добавить через форму, или «Текст» для прямого редактирования; понимается синтаксис Surge, Quantumult X и Loon."
-          }
-        }
-      }
-    },
     "本地脚本": {
       "localizations": {
         "en": {
@@ -37315,40 +37145,6 @@
           "stringUnit": {
             "state": "translated",
             "value": "Источник"
-          }
-        }
-      }
-    },
-    "来自 %@": {
-      "localizations": {
-        "zh-Hant": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "來自 %@"
-          }
-        },
-        "en": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "From %@"
-          }
-        },
-        "ja": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "提供元 %@"
-          }
-        },
-        "ko": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "출처 %@"
-          }
-        },
-        "ru": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Из %@"
           }
         }
       }
@@ -38473,40 +38269,6 @@
           "stringUnit": {
             "state": "translated",
             "value": "Модуль «%@»: %@, но перезагрузка не удалась: %@"
-          }
-        }
-      }
-    },
-    "模块与资源": {
-      "localizations": {
-        "zh-Hant": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "模組與資源"
-          }
-        },
-        "en": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Modules & Resources"
-          }
-        },
-        "ja": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "モジュールとリソース"
-          }
-        },
-        "ko": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "모듈 및 리소스"
-          }
-        },
-        "ru": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Модули и ресурсы"
           }
         }
       }
@@ -43108,74 +42870,6 @@
         }
       }
     },
-    "点 + 新建本地脚本、通过 URL 导入，或直接粘贴 Surge / QX / Loon 脚本行。": {
-      "localizations": {
-        "en": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Tap + to create a local script, import one by URL, or paste a Surge / QX / Loon script line."
-          }
-        },
-        "zh-Hant": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "點 + 新建本地腳本、透過 URL 匯入，或直接貼上 Surge / QX / Loon 腳本行。"
-          }
-        },
-        "ja": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "+ をタップしてローカルスクリプトを作成、URL から読み込み、または Surge / QX / Loon のスクリプト行を貼り付けます。"
-          }
-        },
-        "ko": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "+를 탭해 로컬 스크립트를 만들거나 URL로 가져오거나 Surge / QX / Loon 스크립트 줄을 붙여넣으세요."
-          }
-        },
-        "ru": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Нажмите +, чтобы создать локальный скрипт, импортировать по URL или вставить строку скрипта Surge / QX / Loon."
-          }
-        }
-      }
-    },
-    "点 + 通过 URL 导入模块": {
-      "localizations": {
-        "en": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Tap + to import a module by URL"
-          }
-        },
-        "zh-Hant": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "點 + 透過 URL 匯入模組"
-          }
-        },
-        "ja": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "+ をタップして URL からモジュールを読み込みます"
-          }
-        },
-        "ko": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "+를 탭해 URL로 모듈을 가져오세요"
-          }
-        },
-        "ru": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Нажмите +, чтобы импортировать модуль по URL"
-          }
-        }
-      }
-    },
     "点右上角 + 添加。自定义规则排在配置规则之前，可以直接粘贴 Surge / Quantumult X / Loon / mihomo 写法，也可以添加远程规则列表（RULE-SET / DOMAIN-SET / filter_remote）。": {
       "localizations": {
         "en": {
@@ -46115,40 +45809,6 @@
         }
       }
     },
-    "粘贴模块内容": {
-      "localizations": {
-        "en": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Paste Module Content"
-          }
-        },
-        "zh-Hant": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "貼上模組內容"
-          }
-        },
-        "ja": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "モジュールの内容を貼り付け"
-          }
-        },
-        "ko": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "모듈 내용 붙여넣기"
-          }
-        },
-        "ru": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Вставить содержимое модуля"
-          }
-        }
-      }
-    },
     "粘贴脚本行": {
       "localizations": {
         "en": {
@@ -47447,40 +47107,6 @@
           "stringUnit": {
             "state": "translated",
             "value": "Перед правкой профиля «%@»"
-          }
-        }
-      }
-    },
-    "编辑链接 / 名称 / UA / 间隔": {
-      "localizations": {
-        "zh-Hant": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "編輯連結 / 名稱 / UA / 間隔"
-          }
-        },
-        "en": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Edit URL / Name / UA / Interval"
-          }
-        },
-        "ja": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "URL / 名前 / UA / 間隔を編集"
-          }
-        },
-        "ko": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "링크 / 이름 / UA / 간격 편집"
-          }
-        },
-        "ru": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Изменить ссылку / имя / UA / интервал"
           }
         }
       }
@@ -57274,40 +56900,6 @@
         }
       }
     },
-    "重写 %lld": {
-      "localizations": {
-        "zh-Hant": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "重寫 %lld"
-          }
-        },
-        "en": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Rewrites %lld"
-          }
-        },
-        "ja": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "書き換え %lld"
-          }
-        },
-        "ko": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "재작성 %lld"
-          }
-        },
-        "ru": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Перезаписи: %lld"
-          }
-        }
-      }
-    },
     "重写 / MitM / 脚本 → 作为模块导入": {
       "localizations": {
         "en": {
@@ -65227,41 +64819,6 @@
         }
       }
     },
-    "重写（本地模块）": {
-      "extractionState": "manual",
-      "localizations": {
-        "zh-Hant": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "重寫（本地模組）"
-          }
-        },
-        "en": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Rewrite (local module)"
-          }
-        },
-        "ja": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "書き換え（ローカルモジュール）"
-          }
-        },
-        "ko": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "재작성(로컬 모듈)"
-          }
-        },
-        "ru": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Перезапись (локальный модуль)"
-          }
-        }
-      }
-    },
     "还没有重写规则": {
       "extractionState": "manual",
       "localizations": {
@@ -65293,41 +64850,6 @@
           "stringUnit": {
             "state": "translated",
             "value": "Правил перезаписи пока нет"
-          }
-        }
-      }
-    },
-    "点右上角 + 选择类型。": {
-      "extractionState": "manual",
-      "localizations": {
-        "zh-Hant": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "點右上角 + 選擇型別。"
-          }
-        },
-        "en": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Tap + at the top right to pick a type."
-          }
-        },
-        "ja": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "右上の + をタップして種類を選びます。"
-          }
-        },
-        "ko": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "오른쪽 위 +를 눌러 유형을 선택하세요."
-          }
-        },
-        "ru": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Нажмите + вверху справа и выберите тип."
           }
         }
       }
@@ -67796,40 +67318,6 @@
           "stringUnit": {
             "state": "translated",
             "value": "全部重寫規則（含模組）"
-          }
-        }
-      }
-    },
-    "所有模块的重写和脚本规则，平铺可搜索": {
-      "localizations": {
-        "en": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Every module's rewrite and script rules in one searchable list"
-          }
-        },
-        "ja": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "全モジュールの書き換え・スクリプトルールを一覧で検索"
-          }
-        },
-        "ko": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "모든 모듈의 재작성·스크립트 규칙을 한 목록에서 검색"
-          }
-        },
-        "ru": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Правила перезаписи и скрипты всех модулей одним списком с поиском"
-          }
-        },
-        "zh-Hant": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "所有模組的重寫和腳本規則，平鋪可搜尋"
           }
         }
       }
@@ -83849,40 +83337,6 @@
         }
       }
     },
-    "轻点切换为当前配置。右滑更新；左滑删除或停用；长按查看更多操作。": {
-      "localizations": {
-        "en": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Tap to make it the current profile. Swipe right to update; swipe left to delete or disable; touch and hold for more."
-          }
-        },
-        "ja": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "タップで現在のプロファイルに切り替え。右スワイプで更新、左スワイプで削除または無効化、長押しでその他の操作。"
-          }
-        },
-        "ko": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "탭하면 현재 프로파일로 전환합니다. 오른쪽으로 밀어 업데이트, 왼쪽으로 밀어 삭제 또는 비활성화, 길게 눌러 더 많은 작업."
-          }
-        },
-        "ru": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Нажмите, чтобы сделать профиль текущим. Смахните вправо, чтобы обновить; влево — удалить или отключить; удерживайте для других действий."
-          }
-        },
-        "zh-Hant": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "輕點切換為當前配置。右滑更新；左滑刪除或停用；長按檢視更多操作。"
-          }
-        }
-      }
-    },
     "还没有节点订阅": {
       "localizations": {
         "en": {
@@ -84087,74 +83541,6 @@
         }
       }
     },
-    "节点集已停用": {
-      "localizations": {
-        "en": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Node set disabled"
-          }
-        },
-        "ja": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "ノードセットは無効です"
-          }
-        },
-        "ko": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "노드 세트가 비활성화됨"
-          }
-        },
-        "ru": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Набор узлов отключён"
-          }
-        },
-        "zh-Hant": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "節點集已停用"
-          }
-        }
-      }
-    },
-    "启用后，节点会重新加入配置。": {
-      "localizations": {
-        "en": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Enable it to add its nodes back to the profile."
-          }
-        },
-        "ja": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "有効にすると、ノードがプロファイルに戻ります。"
-          }
-        },
-        "ko": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "활성화하면 노드가 프로파일에 다시 추가됩니다."
-          }
-        },
-        "ru": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Включите его, чтобы узлы снова добавились в профиль."
-          }
-        },
-        "zh-Hant": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "啟用後，節點會重新加入配置。"
-          }
-        }
-      }
-    },
     "节点集设置": {
       "localizations": {
         "en": {
@@ -84287,74 +83673,6 @@
           "stringUnit": {
             "state": "translated",
             "value": "訂閱連結"
-          }
-        }
-      }
-    },
-    "留空使用配置里的链接；配置里的更新间隔是 %lld 秒。": {
-      "localizations": {
-        "en": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Leave empty to use the profile's link. The profile updates it every %lld seconds."
-          }
-        },
-        "ja": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "空欄ならプロファイルのリンクを使います。プロファイルの更新間隔は %lld 秒です。"
-          }
-        },
-        "ko": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "비워 두면 프로파일의 링크를 사용합니다. 프로파일의 업데이트 간격은 %lld초입니다."
-          }
-        },
-        "ru": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Оставьте пустым, чтобы использовать ссылку из профиля. В профиле интервал обновления — %lld с."
-          }
-        },
-        "zh-Hant": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "留空使用配置裡的連結；配置裡的更新間隔是 %lld 秒。"
-          }
-        }
-      }
-    },
-    "留空使用配置里的链接。": {
-      "localizations": {
-        "en": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Leave empty to use the profile's link."
-          }
-        },
-        "ja": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "空欄ならプロファイルのリンクを使います。"
-          }
-        },
-        "ko": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "비워 두면 프로파일의 링크를 사용합니다."
-          }
-        },
-        "ru": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Оставьте пустым, чтобы использовать ссылку из профиля."
-          }
-        },
-        "zh-Hant": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "留空使用配置裡的連結。"
           }
         }
       }
@@ -84495,40 +83813,6 @@
         }
       }
     },
-    "编辑节点集": {
-      "localizations": {
-        "en": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Edit Node Set"
-          }
-        },
-        "ja": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "ノードセットを編集"
-          }
-        },
-        "ko": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "노드 세트 편집"
-          }
-        },
-        "ru": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Изменить набор узлов"
-          }
-        },
-        "zh-Hant": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "編輯節點集"
-          }
-        }
-      }
-    },
     "请输入以 http:// 或 https:// 开头的链接": {
       "localizations": {
         "en": {
@@ -84627,40 +83911,6 @@
           "stringUnit": {
             "state": "translated",
             "value": "禁用"
-          }
-        }
-      }
-    },
-    "右滑更新；左滑复制链接；长按查看更多操作。": {
-      "localizations": {
-        "en": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Swipe right to update; swipe left to copy the link; touch and hold for more."
-          }
-        },
-        "ja": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "右スワイプで更新、左スワイプでリンクをコピー、長押しでその他の操作。"
-          }
-        },
-        "ko": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "오른쪽으로 밀어 업데이트, 왼쪽으로 밀어 링크 복사, 길게 눌러 더 많은 작업."
-          }
-        },
-        "ru": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Смахните вправо, чтобы обновить; влево — скопировать ссылку; удерживайте для других действий."
-          }
-        },
-        "zh-Hant": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "右滑更新；左滑複製連結；長按檢視更多操作。"
           }
         }
       }
@@ -86622,41 +85872,6 @@
         }
       }
     },
-    "我的重写": {
-      "extractionState": "manual",
-      "localizations": {
-        "en": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "My Rewrites"
-          }
-        },
-        "ja": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "マイ書き換え"
-          }
-        },
-        "ko": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "내 재작성"
-          }
-        },
-        "ru": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Мои перезаписи"
-          }
-        },
-        "zh-Hant": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "我的重寫"
-          }
-        }
-      }
-    },
     "配置里的规则集": {
       "extractionState": "manual",
       "localizations": {
@@ -86863,76 +86078,6 @@
           "stringUnit": {
             "state": "translated",
             "value": "連線方式 · DNS · MitM · 核心"
-          }
-        }
-      }
-    },
-    "重写与脚本已关闭，这里的规则暂不生效。": {
-      "extractionState": "manual",
-      "localizations": {
-        "en": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Rewrites and scripts are off; these rules don't apply for now."
-          }
-        },
-        "ja": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "書き換えとスクリプトはオフです。ここのルールは現在適用されません。"
-          }
-        },
-        "ko": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "재작성과 스크립트가 꺼져 있어 여기의 규칙은 지금 적용되지 않습니다."
-          }
-        },
-        "ru": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Перезапись и скрипты выключены — эти правила сейчас не действуют."
-          }
-        },
-        "zh-Hant": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "重寫與腳本已關閉，這裡的規則暫不生效。"
-          }
-        }
-      }
-    },
-    "重写与脚本已开启（在「模块」页顶部开关）": {
-      "extractionState": "manual",
-      "localizations": {
-        "en": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Rewrites and scripts are on (switch at the top of Modules)"
-          }
-        },
-        "ja": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "書き換えとスクリプトはオン（「モジュール」上部で切り替え）"
-          }
-        },
-        "ko": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "재작성과 스크립트 켜짐(「모듈」 상단에서 전환)"
-          }
-        },
-        "ru": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Перезапись и скрипты включены (переключатель вверху «Модулей»)"
-          }
-        },
-        "zh-Hant": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "重寫與腳本已開啟（在「模組」頁頂部開關）"
           }
         }
       }
@@ -87280,40 +86425,6 @@
           "stringUnit": {
             "state": "translated",
             "value": "Правило попадает в «Инструменты → Правила маршрутизации → Свои правила» и проверяется раньше правил профиля; при подключении применяется сразу."
-          }
-        }
-      }
-    },
-    "规则集保存在自定义规则里（工具 → 分流规则 → 自定义），这里管理它的下载与更新。Surge / Loon / QX 列表与 Egern YAML 规则集会转换为 mihomo 规则；不支持的行会被跳过。连接期间内核也会按间隔自动更新。": {
-      "localizations": {
-        "zh-Hant": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "規則集儲存在自定義規則裡（工具 → 分流規則 → 自定義），這裡管理它的下載與更新。Surge / Loon / QX 列表與 Egern YAML 規則集會轉換為 mihomo 規則；不支援的行會被跳過。連線期間核心也會按間隔自動更新。"
-          }
-        },
-        "en": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "The rule set lives in the custom rules (Tools → Routing Rules → Custom); this page manages downloading and updating it. Surge / Loon / QX lists and Egern YAML rule sets are converted to mihomo rules; unsupported lines are skipped. While connected the core also updates it at this interval."
-          }
-        },
-        "ja": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "ルールセットはカスタムルール（「ツール」→「振り分けルール」→「カスタム」）に保存され、ここではダウンロードと更新を管理します。Surge / Loon / QX のリストと Egern YAML ルールセットは mihomo のルールに変換され、非対応の行はスキップされます。接続中はコアもこの間隔で自動更新します。"
-          }
-        },
-        "ko": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "규칙 세트는 사용자 지정 규칙(도구 → 분류 규칙 → 사용자 지정)에 저장되며 여기서는 다운로드와 업데이트를 관리합니다. Surge / Loon / QX 목록과 Egern YAML 규칙 세트는 mihomo 규칙으로 변환되고, 지원하지 않는 줄은 건너뜁니다. 연결된 동안 코어도 이 간격으로 자동 업데이트합니다."
-          }
-        },
-        "ru": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Набор правил хранится в своих правилах («Инструменты» → «Правила маршрутизации» → «Свои»), здесь — его загрузка и обновление. Списки Surge / Loon / QX и наборы Egern YAML преобразуются в правила mihomo; неподдерживаемые строки пропускаются. При подключении ядро тоже обновляет набор с этим интервалом."
           }
         }
       }
@@ -87732,181 +86843,6 @@
           "stringUnit": {
             "state": "translated",
             "value": "自定義規則 %lld/%lld"
-          }
-        }
-      }
-    },
-    "已启用模块 %lld/%lld": {
-      "extractionState": "manual",
-      "localizations": {
-        "en": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Modules on %lld/%lld"
-          }
-        },
-        "ja": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "有効なモジュール %lld/%lld"
-          }
-        },
-        "ko": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "켜진 모듈 %lld/%lld"
-          }
-        },
-        "ru": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Включено модулей: %lld/%lld"
-          }
-        },
-        "zh-Hant": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "已啟用模組 %lld/%lld"
-          }
-        }
-      }
-    },
-    "我的重写 %lld/%lld": {
-      "extractionState": "manual",
-      "localizations": {
-        "en": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "My rewrites %lld/%lld"
-          }
-        },
-        "ja": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "マイ書き換え %lld/%lld"
-          }
-        },
-        "ko": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "내 재작성 %lld/%lld"
-          }
-        },
-        "ru": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Мои перезаписи: %lld/%lld"
-          }
-        },
-        "zh-Hant": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "我的重寫 %lld/%lld"
-          }
-        }
-      }
-    },
-    "模块重写 %lld": {
-      "extractionState": "manual",
-      "localizations": {
-        "en": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Module rewrites %lld"
-          }
-        },
-        "ja": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "モジュールの書き換え %lld"
-          }
-        },
-        "ko": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "모듈 재작성 %lld"
-          }
-        },
-        "ru": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Перезаписи модулей: %lld"
-          }
-        },
-        "zh-Hant": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "模組重寫 %lld"
-          }
-        }
-      }
-    },
-    "我的脚本 %lld/%lld": {
-      "extractionState": "manual",
-      "localizations": {
-        "en": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "My scripts %lld/%lld"
-          }
-        },
-        "ja": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "マイスクリプト %lld/%lld"
-          }
-        },
-        "ko": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "내 스크립트 %lld/%lld"
-          }
-        },
-        "ru": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Мои скрипты: %lld/%lld"
-          }
-        },
-        "zh-Hant": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "我的腳本 %lld/%lld"
-          }
-        }
-      }
-    },
-    "模块脚本 %lld": {
-      "extractionState": "manual",
-      "localizations": {
-        "en": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Module scripts %lld"
-          }
-        },
-        "ja": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "モジュールのスクリプト %lld"
-          }
-        },
-        "ko": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "모듈 스크립트 %lld"
-          }
-        },
-        "ru": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Скрипты модулей: %lld"
-          }
-        },
-        "zh-Hant": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "模組腳本 %lld"
           }
         }
       }
@@ -90271,6 +89207,1264 @@
           "stringUnit": {
             "state": "translated",
             "value": "所有格式的模組都在這裡：Surge .sgmodule、Quantumult X 重寫、Loon .plugin、Stash .stoverride、Egern .yaml 模組和重寫列表，角標顯示來源格式。模組引用的遠端腳本和規則集隨模組一起更新，也可以在 更多 → 更新資源 裡單獨更新。開啟 App 時自動更新到期的模組和資源。"
+          }
+        }
+      }
+    },
+    "Egern 模块": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Egern module"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Egern モジュール"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Egern 모듈"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Модуль Egern"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Egern 模組"
+          }
+        }
+      }
+    },
+    "Loon 插件": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Loon plugin"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Loon プラグイン"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Loon 플러그인"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Плагин Loon"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Loon 外掛"
+          }
+        }
+      }
+    },
+    "QX 引用": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "QX rewrite_remote"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "QX rewrite_remote"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "QX rewrite_remote"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "QX rewrite_remote"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "QX 引用"
+          }
+        }
+      }
+    },
+    "Stash 覆写": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Stash override"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Stash オーバーライド"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Stash 오버라이드"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Переопределение Stash"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Stash 覆寫"
+          }
+        }
+      }
+    },
+    "Surge 模块": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Surge module"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Surge モジュール"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Surge 모듈"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Модуль Surge"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Surge 模組"
+          }
+        }
+      }
+    },
+    "Surge 模块、Loon 插件、QX 引用（rewrite_remote）、Stash 覆写和 Egern 模块都是订阅，角标显示格式。轻点编辑；右滑更新，左滑删除；开关启用或关闭；长按查看全部操作。订阅引用的远程脚本和规则集随它一起更新，也可以在 更多 → 更新资源 里单独更新。": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Surge modules, Loon plugins, QX rewrite_remote, Stash overrides and Egern modules are all subscriptions; the badge shows the format. Tap to edit; swipe right to update, left to delete; the switch turns one on or off; long-press for all actions. Remote scripts and rule sets a subscription uses update with it, or one by one in More → Update Resources."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Surge モジュール、Loon プラグイン、QX rewrite_remote、Stash オーバーライド、Egern モジュールはすべて購読で、バッジが形式を示します。タップで編集、右スワイプで更新、左スワイプで削除、スイッチでオン／オフ、長押しですべての操作。購読が参照するリモートスクリプトとルールセットは一緒に更新され、その他 → リソースを更新 で個別にも更新できます。"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Surge 모듈, Loon 플러그인, QX rewrite_remote, Stash 오버라이드, Egern 모듈은 모두 구독이며 배지에 형식이 표시됩니다. 탭하여 편집, 오른쪽으로 밀어 업데이트, 왼쪽으로 밀어 삭제, 스위치로 켜기/끄기, 길게 눌러 모든 작업을 볼 수 있습니다. 구독이 참조하는 원격 스크립트와 규칙 세트는 함께 업데이트되며, 더보기 → 리소스 업데이트에서 개별로도 업데이트할 수 있습니다."
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Модули Surge, плагины Loon, QX rewrite_remote, переопределения Stash и модули Egern — всё это подписки; значок показывает формат. Нажмите, чтобы изменить; смахните вправо — обновить, влево — удалить; переключатель включает и выключает; долгое нажатие — все действия. Удалённые скрипты и наборы правил подписки обновляются вместе с ней, а по отдельности — в «Ещё → Обновление ресурсов»."
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Surge 模組、Loon 外掛、QX 引用（rewrite_remote）、Stash 覆寫和 Egern 模組都是訂閱，角標顯示格式。輕點編輯；右滑更新，左滑刪除；開關啟用或關閉；長按檢視全部操作。訂閱引用的遠端腳本和規則集隨它一起更新，也可以在 更多 → 更新資源 裡單獨更新。"
+          }
+        }
+      }
+    },
+    "从 URL 添加订阅": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Add Subscription from URL"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "URL から購読を追加"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "URL로 구독 추가"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Добавить подписку по URL"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "從 URL 新增訂閱"
+          }
+        }
+      }
+    },
+    "以文本编辑本地规则": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Edit Local Rules as Text"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ローカルルールをテキストで編集"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "로컬 규칙을 텍스트로 편집"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Изменить локальные правила текстом"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "以文字編輯本地規則"
+          }
+        }
+      }
+    },
+    "你自己的重写和脚本，与订阅一起生效、优先于它们。点 + 用表单添加，或在 ⋯ 里以文本编辑；重写按顺序匹配。": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Your own rewrites and scripts. They apply together with the subscriptions and take precedence. Tap + to add with a form, or edit as text from ⋯; rewrites match in order."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "自分の書き換えとスクリプト。購読と一緒に適用され、購読より優先されます。+ でフォームから追加、⋯ からテキストで編集できます。書き換えは順番に照合されます。"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "직접 만든 재작성과 스크립트입니다. 구독과 함께 적용되며 구독보다 우선합니다. +로 양식에서 추가하거나 ⋯에서 텍스트로 편집하세요. 재작성은 순서대로 일치시킵니다."
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Ваши собственные перезаписи и скрипты. Действуют вместе с подписками и имеют приоритет. Нажмите +, чтобы добавить через форму, или редактируйте текстом в меню ⋯; перезаписи проверяются по порядку."
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "你自己的重寫和腳本，與訂閱一起生效、優先於它們。點 + 用表單新增，或在 ⋯ 裡以文字編輯；重寫按順序匹配。"
+          }
+        }
+      }
+    },
+    "删除？": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Delete?"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "削除しますか？"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "삭제할까요?"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Удалить?"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "刪除？"
+          }
+        }
+      }
+    },
+    "到期 %@": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Expires %@"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "期限 %@"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "만료 %@"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Истекает %@"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "到期 %@"
+          }
+        }
+      }
+    },
+    "参数、策略与内容": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Arguments, Policies & Content"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "引数・ポリシー・内容"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "인수, 정책 및 내용"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Аргументы, политики и содержимое"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "引數、策略與內容"
+          }
+        }
+      }
+    },
+    "复制地址": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Copy URL"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "URL をコピー"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "URL 복사"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Копировать адрес"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "複製地址"
+          }
+        }
+      }
+    },
+    "已复制地址": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "URL copied"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "URL をコピーしました"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "URL을 복사했습니다"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Адрес скопирован"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "已複製地址"
+          }
+        }
+      }
+    },
+    "已更新": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Updated"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "更新しました"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "업데이트됨"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Обновлено"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "已更新"
+          }
+        }
+      }
+    },
+    "已设为当前配置": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Set as the current profile"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "現在のプロファイルに設定しました"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "현재 프로파일로 설정했습니다"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Выбран текущим профилем"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "已設為當前配置"
+          }
+        }
+      }
+    },
+    "所有订阅和本地的重写与脚本规则，平铺可搜索": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Every rewrite and script rule from subscriptions and local, in one searchable list"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "購読とローカルの書き換え・スクリプトルールを一覧で検索"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "구독과 로컬의 모든 재작성·스크립트 규칙을 한 목록에서 검색"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Все правила перезаписи и скрипты подписок и локальные — одним списком с поиском"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "所有訂閱和本地的重寫與腳本規則，平鋪可搜尋"
+          }
+        }
+      }
+    },
+    "找不到这个订阅": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Subscription not found"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "この購読が見つかりません"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "구독을 찾을 수 없습니다"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Подписка не найдена"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "找不到這個訂閱"
+          }
+        }
+      }
+    },
+    "搜索订阅和规则": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Search subscriptions and rules"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "購読とルールを検索"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "구독 및 규칙 검색"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Поиск подписок и правил"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "搜尋訂閱和規則"
+          }
+        }
+      }
+    },
+    "本地 %lld": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Local %lld"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ローカル %lld"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "로컬 %lld"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Локальные %lld"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "本地 %lld"
+          }
+        }
+      }
+    },
+    "本地重写": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Local Rewrites"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ローカル書き換え"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "로컬 재작성"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Локальные перезаписи"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "本地重寫"
+          }
+        }
+      }
+    },
+    "查看节点": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "View Nodes"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ノードを表示"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "노드 보기"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Показать узлы"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "檢視節點"
+          }
+        }
+      }
+    },
+    "每 3 天": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Every 3 days"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "3 日ごと"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "3일마다"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Каждые 3 дня"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "每 3 天"
+          }
+        }
+      }
+    },
+    "每 %@": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Every %@"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%@ごと"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%@마다"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Каждые %@"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "每 %@"
+          }
+        }
+      }
+    },
+    "点右上角 + 添加重写或脚本；Surge、Quantumult X、Loon 写法都能识别。": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Tap + at the top right to add a rewrite or a script; Surge, Quantumult X and Loon syntax are recognised."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "右上の + で書き換えやスクリプトを追加します。Surge・Quantumult X・Loon の書式に対応しています。"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "오른쪽 위 +를 눌러 재작성이나 스크립트를 추가하세요. Surge, Quantumult X, Loon 문법을 인식합니다."
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Нажмите + вверху справа, чтобы добавить перезапись или скрипт; синтаксис Surge, Quantumult X и Loon распознаётся."
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "點右上角 + 新增重寫或腳本；Surge、Quantumult X、Loon 寫法都能識別。"
+          }
+        }
+      }
+    },
+    "点右上角 + 通过 URL 添加，或在模块库里选择。": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Tap + at the top right to add one by URL, or pick one in the Module Gallery."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "右上の + で URL から追加するか、モジュールギャラリーから選びます。"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "오른쪽 위 +를 눌러 URL로 추가하거나 모듈 갤러리에서 고르세요."
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Нажмите + вверху справа, чтобы добавить по URL, или выберите в каталоге модулей."
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "點右上角 + 透過 URL 新增，或在模組庫裡選擇。"
+          }
+        }
+      }
+    },
+    "粘贴订阅内容": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Paste Subscription Content"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "購読の内容を貼り付け"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "구독 내용 붙여넣기"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Вставить содержимое подписки"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "貼上訂閱內容"
+          }
+        }
+      }
+    },
+    "脚本工具": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Script Tools"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "スクリプトツール"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "스크립트 도구"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Инструменты скриптов"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "腳本工具"
+          }
+        }
+      }
+    },
+    "规则列表": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Rule list"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ルールリスト"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "규칙 목록"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Список правил"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "規則列表"
+          }
+        }
+      }
+    },
+    "订阅 %lld/%lld": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Subscriptions %lld/%lld"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "購読 %lld/%lld"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "구독 %lld/%lld"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Подписки %lld/%lld"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "訂閱 %lld/%lld"
+          }
+        }
+      }
+    },
+    "订阅地址": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Subscription URL"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "購読 URL"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "구독 URL"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Адрес подписки"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "訂閱地址"
+          }
+        }
+      }
+    },
+    "轻点编辑；右滑更新，左滑删除；开关启用或关闭；长按查看全部操作。": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Tap to edit; swipe right to update, left to delete; the switch turns it on or off; long-press for all actions."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "タップで編集、右スワイプで更新、左スワイプで削除、スイッチでオン／オフ、長押しですべての操作。"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "탭하여 편집, 오른쪽으로 밀어 업데이트, 왼쪽으로 밀어 삭제, 스위치로 켜기/끄기, 길게 눌러 모든 작업."
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Нажмите, чтобы изменить; смахните вправо — обновить, влево — удалить; переключатель включает и выключает; долгое нажатие — все действия."
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "輕點編輯；右滑更新，左滑刪除；開關啟用或關閉；長按檢視全部操作。"
+          }
+        }
+      }
+    },
+    "还没有本地规则": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "No local rules yet"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ローカルルールはまだありません"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "아직 로컬 규칙이 없습니다"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Локальных правил пока нет"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "還沒有本地規則"
+          }
+        }
+      }
+    },
+    "还没有重写订阅": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "No rewrite subscriptions yet"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "書き換えの購読はまだありません"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "아직 재작성 구독이 없습니다"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Подписок перезаписи пока нет"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "還沒有重寫訂閱"
+          }
+        }
+      }
+    },
+    "重写订阅": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Rewrite Subscription"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "書き換えの購読"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "재작성 구독"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Подписка перезаписи"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "重寫訂閱"
+          }
+        }
+      }
+    },
+    "节点集已停用": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Node set disabled"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ノードセットは無効です"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "노드 세트가 비활성화됨"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Набор узлов отключён"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "節點集已停用"
+          }
+        }
+      }
+    },
+    "启用后，节点会重新加入配置。": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Enable it to add its nodes back to the profile."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "有効にすると、ノードがプロファイルに戻ります。"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "활성화하면 노드가 프로파일에 다시 추가됩니다."
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Включите его, чтобы узлы снова добавились в профиль."
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "啟用後，節點會重新加入配置。"
           }
         }
       }
