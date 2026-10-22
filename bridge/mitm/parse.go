@@ -253,7 +253,16 @@ func applyLoonArgs(text string, args []ModArg, user map[string]string) string {
 func compileRe(p string) (*regexp2.Regexp, error) {
 	re, err := regexp2.Compile(p, regexp2.None)
 	if err != nil {
-		return nil, err
+		// JavaScript (QX / Loon / Surge's JavaScriptCore) accepts identity escapes of word characters such
+		// as \_ that .NET-style regexp2 rejects; retry with those backslashes dropped.
+		if q := dropJSIdentityEscapes(p); q != p {
+			if re2, err2 := regexp2.Compile(q, regexp2.None); err2 == nil {
+				re, err = re2, nil
+			}
+		}
+		if err != nil {
+			return nil, err
+		}
 	}
 	re.MatchTimeout = 200 * time.Millisecond
 	return re, nil
@@ -1455,4 +1464,24 @@ func (rs *Ruleset) parseQXTaskGallery(text, source string) bool {
 		rs.ParseLine(strings.TrimSpace(line), "task_local", source)
 	}
 	return true
+}
+
+// dropJSIdentityEscapes removes the backslash from \_ (an identity escape JavaScript allows but
+// regexp2 rejects), leaving escaped backslashes (\\) alone.
+func dropJSIdentityEscapes(p string) string {
+	var b strings.Builder
+	for i := 0; i < len(p); i++ {
+		if p[i] == '\\' && i+1 < len(p) {
+			if p[i+1] == '_' {
+				b.WriteByte('_')
+			} else {
+				b.WriteByte(p[i])
+				b.WriteByte(p[i+1])
+			}
+			i++
+			continue
+		}
+		b.WriteByte(p[i])
+	}
+	return b.String()
 }
