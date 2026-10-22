@@ -1,8 +1,8 @@
 import XCTest
 
 /// feat/subs-split (user 2026-10-21 「将这里的配置订阅与节点订阅拆开」): 节点与订阅 has a 配置订阅 section and a 节点订阅
-/// section; a profile's 节点集 (proxy-provider) works like a node subscription — right swipe 更新, left swipe 复制链接 only,
-/// long-press 图标 / 更新 / 编辑 / 禁用 / 复制链接 / 删除 — through the override store.
+/// section; a profile's 节点集 (proxy-provider) works like a node subscription (unified rows since fix/modules-only:
+/// right 更新, left 删除, long-press 更新 · 编辑 · 复制地址 · 关闭 · 删除) — through the override store.
 extension MihomoUITests {
 
     func header(_ key: String, _ n: Int) -> XCUIElement {
@@ -30,72 +30,45 @@ extension MihomoUITests {
         app.swipeDown(velocity: .slow)
         snap("subs-split-sections")
 
-        // Node subscription swipes: right 更新, left 复制链接 only (user 11:55).
-        XCTAssertTrue(scrollTo(sub))
-        sub.swipeLeft()
-        XCTAssertTrue(app.button(L("复制链接")).waitForExistence(timeout: 3), "复制链接 in the trailing swipe")
-        XCTAssertFalse(app.button(L("删除")).exists, "no 删除 in the swipe")
-        XCTAssertFalse(app.button(L("禁用")).exists || app.button(L("停用")).exists, "no 禁用 in the swipe")
-        snap("subs-split-sub-swipe-left")
-        XCTAssertTrue(tapIfExists(app.button(L("复制链接")), timeout: 3))
-        sub.swipeRight()
-        XCTAssertTrue(app.button(L("更新")).waitForExistence(timeout: 3), "更新 in the leading swipe")
-        snap("subs-split-sub-swipe-right")
-        app.navigationBars.firstMatch.tap() // close the swipe
-        usleep(400_000)
-
-        // A file 节点集 has no link: its left swipe offers nothing (no 删除 / 禁用).
-        XCTAssertTrue(scrollTo(provider))
-        provider.swipeLeft()
-        usleep(600_000)
-        XCTAssertFalse(app.button(L("删除")).exists, "no 删除 in the 节点集 swipe")
-        XCTAssertFalse(app.button(L("禁用")).exists, "no 禁用 in the 节点集 swipe")
-
-        // Long-press menu (Loon-like): 图标 / 更新 / 编辑 / 禁用 / 删除 (no link for a file 节点集); 禁用 from it.
+        // Unified rows (fix/modules-only): swipes and the edit sheet are covered by test72; here the 节点集 menu
+        // (关闭 / 启用, 编辑 → shared sheet) and the node subscription sheet's 图标 / 查看节点.
         XCTAssertTrue(scrollTo(provider))
         provider.press(forDuration: 1.3)
-        for k in ["图标", "更新", "编辑", "禁用", "删除"] {
+        for k in ["更新", "编辑", "复制地址", "关闭", "删除"] {
             XCTAssertTrue(app.button(L(k)).waitForExistence(timeout: 4), "menu: \(k)")
         }
         snap("subs-split-provider-menu")
-        XCTAssertTrue(tapIfExists(app.button(L("禁用")), timeout: 3), "禁用 from the menu")
-        XCTAssertTrue(app.element(labelContains: L("已停用")).waitForExistence(timeout: 8), "row shows 已停用")
+        XCTAssertTrue(tapIfExists(app.button(L("关闭")), timeout: 3), "关闭 from the menu")
+        XCTAssertTrue(app.element(labelContains: L("已关闭")).waitForExistence(timeout: 8), "row shows 已关闭")
         XCTAssertTrue(provider.waitForExistence(timeout: 4), "a disabled 节点集 stays listed")
         snap("subs-split-provider-disabled")
         provider.press(forDuration: 1.3)
         XCTAssertTrue(tapIfExists(app.button(L("启用")), timeout: 4), "启用 from the menu")
-        let enabled = XCTNSPredicateExpectation(predicate: NSPredicate(format: "exists == false"), object: app.element(labelContains: L("已停用")))
+        let enabled = XCTNSPredicateExpectation(predicate: NSPredicate(format: "exists == false"), object: app.element(labelContains: L("已关闭")))
         XCTAssertEqual(XCTWaiter().wait(for: [enabled], timeout: 8), .completed, "enabled again")
 
-        // 编辑: display name.
+        // 编辑 (tap → shared sheet): display name; a file 节点集 has no 订阅地址.
         XCTAssertTrue(scrollTo(provider))
-        provider.press(forDuration: 1.3)
-        XCTAssertTrue(tapIfExists(app.button(L("编辑")), timeout: 4), "编辑 from the menu")
-        let name = app.textFields.matching(identifier: "provider.edit.name").firstMatch
+        provider.tap()
+        let name = app.element(id: "sub.sheet.name")
         XCTAssertTrue(name.waitForExistence(timeout: 5), "name field")
+        XCTAssertFalse(app.element(id: "sub.sheet.url").exists, "file 节点集: no 订阅地址")
         replaceText(name, "My Provider")
         snap("subs-split-provider-edit")
-        XCTAssertTrue(tapIfExists(app.element(id: "provider.edit.save"), timeout: 4), "保存")
+        XCTAssertTrue(tapIfExists(app.element(id: "sub.sheet.save"), timeout: 4), "保存")
         XCTAssertTrue(app.element(labelContains: "My Provider").waitForExistence(timeout: 8), "display name shown")
 
-        // Node subscription menu: same items, 图标 opens the shared picker.
+        // Node subscription sheet: 图标 opens the shared picker; 查看节点 → 添加到本地节点 (#68).
         XCTAssertTrue(scrollTo(sub))
-        sub.press(forDuration: 1.3)
-        for k in ["图标", "更新", "编辑", "禁用", "复制链接", "删除"] {
-            XCTAssertTrue(app.button(L(k)).waitForExistence(timeout: 4), "node subscription menu: \(k)")
-        }
-        snap("subs-split-sub-menu")
-        XCTAssertTrue(tapIfExists(app.button(L("图标")), timeout: 3), "图标")
+        sub.tap()
+        XCTAssertTrue(tapIfExists(app.button(L("图标")), timeout: 5), "图标 in the sheet")
         let pick = app.element(id: "icon.pick.🎯")
         XCTAssertTrue(scrollTo(pick), "🎯 in 常用")
         pick.tap()
         usleep(800_000)
-        XCTAssertTrue(sub.waitForExistence(timeout: 5), "back on the page")
-        snap("subs-split-icon")
-
-        // 添加到本地节点 from a subscription node row's long-press menu (same action as the node detail page, #68).
-        XCTAssertTrue(scrollTo(sub))
-        sub.tap()
+        let nodesLink = app.button(L("查看节点"))
+        XCTAssertTrue(scrollTo(nodesLink), "查看节点 in the sheet")
+        nodesLink.tap()
         let subNode = app.element(label: Self.credSubNode)
         XCTAssertTrue(scrollTo(subNode), "subscription node listed")
         subNode.press(forDuration: 1.3)
@@ -108,8 +81,9 @@ extension MihomoUITests {
         XCTAssertTrue(added.staticTexts[L("已添加到本地节点")].exists, "confirmation title")
         snap("subs-split-node-added")
         added.buttons[L("好")].tap()
-        back()
+        XCTAssertTrue(tapIfExists(app.element(id: "sub.sheet.close"), timeout: 4) || { app.swipeDown(velocity: .fast); return true }(), "close the sheet")
         XCTAssertTrue(sub.waitForExistence(timeout: 6), "back on 节点与订阅")
+        snap("subs-split-icon")
 
         // 删除 (menu) asks first, hides the row, and 恢复已删除的节点集 brings it back.
         XCTAssertTrue(scrollTo(provider))

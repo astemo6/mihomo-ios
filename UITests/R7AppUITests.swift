@@ -258,16 +258,15 @@ extension MihomoUITests {
         XCTAssertTrue(row.waitForExistence(timeout: 15) || scrollTo(row), "added subscription listed")
         XCTAssertFalse(app.navigationBars[L("添加节点订阅")].exists, "editor closed after the download")
         snap("nodesub-added")
-        // Edit: rename through the long-press menu.
+        // Edit: rename through the long-press menu → the shared subscription sheet.
         XCTAssertTrue(scrollTo(row))
         row.press(forDuration: 1.3)
         XCTAssertTrue(tapIfExists(app.button(L("编辑")), timeout: 4), "编辑 in the long-press menu")
-        XCTAssertTrue(app.navigationBars[L("编辑节点订阅")].waitForExistence(timeout: 6), "edit editor")
-        let urlField = field(L("订阅链接 https://…"), index: 0)
-        XCTAssertEqual(urlField.value as? String, "https://nodes.uitest.invalid/sub?token=r7", "editor loads the URL")
-        let name2 = field(L("名称（留空自动获取）"), index: 1)
-        replaceText(name2, "R7 Edited")
-        let save = app.navigationBars[L("编辑节点订阅")].buttons[L("保存")].firstMatch
+        let urlField = app.element(id: "sub.sheet.url")
+        XCTAssertTrue(urlField.waitForExistence(timeout: 6), "edit sheet")
+        XCTAssertEqual(urlField.value as? String, "https://nodes.uitest.invalid/sub?token=r7", "sheet loads the URL")
+        replaceText(app.element(id: "sub.sheet.name"), "R7 Edited")
+        let save = app.element(id: "sub.sheet.save")
         XCTAssertTrue(save.waitHittable(), "保存 enabled")
         save.tap()
         let renamed = app.element(id: "nodesub.row.R7 Edited")

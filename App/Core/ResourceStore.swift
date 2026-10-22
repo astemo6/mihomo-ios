@@ -44,7 +44,7 @@ final class ResourceStore: ObservableObject {
 
     var home: String { AppShared.homeURL.path }
 
-    static func intervalText(_ s: Int) -> String {
+    nonisolated static func intervalText(_ s: Int) -> String {
         if s % 86400 == 0 { return String(localized: "\(s / 86400) 天") }
         if s % 3600 == 0 { return String(localized: "\(s / 3600) 小时") }
         return String(localized: "\(max(1, s / 60)) 分钟")

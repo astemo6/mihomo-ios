@@ -70,7 +70,9 @@ enum UITestSeed {
             try FileManager.default.createDirectory(at: home.appendingPathComponent("proxies"), withIntermediateDirectories: true)
             try providerYAML.write(to: home.appendingPathComponent("proxies/uitest-provider.yaml"), atomically: true, encoding: .utf8)
             if store.profiles.isEmpty {
-                _ = try await store.addLocal(name: "UITest Demo", text: profileYAML)
+                // fix/modules-only (unified subscription rows): an http 节点集 whose link can be edited in the shared sheet.
+                let demo = args.contains("-UITestHTTPProvider") ? profileYAML.replacingOccurrences(of: "\nproxy-providers:\n", with: "\nproxy-providers:\n" + httpProviderYAML) : profileYAML
+                _ = try await store.addLocal(name: "UITest Demo", text: demo)
             }
             _ = try await store.addManualNodes(text: manualLinks)
             // v0.19.5 profile switch test: a second local profile with its own groups (stays inactive).
@@ -324,6 +326,15 @@ enum UITestSeed {
       - {name: 广告拦截, type: select, proxies: [REJECT, DIRECT]}
     rules:
       - MATCH,节点选择
+    """
+
+    static let httpProviderYAML = """
+          Demo HTTP Provider:
+            type: http
+            url: https://provider.uitest.invalid/nodes.yaml
+            path: ./proxies/uitest-http-provider.yaml
+            interval: 86400
+
     """
 
     static let profileYAML = """

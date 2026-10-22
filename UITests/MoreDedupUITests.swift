@@ -25,21 +25,22 @@ extension MihomoUITests {
         snap("dedup-tools-3")
         app.swipeDown(velocity: .fast); app.swipeDown(velocity: .fast)
 
-        // 模块: no second 我的重写 / 脚本 / 定时任务 entry (they are 工具 cards).
-        openMore("模块与资源")
-        XCTAssertTrue(app.navigationBars[L("模块")].waitForExistence(timeout: 5), "模块 page")
-        for gone in ["重写（本地模块）", "脚本", "任务"] {
-            XCTAssertFalse(app.element(id: "more." + gone).exists, "模块 still lists \(gone)")
+        // QX-style 重写 (user 2026-10-22): one card replaced 模块 / 重写 / 脚本.
+        for gone in ["模块与资源", "重写（本地模块）", "脚本"] {
+            XCTAssertFalse(app.element(id: "more." + gone).exists, "工具 still lists \(gone)")
         }
+        openMore("重写")
+        XCTAssertTrue(app.navigationBars[L("重写")].waitForExistence(timeout: 5), "重写 page")
+        XCTAssertTrue(app.switches[L("启用重写与脚本")].exists || app.element(id: "rewrite.enabled").exists, "启用 switch on 重写")
         for key in Self.moduleRows {
-            XCTAssertTrue(scrollTo(app.element(id: "more." + key)), "模块 lists \(key)")
+            XCTAssertTrue(scrollTo(app.element(id: "more." + key)), "重写 lists \(key)")
         }
         app.swipeDown(velocity: .fast); app.swipeDown(velocity: .fast)
         snap("dedup-modules-1")
         back()
-        openMore("重写（本地模块）")
-        XCTAssertFalse(app.element(id: "localmodule.allRewrites").exists, "我的重写: 全部重写规则 removed")
-        XCTAssertFalse(app.switches[L("启用重写与脚本")].exists, "我的重写: 启用 switch only on 模块")
+        // 配置里的规则集 moved to 分流规则.
+        openMore("规则集（配置）")
+        assertAlive("规则 → 配置里的规则集")
         back()
 
         // 更多: settings-type rows only, 配置 first.
