@@ -482,6 +482,8 @@ struct HostBarRow: View {
     let name: String
     let bytes: Int64
     let fraction: Double
+    /// Egern: each host's bar has its own colour (palette order on the Home card).
+    var color: Color = Theme.accent.opacity(0.8)
     var body: some View {
         VStack(alignment: .leading, spacing: 4) {
             HStack {
@@ -492,7 +494,7 @@ struct HostBarRow: View {
             GeometryReader { geo in
                 ZStack(alignment: .leading) {
                     Capsule().fill(Theme.ink(0.06))
-                    Capsule().fill(Theme.accent.opacity(0.8)).frame(width: max(3, geo.size.width * CGFloat(fraction)))
+                    Capsule().fill(color).frame(width: max(3, geo.size.width * CGFloat(fraction)))
                 }
             }
             .frame(height: 4)
@@ -565,19 +567,17 @@ struct HostTrafficList: View {
     let list: [ConnectionAnalytics.Usage]
     @State private var search = ""
     var body: some View {
-        let maxB = max(list.first?.bytes.total ?? 1, 1)
         let shown = search.isEmpty ? list : list.filter { $0.name.localizedCaseInsensitiveContains(search) }
         List(shown) { h in
-            // feat/home-drilldown (Egern 主机名): ↑↓ per host, tap → that host's connections.
-            NavigationLink { ConnectionsListView(filter: ConnFilter(host: h.name), title: h.name) } label: {
-                VStack(alignment: .leading, spacing: 4) {
-                    HostBarRow(name: h.name, bytes: h.bytes.total, fraction: Double(h.bytes.total) / Double(maxB))
-                    HStack(spacing: 10) {
-                        Label(Fmt.bytes(h.bytes.up), systemImage: "arrow.up").foregroundStyle(Theme.up)
-                        Label(Fmt.bytes(h.bytes.down), systemImage: "arrow.down").foregroundStyle(Theme.down)
-                    }
-                    .font(.caption2.monospacedDigit())
+            // Egern 主机名 (user's reference recording, 2026-10-22): the host, then 「↑ 30 KB ↓ 69.4 MB」 in grey — no bar;
+            // tap → that host's connections.
+            NavigationLink { ConnectionsListView(filter: ConnFilter(host: h.name)) } label: {
+                VStack(alignment: .leading, spacing: 3) {
+                    Text(verbatim: h.name).font(.body).lineLimit(1).truncationMode(.middle)
+                    Text(verbatim: "↑ \(Fmt.bytes(h.bytes.up))  ↓ \(Fmt.bytes(h.bytes.down))")
+                        .font(.caption.monospacedDigit()).foregroundStyle(.secondary)
                 }
+                .padding(.vertical, 2)
             }
             .listRowBackground(Theme.card)
             .accessibilityIdentifier("hosttraffic.row.\(h.name)")

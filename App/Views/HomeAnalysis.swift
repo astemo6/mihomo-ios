@@ -414,19 +414,18 @@ struct HomePolicyShareCard: View {
     let collapsed: Bool
     let toggle: () -> Void
     @State private var snap = HomeAnalysisModel.shared.policies
-    /// r7 P3-4: the percent column grows with the text (a fixed 40 pt cut 「100%」 to 「1…」 at large sizes).
-    @ScaledMetric(relativeTo: .caption2) private var percentWidth: CGFloat = 40
 
     var body: some View {
         let total = max(snap.total, 1)
         let parts = Self.parts(snap)
         VStack(spacing: 10) {
-            HomeSectionLabel(title: HomeAnalysisCard.policies.title, summary: snap.total > 0 ? Fmt.bytes(snap.total) : nil,
+            // Egern (user's reference recording, 2026-10-22): plain title, no summary.
+            HomeSectionLabel(title: HomeAnalysisCard.policies.title,
                              collapsed: collapsed, id: "home.analysis.header.policies", toggle: toggle,
-                             open: { AnyView(PolicyTrafficView()) })
+                             open: { AnyView(ConnectionsListView(filter: ConnFilter(), lead: .policies)) })
             if !collapsed {
-                // feat/home-drilldown: 策略 → 策略流量 (each policy ↑↓) → its connections.
-                NavigationLink { LazyDestination { PolicyTrafficView() } } label: {
+                // Egern: 策略 → 连接 (策略▾ filter first) → detail; no intermediate page.
+                NavigationLink { LazyDestination { ConnectionsListView(filter: ConnFilter(), lead: .policies) } } label: {
                 AnalysisCardBox(chevron: true) {
                     if parts.isEmpty {
                         Text("还没有流量").font(.footnote).foregroundStyle(.secondary)
@@ -442,19 +441,20 @@ struct HomePolicyShareCard: View {
                         }
                         .frame(height: 10)
                         .accessibilityHidden(true)
-                        VStack(spacing: 6) {
+                        // Egern: the total under the bar's right end, then the legend as wrapping 「● name」 items.
+                        HStack {
+                            Spacer()
+                            Text(verbatim: Fmt.bytes(snap.total)).font(.caption2.monospacedDigit()).foregroundStyle(.secondary)
+                        }
+                        .padding(.top, -6)
+                        FlowLayout(spacing: 10, lineSpacing: 4) {
                             ForEach(Array(parts.enumerated()), id: \.offset) { _, p in
-                                HStack(spacing: 8) {
+                                HStack(spacing: 4) {
                                     Circle().fill(p.2).frame(width: 7, height: 7).accessibilityHidden(true)
-                                    Text(verbatim: p.0).font(.footnote).lineLimit(1)
-                                    Spacer()
-                                    Text(verbatim: Fmt.bytes(p.1)).font(.caption.monospacedDigit())
-                                    Text(Double(p.1) / Double(total), format: .percent.precision(.fractionLength(0)))
-                                        .font(.caption2.monospacedDigit()).foregroundStyle(.secondary)
-                                        .lineLimit(1)
-                                        .frame(minWidth: percentWidth, alignment: .trailing)
+                                    Text(verbatim: p.0).font(.caption2).foregroundStyle(.secondary).lineLimit(1)
                                 }
-                                .accessibilityElement(children: .combine)
+                                .accessibilityElement(children: .ignore)
+                                .accessibilityLabel(Text(verbatim: "\(p.0), \(Fmt.bytes(p.1)), \(Int((Double(p.1) / Double(total) * 100).rounded()))%"))
                             }
                         }
                     }
@@ -495,18 +495,17 @@ struct HomeRuleHitsCard: View {
     @State private var policies = HomeAnalysisModel.shared.policies
     /// r7 P3-4: card widths follow Dynamic Type with the caption2 / 9 pt texts inside (fixed 88 / 72 pt left only 「…」).
     @ScaledMetric(relativeTo: .caption2) private var ringCardWidth: CGFloat = 88
-    @ScaledMetric(relativeTo: .caption2) private var moreCardWidth: CGFloat = 72
 
     var body: some View {
         let maxHits = max(snap.top.first?.hits ?? 1, 1)
         VStack(spacing: 10) {
-            HomeSectionLabel(title: HomeAnalysisCard.rules.title, summary: snap.count > 0 ? String(localized: "\(snap.count) 条规则") : nil,
+            HomeSectionLabel(title: HomeAnalysisCard.rules.title,
                              collapsed: collapsed, id: "home.analysis.header.rules", toggle: toggle,
-                             open: { AnyView(RuleHitsList()) })
+                             open: { AnyView(ConnectionsListView(filter: ConnFilter())) })
             if !collapsed {
                 Group {
                     if snap.top.isEmpty {
-                        NavigationLink { LazyDestination { RuleHitsList() } } label: {
+                        NavigationLink { LazyDestination { ConnectionsListView(filter: ConnFilter()) } } label: {
                             AnalysisCardBox(chevron: true) { Text("还没有命中记录").font(.footnote).foregroundStyle(.secondary) }
                         }
                         .buttonStyle(PressableCardStyle())
@@ -514,28 +513,15 @@ struct HomeRuleHitsCard: View {
                         // Egern: one small card per rule, scrolling sideways.
                         ScrollView(.horizontal, showsIndicators: false) {
                             HStack(spacing: 8) {
-                                // feat/home-drill-egern (P1, Egern's hierarchy): a ring, like the rest of the card,
-                                // opens 规则命中 (every rule: name, policy, hits, ›) with that rule picked out; its row
-                                // then opens the connections. Never straight from a Home ring to the connections.
+                                // Egern (user's reference recording, 2026-10-22): a ring opens 连接 filtered by that
+                                // rule (规则▾ chip on); no 规则命中 page and no 「查看全部」 tile in between.
                                 ForEach(snap.top) { r in
                                     NavigationLink {
-                                        LazyDestination { RuleHitsList(focus: r.id) }
+                                        LazyDestination { ConnectionsListView(filter: ConnFilter(rules: [r.rule])) }
                                     } label: { ring(r, maxHits: maxHits) }
                                     .buttonStyle(PressableCardStyle())
                                     .accessibilityIdentifier("home.analysis.rule")
                                 }
-                                NavigationLink { LazyDestination { RuleHitsList() } } label: {
-                                    VStack(spacing: 6) {
-                                        Image(systemName: "chevron.right.circle").font(.title3).foregroundStyle(Theme.accent)
-                                        Text("查看全部").font(.caption)
-                                    }
-                                    .frame(width: moreCardWidth)
-                                    .frame(maxHeight: .infinity)
-                                    .background(RoundedRectangle(cornerRadius: Theme.radius, style: .continuous).fill(Theme.card))
-                                    .contentShape(Rectangle())
-                                }
-                                .buttonStyle(PressableCardStyle())
-                                .accessibilityIdentifier("home.analysis.rules.all")
                             }
                             .fixedSize(horizontal: false, vertical: true)
                         }
@@ -591,7 +577,7 @@ struct HomeTopHostsCard: View {
     var body: some View {
         let maxB = max(snap.top.first?.bytes ?? 1, 1)
         VStack(spacing: 10) {
-            HomeSectionLabel(title: HomeAnalysisCard.hosts.title, summary: snap.count > 0 ? String(localized: "\(snap.count) 个主机名") : nil,
+            HomeSectionLabel(title: HomeAnalysisCard.hosts.title,
                              collapsed: collapsed, id: "home.analysis.header.hosts", toggle: toggle,
                              open: { AnyView(Self.overview()) })
             if !collapsed {
@@ -602,13 +588,12 @@ struct HomeTopHostsCard: View {
                         Text("还没有流量").font(.footnote).foregroundStyle(.secondary)
                     } else {
                         VStack(spacing: 8) {
-                            ForEach(snap.top) { h in
-                                HostBarRow(name: h.name, bytes: h.bytes, fraction: Double(h.bytes) / Double(maxB))
+                            // Egern: each host's bar in its own colour; no 「查看全部」 line (the card opens the list).
+                            ForEach(Array(snap.top.enumerated()), id: \.element.id) { i, h in
+                                HostBarRow(name: h.name, bytes: h.bytes, fraction: Double(h.bytes) / Double(maxB),
+                                           color: AnalyticsView.palette[i % max(AnalyticsView.palette.count - 1, 1)])
                                     .accessibilityElement(children: .combine)
                             }
-                        }
-                        if snap.count > snap.top.count {
-                            Text("查看全部").font(.caption).foregroundStyle(Theme.accent)
                         }
                     }
                 }
@@ -768,6 +753,36 @@ struct HomeQuickAddButton: View {
             // r7: this runs in the scanner sheet's onDismiss — the sheet is gone, so the next one is presented right
             // here (the 0.35 s timer could overlap another sheet opened meanwhile, or fire after the user left).
             if sheet == nil { sheet = .node }
+        }
+    }
+}
+
+/// Wrapping row (Egern's 策略 legend): items left to right, onto the next line when the width runs out.
+struct FlowLayout: Layout {
+    var spacing: CGFloat = 8
+    var lineSpacing: CGFloat = 4
+
+    func sizeThatFits(proposal: ProposedViewSize, subviews: Subviews, cache: inout ()) -> CGSize {
+        let width = proposal.width ?? .infinity
+        var x: CGFloat = 0, y: CGFloat = 0, line: CGFloat = 0, maxX: CGFloat = 0
+        for v in subviews {
+            let sz = v.sizeThatFits(.unspecified)
+            if x > 0 && x + sz.width > width { y += line + lineSpacing; x = 0; line = 0 }
+            x += sz.width + spacing
+            maxX = max(maxX, x - spacing)
+            line = max(line, sz.height)
+        }
+        return CGSize(width: proposal.width ?? maxX, height: y + line)
+    }
+
+    func placeSubviews(in bounds: CGRect, proposal: ProposedViewSize, subviews: Subviews, cache: inout ()) {
+        var x = bounds.minX, y = bounds.minY, line: CGFloat = 0
+        for v in subviews {
+            let sz = v.sizeThatFits(.unspecified)
+            if x > bounds.minX && x + sz.width > bounds.maxX { y += line + lineSpacing; x = bounds.minX; line = 0 }
+            v.place(at: CGPoint(x: x, y: y), proposal: ProposedViewSize(width: min(sz.width, bounds.width), height: sz.height))
+            x += sz.width + spacing
+            line = max(line, sz.height)
         }
     }
 }

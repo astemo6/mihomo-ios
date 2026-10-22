@@ -114,6 +114,8 @@ struct ConnectionsListView: View {
     @EnvironmentObject var vpn: VPNManager
     @State var filter: ConnFilter
     var title: String = String(localized: "连接")
+    /// Egern: the filter the page was opened with leads the chip row (策略 card → 策略▾ first; host → 主机名▾ first).
+    var lead: ConnFilterSheet.Kind? = nil
     @StateObject private var model = RequestsModel()
     @State private var rows: [ConnectionItem] = []
     @State private var activeCount = 0
@@ -231,10 +233,15 @@ struct ConnectionsListView: View {
     var chips: some View {
         ScrollView(.horizontal, showsIndicators: false) {
             HStack(spacing: 8) {
-                FilterChip(title: String(localized: "规则"), count: filter.rules.count, menu: true, id: "connlist.chip.rules") { sheet = .rules }
-                FilterChip(title: String(localized: "策略"), count: filter.policies.count, menu: true, id: "connlist.chip.policies") { sheet = .policies }
                 if let h = filter.host {
                     FilterChip(title: h, on: true, removable: true, id: "connlist.chip.host") { filter.host = nil }
+                }
+                if lead == .policies {
+                    FilterChip(title: String(localized: "策略"), count: filter.policies.count, menu: true, id: "connlist.chip.policies") { sheet = .policies }
+                    FilterChip(title: String(localized: "规则"), count: filter.rules.count, menu: true, id: "connlist.chip.rules") { sheet = .rules }
+                } else {
+                    FilterChip(title: String(localized: "规则"), count: filter.rules.count, menu: true, id: "connlist.chip.rules") { sheet = .rules }
+                    FilterChip(title: String(localized: "策略"), count: filter.policies.count, menu: true, id: "connlist.chip.policies") { sheet = .policies }
                 }
                 FilterChip(title: "HTTP", on: filter.httpOnly, id: "connlist.chip.http") { filter.httpOnly.toggle() }
                 FilterChip(title: String(localized: "活跃"), on: filter.activeOnly, id: "connlist.chip.active") { filter.activeOnly.toggle() }
