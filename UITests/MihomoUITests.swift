@@ -319,7 +319,9 @@ final class MihomoUITests: MihomoUITestCase {
         back()
 
         // Node subscription list: tap → the shared subscription sheet → 查看节点 (unified rows, fix/modules-only).
-        XCTAssertTrue(tapIfExists(app.element(id: "nodesub.row.Demo Sub")))
+        let subRow = app.element(id: "nodesub.row.Demo Sub")
+        XCTAssertTrue(scrollTo(subRow), "node subscription row") // en: the page is still scrolled down from 筛选节点
+        subRow.tap()
         XCTAssertTrue(tapIfExists(app.button(L("查看节点")), timeout: 6), "查看节点 in the sheet")
         // B13: 🇹🇼 is drawn as a TW badge where the system can't render it (the name's flag is replaced in the row).
         XCTAssertTrue(app.element(labelContains: "Taipei Sub").waitForExistence(timeout: 8), "subscription nodes")
@@ -328,7 +330,9 @@ final class MihomoUITests: MihomoUITestCase {
         XCTAssertTrue(tapIfExists(app.element(id: "sub.sheet.close"), timeout: 4), "close the sheet")
         usleep(600_000)
         // 本地节点
-        XCTAssertTrue(tapIfExists(app.element(label: L("本地节点"))))
+        let localRow = app.element(label: L("本地节点"))
+        XCTAssertTrue(scrollTo(localRow), "本地节点 row")
+        localRow.tap()
         XCTAssertTrue(scrollTo(app.element(label: "Manual Hy2")), "local nodes")
         snap("nodes-local")
     }

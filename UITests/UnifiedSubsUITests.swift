@@ -15,6 +15,18 @@ extension MihomoUITests {
         usleep(600_000)
     }
 
+    /// Swipes the row and waits for `action`; swipes once more when the first swipe only closed a leftover swipe
+    /// state (seen in en-light after closing the leading actions).
+    @discardableResult
+    func reveal(_ row: XCUIElement, left: Bool, action: String) -> Bool {
+        for attempt in 0..<2 {
+            if attempt > 0 { _ = scrollTo(row, fail: false) }
+            if left { row.swipeLeft() } else { row.swipeRight() }
+            if app.button(L(action)).waitForExistence(timeout: 3) { return true }
+        }
+        return false
+    }
+
     func closeSwipe() {
         app.navigationBars.firstMatch.tap()
         usleep(400_000)
@@ -29,14 +41,12 @@ extension MihomoUITests {
     /// Right swipe offers 更新; left swipe offers 删除, which asks first (`confirmID`); cancel keeps the row.
     func checkSwipes(_ row: XCUIElement, confirmID: String, shot: String) {
         XCTAssertTrue(scrollTo(row), "row \(shot)")
-        row.swipeRight()
-        XCTAssertTrue(app.button(L("更新")).waitForExistence(timeout: 3), "\(shot): 更新 in the leading swipe")
+        XCTAssertTrue(reveal(row, left: false, action: "更新"), "\(shot): 更新 in the leading swipe")
         snap("unified-\(shot)-swipe-right")
         closeSwipe()
         XCTAssertTrue(scrollTo(row))
-        row.swipeLeft()
         let del = app.button(L("删除"))
-        XCTAssertTrue(del.waitForExistence(timeout: 3), "\(shot): 删除 in the trailing swipe")
+        XCTAssertTrue(reveal(row, left: true, action: "删除"), "\(shot): 删除 in the trailing swipe")
         snap("unified-\(shot)-swipe-left")
         del.tap()
         XCTAssertTrue(app.element(id: confirmID).waitForExistence(timeout: 4), "\(shot): delete confirmation")
@@ -178,14 +188,12 @@ extension MihomoUITests {
 
         // 节点集 (http provider of the current profile)
         XCTAssertTrue(scrollTo(provider), "http 节点集 row")
-        provider.swipeLeft()
-        XCTAssertTrue(app.button(L("删除")).waitForExistence(timeout: 3), "节点集: 删除 in the trailing swipe")
+        XCTAssertTrue(reveal(provider, left: true, action: "删除"), "节点集: 删除 in the trailing swipe")
         snap("unified-provider-swipe-left")
         app.button(L("删除")).tap()
         XCTAssertTrue(app.element(id: "provider.confirmDelete").waitForExistence(timeout: 4), "节点集: delete confirmation")
         cancelDialog()
-        provider.swipeRight()
-        XCTAssertTrue(app.button(L("更新")).waitForExistence(timeout: 3), "节点集: 更新 in the leading swipe")
+        XCTAssertTrue(reveal(provider, left: false, action: "更新"), "节点集: 更新 in the leading swipe")
         snap("unified-provider-swipe-right")
         closeSwipe()
         checkMenu(provider, shot: "provider")
