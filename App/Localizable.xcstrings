@@ -94486,6 +94486,40 @@
           }
         }
       }
+    },
+    "支持 * 和 ? 通配、前缀 - 表示排除、:端口（默认 443）。可一次粘贴多个，用逗号分隔。左滑删除。": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Supports * and ? wildcards, a leading - to exclude, and :port (default 443). Paste several at once, separated by commas. Swipe left to delete."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "* と ? のワイルドカード、先頭の - で除外、:ポート（既定 443）に対応。カンマ区切りで複数まとめて貼り付けできます。左スワイプで削除。"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "* 및 ? 와일드카드, 앞의 - 는 제외, :포트(기본 443)를 지원합니다. 쉼표로 구분해 여러 개를 한 번에 붙여 넣을 수 있습니다. 왼쪽으로 밀어 삭제."
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Поддерживаются шаблоны * и ?, префикс - для исключения и :порт (по умолчанию 443). Можно вставить несколько через запятую. Смахните влево для удаления."
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "支援 * 和 ? 萬用字元、前綴 - 表示排除、:連接埠（預設 443）。可一次貼上多個，用逗號分隔。左滑刪除。"
+          }
+        }
+      }
     }
   },
   "version": "1.0"

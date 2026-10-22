@@ -79,6 +79,26 @@ struct MitMView: View {
     @State private var importPassword = ""
     @State private var askImportPassword = false
     @State private var status: MitMStatus?
+    @State private var showLocalHosts = false
+    @State private var showModuleHosts = false
+
+    /// Collapsible host-list header (主机名: 本地 / 模块), folded by default.
+    func hostsHeader(_ title: LocalizedStringKey, expanded: Binding<Bool>, id: String) -> some View {
+        Button {
+            withAnimation { expanded.wrappedValue.toggle() }
+        } label: {
+            HStack {
+                Text(title)
+                Spacer()
+                Image(systemName: "chevron.right")
+                    .rotationEffect(.degrees(expanded.wrappedValue ? 90 : 0))
+                    .font(.caption.weight(.semibold))
+            }
+            .contentShape(Rectangle())
+        }
+        .buttonStyle(.plain)
+        .accessibilityIdentifier(id)
+    }
 
     var body: some View {
         List {
@@ -101,15 +121,16 @@ struct MitMView: View {
             caSection
 
             Section {
-                ForEach(store.config.hostnames, id: \.self) { h in
-                    HStack {
-                        Text(h).font(.system(.callout, design: .monospaced))
-                        Spacer()
-                        if h.hasPrefix("-") { Text("排除").font(.caption2).foregroundStyle(.secondary) }
+                if showLocalHosts {
+                    ForEach(store.config.hostnames, id: \.self) { h in
+                        HStack {
+                            Text(h).font(.system(.callout, design: .monospaced))
+                            Spacer()
+                            if h.hasPrefix("-") { Text("排除").font(.caption2).foregroundStyle(.secondary) }
+                        }
                     }
+                    .onDelete { idx in store.config.hostnames.remove(atOffsets: idx); store.save() }
                 }
-                .onDelete { idx in store.config.hostnames.remove(atOffsets: idx); store.save() }
-                .onMove { from, to in store.config.hostnames.move(fromOffsets: from, toOffset: to); store.save() }
                 HStack {
                     TextField("example.com、*.example.com、-排除.com", text: $newHost)
                         .textInputAutocapitalization(.never).autocorrectionDisabled()
@@ -117,21 +138,27 @@ struct MitMView: View {
                         .onSubmit(addHost)
                     Button("添加", action: addHost).disabled(newHost.trimmingCharacters(in: .whitespaces).isEmpty)
                 }
-            } header: { Text("主机名 \(store.config.hostnames.count)") } footer: {
-                Text("支持 * 和 ? 通配、前缀 - 表示排除、:端口（默认 443）。可一次粘贴多个，用逗号分隔。这里与「本地模块」里的主机名是同一份列表。")
+            } header: {
+                hostsHeader("本地 \(store.config.hostnames.count)", expanded: $showLocalHosts, id: "mitm.hosts.local")
+            } footer: {
+                Text("支持 * 和 ? 通配、前缀 - 表示排除、:端口（默认 443）。可一次粘贴多个，用逗号分隔。左滑删除。")
             }
             .listRowBackground(Theme.card)
 
-            quicSection
-
             if !store.moduleHostnames.isEmpty {
-                Section("来自模块 \(store.moduleHostnames.count)") {
-                    ForEach(store.moduleHostnames, id: \.self) { h in
-                        Text(h).font(.system(.footnote, design: .monospaced)).foregroundStyle(.secondary)
+                Section {
+                    if showModuleHosts {
+                        ForEach(store.moduleHostnames, id: \.self) { h in
+                            Text(h).font(.system(.footnote, design: .monospaced)).foregroundStyle(.secondary)
+                        }
                     }
+                } header: {
+                    hostsHeader("模块 \(store.moduleHostnames.count)", expanded: $showModuleHosts, id: "mitm.hosts.modules")
                 }
                 .listRowBackground(Theme.card)
             }
+
+            quicSection
 
             if let s = status, vpn.isConnected {
                 Section("运行状态") {
@@ -153,7 +180,6 @@ struct MitMView: View {
         .scrollContentBackground(.hidden)
         .background(Theme.bg.ignoresSafeArea())
         .navigationTitle("MitM")
-        .toolbar { EditButton() }
         .sheet(item: $share, onDismiss: { EngineStore.purgeP12() }) { ActivityView(items: [$0.url], cleanup: $0.temporary ? $0.url : nil) }
         .confirmationDialog("重新生成证书？", isPresented: $confirmRegen, titleVisibility: .visible) {
             Button("重新生成", role: .destructive) { store.generateCA() }
