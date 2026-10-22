@@ -559,7 +559,7 @@ struct RuleHitsList: View {
         }
         .scrollContentBackground(.hidden)
         .background(Theme.bg.ignoresSafeArea())
-        .navigationTitle("规则命中")
+        .navigationTitle("规则")
     }
 }
 

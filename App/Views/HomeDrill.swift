@@ -361,74 +361,31 @@ struct PolicyTrafficView: View {
     @State private var counts: [String: Int] = [:]
 
     var body: some View {
-        let total = max(list.reduce(Int64(0)) { $0 + $1.bytes.total }, 1)
-        let colors = AnalyticsView.palette
+        // Egern 策略 (user's screenshot, 2026-10-22): one row per policy — the name, then 「↑ 286 KB ↓ 64.6 MB」 in grey, ›.
         List {
             if list.isEmpty {
                 EmptyStateRow(icon: "chart.bar.xaxis", title: "还没有流量").listRowBackground(Theme.card)
-            } else {
-                Section {
-                    VStack(alignment: .leading, spacing: 10) {
-                        HStack {
-                            Text("合计").font(.subheadline.weight(.semibold))
-                            Spacer()
-                            Text(verbatim: Fmt.bytes(list.reduce(Int64(0)) { $0 + $1.bytes.total })).font(.subheadline.weight(.semibold).monospacedDigit())
-                        }
-                        GeometryReader { geo in
-                            HStack(spacing: 2) {
-                                ForEach(Array(list.prefix(12).enumerated()), id: \.offset) { i, p in
-                                    Rectangle().fill(colors[i % (colors.count - 1)])
-                                        .frame(width: max(2, geo.size.width * CGFloat(Double(p.bytes.total) / Double(total)) - 2))
-                                }
-                            }
-                            .clipShape(RoundedRectangle(cornerRadius: 6, style: .continuous))
-                        }
-                        .frame(height: 12)
-                        .accessibilityHidden(true)
+            }
+            ForEach(list) { p in
+                NavigationLink {
+                    ConnectionsListView(filter: ConnFilter(policies: [p.name]), lead: .policies)
+                } label: {
+                    VStack(alignment: .leading, spacing: 3) {
+                        Text(verbatim: RuleDisplay.policyName(p.name)).font(.body).lineLimit(1)
+                        Text(verbatim: "↑ \(Fmt.bytes(p.bytes.up))  ↓ \(Fmt.bytes(p.bytes.down))")
+                            .font(.caption.monospacedDigit()).foregroundStyle(.secondary)
                     }
-                    .padding(.vertical, 4)
+                    .padding(.vertical, 2)
                 }
                 .listRowBackground(Theme.card)
-                Section {
-                    ForEach(Array(list.enumerated()), id: \.element.id) { i, p in
-                        NavigationLink {
-                            ConnectionsListView(filter: ConnFilter(policies: [p.name]), title: RuleDisplay.policyName(p.name))
-                        } label: {
-                            HStack(spacing: 10) {
-                                Circle().fill(i < 12 ? colors[i % (colors.count - 1)] : (colors.last ?? .gray)).frame(width: 9, height: 9)
-                                    .accessibilityHidden(true)
-                                VStack(alignment: .leading, spacing: 3) {
-                                    Text(verbatim: RuleDisplay.policyName(p.name)).font(.subheadline).lineLimit(1)
-                                    HStack(spacing: 10) {
-                                        Label(Fmt.bytes(p.bytes.up), systemImage: "arrow.up").foregroundStyle(Theme.up)
-                                        Label(Fmt.bytes(p.bytes.down), systemImage: "arrow.down").foregroundStyle(Theme.down)
-                                    }
-                                    .font(.caption2.monospacedDigit())
-                                    .fixedSize()
-                                }
-                                Spacer(minLength: 6)
-                                VStack(alignment: .trailing, spacing: 2) {
-                                    Text(Double(p.bytes.total) / Double(total), format: .percent.precision(.fractionLength(0)))
-                                        .font(.caption.monospacedDigit()).foregroundStyle(.secondary)
-                                    if let n = counts[p.name] {
-                                        Text("\(n) 次命中").font(.caption2.monospacedDigit()).foregroundStyle(.secondary)
-                                    }
-                                }
-                                .fixedSize()
-                            }
-                        }
-                        .listRowBackground(Theme.card)
-                        .accessibilityIdentifier("policytraffic.row.\(p.name)")
-                    }
-                } footer: {
-                    Text("本次连接期间各策略（规则选中的策略组）的流量，由隧道持续记录（App 在后台或被关闭时也记录），断开后清零。轻点查看经过该策略的连接。")
-                }
+                .accessibilityIdentifier("policytraffic.row.\(p.name)")
+                .accessibilityValue(Text(counts[p.name].map { String(localized: "\($0) 次命中") } ?? ""))
             }
         }
         .listStyle(.insetGrouped)
         .scrollContentBackground(.hidden)
         .background(Theme.bg.ignoresSafeArea())
-        .navigationTitle("策略流量")
+        .navigationTitle("策略")
         .task {
             // A leaf page: copies the session numbers every 2 s while it is on screen (no store observed).
             while !Task.isCancelled {

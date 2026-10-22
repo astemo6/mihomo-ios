@@ -90,20 +90,37 @@ extension MihomoUITests {
         snap("drill-08-stats")
         back()
 
-        // Egern (user's reference recording, 2026-10-22): 策略 card and 规则 rings open 连接 straight away (filtered);
-        // 主机名 opens the host list first. Home → 连接 → detail; Home → 主机名 → 连接 → detail.
+        // Egern (user's recording + screenshots, 2026-10-22): 策略 → 策略 list → connections; a 规则 ring → its
+        // connections, the 查看全部 tile → 规则 list; 主机名 → host list → connections.
 
-        // 策略 → 连接 (策略▾ chip leads) → pick a policy → detail.
+        // 策略 → 策略 (name, ↑↓) → one policy's connections → detail.
         let pol = app.element(id: "home.analysis.policies")
         XCTAssertTrue(scrollTo(pol), "策略 card")
         pol.tap()
-        assertNavBar(L("连接"), "策略 card")
-        XCTAssertTrue(app.element(id: "connlist.chip.policies").waitForExistence(timeout: 4), "策略 chip")
-        XCTAssertTrue(app.element(id: "connlist.row").waitForExistence(timeout: 6), "connections")
-        snap("drill-09-policy-connections")
+        assertNavBar(L("策略"), "策略 card")
+        let proxyRow = app.element(id: "policytraffic.row.Proxy")
+        XCTAssertTrue(proxyRow.waitForExistence(timeout: 6), "Proxy row")
+        snap("drill-09-policy-list")
+        proxyRow.tap()
+        assertNavBar(L("连接"), "policy row")
+        XCTAssertEqual(chipValue("connlist.chip.policies"), "1", "filtered by the policy")
+        XCTAssertTrue(app.element(id: "connlist.row").waitForExistence(timeout: 6), "Proxy connections")
+        snap("drill-10-policy-connections")
         app.element(id: "connlist.row").tap()
         XCTAssertTrue(app.element(id: "conndetail.tabs").waitForExistence(timeout: 6), "policy → connection detail")
-        back(); back()
+        back(); back(); back()
+
+        // 查看全部 (end of the rule rings) → 规则.
+        let allRules = app.element(id: "home.analysis.rules.all")
+        if scrollTo(allRules, fail: false) {
+            allRules.tap()
+            assertNavBar(L("规则"), "查看全部")
+            XCTAssertTrue(app.element(id: "rulehits.row.GeoIP(CN).DIRECT").waitForExistence(timeout: 6), "GeoIP(CN) row in 规则")
+            snap("drill-10b-rules")
+            back()
+        } else {
+            issues.append("[\(Env.tag)] 查看全部 tile not found")
+        }
 
         // 规则 ring → 连接 filtered by that rule → detail. The ring reads 「CN, GeoIP, DIRECT」 for VoiceOver.
         let ring = app.buttons.matching(NSPredicate(format: "label BEGINSWITH %@", "CN, GeoIP")).firstMatch

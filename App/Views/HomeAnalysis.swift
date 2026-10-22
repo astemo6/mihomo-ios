@@ -422,10 +422,10 @@ struct HomePolicyShareCard: View {
             // Egern (user's reference recording, 2026-10-22): plain title, no summary.
             HomeSectionLabel(title: HomeAnalysisCard.policies.title,
                              collapsed: collapsed, id: "home.analysis.header.policies", toggle: toggle,
-                             open: { AnyView(ConnectionsListView(filter: ConnFilter(), lead: .policies)) })
+                             open: { AnyView(PolicyTrafficView()) })
             if !collapsed {
-                // Egern: 策略 → 连接 (策略▾ filter first) → detail; no intermediate page.
-                NavigationLink { LazyDestination { ConnectionsListView(filter: ConnFilter(), lead: .policies) } } label: {
+                // Egern (user's screenshot, 2026-10-22): 策略 → 策略 list (name, ↑↓) → that policy's connections → detail.
+                NavigationLink { LazyDestination { PolicyTrafficView() } } label: {
                 AnalysisCardBox(chevron: true) {
                     if parts.isEmpty {
                         Text("还没有流量").font(.footnote).foregroundStyle(.secondary)
@@ -495,17 +495,18 @@ struct HomeRuleHitsCard: View {
     @State private var policies = HomeAnalysisModel.shared.policies
     /// r7 P3-4: card widths follow Dynamic Type with the caption2 / 9 pt texts inside (fixed 88 / 72 pt left only 「…」).
     @ScaledMetric(relativeTo: .caption2) private var ringCardWidth: CGFloat = 88
+    @ScaledMetric(relativeTo: .caption2) private var moreCardWidth: CGFloat = 72
 
     var body: some View {
         let maxHits = max(snap.top.first?.hits ?? 1, 1)
         VStack(spacing: 10) {
             HomeSectionLabel(title: HomeAnalysisCard.rules.title,
                              collapsed: collapsed, id: "home.analysis.header.rules", toggle: toggle,
-                             open: { AnyView(ConnectionsListView(filter: ConnFilter())) })
+                             open: { AnyView(RuleHitsList()) })
             if !collapsed {
                 Group {
                     if snap.top.isEmpty {
-                        NavigationLink { LazyDestination { ConnectionsListView(filter: ConnFilter()) } } label: {
+                        NavigationLink { LazyDestination { RuleHitsList() } } label: {
                             AnalysisCardBox(chevron: true) { Text("还没有命中记录").font(.footnote).foregroundStyle(.secondary) }
                         }
                         .buttonStyle(PressableCardStyle())
@@ -514,7 +515,7 @@ struct HomeRuleHitsCard: View {
                         ScrollView(.horizontal, showsIndicators: false) {
                             HStack(spacing: 8) {
                                 // Egern (user's reference recording, 2026-10-22): a ring opens 连接 filtered by that
-                                // rule (规则▾ chip on); no 规则命中 page and no 「查看全部」 tile in between.
+                                // rule (规则▾ chip on); the last tile 「查看全部」 opens the 规则 list (name, policy, hits).
                                 ForEach(snap.top) { r in
                                     NavigationLink {
                                         LazyDestination { ConnectionsListView(filter: ConnFilter(rules: [r.rule])) }
@@ -522,6 +523,18 @@ struct HomeRuleHitsCard: View {
                                     .buttonStyle(PressableCardStyle())
                                     .accessibilityIdentifier("home.analysis.rule")
                                 }
+                                NavigationLink { LazyDestination { RuleHitsList() } } label: {
+                                    VStack(spacing: 6) {
+                                        Image(systemName: "chevron.right.circle").font(.title3).foregroundStyle(Theme.accent)
+                                        Text("查看全部").font(.caption)
+                                    }
+                                    .frame(width: moreCardWidth)
+                                    .frame(maxHeight: .infinity)
+                                    .background(RoundedRectangle(cornerRadius: Theme.radius, style: .continuous).fill(Theme.card))
+                                    .contentShape(Rectangle())
+                                }
+                                .buttonStyle(PressableCardStyle())
+                                .accessibilityIdentifier("home.analysis.rules.all")
                             }
                             .fixedSize(horizontal: false, vertical: true)
                         }
