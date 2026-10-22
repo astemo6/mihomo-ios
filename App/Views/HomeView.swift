@@ -234,18 +234,25 @@ struct ModeCard: View {
 struct TrafficCard: View {
     @EnvironmentObject var dash: DashboardModel
     var body: some View {
-        Card {
-            VStack(alignment: .leading, spacing: 8) {
-                HStack {
-                    SpeedLabel(icon: "arrow.up", color: Theme.up, title: "上传", value: dash.up)
-                    Spacer()
-                    SpeedLabel(icon: "arrow.down", color: Theme.down, title: "下载", value: dash.down)
+        // feat/home-drilldown (Egern): the speed card opens 网络 (秒 / 分钟 / 小时 chart + connections).
+        NavigationLink { LazyDestination { NetworkView() } } label: {
+            Card {
+                VStack(alignment: .leading, spacing: 8) {
+                    HStack {
+                        SpeedLabel(icon: "arrow.up", color: Theme.up, title: "上传", value: dash.up)
+                        Spacer()
+                        SpeedLabel(icon: "arrow.down", color: Theme.down, title: "下载", value: dash.down)
+                        CardChevron().padding(.leading, 6)
+                    }
+                    TrafficChart(up: dash.upHistory, down: dash.downHistory)
+                        .frame(height: 56)
+                        .overlay(alignment: .topTrailing) { TrafficScopeCaption() }
                 }
-                TrafficChart(up: dash.upHistory, down: dash.downHistory)
-                    .frame(height: 56)
-                    .overlay(alignment: .topTrailing) { TrafficScopeCaption() }
             }
+            .contentShape(Rectangle())
         }
+        .buttonStyle(PressableCardStyle())
+        .accessibilityIdentifier("home.network")
     }
 }
 
@@ -321,16 +328,23 @@ struct TrafficChart: View {
 struct StatsGrid: View {
     @EnvironmentObject var dash: DashboardModel
     var body: some View {
-        LazyVGrid(columns: [GridItem(.flexible(), spacing: 10), GridItem(.flexible(), spacing: 10)], spacing: 10) {
-            // feat/traffic-scope: titles say when only proxy traffic is counted.
-            StatTile(icon: "arrow.up.circle.fill", color: Theme.up, title: dash.scope == .proxy ? "总上传（仅代理）" : "总上传", value: Fmt.bytes(dash.uploadTotal))
-            StatTile(icon: "arrow.down.circle.fill", color: Theme.down, title: dash.scope == .proxy ? "总下载（仅代理）" : "总下载", value: Fmt.bytes(dash.downloadTotal))
+        // feat/home-drilldown: the session totals open 流量统计 (daily history recorded by the tunnel).
+        NavigationLink { LazyDestination { StatsView() } } label: {
+            LazyVGrid(columns: [GridItem(.flexible(), spacing: 10), GridItem(.flexible(), spacing: 10)], spacing: 10) {
+                // feat/traffic-scope: titles say when only proxy traffic is counted.
+                StatTile(icon: "arrow.up.circle.fill", color: Theme.up, title: dash.scope == .proxy ? "总上传（仅代理）" : "总上传", value: Fmt.bytes(dash.uploadTotal), chevron: true)
+                StatTile(icon: "arrow.down.circle.fill", color: Theme.down, title: dash.scope == .proxy ? "总下载（仅代理）" : "总下载", value: Fmt.bytes(dash.downloadTotal), chevron: true)
+            }
         }
+        .buttonStyle(PressableCardStyle())
+        .accessibilityIdentifier("home.totals")
     }
 }
 
 struct StatTile: View {
     let icon: String, color: Color, title: String, value: String
+    /// feat/home-drilldown: the tile opens a page.
+    var chevron = false
     var body: some View {
         // feat/egern-style: Egern's 全部连接 / 活跃连接 tile — title on top, a small number under it.
         HStack(spacing: 8) {
@@ -340,6 +354,7 @@ struct StatTile: View {
             }
             Spacer(minLength: 0)
             Image(systemName: icon).font(.system(size: 13, weight: .semibold)).foregroundStyle(color).accessibilityHidden(true)
+            if chevron { CardChevron() }
         }
         .padding(.horizontal, 12).padding(.vertical, 10)
         .background(RoundedRectangle(cornerRadius: Theme.radius, style: .continuous).fill(Theme.card))

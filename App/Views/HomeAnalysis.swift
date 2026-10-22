@@ -14,7 +14,7 @@ import SwiftUI
 // re-renders that card only, never HomeView or the tab.
 
 enum HomeAnalysisCard: String, CaseIterable, Identifiable {
-    case connections, policies, rules, hosts
+    case connections, policies, rules, hosts, dns
     var id: String { rawValue }
 
     var title: String {
@@ -23,6 +23,7 @@ enum HomeAnalysisCard: String, CaseIterable, Identifiable {
         case .policies: return String(localized: "策略")
         case .rules: return String(localized: "规则")
         case .hosts: return String(localized: "主机名")
+        case .dns: return "DNS"
         }
     }
 
@@ -32,6 +33,7 @@ enum HomeAnalysisCard: String, CaseIterable, Identifiable {
         case .policies: return "chart.bar.xaxis"
         case .rules: return "target"
         case .hosts: return "network"
+        case .dns: return "globe"
         }
     }
 
@@ -41,6 +43,7 @@ enum HomeAnalysisCard: String, CaseIterable, Identifiable {
         case .policies: return String(localized: "本次连接各策略的流量占比")
         case .rules: return String(localized: "本次连接命中最多的规则")
         case .hosts: return String(localized: "本次连接流量最多的主机名")
+        case .dns: return String(localized: "本次连接的 DNS 查询与上游占比")
         }
     }
 
@@ -50,7 +53,7 @@ enum HomeAnalysisCard: String, CaseIterable, Identifiable {
     /// feat/egern-style (user 2026-10-21 20:02 「首页新添加的那些显示做成可添加的面板 选择了才有」): 策略 / 规则 / 主机名
     /// are opt-in panels — off until added in 添加首页卡片, removed from their long-press menu or the editor.
     static let addedKey = "home.analysis.added"
-    static let optIn: [HomeAnalysisCard] = [.policies, .rules, .hosts]
+    static let optIn: [HomeAnalysisCard] = [.policies, .rules, .hosts, .dns]
     var isOptIn: Bool { self != .connections }
     static let collapsedKey = "home.analysis.collapsed"
 
@@ -128,6 +131,8 @@ final class HomeAnalysisModel {
     func unmount() { mounted = max(0, mounted - 1); update() }
 
     private var shouldRun: Bool { homeVisible && appActive && mounted > 0 }
+    /// feat/home-drilldown: Home on screen and the app active (the DNS card polls only then).
+    var homeActive: Bool { homeVisible && appActive }
 
     private func update() {
         if shouldRun {
@@ -220,12 +225,17 @@ struct HomeSectionLabel: View {
 }
 
 private struct AnalysisCardBox<Content: View>: View {
+    /// feat/home-drilldown: the card opens a page — chevron in the corner.
+    var chevron = false
     @ViewBuilder var content: Content
     var body: some View {
         VStack(alignment: .leading, spacing: 10) { content }
             .padding(12)
+            .padding(.trailing, chevron ? 10 : 0)
             .frame(maxWidth: .infinity, alignment: .leading)
+            .overlay(alignment: .topTrailing) { if chevron { CardChevron().padding(12) } }
             .background(RoundedRectangle(cornerRadius: Theme.radius, style: .continuous).fill(Theme.card))
+            .contentShape(Rectangle())
     }
 }
 
@@ -270,13 +280,20 @@ struct HomeConnectionTiles: View {
     var body: some View {
         let live = vpn.isConnected || HomeAnalysisModel.demo
         if live && !HomeAnalysisCard.set(hiddenRaw).contains(.connections) {
-            NavigationLink { LazyDestination { AnalyticsView() } } label: {
-                HStack(spacing: 10) {
-                    StatTile(icon: "point.3.connected.trianglepath.dotted", color: Theme.accent, title: "全部连接", value: "\(snap.total)")
-                    StatTile(icon: "bolt.horizontal.fill", color: Theme.good, title: "活跃连接", value: "\(snap.active)")
+            // feat/home-drilldown (Egern): each tile opens 连接 — all of them, or with 活跃 on.
+            HStack(spacing: 10) {
+                NavigationLink { LazyDestination { ConnectionsListView(filter: ConnFilter()) } } label: {
+                    StatTile(icon: "point.3.connected.trianglepath.dotted", color: Theme.accent, title: "全部连接", value: "\(snap.total)", chevron: true)
                 }
+                .buttonStyle(PressableCardStyle())
+                .accessibilityIdentifier("home.analysis.connections.all")
+                NavigationLink { LazyDestination { ConnectionsListView(filter: ConnFilter(activeOnly: true)) } } label: {
+                    StatTile(icon: "bolt.horizontal.fill", color: Theme.good, title: "活跃连接", value: "\(snap.active)", chevron: true)
+                }
+                .buttonStyle(PressableCardStyle())
+                .accessibilityIdentifier("home.analysis.connections.active")
             }
-            .buttonStyle(.plain)
+            .accessibilityElement(children: .contain)
             .accessibilityIdentifier("home.analysis.connections")
             .modifier(AnalysisMenu(card: .connections))
             .onReceive(HomeAnalysisModel.shared.$connections.removeDuplicates()) { if $0 != snap { snap = $0 } }
@@ -308,6 +325,7 @@ struct HomeAnalysisSection: View {
                             case .policies: HomePolicyShareCard(collapsed: collapsed.contains(c)) { toggleCollapsed(c, $collapsedRaw) }
                             case .rules: HomeRuleHitsCard(collapsed: collapsed.contains(c)) { toggleCollapsed(c, $collapsedRaw) }
                             case .hosts: HomeTopHostsCard(collapsed: collapsed.contains(c)) { toggleCollapsed(c, $collapsedRaw) }
+                            case .dns: HomeDNSCard(collapsed: collapsed.contains(c)) { toggleCollapsed(c, $collapsedRaw) }
                             case .connections: EmptyView()
                             }
                         }
@@ -368,7 +386,9 @@ struct HomePolicyShareCard: View {
             HomeSectionLabel(title: HomeAnalysisCard.policies.title, summary: snap.total > 0 ? Fmt.bytes(snap.total) : nil,
                              collapsed: collapsed, id: "home.analysis.header.policies", toggle: toggle)
             if !collapsed {
-                AnalysisCardBox {
+                // feat/home-drilldown: 策略 → 策略流量 (each policy ↑↓) → its connections.
+                NavigationLink { LazyDestination { PolicyTrafficView() } } label: {
+                AnalysisCardBox(chevron: true) {
                     if parts.isEmpty {
                         Text("还没有流量").font(.footnote).foregroundStyle(.secondary)
                     } else {
@@ -400,6 +420,8 @@ struct HomePolicyShareCard: View {
                         }
                     }
                 }
+                }
+                .buttonStyle(PressableCardStyle())
                 .accessibilityIdentifier("home.analysis.policies")
             }
         }
@@ -439,7 +461,14 @@ struct HomeRuleHitsCard: View {
                         // Egern: one small card per rule, scrolling sideways.
                         ScrollView(.horizontal, showsIndicators: false) {
                             HStack(spacing: 8) {
-                                ForEach(snap.top) { r in ring(r, maxHits: maxHits) }
+                                // feat/home-drilldown: a ring opens 连接 filtered by that rule (and the policy it chose).
+                                ForEach(snap.top) { r in
+                                    NavigationLink {
+                                        LazyDestination { ConnectionsListView(filter: ConnFilter(rules: [r.rule], policies: [r.policy])) }
+                                    } label: { ring(r, maxHits: maxHits) }
+                                    .buttonStyle(PressableCardStyle())
+                                    .accessibilityIdentifier("home.analysis.rule")
+                                }
                                 if snap.count > snap.top.count {
                                     NavigationLink { LazyDestination { RuleHitsList() } } label: {
                                         VStack(spacing: 6) {
@@ -450,7 +479,8 @@ struct HomeRuleHitsCard: View {
                                         .frame(maxHeight: .infinity)
                                         .background(RoundedRectangle(cornerRadius: Theme.radius, style: .continuous).fill(Theme.card))
                                     }
-                                    .buttonStyle(.plain)
+                                    .buttonStyle(PressableCardStyle())
+                                    .accessibilityIdentifier("home.analysis.rules.all")
                                 }
                             }
                             .fixedSize(horizontal: false, vertical: true)
@@ -517,7 +547,11 @@ struct HomeTopHostsCard: View {
             HomeSectionLabel(title: HomeAnalysisCard.hosts.title, summary: snap.count > 0 ? String(localized: "\(snap.count) 个主机名") : nil,
                              collapsed: collapsed, id: "home.analysis.header.hosts", toggle: toggle)
             if !collapsed {
-                AnalysisCardBox {
+                // feat/home-drilldown (Egern): 主机名 → every host with ↑↓ → that host's connections.
+                NavigationLink {
+                    LazyDestination { HostTrafficList(list: HomeAnalysisModel.shared.source.hostList) }
+                } label: {
+                AnalysisCardBox(chevron: true) {
                     if snap.top.isEmpty {
                         Text("还没有流量").font(.footnote).foregroundStyle(.secondary)
                     } else {
@@ -528,15 +562,12 @@ struct HomeTopHostsCard: View {
                             }
                         }
                         if snap.count > snap.top.count {
-                            NavigationLink {
-                                LazyDestination { HostTrafficList(list: HomeAnalysisModel.shared.source.hostList) }
-                            } label: {
-                                Text("查看全部").font(.caption)
-                            }
-                            .buttonStyle(.borderless)
+                            Text("查看全部").font(.caption).foregroundStyle(Theme.accent)
                         }
                     }
                 }
+                }
+                .buttonStyle(PressableCardStyle())
                 .accessibilityIdentifier("home.analysis.hosts")
             }
         }
@@ -592,7 +623,7 @@ struct HomeAnalysisEditorSection: View {
         } header: {
             Text("流量分析")
         } footer: {
-            Text("策略、规则和主机名卡片默认不显示，添加后才出现在首页，长按卡片可移除。数据与「连接分析」相同：本次连接期间、App 打开时采样，断开后清零。")
+            Text("策略、规则、主机名和 DNS 卡片默认不显示，添加后才出现在首页，长按卡片可移除。轻点卡片查看详情。数据与「连接分析」相同：本次连接期间、App 打开时采样，断开后清零。")
         }
     }
 }

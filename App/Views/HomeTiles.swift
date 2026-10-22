@@ -101,17 +101,35 @@ struct BuiltinTileView: View {
     let tile: BuiltinTile
     var body: some View {
         Group {
+            // feat/home-drilldown: every tile opens a page. 内网 IP and 流媒体解锁 already had their link (and buttons
+            // inside); 出口 IP keeps 「轻点显示」 and opens its details from the corner button.
             switch tile {
-            case .speed: SpeedWaveTile()
-            case .traffic: TrafficRingTile()
-            case .uptime: UptimeTile()
+            case .speed: link(NetworkView()) { SpeedWaveTile() }
+            case .traffic: link(StatsView()) { TrafficRingTile() }
+            case .uptime: link(LogsView()) { UptimeTile() }
             case .exitIP: ExitIPTile()
             case .lanIP: LANIPTile()
-            case .memory: MemoryTile()
+            case .memory: link(DiagnosticsView()) { MemoryTile() }
             case .unlock: UnlockTile()
             }
         }
         .accessibilityIdentifier("home.tile.\(tile.rawValue)")
+    }
+
+    func link<D: View, L: View>(_ dest: @autoclosure @escaping () -> D, @ViewBuilder label: () -> L) -> some View {
+        NavigationLink { LazyDestination { dest() } } label: {
+            label().environment(\.tileChevron, true)
+        }
+        .buttonStyle(PressableCardStyle())
+    }
+}
+
+private struct TileChevronKey: EnvironmentKey { static let defaultValue = false }
+extension EnvironmentValues {
+    /// feat/home-drilldown: TileCard draws a chevron when its tile opens a page.
+    var tileChevron: Bool {
+        get { self[TileChevronKey.self] }
+        set { self[TileChevronKey.self] = newValue }
     }
 }
 
@@ -121,6 +139,7 @@ struct TileCard<Content: View>: View {
     let icon: String
     var trailing: String? = nil
     @ViewBuilder var content: Content
+    @Environment(\.tileChevron) private var chevron
     var body: some View {
         VStack(alignment: .leading, spacing: 10) {
             HStack(spacing: 6) {
@@ -128,6 +147,7 @@ struct TileCard<Content: View>: View {
                 Text(verbatim: title).font(.caption.weight(.semibold)).foregroundStyle(.secondary).lineLimit(1)
                 Spacer(minLength: 4)
                 if let trailing { Text(verbatim: trailing).font(.caption2).foregroundStyle(.secondary).lineLimit(1) }
+                if chevron { CardChevron() }
             }
             content
         }
@@ -302,6 +322,17 @@ struct ExitIPTile: View {
                     Text(revealed ? LocalizedStringKey("轻点隐藏") : LocalizedStringKey("轻点显示")).font(.caption2).foregroundStyle(.secondary)
                 }
                 Spacer(minLength: 0)
+                // feat/home-drilldown: the card's tap reveals the IP (user's design); details open from here.
+                NavigationLink { LazyDestination { ExitInfoDetailView() } } label: {
+                    Image(systemName: "chevron.right.circle")
+                        .font(.body)
+                        .foregroundStyle(.secondary)
+                        .frame(width: 32, height: 32)
+                        .contentShape(Rectangle())
+                }
+                .buttonStyle(.plain)
+                .accessibilityLabel(Text("详情"))
+                .accessibilityIdentifier("home.tile.exitip.detail")
             }
         }
         .contentShape(Rectangle())
