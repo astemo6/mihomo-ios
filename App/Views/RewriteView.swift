@@ -222,7 +222,7 @@ struct RewriteView: View {
                 }
                 .accessibilityIdentifier("rewrite.subs.header")
             } footer: {
-                Text("Surge 模块、Loon 插件、QX 引用（rewrite_remote）、Stash 覆写和 Egern 模块都是订阅，角标显示格式。轻点编辑；右滑更新，左滑删除；开关启用或关闭；长按查看全部操作。订阅引用的远程脚本和规则集随它一起更新，也可以在 更多 → 更新资源 里单独更新。")
+                Text("Surge 模块、Loon 插件、QX 引用（rewrite_remote）、Stash 覆写和 Egern 模块都是订阅，角标显示格式。轻点编辑；右滑更新，左滑删除；开关启用或关闭；长按查看全部操作。订阅引用的远程脚本和规则集随它一起更新。")
             }
             .listRowBackground(Theme.card)
 

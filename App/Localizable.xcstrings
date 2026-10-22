@@ -87270,37 +87270,37 @@
         }
       }
     },
-    "订阅 · 模块 · 规则集 · 脚本": {
+    "配置订阅 · 节点订阅": {
       "extractionState": "manual",
       "localizations": {
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "Subscriptions · Modules · Rule Sets · Scripts"
+            "value": "Profile subscriptions · Node subscriptions"
           }
         },
         "ja": {
           "stringUnit": {
             "state": "translated",
-            "value": "購読 · モジュール · ルールセット · スクリプト"
+            "value": "プロファイルの購読 · ノードの購読"
           }
         },
         "ko": {
           "stringUnit": {
             "state": "translated",
-            "value": "구독 · 모듈 · 규칙 세트 · 스크립트"
+            "value": "프로파일 구독 · 노드 구독"
           }
         },
         "ru": {
           "stringUnit": {
             "state": "translated",
-            "value": "Подписки · модули · наборы правил · скрипты"
+            "value": "Подписки профилей · подписки узлов"
           }
         },
         "zh-Hant": {
           "stringUnit": {
             "state": "translated",
-            "value": "訂閱 · 模組 · 規則集 · 腳本"
+            "value": "設定訂閱 · 節點訂閱"
           }
         }
       }
@@ -87445,37 +87445,37 @@
         }
       }
     },
-    "添加的订阅、远程模块、规则集和脚本会列在这里，可以逐个或一次全部更新。": {
+    "添加的配置订阅和节点订阅会列在这里，可以逐个或一次全部更新。": {
       "extractionState": "manual",
       "localizations": {
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "Subscriptions, remote modules, rule sets and scripts you add are listed here; update them one by one or all at once."
+            "value": "Profile and node subscriptions you add are listed here; update them one by one or all at once."
           }
         },
         "ja": {
           "stringUnit": {
             "state": "translated",
-            "value": "追加した購読、リモートモジュール、ルールセット、スクリプトがここに表示され、個別またはまとめて更新できます。"
+            "value": "追加したプロファイルの購読とノードの購読がここに表示され、個別またはまとめて更新できます。"
           }
         },
         "ko": {
           "stringUnit": {
             "state": "translated",
-            "value": "추가한 구독, 원격 모듈, 규칙 세트, 스크립트가 여기에 표시되며 하나씩 또는 한 번에 모두 업데이트할 수 있습니다."
+            "value": "추가한 프로파일 구독과 노드 구독이 여기에 표시되며 하나씩 또는 한 번에 모두 업데이트할 수 있습니다."
           }
         },
         "ru": {
           "stringUnit": {
             "state": "translated",
-            "value": "Здесь появятся добавленные подписки, удалённые модули, наборы правил и скрипты — обновляйте их по одному или все сразу."
+            "value": "Здесь появятся добавленные подписки профилей и узлов — обновляйте их по одному или все сразу."
           }
         },
         "zh-Hant": {
           "stringUnit": {
             "state": "translated",
-            "value": "新增的訂閱、遠端模組、規則集和腳本會列在這裡，可以逐個或一次全部更新。"
+            "value": "新增的設定訂閱和節點訂閱會列在這裡，可以逐個或一次全部更新。"
           }
         }
       }
@@ -89174,36 +89174,36 @@
         }
       }
     },
-    "Surge 模块、Loon 插件、QX 引用（rewrite_remote）、Stash 覆写和 Egern 模块都是订阅，角标显示格式。轻点编辑；右滑更新，左滑删除；开关启用或关闭；长按查看全部操作。订阅引用的远程脚本和规则集随它一起更新，也可以在 更多 → 更新资源 里单独更新。": {
+    "Surge 模块、Loon 插件、QX 引用（rewrite_remote）、Stash 覆写和 Egern 模块都是订阅，角标显示格式。轻点编辑；右滑更新，左滑删除；开关启用或关闭；长按查看全部操作。订阅引用的远程脚本和规则集随它一起更新。": {
       "localizations": {
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "Surge modules, Loon plugins, QX rewrite_remote, Stash overrides and Egern modules are all subscriptions; the badge shows the format. Tap to edit; swipe right to update, left to delete; the switch turns one on or off; long-press for all actions. Remote scripts and rule sets a subscription uses update with it, or one by one in More → Update Resources."
+            "value": "Surge modules, Loon plugins, QX rewrite_remote, Stash overrides and Egern modules are all subscriptions; the badge shows the format. Tap to edit; swipe right to update, left to delete; the switch turns one on or off; long-press for all actions. Remote scripts and rule sets a subscription uses update with it."
           }
         },
         "ja": {
           "stringUnit": {
             "state": "translated",
-            "value": "Surge モジュール、Loon プラグイン、QX rewrite_remote、Stash オーバーライド、Egern モジュールはすべて購読で、バッジが形式を示します。タップで編集、右スワイプで更新、左スワイプで削除、スイッチでオン／オフ、長押しですべての操作。購読が参照するリモートスクリプトとルールセットは一緒に更新され、その他 → リソースを更新 で個別にも更新できます。"
+            "value": "Surge モジュール、Loon プラグイン、QX rewrite_remote、Stash オーバーライド、Egern モジュールはすべて購読で、バッジが形式を示します。タップで編集、右スワイプで更新、左スワイプで削除、スイッチでオン／オフ、長押しですべての操作。購読が参照するリモートスクリプトとルールセットは一緒に更新されます。"
           }
         },
         "ko": {
           "stringUnit": {
             "state": "translated",
-            "value": "Surge 모듈, Loon 플러그인, QX rewrite_remote, Stash 오버라이드, Egern 모듈은 모두 구독이며 배지에 형식이 표시됩니다. 탭하여 편집, 오른쪽으로 밀어 업데이트, 왼쪽으로 밀어 삭제, 스위치로 켜기/끄기, 길게 눌러 모든 작업을 볼 수 있습니다. 구독이 참조하는 원격 스크립트와 규칙 세트는 함께 업데이트되며, 더보기 → 리소스 업데이트에서 개별로도 업데이트할 수 있습니다."
+            "value": "Surge 모듈, Loon 플러그인, QX rewrite_remote, Stash 오버라이드, Egern 모듈은 모두 구독이며 배지에 형식이 표시됩니다. 탭하여 편집, 오른쪽으로 밀어 업데이트, 왼쪽으로 밀어 삭제, 스위치로 켜기/끄기, 길게 눌러 모든 작업을 볼 수 있습니다. 구독이 참조하는 원격 스크립트와 규칙 세트는 함께 업데이트됩니다."
           }
         },
         "ru": {
           "stringUnit": {
             "state": "translated",
-            "value": "Модули Surge, плагины Loon, QX rewrite_remote, переопределения Stash и модули Egern — всё это подписки; значок показывает формат. Нажмите, чтобы изменить; смахните вправо — обновить, влево — удалить; переключатель включает и выключает; долгое нажатие — все действия. Удалённые скрипты и наборы правил подписки обновляются вместе с ней, а по отдельности — в «Ещё → Обновление ресурсов»."
+            "value": "Модули Surge, плагины Loon, QX rewrite_remote, переопределения Stash и модули Egern — всё это подписки; значок показывает формат. Нажмите, чтобы изменить; смахните вправо — обновить, влево — удалить; переключатель включает и выключает; долгое нажатие — все действия. Удалённые скрипты и наборы правил подписки обновляются вместе с ней."
           }
         },
         "zh-Hant": {
           "stringUnit": {
             "state": "translated",
-            "value": "Surge 模組、Loon 外掛、QX 引用（rewrite_remote）、Stash 覆寫和 Egern 模組都是訂閱，角標顯示格式。輕點編輯；右滑更新，左滑刪除；開關啟用或關閉；長按檢視全部操作。訂閱引用的遠端腳本和規則集隨它一起更新，也可以在 更多 → 更新資源 裡單獨更新。"
+            "value": "Surge 模組、Loon 外掛、QX 引用（rewrite_remote）、Stash 覆寫和 Egern 模組都是訂閱，角標顯示格式。輕點編輯；右滑更新，左滑刪除；開關啟用或關閉；長按檢視全部操作。訂閱引用的遠端腳本和規則集隨它一起更新。"
           }
         }
       }
@@ -94385,36 +94385,36 @@
         }
       }
     },
-    "向右轻扫或按住某一项可以启用 / 停用。有更新时自动下载并应用到当前配置。": {
+    "向右轻扫或按住某一项可以启用 / 停用。有更新时自动下载并应用到当前配置。模块在 工具 → 模块 里更新，规则集在 规则 → 订阅 里更新。": {
       "localizations": {
         "zh-Hant": {
           "stringUnit": {
             "state": "translated",
-            "value": "向右輕掃或按住某一項可以啟用 / 停用。有更新時自動下載並套用到目前設定。"
+            "value": "向右輕掃或按住某一項可以啟用 / 停用。有更新時自動下載並套用到目前設定。模組在 工具 → 模組 裡更新，規則集在 規則 → 訂閱 裡更新。"
           }
         },
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "Swipe right or touch and hold an item to enable / disable it. Updates are downloaded and applied to the current profile automatically."
+            "value": "Swipe right or touch and hold an item to enable / disable it. Updates are downloaded and applied to the current profile automatically. Modules update in Tools → Modules, rule sets in Rules → Subscriptions."
           }
         },
         "ja": {
           "stringUnit": {
             "state": "translated",
-            "value": "項目を右にスワイプまたは長押しで有効 / 無効を切り替えられます。更新は自動でダウンロードされ、現在のプロファイルに適用されます。"
+            "value": "項目を右にスワイプまたは長押しで有効 / 無効を切り替えられます。更新は自動でダウンロードされ、現在のプロファイルに適用されます。モジュールは ツール → モジュール、ルールセットは ルール → 購読 で更新します。"
           }
         },
         "ko": {
           "stringUnit": {
             "state": "translated",
-            "value": "항목을 오른쪽으로 쓸거나 길게 눌러 사용 / 사용 안 함을 전환합니다. 업데이트는 자동으로 내려받아 현재 프로파일에 적용됩니다."
+            "value": "항목을 오른쪽으로 쓸거나 길게 눌러 사용 / 사용 안 함을 전환합니다. 업데이트는 자동으로 내려받아 현재 프로파일에 적용됩니다. 모듈은 도구 → 모듈에서, 규칙 세트는 규칙 → 구독에서 업데이트합니다."
           }
         },
         "ru": {
           "stringUnit": {
             "state": "translated",
-            "value": "Смахните вправо или удерживайте элемент, чтобы включить / выключить его. Обновления загружаются и применяются к текущему профилю автоматически."
+            "value": "Смахните вправо или удерживайте элемент, чтобы включить / выключить его. Обновления загружаются и применяются к текущему профилю автоматически. Модули обновляются в «Инструменты → Модули», наборы правил — в «Правила → Подписки»."
           }
         }
       }

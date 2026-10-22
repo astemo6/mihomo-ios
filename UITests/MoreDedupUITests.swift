@@ -76,7 +76,7 @@ extension MihomoUITests {
         snap("dedup-backup")
         back()
 
-        // 更新资源: every remote resource with its own 更新 and 更新全部.
+        // 更新资源: node-related resources only (配置订阅 / 节点订阅) with their own 更新 and 更新全部.
         openMore("更新资源")
         XCTAssertTrue(app.navigationBars[L("更新资源")].waitForExistence(timeout: 5), "更新资源 page")
         XCTAssertTrue(app.element(id: "res.updateAll").waitForExistence(timeout: 4), "更新全部 button")

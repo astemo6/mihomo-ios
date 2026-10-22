@@ -1,16 +1,15 @@
 import SwiftUI
 
-// 更多 → 更新资源 (feat/more-dedup, user 2026-10-21 18:06, Egern-style): every remote resource in one list —
-// 配置订阅, 节点订阅, 模块, 规则集, 远程脚本 — each with its link, last update, failure and its own 更新, plus
-// 「更新全部」 in the toolbar. Each item still updates through its own store (ProfileStore / NodeSubStore /
-// ResourceStore), so nothing is downloaded differently from the pages that own them.
+// 更多 → 更新资源: node-related remote resources only — 配置订阅 and 节点订阅 (incl. the profile's own node sets) —
+// each with its link, last update, failure and its own 更新, plus 「更新全部」 in the toolbar.
+// User 2026-10-23: 「如果这里只是用来更新的，那还有必要搞这个吗？分配在不同的模块订阅，规则订阅里就行了。这里只放节点管理相关的」
+// — modules (and the scripts / rule sets they reference) update in 工具 → 模块, rule sets in 规则 → 订阅.
 
 struct UpdateResourcesView: View {
     @ObservedObject private var profiles = ProfileStore.shared
     @ObservedObject private var subs = NodeSubStore.shared
-    @ObservedObject private var res = ResourceStore.shared
-    // User 2026-10-22 「不要特别体现配置自带…直接展开」: the profile's own rule sets / node sets sit in the same
-    // 规则集 / 节点订阅 sections as the ones the user added, with no "from the profile" label.
+    // User 2026-10-22 「不要特别体现配置自带…直接展开」: the profile's own node sets sit in the same 节点订阅
+    // section as the ones the user added, with no "from the profile" label.
     @ObservedObject private var offline = ProfileInspector.shared
     @ObservedObject private var providers = ProviderUpdater.shared
     @ObservedObject private var vpn = VPNManager.shared
@@ -20,13 +19,6 @@ struct UpdateResourcesView: View {
     @State private var message: String?
 
     var remoteProfiles: [Profile] { profiles.profiles.filter { $0.kind == .remote } }
-    func items(_ kind: String) -> [ResourceItem] { res.items.filter { $0.kind == kind && $0.isRemote } }
-
-    /// The active profile's downloadable rule sets, minus the user's own (already listed as ResourceItems).
-    var profileRuleSets: [InspectProvider] {
-        let mine = Set(items("ruleset").map(\.url))
-        return offline.result.ruleProviders.filter { $0.vehicle == "http" && !mine.contains($0.url ?? "") }
-    }
 
     /// The active profile's downloadable node sets, minus the ones generated from the user's node subscriptions.
     var profileNodeSets: [InspectProvider] {
@@ -64,10 +56,10 @@ struct UpdateResourcesView: View {
 
     var body: some View {
         List {
-            if remoteProfiles.isEmpty && subs.subs.isEmpty && res.items.allSatisfy({ !$0.isRemote }) && profileRuleSets.isEmpty && profileNodeSets.isEmpty {
+            if remoteProfiles.isEmpty && subs.subs.isEmpty && profileNodeSets.isEmpty {
                 Section {
                     EmptyStateRow(icon: "arrow.triangle.2.circlepath", title: "没有远程资源",
-                                  message: "添加的订阅、远程模块、规则集和脚本会列在这里，可以逐个或一次全部更新。")
+                                  message: "添加的配置订阅和节点订阅会列在这里，可以逐个或一次全部更新。")
                 }
                 .listRowBackground(Theme.card)
             }
@@ -107,11 +99,8 @@ struct UpdateResourcesView: View {
                 } header: { Text("节点订阅 \(subs.subs.count + profileNodeSets.count)") }
                 .listRowBackground(Theme.card)
             }
-            resourceSection("module", symbol: "puzzlepiece.extension.fill", tone: .green) { Text("模块 \($0)") }
-            resourceSection("ruleset", symbol: "list.bullet.rectangle.fill", tone: .orange, extra: profileRuleSets) { Text("规则集 \($0)") }
-            resourceSection("script", symbol: "curlybraces", tone: .purple) { Text("脚本 \($0)") }
             Section {} footer: {
-                Text("向右轻扫或按住某一项可以启用 / 停用。有更新时自动下载并应用到当前配置。")
+                Text("向右轻扫或按住某一项可以启用 / 停用。有更新时自动下载并应用到当前配置。模块在 工具 → 模块 里更新，规则集在 规则 → 订阅 里更新。")
             }
         }
         .listStyle(.insetGrouped)
@@ -126,42 +115,13 @@ struct UpdateResourcesView: View {
                 }
             }
         }
-        .task { await res.reloadInBackground(); await offline.load() }
+        .task { await offline.load() }
         .alert("更新资源", isPresented: Binding(get: { message != nil }, set: { if !$0 { message = nil } })) {
             Button("好", role: .cancel) {}
         } message: { Text(message ?? "") }
     }
 
-    @ViewBuilder
-    func resourceSection(_ kind: String, symbol: String, tone: TileTone, extra: [InspectProvider] = [], header: @escaping (Int) -> Text) -> some View {
-        let list = items(kind)
-        if !list.isEmpty || !extra.isEmpty {
-            Section {
-                ForEach(list) { it in
-                    ResourceUpdateRow(kind: kind, name: it.name, url: it.url, symbol: symbol, tone: tone,
-                                      updated: it.updatedAt > 0 ? Date(timeIntervalSince1970: it.updatedAt) : nil,
-                                      error: it.error, disabled: !it.enabled,
-                                      owner: kind == "script" ? it.owner : nil,
-                                      busy: res.busy.contains(it.key) || res.updatingAll) {
-                        Task { await res.update(it); res.message = nil }
-                    }
-                    .enableActions(enabled: it.enabled, id: "\(kind).\(it.name)") { on in
-                        if kind == "module", let id = it.refId {
-                            // Same path as 工具 → 模块 (also turns the rewrite engine on when a module is enabled).
-                            EngineStore.shared.setModuleEnabled(id, on)
-                            res.reload()
-                        } else {
-                            res.setEnabled(it, on)
-                        }
-                    }
-                }
-                ForEach(extra) { p in providerRow(p, symbol: symbol, tone: tone) }
-            } header: { header(list.count + extra.count) }
-            .listRowBackground(Theme.card)
-        }
-    }
-
-    /// Profiles, then node subscriptions, then modules / rule sets / scripts (ResourceStore does modules first).
+    /// Profiles, then node subscriptions, then the profile's own node sets.
     func updateAll() async {
         updatingAll = true
         defer { updatingAll = false }
@@ -172,8 +132,7 @@ struct UpdateResourcesView: View {
             if e != nil { failed += 1 }
         }
         failed += await subs.refreshAll().count
-        await res.updateAll()
-        let sets = profileRuleSets + profileNodeSets
+        let sets = profileNodeSets
         // Review 0.19.18 S1: sets the core could not refresh are downloaded by the app in ONE batch, so the
         // tunnel reloads at most once (not once per failed set).
         var fallback: [String] = []
@@ -182,8 +141,6 @@ struct UpdateResourcesView: View {
             failed += await providers.updateAll(only: Set(fallback)).failed
         }
         if !sets.isEmpty { await offline.load() }
-        res.message = nil
-        failed += res.items.filter { $0.isRemote && $0.enabled && !($0.error ?? "").isEmpty }.count
         message = failed == 0 ? String(localized: "已全部更新") : String(localized: "\(failed) 项更新失败，详见列表")
     }
 }

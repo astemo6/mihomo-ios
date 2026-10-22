@@ -168,7 +168,13 @@ struct RulesView: View {
         .swipeActions(edge: .trailing) {
             Button(role: .destructive) { custom.rules.removeAll { $0.id == r.id }; custom.save() } label: { Label("删除", systemImage: "trash") }
         }
+        .contextMenu {
+            Button { Task { await updateCustom(url, provider: provider?.name) } } label: { Label("更新", systemImage: "arrow.clockwise") }
+            Button { UIPasteboard.general.string = url } label: { Label("复制链接", systemImage: "doc.on.doc") }
+        }
         .swipeActions(edge: .leading, allowsFullSwipe: false) {
+            Button { Task { await updateCustom(url, provider: provider?.name) } } label: { Label("更新", systemImage: "arrow.clockwise") }
+                .tint(Theme.good)
             let subset = custom.remoteRules
             if custom.canStepSubset(subset, r.id, by: 1) {
                 Button { withAnimation { custom.stepSubset(subset, r.id, by: 1) } } label: { Label("下移", systemImage: "arrow.down") }
@@ -251,7 +257,18 @@ struct RulesView: View {
         }
     }
 
+    /// A 订阅 the user added (user 2026-10-23: rule sets update here, not in 更多 → 更新资源): the app's own copy
+    /// (ResourceStore) first, then the core's provider when connected.
+    func updateCustom(_ url: String, provider: String?) async {
+        let res = ResourceStore.shared
+        if let it = res.items.first(where: { $0.kind == "ruleset" && $0.url == url }) { await res.update(it); res.message = nil }
+        if let provider { await update(provider) } else { await load() }
+    }
+
     func updateAll() async {
+        let res = ResourceStore.shared
+        for it in res.items where it.kind == "ruleset" && it.isRemote && it.enabled { await res.update(it) }
+        res.message = nil
         if vpn.isConnected {
             for p in liveProviders.values where p.vehicleType == "HTTP" { await update(p.name) }
         } else {
