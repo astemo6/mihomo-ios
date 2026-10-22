@@ -13,10 +13,19 @@ struct MoreView: View {
     /// publishes every second and rebuilt this list and every pushed page (LazyDestination closures are never
     /// equal) during push / pop.
     @AppStorage(TrafficScope.key, store: AppShared.defaults) private var scopeRaw = TrafficScope.all.rawValue
+    /// feat/more-search: the 实时活动与灵动岛 row's 开 / 关 value, read from the stored switch (not the controller).
+    @AppStorage(LiveActivityController.key, store: AppShared.defaults) private var liveOn = false
+    /// feat/more-search: Settings-app style search over SettingsSearchIndex.
+    @State private var query = ""
+    @State private var searchSheet: SearchDestination?
     /// r7 P3-9: 配置 is a value route, so 「添加配置」 / 「前往配置」 (ImportRouter.showProfiles) can replace the whole
     /// stack with [配置]. The old navigationDestination(isPresented:) pushed a second 配置 page on top of one the user
     /// had opened from this list, or over whatever deeper page was showing.
-    enum Route: Hashable { case profiles }
+    enum Route: Hashable {
+        case profiles
+        /// feat/more-search: a page opened from a search result.
+        case page(SearchDestination)
+    }
     @State private var path: [Route] = []
     /// False until the stack first appeared (a new MoreView, e.g. iPad's per-tab rebuild, starts with an empty stack).
     @State private var appeared = false
@@ -31,83 +40,27 @@ struct MoreView: View {
     var body: some View {
         NavigationStack(path: $path) {
             List {
-                // feat/more-dedup (user 2026-10-21 18:06): the 配置 tab is gone; 配置管理 is the first row here and the
-                // tool-type pages (节点与订阅, 规则, 模块, logs, network tools) are cards on the 工具 tab.
-                Section {
-                    NavigationLink(value: Route.profiles) {
-                        MoreRow(id: "配置", title: "配置", symbol: "doc.text.fill", tone: .blue,
-                                value: store.active?.displayName ?? String(localized: "未选择"), valueVerbatim: true)
-                    }
+                if !query.trimmingCharacters(in: .whitespaces).isEmpty {
+                    SettingsSearchResults(query: query, open: openSearchResult)
+                } else {
+                    sections
                 }
-                .listRowBackground(Theme.card)
-
-                Section("已保存数据") {
-                    NavigationLink { LazyDestination { StatsView() } } label: {
-                        MoreRow(id: "流量统计", title: "流量统计", symbol: "chart.bar.fill", tone: .red)
-                    }
-                    NavigationLink { LazyDestination { SnapshotsView() } } label: {
-                        MoreRow(id: "配置快照", title: "配置快照", symbol: "clock.arrow.circlepath", tone: .purple)
-                    }
-                    NavigationLink { LazyDestination { BackupView() } } label: {
-                        MoreRow(id: "备份与恢复", title: "备份与恢复", symbol: "externaldrive.badge.icloud", tone: .blue)
-                    }
-                    NavigationLink { LazyDestination { UpdateResourcesView() } } label: {
-                        MoreRow(id: "更新资源", title: "更新资源", subtitle: "订阅 · 模块 · 规则集 · 脚本", symbol: "arrow.triangle.2.circlepath", tone: .green)
-                    }
-                    NavigationLink { LazyDestination { StorageView() } } label: {
-                        MoreRow(id: "存储空间", title: "存储空间", symbol: "internaldrive", tone: .neutral)
-                    }
-                }
-                .listRowBackground(Theme.card)
-
-                Section("外观") {
-                    NavigationLink { LazyDestination { AppearanceView() } } label: {
-                        MoreRow(id: "外观", title: "深色与浅色", symbol: "circle.lefthalf.filled", tone: .accent)
-                    }
-                    if UIApplication.shared.supportsAlternateIcons {
-                        NavigationLink { LazyDestination { AppIconView() } } label: {
-                            MoreRow(id: "App 图标", title: "App 图标", symbol: "app.badge", tone: .orange)
-                        }
-                    }
-                    NavigationLink { LazyDestination { LaunchTabView() } } label: {
-                        MoreRow(id: "开始标签页", title: "开始标签页", symbol: "rectangle.stack", tone: .green, value: (AppSection(rawValue: launchRaw) ?? .home).title)
-                    }
-                    NavigationLink { LazyDestination { TrafficScopeView() } } label: {
-                        MoreRow(id: "首页流量统计", title: "首页流量统计", symbol: "arrow.up.arrow.down", tone: .teal, value: (TrafficScope(rawValue: scopeRaw) ?? .all).title)
-                    }
-                }
-                .listRowBackground(Theme.card)
-
-                Section {
-                    NavigationLink { LazyDestination { AdvancedSettingsView() } } label: {
-                        MoreRow(id: "高级设置", title: "高级设置", subtitle: "连接方式 · 内核 · 测速", symbol: "gearshape.2", tone: .neutral)
-                    }
-                } header: { Text("高级") }
-                .listRowBackground(Theme.card)
-
-                Section("帮助") {
-                    Button { showOnboarding = true } label: {
-                        MoreRow(id: "新手引导", title: "新手引导", symbol: "sparkles", tone: .accent)
-                    }
-                    .foregroundStyle(.primary)
-                    NavigationLink { LazyDestination { DiagnosticsView() } } label: {
-                        MoreRow(id: "诊断", title: "诊断与反馈", symbol: "waveform.path.ecg", tone: .red,
-                                value: AppShared.containerOK ? nil : "共享容器异常", valueColor: Theme.bad)
-                    }
-                    NavigationLink { LazyDestination { AboutView() } } label: {
-                        MoreRow(id: "关于 / 开源许可", title: "关于", symbol: "info.circle", tone: .neutral)
-                    }
-                }
-                .listRowBackground(Theme.card)
             }
             .listStyle(.insetGrouped)
             .scrollContentBackground(.hidden)
             .background(Theme.bg.ignoresSafeArea())
             .navigationTitle("更多")
+            .searchable(text: $query, placement: .navigationBarDrawer(displayMode: .always), prompt: Text("搜索功能和设置"))
+            .autocorrectionDisabled()
+            .textInputAutocapitalization(.never)
             .navigationDestination(for: Route.self) { r in
                 switch r {
                 case .profiles: ProfilesView()
+                case .page(let d): d.page
                 }
+            }
+            .sheet(item: $searchSheet) { d in
+                d.page.environmentObject(vpn).environmentObject(store)
             }
             .fullScreenCover(isPresented: $showOnboarding) {
                 OnboardingView { showOnboarding = false }
@@ -121,6 +74,93 @@ struct MoreView: View {
             appeared = true
         }
         .onChange(of: router.openProfiles) { _ in showProfilesIfAsked() }
+    }
+
+    /// feat/more-search: open a result — push onto this stack, present a sheet, or switch tab.
+    func openSearchResult(_ d: SearchDestination) {
+        switch d.presentation {
+        case .push: path.append(d == .profiles ? .profiles : .page(d))
+        case .sheet: searchSheet = d
+        case .tab(let t): router.selectedTab = t
+        case .onboarding: showOnboarding = true
+        case .systemSettings:
+            if let u = URL(string: UIApplication.openSettingsURLString) { UIApplication.shared.open(u) }
+        }
+    }
+
+    @ViewBuilder var sections: some View {
+        // feat/more-dedup (user 2026-10-21 18:06): the 配置 tab is gone; 配置管理 is the first row here and the
+        // tool-type pages (节点与订阅, 规则, 模块, logs, network tools) are cards on the 工具 tab.
+        Section {
+            NavigationLink(value: Route.profiles) {
+                MoreRow(id: "配置", title: "配置", symbol: "doc.text.fill", tone: .blue,
+                        value: store.active?.displayName ?? String(localized: "未选择"), valueVerbatim: true)
+            }
+        }
+        .listRowBackground(Theme.card)
+
+        Section("已保存数据") {
+            NavigationLink { LazyDestination { StatsView() } } label: {
+                MoreRow(id: "流量统计", title: "流量统计", symbol: "chart.bar.fill", tone: .red)
+            }
+            NavigationLink { LazyDestination { SnapshotsView() } } label: {
+                MoreRow(id: "配置快照", title: "配置快照", symbol: "clock.arrow.circlepath", tone: .purple)
+            }
+            NavigationLink { LazyDestination { BackupView() } } label: {
+                MoreRow(id: "备份与恢复", title: "备份与恢复", symbol: "externaldrive.badge.icloud", tone: .blue)
+            }
+            NavigationLink { LazyDestination { UpdateResourcesView() } } label: {
+                MoreRow(id: "更新资源", title: "更新资源", subtitle: "订阅 · 模块 · 规则集 · 脚本", symbol: "arrow.triangle.2.circlepath", tone: .green)
+            }
+            NavigationLink { LazyDestination { StorageView() } } label: {
+                MoreRow(id: "存储空间", title: "存储空间", symbol: "internaldrive", tone: .neutral)
+            }
+        }
+        .listRowBackground(Theme.card)
+
+        Section("外观") {
+            NavigationLink { LazyDestination { AppearanceView() } } label: {
+                MoreRow(id: "外观", title: "深色与浅色", symbol: "circle.lefthalf.filled", tone: .accent)
+            }
+            NavigationLink { LazyDestination { LiveActivitySettingsView() } } label: {
+                MoreRow(id: "实时活动", title: "实时活动与灵动岛", symbol: "platter.filled.top.iphone", tone: .purple,
+                        value: liveOn ? "开" : "关")
+            }
+            if UIApplication.shared.supportsAlternateIcons {
+                NavigationLink { LazyDestination { AppIconView() } } label: {
+                    MoreRow(id: "App 图标", title: "App 图标", symbol: "app.badge", tone: .orange)
+                }
+            }
+            NavigationLink { LazyDestination { LaunchTabView() } } label: {
+                MoreRow(id: "开始标签页", title: "开始标签页", symbol: "rectangle.stack", tone: .green, value: (AppSection(rawValue: launchRaw) ?? .home).title)
+            }
+            NavigationLink { LazyDestination { TrafficScopeView() } } label: {
+                MoreRow(id: "首页流量统计", title: "首页流量统计", symbol: "arrow.up.arrow.down", tone: .teal, value: (TrafficScope(rawValue: scopeRaw) ?? .all).title)
+            }
+        }
+        .listRowBackground(Theme.card)
+
+        Section {
+            NavigationLink { LazyDestination { AdvancedSettingsView() } } label: {
+                MoreRow(id: "高级设置", title: "高级设置", subtitle: "连接方式 · 内核 · 测速", symbol: "gearshape.2", tone: .neutral)
+            }
+        } header: { Text("高级") }
+        .listRowBackground(Theme.card)
+
+        Section("帮助") {
+            Button { showOnboarding = true } label: {
+                MoreRow(id: "新手引导", title: "新手引导", symbol: "sparkles", tone: .accent)
+            }
+            .foregroundStyle(.primary)
+            NavigationLink { LazyDestination { DiagnosticsView() } } label: {
+                MoreRow(id: "诊断", title: "诊断与反馈", symbol: "waveform.path.ecg", tone: .red,
+                        value: AppShared.containerOK ? nil : "共享容器异常", valueColor: Theme.bad)
+            }
+            NavigationLink { LazyDestination { AboutView() } } label: {
+                MoreRow(id: "关于 / 开源许可", title: "关于", symbol: "info.circle", tone: .neutral)
+            }
+        }
+        .listRowBackground(Theme.card)
     }
 
     /// Exactly one 配置 page on top of 更多, whatever was pushed before.

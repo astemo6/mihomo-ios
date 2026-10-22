@@ -47,7 +47,6 @@ enum AppAppearance: String, CaseIterable, Identifiable {
 
 struct AppearanceView: View {
     @AppStorage(AppAppearance.key) private var raw = AppAppearance.system.rawValue
-    @ObservedObject private var live = LiveActivityController.shared
 
     var body: some View {
         List {
@@ -73,8 +72,24 @@ struct AppearanceView: View {
                 Text("跟随系统时随 iPhone 的浅色 / 深色外观切换。小组件始终跟随系统。")
             }
             .listRowBackground(Theme.card)
+        }
+        .listStyle(.insetGrouped)
+        .scrollContentBackground(.hidden)
+        .background(Theme.bg.ignoresSafeArea())
+        .navigationTitle("外观")
+        .navigationBarTitleDisplayMode(.inline)
+    }
+}
+
+/// feat/more-search (user couldn't find the switch under 深色与浅色): 更多 → 外观 → 实时活动与灵动岛, its own page.
+struct LiveActivitySettingsView: View {
+    @ObservedObject private var live = LiveActivityController.shared
+
+    var body: some View {
+        List {
             Section {
                 Toggle("实时活动与灵动岛", isOn: $live.enabled).tint(Theme.accent)
+                    .accessibilityIdentifier("liveActivity.toggle")
                 if live.enabled && !live.systemAllowed {
                     Text("系统设置中关闭了 Tern 的实时活动。").font(.caption).foregroundStyle(Theme.warn)
                 }
@@ -86,7 +101,7 @@ struct AppearanceView: View {
         .listStyle(.insetGrouped)
         .scrollContentBackground(.hidden)
         .background(Theme.bg.ignoresSafeArea())
-        .navigationTitle("外观")
+        .navigationTitle("实时活动")
         .navigationBarTitleDisplayMode(.inline)
     }
 }
