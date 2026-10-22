@@ -184,13 +184,22 @@ func colonHex(b []byte) string {
 }
 
 // Leaf returns (and caches) a certificate for host.
-func (ca *CA) Leaf(host string) (*tls.Certificate, error) {
+func (ca *CA) Leaf(host string) (*tls.Certificate, error) { return ca.LeafWithNames(host, nil) }
+
+// LeafWithNames is Leaf with extra DNS names in the certificate (v0.19.17): a client that reached an IP
+// without SNI (HTTPDNS apps such as 喜马拉雅 put the IP in the URL and check the certificate against
+// their own domain) gets a certificate that also covers the MitM hostname list's domains.
+func (ca *CA) LeafWithNames(host string, extra []string) (*tls.Certificate, error) {
 	host = strings.ToLower(strings.TrimSuffix(host, "."))
 	if host == "" {
 		host = "localhost"
 	}
+	key := host
+	if len(extra) > 0 {
+		key += "|" + strings.Join(extra, ",")
+	}
 	ca.mu.Lock()
-	if el, ok := ca.cache[host]; ok {
+	if el, ok := ca.cache[key]; ok {
 		ca.lru.MoveToFront(el)
 		c := el.Value.(*leafEntry).cert
 		ca.mu.Unlock()
@@ -217,13 +226,18 @@ func (ca *CA) Leaf(host string) (*tls.Certificate, error) {
 			tpl.DNSNames = append(tpl.DNSNames, "*"+host[i:])
 		}
 	}
+	for _, n := range extra {
+		if n != host {
+			tpl.DNSNames = append(tpl.DNSNames, n)
+		}
+	}
 	der, err := x509.CreateCertificate(rand.Reader, tpl, ca.Cert, &ca.leafKey.PublicKey, ca.Key)
 	if err != nil {
 		return nil, err
 	}
 	c := &tls.Certificate{Certificate: [][]byte{der, ca.DER}, PrivateKey: ca.leafKey}
 	ca.mu.Lock()
-	ca.cache[host] = ca.lru.PushFront(&leafEntry{host: host, cert: c})
+	ca.cache[key] = ca.lru.PushFront(&leafEntry{host: key, cert: c})
 	for ca.lru.Len() > ca.max {
 		el := ca.lru.Back()
 		ca.lru.Remove(el)

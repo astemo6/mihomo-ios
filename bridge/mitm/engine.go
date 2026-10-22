@@ -480,6 +480,12 @@ func (e *Engine) interceptTLS(st *state, mc *metaConn, target string) {
 			name := hello.ServerName
 			if name == "" {
 				name = host
+				if net.ParseIP(host) != nil {
+					// v0.19.17: no SNI to an IP (HTTPDNS apps put the IP in the URL and verify the
+					// certificate against their domain): cover the MitM hostname list's domains too.
+					certSent.Store(true)
+					return st.ca.LeafWithNames(name, st.hosts.CertNames())
+				}
 			} else if net.ParseIP(host) != nil {
 				// CONNECT carried an IP (no domain known): use SNI for matching and the URL.
 				mc.meta.host = name
