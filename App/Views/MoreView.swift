@@ -49,10 +49,10 @@ struct MoreView: View {
             .listStyle(.insetGrouped)
             .scrollContentBackground(.hidden)
             .background(Theme.bg.ignoresSafeArea())
-            .navigationTitle("更多")
             .searchable(text: $query, placement: .navigationBarDrawer(displayMode: .always), prompt: Text("搜索功能和设置"))
             .autocorrectionDisabled()
             .textInputAutocapitalization(.never)
+            .tabRootChrome("更多")
             .navigationDestination(for: Route.self) { r in
                 switch r {
                 case .profiles: ProfilesView()

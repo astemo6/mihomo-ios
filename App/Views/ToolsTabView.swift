@@ -191,7 +191,7 @@ struct ToolsList: View {
         .listStyle(.insetGrouped)
         .scrollContentBackground(.hidden)
         .background(Theme.bg.ignoresSafeArea())
-        .navigationTitle("工具")
+        .tabRootChrome("工具")
         .onAppear { Task { await refresh() } }
         .task {
             // The offline node / rule counts come from the profile inspector; load it once if nothing did yet.

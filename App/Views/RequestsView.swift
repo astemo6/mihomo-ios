@@ -200,7 +200,7 @@ struct RequestsView: View {
                 }
             }
             .background(Theme.bg.ignoresSafeArea())
-            .navigationTitle("请求")
+            .tabRootChrome("请求")
             .toolbar {
                 ToolbarItemGroup(placement: .navigationBarTrailing) {
                     PauseToggleButton(paused: $model.paused, id: "requests.pause")
