@@ -21,7 +21,7 @@ extension MihomoUITests {
         _ = place.waitForExistence(timeout: 8)
         snap("tabtop-0-home")
         if place.exists { tops["home"] = place.frame.minY }
-        let power = app.element(id: "home.power")
+        let powerShown = app.element(id: "home.power").exists
         let placeTop = place.exists ? place.frame.minY : -1
         for _ in 0..<2 { app.swipeUp(velocity: .slow) }
         usleep(500_000)
@@ -48,17 +48,26 @@ extension MihomoUITests {
                 "-UIPreferredContentSizeCategoryName", "UICTContentSizeCategoryAccessibilityL"])
         _ = app.element(id: "home.exit.place").waitForExistence(timeout: 8)
         snap("tabtop-0-home-xl")
+        // Long enough to scroll at this size: the header stays, cards pass under its material + hairline.
+        let xlTop = app.element(id: "home.exit.place").frame.minY
+        for _ in 0..<2 { app.swipeUp(velocity: .slow) }
+        usleep(500_000)
+        snap("tabtop-0-home-xl-scrolled")
+        let xlTopScrolled = app.element(id: "home.exit.place").frame.minY
         tab(2)
         usleep(700_000)
         snap("tabtop-2-requests-xl")
 
         // Checks after all screenshots (the same test also documents the old layout).
         XCTAssertTrue(place.exists || tops["home"] != nil, "pinned exit header on 首页")
-        XCTAssertTrue(power.exists || app.element(id: "home.power").exists, "VPN switch in the header")
+        XCTAssertTrue(powerShown, "VPN switch in the header")
+        XCTAssertEqual(xlTop, xlTopScrolled, accuracy: 1, "Home header does not scroll away (large text)")
         XCTAssertEqual(placeTop, placeTopScrolled, accuracy: 1, "Home header does not scroll away")
         for n in ["policy", "requests", "tools", "more"] {
             XCTAssertNotNil(barHeights[n], "\(n): navigation bar")
-            if let h = barHeights[n] { XCTAssertLessThan(h, 60, "\(n): no large title (bar \(h) pt)") }
+            // 44 pt row; 请求 also carries its search drawer (~52 pt) under the row. A large title would add ~52 more.
+            let limit: CGFloat = n == "requests" ? 110 : 60
+            if let h = barHeights[n] { XCTAssertLessThan(h, limit, "\(n): no large title (bar \(h) pt)") }
         }
         let values = tops.values
         if let lo = values.min(), let hi = values.max() {
