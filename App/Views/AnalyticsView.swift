@@ -395,24 +395,42 @@ struct HostBarRow: View {
 }
 
 struct RuleHitsList: View {
+    /// feat/home-drill-egern (P1): the Home rule ring that opened this page (RuleHit.id). Its row is scrolled into view
+    /// and tinted; every row still opens its own connections.
+    var focus: String? = nil
     /// feat/home-drilldown: the source Home reads (the UI-test demo instance under -UITestDemoAnalytics), copied every 2 s
     /// while the page is on screen instead of observing the session store.
     @State private var list: [ConnectionAnalytics.RuleHit] = []
+    @State private var scrolled = false
     var body: some View {
-        List(list) { r in
-            // feat/home-drilldown: each rule opens 连接 filtered by it (and the policy it chose).
-            NavigationLink { ConnectionsListView(filter: ConnFilter(rules: [r.rule], policies: [r.policy])) } label: {
-                HStack {
-                    VStack(alignment: .leading, spacing: 2) {
-                        Text(r.rule).font(.footnote.monospaced()).lineLimit(2)
-                        Text(r.policy).font(.caption2).foregroundStyle(.secondary)
+        ScrollViewReader { proxy in
+            List {
+                if list.isEmpty {
+                    EmptyStateRow(icon: "target", title: "还没有命中记录").listRowBackground(Theme.card)
+                }
+                ForEach(list) { r in
+                    // feat/home-drilldown: each rule opens 连接 filtered by it (and the policy it chose).
+                    NavigationLink { ConnectionsListView(filter: ConnFilter(rules: [r.rule], policies: [r.policy])) } label: {
+                        HStack {
+                            VStack(alignment: .leading, spacing: 2) {
+                                Text(r.rule).font(.footnote.monospaced()).lineLimit(2)
+                                Text(r.policy).font(.caption2).foregroundStyle(.secondary)
+                            }
+                            Spacer()
+                            Text("\(r.hits)").font(.subheadline.weight(.semibold).monospacedDigit())
+                        }
                     }
-                    Spacer()
-                    Text("\(r.hits)").font(.subheadline.weight(.semibold).monospacedDigit())
+                    .listRowBackground(r.id == focus ? Theme.accent.opacity(0.14) : Theme.card)
+                    .accessibilityIdentifier("rulehits.row.\(r.rule).\(r.policy)")
+                    .id(r.id)
                 }
             }
-            .listRowBackground(Theme.card)
-            .accessibilityIdentifier("rulehits.row")
+            .onChange(of: list.count) { _ in
+                // Once, when the list first arrives: bring the tapped ring's rule on screen.
+                guard !scrolled, let f = focus, list.contains(where: { $0.id == f }) else { return }
+                scrolled = true
+                DispatchQueue.main.async { proxy.scrollTo(f, anchor: .center) }
+            }
         }
         .task {
             while !Task.isCancelled {

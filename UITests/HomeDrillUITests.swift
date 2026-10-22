@@ -1,6 +1,8 @@
 import XCTest
 
 /// feat/home-drilldown (user 2026-10-22 「空有其表」): every Home card opens a real page, like Egern's 分析.
+/// feat/home-drill-egern (P1): 策略 / 规则 / 主机名 open their overview list first (策略流量 / 规则命中 / 主机名), a row
+/// opens the filtered 连接, a connection its detail — the same hierarchy as Egern.
 /// Demo data: -UITestDemoAnalytics (synthetic ConnectionAnalytics, example.* hosts: 20 open + 99 closed connections,
 /// a synthetic 网络 sample stretch with one gap); -UITestDemoExitIP for the 出口 IP tile.
 extension MihomoUITests {
@@ -88,7 +90,10 @@ extension MihomoUITests {
         snap("drill-08-stats")
         back()
 
-        // 策略 → 策略流量 → one policy's connections.
+        // P1 (Egern's hierarchy): every analysis card opens its overview list first; only a row of that list opens
+        // the filtered connections, and a connection opens its detail. Home → overview → connections → detail.
+
+        // 策略 → 策略流量 → one policy's connections → detail.
         let pol = app.element(id: "home.analysis.policies")
         XCTAssertTrue(scrollTo(pol), "策略 card")
         pol.tap()
@@ -101,24 +106,46 @@ extension MihomoUITests {
         XCTAssertEqual(chipValue("connlist.chip.policies"), "1", "filtered by the policy")
         XCTAssertTrue(app.element(id: "connlist.row").waitForExistence(timeout: 6), "Proxy connections")
         snap("drill-10-policy-connections")
-        back(); back()
+        app.element(id: "connlist.row").tap()
+        XCTAssertTrue(app.element(id: "conndetail.tabs").waitForExistence(timeout: 6), "policy → connection detail")
+        back(); back(); back()
 
-        // 规则 ring → 连接 filtered by that rule; the rule sheet shows 「已选择 1 项」.
+        // 规则 ring → 规则命中 (never the connections straight away) → that rule's connections → detail.
         let ring = app.buttons.matching(NSPredicate(format: "label CONTAINS %@", "GeoIP(CN)")).firstMatch
         XCTAssertTrue(scrollTo(ring), "GeoIP rule ring")
         ring.tap()
-        assertNavBar(L("连接"), "rule ring")
+        assertNavBar(L("规则命中"), "rule ring opens the rule overview")
+        XCTAssertFalse(app.element(id: "connlist.chip.rules").exists, "rule ring must not jump straight to 连接")
+        let ruleRow = app.element(id: "rulehits.row.GeoIP(CN).DIRECT")
+        XCTAssertTrue(ruleRow.waitForExistence(timeout: 6), "GeoIP(CN) row in 规则命中")
+        snap("drill-11-rule-hits")
+        ruleRow.tap()
+        assertNavBar(L("连接"), "rule row")
         XCTAssertEqual(chipValue("connlist.chip.rules"), "1", "filtered by the rule")
         XCTAssertTrue(app.element(id: "connlist.row").waitForExistence(timeout: 6), "rule connections")
-        snap("drill-11-rule-connections")
+        snap("drill-11b-rule-connections")
         app.element(id: "connlist.chip.rules").tap()
         let picked = L10n.f("已选择 %lld 项", 1)
         XCTAssertTrue(app.navigationBars[picked].waitForExistence(timeout: 5), "rule sheet 「\(picked)」")
         snap("drill-12-rule-sheet")
         closeSheet()
-        back()
+        let ruleConn = app.element(id: "connlist.row")
+        XCTAssertTrue(ruleConn.waitForExistence(timeout: 6), "rule connections after the sheet")
+        ruleConn.tap()
+        XCTAssertTrue(app.element(id: "conndetail.tabs").waitForExistence(timeout: 6), "rule → connection detail")
+        back(); back(); back()
 
-        // 主机名 → 主机名 (↑↓) → one host's connections.
+        // The 规则 title row opens the same overview (the collapse chevron keeps its own small button).
+        let rulesTitle = app.element(id: "home.analysis.header.rules.open")
+        if scrollTo(rulesTitle, fail: false) {
+            rulesTitle.tap()
+            assertNavBar(L("规则命中"), "规则 title row")
+            back()
+        } else {
+            issues.append("[\(Env.tag)] 规则 title link not found")
+        }
+
+        // 主机名 → 主机名 (↑↓) → one host's connections → detail.
         let hosts = app.element(id: "home.analysis.hosts")
         XCTAssertTrue(scrollTo(hosts), "主机名 card")
         hosts.tap()
@@ -131,7 +158,9 @@ extension MihomoUITests {
         XCTAssertTrue(app.element(id: "connlist.chip.host").waitForExistence(timeout: 4), "host chip")
         XCTAssertTrue(app.element(id: "connlist.row").waitForExistence(timeout: 6), "host connections")
         snap("drill-14-host-connections")
-        back(); back()
+        app.element(id: "connlist.row").tap()
+        XCTAssertTrue(app.element(id: "conndetail.tabs").waitForExistence(timeout: 6), "host → connection detail")
+        back(); back(); back()
 
         // DNS → DNS 日志.
         let dns = app.element(id: "home.analysis.dns")
