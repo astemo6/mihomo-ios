@@ -26,7 +26,6 @@ struct NodeManagerView: View {
     @State private var confirmDeleteProfile: Profile?
     @State private var editingProfile: Profile?
     @State private var editingSub: NodeSubscription?
-    @State private var rulesFor: RulesTarget?
     @State private var showAddSub = false
     @State private var showAddRemote = false
     @State private var showAddNode = false
@@ -34,30 +33,16 @@ struct NodeManagerView: View {
     /// feat/subs-split: 节点集 (profile proxy-provider) actions.
     @State private var confirmDeleteProvider: ProviderTarget?
     @State private var editingProvider: ProviderTarget?
-    @State private var iconTarget: IconTarget?
     /// r7 OPT-2: per-row file / defaults reads (cache file present, usage alerts on), refreshed when the lists change
     /// or a sheet closes — not on every redraw (each delay result during 全部测速 redraws this page).
     @State private var downloadedSubs: Set<String> = []
     @State private var alertIDs: Set<String> = []
+    /// The last 更新 error of each config subscription (Profile keeps no error), shown on its row until the next try.
+    @State private var profileErrors: [String: String] = [:]
 
     struct ProviderTarget: Identifiable {
         let name: String
         var id: String { name }
-    }
-
-    struct IconTarget: Identifiable {
-        let id: String
-        let title: String
-        let current: String?
-        let apply: (String?) -> Void
-    }
-
-    struct RulesTarget: Identifiable {
-        let id = UUID()
-        let profile: Profile
-        var key: String? = nil
-        var path: String? = nil
-        var title: String
     }
 
     var manualActive: Bool { store.activeID == ProfileStore.manualID }
@@ -159,7 +144,7 @@ struct NodeManagerView: View {
                 }
                 ForEach(configRows) { r in subscriptionRow(r) }
             } header: { Text("配置订阅 \(configRows.count)") } footer: {
-                if !configRows.isEmpty { Text("轻点切换为当前配置。右滑更新；左滑删除或停用；长按查看更多操作。") }
+                if !configRows.isEmpty { Text("轻点编辑；右滑更新，左滑删除；开关启用或关闭；长按查看全部操作。") }
             }
             .listRowBackground(Theme.card)
 
@@ -178,7 +163,7 @@ struct NodeManagerView: View {
                     .accessibilityIdentifier("provider.restoreDeleted")
                 }
             } header: { Text("节点订阅 \(nodeRows.count)") } footer: {
-                if !nodeRows.isEmpty { Text("右滑更新；左滑复制链接；长按查看更多操作。") }
+                if !nodeRows.isEmpty { Text("轻点编辑；右滑更新，左滑删除；开关启用或关闭；长按查看全部操作。") }
             }
             .listRowBackground(Theme.card)
 
@@ -306,28 +291,29 @@ struct NodeManagerView: View {
         .onReceive(store.$profiles) { refreshRowMeta(profiles: $0) }
         .onChange(of: vpn.isConnected) { _ in Task { await model.reload() } }
         .sheet(isPresented: $showAddSub, onDismiss: { refreshRowMeta(); Task { await model.reload() } }) { NodeSubEditor(sub: nil).environmentObject(store) }
-        .sheet(item: $editingSub, onDismiss: { refreshRowMeta(); Task { await model.reload() } }) { s in NodeSubEditor(sub: s).environmentObject(store) }
-        .sheet(item: $editingProfile, onDismiss: { refreshRowMeta() }) { p in ProfileSubEditor(profile: p).environmentObject(store) }
+        .sheet(item: $editingSub, onDismiss: { refreshRowMeta(); Task { await model.reload() } }) { s in
+            NodeSubSheet(sub: s) { d in Task { await nodeSubs.delete(d); await model.reload() } }
+                .environmentObject(store).environmentObject(vpn)
+        }
+        .sheet(item: $editingProfile, onDismiss: { refreshRowMeta() }) { p in
+            ProfileSubSheet(profile: p, nodes: p.id == store.activeID ? activeProfileSource.map { NodeListScope(title: p.displayName, sourceIDs: [$0.id]) } : nil) { d in
+                store.delete(d)
+            }
+            .environmentObject(store).environmentObject(vpn)
+        }
         .sheet(isPresented: $showAddRemote, onDismiss: {
             if let m = pendingMessage { pendingMessage = nil; message = m }
             Task { await ProfileInspector.shared.load(); await model.reload() }
         }) { AddRemoteSheet { msg in pendingMessage = msg }.environmentObject(store) }
-        .sheet(item: $rulesFor) { t in
-            NavigationStack {
-                SubscriptionRulesView(profile: t.profile, rulesKey: t.key, previewPath: t.path)
-                    .toolbar { ToolbarItem(placement: .cancellationAction) { Button("取消") { rulesFor = nil } } }
-            }
-            .environmentObject(store)
-        }
         .alert("提示", isPresented: Binding(get: { message != nil }, set: { if !$0 { message = nil } })) {
             Button("好", role: .cancel) {}
         } message: { Text(message ?? "") }
-        .sheet(item: $iconTarget) { t in IconPickerSheet(title: t.title, current: t.current) { v in t.apply(v) } }
         .sheet(item: $editingProvider) { t in
             if let id = store.activeID {
-                ProviderEditSheet(profileID: id, info: providerOV.declared.first { $0.name == t.name } ?? ProfileProviderInfo(name: t.name, vehicle: "")) {
-                    await applyProviderChange()
-                }
+                ProviderSubSheet(profileID: id, info: providerOV.declared.first { $0.name == t.name } ?? ProfileProviderInfo(name: t.name, vehicle: httpProviders[t.name] == nil ? "" : "http", url: httpProviders[t.name]?.url),
+                                 status: providerStatus(t.name, model.sources.first { $0.kind == .provider && $0.name == t.name }),
+                                 onDelete: { SnapshotStore.shared.capture(String(localized: "删除节点集前")); store.activeID.map { pid in providerOV.update(pid, t.name) { $0.deleted = true } }; Task { await applyProviderChange() } },
+                                 onApply: { await applyProviderChange() })
             }
         }
         .deleteConfirmation({ t in Text("删除节点集「\(t.name)」？") }, item: $confirmDeleteProvider,
@@ -360,7 +346,9 @@ struct NodeManagerView: View {
     }
 
     func refreshProfile(_ p: Profile) async {
-        if let e = await store.refresh(p) { message = String(localized: "更新失败：\(e)") }
+        let e = await store.refresh(p)
+        profileErrors[p.id] = e
+        if let e { message = String(localized: "更新失败：\(e)") }
         await ProfileInspector.shared.load()
         await model.reload()
     }
@@ -376,13 +364,6 @@ struct NodeManagerView: View {
     func toggleProfile(_ p: Profile) {
         let cur = store.profiles.first { $0.id == p.id } ?? p
         if let e = store.setEnabled(cur, !cur.enabled) { message = e }
-    }
-
-    func activate(_ p: Profile) async {
-        if let block = store.activationBlock(p) { message = block; return }
-        if let e = await store.setActive(p) { message = String(localized: "已切换，但重载失败：\(e)") }
-        await ProfileInspector.shared.load()
-        await model.reload()
     }
 
     /// feat/subs-split: 停用 / 启用 a 节点集 of the current profile (override store; reversible).
@@ -430,59 +411,47 @@ struct NodeManagerView: View {
         case .profile(let p):
             profileRow(p)
         case .nodeSub(let sub):
-            let src = model.source(subID: sub.id)
-            NavigationLink {
-                NodeListView(scope: NodeListScope(title: sub.name, sourceIDs: [src?.id ?? NodeSource(kind: .subscription, name: sub.name, subID: sub.id).id],
-                                                  emptyTitle: sub.enabled ? String(localized: "还没有节点") : String(localized: "订阅已停用"),
-                                                  emptyMessage: sub.enabled ? (sub.lastError ?? String(localized: "更新订阅后显示节点。")) : String(localized: "启用订阅后，节点会加入配置。"),
-                                                  subID: sub.id))
-            } label: {
-                SubscriptionRowLabel(icon: "tray.full", color: Theme.good, name: sub.name, kind: String(localized: "节点订阅"),
-                                     count: src.map(model.count) ?? sub.count ?? 0, info: sub.userInfo, updated: sub.lastUpdated,
-                                     error: sub.lastError, updating: nodeSubs.updating.contains(sub.id), disabled: !sub.enabled,
-                                     downloaded: downloadedSubs.contains(sub.id),
-                                     alerts: alertIDs.contains(sub.id), customIcon: sub.icon)
-            }
-            .accessibilityIdentifier("nodesub.row." + sub.name)
-            // right swipe 更新
-            .swipeActions(edge: .leading) {
-                Button { Task { await refreshSub(sub) } } label: { Label("更新", systemImage: "arrow.clockwise") }
-                    .tint(.blue)
-                    .disabled(!sub.enabled || nodeSubs.updating.contains(sub.id))
-            }
-            // feat/subs-split (user 11:55): left swipe = 复制链接 only; 禁用 / 删除 live in the long-press menu.
-            .swipeActions(edge: .trailing) {
-                Button { UIPasteboard.general.string = sub.url } label: { Label("复制链接", systemImage: "doc.on.doc") }.tint(.gray)
-            }
-            .contextMenu {
-                Section {
-                    Button { iconTarget = IconTarget(id: "sub:" + sub.id, title: sub.name, current: sub.icon) { v in nodeSubs.setIcon(sub.id, v?.isEmpty == true ? nil : v) } } label: {
-                        Label("图标", systemImage: "photo")
-                    }
-                    Button { Task { await refreshSub(sub) } } label: { Label("更新", systemImage: "arrow.clockwise") }
-                        .disabled(!sub.enabled)
-                    Button { editingSub = sub } label: { Label("编辑", systemImage: "pencil") }
-                    if let p = store.active {
-                        Button { rulesFor = RulesTarget(profile: p, key: sub.rulesKey, path: sub.cacheURL.path, title: sub.name) } label: {
-                            Label("节点处理（过滤 / 重命名 / 排序）", systemImage: "line.3.horizontal.decrease.circle")
-                        }
-                    }
-                    Button { Task { await toggleSub(sub) } } label: {
-                        Label(LocalizedStringKey(sub.enabled ? "禁用" : "启用"), systemImage: sub.enabled ? "nosign" : "play.circle")
-                    }
-                    Button { UIPasteboard.general.string = sub.url } label: { Label("复制链接", systemImage: "doc.on.doc") }
-                }
-                Section {
-                    Button(role: .destructive) { confirmDeleteSub = sub } label: { Label("删除", systemImage: "trash") }
-                }
-            }
+            nodeSubRow(sub)
         case .provider(let name, let s):
             providerRow(name, s)
         }
     }
 
-    /// feat/subs-split: a 节点集 of the current profile, with the same actions as a node subscription. 停用 / 删除 /
-    /// 编辑 / 图标 go to the override store (provider-overrides.json); the profile file is never rewritten.
+    /// Unified subscription row (SubscriptionKit): switch = 启用, right 更新, left 删除, tap = edit sheet.
+    @ViewBuilder
+    func nodeSubRow(_ sub: NodeSubscription) -> some View {
+        let src = model.source(subID: sub.id)
+        let (usage, fraction) = SubscriptionStatus.usage(sub.userInfo)
+        let busy = nodeSubs.updating.contains(sub.id)
+        SubscriptionRow(id: "nodesub.row." + sub.name, icon: "tray.full", color: Theme.good, customIcon: sub.icon, name: sub.name,
+                        status: SubscriptionStatus(source: String(localized: "节点订阅"), updated: sub.lastUpdated,
+                                                   interval: sub.updateIntervalHours * 3600, error: sub.lastError, disabled: !sub.enabled,
+                                                   downloaded: downloadedSubs.contains(sub.id), usage: usage, usageFraction: fraction),
+                        count: src.map(model.count) ?? sub.count ?? 0, updating: busy,
+                        enabled: Binding(get: { sub.enabled }, set: { on in if on != sub.enabled { Task { await toggleSub(sub) } } }),
+                        onTap: { editingSub = sub }) {
+            if alertIDs.contains(sub.id) { Image(systemName: "bell.fill").font(.caption2).foregroundStyle(.secondary).accessibilityLabel(Text("用量提醒")) }
+        }
+        .subscriptionActions(SubscriptionActions(
+            update: sub.enabled && !busy ? { Task { await refreshSub(sub) } } : nil,
+            edit: { editingSub = sub }, url: sub.url,
+            enabled: sub.enabled, setEnabled: { _ in Task { await toggleSub(sub) } },
+            delete: { confirmDeleteSub = sub }))
+    }
+
+    /// A 节点集 of the current profile, with the same actions as a node subscription. 停用 / 删除 / 编辑 go to the
+    /// override store (provider-overrides.json); the profile file is never rewritten.
+    func providerStatus(_ name: String, _ s: NodeSource?) -> SubscriptionStatus {
+        let ov = providerOverrides[name] ?? ProviderOverride()
+        let disabled = ov.disabled == true
+        let declared = providerOV.declared.first { $0.name == name }
+        let count = s.map(model.count) ?? 0
+        let http = (declared?.vehicle ?? httpProviders[name]?.vehicle) == "http"
+        return SubscriptionStatus(source: String(localized: "节点集 · 来自配置"), remote: http, updated: s?.updatedAt,
+                                  interval: ov.interval ?? declared?.interval ?? 0, error: disabled ? nil : updater.errors["proxy:" + name],
+                                  disabled: disabled, downloaded: (s?.cached ?? false) || count > 0)
+    }
+
     @ViewBuilder
     func providerRow(_ name: String, _ s: NodeSource?) -> some View {
         let ov = providerOverrides[name] ?? ProviderOverride()
@@ -490,104 +459,43 @@ struct NodeManagerView: View {
         let pv = httpProviders[name]
         let declared = providerOV.declared.first { $0.name == name }
         let key = "proxy:" + name
-        let canUpdate = !disabled && pv != nil
-        let link = pv?.url ?? declared?.url
-        let title = providerTitle(name)
-        let count = s.map(model.count) ?? 0
-        NavigationLink {
-            NodeListView(scope: NodeListScope(title: title, sourceIDs: [s?.id ?? NodeSource(kind: .provider, name: name).id],
-                                              emptyTitle: disabled ? String(localized: "节点集已停用") : String(localized: "还没有下载"),
-                                              emptyMessage: disabled ? String(localized: "启用后，节点会重新加入配置。") : String(localized: "连接一次，或在「节点与订阅」里右滑更新后显示节点。")))
-        } label: {
-            SubscriptionRowLabel(icon: "shippingbox", color: Theme.warn, name: title, kind: String(localized: "节点集 · 来自配置"),
-                                 count: disabled ? nil : count, info: nil, updated: s?.updatedAt, error: disabled ? nil : updater.errors[key],
-                                 updating: updater.busy.contains(key), disabled: disabled, downloaded: (s?.cached ?? false) || count > 0,
-                                 customIcon: ov.icon)
-        }
-        .accessibilityIdentifier("provider.row." + name)
-        .swipeActions(edge: .leading) {
-            if canUpdate {
-                Button { Task { await updater.update(key); await model.reload() } } label: { Label("更新", systemImage: "arrow.clockwise") }.tint(.blue)
-            }
-        }
-        .swipeActions(edge: .trailing) {
-            if let link {
-                Button { UIPasteboard.general.string = link } label: { Label("复制链接", systemImage: "doc.on.doc") }.tint(.gray)
-            }
-        }
-        .contextMenu {
-            Section {
-                Button {
-                    iconTarget = IconTarget(id: "provider:" + name, title: title, current: ov.icon) { v in
-                        guard let id = store.activeID else { return }
-                        providerOV.update(id, name) { $0.icon = v?.isEmpty == true ? nil : v }
-                    }
-                } label: { Label("图标", systemImage: "photo") }
-                Button { Task { await updater.update(key); await model.reload() } } label: { Label("更新", systemImage: "arrow.clockwise") }
-                    .disabled(!canUpdate)
-                Button { editingProvider = ProviderTarget(name: name) } label: { Label("编辑", systemImage: "pencil") }
-                Button { Task { await toggleProvider(name) } } label: {
-                    Label(LocalizedStringKey(disabled ? "启用" : "禁用"), systemImage: disabled ? "play.circle" : "nosign")
-                }
-                if let link {
-                    Button { UIPasteboard.general.string = link } label: { Label("复制链接", systemImage: "doc.on.doc") }
-                }
-            }
-            Section {
-                Button(role: .destructive) { confirmDeleteProvider = ProviderTarget(name: name) } label: { Label("删除", systemImage: "trash") }
-            }
-        }
+        let canUpdate = !disabled && pv != nil && !updater.busy.contains(key)
+        let link = ov.url ?? pv?.url ?? declared?.url
+        SubscriptionRow(id: "provider.row." + name, icon: "shippingbox", color: Theme.warn, customIcon: ov.icon, name: providerTitle(name),
+                        status: providerStatus(name, s), count: disabled ? nil : (s.map(model.count) ?? 0),
+                        updating: updater.busy.contains(key),
+                        enabled: Binding(get: { !disabled }, set: { on in if on == disabled { Task { await toggleProvider(name) } } }),
+                        onTap: { editingProvider = ProviderTarget(name: name) })
+        .subscriptionActions(SubscriptionActions(
+            update: canUpdate ? { Task { await updater.update(key); await model.reload() } } : nil,
+            edit: { editingProvider = ProviderTarget(name: name) }, url: link,
+            enabled: !disabled, setEnabled: { _ in Task { await toggleProvider(name) } },
+            delete: { confirmDeleteProvider = ProviderTarget(name: name) }))
     }
 
-    /// A config subscription (remote profile). The active one opens its nodes; another one becomes the active
-    /// profile on tap (as 订阅管理 did). Device report v0.19.11 「只有右滑更新，左滑无反应」: this row had no trailing
-    /// swipe at all (only 更新); it now has 删除 / 停用 like every other subscription.
+    /// A config subscription (remote profile). The switch is its 停用 flag (the active profile can't be switched off);
+    /// 设为当前配置 is in the sheet (and in 更多 → 配置). Tap opens the sheet like every other subscription.
     @ViewBuilder
     func profileRow(_ p: Profile) -> some View {
         let active = p.id == store.activeID
-        let label = SubscriptionRowLabel(icon: "doc.text", color: Theme.accent, name: p.displayName, kind: String(localized: "配置订阅"),
-                                         count: count(.profile(p)), info: p.userInfo, updated: p.lastUpdated, error: nil,
-                                         updating: store.updating.contains(p.id), disabled: !p.enabled, downloaded: true,
-                                         active: active, alerts: alertIDs.contains(p.id))
-        Group {
-            if active, let src = activeProfileSource {
-                NavigationLink {
-                    NodeListView(scope: NodeListScope(title: p.displayName, sourceIDs: [src.id]))
-                } label: { label }
-            } else {
-                Button { Task { await activate(p) } } label: { label.contentShape(Rectangle()) }
-                    .buttonStyle(.plain)
-            }
+        let (usage, fraction) = SubscriptionStatus.usage(p.userInfo)
+        let busy = store.updating.contains(p.id)
+        SubscriptionRow(id: "subs.profile." + p.name, icon: "doc.text", color: Theme.accent, name: p.displayName,
+                        status: SubscriptionStatus(source: String(localized: "配置订阅"), updated: p.lastUpdated,
+                                                   interval: p.updateIntervalHours * 3600, error: profileErrors[p.id], disabled: !p.enabled,
+                                                   downloaded: true, usage: usage, usageFraction: fraction),
+                        count: count(.profile(p)), updating: busy,
+                        enabled: Binding(get: { p.enabled }, set: { on in if on != p.enabled { toggleProfile(p) } }),
+                        toggleDisabled: active && p.enabled,
+                        onTap: { editingProfile = p }) {
+            if active { Image(systemName: "checkmark.circle.fill").font(.caption).foregroundStyle(Theme.accent).accessibilityLabel(Text("当前配置")) }
+            if alertIDs.contains(p.id) { Image(systemName: "bell.fill").font(.caption2).foregroundStyle(.secondary).accessibilityLabel(Text("用量提醒")) }
         }
-        .accessibilityIdentifier("subs.profile." + p.name)
-        .swipeActions(edge: .leading) {
-            Button { Task { await refreshProfile(p) } } label: { Label("更新", systemImage: "arrow.clockwise") }
-                .tint(.blue)
-                .disabled(!p.enabled || store.updating.contains(p.id))
-        }
-        .swipeActions(edge: .trailing) {
-            Button(role: .destructive) { confirmDeleteProfile = p } label: { Label("删除", systemImage: "trash") }
-            Button { toggleProfile(p) } label: {
-                Label(LocalizedStringKey(p.enabled ? "停用" : "启用"), systemImage: p.enabled ? "pause.circle" : "play.circle")
-            }
-            .tint(p.enabled ? .orange : Theme.good)
-        }
-        .contextMenu {
-            if !active {
-                Button { Task { await activate(p) } } label: { Label("设为当前配置", systemImage: "checkmark.circle") }
-                    .disabled(!p.enabled)
-            }
-            Button { Task { await refreshProfile(p) } } label: { Label("更新订阅", systemImage: "arrow.clockwise") }
-                .disabled(!p.enabled)
-            Button { toggleProfile(p) } label: {
-                Label(LocalizedStringKey(p.enabled ? "停用" : "启用"), systemImage: p.enabled ? "pause.circle" : "play.circle")
-            }
-            .disabled(active && p.enabled)
-            Button { editingProfile = p } label: { Label("编辑链接 / 名称 / UA / 间隔", systemImage: "pencil") }
-            Button { rulesFor = RulesTarget(profile: p, title: p.name) } label: { Label("节点处理（过滤 / 重命名 / 排序）", systemImage: "line.3.horizontal.decrease.circle") }
-            Button { UIPasteboard.general.string = p.url } label: { Label("复制订阅链接", systemImage: "doc.on.doc") }
-            Button(role: .destructive) { confirmDeleteProfile = p } label: { Label("删除", systemImage: "trash") }
-        }
+        .subscriptionActions(SubscriptionActions(
+            update: p.enabled && !busy ? { Task { await refreshProfile(p) } } : nil,
+            edit: { editingProfile = p }, url: p.url,
+            enabled: p.enabled, setEnabled: { _ in toggleProfile(p) }, toggleDisabled: active && p.enabled,
+            delete: { confirmDeleteProfile = p }))
     }
 }
 
@@ -601,95 +509,5 @@ struct SourceIcon: View {
             .frame(width: 32, height: 32)
             .background(RoundedRectangle(cornerRadius: 9, style: .continuous).fill(color.opacity(0.15)))
             .accessibilityHidden(true)
-    }
-}
-
-/// One subscription: name, a status line (expiry + used / total, or n 小时前更新, or 下载失败), count.
-struct SubscriptionRowLabel: View {
-    let icon: String
-    let color: Color
-    let name: String
-    let kind: String
-    let count: Int?
-    let info: SubscriptionUserInfo?
-    let updated: Date?
-    let error: String?
-    let updating: Bool
-    let disabled: Bool
-    let downloaded: Bool
-    /// The active profile (config subscriptions only).
-    var active = false
-    var alerts = false
-    /// feat/subs-split: the user's 图标 (image URL, "sf:<symbol>" or emoji); nil = the kind's symbol.
-    var customIcon: String? = nil
-
-    var body: some View {
-        HStack(spacing: 12) {
-            if let c = customIcon, !c.isEmpty {
-                IconGlyph(value: c, size: 22)
-                    .frame(width: 32, height: 32)
-                    .background(RoundedRectangle(cornerRadius: 9, style: .continuous).fill(color.opacity(0.15)))
-                    .accessibilityHidden(true)
-            } else {
-                SourceIcon(systemName: icon, color: disabled ? .secondary : color)
-            }
-            VStack(alignment: .leading, spacing: 2) {
-                HStack(spacing: 4) {
-                    Text(verbatim: name).font(.subheadline.weight(.semibold)).lineLimit(1)
-                    if active { Image(systemName: "checkmark.circle.fill").font(.caption).foregroundStyle(Theme.accent).accessibilityLabel(Text("当前配置")) }
-                    if alerts { Image(systemName: "bell.fill").font(.caption2).foregroundStyle(.secondary).accessibilityLabel(Text("用量提醒")) }
-                }
-                status.font(.caption).lineLimit(1)
-                if let info, info.total > 0 {
-                    ProgressView(value: info.fraction)
-                        .tint(info.fraction > 0.9 ? Theme.bad : info.fraction > 0.75 ? Theme.warn : Theme.accent)
-                        .scaleEffect(x: 1, y: 0.6, anchor: .center)
-                }
-            }
-            Spacer(minLength: 6)
-            if updating {
-                ProgressView().controlSize(.small)
-            } else if let count {
-                Text(verbatim: "\(count)").font(.subheadline.monospacedDigit()).foregroundStyle(.secondary)
-            }
-        }
-        .opacity(disabled ? 0.6 : 1)
-    }
-
-    static let bytes: ByteCountFormatter = {
-        let f = ByteCountFormatter()
-        f.countStyle = .binary
-        return f
-    }()
-
-    static let relative: RelativeDateTimeFormatter = {
-        let f = RelativeDateTimeFormatter()
-        f.unitsStyle = .short
-        return f
-    }()
-
-    @ViewBuilder
-    var status: some View {
-        if disabled {
-            Text("已停用").foregroundStyle(.secondary)
-        } else if let error, !error.isEmpty {
-            Label { Text("下载失败") + Text(verbatim: " · " + error) } icon: { Image(systemName: "exclamationmark.triangle.fill") }
-                .foregroundStyle(Theme.bad)
-        } else if !downloaded {
-            Text("还没有下载").foregroundStyle(Theme.warn)
-        } else if let info, info.total > 0 || info.expireDate != nil {
-            Text(verbatim: usage(info)).foregroundStyle(.secondary)
-        } else if let updated {
-            Text("\(Self.relative.localizedString(for: updated, relativeTo: Date())) 更新").foregroundStyle(.secondary)
-        } else {
-            Text(verbatim: kind).foregroundStyle(.secondary)
-        }
-    }
-
-    func usage(_ i: SubscriptionUserInfo) -> String {
-        var parts: [String] = []
-        if let d = i.expireDate { parts.append(d.formatted(date: .numeric, time: .omitted)) }
-        if i.total > 0 { parts.append(Self.bytes.string(fromByteCount: i.used) + " / " + Self.bytes.string(fromByteCount: i.total)) }
-        return parts.joined(separator: "  ")
     }
 }

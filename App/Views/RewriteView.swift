@@ -38,17 +38,34 @@ struct RewriteForm: Codable, Equatable {
     }
 }
 
-/// 本地模块: the user's own rewrite rules and MitM hostnames (engine.json `rules` / `hostnames`, the same
-/// store the engine reads), edited through forms or as text. Opened only from 工具 → 模块 → 我的重写
-/// (feat/more-dedup: no second entry in 高级设置; the 启用 switch and 全部重写规则 live on the 模块 page).
-struct LocalModuleView: View {
+/// 工具 → 重写 (Quantumult X style, user 2026-10-22): ONE page for everything that rewrites traffic. It replaced the
+/// three cards 模块 / 重写 / 脚本:
+///   • 启用重写与脚本 on top,
+///   • 订阅 — remote modules / plugins / rewrite_remote (and pasted ones), unified subscription rows (SubscriptionKit),
+///   • 本地 — the user's own rewrite rules and script lines (engine.json `rules` / `scripts`), forms or text,
+///   • MitM 主机名, 浏览 (全部重写规则, 模块库), 脚本工具 (调试台, 日志, 通知, 存储, 本地脚本文件).
+/// Cron / event scripts run under 工具 → 定时任务; the profile's rule-providers are linked from 分流规则.
+struct RewriteView: View {
+    /// Official BoxJS Surge module (chavyleung/scripts): serves http(s)://boxjs.com from an http-request script.
+    static let boxJSModule = "https://raw.githubusercontent.com/chavyleung/scripts/master/box/rewrite/boxjs.rewrite.surge.sgmodule"
     @ObservedObject var store = EngineStore.shared
+    @ObservedObject var res = ResourceStore.shared
     @State private var editing: EditTarget?
     @State private var rawMode = false
     @State private var rawText = ""
     @State private var rawIssues: [String] = []
     @State private var search = ""
     @State private var newHost = ""
+    @State private var editMode: EditMode = .inactive
+    @State private var editingModule: EngineModule?
+    @State private var pendingDelete: EngineModule?
+    @State private var addingURL = false
+    @State private var url = ""
+    @State private var pasting = false
+    @State private var addingScript = false
+    @State private var addingScriptLine = false
+    @State private var editingScript: EngineItem?
+    @State private var debugging: EngineItem?
 
     struct EditTarget: Identifiable {
         let id = UUID()
@@ -57,85 +74,199 @@ struct LocalModuleView: View {
         var phase: String = "request"
     }
 
-    var items: [EngineItem] {
-        guard !search.isEmpty else { return store.config.rules }
-        return store.config.rules.filter { $0.line.localizedCaseInsensitiveContains(search) || ($0.note ?? "").localizedCaseInsensitiveContains(search) }
+    func matches(_ it: EngineItem) -> Bool {
+        search.isEmpty || it.line.localizedCaseInsensitiveContains(search) || (it.note ?? "").localizedCaseInsensitiveContains(search)
+    }
+
+    var rules: [EngineItem] { store.config.rules.filter(matches) }
+    var scripts: [EngineItem] { store.config.scripts.filter(matches) }
+    var modules: [EngineModule] {
+        search.isEmpty ? store.config.modules : store.config.modules.filter { $0.name.localizedCaseInsensitiveContains(search) || $0.url.localizedCaseInsensitiveContains(search) }
     }
 
     var body: some View {
         Group {
             if rawMode { rawEditor } else { formList }
         }
+        .background(Theme.bg.ignoresSafeArea())
+        .navigationTitle("重写")
         .toolbar {
             if rawMode {
                 ToolbarItem(placement: .navigationBarLeading) { Button("放弃修改") { rawMode = false; rawIssues = [] } }
-            }
-        }
-        .background(Theme.bg.ignoresSafeArea())
-        .navigationTitle("我的重写")
-        .toolbar {
-            ToolbarItemGroup(placement: .navigationBarTrailing) {
-                Button {
-                    if rawMode { applyRaw() } else { rawText = Self.text(store.config); rawIssues = []; rawMode = true }
-                } label: { Text(rawMode ? "完成" : "文本") }
-                if !rawMode {
-                    EditButton()
+                ToolbarItem(placement: .navigationBarTrailing) { Button("完成") { applyRaw() } }
+            } else if editMode.isEditing {
+                ToolbarItem(placement: .navigationBarTrailing) { Button("完成") { withAnimation { editMode = .inactive } } }
+            } else {
+                ToolbarItemGroup(placement: .navigationBarTrailing) {
+                    Button { Task { await res.updateAll() } } label: { Image(systemName: "arrow.clockwise") }
+                        .disabled(res.updatingAll)
+                        .accessibilityLabel(Text("全部更新"))
+                    Menu {
+                        Button { rawText = Self.text(store.config); rawIssues = []; rawMode = true } label: { Label("以文本编辑本地规则", systemImage: "doc.plaintext") }
+                        Button { withAnimation { editMode = .active } } label: { Label("调整顺序", systemImage: "arrow.up.arrow.down") }
+                    } label: { Image(systemName: "ellipsis.circle") }
+                        .accessibilityIdentifier("rewrite.more")
                     addMenu
                 }
             }
         }
+        .environment(\.editMode, $editMode)
         .sheet(item: $editing) { t in RewriteRuleEditor(target: t) }
+        .sheet(item: $editingModule, onDismiss: { res.reload() }) { m in
+            ModuleSubSheet(module: m) { d in store.deleteModule(d); res.reload() }
+        }
+        .sheet(isPresented: $addingURL) {
+            ModuleURLSheet(url: $url) { u in Task { await store.addModule(url: u); res.reload() } }
+        }
+        .sheet(isPresented: $pasting, onDismiss: { res.reload() }) { PasteModuleSheet() }
+        .sheet(isPresented: $addingScript) { ScriptFormSheet(item: nil) }
+        .sheet(isPresented: $addingScriptLine) { LineEditorSheet(title: "粘贴脚本行", scripts: true, item: nil) }
+        .sheet(item: $editingScript) { ScriptFormSheet(item: $0) }
+        .navigationDestination(isPresented: Binding(get: { debugging != nil }, set: { if !$0 { debugging = nil } })) {
+            if let it = debugging { ScriptWorkbenchView(target: .item(it)) }
+        }
+        .deleteConfirmation({ m in Text("删除「\(m.name)」？") }, item: $pendingDelete, message: { _ in DeleteText.recoverable }) { m in
+            store.deleteModule(m)
+            res.reload()
+        }
+        .alert("提示", isPresented: Binding(get: { store.message != nil || res.message != nil }, set: { if !$0 { store.message = nil; res.message = nil } })) {
+            Button("好") { store.message = nil; res.message = nil }
+        } message: { Text(store.message ?? res.message ?? "") }
+        .overlay { if store.busy.contains("add") { ProgressView("下载中…").padding().background(RoundedRectangle(cornerRadius: 12).fill(Theme.cardHi)) } }
+        .task {
+            // v0.19.8: no synchronous Go parsing during the push animation.
+            try? await Task.sleep(nanoseconds: 350_000_000)
+            await store.reparseModulesInBackground()
+            await res.reloadInBackground()
+        }
+        .onChange(of: store.config.modules) { _ in res.reload() }
+        .onAppear { if !store.config.scripts.isEmpty { store.requestNotificationPermission() } }
     }
 
     var addMenu: some View {
         Menu {
-            Button { editing = EditTarget(item: nil, type: "reject") } label: { Label("拒绝请求（reject）", systemImage: "nosign") }
-            Button { editing = EditTarget(item: nil, type: "redirect") } label: { Label("重定向（302 / 307）", systemImage: "arrowshape.turn.up.right") }
-            Button { editing = EditTarget(item: nil, type: "header", phase: "request") } label: { Label("修改请求头", systemImage: "list.bullet.indent") }
-            Button { editing = EditTarget(item: nil, type: "header", phase: "response") } label: { Label("修改响应头", systemImage: "list.bullet.indent") }
-            Button { editing = EditTarget(item: nil, type: "body", phase: "response") } label: { Label("正则替换响应体", systemImage: "text.magnifyingglass") }
-            Button { editing = EditTarget(item: nil, type: "body", phase: "request") } label: { Label("正则替换请求体", systemImage: "text.magnifyingglass") }
-            Button { editing = EditTarget(item: nil, type: "maplocal") } label: { Label("本地映射（Map Local）", systemImage: "doc.richtext") }
-            Divider()
-            Button { editing = EditTarget(item: nil, type: "raw") } label: { Label("粘贴规则文本", systemImage: "doc.on.clipboard") }
+            Section("订阅") {
+                Button { url = ""; addingURL = true } label: { Label("从 URL 添加订阅", systemImage: "link") }
+                Button { pasting = true } label: { Label("粘贴订阅内容", systemImage: "doc.on.clipboard") }
+                Button { Task { await store.addModule(url: RewriteView.boxJSModule); res.reload() } } label: { Label("添加 BoxJS（需开启 MitM 并信任证书）", systemImage: "shippingbox") }
+                    .disabled(store.config.modules.contains { $0.url == RewriteView.boxJSModule })
+            }
+            Section("本地重写") {
+                Button { editing = EditTarget(item: nil, type: "reject") } label: { Label("拒绝请求（reject）", systemImage: "nosign") }
+                Button { editing = EditTarget(item: nil, type: "redirect") } label: { Label("重定向（302 / 307）", systemImage: "arrowshape.turn.up.right") }
+                Button { editing = EditTarget(item: nil, type: "header", phase: "request") } label: { Label("修改请求头", systemImage: "list.bullet.indent") }
+                Button { editing = EditTarget(item: nil, type: "header", phase: "response") } label: { Label("修改响应头", systemImage: "list.bullet.indent") }
+                Button { editing = EditTarget(item: nil, type: "body", phase: "response") } label: { Label("正则替换响应体", systemImage: "text.magnifyingglass") }
+                Button { editing = EditTarget(item: nil, type: "body", phase: "request") } label: { Label("正则替换请求体", systemImage: "text.magnifyingglass") }
+                Button { editing = EditTarget(item: nil, type: "maplocal") } label: { Label("本地映射（Map Local）", systemImage: "doc.richtext") }
+                Button { editing = EditTarget(item: nil, type: "raw") } label: { Label("粘贴规则文本", systemImage: "doc.on.clipboard") }
+            }
+            Section("本地脚本") {
+                Button { addingScript = true } label: { Label("新建 / 导入脚本", systemImage: "doc.badge.plus") }
+                Button { addingScriptLine = true } label: { Label("粘贴脚本行", systemImage: "text.badge.plus") }
+            }
         } label: { Image(systemName: "plus") }
         .accessibilityIdentifier("localmodule.add")
+    }
+
+    @ViewBuilder
+    func moduleRow(_ m: EngineModule) -> some View {
+        let info = store.moduleInfo[m.id]
+        let item = res.items.first { $0.key == "module:" + m.id }
+        let remote = !m.url.isEmpty
+        let busy = store.busy.contains(m.id) || res.busy.contains("module:" + m.id)
+        SubscriptionRow(id: "module.row." + m.name, icon: remote ? "puzzlepiece.extension" : "doc.text", color: Theme.tone(0.55, 0.45, 1.0),
+                        name: m.name, status: ModuleSubSheet.status(m, item: item, info: info), updating: busy,
+                        enabled: Binding(get: { m.enabled }, set: { on in setModule(m, on) }),
+                        onTap: { editingModule = m }) {
+            if let f = info?.format, !f.isEmpty { SourceFormatBadge(format: f) }
+        }
+        .subscriptionActions(SubscriptionActions(
+            update: remote && !busy ? { if let it = item { Task { await res.update(it) } } } : nil,
+            edit: { editingModule = m }, url: remote ? m.url : nil,
+            enabled: m.enabled, setEnabled: { on in setModule(m, on) },
+            delete: { pendingDelete = m }))
+    }
+
+    func setModule(_ m: EngineModule, _ on: Bool) {
+        guard let i = store.config.modules.firstIndex(where: { $0.id == m.id }), store.config.modules[i].enabled != on else { return }
+        store.config.modules[i].enabled = on
+        store.save()
+        res.reload()
     }
 
     var formList: some View {
         List {
             Section {
-                EngineOffNotice()
-            } footer: {
-                VStack(alignment: .leading, spacing: 4) {
-                    Text("本地模块是你自己的重写规则和 MitM 主机名，与导入的模块一起生效、优先于它们。点 + 用表单添加，或点「文本」直接编辑；Surge、Quantumult X、Loon 写法都能识别。")
-                    EngineSwitchFooter()
+                Toggle(isOn: Binding(get: { store.config.enabled }, set: { store.config.enabled = $0; store.save() })) {
+                    Label("启用重写与脚本", systemImage: "puzzlepiece.extension")
                 }
+                .accessibilityIdentifier("rewrite.enabled")
+            } footer: { EngineSwitchFooter() }
+            .listRowBackground(Theme.card)
+
+            Section {
+                if store.config.modules.isEmpty {
+                    EmptyStateRow(icon: "puzzlepiece.extension", title: "还没有重写订阅", message: "点右上角 + 通过 URL 添加，或在模块库里选择。")
+                }
+                ForEach(modules) { m in moduleRow(m) }
+                    .onMove { from, to in
+                        guard search.isEmpty else { return }
+                        store.config.modules.move(fromOffsets: from, toOffset: to); store.save(reload: false)
+                    }
+            } header: {
+                HStack {
+                    Text("订阅 \(store.config.modules.count)")
+                    Spacer()
+                    if res.updatingAll { ProgressView().scaleEffect(0.7) }
+                }
+                .accessibilityIdentifier("rewrite.subs.header")
+            } footer: {
+                Text("Surge 模块、Loon 插件、QX 引用（rewrite_remote）、Stash 覆写和 Egern 模块都是订阅，角标显示格式。轻点编辑；右滑更新，左滑删除；开关启用或关闭；长按查看全部操作。订阅引用的远程脚本和规则集随它一起更新，也可以在 更多 → 更新资源 里单独更新。")
             }
             .listRowBackground(Theme.card)
 
             Section {
-                if store.config.rules.isEmpty {
-                    EmptyStateRow(icon: "arrow.triangle.swap", title: "还没有重写规则", message: "点右上角 + 选择类型。")
+                if store.config.rules.isEmpty && store.config.scripts.isEmpty {
+                    EmptyStateRow(icon: "arrow.triangle.swap", title: "还没有本地规则", message: "点右上角 + 添加重写或脚本；Surge、Quantumult X、Loon 写法都能识别。")
                 }
-                ForEach(items) { it in
+                ForEach(rules) { it in
                     RuleRow(item: it) { on in
                         if let i = store.config.rules.firstIndex(where: { $0.id == it.id }) { store.config.rules[i].enabled = on; store.save() }
                     }
                     .contentShape(Rectangle())
                     .onTapGesture { editing = EditTarget(item: it, type: "") }
-                }
-                .onDelete { idx in
-                    let ids = idx.map { items[$0].id }
-                    store.config.rules.removeAll { ids.contains($0.id) }
-                    store.save()
+                    .swipeActions(edge: .trailing) {
+                        Button(role: .destructive) { store.config.rules.removeAll { $0.id == it.id }; store.save() } label: { Label("删除", systemImage: "trash") }
+                    }
                 }
                 .onMove { from, to in
                     guard search.isEmpty else { return }
                     store.config.rules.move(fromOffsets: from, toOffset: to); store.save()
                 }
-            } header: { Text("重写 \(store.config.rules.count)") } footer: {
-                if store.config.rules.count > 1 { Text("按顺序匹配，拖动调整先后（点右上角「编辑」）。") }
+                ForEach(scripts) { it in
+                    RuleRow(item: it) { on in
+                        if let i = store.config.scripts.firstIndex(where: { $0.id == it.id }) { store.config.scripts[i].enabled = on; store.save() }
+                    }
+                    .contentShape(Rectangle())
+                    .onTapGesture { editingScript = it }
+                    .swipeActions(edge: .leading) {
+                        Button { debugging = it } label: { Label("调试", systemImage: "play.fill") }.tint(Theme.accent)
+                    }
+                    .swipeActions(edge: .trailing) {
+                        Button(role: .destructive) { store.config.scripts.removeAll { $0.id == it.id }; store.save() } label: { Label("删除", systemImage: "trash") }
+                    }
+                    .contextMenu {
+                        Button { editingScript = it } label: { Label("编辑", systemImage: "pencil") }
+                        Button { debugging = it } label: { Label("在调试台打开", systemImage: "play.fill") }
+                    }
+                }
+                .onMove { from, to in
+                    guard search.isEmpty else { return }
+                    store.config.scripts.move(fromOffsets: from, toOffset: to); store.save()
+                }
+            } header: { Text("本地 \(store.config.rules.count + store.config.scripts.count)") } footer: {
+                Text("你自己的重写和脚本，与订阅一起生效、优先于它们。点 + 用表单添加，或在 ⋯ 里以文本编辑；重写按顺序匹配。")
             }
             .listRowBackground(Theme.card)
 
@@ -161,12 +292,39 @@ struct LocalModuleView: View {
             }
             .listRowBackground(Theme.card)
 
-            Section("语法速查") { SyntaxHelp() }
-                .listRowBackground(Theme.card)
+            Section {
+                NavigationLink { LazyDestination { AllRewritesView() } } label: {
+                    MoreRow(id: "全部重写规则", title: "全部重写规则", subtitle: "所有订阅和本地的重写与脚本规则，平铺可搜索", symbol: "list.bullet.rectangle.portrait", tone: .neutral)
+                }
+                NavigationLink { LazyDestination { ModuleGalleryView() } } label: {
+                    MoreRow(id: "模块库", title: "模块库", subtitle: "浏览、搜索并预览索引来源里的模块", symbol: "books.vertical", tone: .blue)
+                }
+            } header: { Text("浏览") }
+            .listRowBackground(Theme.card)
+
+            Section("脚本工具") {
+                NavigationLink { ScriptWorkbenchView(target: .scratch) } label: { Label("脚本调试台", systemImage: "play.rectangle") }
+                NavigationLink { ScriptLogsView() } label: { Label("脚本日志", systemImage: "text.alignleft") }
+                NavigationLink { ScriptNoticesView() } label: { Label("脚本通知记录", systemImage: "bell") }
+                NavigationLink { StoreView() } label: { Label("持久化存储（$persistentStore / $prefs）", systemImage: "externaldrive") }
+                NavigationLink { LocalScriptsView() } label: { Label("本地脚本文件", systemImage: "folder") }
+                Button { store.requestNotificationPermission() } label: { Label("允许脚本通知", systemImage: "bell.badge") }
+            }
+            .listRowBackground(Theme.card)
+
+            Section("语法速查") {
+                SyntaxHelp()
+                DisclosureGroup("兼容的脚本 API") {
+                    Text("$request、$response、$done、$httpClient（get/post/put/delete/head/options/patch，支持 policy、binary-mode、insecure、auto-redirect）、$persistentStore（所有脚本共享）、$notification.post、$utils（geoip / ipasn / ipaso / ungzip）、$httpAPI（策略查询 / 切换、出站模式、重载配置）、$network、$script、$environment、$argument、console、setTimeout；Quantumult X：$task.fetch、$prefs、$notify；另提供 TextEncoder/TextDecoder、atob/btoa。脚本类型：http-request、http-response、cron（定时，连接期间执行）、event（network-changed）、generic（手动运行 / 面板）。Surge、Loon、Quantumult X、Stash、Egern（兼容写法）都能识别；暂不支持 Surge type=dns / type=rule 与 Egern 原生 ctx 脚本。")
+                        .font(.caption).foregroundStyle(.secondary)
+                }
+            }
+            .listRowBackground(Theme.card)
         }
         .listStyle(.insetGrouped)
         .scrollContentBackground(.hidden)
-        .searchable(text: $search, placement: .navigationBarDrawer(displayMode: .always), prompt: "搜索规则")
+        .searchable(text: $search, placement: .navigationBarDrawer(displayMode: .automatic), prompt: "搜索订阅和规则")
+        .refreshable { await res.updateAll() }
     }
 
     var rawEditor: some View {
@@ -265,7 +423,7 @@ struct LocalModuleView: View {
 struct RewriteRuleEditor: View {
     @Environment(\.dismiss) var dismiss
     @ObservedObject var store = EngineStore.shared
-    let target: LocalModuleView.EditTarget
+    let target: RewriteView.EditTarget
     @State private var form = RewriteForm()
     @State private var checked = RewriteForm()
     @State private var note = ""

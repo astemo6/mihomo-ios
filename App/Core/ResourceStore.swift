@@ -154,6 +154,17 @@ final class ResourceStore: ObservableObject {
         }
     }
 
+    /// One resource from the subscription sheet (立即更新 / save with a new address): returns the error text, nil
+    /// when it downloaded; reloads the tunnel when the content changed.
+    func refresh(key: String) async -> String? {
+        reload()
+        guard let it = items.first(where: { $0.key == key }) else { return String(localized: "找不到这个订阅") }
+        let changed = await download(it)
+        await finish(changed: changed)
+        if let e = items.first(where: { $0.key == key })?.error, !e.isEmpty { return e }
+        return nil
+    }
+
     func update(_ it: ResourceItem) async {
         let changed = await download(it)
         await finish(changed: changed)

@@ -176,7 +176,7 @@ struct NodeListView: View {
         }
         .task { if model.nodes.isEmpty { await model.reload() } }
         .sheet(isPresented: $exportSub) { SubscriptionExportSheet() }
-        .sheet(item: $editSub, onDismiss: { Task { await model.reload() } }) { s in NodeSubEditor(sub: s).environmentObject(ProfileStore.shared) }
+        .sheet(item: $editSub, onDismiss: { Task { await model.reload() } }) { s in NodeSubSheet(sub: s).environmentObject(ProfileStore.shared).environmentObject(VPNManager.shared) }
         .sheet(item: $editing, onDismiss: { Task { await model.reload() } }) { t in NodeEditorView(node: t.node).environmentObject(ProfileStore.shared) }
         .confirmationDialog("删除这个手动节点？", isPresented: Binding(get: { confirmDelete != nil }, set: { if !$0 { confirmDelete = nil } }),
                             titleVisibility: .visible, presenting: confirmDelete) { n in
@@ -641,7 +641,7 @@ struct NodeDetailView: View {
                 if model.manualNode(node) == nil { dismiss() } else { info = await model.summary(of: node) }
             }
         }) { t in NodeEditorView(node: t.node).environmentObject(ProfileStore.shared) }
-        .sheet(item: $editSub) { s in NodeSubEditor(sub: s).environmentObject(ProfileStore.shared) }
+        .sheet(item: $editSub) { s in NodeSubSheet(sub: s).environmentObject(ProfileStore.shared).environmentObject(VPNManager.shared) }
         .sheet(item: $editingCopy, onDismiss: { Task { await model.reload() } }) { t in
             NodeEditorView(node: t.node).environmentObject(ProfileStore.shared)
         }
