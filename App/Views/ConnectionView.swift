@@ -144,7 +144,7 @@ struct ConnectionView: View {
             if o.includeAllNetworks || o.faceTimeProxy {
                 Toggle("排除局域网", isOn: $o.excludeLocalNetworks)
                 if #available(iOS 16.4, *) {
-                    Toggle("排除推送通知（APNs）", isOn: o.faceTimeProxy ? .constant(false) : $o.excludeAPNs).disabled(o.faceTimeProxy)
+                    Toggle("排除推送通知（APNs）", isOn: $o.excludeAPNs)
                     Toggle("排除运营商服务（电话、短信、VoLTE）", isOn: $o.excludeCellularServices)
                 }
                 if #available(iOS 17.4, *) {
@@ -153,7 +153,7 @@ struct ConnectionView: View {
             }
         } header: { Text("隧道范围") } footer: {
             Text(o.faceTimeProxy
-                 ? "FaceTime 走代理：自动接管所有网络流量、推送通知（APNs）也进隧道，并把 FaceTime 的呼叫与音视频（APNs 5223、UDP 3478–3497 / 16384–16402）交给主代理组。节点需要支持 UDP。更改后重新连接生效。"
+                 ? "FaceTime 走代理：自动接管所有网络流量，并把 FaceTime 的音视频（UDP 3478–3497 / 16384–16402）交给主代理组，节点需要支持 UDP。来电响铃走推送通知（APNs）：保持排除时这部分直连，关闭排除则也走代理。更改后重新连接生效。"
                  : o.includeAllNetworks
                  ? "开启后系统把几乎所有流量（包括其他 App 自行绕过 VPN 的连接）都交给隧道；连接中断时这些流量会被阻断，直到重新连接。下面的排除项保留常用的系统服务。更改后立即写入 VPN 配置。"
                  : "关闭（默认）：按下方的路由接管流量，系统服务可以绕过隧道。")

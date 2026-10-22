@@ -93807,40 +93807,6 @@
         }
       }
     },
-    "FaceTime 走代理：自动接管所有网络流量、推送通知（APNs）也进隧道，并把 FaceTime 的呼叫与音视频（APNs 5223、UDP 3478–3497 / 16384–16402）交给主代理组。节点需要支持 UDP。更改后重新连接生效。": {
-      "localizations": {
-        "zh-Hant": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "FaceTime 走代理：自動接管所有網路流量、推播通知（APNs）也進隧道，並把 FaceTime 的通話與音視訊（APNs 5223、UDP 3478–3497 / 16384–16402）交給主代理組。節點需要支援 UDP。變更後重新連線生效。"
-          }
-        },
-        "en": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Route FaceTime via proxy: turns on Include all networks, keeps push notifications (APNs) inside the tunnel, and sends FaceTime calls and media (APNs 5223, UDP 3478–3497 / 16384–16402) to the main proxy group. The node must support UDP. Takes effect after reconnecting."
-          }
-        },
-        "ja": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "FaceTime をプロキシ経由：すべてのネットワークを含め、プッシュ通知（APNs）もトンネルに入れ、FaceTime の通話とメディア（APNs 5223、UDP 3478–3497 / 16384–16402）をメインのプロキシグループへ送ります。ノードは UDP 対応が必要です。再接続後に有効になります。"
-          }
-        },
-        "ko": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "FaceTime 프록시 경유: 모든 네트워크를 포함하고 푸시 알림(APNs)도 터널로 보내며, FaceTime 통화와 미디어(APNs 5223, UDP 3478–3497 / 16384–16402)를 기본 프록시 그룹으로 보냅니다. 노드가 UDP를 지원해야 합니다. 다시 연결하면 적용됩니다."
-          }
-        },
-        "ru": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "FaceTime через прокси: включает «Весь трафик», оставляет push-уведомления (APNs) в туннеле и направляет звонки и медиа FaceTime (APNs 5223, UDP 3478–3497 / 16384–16402) в основную группу прокси. Узел должен поддерживать UDP. Вступает в силу после переподключения."
-          }
-        }
-      }
-    },
     "脚本 · 订阅提醒 · 自动更新": {
       "localizations": {
         "zh-Hant": {
@@ -94143,6 +94109,40 @@
           "stringUnit": {
             "state": "translated",
             "value": "Использует данные о трафике и сроке из подписки; подписки без них не уведомляют."
+          }
+        }
+      }
+    },
+    "FaceTime 走代理：自动接管所有网络流量，并把 FaceTime 的音视频（UDP 3478–3497 / 16384–16402）交给主代理组，节点需要支持 UDP。来电响铃走推送通知（APNs）：保持排除时这部分直连，关闭排除则也走代理。更改后重新连接生效。": {
+      "localizations": {
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "FaceTime 走代理：自動接管所有網路流量，並把 FaceTime 的音視訊（UDP 3478–3497 / 16384–16402）交給主代理組，節點需要支援 UDP。來電響鈴走推播通知（APNs）：保持排除時這部分直連，關閉排除則也走代理。變更後重新連線生效。"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Route FaceTime via proxy: turns on Include all networks and sends FaceTime audio and video (UDP 3478–3497 / 16384–16402) to the main proxy group; the node must support UDP. Ringing uses push notifications (APNs): direct while APNs is excluded, through the proxy when it is not. Takes effect after reconnecting."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "FaceTime をプロキシ経由：すべてのネットワークを含め、FaceTime の音声・ビデオ（UDP 3478–3497 / 16384–16402）をメインのプロキシグループへ送ります。ノードは UDP 対応が必要です。着信はプッシュ通知（APNs）を使い、除外中は直接、除外をオフにするとプロキシ経由になります。再接続後に有効になります。"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "FaceTime 프록시 경유: 모든 네트워크를 포함하고 FaceTime 음성·영상(UDP 3478–3497 / 16384–16402)을 기본 프록시 그룹으로 보냅니다. 노드가 UDP를 지원해야 합니다. 수신 벨은 푸시 알림(APNs)을 사용하며, 제외 중에는 직접 연결되고 제외를 끄면 프록시를 거칩니다. 다시 연결하면 적용됩니다."
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "FaceTime через прокси: включает «Весь трафик» и направляет аудио и видео FaceTime (UDP 3478–3497 / 16384–16402) в основную группу прокси; узел должен поддерживать UDP. Звонок приходит через push-уведомления (APNs): напрямую, пока APNs исключены, и через прокси, если нет. Вступает в силу после переподключения."
           }
         }
       }

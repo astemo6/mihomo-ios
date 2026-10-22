@@ -583,8 +583,8 @@ struct OnDemandSettings: Codable, Equatable {
 }
 
 extension CoreOverrides {
-    /// FaceTime 走代理 needs every network in the tunnel (FaceTime media skips a normal VPN route) and APNs inside it
-    /// (calls are set up over push). 仅代理 never carries includeAllNetworks (no packet reader).
+    /// FaceTime 走代理 needs every network in the tunnel (FaceTime media skips a normal VPN route). APNs (ringing /
+    /// call signalling) stays the user's choice (user 2026-10-22: 不强制 APNs). 仅代理 never carries includeAllNetworks.
     var effectiveIncludeAll: Bool { (includeAllNetworks || faceTimeProxy) && !isProxyOnly }
-    var effectiveExcludeAPNs: Bool { excludeAPNs && !faceTimeProxy }
+    var effectiveExcludeAPNs: Bool { excludeAPNs }
 }
