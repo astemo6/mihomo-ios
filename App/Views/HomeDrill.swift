@@ -663,22 +663,22 @@ struct NetworkView: View {
         } else {
             Chart {
                 ForEach(points) { p in
-                    LineMark(x: .value("t", p.t), y: .value("down", Double(p.down)), series: .value("s", "dl\(p.segment)"))
+                    LineMark(x: .value("时间", p.t), y: .value("下载", Double(p.down)), series: .value("分段", "dl\(p.segment)"))
                         .foregroundStyle(Theme.down)
                         .lineStyle(StrokeStyle(lineWidth: 1.8))
                         .interpolationMethod(.monotone)
-                    LineMark(x: .value("t", p.t), y: .value("up", Double(p.up)), series: .value("s", "u\(p.segment)"))
+                    LineMark(x: .value("时间", p.t), y: .value("上传", Double(p.up)), series: .value("分段", "u\(p.segment)"))
                         .foregroundStyle(Theme.up)
                         .lineStyle(StrokeStyle(lineWidth: 1.3))
                         .interpolationMethod(.monotone)
                 }
                 if let s = selected {
-                    RuleMark(x: .value("t", s.t))
+                    RuleMark(x: .value("时间", s.t))
                         .foregroundStyle(Theme.ink(0.35))
                         .lineStyle(StrokeStyle(lineWidth: 1, dash: [3, 3]))
-                    PointMark(x: .value("t", s.t), y: .value("down", Double(s.down)))
+                    PointMark(x: .value("时间", s.t), y: .value("下载", Double(s.down)))
                         .foregroundStyle(Theme.down).symbolSize(30)
-                    PointMark(x: .value("t", s.t), y: .value("up", Double(s.up)))
+                    PointMark(x: .value("时间", s.t), y: .value("上传", Double(s.up)))
                         .foregroundStyle(Theme.up).symbolSize(24)
                 }
             }

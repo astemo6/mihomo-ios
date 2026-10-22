@@ -279,7 +279,7 @@ struct ConnectionDetailView: View {
                     if let content, !content.isEmpty {
                         Text(HTTPRequestDetailView.pretty(content)).scaledFont(11, design: .monospaced).textSelection(.enabled).lineLimit(400)
                     } else if let bin, bin > 0 {
-                        Text("二进制或压缩内容（\(Fmt.bytes(Int64(bin))))").font(.caption).foregroundStyle(.secondary)
+                        Text("二进制或压缩内容（\(Fmt.bytes(Int64(bin)))）").font(.caption).foregroundStyle(.secondary)
                     } else {
                         Text("无内容或未记录（仅记录前 32 KB）").font(.caption).foregroundStyle(.secondary)
                     }
