@@ -220,7 +220,7 @@ struct RulesView: View {
         .listStyle(.insetGrouped)
         .scrollContentBackground(.hidden)
         .background(Theme.bg.ignoresSafeArea())
-        .navigationTitle("规则")
+        .navigationTitle("分流规则")
         .searchable(text: $search, placement: .navigationBarDrawer(displayMode: .always), prompt: "搜索")
         .environment(\.editMode, $editMode)
         .onChange(of: search) { q in if !q.isEmpty && editMode.isEditing { editMode = .inactive } }
