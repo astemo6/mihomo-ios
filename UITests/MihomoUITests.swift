@@ -1270,7 +1270,7 @@ final class MihomoUITests: MihomoUITestCase {
         XCTAssertFalse(app.staticTexts.matching(NSPredicate(format: "label CONTAINS %@", "tskey-auth-uitest")).firstMatch.exists, "auth key not shown")
         snap("tailscale-detail")
         mem.tap()
-        XCTAssertTrue(app.navigationBars[L("诊断")].waitForExistence(timeout: 6), "opens 诊断")
+        XCTAssertTrue(app.navigationBars[L("诊断与反馈")].waitForExistence(timeout: 6), "opens 诊断与反馈")
         // Section headers are upper-cased in English; check the section's content instead (no tunnel in the simulator).
         let memRow = app.element(labelContains: L("暂无内存数据"))
         XCTAssertTrue(memRow.waitForExistence(timeout: 4) || app.element(id: "diag.memory.current").exists, "隧道内存 section")
@@ -1446,7 +1446,7 @@ final class MihomoUITests: MihomoUITestCase {
         let lan = tile("lanip")
         XCTAssertTrue(scrollTo(lan))
         lan.tap()
-        XCTAssertTrue(app.navigationBars[L("内网 IP")].waitForExistence(timeout: 6), "LAN page from the card")
+        XCTAssertTrue(app.navigationBars[L("局域网信息")].waitForExistence(timeout: 6), "LAN page from the card")
         back()
         assertAlive("home tiles")
     }
@@ -1456,7 +1456,7 @@ final class MihomoUITests: MihomoUITestCase {
     func test27_LANDetail() {
         launch(["-UITestDemoLAN"])
         openMore("内网 IP 与路由器")
-        XCTAssertTrue(app.navigationBars[L("内网 IP")].waitForExistence(timeout: 6))
+        XCTAssertTrue(app.navigationBars[L("局域网信息")].waitForExistence(timeout: 6))
         let gw = app.element(id: "lan.gateway")
         XCTAssertTrue(gw.waitForExistence(timeout: 6))
         XCTAssertTrue(gw.label.contains("192.0.2.1"), "gateway: \(gw.label)")

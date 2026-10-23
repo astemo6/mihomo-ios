@@ -1,5 +1,6 @@
 import SwiftUI
 import Libmihomo
+import UserNotifications
 
 /// Form model shared with the Go side (mitm.RewriteForm): one form <-> one canonical Surge-syntax line.
 struct RewriteForm: Codable, Equatable {
@@ -367,7 +368,7 @@ struct RewriteView: View {
                     Button("添加", action: addHost).disabled(newHost.trimmingCharacters(in: .whitespaces).isEmpty)
                 }
             } header: { Text("MitM 主机名 \(store.config.hostnames.count)") } footer: {
-                Text("HTTPS 重写需要解密对应主机：在 MitM 页开启解密并信任证书。支持 * 和 ? 通配、前缀 - 表示排除、:端口（默认 443）。")
+                Text("HTTPS 重写需要解密对应主机：在「HTTPS 解密」页开启解密并信任证书。支持 * 和 ? 通配、前缀 - 表示排除、:端口（默认 443）。")
             }
             .listRowBackground(Theme.card)
 
@@ -390,7 +391,7 @@ struct RewriteView: View {
                 NavigationLink { ScriptNoticesView() } label: { Label("脚本通知记录", systemImage: "bell") }
                 NavigationLink { StoreView() } label: { Label("持久化存储（$persistentStore / $prefs）", systemImage: "externaldrive") }
                 NavigationLink { LocalScriptsView() } label: { Label("本地脚本文件", systemImage: "folder") }
-                Button { store.requestNotificationPermission() } label: { Label("允许脚本通知", systemImage: "bell.badge") }
+                ScriptNotifyPermissionRow()
             }
             .listRowBackground(Theme.card)
 
@@ -686,5 +687,42 @@ struct RewriteRuleEditor: View {
             if !store.config.enabled { store.config.enabled = true }
         }
         store.save()
+    }
+}
+
+/// 重写 → 脚本工具 → 允许脚本通知 (ui-audit): the old button only called requestAuthorization, which iOS answers
+/// silently once the user has decided — after a 不允许 it did nothing at all. The row now shows the system
+/// permission (未请求 / 已允许 / 已关闭); 未请求 asks, 已关闭 opens iOS Settings, 已允许 is informational.
+struct ScriptNotifyPermissionRow: View {
+    /// nil = not asked yet.
+    @State private var allowed: Bool?
+    @State private var loaded = false
+    @Environment(\.scenePhase) private var scenePhase
+
+    var body: some View {
+        Button {
+            if allowed == false {
+                if let u = URL(string: UIApplication.openSettingsURLString) { UIApplication.shared.open(u) }
+            } else if allowed == nil {
+                UNUserNotificationCenter.current().requestAuthorization(options: [.alert, .sound, .badge]) { _, _ in
+                    Task { @MainActor in allowed = await NotificationAuth.allowed() }
+                }
+            }
+        } label: {
+            HStack {
+                Label("允许脚本通知", systemImage: "bell.badge")
+                Spacer()
+                if loaded {
+                    Text(LocalizedStringKey(allowed == nil ? "未请求" : allowed == true ? "已允许" : "已关闭"))
+                        .foregroundStyle(allowed == false ? Theme.warn : Color.secondary)
+                }
+            }
+        }
+        .disabled(allowed == true)
+        .accessibilityIdentifier("rewrite.notifyPermission")
+        .task { allowed = await NotificationAuth.allowed(); loaded = true }
+        .onChange(of: scenePhase) { p in
+            if p == .active { Task { allowed = await NotificationAuth.allowed() } }
+        }
     }
 }

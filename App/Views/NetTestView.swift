@@ -208,7 +208,7 @@ struct NetTestView: View {
             .padding(16)
         }
         .background(Theme.bg.ignoresSafeArea())
-        .navigationTitle("网络测试")
+        .navigationTitle("网速测试") // ui-audit: same name as the 工具 card
         .onDisappear { model.stopSpeed() }
     }
 

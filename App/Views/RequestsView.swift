@@ -366,7 +366,7 @@ struct QuickRuleSheet: View {
                 }
                 .listRowBackground(Theme.card)
                 Section {
-                    Text("规则加入「工具 → 分流规则 → 自定义规则」，优先于配置文件里的规则；连接中会立即重载。")
+                    Text("规则加入「工具 → 分流规则 → 本地规则」，优先于配置文件里的规则；连接中会立即重载。")
                         .font(.footnote).foregroundStyle(.secondary)
                 }
                 .listRowBackground(Color.clear)

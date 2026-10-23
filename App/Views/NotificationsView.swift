@@ -104,12 +104,13 @@ struct NotificationsView: View {
                         }
                     }
                     .accessibilityIdentifier("notify." + k.rawValue)
+                    .disabled(!master)
                 }
+                // ui-audit: the history is still recorded with notifications off (see the footer), so it stays openable.
                 NavigationLink { ScriptNoticesView() } label: { Text("脚本通知记录") }
             } footer: {
                 Text("策略组异常、自动策略切换和节点异常根据策略组的测速结果判断（自动测速或手动测速），VPN 连接时每 30 秒检查一次。脚本通知关闭后仍会记入「脚本通知记录」。")
             }
-            .disabled(!master)
             .listRowBackground(Theme.card)
 
             Section {

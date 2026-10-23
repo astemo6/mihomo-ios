@@ -235,7 +235,7 @@ struct ModulePreviewView: View {
                 } footer: {
                     VStack(alignment: .leading, spacing: 4) {
                         if isEmpty(p) { Text("未识别到可用的重写、脚本或 MitM 内容") }
-                        else if !p.hostnames.isEmpty && store.caTrusted != true { Text("包含 HTTPS 重写或脚本：需要在 MitM 页安装并信任证书后才会生效。") }
+                        else if !p.hostnames.isEmpty && store.caTrusted != true { Text("包含 HTTPS 重写或脚本：需要在「HTTPS 解密」页安装并信任证书后才会生效。") }
                         if item.sourceID == KeleeHub.sourceID && !isEmpty(p) { Text("可莉插件中心的插件为 Loon 编写，Tern 按 Loon 语法导入；无法在 Tern 中运行的条目列在下方「暂不支持」。") }
                     }
                 }

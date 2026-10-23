@@ -78,6 +78,11 @@ final class SettingsSearchTests: XCTestCase {
         XCTAssertTrue(ids("规则集").contains("rules"))
         XCTAssertTrue(ids("订阅").contains("nodes"))
         XCTAssertTrue(ids("节点").contains("nodes"))
+        // ui-audit: pages that had no entry.
+        XCTAssertEqual(first("代理链"), "proxyChains")
+        XCTAssertEqual(first("脚本列表"), "scriptList")
+        XCTAssertEqual(first("脚本调试台"), "scriptWorkbench")
+        XCTAssertTrue(ids("MTU").contains("coreSettings"))
         XCTAssertTrue(SettingsSearchIndex.search("zzqqxx").isEmpty, "no match → empty state")
         XCTAssertTrue(SettingsSearchIndex.search("   ").isEmpty, "blank query → normal 更多 list")
     }

@@ -88,7 +88,9 @@ struct WebDAVView: View {
                     ErrorRow(message: error).accessibilityIdentifier("webdav.error")
                 }
             } footer: {
-                if s.encrypt && encPassword.isEmpty { Text("请先填写加密密码。").foregroundStyle(Theme.warn) }
+                // ui-audit: 立即备份 was disabled with no reason shown when the server address was empty / invalid.
+                if !(s.configured || WebDAVClient.demo) { Text("先填写服务器地址（以 http:// 或 https:// 开头）。").foregroundStyle(Theme.warn) }
+                else if s.encrypt && encPassword.isEmpty { Text("请先填写加密密码。").foregroundStyle(Theme.warn) }
             }
             .listRowBackground(Theme.card)
 

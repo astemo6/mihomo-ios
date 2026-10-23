@@ -25,7 +25,7 @@ struct LANDetailView: View {
         .listStyle(.insetGrouped)
         .scrollContentBackground(.hidden)
         .background(Theme.bg.ignoresSafeArea())
-        .navigationTitle("内网 IP")
+        .navigationTitle("局域网信息") // ui-audit: same name as the 工具 card
         .navigationBarTitleDisplayMode(.inline)
         .refreshable { await load() }
         .task { await load() }

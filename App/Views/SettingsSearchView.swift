@@ -39,10 +39,13 @@ extension SearchDestination: Identifiable {
         // 工具. PR #90 merged 模块 / 重写 / 脚本 into one QX-style 重写 page (subscriptions = modules, local rewrites,
         // local scripts); their entries all open it. 模块库 / 全部重写规则 / script tools are links on that page.
         case .nodes: NodeManagerView()
+        case .proxyChains: ProxyChainsView()
         case .rules: RulesView()
         case .modules, .rewrites, .scripts: RewriteView()
         case .moduleGallery: ModuleGalleryView()
         case .allRewrites: AllRewritesView()
+        case .scriptList: ScriptListView()
+        case .scriptWorkbench: ScriptWorkbenchView(target: .scratch)
         case .scriptLogs: ScriptLogsView()
         case .scriptNotices: ScriptNoticesView()
         case .scriptStore: StoreView()

@@ -204,7 +204,7 @@ struct MitMView: View {
         .listStyle(.insetGrouped)
         .scrollContentBackground(.hidden)
         .background(Theme.bg.ignoresSafeArea())
-        .navigationTitle("MitM")
+        .navigationTitle("HTTPS 解密") // ui-audit: same name as the 工具 card
         .sheet(item: $share, onDismiss: { EngineStore.purgeP12() }) { ActivityView(items: [$0.url], cleanup: $0.temporary ? $0.url : nil) }
         .confirmationDialog("重新生成证书？", isPresented: $confirmRegen, titleVisibility: .visible) {
             Button("重新生成", role: .destructive) { store.generateCA() }
