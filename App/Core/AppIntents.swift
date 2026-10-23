@@ -255,7 +255,7 @@ struct ToggleModuleIntent: AppIntent {
         }
         store.config.modules[i].enabled = on
         store.save(reload: false)
-        if VPNManager.shared.isConnected, let e = await VPNManager.shared.reload() {
+        if VPNManager.shared.isConnected, let e = await VPNManager.shared.reload(hot: true) {
             return .result(dialog: "模块「\(module.name)」已\(on ? String(localized: "开启") : String(localized: "关闭"))，但重载失败：\(e)")
         }
         return .result(dialog: "模块「\(module.name)」已\(on ? String(localized: "开启") : String(localized: "关闭"))")

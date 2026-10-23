@@ -348,7 +348,8 @@ final class PacketTunnelProvider: NEPacketTunnelProvider {
     override func handleAppMessage(_ messageData: Data, completionHandler: ((Data?) -> Void)?) {
         let cmd = String(data: messageData, encoding: .utf8) ?? ""
         switch TunnelMessage(rawValue: cmd) {
-        case .reload:
+        case .reload, .reloadHot:
+            let hot = TunnelMessage(rawValue: cmd) == .reloadHot
             guard let profile = AppShared.activeProfileURL else {
                 completionHandler?("没有可用的配置".data(using: .utf8))
                 return
@@ -362,7 +363,7 @@ final class PacketTunnelProvider: NEPacketTunnelProvider {
             stopLock.lock(); let nw = network; stopLock.unlock()
             DispatchQueue.global(qos: .userInitiated).async {
                 var err: NSError?
-                LibmihomoReload(profile.path, &err)
+                if hot { LibmihomoReloadHot(profile.path, &err) } else { LibmihomoReload(profile.path, &err) }
                 nw?.refreshSettings() // settings saved by the app before it asked for the reload
                 // Review 6 R6A-3: success is a non-empty "ok" (an empty reply can reach the app as nil, which the app
                 // now reads as a timeout).
@@ -396,6 +397,8 @@ final class PacketTunnelProvider: NEPacketTunnelProvider {
         case .notifyPrefs:
             LibmihomoSetPolicyEvents(NotifyPrefs.coreMask)
             completionHandler?(nil)
+        case .tailscaleInfo:
+            completionHandler?(Data(LibmihomoTailscaleNodes().utf8))
         case .none:
             completionHandler?(nil)
         }

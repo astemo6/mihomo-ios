@@ -124,7 +124,7 @@ final class CustomRulesStore: ObservableObject {
         enc.outputFormatting = [.prettyPrinted, .sortedKeys]
         if let d = try? enc.encode(File(rules: rules)) { try? d.write(to: Self.url, options: .atomic) }
         await recheck()
-        if VPNManager.shared.isConnected, let e = await VPNManager.shared.reload() { return String(localized: "重载失败：\(e)") }
+        if VPNManager.shared.isConnected, let e = await VPNManager.shared.reload(hot: true) { return String(localized: "重载失败：\(e)") }
         return nil
     }
 

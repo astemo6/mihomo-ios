@@ -45,7 +45,8 @@ final class EngineStore: ObservableObject {
         reloadTask = Task { [weak self] in
             try? await Task.sleep(nanoseconds: 400_000_000)
             guard !Task.isCancelled, let self else { return }
-            if VPNManager.shared.isConnected, let err = await VPNManager.shared.reload() {
+            // v0.19.22: rewrite / module / plugin / script / MitM switches are applied in place when the core can.
+            if VPNManager.shared.isConnected, let err = await VPNManager.shared.reload(hot: true) {
                 self.message = String(localized: "重载失败：\(err)")
             }
         }

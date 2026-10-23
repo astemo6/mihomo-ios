@@ -14,7 +14,7 @@ enum SearchDestination: String, CaseIterable, Hashable {
     // 更多
     case profiles, sampleProfile, stats, snapshots, backup, webdav, syncFolder, storage, notifications
     case appearance, liveActivity, appIcon, launchTab, trafficScope
-    case advanced, connection, tunnel, networkPolicy, geo, coreSettings, speedTestSettings, geoChecker
+    case advanced, connection, tunnel, tailscale, networkPolicy, geo, coreSettings, speedTestSettings, geoChecker
     case onboarding, diagnostics, about, systemLanguage
     // 工具
     case nodes, rules, modules, moduleGallery, allRewrites, rewrites, scripts, scriptLogs, scriptNotices, scriptStore
@@ -107,6 +107,8 @@ enum SettingsSearchIndex {
           ["WebRTC", "STUN", "TURN", "PCDN", "P2P", "打洞", "IP 泄露", "泄漏", "上传", "webrtc leak", "ip leak", "hole punching"]),
         e("tunnel", "隧道", adv, "network.badge.shield.half.filled", .blue, .tunnel,
           ["隧道范围", "接管所有网络流量", "路由系统服务", "系统服务", "排除局域网", "排除", "tunnel", "tunnel scope", "system services", "exclude"]),
+        e("tailscale", "Tailscale", adv, "circle.hexagongrid.fill", .blue, .tailscale,
+          ["tailnet", "Headscale", "组网", "异地组网", "内网穿透", "Auth Key", "exit node", "出口节点", "tailscale"]),
         e("includeAllNetworks", "包含所有网络", tun, "globe", .blue, .tunnel,
           ["接管所有网络流量", "路由系统服务", "全局", "includeAllNetworks", "include all networks"]),
         e("includeLocalNetworks", "包含本地网络", tun, "house", .blue, .tunnel,

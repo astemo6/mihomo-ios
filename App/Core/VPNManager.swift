@@ -497,14 +497,51 @@ final class VPNManager: ObservableObject {
         }
     }
 
+    private var reloadRunning = false
+    private var reloadTrailing: [CheckedContinuation<String?, Never>] = []
+    private var reloadTrailingHot = true
+
     /// Asks the tunnel to re-read the active profile and overrides. Returns an error message or nil.
-    func reload() async -> String? {
+    /// `hot` (v0.19.22 开关类设置热应用): a switch the user flipped — the core applies rule / rule-set / mode / log-level /
+    /// engine changes in place and does the full reload for anything else (bridge hotapply.go). File refreshes (geo,
+    /// providers, resources) and edits keep the full reload.
+    /// Requests made while one is running share one trailing reload (full when any of them asked for full), so a burst
+    /// of toggles costs at most two.
+    func reload(hot: Bool = false) async -> String? {
+        guard isConnected else { return nil }
+        if reloadRunning {
+            return await withCheckedContinuation { (c: CheckedContinuation<String?, Never>) in
+                reloadTrailingHot = reloadTrailing.isEmpty ? hot : (reloadTrailingHot && hot)
+                reloadTrailing.append(c)
+            }
+        }
+        reloadRunning = true
+        let r = await reloadNow(hot: hot)
+        if reloadTrailing.isEmpty {
+            reloadRunning = false
+        } else {
+            Task { @MainActor [weak self] in await self?.drainTrailingReloads() }
+        }
+        return r
+    }
+
+    private func drainTrailingReloads() async {
+        while !reloadTrailing.isEmpty {
+            let waiters = reloadTrailing, hot = reloadTrailingHot
+            reloadTrailing = []
+            let r = isConnected ? await reloadNow(hot: hot) : nil
+            for c in waiters { c.resume(returning: r) }
+        }
+        reloadRunning = false
+    }
+
+    private func reloadNow(hot: Bool) async -> String? {
         guard isConnected else { return nil }
         if !safeModeActive, let err = await OverrideScriptStore.shared.prepareActive() { return err } // v0.19 覆写脚本
         // v0.19.8: the extension answers when the new config is applied; with proxy-providers that takes longer than
         // the 8 s default, and a reply missing after 8 s used to count as success while the core still ran the old
         // config (a group order save then read the old order back and looked like it did nothing).
-        let data = await send(.reload, timeout: 45)
+        let data = await send(hot ? .reloadHot : .reload, timeout: 45)
         NotificationCenter.default.post(name: .egressMayHaveChanged, object: nil)
         return Self.reloadResult(data, stillConnected: isConnected)
     }
