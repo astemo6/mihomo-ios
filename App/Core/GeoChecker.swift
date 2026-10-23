@@ -41,9 +41,29 @@ enum GeoChecker {
         defer { session.invalidateAndCancel() }
         var req = URLRequest(url: url)
         req.setValue("Mozilla/5.0 (iPhone; CPU iPhone OS 17_0 like Mac OS X) AppleWebKit/605.1.15 (KHTML, like Gecko) Mobile/15E148", forHTTPHeaderField: "User-Agent")
-        guard let result = try? await session.data(for: req),
-              let http = result.1 as? HTTPURLResponse, (200..<300).contains(http.statusCode) else {
-            await setError(String(localized: "查询地址没有响应"))
+        let result: (Data, URLResponse)
+        do {
+            result = try await session.data(for: req)
+        } catch {
+            // Say why (timeout, offline, TLS, host not found) instead of a bare 没有响应 that looks like nothing happened.
+            let reason = (error as? URLError).map { e -> String in
+                switch e.code {
+                case .timedOut: return String(localized: "连接超时")
+                case .notConnectedToInternet, .networkConnectionLost: return String(localized: "网络不可用")
+                case .cannotFindHost, .dnsLookupFailed: return String(localized: "无法解析域名")
+                case .cannotConnectToHost: return String(localized: "无法连接到服务器")
+                case .secureConnectionFailed, .serverCertificateUntrusted, .serverCertificateHasBadDate,
+                     .serverCertificateNotYetValid, .serverCertificateHasUnknownRoot: return String(localized: "TLS 连接失败")
+                default: return e.localizedDescription
+                }
+            } ?? error.localizedDescription
+            await setError(String(localized: "查询地址没有响应：\(reason)"))
+            return nil
+        }
+        guard let http = result.1 as? HTTPURLResponse, (200..<300).contains(http.statusCode) else {
+            let code = (result.1 as? HTTPURLResponse)?.statusCode ?? 0
+            await setError(code == 429 ? String(localized: "查询地址拒绝请求：请求过于频繁（HTTP 429），请稍后再试")
+                                       : String(localized: "查询地址返回错误：HTTP \(code)"))
             return nil
         }
         let data = result.0

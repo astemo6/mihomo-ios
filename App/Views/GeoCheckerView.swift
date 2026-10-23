@@ -123,6 +123,9 @@ struct GeoCheckerView: View {
     func test() async {
         testing = true
         defer { testing = false }
+        // Clear the last outcome first, so a repeat failure visibly re-runs instead of looking like a dead button.
+        message = nil
+        result = nil
         GeoChecker.save(checker: choice, url: url, script: script)
         await MainActor.run { GeoChecker.lastError = "" }
         if choice == "custom" {
