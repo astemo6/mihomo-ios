@@ -648,8 +648,27 @@ func (s *ScriptRunner) execute(parent context.Context, sc *Script, req, resp *Sc
 		}
 		return s.jsErr(sc, err, timeout)
 	}
+	// afterDone: Surge / Loon / QX / Egern hand the $done value over the moment $done is called; an
+	// exception the script throws afterwards (trailing obfuscator code such as jsjiami's `}(window));`,
+	// a callback that fails after answering) only shows up in the log. Tern discarded the answer instead.
+	afterDone := func(err error) bool {
+		if !rc.done || err == nil {
+			return false
+		}
+		var ie *goja.InterruptedError
+		if errors.As(err, &ie) {
+			return false
+		}
+		msg := s.jsErr(sc, err, timeout).Error()
+		if rc.onLog != nil {
+			rc.onLog("warn", "$done 之后的异常已忽略："+msg)
+		} else {
+			s.e.Logs.Add(sc.Name, "warn", "$done 之后的异常已忽略："+msg)
+		}
+		return true
+	}
 	_, err = rt.RunProgram(prog)
-	if err != nil {
+	if err != nil && !afterDone(err) {
 		return nil, jsFail(err)
 	}
 	for !rc.done {
@@ -670,7 +689,7 @@ func (s *ScriptRunner) execute(parent context.Context, sc *Script, req, resp *Sc
 				}()
 				j()
 			}()
-			if err != nil {
+			if err != nil && !afterDone(err) {
 				return nil, jsFail(err)
 			}
 		case <-parent.Done():
@@ -1098,8 +1117,17 @@ func (rc *runCtx) installCommon(set func(string, any)) {
 	})
 
 	if sc.HasArgument && sc.ArgObject {
-		var obj map[string]any
-		if json.Unmarshal([]byte(sc.Argument), &obj) == nil {
+		// JSON.parse in the runtime keeps the plugin's key order (a Go map made Object.keys($argument)
+		// come out in a different order on every run).
+		var obj goja.Value
+		if parse, ok := goja.AssertFunction(rt.Get("JSON").ToObject(rt).Get("parse")); ok {
+			if v, err := parse(goja.Undefined(), rt.ToValue(sc.Argument)); err == nil {
+				if o, isObj := v.(*goja.Object); isObj && o.ClassName() == "Object" {
+					obj = v
+				}
+			}
+		}
+		if obj != nil {
 			set("$argument", obj)
 		} else {
 			set("$argument", sc.Argument)
@@ -1348,6 +1376,7 @@ func (rc *runCtx) installCommon(set func(string, any)) {
 	})
 	rc.installUtils(set)
 	rc.installEgern(set)
+	installURLGlobals(rt)
 }
 
 func jsString(rt *goja.Runtime, v goja.Value) string {

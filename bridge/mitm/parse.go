@@ -141,6 +141,9 @@ type ModArg struct {
 	Options []string `json:"options,omitempty"` // Loon select choices
 	// ValueType is Loon's type=number: the value reaches an object $argument as a Number.
 	ValueType string `json:"valueType,omitempty"`
+	// Env: an Egern env_schema entry — the value goes to the module's scripts as ctx.env[Key], not into
+	// the module text.
+	Env bool `json:"env,omitempty"`
 }
 
 var loonArgKeyRe = regexp.MustCompile(`^[\p{L}_][\p{L}\p{N}_\-]*$`)
@@ -277,7 +280,20 @@ func loonObjectArgs(text string, args []ModArg, user map[string]string) string {
 	}
 	return loonArgListRe.ReplaceAllStringFunc(text, func(m string) string {
 		sub := loonArgListRe.FindStringSubmatch(m)
-		obj := map[string]any{}
+		var buf strings.Builder // in list order: Loon's $argument keys come in the order the plugin lists them
+		buf.WriteByte('{')
+		n := 0
+		put := func(k string, v any) {
+			kb, _ := json.Marshal(k)
+			vb, _ := json.Marshal(v)
+			if n > 0 {
+				buf.WriteByte(',')
+			}
+			n++
+			buf.Write(kb)
+			buf.WriteByte(':')
+			buf.Write(vb)
+		}
 		for _, part := range strings.Split(sub[1], ",") {
 			k := strings.TrimSpace(part)
 			k = strings.TrimSpace(strings.TrimSuffix(strings.TrimPrefix(k, "{"), "}"))
@@ -293,18 +309,19 @@ func loonObjectArgs(text string, args []ModArg, user map[string]string) string {
 			}
 			switch {
 			case a.Type == "switch":
-				obj[k] = truthy(v)
+				put(k, truthy(v))
 			case a.ValueType == "number":
 				if f, err := strconv.ParseFloat(strings.TrimSpace(v), 64); err == nil {
-					obj[k] = f
+					put(k, f)
 				} else {
-					obj[k] = v
+					put(k, v)
 				}
 			default:
-				obj[k] = v
+				put(k, v)
 			}
 		}
-		b, _ := json.Marshal(obj)
+		buf.WriteByte('}')
+		b := []byte(buf.String())
 		return "argument=" + loonArgObjPrefix + base64.RawURLEncoding.EncodeToString(b)
 	})
 }
@@ -903,23 +920,25 @@ func parseQX(toks []string, line string) (*Rule, error) {
 			return nil, fmt.Errorf("%s 缺少目标地址", act)
 		}
 		return &Rule{Kind: KindURL, Phase: "request", Pattern: pattern, Action: act, Target: arg(0)}, nil
-	case "request-header", "response-header":
-		// regex request-header REPLACEMENT  (QX: `url request-header A request-header B`)
+	case "request-header", "response-header", "request-body", "response-body":
+		// QX: `url request-header REGEX request-header REPLACEMENT`. REGEX and REPLACEMENT are the raw text
+		// between / after the keywords and may contain spaces (`$1User-Agent: Mozilla/5.0 (iPhone)$2`);
+		// the token split kept only their first word.
+		if re, repl, ok := qxRawPair(line, act); ok {
+			if strings.HasSuffix(act, "-header") {
+				return &Rule{Kind: KindHeader, Phase: strings.TrimSuffix(act, "-header"), Pattern: pattern, Headers: []HeaderOp{{Op: "raw", Regex: re, Value: repl}}}, nil
+			}
+			return &Rule{Kind: KindBody, Phase: strings.TrimSuffix(act, "-body"), Pattern: pattern, Body: []BodyOp{{Regex: re, Repl: repl}}}, nil
+		}
+		if strings.HasSuffix(act, "-body") {
+			return parseQXBodyTokens(pattern, act, args)
+		}
 		phase := strings.TrimSuffix(act, "-header")
 		if len(args) >= 3 && strings.ToLower(args[1]) == act {
 			return &Rule{Kind: KindHeader, Phase: phase, Pattern: pattern, Headers: []HeaderOp{{Op: "raw", Regex: args[0], Value: args[2]}}}, nil
 		}
 		if len(args) >= 2 {
 			return &Rule{Kind: KindHeader, Phase: phase, Pattern: pattern, Headers: []HeaderOp{{Op: "raw", Regex: args[0], Value: args[1]}}}, nil
-		}
-		return nil, fmt.Errorf("参数不足")
-	case "request-body", "response-body":
-		phase := strings.TrimSuffix(act, "-body")
-		if len(args) >= 3 && strings.ToLower(args[1]) == act {
-			return &Rule{Kind: KindBody, Phase: phase, Pattern: pattern, Body: []BodyOp{{Regex: args[0], Repl: args[2]}}}, nil
-		}
-		if len(args) >= 2 {
-			return &Rule{Kind: KindBody, Phase: phase, Pattern: pattern, Body: []BodyOp{{Regex: args[0], Repl: args[1]}}}, nil
 		}
 		return nil, fmt.Errorf("参数不足")
 	case "script-response-body", "script-request-body", "script-response-header", "script-request-header",
@@ -973,6 +992,48 @@ func parseQX(toks []string, line string) (*Rule, error) {
 			RespHeaders: map[string]string{"Content-Type": ct}}, nil
 	}
 	return nil, errUnsupported
+}
+
+// qxRawPair splits `… url ACT REGEX ACT REPLACEMENT` on the keyword itself (space delimited), keeping
+// spaces inside REGEX and REPLACEMENT. ok=false when the keyword is not repeated.
+func qxRawPair(line, act string) (re, repl string, ok bool) {
+	lower := strings.ToLower(line)
+	key := " " + act + " "
+	i := strings.Index(lower, " url"+key)
+	if i < 0 {
+		return "", "", false
+	}
+	rest := line[i+len(" url")+len(key):]
+	j := strings.Index(strings.ToLower(rest), key)
+	if j < 0 {
+		return "", "", false
+	}
+	re = strings.TrimSpace(rest[:j])
+	repl = strings.TrimLeft(rest[j+len(key):], " ")
+	repl = strings.TrimRight(repl, " \t\r")
+	if re == "" {
+		return "", "", false
+	}
+	return re, unquoteQXPair(repl), true
+}
+
+// unquoteQXPair drops one pair of surrounding quotes the token parser would have removed too.
+func unquoteQXPair(s string) string {
+	if len(s) >= 2 && (s[0] == '"' && s[len(s)-1] == '"' || s[0] == '\'' && s[len(s)-1] == '\'') && !strings.ContainsAny(s[1:len(s)-1], "\"'") {
+		return s[1 : len(s)-1]
+	}
+	return s
+}
+
+func parseQXBodyTokens(pattern, act string, args []string) (*Rule, error) {
+	phase := strings.TrimSuffix(act, "-body")
+	if len(args) >= 3 && strings.ToLower(args[1]) == act {
+		return &Rule{Kind: KindBody, Phase: phase, Pattern: pattern, Body: []BodyOp{{Regex: args[0], Repl: args[2]}}}, nil
+	}
+	if len(args) >= 2 {
+		return &Rule{Kind: KindBody, Phase: phase, Pattern: pattern, Body: []BodyOp{{Regex: args[0], Repl: args[1]}}}, nil
+	}
+	return nil, fmt.Errorf("参数不足")
 }
 
 var qxFilterTypes = map[string]string{"host": "DOMAIN", "host-suffix": "DOMAIN-SUFFIX", "host-keyword": "DOMAIN-KEYWORD",
