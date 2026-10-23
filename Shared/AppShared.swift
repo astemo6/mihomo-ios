@@ -236,6 +236,9 @@ struct CoreOverrides: Codable, Equatable {
     var geoMirrorBase: String = ""
     /// Custom URL per database kind (mmdb / geosite / asn / geoip); missing = mirror default.
     var geoURLs: [String: String] = [:]
+    /// Loon gap: 地理数据库 自动更新 interval in days (0 = off). App-side only (GeoAutoUpdate downloads in the app on
+    /// foreground / background refresh); the core keeps geo-auto-update off.
+    var geoAutoUpdateDays: Int = 0
     /// Add the 手动节点 profile's nodes (and its group) to every profile.
     var mergeManual: Bool = false
     /// 安全模式: set by the app for one connection after a failed start. The core then runs the profile
@@ -374,7 +377,7 @@ struct CoreOverrides: Codable, Equatable {
 
     enum CodingKeys: String, CodingKey {
         case logLevel, ipv6, allowLan, dnsMode, sniffer, controllerPort, secret, mode, memoryLimitMB
-        case tunnelMode, mixedPort, tunMTU, geoMirror, geoMirrorBase, geoURLs, mergeManual, safeMode
+        case tunnelMode, mixedPort, tunMTU, geoMirror, geoMirrorBase, geoURLs, geoAutoUpdateDays, mergeManual, safeMode
         case testURL, testTimeoutMs, overrideHealthCheck
         case includedRoutes, excludedRoutes, skipProxy, blockQUIC
         case includeAllNetworks, excludeLocalNetworks, excludeAPNs, excludeCellularServices, excludeDeviceCommunication
@@ -404,6 +407,8 @@ struct CoreOverrides: Codable, Equatable {
         geoMirror = get(.geoMirror, d.geoMirror)
         geoMirrorBase = get(.geoMirrorBase, d.geoMirrorBase)
         geoURLs = get(.geoURLs, d.geoURLs)
+        geoAutoUpdateDays = get(.geoAutoUpdateDays, d.geoAutoUpdateDays)
+        if !(0...365).contains(geoAutoUpdateDays) { geoAutoUpdateDays = d.geoAutoUpdateDays }
         mergeManual = get(.mergeManual, d.mergeManual)
         safeMode = get(.safeMode, d.safeMode)
         testURL = get(.testURL, d.testURL)

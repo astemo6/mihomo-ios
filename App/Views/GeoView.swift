@@ -139,9 +139,35 @@ final class GeoModel: NSObject, ObservableObject, URLSessionDownloadDelegate {
 
     func defaultURL(_ kind: String) -> String { LibmihomoGeoMirrorURL(kind, overrides.geoMirror, overrides.geoMirrorBase) }
 
-    func effectiveURL(_ kind: String) -> String {
-        if let u = overrides.geoURLs[kind], !u.isEmpty { return u }
-        return defaultURL(kind)
+    func effectiveURL(_ kind: String) -> String { Self.effectiveURL(kind, overrides) }
+
+    /// The custom URL for a database, else the mirror default (shared with GeoAutoUpdate).
+    nonisolated static func effectiveURL(_ kind: String, _ o: CoreOverrides) -> String {
+        if let u = o.geoURLs[kind], !u.isEmpty { return u }
+        return LibmihomoGeoMirrorURL(kind, o.geoMirror, o.geoMirrorBase)
+    }
+
+    /// Validates and installs a downloaded file (Go bridge, off the main thread). Returns an error text or nil.
+    nonisolated static func install(home: String, kind: String, file: URL) async -> String? {
+        await Task.detached(priority: .userInitiated) { () -> String? in
+            var err: NSError?
+            _ = LibmihomoGeoInstallFile(home, kind, file.path, &err)
+            return err?.localizedDescription
+        }.value
+    }
+
+    /// 自动更新 interval (days, 0 = off). A new interval is checked right away.
+    func setAutoUpdateDays(_ days: Int) {
+        var o = CoreOverrides.load()
+        guard o.geoAutoUpdateDays != days else { return }
+        o.geoAutoUpdateDays = days
+        o.save()
+        overrides = o
+        GeoAutoUpdate.intervalChanged()
+        Task {
+            await GeoAutoUpdate.runIfDue()
+            refresh()
+        }
     }
 
     func update(_ kind: String) async {
@@ -156,15 +182,9 @@ final class GeoModel: NSObject, ObservableObject, URLSessionDownloadDelegate {
             var req = URLRequest(url: url)
             req.setValue("mihomo-ios", forHTTPHeaderField: "User-Agent")
             let tmp = try await download(req, kind: kind)
-            let home = self.home
-            let result: String? = await Task.detached(priority: .userInitiated) { () -> String? in
-                var err: NSError?
-                _ = LibmihomoGeoInstallFile(home, kind, tmp.path, &err)
-                return err?.localizedDescription
-            }.value
-            if let result { errors[kind] = result; return }
+            if let result = await Self.install(home: home, kind: kind, file: tmp) { errors[kind] = result; return }
             refresh()
-            await applyToRunningCore(kind)
+            await Self.applyToRunningCore([kind])
         } catch {
             errors[kind] = String(localized: "下载失败：\(error.localizedDescription)")
         }
@@ -198,12 +218,13 @@ final class GeoModel: NSObject, ObservableObject, URLSessionDownloadDelegate {
         }
     }
 
-    /// mmdb files are reopened in place; .dat databases are read at config load, so reload the profile.
-    private func applyToRunningCore(_ kind: String) async {
-        guard VPNManager.shared.isConnected else { return }
-        if kind == "mmdb" || kind == "asn" {
+    /// mmdb files are reopened in place; .dat databases are read at config load, so reload the profile (once).
+    static func applyToRunningCore(_ kinds: Set<String>) async {
+        guard VPNManager.shared.isConnected, !kinds.isEmpty else { return }
+        if kinds.contains("mmdb") || kinds.contains("asn") {
             _ = try? await ControllerClient.shared.send("/tools/reload-geo", method: "POST")
-        } else {
+        }
+        if kinds.contains("geosite") || kinds.contains("geoip") {
             _ = await VPNManager.shared.reload()
         }
     }
@@ -261,6 +282,111 @@ final class GeoModel: NSObject, ObservableObject, URLSessionDownloadDelegate {
     }
 }
 
+/// Loon gap (GeoIP / ASN 每 N 天自动更新): the app re-downloads installed databases older than the interval, on
+/// foreground and background refresh (ScheduledUpdates.run), with the same download / install path as 更新. The
+/// tunnel's core keeps geo-auto-update off (bridge.go), so it never spends its memory on downloads.
+@MainActor
+enum GeoAutoUpdate {
+    static let choices = [0, 1, 3, 7, 30]
+    static let didUpdate = Notification.Name("GeoAutoUpdate.didUpdate")
+    private static let nextDueKey = "geo.autoUpdate.nextDue"
+    private static let lastRunKey = "geo.autoUpdate.lastRun"
+    private static let lastErrorKey = "geo.autoUpdate.lastError"
+    /// A failed run is retried after this long, not on every foreground.
+    private static let retryDelay: TimeInterval = 6 * 3600
+    private static var running = false
+
+    static func label(_ days: Int) -> Text {
+        switch days {
+        case 0: return Text("关闭")
+        case 1: return Text("每天")
+        case 7: return Text("每周")
+        default: return Text("每 \(days) 天")
+        }
+    }
+
+    /// When the last check finished (nil = never).
+    static var lastRun: Date? { UserDefaults.standard.object(forKey: lastRunKey) as? Date }
+    /// What failed in the last check ("" = nothing).
+    static var lastError: String { UserDefaults.standard.string(forKey: lastErrorKey) ?? "" }
+
+    /// When the next check is due (nil = off). Never checked, or the interval just changed = now.
+    static func nextDue() -> Date? {
+        guard CoreOverrides.load().geoAutoUpdateDays > 0 else { return nil }
+        return (UserDefaults.standard.object(forKey: nextDueKey) as? Date) ?? Date()
+    }
+
+    static func intervalChanged() {
+        UserDefaults.standard.removeObject(forKey: nextDueKey)
+        UserDefaults.standard.removeObject(forKey: lastErrorKey)
+        ScheduledUpdates.scheduleBackground()
+    }
+
+    /// Downloads every installed database older than the interval. Not-installed ones are left alone (the core
+    /// downloads those when a profile needs them, or the user installs them on the page).
+    static func runIfDue() async {
+        let o = CoreOverrides.load()
+        guard !running, o.geoAutoUpdateDays > 0 else { return }
+        let now = Date()
+        if let n = UserDefaults.standard.object(forKey: nextDueKey) as? Date, n > now { return }
+        running = true
+        defer { running = false }
+        let interval = TimeInterval(o.geoAutoUpdateDays) * 86400
+        let home = AppShared.homeURL.path
+        let files: [GeoFileInfo] = await Task.detached(priority: .utility) { () -> [GeoFileInfo] in
+            let json = LibmihomoGeoInfo(home)
+            return (try? JSONDecoder().decode([GeoFileInfo].self, from: Data(json.utf8))) ?? []
+        }.value
+        let installed = files.filter { $0.exists == true }
+        let due = installed.filter { f in
+            guard let m = f.modified, (f.error ?? "").isEmpty else { return true }
+            return now.timeIntervalSince(Date(timeIntervalSince1970: m)) >= interval
+        }
+        var updated: Set<String> = []
+        var failures: [String] = []
+        for f in due {
+            if Task.isCancelled { break }
+            if let err = await download(kind: f.kind, overrides: o, home: home) {
+                failures.append("\(f.title)：\(err)")
+            } else {
+                updated.insert(f.kind)
+            }
+        }
+        await GeoModel.applyToRunningCore(updated)
+        // Next check: when the oldest installed database reaches the interval; after a failure, retryDelay.
+        var next = now.addingTimeInterval(interval)
+        for f in installed where !due.contains(f) {
+            if let m = f.modified { next = min(next, Date(timeIntervalSince1970: m).addingTimeInterval(interval)) }
+        }
+        if !failures.isEmpty { next = min(next, now.addingTimeInterval(retryDelay)) }
+        let d = UserDefaults.standard
+        d.set(max(next, now.addingTimeInterval(600)), forKey: nextDueKey)
+        d.set(Date(), forKey: lastRunKey)
+        d.set(failures.joined(separator: "\n"), forKey: lastErrorKey)
+        NotificationCenter.default.post(name: didUpdate, object: nil)
+    }
+
+    /// One database: download (same request as 更新) and install. Returns an error text or nil.
+    private static func download(kind: String, overrides: CoreOverrides, home: String) async -> String? {
+        guard let url = URL(string: GeoModel.effectiveURL(kind, overrides)) else { return String(localized: "地址无效") }
+        var req = URLRequest(url: url, cachePolicy: .reloadIgnoringLocalCacheData, timeoutInterval: 30)
+        req.setValue("mihomo-ios", forHTTPHeaderField: "User-Agent")
+        do {
+            let (tmp, resp) = try await URLSession.shared.download(for: req)
+            if let h = resp as? HTTPURLResponse, !(200..<300).contains(h.statusCode) {
+                try? FileManager.default.removeItem(at: tmp)
+                return "HTTP \(h.statusCode)"
+            }
+            // URLSession removes its temp file later; move it to a name of our own (install deletes it).
+            let dst = FileManager.default.temporaryDirectory.appendingPathComponent("geo-\(UUID().uuidString).download")
+            try FileManager.default.moveItem(at: tmp, to: dst)
+            return await GeoModel.install(home: home, kind: kind, file: dst)
+        } catch {
+            return String(localized: "下载失败：\(error.localizedDescription)")
+        }
+    }
+}
+
 struct GeoView: View {
     @StateObject private var model = GeoModel()
     @State private var editing: String?
@@ -273,6 +399,7 @@ struct GeoView: View {
         ScrollView {
             VStack(spacing: 14) {
                 mirrorCard
+                autoUpdateCard
                 ForEach(model.files) { f in card(f) }
                 Text("内置数据库随扩展安装，首次连接无需下载。更新后 GeoIP / ASN 立即生效，GEOSITE / GEOIP(dat) 会重载配置。规则集（rule-providers）在「工具 → 规则 → 订阅」中更新。")
                     .font(.caption2).foregroundStyle(.secondary)
@@ -289,6 +416,7 @@ struct GeoView: View {
                     .disabled(!model.progress.isEmpty)
             }
         }
+        .onReceive(NotificationCenter.default.publisher(for: GeoAutoUpdate.didUpdate)) { _ in model.refresh() }
         .onAppear {
             model.refresh()
             baseText = model.overrides.geoMirrorBase.isEmpty ? model.currentBase : model.overrides.geoMirrorBase
@@ -340,6 +468,39 @@ struct GeoView: View {
                         .scaledFont(9, design: .monospaced).foregroundStyle(.secondary)
                         .lineLimit(1).truncationMode(.middle)
                         .accessibilityIdentifier("geo.mirror.base")
+                }
+            }
+        }
+        .padding(16)
+        .background(RoundedRectangle(cornerRadius: Theme.radius, style: .continuous).fill(Theme.card))
+    }
+
+    /// Loon gap: 自动更新 interval + when the last automatic check ran.
+    var autoUpdateCard: some View {
+        let days = model.overrides.geoAutoUpdateDays
+        let lastError = GeoAutoUpdate.lastError
+        return VStack(alignment: .leading, spacing: 8) {
+            HStack(spacing: 10) {
+                VStack(alignment: .leading, spacing: 2) {
+                    Text("自动更新").font(.subheadline.weight(.semibold))
+                    Text("已安装的数据库超过间隔后，打开 App 或后台刷新时自动下载").font(.caption2).foregroundStyle(.secondary)
+                }
+                Spacer(minLength: 8)
+                Picker("自动更新", selection: Binding(get: { days }, set: { model.setAutoUpdateDays($0) })) {
+                    ForEach(GeoAutoUpdate.choices, id: \.self) { d in GeoAutoUpdate.label(d).tag(d) }
+                }
+                .pickerStyle(.menu)
+                .tint(Theme.accent)
+                .accessibilityIdentifier("geo.autoUpdate.picker")
+            }
+            if days > 0 {
+                if let last = GeoAutoUpdate.lastRun {
+                    Text("上次自动检查 \(last.formatted(date: .abbreviated, time: .shortened))")
+                        .font(.caption2).foregroundStyle(.secondary)
+                        .accessibilityIdentifier("geo.autoUpdate.last")
+                }
+                if !lastError.isEmpty {
+                    Label(lastError, systemImage: "exclamationmark.triangle.fill").font(.caption2).foregroundStyle(Theme.bad)
                 }
             }
         }

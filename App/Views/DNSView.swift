@@ -39,7 +39,9 @@ struct LocalDNSSettings: Codable, Equatable {
 /// Mirrors <home>/dns.json (bridge/dns.go DNSOverride). When enabled it replaces the profile's resolvers.
 struct DNSOverrideSettings: Codable, Equatable {
     struct Fallback: Codable, Equatable {
-        var geoip: Bool = true
+        /// Loon gap 查询回落: off = the fallback answer is used only when the main servers fail or return no IP;
+        /// on = also when their IPs are outside geoipCode (mihomo fallback-filter geoip).
+        var geoip: Bool = false
         var geoipCode: String = "CN"
         var ipcidr: [String] = []
         var domain: [String] = []
@@ -68,12 +70,15 @@ struct DNSOverrideSettings: Codable, Equatable {
     var preferH3 = false
     var respectRules = false
     var cacheAlgorithm = ""
+    /// Loon gap 「包含系统 DNS」: the core adds `system` to the domestic servers (bridge dns.go IncludeSystem).
+    var includeSystem = false
 
     init() {}
 
     enum CodingKeys: String, CodingKey {
         case enabled, nameserver, foreign, split, defaultNameserver, directNameserver, proxyNameserver, fallback, fallbackFilter
         case fakeIPRange, fakeIPFilter, fakeIPFilterMode, policy, preferH3, respectRules, cacheAlgorithm
+        case includeSystem
     }
 
     init(from decoder: Decoder) throws {
@@ -96,6 +101,10 @@ struct DNSOverrideSettings: Codable, Equatable {
         preferH3 = get(.preferH3, d.preferH3)
         respectRules = get(.respectRules, d.respectRules)
         cacheAlgorithm = get(.cacheAlgorithm, d.cacheAlgorithm)
+        includeSystem = get(.includeSystem, d.includeSystem)
+        // Files from before 查询回落 had no fallback servers and geoip = true (unused then); start new fallback
+        // lists from the failure-only behaviour.
+        if fallback.isEmpty { fallbackFilter.geoip = false }
     }
 
     static var url: URL { AppShared.homeURL.appendingPathComponent("dns.json") }
@@ -238,6 +247,14 @@ struct DNSView: View {
                     if s.split {
                         LinesField(title: "国外 DNS", placeholder: "https://1.1.1.1/dns-query", lines: $s.foreign, presets: DNSPreset.foreign)
                     }
+                    Toggle(isOn: $s.includeSystem) {
+                        VStack(alignment: .leading, spacing: 2) {
+                            Text("包含系统 DNS")
+                            Text(s.split ? "国内域名同时用系统 DNS（system）查询" : "同时用系统 DNS（system）查询")
+                                .font(.caption2).foregroundStyle(.secondary)
+                        }
+                    }
+                    .accessibilityIdentifier("dns.includeSystem")
                 } header: { Text("解析服务器") } footer: {
                     Text(s.split ? "geosite:cn 与私有域名用国内 DNS，其余域名用国外 DNS（通过代理查询）。支持 udp / tcp / DoH (https://) / DoT (tls://) / DoQ (quic://)。" : "所有域名都用这里的服务器。")
                 }
@@ -251,6 +268,20 @@ struct DNSView: View {
                     Toggle("DNS 查询遵循规则（respect-rules）", isOn: $s.respectRules)
                 } header: { Text("高级") } footer: {
                     Text("引导 DNS 用来解析 DoH / DoT 服务器自身的域名，必须是 IP。")
+                }
+                .listRowBackground(Theme.card)
+
+                Section {
+                    LinesField(title: "回落 DNS（fallback）", placeholder: "可留空", lines: $s.fallback, presets: DNSPreset.foreign)
+                        .accessibilityIdentifier("dns.fallback")
+                    if !s.fallback.isEmpty {
+                        Toggle("境外 IP 也改用回落结果", isOn: $s.fallbackFilter.geoip)
+                            .accessibilityIdentifier("dns.fallback.geoip")
+                    }
+                } header: { Text("查询回落") } footer: {
+                    Text(s.fallbackFilter.geoip && !s.fallback.isEmpty
+                         ? "上面的服务器查询失败、没有返回 IP，或返回的 IP 不在中国大陆时，改用回落 DNS 的结果。指定域名的 DNS 不回落。"
+                         : "上面的服务器查询失败或没有返回 IP 时，改用回落 DNS 的结果。指定域名的 DNS 不回落。")
                 }
                 .listRowBackground(Theme.card)
 
@@ -367,7 +398,7 @@ struct DNSView: View {
     var invalidEntries: [String] {
         guard s.enabled else { return [] }
         var bad: [String] = []
-        for e in s.nameserver + (s.split ? s.foreign : []) + s.proxyNameserver + s.directNameserver + s.policy.flatMap(\.servers)
+        for e in s.nameserver + (s.split ? s.foreign : []) + s.proxyNameserver + s.directNameserver + s.fallback + s.policy.flatMap(\.servers)
         where !DNSServerSpec.isValidServer(e) { bad.append(e) }
         for e in s.defaultNameserver where !DNSServerSpec.isValidBootstrap(e) { bad.append(e) }
         return bad

@@ -33,6 +33,9 @@ type DNSOverride struct {
 	UseHosts          *bool        `json:"useHosts,omitempty"`
 	UseSystemHosts    *bool        `json:"useSystemHosts,omitempty"`
 	CacheAlgorithm    string       `json:"cacheAlgorithm"` // lru | arc
+	// IncludeSystem (DNS page 「包含系统 DNS」): add mihomo's `system` resolver to the domestic servers (the main
+	// nameserver list, or the geosite:cn,private policy when split), queried together with them.
+	IncludeSystem bool `json:"includeSystem"`
 }
 
 // FallbackRule is dns.fallback-filter.
@@ -91,6 +94,9 @@ func applyDNSOverride(dns map[string]any, d *DNSOverride, mode string) {
 	}
 	if len(foreign) == 0 {
 		foreign = domestic
+	}
+	if d.IncludeSystem {
+		domestic = withSystemNameserver(domestic)
 	}
 	// Policies are rebuilt from scratch so the page is the single source of truth.
 	policy := yamlOrderedPolicy{}
@@ -172,6 +178,18 @@ func applyDNSOverride(dns map[string]any, d *DNSOverride, mode string) {
 	if d.CacheAlgorithm == "lru" || d.CacheAlgorithm == "arc" {
 		dns["cache-algorithm"] = d.CacheAlgorithm
 	}
+}
+
+// withSystemNameserver returns a copy of list with "system" appended (once).
+func withSystemNameserver(list []any) []any {
+	out := make([]any, 0, len(list)+1)
+	out = append(out, list...)
+	for _, e := range list {
+		if e == "system" {
+			return out
+		}
+	}
+	return append(out, "system")
 }
 
 func asList(v any) []any {

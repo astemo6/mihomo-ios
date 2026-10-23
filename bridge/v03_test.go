@@ -238,3 +238,72 @@ func TestGeoInstallFileRejectsJunk(t *testing.T) {
 		t.Fatal("expected unknown kind error")
 	}
 }
+
+// Loon gap: 「包含系统 DNS」 adds `system` to the domestic servers; 查询回落 writes fallback + a default filter.
+func TestDNSOverrideIncludeSystemAndFallback(t *testing.T) {
+	home := t.TempDir()
+	C.SetHomeDir(home)
+	copyRepoGeo(t, home)
+	parse := func(d DNSOverride) map[string]any {
+		t.Helper()
+		b, _ := json.Marshal(d)
+		_ = os.WriteFile(filepath.Join(home, "dns.json"), b, 0o644)
+		o := readOverrides(home)
+		rt, err := buildRuntime([]byte(sample), o, 7)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if _, err := executor.ParseWithBytes(rt); err != nil {
+			t.Fatalf("core rejected: %v\n%s", err, rt)
+		}
+		var m map[string]any
+		_ = yaml.Unmarshal(rt, &m)
+		return m["dns"].(map[string]any)
+	}
+	has := func(l any, s string) bool {
+		for _, e := range asList(l) {
+			if e == s {
+				return true
+			}
+		}
+		return false
+	}
+
+	// not split: system joins the main nameserver list, once, after the user's servers
+	dns := parse(DNSOverride{Enabled: true, Nameserver: []string{"https://223.5.5.5/dns-query", "system"}, IncludeSystem: true})
+	ns := asList(dns["nameserver"])
+	if len(ns) != 2 || ns[0] != "https://223.5.5.5/dns-query" || ns[1] != "system" {
+		t.Fatalf("nameserver %v", ns)
+	}
+	dns = parse(DNSOverride{Enabled: true, Nameserver: []string{"https://223.5.5.5/dns-query"}, IncludeSystem: true})
+	if ns := asList(dns["nameserver"]); len(ns) != 2 || ns[1] != "system" {
+		t.Fatalf("nameserver %v", ns)
+	}
+	if dns["fallback"] != nil || dns["fallback-filter"] != nil {
+		t.Fatalf("no fallback expected: %v", dns)
+	}
+
+	// split: only the domestic (geosite:cn) servers get system; foreign queries never go to the local resolver
+	dns = parse(DNSOverride{Enabled: true, Split: true, Nameserver: []string{"223.5.5.5"}, Foreign: []string{"https://1.1.1.1/dns-query"},
+		IncludeSystem: true, Fallback: []string{"tls://8.8.4.4"}, FallbackFilter: FallbackRule{GeoIP: true}})
+	if has(dns["nameserver"], "system") {
+		t.Fatalf("system leaked into foreign nameserver %v", dns["nameserver"])
+	}
+	pol := dns["nameserver-policy"].(map[string]any)
+	if !has(pol["geosite:cn,private"], "system") || !has(pol["geosite:cn,private"], "223.5.5.5") {
+		t.Fatalf("policy %v", pol)
+	}
+	if fb := asList(dns["fallback"]); len(fb) != 1 || fb[0] != "tls://8.8.4.4" {
+		t.Fatalf("fallback %v", dns["fallback"])
+	}
+	ff := dns["fallback-filter"].(map[string]any)
+	if ff["geoip"] != true || ff["geoip-code"] != "CN" {
+		t.Fatalf("fallback-filter %v", ff)
+	}
+
+	// off: no system
+	dns = parse(DNSOverride{Enabled: true, Nameserver: []string{"223.5.5.5"}})
+	if has(dns["nameserver"], "system") {
+		t.Fatalf("system without the toggle %v", dns["nameserver"])
+	}
+}

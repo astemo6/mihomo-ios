@@ -726,6 +726,50 @@ struct StoreView: View {
     @State private var editValue = ""
     @State private var newKey = ""
     @State private var adding = false
+    // Loon gap: 导出 / 导入 / 清空全部
+    @State private var share: ShareItem?
+    @State private var confirmExport = false
+    @State private var importing = false
+    @State private var confirmClear = false
+    @State private var message: String?
+
+    func reload() {
+        Task {
+            let m = await Task.detached(priority: .userInitiated) { () -> [String: String] in
+                guard let d = try? Data(contentsOf: EnginePaths.storeURL),
+                      let m = try? JSONDecoder().decode([String: String].self, from: d) else { return [:] }
+                return m
+            }.value
+            items = m.sorted { $0.key < $1.key }.map { ($0.key, $0.value) }
+        }
+    }
+
+    func exportStore() {
+        Task {
+            let url = await Task.detached(priority: .userInitiated) { EngineStore.storeExportFile() }.value
+            if let url { share = ShareItem(url: url, temporary: true) } else { message = String(localized: "导出失败") }
+        }
+    }
+
+    func importStore(_ url: URL) {
+        let ok = url.startAccessingSecurityScopedResource()
+        let data = try? Data(contentsOf: url)
+        if ok { url.stopAccessingSecurityScopedResource() }
+        guard let data else { message = String(localized: "无法读取文件"); return }
+        Task {
+            let n = await Task.detached(priority: .userInitiated) { EngineStore.storeImport(data) }.value
+            if let n { message = String(localized: "已导入 \(n) 项") } else { message = String(localized: "文件不是有效的 JSON 对象") }
+            reload()
+        }
+    }
+
+    func clearStore() {
+        Task {
+            let ok = await Task.detached(priority: .userInitiated) { EngineStore.storeClear() }.value
+            if !ok { message = String(localized: "清空失败") }
+            reload()
+        }
+    }
 
     var body: some View {
         List {
@@ -748,8 +792,40 @@ struct StoreView: View {
         .scrollContentBackground(.hidden)
         .background(Theme.bg.ignoresSafeArea())
         .navigationTitle("持久化存储")
-        .toolbar { Button { adding = true } label: { Image(systemName: "plus") } }
-        .onAppear { items = store.storeItems() }
+        .toolbar {
+            ToolbarItemGroup(placement: .navigationBarTrailing) {
+                Menu {
+                    Button { confirmExport = true } label: { Label("导出", systemImage: "square.and.arrow.up") }
+                        .disabled(items.isEmpty)
+                    Button { importing = true } label: { Label("导入", systemImage: "square.and.arrow.down") }
+                    Divider()
+                    Button(role: .destructive) { confirmClear = true } label: { Label("清空全部", systemImage: "trash") }
+                        .disabled(items.isEmpty)
+                } label: { Image(systemName: "ellipsis.circle") }
+                .accessibilityLabel(Text("更多"))
+                .accessibilityIdentifier("store.menu")
+                Button { adding = true } label: { Image(systemName: "plus") }
+                    .accessibilityIdentifier("store.add")
+            }
+        }
+        .onAppear { reload() }
+        .sheet(item: $share, onDismiss: { try? FileManager.default.removeItem(at: EngineStore.storeExportURL) }) {
+            ActivityView(items: [$0.url], cleanup: $0.temporary ? $0.url : nil)
+        }
+        .confirmationDialog("导出持久化存储？", isPresented: $confirmExport, titleVisibility: .visible) {
+            Button("导出") { exportStore() }
+            Button("取消", role: .cancel) {}
+        } message: { Text("文件可能包含脚本保存的 Cookie、Token 等数据，请勿分享给他人。") }
+        .fileImporter(isPresented: $importing, allowedContentTypes: [.json, .data]) { r in
+            if case .success(let url) = r { importStore(url) }
+        }
+        .confirmationDialog("清空全部 \(items.count) 项？", isPresented: $confirmClear, titleVisibility: .visible) {
+            Button("清空全部", role: .destructive) { clearStore() }
+            Button("取消", role: .cancel) {}
+        } message: { Text("脚本保存的数据（如 BoxJS 设置、登录信息）都会被删除，无法恢复。") }
+        .alert("持久化存储", isPresented: Binding(get: { message != nil }, set: { if !$0 { message = nil } })) {
+            Button("好") { message = nil }
+        } message: { Text(message ?? "") }
         .sheet(isPresented: Binding(get: { editKey != nil || adding }, set: { if !$0 { editKey = nil; adding = false } })) {
             NavigationStack {
                 Form {

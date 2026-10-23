@@ -9145,6 +9145,41 @@
         }
       }
     },
+    "上次自动检查 %@": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Last automatic check %@"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "上次自動檢查 %@"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "前回の自動チェック %@"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "마지막 자동 확인 %@"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Последняя автопроверка %@"
+          }
+        }
+      }
+    },
     "上行": {
       "localizations": {
         "en": {
@@ -9214,6 +9249,76 @@
         }
       },
       "extractionState": "manual"
+    },
+    "上面的服务器查询失败、没有返回 IP，或返回的 IP 不在中国大陆时，改用回落 DNS 的结果。指定域名的 DNS 不回落。": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "When the servers above fail, return no IP, or return an IP outside mainland China, the fallback DNS answer is used instead. Domain-specific DNS never falls back."
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "上面的伺服器查詢失敗、沒有返回 IP，或返回的 IP 不在中國大陸時，改用回落 DNS 的結果。指定網域的 DNS 不回落。"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "上のサーバーが失敗したとき、IP を返さないとき、または中国本土外の IP を返したときは、フォールバック DNS の結果を使います。ドメイン指定の DNS はフォールバックしません。"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "위 서버 조회가 실패하거나 IP를 반환하지 않거나 중국 본토 밖 IP를 반환하면 폴백 DNS 결과를 사용합니다. 도메인 지정 DNS는 폴백하지 않습니다."
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Если серверы выше не ответили, не вернули IP или вернули IP вне материкового Китая, используется ответ резервного DNS. DNS для отдельных доменов не переключается."
+          }
+        }
+      }
+    },
+    "上面的服务器查询失败或没有返回 IP 时，改用回落 DNS 的结果。指定域名的 DNS 不回落。": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "When the servers above fail or return no IP, the fallback DNS answer is used instead. Domain-specific DNS never falls back."
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "上面的伺服器查詢失敗或沒有返回 IP 時，改用回落 DNS 的結果。指定網域的 DNS 不回落。"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "上のサーバーが失敗したとき、または IP を返さないときは、フォールバック DNS の結果を使います。ドメイン指定の DNS はフォールバックしません。"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "위 서버 조회가 실패하거나 IP를 반환하지 않으면 폴백 DNS 결과를 사용합니다. 도메인 지정 DNS는 폴백하지 않습니다."
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Если серверы выше не ответили или не вернули IP, используется ответ резервного DNS. DNS для отдельных доменов не переключается."
+          }
+        }
+      }
     },
     "下一步": {
       "localizations": {
@@ -10074,6 +10179,76 @@
       },
       "extractionState": "manual"
     },
+    "包含系统 DNS": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Include System DNS"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "包含系統 DNS"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "システム DNS を含める"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "시스템 DNS 포함"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Включить системный DNS"
+          }
+        }
+      }
+    },
+    "同时用系统 DNS（system）查询": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Also query the system DNS (system)"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "同時用系統 DNS（system）查詢"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "システム DNS（system）でも問い合わせます"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "시스템 DNS(system)로도 조회합니다"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Также запрашивать системный DNS (system)"
+          }
+        }
+      }
+    },
     "响应体过大，只显示开头部分": {
       "localizations": {
         "en": {
@@ -10104,6 +10279,496 @@
           "stringUnit": {
             "state": "translated",
             "value": "回應本文過大，只顯示開頭部分"
+          }
+        }
+      }
+    },
+    "回落 DNS（fallback）": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Fallback DNS (fallback)"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "回落 DNS（fallback）"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "フォールバック DNS（fallback）"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "폴백 DNS(fallback)"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Резервный DNS (fallback)"
+          }
+        }
+      }
+    },
+    "国内域名同时用系统 DNS（system）查询": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Mainland China domains are also queried with the system DNS (system)"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "國內網域同時用系統 DNS（system）查詢"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "中国本土のドメインはシステム DNS（system）でも問い合わせます"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "중국 본토 도메인은 시스템 DNS(system)로도 조회합니다"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Домены материкового Китая также запрашиваются через системный DNS (system)"
+          }
+        }
+      }
+    },
+    "境外 IP 也改用回落结果": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Also use the fallback answer for IPs outside mainland China"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "境外 IP 也改用回落結果"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "中国本土外の IP でもフォールバックの結果を使う"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "중국 본토 밖 IP도 폴백 결과 사용"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Использовать резервный ответ и для IP вне материкового Китая"
+          }
+        }
+      }
+    },
+    "导出持久化存储？": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Export the persistent store?"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "匯出持久化儲存？"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "永続ストアを書き出しますか？"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "영구 저장소를 내보낼까요?"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Экспортировать постоянное хранилище?"
+          }
+        }
+      }
+    },
+    "已安装的数据库超过间隔后，打开 App 或后台刷新时自动下载": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Installed databases older than the interval are downloaded again when you open the app or during background refresh"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "已安裝的資料庫超過間隔後，開啟 App 或背景重新整理時自動下載"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "インストール済みのデータベースが間隔を過ぎると、アプリを開いたときやバックグラウンド更新時に自動でダウンロードします"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "설치된 데이터베이스가 간격을 넘기면 앱을 열 때나 백그라운드 새로 고침 때 자동으로 다운로드합니다"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Установленные базы старше интервала загружаются заново при открытии приложения или фоновом обновлении"
+          }
+        }
+      }
+    },
+    "已导入 %lld 项": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Imported %lld items"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "已匯入 %lld 項"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%lld 件を読み込みました"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%lld개 항목을 가져왔습니다"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Импортировано: %lld"
+          }
+        }
+      }
+    },
+    "文件不是有效的 JSON 对象": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "The file is not a valid JSON object"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "檔案不是有效的 JSON 物件"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ファイルが有効な JSON オブジェクトではありません"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "파일이 올바른 JSON 객체가 아닙니다"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Файл не является корректным объектом JSON"
+          }
+        }
+      }
+    },
+    "文件可能包含脚本保存的 Cookie、Token 等数据，请勿分享给他人。": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "The file may contain cookies, tokens and other data saved by scripts. Don't share it with anyone."
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "檔案可能包含腳本儲存的 Cookie、Token 等資料，請勿分享給他人。"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ファイルにはスクリプトが保存した Cookie やトークンなどが含まれる場合があります。他人と共有しないでください。"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "파일에 스크립트가 저장한 쿠키, 토큰 등의 데이터가 포함될 수 있습니다. 다른 사람과 공유하지 마세요."
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Файл может содержать cookie, токены и другие данные, сохранённые скриптами. Не передавайте его другим."
+          }
+        }
+      }
+    },
+    "查询回落": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Query Fallback"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "查詢回落"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "クエリのフォールバック"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "조회 폴백"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Резервные запросы"
+          }
+        }
+      }
+    },
+    "每 %lld 天": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Every %lld days"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "每 %lld 天"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%lld 日ごと"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%lld일마다"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Каждые %lld дн."
+          }
+        }
+      }
+    },
+    "清空全部": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Clear All"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "清空全部"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "すべて消去"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "모두 지우기"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Очистить всё"
+          }
+        }
+      }
+    },
+    "清空全部 %lld 项？": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Clear all %lld items?"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "清空全部 %lld 項？"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%lld 件をすべて消去しますか？"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%lld개 항목을 모두 지울까요?"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Очистить все элементы (%lld)?"
+          }
+        }
+      }
+    },
+    "清空失败": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Couldn't clear"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "清空失敗"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "消去できませんでした"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "지우지 못했습니다"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Не удалось очистить"
+          }
+        }
+      }
+    },
+    "脚本保存的数据（如 BoxJS 设置、登录信息）都会被删除，无法恢复。": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Everything scripts have saved (such as BoxJS settings and sign-in data) will be deleted and can't be restored."
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "腳本儲存的資料（如 BoxJS 設定、登入資訊）都會被刪除，無法復原。"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "スクリプトが保存したデータ（BoxJS の設定やログイン情報など）はすべて削除され、元に戻せません。"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "스크립트가 저장한 데이터(BoxJS 설정, 로그인 정보 등)가 모두 삭제되며 복구할 수 없습니다."
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Все данные, сохранённые скриптами (настройки BoxJS, данные входа и т. п.), будут удалены без возможности восстановления."
           }
         }
       }
