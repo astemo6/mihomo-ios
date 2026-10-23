@@ -95,7 +95,7 @@ final class MihomoUITests: MihomoUITestCase {
     /// feat/more-dedup (user 2026-10-21 18:06): 更多 keeps settings-type rows (配置 first); tool-type pages are
     /// cards on the 工具 tab (tab 3, which replaced 配置). Card ids keep `more.<old key>`.
     static let moreRows = [
-        "配置", "流量统计", "配置快照", "备份与恢复", "更新资源", "存储空间", "外观", "实时活动", "App 图标", "开始标签页", "首页流量统计",
+        "配置", "流量统计", "配置快照", "备份与恢复", "存储空间", "外观", "实时活动", "App 图标", "开始标签页", "首页流量统计",
         "诊断", "关于 / 开源许可",
     ]
     static let toolRows = [

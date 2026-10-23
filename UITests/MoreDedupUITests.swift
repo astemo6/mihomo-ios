@@ -76,13 +76,8 @@ extension MihomoUITests {
         snap("dedup-backup")
         back()
 
-        // 更新资源: node-related resources only (配置订阅 / 节点订阅) with their own 更新 and 更新全部.
-        openMore("更新资源")
-        XCTAssertTrue(app.navigationBars[L("更新资源")].waitForExistence(timeout: 5), "更新资源 page")
-        XCTAssertTrue(app.element(id: "res.updateAll").waitForExistence(timeout: 4), "更新全部 button")
-        XCTAssertTrue(app.element(labelContains: "Demo Sub").waitForExistence(timeout: 4), "node subscription listed")
-        snap("dedup-update-resources")
-        back()
+        // 更新资源 removed (user 2026-10-23): each resource updates on its own 工具 page.
+        XCTAssertFalse(app.element(id: "more.更新资源").exists, "no 更新资源 row on 更多")
 
         // 配置管理 (更多 → 配置): no 手动节点 row, no 节点与订阅 shortcut; long-press menu has 导出 above 删除.
         openProfiles()

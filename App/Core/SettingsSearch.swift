@@ -12,7 +12,7 @@ import Foundation
 /// Where a search result goes. One case per reachable page; several index entries may share one.
 enum SearchDestination: String, CaseIterable, Hashable {
     // 更多
-    case profiles, sampleProfile, stats, snapshots, backup, webdav, syncFolder, updateResources, storage
+    case profiles, sampleProfile, stats, snapshots, backup, webdav, syncFolder, storage
     case appearance, liveActivity, appIcon, launchTab, trafficScope
     case advanced, connection, networkPolicy, geo, coreSettings, speedTestSettings, geoChecker
     case onboarding, diagnostics, about, systemLanguage
@@ -86,8 +86,6 @@ enum SettingsSearchIndex {
           ["备份", "恢复", "导出", "导入", "加密的备份", "iCloud", "backup", "restore", "export"]),
         e("webdav", "WebDAV 备份", [more, "备份与恢复"], "server.rack", .blue, .webdav, ["webdav", "云备份", "坚果云", "nextcloud", "cloud"]),
         e("syncFolder", "同步文件夹", [more, "备份与恢复"], "folder", .blue, .syncFolder, ["同步", "iCloud Drive", "文件", "sync", "folder"]),
-        e("updateResources", "更新资源", [more], "arrow.triangle.2.circlepath", .green, .updateResources,
-          ["更新", "订阅", "配置订阅", "节点订阅", "全部更新", "update", "refresh", "subscription", "Sub-Store"]),
         e("storage", "存储空间", [more], "internaldrive", .neutral, .storage, ["缓存", "清理", "空间", "storage", "cache", "clean"]),
         e("appearance", "深色与浅色", [more, "外观"], "circle.lefthalf.filled", .accent, .appearance,
           ["外观", "深色", "浅色", "深色模式", "主题", "dark mode", "light", "theme", "appearance"]),

@@ -109,9 +109,6 @@ struct MoreView: View {
             NavigationLink { LazyDestination { BackupView() } } label: {
                 MoreRow(id: "备份与恢复", title: "备份与恢复", symbol: "externaldrive.badge.icloud", tone: .blue)
             }
-            NavigationLink { LazyDestination { UpdateResourcesView() } } label: {
-                MoreRow(id: "更新资源", title: "更新资源", subtitle: "配置订阅 · 节点订阅", symbol: "arrow.triangle.2.circlepath", tone: .green)
-            }
             NavigationLink { LazyDestination { NotificationsView() } } label: {
                 MoreRow(id: "通知", title: "通知", subtitle: "脚本 · 订阅提醒 · 自动更新", symbol: "bell.badge.fill", tone: .red)
             }
