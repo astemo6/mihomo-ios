@@ -682,9 +682,12 @@ func Start(homeDir, configPath string, tunFd int32) error {
 	var state atomic.Int32
 	stops := stopCount.Load()
 	done := make(chan error, 1)
+	// The test hook is read here, not in the goroutine: a timed-out apply outlives its Start (and its
+	// test, whose cleanup resets the hook) — go test -race flagged the late read.
+	applyDoneHook := testHookApplyDone
 	go func() {
 		err := safeApply(homeDir, configPath, tunFd)
-		if h := testHookApplyDone; h != nil {
+		if h := applyDoneHook; h != nil {
 			h()
 		}
 		if !state.CompareAndSwap(startPending, startFinished) {

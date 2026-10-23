@@ -408,7 +408,13 @@ final class PacketTunnelProvider: NEPacketTunnelProvider {
         completionHandler()
     }
 
-    override func wake() {}
+    /// The alive marker is refreshed by the traffic timer every 2 minutes, which does not fire while the device
+    /// sleeps; after a long sleep the app's cold launch read the marker as stale (tunnelLikelyRunning, 15 min) and
+    /// showed the switch off until load() corrected it. Refresh it on wake (only while the tunnel runs).
+    override func wake() {
+        stopLock.lock(); let running = !_stopped && traffic != nil; stopLock.unlock()
+        if running { TunnelStopReason.markAlive() }
+    }
 
     static func error(_ msg: String) -> NSError {
         NSError(domain: "Mihomo.PacketTunnel", code: 1, userInfo: [NSLocalizedDescriptionKey: msg])
