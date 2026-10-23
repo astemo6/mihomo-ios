@@ -163,7 +163,7 @@ final class EngineStore: ObservableObject {
             // v0.19.9: task-only modules (QX task gallery JSON such as Sub-Store's QX-Task.json) showed "0 条规则/脚本".
             if let n = p.tasks?.count, n > 0 { msg += String(localized: "，\(n) 个定时任务") }
             if !p.unsupported.isEmpty { msg += String(localized: "，\(p.unsupported.count) 行暂不支持") }
-            if !p.hostnames.isEmpty && !caTrustedOrUnknownTrue { msg += String(localized: "。HTTPS 规则需要先在 MitM 页安装并信任证书") }
+            if !p.hostnames.isEmpty && !caTrustedOrUnknownTrue { msg += String(localized: "。HTTPS 规则需要先在「HTTPS 解密」页安装并信任证书") }
             message = msg
         } catch {
             message = String(localized: "下载失败：\(error.localizedDescription)")

@@ -226,29 +226,24 @@ struct MoreRow: View {
 /// this page keeps what changes how the tunnel itself works.
 struct AdvancedSettingsView: View {
     @ObservedObject var engine = EngineStore.shared
-    // fix/nav-jank: the values are there on the first frame. They used to be filled in onAppear, so 连接方式 /
-    // DNS got their trailing text mid-push and the rows re-laid out while sliding in.
+    // fix/nav-jank: the value is there on the first frame. It used to be filled in onAppear, so 连接方式 got its
+    // trailing text mid-push and the row re-laid out while sliding in. (ui-audit: the DNS label went with the DNS row,
+    // which lives on 工具.)
     @State private var connLabel: String
-    @State private var dnsLabel: String
 
     init() {
-        let l = Self.labels()
-        _connLabel = State(initialValue: l.conn)
-        _dnsLabel = State(initialValue: l.dns)
+        _connLabel = State(initialValue: Self.connectionLabel())
     }
 
-    static func labels() -> (conn: String, dns: String) {
+    static func connectionLabel() -> String {
         let o = CoreOverrides.load()
-        let conn = o.isProxyOnly ? String(localized: "仅代理") : o.isMixed ? String(localized: "VPN 混合") : "TUN"
-        let dns = DNSOverrideSettings.load().enabled ? String(localized: "自定义") : String(localized: "配置文件")
-        return (conn, dns)
+        return o.isProxyOnly ? String(localized: "仅代理") : o.isMixed ? String(localized: "VPN 混合") : "TUN"
     }
 
-    /// Back from 连接方式 / DNS: only a changed value is written (no update when nothing changed).
+    /// Back from 连接方式: only a changed value is written (no update when nothing changed).
     func refreshLabels() {
-        let l = Self.labels()
-        if connLabel != l.conn { connLabel = l.conn }
-        if dnsLabel != l.dns { dnsLabel = l.dns }
+        let c = Self.connectionLabel()
+        if connLabel != c { connLabel = c }
     }
 
     var body: some View {
@@ -490,7 +485,7 @@ struct LogsView: View {
             }
         }
         .background(Theme.bg.ignoresSafeArea())
-        .navigationTitle("日志")
+        .navigationTitle("运行日志") // ui-audit: same name as the 工具 card
         .toolbar {
             ToolbarItemGroup(placement: .navigationBarTrailing) {
                 PauseToggleButton(paused: $model.paused, id: "logs.pause")
@@ -733,7 +728,7 @@ struct DiagnosticsView: View {
         .listStyle(.insetGrouped)
         .scrollContentBackground(.hidden)
         .background(Theme.bg.ignoresSafeArea())
-        .navigationTitle("诊断")
+        .navigationTitle("诊断与反馈") // ui-audit: same name as the 更多 row
         .onAppear { if provisioned == nil { provisioned = AppShared.provisionedAppGroups().sorted() } }
         // fix/nav-jank: init already read it for the first frame; the re-read (two files) runs off main.
         .task {
@@ -1006,7 +1001,7 @@ struct SpeedTestSettingsView: View {
         }
         .scrollContentBackground(.hidden)
         .background(Theme.bg.ignoresSafeArea())
-        .navigationTitle("测速")
+        .navigationTitle("测速设置") // ui-audit: same name as the 高级设置 row / search
         .onAppear {
             // Review 6: an invalid custom URL is not saved; re-reading on every appearance replaced it with the preset.
             debounce.flush()

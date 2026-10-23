@@ -266,7 +266,7 @@ struct UnlockView: View {
         .listStyle(.insetGrouped)
         .scrollContentBackground(.hidden)
         .background(Theme.bg.ignoresSafeArea())
-        .navigationTitle("解锁检测")
+        .navigationTitle("流媒体解锁") // ui-audit: same name as the 工具 card
         .task(id: vpn.isConnected) { await load() }
         .onChange(of: group) { _ in member = "" }
         .onDisappear { batch?.cancel() }
@@ -313,6 +313,8 @@ struct UnlockView: View {
         batchTotal = list.count
         batchDone = 0
         running = true
+        // ui-audit: clear the previous run's error, or `error == nil` below kept the old one and hid every new failure.
+        error = nil
         batch = Task {
             for m in list {
                 if Task.isCancelled { break }

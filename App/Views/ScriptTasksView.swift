@@ -263,7 +263,7 @@ struct ScriptTasksView: View {
         .scrollContentBackground(.hidden)
         .background(Theme.bg.ignoresSafeArea())
         .accessibilityIdentifier("scriptTasksView")
-        .navigationTitle("任务")
+        .navigationTitle("定时任务") // ui-audit: same name as the 工具 card
         .navigationBarTitleDisplayMode(.inline)
         .environment(\.editMode, $editMode)
         .toolbar {
@@ -836,7 +836,7 @@ struct ScriptNoticesView: View {
         .listStyle(.insetGrouped)
         .scrollContentBackground(.hidden)
         .background(Theme.bg.ignoresSafeArea())
-        .navigationTitle("脚本通知")
+        .navigationTitle("脚本通知记录") // ui-audit: same name as the rows that open it
         .navigationBarTitleDisplayMode(.inline)
         .toolbar {
             ToolbarItem(placement: .navigationBarTrailing) {

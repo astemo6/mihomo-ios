@@ -17,7 +17,7 @@ enum SearchDestination: String, CaseIterable, Hashable {
     case advanced, connection, tunnel, networkPolicy, geo, coreSettings, speedTestSettings, geoChecker
     case onboarding, diagnostics, about, systemLanguage
     // 工具
-    case nodes, rules, modules, moduleGallery, allRewrites, rewrites, scripts, scriptLogs, scriptNotices, scriptStore
+    case nodes, proxyChains, rules, modules, moduleGallery, allRewrites, scriptList, rewrites, scripts, scriptWorkbench, scriptLogs, scriptNotices, scriptStore
     case tasks, mitm, dns, logs, dnsLog, analytics, netDiagnostics, netTest, unlock, lanInfo, panels
     // 首页 / 策略
     case homePanels, homeGroups, homeTab, policyTab
@@ -130,7 +130,7 @@ enum SettingsSearchIndex {
         e("geo", "地理数据库", adv, "globe.asia.australia", .green, .geo,
           ["GeoIP", "GeoSite", "MMDB", "ASN", "地理", "IP 库", "数据库", "规则库", "geo", "database", "geodata", "自动更新", "auto update"]),
         e("coreSettings", "内核设置", adv, "slider.horizontal.3", .neutral, .coreSettings,
-          ["内核", "mihomo", "clash", "日志级别", "性能", "断开连接", "core", "kernel", "log level"]),
+          ["内核", "mihomo", "clash", "日志级别", "性能", "断开连接", "内核内存上限", "内存", "MTU", "core", "kernel", "log level", "memory limit"]),
         e("controller", "外部控制器", [more, "高级设置", "内核设置"], "antenna.radiowaves.left.and.right", .neutral, .coreSettings,
           ["控制器", "external controller", "API", "secret", "dashboard", "面板", "yacd", "metacubexd", "9090"]),
         e("sniffer", "域名嗅探（Sniffer）", [more, "高级设置", "内核设置"], "eye", .neutral, .coreSettings, ["嗅探", "sniffer", "SNI", "sniff"]),
@@ -149,16 +149,24 @@ enum SettingsSearchIndex {
         e("nodes", "节点与订阅", [tools], "server.rack", .blue, .nodes,
           ["节点", "订阅", "机场", "节点订阅", "配置订阅", "添加节点", "手动节点", "节点集", "筛选节点", "proxy", "node", "server",
            "subscription", "provider", "proxy-provider", "vmess", "vless", "trojan", "hysteria", "shadowsocks", "ss", "wireguard", "tuic"]),
+        // ui-audit: 代理链 (节点与订阅 → 代理链) had no search entry.
+        e("proxyChains", "代理链", [tools, "节点与订阅"], "link", .blue, .proxyChains,
+          ["前置代理", "链式代理", "多跳", "dialer-proxy", "relay", "proxy chain", "chain"]),
         e("rules", "分流规则", [tools], "arrow.triangle.branch", .orange, .rules,
           ["规则", "分流", "自定义规则", "规则集", "规则命中", "rule", "rules", "rule set", "rule-provider", "routing", "DOMAIN", "GEOIP", "MATCH"]),
         e("modules", "模块", [tools, "重写"], "puzzlepiece.extension", .green, .modules,
           ["模块", "订阅", "重写订阅", "插件", "覆写", "Sub-Store", "BoxJS", "Surge 模块", "Loon 插件", "module", "plugin", "sgmodule", "override", "Egern"]),
         e("moduleGallery", "模块库", [tools, "重写"], "square.grid.2x2", .green, .moduleGallery, ["模块库", "插件库", "gallery", "library", "store"]),
         e("allRewrites", "全部重写规则", [tools, "重写"], "list.bullet.rectangle", .red, .allRewrites, ["重写规则", "all rewrites", "rewrite rules"]),
+        // ui-audit: 脚本列表 / 脚本调试台 (重写 page) had no search entry.
+        e("scriptList", "脚本列表", [tools, "重写"], "curlybraces", .orange, .scriptList,
+          ["全部脚本", "脚本源码", "停用脚本", "script list", "source"]),
         e("rewrites", "重写", [tools], "arrow.triangle.swap", .red, .rewrites,
           ["重写", "我的重写", "本地重写", "本地模块", "复写", "Map Local", "302", "307", "reject", "header", "请求头", "rewrite", "url rewrite", "body rewrite", "mock"]),
         e("scripts", "本地脚本", [tools, "重写"], "curlybraces", .purple, .scripts,
           ["脚本", "我的脚本", "JavaScript", "JS", "http-request", "http-response", "script", "$httpClient"]),
+        e("scriptWorkbench", "脚本调试台", [tools, "重写", "脚本工具"], "play.rectangle", .purple, .scriptWorkbench,
+          ["调试", "调试运行", "运行脚本", "debug", "workbench", "run script"]),
         e("scriptLogs", "脚本日志", [tools, "重写", "脚本工具"], "text.alignleft", .purple, .scriptLogs, ["console", "script log"]),
         e("scriptNotices", "脚本通知记录", [tools, "重写", "脚本工具"], "bell", .purple, .scriptNotices, ["通知", "notification", "$notification"]),
         e("scriptStore", "持久化存储", [tools, "重写", "脚本工具"], "externaldrive", .purple, .scriptStore,

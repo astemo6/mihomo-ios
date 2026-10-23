@@ -314,7 +314,7 @@ struct DNSLogView: View {
                     .allowsHitTesting(false)
             }
         }
-        .navigationTitle("DNS 日志")
+        .navigationTitle("域名解析记录") // ui-audit: same name as the 工具 card
         .navigationBarTitleDisplayMode(.inline)
         .toolbar {
             ToolbarItemGroup(placement: .navigationBarTrailing) {

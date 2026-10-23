@@ -61,7 +61,7 @@ extension MihomoUITests {
         XCTAssertTrue(mitm.label.contains(L("工具")), "breadcrumb 工具: \(mitm.label)")
         snap("more-search-mitm")
         mitm.tap()
-        XCTAssertTrue(app.navigationBars[L("MitM")].waitForExistence(timeout: 8), "HTTPS 解密 page opens")
+        XCTAssertTrue(app.navigationBars[L("HTTPS 解密")].waitForExistence(timeout: 8), "HTTPS 解密 page opens")
         snap("more-search-mitm-page")
         assertAlive("search → MitM")
         back()

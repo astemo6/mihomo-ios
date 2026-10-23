@@ -176,7 +176,7 @@ extension MihomoUITests {
         XCTAssertTrue(scrollTo(dns), "DNS card")
         snap("drill-15-dns-card")
         dns.tap()
-        assertNavBar(L("DNS 日志"), "DNS card")
+        assertNavBar(L("域名解析记录"), "DNS card")
         snap("drill-16-dns-log")
         back()
 
@@ -193,7 +193,7 @@ extension MihomoUITests {
         func tile(_ t: String) -> XCUIElement {
             app.descendants(matching: .any).matching(NSPredicate(format: "identifier BEGINSWITH %@", "home.tile." + t)).firstMatch
         }
-        for (t, title) in [("speed", "网络"), ("traffic", "流量统计"), ("uptime", "日志"), ("memory", "诊断")] {
+        for (t, title) in [("speed", "网络"), ("traffic", "流量统计"), ("uptime", "运行日志"), ("memory", "诊断与反馈")] {
             let e = tile(t)
             XCTAssertTrue(scrollTo(e), "tile \(t)")
             if t == "speed" { snap("drill-17-tiles") }

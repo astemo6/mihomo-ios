@@ -3798,36 +3798,36 @@
         }
       }
     },
-    "HTTPS 重写需要解密对应主机：在 MitM 页开启解密并信任证书。支持 * 和 ? 通配、前缀 - 表示排除、:端口（默认 443）。": {
+    "HTTPS 重写需要解密对应主机：在「HTTPS 解密」页开启解密并信任证书。支持 * 和 ? 通配、前缀 - 表示排除、:端口（默认 443）。": {
       "localizations": {
         "zh-Hant": {
           "stringUnit": {
             "state": "translated",
-            "value": "HTTPS 重寫需要解密對應主機：在 MitM 頁開啟解密並信任證書。支援 * 和 ? 通配、字首 - 表示排除、:埠（預設 443）。"
+            "value": "HTTPS 重寫需要解密對應主機：在「HTTPS 解密」頁開啟解密並信任證書。支援 * 和 ? 通配、字首 - 表示排除、:埠（預設 443）。"
           }
         },
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "HTTPS rewrites need the host to be decrypted: turn on decryption on the MitM page and trust the certificate. Supports * and ? wildcards, a leading - to exclude, and :port (default 443)."
+            "value": "HTTPS rewrites need the host to be decrypted: turn on decryption on the HTTPS Decryption page and trust the certificate. Supports * and ? wildcards, a leading - to exclude, and :port (default 443)."
           }
         },
         "ja": {
           "stringUnit": {
             "state": "translated",
-            "value": "HTTPS の書き換えには対象ホストの復号が必要です。MitM ページで復号をオンにして証明書を信頼してください。* と ? のワイルドカード、先頭の - で除外、:ポート（既定 443）に対応。"
+            "value": "HTTPS の書き換えには対象ホストの復号が必要です。「HTTPS 復号」ページで復号をオンにして証明書を信頼してください。* と ? のワイルドカード、先頭の - で除外、:ポート（既定 443）に対応。"
           }
         },
         "ko": {
           "stringUnit": {
             "state": "translated",
-            "value": "HTTPS 재작성은 해당 호스트를 복호화해야 합니다. MitM 페이지에서 복호화를 켜고 인증서를 신뢰하세요. * 와 ? 와일드카드, 앞의 - 는 제외, :포트(기본 443)를 지원합니다."
+            "value": "HTTPS 재작성은 해당 호스트를 복호화해야 합니다. 「HTTPS 복호화」 페이지에서 복호화를 켜고 인증서를 신뢰하세요. * 와 ? 와일드카드, 앞의 - 는 제외, :포트(기본 443)를 지원합니다."
           }
         },
         "ru": {
           "stringUnit": {
             "state": "translated",
-            "value": "Для перезаписи HTTPS хост нужно расшифровывать: включите расшифровку на странице MitM и доверьте сертификат. Поддерживаются маски * и ?, префикс - для исключения и :порт (по умолчанию 443)."
+            "value": "Для перезаписи HTTPS хост нужно расшифровывать: включите расшифровку на странице «Расшифровка HTTPS» и доверьте сертификат. Поддерживаются маски * и ?, префикс - для исключения и :порт (по умолчанию 443)."
           }
         }
       }
@@ -18268,37 +18268,37 @@
         }
       }
     },
-    "包含 HTTPS 重写或脚本：需要在 MitM 页安装并信任证书后才会生效。": {
+    "包含 HTTPS 重写或脚本：需要在「HTTPS 解密」页安装并信任证书后才会生效。": {
       "extractionState": "manual",
       "localizations": {
         "zh-Hant": {
           "stringUnit": {
             "state": "translated",
-            "value": "包含 HTTPS 重寫或腳本：需要在 MitM 頁安裝並信任證書後才會生效。"
+            "value": "包含 HTTPS 重寫或腳本：需要在「HTTPS 解密」頁安裝並信任證書後才會生效。"
           }
         },
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "Contains HTTPS rewrites or scripts: they only take effect after you install and trust the certificate on the MitM page."
+            "value": "Contains HTTPS rewrites or scripts: they only take effect after you install and trust the certificate on the HTTPS Decryption page."
           }
         },
         "ja": {
           "stringUnit": {
             "state": "translated",
-            "value": "HTTPS の書き換えまたはスクリプトを含みます。MitM ページで証明書をインストールして信頼すると有効になります。"
+            "value": "HTTPS の書き換えまたはスクリプトを含みます。「HTTPS 復号」ページで証明書をインストールして信頼すると有効になります。"
           }
         },
         "ko": {
           "stringUnit": {
             "state": "translated",
-            "value": "HTTPS 재작성 또는 스크립트가 있습니다. MitM 페이지에서 인증서를 설치하고 신뢰해야 적용됩니다."
+            "value": "HTTPS 재작성 또는 스크립트가 있습니다. 「HTTPS 복호화」 페이지에서 인증서를 설치하고 신뢰해야 적용됩니다."
           }
         },
         "ru": {
           "stringUnit": {
             "state": "translated",
-            "value": "Содержит HTTPS-перезапись или скрипты: они заработают после установки и доверия сертификату на странице MitM."
+            "value": "Содержит HTTPS-перезапись или скрипты: они заработают после установки и доверия сертификату на странице «Расшифровка HTTPS»."
           }
         }
       }
@@ -66468,37 +66468,37 @@
         }
       }
     },
-    "。HTTPS 规则需要先在 MitM 页安装并信任证书": {
+    "。HTTPS 规则需要先在「HTTPS 解密」页安装并信任证书": {
       "extractionState": "manual",
       "localizations": {
         "zh-Hant": {
           "stringUnit": {
             "state": "translated",
-            "value": "。HTTPS 規則需要先在 MitM 頁安裝並信任證書"
+            "value": "。HTTPS 規則需要先在「HTTPS 解密」頁安裝並信任證書"
           }
         },
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": ". HTTPS rules need the certificate installed and trusted on the MitM page first"
+            "value": ". HTTPS rules need the certificate installed and trusted on the HTTPS Decryption page first"
           }
         },
         "ja": {
           "stringUnit": {
             "state": "translated",
-            "value": "。HTTPS ルールには先に MitM ページで証明書をインストールして信頼する必要があります"
+            "value": "。HTTPS ルールには先に「HTTPS 復号」ページで証明書をインストールして信頼する必要があります"
           }
         },
         "ko": {
           "stringUnit": {
             "state": "translated",
-            "value": ". HTTPS 규칙은 먼저 MitM 페이지에서 인증서를 설치하고 신뢰해야 합니다"
+            "value": ". HTTPS 규칙은 먼저 「HTTPS 복호화」 페이지에서 인증서를 설치하고 신뢰해야 합니다"
           }
         },
         "ru": {
           "stringUnit": {
             "state": "translated",
-            "value": ". Для правил HTTPS сначала установите сертификат на странице MitM и доверьтесь ему"
+            "value": ". Для правил HTTPS сначала установите сертификат на странице «Расшифровка HTTPS» и доверьтесь ему"
           }
         }
       }
@@ -87589,36 +87589,36 @@
         }
       }
     },
-    "规则加入「工具 → 分流规则 → 自定义规则」，优先于配置文件里的规则；连接中会立即重载。": {
+    "规则加入「工具 → 分流规则 → 本地规则」，优先于配置文件里的规则；连接中会立即重载。": {
       "localizations": {
         "zh-Hant": {
           "stringUnit": {
             "state": "translated",
-            "value": "規則加入「工具 → 分流規則 → 自定義規則」，優先於配置檔案裡的規則；連線中會立即過載。"
+            "value": "規則加入「工具 → 分流規則 → 本地規則」，優先於配置檔案裡的規則；連線中會立即過載。"
           }
         },
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "The rule goes to Tools → Routing Rules → Custom Rules and is checked before the profile's rules; while connected it applies at once."
+            "value": "The rule goes to Tools → Routing Rules → Local Rules and is checked before the profile's rules; while connected it applies at once."
           }
         },
         "ja": {
           "stringUnit": {
             "state": "translated",
-            "value": "ルールは「ツール → 振り分けルール → カスタムルール」に追加され、プロファイルのルールより優先されます。接続中はすぐに再読み込みされます。"
+            "value": "ルールは「ツール → 振り分けルール → ローカルルール」に追加され、プロファイルのルールより優先されます。接続中はすぐに再読み込みされます。"
           }
         },
         "ko": {
           "stringUnit": {
             "state": "translated",
-            "value": "규칙은 「도구 → 분류 규칙 → 사용자 지정 규칙」에 추가되며 프로파일의 규칙보다 우선합니다. 연결 중에는 바로 다시 불러옵니다."
+            "value": "규칙은 「도구 → 분류 규칙 → 로컬 규칙」에 추가되며 프로파일의 규칙보다 우선합니다. 연결 중에는 바로 다시 불러옵니다."
           }
         },
         "ru": {
           "stringUnit": {
             "state": "translated",
-            "value": "Правило попадает в «Инструменты → Правила маршрутизации → Свои правила» и проверяется раньше правил профиля; при подключении применяется сразу."
+            "value": "Правило попадает в «Инструменты → Правила маршрутизации → Локальные правила» и проверяется раньше правил профиля; при подключении применяется сразу."
           }
         }
       }
@@ -95305,72 +95305,72 @@
         }
       }
     },
-    "\n规则集 / 节点集：%lld 个已下载，%lld 个失败（规则集在「工具 → 规则 → 订阅」、节点集在「节点与订阅」中重试）": {
+    "\n规则集 / 节点集：%lld 个已下载，%lld 个失败（规则集在「工具 → 分流规则 → 订阅」、节点集在「节点与订阅」中重试）": {
       "extractionState": "manual",
       "localizations": {
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "\nRule sets / node sets: %lld downloaded, %lld failed (retry rule sets in Tools → Rules → Subscriptions, node sets in Nodes & Subscriptions)"
+            "value": "\nRule sets / node sets: %lld downloaded, %lld failed (retry rule sets in Tools → Routing Rules → Subscriptions, node sets in Nodes & Subscriptions)"
           }
         },
         "ja": {
           "stringUnit": {
             "state": "translated",
-            "value": "\nルールセット / ノードセット：%lld 件ダウンロード、%lld 件失敗（ルールセットは「ツール → ルール → 購読」、ノードセットは「ノードと購読」で再試行）"
+            "value": "\nルールセット / ノードセット：%lld 件ダウンロード、%lld 件失敗（ルールセットは「ツール → 振り分けルール → 購読」、ノードセットは「ノードと購読」で再試行）"
           }
         },
         "ko": {
           "stringUnit": {
             "state": "translated",
-            "value": "\n규칙 세트 / 노드 세트: %lld개 다운로드, %lld개 실패 (규칙 세트는 「도구 → 규칙 → 구독」, 노드 세트는 「노드 및 구독」에서 다시 시도)"
+            "value": "\n규칙 세트 / 노드 세트: %lld개 다운로드, %lld개 실패 (규칙 세트는 「도구 → 분류 규칙 → 구독」, 노드 세트는 「노드 및 구독」에서 다시 시도)"
           }
         },
         "ru": {
           "stringUnit": {
             "state": "translated",
-            "value": "\nНаборы правил / узлов: загружено %lld, ошибок %lld (повторите: наборы правил — в «Инструменты → Правила → Подписки», наборы узлов — в «Узлах и подписках»)"
+            "value": "\nНаборы правил / узлов: загружено %lld, ошибок %lld (повторите: наборы правил — в «Инструменты → Правила маршрутизации → Подписки», наборы узлов — в «Узлах и подписках»)"
           }
         },
         "zh-Hant": {
           "stringUnit": {
             "state": "translated",
-            "value": "\n規則集 / 節點集：%lld 個已下載，%lld 個失敗（規則集在「工具 → 規則 → 訂閱」、節點集在「節點與訂閱」中重試）"
+            "value": "\n規則集 / 節點集：%lld 個已下載，%lld 個失敗（規則集在「工具 → 分流規則 → 訂閱」、節點集在「節點與訂閱」中重試）"
           }
         }
       }
     },
-    "内置数据库随扩展安装，首次连接无需下载。更新后 GeoIP / ASN 立即生效，GEOSITE / GEOIP(dat) 会重载配置。规则集（rule-providers）在「工具 → 规则 → 订阅」中更新。": {
+    "内置数据库随扩展安装，首次连接无需下载。更新后 GeoIP / ASN 立即生效，GEOSITE / GEOIP(dat) 会重载配置。规则集（rule-providers）在「工具 → 分流规则 → 订阅」中更新。": {
       "extractionState": "manual",
       "localizations": {
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "The built-in databases ship with the extension, so the first connection needs no download. GeoIP / ASN updates apply immediately; GEOSITE / GEOIP (dat) reload the profile. Rule sets (rule-providers) are updated under Tools → Rules → Subscriptions."
+            "value": "The built-in databases ship with the extension, so the first connection needs no download. GeoIP / ASN updates apply immediately; GEOSITE / GEOIP (dat) reload the profile. Rule sets (rule-providers) are updated under Tools → Routing Rules → Subscriptions."
           }
         },
         "zh-Hant": {
           "stringUnit": {
             "state": "translated",
-            "value": "內建資料庫隨延伸功能安裝，首次連線無需下載。更新後 GeoIP / ASN 立即生效，GEOSITE / GEOIP(dat) 會過載配置。規則集（rule-providers）在「工具 → 規則 → 訂閱」中更新。"
+            "value": "內建資料庫隨延伸功能安裝，首次連線無需下載。更新後 GeoIP / ASN 立即生效，GEOSITE / GEOIP(dat) 會過載配置。規則集（rule-providers）在「工具 → 分流規則 → 訂閱」中更新。"
           }
         },
         "ja": {
           "stringUnit": {
             "state": "translated",
-            "value": "内蔵データベースは拡張に同梱されているため、初回接続時のダウンロードは不要です。GeoIP / ASN の更新はすぐに反映され、GEOSITE / GEOIP（dat）はプロファイルを再読み込みします。ルールセット（rule-providers）は「ツール → ルール → 購読」で更新します。"
+            "value": "内蔵データベースは拡張に同梱されているため、初回接続時のダウンロードは不要です。GeoIP / ASN の更新はすぐに反映され、GEOSITE / GEOIP（dat）はプロファイルを再読み込みします。ルールセット（rule-providers）は「ツール → 振り分けルール → 購読」で更新します。"
           }
         },
         "ko": {
           "stringUnit": {
             "state": "translated",
-            "value": "내장 데이터베이스는 확장에 포함되어 있어 첫 연결 시 다운로드가 필요 없습니다. GeoIP / ASN 업데이트는 즉시 적용되고 GEOSITE / GEOIP(dat)는 프로파일을 다시 불러옵니다. 규칙 세트(rule-providers)는 「도구 → 규칙 → 구독」에서 업데이트합니다."
+            "value": "내장 데이터베이스는 확장에 포함되어 있어 첫 연결 시 다운로드가 필요 없습니다. GeoIP / ASN 업데이트는 즉시 적용되고 GEOSITE / GEOIP(dat)는 프로파일을 다시 불러옵니다. 규칙 세트(rule-providers)는 「도구 → 분류 규칙 → 구독」에서 업데이트합니다."
           }
         },
         "ru": {
           "stringUnit": {
             "state": "translated",
-            "value": "Встроенные базы поставляются с расширением, поэтому первое подключение обходится без загрузки. Обновления GeoIP / ASN применяются сразу; GEOSITE / GEOIP (dat) перезагружают профиль. Наборы правил (rule-providers) обновляются в «Инструменты → Правила → Подписки»."
+            "value": "Встроенные базы поставляются с расширением, поэтому первое подключение обходится без загрузки. Обновления GeoIP / ASN применяются сразу; GEOSITE / GEOIP (dat) перезагружают профиль. Наборы правил (rule-providers) обновляются в «Инструменты → Правила маршрутизации → Подписки»."
           }
         }
       }
@@ -100002,6 +100002,40 @@
           "stringUnit": {
             "state": "translated",
             "value": "TLS 連線失敗"
+          }
+        }
+      }
+    },
+    "先填写服务器地址（以 http:// 或 https:// 开头）。": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Enter the server address first (starting with http:// or https://)."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "先にサーバーのアドレス（http:// または https:// で始まる）を入力してください。"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "먼저 서버 주소(http:// 또는 https://로 시작)를 입력하세요."
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Сначала укажите адрес сервера (начинается с http:// или https://)."
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "先填寫伺服器地址（以 http:// 或 https:// 開頭）。"
           }
         }
       }
