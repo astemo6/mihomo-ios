@@ -760,8 +760,13 @@ enum TunnelErrorLog {
 enum TunnelStopReason {
     static var url: URL { AppShared.containerURL.appendingPathComponent("tunnel-last-stop.txt") }
 
+    /// fix/vpn-stays-on: not an NEProviderStopReason — the previous tunnel never reached stopTunnel (iOS ended the
+    /// extension at its memory limit, a crash, or the device powered off). Found by the next start through the alive marker.
+    static let endedBySystem = -1
+
     static func describe(_ raw: Int) -> String {
         switch raw {
+        case endedBySystem: return String(localized: "扩展未正常退出（被系统终止、崩溃或设备关机）")
         case 0: return String(localized: "无原因")
         case 1: return String(localized: "用户手动断开")
         case 2: return String(localized: "扩展运行失败")
@@ -784,9 +789,32 @@ enum TunnelStopReason {
         }
     }
 
-    static func record(_ raw: Int) {
-        let line = "\(ISO8601DateFormatter().string(from: Date()))\t\(raw)"
+    static func record(_ raw: Int, at date: Date = Date()) {
+        let line = "\(ISO8601DateFormatter().string(from: date))\t\(raw)"
         try? line.data(using: .utf8)?.write(to: url, options: .atomic)
+    }
+
+    // MARK: alive marker (fix/vpn-stays-on)
+
+    /// Written when a start completes and refreshed every couple of minutes while the tunnel runs; removed by
+    /// stopTunnel. Still there at the next start = the previous tunnel was ended without stopTunnel.
+    static var aliveURL: URL { AppShared.containerURL.appendingPathComponent("tunnel-alive.txt") }
+
+    static func markAlive(_ date: Date = Date()) {
+        try? ISO8601DateFormatter().string(from: date).data(using: .utf8)?.write(to: aliveURL, options: .atomic)
+    }
+
+    static func clearAlive() { try? FileManager.default.removeItem(at: aliveURL) }
+
+    /// The last heartbeat of a tunnel that ended without stopTunnel (and records it as the last stop), or nil.
+    /// Clears the marker either way.
+    @discardableResult
+    static func takeUnexpectedEnd() -> Date? {
+        guard let s = try? String(contentsOf: aliveURL, encoding: .utf8) else { return nil }
+        clearAlive()
+        let when = ISO8601DateFormatter().date(from: s.trimmingCharacters(in: .whitespacesAndNewlines)) ?? Date()
+        record(endedBySystem, at: when)
+        return when
     }
 
     /// "原因（时间）" of the last stop, or nil.

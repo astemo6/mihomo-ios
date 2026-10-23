@@ -84,8 +84,31 @@ final class VPNManager: ObservableObject {
         }
         // Safe mode helps when the core / modules failed, not when the signature or profile is missing.
         canOfferSafeMode = AppShared.containerOK && AppShared.activeProfileURL != nil && !safeModeActive
+        await pauseKeepAliveAfterFailure()
         lastError = String(localized: "连接失败：") + (msg ?? String(localized: "网络扩展启动后立即退出（未返回原因）。请到 更多 → 诊断 导出诊断包查看。"))
         NSLog("[Mihomo] tunnel start failed: %@", lastError ?? "")
+    }
+
+    /// fix/vpn-stays-on: a tunnel that is up without the keep-alive rule (connected by an older build, from iOS
+    /// Settings, or by the widget before the rule existed) gets it now, so iOS restarts it if the extension is ended.
+    /// Only with 按需连接 关闭 + 保持连接; saving on-demand flags does not interrupt a running tunnel.
+    private func armKeepAliveIfConnected(_ m: NETunnelProviderManager) async {
+        guard !UITestSeed.enabled, m.connection.status == .connected else { return }
+        let od = OnDemandSettings.load()
+        guard od.mode == .off, od.keepAlive, !m.isOnDemandEnabled else { return }
+        do { try await applyOnDemandRules(to: m, settings: od, enabled: true) } catch {
+            NSLog("[Tern] arm keep-alive failed: %@", error.localizedDescription)
+        }
+    }
+
+    /// fix/vpn-stays-on: a start that fails while only 保持连接 armed on-demand would make iOS retry it over and
+    /// over (a broken profile, a missing App Group). Pause it like a manual disconnect; the next manual connect arms
+    /// it again. On-demand chosen in 按需连接 (始终 / Wi-Fi …) is the user's own rule and is left alone.
+    private func pauseKeepAliveAfterFailure() async {
+        guard let m = manager, m.isOnDemandEnabled, OnDemandSettings.load().mode == .off else { return }
+        m.isOnDemandEnabled = false
+        OnDemandSettings.setPaused(true)
+        do { try await m.saveToPreferences() } catch { NSLog("[Tern] pause keep-alive failed: %@", error.localizedDescription) }
     }
 
     func load() async {
@@ -95,6 +118,7 @@ final class VPNManager: ObservableObject {
             if let m = manager {
                 try await fixStaleManager(m)
                 update(from: m.connection)
+                await armKeepAliveIfConnected(m)
             } else { status = .invalid }
         } catch {
             lastError = String(localized: "读取 VPN 配置失败：") + Self.describe(error)
@@ -220,8 +244,11 @@ final class VPNManager: ObservableObject {
                     throw error
                 }
             }
-            // A manual connect resumes on-demand rules paused by an earlier manual disconnect.
-            try await applyOnDemandRules(to: m, settings: OnDemandSettings.load(), enabled: true)
+            // A manual connect resumes on-demand rules paused by an earlier manual disconnect, and (保持连接,
+            // fix/vpn-stays-on) arms the keep-alive rule: iOS restarts the tunnel if the extension is ended.
+            if !UITestSeed.enabled {
+                try await applyOnDemandRules(to: m, settings: OnDemandSettings.load(), enabled: true)
+            }
             userStopped = false
             TunnelErrorLog.clear()
             try m.connection.startVPNTunnel()
@@ -420,8 +447,9 @@ final class VPNManager: ObservableObject {
         if UITestSeed.enabled { return nil }
         do {
             let m = try await ensureManager()
-            // Turning it on while disconnected manually counts as a fresh choice: not paused.
-            try await applyOnDemandRules(to: m, settings: settings, enabled: settings.mode != .off)
+            // Turning it on while disconnected manually counts as a fresh choice: not paused. 保持连接 alone only
+            // arms while connected (it never connects by itself; the next manual connect arms it).
+            try await applyOnDemandRules(to: m, settings: settings, enabled: settings.mode != .off || isConnected)
             return nil
         } catch {
             return error.localizedDescription
@@ -430,7 +458,7 @@ final class VPNManager: ObservableObject {
 
     private func applyOnDemandRules(to m: NETunnelProviderManager, settings: OnDemandSettings, enabled: Bool) async throws {
         let rules = settings.rules
-        let want = enabled && settings.mode != .off
+        let want = enabled && !rules.isEmpty
         let changed = m.isOnDemandEnabled != want || OnDemandSettings.signature(m.onDemandRules ?? []) != OnDemandSettings.signature(rules)
         guard changed else { return }
         m.onDemandRules = rules
@@ -507,6 +535,11 @@ struct OnDemandSettings: Codable, Equatable {
     }
 
     var mode: Mode = .off
+    /// 保持连接 (fix/vpn-stays-on, default on): with 按需连接 关闭, a manual connect also arms an on-demand
+    /// "connect on any network" rule, so iOS restarts the tunnel when the extension is ended (memory, crash, a
+    /// network change) — it keeps running whether the app is open, in the background or closed. A manual
+    /// disconnect pauses it (VPNManager.stop / VPNControl.set), so it never reconnects against the user's choice.
+    var keepAlive = true
     /// 受信任的 Wi-Fi (v0.7): on these SSIDs iOS disconnects instead of connecting (NEOnDemandRule ssidMatch).
     var trustedSSIDs: [String] = []
     /// 仅指定 Wi-Fi (v0.9): connect only on these SSIDs (system-matched, no SSID reading needed).
@@ -521,8 +554,9 @@ struct OnDemandSettings: Codable, Equatable {
         trustedSSIDs = (try? c.decodeIfPresent([String].self, forKey: .trustedSSIDs)) ?? []
         onlySSIDs = (try? c.decodeIfPresent([String].self, forKey: .onlySSIDs)) ?? []
         ssidCellular = (try? c.decodeIfPresent(Bool.self, forKey: .ssidCellular)) ?? false
+        keepAlive = (try? c.decodeIfPresent(Bool.self, forKey: .keepAlive)) ?? true
     }
-    enum CodingKeys: String, CodingKey { case mode, trustedSSIDs, onlySSIDs, ssidCellular }
+    enum CodingKeys: String, CodingKey { case mode, trustedSSIDs, onlySSIDs, ssidCellular, keepAlive }
 
     /// Compares rule lists by kind, interface and SSIDs (NEOnDemandRule has no useful equality).
     static func signature(_ rules: [NEOnDemandRule]) -> String {
@@ -561,7 +595,7 @@ struct OnDemandSettings: Codable, Equatable {
             trusted = [r]
         }
         switch mode {
-        case .off: return []
+        case .off: return keepAlive ? [connect(.any)] : []
         case .always: return trusted + [connect(.any)]
         case .wifi: return trusted + [connect(.wiFi), disconnect(.cellular)]
         case .cellular: return [connect(.cellular), disconnect(.wiFi)]

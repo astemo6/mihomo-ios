@@ -105,7 +105,7 @@ enum SettingsSearchIndex {
         e("routes", "路由", conn, "arrow.triangle.turn.up.right.diamond", .blue, .connection, ["路由表", "不作为默认路由", "默认路由", "DNS 劫持", "dns-hijack", "隐藏 VPN 图标", "route", "routes", "CIDR", "default route", "hijack"]),
         e("ipv6", "IPv6", conn, "6.circle", .blue, .connection, ["ipv6", "v6"]),
         e("onDemand", "按需连接", conn, "wifi.exclamationmark", .blue, .connection,
-          ["自动连接", "信任的 Wi-Fi", "SSID", "蜂窝", "on demand", "trusted wifi", "auto connect"]),
+          ["自动连接", "保持连接", "信任的 Wi-Fi", "SSID", "蜂窝", "on demand", "keep alive", "always on", "trusted wifi", "auto connect"]),
         e("networkPolicy", "按网络切换策略", conn, "wifi.router", .blue, .networkPolicy,
           ["SSID", "Wi-Fi", "蜂窝网络", "运行模式", "网络切换", "network policy", "ssid policy", "cellular"]),
         e("geo", "地理数据库", adv, "globe.asia.australia", .green, .geo,

@@ -97562,6 +97562,111 @@
           }
         }
       }
+    },
+    "保持连接": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Keep Connected"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "接続を維持"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "연결 유지"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Не разрывать подключение"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "保持連線"
+          }
+        }
+      }
+    },
+    "手动连接后，网络扩展意外退出（内存不足、崩溃）时由系统自动重新连接，App 在后台或被关闭都不影响。手动断开后不会自动连接。": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "After you connect, iOS reconnects automatically if the network extension quits unexpectedly (low memory, a crash). The app being in the background or closed doesn't matter. After you disconnect manually, it won't reconnect."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "手動で接続した後、ネットワーク拡張が予期せず終了した場合（メモリ不足、クラッシュ）はシステムが自動で再接続します。App がバックグラウンドでも終了していても影響しません。手動で切断した後は自動接続しません。"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "수동으로 연결한 후 네트워크 확장이 예기치 않게 종료되면(메모리 부족, 충돌) 시스템이 자동으로 다시 연결합니다. 앱이 백그라운드에 있거나 종료되어도 영향이 없습니다. 수동으로 연결을 끊은 후에는 자동으로 연결하지 않습니다."
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "После ручного подключения система сама переподключится, если сетевое расширение неожиданно завершится (нехватка памяти, сбой). Работа приложения в фоне или его закрытие не влияют. После ручного отключения автоматического подключения не будет."
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "手動連線後，網路延伸功能意外結束（記憶體不足、當機）時由系統自動重新連線，App 在背景或被關閉都不影響。手動中斷連線後不會自動連線。"
+          }
+        }
+      }
+    },
+    "扩展未正常退出（被系统终止、崩溃或设备关机）": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Extension did not exit normally (ended by iOS, crashed, or device powered off)"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "拡張が正常に終了しませんでした（システムによる終了、クラッシュ、またはデバイスの電源オフ）"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "확장이 정상적으로 종료되지 않음(시스템 종료, 충돌 또는 기기 전원 꺼짐)"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Расширение завершилось некорректно (остановлено системой, сбой или выключение устройства)"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "延伸功能未正常結束（被系統終止、當機或裝置關機）"
+          }
+        }
+      }
     }
   },
   "version": "1.0"
