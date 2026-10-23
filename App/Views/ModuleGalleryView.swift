@@ -140,6 +140,7 @@ struct GalleryRow: View {
 
     var body: some View {
         HStack(spacing: 10) {
+            if !item.icon.isEmpty { GalleryIcon(url: item.icon, size: 34) }
             VStack(alignment: .leading, spacing: 3) {
                 HStack(spacing: 6) {
                     Text(item.name).font(.subheadline.weight(.semibold)).lineLimit(1)
@@ -184,6 +185,9 @@ struct ModulePreviewView: View {
     var body: some View {
         List {
             Section {
+                if !item.icon.isEmpty {
+                    HStack { Spacer(); GalleryIcon(url: item.icon, size: 60); Spacer() }.listRowBackground(Color.clear)
+                }
                 LabeledContent("名称", value: preview?.parsed.name.isEmpty == false ? preview!.parsed.name : item.name)
                 if variants.count > 1 && installed == nil {
                     Picker("格式", selection: $selectedURL) {
@@ -196,7 +200,7 @@ struct ModulePreviewView: View {
                 if let d = preview?.parsed.desc, !d.isEmpty, d != item.desc { Text(d).font(.caption).foregroundStyle(.secondary) }
                 if !item.author.isEmpty { LabeledContent("作者", value: item.author) }
                 if !sourceLabel.isEmpty { LabeledContent("索引来源", value: sourceLabel) }
-                if let h = item.homepage, let u = URL(string: h) {
+                if let h = item.homepage ?? (item.sourceID == KeleeHub.sourceID ? KeleeHub.homepage : nil), let u = URL(string: h) {
                     Link(destination: u) { Label("项目主页", systemImage: "safari") }
                 }
                 VStack(alignment: .leading, spacing: 3) {
@@ -229,8 +233,11 @@ struct ModulePreviewView: View {
                     }
                     Button { showText = true } label: { Label("查看内容", systemImage: "doc.text") }
                 } footer: {
-                    if isEmpty(p) { Text("未识别到可用的重写、脚本或 MitM 内容") }
-                    else if !p.hostnames.isEmpty && store.caTrusted != true { Text("包含 HTTPS 重写或脚本：需要在 MitM 页安装并信任证书后才会生效。") }
+                    VStack(alignment: .leading, spacing: 4) {
+                        if isEmpty(p) { Text("未识别到可用的重写、脚本或 MitM 内容") }
+                        else if !p.hostnames.isEmpty && store.caTrusted != true { Text("包含 HTTPS 重写或脚本：需要在 MitM 页安装并信任证书后才会生效。") }
+                        if item.sourceID == KeleeHub.sourceID && !isEmpty(p) { Text("可莉插件中心的插件为 Loon 编写，Tern 按 Loon 语法导入；无法在 Tern 中运行的条目列在下方「暂不支持」。") }
+                    }
                 }
                 .listRowBackground(Theme.card)
                 if installed == nil && !p.arguments.isEmpty {
@@ -485,5 +492,24 @@ struct GallerySourcesView: View {
         .alert("无法添加", isPresented: Binding(get: { error != nil }, set: { if !$0 { error = nil } })) {
             Button("好") { error = nil }
         } message: { Text(error ?? "") }
+    }
+}
+
+/// Module icon from an index (可莉插件中心 and other JSON indexes with icon / img).
+struct GalleryIcon: View {
+    let url: String
+    var size: CGFloat = 34
+
+    var body: some View {
+        AsyncImage(url: URL(string: url)) { phase in
+            if let img = phase.image {
+                img.resizable().scaledToFit()
+            } else {
+                RoundedRectangle(cornerRadius: size * 0.22).fill(Theme.cardHi)
+            }
+        }
+        .frame(width: size, height: size)
+        .clipShape(RoundedRectangle(cornerRadius: size * 0.22))
+        .accessibilityHidden(true)
     }
 }
