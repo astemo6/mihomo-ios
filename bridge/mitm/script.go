@@ -40,6 +40,10 @@ type ScriptHTTP struct {
 	// bodies). The caller checks Body afterwards and restores it if the script changed it in place
 	// without handing it back (modifyResponse).
 	BodyShared bool
+	// NativeBody: the body lives in the native lane under this handle (nativelane.go); Body is nil. The
+	// script's blob id is NativeBlobID(handle): the Swift engine reads it without going through Go. The
+	// caller keeps ownership of the handle.
+	NativeBody int64
 }
 
 // ScriptResult is what $done() asked for.
@@ -52,6 +56,9 @@ type ScriptResult struct {
 	BodySet  bool
 	Response *ScriptHTTP // request phase: answer locally
 	Abort    bool        // Egern ctx.abort(): drop the request / fail the response
+	// NativeBody: with BodySet, the new body is the lane handle (Body nil); ownership passes to the caller
+	// (free it with laneFree). nativelane.go.
+	NativeBody int64
 }
 
 // ScriptRunner executes scripts in a JavaScript engine (jsengine.go: goja, or JavaScriptCore in the iOS
@@ -526,6 +533,11 @@ type runCtx struct {
 	dead    bool
 	blobs   map[int64]*blob
 	blobSeq int64
+	// laneOK: the run may hand large results back through the native lane (host op "nblob"): an HTTP-phase
+	// run whose caller can take a lane body (nativelane.go). nativeOwned: lane handles the Swift engine
+	// registered with this run; whatever the result does not take is freed when the run is over.
+	laneOK      bool
+	nativeOwned []int64
 }
 
 // blob is bytes shared with the engine by id. temp blobs (made for one conversion) go away when read.
@@ -535,6 +547,8 @@ type blob struct {
 	// shared: the bytes are the caller's (ScriptHTTP.BodyShared) and an engine that borrows (goja) maps them
 	// without a copy; the handler restores them if the script changed them in place without handing them back.
 	shared bool
+	// native: the bytes live in the lane under this handle (b is nil until materialised for goja / Go).
+	native int64
 }
 
 func (rc *runCtx) post(j loopJob) {
@@ -617,8 +631,17 @@ func (rc *runCtx) useBlob(id int64) []byte {
 	if !ok {
 		return nil
 	}
-	if bl.temp {
+	if bl.temp && bl.native == 0 {
 		delete(rc.blobs, id)
+	}
+	return bl.bytes()
+}
+
+// bytes is the blob's content; a lane blob is copied into the Go heap (an engine or host API that needs Go
+// bytes: goja, $httpClient, $utils). The copy is not kept: a lane body is read rarely on these paths.
+func (bl *blob) bytes() []byte {
+	if bl.native != 0 && bl.b == nil {
+		return laneBytes(nil, bl.native)
 	}
 	return bl.b
 }
@@ -628,9 +651,36 @@ func (rc *runCtx) blobBytes(id int64) []byte {
 	rc.hmu.Lock()
 	defer rc.hmu.Unlock()
 	if b := rc.blobs[id]; b != nil {
-		return b.b
+		return b.bytes()
 	}
 	return nil
+}
+
+// nativeOf is the lane handle behind blob id (0: a Go blob).
+func (rc *runCtx) nativeOf(id int64) int64 {
+	rc.hmu.Lock()
+	defer rc.hmu.Unlock()
+	if b := rc.blobs[id]; b != nil {
+		return b.native
+	}
+	return 0
+}
+
+// releaseNatives frees the lane handles the engine registered with this run, except keep (the result's body).
+func (rc *runCtx) releaseNatives(keep int64) {
+	if rc == nil {
+		return
+	}
+	rc.hmu.Lock()
+	owned := rc.nativeOwned
+	rc.nativeOwned = nil
+	rc.hmu.Unlock()
+	n := laneAny()
+	for _, h := range owned {
+		if h != keep {
+			laneFree(n, h)
+		}
+	}
 }
 
 func (rc *runCtx) freeBlob(id int64) {
@@ -663,6 +713,22 @@ func (rc *runCtx) hostOp(op, arg string) string {
 			rc.done = true
 			rc.doneRaw = arg
 		}
+	case "nblob":
+		// The Swift engine stored a large __tern.put in the lane (NativeBodyStore) and asks the run to own
+		// it: the reply is the blob id the prelude uses, "" = not taken (the engine frees it and falls back to
+		// a normal put). Only HTTP-phase runs whose caller streams lane bodies take one.
+		h, err := strconv.ParseInt(arg, 10, 64)
+		if err != nil || h <= 0 || !rc.laneOK || laneAny() == nil {
+			return ""
+		}
+		if rc.blobs == nil {
+			rc.blobs = map[int64]*blob{}
+		}
+		id := NativeBlobID(h)
+		rc.blobs[id] = &blob{native: h, temp: true}
+		rc.nativeOwned = append(rc.nativeOwned, h)
+		laneLive.Add(1)
+		return strconv.FormatInt(id, 10)
 	case "timer":
 		f := strings.Split(arg, ",")
 		if len(f) == 3 {
@@ -988,11 +1054,23 @@ func scriptTimeout(sc *Script, maxTimeout, defTimeout time.Duration) time.Durati
 // MaxBody, or up to MaxScriptBody for max-size=-1 / above MaxBody).
 func (sc *Script) bodyLimit() int { return scriptBodyLimit(sc) }
 
-func (s *ScriptRunner) run(parent context.Context, rule *Rule, req, resp *ScriptHTTP, sem chan struct{}, holdsBig bool) (*ScriptResult, error) {
-	rc, err := s.execute(parent, rule.Script, req, resp, sem, holdsBig, 120*time.Second, 10*time.Second, nil)
-	if err != nil {
-		return nil, err
+func (s *ScriptRunner) run(parent context.Context, rule *Rule, req, resp *ScriptHTTP, sem chan struct{}, holdsBig bool) (res *ScriptResult, err error) {
+	var setup func(*runCtx)
+	if resp != nil && resp.NativeBody > 0 {
+		// the caller streams lane bodies: large results may stay in the lane (host op "nblob")
+		setup = func(rc *runCtx) { rc.laneOK = true }
 	}
+	rc, err := s.execute(parent, rule.Script, req, resp, sem, holdsBig, 120*time.Second, 10*time.Second, setup)
+	if err != nil {
+		return nil, err // execute already freed the run's lane handles
+	}
+	defer func() {
+		var keep int64
+		if res != nil {
+			keep = res.NativeBody
+		}
+		rc.releaseNatives(keep)
+	}()
 	if !rc.done {
 		return &ScriptResult{}, nil
 	}
@@ -1084,6 +1162,9 @@ func (s *ScriptRunner) executeOn(engine string, parent context.Context, sc *Scri
 		}
 		eng.end(rc)
 		rc.rt.Store(nil)
+		if errOut != nil {
+			rc.releaseNatives(0)
+		}
 	}()
 	start := time.Now()
 	if setup != nil {
@@ -1251,6 +1332,14 @@ type jsSetup struct {
 
 // addBody makes the phase body's blob (hmu held). A shared body is borrowed by an engine that can (goja).
 func (rc *runCtx) addBody(h *ScriptHTTP) (int64, bool) {
+	if h.NativeBody > 0 {
+		if rc.blobs == nil {
+			rc.blobs = map[int64]*blob{}
+		}
+		id := NativeBlobID(h.NativeBody)
+		rc.blobs[id] = &blob{native: h.NativeBody}
+		return id, false
+	}
 	id := rc.addBlob(h.Body, false)
 	if h.BodyShared && rc.eng != nil && rc.eng.borrows() {
 		rc.blobs[id].shared = true
@@ -1406,7 +1495,7 @@ func (rc *runCtx) parseDone(requestPhase bool) (*ScriptResult, error) {
 				r.Status = parseStatus(m.StatusCode)
 			}
 			if m.Body >= 0 {
-				r.Body = rc.blobBytes(m.Body)
+				r.Body = rc.blobBytes(m.Body) // a local answer is small (or rare): Go bytes are fine
 			}
 			res.Response = r
 			return res, nil
@@ -1430,6 +1519,20 @@ func (rc *runCtx) parseDone(requestPhase bool) (*ScriptResult, error) {
 		}
 	}
 	if d.Body != nil && *d.Body >= 0 {
+		if h := rc.nativeOf(*d.Body); h > 0 && rc.laneOK {
+			// a lane body (the phase body handed back untouched, or a large result the engine stored): the
+			// caller streams it from the lane. A result handle the run owned moves to the caller.
+			res.NativeBody, res.BodySet = h, true
+			rc.hmu.Lock()
+			for i, o := range rc.nativeOwned {
+				if o == h {
+					rc.nativeOwned = append(rc.nativeOwned[:i], rc.nativeOwned[i+1:]...)
+					break
+				}
+			}
+			rc.hmu.Unlock()
+			return res, nil
+		}
 		res.Body, res.BodySet = rc.blobBytes(*d.Body), true
 		if res.Body == nil {
 			res.Body = []byte{}
@@ -1620,8 +1723,10 @@ func (rc *runCtx) startFetch(arg string) {
 		binary: j.Binary, policy: j.Policy, insecure: j.Insecure, noRedirect: j.NoRedirect}
 	if j.Body >= 0 {
 		if bl, ok := rc.blobs[j.Body]; ok {
-			fr.body = bl.b
-			delete(rc.blobs, j.Body)
+			fr.body = bl.bytes()
+			if bl.native == 0 {
+				delete(rc.blobs, j.Body)
+			}
 		}
 	}
 	if j.Timeout > 0 {
