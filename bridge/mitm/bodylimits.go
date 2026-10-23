@@ -53,7 +53,6 @@ func readAllLimited(r io.Reader, limit int) ([]byte, error) {
 func decodeBody(enc string, b []byte, limit int) ([]byte, error) {
 	enc = strings.ToLower(strings.TrimSpace(enc))
 	if strings.Contains(enc, ",") {
-		// Stacked codings ("gzip, br"): listed in the order applied, so undone from the last.
 		parts := strings.Split(enc, ",")
 		out := b
 		for i := len(parts) - 1; i >= 0; i-- {
@@ -71,50 +70,112 @@ func decodeBody(enc string, b []byte, limit int) ([]byte, error) {
 			return nil, errBodyTooBig
 		}
 		return b, nil
+	case "gzip", "x-gzip", "deflate", "br", "zstd":
+	default:
+		return nil, fmt.Errorf("不支持的编码 %s", enc)
+	}
+	// v0.19.22: a large compressed body is decoded twice — once only counting, then into a buffer of
+	// exactly the decoded size. io.ReadAll grows by doubling, so a 3 MB body (YouTube's br protobuf,
+	// 812 KB compressed) peaked at ~7 MB of heap (the 4 MB buffer plus the 2 MB one it replaced) right
+	// when the script was about to copy it again. The second pass costs a few ms of CPU.
+	if len(b) >= exactDecodeMin {
+		d, err := newDecoder(enc, b, limit)
+		if err != nil {
+			return nil, err
+		}
+		defer d.close()
+		n, err := io.Copy(io.Discard, io.LimitReader(d.r, int64(limit)+1))
+		if err != nil {
+			return nil, err
+		}
+		if n > int64(limit) {
+			return nil, errBodyTooBig
+		}
+		// The same decoder again (brotli keeps its ring buffer, up to 4 MB, across Reset).
+		if err := d.reset(); err != nil {
+			return nil, err
+		}
+		out := make([]byte, n)
+		if _, err := io.ReadFull(d.r, out); err != nil {
+			return nil, err
+		}
+		return out, nil
+	}
+	d, err := newDecoder(enc, b, limit)
+	if err != nil {
+		return nil, err
+	}
+	defer d.close()
+	return readAllLimited(d.r, limit)
+}
+
+// exactDecodeMin: compressed bodies from this size are decoded into an exactly sized buffer (decodeBody).
+const exactDecodeMin = 64 << 10
+
+// decoder is one Content-Encoding decoder over a body; reset starts it over on the same bytes.
+type decoder struct {
+	r     io.Reader
+	reset func() error
+	close func()
+}
+
+// newDecoder opens a decoder for one Content-Encoding over b. deflate: gzip / zlib / raw deflate, the
+// way servers really send it.
+func newDecoder(enc string, b []byte, limit int) (*decoder, error) {
+	nop := func() {}
+	switch enc {
 	case "gzip", "x-gzip":
 		gr, err := gzip.NewReader(bytes.NewReader(b))
 		if err != nil {
 			return nil, err
 		}
-		defer gr.Close()
-		return readAllLimited(gr, limit)
+		return &decoder{r: gr, reset: func() error { return gr.Reset(bytes.NewReader(b)) }, close: func() { _ = gr.Close() }}, nil
 	case "deflate":
-		// RFC 9110: "deflate" is zlib-wrapped; some servers send raw deflate. Try both (P2-1).
-		return inflateLimited(b, limit)
+		open := func() (io.ReadCloser, error) {
+			if len(b) > 2 && b[0] == 0x1f && b[1] == 0x8b {
+				return gzip.NewReader(bytes.NewReader(b))
+			}
+			if zr, err := zlib.NewReader(bytes.NewReader(b)); err == nil {
+				// A zlib header followed by something else is raw deflate after all: check the stream.
+				_, err := io.Copy(io.Discard, io.LimitReader(zr, int64(limit)+1))
+				zr.Close()
+				if err == nil {
+					return zlib.NewReader(bytes.NewReader(b))
+				}
+			}
+			return flate.NewReader(bytes.NewReader(b)), nil
+		}
+		rc, err := open()
+		if err != nil {
+			return nil, err
+		}
+		d := &decoder{r: rc}
+		d.close = func() { _ = rc.Close() }
+		d.reset = func() error {
+			_ = rc.Close()
+			n, err := open()
+			if err != nil {
+				return err
+			}
+			rc, d.r = n, n
+			return nil
+		}
+		return d, nil
 	case "br":
-		return readAllLimited(brotli.NewReader(bytes.NewReader(b)), limit)
+		br := brotli.NewReader(bytes.NewReader(b))
+		return &decoder{r: br, reset: func() error { return br.Reset(bytes.NewReader(b)) }, close: nop}, nil
 	case "zstd":
 		zr, err := zstd.NewReader(bytes.NewReader(b), zstd.WithDecoderLowmem(true), zstd.WithDecoderConcurrency(1), zstd.WithDecoderMaxMemory(uint64(limit)+1))
 		if err != nil {
 			return nil, err
 		}
-		defer zr.Close()
-		return readAllLimited(zr, limit)
-	default:
-		return nil, fmt.Errorf("不支持的编码 %s", enc)
+		return &decoder{r: zr, reset: func() error { return zr.Reset(bytes.NewReader(b)) }, close: zr.Close}, nil
 	}
+	return nil, fmt.Errorf("不支持的编码 %s", enc)
 }
 
-// inflateLimited accepts gzip, zlib or raw deflate; the output is capped at limit (errBodyTooBig).
 func inflateLimited(b []byte, limit int) ([]byte, error) {
-	if len(b) > 2 && b[0] == 0x1f && b[1] == 0x8b {
-		zr, err := gzip.NewReader(bytes.NewReader(b))
-		if err != nil {
-			return nil, err
-		}
-		defer zr.Close()
-		return readAllLimited(zr, limit)
-	}
-	if zr, err := zlib.NewReader(bytes.NewReader(b)); err == nil {
-		out, err := readAllLimited(zr, limit)
-		zr.Close()
-		if err == nil || errors.Is(err, errBodyTooBig) {
-			return out, err
-		}
-	}
-	fr := flate.NewReader(bytes.NewReader(b))
-	defer fr.Close()
-	return readAllLimited(fr, limit)
+	return decodeBody("deflate", b, limit)
 }
 
 // decodePrefix decodes the start of a compressed body that may have been cut (the capture keeps only
@@ -286,6 +347,7 @@ type bodyCharge struct {
 	mu   sync.Mutex
 	held int64
 	rels []func()
+	big  func() // bigBodyLock held for this body (v0.19.22); released with the charge
 }
 
 // ensure grows the charge to total bytes (waiting up to bodyBudgetWait for the difference).
@@ -309,6 +371,10 @@ func (c *bodyCharge) release() {
 	c.mu.Lock()
 	rels := c.rels
 	c.rels, c.held = nil, 0
+	if c.big != nil {
+		rels = append(rels, c.big)
+		c.big = nil
+	}
 	c.mu.Unlock()
 	for _, r := range rels {
 		r()

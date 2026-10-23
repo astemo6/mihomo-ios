@@ -36,6 +36,10 @@ type ScriptHTTP struct {
 	HasBody bool
 	// Host is the request's Host (Go keeps it out of Header); exposed as $request.headers.Host.
 	Host string
+	// BodyShared: the script's ArrayBuffer may use Body itself instead of a copy (v0.19.22, large
+	// bodies). The caller checks Body afterwards and restores it if the script changed it in place
+	// without handing it back (modifyResponse).
+	BodyShared bool
 }
 
 // ScriptResult is what $done() asked for.
@@ -66,6 +70,8 @@ type ScriptRunner struct {
 	// one at a time so two such compiles / runtimes never coexist in the 50 MB extension.
 	lastUse map[string]time.Time
 	bigSem  chan struct{}
+	// queue admits HTTP requests to the bigSem wait (v0.19.22, admission.go).
+	queue *scriptQueue
 	// used: last use of every cached program key (DropIdle keeps the recent ones).
 	used map[string]time.Time
 }
@@ -105,7 +111,7 @@ func NewScriptRunner(e *Engine) *ScriptRunner {
 	progs := newLRU[*goja.Program](16)
 	progs.maxW = progCacheBudget
 	return &ScriptRunner{e: e, progs: progs, sem: make(chan struct{}, 2), taskSem: make(chan struct{}, 1), byURL: map[string]string{},
-		lastUse: map[string]time.Time{}, bigSem: make(chan struct{}, 1)}
+		lastUse: map[string]time.Time{}, bigSem: make(chan struct{}, 1), queue: newScriptQueue()}
 }
 
 // Reset drops compiled programs (memory).
@@ -416,6 +422,9 @@ type loopJob func()
 // so this is at most the semaphore sizes (2 HTTP + 1 task) at any moment.
 var liveRuntimes atomic.Int64
 
+// runtimesCreated counts script runtimes ever created (tests: how many runs a burst cost).
+var runtimesCreated atomic.Int64
+
 // LiveRuntimes reports how many script runtimes are alive (diagnostics, memory samples, tests).
 func LiveRuntimes() int64 { return liveRuntimes.Load() }
 
@@ -441,6 +450,9 @@ type runCtx struct {
 	// request phase): $done($response) after `$response.body = x` hands both back, and the untouched
 	// original bodyBytes must not win over the body the script changed.
 	origBody, origBodyBytes goja.Value
+	// phaseObj / lazy: the text-mode phase object and its lazy body state (setBody, lazyDone).
+	phaseObj *goja.Object
+	lazy     *lazyBody
 }
 
 func (rc *runCtx) post(j loopJob) {
@@ -460,6 +472,11 @@ type Slot struct {
 	once sync.Once
 	s    *ScriptRunner
 	big  bool
+	// v0.19.22: when the large-bundle lock was taken and for which script (scriptQueue.observe), and
+	// whether the script really ran in it (a skipped body must not pull the measured run time down).
+	bigAt  time.Time
+	bigKey string
+	ran    bool
 }
 
 // Release gives the slot (and the large-bundle lock) back; idempotent.
@@ -470,6 +487,9 @@ func (sl *Slot) Release() {
 	sl.once.Do(func() {
 		<-sl.s.sem
 		if sl.big {
+			if sl.ran {
+				sl.s.queue.observe(sl.bigKey, time.Since(sl.bigAt))
+			}
 			<-sl.s.bigSem
 		}
 	})
@@ -494,21 +514,39 @@ func (s *ScriptRunner) Reserve(parent context.Context, rule *Rule) (*Slot, error
 		// went through unchanged and the app asked for VIP. The queue no longer spends the run's timeout —
 		// it waits up to largeQueueWait while the client is still there (parent ends the wait when the
 		// app gives up); the run gets its full timeout once it starts.
-		qwait := wait
-		if q := largeQueueWait(); q > qwait {
+		//
+		// v0.19.22 (「打开喜马拉雅后有问题，自动断连」): the wait is admitted by scriptQueue — only when the
+		// turn can come within queueBudget, with a bounded number waiting (fewer when memory is short),
+		// and Shed at the critical level turns the waiters away. Otherwise the response passes through
+		// unchanged at once instead of holding its connection and goroutines for up to 45 s.
+		// The wait itself is capped a little above the budget: when runs take longer than measured
+		// (GC under memory pressure), the request still passes through before the app gives up (~10 s).
+		qwait := time.Duration(queueBudgetNs.Load()) + queueGrace
+		if q := largeQueueWait(); q < qwait {
 			qwait = q
+		}
+		leave, kick, err := s.queue.admit(rule.Script.Path, len(s.bigSem) > 0)
+		if err != nil {
+			return nil, err
 		}
 		qt := time.NewTimer(qwait)
 		start := time.Now()
 		select {
 		case s.bigSem <- struct{}{}:
-			sl.big = true
+			sl.big, sl.bigAt, sl.bigKey = true, time.Now(), rule.Script.Path
 			qt.Stop()
+			leave()
 		case <-qt.C:
-			return nil, fmt.Errorf("脚本排队超时（大脚本逐个运行，已等待 %d 秒）", int(qwait/time.Second))
+			leave()
+			return nil, &errQueueSkip{fmt.Sprintf("脚本排队过长，已跳过（大脚本逐个运行，已等待 %.1f 秒）", qwait.Seconds())}
+		case <-kick:
+			qt.Stop()
+			leave()
+			return nil, &errQueueSkip{fmt.Sprintf("内存紧张，已取消排队中的脚本（排队 %d ms）", time.Since(start).Milliseconds())}
 		case <-parent.Done():
 			qt.Stop()
-			return nil, fmt.Errorf("客户端已断开，跳过脚本（排队 %d ms）", time.Since(start).Milliseconds())
+			leave()
+			return nil, &errQueueSkip{fmt.Sprintf("客户端已断开，跳过脚本（排队 %d ms）", time.Since(start).Milliseconds())}
 		}
 		if d := time.Since(start); d >= time.Second {
 			s.e.Logs.Add(rule.Script.Name, "debug", fmt.Sprintf("排队 %d ms（大脚本逐个运行）", d.Milliseconds()))
@@ -527,13 +565,16 @@ func (s *ScriptRunner) Reserve(parent context.Context, rule *Rule) (*Slot, error
 		if sl.big {
 			<-s.bigSem
 		}
-		return nil, errors.New("客户端已断开，跳过脚本")
+		return nil, &errQueueSkip{"客户端已断开，跳过脚本"}
 	}
 	return sl, nil
 }
 
 // RunReserved is Run for a caller already holding a slot from Reserve.
 func (s *ScriptRunner) RunReserved(parent context.Context, sl *Slot, rule *Rule, req, resp *ScriptHTTP) (*ScriptResult, error) {
+	if sl != nil {
+		sl.ran = true
+	}
 	return s.run(parent, rule, req, resp, nil, sl != nil && sl.big)
 }
 
@@ -618,6 +659,7 @@ func (s *ScriptRunner) execute(parent context.Context, sc *Script, req, resp *Sc
 	// ~25 MB/s until jetsam killed the extension long before the timeout. JSC (Surge) throws RangeError.
 	rt.SetMaxCallStackSize(scriptMaxCallStack)
 	liveRuntimes.Add(1)
+	runtimesCreated.Add(1)
 	defer liveRuntimes.Add(-1)
 	rc := &runCtx{rt: rt, jobs: make(chan loopJob, 8), script: sc, name: sc.Name, e: s.e, ctx: ctx, timers: map[int64]*time.Timer{}}
 	defer func() {
@@ -954,8 +996,11 @@ func (rc *runCtx) uint8Array(b []byte) goja.Value {
 
 // binaryBody exposes a binary-mode body as a Uint8Array plus the ArrayBuffer under it (review6 OPT-1:
 // one copy of the body instead of two; Surge's body / bodyBytes describe the same bytes).
-func (rc *runCtx) binaryBody(b []byte) (goja.Value, goja.Value) {
-	ab := rc.rt.NewArrayBuffer(append([]byte(nil), b...))
+func (rc *runCtx) binaryBody(b []byte, shared bool) (goja.Value, goja.Value) {
+	if !shared {
+		b = append([]byte(nil), b...)
+	}
+	ab := rc.rt.NewArrayBuffer(b)
 	abv := rc.rt.ToValue(ab)
 	o, err := rc.rt.New(rc.rt.Get("Uint8Array"), abv)
 	if err != nil {
@@ -1034,7 +1079,7 @@ func (rc *runCtx) installHTTP(req, resp *ScriptHTTP) {
 	_ = ro.Set("headers", rt.NewDynamicObject(newCIHeaders(rt, rh)))
 	_ = ro.Set("id", strconv.FormatInt(time.Now().UnixNano(), 36))
 	if resp == nil && req.HasBody {
-		rc.setBody(ro, req.Body, sc.BinaryBody)
+		rc.setBody(ro, req.Body, sc.BinaryBody, req.BodyShared)
 	}
 	set("$request", ro)
 	if resp != nil {
@@ -1046,7 +1091,7 @@ func (rc *runCtx) installHTTP(req, resp *ScriptHTTP) {
 		}
 		_ = so.Set("headers", rt.NewDynamicObject(newCIHeaders(rt, resp.Header)))
 		if resp.HasBody {
-			rc.setBody(so, resp.Body, sc.BinaryBody)
+			rc.setBody(so, resp.Body, sc.BinaryBody, resp.BodyShared)
 		}
 		set("$response", so)
 	}
@@ -1060,45 +1105,167 @@ func (rc *runCtx) installHTTP(req, resp *ScriptHTTP) {
 //     protobuf scripts such as Maasea's youtube.response.js read $response.bodyBytes there; before, Tern
 //     left it undefined and the script exited without touching the response). It is a lazy, non-enumerable
 //     accessor: the copy is made only when a script reads it, and `{...$response}` does not copy it.
-func (rc *runCtx) setBody(obj *goja.Object, b []byte, binary bool) {
+func (rc *runCtx) setBody(obj *goja.Object, b []byte, binary, shared bool) {
 	if binary {
-		u8, ab := rc.binaryBody(b)
+		u8, ab := rc.binaryBody(b, shared)
 		_ = obj.Set("body", u8)
 		_ = obj.Set("bodyBytes", ab)
 		rc.origBody, rc.origBodyBytes = u8, ab
 		return
 	}
-	str := rc.rt.ToValue(bodyString(b))
-	_ = obj.Set("body", str)
-	rc.origBody = str
-	var cur goja.Value
-	getter := rc.rt.ToValue(func(goja.FunctionCall) goja.Value {
-		if cur == nil {
-			cur = rc.rt.ToValue(rc.rt.NewArrayBuffer(append([]byte(nil), b...)))
-			rc.origBodyBytes = cur
+	// v0.19.22: body is lazy too (an enumerable accessor, so `{...$response}` and JSON.stringify still
+	// see it). A protobuf answer handed to a Quantumult X script (no binary flag; youtube.response.js
+	// reads bodyBytes) was turned into a string up front: invalid UTF-8 becomes U+FFFD (3 bytes each) and
+	// goja keeps non-ASCII strings as UTF-16, so a 3 MB body cost ~15 MB the script never looked at.
+	lb := &lazyBody{b: b}
+	rc.phaseObj, rc.lazy = obj, lb
+	lb.getBody = rc.rt.ToValue(func(goja.FunctionCall) goja.Value {
+		if lb.str == nil {
+			lb.str = rc.rt.ToValue(bodyString(b))
+			lb.origStr = lb.str
+			rc.origBody = lb.str
 		}
-		return cur
+		lb.strRead = true
+		return lb.str
+	})
+	setBody := rc.rt.ToValue(func(call goja.FunctionCall) goja.Value {
+		lb.str = call.Argument(0)
+		lb.strSet = true
+		return goja.Undefined()
+	})
+	_ = obj.DefineAccessorProperty("body", lb.getBody, setBody, goja.FLAG_TRUE, goja.FLAG_TRUE)
+	getter := rc.rt.ToValue(func(goja.FunctionCall) goja.Value {
+		if lb.ab == nil {
+			bb := b
+			if !shared {
+				bb = append([]byte(nil), b...)
+			}
+			lb.ab = rc.rt.ToValue(rc.rt.NewArrayBuffer(bb))
+			rc.origBodyBytes = lb.ab
+		}
+		lb.abRead = true
+		return lb.ab
 	})
 	setter := rc.rt.ToValue(func(call goja.FunctionCall) goja.Value {
-		cur = call.Argument(0)
+		lb.ab = call.Argument(0)
+		lb.abSet = true
 		return goja.Undefined()
 	})
 	_ = obj.DefineAccessorProperty("bodyBytes", getter, setter, goja.FLAG_TRUE, goja.FLAG_FALSE)
 }
 
+// lazyBody is the state of a text-mode phase object's body / bodyBytes accessors (setBody).
+type lazyBody struct {
+	b                []byte
+	getBody          goja.Value // the body getter (doneBody checks the accessor is still ours)
+	str, origStr, ab goja.Value
+	strRead, strSet  bool
+	abRead, abSet    bool
+}
+
+// lazyDone answers doneBody for the text-mode phase object without materialising what the script never
+// touched. ok = false: the accessors were replaced (delete / defineProperty) — use the generic path.
+func (rc *runCtx) lazyDone(o *goja.Object) (b []byte, set bool, ok bool) {
+	lb := rc.lazy
+	if lb == nil || rc.phaseObj == nil || o != rc.phaseObj {
+		return nil, false, false
+	}
+	desc, err := rc.ownDescriptor(o, "body")
+	if err != nil || desc == nil {
+		return nil, false, false
+	}
+	if g := desc.Get("get"); g == nil || !g.SameAs(lb.getBody) {
+		return nil, false, false
+	}
+	nonNil := func(v goja.Value) goja.Value {
+		if v == nil || goja.IsUndefined(v) || goja.IsNull(v) {
+			return nil
+		}
+		return v
+	}
+	var bb, body goja.Value
+	if lb.abRead || lb.abSet {
+		bb = nonNil(lb.ab)
+	}
+	bodyChanged := lb.strSet && !(lb.origStr != nil && lb.str != nil && lb.str.StrictEquals(lb.origStr))
+	if bodyChanged {
+		body = nonNil(lb.str)
+	}
+	if bb != nil && body != nil && !lb.abSet {
+		bb = nil // the untouched original bytes lose against a changed body
+	}
+	if bb != nil {
+		b, set = rc.doneBytes(bb)
+		return b, set, true
+	}
+	if body != nil {
+		b, set = rc.doneBytes(body)
+		return b, set, true
+	}
+	if lb.strSet && nonNil(lb.str) == nil && !lb.abRead {
+		// `$response.body = undefined` — as before: no body value, nothing set.
+		return nil, false, true
+	}
+	return nil, false, true // untouched (or set back to the original): the handler keeps the original
+}
+
+// ownDescriptor is Object.getOwnPropertyDescriptor(o, k).
+func (rc *runCtx) ownDescriptor(o *goja.Object, k string) (*goja.Object, error) {
+	fn, ok := goja.AssertFunction(rc.rt.Get("Object").ToObject(rc.rt).Get("getOwnPropertyDescriptor"))
+	if !ok {
+		return nil, errors.New("no getOwnPropertyDescriptor")
+	}
+	v, err := fn(goja.Undefined(), o, rc.rt.ToValue(k))
+	if err != nil || v == nil || goja.IsUndefined(v) {
+		return nil, err
+	}
+	return v.ToObject(rc.rt), nil
+}
+
+// doneBytes is bodyBytes for a value the finished run hands back: an ArrayBuffer / typed array is used
+// in place (the runtime is discarded after the run, nothing writes to it any more) instead of copied —
+// one multi-MB copy less for binary scripts.
+func (rc *runCtx) doneBytes(v goja.Value) ([]byte, bool) {
+	if v == nil || goja.IsUndefined(v) || goja.IsNull(v) {
+		return nil, false
+	}
+	switch x := v.Export().(type) {
+	case goja.ArrayBuffer:
+		return x.Bytes(), true
+	case []byte:
+		return x, true
+	}
+	if obj, ok := v.(*goja.Object); ok && obj.ClassName() != "Object" {
+		if buf := obj.Get("buffer"); buf != nil {
+			if ab, ok := buf.Export().(goja.ArrayBuffer); ok {
+				off := int(obj.Get("byteOffset").ToInteger())
+				n := int(obj.Get("byteLength").ToInteger())
+				b := ab.Bytes()
+				if off >= 0 && n >= 0 && off+n <= len(b) {
+					return b[off : off+n : off+n], true
+				}
+			}
+		}
+	}
+	return rc.bodyBytes(v)
+}
+
 // doneBody picks the body a $done object carries: bodyBytes, unless it is the phase object's untouched
 // original and the script changed body ($response.body = x; $done($response)).
 func (rc *runCtx) doneBody(o *goja.Object, get func(*goja.Object, string) goja.Value) ([]byte, bool) {
+	if b, set, ok := rc.lazyDone(o); ok {
+		return b, set
+	}
 	bb, body := get(o, "bodyBytes"), get(o, "body")
 	if bb != nil && body != nil && rc.origBodyBytes != nil && bb.StrictEquals(rc.origBodyBytes) &&
 		(rc.origBody == nil || !body.StrictEquals(rc.origBody)) {
 		bb = nil
 	}
 	if bb != nil {
-		return rc.bodyBytes(bb)
+		return rc.doneBytes(bb)
 	}
 	if body != nil {
-		return rc.bodyBytes(body)
+		return rc.doneBytes(body)
 	}
 	return nil, false
 }
@@ -1765,9 +1932,9 @@ func (rc *runCtx) parseDone(requestPhase bool) (*ScriptResult, error) {
 				r.Status = parseStatus(get(mo, "statusCode"))
 			}
 			if b := get(mo, "bodyBytes"); b != nil {
-				r.Body, _ = rc.bodyBytes(b)
+				r.Body, _ = rc.doneBytes(b)
 			} else if b := get(mo, "body"); b != nil {
-				r.Body, _ = rc.bodyBytes(b)
+				r.Body, _ = rc.doneBytes(b)
 			}
 			res.Response = r
 			return res, nil

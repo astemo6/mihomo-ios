@@ -17,11 +17,12 @@ type ShedStats struct {
 	SourceBytes  int64
 	BodyBytes    int  // captured request-log body text dropped
 	IdleClosed   bool // upstream keep-alive connections closed
+	Dequeued     int  // requests waiting for a large script that were turned away (pass through)
 }
 
 func (s ShedStats) String() string {
-	return fmt.Sprintf("scripts %d (%.1f MB), sources %d (%.1f MB), captured bodies %.1f MB",
-		s.Programs, float64(s.ProgramBytes)/(1<<20), s.Sources, float64(s.SourceBytes)/(1<<20), float64(s.BodyBytes)/(1<<20))
+	return fmt.Sprintf("scripts %d (%.1f MB), sources %d (%.1f MB), captured bodies %.1f MB, queued script requests %d",
+		s.Programs, float64(s.ProgramBytes)/(1<<20), s.Sources, float64(s.SourceBytes)/(1<<20), float64(s.BodyBytes)/(1<<20), s.Dequeued)
 }
 
 // CacheStats is what the engine holds now (periodic memory line).
@@ -32,11 +33,12 @@ type CacheStats struct {
 	SourceBytes  int64
 	BodyBytes    int
 	Requests     int
+	Queued       int // requests waiting for a large script (v0.19.22)
 }
 
 func (c CacheStats) String() string {
-	return fmt.Sprintf("mitm scripts %d (%.1f MB), sources %d (%.1f MB), request log %d (bodies %.1f MB), js runtimes %d",
-		c.Programs, float64(c.ProgramBytes)/(1<<20), c.Sources, float64(c.SourceBytes)/(1<<20), c.Requests, float64(c.BodyBytes)/(1<<20), LiveRuntimes())
+	return fmt.Sprintf("mitm scripts %d (%.1f MB), sources %d (%.1f MB), request log %d (bodies %.1f MB), js runtimes %d, script queue %d",
+		c.Programs, float64(c.ProgramBytes)/(1<<20), c.Sources, float64(c.SourceBytes)/(1<<20), c.Requests, float64(c.BodyBytes)/(1<<20), LiveRuntimes(), c.Queued)
 }
 
 // Stats reports the engine's caches (nil engine: zero).
@@ -47,6 +49,9 @@ func (e *Engine) Stats() CacheStats {
 	}
 	if e.scripts != nil {
 		c.Programs, c.ProgramBytes = e.scripts.progs.stats()
+		if e.scripts.queue != nil {
+			c.Queued = e.scripts.queue.Waiting()
+		}
 	}
 	if e.res != nil {
 		c.Sources, c.SourceBytes = e.res.mem.stats()
@@ -100,6 +105,12 @@ func (e *Engine) Shed(level int) ShedStats {
 		s.BodyBytes = e.Requests.DropBodies(limit)
 	}
 	if level >= ShedCritical {
+		// v0.19.22: requests waiting for a large script hold their connection, goroutines and upstream
+		// buffers; at the critical level they pass through unchanged now (the device log showed shed
+		// L2 freeing ~1 MB while the queue kept growing).
+		if e.scripts != nil && e.scripts.queue != nil {
+			s.Dequeued = e.scripts.queue.kickAll()
+		}
 		e.tmu.Lock()
 		if e.transport != nil {
 			e.transport.CloseIdleConnections()
