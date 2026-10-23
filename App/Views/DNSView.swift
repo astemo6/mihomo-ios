@@ -46,6 +46,20 @@ struct DNSOverrideSettings: Codable, Equatable {
         var ipcidr: [String] = []
         var domain: [String] = []
         var geosite: [String] = []
+
+        init() {}
+
+        // Explicit decoder: older dns.json files may omit any of these keys.
+        init(from decoder: Decoder) throws {
+            let c = try decoder.container(keyedBy: CodingKeys.self)
+            geoip = (try? c.decodeIfPresent(Bool.self, forKey: .geoip)) ?? false
+            geoipCode = (try? c.decodeIfPresent(String.self, forKey: .geoipCode)) ?? "CN"
+            ipcidr = (try? c.decodeIfPresent([String].self, forKey: .ipcidr)) ?? []
+            domain = (try? c.decodeIfPresent([String].self, forKey: .domain)) ?? []
+            geosite = (try? c.decodeIfPresent([String].self, forKey: .geosite)) ?? []
+        }
+
+        enum CodingKeys: String, CodingKey { case geoip, geoipCode, ipcidr, domain, geosite }
     }
     struct Policy: Codable, Equatable, Identifiable {
         var id = UUID()
