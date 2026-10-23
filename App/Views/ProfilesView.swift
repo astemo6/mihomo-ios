@@ -87,37 +87,32 @@ struct ProfilesView: View {
                                 }
                             }
                             .contextMenu {
-                                // Compact rows keep 导出 / 删除 on screen in the long-press menu.
-                                ControlGroup {
-                                    Button { select(p) } label: { Label("设为当前配置", systemImage: "checkmark.circle") }
-                                        .disabled(!p.enabled)
-                                    // User 2026-10-23 「对应的还要有删除，禁用，修改功能」: 停用 / 启用 here too.
-                                    if p.id != store.activeID || !p.enabled {
-                                        Button { if let e = store.setEnabled(p, !p.enabled) { message = e } } label: {
-                                            Label(LocalizedStringKey(p.enabled ? "停用" : "启用"), systemImage: p.enabled ? "pause.circle" : "play.circle")
-                                        }
+                                // User 2026-10-23「这个排版有点丑」: plain one-line rows (no ControlGroup tiles that wrap long labels).
+                                Button { select(p) } label: { Label("设为当前配置", systemImage: "checkmark.circle") }
+                                    .disabled(!p.enabled)
+                                if p.id != store.activeID || !p.enabled {
+                                    Button { if let e = store.setEnabled(p, !p.enabled) { message = e } } label: {
+                                        Label(LocalizedStringKey(p.enabled ? "停用" : "启用"), systemImage: p.enabled ? "pause.circle" : "play.circle")
                                     }
+                                }
+                                if p.kind == .remote {
+                                    Divider()
+                                    Button { refresh(p) } label: { Label("更新订阅", systemImage: "arrow.clockwise") }
+                                    Button { UIPasteboard.general.string = p.url } label: { Label("复制订阅链接", systemImage: "doc.on.doc") }
                                 }
                                 if p.copyModified == true, store.source(of: p) != nil {
                                     Button { regenerate(p) } label: { Label("从订阅重新生成", systemImage: "arrow.triangle.2.circlepath") }
                                 }
-                                if p.kind == .remote {
-                                    ControlGroup {
-                                        Button { refresh(p) } label: { Label("更新订阅", systemImage: "arrow.clockwise") }
-                                        Button { UIPasteboard.general.string = p.url } label: { Label("复制订阅链接", systemImage: "doc.on.doc") }
-                                    }
-                                }
-                                ControlGroup {
-                                    if p.id != ProfileStore.manualID {
-                                        Button { subRulesFor = p } label: { Label("节点处理（过滤 / 重命名 / 排序）", systemImage: "line.3.horizontal.decrease.circle") }
-                                    }
-                                    Button { scriptsFor = p } label: { Label("覆写脚本", systemImage: "curlybraces") } // v0.19
-                                }
+                                Divider()
                                 Button { editing = p } label: { Label(LocalizedStringKey(p.kind == .remote ? "查看 YAML" : "编辑 YAML"), systemImage: p.kind == .remote ? "doc.text" : "pencil") }
-                                ControlGroup {
-                                    Button { export(p) } label: { Label("导出", systemImage: "square.and.arrow.up") }
-                                    Button { exportFinal(p) } label: { Label("导出最终配置（含覆写）", systemImage: "doc.badge.gearshape") }
+                                if p.id != ProfileStore.manualID {
+                                    Button { subRulesFor = p } label: { Label("节点处理", systemImage: "line.3.horizontal.decrease.circle") }
                                 }
+                                Button { scriptsFor = p } label: { Label("覆写脚本", systemImage: "curlybraces") } // v0.19
+                                Divider()
+                                Button { export(p) } label: { Label("导出", systemImage: "square.and.arrow.up") }
+                                Button { exportFinal(p) } label: { Label("导出最终配置（含覆写）", systemImage: "doc.badge.gearshape") }
+                                Divider()
                                 Button(role: .destructive) { requestDelete(p) } label: { Label("删除", systemImage: "trash") }
                             }
                             .listRowBackground(Theme.card)
