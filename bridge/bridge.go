@@ -399,6 +399,7 @@ func buildRuntimeWith(profile []byte, o Overrides, fd int32, inject func(raw map
 	applyDNSOverride(dns, o.DNS, o.DNSMode)
 	applyLocalDNS(raw, dns, o.Local, o.DNSMode)
 	defaultProxyServerNameserver(dns)
+	capDNSCache(dns) // v0.19.22: 4096 parsed answers per resolver held MBs for good in a long session
 	raw["dns"] = dns
 
 	// Sniffer
@@ -524,6 +525,7 @@ func startGC(limitMB int) {
 		limitMB, gogc = 40, 100
 	}
 	debug.SetMemoryLimit(int64(limitMB) << 20)
+	setConfiguredLimit(int64(limitMB) << 20) // v0.19.22: ceiling of the footprint governor (memshed.go)
 	debug.SetGCPercent(gogc)
 	gcMu.Lock()
 	defer gcMu.Unlock()
@@ -807,8 +809,18 @@ func Reload(configPath string) error {
 	}
 	flushRuleHits(home) // the new rules start counting at 0
 	proxyTrafficStats.resetClasses()
+	// v0.19.22: the new runtime is parsed while the old one is still live, so a reload near the limit
+	// peaks at old + new. Shed first (the old DNS caches go with the old resolver anyway; MitM caches;
+	// idle connections when memory is already low), and log the footprint around the apply.
+	pre := reloadShed()
 	var used Overrides
-	if err := safeApplyInto(home, configPath, fd, &used); err != nil {
+	err := safeApplyInto(home, configPath, fd, &used)
+	runtime.GC()
+	debug.FreeOSMemory()
+	post := readMem()
+	stage("reload memory: footprint %s before → %s after, available %s → %s, go heap %s → %s, goroutines %d → %d",
+		mbs(pre.fp), mbs(post.fp), mbs(pre.avail), mbs(post.avail), mbu(pre.heap), mbu(post.heap), pre.gor, post.gor)
+	if err != nil {
 		setLastError(err.Error())
 		return err
 	}
@@ -931,4 +943,7 @@ func FreeMemory() {
 }
 
 // SetMemoryLimit adjusts the Go soft memory limit in MB.
-func SetMemoryLimit(mb int32) { debug.SetMemoryLimit(int64(mb) << 20) }
+func SetMemoryLimit(mb int32) {
+	debug.SetMemoryLimit(int64(mb) << 20)
+	setConfiguredLimit(int64(mb) << 20)
+}

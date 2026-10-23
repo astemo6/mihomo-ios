@@ -117,6 +117,8 @@ func startDiagCapture(home string) {
 
 // RecordMemorySample is called by the extension's MemoryGuard on every tick (bytes, -1 = unknown).
 func RecordMemorySample(footprint, available int64) {
+	now := time.Now()
+	memTick(footprint, available, now) // v0.19.22: idle connections, GOMEMLIMIT governor, periodic memory line
 	var ms runtime.MemStats
 	runtime.ReadMemStats(&ms)
 	conns := 0
