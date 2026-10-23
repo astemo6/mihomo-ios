@@ -175,9 +175,26 @@ struct EngineConfig: Codable, Equatable {
 }
 
 /// Payload the Go engine sends for $notification.post / $notify.
+/// feat/loon-menu-notify: the core's policy watcher (policywatch.go) sends its events through the same notifier with
+/// a `kind` (policyChange / policyFailure / nodeFailure) and the names involved instead of finished text; the tunnel
+/// builds the localized notification. No `kind` = a script notification.
 struct ScriptNotification: Decodable {
     var title: String?
     var subtitle: String?
     var body: String?
     var url: String?
+    var kind: String?
+    /// policyChange: one entry per automatic group that switched node.
+    var changes: [PolicyChange]?
+    /// policyFailure: groups whose nodes all failed their latency test.
+    var groups: [String]?
+    /// nodeFailure: the failed node and the group (main policy) that uses it.
+    var node: String?
+    var group: String?
+
+    struct PolicyChange: Decodable {
+        var group: String
+        var from: String
+        var to: String
+    }
 }

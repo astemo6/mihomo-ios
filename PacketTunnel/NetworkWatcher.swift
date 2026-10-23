@@ -102,6 +102,18 @@ final class NetworkWatcher {
         }
     }
 
+    /// 网络变化 notification text (catalog keys, localized by iOS when shown).
+    static func noticeBody(type: String, ssid: String?) -> String {
+        switch type {
+        case "wifi":
+            if let ssid, !ssid.isEmpty { return NotifyText.loc("已切换到 Wi-Fi「%@」", [ssid]) }
+            return NotifyText.loc("已切换到 Wi-Fi")
+        case "cellular": return NotifyText.loc("已切换到蜂窝网络")
+        case "wired": return NotifyText.loc("已切换到有线网络")
+        default: return NotifyText.loc("已切换到其他网络")
+        }
+    }
+
     private func handle(type: String, ssid: String?, bssid: String?, iface: String, expensive: Bool, constrained: Bool) {
         let info: [String: Any] = [
             "type": type,
@@ -134,6 +146,10 @@ final class NetworkWatcher {
             if !msg.isEmpty { StartupLog.write(msg) }
             let n = LibmihomoNotifyNetworkChanged(json)
             if n > 0 { StartupLog.write("network changed (\(type), \(iface.isEmpty ? "-" : iface)): \(n) event script(s)") }
+            // feat/loon-menu-notify: 更多 → 通知 → 网络变化 (default off).
+            if NotifyPrefs.allows(.network) {
+                TunnelNotice.post(kind: .network, title: NotifyText.loc("网络变化"), body: Self.noticeBody(type: type, ssid: ssid))
+            }
         }
         pending = work
         queue.asyncAfter(deadline: .now() + 2, execute: work)

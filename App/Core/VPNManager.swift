@@ -251,7 +251,7 @@ final class VPNManager: ObservableObject {
             }
             userStopped = false
             TunnelErrorLog.clear()
-            try m.connection.startVPNTunnel()
+            try m.connection.startVPNTunnel(options: TunnelStartOption.options)
         } catch {
             lastError = String(localized: "启动失败：") + Self.describe(error)
             NSLog("[Mihomo] start failed: %@", error.localizedDescription)

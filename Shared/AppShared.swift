@@ -733,9 +733,18 @@ enum TunnelMessage: String {
     case applyNetworkPolicy
     /// v0.18 隧道内存: current / peak / available memory + Tailscale guard status (JSON).
     case memoryStats
+    /// feat/loon-menu-notify: 更多 → 通知 switches changed; the tunnel re-reads NotifyPrefs (core policy watcher mask).
+    case notifyPrefs
 
     /// Review 6 R6A-3: the extension's reply to `reload` when the new config is applied (anything else is the error).
     static let reloadOK = "ok"
+}
+
+/// feat/loon-menu-notify: startVPNTunnel options. The app, widget and shortcuts pass `manual`; a start without it came
+/// from iOS (按需连接 / 保持连接), which lets the tunnel tell an automatic reconnect from a user's connect.
+enum TunnelStartOption {
+    static let manual = "tern.manual"
+    static var options: [String: NSObject] { [manual: NSNumber(value: true)] }
 }
 
 /// Last start error written by the extension so the app can show why the tunnel stopped.

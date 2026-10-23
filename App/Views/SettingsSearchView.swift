@@ -19,6 +19,7 @@ extension SearchDestination: Identifiable {
         case .webdav: WebDAVView()
         case .syncFolder: SyncFolderView()
         case .storage: StorageView()
+        case .notifications: NotificationsView()
         case .appearance: AppearanceView()
         case .liveActivity: LiveActivitySettingsView()
         case .appIcon: AppIconView()
