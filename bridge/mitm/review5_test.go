@@ -89,7 +89,9 @@ func TestR5DecodedOverCapPassesThrough(t *testing.T) {
 		cfg := &Config{Enabled: true, MitM: true, Hostnames: []string{"api.test.com"}, Rules: items(
 			`http-response ^https://api\.test\.com/big "ad":true "ad":false`)}
 		if script {
-			cfg.Rules = items(`s = type=http-response,pattern=^https://api\.test\.com/big,requires-body=1,script-path=s.js`)
+			// v0.19.22: no max-size gets the dynamic budget (4 MB without a probe); the 2 MB cap is the
+			// script's own max-size here.
+			cfg.Rules = items(`s = type=http-response,pattern=^https://api\.test\.com/big,requires-body=1,max-size=2097152,script-path=s.js`)
 		}
 		h := newHarness(t, cfg, map[string]string{"s.js": `$done({body: $response.body.replace(/"ad":true/g, '"ad":false')})`})
 		h.up.Config.Handler = http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {

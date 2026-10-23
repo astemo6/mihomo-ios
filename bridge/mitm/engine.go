@@ -659,6 +659,11 @@ func (e *Engine) upstream() *http.Transport {
 		DisableCompression:    true,
 		ReadBufferSize:        16 * 1024,
 		WriteBufferSize:       16 * 1024,
+		// v0.19.22: Go's HTTP/2 client advertises a 4 MB window per stream and 1 GB per connection, so
+		// a response waiting for its script (large-bundle queue, body budget) could have megabytes pushed
+		// into transport buffers before anyone read it. 1 MB / 4 MB still keeps video at > 10 MB/s per
+		// stream at 100 ms RTT.
+		HTTP2: &http.HTTP2Config{MaxReceiveBufferPerStream: 1 << 20, MaxReceiveBufferPerConnection: 4 << 20},
 	}
 	e.transport = t
 	return t
