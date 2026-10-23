@@ -306,7 +306,9 @@ func TestV0199SubStoreBackend(t *testing.T) {
 	resp, _ = h.do("GET", "https://sub.store/api/subs", "")
 	refused := false
 	for _, l := range h.e.Logs.List(seq, "") {
-		if strings.Contains(l.Msg, "脚本过大") {
+		// The compile gate is the expected refusal; under -race (larger heap) the earlier heap gate can
+		// already skip the request body (「内存紧张，跳过请求体处理」) — either way nothing is compiled.
+		if strings.Contains(l.Msg, "脚本过大") || strings.Contains(l.Msg, "跳过请求体处理") {
 			refused = true
 			t.Logf("26 MB limit: %s", l.Msg)
 		}
