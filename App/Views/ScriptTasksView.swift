@@ -113,6 +113,12 @@ struct TaskRunRecord: Decodable, Hashable {
 struct TaskPrefs: Codable, Equatable {
     var paused = false
     var enabled: [String: Bool]? = nil
+    /// 2026-10-23 「也都要可以手动调顺序」: task ids in the user's order — the list order, and the order tasks due at the
+    /// same moment are started in (bridge mitm.OrderTasks).
+    var order: [String]? = nil
+    /// Tasks of a subscription (module) the user deleted from the list: never run, hidden until 恢复已删除的任务. The
+    /// module itself is not changed.
+    var deleted: [String: Bool]? = nil
 
     static var url: URL { EnginePaths.dir.appendingPathComponent("task-prefs.json") }
     static func load() -> TaskPrefs {
@@ -126,6 +132,7 @@ struct TaskPrefs: Codable, Equatable {
         Task { _ = try? await ControllerClient.shared.send("/mitm/tasks-prefs", method: "PUT", body: obj) }
     }
     func isOn(_ t: ScriptTaskState) -> Bool {
+        if deleted?[t.id] == true { return false }
         if let v = enabled?[t.id] { return v }
         return t.disabledByLine != true
     }
@@ -174,47 +181,73 @@ enum NoticeHistory {
 
 struct ScriptTasksView: View {
     @EnvironmentObject var vpn: VPNManager
+    @ObservedObject private var res = ResourceStore.shared
+    @ObservedObject private var store = EngineStore.shared
     @State private var tasks: [ScriptTaskState] = []
     @State private var prefs = TaskPrefs.load()
     @State private var loaded = false
     @State private var runningID: String?
     @State private var message: String?
+    @State private var detail: ScriptTaskState?
+    @State private var pendingDelete: ScriptTaskState?
+    @State private var editingModule: EngineModule?
+    @State private var editingScript: EngineItem?
+    @State private var updatingAll = false
+    /// 调整顺序 (⋯ menu, 2026-10-23): edit mode with drag handles, the same as 重写 and 规则.
+    @State private var editMode: EditMode = .inactive
 
     static let kinds = ["cron", "event", "interaction", "generic"]
 
+    /// The tasks shown: 删除 ones hidden, in the user's order.
+    var visible: [ScriptTaskState] {
+        ManualOrder.apply(tasks.filter { prefs.deleted?[$0.id] != true }, order: prefs.order ?? []) { $0.id }
+    }
+
+    var deletedCount: Int { tasks.filter { prefs.deleted?[$0.id] == true }.count }
+
     var body: some View {
-        List {
+        let shown = visible
+        return List {
             Section {
                 Toggle(isOn: Binding(get: { !prefs.paused }, set: { prefs.paused = !$0; prefs.save(connected: vpn.isConnected) })) {
                     Label("自动运行", systemImage: "clock.badge.checkmark")
                 }
                 .disabled(tasks.isEmpty)
             } footer: {
-                Text(vpn.isConnected
-                     ? "关闭后定时和网络变化脚本都不会自动运行，手动运行不受影响。"
-                     : "任务在 VPN 扩展里运行：连接后按计划执行，断开时不运行。开关和运行记录断开时也可以查看。")
+                VStack(alignment: .leading, spacing: 4) {
+                    Text(vpn.isConnected
+                         ? "关闭后定时和网络变化脚本都不会自动运行，手动运行不受影响。"
+                         : "任务在 VPN 扩展里运行：连接后按计划执行，断开时不运行。开关和运行记录断开时也可以查看。")
+                    if !tasks.isEmpty {
+                        Text("同一时间触发的任务按列表顺序启动。在 ⋯ 里选「调整顺序」后拖动排序。右滑更新或运行，左滑删除或关闭；长按查看全部操作。")
+                    }
+                }
             }
             .listRowBackground(Theme.card)
 
             ForEach(Self.kinds, id: \.self) { kind in
-                let list = tasks.filter { $0.kind == kind }
+                let list = shown.filter { $0.kind == kind }
                 if !list.isEmpty {
                     Section {
-                        ForEach(list) { t in
-                            NavigationLink { TaskDetailView(task: t, prefs: $prefs) } label: { row(t) }
-                                .swipeActions(edge: .trailing) {
-                                    if kind != "interaction" {
-                                        Button { run(t) } label: { Label("运行", systemImage: "play.fill") }
-                                            .tint(Theme.accent)
-                                            .disabled(!vpn.isConnected)
-                                    }
-                                }
-                        }
+                        ForEach(list) { t in row(t) }
+                            .onMove(perform: mover(kind))
                     } header: { Text(Self.title(kind)) } footer: {
                         if kind == "interaction" { Text("交互脚本在「策略」里长按节点运行，脚本收到所选节点的名称。") }
                     }
                     .listRowBackground(Theme.card)
                 }
+            }
+            if deletedCount > 0 && !editMode.isEditing {
+                Section {
+                    Button {
+                        prefs.deleted = nil
+                        prefs.save(connected: vpn.isConnected)
+                    } label: {
+                        Label("恢复已删除的任务（\(deletedCount)）", systemImage: "arrow.uturn.backward")
+                    }
+                    .accessibilityIdentifier("tasks.restoreDeleted")
+                }
+                .listRowBackground(Theme.card)
             }
             if loaded && tasks.isEmpty {
                 Section {
@@ -232,13 +265,42 @@ struct ScriptTasksView: View {
         .accessibilityIdentifier("scriptTasksView")
         .navigationTitle("任务")
         .navigationBarTitleDisplayMode(.inline)
+        .environment(\.editMode, $editMode)
+        .toolbar {
+            if editMode.isEditing {
+                ToolbarItem(placement: .navigationBarTrailing) {
+                    Button("完成") { withAnimation { editMode = .inactive } }
+                        .accessibilityIdentifier("tasks.reorderDone")
+                }
+            } else {
+                ToolbarItemGroup(placement: .navigationBarTrailing) {
+                    UpdateAllButton(busy: updatingAll || res.updatingAll, id: "tasks.updateAll") { Task { await updateAll() } }
+                    Menu {
+                        Button { withAnimation { editMode = .active } } label: { Label("调整顺序", systemImage: "arrow.up.arrow.down") }
+                            .disabled(shown.count < 2)
+                    } label: { Image(systemName: "ellipsis.circle") }
+                        .accessibilityIdentifier("tasks.more")
+                }
+            }
+        }
+        .navigationDestination(isPresented: Binding(get: { detail != nil }, set: { if !$0 { detail = nil } })) {
+            if let t = detail { TaskDetailView(task: t, prefs: $prefs) }
+        }
+        .sheet(item: $editingModule, onDismiss: { res.reload(); Task { await load() } }) { m in
+            ModuleSubSheet(module: m) { d in store.deleteModule(d); res.reload() }
+        }
+        .sheet(item: $editingScript, onDismiss: { Task { await load() } }) { ScriptFormSheet(item: $0) }
+        .deleteConfirmation({ t in Text("删除「\(t.script.name)」？") }, item: $pendingDelete,
+                            message: { t in Self.isLocal(t) ? DeleteText.recoverable : Text("只从任务列表移除，它不再自动运行；订阅本身不会改动。可以在列表底部「恢复已删除的任务」找回。") },
+                            id: "tasks.confirmDelete") { t in delete(t) }
         .refreshable { await load() }
         .task {
             await load()
+            await res.reloadInBackground()
             while !Task.isCancelled {
                 try? await Task.sleep(nanoseconds: 5_000_000_000)
                 // v0.12: the offline list only changes when modules change; poll only while connected.
-                if VPNManager.shared.isConnected { await load() }
+                if VPNManager.shared.isConnected && !editMode.isEditing { await load() }
             }
         }
         .alert("提示", isPresented: Binding(get: { message != nil }, set: { if !$0 { message = nil } })) {
@@ -264,46 +326,80 @@ struct ScriptTasksView: View {
         }
     }
 
+    /// A task of the user's own script lines (engine.json `scripts`, source 用户): 删除 removes the line.
+    static func isLocal(_ t: ScriptTaskState) -> Bool { t.source == "用户" }
+
+    /// The task's remote script in the resource list (更新 / 更新于).
+    func resource(_ t: ScriptTaskState) -> ResourceItem? {
+        res.items.first { $0.kind == "script" && $0.url == t.script.path }
+    }
+
+    static func switchable(_ t: ScriptTaskState) -> Bool { t.kind == "cron" || t.kind == "event" }
+
     @ViewBuilder func row(_ t: ScriptTaskState) -> some View {
-        HStack(spacing: 12) {
-            TaskIcon(task: t)
-            VStack(alignment: .leading, spacing: 3) {
-                HStack(spacing: 6) {
-                    Text(t.script.name).font(.subheadline.weight(.semibold)).lineLimit(1)
-                    if let f = t.format { FormatBadge(format: f) }
-                }
-                if let c = t.cron, !c.isEmpty {
-                    HStack(spacing: 6) {
-                        Text(c).scaledFont(11, design: .monospaced)
-                        if let n = t.nextRun, n > 0, prefs.isOn(t), !prefs.paused {
-                            Text("下次 \(Date(timeIntervalSince1970: n).formatted(date: .abbreviated, time: .shortened))")
-                                .font(.caption2).foregroundStyle(.secondary)
-                        }
-                    }
-                }
-                if let l = t.lastRun, l > 0 {
-                    HStack(spacing: 4) {
-                        Image(systemName: t.lastOK == true ? "checkmark.circle" : "xmark.octagon")
-                            .foregroundStyle(t.lastOK == true ? Theme.good : Theme.bad)
-                        Text("上次 \(Date(timeIntervalSince1970: l).formatted(.relative(presentation: .named)))\(t.duration.map { " · \($0) ms" } ?? "")")
-                            .foregroundStyle(.secondary)
-                    }
-                    .font(.caption2)
-                } else {
-                    Text(t.source).font(.caption2).foregroundStyle(.secondary).lineLimit(1)
-                }
-            }
-            Spacer(minLength: 4)
-            if t.running == true || runningID == t.id {
-                ProgressView().controlSize(.small)
-            } else if t.kind == "cron" || t.kind == "event" {
-                Toggle("", isOn: Binding(get: { prefs.isOn(t) }, set: { setOn(t, $0) }))
-                    .labelsHidden()
-                    .accessibilityLabel(Text(t.script.name))
+        let item = resource(t)
+        let busy = t.running == true || runningID == t.id || (item.map { res.busy.contains($0.key) } ?? false)
+        let on = prefs.isOn(t)
+        let canSwitch = Self.switchable(t)
+        let off = canSwitch && (!on || prefs.paused)
+        let setter: ((Bool) -> Void)? = canSwitch ? { v in setOn(t, v) } : nil
+        SubscriptionRow(id: "task.row." + t.script.name, icon: Self.symbol(t.kind), color: Theme.accent, customIcon: t.icon,
+                        name: t.script.name,
+                        status: SubscriptionStatus(source: Self.isLocal(t) ? "" : t.source, remote: item != nil,
+                                                   updated: item.flatMap { $0.updatedAt > 0 ? Date(timeIntervalSince1970: $0.updatedAt) : nil },
+                                                   interval: item?.interval ?? 0,
+                                                   error: item?.error ?? (t.lastOK == false ? t.lastResult : nil),
+                                                   disabled: canSwitch && !on,
+                                                   downloaded: item.map { $0.updatedAt > 0 }),
+                        details: details(t, off: off),
+                        updating: busy,
+                        enabled: canSwitch ? Binding(get: { prefs.isOn(t) }, set: { setOn(t, $0) }) : nil,
+                        onTap: { detail = t }) {
+            if let f = t.format { FormatBadge(format: f) }
+        }
+        .opacity(canSwitch && prefs.paused ? 0.55 : 1)
+        .subscriptionActions(SubscriptionActions(
+            update: item != nil && !busy ? { Task { await updateOne(t) } } : nil,
+            edit: { edit(t) },
+            url: item?.url ?? (t.script.path.hasPrefix("http") ? t.script.path : nil),
+            enabled: canSwitch ? on : nil, setEnabled: setter,
+            delete: { pendingDelete = t },
+            extras: t.kind == "interaction" ? [] : [
+                SubscriptionExtraAction(title: "运行", icon: "play.fill", disabled: !vpn.isConnected || busy) { run(t) },
+            ]))
+    }
+
+    /// Schedule / next run, then the last run (「上次 X · N ms」).
+    func details(_ t: ScriptTaskState, off: Bool) -> [String] {
+        var out: [String] = []
+        if let c = t.cron, !c.isEmpty {
+            if let n = t.nextRun, n > 0, !off {
+                out.append(c + " · " + String(localized: "下次 \(Date(timeIntervalSince1970: n).formatted(date: .abbreviated, time: .shortened))"))
+            } else {
+                out.append(c)
             }
         }
-        .padding(.vertical, 2)
-        .opacity((t.kind == "cron" || t.kind == "event") && (!prefs.isOn(t) || prefs.paused) ? 0.55 : 1)
+        if let l = t.lastRun, l > 0 {
+            let rel = Date(timeIntervalSince1970: l).formatted(.relative(presentation: .named))
+            let dur = t.duration.map { " · \($0) ms" } ?? ""
+            out.append((t.lastOK == true ? "✓ " : "✗ ") + String(localized: "上次 \(rel)\(dur)"))
+        }
+        return out
+    }
+
+    /// Drag handles only in 调整顺序 (no long-press drag that would fight the row's menu).
+    func mover(_ kind: String) -> ((IndexSet, Int) -> Void)? {
+        guard editMode.isEditing else { return nil }
+        return { from, to in moveTasks(kind, from, to) }
+    }
+
+    func moveTasks(_ kind: String, _ from: IndexSet, _ to: Int) {
+        let all = visible
+        let section = all.filter { $0.kind == kind }
+        let ordered = ManualOrder.moved(all, visible: section, from: from, to: to) { $0.id }
+        prefs.order = ordered.map(\.id)
+        prefs.save(connected: vpn.isConnected)
+        tasks = ManualOrder.apply(tasks, order: prefs.order ?? []) { $0.id }
     }
 
     func setOn(_ t: ScriptTaskState, _ on: Bool) {
@@ -312,6 +408,59 @@ struct ScriptTasksView: View {
         if on == (t.disabledByLine != true) { e.removeValue(forKey: t.id) } else { e[t.id] = on }
         prefs.enabled = e.isEmpty ? nil : e
         prefs.save(connected: vpn.isConnected)
+    }
+
+    /// 编辑: a local script line opens its form; a subscription's task opens that subscription's sheet.
+    func edit(_ t: ScriptTaskState) {
+        if Self.isLocal(t), let it = store.config.scripts.first(where: { Self.sameLine($0.line, t.line) }) {
+            editingScript = it
+        } else if let m = store.config.modules.first(where: { $0.name == t.source }) {
+            editingModule = m
+        } else {
+            detail = t
+        }
+    }
+
+    static func sameLine(_ a: String, _ b: String) -> Bool {
+        a.trimmingCharacters(in: .whitespacesAndNewlines) == b.trimmingCharacters(in: .whitespacesAndNewlines)
+    }
+
+    /// 删除: the user's own line is removed; a subscription's task is hidden (task-prefs.json `deleted`).
+    func delete(_ t: ScriptTaskState) {
+        if Self.isLocal(t), store.config.scripts.contains(where: { Self.sameLine($0.line, t.line) }) {
+            store.config.scripts.removeAll { Self.sameLine($0.line, t.line) }
+            store.save()
+            tasks.removeAll { $0.id == t.id }
+        } else {
+            var d = prefs.deleted ?? [:]
+            d[t.id] = true
+            prefs.deleted = d
+            prefs.save(connected: vpn.isConnected)
+        }
+        Task {
+            try? await Task.sleep(nanoseconds: 600_000_000)
+            await load()
+        }
+    }
+
+    func updateOne(_ t: ScriptTaskState) async {
+        guard let it = resource(t) else { return }
+        await res.update(it)
+        await load()
+    }
+
+    /// 全部更新: the remote scripts of the listed tasks.
+    func updateAll() async {
+        guard !updatingAll else { return }
+        updatingAll = true
+        defer { updatingAll = false }
+        await res.reloadInBackground()
+        let urls = Set(visible.map(\.script.path))
+        let list = res.items.filter { $0.kind == "script" && $0.isRemote && $0.enabled && urls.contains($0.url) }
+        let failed = await res.updateItems(list)
+        res.message = nil
+        message = failed == 0 ? String(localized: "已全部更新") : String(localized: "\(failed) 项更新失败，详见列表")
+        await load()
     }
 
     func load() async {

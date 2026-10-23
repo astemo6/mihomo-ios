@@ -24,9 +24,14 @@ const (
 
 // TaskPrefs is written by the app: Paused stops every scheduled / event run (manual runs still work);
 // Enabled overrides a task's own enabled= flag.
+// Order (2026-10-23 「也都要可以手动调顺序」): task ids in the order the user arranged them — the list order and the
+// order tasks due at the same moment are started in. Deleted: tasks of a subscription (module) the user deleted
+// from the list — never run, hidden by the app until 恢复已删除的任务; the module itself is not changed.
 type TaskPrefs struct {
 	Paused  bool            `json:"paused"`
 	Enabled map[string]bool `json:"enabled,omitempty"`
+	Order   []string        `json:"order,omitempty"`
+	Deleted map[string]bool `json:"deleted,omitempty"`
 }
 
 // RunRecord is one entry of a task's run log.
@@ -41,7 +46,7 @@ type RunRecord struct {
 
 // enabled reports whether scheduled / event runs are allowed for tk. t.mu held.
 func (t *tasker) enabledLocked(tk *Task) bool {
-	if t.prefs.Paused {
+	if t.prefs.Paused || t.prefs.Deleted[tk.ID] {
 		return false
 	}
 	if v, ok := t.prefs.Enabled[tk.ID]; ok {
@@ -92,6 +97,9 @@ func (t *tasker) loadPersistedLocked() {
 func (t *tasker) setPrefs(p TaskPrefs) {
 	t.mu.Lock()
 	t.prefs = p
+	if t.natural != nil {
+		t.tasks = OrderTasks(t.natural, p.Order)
+	}
 	t.mu.Unlock()
 	writeJSONFile(t.path(taskPrefsFile), p)
 	select {

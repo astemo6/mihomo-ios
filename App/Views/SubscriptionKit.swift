@@ -11,6 +11,11 @@ import UIKit
 //   • long press = 更新 · 编辑 · 复制地址 · 启用/关闭 · 删除, always in this order,
 //   • one status line: 来源 · 更新于 X · 每 N 天, the error in red underneath.
 // Local-only items (a pasted module) show the same row and sheet without the address and update actions.
+// 2026-10-23 (user 「这三个路径下的更新，删除，启用逻辑要保持一致。也都要可以手动调顺序」): 规则 → 订阅 and 任务 use the
+// same row and actions as 重写 → 订阅; swipe left now offers 删除 and 关闭 / 启用; the ⋯ menu's 调整顺序 puts each
+// list in edit mode (ManualOrder keeps the order; it is off while searching or filtering). Deleting an item that
+// comes with the profile or a subscription hides it with a saved override (恢复已删除… brings it back); deleting
+// an item the user added removes it.
 
 /// Auto-update choices in seconds. `zero` names 0 (关闭 / 跟随配置); nil = no 0 choice (modules default to 1 day).
 enum SubscriptionInterval {
@@ -51,9 +56,9 @@ struct SubscriptionStatus: Equatable {
         return f
     }()
 
-    /// 「来源 · 更新于 X · 每 N 天」.
+    /// 「来源 · 更新于 X · 每 N 天」 (no 来源 part when `source` is empty).
     var line: String {
-        var parts = [source]
+        var parts = source.isEmpty ? [] : [source]
         if disabled {
             parts.append(String(localized: "已关闭"))
         } else if !remote {
@@ -100,6 +105,8 @@ struct SubscriptionRow<Badges: View>: View {
     var customIcon: String? = nil
     let name: String
     let status: SubscriptionStatus
+    /// Grey lines above the status (a rule set's link, a task's schedule), one line each.
+    var details: [String] = []
     var count: Int? = nil
     var updating = false
     /// nil = no switch.
@@ -124,6 +131,9 @@ struct SubscriptionRow<Badges: View>: View {
                         HStack(spacing: 4) {
                             Text(verbatim: name).font(.subheadline.weight(.semibold)).lineLimit(1)
                             badges()
+                        }
+                        ForEach(details.indices, id: \.self) { i in
+                            Text(verbatim: details[i]).font(.caption).foregroundStyle(.secondary).lineLimit(1).truncationMode(.middle)
                         }
                         SubscriptionStatusView(status: status)
                     }
@@ -152,10 +162,11 @@ struct SubscriptionRow<Badges: View>: View {
 
 extension SubscriptionRow where Badges == EmptyView {
     init(id: String, icon: String, color: Color, customIcon: String? = nil, name: String, status: SubscriptionStatus,
-         count: Int? = nil, updating: Bool = false, enabled: Binding<Bool>? = nil, toggleDisabled: Bool = false,
-         onTap: @escaping () -> Void) {
-        self.init(id: id, icon: icon, color: color, customIcon: customIcon, name: name, status: status, count: count,
-                  updating: updating, enabled: enabled, toggleDisabled: toggleDisabled, onTap: onTap, badges: { EmptyView() })
+         details: [String] = [], count: Int? = nil, updating: Bool = false, enabled: Binding<Bool>? = nil,
+         toggleDisabled: Bool = false, onTap: @escaping () -> Void) {
+        self.init(id: id, icon: icon, color: color, customIcon: customIcon, name: name, status: status, details: details,
+                  count: count, updating: updating, enabled: enabled, toggleDisabled: toggleDisabled, onTap: onTap,
+                  badges: { EmptyView() })
     }
 }
 
@@ -170,16 +181,30 @@ struct SubscriptionActions {
     var toggleDisabled = false
     /// Asks first (the caller presents its confirmation).
     var delete: (() -> Void)?
+    /// Kind-specific actions (a task's 运行): in the right swipe after 更新 and in the menu after 编辑.
+    var extras: [SubscriptionExtraAction] = []
+}
+
+struct SubscriptionExtraAction: Identifiable {
+    let title: LocalizedStringKey
+    let icon: String
+    var tint: Color = Theme.accent
+    var disabled = false
+    let action: () -> Void
+    var id: String { icon }
 }
 
 extension View {
     /// Swipes and long-press menu of a subscription row: right 更新 (blue); left 删除 (red, no full swipe — the caller
-    /// confirms); menu 更新 · 编辑 · 复制地址 · 启用/关闭 · 删除.
+    /// confirms) and 关闭 / 启用; menu 更新 · 编辑 · 复制地址 · 启用/关闭 · 删除.
     func subscriptionActions(_ a: SubscriptionActions) -> some View {
         self
             .swipeActions(edge: .leading, allowsFullSwipe: true) {
                 if let u = a.update {
                     Button { u() } label: { Label("更新", systemImage: "arrow.clockwise") }.tint(.blue)
+                }
+                ForEach(a.extras) { x in
+                    Button { x.action() } label: { Label(x.title, systemImage: x.icon) }.tint(x.tint).disabled(x.disabled)
                 }
             }
             .swipeActions(edge: .trailing, allowsFullSwipe: false) {
@@ -187,11 +212,20 @@ extension View {
                     // Not role: .destructive — that removes the row at once, even when the confirmation is cancelled.
                     Button { d() } label: { Label("删除", systemImage: "trash") }.tint(.red)
                 }
+                if let on = a.enabled, let flip = a.setEnabled, !a.toggleDisabled {
+                    Button { flip(!on) } label: {
+                        Label(LocalizedStringKey(on ? "关闭" : "启用"), systemImage: on ? "pause.circle" : "play.circle")
+                    }
+                    .tint(on ? Color.orange : Theme.good)
+                }
             }
             .contextMenu {
                 Button { a.update?() } label: { Label("更新", systemImage: "arrow.clockwise") }
                     .disabled(a.update == nil)
                 Button { a.edit() } label: { Label("编辑", systemImage: "pencil") }
+                ForEach(a.extras) { x in
+                    Button { x.action() } label: { Label(x.title, systemImage: x.icon) }.disabled(x.disabled)
+                }
                 Button { if let u = a.url { UIPasteboard.general.string = u } } label: { Label("复制地址", systemImage: "doc.on.doc") }
                     .disabled(a.url == nil)
                 if let on = a.enabled {
@@ -368,5 +402,54 @@ extension SubscriptionSheet where Extra == EmptyView {
                   urlPlaceholder: urlPlaceholder, interval: interval, zeroInterval: zeroInterval, status: status, updating: updating,
                   dirty: dirty, save: save, update: update, deleteTitle: deleteTitle, deleteMessage: deleteMessage, delete: delete,
                   extra: { EmptyView() })
+    }
+}
+
+/// 全部更新 in the toolbar of every subscription list (重写, 规则, 任务): a spinner while it runs.
+struct UpdateAllButton: View {
+    let busy: Bool
+    var id: String
+    let action: () -> Void
+
+    var body: some View {
+        if busy {
+            ProgressView()
+        } else {
+            Button(action: action) { Image(systemName: "arrow.clockwise") }
+                .accessibilityLabel(Text("全部更新"))
+                .accessibilityIdentifier(id)
+        }
+    }
+}
+
+/// Manual order of a list (2026-10-23 「也都要可以手动调顺序」), the same rule as the bridge (mitm.ReorderSlots):
+/// the items the saved order names are sorted among the positions they hold, everything else stays in place, so
+/// an item new since the order was saved keeps its natural position.
+enum ManualOrder {
+    static func apply<T>(_ items: [T], order: [String], key: (T) -> String?) -> [T] {
+        guard order.count > 1, items.count > 1 else { return items }
+        var rank: [String: Int] = [:]
+        for (i, n) in order.enumerated() where rank[n] == nil { rank[n] = i }
+        var slots: [Int] = []
+        var picked: [(rank: Int, seq: Int, item: T)] = []
+        for (i, it) in items.enumerated() {
+            guard let k = key(it), let r = rank[k] else { continue }
+            slots.append(i)
+            picked.append((rank: r, seq: picked.count, item: it))
+        }
+        guard slots.count > 1 else { return items }
+        picked.sort { a, b in a.rank != b.rank ? a.rank < b.rank : a.seq < b.seq }
+        var out = items
+        for (k, s) in slots.enumerated() { out[s] = picked[k].item }
+        return out
+    }
+
+    /// `visible` (a part of `all`, in its order) after a drag; its members keep the slots they hold in `all`.
+    static func moved<T>(_ all: [T], visible: [T], from: IndexSet, to: Int, key: (T) -> String) -> [T] {
+        var v = visible
+        v.move(fromOffsets: from, toOffset: to)
+        let ids = Set(visible.map(key))
+        var it = v.makeIterator()
+        return all.map { ids.contains(key($0)) ? (it.next() ?? $0) : $0 }
     }
 }

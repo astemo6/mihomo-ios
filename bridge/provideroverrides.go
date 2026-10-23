@@ -37,6 +37,9 @@ type ProviderOverride struct {
 	ExcludeFilter string `json:"excludeFilter,omitempty"`
 	// Policy: rule-provider overrides only (key "rule:<name>") — the policy of the profile's RULE-SET rules.
 	Policy string `json:"policy,omitempty"`
+	// Order: only on the entry keyed ruleOrderKey — the profile's rule sets in the order the user arranged them
+	// on 规则 → 订阅 (matching priority, top first). See applyRuleSetOrder.
+	Order []string `json:"order,omitempty"`
 }
 
 func providerOverridesPath(home string) string { return filepath.Join(home, "provider-overrides.json") }

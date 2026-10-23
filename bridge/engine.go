@@ -541,7 +541,7 @@ func EngineParseLine(line, section string) string {
 func EngineTaskList(home string) string {
 	cfg := mitm.LoadConfig(home)
 	rs := mitm.Build(home, cfg)
-	list := rs.Tasks
+	list := mitm.OrderTasks(rs.Tasks, mitm.ReadTaskPrefs(home).Order) // the user's order (task-prefs.json)
 	if list == nil {
 		list = []*mitm.Task{}
 	}

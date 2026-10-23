@@ -140,12 +140,11 @@ struct RewriteView: View {
                 ToolbarItem(placement: .navigationBarTrailing) { Button("完成") { withAnimation { editMode = .inactive } } }
             } else {
                 ToolbarItemGroup(placement: .navigationBarTrailing) {
-                    Button { Task { await res.updateAll() } } label: { Image(systemName: "arrow.clockwise") }
-                        .disabled(res.updatingAll)
-                        .accessibilityLabel(Text("全部更新"))
+                    UpdateAllButton(busy: res.updatingAll, id: "rewrite.updateAll") { Task { await res.updateAll() } }
                     Menu {
                         Button { rawText = Self.text(store.config); rawIssues = []; rawMode = true } label: { Label("以文本编辑本地规则", systemImage: "doc.plaintext") }
                         Button { withAnimation { editMode = .active } } label: { Label("调整顺序", systemImage: "arrow.up.arrow.down") }
+                            .disabled(!canReorderModules)
                     } label: { Image(systemName: "ellipsis.circle") }
                         .accessibilityIdentifier("rewrite.more")
                     addMenu
@@ -153,6 +152,7 @@ struct RewriteView: View {
             }
         }
         .environment(\.editMode, $editMode)
+        .onChange(of: search) { q in if !q.isEmpty && editMode.isEditing { editMode = .inactive } }
         .sheet(item: $editing) { t in RewriteRuleEditor(target: t) }
         .sheet(item: $editingModule, onDismiss: { res.reload() }) { m in
             ModuleSubSheet(module: m) { d in store.deleteModule(d); res.reload() }
@@ -231,6 +231,16 @@ struct RewriteView: View {
             delete: { pendingDelete = m }))
     }
 
+    /// 订阅 order = load order (mitm.Build: earlier subscriptions' rewrites and scripts match first). Moving is off
+    /// while searching or with a category chip other than 全部 (a filtered list cannot place the hidden rows).
+    var canReorderModules: Bool { search.isEmpty && categoryFilter.isEmpty }
+
+    func moveModules(_ from: IndexSet, _ to: Int) {
+        guard canReorderModules else { return }
+        store.config.modules.move(fromOffsets: from, toOffset: to)
+        store.save() // reloads the tunnel (debounced): the new order takes effect now
+    }
+
     func setModule(_ m: EngineModule, _ on: Bool) {
         guard let i = store.config.modules.firstIndex(where: { $0.id == m.id }), store.config.modules[i].enabled != on else { return }
         store.config.modules[i].enabled = on
@@ -275,12 +285,10 @@ struct RewriteView: View {
                     .listRowInsets(EdgeInsets(top: 6, leading: 12, bottom: 6, trailing: 12))
                     .accessibilityIdentifier("rewrite.subs.categories")
                     .onChange(of: cats) { cs in if !categoryFilter.isEmpty && !cs.contains(categoryFilter) { categoryFilter = "" } }
+                    .onChange(of: categoryFilter) { c in if !c.isEmpty && editMode.isEditing { editMode = .inactive } }
                 }
                 ForEach(modules) { m in moduleRow(m) }
-                    .onMove { from, to in
-                        guard search.isEmpty && categoryFilter.isEmpty else { return }
-                        store.config.modules.move(fromOffsets: from, toOffset: to); store.save(reload: false)
-                    }
+                    .onMove(perform: editMode.isEditing && canReorderModules ? moveModules : nil)
             } header: {
                 HStack {
                     Text("订阅 \(store.config.modules.count)")
@@ -289,7 +297,11 @@ struct RewriteView: View {
                 }
                 .accessibilityIdentifier("rewrite.subs.header")
             } footer: {
-                Text("Surge 模块、Loon 插件、QX 引用（rewrite_remote）、Stash 覆写和 Egern 模块都是订阅，角标显示格式。轻点编辑；右滑更新，左滑删除；开关启用或关闭；长按查看全部操作。订阅引用的远程脚本和规则集随它一起更新。")
+                VStack(alignment: .leading, spacing: 4) {
+                    Text("Surge 模块、Loon 插件、QX 引用（rewrite_remote）、Stash 覆写和 Egern 模块都是订阅，角标显示格式。轻点编辑；右滑更新，左滑删除或关闭；开关启用或关闭；长按查看全部操作。订阅引用的远程脚本和规则集随它一起更新。")
+                    Text("订阅按列表顺序生效：越靠上越先匹配。在 ⋯ 里选「调整顺序」后拖动排序（搜索或筛选分类时不能排序）。")
+                }
+                .modifier(UITestOrderValue(id: "rewrite.subs.order", order: store.config.modules.map(\.name).joined(separator: " | ")))
             }
             .listRowBackground(Theme.card)
 

@@ -23,13 +23,19 @@ struct ProviderOverride: Codable, Hashable {
     /// Display only (app side): what a 停用 rule set showed before it left the runtime, so its row stays listed.
     var shownPolicy: String? = nil
     var shownURL: String? = nil
+    /// Only on the entry keyed `ruleOrderKey` (user 2026-10-23 「这个规则要能手动调顺序」): the profile's rule sets in the
+    /// order the user arranged them on 规则 → 订阅 = matching priority, top first (bridge applyRuleSetOrder).
+    var order: [String]? = nil
 
     var isEmpty: Bool {
         disabled != true && deleted != true && (name ?? "").isEmpty && icon == nil && (url ?? "").isEmpty
             && (interval ?? 0) <= 0 && (filter ?? "").isEmpty && (excludeFilter ?? "").isEmpty && (policy ?? "").isEmpty
+            && (order ?? []).isEmpty
     }
 
     static func ruleKey(_ name: String) -> String { "rule:" + name }
+    /// Never a provider name the other lists act on (bridge ruleOrderKey).
+    static let ruleOrderKey = "#rule-order"
 }
 
 /// One proxy-provider as the profile declares it (bridge ProfileProviders), before the overrides.

@@ -6,16 +6,24 @@ import SwiftUI
 // Top: Final (the profile's MATCH policy) and 本地规则 (→ LocalRulesView: the profile's own rules, local custom
 // rules and the hit statistics). Below: 订阅 — every remote rule list in one place, the profile's rule-providers
 // and the lists the user added (custom RULE-SET / DOMAIN-SET / filter_remote). + adds a 订阅.
+//
+// 2026-10-23 (「这个规则要能手动调顺序」「三个路径…逻辑要保持一致」): rows are SubscriptionKit rows (switch on the
+// right, the same swipes and menu as 重写 / 任务); ⋯ → 调整顺序 drags 订阅 into the order that is the matching
+// priority — the profile's rule sets via provider-overrides.json `#rule-order` (bridge applyRuleSetOrder), the
+// user's own lists via rules.json order.
 
 struct RulesView: View {
     @EnvironmentObject var vpn: VPNManager
     @ObservedObject private var offline = ProfileInspector.shared
     @ObservedObject private var custom = CustomRulesStore.shared
     @ObservedObject private var updater = ProviderUpdater.shared
+    @ObservedObject private var res = ResourceStore.shared
     @ObservedObject private var providerOV = ProviderOverrideStore.shared
     @ObservedObject private var profiles = ProfileStore.shared
     @State private var editingSet: SetRule?
     @State private var confirmDeleteSet: SetRule?
+    @State private var confirmDeleteCustom: CustomRule?
+    @State private var detail: InspectProvider?
     @State private var live: [RuleItem] = []
     @State private var liveProviders: [String: ProviderItem] = [:]
     @State private var search = ""
@@ -23,6 +31,9 @@ struct RulesView: View {
     @State private var editing: CustomRule?
     @State private var updatingLive: Set<String> = []
     @State private var liveErrors: [String: String] = [:]
+    @State private var updatingAll = false
+    /// 调整顺序 (user 2026-10-23 「这个规则要能手动调顺序」): the ⋯ menu puts 订阅 in edit mode; drag the handles.
+    @State private var editMode: EditMode = .inactive
 
     /// One RULE-SET rule of the running / saved profile.
     struct SetRule: Hashable, Identifiable { var name: String; var policy: String; var id: String { name } }
@@ -48,7 +59,8 @@ struct RulesView: View {
         return m
     }
 
-    /// The profile's rule sets in rule order, minus the ones that came from the user's own 订阅 (shown with those).
+    /// The profile's rule sets in matching order, minus the ones that came from the user's own 订阅 (shown with
+    /// those). The saved order is applied here too, so a drag shows at once (the runtime follows after the reload).
     var profileSets: [SetRule] {
         let mine = Set(custom.remoteRules.compactMap { CustomRulesStore.remoteURL($0.line) })
         let byName = providersByName
@@ -59,11 +71,11 @@ struct RulesView: View {
             if seen.insert(r.payload).inserted { out.append(SetRule(name: r.payload, policy: r.proxy)) }
         }
         // 停用 rule sets are not in the runtime any more; keep them listed (dimmed) so they can be turned on again.
-        for (k, o) in setOverrides where o.disabled == true && o.deleted != true {
+        for (k, o) in setOverrides.sorted(by: { $0.key < $1.key }) where o.disabled == true && o.deleted != true {
             let name = String(k.dropFirst(5))
             if seen.insert(name).inserted { out.append(SetRule(name: name, policy: o.policy ?? o.shownPolicy ?? "")) }
         }
-        return out
+        return ManualOrder.apply(out, order: savedOrder) { $0.name }
     }
 
     /// The `rule:<name>` overrides of the active profile (停用 / 删除 / 编辑 of its rule sets).
@@ -71,9 +83,17 @@ struct RulesView: View {
         providerOV.overrides(profiles.activeID).filter { $0.key.hasPrefix("rule:") }
     }
 
+    /// The rule-set order the user arranged (provider-overrides.json, applied by the bridge).
+    var savedOrder: [String] {
+        providerOV.overrides(profiles.activeID)[ProviderOverride.ruleOrderKey]?.order ?? []
+    }
+
     func setOverride(_ name: String) -> ProviderOverride { setOverrides[ProviderOverride.ruleKey(name)] ?? ProviderOverride() }
 
     var deletedSetCount: Int { setOverrides.values.filter { $0.deleted == true }.count }
+
+    /// Moving is off while searching: a filtered list cannot say where the hidden rows go.
+    var canReorder: Bool { search.isEmpty }
 
     func changeSet(_ s: SetRule, _ change: @escaping (inout ProviderOverride) -> Void) {
         guard let id = profiles.activeID else { return }
@@ -84,6 +104,19 @@ struct RulesView: View {
             change(&o)
         }
         Task { await applySetChange() }
+    }
+
+    func moveSets(_ from: IndexSet, _ to: Int) {
+        guard let id = profiles.activeID, canReorder else { return }
+        let all = profileSets
+        let names = ManualOrder.moved(all, visible: all, from: from, to: to) { $0.name }.map(\.name)
+        providerOV.update(id, ProviderOverride.ruleOrderKey) { $0.order = names }
+        Task { await applySetChange() }
+    }
+
+    func moveMine(_ from: IndexSet, _ to: Int) {
+        guard canReorder else { return }
+        custom.moveSubset(custom.remoteRules, from: from, to: to)
     }
 
     func applySetChange() async {
@@ -100,6 +133,7 @@ struct RulesView: View {
     var body: some View {
         let sets = profileSets.filter { matches($0.name, $0.policy, providersByName[$0.name]?.url ?? "") }
         let mine = custom.remoteRules.filter { matches($0.line) }
+        let moving = editMode.isEditing && canReorder
         return List {
             Section {
                 HStack(spacing: 10) {
@@ -135,8 +169,10 @@ struct RulesView: View {
                         .font(.footnote).foregroundStyle(.secondary)
                 }
                 ForEach(mine) { r in customRow(r) }
-                ForEach(sets, id: \.self) { s in profileRow(s) }
-                if deletedSetCount > 0, let id = profiles.activeID {
+                    .onMove(perform: moving ? moveMine : nil)
+                ForEach(sets) { s in profileRow(s) }
+                    .onMove(perform: moving ? moveSets : nil)
+                if deletedSetCount > 0, let id = profiles.activeID, !editMode.isEditing {
                     Button {
                         providerOV.restoreDeleted(id, ruleSets: true)
                         Task { await applySetChange() }
@@ -148,7 +184,11 @@ struct RulesView: View {
             } header: {
                 Text("订阅 \(mine.count + sets.count)")
             } footer: {
-                Text("轻点查看内容；右滑更新或编辑，左滑删除；圆圈启用或停用；长按查看全部操作。")
+                VStack(alignment: .leading, spacing: 4) {
+                    Text("顺序就是匹配优先级：越靠上越先匹配。在 ⋯ 里选「调整顺序」后拖动排序（搜索时不能排序）。")
+                    Text("轻点查看内容；右滑更新，左滑删除或关闭；开关启用或关闭；长按查看全部操作。")
+                }
+                .modifier(UITestOrderValue(id: "rules.sets.order", order: sets.map(\.name).joined(separator: " | ")))
             }
             .listRowBackground(Theme.card)
         }
@@ -157,21 +197,32 @@ struct RulesView: View {
         .background(Theme.bg.ignoresSafeArea())
         .navigationTitle("规则")
         .searchable(text: $search, placement: .navigationBarDrawer(displayMode: .always), prompt: "搜索")
+        .environment(\.editMode, $editMode)
+        .onChange(of: search) { q in if !q.isEmpty && editMode.isEditing { editMode = .inactive } }
         .toolbar {
-            ToolbarItem(placement: .navigationBarTrailing) {
-                if updater.running || !updatingLive.isEmpty {
-                    ProgressView()
-                } else {
-                    Button { Task { await updateAll() } } label: { Image(systemName: "arrow.triangle.2.circlepath") }
-                        .accessibilityLabel(Text("全部更新"))
-                        .accessibilityIdentifier("rules.updateAll")
+            if editMode.isEditing {
+                ToolbarItem(placement: .navigationBarTrailing) {
+                    Button("完成") { withAnimation { editMode = .inactive } }
+                        .accessibilityIdentifier("rules.reorderDone")
+                }
+            } else {
+                ToolbarItemGroup(placement: .navigationBarTrailing) {
+                    UpdateAllButton(busy: updatingAll || updater.running || !updatingLive.isEmpty, id: "rules.updateAll") {
+                        Task { await updateAll() }
+                    }
+                    Menu {
+                        Button { withAnimation { editMode = .active } } label: { Label("调整顺序", systemImage: "arrow.up.arrow.down") }
+                            .disabled(!canReorder)
+                    } label: { Image(systemName: "ellipsis.circle") }
+                        .accessibilityIdentifier("rules.more")
+                    Button { adding = true } label: { Image(systemName: "plus") }
+                        .accessibilityLabel(Text("添加规则订阅"))
+                        .accessibilityIdentifier("rules.addSet")
                 }
             }
-            ToolbarItem(placement: .navigationBarTrailing) {
-                Button { adding = true } label: { Image(systemName: "plus.circle") }
-                    .accessibilityLabel(Text("添加规则订阅"))
-                    .accessibilityIdentifier("rules.addSet")
-            }
+        }
+        .navigationDestination(isPresented: Binding(get: { detail != nil }, set: { if !$0 { detail = nil } })) {
+            if let p = detail { OfflineProviderDetail(p: p) }
         }
         .task(id: vpn.isConnected) { await load() }
         .refreshable { await load() }
@@ -190,14 +241,15 @@ struct RulesView: View {
             }
             .environmentObject(vpn)
         }
-        .alert("删除这个规则集？", isPresented: Binding(get: { confirmDeleteSet != nil }, set: { if !$0 { confirmDeleteSet = nil } })) {
-            Button("删除", role: .destructive) {
-                if let s = confirmDeleteSet { changeSet(s) { $0.deleted = true } }
-                confirmDeleteSet = nil
-            }
-            Button("取消", role: .cancel) { confirmDeleteSet = nil }
-        } message: {
-            Text("只从当前配置里移除：它和用到它的规则不再加载，配置文件不会改动。可以在列表底部「恢复已删除的规则集」找回。")
+        .deleteConfirmation({ _ in Text("删除这个规则集？") }, item: $confirmDeleteSet,
+                            message: { _ in Text("只从当前配置里移除：它和用到它的规则不再加载，配置文件不会改动。可以在列表底部「恢复已删除的规则集」找回。") },
+                            id: "rules.confirmDeleteSet") { s in
+            changeSet(s) { $0.deleted = true }
+        }
+        .deleteConfirmation({ r in Text("删除「\(Self.displayName(CustomRulesStore.remoteURL(r.line) ?? r.line))」？") }, item: $confirmDeleteCustom,
+                            message: { _ in DeleteText.recoverable }, id: "rules.confirmDeleteSub") { r in
+            custom.rules.removeAll { $0.id == r.id }
+            custom.save()
         }
         .sheet(item: $editing) { r in
             CustomRuleEditor(rule: r) { nr in
@@ -209,101 +261,77 @@ struct RulesView: View {
         } message: { Text(custom.message ?? "") }
     }
 
-    // MARK: rows
+    // MARK: rows (SubscriptionKit: the same row and actions as 重写 → 订阅 and 任务)
 
-    /// A 订阅 the user added: tap to edit, check to enable, swipe to delete or move.
+    /// A 订阅 the user added (rules.json): 删除 removes it.
     @ViewBuilder
     func customRow(_ r: CustomRule) -> some View {
         let url = CustomRulesStore.remoteURL(r.line) ?? r.line
         let provider = offline.result.ruleProviders.first { $0.url == url }
+        let item = res.items.first { $0.kind == "ruleset" && $0.url == url }
         let check = custom.checks[r.id]
-        SubscriptionCard(
-            name: provider?.name ?? Self.displayName(url),
-            url: url,
-            policy: check?.policy ?? RuleFormFields.parse(r.line)?.policy,
-            updated: provider?.cachedDate,
-            count: provider.flatMap { $0.count >= 0 ? $0.count : nil },
-            error: check?.error ?? provider.flatMap { updater.errors[$0.id] },
-            enabled: r.enabled,
-            onToggle: { on in
-                if let i = custom.rules.firstIndex(where: { $0.id == r.id }) { custom.rules[i].enabled = on; custom.save() }
-            }
-        )
-        .contentShape(Rectangle())
-        .onTapGesture { editing = r }
-        .swipeActions(edge: .trailing) {
-            Button(role: .destructive) { custom.rules.removeAll { $0.id == r.id }; custom.save() } label: { Label("删除", systemImage: "trash") }
+        let name = provider?.name ?? Self.displayName(url)
+        let lp = provider.flatMap { liveProviders[$0.name] }
+        let busy = (provider.map { updatingLive.contains($0.name) || updater.busy.contains($0.id) } ?? false)
+            || (item.map { res.busy.contains($0.key) } ?? false)
+        SubscriptionRow(id: "rules.sub." + name, icon: "list.bullet.rectangle", color: Theme.accent, name: name,
+                        status: SubscriptionStatus(source: "", remote: true,
+                                                   updated: Self.liveDate(lp) ?? provider?.cachedDate ?? item.flatMap { $0.updatedAt > 0 ? Date(timeIntervalSince1970: $0.updatedAt) : nil },
+                                                   interval: r.interval ?? item?.interval ?? 0,
+                                                   error: check?.error ?? provider.flatMap { updater.errors[$0.id] } ?? item?.error,
+                                                   disabled: !r.enabled,
+                                                   downloaded: provider?.cached),
+                        details: [url],
+                        count: r.enabled ? (lp?.ruleCount ?? provider.flatMap { $0.count >= 0 ? $0.count : nil }) : nil,
+                        updating: busy,
+                        enabled: Binding(get: { r.enabled }, set: { on in setCustom(r, on) }),
+                        onTap: { editing = r }) {
+            if let p = check?.policy ?? RuleFormFields.parse(r.line)?.policy, !p.isEmpty { PolicyChip(name: p) }
         }
-        .contextMenu {
-            Button { Task { await updateCustom(url, provider: provider?.name) } } label: { Label("更新", systemImage: "arrow.clockwise") }
-            Button { UIPasteboard.general.string = url } label: { Label("复制链接", systemImage: "doc.on.doc") }
-        }
-        .swipeActions(edge: .leading, allowsFullSwipe: false) {
-            Button { Task { await updateCustom(url, provider: provider?.name) } } label: { Label("更新", systemImage: "arrow.clockwise") }
-                .tint(Theme.good)
-            let subset = custom.remoteRules
-            if custom.canStepSubset(subset, r.id, by: 1) {
-                Button { withAnimation { custom.stepSubset(subset, r.id, by: 1) } } label: { Label("下移", systemImage: "arrow.down") }
-                    .tint(Theme.accent.opacity(0.75))
-            }
-            if custom.canStepSubset(subset, r.id, by: -1) {
-                Button { withAnimation { custom.stepSubset(subset, r.id, by: -1) } } label: { Label("上移", systemImage: "arrow.up") }
-                    .tint(Theme.accent)
-            }
-        }
+        .subscriptionActions(SubscriptionActions(
+            update: r.enabled && !busy ? { Task { await updateCustom(url, provider: provider?.name) } } : nil,
+            edit: { editing = r }, url: url,
+            enabled: r.enabled, setEnabled: { on in setCustom(r, on) },
+            delete: { confirmDeleteCustom = r }))
     }
 
-    /// A rule set that comes with the profile: tap for its contents, swipe to update now.
+    func setCustom(_ r: CustomRule, _ on: Bool) {
+        guard let i = custom.rules.firstIndex(where: { $0.id == r.id }), custom.rules[i].enabled != on else { return }
+        custom.rules[i].enabled = on
+        custom.save()
+    }
+
+    /// A rule set of the profile: 删除 / 关闭 / 编辑 are overrides (provider-overrides.json), the profile file is not touched.
     @ViewBuilder
     func profileRow(_ s: SetRule) -> some View {
         let p = providersByName[s.name]
         let lp = liveProviders[s.name]
-        let liveDate = lp?.updatedAt.flatMap { ConnectionItem.iso.date(from: $0) ?? ConnectionItem.isoNoFrac.date(from: $0) }
         let ov = setOverride(s.name)
         let off = ov.disabled == true
-        let card = SubscriptionCard(
-            name: s.name,
-            url: p?.url ?? ov.url ?? ov.shownURL ?? "",
-            policy: s.policy,
-            updated: liveDate ?? p?.cachedDate,
-            count: off ? nil : (lp?.ruleCount ?? p.flatMap { $0.count >= 0 ? $0.count : nil }),
-            error: liveErrors[s.name] ?? p.flatMap { updater.errors[$0.id] },
-            enabled: !off,
-            busy: updatingLive.contains(s.name) || (p.map { updater.busy.contains($0.id) } ?? false),
-            onToggle: { on in changeSet(s) { $0.disabled = on ? nil : true } }
-        )
-        Group {
-            if let p {
-                NavigationLink { OfflineProviderDetail(p: p) } label: { card }
-            } else {
-                card
-            }
+        let url = ov.url ?? p?.url ?? ov.shownURL ?? ""
+        let remote = p.map { $0.vehicle.lowercased() == "http" } ?? !url.isEmpty
+        let busy = updatingLive.contains(s.name) || (p.map { updater.busy.contains($0.id) } ?? false)
+        SubscriptionRow(id: "rules.set." + s.name, icon: "list.bullet.rectangle", color: Theme.accent, name: s.name,
+                        status: SubscriptionStatus(source: "", remote: remote, updated: Self.liveDate(lp) ?? p?.cachedDate,
+                                                   interval: p?.interval ?? 0,
+                                                   error: liveErrors[s.name] ?? p.flatMap { updater.errors[$0.id] },
+                                                   disabled: off, downloaded: p?.cached),
+                        details: url.isEmpty ? [] : [url],
+                        count: off ? nil : (lp?.ruleCount ?? p.flatMap { $0.count >= 0 ? $0.count : nil }),
+                        updating: busy,
+                        enabled: Binding(get: { !off }, set: { on in changeSet(s) { $0.disabled = on ? nil : true } }),
+                        onTap: { if let p { detail = p } else { editingSet = s } }) {
+            if !s.policy.isEmpty { PolicyChip(name: s.policy) }
         }
-        .swipeActions(edge: .leading) {
-            if !off {
-                Button { Task { await update(s.name) } } label: { Label("更新", systemImage: "arrow.clockwise") }
-                    .tint(Theme.accent)
-            }
-            Button { editingSet = s } label: { Label("编辑", systemImage: "pencil") }
-                .tint(.indigo)
-        }
-        .swipeActions(edge: .trailing) {
-            Button(role: .destructive) { confirmDeleteSet = s } label: { Label("删除", systemImage: "trash") }
-        }
-        .contextMenu {
-            if !off {
-                Button { Task { await update(s.name) } } label: { Label("更新", systemImage: "arrow.clockwise") }
-            }
-            Button { editingSet = s } label: { Label("编辑", systemImage: "pencil") }
-            Button { changeSet(s) { $0.disabled = off ? nil : true } } label: {
-                Label(LocalizedStringKey(off ? "启用" : "停用"), systemImage: off ? "play.circle" : "pause.circle")
-            }
-            if let u = p?.url ?? ov.shownURL, !u.isEmpty {
-                Button { UIPasteboard.general.string = u } label: { Label("复制链接", systemImage: "doc.on.doc") }
-            }
-            Button(role: .destructive) { confirmDeleteSet = s } label: { Label("删除", systemImage: "trash") }
-        }
-        .accessibilityIdentifier("rules.set.\(s.name)")
+        .subscriptionActions(SubscriptionActions(
+            update: !off && remote && !busy ? { Task { await update(s.name) } } : nil,
+            edit: { editingSet = s }, url: url.isEmpty ? nil : url,
+            enabled: !off, setEnabled: { on in changeSet(s) { $0.disabled = on ? nil : true } },
+            delete: { confirmDeleteSet = s }))
+    }
+
+    static func liveDate(_ lp: ProviderItem?) -> Date? {
+        lp?.updatedAt.flatMap { ConnectionItem.iso.date(from: $0) ?? ConnectionItem.isoNoFrac.date(from: $0) }
     }
 
     static func displayName(_ url: String) -> String {
@@ -343,13 +371,14 @@ struct RulesView: View {
     /// A 订阅 the user added (user 2026-10-23: rule sets update here, not in 更多 → 更新资源): the app's own copy
     /// (ResourceStore) first, then the core's provider when connected.
     func updateCustom(_ url: String, provider: String?) async {
-        let res = ResourceStore.shared
         if let it = res.items.first(where: { $0.kind == "ruleset" && $0.url == url }) { await res.update(it); res.message = nil }
         if let provider { await update(provider) } else { await load() }
     }
 
     func updateAll() async {
-        let res = ResourceStore.shared
+        guard !updatingAll else { return }
+        updatingAll = true
+        defer { updatingAll = false }
         for it in res.items where it.kind == "ruleset" && it.isRemote && it.enabled { await res.update(it) }
         res.message = nil
         if vpn.isConnected {
@@ -358,56 +387,6 @@ struct RulesView: View {
             _ = await updater.updateAll(only: Set(offline.result.ruleProviders.map(\.id)))
             await offline.load()
         }
-    }
-}
-
-/// Loon-style 订阅 card: check (when it can be turned off), name + last update, URL, policy, error.
-struct SubscriptionCard: View {
-    let name: String
-    let url: String
-    let policy: String?
-    let updated: Date?
-    let count: Int?
-    let error: String?
-    let enabled: Bool?
-    var busy: Bool = false
-    let onToggle: ((Bool) -> Void)?
-
-    var body: some View {
-        HStack(alignment: .center, spacing: 12) {
-            if let enabled, let onToggle {
-                Button { onToggle(!enabled) } label: {
-                    Image(systemName: enabled ? "checkmark.circle.fill" : "circle")
-                        .font(.title2)
-                        .foregroundStyle(enabled ? Theme.accent : Color.secondary)
-                }
-                .buttonStyle(.borderless)
-                .accessibilityLabel(Text(enabled ? "已启用" : "已停用"))
-            }
-            VStack(alignment: .leading, spacing: 4) {
-                HStack(alignment: .firstTextBaseline) {
-                    Text(verbatim: name).font(.headline).lineLimit(1)
-                    Spacer(minLength: 6)
-                    if busy {
-                        ProgressView().controlSize(.small)
-                    } else if let updated {
-                        Text(updated.formatted(.relative(presentation: .named))).font(.caption).foregroundStyle(.secondary).lineLimit(1)
-                    }
-                }
-                if !url.isEmpty {
-                    Text(verbatim: url).font(.caption).foregroundStyle(.secondary).lineLimit(1).truncationMode(.middle)
-                }
-                HStack(spacing: 6) {
-                    if let policy, !policy.isEmpty { PolicyChip(name: policy) }
-                    if let count { Text("\(count) 条").font(.caption2).foregroundStyle(.secondary) }
-                }
-                if let error, !error.isEmpty {
-                    Text("更新失败：\(error)").font(.caption2).foregroundStyle(Theme.warn).lineLimit(2)
-                }
-            }
-        }
-        .padding(.vertical, 4)
-        .opacity(enabled == false ? 0.55 : 1)
     }
 }
 

@@ -291,7 +291,8 @@ type PanelState struct {
 type tasker struct {
 	e       *Engine
 	mu      sync.Mutex
-	tasks   []*Task
+	tasks   []*Task // the running list: natural in the user's order (prefs.Order)
+	natural []*Task // as parsed (scripts, then modules in their order)
 	panels  []*Panel
 	states  map[string]*TaskState
 	pstates map[string]*PanelState
@@ -339,7 +340,8 @@ func newTasker(e *Engine) *tasker {
 func (t *tasker) reload(rs *Ruleset) {
 	t.mu.Lock()
 	t.loadPersistedLocked()
-	t.tasks = append([]*Task(nil), rs.Tasks...)
+	t.natural = append([]*Task(nil), rs.Tasks...)
+	t.tasks = OrderTasks(t.natural, t.prefs.Order)
 	t.saveListLocked()
 	t.loadHomeLocked()
 	t.base = append([]*Panel(nil), rs.Panels...)

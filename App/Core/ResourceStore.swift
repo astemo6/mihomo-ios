@@ -171,6 +171,19 @@ final class ResourceStore: ObservableObject {
         if let e = items.first(where: { $0.key == it.key })?.error, !e.isEmpty { message = String(localized: "更新「\(it.name)」失败：\(e)") }
     }
 
+    /// 任务 → 全部更新 (2026-10-23): downloads the given resources (the tasks' remote scripts) one after another and
+    /// reloads the tunnel once when anything changed. Returns how many failed.
+    @discardableResult
+    func updateItems(_ list: [ResourceItem]) async -> Int {
+        var changed = false
+        for it in list where it.isRemote {
+            if await download(it) { changed = true }
+        }
+        await finish(changed: changed)
+        let keys = Set(list.map(\.key))
+        return items.filter { keys.contains($0.key) && ($0.error ?? "").isEmpty == false }.count
+    }
+
     /// Update all (enabled, remote) resources, or only the due ones. Modules first so newly referenced
     /// rule sets / scripts are listed for the second pass.
     func updateAll(onlyDue: Bool = false) async {

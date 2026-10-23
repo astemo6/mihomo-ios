@@ -90435,36 +90435,37 @@
         }
       }
     },
-    "Surge 模块、Loon 插件、QX 引用（rewrite_remote）、Stash 覆写和 Egern 模块都是订阅，角标显示格式。轻点编辑；右滑更新，左滑删除；开关启用或关闭；长按查看全部操作。订阅引用的远程脚本和规则集随它一起更新。": {
+    "Surge 模块、Loon 插件、QX 引用（rewrite_remote）、Stash 覆写和 Egern 模块都是订阅，角标显示格式。轻点编辑；右滑更新，左滑删除或关闭；开关启用或关闭；长按查看全部操作。订阅引用的远程脚本和规则集随它一起更新。": {
+      "extractionState": "manual",
       "localizations": {
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "Surge modules, Loon plugins, QX rewrite_remote, Stash overrides and Egern modules are all subscriptions; the badge shows the format. Tap to edit; swipe right to update, left to delete; the switch turns one on or off; long-press for all actions. Remote scripts and rule sets a subscription uses update with it."
+            "value": "Surge modules, Loon plugins, QX rewrite_remote, Stash overrides and Egern modules are all subscriptions; the badge shows the format. Tap to edit; swipe right to update, left to delete or turn off; the switch turns one on or off; long-press for all actions. Remote scripts and rule sets a subscription uses update with it."
           }
         },
         "ja": {
           "stringUnit": {
             "state": "translated",
-            "value": "Surge モジュール、Loon プラグイン、QX rewrite_remote、Stash オーバーライド、Egern モジュールはすべて購読で、バッジが形式を示します。タップで編集、右スワイプで更新、左スワイプで削除、スイッチでオン／オフ、長押しですべての操作。購読が参照するリモートスクリプトとルールセットは一緒に更新されます。"
+            "value": "Surge モジュール、Loon プラグイン、QX rewrite_remote、Stash オーバーライド、Egern モジュールはすべて購読で、バッジが形式を示します。タップで編集、右スワイプで更新、左スワイプで削除またはオフ、スイッチでオン／オフ、長押しですべての操作。購読が参照するリモートスクリプトとルールセットは一緒に更新されます。"
           }
         },
         "ko": {
           "stringUnit": {
             "state": "translated",
-            "value": "Surge 모듈, Loon 플러그인, QX rewrite_remote, Stash 오버라이드, Egern 모듈은 모두 구독이며 배지에 형식이 표시됩니다. 탭하여 편집, 오른쪽으로 밀어 업데이트, 왼쪽으로 밀어 삭제, 스위치로 켜기/끄기, 길게 눌러 모든 작업을 볼 수 있습니다. 구독이 참조하는 원격 스크립트와 규칙 세트는 함께 업데이트됩니다."
+            "value": "Surge 모듈, Loon 플러그인, QX rewrite_remote, Stash 오버라이드, Egern 모듈은 모두 구독이며 배지에 형식이 표시됩니다. 탭하여 편집, 오른쪽으로 밀어 업데이트, 왼쪽으로 밀어 삭제 또는 끄기, 스위치로 켜기/끄기, 길게 눌러 모든 작업을 볼 수 있습니다. 구독이 참조하는 원격 스크립트와 규칙 세트는 함께 업데이트됩니다."
           }
         },
         "ru": {
           "stringUnit": {
             "state": "translated",
-            "value": "Модули Surge, плагины Loon, QX rewrite_remote, переопределения Stash и модули Egern — всё это подписки; значок показывает формат. Нажмите, чтобы изменить; смахните вправо — обновить, влево — удалить; переключатель включает и выключает; долгое нажатие — все действия. Удалённые скрипты и наборы правил подписки обновляются вместе с ней."
+            "value": "Модули Surge, плагины Loon, QX rewrite_remote, переопределения Stash и модули Egern — всё это подписки; значок показывает формат. Нажмите, чтобы изменить; смахните вправо — обновить, влево — удалить или выключить; переключатель включает и выключает; долгое нажатие — все действия. Удалённые скрипты и наборы правил подписки обновляются вместе с ней."
           }
         },
         "zh-Hant": {
           "stringUnit": {
             "state": "translated",
-            "value": "Surge 模組、Loon 外掛、QX 引用（rewrite_remote）、Stash 覆寫和 Egern 模組都是訂閱，角標顯示格式。輕點編輯；右滑更新，左滑刪除；開關啟用或關閉；長按檢視全部操作。訂閱引用的遠端腳本和規則集隨它一起更新。"
+            "value": "Surge 模組、Loon 外掛、QX 引用（rewrite_remote）、Stash 覆寫和 Egern 模組都是訂閱，角標顯示格式。輕點編輯；右滑更新，左滑刪除或關閉；開關啟用或關閉；長按檢視全部操作。訂閱引用的遠端指令碼和規則集隨它一起更新。"
           }
         }
       }
@@ -95953,37 +95954,37 @@
         }
       }
     },
-    "轻点查看内容；右滑更新或编辑，左滑删除；圆圈启用或停用；长按查看全部操作。": {
+    "轻点查看内容；右滑更新，左滑删除或关闭；开关启用或关闭；长按查看全部操作。": {
       "extractionState": "manual",
       "localizations": {
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "Tap to see the contents; swipe right to update or edit, left to delete; the circle turns one on or off; long-press for all actions."
+            "value": "Tap to view the contents; swipe right to update, left to delete or turn off; the switch turns one on or off; long-press for all actions."
           }
         },
         "ja": {
           "stringUnit": {
             "state": "translated",
-            "value": "タップで内容を表示、右スワイプで更新または編集、左スワイプで削除、丸印でオン／オフ、長押しですべての操作。"
+            "value": "タップで内容を表示、右スワイプで更新、左スワイプで削除またはオフ、スイッチでオン／オフ、長押しですべての操作。"
           }
         },
         "ko": {
           "stringUnit": {
             "state": "translated",
-            "value": "탭하여 내용 보기, 오른쪽으로 밀어 업데이트 또는 편집, 왼쪽으로 밀어 삭제, 원으로 켜기/끄기, 길게 눌러 모든 작업을 볼 수 있습니다."
+            "value": "탭하여 내용 보기, 오른쪽으로 밀어 업데이트, 왼쪽으로 밀어 삭제 또는 끄기, 스위치로 켜기/끄기, 길게 눌러 모든 작업을 볼 수 있습니다."
           }
         },
         "ru": {
           "stringUnit": {
             "state": "translated",
-            "value": "Нажмите, чтобы посмотреть содержимое; смахните вправо — обновить или изменить, влево — удалить; кружок включает и выключает; долгое нажатие — все действия."
+            "value": "Нажмите, чтобы посмотреть содержимое; смахните вправо — обновить, влево — удалить или выключить; переключатель включает и выключает; долгое нажатие — все действия."
           }
         },
         "zh-Hant": {
           "stringUnit": {
             "state": "translated",
-            "value": "輕點檢視內容；右滑更新或編輯，左滑刪除；圓圈啟用或停用；長按檢視全部操作。"
+            "value": "輕點檢視內容；右滑更新，左滑刪除或關閉；開關啟用或關閉；長按檢視全部操作。"
           }
         }
       }
@@ -98609,6 +98610,181 @@
           "stringUnit": {
             "state": "translated",
             "value": "已切換到其他網路"
+          }
+        }
+      }
+    },
+    "订阅按列表顺序生效：越靠上越先匹配。在 ⋯ 里选「调整顺序」后拖动排序（搜索或筛选分类时不能排序）。": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Subscriptions apply in list order: the higher one matches first. Choose Reorder in ⋯, then drag (not available while searching or filtering by category)."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "購読はリストの順に適用され、上にあるものが先に一致します。⋯ の「並べ替え」を選んでドラッグします（検索中やカテゴリで絞り込み中は並べ替えできません）。"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "구독은 목록 순서대로 적용되며 위에 있을수록 먼저 일치합니다. ⋯에서 「순서 조정」을 선택한 뒤 드래그하세요(검색 중이거나 카테고리로 필터링 중에는 순서를 바꿀 수 없습니다)."
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Подписки применяются в порядке списка: верхняя срабатывает первой. Выберите «Изменить порядок» в ⋯ и перетаскивайте (недоступно во время поиска или фильтра по категории)."
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "訂閱按列表順序生效：越靠上越先匹配。在 ⋯ 裡選「調整順序」後拖動排序（搜尋或篩選分類時不能排序）。"
+          }
+        }
+      }
+    },
+    "顺序就是匹配优先级：越靠上越先匹配。在 ⋯ 里选「调整顺序」后拖动排序（搜索时不能排序）。": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "The order is the matching priority: the higher one matches first. Choose Reorder in ⋯, then drag (not available while searching)."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "順序がそのまま一致の優先度で、上にあるものが先に一致します。⋯ の「並べ替え」を選んでドラッグします（検索中は並べ替えできません）。"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "순서가 곧 일치 우선순위이며 위에 있을수록 먼저 일치합니다. ⋯에서 「순서 조정」을 선택한 뒤 드래그하세요(검색 중에는 순서를 바꿀 수 없습니다)."
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Порядок — это приоритет сопоставления: верхний срабатывает первым. Выберите «Изменить порядок» в ⋯ и перетаскивайте (недоступно во время поиска)."
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "順序就是匹配優先順序：越靠上越先匹配。在 ⋯ 裡選「調整順序」後拖動排序（搜尋時不能排序）。"
+          }
+        }
+      }
+    },
+    "同一时间触发的任务按列表顺序启动。在 ⋯ 里选「调整顺序」后拖动排序。右滑更新或运行，左滑删除或关闭；长按查看全部操作。": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Tasks due at the same time start in list order. Choose Reorder in ⋯, then drag. Swipe right to update or run, left to delete or turn off; long-press for all actions."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "同時に実行予定のタスクはリストの順に開始します。⋯ の「並べ替え」を選んでドラッグします。右スワイプで更新または実行、左スワイプで削除またはオフ、長押しですべての操作。"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "같은 시각에 실행되는 작업은 목록 순서대로 시작됩니다. ⋯에서 「순서 조정」을 선택한 뒤 드래그하세요. 오른쪽으로 밀어 업데이트 또는 실행, 왼쪽으로 밀어 삭제 또는 끄기, 길게 눌러 모든 작업을 볼 수 있습니다."
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Задачи, назначенные на одно время, запускаются в порядке списка. Выберите «Изменить порядок» в ⋯ и перетаскивайте. Смахните вправо — обновить или запустить, влево — удалить или выключить; долгое нажатие — все действия."
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "同一時間觸發的任務按列表順序啟動。在 ⋯ 裡選「調整順序」後拖動排序。右滑更新或執行，左滑刪除或關閉；長按檢視全部操作。"
+          }
+        }
+      }
+    },
+    "恢复已删除的任务（%lld）": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Restore Deleted Tasks (%lld)"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "削除したタスクを復元（%lld）"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "삭제한 작업 복원(%lld)"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Восстановить удалённые задачи (%lld)"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "恢復已刪除的任務（%lld）"
+          }
+        }
+      }
+    },
+    "只从任务列表移除，它不再自动运行；订阅本身不会改动。可以在列表底部「恢复已删除的任务」找回。": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Removes it from the task list only: it no longer runs automatically, and the subscription itself is not changed. Bring it back with Restore Deleted Tasks at the bottom of the list."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "タスク一覧から外すだけで、自動では実行されなくなります。購読そのものは変更されません。一覧の下の「削除したタスクを復元」で戻せます。"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "작업 목록에서만 제거되어 더 이상 자동으로 실행되지 않으며 구독 자체는 바뀌지 않습니다. 목록 아래의 「삭제한 작업 복원」으로 되돌릴 수 있습니다."
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Убирает задачу только из списка: она больше не запускается автоматически, сама подписка не меняется. Вернуть можно кнопкой «Восстановить удалённые задачи» внизу списка."
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "只從任務列表移除，它不再自動執行；訂閱本身不會改動。可以在列表底部「恢復已刪除的任務」找回。"
           }
         }
       }
