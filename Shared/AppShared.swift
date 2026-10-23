@@ -732,6 +732,10 @@ enum OverridesLock {
 /// Messages the app sends to the tunnel through NETunnelProviderSession.sendProviderMessage.
 enum TunnelMessage: String {
     case reload
+    /// v0.19.22 开关类设置热应用: like `reload`, but the core applies a change of rules / rule sets / mode / log level /
+    /// the rewrite-script-MitM engine in place (no re-parse of the whole profile) and falls back to the full reload for
+    /// anything else. Same reply as `reload`.
+    case reloadHot
     case directIP
     case freeMemory
     case version
@@ -745,6 +749,8 @@ enum TunnelMessage: String {
     case memoryStats
     /// feat/loon-menu-notify: 更多 → 通知 switches changed; the tunnel re-reads NotifyPrefs (core policy watcher mask).
     case notifyPrefs
+    /// v0.19.22 更多 → 高级设置 → 网络 → Tailscale: the live Tailscale nodes and their tailnet addresses (JSON, LibmihomoTailscaleNodes).
+    case tailscaleInfo
 
     /// Review 6 R6A-3: the extension's reply to `reload` when the new config is applied (anything else is the error).
     static let reloadOK = "ok"

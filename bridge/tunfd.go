@@ -81,6 +81,20 @@ func (k *tunFdKeeper) pick(sig string) (int32, func(ok bool)) {
 	}
 }
 
+// peek is pick without a dup (v0.19.22 hot-apply): the descriptor the live listener has and whether sig is the
+// settings it was given with. A hot apply only goes ahead when they are the same.
+func (k *tunFdKeeper) peek(sig string) (int32, bool) {
+	k.mu.Lock()
+	defer k.mu.Unlock()
+	if k.base <= 0 {
+		return k.base, true
+	}
+	if k.handed > 0 {
+		return k.handed, sig == k.sig
+	}
+	return k.base, false
+}
+
 // end closes the base descriptor (the listener's dup is closed by mihomo's listener cleanup) and forgets the
 // last tun settings, so the next Start always creates a listener even when the extension process is reused and
 // the new descriptor has the old number.

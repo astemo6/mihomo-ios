@@ -100005,6 +100005,356 @@
           }
         }
       }
+    },
+    "Tailscale 只在 VPN 连接后、第一次有流量经过 Tailscale 节点时由隧道扩展启动；可用内存不足时不会启动，运行中内存过低会自动停用。": {
+      "extractionState": "manual",
+      "localizations": {
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Tailscale 只在 VPN 連線後、第一次有流量經過 Tailscale 節點時由隧道擴展啟動；可用記憶體不足時不會啟動，執行中記憶體過低會自動停用。"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Tailscale is started by the tunnel extension only while the VPN is connected, the first time traffic goes through a Tailscale node. It does not start when too little memory is available, and stops by itself when memory runs low while it runs."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Tailscale は VPN 接続中、Tailscale ノードを最初に通信が通ったときにトンネル拡張内で起動します。空きメモリが足りないときは起動せず、実行中にメモリが不足すると自動で停止します。"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Tailscale은 VPN이 연결된 동안 Tailscale 노드로 처음 트래픽이 지나갈 때 터널 확장에서 시작됩니다. 사용 가능한 메모리가 부족하면 시작하지 않고, 실행 중 메모리가 부족해지면 자동으로 중지됩니다."
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Tailscale запускается расширением туннеля только при подключённом VPN, когда трафик впервые идёт через узел Tailscale. При нехватке памяти он не запускается, а во время работы при недостатке памяти останавливается сам."
+          }
+        }
+      }
+    },
+    "还没有 Tailscale 节点": {
+      "extractionState": "manual",
+      "localizations": {
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "還沒有 Tailscale 節點"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "No Tailscale node yet"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Tailscale ノードはまだありません"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "아직 Tailscale 노드가 없습니다"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Узлов Tailscale пока нет"
+          }
+        }
+      }
+    },
+    "添加后，内核会在隧道扩展里加入你的 tailnet。建议填写 Auth Key。": {
+      "extractionState": "manual",
+      "localizations": {
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "新增後，核心會在隧道擴展裡加入你的 tailnet。建議填寫 Auth Key。"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Once added, the core joins your tailnet inside the tunnel extension. An Auth Key is recommended."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "追加すると、コアがトンネル拡張内であなたの tailnet に参加します。Auth Key の入力をおすすめします。"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "추가하면 코어가 터널 확장 안에서 내 tailnet에 참여합니다. Auth Key 입력을 권장합니다."
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "После добавления ядро подключается к вашему tailnet внутри расширения туннеля. Рекомендуется указать Auth Key."
+          }
+        }
+      }
+    },
+    "添加 Tailscale 节点": {
+      "extractionState": "manual",
+      "localizations": {
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "新增 Tailscale 節點"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Add Tailscale Node"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Tailscale ノードを追加"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Tailscale 노드 추가"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Добавить узел Tailscale"
+          }
+        }
+      }
+    },
+    "Tailnet 地址": {
+      "extractionState": "manual",
+      "localizations": {
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Tailnet 地址"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Tailnet Address"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Tailnet アドレス"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Tailnet 주소"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Адрес в tailnet"
+          }
+        }
+      }
+    },
+    "未启动": {
+      "extractionState": "manual",
+      "localizations": {
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "未啟動"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Not started"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "未起動"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "시작 안 됨"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Не запущен"
+          }
+        }
+      }
+    },
+    "VPN 未连接": {
+      "extractionState": "manual",
+      "localizations": {
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "VPN 未連線"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "VPN not connected"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "VPN 未接続"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "VPN 연결 안 됨"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "VPN не подключён"
+          }
+        }
+      }
+    },
+    "内存不足，未启动（可用 %@，需要 %@）": {
+      "extractionState": "manual",
+      "localizations": {
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "記憶體不足，未啟動（可用 %@，需要 %@）"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Not started: low memory (%1$@ available, %2$@ needed)"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "メモリ不足のため未起動（空き %1$@、必要 %2$@）"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "메모리 부족으로 시작 안 됨(사용 가능 %1$@, 필요 %2$@)"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Не запущен: мало памяти (доступно %1$@, нужно %2$@)"
+          }
+        }
+      }
+    },
+    "内存不足，已停用（可用内存降到 %@）": {
+      "extractionState": "manual",
+      "localizations": {
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "記憶體不足，已停用（可用記憶體降到 %@）"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Stopped: low memory (available memory fell to %@)"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "メモリ不足のため停止（空きメモリが %@ まで低下）"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "메모리 부족으로 중지됨(사용 가능 메모리 %@까지 감소)"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Остановлен: мало памяти (доступная память упала до %@)"
+          }
+        }
+      }
+    },
+    "未启动（首次使用时启动）": {
+      "extractionState": "manual",
+      "localizations": {
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "未啟動（首次使用時啟動）"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Not started (starts on first use)"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "未起動（初回使用時に起動）"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "시작 안 됨(처음 사용할 때 시작)"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Не запущен (запустится при первом использовании)"
+          }
+        }
+      }
     }
   },
   "version": "1.0"

@@ -120,7 +120,7 @@ struct RulesView: View {
     }
 
     func applySetChange() async {
-        if vpn.isConnected, let e = await VPNManager.shared.reload() { custom.message = e }
+        if vpn.isConnected, let e = await VPNManager.shared.reload(hot: true) { custom.message = e }
         await load()
     }
 

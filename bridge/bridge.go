@@ -558,6 +558,9 @@ func apply(home, configPath string, fd int32) error { return applyInto(home, con
 // applyInto is apply that also hands back the Overrides it used (B33: Reload reads SafeMode from them
 // instead of reading the six override files again).
 func applyInto(home, configPath string, fd int32, used *Overrides) error {
+	applyInFlight.Add(1) // v0.19.22 hot-apply: never swap rules under an apply that is still loading
+	defer applyInFlight.Add(-1)
+	forgetLiveApply() // runtime.yaml is rewritten below; known again only once this config is live
 	C.SetHomeDir(home)
 	C.SetConfig(configPath)
 	o := overridesFor(home, configPath)
@@ -629,6 +632,7 @@ func applyInto(home, configPath string, fd int32, used *Overrides) error {
 	}
 	committed = true
 	plan.commit()
+	recordLiveApply(home, configPath, rt, o) // v0.19.22: what ReloadHot diffs against
 	liveGroupOrder.Store(groupOrder) // v0.19.11 (review 6 P2-3): LiveStatus follows the app's group order
 	// The diag capture goroutine used to call log.Level() while ApplyConfig wrote it (data race found by
 	// the selftest -race run); it now filters by the level this config asked for.
@@ -798,6 +802,11 @@ func Start(homeDir, configPath string, tunFd int32) error {
 func Reload(configPath string) error {
 	mu.Lock()
 	defer mu.Unlock()
+	return reloadLocked(configPath)
+}
+
+// reloadLocked is Reload with mu held (ReloadHot falls back to it).
+func reloadLocked(configPath string) error {
 	// The extension runs Reload on a background queue, so a reload queued before stopTunnel
 	// can arrive after Stop (curHome is kept). Never re-apply a core then. Checked before the
 	// epoch bump: a refused Reload must not take ownership from a late timed-out Start apply,
@@ -844,6 +853,7 @@ func Reload(configPath string) error {
 // the stale apply never started (rule hits / smart groups run as post-apply steps,
 // which are skipped on the stale path).
 func shutdownStaleApplyLocked() {
+	forgetLiveApply()
 	proxyTrafficStats.stopRunning() // review 7 P3-2
 	statsRec.end("", false)
 	stopEngine()
@@ -871,6 +881,7 @@ func Stop() {
 		return
 	}
 	stopCount.Add(1) // v0.19.6: a Start apply still loading providers skips its post-apply steps
+	forgetLiveApply()
 	policyWatchReset()
 	stopRuleHits(curHomeStr())
 	stopEngine()

@@ -31,24 +31,31 @@ final class Debouncer: ObservableObject {
 
 /// Coalesces core reloads: every request made within the window (several pages, rapid toggles) shares one
 /// `vpn.reload()` and gets its result.
+/// v0.19.22: the settings pages that auto-apply (内核设置, 连接方式, DNS, 局域网, 覆写脚本, node edits …) ask for a hot
+/// reload by default — the core decides from the diff whether the change can be applied in place, so a change it cannot
+/// (DNS, IPv6, proxies) still gets the full reload. A window with any `hot: false` request reloads fully.
 @MainActor
 final class ReloadCoalescer {
     static let shared = ReloadCoalescer()
     private var waiters: [CheckedContinuation<String?, Never>] = []
     private var timer: Task<Void, Never>?
+    private var hot = true
 
-    func reload(_ vpn: VPNManager, after delay: Double = 0.4) async -> String? {
+    func reload(_ vpn: VPNManager, after delay: Double = 0.4, hot: Bool = true) async -> String? {
         guard vpn.isConnected else { return nil }
         return await withCheckedContinuation { (c: CheckedContinuation<String?, Never>) in
+            self.hot = waiters.isEmpty ? hot : (self.hot && hot)
             waiters.append(c)
             timer?.cancel()
             timer = Task { @MainActor [weak self] in
                 try? await Task.sleep(nanoseconds: UInt64(delay * 1_000_000_000))
                 guard let self, !Task.isCancelled else { return }
                 let w = self.waiters
+                let h = self.hot
                 self.waiters = []
                 self.timer = nil
-                let r = await vpn.reload()
+                self.hot = true
+                let r = await vpn.reload(hot: h)
                 for c in w { c.resume(returning: r) }
             }
         }
