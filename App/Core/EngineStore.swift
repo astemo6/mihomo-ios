@@ -318,6 +318,59 @@ final class EngineStore: ObservableObject {
         if let d = try? enc.encode(m) { try? d.write(to: EnginePaths.storeURL, options: .atomic) }
     }
 
+    // MARK: 持久化存储 导出 / 导入 / 清空 (Loon gap). File work runs off the main thread (a store can be MBs).
+
+    /// The temp file 导出 shares (holds scripts' cookies / tokens; the share sheet deletes it).
+    nonisolated static var storeExportURL: URL {
+        FileManager.default.temporaryDirectory.appendingPathComponent("Tern-persistentStore.json")
+    }
+
+    /// Writes the whole store as pretty JSON to storeExportURL. nil when the store is empty or unreadable.
+    nonisolated static func storeExportFile() -> URL? {
+        guard let d = try? Data(contentsOf: EnginePaths.storeURL),
+              let m = try? JSONDecoder().decode([String: String].self, from: d), !m.isEmpty else { return nil }
+        let enc = JSONEncoder()
+        enc.outputFormatting = [.prettyPrinted, .sortedKeys]
+        guard let out = try? enc.encode(m) else { return nil }
+        let url = storeExportURL
+        do { try out.write(to: url, options: [.atomic, .completeFileProtection]) } catch { return nil }
+        return url
+    }
+
+    /// Merges a JSON object into the store (same keys are replaced). String values are kept as they are; other
+    /// values (numbers, booleans, objects, arrays) are stored as their JSON text, which is how scripts read them.
+    /// Returns the number of imported keys, nil when the data is not a JSON object.
+    nonisolated static func storeImport(_ data: Data) -> Int? {
+        guard let obj = (try? JSONSerialization.jsonObject(with: data, options: [.fragmentsAllowed])) as? [String: Any] else { return nil }
+        var m: [String: String] = [:]
+        if let d = try? Data(contentsOf: EnginePaths.storeURL), let x = try? JSONDecoder().decode([String: String].self, from: d) { m = x }
+        var n = 0
+        for (k, v) in obj where !k.isEmpty {
+            if v is NSNull { continue }
+            if let str = v as? String {
+                m[k] = str
+            } else if JSONSerialization.isValidJSONObject(v), let d = try? JSONSerialization.data(withJSONObject: v), let t = String(data: d, encoding: .utf8) {
+                m[k] = t
+            } else if let num = v as? NSNumber {
+                // A bare number / boolean is not a valid top-level object for JSONSerialization.
+                m[k] = CFGetTypeID(num) == CFBooleanGetTypeID() ? (num.boolValue ? "true" : "false") : num.stringValue
+            } else {
+                continue
+            }
+            n += 1
+        }
+        let enc = JSONEncoder()
+        enc.outputFormatting = [.prettyPrinted, .sortedKeys]
+        guard let out = try? enc.encode(m) else { return nil }
+        do { try out.write(to: EnginePaths.storeURL, options: .atomic) } catch { return nil }
+        return n
+    }
+
+    /// 清空全部: an empty object (the engine notices the new file and drops its copy).
+    nonisolated static func storeClear() -> Bool {
+        (try? Data("{}".utf8).write(to: EnginePaths.storeURL, options: .atomic)) != nil
+    }
+
     // MARK: CA
 
     func refreshCA() {

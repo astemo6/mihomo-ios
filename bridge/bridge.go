@@ -328,7 +328,7 @@ func buildRuntimeWith(profile []byte, o Overrides, fd int32, inject func(raw map
 	delete(raw, "external-ui")
 	raw["find-process-mode"] = "off"
 	raw["unified-delay"] = true
-	raw["geo-auto-update"] = false
+	raw["geo-auto-update"] = false // 地理数据库 自动更新 runs in the app (GeoAutoUpdate), never in the tunnel
 	raw["geodata-loader"] = "memconservative"
 	// Bundled geoip.metadb / GeoSite.dat are copied into home before start, so the core never needs to
 	// download them at startup (ASN.mmdb is not bundled since v0.14 and is downloaded on demand).

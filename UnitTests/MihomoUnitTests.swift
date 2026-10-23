@@ -200,6 +200,27 @@ final class CoreOverridesTests: XCTestCase {
         XCTAssertEqual(back, o)
     }
 
+    /// Loon gap: 地理数据库 自动更新 interval round-trips; an out-of-range value falls back to off.
+    func testGeoAutoUpdateDays() throws {
+        var o = CoreOverrides()
+        XCTAssertEqual(o.geoAutoUpdateDays, 0)
+        o.geoAutoUpdateDays = 7
+        XCTAssertEqual(try JSONDecoder().decode(CoreOverrides.self, from: try JSONEncoder().encode(o)).geoAutoUpdateDays, 7)
+        XCTAssertEqual(try decode(#"{"geoAutoUpdateDays":-3}"#).geoAutoUpdateDays, 0)
+        XCTAssertEqual(try decode(#"{"geoAutoUpdateDays":"x"}"#).geoAutoUpdateDays, 0)
+    }
+
+    /// Loon gap: 包含系统 DNS round-trips; files without fallback servers start 查询回落 from failure-only.
+    func testDNSIncludeSystemAndFallbackDefaults() throws {
+        let old = try JSONDecoder().decode(DNSOverrideSettings.self, from: Data(#"{"enabled":true,"fallback":[],"fallbackFilter":{"geoip":true,"geoipCode":"CN"}}"#.utf8))
+        XCTAssertFalse(old.includeSystem)
+        XCTAssertFalse(old.fallbackFilter.geoip)
+        let kept = try JSONDecoder().decode(DNSOverrideSettings.self, from: Data(#"{"enabled":true,"includeSystem":true,"fallback":["tls://8.8.4.4"],"fallbackFilter":{"geoip":true,"geoipCode":"CN"}}"#.utf8))
+        XCTAssertTrue(kept.includeSystem)
+        XCTAssertTrue(kept.fallbackFilter.geoip)
+        XCTAssertEqual(try JSONDecoder().decode(DNSOverrideSettings.self, from: try JSONEncoder().encode(kept)), kept)
+    }
+
     func testProbePortAvoidsOtherPorts() {
         var o = CoreOverrides()
         o.mixedPort = 7899

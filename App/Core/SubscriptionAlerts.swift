@@ -220,6 +220,7 @@ enum ScheduledUpdates {
         results += await NodeSubStore.shared.autoUpdateIfNeeded()
         await OverrideScriptStore.shared.autoUpdateIfNeeded() // v0.19 remote 覆写脚本
         await ProviderUpdater.shared.autoUpdateIfNeeded() // the profile's rule sets / node sets (disconnected only)
+        await GeoAutoUpdate.runIfDue() // 地理数据库 自动更新 (off by default)
         UsageAlerts.evaluateAll()
         notify(results)
         scheduleBackground()
@@ -267,6 +268,7 @@ enum ScheduledUpdates {
             let d = (s.lastUpdated ?? .distantPast).addingTimeInterval(TimeInterval(s.updateIntervalHours * 3600))
             next = min(next ?? d, d)
         }
+        if let g = GeoAutoUpdate.nextDue() { next = min(next ?? g, g) }
         guard let next else { BGTaskScheduler.shared.cancel(taskRequestWithIdentifier: taskID); return }
         let req = BGAppRefreshTaskRequest(identifier: taskID)
         req.earliestBeginDate = max(next, Date().addingTimeInterval(3600))
