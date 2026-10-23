@@ -103,7 +103,7 @@ struct PolicyTargets: Equatable {
         if groups.isEmpty {
             groups = offline.result.groups.filter { $0.hidden != true && $0.name != "GLOBAL" }.map(\.name)
         }
-        let skip = Set(groups).union(NodeManager.hidden)
+        let skip = Set(groups).union(ManagedNode.hidden)
         var seen = Set<String>()
         let nodes = offline.result.proxies.map(\.name).filter { !skip.contains($0) && !$0.hasPrefix("__") && seen.insert($0).inserted }
         return PolicyTargets(groups: groups, nodes: nodes)
