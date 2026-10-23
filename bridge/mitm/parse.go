@@ -7,6 +7,7 @@
 package mitm
 
 import (
+	"encoding/base64"
 	"encoding/json"
 	"fmt"
 	"regexp"
@@ -63,6 +64,7 @@ type Script struct {
 	Path           string `json:"path"`
 	Argument       string `json:"argument,omitempty"`
 	HasArgument    bool   `json:"hasArgument,omitempty"`
+	ArgObject      bool   `json:"argObject,omitempty"` // Argument is a JSON object (Loon argument=[{key},…]): $argument is that object
 	RequiresBody   bool   `json:"requiresBody"`
 	BinaryBody     bool   `json:"binaryBody,omitempty"`
 	MaxSize        int    `json:"maxSize,omitempty"`
@@ -137,6 +139,8 @@ type ModArg struct {
 	Desc    string   `json:"desc,omitempty"`
 	Type    string   `json:"type,omitempty"`    // Loon [Argument]: switch / select / input / text
 	Options []string `json:"options,omitempty"` // Loon select choices
+	// ValueType is Loon's type=number: the value reaches an object $argument as a Number.
+	ValueType string `json:"valueType,omitempty"`
 }
 
 var loonArgKeyRe = regexp.MustCompile(`^[\p{L}_][\p{L}\p{N}_\-]*$`)
@@ -188,6 +192,8 @@ func parseLoonArguments(text string) []ModArg {
 					} else {
 						a.Desc += " · " + unquote(vv)
 					}
+				case "type":
+					a.ValueType = strings.ToLower(unquote(vv))
 				}
 				continue
 			}
@@ -221,6 +227,7 @@ func applyLoonArgs(text string, args []ModArg, user map[string]string) string {
 	if len(args) == 0 {
 		return text
 	}
+	text = loonObjectArgs(text, args, user)
 	for _, a := range args {
 		v := a.Default
 		if u, ok := user[a.Key]; ok {
@@ -250,6 +257,66 @@ func applyLoonArgs(text string, args []ModArg, user map[string]string) string {
 		out = append(out, l)
 	}
 	return strings.Join(out, "\n")
+}
+
+// loonArgListRe finds Loon's plugin-object argument: argument=[{key1},{key2},…].
+var loonArgListRe = regexp.MustCompile(`(?i)\bargument\s*=\s*"?\[\s*(\{[^{}\[\],"]+\}(?:\s*,\s*\{[^{}\[\],"]+\})*)\s*\]"?`)
+
+// loonArgObjPrefix marks an argument value that loonObjectArgs encoded (base64url JSON: no comma, quote or
+// brace that the option splitter or the {key} substitution could touch).
+const loonArgObjPrefix = "__tern_loon_obj__:"
+
+// loonObjectArgs turns argument=[{a},{b}] into an object argument. In Loon $argument is then the object
+// {a: …, b: …} (switch → Boolean, type=number → Number, otherwise String). Before, the keys were replaced
+// one by one and the script got the string "[off,true,…]" — Maasea's youtube.response.js JSON.parse'd it,
+// threw, and exited without removing any ad.
+func loonObjectArgs(text string, args []ModArg, user map[string]string) string {
+	byKey := map[string]ModArg{}
+	for _, a := range args {
+		byKey[a.Key] = a
+	}
+	return loonArgListRe.ReplaceAllStringFunc(text, func(m string) string {
+		sub := loonArgListRe.FindStringSubmatch(m)
+		obj := map[string]any{}
+		for _, part := range strings.Split(sub[1], ",") {
+			k := strings.TrimSpace(part)
+			k = strings.TrimSpace(strings.TrimSuffix(strings.TrimPrefix(k, "{"), "}"))
+			k = strings.TrimPrefix(k, "$") // Loon 3.5 spelling {${key}} inside the list
+			k = strings.TrimSpace(strings.TrimSuffix(strings.TrimPrefix(k, "{"), "}"))
+			a, ok := byKey[k]
+			if !ok {
+				return m // not all declared arguments: leave the line as written
+			}
+			v := a.Default
+			if u, ok := user[k]; ok {
+				v = u
+			}
+			switch {
+			case a.Type == "switch":
+				obj[k] = truthy(v)
+			case a.ValueType == "number":
+				if f, err := strconv.ParseFloat(strings.TrimSpace(v), 64); err == nil {
+					obj[k] = f
+				} else {
+					obj[k] = v
+				}
+			default:
+				obj[k] = v
+			}
+		}
+		b, _ := json.Marshal(obj)
+		return "argument=" + loonArgObjPrefix + base64.RawURLEncoding.EncodeToString(b)
+	})
+}
+
+// setScriptArgument stores a script line's argument= value, decoding a Loon object argument.
+func setScriptArgument(sc *Script, a string) {
+	sc.Argument, sc.HasArgument = a, true
+	if enc, ok := strings.CutPrefix(strings.TrimSpace(a), loonArgObjPrefix); ok {
+		if b, err := base64.RawURLEncoding.DecodeString(enc); err == nil && json.Valid(b) {
+			sc.Argument, sc.ArgObject = string(b), true
+		}
+	}
 }
 
 func compileRe(p string) (*regexp2.Regexp, error) {
@@ -399,7 +466,7 @@ func newScriptRule(name, typ, pattern string, p map[string]string) (*Rule, error
 	sc.RequiresBody = truthy(p["requires-body"])
 	sc.BinaryBody = truthy(p["binary-body-mode"]) || truthy(p["binary-mode"])
 	if a, ok := p["argument"]; ok {
-		sc.Argument, sc.HasArgument = a, true
+		setScriptArgument(sc, a)
 	}
 	if c := p["cronexp"]; c != "" {
 		sc.Cron = c

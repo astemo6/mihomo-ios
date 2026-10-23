@@ -382,6 +382,10 @@ type runCtx struct {
 	// engine's rings / the user's notification history.
 	onLog    func(level, msg string)
 	onNotify func(title, sub, body, url string)
+	// origBody / origBodyBytes are the phase object's own body values ($response's, or $request's in the
+	// request phase): $done($response) after `$response.body = x` hands both back, and the untouched
+	// original bodyBytes must not win over the body the script changed.
+	origBody, origBodyBytes goja.Value
 }
 
 func (rc *runCtx) post(j loopJob) {
@@ -921,13 +925,7 @@ func (rc *runCtx) installHTTP(req, resp *ScriptHTTP) {
 	_ = ro.Set("headers", rt.NewDynamicObject(newCIHeaders(rt, rh)))
 	_ = ro.Set("id", strconv.FormatInt(time.Now().UnixNano(), 36))
 	if resp == nil && req.HasBody {
-		if sc.BinaryBody {
-			u8, ab := rc.binaryBody(req.Body)
-			_ = ro.Set("body", u8)
-			_ = ro.Set("bodyBytes", ab)
-		} else {
-			_ = ro.Set("body", bodyString(req.Body))
-		}
+		rc.setBody(ro, req.Body, sc.BinaryBody)
 	}
 	set("$request", ro)
 	if resp != nil {
@@ -939,16 +937,61 @@ func (rc *runCtx) installHTTP(req, resp *ScriptHTTP) {
 		}
 		_ = so.Set("headers", rt.NewDynamicObject(newCIHeaders(rt, resp.Header)))
 		if resp.HasBody {
-			if sc.BinaryBody {
-				u8, ab := rc.binaryBody(resp.Body)
-				_ = so.Set("body", u8)
-				_ = so.Set("bodyBytes", ab)
-			} else {
-				_ = so.Set("body", bodyString(resp.Body))
-			}
+			rc.setBody(so, resp.Body, sc.BinaryBody)
 		}
 		set("$response", so)
 	}
+}
+
+// setBody puts a request / response body on its script object.
+//   - binary-body-mode (Surge binary-body-mode=1, Loon binary-body-mode=true): body is a Uint8Array and
+//     bodyBytes the ArrayBuffer under it;
+//   - text mode: body is the string, and bodyBytes is the raw bytes as an ArrayBuffer, the way Quantumult X
+//     gives every script-request-body / script-response-body script (QX syntax has no binary flag, so
+//     protobuf scripts such as Maasea's youtube.response.js read $response.bodyBytes there; before, Tern
+//     left it undefined and the script exited without touching the response). It is a lazy, non-enumerable
+//     accessor: the copy is made only when a script reads it, and `{...$response}` does not copy it.
+func (rc *runCtx) setBody(obj *goja.Object, b []byte, binary bool) {
+	if binary {
+		u8, ab := rc.binaryBody(b)
+		_ = obj.Set("body", u8)
+		_ = obj.Set("bodyBytes", ab)
+		rc.origBody, rc.origBodyBytes = u8, ab
+		return
+	}
+	str := rc.rt.ToValue(bodyString(b))
+	_ = obj.Set("body", str)
+	rc.origBody = str
+	var cur goja.Value
+	getter := rc.rt.ToValue(func(goja.FunctionCall) goja.Value {
+		if cur == nil {
+			cur = rc.rt.ToValue(rc.rt.NewArrayBuffer(append([]byte(nil), b...)))
+			rc.origBodyBytes = cur
+		}
+		return cur
+	})
+	setter := rc.rt.ToValue(func(call goja.FunctionCall) goja.Value {
+		cur = call.Argument(0)
+		return goja.Undefined()
+	})
+	_ = obj.DefineAccessorProperty("bodyBytes", getter, setter, goja.FLAG_TRUE, goja.FLAG_FALSE)
+}
+
+// doneBody picks the body a $done object carries: bodyBytes, unless it is the phase object's untouched
+// original and the script changed body ($response.body = x; $done($response)).
+func (rc *runCtx) doneBody(o *goja.Object, get func(*goja.Object, string) goja.Value) ([]byte, bool) {
+	bb, body := get(o, "bodyBytes"), get(o, "body")
+	if bb != nil && body != nil && rc.origBodyBytes != nil && bb.StrictEquals(rc.origBodyBytes) &&
+		(rc.origBody == nil || !body.StrictEquals(rc.origBody)) {
+		bb = nil
+	}
+	if bb != nil {
+		return rc.bodyBytes(bb)
+	}
+	if body != nil {
+		return rc.bodyBytes(body)
+	}
+	return nil, false
 }
 
 func (rc *runCtx) installCommon(set func(string, any)) {
@@ -964,7 +1007,14 @@ func (rc *runCtx) installCommon(set func(string, any)) {
 		return goja.Undefined()
 	})
 
-	if sc.HasArgument {
+	if sc.HasArgument && sc.ArgObject {
+		var obj map[string]any
+		if json.Unmarshal([]byte(sc.Argument), &obj) == nil {
+			set("$argument", obj)
+		} else {
+			set("$argument", sc.Argument)
+		}
+	} else if sc.HasArgument {
 		set("$argument", sc.Argument)
 	} else {
 		set("$argument", goja.Undefined()) // declared, so `if ($argument)` does not throw
@@ -1621,10 +1671,6 @@ func (rc *runCtx) parseDone(requestPhase bool) (*ScriptResult, error) {
 			fixSetCookie(res.Header, rc.origSetCookie)
 		}
 	}
-	if x := get(o, "bodyBytes"); x != nil {
-		res.Body, res.BodySet = rc.bodyBytes(x)
-	} else if x := get(o, "body"); x != nil {
-		res.Body, res.BodySet = rc.bodyBytes(x)
-	}
+	res.Body, res.BodySet = rc.doneBody(o, get)
 	return res, nil
 }

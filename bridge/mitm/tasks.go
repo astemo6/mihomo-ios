@@ -148,7 +148,7 @@ func scriptFromParams(name string, p map[string]string) *Script {
 	sc := &Script{Name: strings.TrimSpace(name), Path: p["script-path"], Timeout: atoiDef(p["timeout"], 0),
 		UpdateInterval: atoiDef(p["script-update-interval"], 86400)}
 	if a, ok := p["argument"]; ok {
-		sc.Argument, sc.HasArgument = a, true
+		setScriptArgument(sc, a)
 	}
 	if sc.Name == "" {
 		sc.Name = p["tag"]

@@ -1,0 +1,23 @@
+#!name=YouTube去广告
+#!desc=Synthetic test copy of the common Loon YouTube plugin layout (kelee / Maasea): object argument, binary body, QUIC reject rules
+#!author=test
+[Argument]
+captionLang = select,"off","zh-Hans","en",tag=字幕翻译语言
+blockUpload = switch,true,tag=屏蔽上传按钮
+blockImmersive = switch,true,tag=屏蔽选段按钮
+blockShorts = switch,false,tag=屏蔽Shorts
+debug = switch,false,tag=调试
+
+[Rule]
+AND,((DOMAIN-SUFFIX,googlevideo.com),(PROTOCOL,UDP)),REJECT
+AND,((DOMAIN,youtubei.googleapis.com),(PROTOCOL,UDP)),REJECT
+
+[Rewrite]
+^https?:\/\/[\w-]+\.googlevideo\.com\/initplayback.+&oad reject-200
+^https?:\/\/(www|s)\.youtube\.com\/api\/stats\/ads reject-200
+
+[Script]
+http-response ^https:\/\/youtubei\.googleapis\.com\/youtubei\/v1\/(browse|next|player|search|reel\/reel_watch_sequence|guide|account\/get_setting|get_watch) script-path=https://raw.githubusercontent.com/Maasea/sgmodule/master/Script/Youtube/youtube.response.js, requires-body=true, binary-body-mode=true, tag=移除YouTube广告, argument=[{captionLang},{blockUpload},{blockImmersive},{blockShorts},{debug}]
+
+[MitM]
+hostname = *.googlevideo.com, youtubei.googleapis.com, www.youtube.com, s.youtube.com
