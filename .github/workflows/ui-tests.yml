@@ -125,7 +125,7 @@ jobs:
         # Shard by repository (see header). Full list when shard=all, [shard:all], or an unknown repository.
         # Review 6 OPT-1: light is split in two test shards (:1 = test01–test30 since r7, :2 = the rest + unit tests, so new
         # tests land there automatically) — one light job took 72–80 min of the 120 min limit, now ~45 min each.
-        combo: ${{ fromJSON(((inputs.shard == 'all' || contains(github.event.head_commit.message, '[shard:all]')) && '["zh-Hans:light:1","zh-Hans:light:2","en:light:1","en:light:2","zh-Hans:dark:0","en:dark:0"]') || (github.repository == 'astemo666/mihomo-ios' && '["en:light:1","en:light:2","en:dark:0"]') || (github.repository == 'astemo6/mihomo-ios' && '["zh-Hans:light:1","zh-Hans:light:2","zh-Hans:dark:0"]') || '["zh-Hans:light:1","zh-Hans:light:2","en:light:1","en:light:2","zh-Hans:dark:0","en:dark:0"]') }}
+        combo: ${{ fromJSON(((inputs.shard == 'all' || contains(github.event.head_commit.message, '[shard:all]')) && '["zh-Hans:light:1","zh-Hans:light:2","zh-Hans:light:3","en:light:1","en:light:2","en:light:3","zh-Hans:dark:0","en:dark:0"]') || (github.repository == 'astemo666/mihomo-ios' && '["en:light:1","en:light:2","en:light:3","en:dark:0"]') || (github.repository == 'astemo6/mihomo-ios' && '["zh-Hans:light:1","zh-Hans:light:2","zh-Hans:light:3","zh-Hans:dark:0"]') || '["zh-Hans:light:1","zh-Hans:light:2","zh-Hans:light:3","en:light:1","en:light:2","en:light:3","zh-Hans:dark:0","en:dark:0"]') }}
     steps:
       - uses: actions/checkout@v5
       - name: Combo
@@ -142,7 +142,7 @@ jobs:
           ONLY_INPUT: ${{ inputs.only }}
         run: |
           SKIP=0
-          if [ "$SHARD" = 2 ] && { [ -n "$ONLY_INPUT" ] || printf '%s' "$COMMIT_MSG" | grep -qE '\[(only|unit):[A-Za-z0-9_]+\]'; }; then
+          if { [ "$SHARD" = 2 ] || [ "$SHARD" = 3 ]; } && { [ -n "$ONLY_INPUT" ] || printf '%s' "$COMMIT_MSG" | grep -qE '\[(only|unit):[A-Za-z0-9_]+\]'; }; then
             SKIP=1
             echo "only-testing selection runs in light shard 1; this shard skips build and tests"
           fi
@@ -237,9 +237,12 @@ jobs:
           # r7 (review7 R7A-9): test22–test30 (~8 min) moved to shard 1 — shard 2 had grown to ~61 min of tests with
           # test56–test70 (39596801011: light:1 34.9 min, light:2 60.8 min).
           SHARD1_TESTS="test01_TabsAndHome test02_HomePolicyPicker test03_MoreEveryPage test04_NodeManager test05_AddNodeAndEditor test06a_ImportQX test06b_ImportSurge test06c_ImportClash test06d_ImportLoon test06e_ImportLinks test07_Editors test08_ModulesAndPanels test09_AutoApplySettings test10_ProfileNodeEdit test11_RegionFilters test12_FilterSources test13_RuleChips test14_DNSLog test15_AllRewrites test16_PolicyModeControl test17_RequestsSummary test18_SSIDPermissions test19_RequestTimeline test20_NodeSettings test21_TileEditing test22_TailscaleNode test23_DiagnosticsMemory test24_SampleProfile test25_OverrideScripts test26_HomeTiles test27_LANDetail test28_WebDAV test29_UnlockServices test30_SettingsToggles"
+          # 2026-10-23: light shard 2 had grown to ~63 min of UI tests; test31–test58 (~28 min) run in shard 3 in
+          # parallel (4 macOS jobs per repo, free plan allows 5). Shard 2 keeps the rest + the unit tests.
+          SHARD3_TESTS="test31_GroupOrder test32_RouteEditorSlash test33_RulesAndRewriteAddDelete test34_URLSchemeLinks test35_NodeEditUndo test36_LanguagesNoLeftovers test37_SettingsPersistAcrossRelaunch test38_ProfileSwitch test39_BigProfileResponsive test40_FilterRenameAndIcon test42_GroupReorderBothWays test43_ModeGlobalVisibility test44_HomeUnlockTileAndScriptTasks test45_RuleFormDefaults test46_LogsNotEmptyOnFirstOpen test47_SnapshotMultiDelete test49_SurgeUIShots test50_HomeExitSubtitle test51_PolicyChainShots test56_ProfileSubscriptionSwipe test57_GroupLongPressMenu test58_SubsSplitProviderActions"
           FAILED=""
           SEL=("${ONLY[@]}")
-          if [ ${#SEL[@]} -gt 0 ] && [ "$SHARD" = 2 ]; then
+          if [ ${#SEL[@]} -gt 0 ] && { [ "$SHARD" = 2 ] || [ "$SHARD" = 3 ]; }; then
             # An explicit [only:] / inputs.only selection runs once, in shard 1.
             echo "only-testing selection runs in light shard 1; nothing to do here"
             echo "FAILED=" >> "$GITHUB_ENV"
@@ -250,7 +253,10 @@ jobs:
             for t in $SHARD1_TESTS; do SEL+=(-only-testing:"MihomoUITests/MihomoUITests/$t"); done
           fi
           if [ ${#SEL[@]} -eq 0 ] && [ "$SHARD" = 2 ]; then
-            for t in $SHARD1_TESTS; do SEL+=(-skip-testing:"MihomoUITests/MihomoUITests/$t"); done
+            for t in $SHARD1_TESTS $SHARD3_TESTS; do SEL+=(-skip-testing:"MihomoUITests/MihomoUITests/$t"); done
+          fi
+          if [ ${#SEL[@]} -eq 0 ] && [ "$SHARD" = 3 ]; then
+            for t in $SHARD3_TESTS; do SEL+=(-only-testing:"MihomoUITests/MihomoUITests/$t"); done
           fi
           xcrun simctl ui "$DEV" appearance "$STYLE" || true
           TEST_RUNNER_UI_LANG="$LANG_" TEST_RUNNER_UI_STYLE="$STYLE" TEST_RUNNER_UI_SHOT_DIR="$PWD/shots" \
