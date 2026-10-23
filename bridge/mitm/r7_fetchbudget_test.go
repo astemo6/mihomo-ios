@@ -121,6 +121,9 @@ func TestR7PeekSNILargeClientHello(t *testing.T) {
 func TestR7StoreQuarantineAfterReread(t *testing.T) {
 	home := t.TempDir()
 	s := NewStore(home)
+	old := storeRereadDelay
+	storeRereadDelay = 500 * time.Millisecond // room for the late writer under -race
+	defer func() { storeRereadDelay = old }()
 	_ = os.MkdirAll(filepath.Dir(s.path), 0o755)
 	_ = os.WriteFile(s.path, []byte(`{"a":`), 0o644)
 	go func() {

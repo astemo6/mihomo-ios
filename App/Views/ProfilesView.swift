@@ -107,13 +107,17 @@ struct ProfilesView: View {
                                         Button { UIPasteboard.general.string = p.url } label: { Label("复制订阅链接", systemImage: "doc.on.doc") }
                                     }
                                 }
-                                if p.id != ProfileStore.manualID {
-                                    Button { subRulesFor = p } label: { Label("节点处理（过滤 / 重命名 / 排序）", systemImage: "line.3.horizontal.decrease.circle") }
+                                ControlGroup {
+                                    if p.id != ProfileStore.manualID {
+                                        Button { subRulesFor = p } label: { Label("节点处理（过滤 / 重命名 / 排序）", systemImage: "line.3.horizontal.decrease.circle") }
+                                    }
+                                    Button { scriptsFor = p } label: { Label("覆写脚本", systemImage: "curlybraces") } // v0.19
                                 }
-                                Button { scriptsFor = p } label: { Label("覆写脚本", systemImage: "curlybraces") } // v0.19
                                 Button { editing = p } label: { Label(LocalizedStringKey(p.kind == .remote ? "查看 YAML" : "编辑 YAML"), systemImage: p.kind == .remote ? "doc.text" : "pencil") }
-                                Button { export(p) } label: { Label("导出", systemImage: "square.and.arrow.up") }
-                                Button { exportFinal(p) } label: { Label("导出最终配置（含覆写）", systemImage: "doc.badge.gearshape") }
+                                ControlGroup {
+                                    Button { export(p) } label: { Label("导出", systemImage: "square.and.arrow.up") }
+                                    Button { exportFinal(p) } label: { Label("导出最终配置（含覆写）", systemImage: "doc.badge.gearshape") }
+                                }
                                 Button(role: .destructive) { requestDelete(p) } label: { Label("删除", systemImage: "trash") }
                             }
                             .listRowBackground(Theme.card)

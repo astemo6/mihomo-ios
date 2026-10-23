@@ -35,6 +35,10 @@ type Store struct {
 // storeFlushDelay coalesces bursts of writes (a script setting several keys, counters per request).
 var storeFlushDelay = 250 * time.Millisecond
 
+// storeRereadDelay is how long readFile waits before re-reading a store that failed to parse (a writer may be
+// mid-replace). A var so tests can widen it under -race.
+var storeRereadDelay = 50 * time.Millisecond
+
 func NewStore(home string) *Store {
 	return &Store{path: filepath.Join(EngineDir(home), "store.json")}
 }
@@ -44,7 +48,7 @@ func (s *Store) readFile() (map[string]string, time.Time, bool) {
 	if bad {
 		// r7: only quarantine after a second read fails too — a writer (the app's 持久化存储 editor, a
 		// restore) replacing the file at that moment must not get a good store renamed to .bad.
-		time.Sleep(50 * time.Millisecond)
+		time.Sleep(storeRereadDelay)
 		if m, mt, ok, bad = s.readOnce(); bad {
 			// review6 P2-2: an unreadable file used to read as an empty (or partial) store, and the next
 			// write replaced the whole store with it — every BoxJS setting / Sub-Store subscription gone.
