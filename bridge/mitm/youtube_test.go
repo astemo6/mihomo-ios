@@ -261,11 +261,22 @@ func ytEngineE(t *testing.T, modFile, modURL string, scripts map[string]string) 
 		var d net.Dialer
 		return d.DialContext(ctx, "tcp", up.Listener.Addr().String())
 	}
-	e := New(home, dial, func(level, msg string) { t.Logf("[%s] %s", level, msg) })
+	// Background resource downloads can still log after the test returns; t.Logf then panics
+	// ("Log in goroutine after … has completed"), so the logger goes quiet once cleanup starts.
+	var logMu sync.Mutex
+	logDone := false
+	e := New(home, dial, func(level, msg string) {
+		logMu.Lock()
+		defer logMu.Unlock()
+		if !logDone {
+			t.Logf("[%s] %s", level, msg)
+		}
+	})
 	if err := e.Start(); err != nil {
 		t.Fatal(err)
 	}
 	t.Cleanup(e.Stop)
+	t.Cleanup(func() { logMu.Lock(); logDone = true; logMu.Unlock() }) // runs before e.Stop (LIFO)
 	cfg := &Config{Enabled: true, MitM: true, SkipCertVerify: true, Modules: []Module{{ID: "yt", Name: "YouTube", URL: modURL, Enabled: true}}}
 	rs := Build(home, cfg)
 	if len(rs.Errors) > 0 || len(rs.Unsupported) > 0 {
