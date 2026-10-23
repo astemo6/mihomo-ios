@@ -74,6 +74,14 @@ type ScriptRunner struct {
 // together — the extension was killed (user 2026-10-22 「把 app 干崩了」, Tern's VPN). Now one at a time.
 const largeProgSource = 256 << 10
 
+// largeQueueWaitNs bounds how long an HTTP request waits for the large-bundle lock (Reserve). Atomic so a
+// test can shorten it.
+var largeQueueWaitNs atomic.Int64
+
+func init() { largeQueueWaitNs.Store(int64(45 * time.Second)) }
+
+func largeQueueWait() time.Duration { return time.Duration(largeQueueWaitNs.Load()) }
+
 // largeProgIdle is how long a large compiled program is kept after its last run (a burst of API calls
 // from a web UI reuses it; then the memory goes back to the tunnel).
 var largeProgIdleNs atomic.Int64 // atomic: a test shortens it while release timers from earlier runs read it (-race)
@@ -419,19 +427,36 @@ func (s *ScriptRunner) Reserve(parent context.Context, rule *Rule) (*Slot, error
 		parent = context.Background()
 	}
 	wait := scriptTimeout(rule.Script, 120*time.Second, 10*time.Second)
-	deadline := time.NewTimer(wait)
-	defer deadline.Stop()
 	sl := &Slot{s: s}
 	if s.knownSize(rule.Script) >= largeProgSource {
+		// v0.19.19 (喜马拉雅): large bundles run one at a time, and the 喜马拉雅 script costs ~1 s of goja
+		// per run, so a player page firing 6–10 matching requests queued the last ones (track/v4/baseInfo,
+		// the one that unlocks playback) past the 10 s script timeout: 「脚本排队超时」, the paid response
+		// went through unchanged and the app asked for VIP. The queue no longer spends the run's timeout —
+		// it waits up to largeQueueWait while the client is still there (parent ends the wait when the
+		// app gives up); the run gets its full timeout once it starts.
+		qwait := wait
+		if q := largeQueueWait(); q > qwait {
+			qwait = q
+		}
+		qt := time.NewTimer(qwait)
+		start := time.Now()
 		select {
 		case s.bigSem <- struct{}{}:
 			sl.big = true
-		case <-deadline.C:
-			return nil, errors.New("脚本排队超时")
+			qt.Stop()
+		case <-qt.C:
+			return nil, fmt.Errorf("脚本排队超时（大脚本逐个运行，已等待 %d 秒）", int(qwait/time.Second))
 		case <-parent.Done():
-			return nil, errors.New("客户端已断开，跳过脚本")
+			qt.Stop()
+			return nil, fmt.Errorf("客户端已断开，跳过脚本（排队 %d ms）", time.Since(start).Milliseconds())
+		}
+		if d := time.Since(start); d >= time.Second {
+			s.e.Logs.Add(rule.Script.Name, "debug", fmt.Sprintf("排队 %d ms（大脚本逐个运行）", d.Milliseconds()))
 		}
 	}
+	deadline := time.NewTimer(wait)
+	defer deadline.Stop()
 	select {
 	case s.sem <- struct{}{}:
 	case <-deadline.C:
