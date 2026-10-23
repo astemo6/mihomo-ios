@@ -7,6 +7,7 @@ package libmihomo
 
 import (
 	"encoding/json"
+	"runtime"
 
 	"github.com/astemo6/mihomo-ios/bridge/mitm"
 )
@@ -103,4 +104,11 @@ func ScriptConformance(homeDir, caseJSON string) string {
 	}
 	b, _ := json.Marshal(mitm.RunConformance(homeDir, c, true))
 	return string(b)
+}
+
+// GoroutineDump is every goroutine's stack (diagnostics: the iOS conformance test logs it when a case hangs).
+func GoroutineDump() string {
+	buf := make([]byte, 1<<20)
+	n := runtime.Stack(buf, true)
+	return string(buf[:n])
 }

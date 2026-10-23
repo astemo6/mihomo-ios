@@ -106,7 +106,8 @@ func NewScriptRunner(e *Engine) *ScriptRunner {
 	progs.maxW = progCacheBudget
 	// A native (JavaScriptCore) program lives in the Swift engine: leaving the index drops it there too.
 	progs.onEvict = func(k string, c *compiled) {
-		if c != nil && c.native {
+		// A wedged engine still runs the abandoned script and holds its VM lock: Drop would block forever.
+		if c != nil && c.native && !nativeWedged.Load() {
 			if b, _ := nativeJS.Load().(nativeBox); b.n != nil {
 				b.n.Drop(k)
 			}
@@ -124,6 +125,9 @@ func (s *ScriptRunner) Reset() {
 
 // nativeCollect lets JavaScriptCore collect what dropped contexts left behind.
 func nativeCollect() {
+	if nativeWedged.Load() {
+		return // see onEvict: the VM is held by the abandoned run
+	}
 	if b, _ := nativeJS.Load().(nativeBox); b.n != nil {
 		b.n.Collect()
 	}

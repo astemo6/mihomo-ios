@@ -56,7 +56,15 @@ final class JSCScriptEngine: NSObject, LibmihomoScriptEngineProtocol {
     }
 
     private let vm: JSVirtualMachine
+    /// Guards the engine's tables. Lock order: never wait for JavaScriptCore's API lock while holding it —
+    /// JavaScript objects (JSValue / JSContext / Ctx / Entry) that go away under it are moved to `trash` and
+    /// released after the unlock (`unlockAndEmpty`). Otherwise a thread holding `lock` and releasing a JSValue
+    /// waits for the VM lock that a running script holds, while that script's host call or time-limit callback
+    /// waits for `lock`: a deadlock.
     private let lock = NSLock()
+    /// Guards `byRef` only; the time-limit callback (on the thread running JavaScript) takes nothing else.
+    private let refLock = NSLock()
+    private var trash: [AnyObject] = []
     private var prelude = ""
     private var entries: [String: Entry] = [:]
     private var runs: [Int64: Slot] = [:]
@@ -89,6 +97,9 @@ final class JSCScriptEngine: NSObject, LibmihomoScriptEngineProtocol {
     /// One engine-conformance case (UnitTests/ScriptEngineConformance.json) on goja and JavaScriptCore.
     static func conformance(home: String, caseJSON: String) -> String { LibmihomoScriptConformance(home, caseJSON) }
 
+    /// Every goroutine's stack (the conformance test logs it when a case hangs).
+    static func goroutineDump() -> String { LibmihomoGoroutineDump() }
+
     /// `-TernJSCSelfTest` launch argument: one conformance case, logged (device check without the test bundle).
     static func selfTestIfRequested() {
         guard ProcessInfo.processInfo.arguments.contains("-TernJSCSelfTest") else { return }
@@ -113,11 +124,13 @@ final class JSCScriptEngine: NSObject, LibmihomoScriptEngineProtocol {
             return "prelude: " + Self.describe(e)
         }
         lock.lock()
+        if let old = gcContext { trash.append(old) }
+        trash.append(probe)
         gcContext = probe.context
         if !timeLimit, let group = JSContextGetGroup(probe.context.jsGlobalContextRef) {
             timeLimit = Self.installTimeLimit(group)
         }
-        lock.unlock()
+        unlockAndEmpty()
         return ""
     }
 
@@ -151,11 +164,12 @@ final class JSCScriptEngine: NSObject, LibmihomoScriptEngineProtocol {
         if let old = entries[key] {
             old.dropped = true
             if let p = old.primary, !p.busy { forget(p) }
+            trash.append(old)
         }
         entries[key] = entry
         entry.primary = c
-        byRef[c.context.jsGlobalContextRef] = c
-        lock.unlock()
+        setRef(c)
+        unlockAndEmpty()
         return ""
     }
 
@@ -166,10 +180,12 @@ final class JSCScriptEngine: NSObject, LibmihomoScriptEngineProtocol {
             e.dropped = true
             if let p = e.primary, !p.busy {
                 forget(p)
+                trash.append(p)
                 e.primary = nil
             }
+            trash.append(e)
         }
-        lock.unlock()
+        unlockAndEmpty()
     }
 
     func collect() {
@@ -211,7 +227,7 @@ final class JSCScriptEngine: NSObject, LibmihomoScriptEngineProtocol {
             } else {
                 temp = true
             }
-            byRef[c.context.jsGlobalContextRef] = c
+            setRef(c)
             lock.unlock()
             ctx = c
         }
@@ -242,16 +258,22 @@ final class JSCScriptEngine: NSObject, LibmihomoScriptEngineProtocol {
 
     func end(_ runID: Int64) {
         lock.lock()
-        defer { lock.unlock() }
-        guard let slot = runs.removeValue(forKey: runID) else { return }
+        guard let slot = runs.removeValue(forKey: runID) else {
+            lock.unlock()
+            return
+        }
         let c = slot.ctx
         c.run = nil
         c.busy = false
+        if let e = c.exception { trash.append(e) }
         c.exception = nil
         if slot.temp || c.poisoned || c.terminated || slot.entry.dropped {
             if slot.entry.primary === c { slot.entry.primary = nil }
             forget(c)
         }
+        trash.append(c)
+        trash.append(slot.entry)
+        unlockAndEmpty()
     }
 
     func stats() -> String {
@@ -311,9 +333,26 @@ final class JSCScriptEngine: NSObject, LibmihomoScriptEngineProtocol {
 
     /// Caller holds `lock`.
     private func forget(_ c: Ctx) {
+        refLock.lock()
         byRef.removeValue(forKey: c.context.jsGlobalContextRef)
+        refLock.unlock()
+        if let m = c.main { trash.append(m) }
         c.main = nil
         c.poisoned = true
+    }
+
+    private func setRef(_ c: Ctx) {
+        refLock.lock()
+        byRef[c.context.jsGlobalContextRef] = c
+        refLock.unlock()
+    }
+
+    /// Unlocks `lock`, then releases what went away under it (may wait for JavaScriptCore's API lock).
+    private func unlockAndEmpty() {
+        let t = trash
+        trash = []
+        lock.unlock()
+        withExtendedLifetime(t) {}
     }
 
     private func invoke(_ c: Ctx, _ fn: String, _ arg: String, name: String) -> String? {
@@ -355,9 +394,9 @@ final class JSCScriptEngine: NSObject, LibmihomoScriptEngineProtocol {
 
     private func shouldTerminate(_ global: JSGlobalContextRef?) -> Bool {
         guard let global else { return false }
-        lock.lock()
+        refLock.lock()
         let c = byRef[global]
-        lock.unlock()
+        refLock.unlock()
         guard let c, let run = c.run else { return false }
         if run.shouldStop() {
             c.terminated = true
