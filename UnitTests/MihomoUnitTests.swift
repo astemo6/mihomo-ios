@@ -202,6 +202,68 @@ final class CoreOverridesTests: XCTestCase {
         XCTAssertFalse(DNSHijackSpec.isValid("dns.google:53"))
     }
 
+    /// feat/tunnel-include-options: 高级设置 → 隧道 — every 包含… switch off by default (= the stored exclude* values
+    /// on), saved values from the old 隧道范围 switches read the same, and the switches keep each other consistent.
+    func testTunnelIncludeOptions() throws {
+        let d = CoreOverrides()
+        XCTAssertFalse(d.includeAllShown)
+        XCTAssertFalse(d.includeLocalNetworks)
+        XCTAssertFalse(d.includeAPNs)
+        XCTAssertFalse(d.includeCellularServices)
+        XCTAssertFalse(d.includeDeviceCommunication)
+        XCTAssertFalse(d.enforceRoutes)
+        XCTAssertFalse(d.blockWebRTC)
+        XCTAssertFalse(d.effectiveEnforceRoutes)
+        XCTAssertTrue(d.effectiveExcludeAPNs)
+        // Old file: 接管所有网络流量 on, 排除局域网 off, 排除推送通知 off → 包含所有网络 / 本地网络 / APNs on.
+        let old = try decode(#"{"includeAllNetworks":true,"excludeLocalNetworks":false,"excludeAPNs":false,"blockWebRTC":true}"#)
+        XCTAssertTrue(old.includeAllShown)
+        XCTAssertTrue(old.includeLocalNetworks)
+        XCTAssertTrue(old.includeAPNs)
+        XCTAssertFalse(old.effectiveExcludeAPNs)
+        XCTAssertTrue(old.blockWebRTC)
+        // APNs without every network is meaningless: shown off, system default (excluded) applied.
+        let stray = try decode(#"{"includeAllNetworks":false,"excludeAPNs":false}"#)
+        XCTAssertFalse(stray.includeAPNs)
+        XCTAssertTrue(stray.effectiveExcludeAPNs)
+
+        var o = CoreOverrides()
+        o.setIncludeAPNs(true)
+        XCTAssertTrue(o.includeAllNetworks, "包含 APNs turns 包含所有网络 on")
+        XCTAssertTrue(o.includeAPNs)
+        o.setEnforceRoutes(true)
+        XCTAssertTrue(o.enforceRoutes)
+        XCTAssertFalse(o.includeAllNetworks, "兼容性增强模式 turns 包含所有网络 off")
+        XCTAssertFalse(o.includeAPNs, "… and 包含 APNs")
+        XCTAssertTrue(o.effectiveEnforceRoutes)
+        o.setIncludeAllNetworks(true)
+        XCTAssertFalse(o.enforceRoutes, "包含所有网络 turns 兼容性增强模式 off")
+        o.setIncludeAPNs(true)
+        o.setIncludeAllNetworks(false)
+        XCTAssertFalse(o.includeAPNs, "包含所有网络 off turns 包含 APNs off")
+        XCTAssertTrue(o.excludeAPNs)
+        // FaceTime 走代理 implies every network: 兼容性增强模式 off, APNs stays the user's choice.
+        o.setEnforceRoutes(true)
+        o.setFaceTimeProxy(true)
+        XCTAssertFalse(o.enforceRoutes)
+        XCTAssertTrue(o.effectiveIncludeAll)
+        o.setIncludeAPNs(true)
+        o.setFaceTimeProxy(false)
+        XCTAssertTrue(o.includeAPNs, "包含 APNs had turned 包含所有网络 on, so it stays")
+        o.setIncludeAllNetworks(false)
+        o.setFaceTimeProxy(true)
+        o.excludeAPNs = false
+        o.setFaceTimeProxy(false)
+        XCTAssertTrue(o.excludeAPNs, "FaceTime off without 包含所有网络 turns 包含 APNs off")
+        // 仅代理: no includeAllNetworks, no enforceRoutes.
+        var p = CoreOverrides()
+        p.tunnelMode = "proxy"
+        p.setEnforceRoutes(true)
+        XCTAssertFalse(p.effectiveEnforceRoutes)
+        p.setIncludeAllNetworks(true)
+        XCTAssertFalse(p.effectiveIncludeAll)
+    }
+
     func testLegacyIPv6Bool() throws {
         XCTAssertEqual(try decode(#"{"ipv6":true}"#).ipv6Mode, "always")
         XCTAssertEqual(try decode(#"{"ipv6":false}"#).ipv6Mode, "off")

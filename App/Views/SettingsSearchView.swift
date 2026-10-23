@@ -27,6 +27,7 @@ extension SearchDestination: Identifiable {
         case .trafficScope: TrafficScopeView()
         case .advanced: AdvancedSettingsView()
         case .connection: ConnectionView()
+        case .tunnel: TunnelSettingsView()
         case .networkPolicy: NetworkPolicyView()
         case .geo: GeoView()
         case .coreSettings: SettingsView()

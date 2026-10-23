@@ -14,7 +14,7 @@ enum SearchDestination: String, CaseIterable, Hashable {
     // 更多
     case profiles, sampleProfile, stats, snapshots, backup, webdav, syncFolder, storage, notifications
     case appearance, liveActivity, appIcon, launchTab, trafficScope
-    case advanced, connection, networkPolicy, geo, coreSettings, speedTestSettings, geoChecker
+    case advanced, connection, tunnel, networkPolicy, geo, coreSettings, speedTestSettings, geoChecker
     case onboarding, diagnostics, about, systemLanguage
     // 工具
     case nodes, rules, modules, moduleGallery, allRewrites, rewrites, scripts, scriptLogs, scriptNotices, scriptStore
@@ -68,6 +68,7 @@ enum SettingsSearchIndex {
     static let more = "更多", tools = "工具", home = "首页", policy = "策略"
     static let adv = [more, "高级设置"]
     static let conn = [more, "高级设置", "连接方式"]
+    static let tun = [more, "高级设置", "隧道"]
 
     static func e(_ id: String, _ title: String, _ path: [String], _ symbol: String, _ tone: TileTone,
                   _ dest: SearchDestination, _ keywords: [String] = []) -> SearchEntry {
@@ -99,11 +100,27 @@ enum SettingsSearchIndex {
           ["仅代理", "全部流量", "网速", "proxy only", "traffic", "speed"]),
         e("advanced", "高级设置", [more], "gearshape.2", .neutral, .advanced, ["高级", "advanced", "settings"]),
         e("connection", "连接方式", adv, "point.3.filled.connected.trianglepath.dotted", .blue, .connection,
-          ["TUN", "VPN 混合", "仅代理", "代理模式", "增强模式", "阻止 QUIC", "QUIC", "STUN", "直连时丢弃 STUN", "UDP 回落", "UDP", "WebRTC", "重置 VPN 配置", "proxy only", "mixed", "VPN", "connection mode"]),
+          ["TUN", "VPN 混合", "仅代理", "代理模式", "增强模式", "阻止 QUIC", "QUIC", "STUN", "直连时丢弃 STUN", "UDP 回落", "UDP", "重置 VPN 配置", "proxy only", "mixed", "VPN", "connection mode"]),
         e("lanSharing", "局域网共享", conn, "wifi", .teal, .connection,
           ["局域网", "共享", "热点", "HTTP 代理", "SOCKS", "端口", "认证", "LAN", "share", "allow lan", "hotspot", "proxy port"]),
-        e("tunnelScope", "隧道范围", conn, "scope", .blue, .connection,
-          ["接管所有网络流量", "路由系统服务", "系统服务", "排除局域网", "排除", "APNs", "includeAllNetworks", "exclude", "tunnel", "system services"]),
+        e("blockWebRTC", "阻止 WebRTC", conn, "video.slash", .blue, .connection,
+          ["WebRTC", "STUN", "TURN", "PCDN", "P2P", "打洞", "IP 泄露", "泄漏", "上传", "webrtc leak", "ip leak", "hole punching"]),
+        e("tunnel", "隧道", adv, "network.badge.shield.half.filled", .blue, .tunnel,
+          ["隧道范围", "接管所有网络流量", "路由系统服务", "系统服务", "排除局域网", "排除", "tunnel", "tunnel scope", "system services", "exclude"]),
+        e("includeAllNetworks", "包含所有网络", tun, "globe", .blue, .tunnel,
+          ["接管所有网络流量", "路由系统服务", "全局", "includeAllNetworks", "include all networks"]),
+        e("includeLocalNetworks", "包含本地网络", tun, "house", .blue, .tunnel,
+          ["局域网", "本地网络", "排除局域网", "路由器", "NAS", "打印机", "excludeLocalNetworks", "LAN", "local network"]),
+        e("includeAPNs", "包含 APNs", tun, "bell.badge", .blue, .tunnel,
+          ["APNs", "推送", "推送通知", "通知", "excludeAPNs", "push", "apple push"]),
+        e("includeCellularServices", "包含蜂窝网络服务", tun, "antenna.radiowaves.left.and.right", .blue, .tunnel,
+          ["蜂窝", "运营商服务", "VoLTE", "Wi-Fi 通话", "彩信", "语音信箱", "excludeCellularServices", "cellular", "wifi calling", "MMS"]),
+        e("includeDeviceCommunication", "包含设备通信", tun, "cable.connector", .blue, .tunnel,
+          ["设备通信", "设备间通信", "USB", "AirDrop", "CarPlay", "excludeDeviceCommunication", "device communication"]),
+        e("enforceRoutes", "兼容性增强模式", tun, "house.and.flag", .blue, .tunnel,
+          ["兼容性", "拆分路由", "HomeKit", "家庭", "摄像头", "实时视频", "enforceRoutes", "enforce routes", "split routes", "compatibility"]),
+        e("faceTimeProxy", "FaceTime 走代理", tun, "video", .blue, .tunnel,
+          ["FaceTime", "视频通话", "通话", "facetime proxy", "call"]),
         e("routes", "路由", conn, "arrow.triangle.turn.up.right.diamond", .blue, .connection, ["路由表", "不作为默认路由", "默认路由", "DNS 劫持", "dns-hijack", "隐藏 VPN 图标", "route", "routes", "CIDR", "default route", "hijack"]),
         e("ipv6", "IPv6", conn, "6.circle", .blue, .connection, ["ipv6", "v6"]),
         e("onDemand", "按需连接", conn, "wifi.exclamationmark", .blue, .connection,

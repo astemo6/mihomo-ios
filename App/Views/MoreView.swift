@@ -257,6 +257,10 @@ struct AdvancedSettingsView: View {
                 NavigationLink { LazyDestination { ConnectionView() } } label: {
                     MoreRow(id: "连接方式", title: "连接方式", symbol: "point.3.filled.connected.trianglepath.dotted", tone: .blue, value: connLabel)
                 }
+                // feat/tunnel-include-options: 包含所有网络 / 本地网络 / APNs / 蜂窝 / 设备通信 / 兼容性增强模式 / FaceTime.
+                NavigationLink { LazyDestination { TunnelSettingsView() } } label: {
+                    MoreRow(id: "隧道", title: "隧道", symbol: "network.badge.shield.half.filled", tone: .blue)
+                }
             }
             .listRowBackground(Theme.card)
 

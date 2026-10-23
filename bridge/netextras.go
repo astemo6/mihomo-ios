@@ -9,6 +9,11 @@ package libmihomo
 //     the final DIRECT when nothing matches) and only matches when the result is the DIRECT outbound.
 //     FaceTime 走代理 prepends its UDP 3478-3497 rules to the proxy group, so with that switch on FaceTime's
 //     STUN resolves to the proxy and is never dropped here (unless the group itself currently selects DIRECT).
+//   - 阻止 WebRTC (blockWebRTC, feat/tunnel-include-options): the same rule rejects every STUN / TURN UDP on those
+//     ports whatever the policy (stops apps using the device as a PCDN node through hole punching and WebRTC IP
+//     leaks). It supersedes 直连时丢弃 STUN: with both on only the WebRTC rule is inserted. Both exempt Apple
+//     destinations (17.0.0.0/8, Apple's IPv6 blocks, *.apple.com / *.icloud.com): FaceTime's STUN (3478-3497)
+//     then follows the rules as before — FaceTime 走代理's proxy rules, or the profile's own.
 //   - UDP 回落 (udpFallback): mihomo skips a matched rule whose policy has no UDP and, when nothing else
 //     matches, falls back to DIRECT. "reject" ends the rule list with a REJECT for that leftover UDP.
 //   - DNS 劫持 (dnsHijack): the tun dns-hijack list. mihomo always adds the tun DNS address (198.18.0.2:53).
@@ -53,18 +58,52 @@ func isSTUNPort(p uint16) bool {
 	return false
 }
 
-// stunDropRule is the injected rule. Shown by the controller as Network(STUN) → REJECT.
-type stunDropRule struct{}
+// appleNets: Apple's own address space (AS714). FaceTime relays and its STUN servers live there.
+var appleNets = []netip.Prefix{
+	netip.MustParsePrefix("17.0.0.0/8"),
+	netip.MustParsePrefix("2620:149::/32"),
+	netip.MustParsePrefix("2403:300::/32"),
+	netip.MustParsePrefix("2a01:b740::/32"),
+}
 
-func (stunDropRule) RuleType() C.RuleType    { return C.Network }
-func (stunDropRule) Adapter() string         { return "REJECT" }
-func (stunDropRule) Payload() string         { return "STUN" }
+// isAppleDest: FaceTime (and other Apple services) — never treated as WebRTC by the STUN rules.
+func isAppleDest(md *C.Metadata) bool {
+	h := strings.ToLower(strings.TrimSuffix(md.Host, "."))
+	for _, s := range []string{"apple.com", "icloud.com", "apple-cloudkit.com", "push-apple.com.akadns.net"} {
+		if h == s || strings.HasSuffix(h, "."+s) {
+			return true
+		}
+	}
+	ip := md.DstIP.Unmap()
+	if !ip.IsValid() {
+		return false
+	}
+	for _, p := range appleNets {
+		if p.Contains(ip) {
+			return true
+		}
+	}
+	return false
+}
+
+// stunDropRule is the injected rule. Shown by the controller as Network(STUN) → REJECT (直连时丢弃 STUN), or
+// Network(WebRTC) → REJECT when all is set (阻止 WebRTC: every STUN / TURN, whatever the policy).
+type stunDropRule struct{ all bool }
+
+func (stunDropRule) RuleType() C.RuleType { return C.Network }
+func (stunDropRule) Adapter() string      { return "REJECT" }
+func (r stunDropRule) Payload() string {
+	if r.all {
+		return "WebRTC"
+	}
+	return "STUN"
+}
 func (stunDropRule) ProviderNames() []string { return nil }
 func (r stunDropRule) Match(md *C.Metadata, helper C.RuleMatchHelper) (bool, string) {
-	if md == nil || md.NetWork != C.UDP || md.Type == C.INNER || !isSTUNPort(md.DstPort) {
+	if md == nil || md.NetWork != C.UDP || md.Type == C.INNER || !isSTUNPort(md.DstPort) || isAppleDest(md) {
 		return false, ""
 	}
-	if resolvesDirect(md, helper, tunnel.Rules(), tunnel.Proxies()) {
+	if r.all || resolvesDirect(md, helper, tunnel.Rules(), tunnel.Proxies()) {
 		return true, "REJECT"
 	}
 	return false, ""
@@ -118,10 +157,11 @@ next:
 	return true // "doesn't match any rule using DIRECT"
 }
 
-// stunDropOption is the hub.Parse option: puts the STUN rule first when the switch is on and there are rules.
-func stunDropOption(on bool) func(*config.Config) {
+// stunDropOption is the hub.Parse option: puts the STUN rule first when a switch is on and there are rules.
+// 阻止 WebRTC (all) supersedes 直连时丢弃 STUN (direct): one rule either way.
+func stunDropOption(direct, all bool) func(*config.Config) {
 	return func(cfg *config.Config) {
-		if !on || cfg == nil || len(cfg.Rules) == 0 {
+		if !(direct || all) || cfg == nil || len(cfg.Rules) == 0 {
 			return
 		}
 		for _, r := range cfg.Rules {
@@ -129,8 +169,12 @@ func stunDropOption(on bool) func(*config.Config) {
 				return
 			}
 		}
-		cfg.Rules = append([]C.Rule{RW.NewRuleWrapper(stunDropRule{})}, cfg.Rules...)
-		stage("直连时丢弃 STUN: on")
+		cfg.Rules = append([]C.Rule{RW.NewRuleWrapper(stunDropRule{all: all})}, cfg.Rules...)
+		if all {
+			stage("阻止 WebRTC: on")
+		} else {
+			stage("直连时丢弃 STUN: on")
+		}
 	}
 }
 

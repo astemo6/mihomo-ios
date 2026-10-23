@@ -285,8 +285,10 @@ final class VPNManager: ObservableObject {
     /// Public NETunnelProviderProtocol scope switches; the exclude* options only matter with includeAllNetworks.
     /// 仅代理 has no routes and no packet reader, so includeAllNetworks would capture every app's traffic into a
     /// tunnel nobody reads (no network at all): the switch only applies in TUN / 混合.
+    /// 高级设置 → 隧道 (feat/tunnel-include-options): 兼容性增强模式 is enforceRoutes; never with includeAllNetworks.
     static func applyScope(_ o: CoreOverrides, to proto: NETunnelProviderProtocol) {
         proto.includeAllNetworks = o.effectiveIncludeAll
+        proto.enforceRoutes = o.effectiveEnforceRoutes
         proto.excludeLocalNetworks = o.excludeLocalNetworks
         if #available(iOS 16.4, *) {
             proto.excludeAPNs = o.effectiveExcludeAPNs
@@ -300,6 +302,7 @@ final class VPNManager: ObservableObject {
     /// r7 R7A-2: true when the configuration already carries what applyScope would write.
     static func scopeMatches(_ o: CoreOverrides, _ proto: NETunnelProviderProtocol) -> Bool {
         if proto.includeAllNetworks != o.effectiveIncludeAll { return false }
+        if proto.enforceRoutes != o.effectiveEnforceRoutes { return false }
         if proto.excludeLocalNetworks != o.excludeLocalNetworks { return false }
         if #available(iOS 16.4, *) {
             if proto.excludeAPNs != o.effectiveExcludeAPNs || proto.excludeCellularServices != o.excludeCellularServices { return false }
@@ -620,5 +623,8 @@ extension CoreOverrides {
     /// FaceTime 走代理 needs every network in the tunnel (FaceTime media skips a normal VPN route). APNs (ringing /
     /// call signalling) stays the user's choice (user 2026-10-22: 不强制 APNs). 仅代理 never carries includeAllNetworks.
     var effectiveIncludeAll: Bool { (includeAllNetworks || faceTimeProxy) && !isProxyOnly }
-    var effectiveExcludeAPNs: Bool { excludeAPNs }
+    /// 包含 APNs (excludeAPNs off) only with every network in the tunnel; otherwise the system default (excluded).
+    var effectiveExcludeAPNs: Bool { effectiveIncludeAll ? excludeAPNs : true }
+    /// 兼容性增强模式: split routes only (never with includeAllNetworks); 仅代理 has no routes to enforce.
+    var effectiveEnforceRoutes: Bool { enforceRoutes && !effectiveIncludeAll && !isProxyOnly }
 }

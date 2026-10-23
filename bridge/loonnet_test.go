@@ -89,11 +89,11 @@ func stunCase(t *testing.T, rules string) bool {
 	if err != nil {
 		t.Fatal(err)
 	}
-	stunDropOption(true)(cfg)
+	stunDropOption(true, false)(cfg)
 	if !isSTUNDropRule(cfg.Rules[0]) {
 		t.Fatalf("STUN rule must be first: %v", cfg.Rules[0])
 	}
-	stunDropOption(true)(cfg) // inserted once
+	stunDropOption(true, false)(cfg) // inserted once
 	if isSTUNDropRule(cfg.Rules[1]) {
 		t.Fatal("STUN rule inserted twice")
 	}
@@ -160,7 +160,7 @@ func TestLoonSTUNRuleScope(t *testing.T) {
 		t.Fatal(err)
 	}
 	n := len(cfg.Rules)
-	stunDropOption(false)(cfg)
+	stunDropOption(false, false)(cfg)
 	if len(cfg.Rules) != n {
 		t.Fatal("switch off must not insert")
 	}

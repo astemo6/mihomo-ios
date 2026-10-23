@@ -118,6 +118,7 @@ type Overrides struct {
 	// feat/loon-net-route: 直连时丢弃 STUN, UDP 回落 ("direct" default | "reject"), DNS 劫持 (tun dns-hijack;
 	// missing = any:53). See netextras.go.
 	StunDropDirect bool     `json:"stunDropDirect"`
+	BlockWebRTC    bool     `json:"blockWebRTC"` // 阻止 WebRTC: every STUN / TURN rejected except Apple (netextras.go)
 	UDPFallback    string   `json:"udpFallback"`
 	DNSHijack      []string `json:"dnsHijack"`
 
@@ -621,7 +622,7 @@ func applyInto(home, configPath string, fd int32, used *Overrides) error {
 	if missing := missingGeo(home, rt); len(missing) > 0 {
 		stage("geo data missing for this profile: %s (the core will try to download it)", strings.Join(missing, ", "))
 	}
-	if err := hub.Parse(rt, guardTailscale, stunDropOption(o.StunDropDirect)); err != nil {
+	if err := hub.Parse(rt, guardTailscale, stunDropOption(o.StunDropDirect, o.BlockWebRTC)); err != nil {
 		return friendlyError(err)
 	}
 	committed = true

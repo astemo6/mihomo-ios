@@ -103,7 +103,7 @@ final class MihomoUITests: MihomoUITestCase {
         "网络工具（Ping / TCP / DNS）", "网络测试（带宽 / NAT 类型）", "解锁检测", "内网 IP 与路由器",
     ]
     static let advancedRows = [
-        "连接方式", "地理与规则库", "内核设置", "测速", "出口信息查询",
+        "连接方式", "隧道", "地理与规则库", "内核设置", "测速", "出口信息查询",
     ]
     /// 工具 → 重写 (QX-style merge of 模块 / 重写 / 脚本) keeps the browse pages (ids unchanged); the profile's rule
     /// sets (规则集（配置）) moved to 分流规则.
@@ -463,7 +463,7 @@ final class MihomoUITests: MihomoUITestCase {
 
     /// Review 5 P2-10: 连接方式 switches by accessibility id (labels differ per language and are long in en).
     func connSwitch(_ label: String) -> XCUIElement {
-        let ids = ["接管所有网络流量": "conn.includeAll", "局域网共享": "conn.allowLan"]
+        let ids = ["包含所有网络": "tunnel.includeAll", "局域网共享": "conn.allowLan"]
         if let id = ids[label] { return app.switches.matching(identifier: id).firstMatch }
         return app.switches[L(label)]
     }
@@ -619,7 +619,7 @@ final class MihomoUITests: MihomoUITestCase {
     func test09_AutoApplySettings() {
         launch()
         let pages: [(String, String)] = [("内核设置", "域名嗅探（Sniffer）"), ("测速", "健康检查也使用此地址"),
-                                         ("DNS", "使用自定义 DNS"), ("连接方式", "接管所有网络流量")]
+                                         ("DNS", "使用自定义 DNS"), ("隧道", "包含所有网络")]
         for (page, toggle) in pages {
             openMore(page)
             for k in ["保存", "保存并重载", "保存并重载内核"] {

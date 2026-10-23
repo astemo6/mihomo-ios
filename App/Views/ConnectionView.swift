@@ -26,7 +26,7 @@ struct ConnectionView: View {
         Form {
             modeSection
             if !o.isProxyOnly { trafficSection }
-            if !o.isProxyOnly { scopeSection }
+            if !o.isProxyOnly { tunnelLinkSection }
             routesSection
             onDemandSection
             lanSection
@@ -112,7 +112,11 @@ struct ConnectionView: View {
     /// Loon parity: 直连时丢弃 STUN and UDP 回落 (bridge netextras.go).
     var udpSection: some View {
         Section {
-            Toggle("直连时丢弃 STUN", isOn: $o.stunDropDirect).accessibilityIdentifier("conn.stunDrop")
+            Toggle("阻止 WebRTC", isOn: $o.blockWebRTC).accessibilityIdentifier("conn.blockWebRTC")
+            // 阻止 WebRTC rejects every STUN / TURN, so 直连时丢弃 STUN is included while it is on (bridge netextras.go).
+            Toggle("直连时丢弃 STUN", isOn: o.blockWebRTC ? .constant(true) : $o.stunDropDirect)
+                .disabled(o.blockWebRTC)
+                .accessibilityIdentifier("conn.stunDrop")
             Picker("UDP 回落", selection: $o.udpFallback) {
                 Text("直连").tag("direct")
                 Text("拒绝").tag("reject")
@@ -120,7 +124,10 @@ struct ConnectionView: View {
             .accessibilityIdentifier("conn.udpFallback")
         } header: { Text("UDP") } footer: {
             VStack(alignment: .leading, spacing: 6) {
-                Text("直连时丢弃 STUN：规则最终走直连的 STUN 请求（UDP 3478、3479、5349、19302 等端口）被拒绝，网页的 WebRTC 不会经直连暴露本机 IP；走代理的照常。开启「FaceTime 走代理」时 FaceTime 的 STUN 走代理，不受影响；未开启时 FaceTime 通话可能受影响。")
+                Text("阻止 WebRTC：阻止 STUN/TURN 打洞，防止 App 在未经允许时把你的设备当作 PCDN 节点，并防止网页 WebRTC 泄露 IP；部分网页会议、P2P 传输可能改走中继或无法连接，FaceTime 不受影响。")
+                Text(o.blockWebRTC
+                     ? "直连时丢弃 STUN：已包含在「阻止 WebRTC」中。"
+                     : "直连时丢弃 STUN：规则最终走直连的 STUN 请求（UDP 3478、3479、5349、19302 等端口）被拒绝，网页的 WebRTC 不会经直连暴露本机 IP；走代理的照常。发往 Apple 的 FaceTime 请求不受影响。")
                 Text(o.udpFallback == "reject"
                      ? "UDP 回落：规则选中的节点不支持 UDP、后面也没有别的规则接住时，拒绝这些 UDP，不改走直连。"
                      : "UDP 回落：规则选中的节点不支持 UDP、后面也没有别的规则接住时，这些 UDP 改走直连（mihomo 默认）。")
@@ -157,32 +164,16 @@ struct ConnectionView: View {
         .listRowBackground(Theme.card)
     }
 
-    var scopeSection: some View {
+    /// feat/tunnel-include-options: the old 隧道范围 switches moved to 高级设置 → 隧道 (包含所有网络 · 包含本地网络 ·
+    /// 包含 APNs · 包含蜂窝网络服务 · 包含设备通信 · 兼容性增强模式 · FaceTime 走代理); same stored keys.
+    var tunnelLinkSection: some View {
         Section {
-            Toggle("FaceTime 走代理", isOn: $o.faceTimeProxy).accessibilityIdentifier("conn.facetime")
-            Toggle(isOn: o.faceTimeProxy ? .constant(true) : $o.includeAllNetworks) {
-                VStack(alignment: .leading, spacing: 2) {
-                    Text("接管所有网络流量")
-                    Text("路由系统服务：iCloud、推送等系统服务也进入隧道").font(.caption).foregroundStyle(.secondary)
-                }
+            NavigationLink { TunnelSettingsView() } label: {
+                Text("隧道")
             }
-            .disabled(o.faceTimeProxy).accessibilityIdentifier("conn.includeAll")
-            if o.includeAllNetworks || o.faceTimeProxy {
-                Toggle("排除局域网", isOn: $o.excludeLocalNetworks)
-                if #available(iOS 16.4, *) {
-                    Toggle("排除推送通知（APNs）", isOn: $o.excludeAPNs)
-                    Toggle("排除运营商服务（电话、短信、VoLTE）", isOn: $o.excludeCellularServices)
-                }
-                if #available(iOS 17.4, *) {
-                    Toggle("排除设备间通信（AirDrop、CarPlay 等）", isOn: $o.excludeDeviceCommunication)
-                }
-            }
-        } header: { Text("隧道范围") } footer: {
-            Text(o.faceTimeProxy
-                 ? "FaceTime 走代理：自动接管所有网络流量，并把 FaceTime 的音视频（UDP 3478–3497 / 16384–16402）交给主代理组，节点需要支持 UDP。来电响铃走推送通知（APNs）：保持排除时这部分直连，关闭排除则也走代理。更改后重新连接生效。"
-                 : o.includeAllNetworks
-                 ? "开启后系统把几乎所有流量（包括其他 App 自行绕过 VPN 的连接）都交给隧道；连接中断时这些流量会被阻断，直到重新连接。下面的排除项保留常用的系统服务。更改后立即写入 VPN 配置。"
-                 : "关闭（默认）：按下方的路由接管流量，系统服务可以绕过隧道。")
+            .accessibilityIdentifier("conn.tunnel")
+        } footer: {
+            Text("包含所有网络、本地网络、APNs、蜂窝网络服务、设备通信，兼容性增强模式和 FaceTime 走代理。")
         }
         .listRowBackground(Theme.card)
     }
@@ -420,12 +411,7 @@ struct ConnectionView: View {
         cur.blockQUIC = o.blockQUIC
         cur.ipv6Mode = o.ipv6Mode
         cur.ipPreference = o.ipPreference
-        cur.includeAllNetworks = o.includeAllNetworks
-        cur.excludeLocalNetworks = o.excludeLocalNetworks
-        cur.excludeAPNs = o.excludeAPNs
-        cur.excludeCellularServices = o.excludeCellularServices
-        cur.excludeDeviceCommunication = o.excludeDeviceCommunication
-        cur.faceTimeProxy = o.faceTimeProxy
+        // feat/tunnel-include-options: the tunnel scope switches (and FaceTime 走代理) are saved by 高级设置 → 隧道.
         cur.includedRoutes = o.includedRoutes
         cur.excludedRoutes = o.excludedRoutes
         cur.skipProxy = o.skipProxy
@@ -434,6 +420,7 @@ struct ConnectionView: View {
         cur.lanAuth = CoreOverrides.LanAuth(username: o.lanAuth.username.trimmingCharacters(in: .whitespaces), password: o.lanAuth.password)
         cur.lanUsers = o.lanUsers // v0.19 局域网多用户 (was not saved)
         cur.stunDropDirect = o.stunDropDirect
+        cur.blockWebRTC = o.blockWebRTC
         cur.udpFallback = o.udpFallback
         cur.notDefaultRoute = o.notDefaultRoute
         cur.hideVPNIcon = o.hideVPNIcon
@@ -455,16 +442,11 @@ struct ConnectionView: View {
         // Needs a new tunnel (network settings / VPN configuration) vs. a core reload.
         let reconnect = old.tunnelMode != cur.tunnelMode || old.ipv6Mode != cur.ipv6Mode || old.includedRoutes != cur.includedRoutes
             || old.excludedRoutes != cur.excludedRoutes || old.skipProxy != cur.skipProxy
-            || old.includeAllNetworks != cur.includeAllNetworks || old.excludeLocalNetworks != cur.excludeLocalNetworks
-            || old.excludeAPNs != cur.excludeAPNs || old.excludeCellularServices != cur.excludeCellularServices
-            || old.excludeDeviceCommunication != cur.excludeDeviceCommunication || old.faceTimeProxy != cur.faceTimeProxy
             || old.notDefaultRoute != cur.notDefaultRoute || old.hideVPNIcon != cur.hideVPNIcon || old.dnsHijack != cur.dnsHijack
-        // tunnelMode too: 仅代理 never carries includeAllNetworks (VPNManager.applyScope).
+        // 仅代理 never carries includeAllNetworks / enforceRoutes (VPNManager.applyScope); the scope switches
+        // themselves are applied by 高级设置 → 隧道.
         let scopeChanged = old.tunnelMode != cur.tunnelMode
-            || old.includeAllNetworks != cur.includeAllNetworks || old.excludeLocalNetworks != cur.excludeLocalNetworks
-            || old.excludeAPNs != cur.excludeAPNs || old.excludeCellularServices != cur.excludeCellularServices
-            || old.excludeDeviceCommunication != cur.excludeDeviceCommunication || old.faceTimeProxy != cur.faceTimeProxy
-        let reload = old.blockQUIC != cur.blockQUIC || old.stunDropDirect != cur.stunDropDirect || old.udpFallback != cur.udpFallback
+        let reload = old.blockQUIC != cur.blockQUIC || old.stunDropDirect != cur.stunDropDirect || old.blockWebRTC != cur.blockWebRTC || old.udpFallback != cur.udpFallback
             || old.ipPreference != cur.ipPreference || old.lanLocalOnly != cur.lanLocalOnly || old.lanAuth != cur.lanAuth || old.lanUsers != cur.lanUsers
         let settings = onDemand
         Task {

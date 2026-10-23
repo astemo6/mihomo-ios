@@ -258,11 +258,16 @@ struct CoreOverrides: Codable, Equatable {
     /// 阻止 QUIC: "off" · "nondirect" (default, v0.6.1 behaviour) · "always".
     var blockQUIC: String = "nondirect"
     /// Tunnel scope (NETunnelProviderProtocol), applied to the VPN configuration by the app.
+    /// feat/tunnel-include-options: 高级设置 → 隧道 shows the exclude* switches as their inverse (包含本地网络 /
+    /// 包含 APNs / 包含蜂窝网络服务 / 包含设备通信), so the stored keys and their values carry over unchanged.
+    /// The switches keep each other consistent through the set… helpers below (includeAll ⇄ enforceRoutes, APNs).
     var includeAllNetworks: Bool = false
     var excludeLocalNetworks: Bool = true
     var excludeAPNs: Bool = true
     var excludeCellularServices: Bool = true
     var excludeDeviceCommunication: Bool = true
+    /// 兼容性增强模式 (NEVPNProtocol.enforceRoutes): split routes enforced; never together with includeAllNetworks.
+    var enforceRoutes: Bool = false
     /// User 2026-10-22 「加一个功能开关，打开后 FaceTime 就能走代理」: forces includeAllNetworks on and APNs into the
     /// tunnel (VPNManager.applyScope), and the core prepends FaceTime / APNs rules to the proxy group (bridge facetime.go).
     var faceTimeProxy: Bool = false
@@ -285,6 +290,9 @@ struct CoreOverrides: Codable, Equatable {
     /// 直连时丢弃 STUN: UDP to STUN ports (3478/3479/5349/5350/19302–19309) that the rules send DIRECT is rejected
     /// (bridge netextras.go stunDropRule).
     var stunDropDirect: Bool = false
+    /// 阻止 WebRTC: every STUN / TURN UDP (same ports as 直连时丢弃 STUN) is rejected whatever the policy; Apple
+    /// destinations (FaceTime) are exempt. Supersedes 直连时丢弃 STUN while on (bridge netextras.go).
+    var blockWebRTC: Bool = false
     /// UDP 回落: "direct" (mihomo: UDP whose policy has no UDP support ends on DIRECT) · "reject".
     var udpFallback: String = "direct"
     /// 不作为默认路由: the tunnel only takes the Fake-IP range and the non-default 接管的路由 (PacketTunnelProvider).
@@ -401,10 +409,10 @@ struct CoreOverrides: Codable, Equatable {
         case testURL, testTimeoutMs, overrideHealthCheck
         case includedRoutes, excludedRoutes, skipProxy, blockQUIC
         case includeAllNetworks, excludeLocalNetworks, excludeAPNs, excludeCellularServices, excludeDeviceCommunication
-        case faceTimeProxy
+        case enforceRoutes, faceTimeProxy
         case lanAuth, lanLocalOnly, ipv6Mode, ipPreference
         case flushDNSOnNetworkChange, lanUsers
-        case stunDropDirect, udpFallback, notDefaultRoute, hideVPNIcon, dnsHijack, directTestURL, tcpHandshakeDelay
+        case stunDropDirect, blockWebRTC, udpFallback, notDefaultRoute, hideVPNIcon, dnsHijack, directTestURL, tcpHandshakeDelay
     }
 
     init(from decoder: Decoder) throws {
@@ -444,6 +452,7 @@ struct CoreOverrides: Codable, Equatable {
         excludeAPNs = get(.excludeAPNs, d.excludeAPNs)
         excludeCellularServices = get(.excludeCellularServices, d.excludeCellularServices)
         excludeDeviceCommunication = get(.excludeDeviceCommunication, d.excludeDeviceCommunication)
+        enforceRoutes = get(.enforceRoutes, d.enforceRoutes)
         faceTimeProxy = get(.faceTimeProxy, d.faceTimeProxy)
         lanAuth = get(.lanAuth, d.lanAuth)
         lanLocalOnly = get(.lanLocalOnly, d.lanLocalOnly)
@@ -454,6 +463,7 @@ struct CoreOverrides: Codable, Equatable {
         flushDNSOnNetworkChange = get(.flushDNSOnNetworkChange, d.flushDNSOnNetworkChange)
         lanUsers = get(.lanUsers, d.lanUsers)
         stunDropDirect = get(.stunDropDirect, d.stunDropDirect)
+        blockWebRTC = get(.blockWebRTC, d.blockWebRTC)
         udpFallback = get(.udpFallback, d.udpFallback)
         if udpFallback != "reject" { udpFallback = d.udpFallback }
         notDefaultRoute = get(.notDefaultRoute, d.notDefaultRoute)
@@ -923,5 +933,47 @@ enum NetIPv6 {
             return true
         }
         return false
+    }
+}
+
+// MARK: 高级设置 → 隧道 (feat/tunnel-include-options)
+
+/// The 隧道 switches and how they keep each other consistent (modeled on the reference app's 高级设置 → 隧道):
+/// 包含所有网络 on → 兼容性增强模式 off; 包含所有网络 off → 包含 APNs off; 包含 APNs on → 包含所有网络 on;
+/// 兼容性增强模式 on → 包含所有网络 and 包含 APNs off. FaceTime 走代理 implies 包含所有网络 (VPNManager
+/// effectiveIncludeAll), so it counts as on for the APNs rule and also turns 兼容性增强模式 off.
+extension CoreOverrides {
+    /// 包含所有网络 as the 隧道 page shows it (FaceTime 走代理 forces it on).
+    var includeAllShown: Bool { includeAllNetworks || faceTimeProxy }
+    var includeLocalNetworks: Bool { !excludeLocalNetworks }
+    /// 包含 APNs only means something while every network is in the tunnel.
+    var includeAPNs: Bool { !excludeAPNs && includeAllShown }
+    var includeCellularServices: Bool { !excludeCellularServices }
+    var includeDeviceCommunication: Bool { !excludeDeviceCommunication }
+
+    mutating func setIncludeAllNetworks(_ on: Bool) {
+        includeAllNetworks = on
+        if on { enforceRoutes = false } else if !faceTimeProxy { excludeAPNs = true }
+    }
+
+    mutating func setIncludeAPNs(_ on: Bool) {
+        excludeAPNs = !on
+        if on {
+            includeAllNetworks = true
+            enforceRoutes = false
+        }
+    }
+
+    mutating func setEnforceRoutes(_ on: Bool) {
+        enforceRoutes = on
+        if on {
+            includeAllNetworks = false
+            if !faceTimeProxy { excludeAPNs = true }
+        }
+    }
+
+    mutating func setFaceTimeProxy(_ on: Bool) {
+        faceTimeProxy = on
+        if on { enforceRoutes = false } else if !includeAllNetworks { excludeAPNs = true }
     }
 }

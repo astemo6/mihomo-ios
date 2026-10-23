@@ -98823,6 +98823,846 @@
           }
         }
       }
+    },
+    "「FaceTime 走代理」开启时始终包含所有网络。": {
+      "extractionState": "manual",
+      "localizations": {
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "「FaceTime 走代理」開啟時始終包含所有網路。"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Always on while “Route FaceTime via proxy” is on."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "「FaceTime をプロキシ経由」がオンの間は常にすべてのネットワークを含めます。"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "「FaceTime 프록시 경유」가 켜져 있으면 항상 모든 네트워크를 포함합니다."
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Пока включено «FaceTime через прокси», все сети включаются всегда."
+          }
+        }
+      }
+    },
+    "「排除的路由」里仍有私有网段，这些地址的流量不会进入隧道。": {
+      "extractionState": "manual",
+      "localizations": {
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "「排除的路由」裡仍有私有網段，這些地址的流量不會進入隧道。"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "“Excluded Routes” still contain private ranges; traffic to those addresses stays out of the tunnel."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "「除外ルート」にまだプライベートアドレス帯があり、これらのアドレスへの通信はトンネルに入りません。"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "「제외 경로」에 아직 사설 대역이 있어 해당 주소로 가는 트래픽은 터널로 들어가지 않습니다."
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "В «Исключённых маршрутах» ещё есть частные диапазоны — трафик к этим адресам не пойдёт в туннель."
+          }
+        }
+      }
+    },
+    "使用拆分路由改善 Tern 连接期间的 HomeKit 实时视频兼容性；开启时会关闭「包含所有网络」和「包含 APNs」。": {
+      "extractionState": "manual",
+      "localizations": {
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "使用拆分路由改善 Tern 連線期間的 HomeKit 即時影像相容性；開啟時會關閉「包含所有網路」和「包含 APNs」。"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Uses split routes to improve HomeKit live video compatibility while Tern is connected. Turning it on turns off “Include All Networks” and “Include APNs”."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "分割ルートを使い、Tern 接続中の HomeKit ライブビデオの互換性を高めます。オンにすると「すべてのネットワークを含める」と「APNs を含める」がオフになります。"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "분할 경로를 사용해 Tern 연결 중 HomeKit 실시간 영상 호환성을 높입니다. 켜면 「모든 네트워크 포함」과 「APNs 포함」이 꺼집니다."
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Использует раздельные маршруты, чтобы улучшить совместимость с видео HomeKit в реальном времени при подключённом Tern. Включение выключает «Включать все сети» и «Включать APNs»."
+          }
+        }
+      }
+    },
+    "兼容性增强模式": {
+      "extractionState": "manual",
+      "localizations": {
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "相容性增強模式"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Enhanced Compatibility Mode"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "互換性強化モード"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "호환성 향상 모드"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Режим повышенной совместимости"
+          }
+        }
+      }
+    },
+    "包含 APNs": {
+      "extractionState": "manual",
+      "localizations": {
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "包含 APNs"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Include APNs"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "APNs を含める"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "APNs 포함"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Включать APNs"
+          }
+        }
+      }
+    },
+    "包含所有网络": {
+      "extractionState": "manual",
+      "localizations": {
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "包含所有網路"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Include All Networks"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "すべてのネットワークを含める"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "모든 네트워크 포함"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Включать все сети"
+          }
+        }
+      }
+    },
+    "包含所有网络、本地网络、APNs、蜂窝网络服务、设备通信，兼容性增强模式和 FaceTime 走代理。": {
+      "extractionState": "manual",
+      "localizations": {
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "包含所有網路、本地網路、APNs、蜂窩網路服務、裝置通訊，相容性增強模式和 FaceTime 走代理。"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Include all networks, local networks, APNs, cellular services and device communication; Enhanced Compatibility Mode and Route FaceTime via proxy."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "すべてのネットワーク、ローカルネットワーク、APNs、モバイル通信サービス、デバイス間通信を含めるかどうか、互換性強化モード、FaceTime をプロキシ経由。"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "모든 네트워크, 로컬 네트워크, APNs, 셀룰러 서비스, 기기 간 통신 포함 여부, 호환성 향상 모드, FaceTime 프록시 경유."
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Включение всех сетей, локальных сетей, APNs, сотовых служб и связи с устройствами; режим повышенной совместимости и FaceTime через прокси."
+          }
+        }
+      }
+    },
+    "包含本地网络": {
+      "extractionState": "manual",
+      "localizations": {
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "包含本地網路"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Include Local Networks"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ローカルネットワークを含める"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "로컬 네트워크 포함"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Включать локальные сети"
+          }
+        }
+      }
+    },
+    "包含蜂窝网络服务": {
+      "extractionState": "manual",
+      "localizations": {
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "包含蜂窩網路服務"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Include Cellular Services"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "モバイル通信サービスを含める"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "셀룰러 서비스 포함"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Включать сотовые службы"
+          }
+        }
+      }
+    },
+    "包含设备通信": {
+      "extractionState": "manual",
+      "localizations": {
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "包含裝置通訊"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Include Device Communication"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "デバイス間通信を含める"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "기기 간 통신 포함"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Включать связь с устройствами"
+          }
+        }
+      }
+    },
+    "已保存。隧道设置在重新连接后生效。": {
+      "extractionState": "manual",
+      "localizations": {
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "已儲存。隧道設定在重新連線後生效。"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Saved. Tunnel settings apply after reconnecting."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "保存しました。トンネルの設定は再接続後に反映されます。"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "저장했습니다. 터널 설정은 다시 연결한 뒤 적용됩니다."
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Сохранено. Настройки туннеля вступят в силу после переподключения."
+          }
+        }
+      }
+    },
+    "开启「包含所有网络」时，Apple 推送通知（APNs）默认不经过 Tern；开启本选项后改为按规则分流，通知可能延迟。开启时会同时开启「包含所有网络」。": {
+      "extractionState": "manual",
+      "localizations": {
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "開啟「包含所有網路」時，Apple 推送通知（APNs）預設不經過 Tern；開啟本選項後改為按規則分流，通知可能延遲。開啟時會同時開啟「包含所有網路」。"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "With “Include All Networks” on, Apple push notifications (APNs) bypass Tern by default; with this option on they follow your rules instead, and notifications may be delayed. Turning it on also turns on “Include All Networks”."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "「すべてのネットワークを含める」がオンのとき、Apple のプッシュ通知（APNs）は既定で Tern を通りません。このオプションをオンにするとルールに従って振り分けられ、通知が遅れることがあります。オンにすると「すべてのネットワークを含める」もオンになります。"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "「모든 네트워크 포함」이 켜져 있으면 Apple 푸시 알림(APNs)은 기본적으로 Tern을 거치지 않습니다. 이 옵션을 켜면 규칙에 따라 분류되며 알림이 지연될 수 있습니다. 켜면 「모든 네트워크 포함」도 함께 켜집니다."
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "При включённом «Включать все сети» push-уведомления Apple (APNs) по умолчанию идут мимо Tern; с этим параметром они направляются по правилам, и уведомления могут задерживаться. Включение также включает «Включать все сети»."
+          }
+        }
+      }
+    },
+    "开启后可能导致 Tern 连接或重连失败，以及更新 Tern 时卡住（更新前请先断开）；开启时会关闭「兼容性增强模式」，关闭时也会关闭「包含 APNs」。": {
+      "extractionState": "manual",
+      "localizations": {
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "開啟後可能導致 Tern 連線或重連失敗，以及更新 Tern 時卡住（更新前請先斷開）；開啟時會關閉「相容性增強模式」，關閉時也會關閉「包含 APNs」。"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "When on, Tern may fail to connect or reconnect, and updating Tern may get stuck (disconnect before updating). Turning it on turns off “Enhanced Compatibility Mode”; turning it off also turns off “Include APNs”."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "オンにすると Tern の接続や再接続に失敗したり、Tern のアップデートが止まったりすることがあります（アップデート前に切断してください）。オンにすると「互換性強化モード」がオフに、オフにすると「APNs を含める」もオフになります。"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "켜면 Tern 연결 또는 재연결이 실패하거나 Tern 업데이트가 멈출 수 있습니다(업데이트 전에 연결을 끊으세요). 켜면 「호환성 향상 모드」가 꺼지고, 끄면 「APNs 포함」도 꺼집니다."
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Когда включено, Tern может не подключиться или не переподключиться, а обновление Tern может зависнуть (перед обновлением отключитесь). Включение выключает «Режим повышенной совместимости», выключение также выключает «Включать APNs»."
+          }
+        }
+      }
+    },
+    "开启后自动包含所有网络，并把 FaceTime 的音视频（UDP 3478–3497 / 16384–16402）交给主代理组，节点需要支持 UDP。来电响铃走 Apple 推送：「包含 APNs」关闭时这部分直连，开启则也走代理。开启时会关闭「兼容性增强模式」。": {
+      "extractionState": "manual",
+      "localizations": {
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "開啟後自動包含所有網路，並把 FaceTime 的音視訊（UDP 3478–3497 / 16384–16402）交給主代理組，節點需要支援 UDP。來電響鈴走 Apple 推送：「包含 APNs」關閉時這部分直連，開啟則也走代理。開啟時會關閉「相容性增強模式」。"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "When on, all networks are included and FaceTime audio and video (UDP 3478–3497 / 16384–16402) go to the main proxy group; the node must support UDP. Ringing uses Apple push: direct while “Include APNs” is off, through the proxy when it is on. Turning it on turns off “Enhanced Compatibility Mode”."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "オンにするとすべてのネットワークを含め、FaceTime の音声・ビデオ（UDP 3478–3497 / 16384–16402）をメインのプロキシグループへ送ります。ノードは UDP 対応が必要です。着信は Apple のプッシュを使い、「APNs を含める」がオフなら直接、オンならプロキシ経由になります。オンにすると「互換性強化モード」がオフになります。"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "켜면 모든 네트워크를 포함하고 FaceTime 음성·영상(UDP 3478–3497 / 16384–16402)을 기본 프록시 그룹으로 보냅니다. 노드가 UDP를 지원해야 합니다. 수신 벨은 Apple 푸시를 사용하며, 「APNs 포함」이 꺼져 있으면 직접 연결되고 켜져 있으면 프록시를 거칩니다. 켜면 「호환성 향상 모드」가 꺼집니다."
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Когда включено, все сети включаются в туннель, а аудио и видео FaceTime (UDP 3478–3497 / 16384–16402) идут в основную группу прокси; узел должен поддерживать UDP. Звонок приходит через push Apple: напрямую, пока «Включать APNs» выключено, и через прокси, если включено. Включение выключает «Режим повышенной совместимости»."
+          }
+        }
+      }
+    },
+    "开启后，VoLTE、Wi-Fi 通话、彩信、可视语音信箱等蜂窝服务的流量会进入 Tern 隧道。": {
+      "extractionState": "manual",
+      "localizations": {
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "開啟後，VoLTE、Wi-Fi 通話、彩信、可視語音信箱等蜂窩服務的流量會進入 Tern 隧道。"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "When on, traffic of cellular services such as VoLTE, Wi-Fi Calling, MMS and Visual Voicemail goes into the Tern tunnel."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "オンにすると、VoLTE、Wi-Fi 通話、MMS、視覚的ボイスメールなどのモバイル通信サービスの通信が Tern のトンネルに入ります。"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "켜면 VoLTE, Wi-Fi 통화, MMS, 시각적 음성 사서함 등 셀룰러 서비스의 트래픽이 Tern 터널로 들어갑니다."
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Когда включено, трафик сотовых служб — VoLTE, вызовов по Wi-Fi, MMS, визуальной голосовой почты и т. п. — идёт в туннель Tern."
+          }
+        }
+      }
+    },
+    "开启后，与通过 USB 或 Wi-Fi 连接的设备之间的通信会进入 Tern 隧道。": {
+      "extractionState": "manual",
+      "localizations": {
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "開啟後，與透過 USB 或 Wi-Fi 連線的裝置之間的通訊會進入 Tern 隧道。"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "When on, communication with devices connected over USB or Wi-Fi goes into the Tern tunnel."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "オンにすると、USB または Wi-Fi で接続したデバイスとの通信が Tern のトンネルに入ります。"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "켜면 USB 또는 Wi-Fi로 연결된 기기와의 통신이 Tern 터널로 들어갑니다."
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Когда включено, связь с устройствами, подключёнными по USB или Wi-Fi, идёт в туннель Tern."
+          }
+        }
+      }
+    },
+    "开启后，发往路由器、NAS、打印机等本地网络地址的流量会进入 Tern 隧道。「排除的路由」优先生效，且默认已包含各私有网段，需在 连接方式 → 路由 →「排除的路由」中一并移除对应的条目。": {
+      "extractionState": "manual",
+      "localizations": {
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "開啟後，發往路由器、NAS、印表機等本地網路地址的流量會進入 Tern 隧道。「排除的路由」優先生效，且預設已包含各私有網段，需在 連線方式 → 路由 →「排除的路由」中一併移除對應的條目。"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "When on, traffic to local network addresses such as your router, NAS or printer goes into the Tern tunnel. “Excluded Routes” take precedence and include the private ranges by default, so also remove the matching entries in Connection Method → Routes → “Excluded Routes”."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "オンにすると、ルーター、NAS、プリンターなどローカルネットワークのアドレスへの通信が Tern のトンネルに入ります。「除外ルート」が優先され、既定でプライベートアドレス帯が含まれているため、接続方式 → ルート →「除外ルート」から該当する項目も削除してください。"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "켜면 라우터, NAS, 프린터 등 로컬 네트워크 주소로 가는 트래픽이 Tern 터널로 들어갑니다. 「제외 경로」가 우선 적용되며 기본적으로 사설 대역이 들어 있으므로, 연결 방식 → 경로 → 「제외 경로」에서 해당 항목도 함께 삭제하세요."
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Когда включено, трафик к адресам локальной сети (роутер, NAS, принтер и т. п.) идёт в туннель Tern. «Исключённые маршруты» имеют приоритет и по умолчанию содержат частные диапазоны — удалите соответствующие записи в «Способ подключения» → «Маршруты» → «Исключённые маршруты»."
+          }
+        }
+      }
+    },
+    "当前为「仅代理」模式：以下选项在 TUN 或 VPN 混合模式下生效。": {
+      "extractionState": "manual",
+      "localizations": {
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "當前為「僅代理」模式：以下選項在 TUN 或 VPN 混合模式下生效。"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "You're in “Proxy Only” mode: the options below take effect in TUN or VPN Mixed mode."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "現在は「プロキシのみ」モードです。以下のオプションは TUN または VPN 混合モードで有効になります。"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "현재 「프록시만」 모드입니다. 아래 옵션은 TUN 또는 VPN 혼합 모드에서 적용됩니다."
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Сейчас режим «Только прокси»: параметры ниже действуют в режиме TUN или «VPN смешанный»."
+          }
+        }
+      }
+    },
+    "直连时丢弃 STUN：已包含在「阻止 WebRTC」中。": {
+      "extractionState": "manual",
+      "localizations": {
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "直連時丟棄 STUN：已包含在「阻止 WebRTC」中。"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Drop STUN When Direct: included in “Block WebRTC”."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "直接接続時に STUN を破棄：「WebRTC をブロック」に含まれています。"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "직접 연결 시 STUN 차단: 「WebRTC 차단」에 포함되어 있습니다."
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Отбрасывать STUN при прямом подключении: входит в «Блокировать WebRTC»."
+          }
+        }
+      }
+    },
+    "直连时丢弃 STUN：规则最终走直连的 STUN 请求（UDP 3478、3479、5349、19302 等端口）被拒绝，网页的 WebRTC 不会经直连暴露本机 IP；走代理的照常。发往 Apple 的 FaceTime 请求不受影响。": {
+      "extractionState": "manual",
+      "localizations": {
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "直連時丟棄 STUN：規則最終走直連的 STUN 請求（UDP 3478、3479、5349、19302 等埠）被拒絕，網頁的 WebRTC 不會經直連暴露本機 IP；走代理的照常。發往 Apple 的 FaceTime 請求不受影響。"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Drop STUN When Direct: STUN requests (UDP ports 3478, 3479, 5349, 19302 and similar) that the rules end up sending direct are rejected, so WebRTC in web pages can't reveal this device's IP over a direct connection; STUN through a proxy works as usual. FaceTime requests to Apple are not affected."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "直接接続時に STUN を破棄：ルールの結果が直接接続になる STUN リクエスト（UDP 3478、3479、5349、19302 などのポート）を拒否し、Web ページの WebRTC が直接接続でこの端末の IP を漏らさないようにします。プロキシ経由のものは通常どおりです。Apple への FaceTime のリクエストには影響しません。"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "직접 연결 시 STUN 차단: 규칙에 따라 최종적으로 직접 연결되는 STUN 요청(UDP 3478, 3479, 5349, 19302 등 포트)을 거부하여 웹 페이지의 WebRTC가 직접 연결로 이 기기의 IP를 노출하지 않게 합니다. 프록시를 거치는 요청은 그대로입니다. Apple로 가는 FaceTime 요청은 영향을 받지 않습니다."
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Отбрасывать STUN при прямом подключении: STUN-запросы (UDP-порты 3478, 3479, 5349, 19302 и т. п.), которые по правилам в итоге идут напрямую, отклоняются, и WebRTC на веб-страницах не раскроет IP устройства через прямое подключение; STUN через прокси работает как обычно. Запросы FaceTime к Apple не затрагиваются."
+          }
+        }
+      }
+    },
+    "阻止 WebRTC": {
+      "extractionState": "manual",
+      "localizations": {
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "阻止 WebRTC"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Block WebRTC"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "WebRTC をブロック"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "WebRTC 차단"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Блокировать WebRTC"
+          }
+        }
+      }
+    },
+    "阻止 WebRTC：阻止 STUN/TURN 打洞，防止 App 在未经允许时把你的设备当作 PCDN 节点，并防止网页 WebRTC 泄露 IP；部分网页会议、P2P 传输可能改走中继或无法连接，FaceTime 不受影响。": {
+      "extractionState": "manual",
+      "localizations": {
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "阻止 WebRTC：阻止 STUN/TURN 打洞，防止 App 在未經允許時把你的裝置當作 PCDN 節點，並防止網頁 WebRTC 洩露 IP；部分網頁會議、P2P 傳輸可能改走中繼或無法連線，FaceTime 不受影響。"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Block WebRTC: blocks STUN/TURN hole punching, so apps can't use your device as a PCDN node without permission and WebRTC in web pages can't leak your IP. Some web meetings and P2P transfers may fall back to a relay or fail to connect; FaceTime is not affected."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "WebRTC をブロック：STUN/TURN によるホールパンチングを遮断し、App が許可なくこの端末を PCDN ノードとして使うことや、Web ページの WebRTC による IP 漏えいを防ぎます。一部の Web 会議や P2P 転送はリレー経由になるか接続できないことがあります。FaceTime には影響しません。"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "WebRTC 차단: STUN/TURN 홀 펀칭을 막아 App이 허락 없이 이 기기를 PCDN 노드로 쓰거나 웹 페이지의 WebRTC가 IP를 노출하는 것을 방지합니다. 일부 웹 회의와 P2P 전송은 릴레이를 거치거나 연결되지 않을 수 있으며, FaceTime은 영향을 받지 않습니다."
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Блокировать WebRTC: блокирует пробивку NAT через STUN/TURN, чтобы приложения без разрешения не делали устройство узлом PCDN, а WebRTC на веб-страницах не раскрывал ваш IP. Некоторые веб-конференции и P2P-передачи могут пойти через ретранслятор или не подключиться; FaceTime не затрагивается."
+          }
+        }
+      }
+    },
+    "隧道": {
+      "extractionState": "manual",
+      "localizations": {
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "隧道"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Tunnel"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "トンネル"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "터널"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Туннель"
+          }
+        }
+      }
+    },
+    "需先关闭「FaceTime 走代理」。": {
+      "extractionState": "manual",
+      "localizations": {
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "需先關閉「FaceTime 走代理」。"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Turn off “Route FaceTime via proxy” first."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "先に「FaceTime をプロキシ経由」をオフにしてください。"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "먼저 「FaceTime 프록시 경유」를 끄세요."
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Сначала выключите «FaceTime через прокси»."
+          }
+        }
+      }
     }
   },
   "version": "1.0"
