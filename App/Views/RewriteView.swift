@@ -278,7 +278,7 @@ struct RewriteView: View {
                         HStack(spacing: 6) {
                             GalleryChip(title: String(localized: "全部"), selected: categoryFilter.isEmpty) { categoryFilter = "" }
                             ForEach(cats, id: \.self) { c in
-                                GalleryChip(title: c, selected: categoryFilter == c) { categoryFilter = categoryFilter == c ? "" : c }
+                                GalleryChip(title: ModuleGallery.categoryTitle(c), selected: categoryFilter == c) { categoryFilter = categoryFilter == c ? "" : c }
                             }
                         }
                         .padding(.vertical, 2)
@@ -299,7 +299,7 @@ struct RewriteView: View {
                 .accessibilityIdentifier("rewrite.subs.header")
             } footer: {
                 VStack(alignment: .leading, spacing: 4) {
-                    Text("Surge 模块、Loon 插件、QX 引用（rewrite_remote）、Stash 覆写和 Egern 模块都是订阅，角标显示格式。轻点编辑；右滑更新，左滑删除或关闭；开关启用或关闭；长按查看全部操作。订阅引用的远程脚本和规则集随它一起更新。")
+                    Text("Surge 模块、Loon 插件、QX 引用（rewrite_remote）、Stash 覆写和 Egern 模块都是订阅，角标显示格式。轻点编辑；右滑更新，左滑删除或编辑；开关启用或关闭；长按查看全部操作。订阅引用的远程脚本和规则集随它一起更新。")
                     Text("订阅按列表顺序生效：越靠上越先匹配。在 ⋯ 里选「调整顺序」后拖动排序（搜索或筛选分类时不能排序）。")
                 }
                 .modifier(UITestOrderValue(id: "rewrite.subs.order", order: store.config.modules.map(\.name).joined(separator: " | ")))

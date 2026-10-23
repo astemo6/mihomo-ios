@@ -9,7 +9,7 @@ extension MihomoUITests {
     func test40_FilterRenameAndIcon() {
         launch()
         openMore("节点与订阅")
-        XCTAssertTrue(tapIfExists(app.element(label: L("筛选节点")), timeout: 8), "筛选节点")
+        XCTAssertTrue(openNodeFilters(), "筛选节点")
         let jp = app.element(id: "filter.JP")
         XCTAssertTrue(jp.waitForExistence(timeout: 8), "JP filter")
         jp.swipeLeft()
@@ -32,7 +32,7 @@ extension MihomoUITests {
         snap("v0198-filter-renamed")
         // Reopen: both kept.
         back()
-        XCTAssertTrue(tapIfExists(app.element(label: L("筛选节点")), timeout: 8))
+        XCTAssertTrue(openNodeFilters())
         XCTAssertTrue(app.element(labelContains: "JP Icon").waitForExistence(timeout: 6), "rename kept")
         XCTAssertTrue(app.element(labelContains: "🎯").exists, "icon kept")
         assertAlive("filter rename + icon")

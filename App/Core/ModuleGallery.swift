@@ -249,6 +249,26 @@ final class ModuleGallery: ObservableObject {
         return out.sorted { ($0.category, $0.name.localizedLowercase) < ($1.category, $1.name.localizedLowercase) }
     }
 
+    /// v0.19.22: a category as shown (chips, section headers). Hub indexes (可莉插件中心 list.json, Loon hubs) tag
+    /// modules with Chinese category names; the common ones are translated, anything else is shown as the index
+    /// wrote it. Display only — filtering keeps comparing the stored value.
+    nonisolated static func categoryTitle(_ raw: String) -> String {
+        switch raw.trimmingCharacters(in: .whitespaces) {
+        case "去广告": return String(localized: "去广告")
+        case "功能增强": return String(localized: "功能增强")
+        case "配置管理": return String(localized: "配置管理")
+        case "数据管理": return String(localized: "数据管理")
+        case "签到": return String(localized: "签到")
+        case "资源转换": return String(localized: "资源转换")
+        case "订阅管理": return String(localized: "订阅管理")
+        case "节点检测": return String(localized: "节点检测")
+        case "定时任务": return String(localized: "定时任务")
+        case "依赖": return String(localized: "依赖")
+        case "工具": return String(localized: "工具")
+        default: return raw
+        }
+    }
+
     nonisolated static func parseJSON(_ data: Data, base: URL) -> [GalleryItem]? {
         guard let obj = try? JSONSerialization.jsonObject(with: data) else { return nil }
         var out: [GalleryItem] = []

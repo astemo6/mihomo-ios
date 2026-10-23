@@ -370,10 +370,28 @@ final class MihomoUITests: MihomoUITestCase {
                                                    ("AmneziaWG", "UITest AWG", "192.0.2.72"),
                                                    ("Hysteria2", "UITest Hy2 Form", "192.0.2.73"),
                                                    ("Sudoku", "UITest Sudoku", "192.0.2.74")]
+        func openAddNode() {
+            tab(3)
+            let row = app.element(id: "more.节点与订阅")
+            XCTAssertTrue(scrollTo(row))
+            row.tap()
+            XCTAssertTrue(tapIfExists(app.element(id: "nodes.add"), timeout: 8), "+")
+            XCTAssertTrue(tapIfExists(app.button(L("添加节点")), timeout: 4), "添加节点 in the + menu")
+            XCTAssertTrue(app.navigationBars[L("添加节点")].waitForExistence(timeout: 8))
+        }
         for (i, e) in editors.enumerated() {
+            // v0.19.22 (rowh en-dark): once, after saving the AmneziaWG editor the app was back on 首页 with the
+            // 添加节点 sheet gone (see work/ci-logs). Note it and reopen instead of failing every later editor.
+            if !app.navigationBars[L("添加节点")].waitForExistence(timeout: 2) {
+                warnings.append("[\(Env.tag)] 添加节点 sheet gone before editor \(e.0) (tab \(app.tabBars.buttons.allElementsBoundByIndex.firstIndex(where: { $0.isSelected }) ?? -1))")
+                snap(String(format: "editor-%d-sheet-gone", i))
+                openAddNode()
+            }
             let r = app.buttons[e.0]
             guard scrollTo(r) else { continue }
+            usleep(500_000) // let the scroll settle: a tap during deceleration only stops it
             r.tap()
+            if !app.navigationBars[L("添加节点")].buttons[L("保存")].waitForExistence(timeout: 3), r.exists, r.isHittable { r.tap() }
             XCTAssertTrue(app.navigationBars[L("添加节点")].waitForExistence(timeout: 6), "editor \(e.0)")
             snap(String(format: "editor-%d-top", i))
             fill(L("名称"), e.1)
@@ -613,6 +631,9 @@ final class MihomoUITests: MihomoUITestCase {
     func switchValue(_ sw: XCUIElement) -> String { (sw.value as? String) ?? "" }
 
     func toggleSwitch(_ sw: XCUIElement) {
+        // v0.19.22 (test09 zh-light-1): a switch scrolled to the bottom edge sat under the tab bar; the tap went to
+        // the 更多 tab and popped the page.
+        clearOfTabBar(sw)
         sw.coordinate(withNormalizedOffset: CGVector(dx: 0.93, dy: 0.5)).tap()
     }
 
@@ -726,7 +747,7 @@ final class MihomoUITests: MihomoUITestCase {
     func test11_RegionFilters() {
         launch(["-UITestMissingFlags", "TW"])
         openMore("节点与订阅")
-        XCTAssertTrue(tapIfExists(app.element(label: L("筛选节点")), timeout: 8))
+        XCTAssertTrue(openNodeFilters())
         let jp = app.element(id: "filter.JP")
         XCTAssertTrue(jp.waitForExistence(timeout: 8), "JP filter")
         // 🇹🇼 drawn as a letter badge when the system cannot draw it.
@@ -764,7 +785,7 @@ final class MihomoUITests: MihomoUITestCase {
 
         // Leave and reopen: kept; 策略 shows the renamed group.
         back()
-        XCTAssertTrue(tapIfExists(app.element(label: L("筛选节点")), timeout: 8))
+        XCTAssertTrue(openNodeFilters())
         XCTAssertTrue(app.element(labelContains: "JP Group 2").waitForExistence(timeout: 6), "filter kept after reopening")
         for _ in 0..<3 where !app.navigationBars[L("更多")].exists { back() }
         tab(1)
@@ -774,7 +795,7 @@ final class MihomoUITests: MihomoUITestCase {
         // New filter via +
         tab(4)
         openMore("节点与订阅")
-        XCTAssertTrue(tapIfExists(app.element(label: L("筛选节点")), timeout: 8))
+        XCTAssertTrue(openNodeFilters())
         XCTAssertTrue(tapIfExists(app.element(id: "filters.add"), timeout: 4), "+")
         let n2 = app.textFields.matching(identifier: "filter.name").firstMatch
         XCTAssertTrue(n2.waitForExistence(timeout: 5))
@@ -790,7 +811,7 @@ final class MihomoUITests: MihomoUITestCase {
     func test12_FilterSources() {
         launch()
         openMore("节点与订阅")
-        XCTAssertTrue(tapIfExists(app.element(label: L("筛选节点")), timeout: 8))
+        XCTAssertTrue(openNodeFilters())
         XCTAssertTrue(tapIfExists(app.element(id: "filters.add"), timeout: 4), "+")
         let name = app.textFields.matching(identifier: "filter.name").firstMatch
         XCTAssertTrue(name.waitForExistence(timeout: 5))
@@ -825,7 +846,7 @@ final class MihomoUITests: MihomoUITestCase {
         XCTAssertTrue(scrollTo(app.element(labelContains: "Sub Only")), "filter with sources listed")
         // Reopen: the sources were kept.
         back()
-        XCTAssertTrue(tapIfExists(app.element(label: L("筛选节点")), timeout: 8))
+        XCTAssertTrue(openNodeFilters())
         let row = app.element(labelContains: "Sub Only")
         XCTAssertTrue(scrollTo(row), "kept after reopening")
         row.press(forDuration: 1.0)
@@ -1734,12 +1755,40 @@ final class MihomoUITests: MihomoUITestCase {
     // MARK: 33. v0.19.4 自定义规则 add / swipe-delete / persists; 本地模块 rewrite add / delete
 
     func swipeDelete(_ row: XCUIElement) -> Bool {
+        // v0.19.22: the row must be on screen and clear of the tab bar first — in English the 重写 footers are
+        // longer and the new local rewrite sat under the tab bar, so the swipe went to the tab bar.
+        clearOfTabBar(row)
         row.swipeLeft()
         for label in [L("删除"), "Delete", "删除"] {
             let b = app.buttons.matching(NSPredicate(format: "label == %@", label)).firstMatch
             if b.waitForExistence(timeout: 2) { b.tap(); return true }
         }
         return false
+    }
+
+    /// 节点与订阅 → 筛选节点. In English the subscription footers are longer and push the row below the fold (the
+    /// List has not built it yet / the tab bar covers it), so scroll to it first (test11 / test12 / test40 en).
+    func openNodeFilters() -> Bool {
+        let row = app.element(label: L("筛选节点"))
+        _ = row.waitForExistence(timeout: 4)
+        guard scrollTo(row, fail: false) else { return false }
+        clearOfTabBar(row)
+        guard row.exists, row.isHittable else { return false }
+        row.tap()
+        usleep(600_000)
+        return true
+    }
+
+    /// Scrolls `e` on screen and, when the tab bar covers it, drags the list up a little more.
+    func clearOfTabBar(_ e: XCUIElement) {
+        scrollTo(e, fail: false)
+        let bar = app.tabBars.firstMatch
+        for _ in 0..<4 {
+            guard e.exists, bar.exists, e.frame.maxY > bar.frame.minY - 8 else { return }
+            let start = app.coordinate(withNormalizedOffset: CGVector(dx: 0.5, dy: 0.6))
+            start.press(forDuration: 0.05, thenDragTo: app.coordinate(withNormalizedOffset: CGVector(dx: 0.5, dy: 0.35)))
+            usleep(400_000)
+        }
     }
 
     /// v0.19.8: the rule editor opens on the form; the raw line is typed in 文本模式 (segment), field id rule.text.

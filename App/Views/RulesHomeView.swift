@@ -211,7 +211,7 @@ struct RulesView: View {
             } footer: {
                 VStack(alignment: .leading, spacing: 4) {
                     Text("顺序就是匹配优先级：越靠上越先匹配。在 ⋯ 里选「调整顺序」后拖动排序（搜索时不能排序）。")
-                    Text("轻点查看内容；右滑更新，左滑删除或关闭；开关启用或关闭；长按查看全部操作。")
+                    Text("轻点查看内容；右滑更新，左滑删除或编辑；开关启用或关闭；长按查看全部操作。")
                 }
                 .modifier(UITestOrderValue(id: "rules.sets.order", order: sets.map(\.name).joined(separator: " | ")))
             }

@@ -42,7 +42,15 @@ extension MihomoUITests {
         XCTAssertTrue(app.element(labelContains: L("已关闭")).waitForExistence(timeout: 8), "row shows 已关闭")
         XCTAssertTrue(provider.waitForExistence(timeout: 4), "a disabled 节点集 stays listed")
         snap("subs-split-provider-disabled")
+        // uiaudit zh-light-3: the second long-press did not open the menu once (row redrawn as 已关闭 / near the tab
+        // bar). Bring it clear of the tab bar and retry the press once.
+        clearOfTabBar(provider)
         provider.press(forDuration: 1.3)
+        if !app.button(L("启用")).waitForExistence(timeout: 3) {
+            app.swipeDown(velocity: .slow) // dismiss whatever the press opened, if anything
+            clearOfTabBar(provider)
+            provider.press(forDuration: 1.5)
+        }
         XCTAssertTrue(tapIfExists(app.button(L("启用")), timeout: 4), "启用 from the menu")
         let enabled = XCTNSPredicateExpectation(predicate: NSPredicate(format: "exists == false"), object: app.element(labelContains: L("已关闭")))
         XCTAssertEqual(XCTWaiter().wait(for: [enabled], timeout: 8), .completed, "enabled again")

@@ -100,7 +100,7 @@ struct ModuleGalleryView: View {
                         }
                     }
                 } header: {
-                    Text(cat.isEmpty ? String(localized: "未分类") : cat) + Text(" · \(list.count)")
+                    Text(cat.isEmpty ? String(localized: "未分类") : ModuleGallery.categoryTitle(cat)) + Text(" · \(list.count)")
                 }
                 .listRowBackground(Theme.card)
             }

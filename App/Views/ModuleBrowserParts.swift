@@ -36,7 +36,7 @@ struct GalleryFilterBar: View {
                 Divider().frame(height: 16)
                 GalleryChip(title: String(localized: "全部"), selected: category.isEmpty) { category = "" }
                 ForEach(categories, id: \.self) { c in
-                    GalleryChip(title: c, selected: category == c) { category = category == c ? "" : c }
+                    GalleryChip(title: ModuleGallery.categoryTitle(c), selected: category == c) { category = category == c ? "" : c }
                 }
             }
             .padding(.vertical, 2)
