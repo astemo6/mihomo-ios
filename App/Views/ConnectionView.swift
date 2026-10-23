@@ -191,6 +191,13 @@ struct ConnectionView: View {
             Picker("按需连接", selection: $onDemand.mode) {
                 ForEach(OnDemandSettings.Mode.allCases) { Text($0.title).tag($0) }
             }
+            // fix/vpn-stays-on: with 按需连接 关闭 the tunnel is still restarted by iOS after the extension ends.
+            if onDemand.mode == .off {
+                Toggle("保持连接", isOn: $onDemand.keepAlive)
+                    .accessibilityIdentifier("conn.keepAlive")
+                Text("手动连接后，网络扩展意外退出（内存不足、崩溃）时由系统自动重新连接，App 在后台或被关闭都不影响。手动断开后不会自动连接。")
+                    .font(.caption).foregroundStyle(.secondary)
+            }
             if onDemand.mode == .always || onDemand.mode == .wifi {
                 LinesField(title: "受信任的 Wi-Fi（在这些网络下断开）", placeholder: "Home-WiFi", lines: $onDemand.trustedSSIDs)
                     .id("trusted-\(ssidAddTick)")

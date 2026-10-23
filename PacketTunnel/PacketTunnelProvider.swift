@@ -41,6 +41,11 @@ final class PacketTunnelProvider: NEPacketTunnelProvider {
         LibmihomoSetStageLog(StartupLog.url.path, TimeZone.current.secondsFromGMT())
         LibmihomoSetTimeZone(TimeZone.current.identifier, TimeZone.current.secondsFromGMT())
         StartupLog.write("startTunnel called, \(ProcessMemory.summary())")
+        // fix/vpn-stays-on: the previous tunnel's alive marker is still there = it never reached stopTunnel (jetsam /
+        // crash / power off). Recorded as 上次断开原因 so 诊断 shows why the VPN was found off.
+        if let lastAlive = TunnelStopReason.takeUnexpectedEnd() {
+            StartupLog.write("previous tunnel ended without stopTunnel (last alive \(ISO8601DateFormatter().string(from: lastAlive)))")
+        }
         // Exactly one completion, whichever comes first: core result, error, or the watchdog.
         let lock = NSLock()
         var finished = false
@@ -54,6 +59,7 @@ final class PacketTunnelProvider: NEPacketTunnelProvider {
                 StartupLog.write("FAILED: \(err.localizedDescription)")
             } else {
                 StartupLog.write("startTunnel completed OK, \(ProcessMemory.summary())")
+                TunnelStopReason.markAlive()
             }
             completionHandler(err)
         }
@@ -234,6 +240,7 @@ final class PacketTunnelProvider: NEPacketTunnelProvider {
         liveStats?.stop()
         network?.stop()
         memoryGuard?.stop()
+        TunnelStopReason.clearAlive() // fix/vpn-stays-on: a clean stop (after the traffic timer can no longer re-mark)
         LibmihomoStop()
         LibmihomoDumpDiagnostics()
         takeBridge()?.stop()
@@ -548,7 +555,10 @@ final class TrafficRecorder {
     func start() {
         let t = DispatchSource.makeTimerSource(queue: queue)
         t.schedule(deadline: .now() + .seconds(120), repeating: .seconds(120), leeway: .seconds(30))
-        t.setEventHandler { [weak self] in self?.sampleOnQueue() }
+        t.setEventHandler { [weak self] in
+            self?.sampleOnQueue()
+            TunnelStopReason.markAlive() // fix/vpn-stays-on: heartbeat for the alive marker
+        }
         t.resume()
         timer = t
     }

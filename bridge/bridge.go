@@ -579,6 +579,10 @@ func applyInto(home, configPath string, fd int32, used *Overrides) error {
 	var groupOrder []string
 	var dnsLine string
 	engineInject := inject
+	// fix/vpn-stays-on: the tun listener gets its own dup of the start descriptor (tunfd.go); committed only
+	// when this config goes live.
+	tunCommit := func(bool) {}
+	defer func() { tunCommit(committed) }()
 	rt, err := buildRuntimeWith(profile, o, fd, func(raw map[string]any) {
 		if engineInject != nil {
 			engineInject(raw)
@@ -586,6 +590,7 @@ func applyInto(home, configPath string, fd int32, used *Overrides) error {
 		groupOrder = runtimeGroupNames(raw)
 		if fd > 0 {
 			dnsLine = dnsPlanLine(asMap(raw["dns"]))
+			tunCommit = setTunFd(raw)
 		}
 	})
 	if err != nil {
@@ -635,6 +640,12 @@ func Start(homeDir, configPath string, tunFd int32) error {
 	}
 	curFd.Store(tunFd)
 	curHome.Store(homeDir)
+	if tunFd > 0 {
+		// fix/vpn-stays-on: a Start that failed earlier in this extension process never reached Stop; forget its
+		// tun settings so this descriptor always gets a listener (tunfd.go).
+		forgetTunListener()
+	}
+	tunFds.begin(tunFd)
 	setNetPolicyProfile(configPath)
 	startDiagCapture(homeDir)
 	stage("core start begin (fd=%d)", tunFd)
@@ -804,6 +815,7 @@ func shutdownStaleApplyLocked() {
 	statsRec.end("", false)
 	stopEngine()
 	executor.Shutdown()
+	tunFds.end()
 	stopGC()
 	debug.FreeOSMemory()
 }
@@ -833,6 +845,7 @@ func Stop() {
 	proxyTrafficStats.stopRunning()
 	statsRec.end(curHomeStr(), true) // P0-2: final save, marked clean (the next connect starts from zero)
 	executor.Shutdown()
+	tunFds.end() // fix/vpn-stays-on
 	running.Store(false)
 	DumpDiagnostics()
 	stopGC()
