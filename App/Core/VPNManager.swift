@@ -40,6 +40,11 @@ final class VPNManager: ObservableObject {
     }
 
     init() {
+        // Cold launch while the tunnel keeps running (QX shows the switch already on): loadAllFromPreferences takes a
+        // moment, and starting from .invalid made the Home switch visibly animate off → on. The extension refreshes
+        // its alive marker while it runs and removes it in stopTunnel, so a fresh marker means "most likely still
+        // connected"; load() replaces this guess with the real status right after.
+        if !UITestSeed.enabled, Self.tunnelLikelyRunning() { status = .connected }
         observer = NotificationCenter.default.addObserver(forName: .NEVPNStatusDidChange, object: nil, queue: .main) { [weak self] note in
             guard let conn = note.object as? NEVPNConnection else { return }
             Task { @MainActor in self?.update(from: conn) }
@@ -48,6 +53,13 @@ final class VPNManager: ObservableObject {
     }
 
     private var userStopped = false
+
+    /// The extension's alive marker exists and was refreshed recently (it is rewritten every couple of minutes).
+    nonisolated static func tunnelLikelyRunning(now: Date = Date()) -> Bool {
+        guard let s = try? String(contentsOf: TunnelStopReason.aliveURL, encoding: .utf8),
+              let beat = ISO8601DateFormatter().date(from: s.trimmingCharacters(in: .whitespacesAndNewlines)) else { return false }
+        return now.timeIntervalSince(beat) < 15 * 60
+    }
 
     private func update(from conn: NEVPNConnection) {
         let old = status
