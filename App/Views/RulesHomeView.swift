@@ -20,6 +20,8 @@ struct RulesView: View {
     @ObservedObject private var res = ResourceStore.shared
     @ObservedObject private var providerOV = ProviderOverrideStore.shared
     @ObservedObject private var profiles = ProfileStore.shared
+    @ObservedObject private var profileRules = ProfileRulesStore.shared
+    @State private var editingFinal = false
     @State private var editingSet: SetRule?
     @State private var confirmDeleteSet: SetRule?
     @State private var confirmDeleteCustom: CustomRule?
@@ -46,6 +48,18 @@ struct RulesView: View {
 
     var finalPolicy: String? {
         ruleTriples.last { ["MATCH", "FINAL"].contains($0.type.uppercased()) }?.proxy
+    }
+
+    /// The Final the user chose (`#final`), when it differs from the profile's.
+    var finalEdited: Bool {
+        guard let p = providerOV.finalPolicy(profiles.activeID) else { return false }
+        return p != profileRules.finalInfo.original
+    }
+
+    func saveFinal(_ policy: String?) {
+        guard let id = profiles.activeID else { return }
+        providerOV.setFinalPolicy(id, policy == profileRules.finalInfo.original ? nil : policy)
+        Task { await applySetChange() }
     }
 
     var localCount: Int {
@@ -136,19 +150,30 @@ struct RulesView: View {
         let moving = editMode.isEditing && canReorder
         return List {
             Section {
-                HStack(spacing: 10) {
-                    VStack(alignment: .leading, spacing: 4) {
-                        Text(verbatim: "Final").font(.headline)
-                        Text("兜底").font(.caption2.weight(.semibold))
-                            .padding(.horizontal, 6).padding(.vertical, 1)
-                            .background(Capsule().fill(Theme.warn.opacity(0.18)))
-                            .foregroundStyle(Theme.warn)
+                // User 2026-10-23 「Final 指向无法修改」: tap → policy picker; kept as an override (`#final`).
+                Button { editingFinal = true } label: {
+                    HStack(spacing: 10) {
+                        VStack(alignment: .leading, spacing: 4) {
+                            Text(verbatim: "Final").font(.headline).foregroundStyle(.primary)
+                            HStack(spacing: 6) {
+                                Text("兜底").font(.caption2.weight(.semibold))
+                                    .padding(.horizontal, 6).padding(.vertical, 1)
+                                    .background(Capsule().fill(Theme.warn.opacity(0.18)))
+                                    .foregroundStyle(Theme.warn)
+                                if finalEdited { ModifiedTag() }
+                            }
+                        }
+                        Spacer()
+                        if let f = finalPolicy, !f.isEmpty { PolicyChip(name: f) }
+                        Image(systemName: "chevron.right").font(.caption.weight(.semibold)).foregroundStyle(.tertiary)
                     }
-                    Spacer()
-                    if let f = finalPolicy, !f.isEmpty { PolicyChip(name: f) }
+                    .padding(.vertical, 4)
+                    .contentShape(Rectangle())
                 }
-                .padding(.vertical, 4)
+                .buttonStyle(.plain)
+                .disabled(profiles.activeID == nil)
                 .accessibilityElement(children: .combine)
+                .accessibilityAddTraits(.isButton)
                 .accessibilityIdentifier("rules.final")
                 NavigationLink { LocalRulesView() } label: {
                     VStack(alignment: .leading, spacing: 4) {
@@ -195,7 +220,7 @@ struct RulesView: View {
         .listStyle(.insetGrouped)
         .scrollContentBackground(.hidden)
         .background(Theme.bg.ignoresSafeArea())
-        .navigationTitle("规则")
+        .navigationTitle("分流规则")
         .searchable(text: $search, placement: .navigationBarDrawer(displayMode: .always), prompt: "搜索")
         .environment(\.editMode, $editMode)
         .onChange(of: search) { q in if !q.isEmpty && editMode.isEditing { editMode = .inactive } }
@@ -228,6 +253,11 @@ struct RulesView: View {
         .refreshable { await load() }
         .sheet(isPresented: $adding) {
             CustomRuleEditor(rule: CustomRule(line: "RULE-SET,,")) { r in custom.rules.insert(r, at: 0); custom.save() }
+        }
+        .sheet(isPresented: $editingFinal) {
+            PolicyPickerSheet(title: Text(verbatim: "Final"), current: finalPolicy ?? profileRules.finalInfo.policy,
+                              original: profileRules.finalInfo.original,
+                              footer: "修改保存在 Tern 里，配置文件不会改动；更新配置后仍然有效。") { saveFinal($0) }
         }
         .sheet(item: $editingSet) { s in
             RuleSetOverrideEditor(name: s.name,
@@ -344,6 +374,7 @@ struct RulesView: View {
 
     func load() async {
         await offline.load()
+        await profileRules.load()
         if vpn.isConnected {
             if let r = try? await ControllerClient.shared.rules() { live = r }
             if let ps = try? await ControllerClient.shared.ruleProviders() {

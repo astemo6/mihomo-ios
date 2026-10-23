@@ -26,16 +26,34 @@ struct ProviderOverride: Codable, Hashable {
     /// Only on the entry keyed `ruleOrderKey` (user 2026-10-23 「这个规则要能手动调顺序」): the profile's rule sets in the
     /// order the user arranged them on 规则 → 订阅 = matching priority, top first (bridge applyRuleSetOrder).
     var order: [String]? = nil
+    /// Only on the entry keyed `profileRulesKey` (user 2026-10-23 「本地规则点进去无法修改」): the user's 编辑 / 停用 /
+    /// 删除 of the profile's own rules (bridge/profileruleoverrides.go). The `finalKey` entry uses `policy`.
+    var rules: [ProfileRuleOverride]? = nil
 
     var isEmpty: Bool {
         disabled != true && deleted != true && (name ?? "").isEmpty && icon == nil && (url ?? "").isEmpty
             && (interval ?? 0) <= 0 && (filter ?? "").isEmpty && (excludeFilter ?? "").isEmpty && (policy ?? "").isEmpty
-            && (order ?? []).isEmpty
+            && (order ?? []).isEmpty && (rules ?? []).isEmpty
     }
 
     static func ruleKey(_ name: String) -> String { "rule:" + name }
     /// Never a provider name the other lists act on (bridge ruleOrderKey).
     static let ruleOrderKey = "#rule-order"
+    /// The profile's own rules (bridge profileRulesKey) and its Final / MATCH policy (bridge finalRuleKey).
+    static let profileRulesKey = "#profile-rules"
+    static let finalKey = "#final"
+}
+
+/// One profile rule the user changed, keyed by the rule's text as bridge ProfileRules reports it (`rule`) and which
+/// occurrence of that text it is (`index`), so a profile update keeps it while the rule is still there.
+struct ProfileRuleOverride: Codable, Hashable {
+    var rule: String
+    var index: Int
+    var line: String? = nil
+    var disabled: Bool? = nil
+    var deleted: Bool? = nil
+
+    var isEmpty: Bool { (line ?? "").isEmpty && disabled != true && deleted != true }
 }
 
 /// One proxy-provider as the profile declares it (bridge ProfileProviders), before the overrides.
@@ -100,6 +118,47 @@ final class ProviderOverrideStore: ObservableObject {
         }
         all[profileID] = m.isEmpty ? nil : m
         write()
+    }
+
+    // MARK: 配置规则 / Final (bridge/profileruleoverrides.go)
+
+    func profileRuleOverrides(_ profileID: String?) -> [ProfileRuleOverride] {
+        overrides(profileID)[ProviderOverride.profileRulesKey]?.rules ?? []
+    }
+
+    /// Changes the override of one profile rule (an override left empty is removed).
+    func updateProfileRule(_ profileID: String, rule: String, index: Int, _ change: (inout ProfileRuleOverride) -> Void) {
+        update(profileID, ProviderOverride.profileRulesKey) { o in
+            var list = o.rules ?? []
+            var r = list.first { $0.rule == rule && $0.index == index } ?? ProfileRuleOverride(rule: rule, index: index)
+            change(&r)
+            list.removeAll { $0.rule == rule && $0.index == index }
+            if !r.isEmpty { list.append(r) }
+            o.rules = list.isEmpty ? nil : list
+        }
+    }
+
+    /// 恢复已删除的规则: clears 删除 on the profile's rules (other edits stay).
+    func restoreDeletedProfileRules(_ profileID: String) {
+        update(profileID, ProviderOverride.profileRulesKey) { o in
+            let list = (o.rules ?? []).map { r -> ProfileRuleOverride in var r = r; r.deleted = nil; return r }.filter { !$0.isEmpty }
+            o.rules = list.isEmpty ? nil : list
+        }
+    }
+
+    /// 全部恢复配置原样: every 编辑 / 停用 / 删除 of the profile's rules goes (the Final has its own 恢复).
+    func restoreAllProfileRules(_ profileID: String) {
+        update(profileID, ProviderOverride.profileRulesKey) { $0.rules = nil }
+    }
+
+    func finalPolicy(_ profileID: String?) -> String? {
+        let p = overrides(profileID)[ProviderOverride.finalKey]?.policy ?? ""
+        return p.isEmpty ? nil : p
+    }
+
+    /// nil = the profile's own Final.
+    func setFinalPolicy(_ profileID: String, _ policy: String?) {
+        update(profileID, ProviderOverride.finalKey) { $0.policy = (policy ?? "").isEmpty ? nil : policy }
     }
 
     func loadDeclared(_ profile: Profile?, force: Bool = false) async {
