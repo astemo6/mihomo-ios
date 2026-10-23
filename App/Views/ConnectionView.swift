@@ -26,7 +26,6 @@ struct ConnectionView: View {
         Form {
             modeSection
             if !o.isProxyOnly { trafficSection }
-            if !o.isProxyOnly { tunnelLinkSection }
             routesSection
             onDemandSection
             lanSection
@@ -164,19 +163,7 @@ struct ConnectionView: View {
         .listRowBackground(Theme.card)
     }
 
-    /// feat/tunnel-include-options: the old 隧道范围 switches moved to 高级设置 → 隧道 (包含所有网络 · 包含本地网络 ·
-    /// 包含 APNs · 包含蜂窝网络服务 · 包含设备通信 · 兼容性增强模式 · FaceTime 走代理); same stored keys.
-    var tunnelLinkSection: some View {
-        Section {
-            NavigationLink { TunnelSettingsView() } label: {
-                Text("隧道")
-            }
-            .accessibilityIdentifier("conn.tunnel")
-        } footer: {
-            Text("包含所有网络、本地网络、APNs、蜂窝网络服务、设备通信，兼容性增强模式和 FaceTime 走代理。")
-        }
-        .listRowBackground(Theme.card)
-    }
+    // 隧道 (包含所有网络 … FaceTime 走代理) lives only in 高级设置 → 网络 → 隧道; no second entry here.
 
     var routesSection: some View {
         Section {
