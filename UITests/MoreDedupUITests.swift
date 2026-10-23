@@ -86,7 +86,9 @@ extension MihomoUITests {
         snap("dedup-profiles")
 
         // The 快速编辑 row's label also contains the profile name ("快速编辑、UITest Demo"); press the profile's own cell.
-        let row = app.cells.containing(NSPredicate(format: "label == %@", "UITest Demo")).firstMatch
+        // (Its cell even holds a StaticText "UITest Demo"), so also require the profile row's own 本地 badge.
+        let row = app.cells.containing(NSPredicate(format: "label == %@", "UITest Demo"))
+            .containing(NSPredicate(format: "label == %@", L("本地"))).firstMatch
         XCTAssertTrue(row.waitForExistence(timeout: 5), "UITest Demo profile row")
         row.press(forDuration: 1.3)
         let export = app.button(L("导出"))
