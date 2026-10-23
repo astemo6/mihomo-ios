@@ -1,6 +1,10 @@
 package libmihomo
 
-import "fmt"
+import (
+	"fmt"
+	"sort"
+	"strings"
+)
 
 // v0.8 节点探测 (exit IP per node, 解锁检测).
 //
@@ -43,13 +47,36 @@ func applyProbe(raw map[string]any, o Overrides) {
 		}
 	}
 	members = append(members, "DIRECT")
-	kept = append(kept, map[string]any{
+	pg := map[string]any{
 		"name":        ProbeGroup,
 		"type":        "select",
 		"include-all": true,
 		"proxies":     members,
 		"hidden":      true,
-	})
+	}
+	// 代理链 providers hold copies under the original node names: probing a node by name must reach the original.
+	var own []string
+	chained := false
+	for n := range asMap(raw["proxy-providers"]) {
+		if strings.HasPrefix(n, GeneratedProviderPrefix) {
+			chained = true
+		} else {
+			own = append(own, n)
+		}
+	}
+	if chained {
+		sort.Strings(own)
+		use := make([]any, 0, len(own))
+		for _, n := range own {
+			use = append(use, n)
+		}
+		delete(pg, "include-all")
+		pg["include-all-proxies"] = true
+		if len(use) > 0 {
+			pg["use"] = use
+		}
+	}
+	kept = append(kept, pg)
 	raw["proxy-groups"] = kept
 
 	ls := []any{}

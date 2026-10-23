@@ -368,7 +368,8 @@ final class ControllerClient {
     func proxyProviders() async throws -> [ProviderItem] {
         let r = try await get(ProvidersResponse.self, "/providers/proxies")
         // "default" is the built-in provider wrapping inline proxies; hide it.
-        return r.providers.values.filter { $0.vehicleType != "Compatible" }.sorted { $0.name < $1.name }
+        // 代理链 copies (tern.chain/…) are part of their chain group, not node sources.
+        return r.providers.values.filter { $0.vehicleType != "Compatible" && !ProxyChainStore.isGenerated($0.name) }.sorted { $0.name < $1.name }
     }
 
     func ruleProviders() async throws -> [ProviderItem] {
