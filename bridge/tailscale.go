@@ -2,7 +2,7 @@ package libmihomo
 
 // v0.18 experimental Tailscale node (parity-matrix §5 #12).
 //
-// mihomo v1.19.32 builds the Tailscale outbound in with the with_gvisor tag the app already uses
+// mihomo v1.19.33 builds the Tailscale outbound in with the with_gvisor tag the app already uses
 // (adapter/outbound/tailscale.go, tsnet + gVisor netstack), so nothing new is linked; this file only
 // keeps it inside the ~50 MB Network Extension budget:
 //   - normalizeTailscale: every Tailscale node gets its own state dir under the core home (App Group

@@ -5,6 +5,7 @@ import (
 	"os"
 	"path/filepath"
 	"strings"
+	"sync/atomic"
 	"testing"
 	"time"
 )
@@ -52,13 +53,44 @@ func waitStage(t *testing.T, path, s string, d time.Duration) {
 	t.Fatalf("stage %q not logged within %s:\n%s", s, d, b)
 }
 
+// Start's apply goroutine reads testHookApplyDone (and Start testHookAtDeadline) and can outlive the test that
+// started it (Start returns on tun up while providers still load). Assigning those package vars from a test or
+// its cleanup then raced with that read under -race (bridge.Start.func1 vs withStartTimeout). They are now set
+// once, before any test runs, to dispatchers that load the current hook atomically; tests change hooks only
+// through setApplyDoneHook / setAtDeadlineHook.
+var applyDoneHook, atDeadlineHook atomic.Pointer[func()]
+
+func init() {
+	testHookApplyDone = func() {
+		if f := applyDoneHook.Load(); f != nil {
+			(*f)()
+		}
+	}
+	testHookAtDeadline = func() {
+		if f := atDeadlineHook.Load(); f != nil {
+			(*f)()
+		}
+	}
+}
+
+func storeHook(p *atomic.Pointer[func()], f func()) {
+	if f == nil {
+		p.Store(nil)
+		return
+	}
+	p.Store(&f)
+}
+
+func setApplyDoneHook(f func())  { storeHook(&applyDoneHook, f) }
+func setAtDeadlineHook(f func()) { storeHook(&atDeadlineHook, f) }
+
 func withStartTimeout(t *testing.T, d time.Duration) {
 	old := startTimeout
 	startTimeout = d
 	t.Cleanup(func() {
 		startTimeout = old
-		testHookApplyDone = nil
-		testHookAtDeadline = nil
+		setApplyDoneHook(nil)
+		setAtDeadlineHook(nil)
 	})
 }
 
@@ -69,7 +101,7 @@ func TestV0181StartTimeoutWinsTearsDownLateApply(t *testing.T) {
 	home, prof, logPath := v0181Home(t, 19381)
 	withStartTimeout(t, time.Millisecond)
 	release := make(chan struct{})
-	testHookApplyDone = func() { <-release }
+	setApplyDoneHook(func() { <-release })
 
 	err := Start(home, prof, 0)
 	if err == nil || !strings.Contains(err.Error(), "超时") {
@@ -91,7 +123,7 @@ func TestV0181StartTimeoutWinsTearsDownLateApply(t *testing.T) {
 	}
 
 	// The bridge is usable again afterwards.
-	testHookApplyDone = nil
+	setApplyDoneHook(nil)
 	startTimeout = 20 * time.Second
 	if err := Start(home, prof, 0); err != nil {
 		t.Fatalf("Start after teardown: %v", err)
@@ -112,12 +144,12 @@ func TestV0181ApplyWinsBeforeDeadlineCAS(t *testing.T) {
 	home, prof, logPath := v0181Home(t, 19382)
 	withStartTimeout(t, time.Millisecond)
 	applied := make(chan struct{})
-	testHookApplyDone = func() { close(applied) }
-	testHookAtDeadline = func() {
+	setApplyDoneHook(func() { close(applied) })
+	setAtDeadlineHook(func() {
 		<-applied
 		// "core apply finished" is logged after the goroutine's winning CAS and its send on done.
 		waitStage(t, logPath, "core apply finished", 20*time.Second)
-	}
+	})
 
 	if err := Start(home, prof, 0); err != nil {
 		t.Fatalf("Start must return the finished apply's result, got %v", err)

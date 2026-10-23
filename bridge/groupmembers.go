@@ -4,7 +4,7 @@ package libmihomo
 // about members without the core (InspectProfile → 策略 / Home cards / 节点管理 所属策略组 / shortcuts,
 // GroupPreview → 策略组编辑 preview and 筛选节点 counts, the 前置代理 dial graph).
 //
-// It mirrors mihomo v1.19.32 exactly:
+// It mirrors mihomo v1.19.33 exactly:
 //   - adapter/outboundgroup/parser.go ParseProxyGroup: include-all = include-all-proxies +
 //     include-all-providers; include-all-providers replaces `use` with every provider (sorted);
 //     include-all-proxies appends the profile's proxies (sorted by name, groups excluded) that match any

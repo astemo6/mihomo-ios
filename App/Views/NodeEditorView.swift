@@ -16,7 +16,7 @@ enum NodeProtocols {
         ("trojan", "Trojan"), ("hysteria2", "Hysteria2"), ("hysteria", "Hysteria"), ("tuic", "TUIC v5"),
         ("wireguard", "WireGuard"), ("snell", "Snell"), ("anytls", "AnyTLS"), ("mieru", "Mieru"),
         ("ssh", "SSH"), ("socks5", "SOCKS5"), ("http", "HTTP(S)"),
-        // v0.13: protocols added to mihomo after v1.19.0 (all in v1.19.32).
+        // v0.13: protocols added to mihomo after v1.19.0 (all in v1.19.33).
         ("sudoku", "Sudoku"), ("masque", "MASQUE"), ("trusttunnel", "TrustTunnel"), ("shadowquic", "ShadowQUIC"),
         ("openvpn", "OpenVPN"), ("gost-relay", "GOST Relay"),
         // v0.18: experimental — tsnet runs inside the 50 MB tunnel extension.
@@ -337,7 +337,7 @@ enum NodeProtocols {
         }
     }
 
-    // v0.8 高级: only where mihomo v1.19.32 reads the key for that protocol.
+    // v0.8 高级: only where mihomo v1.19.33 reads the key for that protocol.
     static let echTypes: Set<String> = ["vmess", "vless", "trojan", "hysteria", "hysteria2", "tuic", "anytls", "trusttunnel"]
     static let pinTypes: Set<String> = ["vmess", "vless", "trojan", "hysteria", "hysteria2", "tuic", "anytls", "http", "socks5", "trusttunnel", "gost-relay"]
     static let smuxTypes: Set<String> = ["ss", "vmess", "vless", "trojan"]

@@ -53,7 +53,7 @@ func TestR7P32StartTimeoutStopsTrafficSampler(t *testing.T) {
 	home, prof, logPath := v0181Home(t, 19771)
 	withStartTimeout(t, time.Millisecond)
 	release := make(chan struct{})
-	testHookApplyDone = func() { <-release }
+	setApplyDoneHook(func() { <-release })
 	if err := Start(home, prof, 0); err == nil || !strings.Contains(err.Error(), "超时") {
 		t.Fatalf("Start should time out, got %v", err)
 	}

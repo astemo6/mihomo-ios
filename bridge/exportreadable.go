@@ -120,7 +120,7 @@ var (
 		"proxy-server-nameserver", "proxy-server-nameserver-policy", "direct-nameserver",
 		"direct-nameserver-follow-policy", "fallback", "fallback-filter"}
 	orderFallbackFilter = []string{"geoip", "geoip-code", "geosite", "ipcidr", "domain"}
-	orderTun            = []string{"enable", "stack", "device", "dns-hijack", "auto-route", "auto-redirect",
+	orderTun            = []string{"enable", "stack", "device", "dns-mode", "dns-hijack", "auto-route", "auto-redirect",
 		"auto-detect-interface", "strict-route", "mtu", "gso", "gso-max-size", "udp-timeout", "file-descriptor",
 		"inet4-address", "inet6-address", "route-address", "route-exclude-address", "route-address-set",
 		"route-exclude-address-set", "include-interface", "exclude-interface", "endpoint-independent-nat"}
