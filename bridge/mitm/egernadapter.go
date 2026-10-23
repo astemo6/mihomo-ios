@@ -17,7 +17,6 @@ import (
 	"regexp"
 
 	"github.com/andybalholm/brotli"
-	"github.com/dop251/goja"
 )
 
 var (
@@ -40,28 +39,8 @@ func adaptEgern(code string) (string, error) {
 	return code[:loc[0]] + "var __egernMain = " + code[loc[1]:] + "\n;\n" + egernPrelude, nil
 }
 
-// installEgern adds the Go helpers the prelude needs (env, cron, compression).
-func (rc *runCtx) installEgern(set func(string, any)) {
-	rt := rc.rt
-	env := rt.NewObject()
-	for k, v := range rc.script.Env {
-		_ = env.Set(k, v)
-	}
-	set("__egernEnv", env)
-	set("__egernCron", rc.script.Cron)
-	set("__egernCompress", func(call goja.FunctionCall) goja.Value {
-		in, ok := rc.bodyBytes(call.Argument(1))
-		if !ok {
-			return goja.Null()
-		}
-		out, err := egernCompress(call.Argument(0).String(), in)
-		if err != nil {
-			return goja.Null()
-		}
-		return rc.uint8Array(out)
-	})
-}
-
+// The prelude (prelude.js) provides the helpers the Egern prelude needs: __egernEnv (the module's env),
+// __egernCron and __egernCompress (egernCompress below, through the host).
 func egernCompress(op string, in []byte) ([]byte, error) {
 	var buf bytes.Buffer
 	readAll := func(r io.Reader) ([]byte, error) { return readAllLimited(r, MaxBody) }

@@ -14,13 +14,10 @@ import (
 	"fmt"
 	"net"
 	"net/http"
-	"sort"
 	"strings"
 	"sync"
 	"time"
 	"unicode/utf8"
-
-	"github.com/dop251/goja"
 )
 
 // DebugHTTP is a sample request or response for a debug run.
@@ -45,6 +42,9 @@ type DebugInput struct {
 	Binary   bool       `json:"binary,omitempty"`  // binary-body-mode
 	Request  *DebugHTTP `json:"request,omitempty"`
 	Response *DebugHTTP `json:"response,omitempty"`
+	// Engine forces a script engine: "goja" / "native" (JavaScriptCore); "" = the default (engine
+	// conformance tests run one input on both).
+	Engine string `json:"engine,omitempty"`
 }
 
 // DebugLog is one console line (t = ms since start).
@@ -107,6 +107,25 @@ func bodyOut(b []byte) (string, bool) {
 
 // DebugRun executes one script. dial is used for $httpClient / $task.fetch (nil = direct dialer).
 func DebugRun(home string, in DebugInput, dial DialFunc) (out DebugOutput) {
+	e := newDebugEngine(home, dial)
+	defer func() { _ = e.Store.Flush() }() // v0.19.9: store writes are coalesced; the run's writes land now
+	defer e.scripts.Reset()                // a JavaScriptCore context loaded for this run goes with it
+	return debugRunOn(e, in)
+}
+
+func newDebugEngine(home string, dial DialFunc) *Engine {
+	if dial == nil {
+		dial = directDial
+	}
+	e := New(home, dial, func(string, string) {})
+	// r7 B28: the app's UI language from engine.json, as in the tunnel.
+	e.st.Store(&state{cfg: &Config{Language: LoadConfig(home).Language}, rs: &Ruleset{}, hosts: NewHostMatcher(nil)})
+	return e
+}
+
+// debugRunOn runs one debug input on e (engine conformance runs a case several times on one engine, so the
+// native engine reuses the script's context).
+func debugRunOn(e *Engine, in DebugInput) (out DebugOutput) {
 	out.Logs, out.Notifications, out.Summary = []DebugLog{}, []map[string]string{}, []string{}
 	start := time.Now()
 	defer func() {
@@ -123,13 +142,6 @@ func DebugRun(home string, in DebugInput, dial DialFunc) (out DebugOutput) {
 		out.Error = "没有脚本内容"
 		return
 	}
-	if dial == nil {
-		dial = directDial
-	}
-	e := New(home, dial, func(string, string) {})
-	// r7 B28: the app's UI language from engine.json, as in the tunnel.
-	e.st.Store(&state{cfg: &Config{Language: LoadConfig(home).Language}, rs: &Ruleset{}, hosts: NewHostMatcher(nil)})
-	defer func() { _ = e.Store.Flush() }() // v0.19.9: store writes are coalesced; the run's writes land now
 	name := in.Name
 	if name == "" {
 		name = "调试"
@@ -165,8 +177,9 @@ func DebugRun(home string, in DebugInput, dial DialFunc) (out DebugOutput) {
 			defer mu.Unlock()
 			out.Notifications = append(out.Notifications, map[string]string{"title": title, "subtitle": sub, "body": body, "url": url})
 		}
+		rc.wantExport = true
 		if typ != "http-request" && typ != "http-response" {
-			_ = rc.rt.Set("$network", map[string]any{"v4": map[string]any{}, "wifi": map[string]any{}})
+			rc.globals = map[string]any{"$network": map[string]any{"v4": map[string]any{}, "wifi": map[string]any{}}}
 		}
 	}
 
@@ -200,7 +213,7 @@ func DebugRun(home string, in DebugInput, dial DialFunc) (out DebugOutput) {
 	}
 
 	runner := e.scripts
-	rc, err := runner.execute(nil, sc, req, resp, make(chan struct{}, 1), false, 60*time.Second, 10*time.Second, setup)
+	rc, err := runner.executeOn(in.Engine, nil, sc, req, resp, make(chan struct{}, 1), false, 60*time.Second, 10*time.Second, setup)
 	if err != nil {
 		out.Error = err.Error()
 		return
@@ -211,7 +224,7 @@ func DebugRun(home string, in DebugInput, dial DialFunc) (out DebugOutput) {
 		return
 	}
 	out.Done = true
-	out.DoneJSON = doneJSON(rc.rt, rc.result)
+	out.DoneJSON = doneJSON(rc)
 	if !isHTTP {
 		out.Summary = append(out.Summary, "$done() 已调用")
 		return
@@ -281,12 +294,17 @@ func DebugRun(home string, in DebugInput, dial DialFunc) (out DebugOutput) {
 }
 
 // doneJSON renders the $done argument for display (long strings clipped, binary shown as a size).
-func doneJSON(rt *goja.Runtime, v goja.Value) string {
-	if v == nil || goja.IsUndefined(v) {
+func doneJSON(rc *runCtx) string {
+	d := rc.desc
+	if d == nil || d.Undef {
 		return "undefined"
 	}
-	if goja.IsNull(v) {
+	if d.IsNull {
 		return "null"
+	}
+	v, ok := rc.exported()
+	if !ok {
+		return "undefined"
 	}
 	var walk func(x any, depth int) any
 	walk = func(x any, depth int) any {
@@ -296,19 +314,13 @@ func doneJSON(rt *goja.Runtime, v goja.Value) string {
 		switch t := x.(type) {
 		case string:
 			return clip(t, 2000)
-		case []byte:
-			return fmt.Sprintf("<%d 字节二进制>", len(t))
-		case goja.ArrayBuffer:
-			return fmt.Sprintf("<%d 字节二进制>", len(t.Bytes()))
 		case map[string]any:
-			m := make(map[string]any, len(t))
-			keys := make([]string, 0, len(t))
-			for k := range t {
-				keys = append(keys, k)
+			if n, ok := t["__ternBinary"].(float64); ok && len(t) == 1 {
+				return fmt.Sprintf("<%d 字节二进制>", int64(n))
 			}
-			sort.Strings(keys)
-			for _, k := range keys {
-				m[k] = walk(t[k], depth+1)
+			m := make(map[string]any, len(t))
+			for k, vv := range t {
+				m[k] = walk(vv, depth+1)
 			}
 			return m
 		case []any:
@@ -324,9 +336,9 @@ func doneJSON(rt *goja.Runtime, v goja.Value) string {
 			return t
 		}
 	}
-	b, err := json.MarshalIndent(walk(v.Export(), 0), "", "  ")
+	b, err := json.MarshalIndent(walk(v, 0), "", "  ")
 	if err != nil {
-		return clip(v.String(), 2000)
+		return "undefined"
 	}
 	return string(b)
 }

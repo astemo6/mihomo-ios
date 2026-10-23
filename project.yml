@@ -52,6 +52,8 @@ targets:
       - path: App
         excludes: ["**/*.entitlements"]
       - path: Shared
+      # feat/jsc-engine: the JavaScriptCore script engine also runs 脚本调试 in the app (and the unit tests).
+      - path: PacketTunnel/JSCScriptEngine.swift
     configFiles:
       Debug: Config/App.signing.xcconfig
       Release: Config/App.signing.xcconfig

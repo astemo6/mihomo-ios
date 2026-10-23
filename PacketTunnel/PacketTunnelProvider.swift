@@ -150,6 +150,9 @@ final class PacketTunnelProvider: NEPacketTunnelProvider {
         LibmihomoSetPolicyEvents(NotifyPrefs.coreMask) // feat/loon-menu-notify: 策略组异常 / 自动策略切换 / 节点异常
         LibmihomoSetMemoryLimit(Int32(overrides.memoryLimitMB))
         LibmihomoSetMemoryProbe(memoryProbe)
+        // feat/jsc-engine: MitM / rewrite / task scripts run in JavaScriptCore (goja stays the fallback).
+        let jsc = JSCScriptEngine.register()
+        StartupLog.write("script engine: \(jsc.isEmpty ? "JavaScriptCore" : "goja (JavaScriptCore unavailable: \(jsc))"), \(LibmihomoScriptEngineStatus())")
         let proxyOnly = overrides.isProxyOnly
         // 接管所有网络流量: with includeAllNetworks iOS scopes this extension's own unbound sockets into the tunnel
         // too, so the core's proxy / DIRECT / DNS sockets must be bound to the physical interface (Go side,

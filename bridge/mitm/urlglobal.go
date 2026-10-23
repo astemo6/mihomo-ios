@@ -7,56 +7,7 @@ package mitm
 // `URLSearchParams` runs a small WHATWG-style implementation (compiled once per process) in that runtime,
 // so scripts that never touch them pay nothing.
 
-import (
-	"sync"
-
-	"github.com/dop251/goja"
-)
-
-var (
-	urlProgOnce sync.Once
-	urlProg     *goja.Program
-	urlProgErr  error
-)
-
-func urlProgram() (*goja.Program, error) {
-	urlProgOnce.Do(func() { urlProg, urlProgErr = goja.Compile("url-polyfill.js", urlPolyfillJS, true) })
-	return urlProg, urlProgErr
-}
-
-// installURLGlobals defines lazy URL / URLSearchParams on the global object.
-func installURLGlobals(rt *goja.Runtime) {
-	g := rt.GlobalObject()
-	var loaded goja.Value // the polyfill's {URL, URLSearchParams}
-	load := func() *goja.Object {
-		if loaded == nil {
-			p, err := urlProgram()
-			if err != nil {
-				panic(rt.NewGoError(err))
-			}
-			v, err := rt.RunProgram(p)
-			if err != nil {
-				panic(err)
-			}
-			loaded = v
-		}
-		return loaded.ToObject(rt)
-	}
-	for _, name := range []string{"URL", "URLSearchParams"} {
-		n := name
-		getter := rt.ToValue(func(goja.FunctionCall) goja.Value {
-			v := load().Get(n)
-			// replace the accessor by the value (scripts may also overwrite it with their own polyfill)
-			_ = g.DefineDataProperty(n, v, goja.FLAG_TRUE, goja.FLAG_FALSE, goja.FLAG_TRUE)
-			return v
-		})
-		setter := rt.ToValue(func(call goja.FunctionCall) goja.Value {
-			_ = g.DefineDataProperty(n, call.Argument(0), goja.FLAG_TRUE, goja.FLAG_FALSE, goja.FLAG_TRUE)
-			return goja.Undefined()
-		})
-		_ = g.DefineAccessorProperty(n, getter, setter, goja.FLAG_TRUE, goja.FLAG_FALSE)
-	}
-}
+// The prelude (prelude.js) installs both globals lazily on every engine (PreludeSource splices this source in).
 
 const urlPolyfillJS = `(function () {
 "use strict";

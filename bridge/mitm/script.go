@@ -54,11 +54,11 @@ type ScriptResult struct {
 	Abort    bool        // Egern ctx.abort(): drop the request / fail the response
 }
 
-// ScriptRunner executes scripts with goja. A fresh Runtime per run (isolation like Surge), compiled
-// programs cached (LRU), and a small concurrency cap so the extension's memory stays bounded.
+// ScriptRunner executes scripts in a JavaScript engine (jsengine.go: goja, or JavaScriptCore in the iOS
+// tunnel), compiled programs cached (LRU), and a small concurrency cap so the extension's memory stays bounded.
 type ScriptRunner struct {
 	e       *Engine
-	progs   *lru[*goja.Program]
+	progs   *lru[*compiled]
 	sem     chan struct{} // HTTP scripts
 	taskSem chan struct{} // cron / event / generic scripts (long running, kept apart from HTTP traffic)
 	mu      sync.Mutex
@@ -100,22 +100,44 @@ func largeProgIdle() time.Duration { return time.Duration(largeProgIdleNs.Load()
 
 type compileCall struct {
 	done chan struct{}
-	p    *goja.Program
+	p    *compiled
 	err  error
 }
 
-// compileCount counts goja compiles (tests).
+// compileCount counts script compiles, any engine (tests).
 var compileCount atomic.Int64
 
 func NewScriptRunner(e *Engine) *ScriptRunner {
-	progs := newLRU[*goja.Program](16)
+	progs := newLRU[*compiled](16)
 	progs.maxW = progCacheBudget
+	// A native (JavaScriptCore) program lives in the Swift engine: leaving the index drops it there too.
+	progs.onEvict = func(k string, c *compiled) {
+		// A wedged engine still runs the abandoned script and holds its VM lock: Drop would block forever.
+		if c != nil && c.native && !nativeWedged.Load() {
+			if b, _ := nativeJS.Load().(nativeBox); b.n != nil {
+				b.n.Drop(k)
+			}
+		}
+	}
 	return &ScriptRunner{e: e, progs: progs, sem: make(chan struct{}, 2), taskSem: make(chan struct{}, 1), byURL: map[string]string{},
 		lastUse: map[string]time.Time{}, bigSem: make(chan struct{}, 1), queue: newScriptQueue()}
 }
 
 // Reset drops compiled programs (memory).
-func (s *ScriptRunner) Reset() { s.progs.Reset() }
+func (s *ScriptRunner) Reset() {
+	s.progs.Reset()
+	nativeCollect()
+}
+
+// nativeCollect lets JavaScriptCore collect what dropped contexts left behind.
+func nativeCollect() {
+	if nativeWedged.Load() {
+		return // see onEvict: the VM is held by the abandoned run
+	}
+	if b, _ := nativeJS.Load().(nativeBox); b.n != nil {
+		b.n.Collect()
+	}
+}
 
 // dropKeepRecent: DropCaches (FreeMemory from the extension's MemoryGuard, every tick at ≥ 40 MB
 // footprint) keeps programs used this recently. v0.19.21: it used to drop them all, so a script in use
@@ -136,6 +158,7 @@ func (s *ScriptRunner) markUsed(key string) {
 
 // DropIdle drops compiled programs not used within keep (0 = all).
 func (s *ScriptRunner) DropIdle(keep time.Duration) {
+	defer nativeCollect()
 	if keep <= 0 {
 		s.progs.Reset()
 		s.mu.Lock()
@@ -164,7 +187,23 @@ func (s *ScriptRunner) Invalidate(path string) {
 	s.mu.Unlock()
 }
 
-func (s *ScriptRunner) program(sc *Script) (prog *goja.Program, err error) {
+// program returns sc compiled for the engine new runs use (tests).
+func (s *ScriptRunner) program(sc *Script) (*compiled, error) {
+	eng, err := engineFor("")
+	if err != nil {
+		return nil, err
+	}
+	c, _, err := s.programFor(sc, eng)
+	return c, err
+}
+
+// programFor returns sc compiled for eng (cache key: the source's SHA-256, prefixed for the native engine)
+// and the source when it had to be read ("" for a cache hit by file signature).
+func (s *ScriptRunner) programFor(sc *Script, eng jsEngine) (prog *compiled, code string, err error) {
+	prefix := ""
+	if eng.kind() == EngineNative {
+		prefix = "jsc:"
+	}
 	src := sc.Source
 	sig := ""
 	if src == nil {
@@ -173,6 +212,7 @@ func (s *ScriptRunner) program(sc *Script) (prog *goja.Program, err error) {
 		var size int64
 		sig, size = s.statSig(sc.Path)
 		if sig != "" {
+			sig = prefix + sig
 			s.mu.Lock()
 			v, ok := s.byURL[sc.Path]
 			s.mu.Unlock()
@@ -183,18 +223,18 @@ func (s *ScriptRunner) program(sc *Script) (prog *goja.Program, err error) {
 						s.touchLarge(strings.TrimPrefix(v, sig+"|"))
 					}
 					s.e.res.RefreshIfStale(sc.Path, sc.UpdateInterval)
-					return p, nil
+					return p, "", nil
 				}
 			}
 		}
 		var err error
 		src, err = s.e.res.Get(sc.Path, sc.UpdateInterval)
 		if err != nil {
-			return nil, fmt.Errorf("加载脚本失败：%w", err)
+			return nil, "", fmt.Errorf("加载脚本失败：%w", err)
 		}
 	}
 	sum := sha256.Sum256(src)
-	key := hex.EncodeToString(sum[:])
+	key := prefix + hex.EncodeToString(sum[:])
 	if sig != "" {
 		s.mu.Lock()
 		s.byURL[sc.Path] = sig + "|" + key
@@ -205,7 +245,7 @@ func (s *ScriptRunner) program(sc *Script) (prog *goja.Program, err error) {
 		if len(src) >= largeProgSource {
 			s.touchLarge(key)
 		}
-		return p, nil
+		return p, string(src), nil
 	}
 	// v0.19.6 (review 7): compile runs before the run semaphore, so a burst of requests on a script whose
 	// program was not cached (first use after a start, or right after FreeMemory dropped the cache under
@@ -215,11 +255,11 @@ func (s *ScriptRunner) program(sc *Script) (prog *goja.Program, err error) {
 	if c, ok := s.compiling[key]; ok {
 		s.mu.Unlock()
 		<-c.done
-		return c.p, c.err
+		return c.p, string(src), c.err
 	}
 	if p, ok := s.progs.Get(key); ok { // finished between the check above and the lock
 		s.mu.Unlock()
-		return p, nil
+		return p, string(src), nil
 	}
 	if s.compiling == nil {
 		s.compiling = map[string]*compileCall{}
@@ -233,9 +273,9 @@ func (s *ScriptRunner) program(sc *Script) (prog *goja.Program, err error) {
 			s.progs.Remove(k)
 		}
 	}
-	if err := compileFits(len(src)); err != nil {
+	if err := compileFits(len(src), eng); err != nil {
 		s.mu.Unlock()
-		return nil, err
+		return nil, "", err
 	}
 	s.compiling[key] = c
 	s.mu.Unlock()
@@ -249,34 +289,38 @@ func (s *ScriptRunner) program(sc *Script) (prog *goja.Program, err error) {
 		s.mu.Unlock()
 		close(c.done)
 	}()
-	c.p, c.err = s.compile(sc, src, key)
-	return c.p, c.err
+	c.p, c.err = s.compile(sc, src, key, eng)
+	return c.p, string(src), c.err
 }
 
-func (s *ScriptRunner) compile(sc *Script, src []byte, key string) (*goja.Program, error) {
+func (s *ScriptRunner) compile(sc *Script, src []byte, key string, eng jsEngine) (*compiled, error) {
 	compileCount.Add(1)
-	code := strings.TrimPrefix(string(src), "\ufeff")
-	if egernNativeRe.MatchString(code) {
-		adapted, err := adaptEgern(code)
-		if err != nil {
-			return nil, err
-		}
-		code = adapted
-	}
-	// Wrap so a top-level `return` (allowed by Surge/JSC scripts) does not break compilation.
-	p, err := goja.Compile(sc.Name+".js", "(function(){\n"+code+"\n}).call(this);", false)
+	code, err := scriptCode(src)
 	if err != nil {
-		p2, err2 := goja.Compile(sc.Name+".js", code, false)
-		if err2 != nil {
-			return nil, fmt.Errorf("脚本语法错误：%v", err)
-		}
-		p = p2
+		return nil, err
 	}
-	s.progs.PutW(key, p, int64(len(code))*progBytesPerSourceByte)
+	c := &compiled{key: key}
+	if err := eng.compile(c, sc.Name, code); err != nil {
+		return nil, err
+	}
+	per := int64(progBytesPerSourceByte)
+	if c.native {
+		per = nativeBytesPerSourceByte
+	}
+	s.progs.PutW(key, c, int64(len(code))*per)
 	if len(code) >= largeProgSource {
 		s.touchLarge(key)
 	}
-	return p, nil
+	return c, nil
+}
+
+// scriptCode is the source an engine evaluates: BOM removed, a native Egern module adapted.
+func scriptCode(src []byte) (string, error) {
+	code := strings.TrimPrefix(string(src), "\ufeff")
+	if egernNativeRe.MatchString(code) {
+		return adaptEgern(code)
+	}
+	return code, nil
 }
 
 // compileBytesPerSourceByte: goja's heap growth while compiling, per byte of source. Measured v0.19.9 on
@@ -286,16 +330,25 @@ func (s *ScriptRunner) compile(sc *Script, src []byte, key string) (*goja.Progra
 // estimate for large bundles (the only ones gated).
 const compileBytesPerSourceByte = 32
 
+// nativeCompileBytesPerSourceByte: the same estimate for JavaScriptCore (feat/jsc-engine). Its parser and
+// bytecode generator allocate far less than goja's (no Go AST, compact unlinked code blocks); 12x is a
+// deliberately cautious estimate until it is measured on a device (memory line of the startup log).
+const nativeCompileBytesPerSourceByte = 12
+
 // compileFits refuses to compile a large bundle when the estimated compile peak does not fit. The compile
 // happens in Go, outside the script memory guard, so without this check the system would kill the
 // tunnel. In the extension it is judged on the memory iOS still allows (os_proc_available_memory, see
 // memory.go): the estimate plus availReserve must be available. Without a probe the old heuristic
 // against the soft memory limit applies. No limit and no probe (app process: 脚本调试, tests) → allowed.
-func compileFits(srcLen int) error {
+func compileFits(srcLen int, eng jsEngine) error {
 	if srcLen < largeProgSource {
 		return nil
 	}
-	need := int64(srcLen) * compileBytesPerSourceByte
+	per := int64(compileBytesPerSourceByte)
+	if eng != nil && eng.kind() == EngineNative {
+		per = nativeCompileBytesPerSourceByte
+	}
+	need := int64(srcLen) * per
 	if ok, known, avail := availableAtLeast(need + availReserve); known {
 		if !ok {
 			return fmt.Errorf("脚本过大（%.1f MB），编译约需 %d MB 内存，隧道当前可用 %d MB（iOS 网络扩展上限约 50 MB），已跳过",
@@ -413,14 +466,21 @@ func (s *ScriptRunner) isLarge(key string) bool {
 const (
 	progBytesPerSourceByte = 14
 	progCacheBudget        = 8 << 20
+	// nativeBytesPerSourceByte: retained size of a loaded JavaScriptCore script context (source + unlinked
+	// bytecode + its global object), estimated; it only weighs the shared cache budget.
+	nativeBytesPerSourceByte = 6
 )
 
-type loopJob func()
+// loopJob is one event-loop turn (a timer, a download's callback); a JS error it returns ends the run.
+type loopJob func() error
 
-// liveRuntimes counts goja runtimes that exist right now. Every run creates one and drops it when the
-// run returns (nothing keeps a reference: timers are stopped, late callbacks see a cancelled context),
-// so this is at most the semaphore sizes (2 HTTP + 1 task) at any moment.
+// liveRuntimes counts script runs that exist right now (any engine). Every run creates one and drops it
+// when the run returns (nothing keeps a reference: timers are stopped, late callbacks see a cancelled
+// context), so this is at most the semaphore sizes (2 HTTP + 1 task) at any moment.
 var liveRuntimes atomic.Int64
+
+// textConversions counts blob → text conversions (tests: a body the script never read as text stays bytes).
+var textConversions atomic.Int64
 
 // runtimesCreated counts script runtimes ever created (tests: how many runs a burst cost).
 var runtimesCreated atomic.Int64
@@ -428,12 +488,18 @@ var runtimesCreated atomic.Int64
 // LiveRuntimes reports how many script runtimes are alive (diagnostics, memory samples, tests).
 func LiveRuntimes() int64 { return liveRuntimes.Load() }
 
+// runCtx is one script run: the host side of the prelude (hostOp) plus the event loop state.
 type runCtx struct {
-	rt      *goja.Runtime
+	id      int64
+	eng     jsEngine
+	rt      atomic.Pointer[goja.Runtime] // goja engine (atomic: interrupts come from timer goroutines)
+	native  NativeJS                     // native engine
+	src     string                       // source, for a native reload ("" when it came from the cache)
 	jobs    chan loopJob
 	pending int
 	done    bool
-	result  goja.Value
+	desc    *doneDescJS // what $done handed over (nil: $done not called / nothing usable)
+	doneRaw string
 	script  *Script
 	name    string
 	e       *Engine
@@ -441,18 +507,34 @@ type runCtx struct {
 	timers  map[int64]*time.Timer
 	// origSetCookie holds the response's Set-Cookie lines when there were several (review5 P2-3).
 	origSetCookie []string
-	timerID       int64
 	// Debug runs (脚本调试): console output and notifications are captured instead of going to the
 	// engine's rings / the user's notification history.
 	onLog    func(level, msg string)
 	onNotify func(title, sub, body, url string)
-	// origBody / origBodyBytes are the phase object's own body values ($response's, or $request's in the
-	// request phase): $done($response) after `$response.body = x` hands both back, and the untouched
-	// original bodyBytes must not win over the body the script changed.
-	origBody, origBodyBytes goja.Value
-	// phaseObj / lazy: the text-mode phase object and its lazy body state (setBody, lazyDone).
-	phaseObj *goja.Object
-	lazy     *lazyBody
+	// setup additions: globals ($network, task extras), $environment.params, the exported $done value.
+	globals    map[string]any
+	params     any
+	hasParams  bool
+	wantExport bool
+
+	stop      atomic.Int32 // stop reason (jsengine.go)
+	stopCh    chan struct{}
+	stopOnce  sync.Once
+	abandoned atomic.Bool // native call given up (wedged engine)
+
+	hmu     sync.Mutex // host entry points (Host / Put / Take) vs. the end of the run
+	dead    bool
+	blobs   map[int64]*blob
+	blobSeq int64
+}
+
+// blob is bytes shared with the engine by id. temp blobs (made for one conversion) go away when read.
+type blob struct {
+	b    []byte
+	temp bool
+	// shared: the bytes are the caller's (ScriptHTTP.BodyShared) and an engine that borrows (goja) maps them
+	// without a copy; the handler restores them if the script changed them in place without handing them back.
+	shared bool
 }
 
 func (rc *runCtx) post(j loopJob) {
@@ -460,6 +542,319 @@ func (rc *runCtx) post(j loopJob) {
 	case rc.jobs <- j:
 	case <-rc.ctx.Done():
 	}
+}
+
+// requestStop ends the run's JavaScript as soon as the engine can (first reason wins).
+func (rc *runCtx) requestStop(reason int32) {
+	rc.stop.CompareAndSwap(stopNone, reason)
+	rc.stopOnce.Do(func() { close(rc.stopCh) })
+	if rc.eng != nil {
+		rc.eng.interrupt(rc)
+	}
+}
+
+func (rc *runCtx) code() string { return rc.src }
+
+// ---- NativeRun (also used by the goja primitives) ----
+
+func (rc *runCtx) ID() int64        { return rc.id }
+func (rc *runCtx) ShouldStop() bool { return rc.stop.Load() != stopNone }
+
+func (rc *runCtx) Put(b []byte) int64 {
+	rc.hmu.Lock()
+	defer rc.hmu.Unlock()
+	if rc.dead {
+		return -1
+	}
+	return rc.addBlob(append([]byte(nil), b...), true)
+}
+
+func (rc *runCtx) Take(id int64) []byte {
+	rc.hmu.Lock()
+	defer rc.hmu.Unlock()
+	return rc.useBlob(id)
+}
+
+// takeOwned is Take for an engine that maps blob bytes into its own heap (goja): a copy, except for a
+// shared body, which is borrowed (v0.19.22).
+func (rc *runCtx) takeOwned(id int64) []byte {
+	rc.hmu.Lock()
+	defer rc.hmu.Unlock()
+	shared := false
+	if bl, ok := rc.blobs[id]; ok {
+		shared = bl.shared
+	}
+	b := rc.useBlob(id)
+	if shared {
+		return b
+	}
+	return append([]byte(nil), b...)
+}
+
+// putOwned is Put without the copy, for bytes a finished run hands back from an engine whose buffers are
+// Go memory (goja: the runtime is dropped when the run ends; nothing writes to them any more).
+func (rc *runCtx) putOwned(b []byte) int64 {
+	rc.hmu.Lock()
+	defer rc.hmu.Unlock()
+	if rc.dead {
+		return -1
+	}
+	return rc.addBlob(b[:len(b):len(b)], true)
+}
+
+// addBlob / useBlob / keepBlob: callers hold hmu.
+func (rc *runCtx) addBlob(b []byte, temp bool) int64 {
+	if rc.blobs == nil {
+		rc.blobs = map[int64]*blob{}
+	}
+	rc.blobSeq++
+	rc.blobs[rc.blobSeq] = &blob{b: b, temp: temp}
+	return rc.blobSeq
+}
+
+func (rc *runCtx) useBlob(id int64) []byte {
+	bl, ok := rc.blobs[id]
+	if !ok {
+		return nil
+	}
+	if bl.temp {
+		delete(rc.blobs, id)
+	}
+	return bl.b
+}
+
+// blobBytes reads a blob for the host (parseDone).
+func (rc *runCtx) blobBytes(id int64) []byte {
+	rc.hmu.Lock()
+	defer rc.hmu.Unlock()
+	if b := rc.blobs[id]; b != nil {
+		return b.b
+	}
+	return nil
+}
+
+func (rc *runCtx) freeBlob(id int64) {
+	rc.hmu.Lock()
+	delete(rc.blobs, id)
+	rc.hmu.Unlock()
+}
+
+// Host is the prelude's synchronous host call (__tern.host).
+func (rc *runCtx) Host(op, arg string) string {
+	rc.hmu.Lock()
+	defer rc.hmu.Unlock()
+	if rc.dead {
+		return ""
+	}
+	return rc.hostOp(op, arg)
+}
+
+func (rc *runCtx) hostOp(op, arg string) string {
+	switch op {
+	case "log":
+		level, msg, _ := strings.Cut(arg, "\n")
+		if rc.onLog != nil {
+			rc.onLog(level, msg)
+		} else {
+			rc.e.Logs.Add(rc.name, level, msg)
+		}
+	case "done":
+		if !rc.done {
+			rc.done = true
+			rc.doneRaw = arg
+		}
+	case "timer":
+		f := strings.Split(arg, ",")
+		if len(f) == 3 {
+			id, _ := strconv.ParseInt(f[0], 10, 64)
+			ms, _ := strconv.ParseInt(f[1], 10, 64)
+			rc.addTimer(id, ms, f[2] == "1")
+		}
+	case "clear":
+		id, _ := strconv.ParseInt(arg, 10, 64)
+		if t, ok := rc.timers[id]; ok {
+			t.Stop()
+			delete(rc.timers, id)
+			rc.pending--
+		}
+	case "sread":
+		if v, ok := rc.e.Store.Read(arg); ok {
+			return "1" + v
+		}
+		return "0"
+	case "swrite":
+		// "w|d" + len(key) + ":" + key + value
+		if len(arg) < 3 {
+			return "false"
+		}
+		del := arg[0] == 'd'
+		n, rest, ok := strings.Cut(arg[1:], ":")
+		kl, err := strconv.Atoi(n)
+		if !ok || err != nil || kl < 0 || kl > len(rest) {
+			return "false"
+		}
+		return strconv.FormatBool(rc.e.Store.Write(rest[:kl], rest[kl:], del))
+	case "sclear":
+		return strconv.FormatBool(rc.e.Store.Clear())
+	case "notify":
+		var a [4]string
+		if json.Unmarshal([]byte(arg), &a) == nil {
+			rc.notify(a[0], a[1], a[2], a[3])
+		}
+	case "http":
+		rc.startFetch(arg)
+	case "api":
+		rc.httpAPI(arg)
+	case "utf8":
+		return strconv.FormatInt(rc.addBlob([]byte(arg), true), 10)
+	case "text":
+		id, _ := strconv.ParseInt(arg, 10, 64)
+		textConversions.Add(1)
+		return bodyString(rc.useBlob(id))
+	case "btoa":
+		b := make([]byte, 0, len(arg))
+		for _, r := range arg {
+			if r > 0xFF {
+				return "!" // r7 B27: InvalidCharacterError (thrown by the prelude), like browsers / JSC
+			}
+			b = append(b, byte(r))
+		}
+		return base64.StdEncoding.EncodeToString(b)
+	case "atob":
+		b, err := base64.StdEncoding.DecodeString(strings.TrimSpace(arg))
+		if err != nil {
+			b, _ = base64.RawStdEncoding.DecodeString(strings.TrimRight(strings.TrimSpace(arg), "="))
+		}
+		rs := make([]rune, len(b))
+		for i, c := range b {
+			rs[i] = rune(c)
+		}
+		return string(rs)
+	case "geo":
+		if arg == "" {
+			return ""
+		}
+		c, a, o := rc.e.lookup(arg[1:])
+		switch arg[0] {
+		case 'c':
+			return c
+		case 'a':
+			return a
+		case 'o':
+			return o
+		}
+	case "ungzip":
+		id, _ := strconv.ParseInt(arg, 10, 64)
+		in := rc.useBlob(id)
+		if in == nil {
+			return "-1"
+		}
+		out, err := inflateAny(in)
+		if err != nil {
+			return "-1"
+		}
+		return strconv.FormatInt(rc.addBlob(out, true), 10)
+	case "compress":
+		op, ids, _ := strings.Cut(arg, ",")
+		id, _ := strconv.ParseInt(ids, 10, 64)
+		in := rc.useBlob(id)
+		if in == nil {
+			return "-1"
+		}
+		out, err := egernCompress(op, in)
+		if err != nil {
+			return "-1"
+		}
+		return strconv.FormatInt(rc.addBlob(out, true), 10)
+	}
+	return ""
+}
+
+// notify posts a $notification.post / $notify.
+func (rc *runCtx) notify(title, sub, body, url string) {
+	// review5 P2-6: bounded fields (the history file is rewritten on every post) and a per-script
+	// rate limit so a debug loop can't flood iOS notifications.
+	title, sub = clipBytes(title, noticeShortMax), clipBytes(sub, noticeShortMax)
+	body, url = clipBytes(body, noticeLongMax), clipBytes(url, noticeLongMax)
+	if rc.onNotify != nil {
+		rc.onNotify(title, sub, body, url)
+		return
+	}
+	if !noticeRate.allow(rc.name) {
+		rc.e.Logs.Add(rc.name, "warn", "通知过于频繁，已丢弃："+clip(title, 60))
+		return
+	}
+	rc.e.Logs.Add(rc.name, "notify", strings.TrimSpace(title+" | "+sub+" | "+body))
+	rc.e.Notices.Add(Notice{Script: rc.name, Title: title, Subtitle: sub, Body: body, URL: url})
+	if n := rc.e.notify.Load(); n != nil && *n != nil {
+		(*n)(title, sub, body, url)
+	}
+}
+
+func (rc *runCtx) addTimer(id, ms int64, repeat bool) {
+	if ms < 0 {
+		ms = 0
+	}
+	rc.pending++
+	var fire func()
+	fire = func() {
+		rc.post(func() error {
+			if _, ok := rc.timers[id]; !ok {
+				return nil
+			}
+			if !repeat {
+				delete(rc.timers, id)
+				rc.pending--
+			} else {
+				rc.timers[id] = time.AfterFunc(time.Duration(ms)*time.Millisecond, fire)
+			}
+			return rc.eng.call(rc, "__tern_fire", strconv.FormatInt(id, 10))
+		})
+	}
+	rc.timers[id] = time.AfterFunc(time.Duration(ms)*time.Millisecond, fire)
+}
+
+// $httpAPI (Surge): policy groups, outbound mode, profile reload — answered by the bridge.
+func (rc *runCtx) httpAPI(arg string) {
+	var d struct {
+		M    string          `json:"m"`
+		P    string          `json:"p"`
+		HasB bool            `json:"hasB"`
+		BS   bool            `json:"bs"`
+		B    json.RawMessage `json:"b"`
+		CB   int64           `json:"cb"`
+	}
+	if json.Unmarshal([]byte(arg), &d) != nil {
+		return
+	}
+	var body any
+	if d.HasB {
+		if d.BS {
+			var s string
+			_ = json.Unmarshal(d.B, &s)
+			body = s
+			var m map[string]any
+			if json.Unmarshal([]byte(s), &m) == nil {
+				body = m
+			}
+		} else {
+			_ = json.Unmarshal(d.B, &body)
+		}
+	}
+	res, err := rc.e.callAPI(d.M, d.P, body)
+	if err != nil {
+		rc.e.Logs.Add(rc.name, "warning", "$httpAPI "+d.M+" "+d.P+"："+err.Error())
+		res = map[string]any{"error": err.Error()}
+	}
+	if d.CB < 0 {
+		return
+	}
+	out, _ := json.Marshal(map[string]any{"id": d.CB, "v": res})
+	rc.pending++
+	rc.post(func() error {
+		rc.pending--
+		return rc.eng.call(rc, "__tern_deliver", string(out))
+	})
 }
 
 // Run executes a script rule. resp == nil means request phase.
@@ -604,16 +999,31 @@ func (s *ScriptRunner) run(parent context.Context, rule *Rule, req, resp *Script
 	return rc.parseDone(resp == nil)
 }
 
-// execute compiles + runs one script in a fresh runtime and drives its event loop until $done or until
-// nothing is pending. req == nil => task script (no $request / $response).
+// execute compiles + runs one script and drives its event loop until $done or until nothing is pending.
+// req == nil => task script (no $request / $response).
 // parent: the run stops when it ends (client gone, engine stopped); nil = no parent. holdsBig: the
 // caller already holds bigSem (Reserve for a large bundle).
 func (s *ScriptRunner) execute(parent context.Context, sc *Script, req, resp *ScriptHTTP, sem chan struct{}, holdsBig bool, maxTimeout, defTimeout time.Duration, setup func(*runCtx)) (rcOut *runCtx, errOut error) {
+	return s.executeOn("", parent, sc, req, resp, sem, holdsBig, maxTimeout, defTimeout, setup)
+}
+
+// executeOn is execute on a chosen engine ("" = the default: native when registered, else goja).
+func (s *ScriptRunner) executeOn(engine string, parent context.Context, sc *Script, req, resp *ScriptHTTP, sem chan struct{}, holdsBig bool, maxTimeout, defTimeout time.Duration, setup func(*runCtx)) (rcOut *runCtx, errOut error) {
 	// v0.19.3: a Go panic inside a native helper must not take the tunnel down (task scripts run on the
 	// scheduler goroutine, which has no net/http recover around it).
 	defer func() {
 		if p := recover(); p != nil {
 			rcOut, errOut = nil, fmt.Errorf("脚本运行时内部错误：%v", p)
+		}
+	}()
+	eng, err := engineFor(engine)
+	if err != nil {
+		return nil, err
+	}
+	var ran *runCtx // set once the run exists: a failed run notes its engine in the script log
+	defer func() {
+		if errOut != nil && ran != nil && ran.onLog == nil && !errors.Is(errOut, errScriptCancelled) {
+			s.e.Logs.Add(sc.Name, "debug", "运行引擎："+engineLabel(eng))
 		}
 	}()
 	timeout := scriptTimeout(sc, maxTimeout, defTimeout)
@@ -632,9 +1042,12 @@ func (s *ScriptRunner) execute(parent context.Context, sc *Script, req, resp *Sc
 		}
 		defer func() { <-s.bigSem }()
 	}
-	// Lend the run (compile included) what iOS still allows above GOMEMLIMIT (memory.go).
-	defer borrowSoftLimit()()
-	prog, err := s.program(sc)
+	// Lend the run (compile included) what iOS still allows above GOMEMLIMIT (memory.go). Only goja's
+	// heap is the Go heap; JavaScriptCore allocates outside it.
+	if eng.kind() != EngineNative || usesGoHeap(eng) {
+		defer borrowSoftLimit()()
+	}
+	prog, src, err := s.programFor(sc, eng)
 	if err != nil {
 		return nil, err
 	}
@@ -654,41 +1067,48 @@ func (s *ScriptRunner) execute(parent context.Context, sc *Script, req, resp *Sc
 
 	ctx, cancel := context.WithTimeout(context.Background(), timeout)
 	defer cancel()
-	rt := goja.New()
-	// v0.19.3: goja's default call-stack limit is MaxInt32, so `function f(){f()} f()` grew the heap by
-	// ~25 MB/s until jetsam killed the extension long before the timeout. JSC (Surge) throws RangeError.
-	rt.SetMaxCallStackSize(scriptMaxCallStack)
 	liveRuntimes.Add(1)
 	runtimesCreated.Add(1)
 	defer liveRuntimes.Add(-1)
-	rc := &runCtx{rt: rt, jobs: make(chan loopJob, 8), script: sc, name: sc.Name, e: s.e, ctx: ctx, timers: map[int64]*time.Timer{}}
+	rc := &runCtx{id: runSeq.Add(1), eng: eng, src: src, jobs: make(chan loopJob, 8), script: sc, name: sc.Name, e: s.e, ctx: ctx,
+		timers: map[int64]*time.Timer{}, stopCh: make(chan struct{})}
+	if rc.src == "" && sc.Source != nil {
+		rc.src = string(sc.Source)
+	}
 	defer func() {
+		rc.hmu.Lock()
+		rc.dead = true
+		rc.hmu.Unlock()
 		for _, t := range rc.timers {
 			t.Stop()
 		}
+		eng.end(rc)
+		rc.rt.Store(nil)
 	}()
 	start := time.Now()
-	if err := rc.install(req, resp); err != nil {
-		return nil, err
-	}
 	if setup != nil {
 		setup(rc)
 	}
-	stop := context.AfterFunc(ctx, func() { rt.Interrupt("timeout") })
+	ran = rc
+	setupJSON, err := rc.setupJSON(req, resp)
+	if err != nil {
+		return nil, err
+	}
+	stop := context.AfterFunc(ctx, func() { rc.requestStop(stopTimeout) })
 	defer stop()
 	// r7 B29 / P3-7: the client went away (HTTP scripts) or the engine stopped (task scripts): stop the
 	// run instead of letting it go on to its timeout (up to 300 s for a task, with network + store writes).
-	stopParent := context.AfterFunc(parent, func() { rt.Interrupt(cancelInterrupt) })
+	stopParent := context.AfterFunc(parent, func() { rc.requestStop(stopCancelled) })
 	defer stopParent()
-	stopGuard := startMemGuard(ctx, rt)
+	stopGuard := startMemGuard(ctx, func() { rc.requestStop(stopMemory) })
 	defer stopGuard()
 
 	jsFail := func(err error) error {
-		var ie *goja.InterruptedError
-		if parent.Err() != nil && errors.As(err, &ie) {
+		var je *jsError
+		if parent.Err() != nil && errors.As(err, &je) && je.kind == "interrupted" {
 			return errScriptCancelled // interrupted because the parent ended (whatever value won)
 		}
-		return s.jsErr(sc, err, timeout)
+		return s.jsErr(rc, err, timeout)
 	}
 	// afterDone: Surge / Loon / QX / Egern hand the $done value over the moment $done is called; an
 	// exception the script throws afterwards (trailing obfuscator code such as jsjiami's `}(window));`,
@@ -697,11 +1117,11 @@ func (s *ScriptRunner) execute(parent context.Context, sc *Script, req, resp *Sc
 		if !rc.done || err == nil {
 			return false
 		}
-		var ie *goja.InterruptedError
-		if errors.As(err, &ie) {
+		var je *jsError
+		if errors.As(err, &je) && je.kind == "interrupted" {
 			return false
 		}
-		msg := s.jsErr(sc, err, timeout).Error()
+		msg := s.jsErr(rc, err, timeout).Error()
 		if rc.onLog != nil {
 			rc.onLog("warn", "$done 之后的异常已忽略："+msg)
 		} else {
@@ -709,7 +1129,7 @@ func (s *ScriptRunner) execute(parent context.Context, sc *Script, req, resp *Sc
 		}
 		return true
 	}
-	_, err = rt.RunProgram(prog)
+	err = eng.begin(rc, prog, setupJSON)
 	if err != nil && !afterDone(err) {
 		return nil, jsFail(err)
 	}
@@ -723,13 +1143,13 @@ func (s *ScriptRunner) execute(parent context.Context, sc *Script, req, resp *Sc
 				defer func() {
 					if p := recover(); p != nil {
 						if pe, ok := p.(error); ok {
-							err = pe // keeps *goja.Exception / StackOverflowError / InterruptedError for jsErr
+							err = gojaErr(pe) // keeps goja's Exception / StackOverflowError / InterruptedError for jsErr
 						} else {
 							err = fmt.Errorf("%v", p)
 						}
 					}
 				}()
-				j()
+				err = j()
 			}()
 			if err != nil && !afterDone(err) {
 				return nil, jsFail(err)
@@ -740,31 +1160,282 @@ func (s *ScriptRunner) execute(parent context.Context, sc *Script, req, resp *Sc
 			return nil, fmt.Errorf("脚本执行超时（%s）", timeout)
 		}
 	}
+	if rc.done {
+		if err := rc.readDone(); err != nil {
+			return nil, err
+		}
+	}
 	if rc.onLog == nil {
-		s.e.Logs.Add(sc.Name, "debug", fmt.Sprintf("执行完成，用时 %d ms", time.Since(start).Milliseconds()))
+		s.e.Logs.Add(sc.Name, "debug", fmt.Sprintf("执行完成，用时 %d ms（%s）", time.Since(start).Milliseconds(), engineLabel(eng)))
 	}
 	return rc, nil
 }
 
-func (s *ScriptRunner) jsErr(sc *Script, err error, timeout time.Duration) error {
-	var ie *goja.InterruptedError
-	if errors.As(err, &ie) {
-		if v, _ := ie.Value().(string); v == memInterrupt {
+// engineLabel names the engine that ran a script, for the script log.
+func engineLabel(e jsEngine) string {
+	if e != nil && e.kind() == EngineNative {
+		return "JavaScriptCore"
+	}
+	return "goja"
+}
+
+func (s *ScriptRunner) jsErr(rc *runCtx, err error, timeout time.Duration) error {
+	var je *jsError
+	if !errors.As(err, &je) {
+		return err
+	}
+	switch je.kind {
+	case "interrupted":
+		switch rc.stop.Load() {
+		case stopMemory:
 			return errors.New("脚本内存占用过高，已终止（保护隧道内存）")
-		} else if v == cancelInterrupt {
+		case stopCancelled:
 			return errScriptCancelled
 		}
 		return fmt.Errorf("脚本执行超时（%s）", timeout)
-	}
-	var so *goja.StackOverflowError
-	if errors.As(err, &so) {
+	case "stack":
 		return errors.New("脚本调用栈溢出（递归过深）")
+	case "exception":
+		return fmt.Errorf("脚本异常：%s", clip(je.msg, 400))
+	case "syntax":
+		return fmt.Errorf("脚本语法错误：%s", clip(je.msg, 400))
 	}
-	var ex *goja.Exception
-	if errors.As(err, &ex) {
-		return fmt.Errorf("脚本异常：%s", clip(ex.Error(), 400))
+	return errors.New(je.msg)
+}
+
+// ---- setup handed to __tern_begin ----
+
+type jsArg struct {
+	Has bool   `json:"has"`
+	Obj bool   `json:"obj"`
+	S   string `json:"s"`
+}
+
+type jsEnv struct {
+	SurgeVersion string `json:"surge-version"`
+	SurgeBuild   string `json:"surge-build"`
+	Language     string `json:"language"`
+	System       string `json:"system"`
+	MihomoIOS    bool   `json:"mihomo-ios"`
+}
+
+type jsHTTP struct {
+	URL     string      `json:"url,omitempty"`
+	Method  string      `json:"method,omitempty"`
+	ID      string      `json:"id,omitempty"`
+	Status  int         `json:"status,omitempty"`
+	Headers [][2]string `json:"headers"`
+	Body    int64       `json:"body"`
+	// Borrow: Body is the caller's shared buffer mapped without a copy (prelude setBody).
+	Borrow bool `json:"borrow,omitempty"`
+}
+
+type jsSetup struct {
+	Name      string            `json:"name"`
+	Type      string            `json:"type"`
+	Path      string            `json:"path"`
+	Phase     string            `json:"phase"` // request | response | task
+	Echo      bool              `json:"echo"`
+	Binary    bool              `json:"binary"`
+	Export    bool              `json:"export"`
+	Arg       jsArg             `json:"arg"`
+	Env       jsEnv             `json:"env"`
+	EgernEnv  map[string]string `json:"egernEnv"`
+	EgernCron string            `json:"egernCron"`
+	Req       *jsHTTP           `json:"req,omitempty"`
+	Resp      *jsHTTP           `json:"resp,omitempty"`
+	Globals   map[string]any    `json:"globals,omitempty"`
+	HasParams bool              `json:"hasParams"`
+	Params    any               `json:"params,omitempty"`
+}
+
+// addBody makes the phase body's blob (hmu held). A shared body is borrowed by an engine that can (goja).
+func (rc *runCtx) addBody(h *ScriptHTTP) (int64, bool) {
+	id := rc.addBlob(h.Body, false)
+	if h.BodyShared && rc.eng != nil && rc.eng.borrows() {
+		rc.blobs[id].shared = true
+		return id, true
 	}
-	return err
+	return id, false
+}
+
+func (rc *runCtx) setupJSON(req, resp *ScriptHTTP) (string, error) {
+	sc := rc.script
+	st := jsSetup{Name: sc.Name, Type: sc.Type, Path: sc.Path, Phase: "task", Echo: sc.Echo, Binary: sc.BinaryBody,
+		Export: rc.wantExport, Arg: jsArg{Has: sc.HasArgument, Obj: sc.ArgObject, S: sc.Argument},
+		Env:      jsEnv{SurgeVersion: "5.20.0", SurgeBuild: "3000", Language: "zh-Hans", System: "iOS", MihomoIOS: true},
+		EgernEnv: sc.Env, EgernCron: sc.Cron, Globals: rc.globals, HasParams: rc.hasParams, Params: rc.params}
+	if st.EgernEnv == nil {
+		st.EgernEnv = map[string]string{}
+	}
+	if s := rc.e.st.Load(); s != nil {
+		st.Env.Language = s.cfg.scriptLanguage()
+	}
+	if req != nil {
+		st.Phase = "request"
+		rh := req.Header
+		if req.Host != "" && rh.Get("Host") == "" {
+			// review5 P2-4: Go moves Host out of the header map; scripts expect to see it.
+			rh = rh.Clone()
+			if rh == nil {
+				rh = http.Header{}
+			}
+			rh.Set("Host", req.Host)
+		}
+		st.Req = &jsHTTP{URL: req.URL, Method: req.Method, Headers: headerPairs(rh), ID: strconv.FormatInt(time.Now().UnixNano(), 36), Body: -1}
+		rc.hmu.Lock()
+		if resp == nil && req.HasBody {
+			st.Req.Body, st.Req.Borrow = rc.addBody(req)
+		}
+		if resp != nil {
+			st.Phase = "response"
+			if v := resp.Header.Values("Set-Cookie"); len(v) > 1 {
+				rc.origSetCookie = append([]string(nil), v...)
+			}
+			st.Resp = &jsHTTP{Status: resp.Status, Headers: headerPairs(resp.Header), Body: -1}
+			if resp.HasBody {
+				st.Resp.Body, st.Resp.Borrow = rc.addBody(resp)
+			}
+		}
+		rc.hmu.Unlock()
+	}
+	b, err := json.Marshal(st)
+	if err != nil {
+		return "", fmt.Errorf("脚本参数错误：%v", err)
+	}
+	return string(b), nil
+}
+
+// ---- $done ----
+
+// doneMockJS / doneDescJS: the prelude's doneDesc (prelude.js).
+type doneMockJS struct {
+	Status     json.RawMessage `json:"status"`
+	StatusCode json.RawMessage `json:"statusCode"`
+	Headers    *[][2]string    `json:"headers"`
+	Body       int64           `json:"body"`
+}
+
+type doneDescJS struct {
+	Kind       string          `json:"kind"`
+	Err        string          `json:"err"`
+	Abort      bool            `json:"abort"`
+	Mock       *doneMockJS     `json:"mock"`
+	URL        *string         `json:"url"`
+	Method     *string         `json:"method"`
+	Status     json.RawMessage `json:"status"`
+	StatusCode json.RawMessage `json:"statusCode"`
+	Headers    *[][2]string    `json:"headers"`
+	Body       *int64          `json:"body"`
+	Undef      bool            `json:"undef"`
+	IsNull     bool            `json:"isNull"`
+	Value      json.RawMessage `json:"value"`
+}
+
+func (rc *runCtx) readDone() error {
+	var d doneDescJS
+	if err := json.Unmarshal([]byte(rc.doneRaw), &d); err != nil {
+		return fmt.Errorf("脚本运行时内部错误：$done %v", err)
+	}
+	if d.Err != "" {
+		msg := "$done 的参数无法读取：" + clip(d.Err, 300)
+		if rc.onLog != nil {
+			rc.onLog("warn", msg)
+		} else {
+			rc.e.Logs.Add(rc.name, "warn", msg)
+		}
+	}
+	rc.desc = &d
+	return nil
+}
+
+// exported is the $done value as plain Go data (task results, 脚本调试); ok=false: undefined / null / none.
+func (rc *runCtx) exported() (any, bool) {
+	d := rc.desc
+	if d == nil || d.Undef || d.IsNull || len(d.Value) == 0 {
+		return nil, false
+	}
+	var v any
+	if json.Unmarshal(d.Value, &v) != nil {
+		return nil, false
+	}
+	return v, true
+}
+
+// parseStatus accepts 200, "200", "HTTP/1.1 200 OK" (a number or a string from the prelude).
+func parseStatus(raw json.RawMessage) int {
+	if len(raw) == 0 || string(raw) == "null" {
+		return 0
+	}
+	var f float64
+	if json.Unmarshal(raw, &f) == nil {
+		return int(f)
+	}
+	var s string
+	if json.Unmarshal(raw, &s) != nil {
+		return 0
+	}
+	s = strings.TrimSpace(s)
+	if strings.HasPrefix(s, "HTTP/") {
+		f := strings.Fields(s)
+		if len(f) >= 2 {
+			s = f[1]
+		}
+	}
+	n, _ := strconv.Atoi(s)
+	return n
+}
+
+func (rc *runCtx) parseDone(requestPhase bool) (*ScriptResult, error) {
+	res := &ScriptResult{}
+	d := rc.desc
+	if d == nil || d.Kind != "obj" {
+		return res, nil
+	}
+	if d.Abort {
+		res.Abort = true
+		return res, nil
+	}
+	if requestPhase {
+		if m := d.Mock; m != nil {
+			r := &ScriptHTTP{Status: parseStatus(m.Status)}
+			if m.Headers != nil {
+				r.Header = pairsHeader(*m.Headers)
+			}
+			if r.Status == 0 {
+				r.Status = parseStatus(m.StatusCode)
+			}
+			if m.Body >= 0 {
+				r.Body = rc.blobBytes(m.Body)
+			}
+			res.Response = r
+			return res, nil
+		}
+		if d.URL != nil {
+			res.URL = *d.URL
+		}
+		if d.Method != nil {
+			res.Method = *d.Method
+		}
+	} else {
+		res.Status = parseStatus(d.Status)
+		if res.Status == 0 {
+			res.Status = parseStatus(d.StatusCode)
+		}
+	}
+	if d.Headers != nil {
+		res.Header = pairsHeader(*d.Headers)
+		if !requestPhase {
+			fixSetCookie(res.Header, rc.origSetCookie)
+		}
+	}
+	if d.Body != nil && *d.Body >= 0 {
+		res.Body, res.BodySet = rc.blobBytes(*d.Body), true
+		if res.Body == nil {
+			res.Body = []byte{}
+		}
+	}
+	return res, nil
 }
 
 // scriptMaxCallStack bounds JS recursion (frames). JSC allows roughly this order of magnitude too.
@@ -784,9 +1455,9 @@ var memGuardLimit = func() int64 { return debug.SetMemoryLimit(-1) }
 // in the extension from the jetsam budget). A script that builds huge strings / arrays would otherwise
 // push the extension over its ~50 MB budget and the system kills the tunnel. No limit set (app, tests)
 // => no guard.
-func startMemGuard(ctx context.Context, rt *goja.Runtime) func() {
+func startMemGuard(ctx context.Context, stop func()) func() {
 	if _, known := availableMemory(); known {
-		return startAvailGuard(ctx, rt)
+		return startAvailGuard(ctx, stop)
 	}
 	limit := memGuardLimit()
 	if limit <= 0 || limit >= 1<<40 {
@@ -819,7 +1490,7 @@ func startMemGuard(ctx context.Context, rt *goja.Runtime) func() {
 							continue
 						}
 					}
-					rt.Interrupt(memInterrupt)
+					stop()
 					return
 				}
 			}
@@ -834,7 +1505,7 @@ func startMemGuard(ctx context.Context, rt *goja.Runtime) func() {
 // target (26 MB) and interrupted large scripts such as 喜马拉雅 with half the real budget unused. Below
 // scriptAvailFloor it returns memory to the OS once (garbage counts in the footprint until scavenged)
 // and interrupts the script if that did not help.
-func startAvailGuard(ctx context.Context, rt *goja.Runtime) func() {
+func startAvailGuard(ctx context.Context, stop func()) func() {
 	done := make(chan struct{})
 	go func() {
 		t := time.NewTicker(50 * time.Millisecond)
@@ -848,7 +1519,7 @@ func startAvailGuard(ctx context.Context, rt *goja.Runtime) func() {
 			case <-t.C:
 				if ok, known, _ := availableAtLeast(scriptAvailFloor); known && !ok {
 					if a, _ := availableMemoryNow(); a < scriptAvailFloor {
-						rt.Interrupt(memInterrupt)
+						stop()
 						return
 					}
 				}
@@ -858,66 +1529,6 @@ func startAvailGuard(ctx context.Context, rt *goja.Runtime) func() {
 	var once sync.Once
 	return func() { once.Do(func() { close(done) }) }
 }
-
-// ---- headers as a case-insensitive JS object ----
-
-type ciHeaders struct {
-	rt   *goja.Runtime
-	keys []string
-	vals map[string]goja.Value // by lower-case key
-	orig map[string]string     // lower -> original key
-}
-
-func newCIHeaders(rt *goja.Runtime, h http.Header) *ciHeaders {
-	c := &ciHeaders{rt: rt, vals: map[string]goja.Value{}, orig: map[string]string{}}
-	keys := make([]string, 0, len(h))
-	for k := range h {
-		keys = append(keys, k)
-	}
-	sort.Strings(keys)
-	for _, k := range keys {
-		v := h[k]
-		var jv goja.Value
-		// Set-Cookie is joined like Surge does; parseDone splits it back (review5 P2-3).
-		jv = rt.ToValue(strings.Join(v, ", "))
-		c.set(k, jv)
-	}
-	return c
-}
-
-func (c *ciHeaders) set(k string, v goja.Value) {
-	lk := strings.ToLower(k)
-	if _, ok := c.orig[lk]; !ok {
-		c.keys = append(c.keys, k)
-		c.orig[lk] = k
-	}
-	c.vals[lk] = v
-}
-func (c *ciHeaders) Get(k string) goja.Value { return c.vals[strings.ToLower(k)] }
-func (c *ciHeaders) Set(k string, v goja.Value) bool {
-	if goja.IsUndefined(v) {
-		c.Delete(k)
-		return true
-	}
-	c.set(k, v)
-	return true
-}
-func (c *ciHeaders) Has(k string) bool { _, ok := c.vals[strings.ToLower(k)]; return ok }
-func (c *ciHeaders) Delete(k string) bool {
-	lk := strings.ToLower(k)
-	if o, ok := c.orig[lk]; ok {
-		delete(c.vals, lk)
-		delete(c.orig, lk)
-		for i, kk := range c.keys {
-			if kk == o {
-				c.keys = append(c.keys[:i], c.keys[i+1:]...)
-				break
-			}
-		}
-	}
-	return true
-}
-func (c *ciHeaders) Keys() []string { return append([]string(nil), c.keys...) }
 
 // fixSetCookie undoes the ", " join scripts see (review5 P2-3): an unchanged value gets the original
 // lines back, a changed one is split before each "name=" that starts a new cookie.
@@ -960,650 +1571,11 @@ func splitSetCookie(v string) []string {
 	return append(out, strings.TrimSpace(v[start:]))
 }
 
-func toHeader(rt *goja.Runtime, v goja.Value) http.Header {
-	if v == nil || goja.IsUndefined(v) || goja.IsNull(v) {
-		return nil
-	}
-	obj := v.ToObject(rt)
-	h := http.Header{}
-	for _, k := range obj.Keys() {
-		val := obj.Get(k)
-		if val == nil || goja.IsUndefined(val) || goja.IsNull(val) {
-			continue
-		}
-		if arr, ok := val.Export().([]any); ok {
-			for _, a := range arr {
-				h.Add(k, fmt.Sprint(a))
-			}
-			continue
-		}
-		h.Add(k, val.String())
-	}
-	return h
-}
-
-// ---- bodies ----
-
-func (rc *runCtx) uint8Array(b []byte) goja.Value {
-	ab := rc.rt.NewArrayBuffer(append([]byte(nil), b...))
-	ctor := rc.rt.Get("Uint8Array")
-	o, err := rc.rt.New(ctor, rc.rt.ToValue(ab))
-	if err != nil {
-		return rc.rt.ToValue(ab)
-	}
-	return o
-}
-
-// binaryBody exposes a binary-mode body as a Uint8Array plus the ArrayBuffer under it (review6 OPT-1:
-// one copy of the body instead of two; Surge's body / bodyBytes describe the same bytes).
-func (rc *runCtx) binaryBody(b []byte, shared bool) (goja.Value, goja.Value) {
-	if !shared {
-		b = append([]byte(nil), b...)
-	}
-	ab := rc.rt.NewArrayBuffer(b)
-	abv := rc.rt.ToValue(ab)
-	o, err := rc.rt.New(rc.rt.Get("Uint8Array"), abv)
-	if err != nil {
-		return abv, abv
-	}
-	return o, abv
-}
-
-// bodyBytes converts a JS value (string / ArrayBuffer / TypedArray / object) into bytes.
-func (rc *runCtx) bodyBytes(v goja.Value) ([]byte, bool) {
-	if v == nil || goja.IsUndefined(v) || goja.IsNull(v) {
-		return nil, false
-	}
-	switch x := v.Export().(type) {
-	case string:
-		return []byte(x), true
-	case goja.ArrayBuffer:
-		return append([]byte(nil), x.Bytes()...), true
-	case []byte:
-		return append([]byte(nil), x...), true
-	}
-	obj := v.ToObject(rc.rt)
-	if buf := obj.Get("buffer"); buf != nil {
-		if ab, ok := buf.Export().(goja.ArrayBuffer); ok {
-			off := int(obj.Get("byteOffset").ToInteger())
-			n := int(obj.Get("byteLength").ToInteger())
-			b := ab.Bytes()
-			if off >= 0 && off+n <= len(b) {
-				return append([]byte(nil), b[off:off+n]...), true
-			}
-		}
-	}
-	// plain object => JSON
-	if b, err := json.Marshal(v.Export()); err == nil {
-		return b, true
-	}
-	return []byte(v.String()), true
-}
-
 func bodyString(b []byte) string {
 	if utf8.Valid(b) {
 		return string(b)
 	}
 	return strings.ToValidUTF8(string(b), "\uFFFD")
-}
-
-// ---- API installation ----
-
-func (rc *runCtx) install(req, resp *ScriptHTTP) error {
-	rt := rc.rt
-	set := func(name string, v any) { _ = rt.Set(name, v) }
-	if req != nil {
-		rc.installHTTP(req, resp)
-	}
-	rc.installCommon(set)
-	return nil
-}
-
-func (rc *runCtx) installHTTP(req, resp *ScriptHTTP) {
-	rt := rc.rt
-	sc := rc.script
-	set := func(name string, v any) { _ = rt.Set(name, v) }
-	// $request
-	ro := rt.NewObject()
-	_ = ro.Set("url", req.URL)
-	_ = ro.Set("method", req.Method)
-	rh := req.Header
-	if req.Host != "" && rh.Get("Host") == "" {
-		// review5 P2-4: Go moves Host out of the header map; scripts expect to see it.
-		rh = rh.Clone()
-		if rh == nil {
-			rh = http.Header{}
-		}
-		rh.Set("Host", req.Host)
-	}
-	_ = ro.Set("headers", rt.NewDynamicObject(newCIHeaders(rt, rh)))
-	_ = ro.Set("id", strconv.FormatInt(time.Now().UnixNano(), 36))
-	if resp == nil && req.HasBody {
-		rc.setBody(ro, req.Body, sc.BinaryBody, req.BodyShared)
-	}
-	set("$request", ro)
-	if resp != nil {
-		so := rt.NewObject()
-		_ = so.Set("status", resp.Status)
-		_ = so.Set("statusCode", resp.Status)
-		if sc := resp.Header.Values("Set-Cookie"); len(sc) > 1 {
-			rc.origSetCookie = append([]string(nil), sc...)
-		}
-		_ = so.Set("headers", rt.NewDynamicObject(newCIHeaders(rt, resp.Header)))
-		if resp.HasBody {
-			rc.setBody(so, resp.Body, sc.BinaryBody, resp.BodyShared)
-		}
-		set("$response", so)
-	}
-}
-
-// setBody puts a request / response body on its script object.
-//   - binary-body-mode (Surge binary-body-mode=1, Loon binary-body-mode=true): body is a Uint8Array and
-//     bodyBytes the ArrayBuffer under it;
-//   - text mode: body is the string, and bodyBytes is the raw bytes as an ArrayBuffer, the way Quantumult X
-//     gives every script-request-body / script-response-body script (QX syntax has no binary flag, so
-//     protobuf scripts such as Maasea's youtube.response.js read $response.bodyBytes there; before, Tern
-//     left it undefined and the script exited without touching the response). It is a lazy, non-enumerable
-//     accessor: the copy is made only when a script reads it, and `{...$response}` does not copy it.
-func (rc *runCtx) setBody(obj *goja.Object, b []byte, binary, shared bool) {
-	if binary {
-		u8, ab := rc.binaryBody(b, shared)
-		_ = obj.Set("body", u8)
-		_ = obj.Set("bodyBytes", ab)
-		rc.origBody, rc.origBodyBytes = u8, ab
-		return
-	}
-	// v0.19.22: body is lazy too (an enumerable accessor, so `{...$response}` and JSON.stringify still
-	// see it). A protobuf answer handed to a Quantumult X script (no binary flag; youtube.response.js
-	// reads bodyBytes) was turned into a string up front: invalid UTF-8 becomes U+FFFD (3 bytes each) and
-	// goja keeps non-ASCII strings as UTF-16, so a 3 MB body cost ~15 MB the script never looked at.
-	lb := &lazyBody{b: b}
-	rc.phaseObj, rc.lazy = obj, lb
-	lb.getBody = rc.rt.ToValue(func(goja.FunctionCall) goja.Value {
-		if lb.str == nil {
-			lb.str = rc.rt.ToValue(bodyString(b))
-			lb.origStr = lb.str
-			rc.origBody = lb.str
-		}
-		lb.strRead = true
-		return lb.str
-	})
-	setBody := rc.rt.ToValue(func(call goja.FunctionCall) goja.Value {
-		lb.str = call.Argument(0)
-		lb.strSet = true
-		return goja.Undefined()
-	})
-	_ = obj.DefineAccessorProperty("body", lb.getBody, setBody, goja.FLAG_TRUE, goja.FLAG_TRUE)
-	getter := rc.rt.ToValue(func(goja.FunctionCall) goja.Value {
-		if lb.ab == nil {
-			bb := b
-			if !shared {
-				bb = append([]byte(nil), b...)
-			}
-			lb.ab = rc.rt.ToValue(rc.rt.NewArrayBuffer(bb))
-			rc.origBodyBytes = lb.ab
-		}
-		lb.abRead = true
-		return lb.ab
-	})
-	setter := rc.rt.ToValue(func(call goja.FunctionCall) goja.Value {
-		lb.ab = call.Argument(0)
-		lb.abSet = true
-		return goja.Undefined()
-	})
-	_ = obj.DefineAccessorProperty("bodyBytes", getter, setter, goja.FLAG_TRUE, goja.FLAG_FALSE)
-}
-
-// lazyBody is the state of a text-mode phase object's body / bodyBytes accessors (setBody).
-type lazyBody struct {
-	b                []byte
-	getBody          goja.Value // the body getter (doneBody checks the accessor is still ours)
-	str, origStr, ab goja.Value
-	strRead, strSet  bool
-	abRead, abSet    bool
-}
-
-// lazyDone answers doneBody for the text-mode phase object without materialising what the script never
-// touched. ok = false: the accessors were replaced (delete / defineProperty) — use the generic path.
-func (rc *runCtx) lazyDone(o *goja.Object) (b []byte, set bool, ok bool) {
-	lb := rc.lazy
-	if lb == nil || rc.phaseObj == nil || o != rc.phaseObj {
-		return nil, false, false
-	}
-	desc, err := rc.ownDescriptor(o, "body")
-	if err != nil || desc == nil {
-		return nil, false, false
-	}
-	if g := desc.Get("get"); g == nil || !g.SameAs(lb.getBody) {
-		return nil, false, false
-	}
-	nonNil := func(v goja.Value) goja.Value {
-		if v == nil || goja.IsUndefined(v) || goja.IsNull(v) {
-			return nil
-		}
-		return v
-	}
-	var bb, body goja.Value
-	if lb.abRead || lb.abSet {
-		bb = nonNil(lb.ab)
-	}
-	bodyChanged := lb.strSet && !(lb.origStr != nil && lb.str != nil && lb.str.StrictEquals(lb.origStr))
-	if bodyChanged {
-		body = nonNil(lb.str)
-	}
-	if bb != nil && body != nil && !lb.abSet {
-		bb = nil // the untouched original bytes lose against a changed body
-	}
-	if bb != nil {
-		b, set = rc.doneBytes(bb)
-		return b, set, true
-	}
-	if body != nil {
-		b, set = rc.doneBytes(body)
-		return b, set, true
-	}
-	if lb.strSet && nonNil(lb.str) == nil && !lb.abRead {
-		// `$response.body = undefined` — as before: no body value, nothing set.
-		return nil, false, true
-	}
-	return nil, false, true // untouched (or set back to the original): the handler keeps the original
-}
-
-// ownDescriptor is Object.getOwnPropertyDescriptor(o, k).
-func (rc *runCtx) ownDescriptor(o *goja.Object, k string) (*goja.Object, error) {
-	fn, ok := goja.AssertFunction(rc.rt.Get("Object").ToObject(rc.rt).Get("getOwnPropertyDescriptor"))
-	if !ok {
-		return nil, errors.New("no getOwnPropertyDescriptor")
-	}
-	v, err := fn(goja.Undefined(), o, rc.rt.ToValue(k))
-	if err != nil || v == nil || goja.IsUndefined(v) {
-		return nil, err
-	}
-	return v.ToObject(rc.rt), nil
-}
-
-// doneBytes is bodyBytes for a value the finished run hands back: an ArrayBuffer / typed array is used
-// in place (the runtime is discarded after the run, nothing writes to it any more) instead of copied —
-// one multi-MB copy less for binary scripts.
-func (rc *runCtx) doneBytes(v goja.Value) ([]byte, bool) {
-	if v == nil || goja.IsUndefined(v) || goja.IsNull(v) {
-		return nil, false
-	}
-	switch x := v.Export().(type) {
-	case goja.ArrayBuffer:
-		return x.Bytes(), true
-	case []byte:
-		return x, true
-	}
-	if obj, ok := v.(*goja.Object); ok && obj.ClassName() != "Object" {
-		if buf := obj.Get("buffer"); buf != nil {
-			if ab, ok := buf.Export().(goja.ArrayBuffer); ok {
-				off := int(obj.Get("byteOffset").ToInteger())
-				n := int(obj.Get("byteLength").ToInteger())
-				b := ab.Bytes()
-				if off >= 0 && n >= 0 && off+n <= len(b) {
-					return b[off : off+n : off+n], true
-				}
-			}
-		}
-	}
-	return rc.bodyBytes(v)
-}
-
-// doneBody picks the body a $done object carries: bodyBytes, unless it is the phase object's untouched
-// original and the script changed body ($response.body = x; $done($response)).
-func (rc *runCtx) doneBody(o *goja.Object, get func(*goja.Object, string) goja.Value) ([]byte, bool) {
-	if b, set, ok := rc.lazyDone(o); ok {
-		return b, set
-	}
-	bb, body := get(o, "bodyBytes"), get(o, "body")
-	if bb != nil && body != nil && rc.origBodyBytes != nil && bb.StrictEquals(rc.origBodyBytes) &&
-		(rc.origBody == nil || !body.StrictEquals(rc.origBody)) {
-		bb = nil
-	}
-	if bb != nil {
-		return rc.doneBytes(bb)
-	}
-	if body != nil {
-		return rc.doneBytes(body)
-	}
-	return nil, false
-}
-
-func (rc *runCtx) installCommon(set func(string, any)) {
-	rt := rc.rt
-	sc := rc.script
-	// $done
-	set("$done", func(call goja.FunctionCall) goja.Value {
-		if rc.done {
-			return goja.Undefined()
-		}
-		rc.done = true
-		rc.result = call.Argument(0)
-		return goja.Undefined()
-	})
-
-	if sc.HasArgument && sc.ArgObject {
-		// JSON.parse in the runtime keeps the plugin's key order (a Go map made Object.keys($argument)
-		// come out in a different order on every run).
-		var obj goja.Value
-		if parse, ok := goja.AssertFunction(rt.Get("JSON").ToObject(rt).Get("parse")); ok {
-			if v, err := parse(goja.Undefined(), rt.ToValue(sc.Argument)); err == nil {
-				if o, isObj := v.(*goja.Object); isObj && o.ClassName() == "Object" {
-					obj = v
-				}
-			}
-		}
-		if obj != nil {
-			set("$argument", obj)
-		} else {
-			set("$argument", sc.Argument)
-		}
-	} else if sc.HasArgument {
-		set("$argument", sc.Argument)
-	} else {
-		set("$argument", goja.Undefined()) // declared, so `if ($argument)` does not throw
-	}
-	scr := rt.NewObject()
-	_ = scr.Set("name", sc.Name)
-	_ = scr.Set("type", sc.Type)
-	_ = scr.Set("startTime", rt.ToValue(time.Now()))
-	_ = scr.Set("path", sc.Path)
-	set("$script", scr)
-	env := rt.NewObject()
-	_ = env.Set("surge-version", "5.20.0")
-	_ = env.Set("surge-build", "3000")
-	lang := "zh-Hans"
-	if st := rc.e.st.Load(); st != nil {
-		lang = st.cfg.scriptLanguage()
-	}
-	_ = env.Set("language", lang)
-	_ = env.Set("system", "iOS")
-	_ = env.Set("mihomo-ios", true)
-	set("$environment", env)
-
-	// console
-	con := rt.NewObject()
-	for _, lv := range []string{"log", "info", "warn", "error", "debug"} {
-		level := lv
-		_ = con.Set(lv, func(call goja.FunctionCall) goja.Value {
-			parts := make([]string, 0, len(call.Arguments))
-			for _, a := range call.Arguments {
-				parts = append(parts, jsString(rt, a))
-			}
-			msg := strings.Join(parts, " ")
-			if rc.onLog != nil {
-				rc.onLog(level, msg)
-				return goja.Undefined()
-			}
-			rc.e.Logs.Add(rc.name, level, msg)
-			return goja.Undefined()
-		})
-	}
-	set("console", con)
-
-	// timers
-	set("setTimeout", func(call goja.FunctionCall) goja.Value { return rc.addTimer(call, false) })
-	set("setInterval", func(call goja.FunctionCall) goja.Value { return rc.addTimer(call, true) })
-	clear := func(call goja.FunctionCall) goja.Value {
-		id := call.Argument(0).ToInteger()
-		if t, ok := rc.timers[id]; ok {
-			t.Stop()
-			delete(rc.timers, id)
-			rc.pending--
-		}
-		return goja.Undefined()
-	}
-	set("clearTimeout", clear)
-	set("clearInterval", clear)
-
-	// $persistentStore (Surge) / $prefs (QX)
-	keyFor := func(v goja.Value) string {
-		if v == nil || goja.IsUndefined(v) || goja.IsNull(v) || v.String() == "" {
-			return "@script:" + sc.Name
-		}
-		return v.String()
-	}
-	ps := rt.NewObject()
-	_ = ps.Set("read", func(call goja.FunctionCall) goja.Value {
-		if v, ok := rc.e.Store.Read(keyFor(call.Argument(0))); ok {
-			return rt.ToValue(v)
-		}
-		return goja.Null()
-	})
-	_ = ps.Set("write", func(call goja.FunctionCall) goja.Value {
-		v := call.Argument(0)
-		del := goja.IsUndefined(v) || goja.IsNull(v)
-		return rt.ToValue(rc.e.Store.Write(keyFor(call.Argument(1)), jsString(rt, v), del))
-	})
-	set("$persistentStore", ps)
-	prefs := rt.NewObject()
-	_ = prefs.Set("valueForKey", func(call goja.FunctionCall) goja.Value {
-		if v, ok := rc.e.Store.Read(call.Argument(0).String()); ok {
-			return rt.ToValue(v)
-		}
-		return goja.Undefined()
-	})
-	_ = prefs.Set("setValueForKey", func(call goja.FunctionCall) goja.Value {
-		return rt.ToValue(rc.e.Store.Write(call.Argument(1).String(), jsString(rt, call.Argument(0)), false))
-	})
-	_ = prefs.Set("removeValueForKey", func(call goja.FunctionCall) goja.Value {
-		return rt.ToValue(rc.e.Store.Write(call.Argument(0).String(), "", true))
-	})
-	_ = prefs.Set("removeAllValues", func(call goja.FunctionCall) goja.Value { return rt.ToValue(rc.e.Store.Clear()) })
-	set("$prefs", prefs)
-
-	// notifications
-	post := func(title, sub, body, url string) {
-		// review5 P2-6: bounded fields (the history file is rewritten on every post) and a per-script
-		// rate limit so a debug loop can't flood iOS notifications.
-		title, sub = clipBytes(title, noticeShortMax), clipBytes(sub, noticeShortMax)
-		body, url = clipBytes(body, noticeLongMax), clipBytes(url, noticeLongMax)
-		if rc.onNotify != nil {
-			rc.onNotify(title, sub, body, url)
-			return
-		}
-		if !noticeRate.allow(rc.name) {
-			rc.e.Logs.Add(rc.name, "warn", "通知过于频繁，已丢弃："+clip(title, 60))
-			return
-		}
-		rc.e.Logs.Add(rc.name, "notify", strings.TrimSpace(title+" | "+sub+" | "+body))
-		rc.e.Notices.Add(Notice{Script: rc.name, Title: title, Subtitle: sub, Body: body, URL: url})
-		if n := rc.e.notify.Load(); n != nil && *n != nil {
-			(*n)(title, sub, body, url)
-		}
-	}
-	optURL := func(v goja.Value) string {
-		if v == nil || goja.IsUndefined(v) || goja.IsNull(v) {
-			return ""
-		}
-		if s, ok := v.Export().(string); ok {
-			return s
-		}
-		o := v.ToObject(rt)
-		for _, k := range []string{"url", "open-url", "openUrl", "action-url"} {
-			if x := o.Get(k); x != nil && !goja.IsUndefined(x) {
-				return x.String()
-			}
-		}
-		return ""
-	}
-	argStr := func(call goja.FunctionCall, i int) string {
-		v := call.Argument(i)
-		if goja.IsUndefined(v) || goja.IsNull(v) {
-			return ""
-		}
-		return v.String()
-	}
-	notif := rt.NewObject()
-	_ = notif.Set("post", func(call goja.FunctionCall) goja.Value {
-		post(argStr(call, 0), argStr(call, 1), argStr(call, 2), optURL(call.Argument(3)))
-		return goja.Undefined()
-	})
-	set("$notification", notif)
-	set("$notify", func(call goja.FunctionCall) goja.Value {
-		post(argStr(call, 0), argStr(call, 1), argStr(call, 2), optURL(call.Argument(3)))
-		return goja.Undefined()
-	})
-
-	// $httpClient (Surge)
-	hc := rt.NewObject()
-	for _, m := range []string{"get", "post", "put", "delete", "head", "options", "patch"} {
-		method := strings.ToUpper(m)
-		_ = hc.Set(m, func(call goja.FunctionCall) goja.Value {
-			rc.httpClient(method, call.Argument(0), call.Argument(1))
-			return goja.Undefined()
-		})
-	}
-	set("$httpClient", hc)
-
-	// $httpAPI (Surge): policy groups, outbound mode, profile reload — answered by the bridge.
-	set("$httpAPI", func(call goja.FunctionCall) goja.Value {
-		method := strings.ToUpper(argStr(call, 0))
-		path := argStr(call, 1)
-		var body any
-		if b := call.Argument(2); !goja.IsUndefined(b) && !goja.IsNull(b) {
-			body = b.Export()
-			if s, ok := body.(string); ok {
-				var m map[string]any
-				if json.Unmarshal([]byte(s), &m) == nil {
-					body = m
-				}
-			}
-		}
-		fn, _ := goja.AssertFunction(call.Argument(3))
-		res, err := rc.e.callAPI(method, path, body)
-		if err != nil {
-			rc.e.Logs.Add(rc.name, "warning", "$httpAPI "+method+" "+path+"："+err.Error())
-			res = map[string]any{"error": err.Error()}
-		}
-		if fn != nil {
-			rc.pending++
-			rc.post(func() {
-				rc.pending--
-				if _, e := fn(goja.Undefined(), rt.ToValue(res)); e != nil {
-					panic(e)
-				}
-			})
-		}
-		return goja.Undefined()
-	})
-
-	// $task.fetch (QX)
-	task := rt.NewObject()
-	_ = task.Set("fetch", func(call goja.FunctionCall) goja.Value { return rc.taskFetch(call.Argument(0)) })
-	set("$task", task)
-
-	// small helpers JavaScriptCore / browsers have and bundled scripts expect
-	te := func(call goja.ConstructorCall) *goja.Object {
-		_ = call.This.Set("encoding", "utf-8")
-		_ = call.This.Set("encode", func(c goja.FunctionCall) goja.Value {
-			s := ""
-			if !goja.IsUndefined(c.Argument(0)) {
-				s = c.Argument(0).String()
-			}
-			return rc.uint8Array([]byte(s))
-		})
-		return nil
-	}
-	set("TextEncoder", te)
-	td := func(call goja.ConstructorCall) *goja.Object {
-		_ = call.This.Set("encoding", "utf-8")
-		_ = call.This.Set("decode", func(c goja.FunctionCall) goja.Value {
-			b, _ := rc.bodyBytes(c.Argument(0))
-			return rt.ToValue(bodyString(b))
-		})
-		return nil
-	}
-	set("TextDecoder", td)
-	set("btoa", func(call goja.FunctionCall) goja.Value {
-		s := call.Argument(0).String()
-		b := make([]byte, 0, len(s))
-		for _, r := range s {
-			if r > 0xFF {
-				// r7 B27: browsers / JSC throw InvalidCharacterError; byte(r) silently produced wrong output.
-				ex := rt.NewTypeError("Failed to execute 'btoa': The string to be encoded contains characters outside of the Latin1 range.")
-				_ = ex.Set("name", "InvalidCharacterError")
-				panic(ex)
-			}
-			b = append(b, byte(r))
-		}
-		return rt.ToValue(base64.StdEncoding.EncodeToString(b))
-	})
-	set("atob", func(call goja.FunctionCall) goja.Value {
-		b, err := base64.StdEncoding.DecodeString(strings.TrimSpace(call.Argument(0).String()))
-		if err != nil {
-			b, _ = base64.RawStdEncoding.DecodeString(strings.TrimRight(strings.TrimSpace(call.Argument(0).String()), "="))
-		}
-		rs := make([]rune, len(b))
-		for i, c := range b {
-			rs[i] = rune(c)
-		}
-		return rt.ToValue(string(rs))
-	})
-	rc.installUtils(set)
-	rc.installEgern(set)
-	installURLGlobals(rt)
-}
-
-func jsString(rt *goja.Runtime, v goja.Value) string {
-	if v == nil || goja.IsUndefined(v) {
-		return "undefined"
-	}
-	if goja.IsNull(v) {
-		return "null"
-	}
-	if _, ok := v.Export().(string); ok {
-		return v.String()
-	}
-	if o, ok := v.(*goja.Object); ok {
-		if o.ClassName() == "Error" {
-			return o.String()
-		}
-		if b, err := json.Marshal(o.Export()); err == nil {
-			return string(b)
-		}
-	}
-	return v.String()
-}
-
-func (rc *runCtx) addTimer(call goja.FunctionCall, repeat bool) goja.Value {
-	fn, ok := goja.AssertFunction(call.Argument(0))
-	if !ok {
-		return goja.Undefined()
-	}
-	ms := call.Argument(1).ToInteger()
-	if ms < 0 {
-		ms = 0
-	}
-	if repeat && ms < 10 {
-		ms = 10
-	}
-	args := append([]goja.Value(nil), call.Arguments[min(2, len(call.Arguments)):]...)
-	rc.timerID++
-	id := rc.timerID
-	rc.pending++
-	var t *time.Timer
-	var fire func()
-	fire = func() {
-		rc.post(func() {
-			if _, ok := rc.timers[id]; !ok {
-				return
-			}
-			if !repeat {
-				delete(rc.timers, id)
-				rc.pending--
-			} else {
-				rc.timers[id] = time.AfterFunc(time.Duration(ms)*time.Millisecond, fire)
-			}
-			if _, err := fn(goja.Undefined(), args...); err != nil {
-				panic(err)
-			}
-		})
-	}
-	t = time.AfterFunc(time.Duration(ms)*time.Millisecond, fire)
-	rc.timers[id] = t
-	return rc.rt.ToValue(id)
 }
 
 type fetchReq struct {
@@ -1615,77 +1587,86 @@ type fetchReq struct {
 	noRedirect          bool
 }
 
-func (rc *runCtx) parseFetch(method string, v goja.Value) (*fetchReq, error) {
-	fr := &fetchReq{method: method, headers: http.Header{}, timeout: 15 * time.Second}
-	if v == nil || goja.IsUndefined(v) || goja.IsNull(v) {
-		return nil, errors.New("缺少请求参数")
+// fetchJS is a request as the prelude's parseFetch normalized it.
+type fetchJS struct {
+	ID         int64       `json:"id"`
+	URL        string      `json:"url"`
+	Method     string      `json:"method"`
+	Headers    [][2]string `json:"headers"`
+	Body       int64       `json:"body"`
+	Timeout    float64     `json:"timeout"` // ms, 0 = default
+	Binary     bool        `json:"binary"`
+	Policy     string      `json:"policy"`
+	Insecure   bool        `json:"insecure"`
+	NoRedirect bool        `json:"noRedirect"`
+}
+
+func pairsHeader(p [][2]string) http.Header {
+	h := http.Header{}
+	for _, kv := range p {
+		h.Add(kv[0], kv[1])
 	}
-	if s, ok := v.Export().(string); ok {
-		fr.url = s
-		return fr, nil
+	return h
+}
+
+// startFetch runs a $httpClient / $task.fetch download (through the core, the script's policy) and delivers
+// {id, err} or {id, status, headers, body (blob)} to __tern_deliver. Called with hmu held.
+func (rc *runCtx) startFetch(arg string) {
+	var j fetchJS
+	if json.Unmarshal([]byte(arg), &j) != nil {
+		return
 	}
-	o := v.ToObject(rc.rt)
-	get := func(k string) goja.Value {
-		x := o.Get(k)
-		if x == nil || goja.IsUndefined(x) || goja.IsNull(x) {
-			return nil
+	fr := &fetchReq{url: j.URL, method: j.Method, headers: pairsHeader(j.Headers), timeout: 15 * time.Second,
+		binary: j.Binary, policy: j.Policy, insecure: j.Insecure, noRedirect: j.NoRedirect}
+	if j.Body >= 0 {
+		if bl, ok := rc.blobs[j.Body]; ok {
+			fr.body = bl.b
+			delete(rc.blobs, j.Body)
 		}
-		return x
 	}
-	if x := get("url"); x != nil {
-		fr.url = x.String()
+	if j.Timeout > 0 {
+		fr.timeout = time.Duration(j.Timeout * float64(time.Millisecond))
 	}
-	if x := get("method"); x != nil && method == "" {
-		fr.method = strings.ToUpper(x.String())
-	}
-	if fr.method == "" {
-		fr.method = "GET"
-	}
-	if x := get("headers"); x != nil {
-		fr.headers = toHeader(rc.rt, x)
-	}
-	if x := get("body"); x != nil {
-		fr.body, _ = rc.bodyBytes(x)
-	} else if x := get("bodyBytes"); x != nil {
-		fr.body, _ = rc.bodyBytes(x)
-	}
-	if x := get("timeout"); x != nil {
-		t := x.ToFloat()
-		if t > 0 {
-			// QX ($task.fetch, method "") documents milliseconds; Surge ($httpClient) seconds. Large Surge
-			// values are milliseconds in practice too.
-			if method == "" || t > 1000 {
-				fr.timeout = time.Duration(t) * time.Millisecond
+	rc.pending++
+	go func() {
+		res := rc.do(fr)
+		rc.deliverFetch(res, func() error {
+			rc.pending--
+			d := map[string]any{"id": j.ID}
+			var id int64 = -1
+			if res.err != nil {
+				d["err"] = res.err.Error()
 			} else {
-				fr.timeout = time.Duration(t * float64(time.Second))
+				d["status"] = res.status
+				d["headers"] = headerPairs(res.header)
+				rc.hmu.Lock()
+				id = rc.addBlob(res.body, false)
+				rc.hmu.Unlock()
+				d["body"] = id
 			}
-		}
+			b, _ := json.Marshal(d)
+			err := rc.eng.call(rc, "__tern_deliver", string(b))
+			if id >= 0 {
+				rc.freeBlob(id)
+			}
+			return err
+		})
+	}()
+}
+
+// headerPairs is h as the scripts see it: names sorted, several values joined with ", " (Set-Cookie too,
+// like Surge; parseDone splits it back, review5 P2-3).
+func headerPairs(h http.Header) [][2]string {
+	keys := make([]string, 0, len(h))
+	for k := range h {
+		keys = append(keys, k)
 	}
-	if x := get("binary-mode"); x != nil {
-		fr.binary = x.ToBoolean()
+	sort.Strings(keys)
+	out := make([][2]string, 0, len(keys))
+	for _, k := range keys {
+		out = append(out, [2]string{k, strings.Join(h[k], ", ")})
 	}
-	if x := get("policy"); x != nil {
-		fr.policy = x.String()
-	}
-	if x := get("insecure"); x != nil {
-		fr.insecure = x.ToBoolean()
-	}
-	if x := get("auto-redirect"); x != nil && !x.ToBoolean() {
-		fr.noRedirect = true
-	}
-	if x := get("opts"); x != nil {
-		oo := x.ToObject(rc.rt)
-		if p := oo.Get("policy"); p != nil && !goja.IsUndefined(p) {
-			fr.policy = p.String()
-		}
-		if r := oo.Get("redirection"); r != nil && !goja.IsUndefined(r) && !r.ToBoolean() {
-			fr.noRedirect = true
-		}
-	}
-	if fr.url == "" {
-		return nil, errors.New("缺少 url")
-	}
-	return fr, nil
+	return out
 }
 
 type fetchResp struct {
@@ -1776,11 +1757,11 @@ var fetchBudgetWait = 2 * time.Second
 
 // deliverFetch posts a fetch result to the event loop and returns its body budget once the callback
 // ran, or once the script ended without running it.
-func (rc *runCtx) deliverFetch(res *fetchResp, job func()) {
+func (rc *runCtx) deliverFetch(res *fetchResp, job func() error) {
 	done := make(chan struct{})
-	rc.post(func() {
+	rc.post(func() error {
 		defer close(done)
-		job()
+		return job()
 	})
 	if res.release != nil {
 		select {
@@ -1789,174 +1770,4 @@ func (rc *runCtx) deliverFetch(res *fetchResp, job func()) {
 		}
 		res.release()
 	}
-}
-
-func (rc *runCtx) httpClient(method string, opts, cb goja.Value) {
-	fn, _ := goja.AssertFunction(cb)
-	fr, err := rc.parseFetch(method, opts)
-	if err != nil {
-		if fn != nil {
-			_, _ = fn(goja.Undefined(), rc.rt.ToValue(err.Error()), goja.Null(), goja.Null())
-		}
-		return
-	}
-	rc.pending++
-	go func() {
-		res := rc.do(fr)
-		rc.deliverFetch(res, func() {
-			rc.pending--
-			if fn == nil {
-				return
-			}
-			var e error
-			if res.err != nil {
-				_, e = fn(goja.Undefined(), rc.rt.ToValue(res.err.Error()), goja.Null(), goja.Null())
-			} else {
-				ro := rc.rt.NewObject()
-				_ = ro.Set("status", res.status)
-				_ = ro.Set("statusCode", res.status)
-				_ = ro.Set("headers", rc.rt.NewDynamicObject(newCIHeaders(rc.rt, res.header)))
-				var data goja.Value
-				if fr.binary {
-					data = rc.uint8Array(res.body)
-				} else {
-					data = rc.rt.ToValue(bodyString(res.body))
-				}
-				_ = ro.Set("body", data)
-				_, e = fn(goja.Undefined(), goja.Null(), ro, data)
-			}
-			if e != nil {
-				panic(e)
-			}
-		})
-	}()
-}
-
-func (rc *runCtx) taskFetch(opts goja.Value) goja.Value {
-	p, resolve, reject := rc.rt.NewPromise()
-	fr, err := rc.parseFetch("", opts)
-	if err != nil {
-		eo := rc.rt.NewObject()
-		_ = eo.Set("error", err.Error())
-		_ = reject(eo)
-		return rc.rt.ToValue(p)
-	}
-	rc.pending++
-	go func() {
-		res := rc.do(fr)
-		rc.deliverFetch(res, func() {
-			rc.pending--
-			var e error
-			if res.err != nil {
-				eo := rc.rt.NewObject()
-				_ = eo.Set("error", res.err.Error())
-				e = reject(eo)
-			} else {
-				ro := rc.rt.NewObject()
-				_ = ro.Set("statusCode", res.status)
-				_ = ro.Set("status", res.status)
-				_ = ro.Set("headers", rc.rt.NewDynamicObject(newCIHeaders(rc.rt, res.header)))
-				_ = ro.Set("body", bodyString(res.body))
-				_ = ro.Set("bodyBytes", rc.rt.NewArrayBuffer(res.body))
-				e = resolve(ro)
-			}
-			if e != nil {
-				panic(e)
-			}
-		})
-	}()
-	return rc.rt.ToValue(p)
-}
-
-// parseStatus accepts 200, "200", "HTTP/1.1 200 OK".
-func parseStatus(v goja.Value) int {
-	if v == nil || goja.IsUndefined(v) || goja.IsNull(v) {
-		return 0
-	}
-	if n, ok := v.Export().(int64); ok {
-		return int(n)
-	}
-	if f, ok := v.Export().(float64); ok {
-		return int(f)
-	}
-	s := strings.TrimSpace(v.String())
-	if strings.HasPrefix(s, "HTTP/") {
-		f := strings.Fields(s)
-		if len(f) >= 2 {
-			s = f[1]
-		}
-	}
-	n, _ := strconv.Atoi(s)
-	return n
-}
-
-func (rc *runCtx) parseDone(requestPhase bool) (*ScriptResult, error) {
-	res := &ScriptResult{}
-	v := rc.result
-	if v == nil || goja.IsUndefined(v) || goja.IsNull(v) {
-		return res, nil
-	}
-	o, ok := v.(*goja.Object)
-	if !ok {
-		return res, nil
-	}
-	get := func(obj *goja.Object, k string) goja.Value {
-		x := obj.Get(k)
-		if x == nil || goja.IsUndefined(x) || goja.IsNull(x) {
-			return nil
-		}
-		return x
-	}
-	if a := get(o, "__egernAbort"); a != nil && a.ToBoolean() {
-		res.Abort = true
-		return res, nil
-	}
-	if requestPhase {
-		mock := get(o, "response")
-		if mock == nil && rc.script.Echo {
-			if get(o, "status") != nil || get(o, "body") != nil || get(o, "bodyBytes") != nil {
-				mock = o
-			}
-		}
-		// v0.19.9: a request script that sees $task (we expose the QX API to every script) answers the
-		// QX way, $done({status: "HTTP/1.1 200 OK", headers, body}), even when the rule came from a Surge
-		// module or Loon plugin. Surge's request $done has no status key, so a status here can only mean
-		// a local answer (Sub-Store's backend did this and every API call fell through to the network).
-		if mock == nil && (get(o, "status") != nil || get(o, "statusCode") != nil) && get(o, "url") == nil && get(o, "method") == nil {
-			mock = o
-		}
-		if mock != nil {
-			mo := mock.ToObject(rc.rt)
-			r := &ScriptHTTP{Status: parseStatus(get(mo, "status")), Header: toHeader(rc.rt, get(mo, "headers"))}
-			if r.Status == 0 {
-				r.Status = parseStatus(get(mo, "statusCode"))
-			}
-			if b := get(mo, "bodyBytes"); b != nil {
-				r.Body, _ = rc.doneBytes(b)
-			} else if b := get(mo, "body"); b != nil {
-				r.Body, _ = rc.doneBytes(b)
-			}
-			res.Response = r
-			return res, nil
-		}
-		if x := get(o, "url"); x != nil {
-			res.URL = x.String()
-		}
-		if x := get(o, "method"); x != nil {
-			res.Method = x.String()
-		}
-	} else {
-		res.Status = parseStatus(get(o, "status"))
-		if res.Status == 0 {
-			res.Status = parseStatus(get(o, "statusCode"))
-		}
-	}
-	if x := get(o, "headers"); x != nil {
-		res.Header = toHeader(rc.rt, x)
-		if !requestPhase {
-			fixSetCookie(res.Header, rc.origSetCookie)
-		}
-	}
-	res.Body, res.BodySet = rc.doneBody(o, get)
-	return res, nil
 }

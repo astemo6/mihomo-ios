@@ -1,0 +1,1068 @@
+[
+ {
+  "name": "response-json-rewrite",
+  "input": {
+   "code": "\nvar o = JSON.parse($response.body);\no.data.vip = true; o.data.list.push(4);\nconsole.log($response.status, $response.statusCode, $request.method, typeof $response.bodyBytes);\n$done({body: JSON.stringify(o)});\n",
+   "type": "http-response",
+   "name": "response-json-rewrite",
+   "request": {
+    "url": "https://api.example.com/v1/item?id=7&x=a%20b",
+    "method": "POST",
+    "headers": {
+     "Content-Type": "application/json",
+     "X-Token": "abc",
+     "Cookie": "a=1"
+    },
+    "body": "{\"k\":1,\"s\":\"中文\"}"
+   },
+   "response": {
+    "status": 200,
+    "headers": {
+     "Content-Type": "application/json; charset=utf-8",
+     "Set-Cookie": "a=1; Path=/",
+     "X-Up": "1"
+    },
+    "body": "{\"data\":{\"vip\":false,\"list\":[1,2,3]},\"msg\":\"ok\"}"
+   }
+  },
+  "expect": [
+   "\"vip\\\":true",
+   "200 200 POST object"
+  ]
+ },
+ {
+  "name": "headers-case-insensitive",
+  "input": {
+   "code": "\nvar h = $response.headers;\nconsole.log(h['content-type'], h['CONTENT-TYPE'], 'x-up' in h, Object.keys(h).join(','));\nh['X-New'] = 'n'; delete h['x-up']; h['Content-Type'] = 'text/plain';\nconsole.log(JSON.stringify(h));\n$done({headers: h});\n",
+   "type": "http-response",
+   "name": "headers-case-insensitive",
+   "request": {
+    "url": "https://api.example.com/v1/item?id=7&x=a%20b",
+    "method": "POST",
+    "headers": {
+     "Content-Type": "application/json",
+     "X-Token": "abc",
+     "Cookie": "a=1"
+    },
+    "body": "{\"k\":1,\"s\":\"中文\"}"
+   },
+   "response": {
+    "status": 200,
+    "headers": {
+     "Content-Type": "application/json; charset=utf-8",
+     "Set-Cookie": "a=1; Path=/",
+     "X-Up": "1"
+    },
+    "body": "{\"data\":{\"vip\":false,\"list\":[1,2,3]},\"msg\":\"ok\"}"
+   }
+  },
+  "expect": [
+   "X-New",
+   "text/plain"
+  ]
+ },
+ {
+  "name": "request-rewrite-url-headers-body",
+  "input": {
+   "code": "\nvar u = new URL($request.url);\nu.searchParams.set('x', 'c d'); u.searchParams.append('y', '2');\nvar h = Object.assign({}, $request.headers, {'X-Token': 'zzz'});\ndelete h['Cookie'];\nconsole.log(u.pathname, u.search, u.searchParams.get('id'), $request.headers.host, typeof $request.id);\n$done({url: u.toString(), headers: h, body: $request.body.replace('1', '2')});\n",
+   "type": "http-request",
+   "name": "request-rewrite-url-headers-body",
+   "request": {
+    "url": "https://api.example.com/v1/item?id=7&x=a%20b",
+    "method": "POST",
+    "headers": {
+     "Content-Type": "application/json",
+     "X-Token": "abc",
+     "Cookie": "a=1"
+    },
+    "body": "{\"k\":1,\"s\":\"中文\"}"
+   }
+  },
+  "expect": [
+   "zzz",
+   "x=c+d"
+  ]
+ },
+ {
+  "name": "request-mock-qx-status",
+  "input": {
+   "code": "\n$done({status: 'HTTP/1.1 201 Created', headers: {'Content-Type': 'text/plain'}, body: 'mocked'});\n",
+   "type": "http-request",
+   "name": "request-mock-qx-status",
+   "request": {
+    "url": "https://api.example.com/v1/item?id=7&x=a%20b",
+    "method": "POST",
+    "headers": {
+     "Content-Type": "application/json",
+     "X-Token": "abc",
+     "Cookie": "a=1"
+    },
+    "body": "{\"k\":1,\"s\":\"中文\"}"
+   }
+  },
+  "expect": [
+   "\"status\":201",
+   "mocked"
+  ]
+ },
+ {
+  "name": "request-mock-surge-response",
+  "input": {
+   "code": "\n$done({response: {status: 302, headers: {Location: 'https://x.example/'}}});\n",
+   "type": "http-request",
+   "name": "request-mock-surge-response",
+   "request": {
+    "url": "https://api.example.com/v1/item?id=7&x=a%20b",
+    "method": "POST",
+    "headers": {
+     "Content-Type": "application/json",
+     "X-Token": "abc",
+     "Cookie": "a=1"
+    },
+    "body": "{\"k\":1,\"s\":\"中文\"}"
+   }
+  },
+  "expect": [
+   "\"status\":302",
+   "Location"
+  ]
+ },
+ {
+  "name": "response-status-string",
+  "input": {
+   "code": "\n$done({status: 'HTTP/1.1 404 Not Found', body: ''});\n",
+   "type": "http-response",
+   "name": "response-status-string",
+   "request": {
+    "url": "https://api.example.com/v1/item?id=7&x=a%20b",
+    "method": "POST",
+    "headers": {
+     "Content-Type": "application/json",
+     "X-Token": "abc",
+     "Cookie": "a=1"
+    },
+    "body": "{\"k\":1,\"s\":\"中文\"}"
+   },
+   "response": {
+    "status": 200,
+    "headers": {
+     "Content-Type": "application/json; charset=utf-8",
+     "Set-Cookie": "a=1; Path=/",
+     "X-Up": "1"
+    },
+    "body": "{\"data\":{\"vip\":false,\"list\":[1,2,3]},\"msg\":\"ok\"}"
+   }
+  },
+  "expect": [
+   "404"
+  ]
+ },
+ {
+  "name": "done-response-after-body-change",
+  "input": {
+   "code": "\n$response.body = $response.body.replace('ok', 'changed');\n$done($response);\n",
+   "type": "http-response",
+   "name": "done-response-after-body-change",
+   "request": {
+    "url": "https://api.example.com/v1/item?id=7&x=a%20b",
+    "method": "POST",
+    "headers": {
+     "Content-Type": "application/json",
+     "X-Token": "abc",
+     "Cookie": "a=1"
+    },
+    "body": "{\"k\":1,\"s\":\"中文\"}"
+   },
+   "response": {
+    "status": 200,
+    "headers": {
+     "Content-Type": "application/json; charset=utf-8",
+     "Set-Cookie": "a=1; Path=/",
+     "X-Up": "1"
+    },
+    "body": "{\"data\":{\"vip\":false,\"list\":[1,2,3]},\"msg\":\"ok\"}"
+   }
+  },
+  "expect": [
+   "changed"
+  ]
+ },
+ {
+  "name": "done-bodybytes-qx",
+  "input": {
+   "code": "\nvar b = new Uint8Array($response.bodyBytes);\nvar out = new Uint8Array(b.length + 1); out.set(b); out[b.length] = 0x21;\n$done({bodyBytes: out.buffer});\n",
+   "type": "http-response",
+   "name": "done-bodybytes-qx",
+   "request": {
+    "url": "https://api.example.com/v1/item?id=7&x=a%20b",
+    "method": "POST",
+    "headers": {
+     "Content-Type": "application/json",
+     "X-Token": "abc",
+     "Cookie": "a=1"
+    },
+    "body": "{\"k\":1,\"s\":\"中文\"}"
+   },
+   "response": {
+    "status": 200,
+    "headers": {
+     "Content-Type": "application/json; charset=utf-8",
+     "Set-Cookie": "a=1; Path=/",
+     "X-Up": "1"
+    },
+    "body": "{\"data\":{\"vip\":false,\"list\":[1,2,3]},\"msg\":\"ok\"}"
+   }
+  },
+  "expect": [
+   "ok\\\"}!"
+  ]
+ },
+ {
+  "name": "binary-body-mode",
+  "input": {
+   "code": "\nvar b = $response.body;\nconsole.log(Object.prototype.toString.call(b), b.length, $response.bodyBytes.byteLength, b[0]);\nvar o = new Uint8Array(4); o.set([0xff, 0x00, 0x7f, 0x80]);\n$done({body: o});\n",
+   "type": "http-response",
+   "name": "binary-body-mode",
+   "request": {
+    "url": "https://api.example.com/v1/item?id=7&x=a%20b",
+    "method": "POST",
+    "headers": {
+     "Content-Type": "application/json",
+     "X-Token": "abc",
+     "Cookie": "a=1"
+    },
+    "body": "{\"k\":1,\"s\":\"中文\"}"
+   },
+   "response": {
+    "status": 200,
+    "headers": {
+     "Content-Type": "application/x-protobuf"
+    },
+    "body": "AAECA/8=",
+    "bodyBase64": true
+   },
+   "binary": true
+  },
+  "expect": [
+   "[object Uint8Array] 5 5 0",
+   "\"bodyBase64\":true"
+  ]
+ },
+ {
+  "name": "set-cookie-multiple",
+  "input": {
+   "code": "\nvar h = $response.headers;\nconsole.log(h['Set-Cookie']);\nh['Set-Cookie'] = h['Set-Cookie'] + ', c=3; Expires=Wed, 21 Oct 2027 07:28:00 GMT';\n$done({headers: h});\n",
+   "type": "http-response",
+   "name": "set-cookie-multiple",
+   "request": {
+    "url": "https://api.example.com/v1/item?id=7&x=a%20b",
+    "method": "POST",
+    "headers": {
+     "Content-Type": "application/json",
+     "X-Token": "abc",
+     "Cookie": "a=1"
+    },
+    "body": "{\"k\":1,\"s\":\"中文\"}"
+   },
+   "response": {
+    "status": 200,
+    "headers": {
+     "Set-Cookie": "a=1; Path=/"
+    },
+    "body": "x"
+   }
+  },
+  "expect": [
+   "c=3"
+  ]
+ },
+ {
+  "name": "argument-object",
+  "input": {
+   "code": "\nconsole.log(typeof $argument, JSON.stringify($argument), Object.keys($argument).join('|'));\n$done({});\n",
+   "type": "http-response",
+   "name": "argument-object",
+   "request": {
+    "url": "https://api.example.com/v1/item?id=7&x=a%20b",
+    "method": "POST",
+    "headers": {
+     "Content-Type": "application/json",
+     "X-Token": "abc",
+     "Cookie": "a=1"
+    },
+    "body": "{\"k\":1,\"s\":\"中文\"}"
+   },
+   "response": {
+    "status": 200,
+    "headers": {
+     "Content-Type": "application/json; charset=utf-8",
+     "Set-Cookie": "a=1; Path=/",
+     "X-Up": "1"
+    },
+    "body": "{\"data\":{\"vip\":false,\"list\":[1,2,3]},\"msg\":\"ok\"}"
+   },
+   "argument": "{\"z\":1,\"a\":\"x\",\"m\":true}"
+  },
+  "expect": [
+   "string \\\"{\\\\\\\"z"
+  ]
+ },
+ {
+  "name": "argument-string",
+  "input": {
+   "code": "\nconsole.log(typeof $argument, $argument);\n$done({});\n",
+   "type": "http-response",
+   "name": "argument-string",
+   "request": {
+    "url": "https://api.example.com/v1/item?id=7&x=a%20b",
+    "method": "POST",
+    "headers": {
+     "Content-Type": "application/json",
+     "X-Token": "abc",
+     "Cookie": "a=1"
+    },
+    "body": "{\"k\":1,\"s\":\"中文\"}"
+   },
+   "response": {
+    "status": 200,
+    "headers": {
+     "Content-Type": "application/json; charset=utf-8",
+     "Set-Cookie": "a=1; Path=/",
+     "X-Up": "1"
+    },
+    "body": "{\"data\":{\"vip\":false,\"list\":[1,2,3]},\"msg\":\"ok\"}"
+   },
+   "argument": "a=1&b=2"
+  },
+  "expect": [
+   "string a=1\\u0026b=2"
+  ]
+ },
+ {
+  "name": "argument-undefined",
+  "input": {
+   "code": "\nconsole.log(typeof $argument, typeof $environment, $environment['surge-version'], $environment.system, typeof $script.startTime, $script.name);\n$done();\n",
+   "type": "http-response",
+   "name": "argument-undefined",
+   "request": {
+    "url": "https://api.example.com/v1/item?id=7&x=a%20b",
+    "method": "POST",
+    "headers": {
+     "Content-Type": "application/json",
+     "X-Token": "abc",
+     "Cookie": "a=1"
+    },
+    "body": "{\"k\":1,\"s\":\"中文\"}"
+   },
+   "response": {
+    "status": 200,
+    "headers": {
+     "Content-Type": "application/json; charset=utf-8",
+     "Set-Cookie": "a=1; Path=/",
+     "X-Up": "1"
+    },
+    "body": "{\"data\":{\"vip\":false,\"list\":[1,2,3]},\"msg\":\"ok\"}"
+   }
+  },
+  "expect": [
+   "undefined object 5.20.0 iOS object argument-undefined"
+  ]
+ },
+ {
+  "name": "persistent-store",
+  "input": {
+   "code": "\nvar k = 'conf.test.key';\nconsole.log($persistentStore.write('v1', k), $persistentStore.read(k), $prefs.valueForKey(k));\nconsole.log($prefs.setValueForKey('v2', k), $persistentStore.read(k));\n$persistentStore.write({a: 1}, k + '.obj');\nconsole.log($persistentStore.read(k + '.obj'), $persistentStore.read('conf.missing'), $prefs.valueForKey('conf.missing'));\n$persistentStore.write('d'); console.log($persistentStore.read());\nconsole.log($prefs.removeValueForKey(k), $persistentStore.read(k));\n$done({});\n",
+   "type": "http-response",
+   "name": "persistent-store",
+   "request": {
+    "url": "https://api.example.com/v1/item?id=7&x=a%20b",
+    "method": "POST",
+    "headers": {
+     "Content-Type": "application/json",
+     "X-Token": "abc",
+     "Cookie": "a=1"
+    },
+    "body": "{\"k\":1,\"s\":\"中文\"}"
+   },
+   "response": {
+    "status": 200,
+    "headers": {
+     "Content-Type": "application/json; charset=utf-8",
+     "Set-Cookie": "a=1; Path=/",
+     "X-Up": "1"
+    },
+    "body": "{\"data\":{\"vip\":false,\"list\":[1,2,3]},\"msg\":\"ok\"}"
+   }
+  },
+  "expect": [
+   "true v1 v1",
+   "true v2",
+   "{\\\"a\\\":1} null undefined",
+   "true null"
+  ],
+  "repeat": 2
+ },
+ {
+  "name": "notifications",
+  "input": {
+   "code": "\n$notification.post('T', 'S', 'B', {url: 'https://a.example'});\n$notify('T2', null, undefined, {'open-url': 'https://b.example'});\n$notification.post('T3', 'S3', 'B3', 'https://c.example');\n$done({});\n",
+   "type": "http-response",
+   "name": "notifications",
+   "request": {
+    "url": "https://api.example.com/v1/item?id=7&x=a%20b",
+    "method": "POST",
+    "headers": {
+     "Content-Type": "application/json",
+     "X-Token": "abc",
+     "Cookie": "a=1"
+    },
+    "body": "{\"k\":1,\"s\":\"中文\"}"
+   },
+   "response": {
+    "status": 200,
+    "headers": {
+     "Content-Type": "application/json; charset=utf-8",
+     "Set-Cookie": "a=1; Path=/",
+     "X-Up": "1"
+    },
+    "body": "{\"data\":{\"vip\":false,\"list\":[1,2,3]},\"msg\":\"ok\"}"
+   }
+  },
+  "expect": [
+   "\"title\":\"T\"",
+   "https://b.example",
+   "https://c.example"
+  ]
+ },
+ {
+  "name": "console-values",
+  "input": {
+   "code": "\nconsole.log(1, 'two', null, undefined, true, {a: [1, {b: 2}]}, [1, 'x']);\nconsole.warn(new TypeError('bad thing'));\nconsole.error(function () {}.constructor === Function);\nvar cyc = {}; cyc.self = cyc; console.info(typeof String(cyc));\nconsole.debug(1.5, -0, NaN, 1e21);\n$done({});\n",
+   "type": "http-response",
+   "name": "console-values",
+   "request": {
+    "url": "https://api.example.com/v1/item?id=7&x=a%20b",
+    "method": "POST",
+    "headers": {
+     "Content-Type": "application/json",
+     "X-Token": "abc",
+     "Cookie": "a=1"
+    },
+    "body": "{\"k\":1,\"s\":\"中文\"}"
+   },
+   "response": {
+    "status": 200,
+    "headers": {
+     "Content-Type": "application/json; charset=utf-8",
+     "Set-Cookie": "a=1; Path=/",
+     "X-Up": "1"
+    },
+    "body": "{\"data\":{\"vip\":false,\"list\":[1,2,3]},\"msg\":\"ok\"}"
+   }
+  },
+  "expect": [
+   "1 two null undefined true {\\\"a\\\":[1,{\\\"b\\\":2}]} [1,\\\"x\\\"]",
+   "TypeError: bad thing",
+   "1.5 0 NaN 1e+21"
+  ]
+ },
+ {
+  "name": "timers-order",
+  "input": {
+   "code": "\nvar out = [];\nsetTimeout(function () { out.push('t90'); }, 90);\nsetTimeout(function (a, b) { out.push('t0' + a + b); }, 0, 'x', 'y');\nvar n = 0;\nvar iv = setInterval(function () { n++; out.push('iv' + n); if (n === 3) { clearInterval(iv); finish(); } }, 60);\nvar c = setTimeout(function () { out.push('never'); }, 5); clearTimeout(c);\nPromise.resolve().then(function () { out.push('micro'); });\nfunction finish() { setTimeout(function () { $done({body: out.join(',')}); }, 30); }\n",
+   "type": "http-response",
+   "name": "timers-order",
+   "request": {
+    "url": "https://api.example.com/v1/item?id=7&x=a%20b",
+    "method": "POST",
+    "headers": {
+     "Content-Type": "application/json",
+     "X-Token": "abc",
+     "Cookie": "a=1"
+    },
+    "body": "{\"k\":1,\"s\":\"中文\"}"
+   },
+   "response": {
+    "status": 200,
+    "headers": {
+     "Content-Type": "application/json; charset=utf-8",
+     "Set-Cookie": "a=1; Path=/",
+     "X-Up": "1"
+    },
+    "body": "{\"data\":{\"vip\":false,\"list\":[1,2,3]},\"msg\":\"ok\"}"
+   }
+  },
+  "expect": [
+   "micro,t0xy,iv1,t90,iv2,iv3"
+  ]
+ },
+ {
+  "name": "async-await",
+  "input": {
+   "code": "\n(async function () {\n  var v = await new Promise(function (r) { setTimeout(function () { r(41); }, 5); });\n  var w = await Promise.all([1, Promise.resolve(2)]);\n  $done({body: String(v + 1) + ':' + w.join('+')});\n})();\n",
+   "type": "http-response",
+   "name": "async-await",
+   "request": {
+    "url": "https://api.example.com/v1/item?id=7&x=a%20b",
+    "method": "POST",
+    "headers": {
+     "Content-Type": "application/json",
+     "X-Token": "abc",
+     "Cookie": "a=1"
+    },
+    "body": "{\"k\":1,\"s\":\"中文\"}"
+   },
+   "response": {
+    "status": 200,
+    "headers": {
+     "Content-Type": "application/json; charset=utf-8",
+     "Set-Cookie": "a=1; Path=/",
+     "X-Up": "1"
+    },
+    "body": "{\"data\":{\"vip\":false,\"list\":[1,2,3]},\"msg\":\"ok\"}"
+   }
+  },
+  "expect": [
+   "42:1+2"
+  ]
+ },
+ {
+  "name": "httpclient-errors",
+  "input": {
+   "code": "\nvar got = [];\n$httpClient.get({}, function (e, r, d) { got.push(String(e) + '|' + r + '|' + d); });\n$httpClient.post(null, function (e) { got.push(e); });\n$task.fetch({}).then(function () { got.push('resolved'); }, function (e) { got.push('reject:' + e.error); }).then(function () {\n  $done({body: got.join(';')});\n});\n",
+   "type": "http-response",
+   "name": "httpclient-errors",
+   "request": {
+    "url": "https://api.example.com/v1/item?id=7&x=a%20b",
+    "method": "POST",
+    "headers": {
+     "Content-Type": "application/json",
+     "X-Token": "abc",
+     "Cookie": "a=1"
+    },
+    "body": "{\"k\":1,\"s\":\"中文\"}"
+   },
+   "response": {
+    "status": 200,
+    "headers": {
+     "Content-Type": "application/json; charset=utf-8",
+     "Set-Cookie": "a=1; Path=/",
+     "X-Up": "1"
+    },
+    "body": "{\"data\":{\"vip\":false,\"list\":[1,2,3]},\"msg\":\"ok\"}"
+   }
+  },
+  "expect": [
+   "缺少 url|null|null",
+   "缺少请求参数",
+   "reject:缺少 url"
+  ]
+ },
+ {
+  "name": "httpapi-unavailable",
+  "input": {
+   "code": "\n$httpAPI('get', '/v1/policy_groups', null, function (r) { $done({body: JSON.stringify(r)}); });\n",
+   "type": "http-response",
+   "name": "httpapi-unavailable",
+   "request": {
+    "url": "https://api.example.com/v1/item?id=7&x=a%20b",
+    "method": "POST",
+    "headers": {
+     "Content-Type": "application/json",
+     "X-Token": "abc",
+     "Cookie": "a=1"
+    },
+    "body": "{\"k\":1,\"s\":\"中文\"}"
+   },
+   "response": {
+    "status": 200,
+    "headers": {
+     "Content-Type": "application/json; charset=utf-8",
+     "Set-Cookie": "a=1; Path=/",
+     "X-Up": "1"
+    },
+    "body": "{\"data\":{\"vip\":false,\"list\":[1,2,3]},\"msg\":\"ok\"}"
+   }
+  },
+  "expect": [
+   "$httpAPI 不可用"
+  ]
+ },
+ {
+  "name": "text-encoding-base64",
+  "input": {
+   "code": "\nvar u = new TextEncoder().encode('héllo 世界');\nvar s = new TextDecoder().decode(u);\nvar bad = '';\ntry { btoa('中'); } catch (e) { bad = e.name; }\nconsole.log(u.length, s, btoa('hi\\u00ff'), atob('aGn/'), atob('aGk'), bad, new TextEncoder().encoding);\nconsole.log(new TextDecoder().decode(new Uint8Array([0x61, 0xff, 0xfe, 0x62])).length);\n$done({});\n",
+   "type": "http-response",
+   "name": "text-encoding-base64",
+   "request": {
+    "url": "https://api.example.com/v1/item?id=7&x=a%20b",
+    "method": "POST",
+    "headers": {
+     "Content-Type": "application/json",
+     "X-Token": "abc",
+     "Cookie": "a=1"
+    },
+    "body": "{\"k\":1,\"s\":\"中文\"}"
+   },
+   "response": {
+    "status": 200,
+    "headers": {
+     "Content-Type": "application/json; charset=utf-8",
+     "Set-Cookie": "a=1; Path=/",
+     "X-Up": "1"
+    },
+    "body": "{\"data\":{\"vip\":false,\"list\":[1,2,3]},\"msg\":\"ok\"}"
+   }
+  },
+  "expect": [
+   "13 héllo 世界 aGn/ hiÿ hi InvalidCharacterError utf-8",
+   "\"msg\":\"3\""
+  ]
+ },
+ {
+  "name": "url-searchparams",
+  "input": {
+   "code": "\nvar u = new URL('https://user:pw@Example.com:8443/a/b/../c?x=1&x=2&y=%E4%B8%AD#frag');\nvar p = new URLSearchParams('a=1&b=2&a=3');\np.delete('b'); p.append('c', 'd e');\nconsole.log(u.hostname, u.port, u.pathname, u.searchParams.getAll('x').join(','), u.searchParams.get('y'), u.hash, u.origin);\nconsole.log(p.toString(), p.getAll('a').length, String(new URL('/p?q=1', 'https://h.example/base/')));\nconsole.log(typeof URL.canParse, URL.canParse('nope'));\n$done({});\n",
+   "type": "http-response",
+   "name": "url-searchparams",
+   "request": {
+    "url": "https://api.example.com/v1/item?id=7&x=a%20b",
+    "method": "POST",
+    "headers": {
+     "Content-Type": "application/json",
+     "X-Token": "abc",
+     "Cookie": "a=1"
+    },
+    "body": "{\"k\":1,\"s\":\"中文\"}"
+   },
+   "response": {
+    "status": 200,
+    "headers": {
+     "Content-Type": "application/json; charset=utf-8",
+     "Set-Cookie": "a=1; Path=/",
+     "X-Up": "1"
+    },
+    "body": "{\"data\":{\"vip\":false,\"list\":[1,2,3]},\"msg\":\"ok\"}"
+   }
+  },
+  "expect": [
+   "example.com 8443 /a/c 1,2 中 #frag https://example.com:8443",
+   "a=1\\u0026a=3\\u0026c=d+e 2 https://h.example/p?q=1",
+   "function false"
+  ]
+ },
+ {
+  "name": "utils-geo-ungzip",
+  "input": {
+   "code": "\nvar gz = __egernCompress('gzip', 'hello gzip');\nvar plain = $utils.ungzip(gz);\nconsole.log(gz instanceof Uint8Array, gz[0], gz[1], new TextDecoder().decode(plain), $utils.geoip('8.8.8.8'), $utils.ungzip('not gzip'));\n$done({});\n",
+   "type": "http-response",
+   "name": "utils-geo-ungzip",
+   "request": {
+    "url": "https://api.example.com/v1/item?id=7&x=a%20b",
+    "method": "POST",
+    "headers": {
+     "Content-Type": "application/json",
+     "X-Token": "abc",
+     "Cookie": "a=1"
+    },
+    "body": "{\"k\":1,\"s\":\"中文\"}"
+   },
+   "response": {
+    "status": 200,
+    "headers": {
+     "Content-Type": "application/json; charset=utf-8",
+     "Set-Cookie": "a=1; Path=/",
+     "X-Up": "1"
+    },
+    "body": "{\"data\":{\"vip\":false,\"list\":[1,2,3]},\"msg\":\"ok\"}"
+   }
+  },
+  "expect": [
+   "true 31 139 hello gzip null null"
+  ]
+ },
+ {
+  "name": "egern-native",
+  "input": {
+   "code": "\nexport default async function (ctx) {\n  const j = await ctx.response.json();\n  j.data.vip = true;\n  const h = new Headers({'X-A': '1'}); h.append('x-a', '2');\n  ctx.storage.setJSON('conf.egern', {n: 1});\n  return {status: 203, headers: {'X-Egern': h.get('x-a'), 'X-Env': String(ctx.env.k)}, body: j};\n}\n",
+   "type": "http-response",
+   "name": "egern-native",
+   "request": {
+    "url": "https://api.example.com/v1/item?id=7&x=a%20b",
+    "method": "POST",
+    "headers": {
+     "Content-Type": "application/json",
+     "X-Token": "abc",
+     "Cookie": "a=1"
+    },
+    "body": "{\"k\":1,\"s\":\"中文\"}"
+   },
+   "response": {
+    "status": 200,
+    "headers": {
+     "Content-Type": "application/json; charset=utf-8",
+     "Set-Cookie": "a=1; Path=/",
+     "X-Up": "1"
+    },
+    "body": "{\"data\":{\"vip\":false,\"list\":[1,2,3]},\"msg\":\"ok\"}"
+   }
+  },
+  "expect": [
+   "\"status\":203",
+   "1, 2",
+   "vip\\\":true"
+  ]
+ },
+ {
+  "name": "egern-abort",
+  "input": {
+   "code": "\nexport default async function (ctx) { return ctx.abort(); }\n",
+   "type": "http-request",
+   "name": "egern-abort",
+   "request": {
+    "url": "https://api.example.com/v1/item?id=7&x=a%20b",
+    "method": "POST",
+    "headers": {
+     "Content-Type": "application/json",
+     "X-Token": "abc",
+     "Cookie": "a=1"
+    },
+    "body": "{\"k\":1,\"s\":\"中文\"}"
+   }
+  },
+  "expect": [
+   "ctx.abort"
+  ]
+ },
+ {
+  "name": "top-level-return",
+  "input": {
+   "code": "\nif ($request.url.indexOf('nomatch') < 0) { $done({body: 'early'}); return; }\n$done({body: 'late'});\n",
+   "type": "http-response",
+   "name": "top-level-return",
+   "request": {
+    "url": "https://api.example.com/v1/item?id=7&x=a%20b",
+    "method": "POST",
+    "headers": {
+     "Content-Type": "application/json",
+     "X-Token": "abc",
+     "Cookie": "a=1"
+    },
+    "body": "{\"k\":1,\"s\":\"中文\"}"
+   },
+   "response": {
+    "status": 200,
+    "headers": {
+     "Content-Type": "application/json; charset=utf-8",
+     "Set-Cookie": "a=1; Path=/",
+     "X-Up": "1"
+    },
+    "body": "{\"data\":{\"vip\":false,\"list\":[1,2,3]},\"msg\":\"ok\"}"
+   }
+  },
+  "expect": [
+   "early"
+  ]
+ },
+ {
+  "name": "exception-after-done",
+  "input": {
+   "code": "\n$done({body: 'kept'});\nnull.boom;\n",
+   "type": "http-response",
+   "name": "exception-after-done",
+   "request": {
+    "url": "https://api.example.com/v1/item?id=7&x=a%20b",
+    "method": "POST",
+    "headers": {
+     "Content-Type": "application/json",
+     "X-Token": "abc",
+     "Cookie": "a=1"
+    },
+    "body": "{\"k\":1,\"s\":\"中文\"}"
+   },
+   "response": {
+    "status": 200,
+    "headers": {
+     "Content-Type": "application/json; charset=utf-8",
+     "Set-Cookie": "a=1; Path=/",
+     "X-Up": "1"
+    },
+    "body": "{\"data\":{\"vip\":false,\"list\":[1,2,3]},\"msg\":\"ok\"}"
+   }
+  },
+  "expect": [
+   "kept",
+   "$done 之后的异常已忽略：脚本异常：TypeError"
+  ]
+ },
+ {
+  "name": "thrown-error",
+  "input": {
+   "code": "\nthrow new RangeError('custom');\n",
+   "type": "http-response",
+   "name": "thrown-error",
+   "request": {
+    "url": "https://api.example.com/v1/item?id=7&x=a%20b",
+    "method": "POST",
+    "headers": {
+     "Content-Type": "application/json",
+     "X-Token": "abc",
+     "Cookie": "a=1"
+    },
+    "body": "{\"k\":1,\"s\":\"中文\"}"
+   },
+   "response": {
+    "status": 200,
+    "headers": {
+     "Content-Type": "application/json; charset=utf-8",
+     "Set-Cookie": "a=1; Path=/",
+     "X-Up": "1"
+    },
+    "body": "{\"data\":{\"vip\":false,\"list\":[1,2,3]},\"msg\":\"ok\"}"
+   }
+  },
+  "expect": [
+   "\"ok\":false",
+   "脚本异常：RangeError"
+  ]
+ },
+ {
+  "name": "syntax-error",
+  "input": {
+   "code": "\nvar a = ;\n",
+   "type": "http-response",
+   "name": "syntax-error",
+   "request": {
+    "url": "https://api.example.com/v1/item?id=7&x=a%20b",
+    "method": "POST",
+    "headers": {
+     "Content-Type": "application/json",
+     "X-Token": "abc",
+     "Cookie": "a=1"
+    },
+    "body": "{\"k\":1,\"s\":\"中文\"}"
+   },
+   "response": {
+    "status": 200,
+    "headers": {
+     "Content-Type": "application/json; charset=utf-8",
+     "Set-Cookie": "a=1; Path=/",
+     "X-Up": "1"
+    },
+    "body": "{\"data\":{\"vip\":false,\"list\":[1,2,3]},\"msg\":\"ok\"}"
+   }
+  },
+  "expect": [
+   "\"ok\":false",
+   "脚本语法错误"
+  ]
+ },
+ {
+  "name": "stack-overflow",
+  "input": {
+   "code": "\nfunction f(n) { return f(n + 1) + 1; }\nf(0);\n",
+   "type": "http-response",
+   "name": "stack-overflow",
+   "request": {
+    "url": "https://api.example.com/v1/item?id=7&x=a%20b",
+    "method": "POST",
+    "headers": {
+     "Content-Type": "application/json",
+     "X-Token": "abc",
+     "Cookie": "a=1"
+    },
+    "body": "{\"k\":1,\"s\":\"中文\"}"
+   },
+   "response": {
+    "status": 200,
+    "headers": {
+     "Content-Type": "application/json; charset=utf-8",
+     "Set-Cookie": "a=1; Path=/",
+     "X-Up": "1"
+    },
+    "body": "{\"data\":{\"vip\":false,\"list\":[1,2,3]},\"msg\":\"ok\"}"
+   }
+  },
+  "expect": [
+   "脚本调用栈溢出"
+  ]
+ },
+ {
+  "name": "timeout-busy-loop",
+  "input": {
+   "code": "\nvar x = 0; while (true) { x++; }\n",
+   "type": "http-response",
+   "name": "timeout-busy-loop",
+   "request": {
+    "url": "https://api.example.com/v1/item?id=7&x=a%20b",
+    "method": "POST",
+    "headers": {
+     "Content-Type": "application/json",
+     "X-Token": "abc",
+     "Cookie": "a=1"
+    },
+    "body": "{\"k\":1,\"s\":\"中文\"}"
+   },
+   "response": {
+    "status": 200,
+    "headers": {
+     "Content-Type": "application/json; charset=utf-8",
+     "Set-Cookie": "a=1; Path=/",
+     "X-Up": "1"
+    },
+    "body": "{\"data\":{\"vip\":false,\"list\":[1,2,3]},\"msg\":\"ok\"}"
+   },
+   "timeout": 1
+  },
+  "expect": [
+   "脚本执行超时"
+  ]
+ },
+ {
+  "name": "no-done",
+  "input": {
+   "code": "\nconsole.log('ran');\n",
+   "type": "http-response",
+   "name": "no-done",
+   "request": {
+    "url": "https://api.example.com/v1/item?id=7&x=a%20b",
+    "method": "POST",
+    "headers": {
+     "Content-Type": "application/json",
+     "X-Token": "abc",
+     "Cookie": "a=1"
+    },
+    "body": "{\"k\":1,\"s\":\"中文\"}"
+   },
+   "response": {
+    "status": 200,
+    "headers": {
+     "Content-Type": "application/json; charset=utf-8",
+     "Set-Cookie": "a=1; Path=/",
+     "X-Up": "1"
+    },
+    "body": "{\"data\":{\"vip\":false,\"list\":[1,2,3]},\"msg\":\"ok\"}"
+   }
+  },
+  "expect": [
+   "没有调用 $done()"
+  ]
+ },
+ {
+  "name": "globals-reset-between-runs",
+  "input": {
+   "code": "\nleaked = (typeof leaked === 'undefined') ? 1 : leaked + 1;\nglobalThis.other = (globalThis.other || 0) + 1;\n$done({body: leaked + ':' + other + ':' + typeof $response});\n",
+   "type": "http-response",
+   "name": "globals-reset-between-runs",
+   "request": {
+    "url": "https://api.example.com/v1/item?id=7&x=a%20b",
+    "method": "POST",
+    "headers": {
+     "Content-Type": "application/json",
+     "X-Token": "abc",
+     "Cookie": "a=1"
+    },
+    "body": "{\"k\":1,\"s\":\"中文\"}"
+   },
+   "response": {
+    "status": 200,
+    "headers": {
+     "Content-Type": "application/json; charset=utf-8",
+     "Set-Cookie": "a=1; Path=/",
+     "X-Up": "1"
+    },
+    "body": "{\"data\":{\"vip\":false,\"list\":[1,2,3]},\"msg\":\"ok\"}"
+   }
+  },
+  "expect": [
+   "1:1:object"
+  ],
+  "repeat": 3
+ },
+ {
+  "name": "cron-task-env",
+  "input": {
+   "code": "\nconsole.log(typeof $request, typeof $response, typeof $network, JSON.stringify($network));\n$done({title: 'T', content: 'C', n: 3, bin: new Uint8Array(2)});\n",
+   "type": "cron",
+   "name": "cron-task-env"
+  },
+  "expect": [
+   "undefined undefined object",
+   "\"title\\\": \\\"T\\\"",
+   "2 字节二进制"
+  ]
+ },
+ {
+  "name": "generic-done-values",
+  "input": {
+   "code": "\n$done('plain string');\n",
+   "type": "generic",
+   "name": "generic-done-values"
+  },
+  "expect": [
+   "plain string"
+  ]
+ },
+ {
+  "name": "json-regex-date-workload",
+  "input": {
+   "code": "\nvar arr = [];\nfor (var i = 0; i < 3000; i++) arr.push({id: i, name: 'item' + i, tags: ['a', 'b' + (i % 7)], v: i * 1.5});\nvar s = JSON.stringify(arr);\nvar back = JSON.parse(s);\nvar m = s.match(/\"name\":\"item(\\d+)\"/g).length;\nvar r = s.replace(/b(\\d)/g, function (_, d) { return 'B' + d; });\nvar sum = 0; back.forEach(function (o) { sum += o.v; });\nvar d = new Date(Date.UTC(2026, 9, 23, 12, 0, 0));\nvar words = 'The quick brown fox'.split(' ').map(function (w) { return w.toUpperCase(); }).sort().join('-');\nconsole.log(back.length, m, r.length, sum, d.toISOString(), words, (123.456).toFixed(2), parseInt('ff', 16), [3, 1, 2].sort().join(''));\n$done({body: String(sum)});\n",
+   "type": "http-response",
+   "name": "json-regex-date-workload",
+   "request": {
+    "url": "https://api.example.com/v1/item?id=7&x=a%20b",
+    "method": "POST",
+    "headers": {
+     "Content-Type": "application/json",
+     "X-Token": "abc",
+     "Cookie": "a=1"
+    },
+    "body": "{\"k\":1,\"s\":\"中文\"}"
+   },
+   "response": {
+    "status": 200,
+    "headers": {
+     "Content-Type": "application/json; charset=utf-8",
+     "Set-Cookie": "a=1; Path=/",
+     "X-Up": "1"
+    },
+    "body": "{\"data\":{\"vip\":false,\"list\":[1,2,3]},\"msg\":\"ok\"}"
+   }
+  },
+  "expect": [
+   "3000 3000",
+   "2026-10-23T12:00:00.000Z",
+   "BROWN-FOX-QUICK-THE 123.46 255 123"
+  ]
+ },
+ {
+  "name": "es-features",
+  "input": {
+   "code": "\nclass A { #p = 1; get p() { return this.#p; } static s = 2; }\nconst {x = 5, ...rest} = {y: 1, z: 2};\nconst m = new Map([[1, 'a']]); const st = new Set([1, 1, 2]);\nconst o = {a: {b: null}};\nconst sym = Symbol('s');\nlabel: for (const v of [1, 2, 3]) { if (v === 2) break label; }\nconst tpl = `${1 + 1}-${'x'.padStart(3, '.')}`;\nconsole.log(new A().p, A.s, x, JSON.stringify(rest), m.get(1), st.size, o?.a?.b ?? 'dflt', typeof sym, tpl, [1, [2, [3]]].flat(2).length, Object.entries({q: 1})[0][0], 2 ** 10, 'abc'.at(-1));\n$done({});\n",
+   "type": "http-response",
+   "name": "es-features",
+   "request": {
+    "url": "https://api.example.com/v1/item?id=7&x=a%20b",
+    "method": "POST",
+    "headers": {
+     "Content-Type": "application/json",
+     "X-Token": "abc",
+     "Cookie": "a=1"
+    },
+    "body": "{\"k\":1,\"s\":\"中文\"}"
+   },
+   "response": {
+    "status": 200,
+    "headers": {
+     "Content-Type": "application/json; charset=utf-8",
+     "Set-Cookie": "a=1; Path=/",
+     "X-Up": "1"
+    },
+    "body": "{\"data\":{\"vip\":false,\"list\":[1,2,3]},\"msg\":\"ok\"}"
+   }
+  },
+  "expect": [
+   "1 2 5 {\\\"y\\\":1,\\\"z\\\":2} a 2 dflt symbol 2-..x 3 q 1024 c"
+  ]
+ }
+]

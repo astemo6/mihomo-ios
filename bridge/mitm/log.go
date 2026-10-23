@@ -20,6 +20,9 @@ type lru[V any] struct {
 	w    int64
 	l    *list.List
 	m    map[string]*list.Element
+	// onEvict (optional) is told about every entry that leaves the cache (eviction, Remove, Reset), outside
+	// the lock: the native script engine drops the JavaScriptCore context behind a program key (jsnative.go).
+	onEvict func(k string, v V)
 }
 
 type lruItem[V any] struct {
@@ -48,8 +51,12 @@ func (c *lru[V]) Put(k string, v V) { c.PutW(k, v, 0) }
 // PutW stores v with a weight; with maxW set, least recently used entries are dropped until the total
 // fits (the newest entry always stays).
 func (c *lru[V]) PutW(k string, v V, w int64) {
+	var gone []*lruItem[V]
 	c.mu.Lock()
-	defer c.mu.Unlock()
+	defer func() {
+		c.mu.Unlock()
+		c.evicted(gone)
+	}()
 	if el, ok := c.m[k]; ok {
 		it := el.Value.(*lruItem[V])
 		c.w += w - it.w
@@ -65,6 +72,16 @@ func (c *lru[V]) PutW(k string, v V, w int64) {
 		it := el.Value.(*lruItem[V])
 		c.w -= it.w
 		delete(c.m, it.k)
+		gone = append(gone, it)
+	}
+}
+
+func (c *lru[V]) evicted(items []*lruItem[V]) {
+	if c.onEvict == nil {
+		return
+	}
+	for _, it := range items {
+		c.onEvict(it.k, it.v)
 	}
 }
 
@@ -77,13 +94,16 @@ func (c *lru[V]) Weight() int64 {
 
 // Remove drops one entry (no-op when absent).
 func (c *lru[V]) Remove(k string) {
+	var gone []*lruItem[V]
 	c.mu.Lock()
-	defer c.mu.Unlock()
 	if el, ok := c.m[k]; ok {
 		c.l.Remove(el)
 		c.w -= el.Value.(*lruItem[V]).w
 		delete(c.m, k)
+		gone = append(gone, el.Value.(*lruItem[V]))
 	}
+	c.mu.Unlock()
+	c.evicted(gone)
 }
 
 // Keys lists the cached keys, most recently used first.
@@ -98,7 +118,14 @@ func (c *lru[V]) Keys() []string {
 }
 
 func (c *lru[V]) Reset() {
+	var gone []*lruItem[V]
 	c.mu.Lock()
+	if c.onEvict != nil {
+		for el := c.l.Front(); el != nil; el = el.Next() {
+			gone = append(gone, el.Value.(*lruItem[V]))
+		}
+	}
+	defer c.evicted(gone)
 	c.l.Init()
 	c.m = map[string]*list.Element{}
 	c.w = 0

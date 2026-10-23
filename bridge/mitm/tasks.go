@@ -20,8 +20,6 @@ import (
 	"strings"
 	"sync"
 	"time"
-
-	"github.com/dop251/goja"
 )
 
 // Task kinds.
@@ -720,31 +718,34 @@ func (s *ScriptRunner) RunTask(tk *Task, network map[string]any, extra map[strin
 		parent = s.e.tasks.context()
 	}
 	rc, err := s.execute(parent, tk.Script, nil, nil, s.taskSem, false, 300*time.Second, 30*time.Second, func(rc *runCtx) {
-		rt := rc.rt
+		rc.wantExport = true
+		rc.globals = map[string]any{}
 		if network != nil {
-			_ = rt.Set("$network", network)
+			rc.globals["$network"] = network
 		} else {
-			_ = rt.Set("$network", map[string]any{})
+			rc.globals["$network"] = map[string]any{}
 		}
 		for k, v := range extra {
 			if k == "$params" {
 				// QX event-interaction: $environment.params = the chosen policy / node.
-				if env, ok := rt.Get("$environment").(*goja.Object); ok && env != nil {
-					_ = env.Set("params", v)
-				}
+				rc.params, rc.hasParams = v, true
 				continue
 			}
-			_ = rt.Set(k, v)
+			rc.globals[k] = v
 		}
 	})
 	if err != nil {
 		return nil, err
 	}
-	if rc == nil || !rc.done || rc.result == nil || goja.IsUndefined(rc.result) || goja.IsNull(rc.result) {
+	if rc == nil || !rc.done {
 		return nil, nil
 	}
-	if m, ok := rc.result.Export().(map[string]any); ok {
+	v, ok := rc.exported()
+	if !ok {
+		return nil, nil
+	}
+	if m, ok := v.(map[string]any); ok {
 		return m, nil
 	}
-	return map[string]any{"value": rc.result.Export()}, nil
+	return map[string]any{"value": v}, nil
 }
