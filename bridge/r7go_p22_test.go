@@ -4,6 +4,7 @@ import (
 	"encoding/json"
 	"os"
 	"path/filepath"
+	"reflect"
 	"strings"
 	"testing"
 
@@ -70,6 +71,26 @@ rules:
 	}
 	if _, err := executor.ParseWithBytes([]byte(out)); err != nil {
 		t.Fatalf("exported config does not parse: %v", err)
+	}
+	// feat/export-readable: the human-readable export is the same config with the same clean-up and notes.
+	rd, err := FinalConfigReadable(dir, p, "P22", "0.0.0 (0)")
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, bad := range []string{"SuperSecret123", "127.0.0.1:", "Authorization", dir, "x-source", "/convert"} {
+		if strings.Contains(rd, bad) {
+			t.Fatalf("readable export still contains %q:\n%s", bad, rd)
+		}
+	}
+	if !strings.Contains(rd, "# 导出说明") || !strings.Contains(rd, "https://example.com/sub?token=abc") {
+		t.Fatalf("readable export lost notes / urls:\n%s", rd)
+	}
+	raw2 := map[string]any{}
+	if err := yaml.Unmarshal([]byte(rd), &raw2); err != nil {
+		t.Fatal(err)
+	}
+	if !reflect.DeepEqual(raw, raw2) {
+		t.Fatalf("readable export differs from the lean export:\n%s\n---\n%s", out, rd)
 	}
 }
 

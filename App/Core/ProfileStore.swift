@@ -212,13 +212,17 @@ final class ProfileStore: ObservableObject {
 
     /// 「导出最终配置（含覆写）」: the YAML the core runs for this profile (覆写脚本, 节点处理, 节点订阅, node-set
     /// edits, core overrides; credentials as in the profile; controller / probe plumbing removed), built in Go
-    /// off the main thread, as `<name> · 最终配置.yaml`.
+    /// off the main thread, as `<name> · 最终配置.yaml`. feat/export-readable: written for people (block YAML in
+    /// mihomo's usual order, a header naming the profile / Tern version / export time, one comment per section);
+    /// the tunnel's own runtime.yaml is unchanged.
     func exportFinalFile(of p: Profile) async -> Result<URL, Error> {
         let home = AppShared.homeURL.path
         let path = p.fileURL.path
+        let name = p.name
+        let version = DiagnosticsExporter.version(of: .main)
         let r: Result<String, Error> = await Task.detached(priority: .userInitiated) {
             var err: NSError?
-            let s = LibmihomoFinalConfig(home, path, &err)
+            let s = LibmihomoFinalConfigReadable(home, path, name, version, &err)
             if let err { return .failure(err) }
             return .success(s)
         }.value
