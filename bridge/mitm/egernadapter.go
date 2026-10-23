@@ -176,6 +176,19 @@ const egernPrelude = `(function () {
     if (typeof h.toObject === 'function') return h.toObject();
     return h;
   }
+  // v0.19.22: Egern scripts build request headers with the Fetch API's global Headers constructor
+  // (new Headers({...}), also an array of pairs or another Headers); it was missing.
+  if (typeof globalThis.Headers === 'undefined') {
+    globalThis.Headers = function Headers(init) {
+      if (init && typeof init[TO_OBJECT] === 'function') return makeHeaders(init[TO_OBJECT]());
+      if (Array.isArray(init)) {
+        var h = makeHeaders(null);
+        for (var i = 0; i < init.length; i++) h.append(init[i][0], init[i][1]);
+        return h;
+      }
+      return makeHeaders(init);
+    };
+  }
   function bodyOut(b) {
     if (b === undefined || b === null) return undefined;
     if (typeof b === 'string' || b instanceof Uint8Array || b instanceof ArrayBuffer) return b;

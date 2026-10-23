@@ -150,6 +150,68 @@ func egernArgs(text string) ([]ModArg, string) {
 	return out, desc
 }
 
+var egernKnownKeys = map[string]bool{"name": true, "description": true, "author": true, "homepage": true, "manual": true,
+	"icon": true, "open_url": true, "compat_arguments": true, "compat_arguments_desc": true, "env_schema": true, "dns": true,
+	"rules": true, "url_rewrites": true, "header_rewrites": true, "body_rewrites": true, "map_locals": true, "scriptings": true,
+	"mitm": true, "http_captures": true, "widgets": true, "bypass_tunnel_proxy": true, "real_ip_domains": true,
+	"proxies": true, "policy_groups": true, "category": true, "version": true, "date": true, "env": true}
+
+func egernEmpty(v any) bool {
+	switch x := v.(type) {
+	case nil:
+		return true
+	case map[string]any:
+		return len(x) == 0
+	case []any:
+		return len(x) == 0
+	case string:
+		return strings.TrimSpace(x) == ""
+	}
+	return false
+}
+
+// egernEnvSchema turns env_schema into module settings (ModArg.Env): options ["true","false"] a switch,
+// other options a picker, none a text field. default_value is only a placeholder in Egern ("not written
+// to env unless the user explicitly sets a value"), so it is shown in the description, not applied.
+func egernEnvSchema(text string, v any) []ModArg {
+	defs := egernMap(v)
+	keys := make([]string, 0, len(defs))
+	for k := range defs {
+		keys = append(keys, k)
+	}
+	sort.SliceStable(keys, func(i, j int) bool {
+		return strings.Index(text, "\n  "+keys[i]+":") < strings.Index(text, "\n  "+keys[j]+":")
+	})
+	var out []ModArg
+	for _, k := range keys {
+		d := egernMap(defs[k])
+		a := ModArg{Key: k, Env: true, Type: "input"}
+		name := egernStr(d["name"])
+		desc := egernStr(d["description"])
+		switch {
+		case name != "" && desc != "":
+			a.Desc = name + "：" + desc
+		case name != "":
+			a.Desc = name
+		default:
+			a.Desc = desc
+		}
+		if dv := egernStr(d["default_value"]); dv != "" {
+			a.Desc = strings.TrimSpace(a.Desc + "（默认 " + dv + "）")
+		}
+		for _, o := range egernList(d["options"]) {
+			a.Options = append(a.Options, egernStr(o))
+		}
+		if len(a.Options) == 2 && a.Options[0] == "true" && a.Options[1] == "false" {
+			a.Type, a.Options = "switch", nil
+		} else if len(a.Options) > 0 {
+			a.Type = "select"
+		}
+		out = append(out, a)
+	}
+	return out
+}
+
 // parseEgern translates an Egern YAML module into rs.
 func (rs *Ruleset) parseEgern(text, source string, user map[string]string) {
 	rs.Format = "egern"
@@ -185,11 +247,58 @@ func (rs *Ruleset) parseEgern(text, source string, user map[string]string) {
 	if a := egernStr(doc["author"]); a != "" && rs.Author == "" {
 		rs.Author = a
 	}
-	for _, k := range []string{"dns", "http_captures", "bypass_tunnel_proxy", "real_ip_domains", "env_schema", "proxies", "policy_groups"} {
-		if _, ok := doc[k]; ok {
+	for _, k := range []string{"dns", "http_captures", "bypass_tunnel_proxy", "real_ip_domains", "proxies", "policy_groups"} {
+		if v, ok := doc[k]; ok && !egernEmpty(v) {
 			rs.Unsupported = append(rs.Unsupported, k+"（Egern 模块，暂不支持）")
 		}
 	}
+	// v0.19.22: keys Egern does not document were dropped without a word (a module's `rewrites:` list).
+	var unknown []string
+	for k := range doc {
+		if !egernKnownKeys[k] {
+			unknown = append(unknown, k)
+		}
+	}
+	sort.Strings(unknown)
+	for _, k := range unknown {
+		rs.Unsupported = append(rs.Unsupported, k+"（不是 Egern 模块文档里的字段，已忽略）")
+	}
+	envArgs := egernEnvSchema(text, doc["env_schema"])
+	rs.Arguments = append(rs.Arguments, envArgs...)
+	userEnv := map[string]string{}
+	for _, a := range envArgs {
+		if v, ok := user[a.Key]; ok && v != "" {
+			userEnv[a.Key] = v
+		}
+	}
+	defer func() {
+		// env_schema values set in the module's settings reach every script of the module; module-level
+		// env has the highest priority in Egern (Module > Widget > Script).
+		if len(userEnv) == 0 {
+			return
+		}
+		put := func(sc *Script) {
+			if sc == nil || sc.Source != nil {
+				return
+			}
+			env := map[string]string{}
+			for k, v := range sc.Env {
+				env[k] = v
+			}
+			for k, v := range userEnv {
+				env[k] = v
+			}
+			sc.Env = env
+		}
+		for _, r := range rs.Rules {
+			if r.Source == source {
+				put(r.Script)
+			}
+		}
+		for _, tk := range rs.Tasks {
+			put(tk.Script)
+		}
+	}()
 	rs.egernMitM(doc["mitm"])
 	for _, it := range egernList(doc["rules"]) {
 		rs.egernRule(it, source)
@@ -522,7 +631,16 @@ func (rs *Ruleset) egernScript(m map[string]any, source string) {
 		if em := egernMap(b["env"]); len(em) > 0 {
 			env = map[string]string{}
 			for k, v := range em {
+				if k == "_compat.$argument" {
+					// Surge-compatible scripts: env._compat.$argument is their $argument (Script-Hub and
+					// most converters write it here; arguments._compat.$argument is the older spelling).
+					p["argument"] = egernStr(v)
+					continue
+				}
 				env[k] = egernStr(v)
+			}
+			if len(env) == 0 {
+				env = nil
 			}
 		}
 		withEnv := func(sc *Script) *Script {

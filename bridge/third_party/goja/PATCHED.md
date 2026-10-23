@@ -47,3 +47,14 @@ is now converted with `ToObject` (null / undefined still throw). File: builtin_t
 
 This broke the 喜马拉雅 VIP script (ximalaya.js): its paid-track `ep` decrypt failed, so the app kept
 showing the VIP / 喜点 prompt. Drop / re-apply together with the copy.
+
+## Patch 4: `break` / `continue` in dead code (mihomo-ios v0.19.22)
+
+`enterDummyMode` (used to compile constant-false branches such as `if(!1){…}` for early errors only)
+copied just the innermost block. A `break` / `continue` in that dead code which resolved to an outer
+block (e.g. `case 5: e: if(!1){ …; break }` — the labelled statement is the copied block, the switch
+is its real `outer`) appended a pc of the throw-away dummy program to the real block's `breaks`, and
+the later patch overwrote a live instruction at that pc with a jump: "Compiler bug: Unsupported
+instruction for binding: goja.jump", or silently wrong code. The whole block chain is now copied (with
+`breaking` links remapped). File: compiler.go (search "Patch 4"); test:
+bridge/mitm/goja_deadbreak_test.go. Hit by obfuscated scripts (a Loon 喜马拉雅 plugin's xmly.js).

@@ -1349,12 +1349,27 @@ func (c *compiler) checkIdentifierLName(name unistring.String, offset int) {
 func (c *compiler) enterDummyMode() (leaveFunc func()) {
 	savedBlock, savedProgram := c.block, c.p
 	if savedBlock != nil {
-		c.block = &block{
-			typ:      savedBlock.typ,
-			label:    savedBlock.label,
-			outer:    savedBlock.outer,
-			breaking: savedBlock.breaking,
+		// mihomo-ios patch (Patch 4): copy the whole block chain, not only the innermost block. Dead code
+		// (`if(!1){…; break}` inside a labelled statement inside a switch case, as obfuscators emit it)
+		// resolved its `break` to an outer, real block and appended a pc of the throw-away dummy program to
+		// that block's breaks; patching it later overwrote a real instruction with a jump ("Compiler bug:
+		// Unsupported instruction for binding: goja.jump").
+		copies := map[*block]*block{}
+		var cp func(b *block) *block
+		cp = func(b *block) *block {
+			if b == nil {
+				return nil
+			}
+			if n, ok := copies[b]; ok {
+				return n
+			}
+			n := &block{typ: b.typ, label: b.label, needResult: b.needResult, async: b.async}
+			copies[b] = n
+			n.outer = cp(b.outer)
+			n.breaking = cp(b.breaking)
+			return n
 		}
+		c.block = cp(savedBlock)
 	}
 	c.p = &Program{
 		src: c.p.src,
