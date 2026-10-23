@@ -53,7 +53,9 @@ var (
 	// Test hooks (nil in production): applyDone runs in the apply goroutine after the
 	// apply returned and before its CAS; atDeadline runs in Start's deadline branch
 	// before its CAS. Used by v0181_test.go to force both interleavings.
-	testHookApplyDone  func()
+	// testHookApplyDone returns the hook bound to one Start (resolved when Start begins), so an apply
+	// goroutine that outlives its test never runs a later test's hook.
+	testHookApplyDone  func() func()
 	testHookAtDeadline func()
 )
 
@@ -647,7 +649,7 @@ func applyInto(home, configPath string, fd int32, used *Overrides) error {
 	committed = true
 	plan.commit()
 	recordLiveApply(home, configPath, rt, o) // v0.19.22: what ReloadHot diffs against
-	liveGroupOrder.Store(groupOrder) // v0.19.11 (review 6 P2-3): LiveStatus follows the app's group order
+	liveGroupOrder.Store(groupOrder)         // v0.19.11 (review 6 P2-3): LiveStatus follows the app's group order
 	// The diag capture goroutine used to call log.Level() while ApplyConfig wrote it (data race found by
 	// the selftest -race run); it now filters by the level this config asked for.
 	if lv, ok := log.LogLevelMapping[strings.ToLower(o.LogLevel)]; ok {
@@ -700,9 +702,13 @@ func Start(homeDir, configPath string, tunFd int32) error {
 	var state atomic.Int32
 	stops := stopCount.Load()
 	done := make(chan error, 1)
-	// The test hook is read here, not in the goroutine: a timed-out apply outlives its Start (and its
-	// test, whose cleanup resets the hook) — go test -race flagged the late read.
-	applyDoneHook := testHookApplyDone
+	// The test hook is resolved here, not in the goroutine: a timed-out apply outlives its Start (and its
+	// test, whose cleanup resets the hook) — go test -race flagged the late read, and a late apply calling
+	// the next test's hook closed that test's channel twice (panic under -race, v0.19.22 integration).
+	var applyDoneHook func()
+	if testHookApplyDone != nil {
+		applyDoneHook = testHookApplyDone()
+	}
 	go func() {
 		err := safeApply(homeDir, configPath, tunFd)
 		if h := applyDoneHook; h != nil {

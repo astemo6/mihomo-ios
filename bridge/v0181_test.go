@@ -57,14 +57,18 @@ func waitStage(t *testing.T, path, s string, d time.Duration) {
 // started it (Start returns on tun up while providers still load). Assigning those package vars from a test or
 // its cleanup then raced with that read under -race (bridge.Start.func1 vs withStartTimeout). They are now set
 // once, before any test runs, to dispatchers that load the current hook atomically; tests change hooks only
-// through setApplyDoneHook / setAtDeadlineHook.
+// through setApplyDoneHook / setAtDeadlineHook. The apply hook is resolved when Start begins (bound to that
+// Start): resolving it at call time let the previous test's late apply run the next test's hook
+// (TestV0181ApplyWinsBeforeDeadlineCAS: close of closed channel under -race).
 var curApplyDoneHook, curAtDeadlineHook atomic.Pointer[func()]
 
 func init() {
-	testHookApplyDone = func() {
+	// Resolved once per Start: a late apply goroutine keeps the hook of the test that started it.
+	testHookApplyDone = func() func() {
 		if f := curApplyDoneHook.Load(); f != nil {
-			(*f)()
+			return *f
 		}
+		return nil
 	}
 	testHookAtDeadline = func() {
 		if f := curAtDeadlineHook.Load(); f != nil {
