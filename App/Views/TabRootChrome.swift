@@ -82,11 +82,13 @@ struct TabRootPinnedChrome<Header: View>: ViewModifier {
                     .accessibilityHidden(true)
                 )
                 .background(GeometryReader { g in
-                    // Measured in layout space (before the overscroll offset below), so riding down never feeds
-                    // back into headerBottom.
+                    // The global frame includes the overscroll offset applied below, so subtract it to keep
+                    // headerBottom in layout space. Always tracking it (never freezing) means a header that changes
+                    // height (large Dynamic Type, exit IP loading) cannot leave a stale value that pins the header
+                    // down after scrolling.
                     Color.clear
                         .onAppear { headerBottom = g.frame(in: .global).maxY }
-                        .onChange(of: g.frame(in: .global).maxY) { if overscroll == 0 { headerBottom = $0 } }
+                        .onChange(of: g.frame(in: .global).maxY) { headerBottom = $0 - overscroll }
                 })
                 .animation(.easeInOut(duration: 0.15), value: scrolled)
                 .offset(y: overscroll)
