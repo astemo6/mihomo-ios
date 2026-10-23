@@ -85,7 +85,8 @@ extension MihomoUITests {
         XCTAssertFalse(app.navigationBars.buttons[L("节点与订阅")].exists, "配置: 节点与订阅 shortcut removed")
         snap("dedup-profiles")
 
-        let row = app.element(labelContains: "UITest Demo")
+        // The 快速编辑 row's label also contains the profile name ("快速编辑、UITest Demo"); press the profile's own cell.
+        let row = app.cells.containing(NSPredicate(format: "label == %@", "UITest Demo")).firstMatch
         XCTAssertTrue(row.waitForExistence(timeout: 5), "UITest Demo profile row")
         row.press(forDuration: 1.3)
         let export = app.button(L("导出"))
