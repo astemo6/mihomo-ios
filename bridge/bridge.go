@@ -258,6 +258,16 @@ func buildRuntimeWith(profile []byte, o Overrides, fd int32, inject func(raw map
 		}
 	}
 
+	// 规则 → 本地规则 / Final (2026-10-23): the user's 编辑 / 停用 / 删除 of the profile's own rules and its Final,
+	// first, while raw["rules"] is still exactly the profile's (the overrides are keyed by its rule text).
+	var editedRules map[string]string
+	if o.home != "" && o.profileID != "" {
+		var warns []string
+		editedRules, warns = applyProfileRuleOverrides(raw, readProviderOverrides(o.home, o.profileID))
+		for _, w := range warns {
+			log.Warnln("[Rule] %s", w)
+		}
+	}
 	if o.sub != nil {
 		for _, e := range applySubRules(raw, o.sub) {
 			log.Warnln("[Subscription] %s", e)
@@ -443,6 +453,10 @@ func buildRuntimeWith(profile []byte, o Overrides, fd int32, inject func(raw map
 	rewriteConvertProviders(raw, o)
 	if o.OverrideHealthCheck {
 		overrideHealthCheckURL(raw, o.TestURL)
+	}
+	// An edited rule / Final whose policy the finished groups do not have gets the profile's rule back.
+	for _, w := range checkEditedRuleTargets(raw, editedRules) {
+		log.Warnln("[Rule] %s", w)
 	}
 	if !o.SafeMode {
 		applyCustomRules(raw, o)

@@ -152,35 +152,53 @@ struct LocalRulesView: View {
     @EnvironmentObject var vpn: VPNManager
     @ObservedObject private var offline = ProfileInspector.shared
     @ObservedObject private var custom = CustomRulesStore.shared
+    @ObservedObject private var prof = ProfileRulesStore.shared
+    @ObservedObject private var providerOV = ProviderOverrideStore.shared
+    @ObservedObject private var profiles = ProfileStore.shared
     @State private var live: [RuleItem] = []
     @State private var search = ""
     @State private var tab = 0
     @State private var editing: CustomRule?
     @State private var adding = false
+    /// User 2026-10-23 「本地规则点进去无法修改」: 配置规则 rows are edited / 停用 / 删除 like 自定义 rows, kept as
+    /// overrides (provider-overrides.json `#profile-rules`, bridge/profileruleoverrides.go).
+    @State private var editingProfile: ProfileRuleItem?
+    @State private var confirmDeleteProfile: ProfileRuleItem?
+    @State private var confirmRestoreAll = false
     @ObservedObject private var hits = RuleHitsStore.shared
     @AppStorage("rules.sortByHits") private var sortByHits = false
     @State private var confirmReset = false
 
-    struct Row: Hashable { var index: Int; var type: String; var payload: String; var proxy: String; var size: Int?; var session: Int? }
+    struct Row: Hashable { var item: ProfileRuleItem; var session: Int? }
 
+    /// The profile's own rules (not the rule sets, not the Final), in the profile's order = matching priority.
     var rows: [Row] {
-        var all: [Row] = vpn.isConnected
-            ? live.enumerated().map { Row(index: $0.offset, type: $0.element.type, payload: $0.element.payload, proxy: $0.element.proxy, size: $0.element.size, session: $0.element.extra?.hitCount) }
-            : offline.result.rules.enumerated().map { Row(index: $0.offset, type: $0.element.type, payload: $0.element.payload, proxy: $0.element.proxy, size: nil, session: nil) }
-        all = all.filter { Self.isLocal(type: $0.type, payload: $0.payload, proxy: $0.proxy) }
+        var sessions: [String: Int] = [:]
+        if vpn.isConnected {
+            for r in live { if let n = r.extra?.hitCount, sessions[RuleHitsStore.norm(r.type, r.payload, r.proxy)] == nil { sessions[RuleHitsStore.norm(r.type, r.payload, r.proxy)] = n } }
+        }
+        var all = prof.items
+            .filter { !$0.isDeleted && Self.isLocal(type: $0.type, payload: $0.payload, proxy: $0.proxy) }
+            .map { Row(item: $0, session: sessions[RuleHitsStore.norm($0.type, $0.payload, $0.proxy)]) }
         if !search.isEmpty {
             let q = search.lowercased()
-            all = all.filter { $0.payload.lowercased().contains(q) || $0.type.lowercased().contains(q) || $0.proxy.lowercased().contains(q) }
+            all = all.filter { r in
+                [r.item.payload, r.item.type, r.item.proxy, r.item.line].contains { $0.lowercased().contains(q) }
+            }
         }
         if sortByHits {
             // Review 5: one lookup per row (each builds a normalized key), not two per comparison.
-            let total = Dictionary(uniqueKeysWithValues: all.map { ($0.index, hits.entry($0.type, $0.payload, $0.proxy)?.total ?? 0) })
+            let total = Dictionary(uniqueKeysWithValues: all.map { ($0.item.position, hits.entry($0.item.type, $0.item.payload, $0.item.proxy)?.total ?? 0) })
             all.sort { a, b in
-                let ta = total[a.index] ?? 0, tb = total[b.index] ?? 0
-                return ta != tb ? ta > tb : a.index < b.index
+                let ta = total[a.item.position] ?? 0, tb = total[b.item.position] ?? 0
+                return ta != tb ? ta > tb : a.item.position < b.item.position
             }
         }
         return all
+    }
+
+    var deletedProfileCount: Int {
+        prof.items.filter { $0.isDeleted && Self.isLocal(type: $0.type, payload: $0.payload, proxy: $0.proxy) }.count
     }
 
     /// A 本地 rule: not a rule set (those are 订阅 on 规则), not the final MATCH (shown as Final there), and not the
@@ -225,8 +243,12 @@ struct LocalRulesView: View {
                         }
                         Button(role: .destructive) { confirmReset = true } label: { Label("重置全部命中计数", systemImage: "arrow.counterclockwise") }
                             .disabled(hits.entries.isEmpty)
-                    } label: { Image(systemName: "chart.bar.xaxis") }
-                    .accessibilityLabel(Text("命中统计"))
+                        Divider()
+                        Button { confirmRestoreAll = true } label: { Label("全部恢复配置原样", systemImage: "arrow.uturn.backward") }
+                            .disabled(prof.modifiedCount == 0 || profiles.activeID == nil)
+                    } label: { Image(systemName: "ellipsis.circle") }
+                    .accessibilityLabel(Text("更多"))
+                    .accessibilityIdentifier("rules.profile.more")
                 }
             }
         }
@@ -240,57 +262,148 @@ struct LocalRulesView: View {
         .confirmationDialog("重置全部规则的命中计数？", isPresented: $confirmReset, titleVisibility: .visible) {
             Button("重置", role: .destructive) { hits.reset(nil) }
         }
+        .sheet(item: $editingProfile) { it in
+            CustomRuleEditor(rule: CustomRule(line: it.line), title: "编辑规则", allowRemote: false,
+                             restore: it.isEdited ? { changeProfile(it) { $0.line = nil } } : nil) { nr in
+                let l = nr.line.trimmingCharacters(in: .whitespacesAndNewlines)
+                let same = l == it.rule || l == it.original.trimmingCharacters(in: .whitespacesAndNewlines)
+                changeProfile(it) { $0.line = same ? nil : l }
+            }
+        }
+        .deleteConfirmation({ _ in Text("删除这条规则？") }, item: $confirmDeleteProfile,
+                            message: { _ in Text("只从当前配置里移除，配置文件不会改动。可以在列表底部「恢复已删除的规则」找回。") },
+                            id: "rules.confirmDeleteProfileRule") { it in
+            changeProfile(it) { $0.deleted = true }
+        }
+        .confirmationDialog("全部规则恢复配置原样？", isPresented: $confirmRestoreAll, titleVisibility: .visible) {
+            Button("恢复", role: .destructive) {
+                guard let id = profiles.activeID else { return }
+                providerOV.restoreAllProfileRules(id)
+                Task { await applyProfileChange() }
+            }
+        } message: { Text("撤销对配置规则的所有修改、停用和删除。") }
         .alert("提示", isPresented: Binding(get: { custom.message != nil }, set: { if !$0 { custom.message = nil } })) {
             Button("好") { custom.message = nil }
         } message: { Text(custom.message ?? "") }
     }
 
     func load() async {
+        await prof.load()
         if vpn.isConnected, let r = try? await ControllerClient.shared.rules() { live = r } else { await offline.load() }
         await hits.refresh()
         await custom.recheck()
     }
 
+    /// One profile rule's override (编辑 / 停用 / 删除 / 恢复), then the normal reload.
+    func changeProfile(_ it: ProfileRuleItem, _ change: @escaping (inout ProfileRuleOverride) -> Void) {
+        guard let id = profiles.activeID else { return }
+        providerOV.updateProfileRule(id, rule: it.rule, index: it.index) { change(&$0) }
+        Task { await applyProfileChange() }
+    }
+
+    func applyProfileChange() async {
+        await prof.load()
+        if vpn.isConnected {
+            if let e = await VPNManager.shared.reload() { custom.message = String(localized: "重载失败：\(e)") }
+            if let r = try? await ControllerClient.shared.rules() { live = r }
+        }
+        await offline.load()
+    }
+
     var profileRules: some View {
         let rows = self.rows // built once per render (it was evaluated for the list and again for the overlay)
         return List {
-            if !vpn.isConnected {
-                Label("未连接", systemImage: "doc.text.magnifyingglass")
-                    .font(.caption.weight(.semibold)).foregroundStyle(.secondary)
-                    .listRowBackground(Color.clear)
-            }
             if !hits.entries.isEmpty, search.isEmpty {
                 RuleHitsSummary(store: hits).listRowBackground(Color.clear)
             }
-            ForEach(rows, id: \.index) { r in
-                let h = hits.entry(r.type, r.payload, r.proxy)
-                HStack(alignment: .top, spacing: 10) {
-                    Text("\(r.index + 1)").font(.caption2.monospacedDigit()).foregroundStyle(.secondary).frame(width: 30, alignment: .trailing)
-                    VStack(alignment: .leading, spacing: 3) {
-                        Text(r.payload.isEmpty ? r.type : r.payload).font(.system(.footnote, design: .monospaced)).lineLimit(2)
-                        HStack(spacing: 6) {
-                            RuleTypeTag(type: Theme.ruleTypeName(r.type))
-                            if let s = r.size, s > 0 { Text("\(s) 条").font(.caption2).foregroundStyle(.secondary) }
-                            Spacer()
-                            if !r.proxy.isEmpty { PolicyChip(name: r.proxy) }
+            if let e = prof.error {
+                Label(e, systemImage: "exclamationmark.triangle.fill").font(.caption).foregroundStyle(Theme.warn)
+                    .listRowBackground(Color.clear)
+            }
+            ForEach(rows, id: \.item.position) { r in profileRow(r) }
+            if !rows.isEmpty || deletedProfileCount > 0 {
+                VStack(alignment: .leading, spacing: 8) {
+                    if deletedProfileCount > 0, let id = profiles.activeID {
+                        Button {
+                            providerOV.restoreDeletedProfileRules(id)
+                            Task { await applyProfileChange() }
+                        } label: {
+                            Label("恢复已删除的规则（\(deletedProfileCount)）", systemImage: "arrow.uturn.backward")
                         }
-                        if h != nil || (r.session ?? 0) > 0 { RuleHitLine(entry: h, session: r.session) }
+                        .buttonStyle(.borderless)
+                        .accessibilityIdentifier("rules.restoreDeletedProfileRules")
                     }
+                    Text("顺序就是匹配优先级。轻点编辑；左滑删除或编辑；开关启用或停用；长按查看全部操作。")
+                    Text("修改保存在 Tern 里，配置文件不会改动；更新配置后仍然有效。")
                 }
-                .listRowBackground(Theme.card)
-                .contextMenu {
-                    if h != nil {
-                        Button(role: .destructive) { hits.reset(h?.key) } label: { Label("重置此规则的命中计数", systemImage: "arrow.counterclockwise") }
-                    }
-                    Button { UIPasteboard.general.string = [r.type, r.payload, r.proxy].filter { !$0.isEmpty }.joined(separator: ",") } label: { Label("复制规则", systemImage: "doc.on.doc") }
-                }
+                .font(.footnote).foregroundStyle(.secondary)
+                .listRowBackground(Color.clear)
+                .listRowSeparator(.hidden)
             }
         }
         .listStyle(.plain)
         .scrollContentBackground(.hidden)
         .searchable(text: $search, placement: .navigationBarDrawer(displayMode: .always), prompt: "搜索规则")
         .refreshable { await load() }
-        .overlay { if rows.isEmpty && search.isEmpty { EmptyStateView(icon: "list.bullet.rectangle", title: AppShared.activeProfileURL == nil ? "没有选择配置" : "没有规则") } }
+        .overlay {
+            if rows.isEmpty && search.isEmpty && prof.loaded && deletedProfileCount == 0 {
+                EmptyStateView(icon: "list.bullet.rectangle", title: AppShared.activeProfileURL == nil ? "没有选择配置" : "没有规则")
+            }
+        }
+    }
+
+    /// A rule of the profile: the same row actions as 自定义 / the SubscriptionKit rows (switch on the right; left swipe
+    /// 删除 · 编辑; long press 编辑 · 停用/启用 · 恢复配置原样 · 复制规则 · 删除).
+    func profileRow(_ r: Row) -> some View {
+        let it = r.item
+        let h = hits.entry(it.type, it.payload, it.proxy)
+        let setOn: (Bool) -> Void = { on in changeProfile(it) { $0.disabled = on ? nil : true } }
+        return HStack(alignment: .top, spacing: 10) {
+            Text("\(it.position + 1)").font(.caption2.monospacedDigit()).foregroundStyle(.secondary).frame(width: 30, alignment: .trailing)
+            VStack(alignment: .leading, spacing: 3) {
+                Text(it.payload.isEmpty ? it.type : it.payload).font(.system(.footnote, design: .monospaced)).lineLimit(2)
+                    .accessibilityIdentifier("rules.profile.row.\(it.position)")
+                HStack(spacing: 6) {
+                    RuleTypeTag(type: Theme.ruleTypeName(it.type))
+                    if let o = it.options, !o.isEmpty { Text(verbatim: o).font(.caption2).foregroundStyle(.secondary).lineLimit(1) }
+                    if it.isEdited { ModifiedTag() }
+                    Spacer()
+                    if !it.proxy.isEmpty { PolicyChip(name: it.proxy) }
+                }
+                if let e = it.error, !e.isEmpty {
+                    Label(e, systemImage: "exclamationmark.triangle.fill").font(.caption2).foregroundStyle(Theme.warn).lineLimit(3)
+                }
+                if h != nil || (r.session ?? 0) > 0 { RuleHitLine(entry: h, session: r.session) }
+            }
+            Toggle("", isOn: Binding(get: { !it.isDisabled }, set: setOn)).labelsHidden()
+                .disabled(profiles.activeID == nil)
+                .accessibilityIdentifier("rules.profile.toggle.\(it.position)")
+        }
+        .opacity(it.isDisabled ? 0.55 : 1)
+        .contentShape(Rectangle())
+        .onTapGesture { editingProfile = it }
+        .listRowBackground(Theme.card)
+        .swipeActions(edge: .trailing, allowsFullSwipe: false) {
+            // Not role: .destructive — that removes the row at once, even when the confirmation is cancelled.
+            Button { confirmDeleteProfile = it } label: { Label("删除", systemImage: "trash") }.tint(.red)
+            Button { editingProfile = it } label: { Label("编辑", systemImage: "pencil") }.tint(.gray)
+        }
+        .contextMenu {
+            Button { editingProfile = it } label: { Label("编辑", systemImage: "pencil") }
+            Button { setOn(it.isDisabled) } label: {
+                Label(LocalizedStringKey(it.isDisabled ? "启用" : "停用"), systemImage: it.isDisabled ? "play.circle" : "pause.circle")
+            }
+            if it.isEdited || it.isDisabled {
+                Button { changeProfile(it) { $0.line = nil; $0.disabled = nil } } label: { Label("恢复配置原样", systemImage: "arrow.uturn.backward") }
+            }
+            Button { UIPasteboard.general.string = it.isEdited ? it.line : it.original } label: { Label("复制规则", systemImage: "doc.on.doc") }
+            if h != nil {
+                Button(role: .destructive) { hits.reset(h?.key) } label: { Label("重置此规则的命中计数", systemImage: "arrow.counterclockwise") }
+            }
+            Divider()
+            Button(role: .destructive) { confirmDeleteProfile = it } label: { Label("删除", systemImage: "trash") }
+        }
+        .accessibilityAction(named: Text("编辑")) { editingProfile = it }
     }
 
     var customRules: some View {
@@ -520,13 +633,19 @@ struct CustomRuleEditor: View {
     @ObservedObject private var vpn = VPNManager.shared
     @ObservedObject private var offline = ProfileInspector.shared
     @State var rule: CustomRule
+    /// 自定义规则, or 编辑规则 for a rule of the profile (2026-10-23).
+    var title: LocalizedStringKey = "自定义规则"
+    /// false for a rule of the profile: remote lists are 订阅 (bridge convertEditedRule refuses them too).
+    var allowRemote = true
+    /// 恢复配置原样 (a profile rule the user edited): drops the edit.
+    var restore: (() -> Void)? = nil
     let onSave: (CustomRule) -> Void
     @State private var check: RuleCheck?
     @State private var checking = false
     /// v0.19.8 (user: QX-like form, 「不要照抄」): type / value / policy fields; 文本模式 shows the raw line.
     @State private var form = RuleFormFields()
     @State private var textMode = false
-    @State private var policies: [String] = []
+    @State private var targets = PolicyTargets()
 
     static let examples = [
         "DOMAIN-SUFFIX,google.com,Proxy",
@@ -541,11 +660,15 @@ struct CustomRuleEditor: View {
 
     static let builtins = ["DIRECT", "REJECT", "REJECT-DROP"]
 
+    /// The groups, built-in policies and the profile's own nodes; a policy the line names that is none of them stays
+    /// selectable (first).
     var policyChoices: [String] {
-        var out = policies + Self.builtins
+        var out = targets.all
         if !form.policy.isEmpty && !out.contains(form.policy) { out.insert(form.policy, at: 0) }
         return out
     }
+
+    var remoteRefused: Bool { !allowRemote && rule.line.contains("://") }
 
     var body: some View {
         NavigationStack {
@@ -563,7 +686,18 @@ struct CustomRuleEditor: View {
 
                 if textMode { textSections } else { formSections }
 
-                if rule.line.contains("://") {
+                if let restore {
+                    Section {
+                        Button {
+                            restore()
+                            dismiss()
+                        } label: { Label("恢复配置原样", systemImage: "arrow.uturn.backward") }
+                            .accessibilityIdentifier("rule.restore")
+                    }
+                    .listRowBackground(Theme.card)
+                }
+
+                if allowRemote && rule.line.contains("://") {
                     Section("远程列表更新间隔") {
                         Picker("间隔", selection: Binding(get: { rule.interval ?? 86400 }, set: { rule.interval = $0 })) {
                             Text("6 小时").tag(21600)
@@ -577,7 +711,7 @@ struct CustomRuleEditor: View {
             }
             .scrollContentBackground(.hidden)
             .background(Theme.bg.ignoresSafeArea())
-            .navigationTitle("自定义规则").navigationBarTitleDisplayMode(.inline)
+            .navigationTitle(title).navigationBarTitleDisplayMode(.inline)
             .toolbar {
                 ToolbarItem(placement: .cancellationAction) { Button("取消") { dismiss() } }
                 ToolbarItem(placement: .confirmationAction) {
@@ -604,7 +738,7 @@ struct CustomRuleEditor: View {
             .onAppear {
                 if let f = RuleFormFields.parse(rule.line) { form = f }
                 else if !rule.line.trimmingCharacters(in: .whitespaces).isEmpty { textMode = true }
-                if form.policy.isEmpty { form.policy = policies.first ?? "DIRECT" }
+                if form.policy.isEmpty { form.policy = targets.groups.first ?? "DIRECT" }
                 if !textMode && rule.line.isEmpty { rule.line = form.line }
             }
             .onChange(of: form) { f in if !textMode { rule.line = f.line } }
@@ -613,7 +747,7 @@ struct CustomRuleEditor: View {
 
     var canSave: Bool {
         let line = rule.line.trimmingCharacters(in: .whitespaces)
-        if line.isEmpty || check?.error?.isEmpty == false { return false }
+        if line.isEmpty || check?.error?.isEmpty == false || remoteRefused { return false }
         if !textMode, form.kind?.noValue != true, form.value.trimmingCharacters(in: .whitespaces).isEmpty { return false }
         return true
     }
@@ -645,7 +779,15 @@ struct CustomRuleEditor: View {
 
         Section {
             Picker("策略", selection: $form.policy) {
-                ForEach(policyChoices, id: \.self) { Text(verbatim: $0).tag($0) }
+                let known = Set(targets.all)
+                ForEach(policyChoices.filter { !known.contains($0) }, id: \.self) { Text(verbatim: $0).tag($0) }
+                if !targets.groups.isEmpty {
+                    Section("策略组") { ForEach(targets.groups, id: \.self) { Text(verbatim: $0).tag($0) } }
+                }
+                Section("内置策略") { ForEach(targets.builtins, id: \.self) { Text(verbatim: $0).tag($0) } }
+                if !targets.nodes.isEmpty {
+                    Section("节点") { ForEach(targets.nodes, id: \.self) { Text(verbatim: $0).tag($0) } }
+                }
             }
             .pickerStyle(.navigationLink)
             .accessibilityIdentifier("rule.policy")
@@ -658,6 +800,7 @@ struct CustomRuleEditor: View {
             Text(verbatim: rule.line).font(.footnote.monospaced()).foregroundStyle(.secondary).textSelection(.enabled)
                 .accessibilityIdentifier("rule.line")
             if checking { ProgressView().controlSize(.small) } else { RuleCheckLine(check: check) }
+            if remoteRefused { RemoteRefusedLine() }
         } header: { Text("规则") } footer: { Text("实时校验：显示转换后的 mihomo 规则和对应的策略组。") }
         .listRowBackground(Theme.card)
     }
@@ -670,12 +813,13 @@ struct CustomRuleEditor: View {
                 .lineLimit(1...5)
                 .accessibilityIdentifier("rule.text")
             if checking { ProgressView().controlSize(.small) } else { RuleCheckLine(check: check) }
+            if remoteRefused { RemoteRefusedLine() }
         } header: { Text("规则") } footer: {
             Text("可以粘贴 Surge / QX / Clash 规则；切回表单时会填入各个字段。输入时实时校验：显示转换后的 mihomo 规则和对应的策略组。")
         }
         .listRowBackground(Theme.card)
         Section("示例（轻点填入）") {
-            ForEach(Self.examples, id: \.self) { ex in
+            ForEach(allowRemote ? Self.examples : Self.examples.filter { !$0.contains("://") }, id: \.self) { ex in
                 Button {
                     rule.line = ex.components(separatedBy: "          ").first ?? ex
                 } label: {
@@ -708,13 +852,14 @@ struct CustomRuleEditor: View {
     }
 
     func loadPolicies() async {
-        var names: [String] = []
-        if vpn.isConnected, let p = try? await ControllerClient.shared.proxies() {
-            names = LiveGroupOrder.names(p).filter { p[$0]?.isGroup == true && p[$0]?.hidden != true && $0 != "GLOBAL" }
-        }
-        if names.isEmpty { names = offline.result.groups.filter { $0.hidden != true && $0.name != "GLOBAL" }.map(\.name) }
-        policies = names
-        if form.policy.isEmpty || (rule.line.isEmpty && !textMode) { form.policy = names.first ?? "DIRECT" }
+        targets = await PolicyTargets.load()
+        if form.policy.isEmpty || (rule.line.isEmpty && !textMode) { form.policy = targets.groups.first ?? "DIRECT" }
+    }
+}
+
+struct RemoteRefusedLine: View {
+    var body: some View {
+        Label("远程规则列表请在「订阅」里添加", systemImage: "xmark.octagon.fill").font(.caption2).foregroundStyle(Theme.bad)
     }
 }
 
