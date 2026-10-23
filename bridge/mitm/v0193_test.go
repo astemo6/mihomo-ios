@@ -105,6 +105,8 @@ func TestV0193ProgramCacheBudget(t *testing.T) {
 	if w := e.scripts.progs.Weight(); w > progCacheBudget+int64(len(big)+8)*progBytesPerSourceByte {
 		t.Fatalf("cache weight %d over budget", w)
 	}
+	dropKeepRecent = 0 // drop everything, in use or not
+	defer func() { dropKeepRecent = 60 * time.Second }()
 	e.DropCaches()
 	if e.scripts.progs.Weight() != 0 {
 		t.Fatal("DropCaches")

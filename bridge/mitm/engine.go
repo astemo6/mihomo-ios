@@ -189,7 +189,7 @@ func (e *Engine) DropCaches() {
 		return
 	}
 	if e.scripts != nil {
-		e.scripts.Reset()
+		e.scripts.DropIdle(dropKeepRecent)
 	}
 	if e.res != nil {
 		e.res.mem.Reset()

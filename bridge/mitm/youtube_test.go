@@ -195,7 +195,17 @@ func TestYouTubeModuleParse(t *testing.T) {
 // seeded from testdata, upstream an HTTP/2 TLS server answering /youtubei/v1/player with
 // ytPlayerWithAds (gzip-encoded when ?gz=1); it returns a client that talks to the engine as the
 // YouTube app does (CONNECT, TLS for youtubei.googleapis.com, h2).
+// ytPlayerHandler, when set, answers youtubei/v1/player in ytEngine (large / encoded bodies).
+var ytPlayerHandler http.HandlerFunc
+
 func ytEngine(t *testing.T, modFile, modURL string, scripts map[string]string) (*http.Client, *[]string) {
+	t.Helper()
+	c, hits, _ := ytEngineE(t, modFile, modURL, scripts)
+	return c, hits
+}
+
+// ytEngineE is ytEngine that also returns the engine (request notes, script log).
+func ytEngineE(t *testing.T, modFile, modURL string, scripts map[string]string) (*http.Client, *[]string, *Engine) {
 	t.Helper()
 	home := t.TempDir()
 	ca, err := GenerateCA(home)
@@ -227,6 +237,10 @@ func ytEngine(t *testing.T, modFile, modURL string, scripts map[string]string) (
 		}
 		if !strings.HasPrefix(r.URL.Path, "/youtubei/v1/player") {
 			_, _ = io.WriteString(w, "upstream")
+			return
+		}
+		if ytPlayerHandler != nil {
+			ytPlayerHandler(w, r)
 			return
 		}
 		w.Header().Set("Content-Type", "application/x-protobuf")
@@ -265,7 +279,7 @@ func ytEngine(t *testing.T, modFile, modURL string, scripts map[string]string) (
 	pu, _ := url.Parse(fmt.Sprintf("http://127.0.0.1:%d", e.Port()))
 	tr := &http.Transport{Proxy: http.ProxyURL(pu), TLSClientConfig: &tls.Config{RootCAs: pool},
 		ForceAttemptHTTP2: true, DisableCompression: true}
-	return &http.Client{Transport: tr, Timeout: 30 * time.Second}, hits
+	return &http.Client{Transport: tr, Timeout: 30 * time.Second}, hits, e
 }
 
 // ytPlayerStripped POSTs youtubei/v1/player (plain and gzip upstream) and fails when the protobuf the

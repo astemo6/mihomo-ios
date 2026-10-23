@@ -66,6 +66,8 @@ type ScriptRunner struct {
 	// one at a time so two such compiles / runtimes never coexist in the 50 MB extension.
 	lastUse map[string]time.Time
 	bigSem  chan struct{}
+	// used: last use of every cached program key (DropIdle keeps the recent ones).
+	used map[string]time.Time
 }
 
 // largeProgSource is the source size from which a script counts as a large bundle (compiled ≥ ~7 MB).
@@ -109,6 +111,46 @@ func NewScriptRunner(e *Engine) *ScriptRunner {
 // Reset drops compiled programs (memory).
 func (s *ScriptRunner) Reset() { s.progs.Reset() }
 
+// dropKeepRecent: DropCaches (FreeMemory from the extension's MemoryGuard, every tick at ≥ 40 MB
+// footprint) keeps programs used this recently. v0.19.21: it used to drop them all, so a script in use
+// (喜马拉雅: 1.8 MB compiled, ~8 MB of heap to compile again; youtube.response.js 1.2 MB / ~6 MB) was
+// compiled again on the next request — trading a small retained program for a much larger compile
+// peak, at the moment memory was already high.
+var dropKeepRecent = 60 * time.Second
+
+// markUsed records that a program key was just used (DropIdle).
+func (s *ScriptRunner) markUsed(key string) {
+	s.mu.Lock()
+	if s.used == nil {
+		s.used = map[string]time.Time{}
+	}
+	s.used[key] = time.Now()
+	s.mu.Unlock()
+}
+
+// DropIdle drops compiled programs not used within keep (0 = all).
+func (s *ScriptRunner) DropIdle(keep time.Duration) {
+	if keep <= 0 {
+		s.progs.Reset()
+		s.mu.Lock()
+		s.used = nil
+		s.mu.Unlock()
+		return
+	}
+	for _, k := range s.progs.Keys() {
+		s.mu.Lock()
+		t, ok := s.used[k]
+		recent := ok && time.Since(t) < keep
+		if !recent {
+			delete(s.used, k)
+		}
+		s.mu.Unlock()
+		if !recent {
+			s.progs.Remove(k)
+		}
+	}
+}
+
 // Invalidate forgets a program after its source was re-downloaded.
 func (s *ScriptRunner) Invalidate(path string) {
 	s.mu.Lock()
@@ -130,6 +172,7 @@ func (s *ScriptRunner) program(sc *Script) (prog *goja.Program, err error) {
 			s.mu.Unlock()
 			if ok && strings.HasPrefix(v, sig+"|") {
 				if p, ok := s.progs.Get(strings.TrimPrefix(v, sig+"|")); ok {
+					s.markUsed(strings.TrimPrefix(v, sig+"|"))
 					if size >= largeProgSource {
 						s.touchLarge(strings.TrimPrefix(v, sig+"|"))
 					}
@@ -151,6 +194,7 @@ func (s *ScriptRunner) program(sc *Script) (prog *goja.Program, err error) {
 		s.byURL[sc.Path] = sig + "|" + key
 		s.mu.Unlock()
 	}
+	s.markUsed(key)
 	if p, ok := s.progs.Get(key); ok {
 		if len(src) >= largeProgSource {
 			s.touchLarge(key)
@@ -229,16 +273,28 @@ func (s *ScriptRunner) compile(sc *Script, src []byte, key string) (*goja.Progra
 	return p, nil
 }
 
-// compileBytesPerSourceByte: goja's live heap while compiling, per byte of source (measured v0.19.9 on
-// the 1.3 MB Sub-Store bundle: AST ~15 MB + program ~13 MB + compiler scopes ~13 MB = ~43 MB peak).
+// compileBytesPerSourceByte: goja's heap growth while compiling, per byte of source. Measured v0.19.9 on
+// the 1.3 MB Sub-Store bundle (AST + program + compiler scopes, ~43 MB peak ≈ 32×) and v0.19.21 on arm64
+// (zz test TestCompileMemoryMeasured): 喜马拉雅 363 KB → peak +8.3 MB with GC off (24×), +7.3 MB with GC
+// (21×), 1.8 MB retained; youtube.response.js 133 KB → +5.8 MB (46×), 1.2 MB retained. 32× stays the
+// estimate for large bundles (the only ones gated).
 const compileBytesPerSourceByte = 32
 
-// compileFits refuses to compile a large bundle when the estimated compile peak does not fit under the
-// soft memory limit (set in the tunnel extension from its ~50 MB jetsam budget). The compile happens in
-// Go, outside the script memory guard, so without this check the system would kill the tunnel. No limit
-// (app process: 脚本调试, tests) → always allowed.
+// compileFits refuses to compile a large bundle when the estimated compile peak does not fit. The compile
+// happens in Go, outside the script memory guard, so without this check the system would kill the
+// tunnel. In the extension it is judged on the memory iOS still allows (os_proc_available_memory, see
+// memory.go): the estimate plus availReserve must be available. Without a probe the old heuristic
+// against the soft memory limit applies. No limit and no probe (app process: 脚本调试, tests) → allowed.
 func compileFits(srcLen int) error {
 	if srcLen < largeProgSource {
+		return nil
+	}
+	need := int64(srcLen) * compileBytesPerSourceByte
+	if ok, known, avail := availableAtLeast(need + availReserve); known {
+		if !ok {
+			return fmt.Errorf("脚本过大（%.1f MB），编译约需 %d MB 内存，隧道当前可用 %d MB（iOS 网络扩展上限约 50 MB），已跳过",
+				float64(srcLen)/(1<<20), need>>20, avail>>20)
+		}
 		return nil
 	}
 	limit := memGuardLimit()
@@ -249,10 +305,9 @@ func compileFits(srcLen int) error {
 	sample := []metrics.Sample{{Name: "/memory/classes/heap/objects:bytes"}}
 	metrics.Read(sample)
 	live := sample[0].Value.Uint64()
-	need := uint64(srcLen) * compileBytesPerSourceByte
-	if live+need > uint64(limit) {
+	if live+uint64(need) > uint64(limit) {
 		return fmt.Errorf("脚本过大（%.1f MB），在隧道内编译约需 %d MB 内存，超出 iOS 网络扩展的内存上限（%d MB），已跳过",
-			float64(srcLen)/(1<<20), (live+need)>>20, limit>>20)
+			float64(srcLen)/(1<<20), (live+uint64(need))>>20, limit>>20)
 	}
 	return nil
 }
@@ -536,6 +591,8 @@ func (s *ScriptRunner) execute(parent context.Context, sc *Script, req, resp *Sc
 		}
 		defer func() { <-s.bigSem }()
 	}
+	// Lend the run (compile included) what iOS still allows above GOMEMLIMIT (memory.go).
+	defer borrowSoftLimit()()
 	prog, err := s.program(sc)
 	if err != nil {
 		return nil, err
@@ -667,6 +724,9 @@ var memGuardLimit = func() int64 { return debug.SetMemoryLimit(-1) }
 // push the extension over its ~50 MB budget and the system kills the tunnel. No limit set (app, tests)
 // => no guard.
 func startMemGuard(ctx context.Context, rt *goja.Runtime) func() {
+	if _, known := availableMemory(); known {
+		return startAvailGuard(ctx, rt)
+	}
 	limit := memGuardLimit()
 	if limit <= 0 || limit >= 1<<40 {
 		return func() {}
@@ -700,6 +760,36 @@ func startMemGuard(ctx context.Context, rt *goja.Runtime) func() {
 					}
 					rt.Interrupt(memInterrupt)
 					return
+				}
+			}
+		}
+	}()
+	var once sync.Once
+	return func() { once.Do(func() { close(done) }) }
+}
+
+// startAvailGuard is the memory guard in the extension (v0.19.21): it watches what iOS still allows
+// (os_proc_available_memory) instead of the Go heap against GOMEMLIMIT, which is only the GC's soft
+// target (26 MB) and interrupted large scripts such as 喜马拉雅 with half the real budget unused. Below
+// scriptAvailFloor it returns memory to the OS once (garbage counts in the footprint until scavenged)
+// and interrupts the script if that did not help.
+func startAvailGuard(ctx context.Context, rt *goja.Runtime) func() {
+	done := make(chan struct{})
+	go func() {
+		t := time.NewTicker(50 * time.Millisecond)
+		defer t.Stop()
+		for {
+			select {
+			case <-done:
+				return
+			case <-ctx.Done():
+				return
+			case <-t.C:
+				if ok, known, _ := availableAtLeast(scriptAvailFloor); known && !ok {
+					if a, _ := availableMemoryNow(); a < scriptAvailFloor {
+						rt.Interrupt(memInterrupt)
+						return
+					}
 				}
 			}
 		}

@@ -297,6 +297,8 @@ func TestV0199SubStoreBackend(t *testing.T) {
 
 	// Under the tunnel's soft limit (GOMEMLIMIT 26 MB) a cold compile of the 1.3 MB bundle (~43 MB peak)
 	// cannot fit in the ~50 MB extension: the engine refuses it with a log line instead of being killed.
+	dropKeepRecent = 0 // drop everything, in use or not
+	defer func() { dropKeepRecent = 60 * time.Second }()
 	h.e.DropCaches()
 	old := debug.SetMemoryLimit(26 << 20)
 	defer debug.SetMemoryLimit(old)

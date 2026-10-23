@@ -10,10 +10,12 @@ import (
 	"fmt"
 	"io"
 	"regexp"
+	"runtime"
 	"runtime/metrics"
 	"strconv"
 	"strings"
 	"sync"
+	"sync/atomic"
 	"time"
 
 	"github.com/andybalholm/brotli"
@@ -50,6 +52,19 @@ func readAllLimited(r io.Reader, limit int) ([]byte, error) {
 // decodeBody decodes a Content-Encoding. The decoded result is capped at limit (errBodyTooBig).
 func decodeBody(enc string, b []byte, limit int) ([]byte, error) {
 	enc = strings.ToLower(strings.TrimSpace(enc))
+	if strings.Contains(enc, ",") {
+		// Stacked codings ("gzip, br"): listed in the order applied, so undone from the last.
+		parts := strings.Split(enc, ",")
+		out := b
+		for i := len(parts) - 1; i >= 0; i-- {
+			d, err := decodeBody(parts[i], out, limit)
+			if err != nil {
+				return nil, err
+			}
+			out = d
+		}
+		return out, nil
+	}
 	switch enc {
 	case "", "identity":
 		if len(b) > limit {
@@ -155,14 +170,23 @@ func decodePrefix(enc string, b []byte, limit int) ([]byte, error) {
 // 2 MB MaxBody that is three max-size bodies at a time; the heap cost of each is a small multiple.
 const bodyBudgetBytes = 6 << 20
 
+// bodyBudgetMax: in the extension the budget grows with what iOS still allows (half of the memory above
+// bodyAvailFloor, see capNow), up to this.
+const bodyBudgetMax = 16 << 20
+
+// bodyBudgetChunk is charged up front for a body of unknown length (chunked / HTTP/2 without
+// Content-Length); the rest is charged once its size is known (bodyCharge.ensure).
+const bodyBudgetChunk = 256 << 10
+
 // bodyBudgetWait is how long a flow waits for budget before skipping its body rules.
 var bodyBudgetWait = time.Second
 
 type byteBudget struct {
-	mu   sync.Mutex
-	cap  int64
-	used int64
-	wake chan struct{} // closed and replaced on every release
+	mu      sync.Mutex
+	dynamic bool // grows with available memory (capLocked)
+	cap     int64
+	used    int64
+	wake    chan struct{} // closed and replaced on every release
 }
 
 func newByteBudget(n int64) *byteBudget {
@@ -175,13 +199,14 @@ func (b *byteBudget) acquire(ctx context.Context, n int64, wait time.Duration) f
 	if n <= 0 {
 		n = 1
 	}
-	if n > b.cap {
-		n = b.cap
-	}
 	var timer <-chan time.Time
 	for {
 		b.mu.Lock()
-		if b.used+n <= b.cap {
+		c := b.capLocked()
+		if n > c {
+			n = c
+		}
+		if b.used+n <= c {
 			b.used += n
 			b.mu.Unlock()
 			var once sync.Once
@@ -212,23 +237,124 @@ func (b *byteBudget) release(n int64) {
 	b.mu.Unlock()
 }
 
+// capLocked is the budget size now: the fixed size, or — in the extension (available-memory probe) —
+// what is in use plus half of the memory above bodyAvailFloor, between the fixed size and bodyBudgetMax.
+// Only the global body budget is dynamic.
+func (b *byteBudget) capLocked() int64 {
+	if !b.dynamic {
+		return b.cap
+	}
+	avail, known := availableMemory()
+	if !known {
+		return b.cap
+	}
+	c := b.used + (avail-bodyAvailFloor)/2
+	if c < b.cap {
+		c = b.cap
+	}
+	if c > bodyBudgetMax {
+		c = bodyBudgetMax
+	}
+	return c
+}
+
+func (b *byteBudget) capNow() int64 {
+	b.mu.Lock()
+	defer b.mu.Unlock()
+	return b.capLocked()
+}
+
 func (b *byteBudget) inUse() int64 {
 	b.mu.Lock()
 	defer b.mu.Unlock()
 	return b.used
 }
 
-var bodyBudget = newByteBudget(bodyBudgetBytes)
+var bodyBudget = func() *byteBudget { b := newByteBudget(bodyBudgetBytes); b.dynamic = true; return b }()
+
+// bodyCharge is one flow's share of the body budget, grown with ensure and given back by release.
+type bodyCharge struct {
+	ctx  context.Context
+	mu   sync.Mutex
+	held int64
+	rels []func()
+}
+
+// ensure grows the charge to total bytes (waiting up to bodyBudgetWait for the difference).
+func (c *bodyCharge) ensure(total int64) error {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	need := total - c.held
+	if need <= 0 {
+		return nil
+	}
+	rel := bodyBudget.acquire(c.ctx, need, bodyBudgetWait)
+	if rel == nil {
+		return errors.New("body budget")
+	}
+	c.held += need
+	c.rels = append(c.rels, rel)
+	return nil
+}
+
+func (c *bodyCharge) release() {
+	c.mu.Lock()
+	rels := c.rels
+	c.rels, c.held = nil, 0
+	c.mu.Unlock()
+	for _, r := range rels {
+		r()
+	}
+}
 
 // heapHigh reports whether the Go heap is above 70 % of GOMEMLIMIT (no limit set => never).
+// v0.19.21: in the extension it is judged on what iOS still allows (less than bodyAvailFloor available,
+// memory.go); the heap test counted garbage and, against the 26 MB soft limit, skipped every body
+// script and rewrite (「响应体超过上限或编码不支持」) with ~16 MB of live core heap. Without a probe the heap
+// test stays, but garbage no longer counts: above the threshold it collects (at most every 500 ms) and
+// judges the live heap.
 func heapHigh() bool {
+	if ok, known, _ := availableAtLeast(bodyAvailFloor); known {
+		return !ok
+	}
 	limit := memGuardLimit()
 	if limit <= 0 || limit >= 1<<40 {
 		return false
 	}
 	s := []metrics.Sample{{Name: "/memory/classes/heap/objects:bytes"}}
 	metrics.Read(s)
-	return s[0].Value.Kind() == metrics.KindUint64 && s[0].Value.Uint64() > uint64(limit)/10*7
+	if s[0].Value.Kind() != metrics.KindUint64 {
+		return false
+	}
+	th := uint64(limit) / 10 * 7
+	if s[0].Value.Uint64() <= th {
+		return false
+	}
+	if gcForHeapCheck() {
+		metrics.Read(s)
+	}
+	return s[0].Value.Uint64() > th
+}
+
+var lastHeapGC atomic.Int64
+
+// gcForHeapCheck runs a GC unless one ran for this purpose within the last 500 ms.
+func gcForHeapCheck() bool {
+	now := time.Now().UnixNano()
+	last := lastHeapGC.Load()
+	if now-last < int64(500*time.Millisecond) || !lastHeapGC.CompareAndSwap(last, now) {
+		return false
+	}
+	runtime.GC()
+	return true
+}
+
+// heapHighReason is the 「内存紧张」 text for logs: available memory when known.
+func heapHighReason() string {
+	if a, known := availableMemory(); known {
+		return fmt.Sprintf("内存紧张（隧道可用 %.1f MB）", float64(a)/(1<<20))
+	}
+	return "内存紧张"
 }
 
 // ---- regex body rewrites ----

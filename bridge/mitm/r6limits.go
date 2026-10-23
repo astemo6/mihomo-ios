@@ -36,6 +36,12 @@ func jsonBodyFits(n int) error {
 	if n > jsonBodyLimit {
 		return fmt.Errorf("JSON 改写只处理 %d KB 以内的内容（%d KB），跳过", jsonBodyLimit>>10, n>>10)
 	}
+	if ok, known, _ := availableAtLeast(int64(n)*jsonHeapPerByte + availReserve); known {
+		if !ok {
+			return errors.New(heapHighReason() + "，跳过 JSON 改写")
+		}
+		return nil
+	}
 	limit := memGuardLimit()
 	if limit <= 0 || limit >= 1<<40 {
 		return nil

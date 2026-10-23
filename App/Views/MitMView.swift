@@ -663,10 +663,14 @@ struct ScriptLogsView: View {
     @State private var lines: [ScriptLogLine] = []
     @State private var filter = ""
     @State private var timer: Task<Void, Never>?
+    /// v0.19.21 (quieter, like Quantumult X): routine DEBUG lines (「执行完成，用时 N ms」, 排队 …) are hidden
+    /// unless 显示调试 is on; WARN / ERROR / console lines always show. Repeats are folded by the core (×N).
+    @AppStorage("scriptLogShowDebug") private var showDebug = false
 
     var shown: [ScriptLogLine] {
-        guard !filter.isEmpty else { return lines }
-        return lines.filter { $0.script.localizedCaseInsensitiveContains(filter) || $0.msg.localizedCaseInsensitiveContains(filter) }
+        let base = showDebug ? lines : lines.filter { $0.level != "debug" }
+        guard !filter.isEmpty else { return base }
+        return base.filter { $0.script.localizedCaseInsensitiveContains(filter) || $0.msg.localizedCaseInsensitiveContains(filter) }
     }
 
     var body: some View {
@@ -677,6 +681,9 @@ struct ScriptLogsView: View {
                         HStack(spacing: 6) {
                             Text(l.level.uppercased()).scaledFont(9, weight: .bold).foregroundStyle(color(l.level))
                             Text(l.script).font(.caption2.weight(.semibold)).foregroundStyle(Theme.accent)
+                            if let n = l.count, n > 1 {
+                                Text(verbatim: "×\(n)").scaledFont(9, weight: .bold, monospacedDigit: true).foregroundStyle(.secondary)
+                            }
                             Spacer()
                             Text(Date(timeIntervalSince1970: l.time).formatted(date: .omitted, time: .standard)).scaledFont(9, monospacedDigit: true).foregroundStyle(.secondary)
                         }
@@ -692,6 +699,8 @@ struct ScriptLogsView: View {
         .background(Theme.bg.ignoresSafeArea())
         .navigationTitle("脚本日志")
         .toolbar {
+            Toggle(isOn: $showDebug) { Label("显示调试", systemImage: "ladybug") }
+                .toggleStyle(.button)
             Button { Task { try? await ControllerClient.shared.mitmClearLogs(); lines = [] } } label: { Image(systemName: "trash") }
         }
         .onAppear {
@@ -1156,7 +1165,7 @@ struct HTTPRequestDetailView: View {
                     Section("命中规则 / 脚本") { ForEach(m, id: \.self) { Text($0).font(.caption) } }.listRowBackground(Theme.card)
                 }
                 if let n = d.notes, !n.isEmpty {
-                    Section("备注") { ForEach(n, id: \.self) { Text($0).font(.caption).foregroundStyle(Theme.warn) } }.listRowBackground(Theme.card)
+                    Section("备注") { ForEach(n, id: \.self) { Text($0).font(.caption).foregroundStyle(Theme.warn).textSelection(.enabled) } }.listRowBackground(Theme.card)
                 }
                 Picker("", selection: $tab) {
                     Text("请求").tag(0)

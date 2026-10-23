@@ -339,6 +339,8 @@ struct ScriptLogLine: Decodable, Identifiable, Hashable {
     var script: String
     var level: String
     var msg: String
+    /// v0.19.21: > 1 when the core folded repeats of this line (same script, nothing in between) into it.
+    var count: Int?
 }
 
 /// Result of LibmihomoEngineParseText / EngineParseLine.

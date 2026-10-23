@@ -247,6 +247,7 @@ func (e *Engine) serveHTTP(w http.ResponseWriter, r *http.Request) {
 	// MaxScriptBody), after taking a share of the global body budget. Each caller's limit (MaxBody for
 	// rewrites, scriptBodyLimit for scripts) is compared against the loaded length.
 	reqCap := phaseBodyCap(rules, "request")
+	reqSkip := "" // why loadBody said no (script log / request note)
 	loadBody := func(limit int) bool {
 		if bodyLoaded {
 			return bodyOK && len(reqBody) <= limit
@@ -257,7 +258,8 @@ func (e *Engine) serveHTTP(w http.ResponseWriter, r *http.Request) {
 			return true
 		}
 		if heapHigh() {
-			e.logf("warning", fmt.Sprintf("[MitM] 内存紧张，跳过请求体处理：%s", clip(u, 100)))
+			reqSkip = heapHighReason()
+			e.logf("warning", fmt.Sprintf("[MitM] %s，跳过请求体处理：%s", reqSkip, clip(u, 100)))
 			return false
 		}
 		want := int64(reqCap)
@@ -266,19 +268,23 @@ func (e *Engine) serveHTTP(w http.ResponseWriter, r *http.Request) {
 		}
 		if r.ContentLength > int64(limit) {
 			bodyLoaded = false // a later rule with a larger limit may still read it
+			reqSkip = fmt.Sprintf("请求体 %d KB 超过上限 %d KB", r.ContentLength>>10, limit>>10)
 			return false
 		}
 		if r.ContentLength > int64(reqCap) {
+			reqSkip = fmt.Sprintf("请求体 %d KB 超过上限 %d KB", r.ContentLength>>10, reqCap>>10)
 			return false
 		}
 		rel := bodyBudget.acquire(r.Context(), want, bodyBudgetWait)
 		if rel == nil {
+			reqSkip = "同时处理的请求/响应体过多"
 			e.logf("warning", fmt.Sprintf("[MitM] 同时处理的请求/响应体过多，跳过：%s", clip(u, 100)))
 			return false
 		}
 		releaseReq = rel
 		b, rest, ok := readCapped(r.Body, reqCap)
 		if !ok {
+			reqSkip = fmt.Sprintf("请求体超过上限 %d KB", reqCap>>10)
 			r.Body = struct {
 				io.Reader
 				io.Closer
@@ -289,6 +295,9 @@ func (e *Engine) serveHTTP(w http.ResponseWriter, r *http.Request) {
 		bodyOK = true
 		r.Body = io.NopCloser(bytes.NewReader(b))
 		r.ContentLength = int64(len(b))
+		if len(b) > limit {
+			reqSkip = fmt.Sprintf("请求体 %d KB 超过上限 %d KB", len(b)>>10, limit>>10)
+		}
 		return len(b) <= limit
 	}
 	setBody := func(b []byte) {
@@ -336,13 +345,18 @@ func (e *Engine) serveHTTP(w http.ResponseWriter, r *http.Request) {
 			slot, err := e.scripts.Reserve(r.Context(), rule)
 			if err != nil {
 				e.Logs.Add(rule.Script.Name, "error", err.Error())
-				ent.Note("脚本错误：" + rule.Script.Name)
+				ent.Note(scriptErrNote(rule.Script.Name, err))
 				continue
 			}
 			if rule.Script.RequiresBody {
 				if !loadBody(scriptBodyLimit(rule.Script)) {
 					slot.Release()
-					e.Logs.Add(rule.Script.Name, "warn", "请求体超过上限，跳过脚本")
+					why := reqSkip
+					if why == "" {
+						why = "请求体超过上限"
+					}
+					e.Logs.Add(rule.Script.Name, "warn", "跳过脚本："+why)
+					ent.Note("跳过脚本：" + rule.Script.Name + " — " + why)
 					continue
 				}
 				sreq.Body, sreq.HasBody = reqBody, true
@@ -352,7 +366,7 @@ func (e *Engine) serveHTTP(w http.ResponseWriter, r *http.Request) {
 			slot.Release()
 			if err != nil {
 				e.Logs.Add(rule.Script.Name, "error", err.Error())
-				ent.Note("脚本错误：" + rule.Script.Name)
+				ent.Note(scriptErrNote(rule.Script.Name, err))
 				continue
 			}
 			if res.Abort {
@@ -547,35 +561,53 @@ func (e *Engine) modifyResponse(f *flow, resp *http.Response) error {
 	// max-size=-1 script's MaxScriptBody), under the global body budget; a body that decodes past the
 	// cap is passed through as is. Each caller's limit is compared against the loaded length.
 	respCap := phaseBodyCap(f.rules, "")
+	respSkip := "" // why loadBody said no (script log / request note)
 	loadBody := func(limit int) bool {
 		if loaded {
+			if !tooBig && len(body) > limit {
+				respSkip = fmt.Sprintf("响应体 %d KB 超过上限 %d KB", len(body)>>10, limit>>10)
+			}
 			return !tooBig && len(body) <= limit
 		}
 		loaded = true
 		tooBig = true
 		if heapHigh() {
-			e.logf("warning", fmt.Sprintf("[MitM] 内存紧张，跳过响应体处理：%s", clip(f.url, 100)))
+			respSkip = heapHighReason()
+			e.logf("warning", fmt.Sprintf("[MitM] %s，跳过响应体处理：%s", respSkip, clip(f.url, 100)))
 			return false
 		}
 		if resp.ContentLength > int64(limit) && resp.Header.Get("Content-Encoding") == "" {
 			loaded = false // a later rule with a larger limit may still read it
+			respSkip = fmt.Sprintf("响应体 %d KB 超过上限 %d KB", resp.ContentLength>>10, limit>>10)
 			return false
 		}
 		if resp.ContentLength > int64(respCap) {
+			respSkip = fmt.Sprintf("响应体 %d KB 超过上限 %d KB", resp.ContentLength>>10, respCap>>10)
 			return false
 		}
-		want := int64(respCap)
-		if resp.ContentLength > 0 && resp.ContentLength < want && resp.Header.Get("Content-Encoding") == "" {
+		// v0.19.21: the budget is charged what the body really takes. A compressed body (youtubei: br /
+		// gzip over HTTP/2) or one without Content-Length used to reserve the full cap — 4 MB of the 6 MB
+		// budget for a max-size=-1 script — so a second YouTube response waited 1 s and was skipped
+		// (「响应体超过上限或编码不支持」, several per second on device). Now: the announced length (or
+		// bodyBudgetChunk when unknown) up front, the rest once the decoded size is known.
+		enc := resp.Header.Get("Content-Encoding")
+		want := int64(bodyBudgetChunk)
+		if resp.ContentLength > 0 {
 			want = resp.ContentLength
 		}
-		rel := bodyBudget.acquire(resp.Request.Context(), want, bodyBudgetWait)
-		if rel == nil {
-			e.logf("warning", fmt.Sprintf("[MitM] 同时处理的响应体过多，跳过：%s", clip(f.url, 100)))
+		if want > int64(respCap) {
+			want = int64(respCap)
+		}
+		charge := &bodyCharge{ctx: resp.Request.Context()}
+		f.release = charge.release
+		if err := charge.ensure(want); err != nil {
+			respSkip = fmt.Sprintf("同时处理的响应体过多（需 %d KB，已占用 %d KB / %d KB）", want>>10, bodyBudget.inUse()>>10, bodyBudget.capNow()>>10)
+			e.logf("warning", fmt.Sprintf("[MitM] %s，跳过：%s", respSkip, clip(f.url, 100)))
 			return false
 		}
-		f.release = rel
 		b, rest, ok := readCapped(resp.Body, respCap)
 		if !ok {
+			respSkip = fmt.Sprintf("响应体超过上限 %d KB（Content-Encoding: %s）", respCap>>10, orNone(enc))
 			resp.Body = struct {
 				io.Reader
 				io.Closer
@@ -584,10 +616,20 @@ func (e *Engine) modifyResponse(f *flow, resp *http.Response) error {
 		}
 		_ = resp.Body.Close()
 		upstreamDone = true
-		dec, err := decodeBody(resp.Header.Get("Content-Encoding"), b, respCap)
+		dec, err := decodeBody(enc, b, respCap)
+		if err == nil {
+			if cerr := charge.ensure(int64(len(dec))); cerr != nil {
+				respSkip = fmt.Sprintf("同时处理的响应体过多（需 %d KB，已占用 %d KB / %d KB）", len(dec)>>10, bodyBudget.inUse()>>10, bodyBudget.capNow()>>10)
+				e.logf("warning", fmt.Sprintf("[MitM] %s，跳过：%s", respSkip, clip(f.url, 100)))
+				resp.Body = io.NopCloser(bytes.NewReader(b))
+				return false
+			}
+		}
 		if err != nil {
 			// leave the body untouched (never pass on a truncated decode)
+			respSkip = fmt.Sprintf("响应体解码失败（Content-Encoding: %s，%d KB）：%v", enc, len(b)>>10, err)
 			if errors.Is(err, errBodyTooBig) {
+				respSkip = fmt.Sprintf("响应体解压后超过 %d KB（Content-Encoding: %s，压缩 %d KB）", respCap>>10, enc, len(b)>>10)
 				e.logf("warning", fmt.Sprintf("[MitM] 响应体解压后超过 %d KB，原样放行：%s", respCap>>10, clip(f.url, 100)))
 			}
 			resp.Body = io.NopCloser(bytes.NewReader(b))
@@ -599,6 +641,9 @@ func (e *Engine) modifyResponse(f *flow, resp *http.Response) error {
 		tooBig = false
 		body = dec
 		resp.Body = io.NopCloser(bytes.NewReader(body))
+		if len(body) > limit {
+			respSkip = fmt.Sprintf("响应体 %d KB 超过上限 %d KB（Content-Encoding: %s）", len(body)>>10, limit>>10, orNone(enc))
+		}
 		return len(body) <= limit
 	}
 	// r7 P3-1: a response that carries no body by definition (HEAD, 204, 304) keeps its framing headers:
@@ -644,13 +689,18 @@ func (e *Engine) modifyResponse(f *flow, resp *http.Response) error {
 			slot, err := e.scripts.Reserve(resp.Request.Context(), rule)
 			if err != nil {
 				e.Logs.Add(rule.Script.Name, "error", err.Error())
-				ent.Note("脚本错误：" + rule.Script.Name)
+				ent.Note(scriptErrNote(rule.Script.Name, err))
 				continue
 			}
 			if rule.Script.RequiresBody {
 				if !loadBody(scriptBodyLimit(rule.Script)) {
 					slot.Release()
-					e.Logs.Add(rule.Script.Name, "warn", "响应体超过上限或编码不支持，跳过脚本")
+					why := respSkip
+					if why == "" {
+						why = "响应体超过上限或编码不支持"
+					}
+					e.Logs.Add(rule.Script.Name, "warn", "跳过脚本："+why)
+					ent.Note("跳过脚本：" + rule.Script.Name + " — " + why)
 					continue
 				}
 				sresp.Body, sresp.HasBody = body, true
@@ -660,7 +710,7 @@ func (e *Engine) modifyResponse(f *flow, resp *http.Response) error {
 			slot.Release()
 			if err != nil {
 				e.Logs.Add(rule.Script.Name, "error", err.Error())
-				ent.Note("脚本错误：" + rule.Script.Name)
+				ent.Note(scriptErrNote(rule.Script.Name, err))
 				continue
 			}
 			if res.Abort {
@@ -1088,4 +1138,37 @@ func guessType(p string, b []byte) string {
 		return "text/plain; charset=utf-8"
 	}
 	return http.DetectContentType(b)
+}
+
+// scriptErrNote is the request-detail note for a failed script: its name and the error's first line
+// (v0.19.21: it was only 「脚本错误：ximalaya」, the reason was in the script log alone — e.g. the compile
+// gate's 「脚本过大…已跳过」 or a JS exception with its line:column).
+func scriptErrNote(name string, err error) string {
+	msg := ""
+	if err != nil {
+		msg = strings.TrimSpace(err.Error())
+		if i := strings.IndexByte(msg, '\n'); i >= 0 {
+			msg = strings.TrimSpace(msg[:i])
+		}
+	}
+	if msg == "" {
+		return "脚本错误：" + name
+	}
+	return "脚本错误：" + name + " — " + clipRunes(msg, 160)
+}
+
+// clipRunes is clip by characters (a Chinese message cut by bytes ends in a broken rune).
+func clipRunes(s string, n int) string {
+	r := []rune(s)
+	if len(r) <= n {
+		return s
+	}
+	return string(r[:n]) + "…"
+}
+
+func orNone(enc string) string {
+	if enc == "" {
+		return "无"
+	}
+	return enc
 }

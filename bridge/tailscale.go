@@ -33,6 +33,7 @@ import (
 
 	"context"
 
+	"github.com/astemo6/mihomo-ios/bridge/mitm"
 	"github.com/metacubex/mihomo/adapter"
 	"github.com/metacubex/mihomo/config"
 	C "github.com/metacubex/mihomo/constant"
@@ -52,7 +53,16 @@ type probeBox struct{ p MemoryProbe }
 var memProbe atomic.Value // probeBox
 
 // SetMemoryProbe registers the extension's memory probe (nil clears it).
-func SetMemoryProbe(p MemoryProbe) { memProbe.Store(probeBox{p}) }
+// v0.19.21: the MitM engine's memory gates (compile, body, script guard) read os_proc_available_memory
+// from it too instead of comparing the Go heap with GOMEMLIMIT.
+func SetMemoryProbe(p MemoryProbe) {
+	memProbe.Store(probeBox{p})
+	if p == nil {
+		mitm.SetAvailableMemoryProbe(nil)
+		return
+	}
+	mitm.SetAvailableMemoryProbe(func() int64 { return p.Available() })
+}
 
 func probeNow() (fp, avail int64, ok bool) {
 	b, _ := memProbe.Load().(probeBox)

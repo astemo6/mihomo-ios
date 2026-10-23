@@ -86,6 +86,17 @@ func (c *lru[V]) Remove(k string) {
 	}
 }
 
+// Keys lists the cached keys, most recently used first.
+func (c *lru[V]) Keys() []string {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	out := make([]string, 0, c.l.Len())
+	for el := c.l.Front(); el != nil; el = el.Next() {
+		out = append(out, el.Value.(*lruItem[V]).k)
+	}
+	return out
+}
+
 func (c *lru[V]) Reset() {
 	c.mu.Lock()
 	c.l.Init()
@@ -440,6 +451,8 @@ type LogLine struct {
 	Script string  `json:"script"`
 	Level  string  `json:"level"`
 	Msg    string  `json:"msg"`
+	// Count > 1: this line repeated that many times (folded, see LogRing.Add); Time / ID are the last's.
+	Count int `json:"count,omitempty"`
 }
 
 // LogRing keeps the last N script log lines.
@@ -460,6 +473,14 @@ func (l *LogRing) Add(script, level, msg string) {
 	l.mu.Lock()
 	l.seq++
 	ln := LogLine{ID: l.seq, Time: float64(time.Now().UnixMilli()) / 1000, Script: script, Level: level, Msg: msg}
+	if i := l.foldIndex(script, level, msg); i >= 0 {
+		// v0.19.21 (like Quantumult X): a script that runs every few seconds (Apple WLOC: four lines every
+		// ~20 s) filled the 500-line ring with the same lines and pushed real errors out. A line equal to
+		// one of the same script's latest lines (no other script in between) folds into it: ×N, newest
+		// time, moved to the end with a new ID.
+		ln.Count = max(l.lines[i].Count, 1) + 1
+		l.lines = append(l.lines[:i], l.lines[i+1:]...)
+	}
 	l.lines = append(l.lines, ln)
 	if len(l.lines) > l.max {
 		copy(l.lines, l.lines[len(l.lines)-l.max:])
@@ -470,6 +491,38 @@ func (l *LogRing) Add(script, level, msg string) {
 	if hook != nil {
 		hook(ln)
 	}
+}
+
+// logFoldWindow is how far back Add looks for an identical line of the same script.
+const logFoldWindow = 8
+
+// foldIndex is the index of a line Add folds msg into, -1 for none: among the last logFoldWindow lines,
+// only while they all belong to script. Debug lines compare without digits (「执行完成，用时 18 ms」 and
+// 「… 5 ms」 are the same routine line).
+func (l *LogRing) foldIndex(script, level, msg string) int {
+	k := foldKey(level, msg)
+	for i := len(l.lines) - 1; i >= 0 && i >= len(l.lines)-logFoldWindow; i-- {
+		o := l.lines[i]
+		if o.Script != script {
+			return -1
+		}
+		if o.Level == level && foldKey(o.Level, o.Msg) == k {
+			return i
+		}
+	}
+	return -1
+}
+
+func foldKey(level, msg string) string {
+	if level != "debug" {
+		return msg
+	}
+	return strings.Map(func(r rune) rune {
+		if r >= '0' && r <= '9' {
+			return -1
+		}
+		return r
+	}, msg)
 }
 
 // SetHook forwards every new line (e.g. to mihomo's log).
