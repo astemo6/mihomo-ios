@@ -3,7 +3,7 @@ import Libmihomo
 
 /// 工具 → 重写 → 脚本列表 (feat/loon-rewrite-ui, Loon 配置 → 脚本): every script of the enabled subscriptions
 /// and the enabled local script lines in one list, one section per owner (本地 first). A row shows name,
-/// type (http-request / http-response / cron / event / generic), pattern or schedule; tap → source.
+/// type (http-request / http-response) and pattern; tap → source. Tasks (cron / event / …) are on 定时任务.
 /// The switch on a row turns that script file off everywhere it is used (engine.json scriptResources,
 /// the same setting the resource manager writes; bridge/mitm Config.scriptAllowed honours it).
 struct ScriptListView: View {
@@ -188,11 +188,8 @@ enum ScriptListData {
             out.append(ScriptEntry(id: "\(prefix)#r\(i)", name: name, kind: "script", phase: r.phase,
                                    type: r.phase == "response" ? "http-response" : "http-request", pattern: r.pattern, path: path))
         }
-        for (i, t) in (p.tasks ?? []).enumerated() {
-            let schedule = t.cron ?? t.event ?? ""
-            out.append(ScriptEntry(id: "\(prefix)#t\(i)", name: t.name.isEmpty ? (URL(string: t.path)?.lastPathComponent ?? t.path) : t.name,
-                                   kind: t.kind, phase: "", type: t.kind, pattern: schedule, path: t.path))
-        }
+        // Cron / event / interaction / generic tasks live only on 工具 → 定时任务 (user 2026-10-23: 「任务放错位置了，
+        // 应该放在定时任务里」), so this list holds the request / response scripts alone.
         return out
     }
 
