@@ -196,7 +196,7 @@ struct SubscriptionExtraAction: Identifiable {
 
 extension View {
     /// Swipes and long-press menu of a subscription row: right 更新 (blue); left 删除 (red, no full swipe — the caller
-    /// confirms) and 关闭 / 启用; menu 更新 · 编辑 · 复制地址 · 启用/关闭 · 删除.
+    /// confirms) and 编辑 (the row's switch is 启用/关闭, so no swipe for it); menu 更新 · 编辑 · 复制地址 · 启用/关闭 · 删除.
     func subscriptionActions(_ a: SubscriptionActions) -> some View {
         self
             .swipeActions(edge: .leading, allowsFullSwipe: true) {
@@ -212,12 +212,8 @@ extension View {
                     // Not role: .destructive — that removes the row at once, even when the confirmation is cancelled.
                     Button { d() } label: { Label("删除", systemImage: "trash") }.tint(.red)
                 }
-                if let on = a.enabled, let flip = a.setEnabled, !a.toggleDisabled {
-                    Button { flip(!on) } label: {
-                        Label(LocalizedStringKey(on ? "关闭" : "启用"), systemImage: on ? "pause.circle" : "play.circle")
-                    }
-                    .tint(on ? Color.orange : Theme.good)
-                }
+                // v0.19.22: no 关闭/启用 here — the row's own switch already does it (user: 「左滑禁用与开关的功能重复了」).
+                Button { a.edit() } label: { Label("编辑", systemImage: "pencil") }.tint(.gray)
             }
             .contextMenu {
                 Button { a.update?() } label: { Label("更新", systemImage: "arrow.clockwise") }
