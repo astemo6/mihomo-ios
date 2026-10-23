@@ -20,8 +20,28 @@ import Libmihomo
 ///
 /// Note: app extensions get no JIT, so JavaScriptCore runs its bytecode interpreter (LLInt) — still several
 /// times faster than goja, and its heap is not the Go heap (GOMEMLIMIT).
+/// feat/native-mitm stage 1: the tunnel's native body lane (PacketTunnel/NativeBodyStore.swift). Script blob ids at
+/// or above `LibmihomoNativeBlobBase()` name its handles; the engine serves them itself so the bytes never pass
+/// through the Go heap. Declared here because this file is also built into the app (脚本调试), which has no lane.
+protocol JSCNativeBlobProvider: AnyObject {
+    /// `__tern.put` / UTF-8 results at least this large are stored in the lane.
+    var putMin: Int { get }
+    /// Calls body with the decoded bytes of handle h (false: unknown / failed handle).
+    func withDecoded(_ h: Int64, _ body: (UnsafeRawBufferPointer) -> Void) -> Bool
+    /// The handle's bytes as text when they are valid UTF-8 (nil: ask the Go host, which owns the U+FFFD rules).
+    func text(_ h: Int64) -> String?
+    /// Stores bytes as a new handle (0: refused).
+    func store(_ bytes: UnsafeRawBufferPointer) -> Int64
+    func free(_ h: Int64)
+}
+
 final class JSCScriptEngine: NSObject, LibmihomoScriptEngineProtocol {
     static let shared = JSCScriptEngine()
+
+    /// The native body lane (set by the tunnel before Start; nil in the app). Read on the JavaScript thread.
+    static var nativeBlobs: JSCNativeBlobProvider?
+    /// First native blob id (LibmihomoNativeBlobBase, 2^52).
+    private static let nativeBase: Int64 = LibmihomoNativeBlobBase()
 
     private final class Entry {
         let key: String
@@ -307,6 +327,7 @@ final class JSCScriptEngine: NSObject, LibmihomoScriptEngineProtocol {
         let tern = JSValue(newObjectIn: context)
         let host: @convention(block) (String?, String?) -> String = { [weak c] op, arg in
             guard let run = c?.run, let op else { return "" }
+            if let lane = JSCScriptEngine.nativeBlobs, let r = JSCScriptEngine.laneHost(run, lane, op, arg ?? "") { return r }
             return run.host(op, arg: arg ?? "")
         }
         let put: @convention(block) (JSValue?, Double, Double) -> Double = { [weak c] buf, off, len in
@@ -444,12 +465,53 @@ final class JSCScriptEngine: NSObject, LibmihomoScriptEngineProtocol {
         guard o >= 0, n >= 0, o + n <= total else { return -1 }
         if n == 0 { return run.put(Data()) }
         guard let p = JSObjectGetArrayBufferBytesPtr(ref, obj, nil) else { return -1 }
+        if let lane = nativeBlobs, n >= lane.putMin {
+            // a large result stays native: stored in the lane, owned by the run on the Go side ("" = not taken)
+            let h = lane.store(UnsafeRawBufferPointer(start: p.advanced(by: o), count: n))
+            if h > 0 {
+                if let id = Int64(run.host("nblob", arg: String(h))), id > 0 { return id }
+                lane.free(h)
+            }
+        }
         return run.put(Data(bytes: p.advanced(by: o), count: n))
     }
 
+    /// Host ops the engine answers itself for lane bodies: "text" of a native blob (valid UTF-8) and "utf8" of a
+    /// large string (stored in the lane). nil: ask the Go host.
+    private static func laneHost(_ run: LibmihomoScriptRun, _ lane: JSCNativeBlobProvider, _ op: String, _ arg: String) -> String? {
+        switch op {
+        case "text":
+            guard let id = Int64(arg), id >= nativeBase else { return nil }
+            return lane.text(id - nativeBase)
+        case "utf8":
+            guard arg.utf8.count >= lane.putMin else { return nil }
+            var s = arg
+            let h = s.withUTF8 { lane.store(UnsafeRawBufferPointer($0)) }
+            guard h > 0 else { return nil }
+            if let id = Int64(run.host("nblob", arg: String(h))), id > 0 { return String(id) }
+            lane.free(h)
+            return nil
+        default:
+            return nil
+        }
+    }
+
     private static func take(_ run: LibmihomoScriptRun, _ id: Int64, _ ctx: JSContext) -> JSValue? {
-        let data = run.take(id) ?? Data()
         let ref = ctx.jsGlobalContextRef
+        if id >= nativeBase, let lane = nativeBlobs {
+            // a lane body: copied straight from native memory into a fresh Uint8Array (never through Go)
+            var made: JSObjectRef?
+            let ok = lane.withDecoded(id - nativeBase) { bytes in
+                guard let obj = JSObjectMakeTypedArray(ref, kJSTypedArrayTypeUint8Array, bytes.count, nil) else { return }
+                if bytes.count > 0, let base = bytes.baseAddress, let p = JSObjectGetTypedArrayBytesPtr(ref, obj, nil) {
+                    p.copyMemory(from: base, byteCount: bytes.count)
+                }
+                made = obj
+            }
+            if ok, let made { return JSValue(jsValueRef: made, in: ctx) }
+            // unknown handle: fall through to the Go host (it materialises or returns nothing)
+        }
+        let data = run.take(id) ?? Data()
         guard let obj = JSObjectMakeTypedArray(ref, kJSTypedArrayTypeUint8Array, data.count, nil) else { return nil }
         if data.count > 0, let p = JSObjectGetTypedArrayBytesPtr(ref, obj, nil) {
             data.withUnsafeBytes { raw in
