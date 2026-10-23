@@ -22,6 +22,8 @@ struct MihomoApp: App {
         DispatchQueue.global(qos: .utility).async { GeoBootstrap.install() }
         // r7 B28: scripts' $environment.language follows the UI language (read by the engine on its next load).
         DispatchQueue.global(qos: .utility).async { EngineConfig.stampLanguage() }
+        // feat/jsc-engine: `-TernJSCSelfTest` runs one goja-vs-JavaScriptCore conformance case and logs it.
+        JSCScriptEngine.selfTestIfRequested()
     }
 
     var body: some Scene {

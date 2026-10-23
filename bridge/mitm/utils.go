@@ -8,8 +8,6 @@ import (
 	"sync"
 	"time"
 	"unicode/utf8"
-
-	"github.com/dop251/goja"
 )
 
 // GeoLookup resolves an IP to (ISO country, ASN number, AS organisation). Installed by the bridge
@@ -24,45 +22,6 @@ func (e *Engine) lookup(ip string) (string, string, string) {
 		return (*g)(strings.TrimSpace(ip))
 	}
 	return "", "", ""
-}
-
-// installUtils adds Surge / Loon $utils: geoip, ipasn, ipaso, ungzip.
-func (rc *runCtx) installUtils(set func(string, any)) {
-	rt := rc.rt
-	u := rt.NewObject()
-	_ = u.Set("geoip", func(call goja.FunctionCall) goja.Value {
-		c, _, _ := rc.e.lookup(call.Argument(0).String())
-		if c == "" {
-			return goja.Null()
-		}
-		return rt.ToValue(c)
-	})
-	_ = u.Set("ipasn", func(call goja.FunctionCall) goja.Value {
-		_, a, _ := rc.e.lookup(call.Argument(0).String())
-		if a == "" {
-			return goja.Null()
-		}
-		return rt.ToValue(a)
-	})
-	_ = u.Set("ipaso", func(call goja.FunctionCall) goja.Value {
-		_, _, o := rc.e.lookup(call.Argument(0).String())
-		if o == "" {
-			return goja.Null()
-		}
-		return rt.ToValue(o)
-	})
-	_ = u.Set("ungzip", func(call goja.FunctionCall) goja.Value {
-		b, ok := rc.bodyBytes(call.Argument(0))
-		if !ok {
-			return goja.Null()
-		}
-		out, err := inflateAny(b)
-		if err != nil {
-			return goja.Null()
-		}
-		return rc.uint8Array(out)
-	})
-	set("$utils", u)
 }
 
 // inflateAny accepts gzip, zlib or raw deflate. Output past MaxBody is an error (review5 P1-1:

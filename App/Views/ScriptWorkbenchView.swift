@@ -96,7 +96,11 @@ enum ScriptDebugger {
         }
         guard let data = try? JSONEncoder().encode(input), let json = String(data: data, encoding: .utf8) else { return nil }
         let home = AppShared.homeURL.path
-        let out = await BlockingWork.run { LibmihomoScriptDebugRun(home, json) }
+        // Same engine as the tunnel (feat/jsc-engine), so a script behaves here as it does on live traffic.
+        let out = await BlockingWork.run { () -> String in
+            JSCScriptEngine.register()
+            return LibmihomoScriptDebugRun(home, json)
+        }
         guard let d = out.data(using: .utf8) else { return nil }
         return try? JSONDecoder().decode(DebugOutput.self, from: d)
     }

@@ -35,8 +35,8 @@ type CacheStats struct {
 }
 
 func (c CacheStats) String() string {
-	return fmt.Sprintf("mitm scripts %d (%.1f MB), sources %d (%.1f MB), request log %d (bodies %.1f MB), js runtimes %d",
-		c.Programs, float64(c.ProgramBytes)/(1<<20), c.Sources, float64(c.SourceBytes)/(1<<20), c.Requests, float64(c.BodyBytes)/(1<<20), LiveRuntimes())
+	return fmt.Sprintf("mitm scripts %d (%.1f MB), sources %d (%.1f MB), request log %d (bodies %.1f MB), js runtimes %d (%s)",
+		c.Programs, float64(c.ProgramBytes)/(1<<20), c.Sources, float64(c.SourceBytes)/(1<<20), c.Requests, float64(c.BodyBytes)/(1<<20), LiveRuntimes(), ScriptEngineName())
 }
 
 // Stats reports the engine's caches (nil engine: zero).
