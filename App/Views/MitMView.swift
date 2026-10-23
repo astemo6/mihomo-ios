@@ -109,7 +109,7 @@ struct MitMView: View {
             withAnimation { expanded.wrappedValue.toggle() }
         } label: {
             HStack {
-                Text(title)
+                title
                 Spacer()
                 Image(systemName: "chevron.right")
                     .rotationEffect(.degrees(expanded.wrappedValue ? 90 : 0))
