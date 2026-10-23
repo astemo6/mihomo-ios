@@ -248,9 +248,17 @@ func (b *byteBudget) capLocked() int64 {
 	if !known {
 		return b.cap
 	}
-	c := b.used + (avail-bodyAvailFloor)/2
-	if c < b.cap {
-		c = b.cap
+	room := avail - bodyAvailFloor
+	c := b.used + room/2
+	// v0.19.22: the fixed size is the floor only while there is room for it. With ~10 MB available (the
+	// device at 40 MB footprint under critical pressure) the old floor still let flows hold 6 MB of
+	// bodies (several times that in heap while decoded and scripted) — enough for jetsam.
+	lo := b.cap
+	if room < lo {
+		lo = max(room, bodyBudgetChunk)
+	}
+	if c < lo {
+		c = lo
 	}
 	if c > bodyBudgetMax {
 		c = bodyBudgetMax

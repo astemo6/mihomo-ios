@@ -442,8 +442,11 @@ enum MemorySnapshotWriter {
 /// Keeps the extension under the ~50 MB jetsam limit. v0.6.1, after the first device test: iOS sends
 /// "critical" pressure events constantly once the footprint is near 40 MB, and closing every connection
 /// on each event broke browsing. Now the footprint decides, with hysteresis:
-///   < 44 MB            pressure events are only logged (rate limited)
-///   ≥ 40 MB (timer) / ≥ 44 MB (event)   return memory to the OS first (FreeOSMemory)
+///   ≥ 40 MB (timer) / warning event ≥ 36 MB / any critical event   shed memory in Go (LibmihomoShedMemory):
+///                                       MitM caches, request-log bodies, DNS caches, idle connections when
+///                                       little is available, then GC + scavenge; Go logs what it freed and
+///                                       backs off while a shed frees nothing (v0.19.22: the guard used to call
+///                                       FreeMemory every 3 s for hours at a 40 MB plateau, freeing nothing)
 ///   ≥ 47 MB or < 3 MB available         close the oldest 25 % of connections (50 % below 2 MB available),
 ///                                       then not again until the footprint fell below 42 MB or 30 s passed.
 final class MemoryGuard {
@@ -452,7 +455,6 @@ final class MemoryGuard {
     private var pressure: DispatchSourceMemoryPressure?
     private var interval = 10
     private var lastShed = Date.distantPast
-    private var lastFree = Date.distantPast
     private var lastPressureLog = Date.distantPast
     private var lastNotice = Date.distantPast
     private var armed = true
@@ -460,7 +462,7 @@ final class MemoryGuard {
     private var stopped = false
 
     private let freeAtBytes: UInt64 = 40 << 20
-    private let pressureFreeAtBytes: UInt64 = 44 << 20
+    private let warningShedAtBytes: UInt64 = 36 << 20
     private let shedAtBytes: UInt64 = 47 << 20
     private let rearmBelowBytes: UInt64 = 42 << 20
     private let shedAvailableBelow = 3 << 20
@@ -497,7 +499,12 @@ final class MemoryGuard {
             lastPressureLog = Date()
             StartupLog.write("memory pressure \(critical ? "critical" : "warning") (logged at most once a minute): \(ProcessMemory.summary())")
         }
-        evaluate(fp: fp, avail: ProcessMemory.availableBytes(), freeAt: pressureFreeAtBytes, why: "memory pressure")
+        let avail = ProcessMemory.availableBytes()
+        if critical || fp >= warningShedAtBytes {
+            // Go rate-limits and backs off by itself (ShedMemory), so every event may ask.
+            _ = LibmihomoShedMemory(critical ? 2 : 1, critical ? "memory pressure critical" : "memory pressure warning")
+        }
+        evaluate(fp: fp, avail: avail, freeAt: UInt64.max, why: "memory pressure")
     }
 
     private func schedule(_ seconds: Int) {
@@ -527,10 +534,8 @@ final class MemoryGuard {
         if fp < rearmBelowBytes || Date().timeIntervalSince(lastShed) > 30 { armed = true }
         let lowAvail = avail >= 0 && avail < shedAvailableBelow
         if fp >= freeAt || fp >= shedAtBytes || lowAvail {
-            if Date().timeIntervalSince(lastFree) > 3 {
-                lastFree = Date()
-                LibmihomoFreeMemory()
-            }
+            let level = (lowAvail || fp >= shedAtBytes) ? 2 : 1
+            _ = LibmihomoShedMemory(level, why)
         }
         guard (fp >= shedAtBytes || lowAvail) && armed else { return }
         // Re-check after returning memory: often that alone is enough.

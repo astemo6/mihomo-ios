@@ -149,3 +149,5 @@ require (
 	google.golang.org/protobuf v1.34.2 // indirect
 )
 replace github.com/dop251/goja => ./third_party/goja
+
+replace github.com/metacubex/fswatch => ./third_party/fswatch

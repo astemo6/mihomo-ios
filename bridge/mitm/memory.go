@@ -113,6 +113,15 @@ func availableAtLeast(need int64) (ok, known bool, avail int64) {
 // borrowCap bounds how far borrowSoftLimit raises GOMEMLIMIT.
 const borrowCap = 16 << 20
 
+// loanKeepFree: v0.19.22 — the loan leaves at least this much of what iOS allows untouched, so nothing
+// is lent once available memory is below it. The v0.19.21 loan left only availReserve + 2 MB (6 MB):
+// on the device that sat at 40 MB footprint with ~10 MB available for hours (memory pressure critical),
+// a script run could still raise GOMEMLIMIT by 4 MB and let the whole process — not only the script —
+// keep that much more garbage, while non-Go memory (Swift, the packet flow, kernel buffers) and the
+// Go heap overshoot the soft limit need headroom of their own. 10 MB keeps a full critical-pressure
+// margin; at a normal ~20 MB available the loan is still ~10 MB (喜马拉雅 runs without GC thrash).
+const loanKeepFree = 10 << 20
+
 var loan struct {
 	sync.Mutex
 	n      int   // runs holding the loan
@@ -121,7 +130,7 @@ var loan struct {
 }
 
 // borrowSoftLimit raises the Go soft memory limit while scripts run, by what iOS still allows the
-// extension (minus availReserve and a 2 MB margin, at most borrowCap), and returns the undo. Shared by
+// extension (minus loanKeepFree, at most borrowCap), and returns the undo. Shared by
 // concurrent runs (reference counted: the first raises, the last restores).
 // v0.19.21: with ~16 MB of live core heap under the 26 MB GOMEMLIMIT every allocation-heavy script ran
 // the GC back to back: the 喜马拉雅 script 4.3 s per request instead of 1.2 s (TestXimalayaTunnelMemoryGates),
@@ -140,7 +149,7 @@ func borrowSoftLimit() func() {
 		if cur <= 0 || cur >= 1<<40 {
 			return func() {}
 		}
-		extra := avail - availReserve - 2<<20
+		extra := avail - loanKeepFree
 		if extra <= 0 {
 			return func() {}
 		}
@@ -163,4 +172,12 @@ func borrowSoftLimit() func() {
 			}
 		})
 	}
+}
+
+// LoanActive reports whether script runs currently hold a GOMEMLIMIT loan (the bridge's memory governor
+// leaves the limit alone meanwhile).
+func LoanActive() bool {
+	loan.Lock()
+	defer loan.Unlock()
+	return loan.n > 0
 }
