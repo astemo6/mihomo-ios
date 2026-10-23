@@ -100821,25 +100821,25 @@
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "Configuration"
+            "value": "Profile Management"
           }
         },
         "ja": {
           "stringUnit": {
             "state": "translated",
-            "value": "設定管理"
+            "value": "プロファイル管理"
           }
         },
         "ko": {
           "stringUnit": {
             "state": "translated",
-            "value": "구성 관리"
+            "value": "프로파일 관리"
           }
         },
         "ru": {
           "stringUnit": {
             "state": "translated",
-            "value": "Конфигурация"
+            "value": "Управление профилями"
           }
         }
       }
