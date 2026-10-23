@@ -948,6 +948,12 @@ func (s *ScriptRunner) executeOn(engine string, parent context.Context, sc *Scri
 	if err != nil {
 		return nil, err
 	}
+	var ran *runCtx // set once the run exists: a failed run notes its engine in the script log
+	defer func() {
+		if errOut != nil && ran != nil && ran.onLog == nil && !errors.Is(errOut, errScriptCancelled) {
+			s.e.Logs.Add(sc.Name, "debug", "运行引擎："+engineLabel(eng))
+		}
+	}()
 	timeout := scriptTimeout(sc, maxTimeout, defTimeout)
 	if parent == nil {
 		parent = context.Background()
@@ -1010,6 +1016,7 @@ func (s *ScriptRunner) executeOn(engine string, parent context.Context, sc *Scri
 	if setup != nil {
 		setup(rc)
 	}
+	ran = rc
 	setupJSON, err := rc.setupJSON(req, resp)
 	if err != nil {
 		return nil, err
@@ -1086,9 +1093,17 @@ func (s *ScriptRunner) executeOn(engine string, parent context.Context, sc *Scri
 		}
 	}
 	if rc.onLog == nil {
-		s.e.Logs.Add(sc.Name, "debug", fmt.Sprintf("执行完成，用时 %d ms", time.Since(start).Milliseconds()))
+		s.e.Logs.Add(sc.Name, "debug", fmt.Sprintf("执行完成，用时 %d ms（%s）", time.Since(start).Milliseconds(), engineLabel(eng)))
 	}
 	return rc, nil
+}
+
+// engineLabel names the engine that ran a script, for the script log.
+func engineLabel(e jsEngine) string {
+	if e != nil && e.kind() == EngineNative {
+		return "JavaScriptCore"
+	}
+	return "goja"
 }
 
 func (s *ScriptRunner) jsErr(rc *runCtx, err error, timeout time.Duration) error {

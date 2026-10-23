@@ -387,14 +387,31 @@ final class JSCScriptEngine: NSObject, LibmihomoScriptEngineProtocol {
     private typealias ShouldTerminate = @convention(c) (JSContextRef?, UnsafeMutableRawPointer?) -> Bool
     private typealias SetLimit = @convention(c) (JSContextGroupRef?, Double, ShouldTerminate?, UnsafeMutableRawPointer?) -> Void
 
+    /// The resolved JSContextGroupSetExecutionTimeLimit (nil until installTimeLimit found it).
+    private static var limitSetter: SetLimit?
+    private static let limitInterval = 0.1
+
+    /// Called by JavaScriptCore on the thread running JavaScript once `limitInterval` of uninterrupted execution
+    /// has passed. Returning false does NOT start a new period on current JavaScriptCore (CI 78f8814: one check,
+    /// then the busy loop ran forever and the engine wedged), so the limit is set again before returning false
+    /// — setting a time limit from inside the callback is the documented way to continue.
+    private static let limitCallback: ShouldTerminate = { ref, _ in
+        guard let ref else { return false }
+        if JSCScriptEngine.shared.shouldTerminate(JSContextGetGlobalContext(ref)) { return true }
+        JSCScriptEngine.rearm(JSContextGetGroup(ref))
+        return false
+    }
+
+    private static func rearm(_ group: JSContextGroupRef?) {
+        guard let group, let set = limitSetter else { return }
+        set(group, limitInterval, limitCallback, nil)
+    }
+
     private static func installTimeLimit(_ group: JSContextGroupRef) -> Bool {
         guard let sym = dlsym(UnsafeMutableRawPointer(bitPattern: -2), "JSContextGroupSetExecutionTimeLimit") else { return false }
         let set = unsafeBitCast(sym, to: SetLimit.self)
-        let cb: ShouldTerminate = { ref, _ in
-            guard let ref else { return false }
-            return JSCScriptEngine.shared.shouldTerminate(JSContextGetGlobalContext(ref))
-        }
-        set(group, 0.1, cb, nil)
+        limitSetter = set
+        set(group, limitInterval, limitCallback, nil)
         return true
     }
 
