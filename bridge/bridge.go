@@ -812,6 +812,7 @@ func Reload(configPath string) error {
 		return err
 	}
 	setNetPolicyProfile(configPath)
+	policyWatchReset() // feat/loon-menu-notify: new groups, new baseline
 	if used.SafeMode { // B33: the Overrides this apply used, not a second read of the override files
 		stopSmart()
 	} else {
@@ -854,6 +855,7 @@ func Stop() {
 		return
 	}
 	stopCount.Add(1) // v0.19.6: a Start apply still loading providers skips its post-apply steps
+	policyWatchReset()
 	stopRuleHits(curHomeStr())
 	stopEngine()
 	stopSmart()

@@ -44,7 +44,7 @@ enum VPNControl {
                 try await m.saveToPreferences()
                 try await m.loadFromPreferences()
             }
-            try m.connection.startVPNTunnel()
+            try m.connection.startVPNTunnel(options: TunnelStartOption.options)
         } else {
             if m.isOnDemandEnabled {
                 m.isOnDemandEnabled = false

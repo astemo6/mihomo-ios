@@ -4,10 +4,16 @@ import UserNotifications
 /// 更多 → 通知 (user 2026-10-22 「Tern没有通知管理吗」): every kind of system notification Tern sends, in one place —
 /// script notifications ($notification.post / $notify, posted by the tunnel), per-subscription usage / expiry
 /// reminders, and the summary after automatic updates.
+///
+/// feat/loon-menu-notify (user 2026-10-23, Loon 录屏 「借鉴下他的通知分类，现在的太少了」): Loon's layout — a 允许通知
+/// master switch, then one switch per kind (网络变化, 策略组异常, 自动策略切换, 节点异常, 脚本通知, 内存警告, plus Tern's
+/// VPN 意外断开). Each kind is a real tunnel / core event (NotifyKind); the switches live in the App Group and a
+/// running tunnel is told about a change at once.
 struct NotificationsView: View {
     /// nil = not asked yet.
     @State private var allowed: Bool?
-    @State private var scripts = NotificationPrefs.scriptsEnabled
+    @State private var master = NotifyPrefs.masterEnabled
+    @State private var kinds: [String: Bool] = NotifyPrefs.currentSwitches()
     @State private var subs: [SubAlertItem] = []
 
     struct SubAlertItem: Identifiable {
@@ -17,9 +23,58 @@ struct NotificationsView: View {
         var rule: UsageAlertRule
     }
 
+    /// Loon's order; VPN 意外断开 (Tern only) last.
+    static let order: [NotifyKind] = [.network, .policyFailure, .policyChange, .nodeFailure, .scripts, .memory, .vpn]
+
+    static func title(_ k: NotifyKind) -> LocalizedStringKey {
+        switch k {
+        case .network: return "网络变化"
+        case .policyFailure: return "策略组异常"
+        case .policyChange: return "自动策略切换"
+        case .nodeFailure: return "节点异常"
+        case .scripts: return "脚本通知"
+        case .memory: return "内存警告"
+        case .vpn: return "VPN 意外断开"
+        }
+    }
+
+    static func caption(_ k: NotifyKind) -> LocalizedStringKey {
+        switch k {
+        case .network: return "切换 Wi-Fi 与蜂窝网络、连上其他 Wi-Fi 时"
+        case .policyFailure: return "策略组里所有节点都测速失败时"
+        case .policyChange: return "自动测速或故障转移策略组换用其他节点时"
+        case .nodeFailure: return "当前使用的节点测速失败时"
+        case .scripts: return "重写 / 模块里的脚本发出的通知，例如签到结果"
+        case .memory: return "隧道内存接近系统上限、关闭了部分连接时"
+        case .vpn: return "VPN 被系统断开，或被系统结束后自动重新连接时"
+        }
+    }
+
+    func binding(_ k: NotifyKind) -> Binding<Bool> {
+        Binding(get: { kinds[k.rawValue] ?? k.defaultOn }, set: { on in
+            kinds[k.rawValue] = on
+            NotifyPrefs.set(k, on)
+            if on { NotificationAuth.request() }
+            Self.tellTunnel()
+        })
+    }
+
+    /// The core's policy watcher starts / stops with its switches; nothing to do while disconnected (the tunnel
+    /// reads the switches when it starts).
+    static func tellTunnel() {
+        Task { @MainActor in _ = await VPNManager.shared.send(.notifyPrefs, timeout: 3) }
+    }
+
     var body: some View {
         List {
             Section {
+                Toggle("允许通知", isOn: $master)
+                    .onChange(of: master) { on in
+                        NotifyPrefs.masterEnabled = on
+                        if on { NotificationAuth.request() }
+                        Self.tellTunnel()
+                    }
+                    .accessibilityIdentifier("notify.master")
                 HStack {
                     Label("系统通知权限", systemImage: "bell.badge")
                     Spacer()
@@ -27,7 +82,7 @@ struct NotificationsView: View {
                         .foregroundStyle(allowed == false ? Theme.warn : Color.secondary)
                 }
                 if allowed == nil {
-                    Button("允许通知") {
+                    Button("请求通知权限") {
                         UNUserNotificationCenter.current().requestAuthorization(options: [.alert, .sound, .badge]) { _, _ in
                             Task { @MainActor in allowed = await NotificationAuth.allowed() }
                         }
@@ -41,12 +96,20 @@ struct NotificationsView: View {
             .listRowBackground(Theme.card)
 
             Section {
-                Toggle("脚本通知", isOn: $scripts)
-                    .onChange(of: scripts) { NotificationPrefs.scriptsEnabled = $0; if $0 { NotificationAuth.request() } }
+                ForEach(Self.order) { k in
+                    Toggle(isOn: binding(k)) {
+                        VStack(alignment: .leading, spacing: 2) {
+                            Text(Self.title(k))
+                            Text(Self.caption(k)).font(.caption).foregroundStyle(.secondary)
+                        }
+                    }
+                    .accessibilityIdentifier("notify." + k.rawValue)
+                }
                 NavigationLink { ScriptNoticesView() } label: { Text("脚本通知记录") }
-            } header: { Text("脚本") } footer: {
-                Text("重写 / 模块里的脚本调用 $notification.post、$notify 时（例如签到结果）发出的通知。关闭后仍会记入「脚本通知记录」。")
+            } footer: {
+                Text("策略组异常、自动策略切换和节点异常根据策略组的测速结果判断（自动测速或手动测速），VPN 连接时每 30 秒检查一次。脚本通知关闭后仍会记入「脚本通知记录」。")
             }
+            .disabled(!master)
             .listRowBackground(Theme.card)
 
             Section {
@@ -99,11 +162,11 @@ struct NotificationsView: View {
     }
 }
 
-/// Shared with the tunnel (app group): whether scripts may post system notifications. Default on.
-enum NotificationPrefs {
-    static let scriptsKey = "notify.scripts"
-    static var scriptsEnabled: Bool {
-        get { AppShared.defaults.object(forKey: scriptsKey) as? Bool ?? true }
-        set { AppShared.defaults.set(newValue, forKey: scriptsKey) }
+extension NotifyPrefs {
+    /// Every kind's current switch, keyed by NotifyKind.rawValue (the page's initial state).
+    static func currentSwitches() -> [String: Bool] {
+        var d: [String: Bool] = [:]
+        for k in NotifyKind.allCases { d[k.rawValue] = isOn(k) }
+        return d
     }
 }

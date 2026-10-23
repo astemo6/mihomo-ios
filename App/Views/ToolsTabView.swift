@@ -129,6 +129,9 @@ struct ToolsList: View {
     @ObservedObject private var vpn = VPNManager.shared
     @ObservedObject private var everything = UpdateEverything.shared
     @State private var everythingMessage: String?
+    /// feat/loon-menu-notify: the page the ⋯ menu opened (kept while it is shown, so popping does not blank it).
+    @State private var menuPage: SearchDestination = .notifications
+    @State private var menuShown = false
 
     var body: some View {
         List {
@@ -210,7 +213,9 @@ struct ToolsList: View {
                     .accessibilityIdentifier("tools.updateAll")
                 }
             }
+            ToolbarItem(placement: .navigationBarTrailing) { settingsMenu }
         }
+        .navigationDestination(isPresented: $menuShown) { menuPage.page }
         .alert("全部更新", isPresented: Binding(get: { everythingMessage != nil }, set: { if !$0 { everythingMessage = nil } })) {
             Button("好", role: .cancel) {}
         } message: { Text(everythingMessage ?? "") }
@@ -221,6 +226,58 @@ struct ToolsList: View {
                 await ProfileInspector.shared.load()
                 await refresh()
             }
+        }
+    }
+
+    /// feat/loon-menu-notify (user 2026-10-23, Loon 录屏: 「Loon 有部分设置放在右上角的二级菜单里」): Loon's 配置 tab keeps
+    /// its app settings behind the ⋯ at the top right (设置: 语言 · 始终开启 · 通知 · 剪切板; 界面: 主题 · App 图标 …;
+    /// 帮助). 工具 is Tern's 配置 tab, so the same settings Tern has are one tap away here too; they stay in 更多 as
+    /// well. Pages open through the search registry (SearchDestination.page), the one place mapping a page to a view.
+    var settingsMenu: some View {
+        Menu {
+            Section("设置") {
+                Button {
+                    if let u = URL(string: UIApplication.openSettingsURLString) { UIApplication.shared.open(u) }
+                } label: { Label("语言", systemImage: "globe") }
+                menuButton("按需连接", "wifi.exclamationmark", .connection)
+                menuButton("通知", "bell.badge", .notifications)
+                Button { pasteImport() } label: { Label("从剪贴板导入", systemImage: "doc.on.clipboard") }
+            }
+            Section("外观") {
+                menuButton("深色与浅色", "circle.lefthalf.filled", .appearance)
+                if UIApplication.shared.supportsAlternateIcons {
+                    menuButton("App 图标", "app.badge", .appIcon)
+                }
+                menuButton("开始标签页", "rectangle.stack", .launchTab)
+            }
+            Section("帮助") {
+                menuButton("诊断与反馈", "waveform.path.ecg", .diagnostics)
+                menuButton("关于", "info.circle", .about)
+            }
+            Button {
+                ImportRouter.shared.selectedTab = AppSection.more.rawValue
+            } label: { Label("全部设置", systemImage: "gearshape") }
+        } label: {
+            Image(systemName: "ellipsis.circle")
+        }
+        .accessibilityLabel(Text("更多设置"))
+        .accessibilityIdentifier("tools.menu")
+    }
+
+    func menuButton(_ title: LocalizedStringKey, _ symbol: String, _ page: SearchDestination) -> some View {
+        Button {
+            menuPage = page
+            menuShown = true
+        } label: { Label(title, systemImage: symbol) }
+    }
+
+    /// 从剪贴板导入: the same route as the paste banner (links, profiles, module text, node links).
+    func pasteImport() {
+        let text = UIPasteboard.general.string?.trimmingCharacters(in: .whitespacesAndNewlines) ?? "" // clipboard-read: explicit 粘贴 tap only (menu item tap)
+        if text.isEmpty {
+            ImportRouter.shared.present(.unsupported(String(localized: "剪贴板为空")))
+        } else {
+            ImportRouter.shared.handle(pasted: text)
         }
     }
 

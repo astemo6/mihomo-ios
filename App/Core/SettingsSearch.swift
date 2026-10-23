@@ -12,7 +12,7 @@ import Foundation
 /// Where a search result goes. One case per reachable page; several index entries may share one.
 enum SearchDestination: String, CaseIterable, Hashable {
     // 更多
-    case profiles, sampleProfile, stats, snapshots, backup, webdav, syncFolder, storage
+    case profiles, sampleProfile, stats, snapshots, backup, webdav, syncFolder, storage, notifications
     case appearance, liveActivity, appIcon, launchTab, trafficScope
     case advanced, connection, networkPolicy, geo, coreSettings, speedTestSettings, geoChecker
     case onboarding, diagnostics, about, systemLanguage
@@ -87,6 +87,8 @@ enum SettingsSearchIndex {
         e("webdav", "WebDAV 备份", [more, "备份与恢复"], "server.rack", .blue, .webdav, ["webdav", "云备份", "坚果云", "nextcloud", "cloud"]),
         e("syncFolder", "同步文件夹", [more, "备份与恢复"], "folder", .blue, .syncFolder, ["同步", "iCloud Drive", "文件", "sync", "folder"]),
         e("storage", "存储空间", [more], "internaldrive", .neutral, .storage, ["缓存", "清理", "空间", "storage", "cache", "clean"]),
+        e("notifications", "通知", [more], "bell.badge.fill", .red, .notifications,
+          ["通知", "提醒", "推送", "网络变化", "策略组异常", "节点异常", "内存警告", "脚本通知", "notification", "notifications", "alert", "push"]),
         e("appearance", "深色与浅色", [more, "外观"], "circle.lefthalf.filled", .accent, .appearance,
           ["外观", "深色", "浅色", "深色模式", "主题", "dark mode", "light", "theme", "appearance"]),
         e("liveActivity", "实时活动与灵动岛", [more, "外观"], "platter.filled.top.iphone", .purple, .liveActivity,

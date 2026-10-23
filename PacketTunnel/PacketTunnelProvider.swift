@@ -3,21 +3,75 @@ import NetworkExtension
 import Libmihomo
 import UserNotifications
 
-/// Posts local notifications for scripts ($notification.post / $notify).
+/// Posts local notifications for scripts ($notification.post / $notify) and, feat/loon-menu-notify, for the core's
+/// policy watcher events (policywatch.go), each behind its 更多 → 通知 switch.
 final class ScriptNotifier: NSObject, LibmihomoNotifierProtocol {
     func notify(_ payload: String?) {
-        // 更多 → 通知 → 脚本通知 (default on); the notice is still recorded by the core.
-        if AppShared.defaults.object(forKey: "notify.scripts") as? Bool == false { return }
         guard let data = payload?.data(using: .utf8),
               let n = try? JSONDecoder().decode(ScriptNotification.self, from: data) else { return }
+        switch n.kind ?? "" {
+        case "":
+            // 更多 → 通知 → 脚本通知 (default on); the notice is still recorded by the core.
+            guard NotifyPrefs.allows(.scripts) else { return }
+            let content = UNMutableNotificationContent()
+            content.title = n.title ?? ""
+            content.subtitle = n.subtitle ?? ""
+            content.body = n.body ?? ""
+            content.sound = .default
+            if let u = n.url, !u.isEmpty { content.userInfo = ["url": u] }
+            let req = UNNotificationRequest(identifier: UUID().uuidString, content: content, trigger: nil)
+            UNUserNotificationCenter.current().add(req) { _ in }
+        case "policyChange":
+            guard NotifyPrefs.allows(.policyChange), let changes = n.changes, let first = changes.first else { return }
+            let body: String
+            if changes.count == 1 {
+                body = NotifyText.loc("「%@」已切换到 %@（原为 %@）", [first.group, first.to, first.from])
+            } else {
+                let list = changes.prefix(4).map { "\($0.group) → \($0.to)" }.joined(separator: "\n")
+                body = list + (changes.count > 4 ? "\n…" : "")
+            }
+            TunnelNotice.post(kind: .policyChange, title: NotifyText.loc("自动策略切换"), body: body)
+        case "policyFailure":
+            guard NotifyPrefs.allows(.policyFailure), let groups = n.groups, !groups.isEmpty else { return }
+            let names = groups.prefix(4).joined(separator: "、") + (groups.count > 4 ? "…" : "")
+            TunnelNotice.post(kind: .policyFailure, title: NotifyText.loc("策略组异常"),
+                              body: NotifyText.loc("「%@」里的节点全部测速失败，暂时没有可用节点。", [names]))
+        case "nodeFailure":
+            guard NotifyPrefs.allows(.nodeFailure), let node = n.node, !node.isEmpty else { return }
+            TunnelNotice.post(kind: .nodeFailure, title: NotifyText.loc("节点异常"),
+                              body: NotifyText.loc("「%@」测速失败（策略组「%@」正在使用）。", [node, n.group ?? ""]))
+        default:
+            return
+        }
+    }
+}
+
+/// feat/loon-menu-notify: one notification posted by the tunnel for a NotifyKind. Callers check NotifyPrefs first;
+/// the same kind replaces its previous banner in Notification Center (one thread per kind).
+enum TunnelNotice {
+    static func post(kind: NotifyKind, title: String, body: String) {
         let content = UNMutableNotificationContent()
-        content.title = n.title ?? ""
-        content.subtitle = n.subtitle ?? ""
-        content.body = n.body ?? ""
+        content.title = title
+        content.body = body
         content.sound = .default
-        if let u = n.url, !u.isEmpty { content.userInfo = ["url": u] }
-        let req = UNNotificationRequest(identifier: UUID().uuidString, content: content, trigger: nil)
+        content.threadIdentifier = "tern." + kind.rawValue
+        let req = UNNotificationRequest(identifier: "tern." + kind.rawValue + "." + UUID().uuidString, content: content, trigger: nil)
         UNUserNotificationCenter.current().add(req) { _ in }
+    }
+
+    /// Stop reasons worth a 「VPN 意外断开」 banner: a failure or the system ended the tunnel. Not for the user's own
+    /// disconnect (1), the VPN switch in Settings (9), a removed configuration (10), sleep (15), an app update (16),
+    /// or a lost network (3, 按需连接 / 保持连接 bring it back). Values are TunnelStopReason.describe's catalog keys.
+    static func unexpectedStopKey(_ raw: Int) -> String? {
+        switch raw {
+        case 2: return "扩展运行失败"
+        case 4: return "网络发生不可恢复的变化"
+        case 8: return "空闲超时"
+        case 11: return "被其他 VPN 配置取代"
+        case 14: return "连接失败"
+        case 17: return "内部错误"
+        default: return nil
+        }
     }
 }
 
@@ -43,9 +97,13 @@ final class PacketTunnelProvider: NEPacketTunnelProvider {
         StartupLog.write("startTunnel called, \(ProcessMemory.summary())")
         // fix/vpn-stays-on: the previous tunnel's alive marker is still there = it never reached stopTunnel (jetsam /
         // crash / power off). Recorded as 上次断开原因 so 诊断 shows why the VPN was found off.
-        if let lastAlive = TunnelStopReason.takeUnexpectedEnd() {
+        let lastAlive = TunnelStopReason.takeUnexpectedEnd()
+        if let lastAlive {
             StartupLog.write("previous tunnel ended without stopTunnel (last alive \(ISO8601DateFormatter().string(from: lastAlive)))")
         }
+        // feat/loon-menu-notify: started by the app / widget / shortcut (they pass this option) or by iOS (按需连接 /
+        // 保持连接). A system start after a tunnel that never reached stopTunnel is an automatic reconnect.
+        let systemReconnect = lastAlive != nil && options?[TunnelStartOption.manual] == nil
         // Exactly one completion, whichever comes first: core result, error, or the watchdog.
         let lock = NSLock()
         var finished = false
@@ -60,6 +118,10 @@ final class PacketTunnelProvider: NEPacketTunnelProvider {
             } else {
                 StartupLog.write("startTunnel completed OK, \(ProcessMemory.summary())")
                 TunnelStopReason.markAlive()
+                if systemReconnect && NotifyPrefs.allows(.vpn) {
+                    TunnelNotice.post(kind: .vpn, title: NotifyText.loc("VPN 已自动重新连接"),
+                                      body: NotifyText.loc("扩展未正常退出（被系统终止、崩溃或设备关机）"))
+                }
             }
             completionHandler(err)
         }
@@ -85,6 +147,7 @@ final class PacketTunnelProvider: NEPacketTunnelProvider {
         LibmihomoSetNetworkIPv6(overrides.ipv6)
         StartupLog.write("ipv6 mode \(overrides.ipv6Mode) → \(overrides.ipv6 ? "on" : "off"), ip preference \(overrides.ipPreference)")
         LibmihomoSetNotifier(notifier)
+        LibmihomoSetPolicyEvents(NotifyPrefs.coreMask) // feat/loon-menu-notify: 策略组异常 / 自动策略切换 / 节点异常
         LibmihomoSetMemoryLimit(Int32(overrides.memoryLimitMB))
         LibmihomoSetMemoryProbe(memoryProbe)
         let proxyOnly = overrides.isProxyOnly
@@ -235,6 +298,11 @@ final class PacketTunnelProvider: NEPacketTunnelProvider {
         let why = TunnelStopReason.describe(reason.rawValue)
         StartupLog.write("stopTunnel reason=\(reason.rawValue)（\(why)）, \(ProcessMemory.summary()), bridge \(currentBridge?.stats ?? "-")")
         TunnelStopReason.record(reason.rawValue)
+        // feat/loon-menu-notify: 更多 → 通知 → VPN 意外断开 (posted first: the extension goes away right after).
+        if let key = TunnelNotice.unexpectedStopKey(reason.rawValue), NotifyPrefs.allows(.vpn) {
+            TunnelNotice.post(kind: .vpn, title: NotifyText.loc("VPN 意外断开"), body: NotifyText.loc(key))
+        }
+        LibmihomoSetPolicyEvents(0)
         // r7: tell a running app at once (Live Activity end); a suspended app catches up on its next status check.
         CFNotificationCenterPostNotification(CFNotificationCenterGetDarwinNotifyCenter(),
                                              CFNotificationName(AppShared.tunnelStoppedNotification as CFString), nil, nil, true)
@@ -325,6 +393,9 @@ final class PacketTunnelProvider: NEPacketTunnelProvider {
         case .applyNetworkPolicy:
             let n = LibmihomoApplyNetworkPolicy()
             completionHandler?("\(n)".data(using: .utf8))
+        case .notifyPrefs:
+            LibmihomoSetPolicyEvents(NotifyPrefs.coreMask)
+            completionHandler?(nil)
         case .none:
             completionHandler?(nil)
         }
@@ -383,6 +454,7 @@ final class MemoryGuard {
     private var lastShed = Date.distantPast
     private var lastFree = Date.distantPast
     private var lastPressureLog = Date.distantPast
+    private var lastNotice = Date.distantPast
     private var armed = true
     /// Review 6 R6A-2: set on `queue` by stop(); a tick already running must not schedule a new timer.
     private var stopped = false
@@ -472,6 +544,12 @@ final class MemoryGuard {
         let n = LibmihomoShedConnections(percent)
         LibmihomoFreeMemory()
         StartupLog.write("memory guard (\(why)): closed \(n) oldest connections (\(percent) %) at footprint \(fp2 >> 20) MB → \(ProcessMemory.summary())")
+        // feat/loon-menu-notify: 更多 → 通知 → 内存警告 (default off), at most every 10 minutes.
+        if n > 0, Date().timeIntervalSince(lastNotice) > 600, NotifyPrefs.allows(.memory) {
+            lastNotice = Date()
+            TunnelNotice.post(kind: .memory, title: NotifyText.loc("内存警告"),
+                              body: NotifyText.loc("隧道内存接近系统上限，已关闭 %@ 个最早的连接。", ["\(n)"]))
+        }
     }
 }
 
