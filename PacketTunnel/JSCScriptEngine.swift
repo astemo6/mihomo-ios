@@ -65,6 +65,9 @@ final class JSCScriptEngine: NSObject, LibmihomoScriptEngineProtocol {
     /// Guards `byRef` only; the time-limit callback (on the thread running JavaScript) takes nothing else.
     private let refLock = NSLock()
     private var trash: [AnyObject] = []
+    /// Time-limit callback calls / terminations it asked for (under refLock; diagnostics in stats()).
+    private var limitChecks = 0
+    private var limitStops = 0
     private var prelude = ""
     private var entries: [String: Entry] = [:]
     private var runs: [Int64: Slot] = [:]
@@ -281,7 +284,10 @@ final class JSCScriptEngine: NSObject, LibmihomoScriptEngineProtocol {
         defer { lock.unlock() }
         let loaded = entries.values.filter { $0.primary != nil }.count
         let bytes = entries.values.reduce(0) { $0 + $1.source.utf8.count }
-        return "jsc scripts \(entries.count) (contexts \(loaded), runs \(runs.count), sources \(String(format: "%.1f", Double(bytes) / 1_048_576)) MB, made \(contextsMade)), time limit \(timeLimit ? "on" : "off")"
+        refLock.lock()
+        let checks = limitChecks, stops = limitStops
+        refLock.unlock()
+        return "jsc scripts \(entries.count) (contexts \(loaded), runs \(runs.count), sources \(String(format: "%.1f", Double(bytes) / 1_048_576)) MB, made \(contextsMade)), time limit \(timeLimit ? "on" : "off") (checks \(checks), stops \(stops))"
     }
 
     // MARK: contexts
@@ -396,10 +402,14 @@ final class JSCScriptEngine: NSObject, LibmihomoScriptEngineProtocol {
         guard let global else { return false }
         refLock.lock()
         let c = byRef[global]
+        limitChecks += 1
         refLock.unlock()
         guard let c, let run = c.run else { return false }
         if run.shouldStop() {
             c.terminated = true
+            refLock.lock()
+            limitStops += 1
+            refLock.unlock()
             return true
         }
         return false

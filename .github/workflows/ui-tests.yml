@@ -259,7 +259,9 @@ jobs:
             for t in $SHARD3_TESTS; do SEL+=(-only-testing:"MihomoUITests/MihomoUITests/$t"); done
           fi
           xcrun simctl ui "$DEV" appearance "$STYLE" || true
-          TEST_RUNNER_UI_LANG="$LANG_" TEST_RUNNER_UI_STYLE="$STYLE" TEST_RUNNER_UI_SHOT_DIR="$PWD/shots" \
+          # feat/jsc-engine: JavaScriptCore without JIT in the test host, as on a device (no JIT for apps and
+          # extensions). Round 2 (8e86e33): with JIT the busy-loop case was never terminated by the time limit.
+          TEST_RUNNER_UI_LANG="$LANG_" TEST_RUNNER_UI_STYLE="$STYLE" TEST_RUNNER_UI_SHOT_DIR="$PWD/shots" TEST_RUNNER_JSC_useJIT=false \
           xcodebuild -project Mihomo.xcodeproj -scheme MihomoUITests -configuration Debug -sdk iphonesimulator \
             -destination "id=$DEV" -derivedDataPath build/uit -resultBundlePath "results/$SHORT.xcresult" \
             "${SEL[@]}" test-without-building 2>&1 | tee "results/$SHORT.log" | grep -E "Test Case|error:|failed|passed|XCTAssert|issue"

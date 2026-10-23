@@ -86,6 +86,11 @@ final class ScriptEngineConformanceTests: XCTestCase {
 
     func testJavaScriptCoreMatchesGoja() throws {
         let started = Date()
+        // Device parity: the tunnel extension (and any iOS app) gets no JIT, so JavaScriptCore runs its
+        // interpreter there; the simulator would JIT. Options are read from JSC_* when the first VM is created
+        // (the Self-test also passes TEST_RUNNER_JSC_useJIT=false so it is set before launch).
+        setenv("JSC_useJIT", "false", 0)
+        Self.log("JSC_useJIT=\(ProcessInfo.processInfo.environment["JSC_useJIT"] ?? "(unset)")")
         guard let reg = Self.timed(Self.caseTimeout, { JSCScriptEngine.register() }) else { Self.hung("register") }
         XCTAssertEqual(reg, "", "JavaScriptCore engine not taken")
         let status = JSCScriptEngine.status()
@@ -121,6 +126,7 @@ final class ScriptEngineConformanceTests: XCTestCase {
             if ok { passed += 1 }
             Self.log("\(i + 1)/\(cases.count) \(name) \(ok ? "ok" : "FAIL") goja \(g) ms, jsc \(n) ms, wall \(wall) ms")
             if !ok { Self.appendDiag("failures.txt", "\(name): \(out)\n") }
+            if !ok || name.hasPrefix("timeout") { Self.log("status: \(JSCScriptEngine.status())") }
             XCTAssertTrue(ok, "\(name): \(out)")
         }
         // Simulator numbers (the app process may JIT; the tunnel extension on a device runs the interpreter).

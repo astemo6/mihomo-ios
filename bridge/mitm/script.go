@@ -481,8 +481,8 @@ type runCtx struct {
 	id      int64
 	eng     jsEngine
 	rt      atomic.Pointer[goja.Runtime] // goja engine (atomic: interrupts come from timer goroutines)
-	native  NativeJS      // native engine
-	src     string        // source, for a native reload ("" when it came from the cache)
+	native  NativeJS                     // native engine
+	src     string                       // source, for a native reload ("" when it came from the cache)
 	jobs    chan loopJob
 	pending int
 	done    bool
