@@ -45,6 +45,7 @@ struct MihomoApp: App {
                         // v0.14: due subscriptions + usage alerts + the opt-in update notification.
                         Task { await ScheduledUpdates.run() }
                         Task { await ResourceStore.shared.updateDueIfNeeded() }
+                        Task { await ProviderUpdater.shared.autoUpdateIfNeeded() }
                         ipinfo.scheduleRefresh(after: 0.3)
                     }
                 }

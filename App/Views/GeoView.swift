@@ -170,6 +170,26 @@ final class GeoModel: NSObject, ObservableObject, URLSessionDownloadDelegate {
         }
     }
 
+    /// User 2026-10-22 「只有安装，没有卸载吗」: delete an installed database. A rule or DNS setting that still needs it
+    /// makes the core download it again on the next reload.
+    func remove(_ kind: String) async {
+        guard let f = files.first(where: { $0.kind == kind }) else { return }
+        let url = URL(fileURLWithPath: home).appendingPathComponent(f.file)
+        do { try FileManager.default.removeItem(at: url) } catch {
+            errors[kind] = String(localized: "删除失败：\(error.localizedDescription)")
+            return
+        }
+        errors[kind] = nil
+        // Review 0.19.18 S2: geoip.metadb / GeoSite.dat ship with the app; put the bundled copy back right away
+        // (launch and tunnel start would do it anyway) instead of leaving the core to download it, which is often
+        // blocked. Other databases are downloaded again by the core when the profile still needs them.
+        if GeoBootstrap.files.contains(where: { $0.caseInsensitiveCompare(f.file) == .orderedSame }) {
+            await Task.detached(priority: .utility) { _ = GeoBootstrap.install() }.value
+        }
+        refresh()
+        if VPNManager.shared.isConnected, let err = await VPNManager.shared.reload() { errors[kind] = err }
+    }
+
     func updateAll() async {
         await withTaskGroup(of: Void.self) { g in
             for k in files.filter({ $0.exists == true || $0.kind != "geoip" }).map(\.kind) {
@@ -246,6 +266,7 @@ struct GeoView: View {
     @State private var editing: String?
     @State private var urlText = ""
     @State private var baseText = ""
+    @State private var removing: GeoFileInfo?
     @FocusState private var baseFocused: Bool
 
     var body: some View {
@@ -253,7 +274,7 @@ struct GeoView: View {
             VStack(spacing: 14) {
                 mirrorCard
                 ForEach(model.files) { f in card(f) }
-                Text("内置数据库随扩展安装，首次连接无需下载。更新后 GeoIP / ASN 立即生效，GEOSITE / GEOIP(dat) 会重载配置。规则集（rule-providers）在「工具 → 分流规则 → 配置里的规则集」中更新。")
+                Text("内置数据库随扩展安装，首次连接无需下载。更新后 GeoIP / ASN 立即生效，GEOSITE / GEOIP(dat) 会重载配置。规则集（rule-providers）在「工具 → 规则 → 订阅」中更新。")
                     .font(.caption2).foregroundStyle(.secondary)
                     .frame(maxWidth: .infinity, alignment: .leading)
                     .padding(.horizontal, 4)
@@ -271,6 +292,14 @@ struct GeoView: View {
         .onAppear {
             model.refresh()
             baseText = model.overrides.geoMirrorBase.isEmpty ? model.currentBase : model.overrides.geoMirrorBase
+        }
+        .confirmationDialog(Text("删除 \(removing?.title ?? "")？"), isPresented: Binding(get: { removing != nil }, set: { if !$0 { removing = nil } }), titleVisibility: .visible) {
+            Button("删除", role: .destructive) {
+                if let k = removing?.kind { Task { await model.remove(k) } }
+                removing = nil
+            }
+        } message: {
+            Text("App 自带的 GeoIP / GeoSite 会恢复为内置版本；其他数据库在配置仍需要时，内核会在下次加载时重新下载。")
         }
         .alert("自定义下载地址", isPresented: Binding(get: { editing != nil }, set: { if !$0 { editing = nil } })) {
             TextField("https://…", text: $urlText).textInputAutocapitalization(.never).autocorrectionDisabled().keyboardType(.URL)
@@ -433,6 +462,16 @@ struct GeoView: View {
                 metric("文件", f.file)
                 metric("大小", f.size.map { Fmt.bytes($0) } ?? "—")
                 metric("更新于", f.modified.map { Date(timeIntervalSince1970: $0).formatted(date: .abbreviated, time: .shortened) } ?? "—")
+                if f.exists == true && !busy {
+                    Spacer(minLength: 0)
+                    Button(role: .destructive) { removing = f } label: {
+                        Image(systemName: "trash").font(.subheadline)
+                    }
+                    .buttonStyle(.borderless)
+                    .foregroundStyle(Theme.bad)
+                    .accessibilityLabel(Text("删除"))
+                    .accessibilityIdentifier("geo.delete.\(f.kind)")
+                }
             }
             if let b = f.buildDate, b > 0 {
                 Text("数据版本 \(Date(timeIntervalSince1970: b).formatted(date: .abbreviated, time: .omitted))\(f.dbType.map { " · " + $0 } ?? "")")

@@ -253,7 +253,16 @@ func applyLoonArgs(text string, args []ModArg, user map[string]string) string {
 func compileRe(p string) (*regexp2.Regexp, error) {
 	re, err := regexp2.Compile(p, regexp2.None)
 	if err != nil {
-		return nil, err
+		// JavaScript (QX / Loon / Surge's JavaScriptCore) accepts identity escapes of word characters such
+		// as \_ that .NET-style regexp2 rejects; retry with those backslashes dropped.
+		if q := dropJSIdentityEscapes(p); q != p {
+			if re2, err2 := regexp2.Compile(q, regexp2.None); err2 == nil {
+				re, err = re2, nil
+			}
+		}
+		if err != nil {
+			return nil, err
+		}
 	}
 	re.MatchTimeout = 200 * time.Millisecond
 	return re, nil
@@ -1049,9 +1058,34 @@ func (rs *Ruleset) ParseText(text, source string, args map[string]string) {
 	}
 	section := ""
 	sawSection := false
+	// v0.19.17: QX rewrite subscriptions are often the script file itself, with [rewrite_local] / [mitm]
+	// inside the leading /* … */ comment (喜马拉雅 ximalaya.js). The comment's decoration and prose lines
+	// are not rules, and once a comment that held sections closes, the rest is JavaScript: it must not be
+	// parsed as lines of the last section.
+	inComment, commentHadSection, jsBody := false, false, false
 	for _, line := range strings.Split(text, "\n") {
 		t := strings.TrimSpace(line)
+		if !inComment && strings.HasPrefix(t, "/*") && !strings.Contains(t[2:], "*/") {
+			inComment, commentHadSection = true, false
+			continue
+		}
+		if inComment && strings.HasSuffix(t, "*/") && !strings.HasPrefix(t, "^") {
+			inComment = false
+			if commentHadSection {
+				jsBody = true
+			}
+			continue
+		}
+		if jsBody {
+			continue
+		}
+		if inComment && isCommentDecoration(t) {
+			continue
+		}
 		if m := sectionRe.FindStringSubmatch(t); m != nil {
+			if inComment {
+				commentHadSection = true
+			}
 			section = strings.ToLower(strings.TrimSpace(m[1]))
 			sawSection = true
 			switch section {
@@ -1075,6 +1109,9 @@ func (rs *Ruleset) ParseText(text, source string, args map[string]string) {
 		if section == "rewrite_remote" || section == "server_local" || section == "server_remote" || section == "policy" || section == "dns" || section == "argument" {
 			continue
 		}
+		if inComment && section == "" {
+			continue // prose before the first section of a comment block (title, author, notes)
+		}
 		rs.ParseLine(t, section, source)
 	}
 	if !sawSection && rs.Format == "" {
@@ -1086,6 +1123,15 @@ func (rs *Ruleset) ParseText(text, source string, args map[string]string) {
 	if rs.Format == "surge" && hasLoonScriptLine(text) {
 		rs.Format = "loon"
 	}
+}
+
+// isCommentDecoration: a line of a /* … */ block that only carries the comment's `*` margin or a rule of
+// stars / dashes / equals signs.
+func isCommentDecoration(t string) bool {
+	if t == "" {
+		return true
+	}
+	return strings.Trim(t, "*-=_~ \t") == ""
 }
 
 func hasLoonScriptLine(text string) bool {
@@ -1418,4 +1464,24 @@ func (rs *Ruleset) parseQXTaskGallery(text, source string) bool {
 		rs.ParseLine(strings.TrimSpace(line), "task_local", source)
 	}
 	return true
+}
+
+// dropJSIdentityEscapes removes the backslash from \_ (an identity escape JavaScript allows but
+// regexp2 rejects), leaving escaped backslashes (\\) alone.
+func dropJSIdentityEscapes(p string) string {
+	var b strings.Builder
+	for i := 0; i < len(p); i++ {
+		if p[i] == '\\' && i+1 < len(p) {
+			if p[i+1] == '_' {
+				b.WriteByte('_')
+			} else {
+				b.WriteByte(p[i])
+				b.WriteByte(p[i+1])
+			}
+			i++
+			continue
+		}
+		b.WriteByte(p[i])
+	}
+	return b.String()
 }

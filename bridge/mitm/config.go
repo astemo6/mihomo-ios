@@ -260,6 +260,52 @@ func (p hostPat) match(host string, port int) bool {
 	return globMatch(p.pat, host)
 }
 
+// maxCertNames caps the extra names put in a no-SNI certificate.
+const maxCertNames = 64
+
+// CertNames returns the included hostnames that can be certificate DNS names: plain domains and
+// `*.domain` (patterns with other wildcards, IPs and port-specific entries are left out). Used for the
+// certificate of a no-SNI connection to an IP (LeafWithNames).
+func (m *HostMatcher) CertNames() []string {
+	var out []string
+	seen := map[string]bool{}
+	for _, p := range m.inc {
+		if p.port != 0 && p.port != 443 {
+			continue
+		}
+		n := p.pat
+		if net.ParseIP(n) != nil || !strings.Contains(n, ".") {
+			continue
+		}
+		rest := strings.TrimPrefix(n, "*.")
+		if rest == "" || strings.ContainsAny(rest, "*?") || strings.HasPrefix(rest, ".") || strings.HasSuffix(rest, ".") {
+			continue
+		}
+		if !strings.Contains(rest, ".") && strings.HasPrefix(n, "*.") {
+			continue // *.com
+		}
+		if !validCertName(rest) || seen[n] {
+			continue
+		}
+		seen[n] = true
+		out = append(out, n)
+		if len(out) >= maxCertNames {
+			break
+		}
+	}
+	return out
+}
+
+func validCertName(s string) bool {
+	for i := 0; i < len(s); i++ {
+		c := s[i]
+		if !(c >= 'a' && c <= 'z' || c >= '0' && c <= '9' || c == '-' || c == '.') {
+			return false
+		}
+	}
+	return true
+}
+
 // Empty reports whether no host is selected for MitM.
 func (m *HostMatcher) Empty() bool { return len(m.inc) == 0 }
 
@@ -335,17 +381,40 @@ func globMatch(pat, s string) bool {
 	return true
 }
 
-func payloadFor(p hostPat) string {
+// payloadFor returns the classical rule-set lines that select connections for hostname pattern p.
+// v0.19.17: an IPv4 wildcard (`180.153.*.*`, `114.80.139.2*`) becomes IP-CIDR lines for the destination
+// IP — as a DOMAIN-WILDCARD it only ever matched the (empty) host of an IP-only connection, so HTTPDNS
+// apps (喜马拉雅) were never steered into the engine (see ipglob.go).
+func payloadFor(p hostPat) []any {
 	if ip := net.ParseIP(p.pat); ip != nil {
 		if ip.To4() != nil {
-			return "IP-CIDR," + p.pat + "/32,no-resolve"
+			return []any{"IP-CIDR," + p.pat + "/32,no-resolve"}
 		}
-		return "IP-CIDR6," + p.pat + "/128,no-resolve"
+		return []any{"IP-CIDR6," + p.pat + "/128,no-resolve"}
+	}
+	if prefixes, ok := ipv4GlobPrefixes(p.pat); ok {
+		out := make([]any, 0, len(prefixes))
+		for _, pf := range prefixes {
+			out = append(out, "IP-CIDR,"+pf.String()+",no-resolve")
+		}
+		return out
 	}
 	if strings.ContainsAny(p.pat, "*?") {
-		return "DOMAIN-WILDCARD," + p.pat
+		return []any{"DOMAIN-WILDCARD," + p.pat}
 	}
-	return "DOMAIN," + p.pat
+	return []any{"DOMAIN," + p.pat}
+}
+
+// appendPayload appends p's lines to out, skipping lines already there (modules repeat hosts and
+// overlapping IP wildcards).
+func appendPayload(out []any, seen map[string]bool, p hostPat) []any {
+	for _, l := range payloadFor(p) {
+		if s := l.(string); !seen[s] {
+			seen[s] = true
+			out = append(out, l)
+		}
+	}
+	return out
 }
 
 // ProxyName is the mihomo outbound that points at the local engine listener.
@@ -371,11 +440,12 @@ func Inject(raw map[string]any, listenPort int, rs *Ruleset, c *Config) {
 			rp = map[string]any{}
 		}
 		var inc, exc []any
+		seenInc, seenExc := map[string]bool{}, map[string]bool{}
 		for _, p := range m.inc {
-			inc = append(inc, payloadFor(p))
+			inc = appendPayload(inc, seenInc, p)
 		}
 		for _, p := range m.exc {
-			exc = append(exc, payloadFor(p))
+			exc = appendPayload(exc, seenExc, p)
 		}
 		rp["__mitm_hosts"] = map[string]any{"type": "inline", "behavior": "classical", "payload": inc}
 		skip := ""
@@ -422,7 +492,7 @@ func quicAllowPayload(list []string) []any {
 			continue
 		}
 		host, _ := splitHostPort(h)
-		out = append(out, payloadFor(hostPat{pat: host}))
+		out = append(out, payloadFor(hostPat{pat: host})...)
 	}
 	return out
 }

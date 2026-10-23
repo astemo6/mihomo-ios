@@ -11509,36 +11509,36 @@
         }
       }
     },
-    "从本次连接开始（%@）统计，数据只在 App 打开时采样，断开后清零。": {
+    "从本次连接开始（%@）统计，由隧道持续记录（App 在后台或被关闭时也记录），断开后清零。": {
       "localizations": {
         "zh-Hant": {
           "stringUnit": {
             "state": "translated",
-            "value": "從本次連線開始（%@）統計，資料只在 App 開啟時取樣，斷開後清零。"
+            "value": "從本次連線開始（%@）統計，由隧道持續記錄（App 在背景或被關閉時也記錄），斷開後清零。"
           }
         },
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "Counted since this connection started (%@), sampled only while the app is open, cleared on disconnect."
+            "value": "Counted since this connection started (%@), recorded continuously by the tunnel (also while the app is in the background or closed), cleared on disconnect."
           }
         },
         "ja": {
           "stringUnit": {
             "state": "translated",
-            "value": "今回の接続（%@）からの集計です。App を開いている間だけ記録し、切断するとリセットされます。"
+            "value": "今回の接続（%@）からの集計です。トンネルが継続して記録し（App がバックグラウンドにあるときや終了しているときも記録）、切断するとリセットされます。"
           }
         },
         "ko": {
           "stringUnit": {
             "state": "translated",
-            "value": "이번 연결(%@)부터 집계합니다. 앱이 열려 있을 때만 수집하며 연결을 끊으면 초기화됩니다."
+            "value": "이번 연결(%@)부터 집계합니다. 터널이 계속 기록하며(앱이 백그라운드에 있거나 닫혀 있을 때도 기록) 연결을 끊으면 초기화됩니다."
           }
         },
         "ru": {
           "stringUnit": {
             "state": "translated",
-            "value": "С начала этого подключения (%@); данные собираются только при открытом приложении и сбрасываются при отключении."
+            "value": "С начала этого подключения (%@); данные непрерывно записывает туннель (в том числе когда приложение в фоне или закрыто), сбрасываются при отключении."
           }
         }
       }
@@ -42836,40 +42836,6 @@
         }
       }
     },
-    "点右上角 + 添加。自定义规则排在配置规则之前，可以直接粘贴 Surge / Quantumult X / Loon / mihomo 写法，也可以添加远程规则列表（RULE-SET / DOMAIN-SET / filter_remote）。": {
-      "localizations": {
-        "en": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Tap + to add. Custom rules come before the profile's rules; paste Surge / Quantumult X / Loon / mihomo syntax directly, or add remote rule lists (RULE-SET / DOMAIN-SET / filter_remote)."
-          }
-        },
-        "zh-Hant": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "點右上角 + 新增。自定義規則排在配置規則之前，可以直接貼上 Surge / Quantumult X / Loon / mihomo 寫法，也可以新增遠端規則列表（RULE-SET / DOMAIN-SET / filter_remote）。"
-          }
-        },
-        "ja": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "+ をタップして追加します。カスタムルールはプロファイルのルールより先に評価されます。Surge / Quantumult X / Loon / mihomo の構文をそのまま貼り付けるか、リモートのルールリスト（RULE-SET / DOMAIN-SET / filter_remote）を追加できます。"
-          }
-        },
-        "ko": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "+를 탭해 추가하세요. 사용자 지정 규칙은 프로파일 규칙보다 먼저 적용됩니다. Surge / Quantumult X / Loon / mihomo 구문을 그대로 붙여넣거나 원격 규칙 목록(RULE-SET / DOMAIN-SET / filter_remote)을 추가할 수 있습니다."
-          }
-        },
-        "ru": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Нажмите +, чтобы добавить. Свои правила идут раньше правил профиля; вставляйте синтаксис Surge / Quantumult X / Loon / mihomo напрямую или добавляйте удалённые списки (RULE-SET / DOMAIN-SET / filter_remote)."
-          }
-        }
-      }
-    },
     "点右上角 + 添加订阅链接，或从文件 / 剪贴板导入 mihomo（Clash Meta）YAML 配置。也支持 ss/vmess/vless/trojan/hysteria2/tuic 分享链接列表。": {
       "localizations": {
         "en": {
@@ -45327,40 +45293,6 @@
           "stringUnit": {
             "state": "translated",
             "value": "Все тесты задержки на странице «Политики» используют этот адрес: при подключении ядро обращается к нему через каждый узел, без подключения тест идёт напрямую с устройства. Адрес должен быстро отвечать 204 или 200."
-          }
-        }
-      }
-    },
-    "筛选作用于节点集和「包含全部节点」带来的节点；预览按已缓存的节点计算。": {
-      "localizations": {
-        "zh-Hant": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "篩選作用於節點集和「包含全部節點」帶來的節點；預覽按已快取的節點計算。"
-          }
-        },
-        "en": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Filters apply to nodes from providers and “Include All Nodes”; the preview uses cached nodes."
-          }
-        },
-        "ja": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "フィルタはノードセットと「すべてのノードを含める」によるノードに適用されます。プレビューはキャッシュ済みのノードで計算します。"
-          }
-        },
-        "ko": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "필터는 노드 세트와 「모든 노드 포함」으로 들어온 노드에 적용되며, 미리보기는 캐시된 노드로 계산합니다."
-          }
-        },
-        "ru": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Фильтры применяются к узлам из наборов и «Включить все узлы»; предпросмотр — по кэшированным узлам."
           }
         }
       }
@@ -86638,41 +86570,6 @@
         }
       }
     },
-    "\n规则集 / 节点集：%lld 个已下载，%lld 个失败（规则集在「工具 → 分流规则 → 配置里的规则集」、节点集在「节点与订阅」中重试）": {
-      "extractionState": "manual",
-      "localizations": {
-        "en": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "\nRule sets / node sets: %lld downloaded, %lld failed (retry rule sets in Tools → Routing Rules → Profile Rule Sets, node sets in Nodes & Subscriptions)"
-          }
-        },
-        "ja": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "\nルールセット / ノードセット：%lld 件ダウンロード、%lld 件失敗（ルールセットは「ツール → 振り分けルール → プロファイルのルールセット」、ノードセットは「ノードと購読」で再試行）"
-          }
-        },
-        "ko": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "\n규칙 세트 / 노드 세트: %lld개 다운로드, %lld개 실패 (규칙 세트는 「도구 → 분류 규칙 → 프로파일 규칙 세트」, 노드 세트는 「노드 및 구독」에서 다시 시도)"
-          }
-        },
-        "ru": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "\nНаборы правил / узлов: загружено %lld, ошибок %lld (повторите: наборы правил — в «Инструменты → Правила маршрутизации → Наборы правил профиля», наборы узлов — в «Узлах и подписках»)"
-          }
-        },
-        "zh-Hant": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "\n規則集 / 節點集：%lld 個已下載，%lld 個失敗（規則集在「工具 → 分流規則 → 配置裡的規則集」、節點集在「節點與訂閱」中重試）"
-          }
-        }
-      }
-    },
     "经过 MitM / 重写引擎的 HTTP(S) 请求会显示在这里。需要在 工具 → 重写 开启重写与脚本，并在 工具 → HTTPS 解密 中开启。": {
       "extractionState": "manual",
       "localizations": {
@@ -86704,41 +86601,6 @@
           "stringUnit": {
             "state": "translated",
             "value": "經過 MitM / 重寫引擎的 HTTP(S) 請求會顯示在這裡。需要在 工具 → 重寫 開啟重寫與腳本，並在 工具 → HTTPS 解密 中開啟。"
-          }
-        }
-      }
-    },
-    "内置数据库随扩展安装，首次连接无需下载。更新后 GeoIP / ASN 立即生效，GEOSITE / GEOIP(dat) 会重载配置。规则集（rule-providers）在「工具 → 分流规则 → 配置里的规则集」中更新。": {
-      "extractionState": "manual",
-      "localizations": {
-        "en": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "The built-in databases ship with the extension, so the first connection needs no download. GeoIP / ASN updates apply immediately; GEOSITE / GEOIP (dat) reload the profile. Rule sets (rule-providers) are updated under Tools → Routing Rules → Profile Rule Sets."
-          }
-        },
-        "zh-Hant": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "內建資料庫隨延伸功能安裝，首次連線無需下載。更新後 GeoIP / ASN 立即生效，GEOSITE / GEOIP(dat) 會過載配置。規則集（rule-providers）在「工具 → 分流規則 → 配置裡的規則集」中更新。"
-          }
-        },
-        "ja": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "内蔵データベースは拡張に同梱されているため、初回接続時のダウンロードは不要です。GeoIP / ASN の更新はすぐに反映され、GEOSITE / GEOIP（dat）はプロファイルを再読み込みします。ルールセット（rule-providers）は「ツール → 振り分けルール → プロファイルのルールセット」で更新します。"
-          }
-        },
-        "ko": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "내장 데이터베이스는 확장에 포함되어 있어 첫 연결 시 다운로드가 필요 없습니다. GeoIP / ASN 업데이트는 즉시 적용되고 GEOSITE / GEOIP(dat)는 프로파일을 다시 불러옵니다. 규칙 세트(rule-providers)는 「도구 → 분류 규칙 → 프로파일 규칙 세트」에서 업데이트합니다."
-          }
-        },
-        "ru": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Встроенные базы поставляются с расширением, поэтому первое подключение обходится без загрузки. Обновления GeoIP / ASN применяются сразу; GEOSITE / GEOIP (dat) перезагружают профиль. Наборы правил (rule-providers) обновляются в «Инструменты → Правила маршрутизации → Наборы правил профиля»."
           }
         }
       }
@@ -87614,41 +87476,6 @@
           "stringUnit": {
             "state": "translated",
             "value": "新增的訂閱、遠端模組、規則集和腳本會列在這裡，可以逐個或一次全部更新。"
-          }
-        }
-      }
-    },
-    "配置文件里的规则集和节点集（rule-providers / proxy-providers）由内核按配置更新，也可在「工具 → 分流规则 → 配置里的规则集」和「工具 → 节点与订阅」中手动更新。": {
-      "extractionState": "manual",
-      "localizations": {
-        "en": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Rule sets and node sets inside profiles (rule-providers / proxy-providers) are updated by the core as the profile says; you can also update them in Tools → Routing Rules → Profile Rule Sets and Tools → Nodes & Subscriptions."
-          }
-        },
-        "ja": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "プロファイル内のルールセットとノードセット（rule-providers / proxy-providers）はプロファイルの設定に従ってコアが更新します。「ツール → 振り分けルール → プロファイルのルールセット」と「ツール → ノードと購読」で手動更新もできます。"
-          }
-        },
-        "ko": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "프로파일 안의 규칙 세트와 노드 세트(rule-providers / proxy-providers)는 프로파일 설정에 따라 코어가 업데이트합니다. 「도구 → 분류 규칙 → 프로파일 규칙 세트」와 「도구 → 노드 및 구독」에서 직접 업데이트할 수도 있습니다."
-          }
-        },
-        "ru": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Наборы правил и узлов внутри профилей (rule-providers / proxy-providers) обновляет ядро по настройкам профиля; вручную — в «Инструменты → Правила маршрутизации → Наборы правил профиля» и «Инструменты → Узлы и подписки»."
-          }
-        },
-        "zh-Hant": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "配置檔案裡的規則集和節點集（rule-providers / proxy-providers）由核心按配置更新，也可在「工具 → 分流規則 → 配置裡的規則集」和「工具 → 節點與訂閱」中手動更新。"
           }
         }
       }
@@ -91353,36 +91180,36 @@
         }
       }
     },
-    "只在 App 打开且已连接时采样，没有采样的时段留空（不补画）。分钟、小时是该时段内已采样秒的平均速度；App 退出后清空。按住图表左右拖动查看某一时刻。": {
+    "连接期间由隧道每秒记录（App 在后台或被关闭时也记录），没有记录的时段留空（不补画）。秒保留 10 分钟、分钟保留 3 小时、小时保留 48 小时；分钟、小时是该时段内每秒速度的平均值。按住图表左右拖动查看某一时刻。": {
       "localizations": {
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "連線期間由隧道每秒記錄（App 在背景或被關閉時也記錄），沒有記錄的時段留空（不補畫）。秒保留 10 分鐘、分鐘保留 3 小時、小時保留 48 小時；分鐘、小時是該時段內每秒速度的平均值。按住圖表左右拖動檢視某一時刻。"
+          }
+        },
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "Sampled only while the app is open and connected; unsampled stretches stay empty (never filled in). Minutes and hours show the average speed of the sampled seconds in that period; cleared when the app quits. Press and drag on the chart to inspect a moment."
+            "value": "Recorded by the tunnel every second while connected (also while the app is in the background or closed); stretches with no record stay empty (never filled in). Seconds are kept for 10 minutes, minutes for 3 hours and hours for 48 hours; minutes and hours show the average of the per-second speeds in that period. Press and drag on the chart to inspect a moment."
           }
         },
         "ja": {
           "stringUnit": {
             "state": "translated",
-            "value": "App を開いて接続している間だけ記録し、記録のない時間帯は空白のままです（補完しません）。分・時間はその時間帯に記録した秒の平均速度です。App を終了するとクリアされます。グラフを押したまま左右にドラッグすると、その時点を確認できます。"
+            "value": "接続中はトンネルが毎秒記録し（App がバックグラウンドにあるときや終了しているときも記録）、記録のない時間帯は空白のままです（補完しません）。秒は 10 分間、分は 3 時間、時間は 48 時間保持します。分・時間はその時間帯の毎秒の速度の平均です。グラフを押したまま左右にドラッグすると、その時点を確認できます。"
           }
         },
         "ko": {
           "stringUnit": {
             "state": "translated",
-            "value": "앱이 열려 있고 연결된 동안에만 기록하며, 기록되지 않은 구간은 비워 둡니다(채우지 않음). 분·시간은 해당 구간에 기록된 초의 평균 속도입니다. 앱을 종료하면 지워집니다. 차트를 길게 눌러 좌우로 끌면 특정 시점을 볼 수 있습니다."
+            "value": "연결 중에는 터널이 매초 기록하며(앱이 백그라운드에 있거나 닫혀 있을 때도 기록), 기록되지 않은 구간은 비워 둡니다(채우지 않음). 초는 10분, 분은 3시간, 시간은 48시간 동안 보관합니다. 분·시간은 해당 구간의 초당 속도 평균입니다. 차트를 길게 눌러 좌우로 끌면 특정 시점을 볼 수 있습니다."
           }
         },
         "ru": {
           "stringUnit": {
             "state": "translated",
-            "value": "Данные собираются только пока приложение открыто и подключено; пропуски остаются пустыми (не дорисовываются). Минуты и часы — средняя скорость по записанным секундам за период; очищается при выходе из приложения. Нажмите и ведите по графику, чтобы посмотреть момент."
-          }
-        },
-        "zh-Hant": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "只在 App 開啟且已連線時取樣，沒有采樣的時段留空（不補畫）。分鐘、小時是該時段內已取樣秒的平均速度；App 退出後清空。按住圖表左右拖動檢視某一時刻。"
+            "value": "Пока есть подключение, туннель записывает скорость каждую секунду (в том числе когда приложение в фоне или закрыто); периоды без записи остаются пустыми (не дорисовываются). Секунды хранятся 10 минут, минуты — 3 часа, часы — 48 часов; минуты и часы — средняя посекундная скорость за период. Нажмите и ведите по графику, чтобы посмотреть момент."
           }
         }
       }
@@ -91693,36 +91520,36 @@
         }
       }
     },
-    "当前连接和连接后最近关闭的连接（App 打开期间记录，最多 %lld 条）。规则命中次数统计整个连接期间，可能多于这里列出的连接。": {
+    "当前连接和连接后最近关闭的连接（由隧道持续记录，App 在后台或被关闭时也记录，最多 %lld 条）。规则命中次数统计整个连接期间，可能多于这里列出的连接。": {
       "localizations": {
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "當前連線和連線後最近關閉的連線（由隧道持續記錄，App 在背景或被關閉時也記錄，最多 %lld 條）。規則命中次數統計整個連線期間，可能多於這裡列出的連線。"
+          }
+        },
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "Open connections and the ones closed recently since connecting (recorded while the app is open, up to %lld). Rule hit counts cover the whole session and can exceed the connections listed here."
+            "value": "Open connections and the ones closed recently since connecting (recorded continuously by the tunnel, also while the app is in the background or closed; up to %lld). Rule hit counts cover the whole session and can exceed the connections listed here."
           }
         },
         "ja": {
           "stringUnit": {
             "state": "translated",
-            "value": "現在の接続と、接続後に最近閉じた接続（App を開いている間に記録、最大 %lld 件）。ルールのヒット数は接続期間全体の集計のため、ここに表示される接続より多い場合があります。"
+            "value": "現在の接続と、接続後に最近閉じた接続（トンネルが継続して記録し、App がバックグラウンドにあるときや終了しているときも記録、最大 %lld 件）。ルールのヒット数は接続期間全体の集計のため、ここに表示される接続より多い場合があります。"
           }
         },
         "ko": {
           "stringUnit": {
             "state": "translated",
-            "value": "현재 연결과 연결 이후 최근에 닫힌 연결(앱이 열려 있는 동안 기록, 최대 %lld개). 규칙 일치 횟수는 연결 기간 전체를 집계하므로 여기 표시된 연결보다 많을 수 있습니다."
+            "value": "현재 연결과 연결 이후 최근에 닫힌 연결(터널이 계속 기록하며 앱이 백그라운드에 있거나 닫혀 있을 때도 기록, 최대 %lld개). 규칙 일치 횟수는 연결 기간 전체를 집계하므로 여기 표시된 연결보다 많을 수 있습니다."
           }
         },
         "ru": {
           "stringUnit": {
             "state": "translated",
-            "value": "Открытые соединения и недавно закрытые после подключения (записываются, пока приложение открыто, не более %lld). Число совпадений правил считается за весь сеанс и может быть больше списка."
-          }
-        },
-        "zh-Hant": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "當前連線和連線後最近關閉的連線（App 開啟期間記錄，最多 %lld 條）。規則命中次數統計整個連線期間，可能多於這裡列出的連線。"
+            "value": "Открытые соединения и недавно закрытые после подключения (туннель записывает их непрерывно, в том числе когда приложение в фоне или закрыто; не более %lld). Число совпадений правил считается за весь сеанс и может быть больше списка."
           }
         }
       }
@@ -91863,36 +91690,36 @@
         }
       }
     },
-    "本次连接期间各策略（规则选中的策略组）的流量，App 打开时采样，断开后清零。轻点查看经过该策略的连接。": {
+    "本次连接期间各策略（规则选中的策略组）的流量，由隧道持续记录（App 在后台或被关闭时也记录），断开后清零。轻点查看经过该策略的连接。": {
       "localizations": {
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "本次連線期間各策略（規則選中的策略組）的流量，由隧道持續記錄（App 在背景或被關閉時也記錄），斷開後清零。輕點檢視經過該策略的連線。"
+          }
+        },
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "Traffic per policy (the group a rule chose) during this session, sampled while the app is open and reset on disconnect. Tap to see the connections through that policy."
+            "value": "Traffic per policy (the group a rule chose) during this session, recorded continuously by the tunnel (also while the app is in the background or closed) and reset on disconnect. Tap to see the connections through that policy."
           }
         },
         "ja": {
           "stringUnit": {
             "state": "translated",
-            "value": "この接続期間中のポリシー（ルールが選んだポリシーグループ）ごとの通信量です。App を開いている間に記録し、切断するとリセットされます。タップするとそのポリシーを通った接続を表示します。"
+            "value": "この接続期間中のポリシー（ルールが選んだポリシーグループ）ごとの通信量です。トンネルが継続して記録し（App がバックグラウンドにあるときや終了しているときも記録）、切断するとリセットされます。タップするとそのポリシーを通った接続を表示します。"
           }
         },
         "ko": {
           "stringUnit": {
             "state": "translated",
-            "value": "이번 연결 동안 정책(규칙이 선택한 정책 그룹)별 트래픽입니다. 앱이 열려 있을 때 기록하며 연결이 끊기면 초기화됩니다. 탭하면 해당 정책을 거친 연결을 봅니다."
+            "value": "이번 연결 동안 정책(규칙이 선택한 정책 그룹)별 트래픽입니다. 터널이 계속 기록하며(앱이 백그라운드에 있거나 닫혀 있을 때도 기록) 연결이 끊기면 초기화됩니다. 탭하면 해당 정책을 거친 연결을 봅니다."
           }
         },
         "ru": {
           "stringUnit": {
             "state": "translated",
-            "value": "Трафик по политикам (группа, выбранная правилом) за этот сеанс; записывается, пока приложение открыто, и сбрасывается при отключении. Нажмите, чтобы увидеть соединения через эту политику."
-          }
-        },
-        "zh-Hant": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "本次連線期間各策略（規則選中的策略組）的流量，App 開啟時取樣，斷開後清零。輕點檢視經過該策略的連線。"
+            "value": "Трафик по политикам (группа, выбранная правилом) за этот сеанс; туннель записывает его непрерывно (в том числе когда приложение в фоне или закрыто), сбрасывается при отключении. Нажмите, чтобы увидеть соединения через эту политику."
           }
         }
       }
@@ -92271,36 +92098,36 @@
         }
       }
     },
-    "策略、规则、主机名和 DNS 卡片默认不显示，添加后才出现在首页，长按卡片可移除。轻点卡片查看详情。数据与「连接分析」相同：本次连接期间、App 打开时采样，断开后清零。": {
+    "策略、规则、主机名和 DNS 卡片默认不显示，添加后才出现在首页，长按卡片可移除。轻点卡片查看详情。数据与「连接分析」相同：本次连接期间由隧道持续记录（App 在后台或被关闭时也记录），断开后清零。": {
       "localizations": {
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "策略、規則、主機名和 DNS 卡片預設不顯示，新增後才出現在首頁，長按卡片可移除。輕點卡片檢視詳情。資料與「連線分析」相同：本次連線期間由隧道持續記錄（App 在背景或被關閉時也記錄），斷開後清零。"
+          }
+        },
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "Policy, rule, hostname and DNS cards are off by default and appear on Home once added; long-press a card to remove it. Tap a card for details. Same data as Connection Analytics: sampled during this session while the app is open, reset on disconnect."
+            "value": "Policy, rule, hostname and DNS cards are off by default and appear on Home once added; long-press a card to remove it. Tap a card for details. Same data as Connection Analytics: recorded continuously by the tunnel during this session (also while the app is in the background or closed), reset on disconnect."
           }
         },
         "ja": {
           "stringUnit": {
             "state": "translated",
-            "value": "ポリシー・ルール・ホスト名・DNS カードは初期状態では表示されず、追加するとホームに表示されます。カードを長押しすると削除できます。カードをタップすると詳細を表示します。データは「接続分析」と同じで、この接続期間中に App を開いている間だけ記録し、切断するとリセットされます。"
+            "value": "ポリシー・ルール・ホスト名・DNS カードは初期状態では表示されず、追加するとホームに表示されます。カードを長押しすると削除できます。カードをタップすると詳細を表示します。データは「接続分析」と同じで、この接続期間中はトンネルが継続して記録し（App がバックグラウンドにあるときや終了しているときも記録）、切断するとリセットされます。"
           }
         },
         "ko": {
           "stringUnit": {
             "state": "translated",
-            "value": "정책, 규칙, 호스트 이름, DNS 카드는 기본적으로 표시되지 않으며 추가하면 홈에 나타납니다. 카드를 길게 눌러 제거할 수 있습니다. 카드를 탭하면 자세히 볼 수 있습니다. 데이터는 '연결 분석'과 같으며, 이번 연결 동안 앱이 열려 있을 때 기록하고 연결이 끊기면 초기화됩니다."
+            "value": "정책, 규칙, 호스트 이름, DNS 카드는 기본적으로 표시되지 않으며 추가하면 홈에 나타납니다. 카드를 길게 눌러 제거할 수 있습니다. 카드를 탭하면 자세히 볼 수 있습니다. 데이터는 '연결 분석'과 같으며, 이번 연결 동안 터널이 계속 기록하고(앱이 백그라운드에 있거나 닫혀 있을 때도 기록) 연결이 끊기면 초기화됩니다."
           }
         },
         "ru": {
           "stringUnit": {
             "state": "translated",
-            "value": "Карточки политик, правил, хостов и DNS по умолчанию скрыты и появляются на главной после добавления; долгое нажатие удаляет карточку. Нажмите на карточку, чтобы открыть подробности. Те же данные, что в «Анализе соединений»: собираются за сеанс, пока приложение открыто, и сбрасываются при отключении."
-          }
-        },
-        "zh-Hant": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "策略、規則、主機名和 DNS 卡片預設不顯示，新增後才出現在首頁，長按卡片可移除。輕點卡片檢視詳情。資料與「連線分析」相同：本次連線期間、App 開啟時取樣，斷開後清零。"
+            "value": "Карточки политик, правил, хостов и DNS по умолчанию скрыты и появляются на главной после добавления; долгое нажатие удаляет карточку. Нажмите на карточку, чтобы открыть подробности. Те же данные, что в «Анализе соединений»: туннель непрерывно записывает их за сеанс (в том числе когда приложение в фоне или закрыто), сбрасываются при отключении."
           }
         }
       }
@@ -92811,6 +92638,2021 @@
           "stringUnit": {
             "state": "translated",
             "value": "分段"
+          }
+        }
+      }
+    },
+    "重写引擎": {
+      "localizations": {
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "重寫引擎"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Rewrite engine"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "書き換えエンジン"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "재작성 엔진"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Движок перезаписи"
+          }
+        }
+      }
+    },
+    "HTTP 明文（端口 80）": {
+      "localizations": {
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "HTTP 明文（埠 80）"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Plain HTTP (port 80)"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "平文 HTTP（ポート 80）"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "평문 HTTP(포트 80)"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Открытый HTTP (порт 80)"
+          }
+        }
+      }
+    },
+    "rule.type.ruleset": {
+      "localizations": {
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "规则集"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "規則集"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Rule set"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ルールセット"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "규칙 세트"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Набор правил"
+          }
+        }
+      }
+    },
+    "域名正则": {
+      "localizations": {
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "域名正則"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Domain regex"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ドメイン正規表現"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "도메인 정규식"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Regex домена"
+          }
+        }
+      }
+    },
+    "域名通配": {
+      "localizations": {
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "域名通配"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Domain wildcard"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ドメインワイルドカード"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "도메인 와일드카드"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Шаблон домена"
+          }
+        }
+      }
+    },
+    "来源 GeoIP": {
+      "localizations": {
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "來源 GeoIP"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Source GeoIP"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "送信元 GeoIP"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "출발지 GeoIP"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "GeoIP источника"
+          }
+        }
+      }
+    },
+    "来源 ASN": {
+      "localizations": {
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "來源 ASN"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Source ASN"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "送信元 ASN"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "출발지 ASN"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ASN источника"
+          }
+        }
+      }
+    },
+    "来源 IP 段": {
+      "localizations": {
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "來源 IP 段"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Source IP range"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "送信元 IP 範囲"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "출발지 IP 대역"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Диапазон IP источника"
+          }
+        }
+      }
+    },
+    "来源端口": {
+      "localizations": {
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "來源埠"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Source port"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "送信元ポート"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "출발지 포트"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Порт источника"
+          }
+        }
+      }
+    },
+    "入站端口": {
+      "localizations": {
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "入站埠"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Inbound port"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "インバウンドポート"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "인바운드 포트"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Входящий порт"
+          }
+        }
+      }
+    },
+    "入站用户": {
+      "localizations": {
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "入站使用者"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Inbound user"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "インバウンドユーザー"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "인바운드 사용자"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Пользователь входящего"
+          }
+        }
+      }
+    },
+    "入站名称": {
+      "localizations": {
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "入站名稱"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Inbound name"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "インバウンド名"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "인바운드 이름"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Имя входящего"
+          }
+        }
+      }
+    },
+    "入站类型": {
+      "localizations": {
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "入站型別"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Inbound type"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "インバウンドの種類"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "인바운드 유형"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Тип входящего"
+          }
+        }
+      }
+    },
+    "进程路径": {
+      "localizations": {
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "程序路徑"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Process path"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "プロセスパス"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "프로세스 경로"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Путь процесса"
+          }
+        }
+      }
+    },
+    "子规则": {
+      "localizations": {
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "子規則"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Sub-rule"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "サブルール"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "하위 규칙"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Подправило"
+          }
+        }
+      }
+    },
+    "逻辑与": {
+      "localizations": {
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "邏輯與"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Logical AND"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "論理 AND"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "논리 AND"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Логическое И"
+          }
+        }
+      }
+    },
+    "逻辑或": {
+      "localizations": {
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "邏輯或"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Logical OR"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "論理 OR"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "논리 OR"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Логическое ИЛИ"
+          }
+        }
+      }
+    },
+    "逻辑非": {
+      "localizations": {
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "邏輯非"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Logical NOT"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "論理 NOT"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "논리 NOT"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Логическое НЕ"
+          }
+        }
+      }
+    },
+    "端口 %@": {
+      "localizations": {
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "埠 %@"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "port %@"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ポート %@"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "포트 %@"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "порт %@"
+          }
+        }
+      }
+    },
+    "来源端口 %@": {
+      "localizations": {
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "來源埠 %@"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "source port %@"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "送信元ポート %@"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "출발지 포트 %@"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "порт источника %@"
+          }
+        }
+      }
+    },
+    "入站端口 %@": {
+      "localizations": {
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "入站埠 %@"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "inbound port %@"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "インバウンドポート %@"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "인바운드 포트 %@"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "входящий порт %@"
+          }
+        }
+      }
+    },
+    "非 %@": {
+      "localizations": {
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "非 %@"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "not %@"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%@ 以外"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%@ 제외"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "не %@"
+          }
+        }
+      }
+    },
+    "包含全部本地节点": {
+      "localizations": {
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "包含全部本地節點"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Include All Local Nodes"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "すべてのローカルノードを含める"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "모든 로컬 노드 포함"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Включить все локальные узлы"
+          }
+        }
+      }
+    },
+    "包含全部节点集": {
+      "localizations": {
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "包含全部節點集"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Include All Providers"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "すべてのプロバイダを含める"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "모든 프로바이더 포함"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Включить всех провайдеров"
+          }
+        }
+      }
+    },
+    "筛选作用于节点集和「包含全部…」带来的节点；预览按已缓存的节点计算。": {
+      "localizations": {
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "篩選作用於節點集和「包含全部…」帶來的節點；預覽按已快取的節點計算。"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Filters apply to nodes from providers and “Include All…”; the preview uses cached nodes."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "フィルタはノードセットと「すべて…を含める」によるノードに適用されます。プレビューはキャッシュ済みのノードで計算します。"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "필터는 노드 세트와 「모든 … 포함」으로 들어온 노드에 적용되며, 미리보기는 캐시된 노드로 계산합니다."
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Фильтры применяются к узлам из наборов и «Включить все…»; предпросмотр — по кэшированным узлам."
+          }
+        }
+      }
+    },
+    "删除失败：%@": {
+      "localizations": {
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "刪除失敗：%@"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Couldn’t delete: %@"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "削除できませんでした：%@"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "삭제 실패: %@"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Не удалось удалить: %@"
+          }
+        }
+      }
+    },
+    "删除 %@？": {
+      "localizations": {
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "刪除 %@？"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Delete %@?"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%@ を削除しますか？"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%@을(를) 삭제할까요?"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Удалить %@?"
+          }
+        }
+      }
+    },
+    "配置里的规则或 DNS 仍需要它时，内核会在下次加载时重新下载。": {
+      "localizations": {
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "配置裡的規則或 DNS 仍需要它時，內核會在下次載入時重新下載。"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "If a rule or DNS setting in the profile still needs it, the core downloads it again on the next load."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "プロファイルのルールや DNS がまだ必要とする場合、次回の読み込み時にコアが再ダウンロードします。"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "프로파일의 규칙이나 DNS가 여전히 필요하면 다음 로드 때 코어가 다시 다운로드합니다."
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Если правило или DNS в профиле всё ещё его используют, ядро скачает его снова при следующей загрузке."
+          }
+        }
+      }
+    },
+    "来自 %@": {
+      "localizations": {
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "來自 %@"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "From %@"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%@ から"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "출처: %@"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Из: %@"
+          }
+        }
+      }
+    },
+    "FaceTime 走代理": {
+      "localizations": {
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "FaceTime 走代理"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Route FaceTime via proxy"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "FaceTime をプロキシ経由"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "FaceTime 프록시 경유"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "FaceTime через прокси"
+          }
+        }
+      }
+    },
+    "脚本 · 订阅提醒 · 自动更新": {
+      "localizations": {
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "腳本 · 訂閱提醒 · 自動更新"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Scripts · Subscription alerts · Auto-update"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "スクリプト · サブスク通知 · 自動更新"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "스크립트 · 구독 알림 · 자동 업데이트"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Скрипты · Подписки · Автообновление"
+          }
+        }
+      }
+    },
+    "系统通知权限": {
+      "localizations": {
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "系統通知權限"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Notification permission"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "通知の許可"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "알림 권한"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Разрешение на уведомления"
+          }
+        }
+      }
+    },
+    "已允许": {
+      "localizations": {
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "已允許"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Allowed"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "許可済み"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "허용됨"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Разрешено"
+          }
+        }
+      }
+    },
+    "允许通知": {
+      "localizations": {
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "允許通知"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Allow notifications"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "通知を許可"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "알림 허용"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Разрешить уведомления"
+          }
+        }
+      }
+    },
+    "前往系统设置打开": {
+      "localizations": {
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "前往系統設定開啟"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Turn on in Settings"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "設定でオンにする"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "설정에서 켜기"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Включить в Настройках"
+          }
+        }
+      }
+    },
+    "所有通知都在本机生成，不经过任何服务器。": {
+      "localizations": {
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "所有通知都在本機產生，不經過任何伺服器。"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "All notifications are created on this device; nothing goes through a server."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "通知はすべて端末内で作成され、サーバーを経由しません。"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "모든 알림은 기기에서 생성되며 서버를 거치지 않습니다."
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Все уведомления создаются на устройстве, без серверов."
+          }
+        }
+      }
+    },
+    "重写 / 模块里的脚本调用 $notification.post、$notify 时（例如签到结果）发出的通知。关闭后仍会记入「脚本通知记录」。": {
+      "localizations": {
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "重寫 / 模組裡的腳本呼叫 $notification.post、$notify 時（例如簽到結果）發出的通知。關閉後仍會記入「腳本通知記錄」。"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Sent when a rewrite or module script calls $notification.post or $notify (check-in results, for example). When off, notices are still kept in Script notification history."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "書き換え / モジュールのスクリプトが $notification.post や $notify を呼んだとき（チェックイン結果など）の通知。オフでも「スクリプト通知履歴」には残ります。"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "재작성 / 모듈 스크립트가 $notification.post, $notify를 호출할 때(예: 출석 결과) 보내는 알림. 꺼도 「스크립트 알림 기록」에는 남습니다."
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Отправляются, когда скрипт перезаписи или модуля вызывает $notification.post или $notify (например, результат отметки). Если выключено, записи остаются в истории."
+          }
+        }
+      }
+    },
+    "订阅用量与到期": {
+      "localizations": {
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "訂閱用量與到期"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Subscription usage & expiry"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "サブスクの使用量と期限"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "구독 사용량 및 만료"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Трафик и срок подписок"
+          }
+        }
+      }
+    },
+    "用订阅返回的流量与到期信息提醒；没有这些信息的订阅不会提醒。": {
+      "localizations": {
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "用訂閱回傳的流量與到期資訊提醒；沒有這些資訊的訂閱不會提醒。"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Uses the traffic and expiry info the subscription returns; subscriptions without it never alert."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "サブスクが返す使用量と期限情報で通知します。情報がないサブスクは通知されません。"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "구독이 반환하는 사용량·만료 정보로 알립니다. 정보가 없는 구독은 알리지 않습니다."
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Использует данные о трафике и сроке из подписки; подписки без них не уведомляют."
+          }
+        }
+      }
+    },
+    "FaceTime 走代理：自动接管所有网络流量，并把 FaceTime 的音视频（UDP 3478–3497 / 16384–16402）交给主代理组，节点需要支持 UDP。来电响铃走推送通知（APNs）：保持排除时这部分直连，关闭排除则也走代理。更改后重新连接生效。": {
+      "localizations": {
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "FaceTime 走代理：自動接管所有網路流量，並把 FaceTime 的音視訊（UDP 3478–3497 / 16384–16402）交給主代理組，節點需要支援 UDP。來電響鈴走推播通知（APNs）：保持排除時這部分直連，關閉排除則也走代理。變更後重新連線生效。"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Route FaceTime via proxy: turns on Include all networks and sends FaceTime audio and video (UDP 3478–3497 / 16384–16402) to the main proxy group; the node must support UDP. Ringing uses push notifications (APNs): direct while APNs is excluded, through the proxy when it is not. Takes effect after reconnecting."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "FaceTime をプロキシ経由：すべてのネットワークを含め、FaceTime の音声・ビデオ（UDP 3478–3497 / 16384–16402）をメインのプロキシグループへ送ります。ノードは UDP 対応が必要です。着信はプッシュ通知（APNs）を使い、除外中は直接、除外をオフにするとプロキシ経由になります。再接続後に有効になります。"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "FaceTime 프록시 경유: 모든 네트워크를 포함하고 FaceTime 음성·영상(UDP 3478–3497 / 16384–16402)을 기본 프록시 그룹으로 보냅니다. 노드가 UDP를 지원해야 합니다. 수신 벨은 푸시 알림(APNs)을 사용하며, 제외 중에는 직접 연결되고 제외를 끄면 프록시를 거칩니다. 다시 연결하면 적용됩니다."
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "FaceTime через прокси: включает «Весь трафик» и направляет аудио и видео FaceTime (UDP 3478–3497 / 16384–16402) в основную группу прокси; узел должен поддерживать UDP. Звонок приходит через push-уведомления (APNs): напрямую, пока APNs исключены, и через прокси, если нет. Вступает в силу после переподключения."
+          }
+        }
+      }
+    },
+    "\n规则集 / 节点集：%lld 个已下载，%lld 个失败（规则集在「工具 → 规则 → 订阅」、节点集在「节点与订阅」中重试）": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "\nRule sets / node sets: %lld downloaded, %lld failed (retry rule sets in Tools → Rules → Subscriptions, node sets in Nodes & Subscriptions)"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "\nルールセット / ノードセット：%lld 件ダウンロード、%lld 件失敗（ルールセットは「ツール → ルール → 購読」、ノードセットは「ノードと購読」で再試行）"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "\n규칙 세트 / 노드 세트: %lld개 다운로드, %lld개 실패 (규칙 세트는 「도구 → 규칙 → 구독」, 노드 세트는 「노드 및 구독」에서 다시 시도)"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "\nНаборы правил / узлов: загружено %lld, ошибок %lld (повторите: наборы правил — в «Инструменты → Правила → Подписки», наборы узлов — в «Узлах и подписках»)"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "\n規則集 / 節點集：%lld 個已下載，%lld 個失敗（規則集在「工具 → 規則 → 訂閱」、節點集在「節點與訂閱」中重試）"
+          }
+        }
+      }
+    },
+    "内置数据库随扩展安装，首次连接无需下载。更新后 GeoIP / ASN 立即生效，GEOSITE / GEOIP(dat) 会重载配置。规则集（rule-providers）在「工具 → 规则 → 订阅」中更新。": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "The built-in databases ship with the extension, so the first connection needs no download. GeoIP / ASN updates apply immediately; GEOSITE / GEOIP (dat) reload the profile. Rule sets (rule-providers) are updated under Tools → Rules → Subscriptions."
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "內建資料庫隨延伸功能安裝，首次連線無需下載。更新後 GeoIP / ASN 立即生效，GEOSITE / GEOIP(dat) 會過載配置。規則集（rule-providers）在「工具 → 規則 → 訂閱」中更新。"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "内蔵データベースは拡張に同梱されているため、初回接続時のダウンロードは不要です。GeoIP / ASN の更新はすぐに反映され、GEOSITE / GEOIP（dat）はプロファイルを再読み込みします。ルールセット（rule-providers）は「ツール → ルール → 購読」で更新します。"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "내장 데이터베이스는 확장에 포함되어 있어 첫 연결 시 다운로드가 필요 없습니다. GeoIP / ASN 업데이트는 즉시 적용되고 GEOSITE / GEOIP(dat)는 프로파일을 다시 불러옵니다. 규칙 세트(rule-providers)는 「도구 → 규칙 → 구독」에서 업데이트합니다."
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Встроенные базы поставляются с расширением, поэтому первое подключение обходится без загрузки. Обновления GeoIP / ASN применяются сразу; GEOSITE / GEOIP (dat) перезагружают профиль. Наборы правил (rule-providers) обновляются в «Инструменты → Правила → Подписки»."
+          }
+        }
+      }
+    },
+    "向右轻扫或按住某一项可以启用 / 停用。配置文件里的规则集和节点集（rule-providers / proxy-providers）由内核按配置更新，也可在「工具 → 规则 → 订阅」和「工具 → 节点与订阅」中手动更新。": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Swipe right or touch and hold an item to enable / disable it. Rule sets and node sets inside profiles (rule-providers / proxy-providers) are updated by the core as the profile says; you can also update them in Tools → Rules → Subscriptions and Tools → Nodes & Subscriptions."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "項目を右にスワイプまたは長押しで有効 / 無効を切り替えられます。プロファイル内のルールセットとノードセット（rule-providers / proxy-providers）はプロファイルの設定に従ってコアが更新します。「ツール → ルール → 購読」と「ツール → ノードと購読」で手動更新もできます。"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "항목을 오른쪽으로 쓸거나 길게 눌러 사용 / 사용 안 함을 전환합니다. 프로파일 안의 규칙 세트와 노드 세트(rule-providers / proxy-providers)는 프로파일 설정에 따라 코어가 업데이트합니다. 「도구 → 규칙 → 구독」와 「도구 → 노드 및 구독」에서 직접 업데이트할 수도 있습니다."
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Смахните вправо или удерживайте элемент, чтобы включить / выключить его. Наборы правил и узлов внутри профилей (rule-providers / proxy-providers) обновляет ядро по настройкам профиля; вручную — в «Инструменты → Правила → Подписки» и «Инструменты → Узлы и подписки»."
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "向右輕掃或按住某一項可以啟用 / 停用。配置檔案裡的規則集和節點集（rule-providers / proxy-providers）由核心按配置更新，也可在「工具 → 規則 → 訂閱」和「工具 → 節點與訂閱」中手動更新。"
+          }
+        }
+      }
+    },
+    "点右上角 + 添加。自定义规则排在配置规则之前，可以直接粘贴 Surge / Quantumult X / Loon / mihomo 写法；远程规则列表在上一页的「订阅」里添加。": {
+      "localizations": {
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "點右上角 + 新增。自訂規則排在設定規則之前，可以直接貼上 Surge / Quantumult X / Loon / mihomo 寫法；遠端規則列表在上一頁的「訂閱」裡新增。"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Tap + to add. Custom rules come before the profile's rules; paste Surge / Quantumult X / Loon / mihomo syntax. Remote rule lists are added under Subscriptions on the previous page."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "右上の + で追加します。カスタムルールはプロファイルのルールより先に評価され、Surge / Quantumult X / Loon / mihomo の書き方をそのまま貼り付けられます。リモートのルールリストは前のページの「購読」で追加します。"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "오른쪽 위 + 로 추가합니다. 사용자 규칙은 프로파일 규칙보다 먼저 적용되며 Surge / Quantumult X / Loon / mihomo 문법을 그대로 붙여 넣을 수 있습니다. 원격 규칙 목록은 이전 페이지의 「구독」에서 추가합니다."
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Нажмите +, чтобы добавить. Свои правила идут перед правилами профиля; можно вставить синтаксис Surge / Quantumult X / Loon / mihomo. Удалённые списки правил добавляются в «Подписках» на предыдущей странице."
+          }
+        }
+      }
+    },
+    "本地规则": {
+      "localizations": {
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "本地規則"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Local Rules"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ローカルルール"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "로컬 규칙"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Локальные правила"
+          }
+        }
+      }
+    },
+    "兜底": {
+      "localizations": {
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "兜底"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Fallback"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "フォールバック"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "기본값"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Резерв"
+          }
+        }
+      }
+    },
+    "兜底规则会在其他规则都没有匹配时使用。命中统计在「本地规则」里。": {
+      "localizations": {
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "兜底規則會在其他規則都沒有匹配時使用。命中統計在「本地規則」裡。"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "The fallback rule is used when no other rule matches. Hit statistics are under Local Rules."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "フォールバックルールは他のどのルールにも一致しないときに使われます。ヒット統計は「ローカルルール」にあります。"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "기본 규칙은 다른 규칙이 하나도 일치하지 않을 때 사용됩니다. 적중 통계는 「로컬 규칙」에 있습니다."
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Резервное правило применяется, когда не совпало ни одно другое. Статистика совпадений — в «Локальных правилах»."
+          }
+        }
+      }
+    },
+    "还没有规则订阅。点右上角 + 添加远程规则列表（Surge / QX / Loon / Clash 格式）。": {
+      "localizations": {
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "還沒有規則訂閱。點右上角 + 新增遠端規則列表（Surge / QX / Loon / Clash 格式）。"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "No rule subscriptions yet. Tap + to add a remote rule list (Surge / QX / Loon / Clash format)."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ルールの購読はまだありません。右上の + でリモートのルールリスト（Surge / QX / Loon / Clash 形式）を追加します。"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "아직 규칙 구독이 없습니다. 오른쪽 위 + 로 원격 규칙 목록(Surge / QX / Loon / Clash 형식)을 추가하세요."
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Подписок на правила пока нет. Нажмите +, чтобы добавить удалённый список правил (формат Surge / QX / Loon / Clash)."
+          }
+        }
+      }
+    },
+    "没有匹配的订阅": {
+      "localizations": {
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "沒有符合的訂閱"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "No matching subscriptions"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "一致する購読はありません"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "일치하는 구독 없음"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Нет подходящих подписок"
+          }
+        }
+      }
+    },
+    "添加规则订阅": {
+      "localizations": {
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "新增規則訂閱"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Add rule subscription"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ルールの購読を追加"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "규칙 구독 추가"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Добавить подписку на правила"
+          }
+        }
+      }
+    },
+    "已启用": {
+      "localizations": {
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "已啟用"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Enabled"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "有効"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "사용 중"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Включено"
+          }
+        }
+      }
+    },
+    "向右轻扫或按住某一项可以启用 / 停用。有更新时自动下载并应用到当前配置。": {
+      "localizations": {
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "向右輕掃或按住某一項可以啟用 / 停用。有更新時自動下載並套用到目前設定。"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Swipe right or touch and hold an item to enable / disable it. Updates are downloaded and applied to the current profile automatically."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "項目を右にスワイプまたは長押しで有効 / 無効を切り替えられます。更新は自動でダウンロードされ、現在のプロファイルに適用されます。"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "항목을 오른쪽으로 쓸거나 길게 눌러 사용 / 사용 안 함을 전환합니다. 업데이트는 자동으로 내려받아 현재 프로파일에 적용됩니다."
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Смахните вправо или удерживайте элемент, чтобы включить / выключить его. Обновления загружаются и применяются к текущему профилю автоматически."
+          }
+        }
+      }
+    },
+    "点右上角 + 添加节点订阅。": {
+      "localizations": {
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "點右上角 + 新增節點訂閱。"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Tap + to add a node subscription."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "右上の + でノードの購読を追加します。"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "오른쪽 위 + 로 노드 구독을 추가하세요."
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Нажмите +, чтобы добавить подписку на узлы."
+          }
+        }
+      }
+    },
+    "去模块库添加": {
+      "localizations": {
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "去模組庫新增"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Add from Module Gallery"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "モジュールギャラリーから追加"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "모듈 갤러리에서 추가"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Добавить из каталога модулей"
+          }
+        }
+      }
+    },
+    "支持 * 和 ? 通配、前缀 - 表示排除、:端口（默认 443）。可一次粘贴多个，用逗号分隔。左滑删除。": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Supports * and ? wildcards, a leading - to exclude, and :port (default 443). Paste several at once, separated by commas. Swipe left to delete."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "* と ? のワイルドカード、先頭の - で除外、:ポート（既定 443）に対応。カンマ区切りで複数まとめて貼り付けできます。左スワイプで削除。"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "* 및 ? 와일드카드, 앞의 - 는 제외, :포트(기본 443)를 지원합니다. 쉼표로 구분해 여러 개를 한 번에 붙여 넣을 수 있습니다. 왼쪽으로 밀어 삭제."
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Поддерживаются шаблоны * и ?, префикс - для исключения и :порт (по умолчанию 443). Можно вставить несколько через запятую. Смахните влево для удаления."
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "支援 * 和 ? 萬用字元、前綴 - 表示排除、:連接埠（預設 443）。可一次貼上多個，用逗號分隔。左滑刪除。"
+          }
+        }
+      }
+    },
+    "预设图标": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Preset icon"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "預設圖示"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "プリセットアイコン"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "기본 제공 아이콘"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Предустановленный значок"
+          }
+        }
+      }
+    },
+    "%lld 个节点集更新失败": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%lld node sets failed to update"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%lld 個節點集更新失敗"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%lld 個のノードセットの更新に失敗"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "노드 세트 %lld개 업데이트 실패"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Не удалось обновить наборы узлов: %lld"
+          }
+        }
+      }
+    },
+    "搜索": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Search"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "搜尋"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "検索"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "검색"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Поиск"
+          }
+        }
+      }
+    },
+    "App 自带的 GeoIP / GeoSite 会恢复为内置版本；其他数据库在配置仍需要时，内核会在下次加载时重新下载。": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "The GeoIP / GeoSite bundled with the app are restored to the built-in version; other databases are downloaded again on the next load if the profile still needs them."
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "App 內建的 GeoIP / GeoSite 會恢復為內建版本；其他資料庫在配置仍需要時，核心會在下次載入時重新下載。"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "アプリ同梱の GeoIP / GeoSite は内蔵版に戻ります。その他のデータベースは、設定でまだ必要な場合に次回読み込み時にコアが再ダウンロードします。"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "앱에 포함된 GeoIP / GeoSite는 내장 버전으로 복원됩니다. 다른 데이터베이스는 프로파일에서 여전히 필요하면 다음 로드 시 코어가 다시 다운로드합니다."
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Встроенные в приложение GeoIP / GeoSite будут восстановлены до встроенной версии; другие базы ядро загрузит снова при следующей загрузке, если они всё ещё нужны профилю."
           }
         }
       }

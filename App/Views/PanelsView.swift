@@ -108,6 +108,19 @@ struct PanelsView: View {
                 } else if model.panels.isEmpty {
                     Card { EmptyStateRow(icon: "square.grid.2x2", title: "没有面板", message: "启用带 Surge [Panel] 或 Stash tiles 的模块后，面板会出现在这里。") }
                 }
+                if model.panels.isEmpty {
+                    // User 2026-10-22 「这些面板在哪里可以安装」: panels come from modules — one tap to the module library.
+                    NavigationLink { LazyDestination { ModuleGalleryView() } } label: {
+                        Label("去模块库添加", systemImage: "puzzlepiece.extension")
+                            .font(.body.weight(.semibold))
+                            .frame(maxWidth: .infinity)
+                            .padding(.vertical, 12)
+                            .background(RoundedRectangle(cornerRadius: Theme.radius, style: .continuous).fill(Theme.card))
+                    }
+                    .buttonStyle(.plain)
+                    .foregroundStyle(Theme.accent)
+                    .accessibilityIdentifier("panels.gallery")
+                }
                 ForEach(model.panels) { p in
                     PanelCard(p: p, refreshing: model.refreshing.contains(p.id) || p.running, pinned: model.isPinned(p)) {
                         Task { await model.refresh(p) }

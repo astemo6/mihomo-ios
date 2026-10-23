@@ -69,7 +69,10 @@ type ScriptRunner struct {
 }
 
 // largeProgSource is the source size from which a script counts as a large bundle (compiled ≥ ~7 MB).
-const largeProgSource = 512 << 10
+// v0.19.18: 256 KB (was 512 KB). The 喜马拉雅 unlock script is 363 KB of obfuscated JS; two of its runs
+// at once took ~18 MB of heap on top of the core, and its player page fires several matching requests
+// together — the extension was killed (user 2026-10-22 「把 app 干崩了」, Tern's VPN). Now one at a time.
+const largeProgSource = 256 << 10
 
 // largeProgIdle is how long a large compiled program is kept after its last run (a burst of API calls
 // from a web UI reuses it; then the memory goes back to the tunnel).

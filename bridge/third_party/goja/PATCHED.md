@@ -36,3 +36,14 @@ compiled script bundle holds in the extension.
 Safe because both fields are bounded far below 2^31 for any script this app runs: `pc` by the
 instruction count of the compiled program, `srcPos` by the source length in bytes. Drop /
 re-apply this patch together with the copy, like the eval patch above.
+
+## Patch 3: TypedArray.from with a primitive source (mihomo-ios v0.19.18)
+
+`typedArray_from` converted its source with `r.toObject`, which throws "Value is not an object"
+for any primitive. The spec (23.2.2.1) only requires `GetMethod(source, @@iterator)`, so V8 and
+JavaScriptCore iterate a string: `Uint8Array.from(binaryString, c => c.charCodeAt(0))`. The source
+is now converted with `ToObject` (null / undefined still throw). File: builtin_typedarrays.go
+(search "mihomo-ios patch"); test: bridge/mitm/goja_typedarray_test.go.
+
+This broke the 喜马拉雅 VIP script (ximalaya.js): its paid-track `ep` decrypt failed, so the app kept
+showing the VIP / 喜点 prompt. Drop / re-apply together with the copy.

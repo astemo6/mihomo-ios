@@ -1,9 +1,11 @@
 import SwiftUI
 
-/// 连接分析 (v0.7, Egern-style analytics, NOT on Home): traffic per policy, rule hit counts and top hosts,
-/// accumulated in the app from the /connections snapshots DashboardModel already polls every 2 s.
-/// Nothing runs in the Network Extension, so its memory budget is untouched. Session-scoped: resets
-/// when the tunnel disconnects (or from the toolbar).
+/// 连接分析 (v0.7, Egern-style analytics, NOT on Home): traffic per policy, rule hit counts and top hosts.
+/// P0-2: the tunnel records them (bridge/statsrecorder.go, also while the app is in the background or killed) and
+/// refreshFromTunnel copies them in on DashboardModel's 2 s poll; ingest then only keeps the live connection list
+/// (and the per-day history steps). Against an extension that has no /app/stats yet (an older build still running)
+/// they are accumulated in the app from the /connections snapshots, as before. Session-scoped: resets when the
+/// tunnel disconnects (or from the toolbar).
 @MainActor
 final class ConnectionAnalytics: ObservableObject {
     static let shared = ConnectionAnalytics()
@@ -38,11 +40,111 @@ final class ConnectionAnalytics: ObservableObject {
     var recordsHistory = true
     private static let hostCap = 600
 
+    /// P0-2: true once the tunnel's /app/stats answered in this session. policies / rules / hosts / totalConnections /
+    /// closedItems then come from the tunnel; ingest keeps only the live list.
+    private(set) var tunnelBacked = false
+    private var tunnelSession: Int64 = 0
+    private var tunnelClosedSeq: Int64 = 0
+    private var tunnelRuleCount: Int?
+    private var tunnelHostCount: Int?
+    /// Bumped by reset(): an answer asked for before it is dropped.
+    private var generation = 0
+    /// 清零本次连接 sent to the tunnel and not answered yet: no tunnel answer is applied meanwhile.
+    private var tunnelResetPending = false
+    /// How many hosts / rules each 2 s poll asks for (busiest first); the counts cover all of them.
+    static let tunnelHostLimit = 600
+    static let tunnelRuleLimit = 300
+
+    /// Rules / hosts the session counted (the tunnel's full counts when it records them).
+    var ruleCount: Int { tunnelRuleCount ?? rules.count }
+    var hostCount: Int { tunnelHostCount ?? hosts.values.filter { $0.total > 0 }.count }
+
     func reset() {
         policies = [:]; rules = [:]; hosts = [:]; last = [:]
         activeItems = []; closedItems = []
         totalConnections = 0; activeConnections = 0; since = Date()
+        tunnelBacked = false; tunnelSession = 0; tunnelClosedSeq = 0; tunnelRuleCount = nil; tunnelHostCount = nil
+        generation &+= 1
         version &+= 1
+    }
+
+    /// 清零本次连接 (toolbar): the app's copy and the tunnel's counters (the speed history stays).
+    func userReset() {
+        reset()
+        guard recordsHistory, VPNManager.shared.isConnected else { return }
+        tunnelResetPending = true
+        Task { [weak self] in
+            _ = try? await ControllerClient.shared.send("/app/stats", method: "DELETE", timeout: 3)
+            guard let self else { return }
+            self.generation &+= 1
+            self.tunnelResetPending = false
+        }
+    }
+
+    /// P0-2: copy the tunnel's session stats in (DashboardModel's 2 s poll). Closed connections come incrementally
+    /// (closedAfter). The JSON is decoded off the main thread (ControllerClient.get is a nonisolated async call); only the
+    /// dictionaries (≤ 256 policies + 600 hosts + 300 rules) are built here. No answer (older extension, timeout)
+    /// changes nothing: the in-app sampling in ingest goes on until the tunnel answers.
+    func refreshFromTunnel() async {
+        guard recordsHistory, !tunnelResetPending else { return }
+        let g = generation
+        let q = [URLQueryItem(name: "session", value: String(tunnelSession)),
+                 URLQueryItem(name: "closedAfter", value: String(tunnelClosedSeq)),
+                 URLQueryItem(name: "hosts", value: String(Self.tunnelHostLimit)),
+                 URLQueryItem(name: "rules", value: String(Self.tunnelRuleLimit))]
+        guard let s = try? await ControllerClient.shared.get(TunnelStats.self, "/app/stats", query: q, timeout: 5) else { return }
+        guard g == generation, !tunnelResetPending else { return }
+        apply(s, Self.build(s))
+    }
+
+    struct TunnelBuilt {
+        var policies: [String: Bytes] = [:]
+        var hosts: [String: Bytes] = [:]
+        var rules: [String: RuleHit] = [:]
+        var closed: [ConnectionItem] = []
+    }
+
+    static func build(_ s: TunnelStats) -> TunnelBuilt {
+        var b = TunnelBuilt()
+        b.policies.reserveCapacity(s.policies.count)
+        // Egern parity (user, 2026-10-22): the hop into the rewrite engine (policy __MITM__, 「HTTPS 解密（MitM）」 /
+        // 「HTTP 明文（端口 80）」) is not a rule hit of its own — the engine's upstream connection carries the real rule,
+        // policy, host and bytes — so it is left out of 策略 / 规则 / 主机名 rather than counted twice.
+        for p in s.policies where p.name != RuleDisplay.engineOutbound { b.policies[p.name] = Bytes(up: p.up, down: p.down) }
+        b.hosts.reserveCapacity(s.hosts.count)
+        for h in s.hosts { b.hosts[h.name] = Bytes(up: h.up, down: h.down) }
+        b.rules.reserveCapacity(s.rules.count)
+        for r in s.rules where r.policy != RuleDisplay.engineOutbound {
+            let hit = RuleHit(rule: r.rule, policy: r.policy, hits: r.hits)
+            b.rules[hit.id] = hit
+        }
+        b.closed = s.closed.map(\.item) // newest first
+        return b
+    }
+
+    private func apply(_ s: TunnelStats, _ b: TunnelBuilt) {
+        var changed = false
+        if s.full || s.session != tunnelSession {
+            if closedItems != b.closed { closedItems = b.closed; changed = true }
+        } else if !b.closed.isEmpty {
+            var list = b.closed + closedItems
+            if list.count > Self.closedCap { list.removeLast(list.count - Self.closedCap) }
+            closedItems = list
+            changed = true
+        }
+        if policies != b.policies { policies = b.policies; changed = true }
+        if hosts != b.hosts { hosts = b.hosts; changed = true }
+        if rules != b.rules { rules = b.rules; changed = true }
+        if totalConnections != s.totalConnections { totalConnections = s.totalConnections; changed = true }
+        if tunnelRuleCount != s.ruleCount || tunnelHostCount != s.hostCount { changed = true }
+        let start = Date(timeIntervalSince1970: TimeInterval(s.since) / 1000)
+        if abs(since.timeIntervalSince(start)) > 0.5 { since = start }
+        tunnelSession = s.session
+        tunnelClosedSeq = s.closedSeq
+        tunnelRuleCount = s.ruleCount
+        tunnelHostCount = s.hostCount
+        tunnelBacked = true
+        if changed { version &+= 1 }
     }
 
     func ingest(_ conns: [ConnectionItem]) {
@@ -54,6 +156,7 @@ final class ConnectionAnalytics: ObservableObject {
         var stepPol: [String: Bytes] = [:], stepHost: [String: Bytes] = [:]
         for c in conns {
             let policy = c.chains?.last ?? "DIRECT"
+            if policy == RuleDisplay.engineOutbound { continue } // engine hop; see build(_:)
             let prev = last[c.id]
             if prev == nil {
                 newCount += 1
@@ -81,7 +184,7 @@ final class ConnectionAnalytics: ObservableObject {
             let keep = hs.sorted { $0.value.total > $1.value.total }.prefix(Self.hostCap)
             hs = Dictionary(uniqueKeysWithValues: keep.map { ($0.key, $0.value) })
         }
-        if !activeItems.isEmpty {
+        if !tunnelBacked && !activeItems.isEmpty {
             let now = Date()
             var gone = activeItems.filter { seen[$0.id] == nil }
             if !gone.isEmpty {
@@ -92,10 +195,14 @@ final class ConnectionAnalytics: ObservableObject {
         }
         activeItems = conns
         last = seen
-        policies = pol; hosts = hs; rules = rs
+        // P0-2: once the tunnel records the session, its numbers are the ones shown (refreshFromTunnel); the steps
+        // below still feed the per-day history, which is sampled here while the app is open.
+        if !tunnelBacked {
+            policies = pol; hosts = hs; rules = rs
+            totalConnections += newCount
+        }
         if recordsHistory { AnalyticsHistory.shared.add(policies: stepPol, hosts: stepHost) }
         if moved || newCount > 0 || activeConnections != conns.count { version &+= 1 }
-        totalConnections += newCount
         activeConnections = conns.count
     }
 
@@ -145,7 +252,7 @@ struct AnalyticsView: View {
                     if range == 0 { rulesCard }
                     hostsCard
                     Text(range == 0
-                         ? String(localized: "从本次连接开始（\(a.since.formatted(date: .omitted, time: .shortened))）统计，数据只在 App 打开时采样，断开后清零。")
+                         ? String(localized: "从本次连接开始（\(a.since.formatted(date: .omitted, time: .shortened))）统计，由隧道持续记录（App 在后台或被关闭时也记录），断开后清零。")
                          : String(localized: "直连 / 代理、策略与主机名来自 App 打开期间的采样，按天保存（最多 90 天）；Wi-Fi / 蜂窝来自隧道每 2 分钟记录的全部流量。规则命中只统计本次连接。"))
                         .font(.caption2).foregroundStyle(.secondary)
                         .frame(maxWidth: .infinity, alignment: .leading)
@@ -159,7 +266,7 @@ struct AnalyticsView: View {
         .toolbar {
             ToolbarItem(placement: .navigationBarTrailing) {
                 Menu {
-                    Button { a.reset() } label: { Label("清零本次连接", systemImage: "arrow.counterclockwise") }
+                    Button { a.userReset() } label: { Label("清零本次连接", systemImage: "arrow.counterclockwise") }
                     Button(role: .destructive) { confirmClear = true } label: { Label("清除历史", systemImage: "trash") }
                 } label: { Image(systemName: "arrow.counterclockwise") }
                 .accessibilityLabel(Text("清零"))
@@ -256,7 +363,7 @@ struct AnalyticsView: View {
     func legendRow(color: Color, name: String, bytes: ConnectionAnalytics.Bytes, share: Double) -> some View {
         HStack(spacing: 8) {
             Circle().fill(color).frame(width: 8, height: 8).accessibilityHidden(true)
-            Text(name).font(.subheadline).lineLimit(1)
+            Text(verbatim: RuleDisplay.policyName(name)).font(.subheadline).lineLimit(1)
             Spacer()
             Text(Fmt.bytes(bytes.total)).font(.caption.monospacedDigit())
             Text(share.formatted(.percent.precision(.fractionLength(0)))).font(.caption2.monospacedDigit()).foregroundStyle(.secondary)
@@ -291,8 +398,12 @@ struct AnalyticsView: View {
                                         Text("\(r.hits)").font(.caption.weight(.bold).monospacedDigit())
                                     }
                                     .frame(width: 46, height: 46)
-                                    Text(r.rule).font(.caption2.monospaced()).lineLimit(2)
-                                    Text(r.policy).font(.caption2).foregroundStyle(.secondary).lineLimit(1)
+                                    let parts = RuleDisplay.describe(r.rule, policy: r.policy)
+                                    Text(verbatim: parts.primary).font(.caption2).lineLimit(1).truncationMode(.middle)
+                                    if !parts.type.isEmpty {
+                                        Text(verbatim: parts.type).font(.caption2).foregroundStyle(.secondary).lineLimit(1)
+                                    }
+                                    Text(verbatim: RuleDisplay.policyName(r.policy)).font(.caption2).foregroundStyle(.secondary).lineLimit(1)
                                 }
                                 .frame(width: 128, alignment: .leading)
                                 .padding(10)
@@ -375,6 +486,8 @@ struct HostBarRow: View {
     let name: String
     let bytes: Int64
     let fraction: Double
+    /// Egern: each host's bar has its own colour (palette order on the Home card).
+    var color: Color = Theme.accent.opacity(0.8)
     var body: some View {
         VStack(alignment: .leading, spacing: 4) {
             HStack {
@@ -385,7 +498,7 @@ struct HostBarRow: View {
             GeometryReader { geo in
                 ZStack(alignment: .leading) {
                     Capsule().fill(Theme.ink(0.06))
-                    Capsule().fill(Theme.accent.opacity(0.8)).frame(width: max(3, geo.size.width * CGFloat(fraction)))
+                    Capsule().fill(color).frame(width: max(3, geo.size.width * CGFloat(fraction)))
                 }
             }
             .frame(height: 4)
@@ -395,35 +508,63 @@ struct HostBarRow: View {
 }
 
 struct RuleHitsList: View {
+    /// feat/home-drill-egern (P1): the Home rule ring that opened this page (RuleHit.id). Its row is scrolled into view
+    /// and tinted; every row still opens its own connections.
+    var focus: String? = nil
     /// feat/home-drilldown: the source Home reads (the UI-test demo instance under -UITestDemoAnalytics), copied every 2 s
     /// while the page is on screen instead of observing the session store.
     @State private var list: [ConnectionAnalytics.RuleHit] = []
+    /// fix/rule-labels: the 策略 card's order, for the policy colour dot on each row (copied with the list).
+    @State private var policies = HomeAnalysisModel.PolicySnap()
+    @State private var scrolled = false
     var body: some View {
-        List(list) { r in
-            // feat/home-drilldown: each rule opens 连接 filtered by it (and the policy it chose).
-            NavigationLink { ConnectionsListView(filter: ConnFilter(rules: [r.rule], policies: [r.policy])) } label: {
-                HStack {
-                    VStack(alignment: .leading, spacing: 2) {
-                        Text(r.rule).font(.footnote.monospaced()).lineLimit(2)
-                        Text(r.policy).font(.caption2).foregroundStyle(.secondary)
+        ScrollViewReader { proxy in
+            List {
+                if list.isEmpty {
+                    EmptyStateRow(icon: "target", title: "还没有命中记录").listRowBackground(Theme.card)
+                }
+                ForEach(list) { r in
+                    // feat/home-drilldown: each rule opens 连接 filtered by it (and the policy it chose).
+                    NavigationLink { ConnectionsListView(filter: ConnFilter(rules: [r.rule], policies: [r.policy])) } label: {
+                        // fix/rule-labels: Egern-style — payload, then the rule type tag and the policy with its colour dot
+                        // (RuleDisplay; the app's own engine rules never show 「__MITM__」 or the raw logical rule).
+                        let parts = RuleDisplay.describe(r.rule, policy: r.policy)
+                        HStack {
+                            VStack(alignment: .leading, spacing: 3) {
+                                Text(verbatim: parts.primary).font(.body).lineLimit(1).truncationMode(.middle)
+                                // Egern 规则 page: the policy as a grey subtitle (no type tag, no dot).
+                                Text(verbatim: RuleDisplay.policyName(r.policy)).font(.caption).foregroundStyle(.secondary)
+                                    .lineLimit(1).truncationMode(.middle)
+                            }
+                            Spacer(minLength: 6)
+                            Text("\(r.hits)").font(.body.monospacedDigit()).foregroundStyle(.secondary)
+                        }
                     }
-                    Spacer()
-                    Text("\(r.hits)").font(.subheadline.weight(.semibold).monospacedDigit())
+                    // Egern: plain rows, no tinted 「current」 row.
+                    .listRowBackground(Theme.card)
+                    .accessibilityIdentifier("rulehits.row.\(r.rule).\(r.policy)")
+                    .id(r.id)
                 }
             }
-            .listRowBackground(Theme.card)
-            .accessibilityIdentifier("rulehits.row")
+            .onChange(of: list.count) { _ in
+                // Once, when the list first arrives: bring the tapped ring's rule on screen.
+                guard !scrolled, let f = focus, list.contains(where: { $0.id == f }) else { return }
+                scrolled = true
+                DispatchQueue.main.async { proxy.scrollTo(f, anchor: .center) }
+            }
         }
         .task {
             while !Task.isCancelled {
                 let l = HomeAnalysisModel.shared.source.ruleList
                 if l != list { list = l }
+                let p = HomeAnalysisModel.shared.policies
+                if p != policies { policies = p }
                 try? await Task.sleep(nanoseconds: 2_000_000_000)
             }
         }
         .scrollContentBackground(.hidden)
         .background(Theme.bg.ignoresSafeArea())
-        .navigationTitle("规则命中")
+        .navigationTitle("规则")
     }
 }
 
@@ -431,19 +572,17 @@ struct HostTrafficList: View {
     let list: [ConnectionAnalytics.Usage]
     @State private var search = ""
     var body: some View {
-        let maxB = max(list.first?.bytes.total ?? 1, 1)
         let shown = search.isEmpty ? list : list.filter { $0.name.localizedCaseInsensitiveContains(search) }
         List(shown) { h in
-            // feat/home-drilldown (Egern 主机名): ↑↓ per host, tap → that host's connections.
-            NavigationLink { ConnectionsListView(filter: ConnFilter(host: h.name), title: h.name) } label: {
-                VStack(alignment: .leading, spacing: 4) {
-                    HostBarRow(name: h.name, bytes: h.bytes.total, fraction: Double(h.bytes.total) / Double(maxB))
-                    HStack(spacing: 10) {
-                        Label(Fmt.bytes(h.bytes.up), systemImage: "arrow.up").foregroundStyle(Theme.up)
-                        Label(Fmt.bytes(h.bytes.down), systemImage: "arrow.down").foregroundStyle(Theme.down)
-                    }
-                    .font(.caption2.monospacedDigit())
+            // Egern 主机名 (user's reference recording, 2026-10-22): the host, then 「↑ 30 KB ↓ 69.4 MB」 in grey — no bar;
+            // tap → that host's connections.
+            NavigationLink { ConnectionsListView(filter: ConnFilter(host: h.name)) } label: {
+                VStack(alignment: .leading, spacing: 3) {
+                    Text(verbatim: h.name).font(.body).lineLimit(1).truncationMode(.middle)
+                    Text(verbatim: "↑ \(Fmt.bytes(h.bytes.up))  ↓ \(Fmt.bytes(h.bytes.down))")
+                        .font(.caption.monospacedDigit()).foregroundStyle(.secondary)
                 }
+                .padding(.vertical, 2)
             }
             .listRowBackground(Theme.card)
             .accessibilityIdentifier("hosttraffic.row.\(h.name)")

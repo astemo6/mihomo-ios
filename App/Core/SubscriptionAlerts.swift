@@ -219,6 +219,7 @@ enum ScheduledUpdates {
         var results = await ProfileStore.shared.autoUpdateIfNeeded()
         results += await NodeSubStore.shared.autoUpdateIfNeeded()
         await OverrideScriptStore.shared.autoUpdateIfNeeded() // v0.19 remote 覆写脚本
+        await ProviderUpdater.shared.autoUpdateIfNeeded() // the profile's rule sets / node sets (disconnected only)
         UsageAlerts.evaluateAll()
         notify(results)
         scheduleBackground()

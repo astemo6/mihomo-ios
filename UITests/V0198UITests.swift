@@ -143,7 +143,7 @@ extension MihomoUITests {
 
     func test45_RuleFormDefaults() {
         launch()
-        openMore("规则")
+        openLocalRules()
         app.buttons[L10n.f("自定义 %lld", 0)].firstMatch.tap()
         XCTAssertTrue(tapIfExists(app.element(id: "rules.add"), timeout: 5), "rules +")
         let value = app.textFields.matching(identifier: "rule.value").firstMatch

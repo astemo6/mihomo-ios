@@ -1,6 +1,8 @@
 import XCTest
 
 /// feat/home-drilldown (user 2026-10-22 「空有其表」): every Home card opens a real page, like Egern's 分析.
+/// Egern (user recording 2026-10-22): 策略 card / 规则 ring open 连接 directly (filtered); 主机名 opens the host list, a row
+/// opens the filtered 连接, a connection its detail — the same hierarchy as Egern.
 /// Demo data: -UITestDemoAnalytics (synthetic ConnectionAnalytics, example.* hosts: 20 open + 99 closed connections,
 /// a synthetic 网络 sample stretch with one gap); -UITestDemoExitIP for the 出口 IP tile.
 extension MihomoUITests {
@@ -88,26 +90,31 @@ extension MihomoUITests {
         snap("drill-08-stats")
         back()
 
-        // 策略 → 策略流量 → one policy's connections.
+        // Egern (user's recording + screenshots, 2026-10-22): 策略 → 策略 list → connections; a 规则 ring → its
+        // connections, the 查看全部 tile → 规则 list; 主机名 → host list → connections.
+
+        // 策略 → 策略 (name, ↑↓) → one policy's connections → detail.
         let pol = app.element(id: "home.analysis.policies")
         XCTAssertTrue(scrollTo(pol), "策略 card")
         pol.tap()
-        assertNavBar(L("策略流量"), "策略 card")
+        assertNavBar(L("策略"), "策略 card")
         let proxyRow = app.element(id: "policytraffic.row.Proxy")
         XCTAssertTrue(proxyRow.waitForExistence(timeout: 6), "Proxy row")
-        snap("drill-09-policy-traffic")
+        snap("drill-09-policy-list")
         proxyRow.tap()
-        assertNavBar("Proxy", "policy row")
+        assertNavBar(L("连接"), "policy row")
         XCTAssertEqual(chipValue("connlist.chip.policies"), "1", "filtered by the policy")
         XCTAssertTrue(app.element(id: "connlist.row").waitForExistence(timeout: 6), "Proxy connections")
         snap("drill-10-policy-connections")
-        back(); back()
+        app.element(id: "connlist.row").tap()
+        XCTAssertTrue(app.element(id: "conndetail.tabs").waitForExistence(timeout: 6), "policy → connection detail")
+        back(); back(); back()
 
-        // 规则 ring → 连接 filtered by that rule; the rule sheet shows 「已选择 1 项」.
-        let ring = app.buttons.matching(NSPredicate(format: "label CONTAINS %@", "GeoIP(CN)")).firstMatch
+        // 规则 ring → 连接 filtered by that rule → detail. The ring reads 「CN, GeoIP, DIRECT」 for VoiceOver.
+        let ring = app.buttons.matching(NSPredicate(format: "label BEGINSWITH %@", "CN, GeoIP")).firstMatch
         XCTAssertTrue(scrollTo(ring), "GeoIP rule ring")
         ring.tap()
-        assertNavBar(L("连接"), "rule ring")
+        assertNavBar(L("连接"), "rule ring opens the connections")
         XCTAssertEqual(chipValue("connlist.chip.rules"), "1", "filtered by the rule")
         XCTAssertTrue(app.element(id: "connlist.row").waitForExistence(timeout: 6), "rule connections")
         snap("drill-11-rule-connections")
@@ -116,9 +123,38 @@ extension MihomoUITests {
         XCTAssertTrue(app.navigationBars[picked].waitForExistence(timeout: 5), "rule sheet 「\(picked)」")
         snap("drill-12-rule-sheet")
         closeSheet()
-        back()
+        let ruleConn = app.element(id: "connlist.row")
+        XCTAssertTrue(ruleConn.waitForExistence(timeout: 6), "rule connections after the sheet")
+        ruleConn.tap()
+        XCTAssertTrue(app.element(id: "conndetail.tabs").waitForExistence(timeout: 6), "rule → connection detail")
+        back(); back()
 
-        // 主机名 → 主机名 (↑↓) → one host's connections.
+        // 查看全部 (end of the rule rings) → 规则. Last in the rules part: it leaves the strip scrolled to its end.
+        // The tile ends a horizontal ring strip: bring the card on screen, then swipe the strip left. (scrollTo
+        // swipes vertically only, and an off-screen tile has no valid activation point to test hittability.)
+        let allRules = app.element(id: "home.analysis.rules.all")
+        let rulesCard = app.element(id: "home.analysis.rules")
+        var allRulesShown = false
+        if scrollTo(rulesCard, fail: false) {
+            for _ in 0..<6 {
+                if allRules.exists && allRules.frame.maxX <= app.frame.maxX && allRules.frame.minX >= 0 { allRulesShown = true; break }
+                // Swipe the strip itself: after one swipe the first ring button is off screen (empty frame).
+                guard rulesCard.exists, !rulesCard.frame.isEmpty else { break }
+                rulesCard.swipeLeft()
+                usleep(400_000)
+            }
+        }
+        if allRulesShown {
+            allRules.tap()
+            assertNavBar(L("规则"), "查看全部")
+            XCTAssertTrue(app.element(id: "rulehits.row.GeoIP(CN).DIRECT").waitForExistence(timeout: 6), "GeoIP(CN) row in 规则")
+            snap("drill-10b-rules")
+            back()
+        } else {
+            issues.append("[\(Env.tag)] 查看全部 tile not found")
+        }
+
+        // 主机名 → 主机名 (↑↓) → one host's connections → detail.
         let hosts = app.element(id: "home.analysis.hosts")
         XCTAssertTrue(scrollTo(hosts), "主机名 card")
         hosts.tap()
@@ -127,11 +163,13 @@ extension MihomoUITests {
         XCTAssertTrue(hostRow.waitForExistence(timeout: 6), "host row")
         snap("drill-13-hosts")
         hostRow.tap()
-        assertNavBar("video.example.com", "host row")
+        assertNavBar(L("连接"), "host row")
         XCTAssertTrue(app.element(id: "connlist.chip.host").waitForExistence(timeout: 4), "host chip")
         XCTAssertTrue(app.element(id: "connlist.row").waitForExistence(timeout: 6), "host connections")
         snap("drill-14-host-connections")
-        back(); back()
+        app.element(id: "connlist.row").tap()
+        XCTAssertTrue(app.element(id: "conndetail.tabs").waitForExistence(timeout: 6), "host → connection detail")
+        back(); back(); back()
 
         // DNS → DNS 日志.
         let dns = app.element(id: "home.analysis.dns")

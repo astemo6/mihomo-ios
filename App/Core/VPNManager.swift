@@ -259,10 +259,10 @@ final class VPNManager: ObservableObject {
     /// 仅代理 has no routes and no packet reader, so includeAllNetworks would capture every app's traffic into a
     /// tunnel nobody reads (no network at all): the switch only applies in TUN / 混合.
     static func applyScope(_ o: CoreOverrides, to proto: NETunnelProviderProtocol) {
-        proto.includeAllNetworks = o.includeAllNetworks && !o.isProxyOnly
+        proto.includeAllNetworks = o.effectiveIncludeAll
         proto.excludeLocalNetworks = o.excludeLocalNetworks
         if #available(iOS 16.4, *) {
-            proto.excludeAPNs = o.excludeAPNs
+            proto.excludeAPNs = o.effectiveExcludeAPNs
             proto.excludeCellularServices = o.excludeCellularServices
         }
         if #available(iOS 17.4, *) {
@@ -272,10 +272,10 @@ final class VPNManager: ObservableObject {
 
     /// r7 R7A-2: true when the configuration already carries what applyScope would write.
     static func scopeMatches(_ o: CoreOverrides, _ proto: NETunnelProviderProtocol) -> Bool {
-        if proto.includeAllNetworks != (o.includeAllNetworks && !o.isProxyOnly) { return false }
+        if proto.includeAllNetworks != o.effectiveIncludeAll { return false }
         if proto.excludeLocalNetworks != o.excludeLocalNetworks { return false }
         if #available(iOS 16.4, *) {
-            if proto.excludeAPNs != o.excludeAPNs || proto.excludeCellularServices != o.excludeCellularServices { return false }
+            if proto.excludeAPNs != o.effectiveExcludeAPNs || proto.excludeCellularServices != o.excludeCellularServices { return false }
         }
         if #available(iOS 17.4, *) {
             if proto.excludeDeviceCommunication != o.excludeDeviceCommunication { return false }
@@ -580,4 +580,11 @@ struct OnDemandSettings: Codable, Equatable {
             return out + [disconnect(.any)]
         }
     }
+}
+
+extension CoreOverrides {
+    /// FaceTime 走代理 needs every network in the tunnel (FaceTime media skips a normal VPN route). APNs (ringing /
+    /// call signalling) stays the user's choice (user 2026-10-22: 不强制 APNs). 仅代理 never carries includeAllNetworks.
+    var effectiveIncludeAll: Bool { (includeAllNetworks || faceTimeProxy) && !isProxyOnly }
+    var effectiveExcludeAPNs: Bool { excludeAPNs }
 }

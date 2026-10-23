@@ -37,7 +37,7 @@ extension MihomoUITests {
         launch()
         tab(1)
         XCTAssertTrue(app.element(id: "policy.card.Proxy").waitForExistence(timeout: 10), "policy cards")
-        XCTAssertTrue(app.element(labelContains: L("未连接 · 来自配置文件")).exists, "offline list (来自配置文件)")
+        XCTAssertTrue(app.element(labelContains: L("未连接")).exists, "offline list (未连接)")
         let mode = app.element(id: "policy.mode")
         XCTAssertTrue(scrollTo(mode), "mode picker")
         func seg(_ k: String) -> XCUIElement { app.buttons.matching(NSPredicate(format: "label == %@", L(k))).firstMatch }

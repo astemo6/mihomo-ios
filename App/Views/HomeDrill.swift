@@ -6,13 +6,15 @@ import Charts
 //   全部连接 / 活跃连接 → 连接 (filter chips 规则▾ 策略▾ 主机 HTTP 活跃 已拦截)
 //   网络 speed card / 网速波形图 → 网络 (秒 / 分钟 / 小时 chart, scrub, connections at that moment) → connection detail
 //   策略 → 策略流量 (per policy ↑↓) → 连接 filtered by that policy
-//   规则 ring → 连接 filtered by that rule; 查看全部 → 规则命中 → 连接
+//   规则 (any ring, 查看全部 or the title) → 规则命中 → 连接 filtered by that rule (feat/home-drill-egern P1: always the
+//   overview first, like Egern — never a Home row straight to its connections)
 //   主机名 → 主机名 (↑↓ per host) → 连接 filtered by that host
 //   DNS (opt-in) → DNS 日志
-// Data is what the app already has: ConnectionAnalytics (session totals + the connections it saw open and close),
-// the 请求 poll (RequestsModel) while a page is open, and NetworkHistory (samples DashboardModel already takes).
-// Nothing is invented; where a window is limited (closed connections capped, samples only while the app is open)
-// the page says so. Pages are pushed leaves: they poll only while on screen, and filtering runs off the main thread.
+// Data: ConnectionAnalytics (session totals + closed connections — P0-2: recorded in the tunnel, also while the app is
+// in the background or killed), the 请求 poll (RequestsModel) while a page is open, and NetworkHistory (the tunnel's
+// per-second speed history merged with the samples DashboardModel takes). Nothing is invented; where a window is
+// limited (closed connections capped, history windows) the page says so. Pages are pushed leaves: they poll only while
+// on screen, and filtering runs off the main thread.
 
 // MARK: - Shared chrome
 
@@ -69,7 +71,10 @@ struct ConnFilter: Equatable {
         if !policies.isEmpty && !policies.contains(Self.policy(c)) { return false }
         if let host, ConnectionAnalytics.hostName(c.metadata) != host { return false }
         if !q.isEmpty {
-            let hay = [c.metadata.displayHost, c.chainText, c.ruleText, c.metadata.destinationIP ?? ""].joined(separator: " ").lowercased()
+            // fix/rule-labels: the raw names and the shown ones (「重写引擎」「域名后缀」…) both match.
+            let shown = RuleDisplay.describe(type: c.rule, payload: c.rulePayload, policy: c.chains?.first)
+            let hay = [c.metadata.displayHost, c.chainText, c.ruleText, c.metadata.destinationIP ?? "",
+                       RuleDisplay.chainText(c.chains), shown.primary, shown.type].joined(separator: " ").lowercased()
             if !hay.contains(q) { return false }
         }
         return true
@@ -109,6 +114,8 @@ struct ConnectionsListView: View {
     @EnvironmentObject var vpn: VPNManager
     @State var filter: ConnFilter
     var title: String = String(localized: "连接")
+    /// Egern: the filter the page was opened with leads the chip row (策略 card → 策略▾ first; host → 主机名▾ first).
+    var lead: ConnFilterSheet.Kind? = nil
     @StateObject private var model = RequestsModel()
     @State private var rows: [ConnectionItem] = []
     @State private var activeCount = 0
@@ -147,7 +154,7 @@ struct ConnectionsListView: View {
                 Text("\(rows.count) 条连接 · 活跃 \(activeCount)")
                     .accessibilityIdentifier("connlist.count")
             } footer: {
-                Text("当前连接和连接后最近关闭的连接（App 打开期间记录，最多 \(ConnectionAnalytics.closedCap) 条）。规则命中次数统计整个连接期间，可能多于这里列出的连接。")
+                Text("当前连接和连接后最近关闭的连接（由隧道持续记录，App 在后台或被关闭时也记录，最多 \(ConnectionAnalytics.closedCap) 条）。规则命中次数统计整个连接期间，可能多于这里列出的连接。")
             }
         }
         .listStyle(.insetGrouped)
@@ -226,10 +233,15 @@ struct ConnectionsListView: View {
     var chips: some View {
         ScrollView(.horizontal, showsIndicators: false) {
             HStack(spacing: 8) {
-                FilterChip(title: String(localized: "规则"), count: filter.rules.count, menu: true, id: "connlist.chip.rules") { sheet = .rules }
-                FilterChip(title: String(localized: "策略"), count: filter.policies.count, menu: true, id: "connlist.chip.policies") { sheet = .policies }
                 if let h = filter.host {
                     FilterChip(title: h, on: true, removable: true, id: "connlist.chip.host") { filter.host = nil }
+                }
+                if lead == .policies {
+                    FilterChip(title: String(localized: "策略"), count: filter.policies.count, menu: true, id: "connlist.chip.policies") { sheet = .policies }
+                    FilterChip(title: String(localized: "规则"), count: filter.rules.count, menu: true, id: "connlist.chip.rules") { sheet = .rules }
+                } else {
+                    FilterChip(title: String(localized: "规则"), count: filter.rules.count, menu: true, id: "connlist.chip.rules") { sheet = .rules }
+                    FilterChip(title: String(localized: "策略"), count: filter.policies.count, menu: true, id: "connlist.chip.policies") { sheet = .policies }
                 }
                 FilterChip(title: "HTTP", on: filter.httpOnly, id: "connlist.chip.http") { filter.httpOnly.toggle() }
                 FilterChip(title: String(localized: "活跃"), on: filter.activeOnly, id: "connlist.chip.active") { filter.activeOnly.toggle() }
@@ -285,7 +297,7 @@ struct ConnFilterSheet: View {
     var body: some View {
         NavigationStack {
             List {
-                let shown = search.isEmpty ? options : options.filter { $0.key.localizedCaseInsensitiveContains(search) }
+                let shown = search.isEmpty ? options : options.filter { $0.key.localizedCaseInsensitiveContains(search) || label($0.key).localizedCaseInsensitiveContains(search) }
                 if shown.isEmpty {
                     Text("没有可选项").font(.footnote).foregroundStyle(.secondary).listRowBackground(Theme.card)
                 }
@@ -295,12 +307,13 @@ struct ConnFilterSheet: View {
                     } label: {
                         HStack(spacing: 10) {
                             VStack(alignment: .leading, spacing: 2) {
+                                // fix/rule-labels: shown via RuleDisplay; the selection keeps the raw key.
                                 if kind == .rules {
-                                    let p = HomeRuleHitsCard.split(o.key)
-                                    Text(verbatim: p.payload ?? p.type).font(.subheadline).lineLimit(2)
-                                    if p.payload != nil { Text(verbatim: p.type).font(.caption2).foregroundStyle(.secondary) }
+                                    let p = RuleDisplay.describe(o.key)
+                                    Text(verbatim: p.primary).font(.subheadline).lineLimit(1).truncationMode(.middle)
+                                    if !p.type.isEmpty { Text(verbatim: p.type).font(.caption2).foregroundStyle(.secondary) }
                                 } else {
-                                    Text(verbatim: o.key).font(.subheadline).lineLimit(1)
+                                    Text(verbatim: RuleDisplay.policyName(o.key)).font(.subheadline).lineLimit(1)
                                 }
                             }
                             Spacer(minLength: 6)
@@ -332,6 +345,13 @@ struct ConnFilterSheet: View {
         }
         .presentationDetents([.medium, .large])
     }
+
+    /// The text an option is shown with (search matches it as well as the raw key).
+    private func label(_ key: String) -> String {
+        if kind == .policies { return RuleDisplay.policyName(key) }
+        let p = RuleDisplay.describe(key)
+        return p.primary + " " + p.type
+    }
 }
 
 // MARK: - 策略流量
@@ -341,74 +361,31 @@ struct PolicyTrafficView: View {
     @State private var counts: [String: Int] = [:]
 
     var body: some View {
-        let total = max(list.reduce(Int64(0)) { $0 + $1.bytes.total }, 1)
-        let colors = AnalyticsView.palette
+        // Egern 策略 (user's screenshot, 2026-10-22): one row per policy — the name, then 「↑ 286 KB ↓ 64.6 MB」 in grey, ›.
         List {
             if list.isEmpty {
                 EmptyStateRow(icon: "chart.bar.xaxis", title: "还没有流量").listRowBackground(Theme.card)
-            } else {
-                Section {
-                    VStack(alignment: .leading, spacing: 10) {
-                        HStack {
-                            Text("合计").font(.subheadline.weight(.semibold))
-                            Spacer()
-                            Text(verbatim: Fmt.bytes(list.reduce(Int64(0)) { $0 + $1.bytes.total })).font(.subheadline.weight(.semibold).monospacedDigit())
-                        }
-                        GeometryReader { geo in
-                            HStack(spacing: 2) {
-                                ForEach(Array(list.prefix(12).enumerated()), id: \.offset) { i, p in
-                                    Rectangle().fill(colors[i % (colors.count - 1)])
-                                        .frame(width: max(2, geo.size.width * CGFloat(Double(p.bytes.total) / Double(total)) - 2))
-                                }
-                            }
-                            .clipShape(RoundedRectangle(cornerRadius: 6, style: .continuous))
-                        }
-                        .frame(height: 12)
-                        .accessibilityHidden(true)
+            }
+            ForEach(list) { p in
+                NavigationLink {
+                    ConnectionsListView(filter: ConnFilter(policies: [p.name]), lead: .policies)
+                } label: {
+                    VStack(alignment: .leading, spacing: 3) {
+                        Text(verbatim: RuleDisplay.policyName(p.name)).font(.body).lineLimit(1)
+                        Text(verbatim: "↑ \(Fmt.bytes(p.bytes.up))  ↓ \(Fmt.bytes(p.bytes.down))")
+                            .font(.caption.monospacedDigit()).foregroundStyle(.secondary)
                     }
-                    .padding(.vertical, 4)
+                    .padding(.vertical, 2)
                 }
                 .listRowBackground(Theme.card)
-                Section {
-                    ForEach(Array(list.enumerated()), id: \.element.id) { i, p in
-                        NavigationLink {
-                            ConnectionsListView(filter: ConnFilter(policies: [p.name]), title: p.name)
-                        } label: {
-                            HStack(spacing: 10) {
-                                Circle().fill(i < 12 ? colors[i % (colors.count - 1)] : (colors.last ?? .gray)).frame(width: 9, height: 9)
-                                    .accessibilityHidden(true)
-                                VStack(alignment: .leading, spacing: 3) {
-                                    Text(verbatim: p.name).font(.subheadline).lineLimit(1)
-                                    HStack(spacing: 10) {
-                                        Label(Fmt.bytes(p.bytes.up), systemImage: "arrow.up").foregroundStyle(Theme.up)
-                                        Label(Fmt.bytes(p.bytes.down), systemImage: "arrow.down").foregroundStyle(Theme.down)
-                                    }
-                                    .font(.caption2.monospacedDigit())
-                                    .fixedSize()
-                                }
-                                Spacer(minLength: 6)
-                                VStack(alignment: .trailing, spacing: 2) {
-                                    Text(Double(p.bytes.total) / Double(total), format: .percent.precision(.fractionLength(0)))
-                                        .font(.caption.monospacedDigit()).foregroundStyle(.secondary)
-                                    if let n = counts[p.name] {
-                                        Text("\(n) 次命中").font(.caption2.monospacedDigit()).foregroundStyle(.secondary)
-                                    }
-                                }
-                                .fixedSize()
-                            }
-                        }
-                        .listRowBackground(Theme.card)
-                        .accessibilityIdentifier("policytraffic.row.\(p.name)")
-                    }
-                } footer: {
-                    Text("本次连接期间各策略（规则选中的策略组）的流量，App 打开时采样，断开后清零。轻点查看经过该策略的连接。")
-                }
+                .accessibilityIdentifier("policytraffic.row.\(p.name)")
+                .accessibilityValue(Text(counts[p.name].map { String(localized: "\($0) 次命中") } ?? ""))
             }
         }
         .listStyle(.insetGrouped)
         .scrollContentBackground(.hidden)
         .background(Theme.bg.ignoresSafeArea())
-        .navigationTitle("策略流量")
+        .navigationTitle("策略")
         .task {
             // A leaf page: copies the session numbers every 2 s while it is on screen (no store observed).
             while !Task.isCancelled {
@@ -426,9 +403,11 @@ struct PolicyTrafficView: View {
 
 // MARK: - 网络 history
 
-/// Speed samples for the 网络 page: the 1 s /app/traffic answers DashboardModel already takes (both scopes), kept as
-/// the last 10 minutes of seconds plus per-minute (3 h) and per-hour (48 h) averages of the sampled seconds.
-/// Only while the app is open and connected; nothing is filled in for time the app did not sample. In memory only.
+/// Speed samples for the 网络 page, kept as the last 10 minutes of seconds plus per-minute (3 h) and per-hour (48 h)
+/// averages of the recorded seconds (both scopes). P0-2: the tunnel records them every second, also while the app is in
+/// the background or killed (bridge/statsrecorder.go, saved across reconnects); merge(_:) takes its history and the
+/// 1 s /app/traffic answers DashboardModel takes fill in after the tunnel's newest point. Nothing is filled in for
+/// time nobody recorded.
 @MainActor
 final class NetworkHistory {
     static let shared = NetworkHistory()
@@ -456,6 +435,44 @@ final class NetworkHistory {
         Self.fold(s, into: &minutes, step: 60, cap: Self.minuteCap)
         Self.fold(s, into: &hours, step: 3600, cap: Self.hourCap)
         version &+= 1
+    }
+
+    /// P0-2: the tunnel's history replaces everything up to its newest point; the app's own samples (and buckets)
+    /// after it are kept, so the chart never shows a second twice.
+    func merge(_ h: TunnelSpeedHistory) {
+        guard h.at > 0 else { return }
+        let cut = Date(timeIntervalSince1970: TimeInterval(h.at))
+        var secs: [Sample] = []
+        secs.reserveCapacity(h.seconds.count + 8)
+        for p in h.seconds where p.count >= 5 {
+            secs.append(Sample(t: Date(timeIntervalSince1970: TimeInterval(p[0])), up: max(p[1], 0), down: max(p[2], 0),
+                               pUp: max(p[3], 0), pDown: max(p[4], 0)))
+        }
+        secs.append(contentsOf: seconds.filter { $0.t > cut })
+        if secs.count > Self.secondCap { secs.removeFirst(secs.count - Self.secondCap) }
+        seconds = secs
+        minutes = Self.merged(h.minutes, own: minutes, cap: Self.minuteCap)
+        hours = Self.merged(h.hours, own: hours, cap: Self.hourCap)
+        version &+= 1
+    }
+
+    private static func merged(_ rows: [[Int64]], own: [Bucket], cap: Int) -> [Bucket] {
+        var out: [Bucket] = []
+        out.reserveCapacity(rows.count + 2)
+        for p in rows where p.count >= 6 && p[5] > 0 {
+            out.append(Bucket(start: Date(timeIntervalSince1970: TimeInterval(p[0])), up: p[1], down: p[2], pUp: p[3], pDown: p[4], n: Int(p[5])))
+        }
+        let last = out.last?.start ?? .distantPast
+        out.append(contentsOf: own.filter { $0.start > last })
+        if out.count > cap { out.removeFirst(out.count - cap) }
+        return out
+    }
+
+    /// P0-2: fetch the tunnel's speed history and merge it (the 网络 page, while it is on screen).
+    func refreshFromTunnel() async {
+        guard !HomeAnalysisModel.demo, VPNManager.shared.isConnected,
+              let h = try? await ControllerClient.shared.get(TunnelSpeedHistory.self, "/app/stats/speed", timeout: 5) else { return }
+        merge(h)
     }
 
     private static func fold(_ s: Sample, into list: inout [Bucket], step: TimeInterval, cap: Int) {
@@ -566,7 +583,7 @@ struct NetworkView: View {
                 }
                 .padding(.vertical, 4)
             } footer: {
-                Text("只在 App 打开且已连接时采样，没有采样的时段留空（不补画）。分钟、小时是该时段内已采样秒的平均速度；App 退出后清空。按住图表左右拖动查看某一时刻。")
+                Text("连接期间由隧道每秒记录（App 在后台或被关闭时也记录），没有记录的时段留空（不补画）。秒保留 10 分钟、分钟保留 3 小时、小时保留 48 小时；分钟、小时是该时段内每秒速度的平均值。按住图表左右拖动查看某一时刻。")
             }
             .listRowBackground(Theme.card)
 
@@ -601,7 +618,11 @@ struct NetworkView: View {
         .onReceive(model.$active) { _ in recomputeConns() }
         .task {
             NetworkHistory.shared.fillDemoIfNeeded()
+            var tick = 0
             while !Task.isCancelled {
+                // P0-2: the tunnel's history (also what it recorded while the app was away), every 10 s on screen.
+                if tick % 10 == 0 { await NetworkHistory.shared.refreshFromTunnel() }
+                tick += 1
                 rebuild(force: false)
                 try? await Task.sleep(nanoseconds: 1_000_000_000)
             }

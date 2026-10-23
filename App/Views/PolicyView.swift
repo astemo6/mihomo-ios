@@ -506,7 +506,7 @@ struct PolicyView: View {
                 } else if vpn.isConnected { liveList } else { offlineList }
             }
             .background(Theme.bg.ignoresSafeArea())
-            .tabRootChrome(reorderMode ? LocalizedStringKey("编辑排序") : LocalizedStringKey("策略"), showsTitle: reorderMode)
+            .tabRootChrome(reorderMode ? LocalizedStringKey("编辑排序") : LocalizedStringKey("策略"))
             .toolbar {
               if reorderMode {
                 ToolbarItem(placement: .cancellationAction) {
@@ -693,7 +693,7 @@ struct PolicyView: View {
                 PolicyModeBar()
                 HStack(spacing: 6) {
                     Image(systemName: "doc.text.magnifyingglass")
-                    Text("未连接 · 来自配置文件")
+                    Text("未连接")
                     Spacer()
                     if offline.loading { ProgressView().controlSize(.small) }
                 }

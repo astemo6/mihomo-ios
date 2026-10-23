@@ -16,27 +16,18 @@ import SwiftUI
 /// UI tests keep finding `app.navigationBars[<title>]` on standard roots, and pushed pages show it on their back
 /// button. Pushed sub-pages are untouched and keep their normal inline titles.
 ///
-/// `showsTitle` draws the title normally — for a temporary mode on a root (策略 → 编辑排序).
+/// 2026-10-22 evening (user: 「Tern 每页最上方加上标题吧，现在这样太空了，不协调」): the title is drawn again, Egern style —
+/// a large title on standard roots (collapsing to the centred inline title on scroll, like Egern's 「分析」), and a
+/// bold left-aligned title row above 首页's pinned header.
 struct TabRootChrome: ViewModifier {
     let title: LocalizedStringKey
-    var showsTitle: Bool = false
+    var showsTitle: Bool = true
 
     func body(content: Content) -> some View {
         content
             .navigationTitle(title)
-            .navigationBarTitleDisplayMode(.inline)
+            .navigationBarTitleDisplayMode(showsTitle ? .large : .inline)
             .toolbar(.visible, for: .navigationBar)
-            .toolbar {
-                ToolbarItem(placement: .principal) {
-                    Text(title)
-                        .font(.headline)
-                        .lineLimit(1)
-                        // Hidden visually, still read by VoiceOver as the page heading.
-                        .foregroundStyle(showsTitle ? Color.primary : Color.clear)
-                        .accessibilityAddTraits(.isHeader)
-                        .accessibilityIdentifier("tabroot.title")
-                }
-            }
     }
 }
 
@@ -56,9 +47,18 @@ struct TabRootPinnedChrome<Header: View>: ViewModifier {
             .onPreferenceChange(TabRootScrollKey.self) { probeY = $0 }
             .safeAreaInset(edge: .top, spacing: 0) {
                 VStack(spacing: 0) {
+                    // Egern-style centred page title, same height as the other tabs' inline bar row.
+                    Text(title)
+                        .font(.title.weight(.bold))
+                        .lineLimit(1)
+                        .frame(maxWidth: .infinity, alignment: .leading)
+                        .padding(.horizontal, 16)
+                        .frame(height: 44)
+                        .accessibilityAddTraits(.isHeader)
+                        .accessibilityIdentifier("tabroot.title")
                     header()
                         .padding(.horizontal, 16)
-                        .padding(.top, 6)
+                        .padding(.top, 0)
                         .padding(.bottom, 8)
                     Rectangle()
                         .fill(Color(uiColor: .separator))
@@ -80,13 +80,6 @@ struct TabRootPinnedChrome<Header: View>: ViewModifier {
                         .onChange(of: g.frame(in: .global).maxY) { headerBottom = $0 }
                 })
                 .animation(.easeInOut(duration: 0.15), value: scrolled)
-                .overlay(alignment: .topLeading) {
-                    // The page heading for VoiceOver (the tab bar shows the name; nothing drawn here).
-                    Text(title).font(.caption2).foregroundStyle(Color.clear)
-                        .frame(width: 1, height: 1).clipped()
-                        .accessibilityAddTraits(.isHeader)
-                        .accessibilityIdentifier("tabroot.title")
-                }
             }
     }
 }
@@ -109,7 +102,7 @@ struct TabRootScrollKey: PreferenceKey {
 
 extension View {
     /// The shared top of a tab root (策略, 请求, 工具, 更多). Keep the page's own `.toolbar` for its buttons.
-    func tabRootChrome(_ title: LocalizedStringKey, showsTitle: Bool = false) -> some View {
+    func tabRootChrome(_ title: LocalizedStringKey, showsTitle: Bool = true) -> some View {
         modifier(TabRootChrome(title: title, showsTitle: showsTitle))
     }
 

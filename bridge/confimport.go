@@ -10,6 +10,7 @@ import (
 	"net/url"
 	"regexp"
 	"strings"
+	"unicode"
 
 	"github.com/astemo6/mihomo-ios/bridge/mitm"
 
@@ -33,6 +34,10 @@ type confReport struct {
 	Notes     []string `json:"notes"`
 	// v0.13.1: remote entries switched off in the original config (enabled=false) — not failures.
 	Disabled []string `json:"disabled,omitempty"`
+	// P0-1 (v0.19.17): rule lines / rule lists of the original that are NOT in the profile (also listed in
+	// Skipped). A note always says so, so a dropped rule list (e.g. a WeChat filter_remote whose force-policy
+	// names no group) can never disappear silently.
+	RulesSkipped int `json:"rulesSkipped,omitempty"`
 }
 
 type remoteModule struct {
@@ -157,6 +162,11 @@ func builtinPolicy(s string) string {
 
 // ImportConf converts a Surge or Quantumult X profile to mihomo. Returns JSON {yaml, module, report, error}.
 func ImportConf(text string) string {
+	b, _ := json.Marshal(importConf(text))
+	return string(b)
+}
+
+func importConf(text string) confResult {
 	res := confResult{Report: confReport{Skipped: []string{}, Notes: []string{}}}
 	order, secs := splitSections(text)
 	_, isQX := secs["server_local"]
@@ -174,8 +184,7 @@ func ImportConf(text string) string {
 		res.Report.Format = "surge"
 	} else {
 		res.Error = "未识别为 Surge 或 Quantumult X 配置（缺少 [Proxy]/[Rule] 或 [server_local]/[policy] 段）"
-		b, _ := json.Marshal(res)
-		return string(b)
+		return res
 	}
 	rep := &res.Report
 	// QX [general] keys (v0.11), read up front: server_check_url is the default health-check URL of the
@@ -200,9 +209,12 @@ func ImportConf(text string) string {
 	var groups []any
 	groupNames := map[string]bool{}
 	proxyNames := map[string]bool{}
+	skippedOver := 0 // P0-1: entries past the 200-line cap are counted and reported, never dropped silently
 	skip := func(sec, line, why string) {
 		if len(rep.Skipped) < 200 {
 			rep.Skipped = append(rep.Skipped, fmt.Sprintf("[%s] %s — %s", sec, line, why))
+		} else {
+			skippedOver++
 		}
 	}
 
@@ -292,6 +304,7 @@ func ImportConf(text string) string {
 		for _, l := range nonEmpty(secs["policy"]) {
 			k, v, ok := strings.Cut(l, "=")
 			if !ok {
+				skip("policy", l, "无法识别的策略组行（缺少「=」）")
 				continue
 			}
 			typ, known := qxGroupType[strings.ToLower(strings.TrimSpace(k))]
@@ -300,7 +313,8 @@ func ImportConf(text string) string {
 				continue
 			}
 			parts := splitParams(v)
-			if len(parts) == 0 {
+			if len(parts) == 0 || strings.TrimSpace(parts[0]) == "" {
+				skip("policy", l, "策略组没有名称")
 				continue
 			}
 			g := parseGroup(parts[0], typ, parts[1:])
@@ -532,14 +546,37 @@ func ImportConf(text string) string {
 	if isQX {
 		ruleSec = "filter_local"
 	}
+	// P0-1: policy names are resolved exactly first (mitm.ResolvePolicy); a name that only differs in quotes,
+	// spaces, emoji variation selectors, zero-width characters or letter case from exactly one group / node
+	// (QX tolerates these, e.g. force-policy="微信消息" or 微信 消息) resolves to it, with a note.
+	rulesSkipped := 0
+	resolvePol := func(pol string) (string, bool) {
+		pol = unquotePolicy(pol)
+		if p, ok := mitm.ResolvePolicy(pol, gl, pl, firstSelect); ok {
+			return p, true
+		}
+		if p, ok := loosePolicyMatch(pol, gl, pl); ok {
+			rep.Notes = append(rep.Notes, "策略「"+pol+"」按近似名称匹配为「"+p+"」")
+			return p, true
+		}
+		return "", false
+	}
+	missingPol := func(pol string) string {
+		return "策略「" + unquotePolicy(pol) + "」不存在（原配置的 [policy] 中没有同名策略组或节点），" + "这一项未导入"
+	}
 	// v0.8.1: readable provider names (QX tag or file name, de-duplicated), source URL kept in `url`,
 	// conversion recorded as x-convert; the cache file name stays hash-based.
 	byList := map[string]string{}
-	addRemote := func(u, kind, pol, line, tag string) {
-		p, ok := mitm.ResolvePolicy(pol, gl, pl, firstSelect)
+	addRemote := func(sec, u, kind, pol, line, tag string, interval int) {
+		p, ok := resolvePol(pol)
 		if !ok {
-			skip(ruleSec, line, "策略「"+pol+"」不存在")
+			// P0-1: the whole list is left out; say so in the right section and count it as a lost rule list.
+			skip(sec, line, "整个规则列表未导入："+missingPol(pol))
+			rulesSkipped++
 			return
+		}
+		if interval <= 0 {
+			interval = 86400
 		}
 		// v0.12: "list-own" = QX filter_remote without force-policy; every line keeps its own policy
 		// once the app has downloaded the list (ProviderStore "list-split" + expandOwnPolicyProviders).
@@ -560,7 +597,7 @@ func ImportConf(text string) string {
 				pk = "list-own"
 			}
 			providers[name] = map[string]any{"type": "http", "behavior": behavior, "format": "text", "url": u, "x-convert": kind,
-				"path": "./ruleset/" + providerNameFor(u, pk) + ".txt", "interval": 86400}
+				"path": "./ruleset/" + providerNameFor(u, pk) + ".txt", "interval": interval}
 			if own {
 				providers[name].(map[string]any)["x-own-policy"] = true
 			}
@@ -576,15 +613,16 @@ func ImportConf(text string) string {
 			continue
 		}
 		if c.RemoteURL != "" {
-			addRemote(c.RemoteURL, c.RemoteKind, c.Policy, l, "")
+			addRemote(ruleSec, c.RemoteURL, c.RemoteKind, c.Policy, l, "", 0)
 			continue
 		}
 		if c.Rule == "" {
 			continue
 		}
-		pol, ok := mitm.ResolvePolicy(c.Policy, gl, pl, firstSelect)
+		pol, ok := resolvePol(c.Policy)
 		if !ok {
-			skip(ruleSec, l, "策略「"+c.Policy+"」不存在")
+			skip(ruleSec, l, missingPol(c.Policy))
+			rulesSkipped++
 			continue
 		}
 		if c.Type == "MATCH" {
@@ -606,9 +644,10 @@ func ImportConf(text string) string {
 			switch head {
 			case "FILTER_LAN", "FILTER_REGION":
 				// v0.11: QX built-in lists.
-				pol, ok := mitm.ResolvePolicy(firstNonEmpty(opts["force-policy"], "direct"), gl, pl, firstSelect)
+				pol, ok := resolvePol(firstNonEmpty(opts["force-policy"], "direct"))
 				if !ok {
-					skip("filter_remote", l, "策略「"+opts["force-policy"]+"」不存在")
+					skip("filter_remote", l, missingPol(opts["force-policy"]))
+					rulesSkipped++
 					continue
 				}
 				if head == "FILTER_LAN" {
@@ -625,15 +664,16 @@ func ImportConf(text string) string {
 					if qxLineDisabled(l) {
 						rep.Disabled = append(rep.Disabled, "[filter_remote] "+qxRemoteLabel(l))
 					} else {
-						skip("filter_remote", l, "无效的规则列表地址")
+						skip("filter_remote", l, "整个规则列表未导入：无效的规则列表地址（需要 http:// 或 https:// 开头）")
+						rulesSkipped++
 					}
 					continue
 				}
-				if opts["force-policy"] == "" {
+				if unquotePolicy(opts["force-policy"]) == "" {
 					rep.Notes = append(rep.Notes, "filter_remote 未指定 force-policy：下载后按列表内每行自己的策略分流（不存在的策略自动创建为手动选择组），下载前整份列表走 proxy："+sp.Tag)
-					addRemote(sp.URL, "list-own", sp.Policy, l, sp.Tag)
+					addRemote("filter_remote", sp.URL, "list-own", sp.Policy, l, sp.Tag, sp.Interval)
 				} else {
-					addRemote(sp.URL, "list", sp.Policy, l, sp.Tag)
+					addRemote("filter_remote", sp.URL, "list", sp.Policy, l, sp.Tag, sp.Interval)
 				}
 			}
 			// inserted-resource=true: QX checks these before the local rules.
@@ -842,6 +882,13 @@ func ImportConf(text string) string {
 		}
 	}
 	rep.Proxies, rep.Groups, rep.Rules, rep.Providers = len(proxies), len(groups), len(rules), len(providers)+len(proxyProviders)
+	if rulesSkipped > 0 {
+		rep.RulesSkipped = rulesSkipped
+		rep.Notes = append([]string{fmt.Sprintf("注意：原配置中有 %d 条分流规则 / 规则列表没有导入（见「未转换」），相应流量会改走其他规则；修正原配置后重新导入即可找回", rulesSkipped)}, rep.Notes...)
+	}
+	if skippedOver > 0 {
+		rep.Skipped = append(rep.Skipped, fmt.Sprintf("…… 另有 %d 项未转换，未逐条列出", skippedOver))
+	}
 	if len(proxyProviders) > 0 {
 		rep.Notes = append(rep.Notes, fmt.Sprintf("[server_remote] 的 %d 个节点订阅已转为节点集（连接时下载）", len(proxyProviders)))
 	}
@@ -854,8 +901,7 @@ func ImportConf(text string) string {
 	} else {
 		res.YAML = string(y)
 	}
-	b, _ := json.Marshal(res)
-	return string(b)
+	return res
 }
 
 // rewriteConvertProviders points providers that need a format conversion at the local converter for the
@@ -1041,3 +1087,51 @@ func stripReservedOutbound(proxies, groups []any, rep *confReport) ([]any, []any
 // differently; mihomo's unified delay includes the TLS / proxy handshake, so a 2000 ms import made most nodes
 // 超时 (device report). Clamped to 5000–10000 ms.
 func importedCheckTimeout(n int) int { return max(5000, min(n, 10000)) }
+
+// unquotePolicy (P0-1) trims spaces and one pair of surrounding quotes from a policy name
+// (force-policy="微信消息" / '微信消息').
+func unquotePolicy(s string) string {
+	s = strings.TrimSpace(s)
+	for _, q := range []string{`"`, `'`, "“", "”"} {
+		s = strings.TrimPrefix(s, q)
+		s = strings.TrimSuffix(s, q)
+	}
+	return strings.TrimSpace(s)
+}
+
+// policyKey folds a policy name for loosePolicyMatch: no whitespace (incl. U+3000), quotes, emoji
+// variation selectors or zero-width characters, lower case.
+func policyKey(s string) string {
+	return strings.ToLower(strings.Map(func(r rune) rune {
+		switch {
+		case unicode.IsSpace(r), r == '"', r == '\'', r == '“', r == '”',
+			r == 0xFE0E, r == 0xFE0F, r == 0x200B, r == 0x200C, r == 0x200D, r == 0x2060, r == 0xFEFF:
+			return -1
+		}
+		return r
+	}, s))
+}
+
+// loosePolicyMatch (P0-1) finds the one group (else the one node) whose folded name equals pol's. Two or
+// more candidates = no match (never guess between them).
+func loosePolicyMatch(pol string, groups, proxies []string) (string, bool) {
+	k := policyKey(pol)
+	if k == "" {
+		return "", false
+	}
+	for _, list := range [][]string{groups, proxies} {
+		found, n := "", 0
+		for _, g := range list {
+			if policyKey(g) == k {
+				found, n = g, n+1
+			}
+		}
+		if n == 1 {
+			return found, true
+		}
+		if n > 1 {
+			return "", false
+		}
+	}
+	return "", false
+}

@@ -74,7 +74,10 @@ final class NetworkWatcher {
         let mySeq = seq
         // 接管所有网络流量: the interface the core binds its sockets to (only used while includeAllNetworks is on).
         // Immediately, not debounced: new dials must leave through the network the device is on now.
-        let physical = path.status == .satisfied ? (path.availableInterfaces.first?.name ?? "") : ""
+        // Only a physical interface: with includeAllNetworks the extension's own path can list the tunnel (utun /
+        // ipsec, type .other) first, and binding the core to it loops every socket back into the tunnel.
+        let physIface = path.availableInterfaces.first { [.wifi, .cellular, .wiredEthernet].contains($0.type) }
+        let physical = path.status == .satisfied ? (physIface?.name ?? "") : ""
         LibmihomoSetPhysicalInterface(physical)
         guard path.status == .satisfied else { return }
         let iface = path.availableInterfaces.first

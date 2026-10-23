@@ -206,6 +206,14 @@ struct GroupEditorView: View {
                 }))
             }
             Toggle("包含全部节点", isOn: Binding(get: { spec.includeAll == true }, set: { spec.includeAll = $0 ? true : nil }))
+            // User report 2026-10-22: a group with include-all-proxies (QX/Surge import, or the YAML itself) listed 9 members
+            // here but ran with 33 — the flag had no switch, so it could be neither seen nor turned off.
+            Toggle("包含全部本地节点", isOn: Binding(get: { spec.includeAllProxies == true }, set: { spec.includeAllProxies = $0 ? true : nil }))
+                .accessibilityIdentifier("groupeditor.includeAllProxies")
+            if !specs.providers.isEmpty || spec.includeAllProviders == true {
+                Toggle("包含全部节点集", isOn: Binding(get: { spec.includeAllProviders == true }, set: { spec.includeAllProviders = $0 ? true : nil }))
+                    .accessibilityIdentifier("groupeditor.includeAllProviders")
+            }
             TextField("筛选（正则，保留匹配的节点）", text: Binding(get: { spec.filter ?? "" }, set: { spec.filter = $0.isEmpty ? nil : $0 }))
                 .textInputAutocapitalization(.never).autocorrectionDisabled()
                 .scaledFont(13, design: .monospaced)
@@ -214,7 +222,7 @@ struct GroupEditorView: View {
                 .scaledFont(13, design: .monospaced)
             filterPreview
         } header: { Text("节点集与筛选") } footer: {
-            Text("筛选作用于节点集和「包含全部节点」带来的节点；预览按已缓存的节点计算。")
+            Text("筛选作用于节点集和「包含全部…」带来的节点；预览按已缓存的节点计算。")
         }
         .listRowBackground(Theme.card)
 
@@ -307,8 +315,10 @@ struct GroupEditorView: View {
     /// Nodes the group would get from `use` providers / include-all after filter + exclude-filter.
     var previewNodes: [String] {
         var pool: [String] = []
-        if spec.includeAll == true { pool += offline.result.proxies.map(\.name) }
-        for pv in offline.result.proxyProviders where spec.includeAll == true || (spec.use ?? []).contains(pv.name) {
+        let allProxies = spec.includeAll == true || spec.includeAllProxies == true
+        let allProviders = spec.includeAll == true || spec.includeAllProviders == true
+        if allProxies { pool += offline.result.proxies.map(\.name) }
+        for pv in offline.result.proxyProviders where allProviders || (spec.use ?? []).contains(pv.name) {
             pool += (pv.proxies ?? []).map(\.name)
         }
         func matches(_ pattern: String?, _ s: String) -> Bool? {

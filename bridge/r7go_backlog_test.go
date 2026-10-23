@@ -170,7 +170,11 @@ func TestR7B31ClassifyHugeTextBounded(t *testing.T) {
 	if c := ClassifyText(huge); c != "" {
 		t.Fatalf("junk classified as %q", c)
 	}
-	if d := time.Since(st); d > 2*time.Second {
+	limit := 2 * time.Second
+	if raceEnabled {
+		limit = 10 * time.Second // the race detector slows this byte loop ~5x; the bound is checked in the plain run
+	}
+	if d := time.Since(st); d > limit {
 		t.Fatalf("ClassifyText took %v on 50 MB", d)
 	}
 	// A big profile whose `proxies:` sits after the head still is a profile.

@@ -216,6 +216,7 @@ func stopRuleHits(home string) {
 func FlushRuleHits() {
 	if running.Load() {
 		flushRuleHits(curHomeStr())
+		statsRec.save(false) // P0-2: the extension calls this on sleep / flushStats; keep the session stats too
 	}
 }
 

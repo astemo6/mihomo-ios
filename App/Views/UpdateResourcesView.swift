@@ -9,6 +9,11 @@ struct UpdateResourcesView: View {
     @ObservedObject private var profiles = ProfileStore.shared
     @ObservedObject private var subs = NodeSubStore.shared
     @ObservedObject private var res = ResourceStore.shared
+    // User 2026-10-22 「不要特别体现配置自带…直接展开」: the profile's own rule sets / node sets sit in the same
+    // 规则集 / 节点订阅 sections as the ones the user added, with no "from the profile" label.
+    @ObservedObject private var offline = ProfileInspector.shared
+    @ObservedObject private var providers = ProviderUpdater.shared
+    @ObservedObject private var vpn = VPNManager.shared
     /// Profile update errors of this visit (profiles.json keeps no last error).
     @State private var profileErrors: [String: String] = [:]
     @State private var updatingAll = false
@@ -17,9 +22,49 @@ struct UpdateResourcesView: View {
     var remoteProfiles: [Profile] { profiles.profiles.filter { $0.kind == .remote } }
     func items(_ kind: String) -> [ResourceItem] { res.items.filter { $0.kind == kind && $0.isRemote } }
 
+    /// The active profile's downloadable rule sets, minus the user's own (already listed as ResourceItems).
+    var profileRuleSets: [InspectProvider] {
+        let mine = Set(items("ruleset").map(\.url))
+        return offline.result.ruleProviders.filter { $0.vehicle == "http" && !mine.contains($0.url ?? "") }
+    }
+
+    /// The active profile's downloadable node sets, minus the ones generated from the user's node subscriptions.
+    var profileNodeSets: [InspectProvider] {
+        let mine = Set(subs.subs.map(\.name))
+        return offline.result.proxyProviders.filter { $0.vehicle == "http" && !mine.contains($0.name) }
+    }
+
+    @ViewBuilder
+    func providerRow(_ p: InspectProvider, symbol: String, tone: TileTone) -> some View {
+        ResourceUpdateRow(kind: p.kind == "proxy" ? "nodesub" : "ruleset", name: p.name, url: p.url ?? "", symbol: symbol, tone: tone,
+                          updated: p.cachedDate, error: providers.errors[p.id],
+                          busy: providers.busy.contains(p.id)) {
+            Task { await updateProvider(p) }
+        }
+    }
+
+    /// Connected: the core downloads and swaps it in place. Disconnected: the app downloads it (ProviderUpdater
+    /// reloads the tunnel itself when it is up).
+    func updateProvider(_ p: InspectProvider) async {
+        if !(await coreUpdate(p)) { await providers.update(p.id) }
+        await offline.load()
+    }
+
+    /// Connected: asks the core to refresh the set in place (no reload). False when disconnected or the core failed.
+    func coreUpdate(_ p: InspectProvider) async -> Bool {
+        guard vpn.isConnected else { return false }
+        do {
+            if p.kind == "proxy" { try await ControllerClient.shared.updateProxyProvider(p.name) }
+            else { try await ControllerClient.shared.updateRuleProvider(p.name) }
+            return true
+        } catch {
+            return false
+        }
+    }
+
     var body: some View {
         List {
-            if remoteProfiles.isEmpty && subs.subs.isEmpty && res.items.allSatisfy({ !$0.isRemote }) {
+            if remoteProfiles.isEmpty && subs.subs.isEmpty && res.items.allSatisfy({ !$0.isRemote }) && profileRuleSets.isEmpty && profileNodeSets.isEmpty {
                 Section {
                     EmptyStateRow(icon: "arrow.triangle.2.circlepath", title: "没有远程资源",
                                   message: "添加的订阅、远程模块、规则集和脚本会列在这里，可以逐个或一次全部更新。")
@@ -37,11 +82,14 @@ struct UpdateResourcesView: View {
                                 profileErrors[p.id] = e
                             }
                         }
+                        .enableActions(enabled: p.enabled, id: "profile.\(p.displayName)") { on in
+                            if let e = profiles.setEnabled(p, on) { message = e }
+                        }
                     }
                 } header: { Text("配置订阅 \(remoteProfiles.count)") }
                 .listRowBackground(Theme.card)
             }
-            if !subs.subs.isEmpty {
+            if !subs.subs.isEmpty || !profileNodeSets.isEmpty {
                 Section {
                     ForEach(subs.subs) { s in
                         ResourceUpdateRow(kind: "nodesub", name: s.name, url: s.url, symbol: "tray.2.fill", tone: .teal,
@@ -49,15 +97,21 @@ struct UpdateResourcesView: View {
                                           busy: subs.updating.contains(s.id)) {
                             Task { _ = await subs.refresh(s) }
                         }
+                        .enableActions(enabled: s.enabled, id: "nodesub.\(s.name)") { on in
+                            var c = s
+                            c.enabled = on
+                            Task { await subs.save(c) }
+                        }
                     }
-                } header: { Text("节点订阅 \(subs.subs.count)") }
+                    ForEach(profileNodeSets) { p in providerRow(p, symbol: "tray.2.fill", tone: .teal) }
+                } header: { Text("节点订阅 \(subs.subs.count + profileNodeSets.count)") }
                 .listRowBackground(Theme.card)
             }
             resourceSection("module", symbol: "puzzlepiece.extension.fill", tone: .green) { Text("模块 \($0)") }
-            resourceSection("ruleset", symbol: "list.bullet.rectangle.fill", tone: .orange) { Text("规则集 \($0)") }
+            resourceSection("ruleset", symbol: "list.bullet.rectangle.fill", tone: .orange, extra: profileRuleSets) { Text("规则集 \($0)") }
             resourceSection("script", symbol: "curlybraces", tone: .purple) { Text("脚本 \($0)") }
             Section {} footer: {
-                Text("配置文件里的规则集和节点集（rule-providers / proxy-providers）由内核按配置更新，也可在「工具 → 分流规则 → 配置里的规则集」和「工具 → 节点与订阅」中手动更新。")
+                Text("向右轻扫或按住某一项可以启用 / 停用。有更新时自动下载并应用到当前配置。")
             }
         }
         .listStyle(.insetGrouped)
@@ -72,26 +126,37 @@ struct UpdateResourcesView: View {
                 }
             }
         }
-        .task { await res.reloadInBackground() }
+        .task { await res.reloadInBackground(); await offline.load() }
         .alert("更新资源", isPresented: Binding(get: { message != nil }, set: { if !$0 { message = nil } })) {
             Button("好", role: .cancel) {}
         } message: { Text(message ?? "") }
     }
 
     @ViewBuilder
-    func resourceSection(_ kind: String, symbol: String, tone: TileTone, header: @escaping (Int) -> Text) -> some View {
+    func resourceSection(_ kind: String, symbol: String, tone: TileTone, extra: [InspectProvider] = [], header: @escaping (Int) -> Text) -> some View {
         let list = items(kind)
-        if !list.isEmpty {
+        if !list.isEmpty || !extra.isEmpty {
             Section {
                 ForEach(list) { it in
                     ResourceUpdateRow(kind: kind, name: it.name, url: it.url, symbol: symbol, tone: tone,
                                       updated: it.updatedAt > 0 ? Date(timeIntervalSince1970: it.updatedAt) : nil,
                                       error: it.error, disabled: !it.enabled,
+                                      owner: kind == "script" ? it.owner : nil,
                                       busy: res.busy.contains(it.key) || res.updatingAll) {
                         Task { await res.update(it); res.message = nil }
                     }
+                    .enableActions(enabled: it.enabled, id: "\(kind).\(it.name)") { on in
+                        if kind == "module", let id = it.refId {
+                            // Same path as 工具 → 模块 (also turns the rewrite engine on when a module is enabled).
+                            EngineStore.shared.setModuleEnabled(id, on)
+                            res.reload()
+                        } else {
+                            res.setEnabled(it, on)
+                        }
+                    }
                 }
-            } header: { header(list.count) }
+                ForEach(extra) { p in providerRow(p, symbol: symbol, tone: tone) }
+            } header: { header(list.count + extra.count) }
             .listRowBackground(Theme.card)
         }
     }
@@ -108,9 +173,38 @@ struct UpdateResourcesView: View {
         }
         failed += await subs.refreshAll().count
         await res.updateAll()
+        let sets = profileRuleSets + profileNodeSets
+        // Review 0.19.18 S1: sets the core could not refresh are downloaded by the app in ONE batch, so the
+        // tunnel reloads at most once (not once per failed set).
+        var fallback: [String] = []
+        for p in sets where !(await coreUpdate(p)) { fallback.append(p.id) }
+        if !fallback.isEmpty {
+            failed += await providers.updateAll(only: Set(fallback)).failed
+        }
+        if !sets.isEmpty { await offline.load() }
         res.message = nil
         failed += res.items.filter { $0.isRemote && $0.enabled && !($0.error ?? "").isEmpty }.count
         message = failed == 0 ? String(localized: "已全部更新") : String(localized: "\(failed) 项更新失败，详见列表")
+    }
+}
+
+private extension View {
+    /// User 2026-10-22: 「点进去没有启用的选项，禁用的启用不了，启用的无法禁用」 — each row can be turned on / off right
+    /// here: swipe right, or touch and hold.
+    func enableActions(enabled: Bool, id: String, set: @escaping (Bool) -> Void) -> some View {
+        self
+            .swipeActions(edge: .leading, allowsFullSwipe: true) {
+                Button { set(!enabled) } label: {
+                    Label(LocalizedStringKey(enabled ? "停用" : "启用"), systemImage: enabled ? "pause.circle" : "play.circle")
+                }
+                .tint(enabled ? Color.gray : Theme.good)
+                .accessibilityIdentifier("res.toggle.\(id)")
+            }
+            .contextMenu {
+                Button { set(!enabled) } label: {
+                    Label(LocalizedStringKey(enabled ? "停用" : "启用"), systemImage: enabled ? "pause.circle" : "play.circle")
+                }
+            }
     }
 }
 
@@ -123,8 +217,13 @@ struct ResourceUpdateRow: View {
     var updated: Date?
     var error: String?
     var disabled = false
+    /// User 2026-10-22: a remote script's source — the rewrite subscription(s) / modules that reference it, or 脚本
+    /// for the user's own script lines.
+    var owner: String? = nil
     var busy = false
     let update: () -> Void
+    /// User 2026-10-22: 「默认折叠，展开后才显示」 — the source line stays hidden until the row is tapped.
+    @State private var expanded = false
 
     /// 「https://sub.example.com/api/v1/client/subscribe?token=abc」 → 「sub.example.com/…」; a link without a host
     /// (local file, malformed) shows only its last path component.
@@ -148,10 +247,19 @@ struct ResourceUpdateRow: View {
         HStack(alignment: .top, spacing: 12) {
             IconTile(symbol: symbol, tone: tone, dimmed: disabled)
             VStack(alignment: .leading, spacing: 3) {
-                Text(verbatim: name).foregroundStyle(disabled ? Color.secondary : Color.primary).lineLimit(1)
+                HStack(spacing: 4) {
+                    Text(verbatim: name).foregroundStyle(disabled ? Color.secondary : Color.primary).lineLimit(1)
+                    if let owner, !owner.isEmpty {
+                        Image(systemName: expanded ? "chevron.up" : "chevron.down")
+                            .font(.caption2.weight(.semibold)).foregroundStyle(.tertiary)
+                    }
+                }
                 // r7 P3-6: host only — subscription links usually carry a token (?token=…, /api/v1/client/<token>)
                 // that a screenshot or screen recording would leak.
                 Text(verbatim: Self.displayURL(url)).font(.caption2.monospaced()).foregroundStyle(.secondary).lineLimit(1).truncationMode(.middle)
+                if expanded, let owner, !owner.isEmpty {
+                    Text("来自 \(owner)").font(.caption).foregroundStyle(.secondary).fixedSize(horizontal: false, vertical: true)
+                }
                 HStack(spacing: 6) {
                     if disabled {
                         Text("已停用")
@@ -166,6 +274,11 @@ struct ResourceUpdateRow: View {
                     Label { Text(verbatim: error).lineLimit(2) } icon: { Image(systemName: "exclamationmark.triangle.fill") }
                         .font(.caption).foregroundStyle(Theme.bad)
                 }
+            }
+            .contentShape(Rectangle())
+            .onTapGesture {
+                guard let owner, !owner.isEmpty else { return }
+                withAnimation(.easeInOut(duration: 0.15)) { expanded.toggle() }
             }
             Spacer(minLength: 6)
             if busy {

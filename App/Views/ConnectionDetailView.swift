@@ -136,14 +136,19 @@ struct ConnectionDetailView: View {
     var ruleSection: some View {
         Section {
             LabeledContent("规则") {
+                // fix/rule-labels: same text as the 连接 row and the Home 规则 card (RuleDisplay).
                 HStack(spacing: 6) {
-                    if let r = current.rule, !r.isEmpty { RuleTypeTag(type: Theme.ruleTypeName(r)) }
-                    if let p = current.rulePayload, !p.isEmpty { Text(verbatim: p).font(.caption.monospaced()).lineLimit(1).truncationMode(.middle) }
-                    if (current.rule ?? "").isEmpty { Text(verbatim: "—").foregroundStyle(.secondary) }
+                    if let r = current.rule, !r.isEmpty {
+                        let parts = RuleDisplay.describe(type: r, payload: current.rulePayload, policy: current.chains?.first)
+                        if !parts.type.isEmpty { RuleTypeTag(type: parts.type, key: parts.key) }
+                        Text(verbatim: parts.primary).font(.caption).lineLimit(1).truncationMode(.middle)
+                    } else {
+                        Text(verbatim: "—").foregroundStyle(.secondary)
+                    }
                 }
             }
             if !current.chainText.isEmpty {
-                LabeledContent("策略链") { PolicyChip(name: current.chainText) }
+                LabeledContent("策略链") { PolicyChip(name: RuleDisplay.chainText(current.chains)) }
             }
         } header: {
             Text("规则")
@@ -451,7 +456,9 @@ struct HostAggregateRow: View {
                 Text("\(h.connections.count) 个连接").font(.caption).foregroundStyle(.secondary)
             }
             HStack(spacing: 6) {
-                if let p = h.policies.first { PolicyChip(name: p) }
+                if let p = h.policies.first {
+                    PolicyChip(name: p.replacingOccurrences(of: RuleDisplay.engineOutbound, with: RuleDisplay.policyName(RuleDisplay.engineOutbound)))
+                }
                 if h.policies.count > 1 { Text(verbatim: "+\(h.policies.count - 1)").font(.caption2).foregroundStyle(.secondary) }
                 Spacer(minLength: 4)
                 if h.active > 0 { Text("活跃 \(h.active)").font(.caption2).foregroundStyle(Theme.good) }

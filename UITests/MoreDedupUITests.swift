@@ -38,9 +38,10 @@ extension MihomoUITests {
         app.swipeDown(velocity: .fast); app.swipeDown(velocity: .fast)
         snap("dedup-modules-1")
         back()
-        // 配置里的规则集 moved to 分流规则.
-        openMore("规则集（配置）")
-        assertAlive("规则 → 配置里的规则集")
+        // Loon-style 规则 (2026-10-22): rule sets are 订阅 on 规则 itself.
+        openMore("规则")
+        XCTAssertTrue(app.element(id: "rules.local").waitForExistence(timeout: 6), "规则 → 本地规则")
+        assertAlive("规则")
         back()
 
         // 更多: settings-type rows only, 配置 first.

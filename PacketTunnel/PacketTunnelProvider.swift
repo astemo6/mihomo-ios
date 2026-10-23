@@ -6,6 +6,8 @@ import UserNotifications
 /// Posts local notifications for scripts ($notification.post / $notify).
 final class ScriptNotifier: NSObject, LibmihomoNotifierProtocol {
     func notify(_ payload: String?) {
+        // 更多 → 通知 → 脚本通知 (default on); the notice is still recorded by the core.
+        if AppShared.defaults.object(forKey: "notify.scripts") as? Bool == false { return }
         guard let data = payload?.data(using: .utf8),
               let n = try? JSONDecoder().decode(ScriptNotification.self, from: data) else { return }
         let content = UNMutableNotificationContent()

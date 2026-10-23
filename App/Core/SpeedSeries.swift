@@ -54,6 +54,18 @@ struct SpeedSeries: Equatable {
         return result
     }
 
+    /// P0-2: replace the series with points the tunnel recorded (oldest first, one per second, newest at lastAt) —
+    /// on return to the foreground the chart shows the last minute instead of starting empty. Fewer than `capacity`
+    /// points are padded with the empty baseline in front, exactly like a fresh connect.
+    mutating func seed(up u: [Int64], down d: [Int64], lastAt at: Date) {
+        guard !u.isEmpty, u.count == d.count else { return }
+        let pad = Array(repeating: Int64(0), count: Self.capacity)
+        up = Array((pad + u.map { max($0, 0) }).suffix(Self.capacity))
+        down = Array((pad + d.map { max($0, 0) }).suffix(Self.capacity))
+        lastAt = at
+        heartbeatAt = nil
+    }
+
     mutating func reset() {
         up = Array(repeating: 0, count: Self.capacity)
         down = Array(repeating: 0, count: Self.capacity)

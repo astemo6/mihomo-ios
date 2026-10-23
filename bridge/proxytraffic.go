@@ -47,6 +47,15 @@ type ptEntry struct {
 	// Inverted on purpose so an entry made elsewhere with the zero value (e.g. a start-time seed) is counted.
 	uncounted bool
 	seen      uint32
+	// P0-2 stats recorder: the connection's final policy (chains.last) and host, filled once (meta).
+	policy, host string
+	meta         bool
+}
+
+func (e *ptEntry) fillMeta(info *statistic.TrackerInfo) {
+	if !e.meta {
+		e.policy, e.host, e.meta = statsPolicy(info), statsHostName(info.Metadata), true
+	}
 }
 
 type proxyTraffic struct {
@@ -73,6 +82,10 @@ type proxyTraffic struct {
 	totUp, totDown     int64 // manager totals at the last sample
 	carryUp, carryDown int64 // <= 0: bytes seen trackers counted ahead of the totals read
 	seenProxy, seenAll int64 // lifetime bytes of seen counted trackers (for the share fallback)
+
+	// rec (P0-2) records connections, hits, per-policy / per-host bytes and the speed history from this same
+	// pass. nil in unit tests that only test the accounting.
+	rec *statsRecorder
 }
 
 var proxyTrafficStats = newLiveProxyTraffic()
@@ -80,6 +93,7 @@ var proxyTrafficStats = newLiveProxyTraffic()
 func newLiveProxyTraffic() *proxyTraffic {
 	p := newProxyTraffic()
 	p.totals = statistic.DefaultManager.Total
+	p.rec = statsRec
 	return p
 }
 
@@ -177,6 +191,11 @@ func (p *proxyTraffic) sample(rangeTrackers func(func(statistic.Tracker) bool), 
 	if p.last.IsZero() {
 		p.haveTot = false // fresh start: the totals baseline is taken in this sample
 	}
+	rec := p.rec
+	if rec != nil {
+		rec.mu.Lock() // lock order: p.mu, then rec.mu (rec never takes p.mu)
+		defer rec.mu.Unlock()
+	}
 	var tu, td int64
 	if p.totals != nil {
 		tu, td = p.totals() // before the trackers: their counters may only be ahead of this read, never behind
@@ -196,6 +215,10 @@ func (p *proxyTraffic) sample(rangeTrackers func(func(statistic.Tracker) bool), 
 		if !e.uncounted {
 			allUp += du
 			allDown += dd
+			if rec != nil && (du > 0 || dd > 0) {
+				e.fillMeta(info)
+				rec.bytesLocked(e.policy, e.host, du, dd)
+			}
 		}
 		if e.proxy {
 			dUp += du
@@ -213,6 +236,10 @@ func (p *proxyTraffic) sample(rangeTrackers func(func(statistic.Tracker) bool), 
 			e.uncounted = !pushesToManager(t)
 			e.proxy = !e.uncounted && p.leafIsProxy(info)
 			p.entries[info] = e
+			if rec != nil {
+				e.fillMeta(info)
+				rec.openedLocked(info, e.policy)
+			}
 		}
 		e.seen = p.epoch
 		add(info, e)
@@ -224,10 +251,15 @@ func (p *proxyTraffic) sample(rangeTrackers func(func(statistic.Tracker) bool), 
 		}
 		// Closed since the last sample: its counters are final now.
 		add(info, e)
+		if rec != nil {
+			rec.closedLocked(info, now)
+		}
 		delete(p.entries, info)
 	}
+	allRU, allRD := allUp, allDown // all-scope bytes this interval (the manager's totals when known)
 	if p.totals != nil {
 		if p.haveTot {
+			allRU, allRD = tu-p.totUp, td-p.totDown
 			ru := (tu - p.totUp) - allUp + p.carryUp
 			rd := (td - p.totDown) - allDown + p.carryDown
 			p.carryUp, p.carryDown = min(ru, 0), min(rd, 0)
@@ -244,6 +276,10 @@ func (p *proxyTraffic) sample(rangeTrackers func(func(statistic.Tracker) bool), 
 		if dt := now.Sub(p.last).Seconds(); dt > 0.2 {
 			p.upRate.Store(int64(float64(dUp) / dt))
 			p.downRate.Store(int64(float64(dDown) / dt))
+			if rec != nil {
+				rate := func(n int64) int64 { return int64(float64(max(n, 0)) / dt) }
+				rec.speedLocked(now, rate(allRU), rate(allRD), rate(dUp), rate(dDown))
+			}
 		}
 	}
 	p.last = now
