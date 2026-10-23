@@ -281,6 +281,23 @@ struct CoreOverrides: Codable, Equatable {
     /// v0.19 局域网多用户: more username / password pairs accepted on the shared port (besides lanAuth).
     var lanUsers: [LanAuth] = []
 
+    // feat/loon-net-route (Loon parity, 2026-10-23)
+    /// 直连时丢弃 STUN: UDP to STUN ports (3478/3479/5349/5350/19302–19309) that the rules send DIRECT is rejected
+    /// (bridge netextras.go stunDropRule).
+    var stunDropDirect: Bool = false
+    /// UDP 回落: "direct" (mihomo: UDP whose policy has no UDP support ends on DIRECT) · "reject".
+    var udpFallback: String = "direct"
+    /// 不作为默认路由: the tunnel only takes the Fake-IP range and the non-default 接管的路由 (PacketTunnelProvider).
+    var notDefaultRoute: Bool = false
+    /// 隐藏 VPN 图标 (experimental): excludes 0.0.0.0/31 from the tunnel.
+    var hideVPNIcon: Bool = false
+    /// DNS 劫持: the tun dns-hijack list. The tunnel's own DNS (198.18.0.2) is always answered by the core.
+    var dnsHijack: [String] = CoreOverrides.defaultDNSHijack
+    /// 测速设置 → 直连测试地址: URL used when testing DIRECT; "" = 测速地址.
+    var directTestURL: String = ""
+    /// 测速设置 → TCP 握手延迟: TCP connect time to TCP nodes' servers instead of the HTTP round trip.
+    var tcpHandshakeDelay: Bool = false
+
     /// r7 (backlog B02): what this value looked like when it was loaded, shared by its copies. save() writes only the
     /// fields that differ from it on top of the current file (a 3-way merge under the cross-process lock), so the
     /// app, the widget (mode switch) and the extension no longer overwrite each other's changes. Not encoded;
@@ -314,6 +331,9 @@ struct CoreOverrides: Codable, Equatable {
 
     static let defaultIncludedRoutes = ["0.0.0.0/0", "::/0"]
     static let defaultExcludedRoutes = ["10.0.0.0/8", "172.16.0.0/12", "192.168.0.0/16", "169.254.0.0/16", "224.0.0.0/4"]
+    static let defaultDNSHijack = ["any:53"]
+    /// Fake-IP range the tunnel keeps routing when 不作为默认路由 is on (bridge default fake-ip-range 198.18.0.1/16).
+    static let fakeIPRoute = "198.18.0.0/15"
     static let defaultSkipProxy = ["localhost", "*.local", "127.0.0.1", "10.0.0.0/8", "172.16.0.0/12", "192.168.0.0/16", "captive.apple.com"]
 
     static let defaultMemoryLimitMB = 26
@@ -384,6 +404,7 @@ struct CoreOverrides: Codable, Equatable {
         case faceTimeProxy
         case lanAuth, lanLocalOnly, ipv6Mode, ipPreference
         case flushDNSOnNetworkChange, lanUsers
+        case stunDropDirect, udpFallback, notDefaultRoute, hideVPNIcon, dnsHijack, directTestURL, tcpHandshakeDelay
     }
 
     init(from decoder: Decoder) throws {
@@ -432,6 +453,15 @@ struct CoreOverrides: Codable, Equatable {
         ipPreference = get(.ipPreference, d.ipPreference)
         flushDNSOnNetworkChange = get(.flushDNSOnNetworkChange, d.flushDNSOnNetworkChange)
         lanUsers = get(.lanUsers, d.lanUsers)
+        stunDropDirect = get(.stunDropDirect, d.stunDropDirect)
+        udpFallback = get(.udpFallback, d.udpFallback)
+        if udpFallback != "reject" { udpFallback = d.udpFallback }
+        notDefaultRoute = get(.notDefaultRoute, d.notDefaultRoute)
+        hideVPNIcon = get(.hideVPNIcon, d.hideVPNIcon)
+        dnsHijack = get(.dnsHijack, d.dnsHijack)
+        directTestURL = get(.directTestURL, d.directTestURL)
+        if !directTestURL.isEmpty && !Self.isValidTestURL(directTestURL) { directTestURL = d.directTestURL }
+        tcpHandshakeDelay = get(.tcpHandshakeDelay, d.tcpHandshakeDelay)
         if !["dual", "ipv4-prefer", "ipv6-prefer", "ipv4", "ipv6"].contains(ipPreference) { ipPreference = d.ipPreference }
         if !["off", "nondirect", "always"].contains(blockQUIC) { blockQUIC = d.blockQUIC }
         if !Self.isValidTestURL(testURL) { testURL = d.testURL }
@@ -808,6 +838,27 @@ struct RouteSpec: Equatable {
     /// Invalid lines of a list (shown by the editor, which refuses to save them).
     static func invalid(_ lines: [String]) -> [String] {
         lines.filter { !$0.trimmingCharacters(in: .whitespaces).isEmpty && RouteSpec($0) == nil }
+    }
+}
+
+/// One DNS 劫持 entry, as mihomo's tun listener parses it: [tcp:// | udp://]any|IPv4|[IPv6]:port.
+enum DNSHijackSpec {
+    static func isValid(_ text: String) -> Bool {
+        var t = text.trimmingCharacters(in: .whitespaces)
+        if let r = t.range(of: "://") { t = String(t[r.upperBound...]) }
+        guard let colon = t.lastIndex(of: ":") else { return false }
+        let host = String(t[..<colon])
+        guard let port = Int(t[t.index(after: colon)...]), (1...65535).contains(port) else { return false }
+        if host == "any" { return true }
+        var a4 = in_addr(), a6 = in6_addr()
+        if host.hasPrefix("[") && host.hasSuffix("]") {
+            return inet_pton(AF_INET6, String(host.dropFirst().dropLast()), &a6) == 1
+        }
+        return inet_pton(AF_INET, host, &a4) == 1
+    }
+
+    static func invalid(_ lines: [String]) -> [String] {
+        lines.filter { !$0.trimmingCharacters(in: .whitespaces).isEmpty && !isValid($0) }
     }
 }
 

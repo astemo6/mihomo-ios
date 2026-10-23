@@ -115,6 +115,11 @@ type Overrides struct {
 	// v0.8 IP preference for nodes without their own ip-version: "" / "dual" (mihomo default) | "ipv4-prefer" |
 	// "ipv6-prefer" | "ipv4" | "ipv6". Written into proxies and proxy-provider overrides.
 	IPPreference string `json:"ipPreference"`
+	// feat/loon-net-route: 直连时丢弃 STUN, UDP 回落 ("direct" default | "reject"), DNS 劫持 (tun dns-hijack;
+	// missing = any:53). See netextras.go.
+	StunDropDirect bool     `json:"stunDropDirect"`
+	UDPFallback    string   `json:"udpFallback"`
+	DNSHijack      []string `json:"dnsHijack"`
 
 	DNS        *DNSOverride      `json:"-"` // loaded from <home>/dns.json
 	Local      *LocalDNS         `json:"-"` // loaded from <home>/localdns.json (hosts + 真实 IP 域名)
@@ -188,6 +193,9 @@ func readOverrides(home string) Overrides {
 	}
 	if o.BlockQUIC != "off" && o.BlockQUIC != "always" {
 		o.BlockQUIC = "nondirect"
+	}
+	if o.UDPFallback != "reject" {
+		o.UDPFallback = "direct"
 	}
 	switch o.IPv6Mode {
 	case "always":
@@ -417,7 +425,7 @@ func buildRuntimeWith(profile []byte, o Overrides, fd int32, inject func(raw map
 			"file-descriptor":       int(fd),
 			"auto-route":            false,
 			"auto-detect-interface": false,
-			"dns-hijack":            []any{"any:53"},
+			"dns-hijack":            dnsHijackList(o.DNSHijack),
 			"mtu":                   o.TunMTU,
 			"recvmsgx":              false,
 			"sendmsgx":              false,
@@ -446,6 +454,7 @@ func buildRuntimeWith(profile []byte, o Overrides, fd int32, inject func(raw map
 	applyIPPreference(raw, o.IPPreference)
 	applyProbe(raw, o)
 	applyQUICBlock(raw, o.BlockQUIC)
+	applyUDPFallback(raw, o.UDPFallback)
 	return marshalConfig(raw, len(profile) >= runtimeJSONThreshold || configItems(raw) >= runtimeJSONItems) // v0.19.6
 }
 
@@ -590,6 +599,7 @@ func applyInto(home, configPath string, fd int32, used *Overrides) error {
 			engineInject(raw)
 		}
 		groupOrder = runtimeGroupNames(raw)
+		recordChained(raw) // TCP 握手延迟: nodes behind a 前置代理 use the URL test
 		if fd > 0 {
 			dnsLine = dnsPlanLine(asMap(raw["dns"]))
 		}
@@ -606,7 +616,7 @@ func applyInto(home, configPath string, fd int32, used *Overrides) error {
 	if missing := missingGeo(home, rt); len(missing) > 0 {
 		stage("geo data missing for this profile: %s (the core will try to download it)", strings.Join(missing, ", "))
 	}
-	if err := hub.Parse(rt, guardTailscale); err != nil {
+	if err := hub.Parse(rt, guardTailscale, stunDropOption(o.StunDropDirect)); err != nil {
 		return friendlyError(err)
 	}
 	committed = true

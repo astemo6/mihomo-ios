@@ -176,6 +176,32 @@ final class CoreOverridesTests: XCTestCase {
         XCTAssertEqual(o.sniffer, d.sniffer)
     }
 
+    /// feat/loon-net-route: new 连接方式 / 测速 fields default off and reject junk.
+    func testLoonNetFields() throws {
+        let d = CoreOverrides()
+        XCTAssertFalse(d.stunDropDirect)
+        XCTAssertEqual(d.udpFallback, "direct")
+        XCTAssertFalse(d.notDefaultRoute)
+        XCTAssertFalse(d.hideVPNIcon)
+        XCTAssertEqual(d.dnsHijack, ["any:53"])
+        XCTAssertEqual(d.directTestURL, "")
+        XCTAssertFalse(d.tcpHandshakeDelay)
+        let o = try decode(#"{"udpFallback":"drop","directTestURL":"ftp://x","dnsHijack":[],"stunDropDirect":true,"tcpHandshakeDelay":true}"#)
+        XCTAssertEqual(o.udpFallback, "direct")
+        XCTAssertEqual(o.directTestURL, "")
+        XCTAssertEqual(o.dnsHijack, [], "an empty DNS 劫持 list is kept (the core still answers its own DNS)")
+        XCTAssertTrue(o.stunDropDirect)
+        XCTAssertTrue(o.tcpHandshakeDelay)
+        XCTAssertEqual(try decode(#"{"udpFallback":"reject","directTestURL":"http://www.baidu.com"}"#).udpFallback, "reject")
+        XCTAssertTrue(DNSHijackSpec.isValid("any:53"))
+        XCTAssertTrue(DNSHijackSpec.isValid("tcp://any:53"))
+        XCTAssertTrue(DNSHijackSpec.isValid("8.8.8.8:53"))
+        XCTAssertTrue(DNSHijackSpec.isValid("[::]:53"))
+        XCTAssertFalse(DNSHijackSpec.isValid("8.8.8.8"))
+        XCTAssertFalse(DNSHijackSpec.isValid("any:0"))
+        XCTAssertFalse(DNSHijackSpec.isValid("dns.google:53"))
+    }
+
     func testLegacyIPv6Bool() throws {
         XCTAssertEqual(try decode(#"{"ipv6":true}"#).ipv6Mode, "always")
         XCTAssertEqual(try decode(#"{"ipv6":false}"#).ipv6Mode, "off")

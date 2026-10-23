@@ -58,8 +58,12 @@ final class NodeSettingsStore: ObservableObject {
         return u
     }
 
-    /// The URL a manual test of this node uses: its own, else 更多 → 测速.
-    static func testURL(for name: String) -> String { customURL(for: name) ?? ControllerClient.testSettings.url }
+    /// The URL a manual test of this node uses: its own, else 更多 → 测速 (直连测试地址 for DIRECT).
+    static func testURL(for name: String) -> String {
+        if let u = customURL(for: name) { return u }
+        if name == "DIRECT", let u = ControllerClient.directTestURL { return u }
+        return ControllerClient.testSettings.url
+    }
 
     static func note(for name: String) -> String? {
         let n = setting(for: name)?.note?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
