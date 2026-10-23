@@ -78,7 +78,11 @@ enum BuiltinModuleIndex {
 extension ModuleGallery {
     /// Source name for display (the built-in source follows the app language).
     func displayName(_ s: GallerySource) -> String {
-        s.id == BuiltinModuleIndex.sourceID ? BuiltinModuleIndex.displayName : s.name
+        switch s.id {
+        case BuiltinModuleIndex.sourceID: return BuiltinModuleIndex.displayName
+        case KeleeHub.sourceID: return KeleeHub.displayName
+        default: return s.name
+        }
     }
 
     /// Third-party index sources offered with one tap in 索引来源 (the user decides; not added by default).

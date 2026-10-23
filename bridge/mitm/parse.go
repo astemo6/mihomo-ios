@@ -130,6 +130,11 @@ type Ruleset struct {
 	Format         string   `json:"format,omitempty"` // surge / qx / loon / stash / egern / list
 	Tasks          []*Task  `json:"tasks,omitempty"`  // cron / event / generic scripts
 	Panels         []*Panel `json:"panels,omitempty"` // Surge [Panel] / Stash tiles
+
+	// loonArgs / loonUser: the plugin's [Argument] declarations and the user's values, bound by the Loon
+	// expression syntax (loonv2.go) while ParseText runs.
+	loonArgs map[string]ModArg
+	loonUser map[string]string
 }
 
 // ModArg is a Surge #!arguments entry.
@@ -146,7 +151,7 @@ type ModArg struct {
 	Env bool `json:"env,omitempty"`
 }
 
-var loonArgKeyRe = regexp.MustCompile(`^[\p{L}_][\p{L}\p{N}_\-]*$`)
+var loonArgKeyRe = regexp.MustCompile(`^[\p{L}_][\p{L}\p{N}_\-.]*$`) // Loon keys may contain dots (Weather.Provider)
 
 // loonEnableOptRe finds a Loon enable= option (any spacing, any case) after substitution.
 var loonEnableOptRe = regexp.MustCompile(`(?i)(^|[,\s])enable\s*=\s*"?([^,\s"]*)"?`)
@@ -230,6 +235,28 @@ func applyLoonArgs(text string, args []ModArg, user map[string]string) string {
 	if len(args) == 0 {
 		return text
 	}
+	// The expression syntax binds ${key} itself as typed data (loonv2.go): its lines stay as written.
+	if strings.Contains(text, " if ") || strings.Contains(text, " then ") {
+		lines := strings.Split(text, "\n")
+		var held []string
+		for i, l := range lines {
+			if IsLoonV2Line(l) {
+				held = append(held, l)
+				lines[i] = loonV2Hold
+			}
+		}
+		if len(held) > 0 {
+			out := strings.Split(applyLoonArgs(strings.Join(lines, "\n"), args, user), "\n")
+			k := 0
+			for i, l := range out {
+				if l == loonV2Hold && k < len(held) {
+					out[i] = held[k]
+					k++
+				}
+			}
+			return strings.Join(out, "\n")
+		}
+	}
 	text = loonObjectArgs(text, args, user)
 	for _, a := range args {
 		v := a.Default
@@ -261,6 +288,9 @@ func applyLoonArgs(text string, args []ModArg, user map[string]string) string {
 	}
 	return strings.Join(out, "\n")
 }
+
+// loonV2Hold stands in for an expression-syntax line while applyLoonArgs rewrites the classic ones.
+const loonV2Hold = "\x00tern-loon-v2\x00"
 
 // loonArgListRe finds Loon's plugin-object argument: argument=[{key1},{key2},…].
 var loonArgListRe = regexp.MustCompile(`(?i)\bargument\s*=\s*"?\[\s*(\{[^{}\[\],"]+\}(?:\s*,\s*\{[^{}\[\],"]+\})*)\s*\]"?`)
@@ -637,6 +667,59 @@ func tokenizeKV(s string) []string {
 	return out
 }
 
+// addRule compiles a parsed rule's regexes and appends it (errUnsupported / err are reported against line).
+func (rs *Ruleset) addRule(line, source string, r *Rule, err error) {
+	if err == errUnsupported {
+		rs.Unsupported = append(rs.Unsupported, line)
+		return
+	}
+	if err != nil {
+		rs.Errors = append(rs.Errors, fmt.Sprintf("%s：%s", err.Error(), clip(line, 120)))
+		return
+	}
+	if r == nil {
+		return
+	}
+	r.Source, r.Line = source, line
+	if r.Pattern != "" {
+		re, err := compileRe(r.Pattern)
+		if err != nil {
+			rs.Errors = append(rs.Errors, fmt.Sprintf("正则无效（%s）：%s", err.Error(), clip(line, 120)))
+			return
+		}
+		r.re, r.fre = re, compileURLRe(r.Pattern)
+	}
+	if r.HeaderPattern != "" {
+		re, err := compileRe(r.HeaderPattern)
+		if err != nil {
+			rs.Errors = append(rs.Errors, fmt.Sprintf("正则无效（%s）：%s", err.Error(), clip(line, 120)))
+			return
+		}
+		r.hre = re
+	}
+	for i := range r.Headers {
+		if r.Headers[i].Regex != "" {
+			re, err := compileRe(r.Headers[i].Regex)
+			if err != nil {
+				rs.Errors = append(rs.Errors, fmt.Sprintf("正则无效：%s", clip(line, 120)))
+				return
+			}
+			r.Headers[i].re = re
+		}
+	}
+	for i := range r.Body {
+		re, err := compileRe(r.Body[i].Regex)
+		if err != nil {
+			rs.Errors = append(rs.Errors, fmt.Sprintf("正则无效：%s", clip(line, 120)))
+			return
+		}
+		r.Body[i].re = re
+		r.Body[i].fast, r.Body[i].fastTmpl, _ = fastBodyRe(r.Body[i].Regex, r.Body[i].Repl)
+	}
+	r.Desc = describe(r)
+	rs.Rules = append(rs.Rules, r)
+}
+
 // ParseLine parses a single rule line. section is a lower-case section name hint ("" = autodetect).
 // Returns rule (may be nil), hostnames, core rules.
 func (rs *Ruleset) ParseLine(line, section, source string) {
@@ -644,57 +727,7 @@ func (rs *Ruleset) ParseLine(line, section, source string) {
 	if line == "" || strings.HasPrefix(line, "#") || strings.HasPrefix(line, ";") || strings.HasPrefix(line, "//") {
 		return
 	}
-	add := func(r *Rule, err error) {
-		if err == errUnsupported {
-			rs.Unsupported = append(rs.Unsupported, line)
-			return
-		}
-		if err != nil {
-			rs.Errors = append(rs.Errors, fmt.Sprintf("%s：%s", err.Error(), clip(line, 120)))
-			return
-		}
-		if r == nil {
-			return
-		}
-		r.Source, r.Line = source, line
-		if r.Pattern != "" {
-			re, err := compileRe(r.Pattern)
-			if err != nil {
-				rs.Errors = append(rs.Errors, fmt.Sprintf("正则无效（%s）：%s", err.Error(), clip(line, 120)))
-				return
-			}
-			r.re, r.fre = re, compileURLRe(r.Pattern)
-		}
-		if r.HeaderPattern != "" {
-			re, err := compileRe(r.HeaderPattern)
-			if err != nil {
-				rs.Errors = append(rs.Errors, fmt.Sprintf("正则无效（%s）：%s", err.Error(), clip(line, 120)))
-				return
-			}
-			r.hre = re
-		}
-		for i := range r.Headers {
-			if r.Headers[i].Regex != "" {
-				re, err := compileRe(r.Headers[i].Regex)
-				if err != nil {
-					rs.Errors = append(rs.Errors, fmt.Sprintf("正则无效：%s", clip(line, 120)))
-					return
-				}
-				r.Headers[i].re = re
-			}
-		}
-		for i := range r.Body {
-			re, err := compileRe(r.Body[i].Regex)
-			if err != nil {
-				rs.Errors = append(rs.Errors, fmt.Sprintf("正则无效：%s", clip(line, 120)))
-				return
-			}
-			r.Body[i].re = re
-			r.Body[i].fast, r.Body[i].fastTmpl, _ = fastBodyRe(r.Body[i].Regex, r.Body[i].Repl)
-		}
-		r.Desc = describe(r)
-		rs.Rules = append(rs.Rules, r)
-	}
+	add := func(r *Rule, err error) { rs.addRule(line, source, r, err) }
 
 	// MITM section / QX hostname line
 	if k, v, ok := strings.Cut(line, "="); ok {
@@ -729,6 +762,11 @@ func (rs *Ruleset) ParseLine(line, section, source string) {
 		return
 	}
 	if section == "general" || section == "host" || section == "proxy" || section == "proxy group" {
+		return
+	}
+	// Loon 3.5.1 expression syntax (.lpx): request|response if … then …, cron/generic/network-changed … then script(…).
+	if IsLoonV2Line(line) {
+		rs.parseLoonV2(line, source)
 		return
 	}
 	if rs.parseTaskLine(line, section, source) {
@@ -1173,6 +1211,11 @@ func (rs *Ruleset) ParseText(text, source string, args map[string]string) {
 		rs.Arguments = append(rs.Arguments, la...)
 		text = applyLoonArgs(text, la, args)
 		rs.Format = "loon"
+		rs.loonArgs = map[string]ModArg{}
+		for _, a := range la {
+			rs.loonArgs[a.Key] = a
+		}
+		rs.loonUser = args
 	}
 	for _, m := range metaRe.FindAllStringSubmatch(text, -1) {
 		if m[1] == "name" && rs.Name == "" {
@@ -1285,7 +1328,7 @@ func hasLoonScriptLine(text string) bool {
 	return false
 }
 
-var loonScriptLineRe = regexp.MustCompile(`(?m)^[ \t]*(?:(?:http-request|http-response)[ \t]|cron[ \t]+["0-9*])`)
+var loonScriptLineRe = regexp.MustCompile(`(?m)^[ \t]*(?:(?:http-request|http-response)[ \t]|cron[ \t]+["0-9*$]|(?:request|response)[ \t]+if[ \t]|(?:generic|network-changed)[ \t]+then[ \t])`)
 
 func isStash(text string) bool {
 	rulesKey := false

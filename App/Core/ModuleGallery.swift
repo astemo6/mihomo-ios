@@ -6,9 +6,10 @@ import Libmihomo
 // An index source is one URL in any of these shapes (detected from the URL and the reply):
 //  - a GitHub repository or folder: https://github.com/<owner>/<repo>[/tree/<branch>/<path>]
 //    → one git-trees call lists every module file below the path (sub-folder = category);
-//  - JSON: an array of items, or an object with modules / plugins / items / list / data (array), or
+//  - JSON: an array of items, or an object with modules / plugins / items / list / lists / data (array), or
 //    categories: [{ name, modules: [...] }], or { "<category>": [items] }. Item keys:
-//    name|title, url|link|install|download, desc|description|summary, category|group|type|tag, author, icon|img;
+//    name|title, url|link|install|download, desc|description|summary, category|group|type|tag|tags (string or
+//    array: the first entry), author (string, or [{ name }] / [string]), icon|img (relative to the index URL);
 //  - text / Markdown / HTML: module links ([name](url), "name = url", bare URLs, surge:/// loon:// stash://
 //    egern:/ install links).
 // Parsed indexes are cached in Caches/module-gallery so the list opens offline.
@@ -56,9 +57,9 @@ struct GalleryIndex: Codable {
 final class ModuleGallery: ObservableObject {
     static let shared = ModuleGallery()
 
-    /// The built-in curated index (BuiltinModuleIndex) is the only default; third-party repositories are
-    /// offered as suggestions in 索引来源.
-    static let defaultSources: [GallerySource] = [BuiltinModuleIndex.source]
+    /// The built-in curated index (BuiltinModuleIndex) and 可莉插件中心 (KeleeHub) are the defaults; other
+    /// third-party repositories are offered as suggestions in 索引来源.
+    static let defaultSources: [GallerySource] = [BuiltinModuleIndex.source, KeleeHub.source]
 
     @Published var sources: [GallerySource]
     @Published var indexes: [String: GalleryIndex] = [:]
@@ -71,6 +72,14 @@ final class ModuleGallery: ObservableObject {
             sources = s
         } else {
             sources = Self.defaultSources
+        }
+        // feat/kelee-hub: 可莉插件中心 joins the saved sources once; removing it afterwards is respected.
+        if !UserDefaults.standard.bool(forKey: KeleeHub.offeredKey) {
+            UserDefaults.standard.set(true, forKey: KeleeHub.offeredKey)
+            if !sources.contains(where: { $0.id == KeleeHub.sourceID || $0.url == KeleeHub.indexURL }) {
+                sources.append(KeleeHub.source)
+                saveSources()
+            }
         }
         for s in sources { if let i = Self.loadCache(s) { indexes[s.id] = i } }
         if sources.contains(where: { $0.id == BuiltinModuleIndex.sourceID }) { indexes[BuiltinModuleIndex.sourceID] = BuiltinModuleIndex.load() }
@@ -177,6 +186,8 @@ final class ModuleGallery: ObservableObject {
 
     nonisolated static func get(_ url: URL) async throws -> Data {
         var req = URLRequest(url: url, timeoutInterval: 30)
+        // A proxy client's User-Agent: hub.kelee.one / kelee.one answer browser and unknown agents with a
+        // Cloudflare challenge page (HTTP 403).
         req.setValue("Surge iOS/3000", forHTTPHeaderField: "User-Agent")
         if url.host == "api.github.com" { req.setValue("application/vnd.github+json", forHTTPHeaderField: "Accept") }
         let (data, resp) = try await URLSession.shared.data(for: req)
@@ -245,19 +256,41 @@ final class ModuleGallery: ObservableObject {
             for k in keys { if let s = d[k] as? String, !s.isEmpty { return s } }
             return ""
         }
+        /// A string, or the first string of an array (Loon hubs list tags as ["去广告", "依赖"]).
+        func strOrFirst(_ d: [String: Any], _ keys: [String]) -> String {
+            for k in keys {
+                if let s = d[k] as? String, !s.isEmpty { return s }
+                if let a = d[k] as? [String], let f = a.first(where: { !$0.isEmpty }) { return f }
+            }
+            return ""
+        }
+        /// "a", ["a", "b"] or [{ "name": "a" }, …] → "a, b".
+        func names(_ d: [String: Any], _ keys: [String]) -> String {
+            for k in keys {
+                if let s = d[k] as? String, !s.isEmpty { return s }
+                if let a = d[k] as? [Any] {
+                    let n = a.compactMap { ($0 as? String) ?? (($0 as? [String: Any])?["name"] as? String) }.filter { !$0.isEmpty }
+                    if !n.isEmpty { return n.joined(separator: ", ") }
+                }
+            }
+            return ""
+        }
         func item(_ d: [String: Any], category: String) {
             var url = str(d, ["url", "link", "install", "download", "module", "plugin", "href"])
             if case .moduleURL(let inner, _)? = ImportRouter.parse(url) { url = inner }
             guard let resolved = URL(string: url, relativeTo: base)?.absoluteURL, resolved.scheme?.hasPrefix("http") == true else { return }
             let name = str(d, ["name", "title"])
-            var cat = str(d, ["category", "group", "type", "tag"])
-            if cat.isEmpty, let tags = d["tags"] as? [String] { cat = tags.first ?? "" }
+            let cat = strOrFirst(d, ["category", "group", "type", "tag", "tags"])
+            var icon = str(d, ["icon", "img", "image", "logo"])
+            if !icon.isEmpty, let iu = URL(string: icon, relativeTo: base)?.absoluteURL, iu.scheme?.hasPrefix("http") == true { icon = iu.absoluteString } else { icon = "" }
+            // Some indexes keep a literal "\n" (backslash-n) for line breaks in descriptions.
+            let desc = str(d, ["desc", "description", "summary", "intro"]).replacingOccurrences(of: "\\n", with: "\n")
             out.append(GalleryItem(name: name.isEmpty ? (resolved.deletingPathExtension().lastPathComponent) : name,
                                    url: resolved.absoluteString,
-                                   desc: str(d, ["desc", "description", "summary", "intro"]),
+                                   desc: desc.trimmingCharacters(in: .whitespacesAndNewlines),
                                    category: cat.isEmpty ? category : cat,
-                                   author: str(d, ["author", "by", "owner"]),
-                                   icon: str(d, ["icon", "img", "image", "logo"])))
+                                   author: names(d, ["author", "by", "owner"]),
+                                   icon: icon))
         }
         func walk(_ v: Any, category: String, depth: Int) {
             guard depth < 4 else { return }
@@ -268,7 +301,7 @@ final class ModuleGallery: ObservableObject {
                     if let nested { walk(nested, category: str(d, ["name", "title", "category"]), depth: depth + 1) } else { item(d, category: category) }
                 }
             } else if let d = v as? [String: Any] {
-                if let arr = ["modules", "plugins", "items", "list", "data", "categories"].compactMap({ d[$0] as? [Any] }).first {
+                if let arr = ["modules", "plugins", "items", "list", "lists", "data", "categories"].compactMap({ d[$0] as? [Any] }).first {
                     walk(arr, category: category, depth: depth + 1)
                 } else {
                     for (k, sub) in d.sorted(by: { $0.key < $1.key }) where sub is [Any] { walk(sub, category: k, depth: depth + 1) }

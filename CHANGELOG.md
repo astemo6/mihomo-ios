@@ -4,6 +4,14 @@
 
 ## 未发布
 
+- **模块库接入可莉插件中心**（用户反馈：「重写插件能帮我做个这个吗？接入可莉插件中心」）：模块库默认多了「可莉插件中心」来源（读取 hub.kelee.one 网页本身使用的插件列表，约 275 个 Loon 插件），按插件中心的标签分类（去广告、功能增强、节点检测、签到…），显示图标、简介和作者，可以搜索、预览后一键添加；已有用户的来源列表会自动加上一次，删除后不再出现。插件按通用的 Loon 语法导入，没有针对单个插件的特殊处理；插件的 `[Argument]` 参数（开关、选择、输入）在添加前和模块设置里都能修改。
+- **支持 Loon 3.5.1 新语法（.lpx 插件）**：可莉插件中心等使用的新写法以前会被错误识别（`request if …` 被当成匹配 “if” 的请求体替换，带 `then response.json.delete(…)` 的行报「正则无效」，`cron ${cron} then script(…)` 不认识）。现在按 Loon 官方语法逐字解析（字符串、原始字符串、正则和 `${…}` 都有明确边界，不再按空格或逗号拆分）：
+  - 复写：`reject` / `reject_img` / `reject_dict` / `reject_array` / `reject_video`（任意状态码）、`redirect` / `url.replace`（支持 `as` 命名捕获）、请求头和响应头的 `add` / `set` / `del` / `replace`、`body.replace`、`json.add` / `delete` / `replace` / `jq` / `jq_file`、`response.body.mock` / `mock_file`，数组批量参数，一行多个动作用 `|` 连接。
+  - 脚本：`request` / `response if … then script(…) with …`，以及 `cron`、`network-changed`、`generic`；`$argument` 支持字符串和 `{${a}, ${b}}` 对象（开关为布尔、`type=number` 为数字、未填写的为 null）；`tag`、`timeout`、`requires_body`、`binary_body_mode`、`enable=${参数}`、`img_url`。
+  - 条件：`${url} ~=` 正则（含 `&&`、`||`、括号）和插件参数比较（如 `${enabled} == true`）；按请求方法、请求头、响应状态码判断的条件、请求体 Mock、插件内相对路径的资源文件目前无法在 Tern 中准确执行，会列在「暂不支持」里，不会放宽成只按 URL 匹配。
+  - `[Argument]` 参数名可以带点（如 `Weather.Provider`）。
+  - 用可莉插件中心全部 275 个插件验证：0 个解析错误，仅 10 行旧写法规则（`USER-AGENT`、写在 `[Rule]` 里的复写等）列为暂不支持。
+
 - **重写脚本兼容性补全（Surge / Loon / QX / Egern 通用，不针对单个脚本）**（用户反馈：「要能适配常规的重写脚本」）：用 30 个热门 Surge、Loon、Egern 模块和用户自己的 QX 重写清单（共 178 个脚本）逐个解析、编译、运行，修复：
   - 脚本在 `$done` 之后抛出异常时保留 `$done` 的结果（与其他客户端一致），只记一条警告；很多加密混淆的解锁脚本以前因此整体失效。
   - 新增 `URL`、`URLSearchParams`、`Headers` 全局对象（按需加载）。

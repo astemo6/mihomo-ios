@@ -98823,6 +98823,76 @@
           }
         }
       }
+    },
+    "可莉插件中心": {
+      "extractionState": "manual",
+      "localizations": {
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "可莉插件中心"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Kelee Plugin Hub"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Kelee プラグインセンター"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Kelee 플러그인 센터"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Kelee Plugin Hub"
+          }
+        }
+      }
+    },
+    "可莉插件中心的插件为 Loon 编写，Tern 按 Loon 语法导入；无法在 Tern 中运行的条目列在下方「暂不支持」。": {
+      "extractionState": "manual",
+      "localizations": {
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "可莉插件中心的外掛為 Loon 編寫，Tern 依 Loon 語法匯入；無法在 Tern 中執行的項目列在下方「暫不支援」。"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Kelee Plugin Hub plugins are written for Loon. Tern imports them with Loon syntax; entries Tern can't run are listed under “Not Supported Yet” below."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Kelee プラグインセンターのプラグインは Loon 向けです。Tern は Loon の構文で読み込み、Tern で実行できない項目は下の「未対応」に表示します。"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Kelee 플러그인 센터의 플러그인은 Loon용입니다. Tern은 Loon 문법으로 가져오며, Tern에서 실행할 수 없는 항목은 아래 ‘아직 지원 안 됨’에 표시됩니다."
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Плагины Kelee Plugin Hub написаны для Loon. Tern импортирует их по синтаксису Loon; записи, которые Tern не может выполнить, перечислены ниже в разделе «Пока не поддерживается»."
+          }
+        }
+      }
     }
   },
   "version": "1.0"
