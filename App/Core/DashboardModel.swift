@@ -279,7 +279,21 @@ final class IPInfoModel: ObservableObject {
     private var observer: NSObjectProtocol?
     private var pending: Task<Void, Never>?
 
+    /// Last good lookup, persisted so a cold launch (app swiped away while the tunnel kept running)
+    /// shows the previous exit/direct IP at once instead of 「正在查询…」; refresh() replaces it quietly.
+    private struct Cached: Codable { var exit: IPInfo?; var direct: IPInfo?; var at: Date }
+    private static let cacheKey = "ipinfo.lastLookup.v1"
+    private static let cacheMaxAge: TimeInterval = 24 * 3600
+
     init() {
+        if !UITestSeed.enabled,
+           let data = UserDefaults.standard.data(forKey: Self.cacheKey),
+           let c = try? JSONDecoder().decode(Cached.self, from: data),
+           Date().timeIntervalSince(c.at) < Self.cacheMaxAge {
+            exit = c.exit
+            direct = c.direct
+            updatedAt = c.at
+        }
         observer = NotificationCenter.default.addObserver(forName: .egressMayHaveChanged, object: nil, queue: .main) { [weak self] _ in
             Task { @MainActor in self?.scheduleRefresh(after: 1.2) }
         }
@@ -305,6 +319,7 @@ final class IPInfoModel: ObservableObject {
         if IPInfoFetcher.disabled {
             // QX `geo_location_checker = disabled`: no lookups; the header shows the connection state only.
             exit = nil; direct = nil; failed = false; loading = false
+            UserDefaults.standard.removeObject(forKey: Self.cacheKey)
             return
         }
         loading = true
@@ -319,6 +334,10 @@ final class IPInfoModel: ObservableObject {
         exit = e
         direct = connected ? d : nil
         failed = (e == nil)
+        if let e {
+            let c = Cached(exit: e, direct: direct, at: Date())
+            if let data = try? JSONEncoder().encode(c) { UserDefaults.standard.set(data, forKey: Self.cacheKey) }
+        }
     }
 
     private func fetchDirectFromTunnel(enabled: Bool) async -> IPInfo? {
