@@ -183,15 +183,78 @@ struct IconTile: View {
     var tone: TileTone = .accent
     var dimmed = false
     var size: CGFloat = 28
+    /// nil = a quarter of `size` (TernRowMetrics.iconCornerRadius for the shared list row).
+    var cornerRadius: CGFloat? = nil
 
     var body: some View {
         Image(systemName: symbol)
             .font(.system(size: size * 0.5, weight: .semibold))
             .foregroundStyle(.white)
             .frame(width: size, height: size)
-            .background(RoundedRectangle(cornerRadius: size * 0.25, style: .continuous)
+            .background(RoundedRectangle(cornerRadius: cornerRadius ?? size * 0.25, style: .continuous)
                 .fill(dimmed ? TileTone.neutral.fill : tone.fill))
             .accessibilityHidden(true)
+    }
+}
+
+/// fix/more-row-height (user 「更多页每行的高度与其他页行高度不一样」): the one row metric for the icon rows of the tab
+/// root pages — 工具's cards, 更多 (and its sub-lists that use MoreRow) and the 更多 search results. 工具's values are
+/// the reference (the more-used page): 30 pt tile with 7.5 pt corners, 12 pt between tile and text, 15 pt title
+/// (`.subheadline`), 3 pt between title and detail line, 2 pt vertical padding. Rows without a detail line still get
+/// the tile's height as a minimum, so a one-line 更多 row is as tall as a one-line 工具 card. The minimum scales with
+/// Dynamic Type (a minimum, never a fixed height). Only these values are shared: 更多 keeps its grouped sections
+/// (several rows per inset card with separators), 工具 its one-card sections.
+enum TernRowMetrics {
+    static let iconSize: CGFloat = 30
+    static let iconCornerRadius: CGFloat = 7.5
+    static let iconTextSpacing: CGFloat = 12
+    static let titleDetailSpacing: CGFloat = 3
+    static let verticalPadding: CGFloat = 2
+    /// Minimum content height at the default text size (= the tile), scaled relative to `.subheadline`.
+    static let minContentHeight: CGFloat = 30
+    static let titleFont: Font = .subheadline
+    static let detailFont: Font = .caption2
+}
+
+/// The shared icon row: tile · title over an optional detail line · flexible space · optional trailing content.
+struct TernIconRow<Detail: View, Trailing: View>: View {
+    let symbol: String
+    var tone: TileTone
+    var dimmed: Bool
+    let title: Text
+    let detail: Detail
+    let trailing: Trailing
+    @ScaledMetric(relativeTo: .subheadline) private var minHeight: CGFloat = TernRowMetrics.minContentHeight
+
+    init(symbol: String, tone: TileTone = .accent, dimmed: Bool = false, title: Text,
+         @ViewBuilder detail: () -> Detail, @ViewBuilder trailing: () -> Trailing) {
+        self.symbol = symbol
+        self.tone = tone
+        self.dimmed = dimmed
+        self.title = title
+        self.detail = detail()
+        self.trailing = trailing()
+    }
+
+    var body: some View {
+        HStack(spacing: TernRowMetrics.iconTextSpacing) {
+            IconTile(symbol: symbol, tone: tone, dimmed: dimmed, size: TernRowMetrics.iconSize,
+                     cornerRadius: TernRowMetrics.iconCornerRadius)
+            VStack(alignment: .leading, spacing: TernRowMetrics.titleDetailSpacing) {
+                title.font(TernRowMetrics.titleFont).foregroundStyle(dimmed ? Color.secondary : Color.primary)
+                detail
+            }
+            Spacer(minLength: 8)
+            trailing
+        }
+        .frame(minHeight: minHeight)
+        .padding(.vertical, TernRowMetrics.verticalPadding)
+    }
+}
+
+extension TernIconRow where Trailing == EmptyView {
+    init(symbol: String, tone: TileTone = .accent, dimmed: Bool = false, title: Text, @ViewBuilder detail: () -> Detail) {
+        self.init(symbol: symbol, tone: tone, dimmed: dimmed, title: title, detail: detail, trailing: { EmptyView() })
     }
 }
 
@@ -211,15 +274,12 @@ struct TileRow: View {
 
     var body: some View {
         // feat/egern-style: 15 pt title, a small grey subtitle, the value on the right at nearly title size.
-        HStack(spacing: 12) {
-            IconTile(symbol: symbol, tone: tone, dimmed: dimmed)
-            VStack(alignment: .leading, spacing: 1) {
-                Text(LocalizedStringKey(title)).font(.subheadline).foregroundStyle(dimmed ? Color.secondary : Color.primary)
-                if let subtitle {
-                    Text(LocalizedStringKey(subtitle)).font(.caption2).foregroundStyle(.secondary).lineLimit(1)
-                }
+        // fix/more-row-height: tile, spacing, padding and minimum height from TernRowMetrics (same as 工具's cards).
+        TernIconRow(symbol: symbol, tone: tone, dimmed: dimmed, title: Text(LocalizedStringKey(title))) {
+            if let subtitle {
+                Text(LocalizedStringKey(subtitle)).font(TernRowMetrics.detailFont).foregroundStyle(.secondary).lineLimit(1)
             }
-            Spacer(minLength: 8)
+        } trailing: {
             if let value {
                 (valueVerbatim ? Text(verbatim: value) : Text(LocalizedStringKey(value))).font(.footnote).foregroundStyle(dimmed ? Color.secondary : valueColor).lineLimit(1)
             }

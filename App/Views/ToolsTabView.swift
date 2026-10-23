@@ -345,35 +345,30 @@ struct ToolCard: View {
     var body: some View {
         let off = needsVPN && !vpn.isConnected
         // feat/egern-style: Egern's compact tool card — 30 pt solid tile, 15 pt title, a line of tiny icon + count stats.
-        HStack(spacing: 12) {
-            IconTile(symbol: symbol, tone: tone, dimmed: off, size: 30)
-            VStack(alignment: .leading, spacing: 3) {
-                Text(LocalizedStringKey(title)).font(.subheadline).foregroundStyle(off ? Color.secondary : Color.primary)
-                if off {
-                    Text("需开启 VPN").font(.caption2).foregroundStyle(.secondary)
-                } else if !stats.isEmpty {
-                    // r7 P3-4: one line while it fits; otherwise (long ru values, accessibility sizes) two per line
-                    // instead of truncating every value.
-                    ViewThatFits(in: .horizontal) {
-                        HStack(spacing: 10) { ForEach(stats, id: \.self) { statView($0) } }
-                            .fixedSize(horizontal: true, vertical: false)
-                        VStack(alignment: .leading, spacing: 2) {
-                            ForEach(Array(stride(from: 0, to: stats.count, by: 2)), id: \.self) { i in
-                                HStack(spacing: 10) {
-                                    statView(stats[i])
-                                    if i + 1 < stats.count { statView(stats[i + 1]) }
-                                }
+        // fix/more-row-height: the metrics are TernRowMetrics, shared with 更多's rows.
+        TernIconRow(symbol: symbol, tone: tone, dimmed: off, title: Text(LocalizedStringKey(title))) {
+            if off {
+                Text("需开启 VPN").font(TernRowMetrics.detailFont).foregroundStyle(.secondary)
+            } else if !stats.isEmpty {
+                // r7 P3-4: one line while it fits; otherwise (long ru values, accessibility sizes) two per line
+                // instead of truncating every value.
+                ViewThatFits(in: .horizontal) {
+                    HStack(spacing: 10) { ForEach(stats, id: \.self) { statView($0) } }
+                        .fixedSize(horizontal: true, vertical: false)
+                    VStack(alignment: .leading, spacing: 2) {
+                        ForEach(Array(stride(from: 0, to: stats.count, by: 2)), id: \.self) { i in
+                            HStack(spacing: 10) {
+                                statView(stats[i])
+                                if i + 1 < stats.count { statView(stats[i + 1]) }
                             }
                         }
                     }
-                } else if let caption {
-                    Text(LocalizedStringKey(caption)).font(.caption2).foregroundStyle(.secondary).lineLimit(2)
-                        .fixedSize(horizontal: false, vertical: true)
                 }
+            } else if let caption {
+                Text(LocalizedStringKey(caption)).font(TernRowMetrics.detailFont).foregroundStyle(.secondary).lineLimit(2)
+                    .fixedSize(horizontal: false, vertical: true)
             }
-            Spacer(minLength: 4)
         }
-        .padding(.vertical, 2)
         .accessibilityElement(children: .combine)
         .accessibilityIdentifier("more." + id)
     }
