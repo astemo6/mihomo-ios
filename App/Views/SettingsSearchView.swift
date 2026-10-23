@@ -131,13 +131,10 @@ struct SearchResultRow: View {
     }
 
     var body: some View {
-        HStack(spacing: 12) {
-            IconTile(symbol: hit.entry.symbol, tone: hit.entry.tone)
-            VStack(alignment: .leading, spacing: 1) {
-                Text(highlighted).font(.subheadline).foregroundStyle(.primary)
-                Text(verbatim: breadcrumb).font(.caption2).foregroundStyle(.secondary).lineLimit(1)
-            }
-            Spacer(minLength: 8)
+        // fix/more-row-height: same row metrics as 更多 / 工具 (TernRowMetrics).
+        TernIconRow(symbol: hit.entry.symbol, tone: hit.entry.tone, title: Text(highlighted)) {
+            Text(verbatim: breadcrumb).font(TernRowMetrics.detailFont).foregroundStyle(.secondary).lineLimit(1)
+        } trailing: {
             Image(systemName: chevron).font(.caption.weight(.semibold)).foregroundStyle(.tertiary)
         }
         .contentShape(Rectangle())
