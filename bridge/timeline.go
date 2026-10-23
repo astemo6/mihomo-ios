@@ -1,6 +1,6 @@
 package libmihomo
 
-// v0.17 请求时间线 (parity #8, Surge Dashboard style). mihomo v1.19.32 does not keep per-phase timings for a
+// v0.17 请求时间线 (parity #8, Surge Dashboard style). mihomo v1.19.33 does not keep per-phase timings for a
 // connection: its tracker only has Start, which is set AFTER the outbound dial (and the proxy handshake)
 // succeeded, plus upload / download counters. Without forking the core this file records what can be
 // measured honestly, on the controller (same Bearer secret):

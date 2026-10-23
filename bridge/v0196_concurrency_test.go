@@ -26,7 +26,7 @@ func TestV0196StopWhileApplyPendingSkipsPostApply(t *testing.T) {
 	withStartTimeout(t, 10*time.Second)
 	release := make(chan struct{})
 	finished := make(chan struct{})
-	testHookApplyDone = func() { <-release; defer close(finished) }
+	setApplyDoneHook(func() { <-release; defer close(finished) })
 
 	if err := Start(home, prof, 0); err != nil {
 		t.Fatal(err)
@@ -57,7 +57,7 @@ func TestV0196ReloadWhileApplyPendingKeepsNewest(t *testing.T) {
 	withStartTimeout(t, 10*time.Second)
 	release := make(chan struct{})
 	finished := make(chan struct{})
-	testHookApplyDone = func() { <-release; defer close(finished) }
+	setApplyDoneHook(func() { <-release; defer close(finished) })
 	if err := Start(home, prof, 0); err != nil {
 		t.Fatal(err)
 	}

@@ -5,7 +5,7 @@ import UIKit
 // every log event to subscribers whatever its own log-level is, so nothing changes in the tunnel; the stream
 // only runs from the moment this page is opened until the app goes to the background or disconnects.
 //
-// Lines used (mihomo v1.19.32):
+// Lines used (mihomo v1.19.33):
 //   [DNS] example.com --> [93.184.216.34] A from https://1.1.1.1/dns-query     dns/util.go batchExchange
 //   [DNS] cache hit example.com --> [93.184.216.34] A, expire at 2026-…          dns/resolver.go
 //   [DNS] resolve example.com error: …                                          tunnel/tunnel.go
