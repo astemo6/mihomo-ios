@@ -675,12 +675,29 @@ func (e *Engine) modifyResponse(f *flow, resp *http.Response) error {
 	// rawBody / rawEnc: the compressed original of a large decoded body (scripts borrow body itself).
 	var rawBody []byte
 	var rawEnc string
+	// feat/native-mitm stage 1 (nativelane.go): when only scripts (and header rewrites) need this body and the
+	// JavaScriptCore engine runs them, the body is streamed into the native lane instead of the Go heap.
+	// nativeH is the lane handle holding the current body (body stays nil), nativeLen its decoded length.
+	lane := laneForRules(f.rules)
+	var nativeH, nativeLen int64
+	laneHanded := false
+	defer func() {
+		if nativeH > 0 && !laneHanded {
+			laneFree(laneAny(), nativeH)
+		}
+	}()
+	blen := func() int {
+		if nativeH > 0 {
+			return int(nativeLen)
+		}
+		return len(body)
+	}
 	loadBody := func(limit int) bool {
 		if loaded {
-			if !tooBig && len(body) > limit {
-				respSkip = fmt.Sprintf("响应体 %d KB 超过上限 %d KB", len(body)>>10, limit>>10)
+			if !tooBig && blen() > limit {
+				respSkip = fmt.Sprintf("响应体 %d KB 超过上限 %d KB", blen()>>10, limit>>10)
 			}
-			return !tooBig && len(body) <= limit
+			return !tooBig && blen() <= limit
 		}
 		loaded = true
 		tooBig = true
@@ -737,6 +754,27 @@ func (e *Engine) modifyResponse(f *flow, resp *http.Response) error {
 			respSkip = fmt.Sprintf("同时处理的响应体过多（需 %d KB，已占用 %d KB / %d KB）", want>>10, bodyBudget.inUse()>>10, bodyBudget.capNow()>>10)
 			e.logf("warning", fmt.Sprintf("[MitM] %s，跳过：%s", respSkip, clip(f.url, 100)))
 			return false
+		}
+		if lane != nil {
+			h, n, outcome := e.loadBodyLane(f, resp, lane, enc, want, respCap, respCapScript, charge, takeBig, &respSkip)
+			switch outcome {
+			case laneLoaded:
+				nativeH, nativeLen = h, n
+				upstreamDone = true
+				tooBig = false
+				resp.Header.Del("Content-Encoding")
+				if nativeLen > int64(limit) {
+					respSkip = fmt.Sprintf("响应体 %d KB 超过上限 %d KB（Content-Encoding: %s）", nativeLen>>10, limit>>10, orNone(enc))
+				}
+				if nativeLen <= bigBodyThreshold && charge.big != nil {
+					charge.big()
+					charge.big = nil
+				}
+				return nativeLen <= int64(limit)
+			case laneSkipped:
+				return false // skipped (respSkip says why); resp.Body passes the original through
+			}
+			// the lane refused before reading anything: the Go path below
 		}
 		b, rest, ok := readCapped(resp.Body, respCap)
 		if !ok {
@@ -839,8 +877,8 @@ func (e *Engine) modifyResponse(f *flow, resp *http.Response) error {
 				if limit := scriptBodyLimit(rule.Script); !loadBody(limit) {
 					slot.Release()
 					why := respSkip
-					if loaded && !tooBig && len(body) > limit {
-						why = fmt.Sprintf("响应体 %d KB 超过上限 %d KB（%s）", len(body)>>10, limit>>10, bodyLimitNote(rule.Script, limit))
+					if loaded && !tooBig && blen() > limit {
+						why = fmt.Sprintf("响应体 %d KB 超过上限 %d KB（%s）", blen()>>10, limit>>10, bodyLimitNote(rule.Script, limit))
 					}
 					if why == "" {
 						why = "响应体超过上限或编码不支持"
@@ -850,6 +888,9 @@ func (e *Engine) modifyResponse(f *flow, resp *http.Response) error {
 					continue
 				}
 				sresp.Body, sresp.HasBody = body, true
+				if nativeH > 0 {
+					sresp.Body, sresp.NativeBody = nil, nativeH
+				}
 			}
 			// v0.19.22: a large decoded body is lent to the script without a copy (one multi-MB copy
 			// less at the peak); the compressed original is kept to restore it should the script change
@@ -892,12 +933,54 @@ func (e *Engine) modifyResponse(f *flow, resp *http.Response) error {
 					resp.Header.Del("Content-Encoding")
 				}
 			}
-			if res.BodySet {
+			switch {
+			case res.BodySet && res.NativeBody > 0:
+				// the new body stays in the lane (or is the lane body handed back as is)
+				if nativeH > 0 && nativeH != res.NativeBody {
+					laneFree(laneAny(), nativeH)
+				}
+				nativeH, nativeLen, body = res.NativeBody, laneAny().Len(res.NativeBody, false), nil
+				loaded, tooBig = true, false
+				if nativeLen < 0 {
+					// the lane lost the result: nothing sane to send
+					nativeH = 0
+					laneFailure(e.logf, "result handle gone")
+					return fmt.Errorf("脚本 %s 的结果丢失", rule.Script.Name)
+				}
+			case res.BodySet:
+				if nativeH > 0 {
+					laneFree(laneAny(), nativeH)
+					nativeH, nativeLen = 0, 0
+				}
 				setBody(res.Body)
-			} else if loaded && !tooBig {
+			case loaded && !tooBig && nativeH == 0:
 				setBody(body)
 			}
 		}
+	}
+	if nativeH > 0 {
+		// stream the lane body to the client; the reader frees the handle when the client is done
+		closeUpstream()
+		if !noBody {
+			resp.ContentLength = nativeLen
+			resp.Header.Set("Content-Length", strconv.FormatInt(nativeLen, 10))
+			resp.Header.Del("Content-Encoding")
+			resp.Header.Del("Transfer-Encoding")
+			resp.TransferEncoding = nil
+		}
+		lr := newLaneReader(laneAny(), nativeH, false, e.logf)
+		laneHanded = true
+		ent.Response(resp.StatusCode, resp.Header)
+		if capture {
+			ent.RespBody(lanePrefix(laneAny(), nativeH, captureLimit), "")
+		}
+		if noBody {
+			_ = lr.Close()
+			resp.Body = &finishBody{rc: http.NoBody, ent: ent}
+			return nil
+		}
+		resp.Body = &finishBody{rc: lr, ent: ent}
+		return nil
 	}
 	if loaded && !tooBig {
 		setBody(body)

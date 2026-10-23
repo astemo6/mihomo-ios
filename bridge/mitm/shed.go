@@ -38,7 +38,15 @@ type CacheStats struct {
 
 func (c CacheStats) String() string {
 	return fmt.Sprintf("mitm scripts %d (%.1f MB), sources %d (%.1f MB), request log %d (bodies %.1f MB), js runtimes %d (%s), script queue %d",
-		c.Programs, float64(c.ProgramBytes)/(1<<20), c.Sources, float64(c.SourceBytes)/(1<<20), c.Requests, float64(c.BodyBytes)/(1<<20), LiveRuntimes(), ScriptEngineName(), c.Queued)
+		c.Programs, float64(c.ProgramBytes)/(1<<20), c.Sources, float64(c.SourceBytes)/(1<<20), c.Requests, float64(c.BodyBytes)/(1<<20), LiveRuntimes(), ScriptEngineName(), c.Queued) + laneSuffix()
+}
+
+// laneSuffix adds the native body lane to the memory line when one is registered (feat/native-mitm).
+func laneSuffix() string {
+	if s := LaneStats(); s != "" {
+		return ", " + s
+	}
+	return ""
 }
 
 // Stats reports the engine's caches (nil engine: zero).

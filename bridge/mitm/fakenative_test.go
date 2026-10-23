@@ -14,8 +14,10 @@ import (
 	"encoding/json"
 	"errors"
 	"os"
+	"strconv"
 	"sync"
 	"time"
+	"unicode/utf8"
 
 	"github.com/dop251/goja"
 )
@@ -86,7 +88,29 @@ func (f *fakeNative) newCtx() (*fakeCtx, error) {
 		if c.run == nil {
 			return rt.ToValue("")
 		}
-		return rt.ToValue(c.run.Host(call.Argument(0).String(), call.Argument(1).String()))
+		op, arg := call.Argument(0).String(), call.Argument(1).String()
+		if l := activeFakeLane.Load(); l != nil {
+			// like JSCScriptEngine.swift with NativeBodyStore: text of a lane body (valid UTF-8) and large
+			// strings handed back are served / stored by the engine without the bytes going through Go
+			switch op {
+			case "text":
+				if id, err := strconv.ParseInt(arg, 10, 64); err == nil && IsNativeBlob(id) {
+					if b := l.all(LaneHandle(id)); utf8.Valid(b) {
+						l.engineTakes.Add(1)
+						return rt.ToValue(string(b))
+					}
+				}
+			case "utf8":
+				if len(arg) >= fakeLanePutMin {
+					h := l.store([]byte(arg))
+					if id, err := strconv.ParseInt(c.run.Host("nblob", strconv.FormatInt(h, 10)), 10, 64); err == nil && id > 0 {
+						return rt.ToValue(strconv.FormatInt(id, 10))
+					}
+					l.Free(h)
+				}
+			}
+		}
+		return rt.ToValue(c.run.Host(op, arg))
 	})
 	_ = t.Set("put", func(call goja.FunctionCall) goja.Value {
 		ab, ok := call.Argument(0).Export().(goja.ArrayBuffer)
@@ -98,12 +122,25 @@ func (f *fakeNative) newCtx() (*fakeCtx, error) {
 		if off < 0 || n < 0 || off+n > len(b) {
 			return rt.ToValue(-1)
 		}
+		// like NativeBodyStore.swift: a large put goes to the lane and is registered with the run
+		if l := activeFakeLane.Load(); l != nil && n >= fakeLanePutMin {
+			h := l.store(b[off : off+n])
+			if id, err := strconv.ParseInt(c.run.Host("nblob", strconv.FormatInt(h, 10)), 10, 64); err == nil && id > 0 {
+				return rt.ToValue(id)
+			}
+			l.Free(h)
+		}
 		return rt.ToValue(c.run.Put(b[off : off+n]))
 	})
 	_ = t.Set("take", func(call goja.FunctionCall) goja.Value {
 		var b []byte
-		if c.run != nil {
-			b = c.run.Take(call.Argument(0).ToInteger())
+		id := call.Argument(0).ToInteger()
+		if l := activeFakeLane.Load(); l != nil && IsNativeBlob(id) {
+			// like JSCScriptEngine.swift: lane blobs are served by the engine itself, never through Go
+			b = l.all(LaneHandle(id))
+			l.engineTakes.Add(1)
+		} else if c.run != nil {
+			b = c.run.Take(id)
 		}
 		o, _ := rt.New(rt.Get("Uint8Array"), rt.ToValue(rt.NewArrayBuffer(append([]byte(nil), b...))))
 		return o
