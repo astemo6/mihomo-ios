@@ -35,6 +35,8 @@ type ProviderOverride struct {
 	Interval      int    `json:"interval,omitempty"`
 	Filter        string `json:"filter,omitempty"`
 	ExcludeFilter string `json:"excludeFilter,omitempty"`
+	// Policy: rule-provider overrides only (key "rule:<name>") — the policy of the profile's RULE-SET rules.
+	Policy string `json:"policy,omitempty"`
 }
 
 func providerOverridesPath(home string) string { return filepath.Join(home, "provider-overrides.json") }

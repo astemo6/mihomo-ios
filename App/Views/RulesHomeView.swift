@@ -12,6 +12,10 @@ struct RulesView: View {
     @ObservedObject private var offline = ProfileInspector.shared
     @ObservedObject private var custom = CustomRulesStore.shared
     @ObservedObject private var updater = ProviderUpdater.shared
+    @ObservedObject private var providerOV = ProviderOverrideStore.shared
+    @ObservedObject private var profiles = ProfileStore.shared
+    @State private var editingSet: SetRule?
+    @State private var confirmDeleteSet: SetRule?
     @State private var live: [RuleItem] = []
     @State private var liveProviders: [String: ProviderItem] = [:]
     @State private var search = ""
@@ -21,7 +25,7 @@ struct RulesView: View {
     @State private var liveErrors: [String: String] = [:]
 
     /// One RULE-SET rule of the running / saved profile.
-    struct SetRule: Hashable { var name: String; var policy: String }
+    struct SetRule: Hashable, Identifiable { var name: String; var policy: String; var id: String { name } }
 
     var ruleTriples: [(type: String, payload: String, proxy: String)] {
         vpn.isConnected
@@ -54,7 +58,37 @@ struct RulesView: View {
             if let u = byName[r.payload]?.url, mine.contains(u) { continue }
             if seen.insert(r.payload).inserted { out.append(SetRule(name: r.payload, policy: r.proxy)) }
         }
+        // 停用 rule sets are not in the runtime any more; keep them listed (dimmed) so they can be turned on again.
+        for (k, o) in setOverrides where o.disabled == true && o.deleted != true {
+            let name = String(k.dropFirst(5))
+            if seen.insert(name).inserted { out.append(SetRule(name: name, policy: o.policy ?? o.shownPolicy ?? "")) }
+        }
         return out
+    }
+
+    /// The `rule:<name>` overrides of the active profile (停用 / 删除 / 编辑 of its rule sets).
+    var setOverrides: [String: ProviderOverride] {
+        providerOV.overrides(profiles.activeID).filter { $0.key.hasPrefix("rule:") }
+    }
+
+    func setOverride(_ name: String) -> ProviderOverride { setOverrides[ProviderOverride.ruleKey(name)] ?? ProviderOverride() }
+
+    var deletedSetCount: Int { setOverrides.values.filter { $0.deleted == true }.count }
+
+    func changeSet(_ s: SetRule, _ change: @escaping (inout ProviderOverride) -> Void) {
+        guard let id = profiles.activeID else { return }
+        let url = providersByName[s.name]?.url
+        providerOV.update(id, ProviderOverride.ruleKey(s.name)) { o in
+            if o.shownPolicy == nil, !s.policy.isEmpty { o.shownPolicy = s.policy }
+            if o.shownURL == nil, let url, !url.isEmpty { o.shownURL = url }
+            change(&o)
+        }
+        Task { await applySetChange() }
+    }
+
+    func applySetChange() async {
+        if vpn.isConnected, let e = await VPNManager.shared.reload() { custom.message = e }
+        await load()
     }
 
     func matches(_ parts: String...) -> Bool {
@@ -102,8 +136,19 @@ struct RulesView: View {
                 }
                 ForEach(mine) { r in customRow(r) }
                 ForEach(sets, id: \.self) { s in profileRow(s) }
+                if deletedSetCount > 0, let id = profiles.activeID {
+                    Button {
+                        providerOV.restoreDeleted(id, ruleSets: true)
+                        Task { await applySetChange() }
+                    } label: {
+                        Label("恢复已删除的规则集（\(deletedSetCount)）", systemImage: "arrow.uturn.backward")
+                    }
+                    .accessibilityIdentifier("rules.restoreDeletedSets")
+                }
             } header: {
                 Text("订阅 \(mine.count + sets.count)")
+            } footer: {
+                Text("轻点查看内容；右滑更新或编辑，左滑删除；圆圈启用或停用；长按查看全部操作。")
             }
             .listRowBackground(Theme.card)
         }
@@ -132,6 +177,27 @@ struct RulesView: View {
         .refreshable { await load() }
         .sheet(isPresented: $adding) {
             CustomRuleEditor(rule: CustomRule(line: "RULE-SET,,")) { r in custom.rules.insert(r, at: 0); custom.save() }
+        }
+        .sheet(item: $editingSet) { s in
+            RuleSetOverrideEditor(name: s.name,
+                                  url: setOverride(s.name).url ?? providersByName[s.name]?.url ?? setOverride(s.name).shownURL ?? "",
+                                  policy: s.policy) { url, policy in
+                changeSet(s) { o in
+                    let original = providersByName[s.name]?.url ?? o.shownURL ?? ""
+                    o.url = url.isEmpty || url == original ? nil : url
+                    o.policy = policy.isEmpty || policy == (o.shownPolicy ?? s.policy) ? nil : policy
+                }
+            }
+            .environmentObject(vpn)
+        }
+        .alert("删除这个规则集？", isPresented: Binding(get: { confirmDeleteSet != nil }, set: { if !$0 { confirmDeleteSet = nil } })) {
+            Button("删除", role: .destructive) {
+                if let s = confirmDeleteSet { changeSet(s) { $0.deleted = true } }
+                confirmDeleteSet = nil
+            }
+            Button("取消", role: .cancel) { confirmDeleteSet = nil }
+        } message: {
+            Text("只从当前配置里移除：它和用到它的规则不再加载，配置文件不会改动。可以在列表底部「恢复已删除的规则集」找回。")
         }
         .sheet(item: $editing) { r in
             CustomRuleEditor(rule: r) { nr in
@@ -193,16 +259,18 @@ struct RulesView: View {
         let p = providersByName[s.name]
         let lp = liveProviders[s.name]
         let liveDate = lp?.updatedAt.flatMap { ConnectionItem.iso.date(from: $0) ?? ConnectionItem.isoNoFrac.date(from: $0) }
+        let ov = setOverride(s.name)
+        let off = ov.disabled == true
         let card = SubscriptionCard(
             name: s.name,
-            url: p?.url ?? "",
+            url: p?.url ?? ov.url ?? ov.shownURL ?? "",
             policy: s.policy,
             updated: liveDate ?? p?.cachedDate,
-            count: lp?.ruleCount ?? p.flatMap { $0.count >= 0 ? $0.count : nil },
+            count: off ? nil : (lp?.ruleCount ?? p.flatMap { $0.count >= 0 ? $0.count : nil }),
             error: liveErrors[s.name] ?? p.flatMap { updater.errors[$0.id] },
-            enabled: nil,
+            enabled: !off,
             busy: updatingLive.contains(s.name) || (p.map { updater.busy.contains($0.id) } ?? false),
-            onToggle: nil
+            onToggle: { on in changeSet(s) { $0.disabled = on ? nil : true } }
         )
         Group {
             if let p {
@@ -212,15 +280,30 @@ struct RulesView: View {
             }
         }
         .swipeActions(edge: .leading) {
-            Button { Task { await update(s.name) } } label: { Label("更新", systemImage: "arrow.clockwise") }
-                .tint(Theme.accent)
+            if !off {
+                Button { Task { await update(s.name) } } label: { Label("更新", systemImage: "arrow.clockwise") }
+                    .tint(Theme.accent)
+            }
+            Button { editingSet = s } label: { Label("编辑", systemImage: "pencil") }
+                .tint(.indigo)
+        }
+        .swipeActions(edge: .trailing) {
+            Button(role: .destructive) { confirmDeleteSet = s } label: { Label("删除", systemImage: "trash") }
         }
         .contextMenu {
-            Button { Task { await update(s.name) } } label: { Label("更新", systemImage: "arrow.clockwise") }
-            if let u = p?.url, !u.isEmpty {
+            if !off {
+                Button { Task { await update(s.name) } } label: { Label("更新", systemImage: "arrow.clockwise") }
+            }
+            Button { editingSet = s } label: { Label("编辑", systemImage: "pencil") }
+            Button { changeSet(s) { $0.disabled = off ? nil : true } } label: {
+                Label(LocalizedStringKey(off ? "启用" : "停用"), systemImage: off ? "play.circle" : "pause.circle")
+            }
+            if let u = p?.url ?? ov.shownURL, !u.isEmpty {
                 Button { UIPasteboard.general.string = u } label: { Label("复制链接", systemImage: "doc.on.doc") }
             }
+            Button(role: .destructive) { confirmDeleteSet = s } label: { Label("删除", systemImage: "trash") }
         }
+        .accessibilityIdentifier("rules.set.\(s.name)")
     }
 
     static func displayName(_ url: String) -> String {
@@ -325,5 +408,74 @@ struct SubscriptionCard: View {
         }
         .padding(.vertical, 4)
         .opacity(enabled == false ? 0.55 : 1)
+    }
+}
+
+
+/// 编辑 a rule set of the profile (user 2026-10-23): its link and the policy of its RULE-SET rules, kept in the
+/// override store — the profile file is not rewritten.
+struct RuleSetOverrideEditor: View {
+    let name: String
+    @State var url: String
+    @State var policy: String
+    let onSave: (String, String) -> Void
+    @EnvironmentObject var vpn: VPNManager
+    @Environment(\.dismiss) private var dismiss
+    @State private var policies: [String] = []
+
+    init(name: String, url: String, policy: String, onSave: @escaping (String, String) -> Void) {
+        self.name = name
+        _url = State(initialValue: url)
+        _policy = State(initialValue: policy)
+        self.onSave = onSave
+    }
+
+    var choices: [String] {
+        var out = policies + ["DIRECT", "REJECT", "REJECT-DROP"]
+        if !policy.isEmpty && !out.contains(policy) { out.insert(policy, at: 0) }
+        return out
+    }
+
+    var body: some View {
+        NavigationStack {
+            Form {
+                Section {
+                    Text(verbatim: name).foregroundStyle(.secondary)
+                } header: { Text("名称") }
+                Section {
+                    TextField("https://example.com/rules.yaml", text: $url, axis: .vertical)
+                        .font(.footnote.monospaced())
+                        .textInputAutocapitalization(.never).autocorrectionDisabled().keyboardType(.URL)
+                } header: { Text("链接") }
+                Section {
+                    Picker("策略", selection: $policy) {
+                        ForEach(choices, id: \.self) { Text(verbatim: $0).tag($0) }
+                    }
+                } footer: {
+                    Text("修改保存在 Tern 里，配置文件不会改动；更新配置后仍然有效。")
+                }
+            }
+            .navigationTitle("编辑规则集")
+            .navigationBarTitleDisplayMode(.inline)
+            .toolbar {
+                ToolbarItem(placement: .cancellationAction) { Button("取消") { dismiss() } }
+                ToolbarItem(placement: .confirmationAction) {
+                    Button("保存") {
+                        onSave(url.trimmingCharacters(in: .whitespacesAndNewlines), policy)
+                        dismiss()
+                    }
+                }
+            }
+            .task {
+                var names: [String] = []
+                if vpn.isConnected, let p = try? await ControllerClient.shared.proxies() {
+                    names = LiveGroupOrder.names(p).filter { p[$0]?.isGroup == true && p[$0]?.hidden != true && $0 != "GLOBAL" }
+                }
+                if names.isEmpty {
+                    names = ProfileInspector.shared.result.groups.filter { $0.hidden != true && $0.name != "GLOBAL" }.map(\.name)
+                }
+                policies = names
+            }
+        }
     }
 }

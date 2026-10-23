@@ -67,6 +67,12 @@ struct ProfilesView: View {
                                 } else if p.kind == .remote || store.source(of: p)?.kind == .remote {
                                     Button { refresh(p) } label: { Label("更新", systemImage: "arrow.clockwise") }.tint(.blue)
                                 }
+                                if p.id != store.activeID || !p.enabled {
+                                    Button { if let e = store.setEnabled(p, !p.enabled) { message = e } } label: {
+                                        Label(LocalizedStringKey(p.enabled ? "停用" : "启用"), systemImage: p.enabled ? "pause.circle" : "play.circle")
+                                    }
+                                    .tint(p.enabled ? Color.gray : Theme.good)
+                                }
                             }
                             .contextMenu {
                                 Button { select(p) } label: { Label("设为当前配置", systemImage: "checkmark.circle") }
@@ -83,6 +89,12 @@ struct ProfilesView: View {
                                 }
                                 Button { scriptsFor = p } label: { Label("覆写脚本", systemImage: "curlybraces") } // v0.19
                                 Button { editing = p } label: { Label(LocalizedStringKey(p.kind == .remote ? "查看 YAML" : "编辑 YAML"), systemImage: p.kind == .remote ? "doc.text" : "pencil") }
+                                // User 2026-10-23 「对应的还要有删除，禁用，修改功能」: 停用 / 启用 here too (配置订阅 live in 配置管理).
+                                if p.id != store.activeID || !p.enabled {
+                                    Button { if let e = store.setEnabled(p, !p.enabled) { message = e } } label: {
+                                        Label(LocalizedStringKey(p.enabled ? "停用" : "启用"), systemImage: p.enabled ? "pause.circle" : "play.circle")
+                                    }
+                                }
                                 Button { export(p) } label: { Label("导出", systemImage: "square.and.arrow.up") }
                                 Button { exportFinal(p) } label: { Label("导出最终配置（含覆写）", systemImage: "doc.badge.gearshape") }
                                 Button(role: .destructive) { requestDelete(p) } label: { Label("删除", systemImage: "trash") }
@@ -90,7 +102,7 @@ struct ProfilesView: View {
                             .listRowBackground(Theme.card)
                     }
                 } footer: {
-                    if !store.profiles.isEmpty { Text("轻点切换当前配置；左滑编辑、节点处理、覆写脚本或删除，右滑更新订阅。") }
+                    if !store.profiles.isEmpty { Text("轻点切换当前配置；左滑编辑、节点处理、覆写脚本或删除，右滑更新订阅或停用 / 启用。") }
                 }
             }
             .listStyle(.insetGrouped)

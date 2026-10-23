@@ -123,6 +123,8 @@ struct ToolsTabView: View {
 struct ToolsList: View {
     @State private var stats = ToolStats()
     @ObservedObject private var vpn = VPNManager.shared
+    @ObservedObject private var everything = UpdateEverything.shared
+    @State private var everythingMessage: String?
 
     var body: some View {
         List {
@@ -192,6 +194,22 @@ struct ToolsList: View {
         .scrollContentBackground(.hidden)
         .background(Theme.bg.ignoresSafeArea())
         .tabRootChrome("工具")
+        .toolbar {
+            ToolbarItem(placement: .navigationBarTrailing) {
+                if everything.running {
+                    ProgressView()
+                } else {
+                    Button { Task { everythingMessage = await everything.run(); await refresh() } } label: {
+                        Image(systemName: "arrow.triangle.2.circlepath")
+                    }
+                    .accessibilityLabel(Text("全部更新"))
+                    .accessibilityIdentifier("tools.updateAll")
+                }
+            }
+        }
+        .alert("全部更新", isPresented: Binding(get: { everythingMessage != nil }, set: { if !$0 { everythingMessage = nil } })) {
+            Button("好", role: .cancel) {}
+        } message: { Text(everythingMessage ?? "") }
         .onAppear { Task { await refresh() } }
         .task {
             // The offline node / rule counts come from the profile inspector; load it once if nothing did yet.

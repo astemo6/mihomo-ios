@@ -17,11 +17,19 @@ struct ProviderOverride: Codable, Hashable {
     var interval: Int? = nil
     var filter: String? = nil
     var excludeFilter: String? = nil
+    /// Rule sets only (key `rule:<name>`, user 2026-10-23 「对应的还要有删除，禁用，修改功能」): the policy of the profile's
+    /// RULE-SET rules (applied by bridge/ruleprovideroverrides.go).
+    var policy: String? = nil
+    /// Display only (app side): what a 停用 rule set showed before it left the runtime, so its row stays listed.
+    var shownPolicy: String? = nil
+    var shownURL: String? = nil
 
     var isEmpty: Bool {
         disabled != true && deleted != true && (name ?? "").isEmpty && icon == nil && (url ?? "").isEmpty
-            && (interval ?? 0) <= 0 && (filter ?? "").isEmpty && (excludeFilter ?? "").isEmpty
+            && (interval ?? 0) <= 0 && (filter ?? "").isEmpty && (excludeFilter ?? "").isEmpty && (policy ?? "").isEmpty
     }
+
+    static func ruleKey(_ name: String) -> String { "rule:" + name }
 }
 
 /// One proxy-provider as the profile declares it (bridge ProfileProviders), before the overrides.
@@ -76,10 +84,11 @@ final class ProviderOverrideStore: ObservableObject {
         set(profileID, name, o)
     }
 
-    /// 恢复已删除的节点集: clears 删除 on every provider of the profile (other edits stay).
-    func restoreDeleted(_ profileID: String) {
+    /// 恢复已删除的节点集 (ruleSets false) / 恢复已删除的规则集 (true): clears 删除 on those providers of the profile
+    /// (other edits stay). Rule-set entries are keyed `rule:<name>`.
+    func restoreDeleted(_ profileID: String, ruleSets: Bool = false) {
         guard var m = all[profileID] else { return }
-        for (k, var v) in m where v.deleted == true {
+        for (k, var v) in m where v.deleted == true && k.hasPrefix("rule:") == ruleSets {
             v.deleted = nil
             m[k] = v.isEmpty ? nil : v
         }

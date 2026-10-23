@@ -265,6 +265,13 @@ func buildRuntimeWith(profile []byte, o Overrides, fd int32, inject func(raw map
 		if len(removed) > 0 {
 			log.Infoln("[Provider] 已停用或删除的节点集未加载：%s", strings.Join(removed, "、"))
 		}
+		removedSets, ruleWarns := applyRuleProviderOverrides(raw, readProviderOverrides(o.home, o.profileID))
+		for _, w := range ruleWarns {
+			log.Warnln("[Provider] %s", w)
+		}
+		if len(removedSets) > 0 {
+			log.Infoln("[Provider] 已停用或删除的规则集未加载：%s", strings.Join(removedSets, "、"))
+		}
 	}
 	// v0.9 订阅管理: node subscriptions from the override store, then the user's group edits.
 	if o.home != "" && !o.SafeMode {

@@ -73102,36 +73102,36 @@
         }
       }
     },
-    "轻点切换当前配置；左滑编辑、节点处理、覆写脚本或删除，右滑更新订阅。": {
+    "轻点切换当前配置；左滑编辑、节点处理、覆写脚本或删除，右滑更新订阅或停用 / 启用。": {
       "localizations": {
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "Tap to switch the current profile; swipe left to edit, process nodes, open override scripts or delete; swipe right to update a subscription."
+            "value": "Tap to switch the current profile; swipe left to edit, process nodes, open override scripts or delete; swipe right to update a subscription or turn it on / off."
           }
         },
         "ja": {
           "stringUnit": {
             "state": "translated",
-            "value": "タップで現在のプロファイルを切り替え、左スワイプで編集・ノード処理・上書きスクリプト・削除、右スワイプで購読を更新します。"
+            "value": "タップで現在のプロファイルを切り替え、左スワイプで編集・ノード処理・上書きスクリプト・削除、右スワイプで購読を更新または有効 / 無効にします。"
           }
         },
         "ko": {
           "stringUnit": {
             "state": "translated",
-            "value": "탭하면 현재 프로파일을 전환하고, 왼쪽으로 밀어 편집·노드 처리·오버라이드 스크립트·삭제, 오른쪽으로 밀어 구독을 업데이트합니다."
+            "value": "탭하면 현재 프로파일을 전환하고, 왼쪽으로 밀어 편집·노드 처리·오버라이드 스크립트·삭제, 오른쪽으로 밀어 구독을 업데이트하거나 사용 / 사용 안 함으로 전환합니다."
           }
         },
         "ru": {
           "stringUnit": {
             "state": "translated",
-            "value": "Нажмите, чтобы сменить текущий профиль; смахните влево — правка, обработка узлов, скрипты переопределения или удаление; вправо — обновить подписку."
+            "value": "Нажмите, чтобы сменить текущий профиль; смахните влево — правка, обработка узлов, скрипты переопределения или удаление; вправо — обновить подписку или включить / выключить."
           }
         },
         "zh-Hant": {
           "stringUnit": {
             "state": "translated",
-            "value": "輕點切換當前配置；左滑編輯、節點處理、覆寫腳本或刪除，右滑更新訂閱。"
+            "value": "輕點切換當前配置；左滑編輯、節點處理、覆寫腳本或刪除，右滑更新訂閱或停用 / 啟用。"
           }
         }
       }
@@ -94653,6 +94653,321 @@
           "stringUnit": {
             "state": "translated",
             "value": "Встроенные в приложение GeoIP / GeoSite будут восстановлены до встроенной версии; другие базы ядро загрузит снова при следующей загрузке, если они всё ещё нужны профилю."
+          }
+        }
+      }
+    },
+    "恢复已删除的规则集（%lld）": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Restore deleted rule sets (%lld)"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "削除したルールセットを復元（%lld）"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "삭제한 규칙 세트 복원(%lld)"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Восстановить удалённые наборы правил (%lld)"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "恢復已刪除的規則集（%lld）"
+          }
+        }
+      }
+    },
+    "轻点查看内容；右滑更新或编辑，左滑删除；圆圈启用或停用；长按查看全部操作。": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Tap to see the contents; swipe right to update or edit, left to delete; the circle turns one on or off; long-press for all actions."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "タップで内容を表示、右スワイプで更新または編集、左スワイプで削除、丸印でオン／オフ、長押しですべての操作。"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "탭하여 내용 보기, 오른쪽으로 밀어 업데이트 또는 편집, 왼쪽으로 밀어 삭제, 원으로 켜기/끄기, 길게 눌러 모든 작업을 볼 수 있습니다."
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Нажмите, чтобы посмотреть содержимое; смахните вправо — обновить или изменить, влево — удалить; кружок включает и выключает; долгое нажатие — все действия."
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "輕點檢視內容；右滑更新或編輯，左滑刪除；圓圈啟用或停用；長按檢視全部操作。"
+          }
+        }
+      }
+    },
+    "删除这个规则集？": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Delete this rule set?"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "このルールセットを削除しますか？"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "이 규칙 세트를 삭제할까요?"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Удалить этот набор правил?"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "刪除這個規則集？"
+          }
+        }
+      }
+    },
+    "只从当前配置里移除：它和用到它的规则不再加载，配置文件不会改动。可以在列表底部「恢复已删除的规则集」找回。": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Removed from the current profile only: it and the rules that use it are no longer loaded; the profile file is not changed. Bring it back with “Restore deleted rule sets” at the bottom of the list."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "現在のプロファイルからのみ削除します：このルールセットと、それを使うルールは読み込まれなくなります。プロファイルファイルは変更されません。リスト下部の「削除したルールセットを復元」で戻せます。"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "현재 프로파일에서만 제거됩니다. 이 규칙 세트와 이를 사용하는 규칙은 더 이상 불러오지 않으며 프로파일 파일은 바뀌지 않습니다. 목록 아래의 ‘삭제한 규칙 세트 복원’으로 되돌릴 수 있습니다."
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Удаляется только из текущего профиля: набор и правила, которые его используют, больше не загружаются; файл профиля не меняется. Вернуть можно кнопкой «Восстановить удалённые наборы правил» внизу списка."
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "只從目前設定裡移除：它和用到它的規則不再載入，設定檔不會改動。可以在列表底部「恢復已刪除的規則集」找回。"
+          }
+        }
+      }
+    },
+    "编辑规则集": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Edit Rule Set"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ルールセットを編集"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "규칙 세트 편집"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Изменить набор правил"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "編輯規則集"
+          }
+        }
+      }
+    },
+    "链接": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Link"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "リンク"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "링크"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Ссылка"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "連結"
+          }
+        }
+      }
+    },
+    "修改保存在 Tern 里，配置文件不会改动；更新配置后仍然有效。": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Changes are kept in Tern; the profile file is not changed, and they stay after the profile updates."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "変更は Tern に保存され、プロファイルファイルは変更されません。プロファイルを更新しても有効です。"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "변경 사항은 Tern에 저장되며 프로파일 파일은 바뀌지 않습니다. 프로파일을 업데이트해도 유지됩니다."
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Изменения хранятся в Tern, файл профиля не меняется; они сохраняются после обновления профиля."
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "修改儲存在 Tern 裡，設定檔不會改動；更新設定後仍然有效。"
+          }
+        }
+      }
+    },
+    "正在更新…": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Updating…"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "更新中…"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "업데이트 중…"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Обновление…"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "正在更新…"
+          }
+        }
+      }
+    },
+    "%lld 项更新失败，可在对应页面查看": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%lld items failed to update; see their pages for details"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%lld 件の更新に失敗しました。各ページで確認できます"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%lld개 항목을 업데이트하지 못했습니다. 각 페이지에서 확인하세요"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Не удалось обновить элементов: %lld; подробности на их страницах"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%lld 項更新失敗，可在對應頁面檢視"
           }
         }
       }
