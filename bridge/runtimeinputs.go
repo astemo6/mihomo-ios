@@ -42,6 +42,7 @@ func runtimeInputFiles(home, profilePath string) []string {
 		customRulesPath(home),       // applyCustomRules
 		providerOverridesPath(home), // buildRuntimeWith → readProviderOverrides
 		nodeSubsPath(home),          // mergeNodeSubs → readNodeSubs
+		proxyChainsPath(home),       // buildRuntimeWith → readProxyChains (代理链)
 	}
 	// Node-subscription bodies: mergeNodeSubs stats each listed one (skips missing/empty); the whole
 	// nodesubs/ directory is signed so a re-download (new content) also changes the key, as do the

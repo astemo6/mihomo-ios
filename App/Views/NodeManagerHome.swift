@@ -5,7 +5,7 @@ import SwiftUI
 /// the 节点集 / proxy-providers of the current profile) are two sections. Every node subscription row works the same,
 /// Loon-like: right swipe 更新, left swipe 复制链接 only, long-press 图标 / 更新 / 编辑 / 禁用 / 复制链接 / 删除. A profile's
 /// 节点集 is changed through the override store (ProviderOverrideStore), never in the profile file. Then 本地节点,
-/// 全部节点 and 筛选节点 (Loon's 所有节点 page in the main style). It replaces the separate 订阅管理 page.
+/// 全部节点, 筛选节点 and 代理链 (Loon's 所有节点 / 代理链 pages in the main style). It replaces the separate 订阅管理 page.
 struct NodeManagerView: View {
     @EnvironmentObject var store: ProfileStore
     @EnvironmentObject var vpn: VPNManager
@@ -14,6 +14,7 @@ struct NodeManagerView: View {
     @ObservedObject private var offline = ProfileInspector.shared
     @ObservedObject private var updater = ProviderUpdater.shared
     @ObservedObject private var providerOV = ProviderOverrideStore.shared
+    @ObservedObject private var proxyChains = ProxyChainStore.shared
     @AppStorage("nodes.subSort") private var subSort = "config"
     /// r7 OPT-3: read in onAppear only. A State initial value is evaluated on every init (CoreOverrides.load = a file
     /// and two Keychain reads), and LazyDestination re-creates this view whenever 工具 redraws.
@@ -227,6 +228,18 @@ struct NodeManagerView: View {
                         }
                     }
                 }
+                NavigationLink { ProxyChainsView() } label: {
+                    HStack(spacing: 12) {
+                        SourceIcon(systemName: "link", color: Theme.accent)
+                        VStack(alignment: .leading, spacing: 2) {
+                            Text("代理链").font(.subheadline.weight(.semibold))
+                            Text("让流量依次经过多个节点或策略组").font(.caption).foregroundStyle(.secondary)
+                        }
+                        Spacer(minLength: 6)
+                        Text(verbatim: "\(proxyChains.chains.count)").font(.subheadline.monospacedDigit()).foregroundStyle(.secondary)
+                    }
+                }
+                .accessibilityIdentifier("nodes.proxyChains")
             } header: { Text("节点") } footer: {
                 if model.loading { Text("正在读取节点…") } else if model.liveConnected { Text("已连接：节点与延迟来自内核。") } else { Text("未连接：显示配置和本地缓存里的节点。") }
             }

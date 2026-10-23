@@ -67,6 +67,8 @@ struct GroupSpecsResult: Decodable {
     var groups: [GroupSpec] = []
     var providers: [String] = []
     var proxies: [String] = []
+    /// 代理链 (app-wide, 启用) that can be members like nodes.
+    var chains: [String]? = nil
 
     static func load(_ path: String) async -> GroupSpecsResult {
         let json = await Task.detached(priority: .userInitiated) { LibmihomoGroupSpecs(AppShared.homeURL.path, path) }.value
@@ -190,7 +192,7 @@ struct GroupEditorView: View {
         } header: {
             HStack { Text("成员 \(spec.proxies.count)"); Spacer(); EditButton().font(.caption) }
         } footer: {
-            Text("成员可以是节点、其他策略组、DIRECT / REJECT。左滑删除，点「编辑」拖动排序。")
+            Text("成员可以是节点、其他策略组、代理链、DIRECT / REJECT。左滑删除，点「编辑」拖动排序。")
         }
         .listRowBackground(Theme.card)
 
@@ -302,6 +304,7 @@ struct GroupEditorView: View {
         var out = ["DIRECT", "REJECT"]
         out += specs.groups.map(\.name).filter { $0 != spec.name && $0 != groupName }
         out += (edits.added ?? []).map(\.name).filter { $0 != spec.name }
+        out += specs.chains ?? []
         out += specs.proxies
         return out.reduce(into: [String]()) { if !$0.contains($1) { $0.append($1) } }
     }
@@ -309,6 +312,7 @@ struct GroupEditorView: View {
     func memberKind(_ m: String) -> String {
         if ["DIRECT", "REJECT", "REJECT-DROP", "PASS"].contains(m.uppercased()) { return "内置" }
         if specs.groups.contains(where: { $0.name == m }) || (edits.added ?? []).contains(where: { $0.name == m }) { return "策略组" }
+        if (specs.chains ?? []).contains(m) { return "代理链" }
         return "节点"
     }
 
@@ -387,7 +391,7 @@ struct GroupEditorView: View {
         if name.isEmpty { message = String(localized: "名称不能为空"); return }
         let clash = name != groupName && ((specs.groups.contains { $0.name == name } && name != originalName)
             || (edits.added ?? []).enumerated().contains { $0.element.name == name && $0.offset != addedIndex }
-            || specs.proxies.contains(name))
+            || specs.proxies.contains(name) || (specs.chains ?? []).contains(name))
         if clash {
             message = String(localized: "已有同名的策略组或节点")
             return

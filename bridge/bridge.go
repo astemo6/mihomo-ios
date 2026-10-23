@@ -125,6 +125,8 @@ type Overrides struct {
 	profileID  string // v0.9: group edits are per profile
 	// v0.19.10: candidate group edits (GroupEditCheck parses the merged result before saving)
 	groupEditsOverride *GroupEdits
+	// 代理链 (proxychains.go) left out: the member picker lists the profile's own policies.
+	noProxyChains bool
 }
 
 const (
@@ -304,6 +306,10 @@ func buildRuntimeWith(profile []byte, o Overrides, fd int32, inject func(raw map
 		applyChains(raw, nil)
 	} else {
 		applyChains(raw, o.chains)
+	}
+	// 代理链 after the group 前置代理, so a group's 前置代理 never replaces a chain hop's.
+	if o.home != "" && !o.noProxyChains {
+		applyProxyChainsLogged(raw, readProxyChains(o.home), !o.SafeMode)
 	}
 	if o.LogLevel != "" {
 		raw["log-level"] = o.LogLevel

@@ -355,6 +355,14 @@ func InspectProfile(homeDir, path string) string {
 		res.Rules = append(res.Rules, splitRule(r))
 	}
 	res.RuleProviders = inspectProviders("rule", raw["rule-providers"])
+	// 代理链 providers are an implementation detail of the chain groups (members above already listed).
+	shown := res.ProxyProviders[:0]
+	for _, pv := range res.ProxyProviders {
+		if !strings.HasPrefix(pv.Name, GeneratedProviderPrefix) {
+			shown = append(shown, pv)
+		}
+	}
+	res.ProxyProviders = shown
 	b, _ := json.Marshal(res)
 	return string(b)
 }

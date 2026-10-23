@@ -29063,36 +29063,37 @@
         }
       }
     },
-    "成员可以是节点、其他策略组、DIRECT / REJECT。左滑删除，点「编辑」拖动排序。": {
+    "成员可以是节点、其他策略组、代理链、DIRECT / REJECT。左滑删除，点「编辑」拖动排序。": {
+      "extractionState": "manual",
       "localizations": {
         "zh-Hant": {
           "stringUnit": {
             "state": "translated",
-            "value": "成員可以是節點、其他策略組、DIRECT / REJECT。左滑刪除，點「編輯」拖動排序。"
+            "value": "成員可以是節點、其他策略組、代理鏈、DIRECT / REJECT。左滑刪除，點「編輯」拖動排序。"
           }
         },
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "Members can be nodes, other groups, DIRECT / REJECT. Swipe left to remove; tap Edit to reorder."
+            "value": "Members can be nodes, other groups, proxy chains, DIRECT / REJECT. Swipe left to remove; tap Edit to reorder."
           }
         },
         "ja": {
           "stringUnit": {
             "state": "translated",
-            "value": "メンバーにはノード、他のポリシーグループ、DIRECT / REJECT を指定できます。左スワイプで削除、「編集」で並べ替え。"
+            "value": "メンバーにはノード、他のポリシーグループ、プロキシチェーン、DIRECT / REJECT を指定できます。左スワイプで削除、「編集」で並べ替え。"
           }
         },
         "ko": {
           "stringUnit": {
             "state": "translated",
-            "value": "구성원은 노드, 다른 정책 그룹, DIRECT / REJECT가 될 수 있습니다. 왼쪽으로 밀어 삭제하고 「편집」으로 순서를 바꿉니다."
+            "value": "구성원은 노드, 다른 정책 그룹, 프록시 체인, DIRECT / REJECT가 될 수 있습니다. 왼쪽으로 밀어 삭제하고 「편집」으로 순서를 바꿉니다."
           }
         },
         "ru": {
           "stringUnit": {
             "state": "translated",
-            "value": "Участниками могут быть узлы, другие группы, DIRECT / REJECT. Смахните влево, чтобы удалить; «Изменить» — порядок."
+            "value": "Участниками могут быть узлы, другие группы, цепочки прокси, DIRECT / REJECT. Смахните влево, чтобы удалить; «Изменить» — порядок."
           }
         }
       }
@@ -94968,6 +94969,741 @@
           "stringUnit": {
             "state": "translated",
             "value": "%lld 項更新失敗，可在對應頁面檢視"
+          }
+        }
+      }
+    },
+    "还没有代理链": {
+      "extractionState": "manual",
+      "localizations": {
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "還沒有代理鏈"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "No proxy chains yet"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "プロキシチェーンはまだありません"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "아직 프록시 체인이 없습니다"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Цепочек прокси пока нет"
+          }
+        }
+      }
+    },
+    "点右上角 + 添加。代理链让流量依次经过多个节点或策略组。": {
+      "extractionState": "manual",
+      "localizations": {
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "點右上角 + 添加。代理鏈讓流量依次經過多個節點或策略組。"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Tap + at the top right to add one. A proxy chain sends traffic through several nodes or policy groups in turn."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "右上の + で追加します。プロキシチェーンは通信を複数のノードやポリシーグループに順番に通します。"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "오른쪽 위 + 를 눌러 추가하세요. 프록시 체인은 트래픽이 여러 노드나 정책 그룹을 차례로 거치게 합니다."
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Нажмите + вверху справа, чтобы добавить. Цепочка прокси пропускает трафик через несколько узлов или групп политик по очереди."
+          }
+        }
+      }
+    },
+    "启用的代理链会作为策略出现在策略组和规则里。成员在当前配置里找不到时，这条链不生效。": {
+      "extractionState": "manual",
+      "localizations": {
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "啟用的代理鏈會作為策略出現在策略組和規則裡。成員在目前配置裡找不到時，這條鏈不生效。"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Enabled chains appear as policies in policy groups and rules. A chain whose members are not in the current profile does not take effect."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "有効なチェーンはポリシーとしてポリシーグループとルールに表示されます。メンバーが現在のプロファイルにない場合、そのチェーンは使われません。"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "사용 중인 체인은 정책 그룹과 규칙에서 정책으로 나타납니다. 구성원이 현재 프로파일에 없으면 그 체인은 적용되지 않습니다."
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Включённые цепочки появляются как политики в группах политик и правилах. Если участников нет в текущем профиле, цепочка не действует."
+          }
+        }
+      }
+    },
+    "代理链": {
+      "extractionState": "manual",
+      "localizations": {
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "代理鏈"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Proxy Chains"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "プロキシチェーン"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "프록시 체인"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Цепочки прокси"
+          }
+        }
+      }
+    },
+    "添加代理链": {
+      "extractionState": "manual",
+      "localizations": {
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "添加代理鏈"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Add Proxy Chain"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "プロキシチェーンを追加"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "프록시 체인 추가"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Добавить цепочку прокси"
+          }
+        }
+      }
+    },
+    "删除代理链「%@」？": {
+      "extractionState": "manual",
+      "localizations": {
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "刪除代理鏈「%@」？"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Delete proxy chain “%@”?"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "プロキシチェーン「%@」を削除しますか？"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "프록시 체인 「%@」을(를) 삭제할까요?"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Удалить цепочку прокси «%@»?"
+          }
+        }
+      }
+    },
+    "引用它的策略组和规则会一并移除这条链。": {
+      "extractionState": "manual",
+      "localizations": {
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "引用它的策略組和規則會一併移除這條鏈。"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Policy groups and rules that use it will drop this chain too."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "これを使うポリシーグループとルールからも、このチェーンが外されます。"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "이 체인을 쓰는 정책 그룹과 규칙에서도 함께 제거됩니다."
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Группы политик и правила, которые её используют, тоже перестанут её использовать."
+          }
+        }
+      }
+    },
+    "还没有成员": {
+      "extractionState": "manual",
+      "localizations": {
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "還沒有成員"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "No members yet"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "メンバーはまだありません"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "아직 구성원이 없습니다"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Участников пока нет"
+          }
+        }
+      }
+    },
+    "关闭 UDP 后，这条链只转发 TCP。": {
+      "extractionState": "manual",
+      "localizations": {
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "關閉 UDP 後，這條鏈只轉發 TCP。"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "With UDP off, this chain only forwards TCP."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "UDP をオフにすると、このチェーンは TCP だけを転送します。"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "UDP를 끄면 이 체인은 TCP만 전달합니다."
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Если UDP выключен, цепочка передаёт только TCP."
+          }
+        }
+      }
+    },
+    "添加节点或策略组": {
+      "extractionState": "manual",
+      "localizations": {
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "添加節點或策略組"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Add Node or Policy Group"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ノードまたはポリシーグループを追加"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "노드 또는 정책 그룹 추가"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Добавить узел или группу политик"
+          }
+        }
+      }
+    },
+    "从上到下依次连接：第一个是入口，最后一个是出口，至少两个。左滑删除，点「编辑」拖动排序。": {
+      "extractionState": "manual",
+      "localizations": {
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "從上到下依次連接：第一個是入口，最後一個是出口，至少兩個。左滑刪除，點「編輯」拖動排序。"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Connects from top to bottom: the first is the entry, the last is the exit; at least two. Swipe left to remove; tap Edit to reorder."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "上から順に接続します：最初が入口、最後が出口で、2 つ以上必要です。左スワイプで削除、「編集」で並べ替え。"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "위에서 아래로 차례로 연결합니다. 첫 번째가 입구, 마지막이 출구이며 최소 두 개가 필요합니다. 왼쪽으로 밀어 삭제하고 「편집」으로 순서를 바꿉니다."
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Соединяются сверху вниз: первый — вход, последний — выход; нужно не меньше двух. Смахните влево, чтобы удалить; «Изменить» — порядок."
+          }
+        }
+      }
+    },
+    "删除代理链": {
+      "extractionState": "manual",
+      "localizations": {
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "刪除代理鏈"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Delete Proxy Chain"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "プロキシチェーンを削除"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "프록시 체인 삭제"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Удалить цепочку прокси"
+          }
+        }
+      }
+    },
+    "编辑代理链": {
+      "extractionState": "manual",
+      "localizations": {
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "編輯代理鏈"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Edit Proxy Chain"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "プロキシチェーンを編集"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "프록시 체인 편집"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Изменить цепочку прокси"
+          }
+        }
+      }
+    },
+    "入口": {
+      "extractionState": "manual",
+      "localizations": {
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "入口"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Entry"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "入口"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "입구"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Вход"
+          }
+        }
+      }
+    },
+    "中转": {
+      "extractionState": "manual",
+      "localizations": {
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "中轉"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Relay"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "中継"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "중계"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Транзит"
+          }
+        }
+      }
+    },
+    "当前配置里没有": {
+      "extractionState": "manual",
+      "localizations": {
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "目前配置裡沒有"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Not in the current profile"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "現在のプロファイルにありません"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "현재 프로파일에 없음"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Нет в текущем профиле"
+          }
+        }
+      }
+    },
+    "已有同名的代理链": {
+      "extractionState": "manual",
+      "localizations": {
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "已有同名的代理鏈"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "A proxy chain with this name already exists"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "同じ名前のプロキシチェーンがすでにあります"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "같은 이름의 프록시 체인이 이미 있습니다"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Цепочка прокси с таким именем уже есть"
+          }
+        }
+      }
+    },
+    "至少需要两个节点或策略组": {
+      "extractionState": "manual",
+      "localizations": {
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "至少需要兩個節點或策略組"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "At least two nodes or policy groups are needed"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ノードまたはポリシーグループが 2 つ以上必要です"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "노드 또는 정책 그룹이 두 개 이상 필요합니다"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Нужно не меньше двух узлов или групп политик"
+          }
+        }
+      }
+    },
+    "没有可用的节点或策略组": {
+      "extractionState": "manual",
+      "localizations": {
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "沒有可用的節點或策略組"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "No nodes or policy groups available"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "使えるノードやポリシーグループがありません"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "사용할 수 있는 노드나 정책 그룹이 없습니다"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Нет доступных узлов или групп политик"
+          }
+        }
+      }
+    },
+    "当前配置里没有节点或策略组。": {
+      "extractionState": "manual",
+      "localizations": {
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "目前配置裡沒有節點或策略組。"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "The current profile has no nodes or policy groups."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "現在のプロファイルにはノードもポリシーグループもありません。"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "현재 프로파일에 노드나 정책 그룹이 없습니다."
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "В текущем профиле нет узлов и групп политик."
+          }
+        }
+      }
+    },
+    "让流量依次经过多个节点或策略组": {
+      "extractionState": "manual",
+      "localizations": {
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "讓流量依次經過多個節點或策略組"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Send traffic through several nodes or policy groups in turn"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "通信を複数のノードやポリシーグループに順番に通す"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "트래픽이 여러 노드나 정책 그룹을 차례로 거치게 합니다"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Трафик проходит через несколько узлов или групп политик по очереди"
           }
         }
       }

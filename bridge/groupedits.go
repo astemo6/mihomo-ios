@@ -494,7 +494,7 @@ func groupEditParse(homeDir, profilePath string, e *GroupEdits) (reason string) 
 // GroupSpecs returns the profile's own group specs (before the user's edits, with node subscriptions
 // merged) for the editor: {"groups":[GroupSpec], "providers":[name], "proxies":[name]}.
 func GroupSpecs(homeDir, profilePath string) string {
-	out := map[string]any{"groups": []GroupSpec{}, "providers": []string{}, "proxies": []string{}}
+	out := map[string]any{"groups": []GroupSpec{}, "providers": []string{}, "proxies": []string{}, "chains": enabledChainNames(homeDir)}
 	defer func() { _ = recover() }()
 	b, err := os.ReadFile(profilePath)
 	if err == nil {
@@ -539,6 +539,20 @@ func GroupSpecs(homeDir, profilePath string) string {
 	}
 	j, _ := json.Marshal(out)
 	return string(j)
+}
+
+// enabledChainNames lists the 代理链 a group can use as a member (chains that are 启用 and have two hops).
+func enabledChainNames(home string) []string {
+	out := []string{}
+	seen := map[string]bool{}
+	for _, c := range readProxyChains(home) {
+		n := strings.TrimSpace(c.Name)
+		if c.Enabled && n != "" && len(c.Members) >= 2 && !seen[n] {
+			seen[n] = true
+			out = append(out, n)
+		}
+	}
+	return out
 }
 
 // runtimeGroupNames (v0.19.8) lists the runtime's proxy-groups in config order, without the hidden probe group.

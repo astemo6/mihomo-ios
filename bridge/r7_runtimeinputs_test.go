@@ -47,6 +47,7 @@ func TestRuntimeInputFilesCoverBuildReads(t *testing.T) {
 		"readGroupEdits: groupEditsPath(home)":               {groupEditsPath(home)},
 		"readAllGroupSettings: groupSettingsPath(home)":      {groupSettingsPath(home)},
 		"readNodeSubs: nodeSubsPath(home)":                   {nodeSubsPath(home)},
+		"readProxyChains: proxyChainsPath(home)":             {proxyChainsPath(home)},
 		"readCustomRules: customRulesPath(home)":             {customRulesPath(home)},
 		"loadYAML: path":                                     {manualNodesPath(home)}, // mergeManualNodes
 		"readOwnPolicyParts: ownPolicySidecar(cachePath)":    {filepath.Join(home, "ruleset", "x.txt.policies.json")},
