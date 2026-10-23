@@ -362,6 +362,9 @@ struct ParsedEngineText: Decodable {
     }
     var name: String
     var desc: String
+    /// #!author / #!category (Surge) or #!tag (Loon); nil when the module does not say.
+    var author: String?
+    var category: String?
     var format: String
     var rules: [Rule]
     var hostnames: [String]

@@ -156,7 +156,7 @@ final class EngineStore: ObservableObject {
             let m = EngineModule(name: name, url: wanted, enabled: true, args: nil, updatedAt: Date().timeIntervalSince1970)
             try text.write(to: EnginePaths.moduleURL(m.id), atomically: true, encoding: .utf8)
             config.modules.append(m)
-            if !config.enabled { config.enabled = true }
+            enableForModules()
             reparseModules()
             save()
             var msg = String(localized: "已添加「\(name)」：\(p.rules.count) 条规则/脚本，\(p.hostnames.count) 个 MitM 主机")
@@ -182,16 +182,36 @@ final class EngineStore: ObservableObject {
                              interval: interval)
         guard (try? text.write(to: EnginePaths.moduleURL(m.id), atomically: true, encoding: .utf8)) != nil else { return false }
         config.modules.append(m)
-        if enabled && !config.enabled { config.enabled = true }
+        if enabled { enableForModules() }
         reparseModules()
         save()
         return true
     }
 
+    /// A module just added or turned on carries rewrites and / or scripts: switch on whichever of the two
+    /// master switches is off (the same as the single switch did before they were split).
+    func enableForModules() {
+        if !config.enabled { config.enabled = true }
+        if !config.scriptsEnabled { config.scriptsEnabled = true }
+    }
+
+    /// Turns one script file (local name or remote URL) on / off wherever it is used: engine.json
+    /// scriptResources, the same setting ResourceStore.setEnabled writes for script resources.
+    func setScriptPathEnabled(_ path: String, _ on: Bool) {
+        guard !path.isEmpty else { return }
+        var m = config.scriptResources ?? [:]
+        var s = m[path] ?? ScriptResourceSetting()
+        if (s.disabled ?? false) == !on { return }
+        s.disabled = on ? nil : true
+        m[path] = (s.disabled == nil && s.interval == nil) ? nil : s
+        config.scriptResources = m.isEmpty ? nil : m
+        save()
+    }
+
     func setModuleEnabled(_ id: String, _ on: Bool) {
         guard let i = config.modules.firstIndex(where: { $0.id == id }) else { return }
         config.modules[i].enabled = on
-        if on && !config.enabled { config.enabled = true }
+        if on { enableForModules() }
         save()
     }
 
@@ -213,7 +233,7 @@ final class EngineStore: ObservableObject {
             try? "".write(to: EnginePaths.moduleURL(m.id), atomically: true, encoding: .utf8)
         }
         config.modules.append(m)
-        if enabled && !config.enabled { config.enabled = true }
+        if enabled { enableForModules() }
         reparseModules()
         save()
         return err
@@ -239,7 +259,7 @@ final class EngineStore: ObservableObject {
         let m = EngineModule(name: (p?.name.isEmpty == false ? p!.name : name), url: "", enabled: true, args: nil, updatedAt: Date().timeIntervalSince1970)
         try? text.write(to: EnginePaths.moduleURL(m.id), atomically: true, encoding: .utf8)
         config.modules.append(m)
-        if !config.enabled { config.enabled = true }
+        enableForModules()
         reparseModules()
         save()
     }

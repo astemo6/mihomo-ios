@@ -179,8 +179,8 @@ func prepareEngineWith(home string, cfg *mitm.Config) (func(raw map[string]any),
 
 func planEngineWith(home string, cfg *mitm.Config) (func(raw map[string]any), *enginePlan, error) {
 	rs := mitm.Build(home, cfg)
-	needListener := (cfg.MitM && len(rs.Hostnames) > 0) || (cfg.Enabled && len(rs.Rules) > 0)
-	needTasks := cfg.Enabled && (len(rs.Tasks) > 0 || len(rs.Panels) > 0) // cron / event / generic scripts, panels
+	needListener := (cfg.MitM && len(rs.Hostnames) > 0) || (cfg.AnyOn() && len(rs.Rules) > 0)
+	needTasks := cfg.AnyOn() && (len(rs.Tasks) > 0 || len(rs.Panels) > 0) // cron / event / generic scripts, panels
 	coreOnly := func(raw map[string]any) { mitm.Inject(raw, 0, rs, cfg); addRemoteModuleRules(raw, rs.CoreRules) }
 	engMu.Lock()
 	defer engMu.Unlock()
@@ -197,7 +197,7 @@ func planEngineWith(home string, cfg *mitm.Config) (func(raw map[string]any), *e
 				engMu.Unlock()
 			}
 		}
-		if cfg.Enabled && len(rs.CoreRules) > 0 {
+		if cfg.AnyOn() && len(rs.CoreRules) > 0 {
 			return coreOnly, plan, nil
 		}
 		return nil, plan, nil
@@ -444,6 +444,8 @@ type parsedRule struct {
 type parsedText struct {
 	Name        string        `json:"name"`
 	Desc        string        `json:"desc"`
+	Author      string        `json:"author,omitempty"`
+	Category    string        `json:"category,omitempty"`
 	Format      string        `json:"format"`
 	Rules       []parsedRule  `json:"rules"`
 	Hostnames   []string      `json:"hostnames"`
@@ -474,7 +476,7 @@ type parsedPanel struct {
 }
 
 func toParsed(rs *mitm.Ruleset) string {
-	p := parsedText{Name: rs.Name, Desc: rs.Desc, Format: rs.Format, Hostnames: rs.Hostnames, CoreRules: rs.CoreRules,
+	p := parsedText{Name: rs.Name, Desc: rs.Desc, Author: rs.Author, Category: rs.Category, Format: rs.Format, Hostnames: rs.Hostnames, CoreRules: rs.CoreRules,
 		Errors: rs.Errors, Unsupported: rs.Unsupported, Arguments: rs.Arguments, Rules: []parsedRule{}}
 	for _, r := range rs.Rules {
 		pr := parsedRule{Kind: r.Kind, Phase: r.Phase, Pattern: r.Pattern, Desc: r.Desc, Line: r.Line}

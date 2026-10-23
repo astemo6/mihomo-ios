@@ -122,6 +122,8 @@ type Ruleset struct {
 	H2             *bool    `json:"h2,omitempty"`
 	Name           string   `json:"name,omitempty"`
 	Desc           string   `json:"desc,omitempty"`
+	Author         string   `json:"author,omitempty"`   // #!author
+	Category       string   `json:"category,omitempty"` // #!category (Surge) or #!tag (Loon)
 	Arguments      []ModArg `json:"arguments,omitempty"`
 	Format         string   `json:"format,omitempty"` // surge / qx / loon / stash / egern / list
 	Tasks          []*Task  `json:"tasks,omitempty"`  // cron / event / generic scripts
@@ -1021,7 +1023,7 @@ func ApplyModuleArgs(text string, user map[string]string) string {
 	return text
 }
 
-var metaRe = regexp.MustCompile(`(?m)^#!(name|desc)\s*=\s*(.*)$`)
+var metaRe = regexp.MustCompile(`(?m)^#!(name|desc|author|category|tag)\s*=\s*(.*)$`)
 var sectionRe = regexp.MustCompile(`^\[([^\]]+)\]\s*$`)
 
 // ParseText parses a whole module / snippet / rule list into rs.
@@ -1049,6 +1051,12 @@ func (rs *Ruleset) ParseText(text, source string, args map[string]string) {
 			rs.Name = strings.TrimSpace(m[2])
 		} else if m[1] == "desc" && rs.Desc == "" {
 			rs.Desc = strings.TrimSpace(m[2])
+		} else if m[1] == "author" && rs.Author == "" {
+			rs.Author = strings.TrimSpace(m[2])
+		} else if m[1] == "category" {
+			rs.Category = strings.TrimSpace(m[2])
+		} else if m[1] == "tag" && rs.Category == "" {
+			rs.Category = strings.TrimSpace(m[2])
 		}
 	}
 	if isStash(normalizeStashKeys(text)) {

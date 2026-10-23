@@ -593,9 +593,23 @@ final class EngineConfigTolerantTests: XCTestCase {
         XCTAssertEqual(c.modules[1].name, "n")
     }
 
+    /// feat/loon-rewrite-ui: 复写 and 脚本 switches are separate; an old engine.json (one switch) turns both on.
+    func testScriptsSwitchMigratesFromOldSharedSwitch() throws {
+        let old = try JSONDecoder().decode(EngineConfig.self, from: Data(#"{"enabled":true}"#.utf8))
+        XCTAssertTrue(old.enabled)
+        XCTAssertTrue(old.scriptsEnabled)
+        let off = try JSONDecoder().decode(EngineConfig.self, from: Data(#"{"enabled":false}"#.utf8))
+        XCTAssertFalse(off.scriptsEnabled)
+        let split = try JSONDecoder().decode(EngineConfig.self, from: Data(#"{"enabled":true,"scriptsEnabled":false}"#.utf8))
+        XCTAssertTrue(split.enabled)
+        XCTAssertFalse(split.scriptsEnabled)
+        XCTAssertTrue(split.anyEnabled)
+    }
+
     func testRoundTripKeepsEverything() throws {
         var c = EngineConfig()
         c.enabled = true
+        c.scriptsEnabled = false
         c.rules = [EngineItem(line: "x", note: "n")]
         c.modules = [EngineModule(name: "A", url: "https://e.com/a", enabled: false, args: ["k": "v"], updatedAt: 1)]
         let back = try JSONDecoder().decode(EngineConfig.self, from: try JSONEncoder().encode(c))

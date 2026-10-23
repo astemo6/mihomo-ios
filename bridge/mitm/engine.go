@@ -380,7 +380,7 @@ func (e *Engine) handleConn(c net.Conn) {
 		e.interceptTLS(st, mc, target)
 		return
 	}
-	if looksLikeHTTP(br) && st.cfg.Enabled {
+	if looksLikeHTTP(br) && st.cfg.AnyOn() {
 		// P0-1 (v0.19.17): WeChat's mmtls short links are plain-HTTP POSTs to port 80 whose binary body (and
 		// the Upgrade: mmtls header, a hop-by-hop header for net/http) must reach the server byte for byte.
 		// Through the HTTP handler the request was re-serialised (Upgrade dropped, header case changed), and

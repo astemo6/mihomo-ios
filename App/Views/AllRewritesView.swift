@@ -34,7 +34,8 @@ struct AllRewritesView: View {
             guard let p = store.moduleInfo[m.id] else { continue }
             for (i, r) in p.rules.enumerated() {
                 out.append(Row(id: "\(m.id)#\(i)", kind: r.kind, phase: r.phase, pattern: r.pattern, desc: r.desc,
-                               source: m.name, moduleID: m.id, enabled: m.enabled && store.config.enabled))
+                               source: m.name, moduleID: m.id,
+                               enabled: m.enabled && (r.kind == "script" ? store.config.scriptsEnabled : store.config.enabled)))
             }
         }
         return out
@@ -76,7 +77,13 @@ struct AllRewritesView: View {
                 Toggle("只看已启用", isOn: $onlyEnabled)
                     .accessibilityIdentifier("allrewrites.onlyEnabled")
             } footer: {
-                if !store.config.enabled { Text("「重写与脚本」总开关已关闭，下面的规则都不会生效。") }
+                if !store.config.enabled && !store.config.scriptsEnabled {
+                    Text("复写和脚本总开关都已关闭，下面的规则都不会生效。")
+                } else if !store.config.enabled {
+                    Text("复写总开关已关闭，下面的复写规则不会生效。")
+                } else if !store.config.scriptsEnabled {
+                    Text("脚本总开关已关闭，下面的脚本不会运行。")
+                }
             }
             .listRowBackground(Theme.card)
             Section {
@@ -109,6 +116,7 @@ struct AllRewritesView: View {
             loaded = true
         }
         .onChange(of: store.config.enabled) { on in localRows = Self.parseLocal(store.config.rules, engineOn: on); rebuild() }
+        .onChange(of: store.config.scriptsEnabled) { _ in rebuild() }
         .onReceive(store.$moduleInfo.dropFirst()) { _ in if loaded { DispatchQueue.main.async { rebuild() } } }
         .onChange(of: search) { _ in shown = filtered() }
         .onChange(of: onlyEnabled) { _ in shown = filtered() }

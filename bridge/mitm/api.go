@@ -13,7 +13,9 @@ import (
 type Status struct {
 	Running     bool     `json:"running"`
 	Port        int      `json:"port"`
-	Enabled     bool     `json:"enabled"`
+	Enabled     bool     `json:"enabled"`   // either switch on
+	Rewrite     bool     `json:"rewrite"`   // 复写 switch
+	ScriptsOn   bool     `json:"scriptsOn"` // 脚本 switch
 	MitM        bool     `json:"mitm"`
 	CALoaded    bool     `json:"caLoaded"`
 	Hostnames   []string `json:"hostnames"`
@@ -28,7 +30,7 @@ type Status struct {
 func (e *Engine) Status() Status {
 	st := e.state()
 	port := e.Port()
-	s := Status{Running: port != 0, Port: port, Enabled: st.cfg.Enabled, MitM: st.cfg.MitM, CALoaded: st.ca != nil,
+	s := Status{Running: port != 0, Port: port, Enabled: st.cfg.AnyOn(), Rewrite: st.cfg.RewriteOn(), ScriptsOn: st.cfg.ScriptsOn(), MitM: st.cfg.MitM, CALoaded: st.ca != nil,
 		Hostnames: st.rs.Hostnames, CoreRules: len(st.rs.CoreRules), Errors: st.rs.Errors, Unsupported: len(st.rs.Unsupported), Pinned: []string{}}
 	for _, r := range st.rs.Rules {
 		if r.Kind == KindScript {

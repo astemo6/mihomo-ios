@@ -30,6 +30,8 @@ struct ToolStats: Equatable {
     var modules = 0
     var modulesOn = 0
     var engineOn = false
+    var rewriteSwitchOn = false
+    var scriptsSwitchOn = false
     var rewrites = 0
     var rewritesOn = 0
     var moduleRewrites = 0
@@ -85,7 +87,9 @@ struct ToolStats: Equatable {
         s.ruleProviders = result.ruleProviders.count
         s.customRules = customRules.count
         s.customRulesOn = customRules.filter(\.enabled).count
-        s.engineOn = cfg.enabled
+        s.engineOn = cfg.anyEnabled
+        s.rewriteSwitchOn = cfg.enabled
+        s.scriptsSwitchOn = cfg.scriptsEnabled
         s.modules = cfg.modules.count
         s.modulesOn = cfg.modules.filter(\.enabled).count
         s.rewrites = cfg.rules.count
@@ -243,7 +247,16 @@ struct ToolsList: View {
     }
 
     var engineOffStat: [ToolStat] {
-        stats.engineOn ? [] : [ToolStat(symbol: "power", value: String(localized: "重写与脚本已关闭"), label: String(localized: "重写与脚本已关闭"), tint: Theme.warn)]
+        if !stats.engineOn {
+            return [ToolStat(symbol: "power", value: String(localized: "重写与脚本已关闭"), label: String(localized: "重写与脚本已关闭"), tint: Theme.warn)]
+        }
+        if !stats.rewriteSwitchOn {
+            return [ToolStat(symbol: "power", value: String(localized: "复写已关闭"), label: String(localized: "复写已关闭"), tint: Theme.warn)]
+        }
+        if !stats.scriptsSwitchOn {
+            return [ToolStat(symbol: "power", value: String(localized: "脚本已关闭"), label: String(localized: "脚本已关闭"), tint: Theme.warn)]
+        }
+        return []
     }
 
     var certStat: ToolStat {

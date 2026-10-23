@@ -34,7 +34,10 @@ type Module struct {
 
 // Config mirrors <home>/engine/engine.json written by the app.
 type Config struct {
-	Enabled        bool     `json:"enabled"`        // rewrite + scripts master switch
+	Enabled bool `json:"enabled"` // rewrite (复写) master switch; before scriptsEnabled existed it covered scripts too
+	// ScriptsEnabled is the scripts master switch. nil (engine.json written before the switches were split)
+	// follows Enabled, so an old config keeps doing what it did.
+	ScriptsEnabled *bool    `json:"scriptsEnabled,omitempty"`
 	MitM           bool     `json:"mitm"`           // HTTPS decryption master switch
 	SkipCertVerify bool     `json:"skipCertVerify"` // do not verify upstream certificates
 	H2             *bool    `json:"h2,omitempty"`   // offer h2 to clients (default true)
@@ -117,6 +120,50 @@ func (c *Config) filterScripts(rs *Ruleset) {
 	rs.Panels = panels
 }
 
+// RewriteOn reports whether rewrite rules (URL / header / body / map local …) apply.
+func (c *Config) RewriteOn() bool { return c != nil && c.Enabled }
+
+// ScriptsOn reports whether scripts (http-request / http-response, cron / event / generic tasks) run.
+func (c *Config) ScriptsOn() bool {
+	if c == nil {
+		return false
+	}
+	if c.ScriptsEnabled == nil {
+		return c.Enabled
+	}
+	return *c.ScriptsEnabled
+}
+
+// AnyOn reports whether either switch is on: modules are parsed and their [Rule] / hostnames apply.
+func (c *Config) AnyOn() bool { return c.RewriteOn() || c.ScriptsOn() }
+
+// filterSwitches drops what the rewrite / scripts switches turned off.
+func (c *Config) filterSwitches(rs *Ruleset) {
+	rew, scr := c.RewriteOn(), c.ScriptsOn()
+	if rew && scr {
+		return
+	}
+	rules := rs.Rules[:0]
+	for _, r := range rs.Rules {
+		if r.Kind == KindScript && !scr || r.Kind != KindScript && !rew {
+			continue
+		}
+		rules = append(rules, r)
+	}
+	rs.Rules = rules
+	if !scr {
+		rs.Tasks = nil
+		panels := rs.Panels[:0]
+		for _, p := range rs.Panels {
+			if p.Script != "" || p.TaskID != "" {
+				continue
+			}
+			panels = append(panels, p)
+		}
+		rs.Panels = panels
+	}
+}
+
 func (c *Config) h2() bool         { return c.H2 == nil || *c.H2 }
 func (c *Config) capture() bool    { return c.CaptureBodies == nil || *c.CaptureBodies }
 func EngineDir(home string) string { return filepath.Join(home, "engine") }
@@ -152,7 +199,7 @@ func Build(home string, c *Config) *Ruleset {
 		return rs
 	}
 	rs.addHosts(strings.Join(c.Hostnames, ","))
-	if c.Enabled {
+	if c.AnyOn() {
 		for _, it := range c.Rules {
 			if it.Enabled {
 				rs.ParseLine(it.Line, "", "用户")
@@ -190,6 +237,7 @@ func Build(home string, c *Config) *Ruleset {
 		}
 	}
 	c.filterScripts(rs)
+	c.filterSwitches(rs)
 	rs.Hostnames = dedupe(rs.Hostnames)
 	return rs
 }
@@ -426,7 +474,7 @@ const ProxyName = "__MITM__"
 func Inject(raw map[string]any, listenPort int, rs *Ruleset, c *Config) {
 	m := NewHostMatcher(rs.Hostnames)
 	mitmOn := c.MitM && !m.Empty()
-	httpPlain := c.Enabled && len(rs.Rules) > 0
+	httpPlain := c.AnyOn() && len(rs.Rules) > 0
 	var pre []any
 	if mitmOn || httpPlain {
 		proxies, _ := raw["proxies"].([]any)
@@ -472,7 +520,7 @@ func Inject(raw map[string]any, listenPort int, rs *Ruleset, c *Config) {
 	if httpPlain {
 		pre = append(pre, fmt.Sprintf("AND,((NETWORK,TCP),(NOT,((IN-TYPE,INNER))),(DST-PORT,80)),%s", ProxyName))
 	}
-	if c.Enabled {
+	if c.AnyOn() {
 		for _, r := range ResolveCoreRules(raw, rs.CoreRules, nil) {
 			pre = append(pre, r)
 		}

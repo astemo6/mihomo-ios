@@ -86,7 +86,10 @@ struct ScriptResourceSetting: Codable, Hashable {
 
 /// Mirrors <home>/engine/engine.json (bridge/mitm/config.go).
 struct EngineConfig: Codable, Equatable {
-    var enabled = false          // 重写与脚本总开关
+    var enabled = false          // 复写总开关 (URL / header / body rewrite, map local)
+    /// 脚本总开关. engine.json written before the two switches were split has no key: it takes `enabled`,
+    /// so scripts keep running for users who had 重写与脚本 on.
+    var scriptsEnabled = false
     var mitm = false             // HTTPS 解密总开关
     var skipCertVerify = false
     var h2: Bool? = true
@@ -103,11 +106,15 @@ struct EngineConfig: Codable, Equatable {
 
     init() {}
 
-    enum CodingKeys: String, CodingKey { case enabled, mitm, skipCertVerify, h2, captureBodies, hostnames, rules, scripts, modules, scriptResources, quic, quicAllow }
+    /// Either switch on: modules are parsed, their [Rule] lines and MitM hostnames apply.
+    var anyEnabled: Bool { enabled || scriptsEnabled }
+
+    enum CodingKeys: String, CodingKey { case enabled, scriptsEnabled, mitm, skipCertVerify, h2, captureBodies, hostnames, rules, scripts, modules, scriptResources, quic, quicAllow }
 
     init(from d: Decoder) throws {
         let c = try d.container(keyedBy: CodingKeys.self)
         enabled = (try? c.decodeIfPresent(Bool.self, forKey: .enabled)) ?? false
+        scriptsEnabled = (try? c.decodeIfPresent(Bool.self, forKey: .scriptsEnabled)) ?? enabled
         mitm = (try? c.decodeIfPresent(Bool.self, forKey: .mitm)) ?? false
         skipCertVerify = (try? c.decodeIfPresent(Bool.self, forKey: .skipCertVerify)) ?? false
         h2 = (try? c.decodeIfPresent(Bool.self, forKey: .h2)) ?? true

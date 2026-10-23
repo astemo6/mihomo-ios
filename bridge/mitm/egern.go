@@ -182,6 +182,9 @@ func (rs *Ruleset) parseEgern(text, source string, user map[string]string) {
 	if d := egernStr(doc["description"]); d != "" && rs.Desc == "" {
 		rs.Desc = d
 	}
+	if a := egernStr(doc["author"]); a != "" && rs.Author == "" {
+		rs.Author = a
+	}
 	for _, k := range []string{"dns", "http_captures", "bypass_tunnel_proxy", "real_ip_domains", "env_schema", "proxies", "policy_groups"} {
 		if _, ok := doc[k]; ok {
 			rs.Unsupported = append(rs.Unsupported, k+"（Egern 模块，暂不支持）")

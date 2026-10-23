@@ -149,7 +149,7 @@ func (e *Engine) serveHTTP(w http.ResponseWriter, r *http.Request) {
 	capture := st.cfg.capture()
 
 	rules := st.rs.Rules
-	if !st.cfg.Enabled {
+	if !st.cfg.AnyOn() {
 		rules = nil
 	}
 

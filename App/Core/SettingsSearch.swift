@@ -78,7 +78,7 @@ enum SettingsSearchIndex {
     static let entries: [SearchEntry] = [
         // MARK: 更多
         e("profiles", "配置", [more], "doc.text.fill", .blue, .profiles,
-          ["配置管理", "配置文件", "切换配置", "导入配置", "订阅", "profile", "config", "yaml", "clash", "import", "subscription"]),
+          ["配置管理", "配置文件", "切换配置", "导入配置", "快速编辑", "quick edit", "订阅", "profile", "config", "yaml", "clash", "import", "subscription"]),
         e("sampleProfile", "示例配置", [more, "配置"], "doc.richtext", .blue, .sampleProfile, ["模板", "sample", "example", "template"]),
         e("stats", "流量统计", [more], "chart.bar.fill", .red, .stats, ["流量", "用量", "每日", "历史", "traffic", "usage", "statistics", "data usage"]),
         e("snapshots", "配置快照", [more], "clock.arrow.circlepath", .purple, .snapshots, ["快照", "历史版本", "回滚", "snapshot", "history", "rollback"]),

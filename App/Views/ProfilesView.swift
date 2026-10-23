@@ -39,6 +39,18 @@ struct ProfilesView: View {
                     .listRowBackground(Theme.card)
                 }
                 Section {
+                    // feat/loon-rewrite-ui 快速编辑: the current profile in the editor in one tap (subscriptions open read-only).
+                    if let cur = store.active {
+                        Button { editing = cur } label: {
+                            HStack {
+                                Label("快速编辑", systemImage: "square.and.pencil").foregroundStyle(Color.primary)
+                                Spacer()
+                                Text(verbatim: cur.name).font(.footnote).foregroundStyle(.secondary).lineLimit(1)
+                            }
+                            .contentShape(Rectangle())
+                        }
+                        .accessibilityIdentifier("profiles.quickEdit")
+                    }
                     NavigationLink { SampleProfileView() } label: {
                         Label("示例配置", systemImage: "text.book.closed")
                     }

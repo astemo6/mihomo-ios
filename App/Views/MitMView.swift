@@ -80,10 +80,31 @@ struct MitMView: View {
     @State private var askImportPassword = false
     @State private var status: MitMStatus?
     @State private var showLocalHosts = false
-    @State private var showModuleHosts = false
+    /// Module ids whose MitM host list is unfolded (one section per module, folded by default).
+    @State private var expandedModuleHosts: Set<String> = []
 
-    /// Collapsible host-list header (主机名: 本地 / 模块), folded by default.
-    func hostsHeader(_ title: LocalizedStringKey, expanded: Binding<Bool>, id: String) -> some View {
+    /// The MitM hostnames of each enabled module, in module order (feat/loon-rewrite-ui: grouped by module
+    /// instead of one merged list, so it is clear which module asks to decrypt which host).
+    struct ModuleHostGroup: Identifiable {
+        let id: String
+        let name: String
+        let hosts: [String]
+    }
+
+    var moduleHostGroups: [ModuleHostGroup] {
+        store.config.modules.compactMap { (m: EngineModule) -> ModuleHostGroup? in
+            guard m.enabled, let hosts = store.moduleInfo[m.id]?.hostnames, !hosts.isEmpty else { return nil }
+            return ModuleHostGroup(id: m.id, name: m.name, hosts: hosts)
+        }
+    }
+
+    func moduleHostsExpanded(_ id: String) -> Binding<Bool> {
+        Binding(get: { expandedModuleHosts.contains(id) },
+                set: { on in if on { expandedModuleHosts.insert(id) } else { expandedModuleHosts.remove(id) } })
+    }
+
+    /// Collapsible host-list header (主机名: 本地 / each module), folded by default.
+    func hostsHeader(_ title: Text, expanded: Binding<Bool>, id: String) -> some View {
         Button {
             withAnimation { expanded.wrappedValue.toggle() }
         } label: {
@@ -139,21 +160,25 @@ struct MitMView: View {
                     Button("添加", action: addHost).disabled(newHost.trimmingCharacters(in: .whitespaces).isEmpty)
                 }
             } header: {
-                hostsHeader("本地 \(store.config.hostnames.count)", expanded: $showLocalHosts, id: "mitm.hosts.local")
+                hostsHeader(Text("本地 \(store.config.hostnames.count)"), expanded: $showLocalHosts, id: "mitm.hosts.local")
             } footer: {
                 Text("支持 * 和 ? 通配、前缀 - 表示排除、:端口（默认 443）。可一次粘贴多个，用逗号分隔。左滑删除。")
             }
             .listRowBackground(Theme.card)
 
-            if !store.moduleHostnames.isEmpty {
+            ForEach(moduleHostGroups) { g in
                 Section {
-                    if showModuleHosts {
-                        ForEach(store.moduleHostnames, id: \.self) { h in
-                            Text(h).font(.system(.footnote, design: .monospaced)).foregroundStyle(.secondary)
+                    if expandedModuleHosts.contains(g.id) {
+                        ForEach(g.hosts, id: \.self) { h in
+                            HStack {
+                                Text(h).font(.system(.footnote, design: .monospaced)).foregroundStyle(.secondary)
+                                Spacer()
+                                if h.hasPrefix("-") { Text("排除").font(.caption2).foregroundStyle(.secondary) }
+                            }
                         }
                     }
                 } header: {
-                    hostsHeader("模块 \(store.moduleHostnames.count)", expanded: $showModuleHosts, id: "mitm.hosts.modules")
+                    hostsHeader(Text(verbatim: "\(g.name) \(g.hosts.count)"), expanded: moduleHostsExpanded(g.id), id: "mitm.hosts.module." + g.name)
                 }
                 .listRowBackground(Theme.card)
             }
@@ -594,7 +619,7 @@ struct ScriptFormSheet: View {
             store.config.scripts[i].line = final
         } else {
             store.config.scripts.append(EngineItem(line: final))
-            if !store.config.enabled { store.config.enabled = true }
+            if !store.config.scriptsEnabled { store.config.scriptsEnabled = true }
         }
         store.save()
     }

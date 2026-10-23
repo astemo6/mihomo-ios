@@ -40,7 +40,7 @@ struct RewriteForm: Codable, Equatable {
 
 /// 工具 → 重写 (Quantumult X style, user 2026-10-22): ONE page for everything that rewrites traffic. It replaced the
 /// three cards 模块 / 重写 / 脚本:
-///   • 启用重写与脚本 on top,
+///   • 启用复写 / 启用脚本 on top (separate switches since feat/loon-rewrite-ui),
 ///   • 订阅 — remote modules / plugins / rewrite_remote (and pasted ones), unified subscription rows (SubscriptionKit),
 ///   • 本地 — the user's own rewrite rules and script lines (engine.json `rules` / `scripts`), forms or text,
 ///   • MitM 主机名, 浏览 (全部重写规则, 模块库), 脚本工具 (调试台, 日志, 通知, 存储, 本地脚本文件).
@@ -66,6 +66,14 @@ struct RewriteView: View {
     @State private var addingScriptLine = false
     @State private var editingScript: EngineItem?
     @State private var debugging: EngineItem?
+    /// 订阅 category filter ("" = all) and category / author from the 模块库 indexes, keyed by normalized URL.
+    @State private var categoryFilter = ""
+    @State private var galleryMeta: [String: GalleryMeta] = [:]
+
+    struct GalleryMeta: Hashable {
+        var category: String
+        var author: String
+    }
 
     struct EditTarget: Identifiable {
         let id = UUID()
@@ -81,7 +89,41 @@ struct RewriteView: View {
     var rules: [EngineItem] { store.config.rules.filter(matches) }
     var scripts: [EngineItem] { store.config.scripts.filter(matches) }
     var modules: [EngineModule] {
-        search.isEmpty ? store.config.modules : store.config.modules.filter { $0.name.localizedCaseInsensitiveContains(search) || $0.url.localizedCaseInsensitiveContains(search) }
+        store.config.modules.filter { m in
+            (categoryFilter.isEmpty || category(of: m) == categoryFilter)
+                && (search.isEmpty || m.name.localizedCaseInsensitiveContains(search) || m.url.localizedCaseInsensitiveContains(search)
+                    || author(of: m).localizedCaseInsensitiveContains(search))
+        }
+    }
+
+    /// The module's own #!category / #!tag, else the category it has in a 模块库 index.
+    func category(of m: EngineModule) -> String {
+        if let c = store.moduleInfo[m.id]?.category?.trimmingCharacters(in: .whitespaces), !c.isEmpty { return c }
+        return m.url.isEmpty ? "" : (galleryMeta[ModuleGallery.normalizedURL(m.url)]?.category ?? "")
+    }
+
+    /// The module's own #!author, else its author in a 模块库 index.
+    func author(of m: EngineModule) -> String {
+        if let a = store.moduleInfo[m.id]?.author?.trimmingCharacters(in: .whitespaces), !a.isEmpty { return a }
+        return m.url.isEmpty ? "" : (galleryMeta[ModuleGallery.normalizedURL(m.url)]?.author ?? "")
+    }
+
+    var moduleCategories: [String] {
+        var seen = Set<String>()
+        return store.config.modules.map { category(of: $0) }.filter { !$0.isEmpty && seen.insert($0).inserted }
+    }
+
+    @MainActor static func galleryMeta(_ g: ModuleGallery) -> [String: GalleryMeta] {
+        var out: [String: GalleryMeta] = [:]
+        for idx in g.indexes.values {
+            for it in idx.items where !it.category.isEmpty || !it.author.isEmpty {
+                for u in ModuleGallery.urls(of: it) {
+                    let k = ModuleGallery.normalizedURL(u)
+                    if out[k] == nil { out[k] = GalleryMeta(category: it.category, author: it.author) }
+                }
+            }
+        }
+        return out
     }
 
     var body: some View {
@@ -138,6 +180,7 @@ struct RewriteView: View {
             try? await Task.sleep(nanoseconds: 350_000_000)
             await store.reparseModulesInBackground()
             await res.reloadInBackground()
+            galleryMeta = Self.galleryMeta(ModuleGallery.shared)
         }
         .onChange(of: store.config.modules) { _ in res.reload() }
         .onAppear { if !store.config.scripts.isEmpty { store.requestNotificationPermission() } }
@@ -199,19 +242,43 @@ struct RewriteView: View {
         List {
             Section {
                 Toggle(isOn: Binding(get: { store.config.enabled }, set: { store.config.enabled = $0; store.save() })) {
-                    Label("启用重写与脚本", systemImage: "puzzlepiece.extension")
+                    Label("启用复写", systemImage: "arrow.triangle.swap")
                 }
                 .accessibilityIdentifier("rewrite.enabled")
-            } footer: { EngineSwitchFooter() }
+                Toggle(isOn: Binding(get: { store.config.scriptsEnabled }, set: { store.config.scriptsEnabled = $0; store.save() })) {
+                    Label("启用脚本", systemImage: "curlybraces")
+                }
+                .accessibilityIdentifier("rewrite.scripts.enabled")
+            } footer: {
+                VStack(alignment: .leading, spacing: 4) {
+                    Text("复写包括 URL 重写、修改请求头和正文、本地映射；脚本包括请求 / 响应脚本和定时任务。两个开关分别控制订阅和本地的同类规则。")
+                    EngineSwitchFooter()
+                }
+            }
             .listRowBackground(Theme.card)
 
             Section {
                 if store.config.modules.isEmpty {
                     EmptyStateRow(icon: "puzzlepiece.extension", title: "还没有重写订阅", message: "点右上角 + 通过 URL 添加，或在模块库里选择。")
                 }
+                let cats = moduleCategories
+                if !cats.isEmpty {
+                    ScrollView(.horizontal, showsIndicators: false) {
+                        HStack(spacing: 6) {
+                            GalleryChip(title: String(localized: "全部"), selected: categoryFilter.isEmpty) { categoryFilter = "" }
+                            ForEach(cats, id: \.self) { c in
+                                GalleryChip(title: c, selected: categoryFilter == c) { categoryFilter = categoryFilter == c ? "" : c }
+                            }
+                        }
+                        .padding(.vertical, 2)
+                    }
+                    .listRowInsets(EdgeInsets(top: 6, leading: 12, bottom: 6, trailing: 12))
+                    .accessibilityIdentifier("rewrite.subs.categories")
+                    .onChange(of: cats) { cs in if !categoryFilter.isEmpty && !cs.contains(categoryFilter) { categoryFilter = "" } }
+                }
                 ForEach(modules) { m in moduleRow(m) }
                     .onMove { from, to in
-                        guard search.isEmpty else { return }
+                        guard search.isEmpty && categoryFilter.isEmpty else { return }
                         store.config.modules.move(fromOffsets: from, toOffset: to); store.save(reload: false)
                     }
             } header: {
@@ -296,6 +363,9 @@ struct RewriteView: View {
                 NavigationLink { LazyDestination { AllRewritesView() } } label: {
                     MoreRow(id: "全部重写规则", title: "全部重写规则", subtitle: "所有订阅和本地的重写与脚本规则，平铺可搜索", symbol: "list.bullet.rectangle.portrait", tone: .neutral)
                 }
+                NavigationLink { LazyDestination { ScriptListView() } } label: {
+                    MoreRow(id: "脚本列表", title: "脚本列表", subtitle: "订阅和本地的全部脚本，可查看源码、逐个停用", symbol: "curlybraces", tone: .orange)
+                }
                 NavigationLink { LazyDestination { ModuleGalleryView() } } label: {
                     MoreRow(id: "模块库", title: "模块库", subtitle: "浏览、搜索并预览索引来源里的模块", symbol: "books.vertical", tone: .blue)
                 }
@@ -323,7 +393,7 @@ struct RewriteView: View {
         }
         .listStyle(.insetGrouped)
         .scrollContentBackground(.hidden)
-        .searchable(text: $search, placement: .navigationBarDrawer(displayMode: .automatic), prompt: "搜索订阅和规则")
+        .searchable(text: $search, placement: .navigationBarDrawer(displayMode: .automatic), prompt: "搜索订阅（名称、作者）和规则")
         .refreshable { await res.updateAll() }
     }
 

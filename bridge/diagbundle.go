@@ -326,8 +326,8 @@ func (r *redactor) jsonText(b []byte, section string) string {
 func modulesReport(home string) string {
 	cfg := mitm.LoadConfig(home)
 	var b strings.Builder
-	fmt.Fprintf(&b, "重写与脚本总开关: %v\nHTTPS 解密 (MitM): %v\nMitM 主机名(用户): %d\n用户重写: %d 条\n用户脚本: %d 条\nQUIC: %s\n",
-		cfg.Enabled, cfg.MitM, len(cfg.Hostnames), len(cfg.Rules), len(cfg.Scripts), orDefault(cfg.QUIC, "mitm"))
+	fmt.Fprintf(&b, "复写总开关: %v\n脚本总开关: %v\nHTTPS 解密 (MitM): %v\nMitM 主机名(用户): %d\n用户重写: %d 条\n用户脚本: %d 条\nQUIC: %s\n",
+		cfg.RewriteOn(), cfg.ScriptsOn(), cfg.MitM, len(cfg.Hostnames), len(cfg.Rules), len(cfg.Scripts), orDefault(cfg.QUIC, "mitm"))
 	o := readOverrides(home)
 	fmt.Fprintf(&b, "安全模式: %v\n\n", o.SafeMode)
 	mods := append([]mitm.Module(nil), cfg.Modules...)
@@ -352,7 +352,7 @@ func modulesReport(home string) string {
 		}
 		b.WriteString(line + "\n")
 	}
-	if cfg.Enabled || cfg.MitM {
+	if cfg.AnyOn() || cfg.MitM {
 		rs := mitm.Build(home, cfg)
 		fmt.Fprintf(&b, "\n合计（启用部分）: 重写/脚本 %d · 主机名 %d · 定时/事件 %d · 面板 %d · 内核规则 %d · 错误 %d\n",
 			len(rs.Rules), len(rs.Hostnames), len(rs.Tasks), len(rs.Panels), len(rs.CoreRules), len(rs.Errors))
