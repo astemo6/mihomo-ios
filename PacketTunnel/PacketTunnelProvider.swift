@@ -88,7 +88,7 @@ final class PacketTunnelProvider: NEPacketTunnelProvider {
         let includeAll = protocolConfiguration.includeAllNetworks
         LibmihomoSetBindPhysicalInterface(includeAll)
         StartupLog.write("tunnel scope: includeAllNetworks \(includeAll ? "on" : "off") (setting \(overrides.includeAllNetworks ? "on" : "off")), excludeLocalNetworks \(protocolConfiguration.excludeLocalNetworks)\(includeAll ? ", " + LibmihomoPhysicalInterfaceStatus() : "")")
-        StartupLog.write("mode \(proxyOnly ? "proxy-only (NEProxySettings)" : overrides.isMixed ? "mix (tun + system proxy)" : "tun (NEPacketTunnelFlow bridge)"), quic \(overrides.blockQUIC), routes +\(overrides.includedRoutes.count)/-\(overrides.excludedRoutes.count), mtu \(overrides.tunMTU), GOMEMLIMIT \(overrides.memoryLimitMB) MB\(overrides.safeMode ? ", SAFE MODE" : "")")
+        StartupLog.write("mode \(proxyOnly ? "proxy-only (NEProxySettings)" : overrides.isMixed ? "mix (tun + system proxy)" : "tun (NEPacketTunnelFlow bridge)"), quic \(overrides.blockQUIC), routes +\(overrides.includedRoutes.count)/-\(overrides.excludedRoutes.count)\(overrides.notDefaultRoute ? " (not default route)" : "")\(overrides.hideVPNIcon ? " (hide icon)" : ""), mtu \(overrides.tunMTU), GOMEMLIMIT \(overrides.memoryLimitMB) MB\(overrides.safeMode ? ", SAFE MODE" : "")")
         if let v = Bundle.main.object(forInfoDictionaryKey: "CFBundleShortVersionString") as? String {
             StartupLog.write("tunnel \(v) (\(Bundle.main.object(forInfoDictionaryKey: "CFBundleVersion") as? String ?? "?")), \(LibmihomoVersion())")
         }
@@ -183,16 +183,26 @@ final class PacketTunnelProvider: NEPacketTunnelProvider {
             return settings
         }
         settings.mtu = NSNumber(value: o.tunMTU)
-        let inc = o.includedRoutes.compactMap(RouteSpec.init)
+        // 不作为默认路由 (Loon parity): no 0.0.0.0/0 / ::/0; the tunnel takes the Fake-IP range (where every
+        // domain the core answers points, and the tunnel DNS 198.18.0.2) plus the other 接管的路由.
+        let noDefault = o.notDefaultRoute
+        let inc = o.includedRoutes.compactMap(RouteSpec.init).filter { !(noDefault && $0.prefix == 0) }
         let exc = o.excludedRoutes.compactMap(RouteSpec.init)
         let inc4 = inc.filter { !$0.isV6 }.map { NEIPv4Route(destinationAddress: $0.address, subnetMask: $0.mask) }
-        ipv4.includedRoutes = inc4.isEmpty ? [NEIPv4Route.default()] : inc4
-        ipv4.excludedRoutes = exc.filter { !$0.isV6 }.map { NEIPv4Route(destinationAddress: $0.address, subnetMask: $0.mask) }
+        if noDefault, let fake = RouteSpec(CoreOverrides.fakeIPRoute) {
+            ipv4.includedRoutes = [NEIPv4Route(destinationAddress: fake.address, subnetMask: fake.mask)] + inc4
+        } else {
+            ipv4.includedRoutes = inc4.isEmpty ? [NEIPv4Route.default()] : inc4
+        }
+        var exc4 = exc.filter { !$0.isV6 }.map { NEIPv4Route(destinationAddress: $0.address, subnetMask: $0.mask) }
+        // 隐藏 VPN 图标 (experimental): the 0.0.0.0/31 exclusion trick; needs checking on each iOS version.
+        if o.hideVPNIcon { exc4.append(NEIPv4Route(destinationAddress: "0.0.0.0", subnetMask: "255.255.255.254")) }
+        ipv4.excludedRoutes = exc4
         settings.ipv4Settings = ipv4
         if o.ipv6 {
             let ipv6 = NEIPv6Settings(addresses: ["fdfe:dcba:9876::1"], networkPrefixLengths: [126])
             let inc6 = inc.filter(\.isV6).map { NEIPv6Route(destinationAddress: $0.address, networkPrefixLength: NSNumber(value: $0.prefix)) }
-            ipv6.includedRoutes = inc6.isEmpty ? [NEIPv6Route.default()] : inc6
+            ipv6.includedRoutes = noDefault ? inc6 : (inc6.isEmpty ? [NEIPv6Route.default()] : inc6)
             ipv6.excludedRoutes = exc.filter(\.isV6).map { NEIPv6Route(destinationAddress: $0.address, networkPrefixLength: NSNumber(value: $0.prefix)) }
             settings.ipv6Settings = ipv6
         }

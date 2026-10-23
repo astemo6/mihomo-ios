@@ -403,15 +403,18 @@ final class NodeManagerModel: ObservableObject {
         }
         let st = ControllerClient.testSettings
         let url = NodeSettingsStore.testURL(for: n.name), timeout = st.timeoutMs
+        let tcp = ControllerClient.tcpHandshake
         await bindOfflineInterface()
         if n.inRuntime, let path = AppShared.activeProfileURL?.path {
             let home = AppShared.homeURL.path
             let name = n.name, provider = n.source.runtimeProvider
-            let ms = await BlockingWork.run { LibmihomoNodeTestDelayIn(home, path, provider, name, url, timeout) }
+            let ms = await BlockingWork.run {
+                tcp ? LibmihomoNodeTCPDelayIn(home, path, provider, name, url, timeout) : LibmihomoNodeTestDelayIn(home, path, provider, name, url, timeout)
+            }
             return max(ms, 0)
         }
         if let m = manualNode(n), let d = try? JSONSerialization.data(withJSONObject: m), let s = String(data: d, encoding: .utf8) {
-            let ms = await BlockingWork.run { LibmihomoTestDelay(s, url, timeout) }
+            let ms = await BlockingWork.run { tcp ? LibmihomoTestTCPDelay(s, url, timeout) : LibmihomoTestDelay(s, url, timeout) }
             return max(ms, 0)
         }
         return 0

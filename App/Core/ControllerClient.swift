@@ -233,6 +233,15 @@ final class ControllerClient {
         return (url, min(max(o.testTimeoutMs, 1000), 30000))
     }
 
+    /// 测速设置 → 直连测试地址: the URL a test of DIRECT uses; nil = 测速地址.
+    static var directTestURL: String? {
+        let u = CoreOverrides.load().directTestURL.trimmingCharacters(in: .whitespaces)
+        return !u.isEmpty && CoreOverrides.isValidTestURL(u) ? u : nil
+    }
+
+    /// 测速设置 → TCP 握手延迟: TCP nodes report the TCP connect time to their server (bridge netextras.go).
+    static var tcpHandshake: Bool { CoreOverrides.load().tcpHandshakeDelay }
+
     enum DelayResult {
         /// name → ms for members that answered; members missing from the map timed out.
         case measured([String: Int])
@@ -344,11 +353,17 @@ final class ControllerClient {
         // a 404 "resource not found" from /proxies is retried there once.
         var prov = provider
         if prov == nil, !resolved { prov = await providerIndex()[name] }
-        let path = prov.map { "/providers/proxies/\(Self.enc($0))/\(Self.enc(name))/healthcheck" } ?? "/proxies/\(Self.enc(name))/delay"
+        let testURL = url ?? NodeSettingsStore.testURL(for: name)
+        var path = prov.map { "/providers/proxies/\(Self.enc($0))/\(Self.enc(name))/healthcheck" } ?? "/proxies/\(Self.enc(name))/delay"
+        var query = [URLQueryItem(name: "url", value: testURL), URLQueryItem(name: "timeout", value: String(ms))]
+        if Self.tcpHandshake {
+            // TCP 握手延迟: groups, DIRECT and UDP-based nodes still get the URL test from the same endpoint.
+            path = "/tern/node-tcp-delay"
+            query.append(URLQueryItem(name: "name", value: name))
+            if let prov { query.append(URLQueryItem(name: "provider", value: prov)) }
+        }
         do {
-            let data = try await send(path, query: [
-                URLQueryItem(name: "url", value: url ?? NodeSettingsStore.customURL(for: name) ?? st.url), URLQueryItem(name: "timeout", value: String(ms)),
-            ], timeout: TimeInterval(ms) / 1000 + 5)
+            let data = try await send(path, query: query, timeout: TimeInterval(ms) / 1000 + 5)
             let obj = try JSONSerialization.jsonObject(with: data) as? [String: Any]
             return (obj?["delay"] as? NSNumber)?.intValue ?? 0
         } catch APIError.http(let code, _) where code == 504 || code == 503 || code == 408 {

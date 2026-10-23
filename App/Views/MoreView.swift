@@ -907,10 +907,16 @@ struct SpeedTestSettingsView: View {
     @State private var custom = ""
     @State private var timeoutSec = 5
     @State private var overrideHC = false
+    @State private var directURL = ""
+    @State private var tcpHandshake = false
     @State private var status: String?
     @StateObject private var debounce = Debouncer()
 
     private static let customTag = "__custom__"
+    private var directInvalid: Bool {
+        let u = directURL.trimmingCharacters(in: .whitespaces)
+        return !u.isEmpty && !CoreOverrides.isValidTestURL(u)
+    }
 
     private var effectiveURL: String {
         choice == Self.customTag ? custom.trimmingCharacters(in: .whitespaces) : choice
@@ -960,6 +966,29 @@ struct SpeedTestSettingsView: View {
             .listRowBackground(Theme.card)
 
             Section {
+                TextField("留空则使用测速地址", text: $directURL)
+                    .keyboardType(.URL)
+                    .textInputAutocapitalization(.never)
+                    .autocorrectionDisabled()
+                    .font(.system(.body, design: .monospaced))
+                    .accessibilityIdentifier("speed.directURL")
+                if directInvalid {
+                    Label("请输入以 http:// 或 https:// 开头的完整地址", systemImage: "exclamationmark.triangle")
+                        .font(.footnote).foregroundStyle(Theme.warn)
+                }
+            } header: { Text("直连测试地址") } footer: {
+                Text("测试「DIRECT」（直连）时使用的地址，适合填一个不用代理就能访问的地址。留空则和节点一样使用上面的测速地址。")
+            }
+            .listRowBackground(Theme.card)
+
+            Section {
+                Toggle("TCP 握手延迟", isOn: $tcpHandshake).accessibilityIdentifier("speed.tcpHandshake")
+            } footer: {
+                Text("开启后，基于 TCP 的节点显示本机连到节点服务器的 TCP 握手时间（不含 DNS 解析），不经节点访问测速地址。Hysteria、TUIC、WireGuard 等基于 UDP 的节点、设了前置代理的节点和策略组仍按测速地址测试。")
+            }
+            .listRowBackground(Theme.card)
+
+            Section {
                 Toggle("健康检查也使用此地址", isOn: $overrideHC)
             } footer: {
                 Text("默认关闭：自动选择 / 故障转移策略组和节点集按配置文件里的地址做健康检查。开启后统一改用上面的地址，重新连接或重载后生效。")
@@ -977,13 +1006,15 @@ struct SpeedTestSettingsView: View {
         .onAppear {
             // Review 6: an invalid custom URL is not saved; re-reading on every appearance replaced it with the preset.
             debounce.flush()
-            if !customInvalid { loadValues() }
+            if !customInvalid && !directInvalid { loadValues() }
         }
         // v0.15.4: applied on change (debounced), no 保存 button; an invalid custom URL is not applied.
         .onChange(of: choice) { _ in debounce.schedule { save() } }
         .onChange(of: custom) { _ in debounce.schedule { save() } }
         .onChange(of: timeoutSec) { _ in debounce.schedule { save() } }
         .onChange(of: overrideHC) { _ in debounce.schedule { save() } }
+        .onChange(of: directURL) { _ in debounce.schedule { save() } }
+        .onChange(of: tcpHandshake) { _ in debounce.schedule { save() } }
         .onDisappear { debounce.flush() }
     }
 
@@ -997,16 +1028,20 @@ struct SpeedTestSettingsView: View {
         }
         timeoutSec = max(1, min(30, o.testTimeoutMs / 1000))
         overrideHC = o.overrideHealthCheck
+        directURL = o.directTestURL
+        tcpHandshake = o.tcpHandshakeDelay
     }
 
     private func save() {
-        guard CoreOverrides.isValidTestURL(effectiveURL) else { return }
+        guard CoreOverrides.isValidTestURL(effectiveURL), !directInvalid else { return }
         // Only this page's fields; everything else stays as the other pages saved it.
         var o = CoreOverrides.load()
         let old = o
         o.testURL = effectiveURL
         o.testTimeoutMs = timeoutSec * 1000
         o.overrideHealthCheck = overrideHC
+        o.directTestURL = directURL.trimmingCharacters(in: .whitespaces)
+        o.tcpHandshakeDelay = tcpHandshake
         guard o != old else { return }
         o.save()
         let healthCheckChanged = old.overrideHealthCheck != o.overrideHealthCheck || (o.overrideHealthCheck && old.testURL != o.testURL)

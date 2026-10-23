@@ -105,7 +105,28 @@ struct ConnectionView: View {
             }
         }
         .listRowBackground(Theme.card)
+        udpSection
         ipv6Section
+    }
+
+    /// Loon parity: 直连时丢弃 STUN and UDP 回落 (bridge netextras.go).
+    var udpSection: some View {
+        Section {
+            Toggle("直连时丢弃 STUN", isOn: $o.stunDropDirect).accessibilityIdentifier("conn.stunDrop")
+            Picker("UDP 回落", selection: $o.udpFallback) {
+                Text("直连").tag("direct")
+                Text("拒绝").tag("reject")
+            }
+            .accessibilityIdentifier("conn.udpFallback")
+        } header: { Text("UDP") } footer: {
+            VStack(alignment: .leading, spacing: 6) {
+                Text("直连时丢弃 STUN：规则最终走直连的 STUN 请求（UDP 3478、3479、5349、19302 等端口）被拒绝，网页的 WebRTC 不会经直连暴露本机 IP；走代理的照常。开启「FaceTime 走代理」时 FaceTime 的 STUN 走代理，不受影响；未开启时 FaceTime 通话可能受影响。")
+                Text(o.udpFallback == "reject"
+                     ? "UDP 回落：规则选中的节点不支持 UDP、后面也没有别的规则接住时，拒绝这些 UDP，不改走直连。"
+                     : "UDP 回落：规则选中的节点不支持 UDP、后面也没有别的规则接住时，这些 UDP 改走直连（mihomo 默认）。")
+            }
+        }
+        .listRowBackground(Theme.card)
     }
 
     /// v0.8: IPv6 关 / 自动 / 总是 + IP 优先级 for nodes.
@@ -139,8 +160,13 @@ struct ConnectionView: View {
     var scopeSection: some View {
         Section {
             Toggle("FaceTime 走代理", isOn: $o.faceTimeProxy).accessibilityIdentifier("conn.facetime")
-            Toggle("接管所有网络流量", isOn: o.faceTimeProxy ? .constant(true) : $o.includeAllNetworks)
-                .disabled(o.faceTimeProxy).accessibilityIdentifier("conn.includeAll")
+            Toggle(isOn: o.faceTimeProxy ? .constant(true) : $o.includeAllNetworks) {
+                VStack(alignment: .leading, spacing: 2) {
+                    Text("接管所有网络流量")
+                    Text("路由系统服务：iCloud、推送等系统服务也进入隧道").font(.caption).foregroundStyle(.secondary)
+                }
+            }
+            .disabled(o.faceTimeProxy).accessibilityIdentifier("conn.includeAll")
             if o.includeAllNetworks || o.faceTimeProxy {
                 Toggle("排除局域网", isOn: $o.excludeLocalNetworks)
                 if #available(iOS 16.4, *) {
@@ -174,6 +200,14 @@ struct ConnectionView: View {
                                    placeholder: "192.168.0.0/16",
                                    note: "这些网段不进入隧道，直接走系统网络。默认排除私有网段、链路本地和组播，保证局域网设备、打印机和投屏可用。")
                 } label: { countRow("排除的路由", o.excludedRoutes) }
+                Toggle("不作为默认路由", isOn: $o.notDefaultRoute).accessibilityIdentifier("conn.notDefaultRoute")
+                NavigationLink {
+                    CIDRListEditor(title: "DNS 劫持", lines: $o.dnsHijack, defaults: CoreOverrides.defaultDNSHijack,
+                                   placeholder: "any:53", validateCIDR: false, validator: DNSHijackSpec.invalid,
+                                   note: "发往这些地址的 DNS 查询由内核应答，每行一个：any:53、8.8.8.8:53、tcp://any:53。默认 any:53（所有 53 端口的查询）。留空时只应答本机隧道 DNS（198.18.0.2），其他 App 自带的 DNS 服务器按规则转发。")
+                } label: { countRow("DNS 劫持", o.dnsHijack, invalid: !DNSHijackSpec.invalid(o.dnsHijack).isEmpty) }
+                .accessibilityIdentifier("conn.dnsHijack")
+                Toggle("隐藏 VPN 图标（实验）", isOn: $o.hideVPNIcon).accessibilityIdentifier("conn.hideVPNIcon")
             }
             if o.isProxyOnly || o.isMixed {
                 NavigationLink {
@@ -182,7 +216,18 @@ struct ConnectionView: View {
                                    note: "系统代理不处理的主机或网段，每行一个：域名、*.通配、IP 或 CIDR。")
                 } label: { countRow("跳过代理", o.skipProxy) }
             }
-        } header: { Text("路由") }
+        } header: { Text("路由") } footer: {
+            if !o.isProxyOnly && (o.notDefaultRoute || o.hideVPNIcon) {
+                VStack(alignment: .leading, spacing: 6) {
+                    if o.notDefaultRoute {
+                        Text("不作为默认路由：隧道只接管 Fake-IP 网段（198.18.0.0/15）和上面除 0.0.0.0/0、::/0 以外的路由。按域名访问的连接照常按规则处理，App 直接用 IP 连接时不经过隧道。需要 DNS 使用 Fake-IP 模式。")
+                    }
+                    if o.hideVPNIcon {
+                        Text("隐藏 VPN 图标：从隧道排除 0.0.0.0/31，部分 iOS 版本上状态栏不再显示 VPN 图标。效果因系统版本而异，可能不生效。")
+                    }
+                }
+            }
+        }
         .listRowBackground(Theme.card)
     }
 
@@ -330,13 +375,15 @@ struct ConnectionView: View {
 
     var hasInvalid: Bool {
         !RouteSpec.invalid(o.includedRoutes).isEmpty || !RouteSpec.invalid(o.excludedRoutes).isEmpty
+            || !DNSHijackSpec.invalid(o.dnsHijack).isEmpty
     }
 
-    func countRow(_ title: String, _ lines: [String]) -> some View {
-        HStack {
+    func countRow(_ title: String, _ lines: [String], invalid: Bool? = nil) -> some View {
+        let bad = invalid ?? (title != "跳过代理" && !RouteSpec.invalid(lines).isEmpty)
+        return HStack {
             Text(LocalizedStringKey(title))
             Spacer()
-            Text("\(lines.count) 条").font(.caption).foregroundStyle(RouteSpec.invalid(lines).isEmpty || title == "跳过代理" ? Color.secondary : Theme.warn)
+            Text("\(lines.count) 条").font(.caption).foregroundStyle(bad ? Theme.warn : Color.secondary)
         }
     }
 
@@ -379,6 +426,11 @@ struct ConnectionView: View {
         cur.lanLocalOnly = o.lanLocalOnly
         cur.lanAuth = CoreOverrides.LanAuth(username: o.lanAuth.username.trimmingCharacters(in: .whitespaces), password: o.lanAuth.password)
         cur.lanUsers = o.lanUsers // v0.19 局域网多用户 (was not saved)
+        cur.stunDropDirect = o.stunDropDirect
+        cur.udpFallback = o.udpFallback
+        cur.notDefaultRoute = o.notDefaultRoute
+        cur.hideVPNIcon = o.hideVPNIcon
+        cur.dnsHijack = o.dnsHijack
         let onDemandChanged = onDemand != savedOnDemand
         // r7 R7A-2: nothing changed on the page, but the VPN configuration may still carry another scope (restored
         // backup, older build) — re-apply it then instead of returning, so the page can always fix it.
@@ -399,12 +451,14 @@ struct ConnectionView: View {
             || old.includeAllNetworks != cur.includeAllNetworks || old.excludeLocalNetworks != cur.excludeLocalNetworks
             || old.excludeAPNs != cur.excludeAPNs || old.excludeCellularServices != cur.excludeCellularServices
             || old.excludeDeviceCommunication != cur.excludeDeviceCommunication || old.faceTimeProxy != cur.faceTimeProxy
+            || old.notDefaultRoute != cur.notDefaultRoute || old.hideVPNIcon != cur.hideVPNIcon || old.dnsHijack != cur.dnsHijack
         // tunnelMode too: 仅代理 never carries includeAllNetworks (VPNManager.applyScope).
         let scopeChanged = old.tunnelMode != cur.tunnelMode
             || old.includeAllNetworks != cur.includeAllNetworks || old.excludeLocalNetworks != cur.excludeLocalNetworks
             || old.excludeAPNs != cur.excludeAPNs || old.excludeCellularServices != cur.excludeCellularServices
             || old.excludeDeviceCommunication != cur.excludeDeviceCommunication || old.faceTimeProxy != cur.faceTimeProxy
-        let reload = old.blockQUIC != cur.blockQUIC || old.ipPreference != cur.ipPreference || old.lanLocalOnly != cur.lanLocalOnly || old.lanAuth != cur.lanAuth || old.lanUsers != cur.lanUsers
+        let reload = old.blockQUIC != cur.blockQUIC || old.stunDropDirect != cur.stunDropDirect || old.udpFallback != cur.udpFallback
+            || old.ipPreference != cur.ipPreference || old.lanLocalOnly != cur.lanLocalOnly || old.lanAuth != cur.lanAuth || old.lanUsers != cur.lanUsers
         let settings = onDemand
         Task {
             if scopeChanged, let e = await vpn.applyTunnelScope() {
@@ -444,13 +498,15 @@ struct CIDRListEditor: View {
     let defaults: [String]
     let placeholder: String
     var validateCIDR = true
+    /// Lines a non-CIDR list refuses (DNS 劫持); nil = no check besides validateCIDR.
+    var validator: (([String]) -> [String])? = nil
     let note: String
     @State private var text = ""
 
     private var parsed: [String] {
         text.components(separatedBy: CharacterSet(charactersIn: "\n,")).map { $0.trimmingCharacters(in: .whitespaces) }.filter { !$0.isEmpty }
     }
-    private var invalid: [String] { validateCIDR ? RouteSpec.invalid(parsed) : [] }
+    private var invalid: [String] { validateCIDR ? RouteSpec.invalid(parsed) : (validator?(parsed) ?? []) }
 
     var body: some View {
         Form {
