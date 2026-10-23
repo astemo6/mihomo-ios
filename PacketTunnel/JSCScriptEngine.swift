@@ -292,13 +292,14 @@ final class JSCScriptEngine: NSObject, LibmihomoScriptEngineProtocol {
         tern?.setObject(unsafeBitCast(host, to: AnyObject.self), forKeyedSubscript: "host" as NSString)
         tern?.setObject(unsafeBitCast(put, to: AnyObject.self), forKeyedSubscript: "put" as NSString)
         tern?.setObject(unsafeBitCast(take, to: AnyObject.self), forKeyedSubscript: "take" as NSString)
-        if let global = context.globalObject {
-            global.defineProperty("__tern", descriptor: [
-                JSPropertyDescriptorValueKey: tern as Any,
+        if let global = context.globalObject, let tern {
+            let desc: [String: Any] = [
+                JSPropertyDescriptorValueKey: tern,
                 JSPropertyDescriptorWritableKey: false,
                 JSPropertyDescriptorEnumerableKey: false,
                 JSPropertyDescriptorConfigurableKey: false,
-            ])
+            ]
+            global.defineProperty("__tern", descriptor: desc)
         }
         lock.lock()
         let src = prelude
