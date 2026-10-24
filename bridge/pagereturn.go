@@ -16,7 +16,7 @@ package libmihomo
 //     mprotect(PROT_NONE) + mprotect(PROT_READ|PROT_WRITE) after madvise(MADV_FREE_REUSABLE) in sysUnused on
 //     darwin, because iOS did not update the footprint accounting promptly. That patch is NOT in their current
 //     forks (tailscale.go1.25 / go1.26 / go1.27 mem_darwin.go = upstream): upstream's MADV_FREE_REUSABLE +
-//     MADV_FREE_REUSE pairing keeps task_info/phys_footprint accounting right, and our Go 1.25 already has it.
+//     MADV_FREE_REUSE pairing keeps task_info/phys_footprint accounting right, and our Go 1.26 already has it.
 //     GODEBUG=madvdontneed=1 is a no-op on darwin (mem_darwin.go never reads it).
 //   - tailscale/tailscale today calls debug.FreeOSMemory() on iOS right before a known burst (full netmap
 //     rebuild, control/controlclient/map.go) and tightens the GC near 42 MB footprint (iOS app, 1.42).

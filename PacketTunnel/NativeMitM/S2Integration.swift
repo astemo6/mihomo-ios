@@ -248,4 +248,12 @@ enum NativeMitmBench {
     /// feat/go-pagereturn: the post-burst page return on / off, and its JSON stats {on, returns, freedTotal, lastFreed}.
     static func setPageReturn(_ on: Bool) { LibmihomoSetGoPageReturn(on) }
     static func pageReturnStats() -> String { LibmihomoGoPageReturnStats() }
+    /// feat/go-pagereturn page accounting probe (bridge/pageacct.go): private mapping steps and Go heap release.
+    static func paMap(_ mb: Int) -> String { LibmihomoPageAcctMap(mb) }
+    static func paAdvise(_ adv: Int) -> String { LibmihomoPageAcctAdvise(adv) }
+    static func paMprotect() -> String { LibmihomoPageAcctMprotect() }
+    static func paTouch() { LibmihomoPageAcctTouch() }
+    static func paUnmap() { LibmihomoPageAcctUnmap() }
+    static func paGoGarbage(_ mb: Int) { LibmihomoPageAcctGoGarbage(mb) }
+    static func paGoRelease() -> Int64 { LibmihomoPageAcctGoRelease() }
 }

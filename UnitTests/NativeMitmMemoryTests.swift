@@ -126,6 +126,57 @@ final class NativeMitmMemoryTests: XCTestCase {
         check(runs, modes: Self.comboModes)
     }
 
+    /// feat/go-pagereturn: is a page Go releases (madvise MADV_FREE_REUSABLE) taken out of phys_footprint at once, or
+    /// does it need Tailscale's old runtime patch (mprotect NONE → RW after the madvise, tailscale/go 38ab03e)?
+    /// A private 32 MB mapping, every page dirtied, then: MADV_FREE alone / MADV_FREE_REUSABLE (Go's call) /
+    /// REUSABLE + the mprotect cycle, footprint read right after and 1 s / 5 s later; then the Go heap itself:
+    /// 32 MB of garbage freed by a GC, then debug.FreeOSMemory — footprint drop vs what Go marked released.
+    /// Reports only (the device may account differently from the simulator's macOS kernel).
+    func testPageAccounting() throws {
+        let mb = 32
+        let MB = 1_048_576.0
+        func fp() -> Double { Double(ProcessMemory.footprintBytes()) / MB }
+        var rows: [String] = []
+        for rep in 1...3 {
+            for (label, steps) in [("MADV_FREE", [5]), ("MADV_FREE_REUSABLE (Go)", [7]), ("REUSABLE+mprotect (Tailscale)", [7, -1]), ("mprotect only", [-1])] {
+                Thread.sleep(forTimeInterval: 0.3)
+                let f0 = fp()
+                XCTAssertEqual(NativeMitmBench.paMap(mb), "")
+                let f1 = fp()
+                for st in steps {
+                    let e = st < 0 ? NativeMitmBench.paMprotect() : NativeMitmBench.paAdvise(st)
+                    XCTAssertEqual(e, "", label)
+                }
+                let f2 = fp()
+                Thread.sleep(forTimeInterval: 1)
+                let f3 = fp()
+                Thread.sleep(forTimeInterval: 4)
+                let f4 = fp()
+                NativeMitmBench.paTouch() // reuse: pages come back
+                let f5 = fp()
+                NativeMitmBench.paUnmap()
+                let f6 = fp()
+                let line = String(format: "[pageacct] passed rep %d %@: mapped+dirty %+.2f MB; after release %+.2f MB (credited %.0f%%), 1 s %+.2f, 5 s %+.2f; re-touched %+.2f; unmapped %+.2f", rep, label as NSString, f1 - f0, f2 - f0, (f1 - f2) / max(f1 - f0, 0.01) * 100, f3 - f0, f4 - f0, f5 - f0, f6 - f0)
+                rows.append(line)
+            }
+            // the Go heap: freed garbage, then FreeOSMemory (Go 1.25 sysUnusedOS = MADV_FREE_REUSABLE)
+            Thread.sleep(forTimeInterval: 0.3)
+            NativeMitmBench.freeGoMemory()
+            Thread.sleep(forTimeInterval: 1.1)
+            let g0 = fp()
+            NativeMitmBench.paGoGarbage(mb)
+            let g1 = fp()
+            let rel = Double(NativeMitmBench.paGoRelease()) / MB
+            let g2 = fp()
+            Thread.sleep(forTimeInterval: 1)
+            let g3 = fp()
+            Thread.sleep(forTimeInterval: 4)
+            let g4 = fp()
+            rows.append(String(format: "[pageacct] passed rep %d Go heap: %d MB garbage freed by GC (not released) %+.2f MB; FreeOSMemory released %.2f MB → footprint %+.2f MB (dropped %.2f = %.0f%% of released), 1 s %+.2f, 5 s %+.2f", rep, mb, g1 - g0, rel, g2 - g0, g1 - g2, (g1 - g2) / max(rel, 0.01) * 100, g3 - g0, g4 - g0))
+        }
+        for r in rows { print(r); NSLog("%@", r) }
+    }
+
     @available(iOS 17.0, *)
     private func runRounds(_ specs: [Spec]) throws -> [Run] {
         // uncounted warm-up of every mode: grows the allocator and the pools once so no counted run pays for it
