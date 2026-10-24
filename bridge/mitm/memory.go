@@ -107,6 +107,12 @@ func availableAtLeast(need int64) (ok, known bool, avail int64) {
 	if freeOSMemoryRateLimited() {
 		avail, _ = availableMemoryNow()
 	}
+	// fix/xmly-memory: still short — free what the engine can rebuild (idle programs, JavaScriptCore
+	// garbage, captured bodies) and return it to the OS before the caller refuses work.
+	if avail < need && reclaimNow() {
+		debug.FreeOSMemory()
+		avail, _ = availableMemoryNow()
+	}
 	return avail >= need, true, avail
 }
 

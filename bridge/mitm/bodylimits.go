@@ -349,6 +349,8 @@ type bodyCharge struct {
 	held int64
 	rels []func()
 	big  func() // bigBodyLock held for this body (v0.19.22); released with the charge
+	// small: the body is small work (fix/xmly-memory): totals up to smallWorkMax fall back to smallBudget.
+	small bool
 }
 
 // ensure grows the charge to total bytes (waiting up to bodyBudgetWait for the difference).
@@ -359,7 +361,12 @@ func (c *bodyCharge) ensure(total int64) error {
 	if need <= 0 {
 		return nil
 	}
-	rel := bodyBudget.acquire(c.ctx, need, bodyBudgetWait)
+	var rel func()
+	if c.small && total <= smallWorkMax {
+		rel = acquireSmall(c.ctx, need, bodyBudgetWait)
+	} else {
+		rel = bodyBudget.acquire(c.ctx, need, bodyBudgetWait)
+	}
 	if rel == nil {
 		return errors.New("body budget")
 	}

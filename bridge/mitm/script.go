@@ -1783,7 +1783,14 @@ func (rc *runCtx) do(fr *fetchReq) *fetchResp {
 	defer resp.Body.Close()
 	// review6 P1-2 / r7: script downloads share the global body budget with rewrite / script bodies,
 	// charged as they are read and held until the callback has run (see deliverFetch, fetchbudget.go).
-	if heapHigh() {
+	cl0 := resp.ContentLength
+	if resp.Header.Get("Content-Encoding") != "" && cl0 >= 0 {
+		cl0 = min(cl0*4, smallWorkMax)
+	}
+	// fix/xmly-memory: a small answer (cookie, JSON) is judged on its own size; only large or unknown
+	// downloads are refused by the general gate when memory is short.
+	small := cl0 >= 0 && cl0 <= smallWorkMax
+	if heapHigh() && !(small && smallWorkOK(cl0, smallFetchFloor)) {
 		return &fetchResp{err: errors.New("内存紧张，已跳过下载（保护隧道内存）")}
 	}
 	charge := &fetchCharge{ctx: ctx}
