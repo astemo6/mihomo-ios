@@ -635,10 +635,9 @@ func bdCorpusSuites(t testing.TB, dir string) []bdSuite {
 }
 
 func bdStripGen(s bdSuite) bdSuite {
-	var m map[string]any
-	_ = json.Unmarshal(s.Snapshot, &m)
-	delete(m, "gen")
-	s.Snapshot, _ = json.Marshal(m)
+	// the same normalisation as the rewrite fixture (gen dropped, Map Local file paths under the temporary engine
+	// home made stable — s3-full exports them since the native-final integration)
+	s.Snapshot = rwStripGen(rwSuite{Snapshot: s.Snapshot}).Snapshot
 	return s
 }
 
