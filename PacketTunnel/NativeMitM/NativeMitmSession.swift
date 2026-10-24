@@ -43,7 +43,13 @@ enum NativeMitmRuntime {
     private static var ids: Int64 = 0
 
     /// Whether another session may start (the TLS lane checks this in listen(); false → return 0 → Go path).
-    static var canAccept: Bool { lock.lock(); defer { lock.unlock() }; return live < maxSessions }
+    static var canAccept: Bool {
+        lock.lock()
+        let room = live < maxSessions
+        lock.unlock()
+        // feat/s3-mem: the native memory governor (when on) admits a session as small work; declined → Go path
+        return room && (NativeMemoryGovernor.active?.admit(.session, bytes: NativeMemoryGovernor.sessionCost) ?? true)
+    }
     static var liveSessions: Int { lock.lock(); defer { lock.unlock() }; return live }
 
     static func acquire() -> Bool {

@@ -61,11 +61,17 @@ final class NativeBodyStore: NSObject, LibmihomoNativeBodyStoreProtocol, JSCNati
         var prevCallStart = 0
         var callEnd = 0
         var memberStart = 0
+        /// feat/s3-mem: capacity reserved from the hint; trimForMemory copies each finished body at most once.
+        var reserved = 0
+        var compacted = false
 
         init(codec: Codec, limit: Int, hint: Int) {
             self.codec = codec
             self.limit = limit
-            if hint > 0 { raw.reserveCapacity(min(hint, limit)) }
+            if hint > 0 {
+                reserved = min(hint, limit)
+                raw.reserveCapacity(reserved)
+            }
         }
 
         var decoded: Data { codec == .identity ? raw : dec }
@@ -106,9 +112,14 @@ final class NativeBodyStore: NSObject, LibmihomoNativeBodyStoreProtocol, JSCNati
         case "br": codec = .brotli
         default: return refuse()
         }
-        // 0 = not a memory-limited process (the app, the simulator): no floor
-        let avail = os_proc_available_memory()
-        if avail > 0 && avail < Self.availFloor { return refuse() }
+        if let g = NativeMemoryGovernor.active {
+            // feat/s3-mem: the native governor admits by size (small bodies down to ~4.5 MB, reclaim first)
+            if !g.admit(.body, bytes: hint > 0 ? Int(clamping: hint) : -1) { return refuse() }
+        } else {
+            // 0 = not a memory-limited process (the app, the simulator): no floor
+            let avail = os_proc_available_memory()
+            if avail > 0 && avail < Self.availFloor { return refuse() }
+        }
         let b = Body(codec: codec, limit: Int(clamping: limit), hint: Int(clamping: hint))
         if codec == .brotli {
             // The deflate-family streams start once their header is known (`feedDeflate`); brotli has none.
@@ -205,6 +216,39 @@ final class NativeBodyStore: NSObject, LibmihomoNativeBodyStoreProtocol, JSCNati
             b.lock.unlock()
         }
         return "native bodies \(all.count) (\(String(format: "%.1f", Double(bytes) / 1_048_576)) MB), opened \(o), refused \(r)"
+    }
+
+    /// feat/s3-mem (native memory governor): gives back slack no reader needs. Bodies are never dropped (Go still
+    /// reads a failed body's raw bytes to pass them through); a finished body's buffers are copied to their exact
+    /// size when they can hold slack — `raw` reserved from Content-Length but shorter, `dec` grown by appending (up
+    /// to ~2× its size) — each at most once and only up to `maxCopy` bytes per buffer (the copy briefly needs that
+    /// much more). Returns the bytes known to be released (reserved − used; appended growth is not visible).
+    func trimForMemory(maxCopy: Int = 1 << 20) -> Int {
+        lock.lock()
+        let all = Array(bodies.values)
+        lock.unlock()
+        var freed = 0
+        for b in all {
+            b.lock.lock()
+            if !b.gone && b.finished && !b.compacted {
+                b.compacted = true
+                if b.reserved > b.raw.count + (64 << 10), b.raw.count <= maxCopy {
+                    freed += b.reserved - b.raw.count
+                    b.raw = Self.exactCopy(b.raw)
+                }
+                if b.codec != .identity, b.dec.count >= 64 << 10, b.dec.count <= maxCopy {
+                    b.dec = Self.exactCopy(b.dec)
+                }
+                b.closeStream()
+            }
+            b.lock.unlock()
+        }
+        return freed
+    }
+
+    /// A copy with exactly `d.count` bytes of storage.
+    static func exactCopy(_ d: Data) -> Data {
+        d.withUnsafeBytes { p in p.baseAddress.map { Data(bytes: $0, count: p.count) } ?? Data() }
     }
 
     // MARK: JSCNativeBlobProvider (JavaScriptCore engine, on the thread running JavaScript)

@@ -242,6 +242,12 @@ final class JSCScriptEngine: NSObject, LibmihomoScriptEngineProtocol {
 
     func begin(_ run: LibmihomoScriptRun?, key: String?, setup: String?) -> String {
         guard let run, let key else { return Self.err("internal", "missing run") }
+        // feat/s3-mem: the native memory governor (when on) admits the run by its setup size (small work allowed
+        // down to ~4.5 MB, reclaim — JSC garbage included — before refusing). Go reports the refusal as a script error
+        // and passes the message through unchanged.
+        if let g = NativeMemoryGovernor.active, !g.admit(.script, bytes: setup?.utf8.count ?? 0) {
+            return Self.err("memory", "内存紧张，已跳过脚本（原生内存调度）")
+        }
         let runID = run.id_()
         lock.lock()
         guard let entry = entries[key] else {
