@@ -473,9 +473,9 @@ func memDetail(r memReading, conns, idle int) string {
 	if se != nil {
 		js = "; " + se.Stats()
 	}
-	return fmt.Sprintf("memory: footprint %s, available %s; go heap %s (in use %s, idle %s, released %s), stacks %s, go sys %s, gc %d, goroutines %d; go classes: %s; connections %d (idle ≥%s: %d); %s%s; dns cache ≤%d/resolver; GOMEMLIMIT %s",
+	return fmt.Sprintf("memory: footprint %s, available %s; go heap %s (in use %s, idle %s, released %s), stacks %s, go sys %s, gc %d, goroutines %d; go classes: %s; connections %d (idle ≥%s: %d); %s%s; dns cache ≤%d/resolver; GOMEMLIMIT %s; %s",
 		mbs(r.fp), mbs(r.avail), mbu(r.heap), mbu(r.inuse), mbu(r.idle), mbu(r.released), mbu(r.stacks), mbu(r.sys), r.numGC, r.gor, goMemClasses(),
-		conns, idleConnAge, idle, cs, js, iosDNSCacheMax, mbs(debug.SetMemoryLimit(-1)))
+		conns, idleConnAge, idle, cs, js, iosDNSCacheMax, mbs(debug.SetMemoryLimit(-1)), pageReturnSummary())
 }
 
 // memTick runs on every MemoryGuard sample: connection activity, the governor, and the periodic line.

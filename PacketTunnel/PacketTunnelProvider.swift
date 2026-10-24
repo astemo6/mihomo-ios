@@ -76,6 +76,11 @@ enum TunnelNotice {
 }
 
 final class PacketTunnelProvider: NEPacketTunnelProvider {
+    /// feat/go-pagereturn switch (app-group bool) and its default (decided by NativeMitmMemoryTests' post-burst idle
+    /// footprint, see CHANGELOG).
+    static let goPageReturnKey = "goPageReturn.enabled"
+    static let goPageReturnDefault = true
+
     private let notifier = ScriptNotifier()
     private let memoryProbe = ExtensionMemoryProbe()
     private var bridge: PacketFlowBridge?
@@ -152,6 +157,12 @@ final class PacketTunnelProvider: NEPacketTunnelProvider {
         LibmihomoSetPolicyEvents(NotifyPrefs.coreMask) // feat/loon-menu-notify: 策略组异常 / 自动策略切换 / 节点异常
         LibmihomoSetMemoryLimit(Int32(overrides.memoryLimitMB))
         LibmihomoSetMemoryProbe(memoryProbe)
+        // feat/go-pagereturn: Go hands the pages a burst freed back to iOS ~2 s after the burst ends (one GC +
+        // scavenge when Go is quiet again; bridge/pagereturn.go) instead of 30 s – 2 min later. App-group key
+        // goPageReturn.enabled overrides the default.
+        let pageReturn = AppShared.defaults.object(forKey: Self.goPageReturnKey) as? Bool ?? Self.goPageReturnDefault
+        LibmihomoSetGoPageReturn(pageReturn)
+        StartupLog.write("go page return: \(pageReturn ? "on" : "off")")
         // feat/jsc-engine: MitM / rewrite / task scripts run in JavaScriptCore (goja stays the fallback).
         let jsc = JSCScriptEngine.register()
         StartupLog.write("script engine: \(jsc.isEmpty ? "JavaScriptCore" : "goja (JavaScriptCore unavailable: \(jsc))"), \(LibmihomoScriptEngineStatus())")

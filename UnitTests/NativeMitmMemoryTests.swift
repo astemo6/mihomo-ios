@@ -31,6 +31,11 @@ final class NativeMitmMemoryTests: XCTestCase {
         var fpPeak: UInt64 = 0, fpRelieved: UInt64 = 0, mallocRelieved = 0
         /// Seconds from the burst's start until the last of its requests was answered (latency cost of the caps).
         var burstSeconds: Double = 0
+        /// feat/go-pagereturn (Spec.idle): footprint 5 s and 10 s after the burst's last answer, sessions still open,
+        /// nothing forced (the Go reading — which runs a GC + scavenge — is taken after these), and how many page
+        /// returns the Go sampler made in that window.
+        var fpIdle5: UInt64 = 0, fpIdle10: UInt64 = 0
+        var pageReturns = 0
     }
 
     /// Modes: "go" (Go path), "native" (production cap 48, slim on), "native-nocap" (every connection native, slim
@@ -44,6 +49,10 @@ final class NativeMitmMemoryTests: XCTestCase {
         var slim: NativeMitmRuntime.Slim?
         var rules = false
         var engines = false
+        /// feat/go-pagereturn: the Go post-burst page return (bridge/pagereturn.go) on for this mode (off otherwise),
+        /// and post-burst idle readings (5 s / 10 s) before anything forces a GC.
+        var pageReturn = false
+        var idle = false
     }
 
     static let modes: [Spec] = {
@@ -65,11 +74,14 @@ final class NativeMitmMemoryTests: XCTestCase {
     ///   (c) "front+gorules"   native front on every connection, the Go flow API decides the rules (engines off);
     ///       "allnative"       native front on every connection + native rewrite / body / script engines;
     ///       "allnative-cap48" the same with the production session cap (48; the rest of the burst on the Go path).
+    ///   feat/go-pagereturn: "go+rules+pr" = (a) with the Go post-burst page return on. Every combo mode also takes
+    ///   the post-burst idle readings (5 s / 10 s after the burst, sessions open), where page return shows.
     static let comboModes: [Spec] = [
-        Spec(name: "go+rules", cap: true, slim: nil, rules: true),
-        Spec(name: "front+gorules", cap: false, slim: NativeMitmRuntime.Slim(), rules: true),
-        Spec(name: "allnative", cap: false, slim: NativeMitmRuntime.Slim(), rules: true, engines: true),
-        Spec(name: "allnative-cap48", cap: true, slim: NativeMitmRuntime.Slim(), rules: true, engines: true),
+        Spec(name: "go+rules", cap: true, slim: nil, rules: true, idle: true),
+        Spec(name: "go+rules+pr", cap: true, slim: nil, rules: true, pageReturn: true, idle: true),
+        Spec(name: "front+gorules", cap: false, slim: NativeMitmRuntime.Slim(), rules: true, idle: true),
+        Spec(name: "allnative", cap: false, slim: NativeMitmRuntime.Slim(), rules: true, engines: true, idle: true),
+        Spec(name: "allnative-cap48", cap: true, slim: NativeMitmRuntime.Slim(), rules: true, engines: true, idle: true),
     ]
 
     static func mb(_ b: Int64) -> String { String(format: "%+.2f", Double(b) / 1_048_576) }
@@ -101,6 +113,16 @@ final class NativeMitmMemoryTests: XCTestCase {
         for m in Self.comboModes { line += String(format: " %@ %+.2f (%+.2f vs go)", m.name as NSString, median(runs, m.name, Self.fp), median(runs, m.name, Self.fp) - g) }
         print(line)
         NSLog("%@", line)
+        // feat/go-pagereturn verdict line: go+rules vs go+rules+pr at 1 s / peak / 5 s / 10 s
+        let peakF: (Run) -> Int64? = { Int64($0.fpPeak) - Int64($0.fpBefore) }
+        var pr = "[s2-combo] pagereturn passed: median MB off → on"
+        let cols: [(String, (Run) -> Int64?)] = [("fp@1s", Self.fp), ("peak", peakF), ("idle@5s", Self.idle5), ("idle@10s", Self.idle10)]
+        for (label, f) in cols {
+            let off = median(runs, "go+rules", f), on = median(runs, "go+rules+pr", f)
+            pr += String(format: " | %@ %+.2f → %+.2f (%+.2f)", label as NSString, off, on, on - off)
+        }
+        print(pr)
+        NSLog("%@", pr)
         check(runs, modes: Self.comboModes)
     }
 
@@ -117,6 +139,8 @@ final class NativeMitmMemoryTests: XCTestCase {
     }
 
     static let fp: (Run) -> Int64? = { Int64($0.fpAfter) - Int64($0.fpBefore) }
+    static let idle5: (Run) -> Int64? = { $0.fpIdle5 == 0 ? nil : Int64($0.fpIdle5) - Int64($0.fpBefore) }
+    static let idle10: (Run) -> Int64? = { $0.fpIdle10 == 0 ? nil : Int64($0.fpIdle10) - Int64($0.fpBefore) }
 
     private func median(_ runs: [Run], _ m: String, _ f: (Run) -> Int64?) -> Double {
         let v = runs.filter { $0.mode == m }.compactMap(f).map { Double($0) / 1_048_576 }.sorted()
@@ -139,7 +163,7 @@ final class NativeMitmMemoryTests: XCTestCase {
         let modes = specs.map(\.name)
         for (i, r) in runs.enumerated() {
             guard let gb = r.goBefore, let ga = r.goAfter else { continue }
-            let line = "[\(tag)] run \(i + 1) \(r.mode): \(r.ok)/\(Self.conns) requests passed; footprint \(Self.mbAbs(r.fpBefore)) → \(Self.mbAbs(r.fpAfter)) MB (\(Self.mb(Int64(r.fpAfter) - Int64(r.fpBefore))) MB), peak \(Self.mb(Int64(r.fpPeak) - Int64(r.fpBefore))) MB, relieved \(Self.mb(Int64(r.fpRelieved) - Int64(r.fpBefore))) MB, after teardown \(Self.mb(Int64(r.fpResidual) - Int64(r.fpBefore))) MB; malloc \(Self.mb(Int64(r.mallocAfter - r.mallocBefore))) MB; threads \(r.threadsBefore) → \(r.threadsAfter) (peak \(r.threadsPeak)); burst \(Int(r.burstSeconds * 1000)) ms; Go heap \(Self.mb(ga.heapInuse - gb.heapInuse)) MB, Go sys \(Self.mb(ga.sys - gb.sys)) MB, stacks \(Self.mb(ga.stack - gb.stack)) MB, goroutines \(ga.goroutines - gb.goroutines >= 0 ? "+" : "")\(ga.goroutines - gb.goroutines); handed \(ga.handed - gb.handed), fell back \(ga.fellBack - gb.fellBack)"
+            let line = "[\(tag)] run \(i + 1) \(r.mode): \(r.ok)/\(Self.conns) requests passed; footprint \(Self.mbAbs(r.fpBefore)) → \(Self.mbAbs(r.fpAfter)) MB (\(Self.mb(Int64(r.fpAfter) - Int64(r.fpBefore))) MB), peak \(Self.mb(Int64(r.fpPeak) - Int64(r.fpBefore))) MB, relieved \(Self.mb(Int64(r.fpRelieved) - Int64(r.fpBefore))) MB, after teardown \(Self.mb(Int64(r.fpResidual) - Int64(r.fpBefore))) MB; malloc \(Self.mb(Int64(r.mallocAfter - r.mallocBefore))) MB; threads \(r.threadsBefore) → \(r.threadsAfter) (peak \(r.threadsPeak)); burst \(Int(r.burstSeconds * 1000)) ms; Go heap \(Self.mb(ga.heapInuse - gb.heapInuse)) MB, Go sys \(Self.mb(ga.sys - gb.sys)) MB, stacks \(Self.mb(ga.stack - gb.stack)) MB, goroutines \(ga.goroutines - gb.goroutines >= 0 ? "+" : "")\(ga.goroutines - gb.goroutines); handed \(ga.handed - gb.handed), fell back \(ga.fellBack - gb.fellBack)\(r.fpIdle10 == 0 ? "" : "; idle 5 s \(Self.mb(Int64(r.fpIdle5) - Int64(r.fpBefore))) MB, 10 s \(Self.mb(Int64(r.fpIdle10) - Int64(r.fpBefore))) MB, page returns \(r.pageReturns)")"
             print(line)
             NSLog("%@", line)
             if !r.failures.isEmpty { print("[\(tag)] run \(i + 1) failures: \(r.failures.prefix(3).joined(separator: " | "))") }
@@ -176,6 +200,12 @@ final class NativeMitmMemoryTests: XCTestCase {
             let line2 = String(format: "[\(tag)] median passed %@ peak during burst %+6.2f MB | sessions open, after malloc relief + Go scavenge: footprint %+6.2f MB (%+4.0f KB/conn), malloc %+6.2f MB (%+4.0f KB/conn) | burst answered in %.0f ms", arguments: a2)
             print(line2)
             NSLog("%@", line2)
+            if let spec = specs.first(where: { $0.name == m }), spec.idle {
+                let prs: (Run) -> Int64? = { Int64($0.pageReturns) * 1_048_576 }
+                let line3 = String(format: "[\(tag)] median passed %@ post-burst idle (sessions open, nothing forced): 1 s %+6.2f MB | 5 s %+6.2f MB | 10 s %+6.2f MB | Go page returns %.0f (page return %@)", name, median(m, fp), median(m, Self.idle5), median(m, Self.idle10), median(m, prs), (spec.pageReturn ? "on" : "off") as NSString)
+                print(line3)
+                NSLog("%@", line3)
+            }
         }
     }
 
@@ -189,6 +219,8 @@ final class NativeMitmMemoryTests: XCTestCase {
         if !spec.cap { NativeMitmRuntime.maxSessions = Self.conns + 8 }
         if let s = spec.slim { NativeMitmRuntime.slim = s }
         defer { NativeMitmRuntime.maxSessions = cap; NativeMitmRuntime.slim = slim }
+        NativeMitmBench.setPageReturn(spec.pageReturn)
+        defer { NativeMitmBench.setPageReturn(false) }
         struct Start: Decodable { var enginePort: Int?; var error: String? }
         if spec.engines {
             NativeRewriteRuntime.override = true
@@ -260,6 +292,8 @@ final class NativeMitmMemoryTests: XCTestCase {
         }
         if timedOut { lock.lock(); failures.append("burst timed out after 60 s"); lock.unlock() }
         run.burstSeconds = Date().timeIntervalSince(burstStart)
+        let burstEnd = Date()
+        let prBefore = Self.pageReturns()
         Thread.sleep(forTimeInterval: 1.0) // idle keep-alive
         lock.lock(); run.ok = ok; run.failures = failures; lock.unlock()
         run.nativeErrors = NativeMitmRuntime.recentErrors
@@ -268,8 +302,17 @@ final class NativeMitmMemoryTests: XCTestCase {
         run.mallocAfter = FootprintProbe.mallocInUse()
         run.threadsAfter = FootprintProbe.threadCount()
         run.threadsPeak = max(run.threadsPeak, run.threadsAfter)
-        run.goAfter = goMem()
         run.fpPeak = max(run.fpPeak, run.fpAfter)
+        if spec.idle {
+            // feat/go-pagereturn: keep the sessions open and idle; read the footprint at 5 s and 10 s after the burst
+            // (goMem below runs a GC + scavenge, so it must come after these readings)
+            while Date().timeIntervalSince(burstEnd) < 5 { Thread.sleep(forTimeInterval: 0.1) }
+            run.fpIdle5 = ProcessMemory.footprintBytes()
+            while Date().timeIntervalSince(burstEnd) < 10 { Thread.sleep(forTimeInterval: 0.1) }
+            run.fpIdle10 = ProcessMemory.footprintBytes()
+            run.pageReturns = Self.pageReturns() - prBefore
+        }
+        run.goAfter = goMem()
         FootprintProbe.relieve()
         NativeMitmBench.freeGoMemory()
         Thread.sleep(forTimeInterval: 0.2)
@@ -288,6 +331,11 @@ final class NativeMitmMemoryTests: XCTestCase {
         FootprintProbe.relieve()
         run.fpResidual = ProcessMemory.footprintBytes()
         return run
+    }
+
+    static func pageReturns() -> Int {
+        struct S: Decodable { var returns: Int }
+        return (try? JSONDecoder().decode(S.self, from: Data(NativeMitmBench.pageReturnStats().utf8)))?.returns ?? -1
     }
 
     private func goMem() -> GoMem? { try? JSONDecoder().decode(GoMem.self, from: Data(NativeMitmBench.goMemory().utf8)) }

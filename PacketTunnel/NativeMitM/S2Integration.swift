@@ -245,4 +245,7 @@ enum NativeMitmBench {
     static func relayPort() -> Int { Int(LibmihomoMitmRelayPort()) }
     /// Go GC + scavenge (rate limited to 1/s by Go): the memory bench's "relieved" reading.
     static func freeGoMemory() { _ = LibmihomoNativeFreeOSMemory() }
+    /// feat/go-pagereturn: the post-burst page return on / off, and its JSON stats {on, returns, freedTotal, lastFreed}.
+    static func setPageReturn(_ on: Bool) { LibmihomoSetGoPageReturn(on) }
+    static func pageReturnStats() -> String { LibmihomoGoPageReturnStats() }
 }
