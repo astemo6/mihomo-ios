@@ -31,8 +31,9 @@ enum DiagnosticsExporter {
         let info = appInfo(vpn: vpn, tunnelReply: tunnelReply)
         let home = AppShared.homeURL.path
         let profile = AppShared.activeProfileURL?.path ?? ""
+        let cachedModules = EngineStore.shared.moduleInfo
         return await Task.detached(priority: .userInitiated) {
-            LibmihomoDiagnosticSummary(home, profile, info)
+            DiagnosticSummary.generate(home: home, profilePath: profile, appInfo: info, cachedModuleInfo: cachedModules)
         }.value
     }
 
