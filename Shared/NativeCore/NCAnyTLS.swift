@@ -133,8 +133,8 @@ enum NCUoT {
             host = data[offset..<(offset + 4)].map { String($0) }.joined(separator: ".")
             offset += 4
         case 0x01:
-            guard data.count >= offset + 16, let ip = NCIP(bytes: [UInt8](data[offset..<(offset + 16)])) else { return nil }
-            host = ip.string
+            guard data.count >= offset + 16 else { return nil }
+            host = NCIP.v6([UInt8](data[offset..<(offset + 16)])).string
             offset += 16
         case 0x02:
             guard data.count >= offset + 1 else { return nil }

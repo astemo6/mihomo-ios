@@ -169,9 +169,9 @@ final class NCVisionWriter {
         }
         filter.filter(chunk)
         var out: [[UInt8]] = []
-        var applyPadding = true
+        var usePadding = true
         for sub in Self.reshape(chunk) {
-            if applyPadding {
+            if usePadding {
                 var command = NCVision.commandContinue
                 if filter.isTLS, sub.count > 6,
                    Array(sub[0..<3]) == NCVision.tlsApplicationDataStart {
@@ -181,11 +181,11 @@ final class NCVisionWriter {
                         isDirect = true
                     }
                     isFiltering = false
-                    applyPadding = false
+                    usePadding = false
                 } else if !filter.isTLS12orAbove, filter.packetsToFilter <= 1 {
                     command = NCVision.commandEnd
                     isFiltering = false
-                    applyPadding = false
+                    usePadding = false
                 }
                 out.append(applyPadding(content: sub, command: command, paddingTLS: filter.isTLS))
             } else {

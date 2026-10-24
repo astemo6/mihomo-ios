@@ -204,3 +204,7 @@ enum NCBlake3 {
 private extension UInt32 {
     func rotated(right n: UInt32) -> UInt32 { (self >> n) | (self << (32 - n)) }
 }
+
+extension UInt64 {
+    func rotated(right n: UInt64) -> UInt64 { (self >> n) | (self << (64 - n)) }
+}

@@ -114,7 +114,7 @@ enum NCGroupKind: Equatable {
 
 struct NCGroupModel: Equatable {
     let name: String
-    let kind: NCGroupKind
+    var kind: NCGroupKind
     var members: [String] = []
     var url: String? = nil
     var interval: Int = 300

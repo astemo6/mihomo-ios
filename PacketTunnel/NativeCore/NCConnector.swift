@@ -363,7 +363,7 @@ enum NCConnector {
                 return
             }
             let key = NCShadowsocks.masterKey(password: password,
-                                              length: NCSSStreamCipher.keyLength(for: cipher))
+                                              keyLen: NCSSStreamCipher.keyLength(for: cipher))
             let ivSize = NCSSStreamCipher(method: cipher, key: key)?.ivSize ?? 16
             let clientIV = Data((0..<ivSize).map { _ in UInt8.random(in: 0...255) })
             var proto: NCSSRAuthSHA1V4?

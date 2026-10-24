@@ -728,10 +728,8 @@ extension NCDNSForwarder {
                                    completion: @escaping (Data?) -> Void) {
         let endpoint = NWEndpoint.hostPort(host: NWEndpoint.Host(host),
                                            port: NWEndpoint.Port(rawValue: UInt16(clamping: port)) ?? .any)
+        // QUIC is TLS 1.3-only by construction; no min-version pinning needed.
         let quicOptions = NWProtocolQUIC.Options(alpn: ["doq"])
-        if let sec = quicOptions.securityProtocolOptions {
-            sec_protocol_options_set_min_tls_protocol_version(sec, .tlsProtocol13)
-        }
         let params = NWParameters(quic: quicOptions)
         let group = NWConnectionGroup(with: NWMultiplexGroup(to: endpoint), using: params)
         var done = false
@@ -1084,7 +1082,7 @@ final class NCUDPSSRSession: NCUDPSession {
         else { return nil }
         method = cipherName
         ivSize = probe.ivSize
-        key = NCShadowsocks.masterKey(password: pw, length: NCSSStreamCipher.keyLength(for: cipherName))
+        key = NCShadowsocks.masterKey(password: pw, keyLen: NCSSStreamCipher.keyLength(for: cipherName))
         conn = NWConnection(host: NWEndpoint.Host(server),
                             port: NWEndpoint.Port(rawValue: UInt16(clamping: port)) ?? .any,
                             using: .udp)

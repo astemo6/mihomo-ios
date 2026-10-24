@@ -14,6 +14,18 @@ enum NCIP: Equatable, Hashable {
         return nil
     }
 
+    /// From raw address bytes: 4 -> v4, 16 -> v6, anything else fails.
+    init?(bytes: [UInt8]) {
+        switch bytes.count {
+        case 4:
+            self = .v4(UInt32(bytes[0]) << 24 | UInt32(bytes[1]) << 16 | UInt32(bytes[2]) << 8 | UInt32(bytes[3]))
+        case 16:
+            self = .v6(bytes)
+        default:
+            return nil
+        }
+    }
+
     static func parseV4(_ string: String) -> UInt32? {
         let parts = string.split(separator: ".", omittingEmptySubsequences: false)
         guard parts.count == 4 else { return nil }
