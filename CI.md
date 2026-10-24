@@ -18,6 +18,7 @@
 - `[unit:Class]`：再加一个单元测试类。
 - `[skip-go]`：不跑 Go 作业。`[skip-ui]`：不跑 macOS UI 分片（只改 Go 时用）。
 - `[shard:all]`：一个仓库里跑全部 8 个组合。**别用**——占满 macOS 配额；失败只重跑失败的部分。
+- **冒烟路径（默认 auto）**：相对 main 的 merge-base（在 main 上则相对上一个 `v*-build*` 标签）没有改动界面相关文件（App/Views、xcstrings、UITests 等）时，UI 只跑一个 zh-Hans light 冒烟组合（test01/03/04 + 全部单元测试），否则跑完整矩阵；`[shard:smoke]` / `[shard:full]` 或 dispatch `shard=smoke|full` 强制。
 
 ## 排队与去重
 
