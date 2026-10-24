@@ -469,7 +469,7 @@ final class NativeMitmSession {
                     self.lease = l; self.upBuf.removeAll()
                     guard let wire = self.serialized(upHead) else { return }
                     self.writeUpstream(wire) {
-                        self.sendRequestBody(mode, len: len, reqFraming: reqFraming, lane: d.lane) {
+                        self.sendRequestBody(mode, len: len, reqFraming: reqFraming, lane: d.lane, bodyPushed: requestBodyConsumed) {
                             self.arm(Self.timeouts.upstreamHead, "upstream head")
                             self.readResponseHead(head)
                         }
@@ -503,7 +503,7 @@ final class NativeMitmSession {
         ["content-length", "transfer-encoding", "connection", "keep-alive", "proxy-connection", "upgrade"].contains(n.lowercased())
     }
 
-    private func sendRequestBody(_ mode: FlowBodyMode, len: Int64, reqFraming: HTTPBodyFraming, lane: FlowDecision.Lane?,
+    private func sendRequestBody(_ mode: FlowBodyMode, len: Int64, reqFraming: HTTPBodyFraming, lane: FlowDecision.Lane?, bodyPushed: Bool = true,
                                  done: @escaping () -> Void) {
         let chunked = len < 0
         let out: (Data, @escaping () -> Void) -> Void = { [self] d, n in writeUpstream(chunked ? codec.chunk(d) : d, n) }
@@ -529,7 +529,7 @@ final class NativeMitmSession {
             }
             step()
         case .read:
-            pullFromGo(.request, out: out, done: fin)
+            pullFromGo(.request, feed: bodyPushed ? nil : BodyFeed(codec.makeDecoder(reqFraming)), out: out, done: fin)
         case .lane:
             guard let lane else { return fail(S2Error.go("lane without handle"), status: 502) }
             pullFromLane(lane, out: out, done: fin)
@@ -537,15 +537,77 @@ final class NativeMitmSession {
     }
 
     /// Streams a body Go produced (FlowRead / FlowReadState).
-    private func pullFromGo(_ which: FlowBodyWhich, out: @escaping (Data, @escaping () -> Void) -> Void,
+    /// The source body of a streaming "read": the client's request body (.request) or the upstream's response
+    /// body (.response), de-framed and pushed to Go piece by piece when FlowReadState says "more".
+    final class BodyFeed {
+        let dec: HTTPBodyDecoding
+        var pending = Data()
+        var closed = false
+        var cleanEnd = false   // the source body ended at its framing (the upstream connection is reusable)
+        init(_ dec: HTTPBodyDecoding) { self.dec = dec }
+    }
+
+    /// Pushes the next piece of `which`'s source body to Go (or closes it at the end), then cont(). A piece Go
+    /// refuses ("full") stays pending and goes first next time — Go wants a FlowRead before it takes more.
+    private func feedGo(_ which: FlowBodyWhich, _ f: BodyFeed, _ cont: @escaping () -> Void) {
+        if f.closed { return cont() }
+        let end = { [self] (err: String) in
+            f.closed = true
+            driver.closeBody(flowID, which, error: err)
+            if which == .response && !f.cleanEnd { lease?.release(reusable: false); lease = nil }
+            cont()
+        }
+        if !f.pending.isEmpty {
+            switch driver.write(flowID, which, f.pending) {
+            case .taken: f.pending = Data(); return cont()
+            case .full: return cont()
+            case .stop: f.pending = Data(); f.cleanEnd = false; return end("")
+            case .gone: return fail(S2Error.go("flow gone"), status: nil)
+            }
+        }
+        do {
+            let c = try f.dec.feed(which == .response ? upBuf : clientBuf)
+            if which == .response { upBuf.removeFirst(c.consumed) } else { clientBuf.removeFirst(c.consumed) }
+            if c.done && c.payload.isEmpty { f.cleanEnd = true; return end("") }
+            if !c.payload.isEmpty {
+                f.pending = c.payload
+                if c.done { f.cleanEnd = true }
+                return feedGo(which, f) { [self] in
+                    // a piece that completed the body: close it once Go took it
+                    if f.cleanEnd && f.pending.isEmpty && !f.closed { f.closed = true; driver.closeBody(flowID, which, error: "") }
+                    cont()
+                }
+            }
+        } catch { return end("\(error)") }
+        let more: (Bool) -> Void = { [self] got in
+            if got { return feedGo(which, f, cont) }
+            if which == .response {
+                do {
+                    let tail = try f.dec.finishAtEOF()
+                    if tail.isEmpty { return end("") }
+                    f.pending = tail
+                    return feedGo(which, f) { if f.pending.isEmpty { end("") } else { cont() } }
+                } catch { return end("upstream truncated") }
+            }
+            end("client closed mid-body")
+        }
+        if which == .response { readUpstream(more) } else { readClient { [self] got in more(got || !clientEOF) } }
+    }
+
+    private func pullFromGo(_ which: FlowBodyWhich, feed: BodyFeed? = nil, out: @escaping (Data, @escaping () -> Void) -> Void,
                             done: @escaping () -> Void) {
         arm(Self.timeouts.bodyStall, "go body")
         let d = driver.read(flowID, which, max: NativeMitmRuntime.ioChunk)
-        if !d.isEmpty { sentBody += Int64(which == .response ? d.count : 0); return out(d) { [self] in pullFromGo(which, out: out, done: done) } }
+        if !d.isEmpty { sentBody += Int64(which == .response ? d.count : 0); return out(d) { [self] in pullFromGo(which, feed: feed, out: out, done: done) } }
         switch driver.readState(flowID, which) {
-        case .again: queue.asyncAfter(deadline: .now() + 0.002) { [self] in if !finished { pullFromGo(which, out: out, done: done) } }
+        case .again: queue.asyncAfter(deadline: .now() + 0.002) { [self] in if !finished { pullFromGo(which, feed: feed, out: out, done: done) } }
         case .eof: done()
-        case .more: fail(S2Error.go("read wants more of a body native does not push"), status: 502)
+        case .more:
+            // Streaming "read" (design §12: "more" → push the next piece of the same body): Go reads the source body
+            // as it is pushed. Before 2026-10-24 this was fatal, so every plain response through the native front
+            // got its head and then a cut (memory bench: native 0/100).
+            guard let feed else { return fail(S2Error.go("read wants more of a body native does not push"), status: 502) }
+            feedGo(which, feed) { [self] in pullFromGo(which, feed: feed, out: out, done: done) }
         case .failed(let e): fail(S2Error.go(e), status: 502)
         }
     }
@@ -594,11 +656,13 @@ final class NativeMitmSession {
             if mode == .upstream && bodyPushed { return fail(S2Error.go("body upstream after push"), status: 502) }
             var len = d.length
             if mode == .upstream { switch framing { case .contentLength(let n): len = n; case .none: len = 0; default: len = -1 } }
-            let upstreamClean = mode == .upstream || bodyPushed || framing == .none
+            // read over a body not pushed yet: Go streams it, the session feeds it on "more"
+            let feed = mode == .read && !bodyPushed ? BodyFeed(codec.makeDecoder(framing)) : nil
             let keep = req.keepAlive && up.keepAlive && clientMayContinue && framing != .untilClose
             sendResponse(status: d.status ?? up.status, headers: d.headerFields, mode: mode, length: len, lane: d.lane,
-                         method: req.method, clientVersion: req.version, keepAlive: keep, upFraming: framing) { [self] ok in
+                         method: req.method, clientVersion: req.version, keepAlive: keep, upFraming: framing, feed: feed) { [self] ok in
                 endFlow(ok ? "" : "client write")
+                let upstreamClean = mode == .upstream || bodyPushed || framing == .none || (feed?.cleanEnd ?? false)
                 lease?.release(reusable: ok && keep && upstreamClean && upBuf.isEmpty); lease = nil
                 if ok && keep { requestsServed += 1; nextRequest() } else { finish(cancelled: nil) }
             }
@@ -658,7 +722,7 @@ final class NativeMitmSession {
     /// Writes a response head + body to the client. done(false) when the body could not be sent completely.
     private func sendResponse(status: Int, headers: HTTPHeaderList, mode: FlowBodyMode, length: Int64,
                               lane: FlowDecision.Lane?, method: String, clientVersion: String, keepAlive: Bool,
-                              upFraming: HTTPBodyFraming = .none, done: @escaping (Bool) -> Void) {
+                              upFraming: HTTPBodyFraming = .none, feed: BodyFeed? = nil, done: @escaping (Bool) -> Void) {
         var hs = headers.filter { !Self.framingHeader($0.name) }
         let bodyless = method == "HEAD" || status == 204 || status == 304 || (100..<200).contains(status)
         let http10 = clientVersion == "HTTP/1.0"
@@ -682,7 +746,7 @@ final class NativeMitmSession {
             if bodyless { return done(true) }
             switch mode {
             case .none: fin()
-            case .read: pullFromGo(.response, out: out, done: fin)
+            case .read: pullFromGo(.response, feed: feed, out: out, done: fin)
             case .lane:
                 guard let lane else { return fail(S2Error.go("lane without handle"), status: nil) }
                 pullFromLane(lane, out: { [self] d, n in sentBody += Int64(d.count); out(d, n) }, done: fin)
