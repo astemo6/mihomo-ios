@@ -25,6 +25,14 @@ on:
         type: boolean
         required: false
         default: false
+      # Lane F: a called run's github.run_number is the CALLER's (core-update #N), far below the app's real build
+      # numbers. core-update passes "<last iOS IPA run>.<core-update run>" (e.g. 297.12), a valid CFBundleVersion
+      # that sorts after the last release. Empty = github.run_number (push / dispatch unchanged).
+      build_number:
+        description: CFBundleVersion / file-name build number (empty = this run's number)
+        type: string
+        required: false
+        default: ""
 
 permissions:
   contents: write
@@ -50,6 +58,7 @@ jobs:
       TEAM_ID: ${{ secrets.TEAM_ID }}
       KEYCHAIN_PASSWORD: ${{ secrets.KEYCHAIN_PASSWORD }}
       EXPORT_METHOD: ${{ secrets.EXPORT_METHOD }}
+      BUILD_NO: ${{ inputs.build_number || github.run_number }}
     steps:
       - uses: actions/checkout@v5
         with:
@@ -117,7 +126,7 @@ jobs:
           VER=$(awk -F'"' '/MARKETING_VERSION/{print $2; exit}' project.yml)
           {
             echo "APP_ID=$APP_ID"; echo "TUN_ID=$TUN_ID"; echo "WID_ID=$WID_ID"; echo "GROUP_ID=$GROUP_ID"; echo "VER=$VER"
-            echo "TAG=v${VER}-build${{ github.run_number }}"
+            echo "TAG=v${VER}-build${BUILD_NO}"
             if [ -n "$BUILD_CERTIFICATE_BASE64" ] && [ -n "$APP_PROFILE_BASE64" ] && [ -n "$TUNNEL_PROFILE_BASE64" ] && [ -n "$TEAM_ID" ]; then
               echo "SIGNED=1"
             else
@@ -192,7 +201,7 @@ jobs:
           xcodebuild -project Mihomo.xcodeproj -scheme Mihomo -configuration Release \
             -sdk iphoneos -destination 'generic/platform=iOS' \
             -archivePath build/Mihomo.xcarchive \
-            CURRENT_PROJECT_VERSION=${{ github.run_number }} \
+            CURRENT_PROJECT_VERSION="${BUILD_NO}" \
             "${EXTRA[@]}" archive 2>&1 | tee build.log | grep -E "error:|warning: .*deprecated|\*\* (ARCHIVE|BUILD)" || true
           # review 5 P2-10: no `| head` downstream of xcodebuild (SIGPIPE could kill the archive); tail on failure.
           test -d build/Mihomo.xcarchive/Products/Applications/Mihomo.app || { tail -n 150 build.log; exit 1; }
@@ -219,7 +228,7 @@ jobs:
           set -o pipefail
           xcodebuild -exportArchive -archivePath build/Mihomo.xcarchive \
             -exportOptionsPlist "$RUNNER_TEMP/ExportOptions.plist" -exportPath build/export 2>&1 | tee export.log | tail -n 40
-          IPA="Mihomo-${VER}-build${{ github.run_number }}-signed.ipa"
+          IPA="Mihomo-${VER}-build${BUILD_NO}-signed.ipa"
           mv build/export/*.ipa "$IPA"
           echo "IPA=$IPA" >> "$GITHUB_ENV"
 
@@ -245,7 +254,7 @@ jobs:
           # Review 6 R6A-8: the IPA users install gets the same strict check as the shared-core variant.
           codesign --verify --deep --strict --verbose=2 "$APP"
           rm -rf Payload && mkdir Payload && cp -R "$APP" Payload/
-          IPA="Mihomo-${VER}-build${{ github.run_number }}-widget-unsigned.ipa"
+          IPA="Mihomo-${VER}-build${BUILD_NO}-widget-unsigned.ipa"
           zip -qry -9 "$IPA" Payload
           echo "IPA=$IPA" >> "$GITHUB_ENV"
 
@@ -289,7 +298,7 @@ jobs:
           xcodebuild -project Mihomo.xcodeproj -scheme Mihomo -configuration Release \
             -sdk iphoneos -destination 'generic/platform=iOS' \
             -archivePath build/MihomoShared.xcarchive \
-            CURRENT_PROJECT_VERSION=${{ github.run_number }} \
+            CURRENT_PROJECT_VERSION="${BUILD_NO}" \
             CODE_SIGNING_ALLOWED=NO CODE_SIGNING_REQUIRED=NO CODE_SIGN_IDENTITY="" CODE_SIGN_ENTITLEMENTS="" \
             archive 2>&1 | tee build-shared.log | grep -E "error:|\*\* (ARCHIVE|BUILD)" || true
           test -d build/MihomoShared.xcarchive/Products/Applications/Mihomo.app || { tail -n 150 build-shared.log; exit 1; }
@@ -310,7 +319,7 @@ jobs:
           codesign -f -s - --entitlements app.entitlements "$APP"
           codesign --verify --deep --strict --verbose=2 "$APP"
           rm -rf Payload && mkdir Payload && cp -R "$APP" Payload/
-          IPA_SHARED="Mihomo-${VER}-build${{ github.run_number }}-sharedcore-unsigned.ipa"
+          IPA_SHARED="Mihomo-${VER}-build${BUILD_NO}-sharedcore-unsigned.ipa"
           zip -qry -9 "$IPA_SHARED" Payload
           echo "IPA_SHARED=$IPA_SHARED" >> "$GITHUB_ENV"
           echo "===== $IPA_SHARED ($(stat -f%z "$IPA_SHARED") B) ====="
@@ -387,7 +396,7 @@ jobs:
           set -euo pipefail
           NOTES="$RUNNER_TEMP/notes.md"
           {
-            echo "Mihomo iOS ${VER}（构建 #${{ github.run_number }}，提交 $(git rev-parse --short HEAD)）"
+            echo "Mihomo iOS ${VER}（构建 #${BUILD_NO}，提交 $(git rev-parse --short HEAD)）"
             echo
             echo "- 内核：mihomo ${MIHOMO_VERSION}"
             if [ "$SIGNED" = "1" ]; then
@@ -404,7 +413,7 @@ jobs:
           [ -n "${IPA_SHARED:-}" ] && [ -f "$IPA_SHARED" ] && FILES+=("$IPA_SHARED")
           [ -f app.entitlements ] && FILES+=(app.entitlements tunnel.entitlements)
           [ -f widget.entitlements ] && FILES+=(widget.entitlements)
-          gh release create "$TAG" "${FILES[@]}" --title "Mihomo ${VER} build ${{ github.run_number }}" --notes-file "$NOTES" --target "$(git rev-parse HEAD)" --prerelease
+          gh release create "$TAG" "${FILES[@]}" --title "Mihomo ${VER} build ${BUILD_NO}" --notes-file "$NOTES" --target "$(git rev-parse HEAD)" --prerelease
 
       - name: Show build errors (on failure)
         if: failure()

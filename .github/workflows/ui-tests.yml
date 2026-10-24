@@ -12,6 +12,11 @@
 #   any other repo       → everything
 # Full matrix in one repo: workflow_dispatch shard=all, or [shard:all] in the pushed commit message.
 # scripts/selftest-split.sh pushes a test/** branch to both remotes and waits for both runs.
+# Lane F (2026-10-24, docs in CI.md):
+# - a newer push to the same test/** branch cancels the older run (concurrency below);
+# - a push whose commit already has a Self-test run on another branch of this repository (queued, running or
+#   successful) skips go + ui (dedupe job) — a re-run of the skipped run, or a workflow_dispatch, always runs;
+# - core-update.yml calls this file (workflow_call, ref = the bumped commit) before packaging a core candidate.
 name: Self-test
 
 on:
@@ -40,21 +45,78 @@ on:
         options: [auto, all]
         required: false
         default: auto
+  workflow_call:
+    inputs:
+      ref:
+        description: Commit / ref to test (empty = the triggering commit)
+        type: string
+        required: false
+        default: ""
+      run_tests:
+        type: boolean
+        required: false
+        default: true
+      only:
+        type: string
+        required: false
+        default: ""
+      skip_go:
+        type: boolean
+        required: false
+        default: false
+      shard:
+        description: "auto | all"
+        type: string
+        required: false
+        default: auto
 
 permissions:
   contents: read
 
 concurrency:
-  group: selftest-${{ github.ref }}
+  group: selftest-${{ inputs.ref || github.ref }}
   cancel-in-progress: true
 
 jobs:
+  # Identical-SHA dedupe (push only): the same commit pushed to a second test/** branch while its first run is
+  # queued / running / green would take another 4 macOS runners for the same result.
+  dedupe:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    permissions:
+      actions: read
+    outputs:
+      skip: ${{ steps.find.outputs.skip }}
+    steps:
+      - id: find
+        env:
+          GH_TOKEN: ${{ github.token }}
+          BRANCH: ${{ github.ref_name }}
+        run: |
+          SKIP=false
+          if [ "${{ github.event_name }}" = push ] && [ "${{ github.run_attempt }}" = 1 ]; then
+            # Earlier runs (lower id) of this workflow for the same commit on another branch that are not
+            # cancelled / failed. Any API error leaves SKIP=false (never skip by accident).
+            OTHER=$(gh api "repos/$GITHUB_REPOSITORY/actions/workflows/ui-tests.yml/runs?head_sha=$GITHUB_SHA&event=push&per_page=50" \
+              --jq ".workflow_runs[] | select(.id < $GITHUB_RUN_ID and .head_branch != env.BRANCH and (.status != \"completed\" or .conclusion == \"success\")) | \"\(.id) \(.head_branch) \(.status)/\(.conclusion)\"" 2>/dev/null | head -n 1 || true)
+            if [ -n "$OTHER" ]; then
+              SKIP=true
+              read -r OID OBR OST <<< "$OTHER"
+              echo "### Self-test skipped: commit ${GITHUB_SHA::7} already has run $OID on $OBR ($OST)" >> "$GITHUB_STEP_SUMMARY"
+              echo "- $GITHUB_SERVER_URL/$GITHUB_REPOSITORY/actions/runs/$OID — re-run this run to test it here anyway" >> "$GITHUB_STEP_SUMMARY"
+            fi
+          fi
+          echo "skip=$SKIP" | tee -a "$GITHUB_OUTPUT"
+
   go:
-    if: ${{ ((github.event_name == 'push' && !contains(github.event.head_commit.message, '[skip-go]')) || (inputs.run_tests && !inputs.skip_go)) && (github.repository != 'astemo666/mihomo-ios' || inputs.shard == 'all' || contains(github.event.head_commit.message, '[shard:all]')) }}
+    needs: dedupe
+    if: ${{ needs.dedupe.outputs.skip != 'true' && ((github.event_name == 'push' && !contains(github.event.head_commit.message, '[skip-go]')) || (inputs.run_tests && !inputs.skip_go)) && (github.repository != 'astemo666/mihomo-ios' || inputs.shard == 'all' || contains(github.event.head_commit.message, '[shard:all]')) }}
     runs-on: ubuntu-latest
     timeout-minutes: 45
     steps:
       - uses: actions/checkout@v5
+        with:
+          ref: ${{ inputs.ref }}
       - uses: actions/setup-go@v6
         with:
           go-version-file: bridge/go.mod
@@ -117,7 +179,8 @@ jobs:
 
   ui:
     # [skip-ui] in the pushed commit message: Go-only change, the macOS UI shards are not run.
-    if: ${{ (github.event_name == 'push' && !contains(github.event.head_commit.message, '[skip-ui]')) || inputs.run_tests }}
+    needs: dedupe
+    if: ${{ needs.dedupe.outputs.skip != 'true' && ((github.event_name == 'push' && !contains(github.event.head_commit.message, '[skip-ui]')) || inputs.run_tests) }}
     runs-on: macos-15
     timeout-minutes: 120
     strategy:
@@ -129,6 +192,8 @@ jobs:
         combo: ${{ fromJSON(((inputs.shard == 'all' || contains(github.event.head_commit.message, '[shard:all]')) && '["zh-Hans:light:1","zh-Hans:light:2","zh-Hans:light:3","en:light:1","en:light:2","en:light:3","zh-Hans:dark:0","en:dark:0"]') || (github.repository == 'astemo666/mihomo-ios' && '["en:light:1","en:light:2","en:light:3","en:dark:0"]') || (github.repository == 'astemo6/mihomo-ios' && '["zh-Hans:light:1","zh-Hans:light:2","zh-Hans:light:3","zh-Hans:dark:0"]') || '["zh-Hans:light:1","zh-Hans:light:2","zh-Hans:light:3","en:light:1","en:light:2","en:light:3","zh-Hans:dark:0","en:dark:0"]') }}
     steps:
       - uses: actions/checkout@v5
+        with:
+          ref: ${{ inputs.ref }}
       - name: Combo
         run: |
           combo="${{ matrix.combo }}"
