@@ -6,9 +6,9 @@ import Foundation
 import Libmihomo
 
 /// phys_footprint + os_proc_available_memory (Shared/Startup.swift ProcessMemory).
-struct ProcessMemorySampler: MemorySampling {
-    func sample() -> MemorySample {
-        MemorySample(footprint: ProcessMemory.footprintBytes(), available: max(0, ProcessMemory.availableBytes()))
+struct ProcessMemorySampler: NativeMemorySampling {
+    func sample() -> NativeMemorySample {
+        NativeMemorySample(footprint: ProcessMemory.footprintBytes(), available: max(0, ProcessMemory.availableBytes()))
     }
 }
 

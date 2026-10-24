@@ -18,22 +18,22 @@
 //   - GOMEMLIMIT never goes below Go's non-garbage memory + 2 MB (Go clamps it; gc ran ~100×/s below it).
 //   - One stop per shed: no runtime.GC() + FreeOSMemory pair, FreeOSMemory itself rate-limited in Go.
 //
-// Everything that reads memory or touches the world is injected (MemorySampling / GoMemoryControlling /
+// Everything that reads memory or touches the world is injected (NativeMemorySampling / GoMemoryControlling /
 // NativeReclaimer), so UnitTests/NativeMitmMemoryGovernorTests.swift drives it with fixed readings.
 
 import Foundation
 
 // MARK: - inputs
 
-struct MemorySample: Equatable {
+struct NativeMemorySample: Equatable {
     /// phys_footprint, bytes.
     var footprint: UInt64
     /// os_proc_available_memory, bytes; 0 = not a memory-limited process (app, simulator): treated as unknown.
     var available: Int
 }
 
-protocol MemorySampling {
-    func sample() -> MemorySample
+protocol NativeMemorySampling {
+    func sample() -> NativeMemorySample
 }
 
 /// Go's numbers (LibmihomoNativeGoMemory JSON, bytes).
@@ -146,7 +146,7 @@ final class NativeMemoryGovernor {
     }
 
     let config: Config
-    private let memory: MemorySampling
+    private let memory: NativeMemorySampling
     private let go: GoMemoryControlling
     private let reclaimers: [NativeReclaimer]
     private let now: () -> TimeInterval
@@ -167,11 +167,11 @@ final class NativeMemoryGovernor {
     private var emergencyArmed = true
     private var limitAsked: Int64 = -1
     private(set) var limitInEffect: Int64 = 0
-    private(set) var lastSample = MemorySample(footprint: 0, available: 0)
+    private(set) var lastSample = NativeMemorySample(footprint: 0, available: 0)
     private(set) var lastGo: GoMemoryInfo?
     private(set) var counters = Counters()
 
-    init(config: Config = Config(), memory: MemorySampling, go: GoMemoryControlling, reclaimers: [NativeReclaimer] = [],
+    init(config: Config = Config(), memory: NativeMemorySampling, go: GoMemoryControlling, reclaimers: [NativeReclaimer] = [],
          now: @escaping () -> TimeInterval = { ProcessInfo.processInfo.systemUptime },
          log: @escaping (String) -> Void = { _ in }) {
         self.config = config
@@ -188,7 +188,7 @@ final class NativeMemoryGovernor {
     /// Available bytes; nil when unknown (os_proc_available_memory returns 0 outside a memory-limited process — the
     /// app, the simulator): then admission never refuses (like NativeBodyStore's floor) and only the footprint
     /// backstops set the level.
-    func effectiveAvailable(_ s: MemorySample) -> Int? { s.available > 0 ? s.available : nil }
+    func effectiveAvailable(_ s: NativeMemorySample) -> Int? { s.available > 0 ? s.available : nil }
 
     private func enterLevel(_ a: Int) -> MemoryLevel {
         let c = config
@@ -210,7 +210,7 @@ final class NativeMemoryGovernor {
     /// The level for a reading, from `current` (hysteresis): rising uses the enter thresholds, falling steps down
     /// only while the reading is at or above the exit threshold of the level it leaves. Footprint backstops and a
     /// recent pressure event only raise it (an event never above `elevated`).
-    func levelFor(_ s: MemorySample, from current: MemoryLevel, at t: TimeInterval) -> MemoryLevel {
+    func levelFor(_ s: NativeMemorySample, from current: MemoryLevel, at t: TimeInterval) -> MemoryLevel {
         var l: MemoryLevel = .normal
         if let a = effectiveAvailable(s) {
             let enter = enterLevel(a)
@@ -239,7 +239,7 @@ final class NativeMemoryGovernor {
     }
 
     @discardableResult
-    private func updateLevelLocked(_ s: MemorySample, _ t: TimeInterval) -> (old: MemoryLevel, new: MemoryLevel) {
+    private func updateLevelLocked(_ s: NativeMemorySample, _ t: TimeInterval) -> (old: MemoryLevel, new: MemoryLevel) {
         lastSample = s
         let old = level
         let new = levelFor(s, from: old, at: t)
@@ -289,7 +289,7 @@ final class NativeMemoryGovernor {
         return ok2
     }
 
-    private func decide(bytes: Int, sample s: MemorySample, level: MemoryLevel, afterReclaim: Bool) -> Bool {
+    private func decide(bytes: Int, sample s: NativeMemorySample, level: MemoryLevel, afterReclaim: Bool) -> Bool {
         guard let avail = effectiveAvailable(s) else { return true }
         let c = config
         if bytes >= 0 && bytes <= c.smallMax {

@@ -6,10 +6,10 @@ import XCTest
 final class NativeMitmMemoryGovernorTests: XCTestCase {
     static let MB = 1 << 20
 
-    final class FakeMemory: MemorySampling {
+    final class FakeMemory: NativeMemorySampling {
         var footprint: UInt64 = 30 << 20
         var available = 20 << 20
-        func sample() -> MemorySample { MemorySample(footprint: footprint, available: available) }
+        func sample() -> NativeMemorySample { NativeMemorySample(footprint: footprint, available: available) }
         func set(availMB: Double, fpMB: Double = 30) {
             available = Int(availMB * 1_048_576)
             footprint = UInt64(fpMB * 1_048_576)
