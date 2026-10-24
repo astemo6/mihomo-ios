@@ -23,14 +23,17 @@ import Libmihomo
 /// feat/native-mitm stage 1: the tunnel's native body lane (PacketTunnel/NativeBodyStore.swift). Script blob ids at
 /// or above `LibmihomoNativeBlobBase()` name its handles; the engine serves them itself so the bytes never pass
 /// through the Go heap. Declared here because this file is also built into the app (脚本调试), which has no lane.
+///
+/// Threading: every call comes from the thread running JavaScript (inside JavaScriptCore's API lock) and must not
+/// call back into JavaScriptCore; the provider takes only its own locks, so a Go goroutine reading the same handle
+/// for the client never waits for the VM. Text is built here from `withDecoded` (not with Foundation, whose UTF-8
+/// decoding drops a leading BOM — goja keeps it as U+FEFF).
 protocol JSCNativeBlobProvider: AnyObject {
     /// `__tern.put` / UTF-8 results at least this large are stored in the lane.
     var putMin: Int { get }
-    /// Calls body with the decoded bytes of handle h (false: unknown / failed handle).
+    /// Calls body with the decoded bytes of handle h (false: unknown / failed handle; body not called).
     func withDecoded(_ h: Int64, _ body: (UnsafeRawBufferPointer) -> Void) -> Bool
-    /// The handle's bytes as text when they are valid UTF-8 (nil: ask the Go host, which owns the U+FFFD rules).
-    func text(_ h: Int64) -> String?
-    /// Stores bytes as a new handle (0: refused).
+    /// Stores a copy of bytes as a new handle (0: refused).
     func store(_ bytes: UnsafeRawBufferPointer) -> Int64
     func free(_ h: Int64)
 }
@@ -38,7 +41,10 @@ protocol JSCNativeBlobProvider: AnyObject {
 final class JSCScriptEngine: NSObject, LibmihomoScriptEngineProtocol {
     static let shared = JSCScriptEngine()
 
-    /// The native body lane (set by the tunnel before Start; nil in the app). Read on the JavaScript thread.
+    /// The native body lane (set once by the tunnel before LibmihomoStart, never cleared; nil in the app). Read on
+    /// the JavaScript thread. After a wedge Go runs scripts on goja and stops opening lane bodies (`nativeUsable`),
+    /// so the lane goes idle without this being touched; a late call from the wedged thread only meets handles Go
+    /// already freed (withDecoded false → the Go host, which answers nothing for a dead run).
     static var nativeBlobs: JSCNativeBlobProvider?
     /// First native blob id (LibmihomoNativeBlobBase, 2^52).
     private static let nativeBase: Int64 = LibmihomoNativeBlobBase()
@@ -335,8 +341,10 @@ final class JSCScriptEngine: NSObject, LibmihomoScriptEngineProtocol {
             return Double(JSCScriptEngine.put(run, buf, off, len))
         }
         let take: @convention(block) (Double) -> JSValue? = { [weak c] id in
-            guard let run = c?.run, let ctx = JSContext.current() else { return nil }
-            return JSCScriptEngine.take(run, Int64(id), ctx)
+            // Int64(Double) traps on NaN / ±inf / out of range: a script calling __tern.take itself must not
+            // bring the tunnel down
+            guard let run = c?.run, let ctx = JSContext.current(), let i = JSCScriptEngine.exactInt(id) else { return nil }
+            return JSCScriptEngine.take(run, i, ctx)
         }
         tern?.setObject(unsafeBitCast(host, to: AnyObject.self), forKeyedSubscript: "host" as NSString)
         tern?.setObject(unsafeBitCast(put, to: AnyObject.self), forKeyedSubscript: "put" as NSString)
@@ -461,8 +469,8 @@ final class JSCScriptEngine: NSObject, LibmihomoScriptEngineProtocol {
         guard JSValueGetTypedArrayType(ref, buf.jsValueRef, nil) == kJSTypedArrayTypeArrayBuffer,
               let obj = JSValueToObject(ref, buf.jsValueRef, nil) else { return -1 }
         let total = JSObjectGetArrayBufferByteLength(ref, obj, nil)
-        let o = Int(off), n = Int(len)
-        guard o >= 0, n >= 0, o + n <= total else { return -1 }
+        guard let o64 = exactInt(off), let n64 = exactInt(len), o64 >= 0, n64 >= 0, o64 + n64 <= Int64(total) else { return -1 }
+        let o = Int(o64), n = Int(n64)
         if n == 0 { return run.put(Data()) }
         guard let p = JSObjectGetArrayBufferBytesPtr(ref, obj, nil) else { return -1 }
         if let lane = nativeBlobs, n >= lane.putMin {
@@ -482,18 +490,73 @@ final class JSCScriptEngine: NSObject, LibmihomoScriptEngineProtocol {
         switch op {
         case "text":
             guard let id = Int64(arg), id >= nativeBase else { return nil }
-            return lane.text(id - nativeBase)
+            return laneText(lane, id - nativeBase)
         case "utf8":
-            guard arg.utf8.count >= lane.putMin else { return nil }
+            // UTF-8 is at least as long as UTF-16 and at most three times: decide from the O(1) UTF-16 length
+            // when possible (counting the UTF-8 of a bridged NSString walks it)
+            let units = (arg as NSString).length
+            if units * 3 < lane.putMin { return nil }
+            if units < lane.putMin && arg.utf8.count < lane.putMin { return nil }
             var s = arg
             let h = s.withUTF8 { lane.store(UnsafeRawBufferPointer($0)) }
             guard h > 0 else { return nil }
             if let id = Int64(run.host("nblob", arg: String(h))), id > 0 { return String(id) }
-            lane.free(h)
+            lane.free(h) // "" = this run does not take lane results (request phase, task, debug run): Go blob
             return nil
         default:
             return nil
         }
+    }
+
+    /// The text of lane handle h when its bytes are valid UTF-8 (exactly Go's utf8.Valid); nil for invalid UTF-8
+    /// (the Go host's strings.ToValidUTF8 is the one implementation of the U+FFFD rules) or an unknown handle.
+    /// String(decoding:) keeps a leading BOM and NUL bytes, as Go strings / goja do.
+    private static func laneText(_ lane: JSCNativeBlobProvider, _ h: Int64) -> String? {
+        var text: String?
+        _ = lane.withDecoded(h) { bytes in
+            if isValidUTF8(bytes) { text = String(decoding: bytes, as: UTF8.self) }
+        }
+        return text
+    }
+
+    /// Go's utf8.Valid: shortest forms only, no surrogates (U+D800–DFFF), nothing above U+10FFFF.
+    static func isValidUTF8(_ buf: UnsafeRawBufferPointer) -> Bool {
+        let n = buf.count
+        guard n > 0, let base = buf.baseAddress else { return true }
+        let p = base.assumingMemoryBound(to: UInt8.self)
+        var i = 0
+        while i < n {
+            // ASCII fast path, 8 bytes at a time
+            while i + 8 <= n && (UnsafeRawPointer(p + i).loadUnaligned(as: UInt64.self) & 0x8080_8080_8080_8080) == 0 { i += 8 }
+            if i >= n { break }
+            let c = p[i]
+            if c < 0x80 { i += 1; continue }
+            var need = 0
+            var lo: UInt8 = 0x80, hi: UInt8 = 0xBF
+            switch c {
+            case 0xC2...0xDF: need = 1
+            case 0xE0: need = 2; lo = 0xA0
+            case 0xE1...0xEC, 0xEE, 0xEF: need = 2
+            case 0xED: need = 2; hi = 0x9F
+            case 0xF0: need = 3; lo = 0x90
+            case 0xF1...0xF3: need = 3
+            case 0xF4: need = 3; hi = 0x8F
+            default: return false
+            }
+            if i + need >= n { return false } // truncated sequence at the end
+            let c1 = p[i + 1]
+            if c1 < lo || c1 > hi { return false }
+            if need >= 2 && (p[i + 2] & 0xC0) != 0x80 { return false }
+            if need == 3 && (p[i + 3] & 0xC0) != 0x80 { return false }
+            i += need + 1
+        }
+        return true
+    }
+
+    /// An integral Double in ±2^53 as Int64 (nil for NaN, infinities, fractions, larger values).
+    static func exactInt(_ d: Double) -> Int64? {
+        guard d.isFinite, d == d.rounded(.towardZero), abs(d) <= 9_007_199_254_740_992 else { return nil }
+        return Int64(d)
     }
 
     private static func take(_ run: LibmihomoScriptRun, _ id: Int64, _ ctx: JSContext) -> JSValue? {
