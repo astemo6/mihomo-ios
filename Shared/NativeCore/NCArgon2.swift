@@ -273,13 +273,19 @@ enum NCArgon2 {
     private static func blamkaRound(_ t: inout [UInt64], _ idx: [Int]) {
         var v = idx.map { t[$0] }
         func g(_ a: Int, _ b: Int, _ c: Int, _ d: Int) {
-            v[a] = v[a] &+ v[b] &+ 2 * UInt64(UInt32(truncatingIfNeeded: v[a])) * UInt64(UInt32(truncatingIfNeeded: v[b]))
+            // BlaMka f(x, y) = x + y + 2·x̂·ŷ (mod 2^64): the product MUST
+            // use wrapping multiplication — plain * traps on overflow and
+            // crashed the test runner on the first full-entropy block.
+            func f(_ x: UInt64, _ y: UInt64) -> UInt64 {
+                x &+ y &+ 2 &* UInt64(UInt32(truncatingIfNeeded: x)) &* UInt64(UInt32(truncatingIfNeeded: y))
+            }
+            v[a] = f(v[a], v[b])
             v[d] = (v[d] ^ v[a]).rotated(right: 32)
-            v[c] = v[c] &+ v[d] &+ 2 * UInt64(UInt32(truncatingIfNeeded: v[c])) * UInt64(UInt32(truncatingIfNeeded: v[d]))
+            v[c] = f(v[c], v[d])
             v[b] = (v[b] ^ v[c]).rotated(right: 24)
-            v[a] = v[a] &+ v[b] &+ 2 * UInt64(UInt32(truncatingIfNeeded: v[a])) * UInt64(UInt32(truncatingIfNeeded: v[b]))
+            v[a] = f(v[a], v[b])
             v[d] = (v[d] ^ v[a]).rotated(right: 16)
-            v[c] = v[c] &+ v[d] &+ 2 * UInt64(UInt32(truncatingIfNeeded: v[c])) * UInt64(UInt32(truncatingIfNeeded: v[d]))
+            v[c] = f(v[c], v[d])
             v[b] = (v[b] ^ v[c]).rotated(right: 63)
         }
         g(0, 4, 8, 12); g(1, 5, 9, 13); g(2, 6, 10, 14); g(3, 7, 11, 15)
