@@ -486,6 +486,15 @@ enum NCConnector {
                 }
                 completion(stream, nil)
             }
+        case "anytls":
+            if transport != nil {
+                queue.async { completion(nil, Failure.unsupported("anytls over a chain transport")) }
+                return
+            }
+            anytlsSession(proxy: proxy, server: server, port: port, queue: queue) { session, err in
+                guard let session else { completion(nil, err); return }
+                completion(session.openStream(target: target), nil)
+            }
         case "vmess":
             connectVMess(target: target, proxy: proxy, server: server, port: port, queue: queue,
                          transport: transport, completion: completion)
@@ -674,6 +683,77 @@ enum NCConnector {
             }
             queue.asyncAfter(deadline: .now() + 0.25) {
                 waitMuxReady(session, key: key, queue: queue, attempts: attempts - 1, completion: completion)
+            }
+        }
+    }
+
+    // MARK: AnyTLS (shared TLS session per proxy)
+
+    private static var anytlsRegistry: [String: NCAnyTLSSession] = [:]
+    private static let anytlsLock = NSLock()
+
+    static func anytlsSession(proxy: NCProxy, server: String, port: Int, queue: DispatchQueue,
+                              completion: @escaping (NCAnyTLSSession?, Error?) -> Void) {
+        let key = "\(proxy.name)|\(server)|\(port)"
+        anytlsLock.lock()
+        if let existing = anytlsRegistry[key] {
+            anytlsLock.unlock()
+            if existing.isAlive {
+                completion(existing, nil)
+            } else if existing.state == .connecting {
+                waitAnyTLSReady(existing, key: key, queue: queue, attempts: 60, completion: completion)
+            } else {
+                anytlsLock.lock()
+                anytlsRegistry.removeValue(forKey: key)
+                anytlsLock.unlock()
+                anytlsSession(proxy: proxy, server: server, port: port, queue: queue, completion: completion)
+            }
+            return
+        }
+        guard let password = proxy.password else {
+            anytlsLock.unlock()
+            queue.async { completion(nil, Failure.handshake("anytls missing password")) }
+            return
+        }
+        let session = NCAnyTLSSession()
+        anytlsRegistry[key] = session
+        anytlsLock.unlock()
+        let tls = NCStream(to: server, port: port,
+                           tlsServerName: proxy.fields["sni"]?.string ?? proxy.fields["servername"]?.string ?? server,
+                           allowInsecure: proxy.fields["skip-cert-verify"]?.bool ?? false,
+                           queue: queue)
+        tls.start { err in
+            if err == nil {
+                session.attach(tls: tls, password: password,
+                               clientMetadata: proxy.fields["client-metadata"]?.string ?? "")
+                completion(session, nil)
+            } else {
+                anytlsLock.lock()
+                anytlsRegistry.removeValue(forKey: key)
+                anytlsLock.unlock()
+                session.attachFailed()
+                completion(nil, err)
+            }
+        }
+    }
+
+    private static func waitAnyTLSReady(_ session: NCAnyTLSSession, key: String, queue: DispatchQueue, attempts: Int,
+                                        completion: @escaping (NCAnyTLSSession?, Error?) -> Void) {
+        switch session.state {
+        case .ready:
+            completion(session, nil)
+        case .failed:
+            anytlsLock.lock()
+            if anytlsRegistry[key] === session { anytlsRegistry.removeValue(forKey: key) }
+            anytlsLock.unlock()
+            completion(nil, Failure.handshake("anytls session failed"))
+        case .connecting:
+            guard attempts > 0 else {
+                completion(nil, Failure.handshake("anytls connect timeout"))
+                return
+            }
+            queue.asyncAfter(deadline: .now() + 0.25) {
+                waitAnyTLSReady(session, key: key, queue: queue, attempts: attempts - 1, completion: completion)
             }
         }
     }

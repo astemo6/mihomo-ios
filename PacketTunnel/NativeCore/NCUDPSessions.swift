@@ -437,6 +437,67 @@ final class NCUDPMuxSession: NCUDPSession {
     }
 }
 
+/// UDP over AnyTLS: a UoT v2 stream on the shared AnyTLS session. The
+/// stream's target is the UoT magic address; the first bytes inside are
+/// the UoT request for this flow's destination, then framed packets.
+final class NCUDPAnyTLSSession: NCUDPSession {
+    var onReply: (Data) -> Void = { _ in }
+    private var stream: NCAnyTLSStream?
+    private var pending: [(Data, NCTarget)] = []
+    private var buffer = Data()
+    private var requestWritten = false
+    private var cancelled = false
+    private let flowTarget: NCTarget
+
+    init(proxy: NCProxy, target: NCTarget, queue: DispatchQueue) {
+        flowTarget = target
+        guard let server = proxy.server, let port = proxy.port else { return }
+        NCConnector.anytlsSession(proxy: proxy, server: server, port: port, queue: queue) { [weak self] session, _ in
+            guard let self, !self.cancelled, let session else { return }
+            self.stream = session.openStream(target: NCUoT.magicTarget)
+            let queued = self.pending
+            self.pending = []
+            for (data, t) in queued { self.sendNow(data, to: t) }
+            self.receiveLoop()
+        }
+    }
+
+    private func receiveLoop() {
+        stream?.receive { [weak self] data, _ in
+            guard let self, !self.cancelled else { return }
+            guard let data else { return }
+            self.buffer.append(data)
+            while let (_, payload, consumed) = NCUoT.parsePacket(self.buffer) {
+                self.buffer = Data(self.buffer.dropFirst(consumed))
+                self.onReply(payload)
+            }
+            self.receiveLoop()
+        }
+    }
+
+    func send(_ data: Data, to target: NCTarget) {
+        if stream == nil {
+            pending.append((data, target))
+            return
+        }
+        sendNow(data, to: target)
+    }
+
+    private func sendNow(_ data: Data, to target: NCTarget) {
+        guard let stream else { return }
+        if !requestWritten {
+            requestWritten = true
+            stream.send(NCUoT.request(destination: flowTarget))
+        }
+        stream.send(NCUoT.packet(target: target, payload: data))
+    }
+
+    func cancel() {
+        cancelled = true
+        stream?.cancel()
+    }
+}
+
 /// Snell UDP (v3+): packets ride a dedicated TCP connection that begins
 /// with the UDP command header. v3 carries each packet as one AEAD stream
 /// chunk; v4 as one frame. Responses use Snell's response address format.
