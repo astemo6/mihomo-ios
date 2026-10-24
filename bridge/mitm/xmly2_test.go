@@ -222,6 +222,17 @@ func waitReliefIdle(t *testing.T) {
 	for (reliefPending.Load() || runsActive.Load() > 0) && time.Now().Before(deadline) {
 		time.Sleep(20 * time.Millisecond)
 	}
+	// The relief callback clears reliefPending before its FreeOSMemory (a full GC, hundreds of ms in a busy
+	// test process) and only then counts the return: wait until reliefsDone holds still, or an earlier
+	// test's relief lands inside the caller's window (local full run: "relief with room").
+	for n := reliefsDone.Load(); time.Now().Before(deadline); {
+		time.Sleep(150 * time.Millisecond)
+		m := reliefsDone.Load()
+		if m == n && !reliefPending.Load() {
+			break
+		}
+		n = m
+	}
 }
 
 func TestXmly2RunReliefAfterBurst(t *testing.T) {
