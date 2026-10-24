@@ -1097,7 +1097,8 @@
     "headers": {
      "Content-Type": "application/json"
     },
-    "body": "﻿{\"ad\":true,\"items\":[1,2,3],\"s\":\"中文\"}"
+    "body": "77u/eyJhZCI6dHJ1ZSwiaXRlbXMiOlsxLDIsM10sInMiOiLkuK3mlocifQ==",
+    "bodyBase64": true
    }
   },
   "expect": [
@@ -1105,6 +1106,46 @@
   ],
   "lane": true,
   "encoding": "br"
+ },
+ {
+  "name": "lane-gzip-bom-invalid-utf8",
+  "input": {
+   "code": "var b = $response.body; console.log('L18', b.length, b.charCodeAt(0), b.charCodeAt(7), b.charCodeAt(8)); $done({body: b});",
+   "type": "http-response",
+   "name": "lane-gzip-bom-invalid-utf8",
+   "response": {
+    "status": 200,
+    "headers": {
+     "Content-Type": "application/json"
+    },
+    "body": "77u/eyJhIjoi//7DIn0=",
+    "bodyBase64": true
+   }
+  },
+  "expect": [
+   "L18 10 65279 65533 34"
+  ],
+  "lane": true,
+  "encoding": "gzip"
+ },
+ {
+  "name": "bom-text-go-path",
+  "input": {
+   "code": "var b = $response.body; console.log('L19', b.length, b.charCodeAt(0)); $done({body: b + '!'});",
+   "type": "http-response",
+   "name": "bom-text-go-path",
+   "response": {
+    "status": 200,
+    "headers": {
+     "Content-Type": "application/json"
+    },
+    "body": "77u/eyJhZCI6dHJ1ZSwiaXRlbXMiOlsxLDIsM10sInMiOiLkuK3mlocifQ==",
+    "bodyBase64": true
+   }
+  },
+  "expect": [
+   "L19 37 65279"
+  ]
  },
  {
   "name": "lane-deflate-invalid-utf8",

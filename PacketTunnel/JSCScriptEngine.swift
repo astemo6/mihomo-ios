@@ -500,7 +500,7 @@ final class JSCScriptEngine: NSObject, LibmihomoScriptEngineProtocol {
         return run.put(Data(bytes: p.advanced(by: o), count: n))
     }
 
-    /// Host ops the engine answers itself for lane bodies: "text" of a native blob (valid UTF-8) and "utf8" of a
+    /// Host ops the engine answers itself for lane bodies: "text" of a native blob (Go's U+FFFD rules, goText) and "utf8" of a
     /// large string (stored in the lane). nil: ask the Go host.
     private static func laneHost(_ run: LibmihomoScriptRun, _ lane: JSCNativeBlobProvider, _ op: String, _ arg: String) -> String? {
         switch op {
@@ -526,18 +526,68 @@ final class JSCScriptEngine: NSObject, LibmihomoScriptEngineProtocol {
         }
     }
 
-    /// The text of lane handle h when its bytes are valid UTF-8 (exactly Go's utf8.Valid); nil for invalid UTF-8
-    /// (the Go host's strings.ToValidUTF8 is the one implementation of the U+FFFD rules) or an unknown handle.
-    /// String(decoding:) keeps a leading BOM and NUL bytes, as Go strings / goja do.
+    /// The text of lane handle h exactly as Go's bodyString would build it (goText), without the bytes going
+    /// through Go; nil for an unknown / failed handle (then the Go host answers).
     private static func laneText(_ lane: JSCNativeBlobProvider, _ h: Int64) -> String? {
         var text: String?
-        _ = lane.withDecoded(h) { bytes in
-            if isValidUTF8(bytes) { text = String(decoding: bytes, as: UTF8.self) }
-        }
+        _ = lane.withDecoded(h) { bytes in text = goText(bytes) }
         return text
     }
 
-    /// Go's utf8.Valid: shortest forms only, no surrogates (U+D800–DFFF), nothing above U+10FFFF.
+    /// Go's bodyString: valid UTF-8 as it is (String(decoding:) keeps a leading BOM and NUL bytes, as Go strings
+    /// and goja do — Foundation's UTF-8 initializers drop a leading BOM), otherwise strings.ToValidUTF8(s,
+    /// "\u{FFFD}"): one U+FFFD per run of bytes that do not start a valid sequence.
+    static func goText(_ buf: UnsafeRawBufferPointer) -> String {
+        if isValidUTF8(buf) { return String(decoding: buf, as: UTF8.self) }
+        let n = buf.count
+        guard let base = buf.baseAddress else { return "" }
+        let p = base.assumingMemoryBound(to: UInt8.self)
+        var out = [UInt8]()
+        out.reserveCapacity(n + 16)
+        var i = 0
+        var invalid = false
+        while i < n {
+            let w = utf8SeqLen(p, i, n)
+            if w == 0 {
+                if !invalid { out.append(contentsOf: [0xEF, 0xBF, 0xBD]) }
+                invalid = true
+                i += 1
+                continue
+            }
+            invalid = false
+            out.append(contentsOf: UnsafeBufferPointer(start: p + i, count: w))
+            i += w
+        }
+        return String(decoding: out, as: UTF8.self)
+    }
+
+    /// Length of the valid UTF-8 sequence starting at p[i] (1 for ASCII), 0 when none starts there (Go's
+    /// utf8.DecodeRune width-1 RuneError): shortest forms only, no surrogates, nothing above U+10FFFF.
+    @inline(__always)
+    private static func utf8SeqLen(_ p: UnsafePointer<UInt8>, _ i: Int, _ n: Int) -> Int {
+        let c = p[i]
+        if c < 0x80 { return 1 }
+        var need = 0
+        var lo: UInt8 = 0x80, hi: UInt8 = 0xBF
+        switch c {
+        case 0xC2...0xDF: need = 1
+        case 0xE0: need = 2; lo = 0xA0
+        case 0xE1...0xEC, 0xEE, 0xEF: need = 2
+        case 0xED: need = 2; hi = 0x9F
+        case 0xF0: need = 3; lo = 0x90
+        case 0xF1...0xF3: need = 3
+        case 0xF4: need = 3; hi = 0x8F
+        default: return 0
+        }
+        if i + need >= n { return 0 } // truncated sequence at the end
+        let c1 = p[i + 1]
+        if c1 < lo || c1 > hi { return 0 }
+        if need >= 2 && (p[i + 2] & 0xC0) != 0x80 { return 0 }
+        if need == 3 && (p[i + 3] & 0xC0) != 0x80 { return 0 }
+        return need + 1
+    }
+
+    /// Go's utf8.Valid.
     static func isValidUTF8(_ buf: UnsafeRawBufferPointer) -> Bool {
         let n = buf.count
         guard n > 0, let base = buf.baseAddress else { return true }
@@ -547,26 +597,9 @@ final class JSCScriptEngine: NSObject, LibmihomoScriptEngineProtocol {
             // ASCII fast path, 8 bytes at a time
             while i + 8 <= n && (UnsafeRawPointer(p + i).loadUnaligned(as: UInt64.self) & 0x8080_8080_8080_8080) == 0 { i += 8 }
             if i >= n { break }
-            let c = p[i]
-            if c < 0x80 { i += 1; continue }
-            var need = 0
-            var lo: UInt8 = 0x80, hi: UInt8 = 0xBF
-            switch c {
-            case 0xC2...0xDF: need = 1
-            case 0xE0: need = 2; lo = 0xA0
-            case 0xE1...0xEC, 0xEE, 0xEF: need = 2
-            case 0xED: need = 2; hi = 0x9F
-            case 0xF0: need = 3; lo = 0x90
-            case 0xF1...0xF3: need = 3
-            case 0xF4: need = 3; hi = 0x8F
-            default: return false
-            }
-            if i + need >= n { return false } // truncated sequence at the end
-            let c1 = p[i + 1]
-            if c1 < lo || c1 > hi { return false }
-            if need >= 2 && (p[i + 2] & 0xC0) != 0x80 { return false }
-            if need == 3 && (p[i + 3] & 0xC0) != 0x80 { return false }
-            i += need + 1
+            let w = utf8SeqLen(p, i, n)
+            if w == 0 { return false }
+            i += w
         }
         return true
     }
