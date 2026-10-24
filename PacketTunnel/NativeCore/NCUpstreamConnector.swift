@@ -49,8 +49,23 @@ final class NCUpstreamConnector: MitmUpstreamConnecting {
                 completion(.failure(UpstreamError.connectFailed(err?.localizedDescription ?? "connector failed")))
                 return
             }
-            let lease = NCRelayUpstreamLease(relay: relayStream, queue: queue)
-            completion(.success(lease))
+            guard tls else {
+                completion(.success(NCRelayUpstreamLease(relay: relayStream, queue: queue)))
+                return
+            }
+            // The proxy relays raw bytes: the origin TLS session runs on top of it
+            // (the direct path gets TLS from NCStream/Network.framework).
+            let tlsStream = NCTLSClientStream(raw: relayStream,
+                                              config: .init(serverName: host, alpn: ["http/1.1"]),
+                                              queue: queue)
+            tlsStream.startHandshake { err in
+                if let err {
+                    tlsStream.cancel()
+                    completion(.failure(UpstreamError.connectFailed("upstream TLS: \(err)")))
+                } else {
+                    completion(.success(NCRelayUpstreamLease(relay: tlsStream, queue: queue)))
+                }
+            }
         }
     }
 }

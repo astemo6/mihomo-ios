@@ -24,7 +24,7 @@ final class NCTLSClientStream: NCRelayStream {
         case closed
     }
 
-    private let raw: NCStream
+    private let raw: NCRelayStream
     private let config: Config
     private let queue: DispatchQueue
 
@@ -59,7 +59,7 @@ final class NCTLSClientStream: NCRelayStream {
     private var splicePending: ((Data?, Error?) -> Void)?
     private var spliceOverflow: [Data] = []
 
-    init(raw: NCStream, config: Config, queue: DispatchQueue) {
+    init(raw: NCRelayStream, config: Config, queue: DispatchQueue) {
         self.raw = raw
         self.config = config
         self.queue = queue
@@ -537,7 +537,7 @@ final class NCTLSClientStream: NCRelayStream {
     // MARK: Vision direct splice
 
     /// The raw socket under this TLS session.
-    var rawStream: NCStream { raw }
+    var rawStream: NCRelayStream { raw }
 
     /// Detach from the record layer (XTLS Vision commandDirect): returns the
     /// decrypted-but-unconsumed plaintext chunks and the unparsed raw tail —

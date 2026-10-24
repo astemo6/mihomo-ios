@@ -13,7 +13,7 @@ import Foundation
 /// record — then live raw bytes via receiveSpliced.
 final class NCVisionStream: NCRelayStream {
     private let tls: NCTLSClientStream
-    private let raw: NCStream
+    private let raw: NCRelayStream
     private let writer: NCVisionWriter
     private var reader: NCVisionReader
 
