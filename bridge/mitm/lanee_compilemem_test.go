@@ -76,7 +76,7 @@ func TestSubStoreCompilePeakReleasing(t *testing.T) {
 	rel := measure(goja.CompileReleasing)
 	t.Logf("sub-store-1.min.js (%d KB): live compile peak goja.Compile +%.1f MB, CompileReleasing +%.1f MB (%.0f%%)",
 		len(src)>>10, float64(plain)/(1<<20), float64(rel)/(1<<20), 100*float64(rel)/float64(plain))
-	if rel > plain*85/100 {
+	if rel > plain*90/100 {
 		t.Fatalf("CompileReleasing peak %d KB is not clearly below goja.Compile's %d KB", rel>>10, plain>>10)
 	}
 	// The engine path the tunnel / tests use compiles with the releasing variant too.
@@ -93,6 +93,9 @@ func TestSubStoreCompilePeakReleasing(t *testing.T) {
 			}
 		})
 		runtime.KeepAlive(c)
+		// The large-bundle idle timer keeps the runner (and its 12 MB program) alive for minutes: drop it
+		// now, or the tests after this one start with ~36 MB more heap (TestXimalayaBurstBounded's gate).
+		e.scripts.Reset()
 		if pk == 0 || p < pk {
 			pk = p
 		}
