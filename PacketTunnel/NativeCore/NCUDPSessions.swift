@@ -370,6 +370,73 @@ final class NCUDPSSSession: NCUDPSession {
     }
 }
 
+/// UDP over a sing-mux (h2mux) session: one packet-addr stream; packets
+/// are framed [target][len][payload] in both directions.
+final class NCUDPMuxSession: NCUDPSession {
+    var onReply: (Data) -> Void = { _ in }
+    private var stream: NCMuxStream?
+    private var pending: [(Data, NCTarget)] = []
+    private var buffer = Data()
+    private var requestWritten = false
+    private var cancelled = false
+
+    init(proxy: NCProxy, queue: DispatchQueue) {
+        guard let server = proxy.server, let port = proxy.port else { return }
+        NCConnector.muxSession(proxy: proxy, server: server, port: port, queue: queue) { [weak self] session, _ in
+            guard let self, !self.cancelled, let session else { return }
+            let stream = session.openStream(target: NCMux.destination, rawMode: true)
+            self.stream = stream
+            let queued = self.pending
+            self.pending = []
+            for (data, target) in queued { self.sendNow(data, to: target) }
+            self.receiveLoop()
+        }
+    }
+
+    private func receiveLoop() {
+        stream?.receive { [weak self] data, _ in
+            guard let self, !self.cancelled else { return }
+            guard let data else { return }
+            self.buffer.append(data)
+            self.drain()
+            self.receiveLoop()
+        }
+    }
+
+    private func drain() {
+        // The stream status byte is consumed inside NCMuxStream; what
+        // arrives here is pure packet frames.
+        while let (_, payload, consumed) = NCMux.parseUDPPacketFrame(buffer) {
+            buffer = Data(buffer.dropFirst(consumed))
+            onReply(payload)
+        }
+    }
+
+    func send(_ data: Data, to target: NCTarget) {
+        if stream == nil {
+            pending.append((data, target))
+            return
+        }
+        sendNow(data, to: target)
+    }
+
+    private func sendNow(_ data: Data, to target: NCTarget) {
+        guard let stream else { return }
+        var out = Data()
+        if !requestWritten {
+            requestWritten = true
+            out.append(NCMux.streamRequestUDPPacketAddr())
+        }
+        out.append(NCMux.udpPacketFrame(target: target, payload: data))
+        stream.sendRaw(out)
+    }
+
+    func cancel() {
+        cancelled = true
+        stream?.cancel()
+    }
+}
+
 /// Snell UDP (v3+): packets ride a dedicated TCP connection that begins
 /// with the UDP command header. v3 carries each packet as one AEAD stream
 /// chunk; v4 as one frame. Responses use Snell's response address format.

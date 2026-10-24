@@ -247,9 +247,24 @@ enum NCConnector {
     }
 
     private static func connectViaProxy(target: NCTarget, proxy: NCProxy, queue: DispatchQueue,
+                                        allowMux: Bool = true,
                                         completion: @escaping (NCRelayStream?, Error?) -> Void) {
         guard let server = proxy.server, let port = proxy.port else {
             queue.async { completion(nil, Failure.handshake("proxy \(proxy.name) missing server/port")) }
+            return
+        }
+        // sing-mux (h2mux) interception: vmess/vless flows ride a shared
+        // session whose own proxy connection targets the mux destination.
+        if allowMux, proxy.type == "vmess" || proxy.type == "vless",
+           smuxEnabled(proxy), target != NCMux.destination {
+            guard smuxProtocol(proxy) == "h2mux" else {
+                queue.async { completion(nil, Failure.unsupported("smux protocol \(smuxProtocol(proxy)) (h2mux only)")) }
+                return
+            }
+            muxSession(proxy: proxy, server: server, port: port, queue: queue) { session, err in
+                guard let session else { completion(nil, err); return }
+                completion(session.openStream(target: target), nil)
+            }
             return
         }
         switch proxy.type {
@@ -523,6 +538,75 @@ enum NCConnector {
             }
         default:
             completion(raw, nil)
+        }
+    }
+
+    // MARK: sing-mux (shared h2mux session per proxy)
+
+    static func smuxEnabled(_ proxy: NCProxy) -> Bool {
+        proxy.fields["smux"]?.object?["enabled"]?.bool ?? false
+    }
+
+    static func smuxProtocol(_ proxy: NCProxy) -> String {
+        proxy.fields["smux"]?.object?["protocol"]?.string ?? "h2mux"
+    }
+
+    private static var muxRegistry: [String: NCMuxSession] = [:]
+    private static let muxLock = NSLock()
+
+    static func muxSession(proxy: NCProxy, server: String, port: Int, queue: DispatchQueue,
+                           completion: @escaping (NCMuxSession?, Error?) -> Void) {
+        let key = "\(proxy.name)|\(server)|\(port)"
+        muxLock.lock()
+        if let existing = muxRegistry[key] {
+            muxLock.unlock()
+            if existing.isAlive {
+                completion(existing, nil)
+            } else if existing.state == .connecting {
+                waitMuxReady(existing, key: key, queue: queue, attempts: 60, completion: completion)
+            } else {
+                muxLock.lock()
+                muxRegistry.removeValue(forKey: key)
+                muxLock.unlock()
+                muxSession(proxy: proxy, server: server, port: port, queue: queue, completion: completion)
+            }
+            return
+        }
+        let session = NCMuxSession()
+        muxRegistry[key] = session
+        muxLock.unlock()
+        connectViaProxy(target: NCMux.destination, proxy: proxy, queue: queue, allowMux: false) { base, err in
+            if let base {
+                session.attach(base: base)
+                completion(session, nil)
+            } else {
+                muxLock.lock()
+                muxRegistry.removeValue(forKey: key)
+                muxLock.unlock()
+                session.attachFailed()
+                completion(nil, err ?? Failure.handshake("mux dial failed"))
+            }
+        }
+    }
+
+    private static func waitMuxReady(_ session: NCMuxSession, key: String, queue: DispatchQueue, attempts: Int,
+                                     completion: @escaping (NCMuxSession?, Error?) -> Void) {
+        switch session.state {
+        case .ready:
+            completion(session, nil)
+        case .failed:
+            muxLock.lock()
+            if muxRegistry[key] === session { muxRegistry.removeValue(forKey: key) }
+            muxLock.unlock()
+            completion(nil, Failure.handshake("mux session failed"))
+        case .connecting:
+            guard attempts > 0 else {
+                completion(nil, Failure.handshake("mux connect timeout"))
+                return
+            }
+            queue.asyncAfter(deadline: .now() + 0.25) {
+                waitMuxReady(session, key: key, queue: queue, attempts: attempts - 1, completion: completion)
+            }
         }
     }
 
