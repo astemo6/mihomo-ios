@@ -1,0 +1,10 @@
+#!name=AppClean (synthetic test sample for the B4 conformance corpus)
+#!desc=Surge 模块语法样例，与 UnitTests/ScriptEngineConformance.json 中的 surge-* / body-* 用例对应
+
+[Script]
+appclean.browse = type=http-response,pattern=^https:\/\/api\.example\.com\/v1\/browse,requires-body=1,max-size=-1,binary-body-mode=1,script-path=https://example.com/scripts/appclean/browse.js
+appclean.feed = type=http-response,pattern=^https:\/\/api\.example\.com\/v1\/feed,requires-body=1,script-path=https://example.com/scripts/appclean/feed.js
+appclean.collect = type=http-request,pattern=^https:\/\/api\.example\.com\/v1\/collect,requires-body=1,binary-body-mode=1,script-path=https://example.com/scripts/appclean/collect.js
+
+[MITM]
+hostname = %APPEND% api.example.com
