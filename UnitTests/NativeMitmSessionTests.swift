@@ -78,12 +78,28 @@ final class NativeMitmSessionTests: XCTestCase {
         func await(_ id: Int64) -> FlowDecision { log("await"); return awaitD() }
         func responsePhase(_ id: Int64, head: HTTPResponseHead, length: Int64) -> FlowDecision { log("response \(head.status) \(length)"); return resp(head) }
         func write(_ id: Int64, _ which: FlowBodyWhich, _ data: Data) -> FlowWriteResult { pushed[which, default: Data()].append(data); return .taken }
-        func closeBody(_ id: Int64, _ which: FlowBodyWhich, error: String) { log("close \(which.rawValue) \(error)") }
+        func closeBody(_ id: Int64, _ which: FlowBodyWhich, error: String) { closedBodies.insert(which); log("close \(which.rawValue) \(error)") }
+        /// Streaming "read" like Go's: read returns (upper-cased) what was pushed so far; "more" until closed.
+        var streaming = false
+        var closedBodies: Set<FlowBodyWhich> = []
+        var taken: [FlowBodyWhich: Int] = [:]
         func read(_ id: Int64, _ which: FlowBodyWhich, max: Int) -> Data {
+            if streaming {
+                let p = pushed[which] ?? Data(), off = taken[which] ?? 0
+                guard off < p.count else { return Data() }
+                taken[which] = p.count
+                return Data(String(decoding: p.subdata(in: off..<p.count), as: UTF8.self).uppercased().utf8)
+            }
             guard var q = produce[which], !q.isEmpty else { return Data() }
             let d = q.removeFirst(); produce[which] = q; return d
         }
-        func readState(_ id: Int64, _ which: FlowBodyWhich) -> FlowReadState { (produce[which] ?? []).isEmpty ? .eof : .again }
+        func readState(_ id: Int64, _ which: FlowBodyWhich) -> FlowReadState {
+            if streaming {
+                if (taken[which] ?? 0) < (pushed[which]?.count ?? 0) { return .again }
+                return closedBodies.contains(which) ? .eof : .more
+            }
+            return (produce[which] ?? []).isEmpty ? .eof : .again
+        }
         func upstreamFailed(_ id: Int64, why: String) { log("upstreamFailed") }
         func end(_ id: Int64, sent: Int64, error: String) { lock.lock(); ended.append((id, sent, error)); lock.unlock() }
         func cancel(_ id: Int64, why: String) { lock.lock(); cancelled.append(id); lock.unlock() }
@@ -136,6 +152,23 @@ final class NativeMitmSessionTests: XCTestCase {
         XCTAssertTrue(up.leases[0].mem.text.hasPrefix("GET /a HTTP/1.1\r\nHost: ex.com\r\n"), up.leases[0].mem.text)
         XCTAssertEqual(driver.ended.count, 1); XCTAssertEqual(driver.ended.first?.1, 5); XCTAssertEqual(driver.ended.first?.2, "")
         XCTAssertEqual(up.leases[0].released, false) // Connection: close → not reused
+        XCTAssertEqual(NativeMitmRuntime.liveSessions, 0)
+    }
+
+    /// Go's usual answer for a body it may rewrite: respond + read over the upstream body it has not seen yet;
+    /// "more" means push the next piece (2026-10-24: the session treated it as fatal → head sent, then a cut).
+    func testStreamingReadFeedsUpstreamBodyOnMore() {
+        driver.streaming = true
+        driver.resp = { _ in FlowDecision.decode(#"{"id":1,"action":"respond","status":200,"headers":[["Content-Type","text/plain"]],"body":"read","length":-1}"#) }
+        let up = Upstream(response: Data("HTTP/1.1 200 OK\r\nTransfer-Encoding: chunked\r\n\r\n3\r\nhel\r\n2\r\nlo\r\n0\r\n\r\n".utf8))
+        run(up, request: "GET /a HTTP/1.1\r\nHost: ex.com\r\n\r\n", eof: true)
+        XCTAssertTrue(client.text.hasPrefix("HTTP/1.1 200 OK\r\n"), client.text)
+        XCTAssertTrue(client.text.contains("Transfer-Encoding: chunked"), client.text)
+        XCTAssertTrue(client.text.contains("HEL"), client.text)
+        XCTAssertTrue(client.text.hasSuffix("0\r\n\r\n"), client.text)
+        XCTAssertEqual(String(decoding: driver.pushed[.response] ?? Data(), as: UTF8.self), "hello")
+        XCTAssertTrue(driver.calls.contains("close 1 "), "\(driver.calls)")
+        XCTAssertEqual(driver.ended.first?.2, "")
         XCTAssertEqual(NativeMitmRuntime.liveSessions, 0)
     }
 
