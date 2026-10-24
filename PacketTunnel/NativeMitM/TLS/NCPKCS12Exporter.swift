@@ -148,6 +148,7 @@ public final class NCPKCS12Exporter: PKCS12Exporting {
         let bufferSize = data.count + kCCBlockSizeAES128
         var outData = Data(count: bufferSize)
         var numBytesEncrypted: Int = 0
+        let outCapacity = outData.count
 
         let status = key.withUnsafeBytes { keyBytes in
             iv.withUnsafeBytes { ivBytes in
@@ -160,7 +161,7 @@ public final class NCPKCS12Exporter: PKCS12Exporting {
                             keyBytes.baseAddress, key.count,
                             ivBytes.baseAddress,
                             dataBytes.baseAddress, data.count,
-                            outBytes.baseAddress, outData.count,
+                            outBytes.baseAddress, outCapacity,
                             &numBytesEncrypted
                         )
                     }
