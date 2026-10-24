@@ -404,6 +404,23 @@ final class NativeMitmUpstreamTests: XCTestCase {
             if case .unsupported = res.failureValue {} else { XCTFail("iOS 16 must report unsupported") }
         }
     }
+
+    /// The engine's skip-cert-verify reaches the native upstream (2026-10-24: it always used system trust) and is
+    /// part of the pool key, so a reload that flips it never reuses a connection opened under the other setting.
+    func testSkipVerifyIsPartOfTheTarget() {
+        let a = UpstreamTarget(host: "o.test", port: 443, tls: true)
+        let b = UpstreamTarget(host: "o.test", port: 443, tls: true, skipVerify: true)
+        XCTAssertFalse(a.skipVerify)
+        XCTAssertTrue(b.skipVerify)
+        XCTAssertNotEqual(a, b)
+        XCTAssertEqual(Set([a, b, UpstreamTarget(host: "o.test", port: 443, tls: true, skipVerify: true)]).count, 2)
+        var seen: [Bool] = []
+        let conn = UpstreamPoolConnector(pool: UpstreamPool(relayPort: { 0 }), skipVerify: { seen.append(true); return true })
+        let done = expectation(description: "open")
+        conn.open(host: "o.test", port: 443, tls: true) { _ in done.fulfill() }
+        wait(for: [done], timeout: 5)
+        XCTAssertEqual(seen.count, 1, "the connector reads the engine setting per open")
+    }
 }
 
 private extension Result {

@@ -85,6 +85,19 @@ enum NativeMitmRuntime {
         guard live < maxSessions else { return false }
         live += 1; return true
     }
+    /// Started sessions, held here: everything a session waits on (stream reads, upstream opens, timers) refers to
+    /// it weakly, so without this the session was freed right after start() and its connection hung (found by
+    /// the memory bench, 2026-10-24: every native connection timed out and the live count leaked to the cap).
+    private static var running: [Int64: NativeMitmSession] = [:]
+    static func retain(_ s: NativeMitmSession) { lock.lock(); running[s.id] = s; lock.unlock() }
+    static func drop(_ id: Int64) { lock.lock(); running[id] = nil; lock.unlock() }
+    static var runningSessions: Int { lock.lock(); defer { lock.unlock() }; return running.count }
+    /// Cancels every started session (uninstall: tunnel stop / switch off).
+    static func cancelAll(_ why: String) {
+        lock.lock(); let all = Array(running.values); lock.unlock()
+        for s in all { s.cancel(why) }
+    }
+
     static func release() { lock.lock(); live = max(0, live - 1); lock.unlock() }
     static func nextID() -> Int64 { lock.lock(); defer { lock.unlock() }; ids += 1; return ids }
 
@@ -106,7 +119,11 @@ enum NativeMitmRuntime {
         return true
     }
 
-    static func uninstall() { forced = false; LibmihomoSetNativeTLSFront(nil) }
+    static func uninstall() {
+        forced = false
+        LibmihomoSetNativeTLSFront(nil)
+        cancelAll("native MitM off")
+    }
 
     /// install(force:) (the memory bench): listen() accepts regardless of the switch.
     private(set) static var forced = false
@@ -186,7 +203,10 @@ final class NativeMitmSession {
         queue = DispatchQueue(label: "tern.mitm.s2.session.\(id)")
     }
 
-    func start() { queue.async { [self] in nextRequest() } }
+    func start() {
+        NativeMitmRuntime.retain(self)
+        queue.async { [self] in nextRequest() }
+    }
 
     /// External cancellation (tunnel stop, reload).
     func cancel(_ why: String = "cancelled") { queue.async { [self] in finish(cancelled: why) } }
@@ -745,6 +765,7 @@ final class NativeMitmSession {
         conn.stream.close()
         clientBuf = Data(); upBuf = Data()
         NativeMitmRuntime.release()
+        NativeMitmRuntime.drop(id)
         onFinish?(cancelled ?? error)
         onFinish = nil
     }

@@ -51,6 +51,14 @@ func (e *Engine) StartRelay() (*Relay, error) {
 }
 
 // RelayPort is the relay's port (0: not running).
+// SkipCertVerify reports the engine's upstream certificate setting (MitM skip-cert-verify, global or from a
+// module): the native front's upstream TLS follows it so the two paths accept the same origins.
+func (e *Engine) SkipCertVerify() bool {
+	e.tmu.Lock()
+	defer e.tmu.Unlock()
+	return e.tSkip
+}
+
 func (e *Engine) RelayPort() int {
 	e.tmu.Lock()
 	defer e.tmu.Unlock()

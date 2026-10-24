@@ -7,8 +7,8 @@ import XCTest
 /// through the native front, measuring the whole process's phys_footprint (what jetsam reads) and the Go runtime.
 /// Everything runs in this process: the Go bench engine + origin (bridge/s2bench.go), the native front / sessions /
 /// upstream pool (native runs), and the Network.framework clients — the clients and origin cost the same in both
-/// modes, so the difference is the MitM path. Runs alternate go, native, go, native (allocator reuse favours later
-/// runs, so each mode gets an early and a late slot).
+/// modes, so the difference is the MitM path. Every mode runs once uncounted (warm-up), then 4 rounds in order
+/// alternating forward / reversed; medians are reported (allocator reuse favours later runs).
 final class NativeMitmMemoryTests: XCTestCase {
     static let conns = 100
 
@@ -17,6 +17,7 @@ final class NativeMitmMemoryTests: XCTestCase {
     struct Run {
         var mode: String
         var ok = 0
+        var failures: [String] = []
         var fpBefore: UInt64 = 0, fpAfter: UInt64 = 0
         var goBefore: GoMem?, goAfter: GoMem?
     }
@@ -26,23 +27,39 @@ final class NativeMitmMemoryTests: XCTestCase {
 
     func testBurstFootprintGoPathVersusNativeFront() throws {
         guard #available(iOS 17.0, *) else { throw XCTSkip("native front needs iOS 17") }
-        var runs: [Run] = []
         // "native" = production session cap (NativeMitmRuntime.maxSessions, 48: the rest of the burst stays on the
         // Go path); "native-nocap" = every connection native.
-        for mode in ["go", "native", "native-nocap", "go", "native", "native-nocap"] {
-            runs.append(try burst(mode: mode))
+        let modes = ["go", "native", "native-nocap"]
+        // uncounted warm-up of every mode: grows the allocator and the pools once so no counted run pays for it
+        for m in modes { _ = try burst(mode: m) }
+        // 4 rounds, order alternating forward / reversed (run-order drift lands on every mode alike); medians reported
+        var runs: [Run] = []
+        for round in 0..<4 {
+            for m in (round % 2 == 0 ? modes : modes.reversed()) { runs.append(try burst(mode: m)) }
         }
         for (i, r) in runs.enumerated() {
             guard let gb = r.goBefore, let ga = r.goAfter else { continue }
             let line = "[s2-memory] run \(i + 1) \(r.mode): \(r.ok)/\(Self.conns) requests passed; footprint \(Self.mbAbs(r.fpBefore)) → \(Self.mbAbs(r.fpAfter)) MB (\(Self.mb(Int64(r.fpAfter) - Int64(r.fpBefore))) MB); Go heap \(Self.mb(ga.heapInuse - gb.heapInuse)) MB, Go sys \(Self.mb(ga.sys - gb.sys)) MB, stacks \(Self.mb(ga.stack - gb.stack)) MB, goroutines \(ga.goroutines - gb.goroutines >= 0 ? "+" : "")\(ga.goroutines - gb.goroutines); handed \(ga.handed - gb.handed), fell back \(ga.fellBack - gb.fellBack)"
             print(line)
             NSLog("%@", line)
+            if !r.failures.isEmpty { print("[s2-memory] run \(i + 1) failures: \(r.failures.prefix(3).joined(separator: " | "))") }
         }
-        func avg(_ m: String) -> Double {
-            let rs = runs.filter { $0.mode == m }
-            return rs.map { Double(Int64($0.fpAfter) - Int64($0.fpBefore)) }.reduce(0, +) / Double(max(rs.count, 1)) / 1_048_576
+        func median(_ m: String, _ f: (Run) -> Int64?) -> Double {
+            let v = runs.filter { $0.mode == m }.compactMap(f).map { Double($0) / 1_048_576 }.sorted()
+            guard !v.isEmpty else { return .nan }
+            return v.count % 2 == 1 ? v[v.count / 2] : (v[v.count / 2 - 1] + v[v.count / 2]) / 2
         }
-        let summary = String(format: "[s2-memory] summary passed: footprint Δ per burst go-path %.2f MB, native (cap %d) %.2f MB, native no cap %.2f MB (native − go %+.2f / %+.2f MB)", avg("go"), NativeMitmRuntime.maxSessions, avg("native"), avg("native-nocap"), avg("native") - avg("go"), avg("native-nocap") - avg("go"))
+        let fp: (Run) -> Int64? = { Int64($0.fpAfter) - Int64($0.fpBefore) }
+        let heap: (Run) -> Int64? = { r in r.goAfter.flatMap { a in r.goBefore.map { a.heapInuse - $0.heapInuse } } }
+        let sys: (Run) -> Int64? = { r in r.goAfter.flatMap { a in r.goBefore.map { a.sys - $0.sys } } }
+        let stk: (Run) -> Int64? = { r in r.goAfter.flatMap { a in r.goBefore.map { a.stack - $0.stack } } }
+        for m in modes {
+            let line = String(format: "[s2-memory] median %@: footprint %+.2f MB, Go heap %+.2f MB, Go sys %+.2f MB, stacks %+.2f MB (Go side heap+stacks %+.2f MB)",
+                              m, median(m, fp), median(m, heap), median(m, sys), median(m, stk), median(m, heap) + median(m, stk))
+            print(line)
+            NSLog("%@", line)
+        }
+        let summary = String(format: "[s2-memory] summary passed: median footprint Δ per burst go-path %.2f MB, native (cap %d) %.2f MB, native no cap %.2f MB (native − go %+.2f / %+.2f MB)", median("go", fp), NativeMitmRuntime.maxSessions, median("native", fp), median("native-nocap", fp), median("native", fp) - median("go", fp), median("native-nocap", fp) - median("go", fp))
         print(summary)
         NSLog("%@", summary)
         for r in runs { XCTAssertEqual(r.ok, Self.conns, "\(r.mode): \(r.ok)/\(Self.conns) requests answered") }
@@ -82,7 +99,7 @@ final class NativeMitmMemoryTests: XCTestCase {
         }
         // warm-up: listener, leaf, relay, pools
         let warm = BenchClient(enginePort: port)
-        XCTAssertTrue(warm.run(timeout: 15), "warm-up request failed: \(warm.failure ?? "")")
+        XCTAssertTrue(warm.run(timeout: 15), "\(mode) warm-up request failed: \(warm.failure ?? "timeout")")
         warm.cancel()
         Thread.sleep(forTimeInterval: 0.5)
         run.goBefore = goMem()
@@ -92,20 +109,29 @@ final class NativeMitmMemoryTests: XCTestCase {
         let group = DispatchGroup()
         let lock = NSLock()
         var ok = 0
+        var failures: [String] = []
         for c in clients {
             group.enter()
-            c.start { success in
-                if success { lock.lock(); ok += 1; lock.unlock() }
+            c.start { [c] success in
+                lock.lock()
+                if success { ok += 1 } else if failures.count < 5 { failures.append(c.failure ?? "timeout") }
+                lock.unlock()
                 group.leave()
             }
         }
-        _ = group.wait(timeout: .now() + 60)
+        if group.wait(timeout: .now() + 60) == .timedOut { lock.lock(); failures.append("burst timed out after 60 s"); lock.unlock() }
         Thread.sleep(forTimeInterval: 1.0) // idle keep-alive
-        run.ok = ok
+        lock.lock(); run.ok = ok; run.failures = failures; lock.unlock()
         run.fpAfter = ProcessMemory.footprintBytes()
         run.goAfter = goMem()
         for c in clients { c.cancel() }
-        Thread.sleep(forTimeInterval: 0.5)
+        // sessions end when their clients go; nothing may leak into the next run (or the next test class)
+        let deadline = Date().addingTimeInterval(10)
+        while Date() < deadline, NativeMitmRuntime.runningSessions > 0 || NativeMitmRuntime.liveSessions > 0 {
+            Thread.sleep(forTimeInterval: 0.05)
+        }
+        XCTAssertEqual(NativeMitmRuntime.runningSessions, 0, "\(mode): sessions still running after the clients left")
+        XCTAssertEqual(NativeMitmRuntime.liveSessions, 0, "\(mode): session slots leaked")
         return run
     }
 

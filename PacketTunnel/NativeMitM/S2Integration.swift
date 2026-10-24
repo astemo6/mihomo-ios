@@ -202,10 +202,14 @@ final class UpstreamPoolLease: MitmUpstreamLease {
 
 final class UpstreamPoolConnector: MitmUpstreamConnecting {
     let pool: UpstreamPool
-    init(pool: UpstreamPool = .shared) { self.pool = pool }
+    /// The engine's skip-cert-verify, read per open (a reload can change it).
+    let skipVerify: () -> Bool
+    init(pool: UpstreamPool = .shared, skipVerify: @escaping () -> Bool = { LibmihomoMitmSkipCertVerify() }) {
+        self.pool = pool; self.skipVerify = skipVerify
+    }
     func open(host: String, port: Int, tls: Bool, completion: @escaping (Result<MitmUpstreamLease, Error>) -> Void) {
         guard (1...65535).contains(port) else { return completion(.failure(UpstreamError.invalidTarget("port"))) }
-        _ = pool.acquire(UpstreamTarget(host: host, port: UInt16(port), tls: tls)) { [pool] r in
+        _ = pool.acquire(UpstreamTarget(host: host, port: UInt16(port), tls: tls, skipVerify: tls && skipVerify())) { [pool] r in
             switch r {
             case .success(let c): completion(.success(UpstreamPoolLease(pool: pool, conn: c)))
             case .failure(let e): completion(.failure(e))

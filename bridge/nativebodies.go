@@ -86,6 +86,15 @@ func SetNativeTLSFront(f NativeTLSFront) {
 	}
 }
 
+// MitmSkipCertVerify: the engine's MitM skip-cert-verify (false when the engine is not running). The native
+// front's upstream TLS reads it per connection, like the Go path's transport.
+func MitmSkipCertVerify() bool {
+	engMu.Lock()
+	e := eng
+	engMu.Unlock()
+	return e != nil && e.SkipCertVerify()
+}
+
 // MitmRelayPort is the upstream relay's loopback port for the native front (0: engine or relay not running).
 func MitmRelayPort() int {
 	engMu.Lock()

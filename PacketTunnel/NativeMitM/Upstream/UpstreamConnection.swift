@@ -12,7 +12,7 @@
 //   reply; bytes after the reply's blank line are kept and delivered first.
 // - tls (the MitM upstream, iOS 17+): NWConnection to host:port with NWParameters(tls:) and a privacy context
 //   whose only proxy is ProxyConfiguration(httpCONNECTProxy: 127.0.0.1:<relay>). Network.framework sends the
-//   CONNECT; TLS to the origin uses the system trust store, SNI = host (not for IP literals), ALPN "http/1.1" only.
+//   CONNECT; TLS to the origin uses the system trust store (none when the engine's skip-cert-verify is on), SNI = host (not for IP literals), ALPN "http/1.1" only.
 //   iOS 16 has no per-connection CONNECT proxy in Network.framework: `.unsupported` → the caller keeps the Go
 //   path for that connection (the same fallback the native front already has).
 //
@@ -80,13 +80,17 @@ struct UpstreamTarget: Hashable, CustomStringConvertible {
     let port: UInt16
     let tls: Bool
     let policy: String?
+    /// The engine's MitM skip-cert-verify (LibmihomoMitmSkipCertVerify): origin certificates are not verified,
+    /// as on the Go path. Part of the pool key, so a setting change never reuses a connection opened under the other.
+    let skipVerify: Bool
 
-    init(host: String, port: UInt16, tls: Bool = true, policy: String? = nil) {
+    init(host: String, port: UInt16, tls: Bool = true, policy: String? = nil, skipVerify: Bool = false) {
         // "[::1]" → "::1": the authority form adds the brackets back.
         if host.hasPrefix("["), host.hasSuffix("]") { self.host = String(host.dropFirst().dropLast()) } else { self.host = host }
         self.port = port
         self.tls = tls
         self.policy = policy
+        self.skipVerify = skipVerify
     }
 
     var isIPLiteral: Bool { IPv4Address(host) != nil || IPv6Address(host) != nil }
@@ -184,7 +188,7 @@ final class UpstreamConnection: UpstreamByteStream, CustomStringConvertible {
             let sec = tls.securityProtocolOptions
             if !target.isIPLiteral { sec_protocol_options_set_tls_server_name(sec, target.host) }
             sec_protocol_options_add_tls_application_protocol(sec, "http/1.1")
-            if trustAnyOriginForTesting {
+            if trustAnyOriginForTesting || target.skipVerify {
                 sec_protocol_options_set_verify_block(sec, { _, _, complete in complete(true) }, queue)
             }
             let params = NWParameters(tls: tls, tcp: tcp)

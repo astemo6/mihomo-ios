@@ -65,7 +65,7 @@ type Engine struct {
 	strikes sync.Map // host -> *pinStrike (review5 P1-6)
 
 	srv     *http.Server
-	tlsCh   chan net.Conn
+	tlsLn   atomic.Pointer[chanListener] // feeds intercepted connections to srv (handOff; atomic: handOff may race a restart)
 	closing atomic.Bool
 
 	Requests *RequestLog
@@ -135,7 +135,8 @@ func (e *Engine) Start() error {
 	e.ln = ln
 	e.port = ln.Addr().(*net.TCPAddr).Port
 	e.livePort.Store(int32(e.port))
-	e.tlsCh = make(chan net.Conn, 16)
+	tl := &chanListener{ch: make(chan net.Conn, 16), done: make(chan struct{}), addr: ln.Addr(), closed: &e.closing}
+	e.tlsLn.Store(tl)
 	e.srv = &http.Server{
 		Handler:           http.HandlerFunc(e.serveHTTP),
 		ReadHeaderTimeout: 30 * time.Second,
@@ -152,8 +153,8 @@ func (e *Engine) Start() error {
 		},
 	}
 	e.srv.SetKeepAlivesEnabled(true)
-	srv, ch := e.srv, e.tlsCh // r7 P3-8: the goroutine must not read fields a later Stop/Start rewrites
-	go func() { _ = srv.Serve(&chanListener{ch: ch, addr: ln.Addr(), closed: &e.closing}) }()
+	srv := e.srv // r7 P3-8: the goroutine must not read fields a later Stop/Start rewrites
+	go func() { _ = srv.Serve(tl) }()
 	go e.acceptLoop(ln)
 	e.logf("info", fmt.Sprintf("[MitM] 引擎已启动 127.0.0.1:%d", e.port))
 	return nil
@@ -274,22 +275,61 @@ type metaConn struct {
 
 func (c *metaConn) Read(p []byte) (int, error) { return c.r.Read(p) }
 
+// chanListener hands intercepted connections to the engine's http.Server. ch is never closed (a send racing a
+// close was a data race, and a panic the sender had to recover from); done ends Accept and refuses new ones.
 type chanListener struct {
 	ch     chan net.Conn
+	done   chan struct{}
 	addr   net.Addr
 	closed *atomic.Bool
 	once   sync.Once
 }
 
 func (l *chanListener) Accept() (net.Conn, error) {
-	c, ok := <-l.ch
-	if !ok {
+	select {
+	case c := <-l.ch:
+		return c, nil
+	case <-l.done:
 		return nil, net.ErrClosed
 	}
-	return c, nil
 }
+
+// send queues c for Accept; false (c closed) once the listener is closed.
+func (l *chanListener) send(c net.Conn) bool {
+	select {
+	case <-l.done:
+	default:
+		select {
+		case l.ch <- c:
+			select { // Close may have drained ch just before this send landed: drain again so c is not stranded
+			case <-l.done:
+				l.drain()
+			default:
+			}
+			return true
+		case <-l.done:
+		}
+	}
+	_ = c.Close()
+	return false
+}
+
+func (l *chanListener) drain() {
+	for {
+		select {
+		case c := <-l.ch:
+			_ = c.Close()
+		default:
+			return
+		}
+	}
+}
+
 func (l *chanListener) Close() error {
-	l.once.Do(func() { defer func() { recover() }(); close(l.ch) })
+	l.once.Do(func() {
+		close(l.done)
+		l.drain() // connections queued but never accepted
+	})
 	return nil
 }
 func (l *chanListener) Addr() net.Addr { return l.addr }
@@ -597,12 +637,11 @@ func tlsClientRejection(err error) int {
 }
 
 func (e *Engine) handOff(c net.Conn) {
-	defer func() {
-		if recover() != nil {
-			_ = c.Close()
-		}
-	}()
-	e.tlsCh <- c
+	if l := e.tlsLn.Load(); l != nil {
+		l.send(c)
+		return
+	}
+	_ = c.Close()
 }
 
 func shortErr(err error) string {
