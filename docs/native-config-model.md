@@ -94,7 +94,8 @@ options：`no-resolve`、规则集引用时的 `extended` 标记等。
 | Hosts | hosts: | [Host] | [Host] | [host] / dns address= |
 
 节点行语法：Surge/Loon 为 `名 = 类型, 服务器, 端口, k=v…`；QX 为
-`类型=服务器:端口, k=v…, tag=名`。协议名归一（ss/shadowsocks→shadowsocks 等）在导入器内完成。
+`类型=服务器:端口, k=v…, tag=名`。协议名归一在导入器内完成，词汇以引擎现有
+开关为准（如 SS 的规范名是 `ss`，与 NCConnector 的 case 及 mihomo 导入器一致）。
 
 ## 7. 与现有代码的关系
 
