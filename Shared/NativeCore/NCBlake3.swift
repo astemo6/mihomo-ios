@@ -31,8 +31,14 @@ enum NCBlake3 {
     }
 
     static func deriveKey(context: String, material: [UInt8]) -> [UInt8] {
-        let contextKey = chainingValue(keyWords: iv, flags: flagDeriveContext,
-                                       data: [UInt8](context.utf8))
+        // The context key is the context string's root OUTPUT (XOF bytes,
+        // ROOT flag set) — not its chaining value. (Verified against
+        // metacubex/blake3: the CV variant silently produces wrong keys.)
+        let root = rootOutput(keyWords: iv, flags: flagDeriveContext,
+                              data: [UInt8](context.utf8))
+        let words = compress(cv: root.inputCV, block: root.blockWords, counter: 0,
+                             blockLen: root.blockLen, flags: root.flags | flagRoot)
+        let contextKey = Array(words[0..<8])
         return finalize(keyWords: contextKey, flags: flagDeriveMaterial, data: material)
     }
 

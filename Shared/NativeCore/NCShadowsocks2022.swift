@@ -258,11 +258,12 @@ enum NCChaCha {
             }
         }
         var state = constants + words(key) + words(nonce)
+        func rotl(_ v: UInt32, _ c: UInt32) -> UInt32 { (v << c) | (v >> (32 - c)) }
         func qr(_ a: Int, _ b: Int, _ c: Int, _ d: Int) {
-            state[a] = state[a] &+ state[b]; state[d] = (state[d] ^ state[a]).rotated(right: 16)
-            state[c] = state[c] &+ state[d]; state[b] = (state[b] ^ state[c]).rotated(right: 12)
-            state[a] = state[a] &+ state[b]; state[d] = (state[d] ^ state[a]).rotated(right: 8)
-            state[c] = state[c] &+ state[d]; state[b] = (state[b] ^ state[c]).rotated(right: 7)
+            state[a] = state[a] &+ state[b]; state[d] = rotl(state[d] ^ state[a], 16)
+            state[c] = state[c] &+ state[d]; state[b] = rotl(state[b] ^ state[c], 12)
+            state[a] = state[a] &+ state[b]; state[d] = rotl(state[d] ^ state[a], 8)
+            state[c] = state[c] &+ state[d]; state[b] = rotl(state[b] ^ state[c], 7)
         }
         for _ in 0..<10 {
             qr(0, 4, 8, 12); qr(1, 5, 9, 13); qr(2, 6, 10, 14); qr(3, 7, 11, 15)

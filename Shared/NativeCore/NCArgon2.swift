@@ -60,8 +60,8 @@ enum NCBlake2b {
             m[i] = w
         }
         var v = h + iv
-        v[4] ^= count
-        if last { v[5] = ~v[5] }
+        v[12] ^= count // compressed-bytes counter (low word; high word is 0 at our sizes)
+        if last { v[14] = ~v[14] }
         func g(_ a: Int, _ b: Int, _ c: Int, _ d: Int, _ x: UInt64, _ y: UInt64) {
             v[a] = v[a] &+ v[b] &+ x
             v[d] = (v[d] ^ v[a]).rotated(right: 32)

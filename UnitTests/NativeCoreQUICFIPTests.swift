@@ -20,6 +20,22 @@ final class NativeCoreQUICFIPTests: XCTestCase {
         // Keys for DCID 8394c8f03e515708 (RFC 9001 App. A values, generated
         // with Go): key 1f369613…, iv fa044b2f…, hp 9f50449e….
         let packet = hex("c600000001088394c8f03e5157080000405ef046b451939b7ca362c0a5e53f6c22dd6988baba5401fabdb11bdc15c4308caa1ea6df4ec4eea1ddf3d6bd27fb13e5e574e90272d731e3b576aadddbee49087943c635759b966e8e966e428f7fde7e84aa4bd6c26c790c451d0215f69394")
+        // Stage 1: RFC 9001 key schedule via NCTLS13 primitives directly.
+        let salt = hex("38762cf7f55934b34d179ae6a4c80cadccbb7f0a")
+        let initial = NCTLS13.hkdfExtract(.sha256, salt: salt, ikm: hex("8394c8f03e515708"))
+        let clientSecret = NCTLS13.expandLabel(.sha256, secret: initial, label: "client in", context: Data(), length: 32)
+        XCTAssertEqual(NCTLS13.expandLabel(.sha256, secret: clientSecret, label: "quic key", context: Data(), length: 16),
+                       hex("1f369613dd76d5467730efcbe3b1a22d"))
+        XCTAssertEqual(NCTLS13.expandLabel(.sha256, secret: clientSecret, label: "quic hp", context: Data(), length: 16),
+                       hex("9f50449e04a0e810283a1e9933adedd2"))
+        // Stage 2: full Initial decryption.
+        let payload = NCQUICSniffer.decryptInitial(packet)
+        XCTAssertNotNil(payload)
+        if let payload {
+            XCTAssertEqual(payload.prefix(4), hex("06004049"))
+            // Stage 3: frame walk + ClientHello parse.
+            XCTAssertEqual(NCQUICSniffer.sni(fromPayload: payload), "example.com")
+        }
         XCTAssertEqual(NCQUICSniffer.sni(from: packet), "example.com")
         if case .tls(let sni, let alpn) = NCSniffer.detect(packet) {
             XCTAssertEqual(sni, "example.com")

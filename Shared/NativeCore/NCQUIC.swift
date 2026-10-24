@@ -16,6 +16,13 @@ enum NCQUICSniffer {
                                           0xf9, 0xbd, 0x57, 0x95]
 
     static func sni(from packet: Data) -> String? {
+        guard let payload = decryptInitial(packet) else { return nil }
+        return sni(fromPayload: payload)
+    }
+
+    /// Parse + header-protection removal + AEAD open of a QUIC Initial;
+    /// internal so tests can bisect key derivation vs frame parsing.
+    static func decryptInitial(_ packet: Data) -> Data? {
         let bytes = [UInt8](packet)
         guard bytes.count >= 20, bytes[0] & 0x80 != 0 else { return nil }
         let version = UInt32(bytes[1]) << 24 | UInt32(bytes[2]) << 16 | UInt32(bytes[3]) << 8 | UInt32(bytes[4])
@@ -71,7 +78,11 @@ enum NCQUICSniffer {
         guard ciphertext.count > 16,
               let sealed = try? AES.GCM.SealedBox(combined: Data(nonce) + ciphertext),
               let payload = try? AES.GCM.open(sealed, using: SymmetricKey(data: key)) else { return nil }
+        return payload
+    }
 
+    /// Frame walk over a decrypted Initial payload + ClientHello SNI.
+    static func sni(fromPayload payload: Data) -> String? {
         // Frame walk: collect CRYPTO segments.
         var segments: [(offset: Int, data: Data)] = []
         var p = 0

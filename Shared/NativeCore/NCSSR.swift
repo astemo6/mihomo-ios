@@ -43,12 +43,12 @@ enum NCChaChaStream {
         }
         let state = constants + words(key) + tail
         var w = state
-        func rotr(_ v: UInt32, _ c: Int) -> UInt32 { (v >> c) | (v << (32 - c)) }
+        func rotl(_ v: UInt32, _ c: Int) -> UInt32 { (v << c) | (v >> (32 - c)) }
         func qr(_ a: Int, _ b: Int, _ c: Int, _ d: Int) {
-            w[a] = w[a] &+ w[b]; w[d] = rotr(w[d] ^ w[a], 16)
-            w[c] = w[c] &+ w[d]; w[b] = rotr(w[b] ^ w[c], 12)
-            w[a] = w[a] &+ w[b]; w[d] = rotr(w[d] ^ w[a], 8)
-            w[c] = w[c] &+ w[d]; w[b] = rotr(w[b] ^ w[c], 7)
+            w[a] = w[a] &+ w[b]; w[d] = rotl(w[d] ^ w[a], 16)
+            w[c] = w[c] &+ w[d]; w[b] = rotl(w[b] ^ w[c], 12)
+            w[a] = w[a] &+ w[b]; w[d] = rotl(w[d] ^ w[a], 8)
+            w[c] = w[c] &+ w[d]; w[b] = rotl(w[b] ^ w[c], 7)
         }
         for _ in 0..<10 {
             qr(0, 4, 8, 12); qr(1, 5, 9, 13); qr(2, 6, 10, 14); qr(3, 7, 11, 15)

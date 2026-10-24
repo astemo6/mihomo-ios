@@ -123,14 +123,21 @@ final class NativeCoreSSRTests: XCTestCase {
         obfs.randomBelow = { _ in 0 }
         let data = Data((0..<100).map { UInt8($0) })
         let out = obfs.encode(data)
-        let text = String(decoding: out.prefix(200), as: UTF8.self)
+        let text = String(decoding: out.prefix(600), as: UTF8.self)
         XCTAssertTrue(text.hasPrefix("GET /"))
         XCTAssertTrue(text.contains(" HTTP/1.1\r\nHost: example.com:8388\r\n"))
         XCTAssertTrue(text.contains("User-Agent: Mozilla/5.0"))
-        // Head portion is %xx for ivSize+30 bytes (randomBelow 0 → +0).
-        // Everything after the header block is the raw tail.
+        // Reference semantics: the whole first write is %xx-encoded unless
+        // it exceeds headLength+64 (100 <= 46+64 here, so no raw tail).
         let headerEnd = out.range(of: Data([13, 10, 13, 10]))!.upperBound
-        XCTAssertEqual(Data(out[headerEnd...]), Data(data.dropFirst(46)))
+        XCTAssertEqual(Data(out[headerEnd...]), Data())
+        // A large first write splits: head = ivSize+30 (+rand 0), raw tail.
+        let obfs2 = NCSSRHTTPSimple(server: "example.com", port: 8388, param: nil, ivSize: 16)
+        obfs2.randomBelow = { _ in 0 }
+        let big = Data((0..<200).map { UInt8($0 & 0xff) })
+        let out2 = obfs2.encode(big)
+        let headerEnd2 = out2.range(of: Data([13, 10, 13, 10]))!.upperBound
+        XCTAssertEqual(Data(out2[headerEnd2...]), Data(big.dropFirst(46)))
         // Passthrough after the first write.
         XCTAssertEqual(obfs.encode(Data([1, 2, 3])), Data([1, 2, 3]))
         // Response header strip.

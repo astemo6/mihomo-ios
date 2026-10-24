@@ -40,7 +40,7 @@ final class NativeCoreHpackTests: XCTestCase {
     func testHuffmanResponseBlock() {
         // RFC 7541 C.4.1 response (Huffman + incremental indexing).
         let dec = NCHPACKDecoder()
-        let block = data("488264025885aec3771a4b6196d07abe941054d444a8200595040b8166e082a62d1bff")
+        let block = data("488264025885aec3771a4b6196d07abe941054d444a8200595040b8166e082a62d1bff6e919d29ad171863c78f0b97c8e9ae82ae43d3")
         let out = dec.decode(block)
         XCTAssertEqual(out?.first?.0, ":status")
         XCTAssertEqual(out?.first?.1, "302")
