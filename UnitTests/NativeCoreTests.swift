@@ -1,4 +1,5 @@
 import XCTest
+import Libmihomo
 @testable import Mihomo
 
 // NativeCore batch 1 (docs/native-core-design.md): config decode, rule engine,
@@ -190,5 +191,148 @@ final class NativeCoreShadowsocksTests: XCTestCase {
             }
             XCTAssertEqual(out, payload, cipher)
         }
+    }
+}
+
+final class NativeCoreBridgeExportTests: XCTestCase {
+    /// The Go bridge export turns runtime.yaml into the JSON NCConfig eats —
+    /// this is the seam between the old core and the native one.
+    func testNativeConfigJSONExport() throws {
+        let home = FileManager.default.temporaryDirectory
+            .appendingPathComponent("nc-\(UUID().uuidString)", isDirectory: true)
+        try FileManager.default.createDirectory(at: home, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: home) }
+        let yaml = """
+        mode: rule
+        proxies:
+          - {name: A, type: ss, server: 1.2.3.4, port: 8388, cipher: aes-256-gcm, password: pw}
+        rules:
+          - DOMAIN-SUFFIX,google.com,A
+          - MATCH,DIRECT
+        """
+        try Data(yaml.utf8).write(to: home.appendingPathComponent("runtime.yaml"))
+        var err: NSError?
+        let json = LibmihomoNativeConfigJSON(home.path, &err)
+        XCTAssertNil(err)
+        let cfg = try NCConfig.decode(jsonData: Data(json.utf8))
+        XCTAssertEqual(cfg.proxyMap["A"]?.port, 8388)
+        XCTAssertEqual(cfg.rules.count, 2)
+        let rules = cfg.rules.compactMap(NCRule.parse)
+        var ctx = NCMatchContext()
+        ctx.domain = "www.google.com"
+        XCTAssertEqual(NCRuleMatcher.evaluate(rules, ctx), "A")
+    }
+}
+
+final class NativeCoreDNSTests: XCTestCase {
+    func testParseCompressedResponse() {
+        // example.com A 1.2.3.4, answer name is a pointer to the question name.
+        let wire = unhex("1234" + "8180" + "0001" + "0001" + "0000" + "0000"
+            + "076578616d706c6503636f6d00" + "0001" + "0001"
+            + "c00c" + "0001" + "0001" + "0000003c" + "0004" + "01020304")
+        let msg = NCDNSMessage.parse(wire)!
+        XCTAssertEqual(msg.id, 0x1234)
+        XCTAssertEqual(msg.questions.first?.name, "example.com")
+        XCTAssertEqual(msg.answers.count, 1)
+        XCTAssertEqual(msg.answers[0].name, "example.com")
+        XCTAssertEqual(msg.answers[0].rdata, Data([1, 2, 3, 4]))
+        XCTAssertEqual(msg.answers[0].ttl, 60)
+    }
+
+    func testFakeIPResponder() {
+        let pool = NCFakeIPPool(range: "198.18.0.1/16", filter: ["*.lan"])
+        let responder = NCFakeIPResponder(pool: pool)
+        var query = NCDNSMessage()
+        query.id = 0x2222
+        query.recursionDesired = true
+        query.questions = [NCDNSQuestion(name: "www.Example.com", type: NCDNSMessage.typeA, klass: NCDNSMessage.classIN)]
+        let respData = responder.respond(to: query.serialized())!
+        let resp = NCDNSMessage.parse(respData)!
+        XCTAssertTrue(resp.isResponse)
+        XCTAssertEqual(resp.answers.count, 1)
+        let ip = NCIP(resp.answers[0].rdata.map { "\($0)" }.joined(separator: "."))
+        XCTAssertNotNil(ip)
+        XCTAssertEqual(pool.host(for: ip!), "www.example.com")
+        // Filtered hosts and non-A/AAAA types go upstream (nil).
+        var lanQuery = query
+        lanQuery.questions = [NCDNSQuestion(name: "printer.lan", type: NCDNSMessage.typeA, klass: NCDNSMessage.classIN)]
+        XCTAssertNil(responder.respond(to: lanQuery.serialized()))
+        var mxQuery = query
+        mxQuery.questions = [NCDNSQuestion(name: "example.com", type: 15, klass: NCDNSMessage.classIN)]
+        XCTAssertNil(responder.respond(to: mxQuery.serialized()))
+        // AAAA in v4 fake mode: NOERROR, zero answers.
+        var aaaaQuery = query
+        aaaaQuery.questions = [NCDNSQuestion(name: "example.com", type: NCDNSMessage.typeAAAA, klass: NCDNSMessage.classIN)]
+        let aaaaResp = NCDNSMessage.parse(responder.respond(to: aaaaQuery.serialized())!)!
+        XCTAssertEqual(aaaaResp.answers.count, 0)
+    }
+}
+
+final class NativeCoreSnifferTests: XCTestCase {
+    /// Build a minimal ClientHello carrying SNI example.com and ALPN h2/http1.1.
+    private func clientHello() -> Data {
+        var ext = Data()
+        // server_name ext: type 0x0000, len 16, list len 14, type 0, name len 11
+        var sni = Data([0x00, 0x00, 0x00, 0x10, 0x00, 0x0e, 0x00, 0x00, 0x0b])
+        sni.append(Data("example.com".utf8))
+        ext.append(sni)
+        // alpn: list len 8, "h2", "http/1.1" -> list = 02 h2 08 http/1.1 = 12 bytes
+        var alpnBody = Data([0x00, 0x0c, 0x02])
+        alpnBody.append(Data("h2".utf8))
+        alpnBody.append(0x08)
+        alpnBody.append(Data("http/1.1".utf8))
+        var alpnExt = Data([0x00, 0x10])
+        alpnExt.append(UInt8(alpnBody.count >> 8)); alpnExt.append(UInt8(alpnBody.count & 0xff))
+        alpnExt.append(alpnBody)
+        ext.append(alpnExt)
+
+        var body = Data([0x03, 0x03]) // TLS1.2
+        body.append(Data(repeating: 0xaa, count: 32)) // random
+        body.append(0x00) // session id len
+        body.append(contentsOf: [0x00, 0x02, 0x13, 0x01]) // cipher suites
+        body.append(contentsOf: [0x01, 0x00]) // compression
+        body.append(UInt8(ext.count >> 8)); body.append(UInt8(ext.count & 0xff))
+        body.append(ext)
+        var hs = Data([0x01, UInt8((body.count >> 16) & 0xff), UInt8((body.count >> 8) & 0xff), UInt8(body.count & 0xff)])
+        hs.append(body)
+        var rec = Data([0x16, 0x03, 0x01, UInt8((hs.count >> 8) & 0xff), UInt8(hs.count & 0xff)])
+        rec.append(hs)
+        return rec
+    }
+
+    func testTLS() {
+        XCTAssertEqual(NCSniffer.detect(clientHello()), .tls(sni: "example.com", alpn: ["h2", "http/1.1"]))
+        XCTAssertEqual(NCSniffer.detect(Data([0x16, 0x03])), .unknown)
+    }
+
+    func testHTTP() {
+        let req = Data("GET /x HTTP/1.1\r\nHost: www.example.com:8080\r\nUser-Agent: t\r\n\r\n".utf8)
+        XCTAssertEqual(NCSniffer.detect(req), .http(host: "www.example.com", method: "GET"))
+        XCTAssertEqual(NCSniffer.detect(Data([0x00, 0x01, 0x02])), .unknown)
+    }
+}
+
+final class NativeCoreTrojanTests: XCTestCase {
+    func testSHA() {
+        // FIPS 180-4 example vectors.
+        XCTAssertEqual(hex(NCSHA256.hash(Data("abc".utf8))),
+                       "ba7816bf8f01cfea414140de5dae2223b00361a396177a9cb410ff61f20015ad")
+        XCTAssertEqual(hex(NCSHA256.hash(Data("abc".utf8), variant224: true)),
+                       "23097d223405d8228642a477bda255b32aadbce4bda0b3f7e36c9da7")
+        XCTAssertEqual(hex(NCSHA256.hash(Data())),
+                       "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855")
+        // 56-byte message exercises the padding boundary.
+        let long = Data("abcdbcdecdefdefgefghfghighijhijkijkljklmklmnlmnomnopnopq".utf8)
+        XCTAssertEqual(hex(NCSHA256.hash(long)),
+                       "248d6a61d20638b8e5c026930c3e6039a33ce45964ff2167f6ecedd419db06c1")
+    }
+
+    func testTrojanHead() {
+        let head = NCTrojan.requestHead(password: "password", target: NCTarget(host: "example.com", port: 443))
+        let hashHex = NCTrojan.passwordHashHex("password")
+        XCTAssertEqual(hashHex.count, 56)
+        XCTAssertTrue(String(decoding: head, as: UTF8.self).hasPrefix(hashHex + "\r\n"))
+        XCTAssertEqual(head[58], 0x01) // CMD connect after hash(56) + CRLF(2)
+        XCTAssertEqual(Data(head.suffix(2)), Data([0x0d, 0x0a]))
     }
 }

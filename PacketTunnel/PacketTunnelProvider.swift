@@ -79,6 +79,7 @@ final class PacketTunnelProvider: NEPacketTunnelProvider {
     private let notifier = ScriptNotifier()
     private let memoryProbe = ExtensionMemoryProbe()
     private var bridge: PacketFlowBridge?
+    private var nativePlane: NCDataPlane?
     private var memoryGuard: MemoryGuard?
     private var traffic: TrafficRecorder?
     private var liveStats: LiveStatsSampler?
@@ -178,6 +179,26 @@ final class PacketTunnelProvider: NEPacketTunnelProvider {
                 return
             }
             StartupLog.write("settings applied")
+            // Native core (docs/native-core-design.md): opt-in experimental data
+            // plane replacing the Go core for this start. Any failure falls back
+            // to the normal Go path below.
+            if NativeCoreSwitch.isEnabled {
+                let engine = NativeCoreEngine()
+                if let msg = engine.load(home: AppShared.homeURL.path) {
+                    StartupLog.write("native core config failed, falling back to Go core: \(msg)")
+                } else {
+                    let plane = NCDataPlane(engine: engine, flow: self.packetFlow, mtu: UInt16(clamping: overrides.tunMTU))
+                    do {
+                        try plane.start()
+                        self.stopLock.lock(); self.nativePlane = plane; self.stopLock.unlock()
+                        StartupLog.write("native core data plane up, \(engine.statsLine)")
+                        completionHandler(nil)
+                        return
+                    } catch {
+                        StartupLog.write("native core start failed, falling back to Go core: \(error.localizedDescription)")
+                    }
+                }
+            }
             var fd: Int32 = 0
             if !proxyOnly {
                 let b = PacketFlowBridge(flow: self.packetFlow)
@@ -324,6 +345,7 @@ final class PacketTunnelProvider: NEPacketTunnelProvider {
         TunnelStopReason.clearAlive() // fix/vpn-stays-on: a clean stop (after the traffic timer can no longer re-mark)
         LibmihomoStop()
         LibmihomoDumpDiagnostics()
+        takeNativePlane()?.stop()
         takeBridge()?.stop()
         completionHandler()
     }
@@ -340,6 +362,14 @@ final class PacketTunnelProvider: NEPacketTunnelProvider {
         let b = bridge
         bridge = nil
         return b
+    }
+
+    /// Removes and returns the native data plane exactly once.
+    private func takeNativePlane() -> NCDataPlane? {
+        stopLock.lock(); defer { stopLock.unlock() }
+        let p = nativePlane
+        nativePlane = nil
+        return p
     }
 
     /// The traffic recorder, read under stopLock (handleAppMessage / sleep run on the NE queue).

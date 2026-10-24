@@ -1,0 +1,230 @@
+import Foundation
+import Network
+
+/// A ready-to-relay stream: plaintext in, plaintext out. For Shadowsocks the
+/// transform happens inside; callers never see wire bytes.
+protocol NCRelayStream: AnyObject {
+    func send(_ data: Data)
+    func receive(_ handler: @escaping (Data?, Error?) -> Void)
+    func cancel()
+}
+
+extension NCStream: NCRelayStream {}
+
+/// Shadowsocks relay: encodes on send (target address is the first plaintext
+/// chunk, sent at connect time), decodes on receive, swallowing chunks that
+/// carry only salt/framing (receive again until real plaintext or EOF).
+final class NCSSRelayStream: NCRelayStream {
+    private let raw: NCStream
+    private let encoder: NCSSEncoder
+    private let decoder: NCSSDecoder
+
+    init(raw: NCStream, encoder: NCSSEncoder, decoder: NCSSDecoder, target: NCTarget) {
+        self.raw = raw
+        self.encoder = encoder
+        self.decoder = decoder
+        if let head = encoder.encode(target.atypEncoded) {
+            raw.send(head)
+        }
+    }
+
+    func send(_ data: Data) {
+        if let wire = encoder.encode(data) { raw.send(wire) }
+        else { raw.cancel() }
+    }
+
+    func receive(_ handler: @escaping (Data?, Error?) -> Void) {
+        raw.receive { [weak self] data, error in
+            guard let self else { handler(nil, error); return }
+            guard let data else { handler(nil, error); return }
+            guard let plain = self.decoder.feed(data) else {
+                handler(nil, NSError(domain: "NativeCore", code: 3, userInfo: [NSLocalizedDescriptionKey: "shadowsocks decode failed"]))
+                return
+            }
+            if plain.isEmpty {
+                self.receive(handler)
+            } else {
+                handler(plain, nil)
+            }
+        }
+    }
+
+    func cancel() { raw.cancel() }
+}
+
+enum NCConnector {
+    enum Failure: Error {
+        case rejected
+        case unknownPolicy(String)
+        case unsupported(String)
+        case handshake(String)
+    }
+
+    /// Opens a relay stream to `target` through the resolved outbound.
+    /// Completion fires on `queue` exactly once.
+    static func connect(target: NCTarget,
+                        resolution: NCGroupEngine.Resolution,
+                        queue: DispatchQueue,
+                        completion: @escaping (NCRelayStream?, Error?) -> Void) {
+        switch resolution {
+        case .direct:
+            let s = NCStream(to: target.host, port: target.port, queue: queue)
+            s.start { err in completion(err == nil ? s : nil, err) }
+        case .reject:
+            queue.async { completion(nil, Failure.rejected) }
+        case .unknown(let name):
+            queue.async { completion(nil, Failure.unknownPolicy(name)) }
+        case .proxy(let proxy):
+            connectViaProxy(target: target, proxy: proxy, queue: queue, completion: completion)
+        }
+    }
+
+    private static func connectViaProxy(target: NCTarget, proxy: NCProxy, queue: DispatchQueue,
+                                        completion: @escaping (NCRelayStream?, Error?) -> Void) {
+        guard let server = proxy.server, let port = proxy.port else {
+            queue.async { completion(nil, Failure.handshake("proxy \(proxy.name) missing server/port")) }
+            return
+        }
+        switch proxy.type {
+        case "socks5":
+            let raw = NCStream(to: server, port: port, queue: queue)
+            raw.start { err in
+                guard err == nil else { completion(nil, err); return }
+                socksHandshake(raw: raw, target: target, proxy: proxy, completion: completion)
+            }
+        case "http", "https":
+            let raw = NCStream(to: server, port: port, tls: proxy.type == "https", queue: queue)
+            raw.start { err in
+                guard err == nil else { completion(nil, err); return }
+                httpHandshake(raw: raw, target: target, proxy: proxy, completion: completion)
+            }
+        case "ss":
+            guard let cipher = proxy.cipher, let password = proxy.password,
+                  let enc = NCSSEncoder(cipher: cipher, password: password),
+                  let dec = NCSSDecoder(cipher: cipher, password: password) else {
+                queue.async { completion(nil, Failure.handshake("bad shadowsocks cipher/password")) }
+                return
+            }
+            let raw = NCStream(to: server, port: port, queue: queue)
+            raw.start { err in
+                guard err == nil else { completion(nil, err); return }
+                completion(NCSSRelayStream(raw: raw, encoder: enc, decoder: dec, target: target), nil)
+            }
+        default:
+            queue.async { completion(nil, Failure.unsupported(proxy.type)) }
+        }
+    }
+
+    // MARK: SOCKS5 handshake
+
+    private static func socksHandshake(raw: NCStream, target: NCTarget, proxy: NCProxy,
+                                       completion: @escaping (NCRelayStream?, Error?) -> Void) {
+        let username = proxy.fields["username"]?.string
+        let password = proxy.fields["password"]?.string
+        let buf = NCByteBuffer()
+        raw.send(NCSOCKS5.greeting(username: username, password: password))
+        receiveInto(raw: raw, buf: buf, atLeast: 2) { error in
+            guard error == nil, buf.count >= 2 else { completion(nil, error ?? Failure.handshake("socks greeting")); return }
+            let head = buf.take(2)
+            guard head[0] == 0x05 else { completion(nil, Failure.handshake("socks bad version")); return }
+            switch head[1] {
+            case 0x00:
+                socksRequest(raw: raw, target: target, buf: buf, completion: completion)
+            case 0x02:
+                guard let u = username else { completion(nil, Failure.handshake("socks auth required")); return }
+                raw.send(NCSOCKS5.authRequest(username: u, password: password ?? ""))
+                receiveInto(raw: raw, buf: buf, atLeast: 2) { error in
+                    guard error == nil, buf.count >= 2 else { completion(nil, error ?? Failure.handshake("socks auth")); return }
+                    let authResp = buf.take(2)
+                    guard authResp[1] == 0x00 else { completion(nil, Failure.handshake("socks auth failed")); return }
+                    socksRequest(raw: raw, target: target, buf: buf, completion: completion)
+                }
+            default:
+                completion(nil, Failure.handshake("socks method \(head[1])"))
+            }
+        }
+    }
+
+    private static func socksRequest(raw: NCStream, target: NCTarget, buf: NCByteBuffer,
+                                     completion: @escaping (NCRelayStream?, Error?) -> Void) {
+        raw.send(NCSOCKS5.connectRequest(target: target))
+        func step() {
+            if let (need, rep) = NCSOCKS5.parseResponse(buf.data) {
+                _ = buf.take(need)
+                guard rep == 0 else { completion(nil, Failure.handshake("socks reply \(rep)")); return }
+                // Any buffered remainder is early payload: replay it to the first receiver.
+                completion(NCBufferedStream(inner: raw, prefix: buf.data), nil)
+                return
+            }
+            raw.receive { data, error in
+                guard let data else { completion(nil, error ?? Failure.handshake("socks eof")); return }
+                buf.append(data)
+                step()
+            }
+        }
+        step()
+    }
+
+    // MARK: HTTP CONNECT handshake
+
+    private static func httpHandshake(raw: NCStream, target: NCTarget, proxy: NCProxy,
+                                      completion: @escaping (NCRelayStream?, Error?) -> Void) {
+        let username = proxy.fields["username"]?.string
+        let password = proxy.fields["password"]?.string
+        raw.send(NCHTTPProxy.connectRequest(target: target, username: username, password: password))
+        let buf = NCByteBuffer()
+        func step() {
+            if let range = buf.data.range(of: Data("\r\n\r\n".utf8)) {
+                let head = String(decoding: buf.data[buf.data.startIndex..<range.upperBound], as: UTF8.self)
+                _ = buf.take(range.upperBound - buf.data.startIndex)
+                guard head.contains(" 200") else { completion(nil, Failure.handshake("http connect: \(head.components(separatedBy: "\r\n").first ?? "?")")); return }
+                completion(NCBufferedStream(inner: raw, prefix: buf.data), nil)
+                return
+            }
+            raw.receive { data, error in
+                guard let data else { completion(nil, error ?? Failure.handshake("http eof")); return }
+                buf.append(data)
+                if buf.count > 16384 { completion(nil, Failure.handshake("http header too large")); return }
+                step()
+            }
+        }
+        step()
+    }
+
+    /// Accumulate into `buf` until it holds at least `n` bytes (or EOF/error).
+    private static func receiveInto(raw: NCStream, buf: NCByteBuffer, atLeast n: Int,
+                                    done: @escaping (Error?) -> Void) {
+        if buf.count >= n { done(nil); return }
+        raw.receive { data, error in
+            guard let data else { done(error ?? Failure.handshake("eof")); return }
+            buf.append(data)
+            receiveInto(raw: raw, buf: buf, atLeast: n, done: done)
+        }
+    }
+}
+
+/// Wraps a stream whose first inbound bytes were already read during the
+/// handshake: they are delivered before any fresh receive.
+final class NCBufferedStream: NCRelayStream {
+    private let inner: NCStream
+    private var prefix: Data
+
+    init(inner: NCStream, prefix: Data) {
+        self.inner = inner
+        self.prefix = prefix
+    }
+
+    func send(_ data: Data) { inner.send(data) }
+
+    func receive(_ handler: @escaping (Data?, Error?) -> Void) {
+        if !prefix.isEmpty {
+            let out = prefix
+            prefix = Data()
+            handler(out, nil)
+            return
+        }
+        inner.receive(handler)
+    }
+
+    func cancel() { inner.cancel() }
+}

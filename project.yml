@@ -104,6 +104,13 @@ targets:
         CODE_SIGN_ENTITLEMENTS: PacketTunnel/PacketTunnel.entitlements
         APPLICATION_EXTENSION_API_ONLY: YES
         SKIP_INSTALL: YES
+        # Native core (docs/native-core-design.md): vendored lwIP bridge.
+        SWIFT_OBJC_BRIDGING_HEADER: PacketTunnel/NativeCore/NCBridge.h
+        HEADER_SEARCH_PATHS:
+          - $(PROJECT_DIR)/PacketTunnel/NativeCore/lwip
+          - $(PROJECT_DIR)/PacketTunnel/NativeCore/lwip/include
+          - $(PROJECT_DIR)/PacketTunnel/NativeCore/lwip/port
+        GCC_PREPROCESSOR_DEFINITIONS: $(inherited)
 
   MihomoWidget:
     type: app-extension
