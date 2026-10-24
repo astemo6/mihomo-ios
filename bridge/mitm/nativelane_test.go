@@ -297,15 +297,18 @@ func TestLaneFailurePassesThroughAndTripsBreaker(t *testing.T) {
 func TestLaneTooBigPassesOriginal(t *testing.T) {
 	l := useFakeLane(t)
 	cfg := &Config{Enabled: true, MitM: true, Hostnames: []string{"api.test.com"}, Scripts: items(
-		`vip = type=http-response,pattern=^https://api\.test\.com/body,requires-body=1,max-size=4096,script-path=vip.js`)}
+		`vip = type=http-response,pattern=^https://api\.test\.com/body,requires-body=1,max-size=40000,script-path=vip.js`)}
 	h := newLaneHarness(t, cfg, map[string]string{"vip.js": vipJS})
-	// chunked gzip (no announced decoded size): decodes past max-size inside the lane
+	// ~33 KB of gzip (under max-size, so the lane takes it) decodes to 50 KB, past max-size inside the lane
 	resp, b := fetchBody(t, h, "https://api.test.com/body?enc=gzip&n=50000")
 	if !bytes.Equal(b, laneDoc(50000)) || resp.Header.Get("Content-Encoding") != "gzip" {
 		t.Fatalf("too-big body not passed through as received (enc %q, %d bytes)", resp.Header.Get("Content-Encoding"), len(b))
 	}
 	if notes := entryNotes(h.e); !strings.Contains(notes, "跳过脚本") {
 		t.Fatalf("notes %q", notes)
+	}
+	if l.opened.Load() != 1 {
+		t.Fatalf("the lane did not take the body (opened %d): the test no longer exercises the lane", l.opened.Load())
 	}
 	waitLive(t, l)
 }

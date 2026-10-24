@@ -96,7 +96,11 @@ func (e *Engine) loadBodyLane(f *flow, resp *http.Response, lane NativeBodies, e
 			passRaw()
 		default:
 			// lane failure (counted by laneLoad) or an upstream read error: pass through what we have
-			*respSkip = "原生响应体通道出错：" + shortErr(err)
+			if strings.HasPrefix(err.Error(), "lane: ") {
+				*respSkip = "原生响应体通道出错：" + shortErr(err)
+			} else {
+				*respSkip = "读取响应体出错：" + shortErr(err)
+			}
 			if res.consumed {
 				passRaw()
 			} else {
