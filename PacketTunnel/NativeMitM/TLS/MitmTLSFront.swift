@@ -10,7 +10,7 @@
 //     untouched buffer, and the failure kind goes to LibmihomoMitmNativeHandshakeFailed for pinning memory.
 // One listener per host: Network.framework fixes a listener's TLS identity at creation and has no public per-SNI
 // certificate callback. TLS: server identity = Go leaf, ALPN http/1.1 only, min TLS 1.2.
-// Not registered here — the `wire` lane calls register() behind the runtime switch (default off).
+// Not registered here — the `wire` lane calls register() behind the runtime switch (NativeMitmRuntime.defaultOn, iOS 17+).
 
 import Foundation
 import Libmihomo
@@ -64,11 +64,29 @@ final class MitmTLSFront: NSObject, LibmihomoNativeTLSFrontProtocol {
 
     func listen(_ host: String?, alpn: String?) -> Int64 {
         guard let host, !host.isEmpty else { return 0 }
+        // Admission (session cap + runtime switch, set by NativeMitmRuntime.install): decided here, before Go hands
+        // the connection over, so a declined connection still takes the Go path.
+        if let admit, !admit() { return 0 }
         switch port(for: host) {
         case .success(let p): return Int64(p)
-        case .failure: return 0
+        case .failure:
+            unadmit?()
+            return 0
         }
     }
+
+    /// Admission hooks (nil: admit everything). admit() true holds a slot that the accepted session claims;
+    /// unadmit() gives it back when no port could be offered.
+    var admit: (() -> Bool)? {
+        get { lock.lock(); defer { lock.unlock() }; return _admit }
+        set { lock.lock(); _admit = newValue; lock.unlock() }
+    }
+    var unadmit: (() -> Void)? {
+        get { lock.lock(); defer { lock.unlock() }; return _unadmit }
+        set { lock.lock(); _unadmit = newValue; lock.unlock() }
+    }
+    private var _admit: (() -> Bool)?
+    private var _unadmit: (() -> Void)?
 
     /// Port of the loopback TLS listener for host, created on first use.
     func port(for rawHost: String) -> Result<UInt16, NativeTLSError> {

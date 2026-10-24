@@ -399,6 +399,7 @@ func MemorySnapshot(footprint, peak, available int64) string {
 		"connections": conns,
 		"at":          time.Now().Unix(),
 		"tailscale":   ts,
+		"native":      nativeMitmStatus(),
 	})
 	return string(b)
 }

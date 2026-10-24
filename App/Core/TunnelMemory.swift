@@ -15,9 +15,27 @@ struct TunnelMemorySnapshot: Decodable, Equatable {
     var connections: Int?
     var at: Int64
     var tailscale: TailscaleGuardStatus?
+    /// native MitM stage 2 (iOS 17+): whether the native front is live, its open sessions, connections it took
+    /// over / that fell back to Go since the tunnel started. nil from extensions older than this field.
+    var native: NativeMitmMemoryStatus?
 
     /// The extension's limit as iOS applies it (footprint + what is still available), else ~50 MB.
     var limit: Int64 { available >= 0 ? footprint + available : 50 << 20 }
+}
+
+struct NativeMitmMemoryStatus: Decodable, Equatable {
+    var on: Bool
+    var sessions: Int?
+    var handed: Int64?
+    var fellBack: Int64?
+
+    /// 「原生解密」 row: 开启 · 3 个会话 · 已接手 120 / 关闭.
+    var text: String {
+        guard on else { return String(localized: "关闭") }
+        let s = sessions ?? 0, h = Int(handed ?? 0), f = Int(fellBack ?? 0)
+        return f > 0 ? String(localized: "开启 · \(s) 个会话 · 已接手 \(h) · 回退 \(f)")
+                     : String(localized: "开启 · \(s) 个会话 · 已接手 \(h)")
+    }
 }
 
 struct TailscaleGuardStatus: Decodable, Equatable {
@@ -123,6 +141,7 @@ struct TunnelMemorySection: View {
                     row("Go 堆 / 向系统申请", TunnelMemoryMonitor.mbText(h) + " / " + TunnelMemoryMonitor.mbText(s.goSys), id: "diag.memory.go", color: nil)
                 }
                 if let c = s.connections { row("连接数", "\(c)", id: "diag.memory.conns", color: nil) }
+                if let n = s.native { row("原生解密", n.text, id: "diag.memory.nativeMitm", color: nil) }
                 if let t = s.tailscale, t.nodes > 0 { tailscaleRows(t) }
             } else {
                 EmptyStateRow(icon: "memorychip", title: "暂无内存数据", message: "连接一次后显示隧道扩展的内存占用。")

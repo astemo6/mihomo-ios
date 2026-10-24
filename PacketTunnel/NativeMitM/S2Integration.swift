@@ -150,10 +150,9 @@ final class HTTPBodyDecoder: HTTPBodyDecoding {
 
 extension MitmTLSFront: MitmTLSFronting {
     func listen(host: String, alpn: String) -> Int64 {
-        // Session cap (memory): decline before the handshake so Go keeps the connection (first-byte fallback is
-        // not even needed). The switch itself is enforced by NativeMitmRuntime.install (unregistered when off).
-        guard NativeMitmRuntime.enabled, NativeMitmRuntime.canAccept else { return 0 }
-        return listen(host, alpn: alpn)
+        // Session cap (memory) + switch: MitmTLSFront.admit, installed by NativeMitmRuntime.install, declines before the
+        // handshake so Go keeps the connection (first-byte fallback is not even needed).
+        listen(host, alpn: alpn) // admission (switch + session cap) runs inside, as for Go's own call
     }
 
     var acceptHandler: ((MitmAcceptedConnection) -> Void)? {
@@ -221,4 +220,17 @@ extension NativeMitmRuntime {
     static func installDefault() -> Bool {
         install(front: MitmTLSFront.shared, upstream: UpstreamPoolConnector(), codec: HTTPLaneCodec())
     }
+}
+
+// MARK: - memory bench (UnitTests/NativeMitmMemoryTests only)
+
+/// Thin wrapper over the Go bench (bridge/s2bench.go) so the unit tests reach it through `@testable import`.
+/// Never called by the app or the tunnel.
+enum NativeMitmBench {
+    /// JSON {enginePort, ca} or {error}.
+    static func start() -> String { LibmihomoMitmBenchStart() }
+    /// JSON {heapInuse, sys, stack, goroutines, handed, fellBack} after a GC.
+    static func goMemory() -> String { LibmihomoMitmBenchMem() }
+    static func stop() { LibmihomoMitmBenchStop() }
+    static func relayPort() -> Int { Int(LibmihomoMitmRelayPort()) }
 }

@@ -228,13 +228,48 @@ final class NativeMitmSessionTests: XCTestCase {
         XCTAssertFalse(NativeMitmRuntime.canAccept)
     }
 
+    /// listen() reserves a slot for the hand-over it answers, so a burst cannot get past listen() beyond the cap and
+    /// then be refused after the handshake; the session claims it; unclaimed reservations expire.
+    func testListenReservationsHoldTheCap() {
+        NativeMitmRuntime.maxSessions = 2
+        let ttl = NativeMitmRuntime.reservationTTL
+        defer { NativeMitmRuntime.reservationTTL = ttl }
+        XCTAssertTrue(NativeMitmRuntime.reserve())
+        XCTAssertTrue(NativeMitmRuntime.reserve())
+        XCTAssertFalse(NativeMitmRuntime.reserve())
+        XCTAssertFalse(NativeMitmRuntime.canAccept)
+        XCTAssertTrue(NativeMitmRuntime.acquire()) // claims a reservation although live + reserved == cap
+        XCTAssertFalse(NativeMitmRuntime.reserve())
+        NativeMitmRuntime.release()
+        NativeMitmRuntime.unreserve()
+        XCTAssertTrue(NativeMitmRuntime.canAccept)
+        NativeMitmRuntime.reservationTTL = 0
+        Thread.sleep(forTimeInterval: 0.01)
+        XCTAssertTrue(NativeMitmRuntime.reserve()) // expired ones no longer count
+        NativeMitmRuntime.reservationTTL = 0
+        Thread.sleep(forTimeInterval: 0.01)
+        XCTAssertTrue(NativeMitmRuntime.canAccept)
+    }
+
     func testBusyAnswers503AndDecisionDecoding() {
         driver.begin = { _ in FlowDecision.decode(#"{"id":0,"action":"busy","length":0}"#) }
         run(Upstream(response: Data()), request: "GET / HTTP/1.1\r\nHost: ex.com\r\n\r\n")
         XCTAssertTrue(client.text.hasPrefix("HTTP/1.1 503"), client.text)
         XCTAssertEqual(FlowDecision.decode("not json").action, .error)
         XCTAssertEqual(FlowDecision.decode(#"{"id":5,"action":"weird","length":3}"#).action, .unknown)
-        XCTAssertFalse(NativeMitmRuntime.enabled) // default OFF
+    }
+
+    /// Key absent → NativeMitmRuntime.defaultOn; the app-group key is an override either way.
+    func testRuntimeSwitchDefaultAndOverride() {
+        let name = "NativeMitmSessionTests.\(UUID().uuidString)"
+        let d = UserDefaults(suiteName: name)!
+        defer { d.removePersistentDomain(forName: name) }
+        XCTAssertEqual(NativeMitmRuntime.enabled(in: d), NativeMitmRuntime.defaultOn)
+        XCTAssertEqual(NativeMitmRuntime.enabled(in: nil), NativeMitmRuntime.defaultOn)
+        d.set(false, forKey: NativeMitmRuntime.defaultsKey)
+        XCTAssertFalse(NativeMitmRuntime.enabled(in: d))
+        d.set(true, forKey: NativeMitmRuntime.defaultsKey)
+        XCTAssertTrue(NativeMitmRuntime.enabled(in: d))
     }
 
     // MARK: body de-framer (S2Integration.swift)

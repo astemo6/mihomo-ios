@@ -10,7 +10,7 @@
 //
 // Fallback: the session only exists after Go handed the connection over (first byte from the TLS lane). Before
 // that every failure is Go's first-byte fallback (nativeterm.go). The runtime switch (NativeMitmRuntime, default
-// OFF) decides whether the TLS front is registered at all; when off, or past the session cap, listen() answers 0
+// `defaultOn`, iOS 17+; app-group key nativeMitmStage2 overrides) decides whether the TLS front is registered at all; when off, or past the session cap, listen() answers 0
 // and Go terminates TLS itself — the Go path is the fallback for everything unsupported.
 // After the handover an error answers 502 if no response byte went out yet, else cuts the connection (never a
 // truncated body presented as complete).
@@ -25,12 +25,19 @@ import Libmihomo
 // MARK: - Runtime switch
 
 enum NativeMitmRuntime {
-    /// App-group default key; default OFF until device-verified.
+    /// App-group override key; an explicit value wins over `defaultOn`. iOS 17+ only (installDefault's caller).
     static let defaultsKey = "nativeMitmStage2"
+    /// Default when the key is absent. OFF until the memory comparison (UnitTests/NativeMitmMemoryTests,
+    /// bridge/mitm/s2burst_test.go) shows the native front lowering the tunnel's footprint.
+    static let defaultOn = false
     static let appGroup = "group.com.astemo6.mihomo"
 
-    static var enabled: Bool {
-        UserDefaults(suiteName: appGroup)?.bool(forKey: defaultsKey) ?? false
+    static var enabled: Bool { enabled(in: UserDefaults(suiteName: appGroup)) }
+
+    /// Absent key → `defaultOn`; an explicit value wins (false disables, true enables).
+    static func enabled(in defaults: UserDefaults?) -> Bool {
+        guard let defaults, defaults.object(forKey: defaultsKey) != nil else { return defaultOn }
+        return defaults.bool(forKey: defaultsKey)
     }
 
     /// Bounds (memory cap): live sessions, bytes buffered per session.
@@ -42,12 +49,39 @@ enum NativeMitmRuntime {
     private static var live = 0
     private static var ids: Int64 = 0
 
-    /// Whether another session may start (the TLS lane checks this in listen(); false → return 0 → Go path).
-    static var canAccept: Bool { lock.lock(); defer { lock.unlock() }; return live < maxSessions }
+    /// listen()-time reservations not yet claimed by a session (oldest first). Go asks listen() and then hands the
+    /// connection over; without a reservation a burst could pass listen() far beyond the cap and the sessions
+    /// over it would be refused after the handshake — too late for Go's fallback, the client saw a closed
+    /// connection. A reservation nobody claims (Go fell back before the handshake) expires.
+    private static var reserved: [Date] = []
+    static var reservationTTL: TimeInterval = 15
+
+    private static func pruneLocked() {
+        let now = Date()
+        reserved.removeAll { now.timeIntervalSince($0) > reservationTTL }
+    }
+
+    /// Whether another session may start (live + reserved below the cap).
+    static var canAccept: Bool { lock.lock(); defer { lock.unlock() }; pruneLocked(); return live + reserved.count < maxSessions }
     static var liveSessions: Int { lock.lock(); defer { lock.unlock() }; return live }
 
+    /// listen(): hold a slot for the connection Go is about to hand over. false → decline (Go terminates TLS).
+    static func reserve() -> Bool {
+        lock.lock(); defer { lock.unlock() }
+        pruneLocked()
+        guard live + reserved.count < maxSessions else { return false }
+        reserved.append(Date())
+        return true
+    }
+
+    /// listen() failed after reserve(): give the slot back.
+    static func unreserve() { lock.lock(); if !reserved.isEmpty { reserved.removeLast() }; lock.unlock() }
+
+    /// A session starts: claims the oldest reservation, else needs a free slot.
     static func acquire() -> Bool {
         lock.lock(); defer { lock.unlock() }
+        pruneLocked()
+        if !reserved.isEmpty { reserved.removeFirst(); live += 1; return true }
         guard live < maxSessions else { return false }
         live += 1; return true
     }
@@ -58,8 +92,13 @@ enum NativeMitmRuntime {
     @discardableResult
     static func install(front: MitmTLSFronting & LibmihomoNativeTLSFrontProtocol, upstream: MitmUpstreamConnecting,
                         codec: HTTPCodec, bodies: NativeBodyReading = NativeBodyStore.shared,
-                        driver: MitmFlowDriving = GoMitmFlowDriver()) -> Bool {
-        guard enabled else { LibmihomoSetNativeTLSFront(nil); return false }
+                        driver: MitmFlowDriving = GoMitmFlowDriver(), force: Bool = false) -> Bool {
+        guard force || enabled else { LibmihomoSetNativeTLSFront(nil); return false }
+        forced = force
+        if let f = front as? MitmTLSFront {
+            f.admit = { (NativeMitmRuntime.forced || NativeMitmRuntime.enabled) && NativeMitmRuntime.reserve() }
+            f.unadmit = { NativeMitmRuntime.unreserve() }
+        }
         front.acceptHandler = { conn in
             NativeMitmSession(conn: conn, codec: codec, upstream: upstream, driver: driver, bodies: bodies)?.start()
         }
@@ -67,7 +106,10 @@ enum NativeMitmRuntime {
         return true
     }
 
-    static func uninstall() { LibmihomoSetNativeTLSFront(nil) }
+    static func uninstall() { forced = false; LibmihomoSetNativeTLSFront(nil) }
+
+    /// install(force:) (the memory bench): listen() accepts regardless of the switch.
+    private(set) static var forced = false
 }
 
 extension NativeBodyStore: NativeBodyReading {}

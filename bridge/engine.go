@@ -102,6 +102,18 @@ func coreDial(ctx context.Context, network, addr, policy string) (net.Conn, erro
 	return inner.HandleTcp(tunnel.Tunnel, addr, policy)
 }
 
+// coreHandoff gives a native-upstream relay socket straight to the core: the same INNER metadata as
+// inner.HandleTcp (rules, policy pin, loop check see the same connection) without its in-memory pipe and
+// the engine-side goroutine pumping it (feat/s2-pipe).
+func coreHandoff(c net.Conn, addr, policy string) error {
+	metadata := &C.Metadata{NetWork: C.TCP, Type: C.INNER, DNSMode: C.DNSNormal, Process: C.MihomoName, SpecialProxy: policy}
+	if err := metadata.SetRemoteAddress(addr); err != nil {
+		return err
+	}
+	go tunnel.Tunnel.HandleTCPConn(c, metadata)
+	return nil
+}
+
 func engineLog(level, msg string) {
 	switch level {
 	case "error":
@@ -209,6 +221,7 @@ func planEngineWith(home string, cfg *mitm.Config) (func(raw map[string]any), *e
 		eng.SetGeoLookup(geoLookup)
 		eng.SetAPI(httpAPI)
 		eng.SetLoopCheck(mitmLoop)
+		eng.SetRelayHandoff(coreHandoff)
 		eng.Logs.SetHook(func(l mitm.LogLine) {
 			if l.Level != "debug" {
 				log.Infoln("[Script] %s: %s", l.Script, l.Msg)

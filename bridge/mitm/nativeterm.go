@@ -174,7 +174,7 @@ func (e *Engine) tryNativeTLS(mc *metaConn, host string) bool {
 		return true
 	}
 	termHanded.Add(1)
-	pipe(mc, &bufConn{Conn: nc, r: nbr})
+	handoffPipe(mc, &bufConn{Conn: nc, r: nbr}) // lean: leanpipe.go
 	return true
 }
 
@@ -303,3 +303,7 @@ func (e *Engine) NativeHandshakeFailed(host, kind string) bool {
 	e.Requests.AddFailure(host, "native handshake: "+kind)
 	return pin
 }
+
+// NativeFrontActive reports whether a native front is registered and its breaker has not switched it off
+// (diagnostics: 隧道内存).
+func NativeFrontActive() bool { return termNow() != nil }

@@ -115,6 +115,22 @@ func (r *Relay) serve(c net.Conn) {
 		target = net.JoinHostPort(target, "443")
 	}
 	policy := req.Header.Get("X-Tern-Policy")
+	if h := r.e.relayTo.Load(); h != nil && br.Buffered() == 0 {
+		// feat/s2-pipe: hand the socket itself to the core (no pipe, no goroutine of ours). The dial happens
+		// inside the core after the 200, so a failed dial closes the connection instead of answering 502 —
+		// the native upstream treats both the same (502 to its client).
+		_ = c.SetReadDeadline(time.Time{})
+		if _, err := io.WriteString(c, "HTTP/1.1 200 Connection established\r\n\r\n"); err != nil {
+			_ = c.Close()
+			return
+		}
+		if err := (*h)(c, target, policy); err != nil {
+			_ = c.Close()
+			return
+		}
+		r.Dials.Add(1)
+		return
+	}
 	ctx, cancel := context.WithTimeout(context.Background(), 20*time.Second)
 	up, err := r.e.dial(ctx, "tcp", target, policy)
 	cancel()
@@ -130,7 +146,23 @@ func (r *Relay) serve(c net.Conn) {
 		_ = up.Close()
 		return
 	}
-	pipe(&bufConn{Conn: c, r: br}, up)
+	handoffPipe(&bufConn{Conn: c, r: br}, up) // lean: leanpipe.go
+}
+
+// ConnHandoffFunc takes over c (an accepted relay socket, CONNECT already answered) and connects it to target
+// through the core with policy ("" = rules), exactly like a dial would — mihomo's tunnel.HandleTCPConn with an
+// INNER metadata, minus the in-memory pipe inner.HandleTcp adds. It must not block on the connection's life;
+// an error means c was not taken (the relay closes it).
+type ConnHandoffFunc func(c net.Conn, target, policy string) error
+
+// SetRelayHandoff installs (nil: removes) the relay's socket handoff. Without one the relay dials through
+// e.dial and pipes, as before.
+func (e *Engine) SetRelayHandoff(h ConnHandoffFunc) {
+	if h == nil {
+		e.relayTo.Store(nil)
+		return
+	}
+	e.relayTo.Store(&h)
 }
 
 func sanitizeHeader(s string) string {

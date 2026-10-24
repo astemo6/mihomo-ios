@@ -164,8 +164,8 @@ final class PacketTunnelProvider: NEPacketTunnelProvider {
         } else {
             StartupLog.write("native body lane: off (needs JavaScriptCore)")
         }
-        // native MitM stage 2 (B9): native TLS front + HTTP/1.1 session, rules still decided in Go. Default OFF
-        // (app-group key nativeMitmStage2) until device-verified; iOS 17+ only (the upstream lane's CONNECT-proxied
+        // native MitM stage 2 (B9): native TLS front + HTTP/1.1 session, rules still decided in Go. Default
+        // NativeMitmRuntime.defaultOn (app-group key nativeMitmStage2 overrides); iOS 17+ only (the upstream lane's CONNECT-proxied
         // TLS needs it). Off / declined / over the session cap → Go terminates TLS itself, as before.
         if #available(iOS 17, *) {
             StartupLog.write("native MitM stage 2: \(NativeMitmRuntime.installDefault() ? "on" : "off")")
@@ -463,7 +463,14 @@ enum MemorySnapshotWriter {
         trackedPeak = max(trackedPeak, fp)
         let peak = max(trackedPeak, ProcessMemory.peakBytes())
         lock.unlock()
-        let json = LibmihomoMemorySnapshot(Int64(fp), Int64(peak), Int64(avail))
+        var json = LibmihomoMemorySnapshot(Int64(fp), Int64(peak), Int64(avail))
+        // native MitM stage 2: Go reports on / handed / fellBack; the live session count is Swift's.
+        if var obj = (try? JSONSerialization.jsonObject(with: Data(json.utf8))) as? [String: Any],
+           var native = obj["native"] as? [String: Any] {
+            native["sessions"] = NativeMitmRuntime.liveSessions
+            obj["native"] = native
+            if let d = try? JSONSerialization.data(withJSONObject: obj), let s = String(data: d, encoding: .utf8) { json = s }
+        }
         TunnelMemoryFile.write(json)
         return json
     }

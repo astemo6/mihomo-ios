@@ -78,7 +78,8 @@ type Engine struct {
 	geo      atomic.Pointer[GeoLookup]
 	api      atomic.Pointer[APIFunc]
 
-	relay *Relay // feat/native-mitm: upstream relay for the native front (relay.go), under tmu
+	relay   *Relay                          // feat/native-mitm: upstream relay for the native front (relay.go), under tmu
+	relayTo atomic.Pointer[ConnHandoffFunc] // feat/s2-pipe: relay hands its socket to the core (relay.go)
 
 	loop     atomic.Pointer[LoopFunc]
 	loopLog  atomic.Int64 // unix seconds of the last loop warning

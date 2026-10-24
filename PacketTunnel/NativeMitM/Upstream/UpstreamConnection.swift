@@ -154,6 +154,10 @@ final class UpstreamConnection: UpstreamByteStream, CustomStringConvertible {
 
     deinit { conn.cancel() }
 
+    /// Memory bench only (UnitTests/NativeMitmMemoryTests): the bench origin's certificate is signed by a throwaway
+    /// CA the system does not trust. Never set by the app or the tunnel.
+    static var trustAnyOriginForTesting = false
+
     /// Opens a connection to `target` through the relay on 127.0.0.1:`relayPort`. The returned object can be
     /// `close()`d to abort the open (completion then reports `.cancelled`). Completion runs once, on `queue`.
     @discardableResult
@@ -180,6 +184,9 @@ final class UpstreamConnection: UpstreamByteStream, CustomStringConvertible {
             let sec = tls.securityProtocolOptions
             if !target.isIPLiteral { sec_protocol_options_set_tls_server_name(sec, target.host) }
             sec_protocol_options_add_tls_application_protocol(sec, "http/1.1")
+            if trustAnyOriginForTesting {
+                sec_protocol_options_set_verify_block(sec, { _, _, complete in complete(true) }, queue)
+            }
             let params = NWParameters(tls: tls, tcp: tcp)
             let ctx = NWParameters.PrivacyContext(description: "tern.nativemitm.upstream")
             ctx.proxyConfigurations = [ProxyConfiguration(httpCONNECTProxy: .hostPort(host: "127.0.0.1", port: rport), tlsOptions: nil)]
