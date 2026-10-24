@@ -388,6 +388,12 @@ final class NCDataPlane {
             session = vl
         case .proxy(let proxy) where proxy.type == "trojan":
             session = NCUDPTrojanSession(proxy: proxy, firstTarget: target, queue: queue)
+        case .proxy(let proxy) where proxy.type == "snell":
+            guard let sn = NCUDPSnellSession(proxy: proxy, queue: queue) else {
+                udpDropped += 1
+                return
+            }
+            session = sn
         default:
             udpDropped += 1
             return

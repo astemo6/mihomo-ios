@@ -370,6 +370,88 @@ final class NCUDPSSSession: NCUDPSession {
     }
 }
 
+/// Snell UDP (v3+): packets ride a dedicated TCP connection that begins
+/// with the UDP command header. v3 carries each packet as one AEAD stream
+/// chunk; v4 as one frame. Responses use Snell's response address format.
+final class NCUDPSnellSession: NCUDPSession {
+    var onReply: (Data) -> Void = { _ in }
+    private let raw: NCStream
+    private let version: Int
+    private let encoder: NCSnellStreamEncoder?
+    private let decoder: NCSnellStreamDecoder?
+    private let v4Writer: NCSnellV4Writer?
+    private let v4Reader: NCSnellV4Reader?
+    private var cancelled = false
+
+    init?(proxy: NCProxy, queue: DispatchQueue) {
+        guard let password = proxy.password, let server = proxy.server, let port = proxy.port
+        else { return nil }
+        let version = proxy.fields["version"]?.int ?? 1
+        guard version >= 3 else { return nil }
+        self.version = version
+        let psk = Data(password.utf8)
+        if version >= 4 {
+            v4Writer = NCSnellV4Writer(psk: psk)
+            v4Reader = NCSnellV4Reader(psk: psk)
+            encoder = nil
+            decoder = nil
+        } else {
+            v4Writer = nil
+            v4Reader = nil
+            encoder = NCSnellStreamEncoder(psk: psk, version: version)
+            decoder = NCSnellStreamDecoder(psk: psk, version: version)
+        }
+        raw = NCStream(to: server, port: port, queue: queue)
+        raw.start { [weak self] err in
+            guard let self, err == nil else { return }
+            if let v4Writer {
+                if let wire = v4Writer.write(NCSnell.udpHeader()) { self.raw.send(wire) }
+            } else if let encoder {
+                if let wire = encoder.encode(NCSnell.udpHeader()) { self.raw.send(wire) }
+            }
+            self.receiveLoop()
+        }
+    }
+
+    private func receiveLoop() {
+        raw.receive { [weak self] data, error in
+            guard let self, !self.cancelled else { return }
+            guard let data else { return }
+            if let v4Reader {
+                if let pieces = v4Reader.feed(data) {
+                    for piece in pieces {
+                        if case .data(let plain) = piece,
+                           let parsed = NCSnell.parseUDPResponse(plain) {
+                            self.onReply(parsed.1)
+                        }
+                    }
+                }
+            } else if let decoder, let pieces = decoder.feed(data) {
+                for plain in pieces {
+                    if let parsed = NCSnell.parseUDPResponse(plain) {
+                        self.onReply(parsed.1)
+                    }
+                }
+            }
+            if error == nil { self.receiveLoop() }
+        }
+    }
+
+    func send(_ data: Data, to target: NCTarget) {
+        let frame = NCSnell.udpFrame(target: target, payload: data)
+        if let v4Writer {
+            if let wire = v4Writer.frame(frame) { raw.send(wire) }
+        } else if let encoder {
+            if let wire = encoder.encode(frame) { raw.send(wire) }
+        }
+    }
+
+    func cancel() {
+        cancelled = true
+        raw.cancel()
+    }
+}
+
 /// Trojan UDP: packets ride the TLS stream (UDP command in the request head),
 /// framed as ATYP + length + CRLF + payload.
 final class NCUDPTrojanSession: NCUDPSession {

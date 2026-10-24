@@ -94,6 +94,131 @@ final class NCSS2022RelayStream: NCRelayStream {
     func cancel() { raw.cancel() }
 }
 
+/// Strips the one-byte Snell server reply off the start of the plaintext
+/// stream; an error reply surfaces as a failure on the pending receive.
+final class NCSnellReplyStripper {
+    private var buffer = Data()
+    private(set) var done = false
+    private(set) var failure: String?
+
+    /// Feed plaintext; returns deliverable payload (nil = need more bytes
+    /// or the stream is dead — check `failure`).
+    func feed(_ data: Data) -> Data? {
+        if done { return data }
+        buffer.append(data)
+        switch NCSnell.parseReply(buffer) {
+        case .ok(let consumed):
+            done = true
+            let rest = Data(buffer.dropFirst(consumed))
+            buffer = Data()
+            return rest
+        case .error(let msg):
+            failure = msg
+            return nil
+        case .pending:
+            return nil
+        }
+    }
+}
+
+/// Snell v1–v3 relay: SS-framed AEAD stream + connect header + reply byte.
+final class NCSnellStreamRelay: NCRelayStream {
+    private let raw: NCStream
+    private let encoder: NCSnellStreamEncoder
+    private let decoder: NCSnellStreamDecoder
+    private let stripper = NCSnellReplyStripper()
+
+    init(raw: NCStream, psk: Data, version: Int, target: NCTarget) {
+        self.raw = raw
+        encoder = NCSnellStreamEncoder(psk: psk, version: version)
+        decoder = NCSnellStreamDecoder(psk: psk, version: version)
+        if let wire = encoder.encode(NCSnell.connectHeader(host: target.host, port: target.port, version: version)) {
+            raw.send(wire)
+        }
+    }
+
+    func send(_ data: Data) {
+        if let wire = encoder.encode(data) { raw.send(wire) }
+        else { raw.cancel() }
+    }
+
+    func receive(_ handler: @escaping (Data?, Error?) -> Void) {
+        raw.receive { [weak self] data, error in
+            guard let self else { handler(nil, error); return }
+            guard let data else { handler(nil, error); return }
+            guard let pieces = self.decoder.feed(data) else {
+                handler(nil, NSError(domain: "NativeCore", code: 4, userInfo: [NSLocalizedDescriptionKey: "snell decode failed"]))
+                return
+            }
+            for piece in pieces {
+                if let out = self.stripper.feed(piece), !out.isEmpty {
+                    handler(out, nil)
+                    return
+                }
+                if let failure = self.stripper.failure {
+                    handler(nil, NSError(domain: "NativeCore", code: 4, userInfo: [NSLocalizedDescriptionKey: failure]))
+                    return
+                }
+            }
+            self.receive(handler)
+        }
+    }
+
+    func cancel() { raw.cancel() }
+}
+
+/// Snell v4/v5 relay: frame-based stream + connect header + reply byte.
+final class NCSnellV4Relay: NCRelayStream {
+    private let raw: NCStream
+    private let writer: NCSnellV4Writer
+    private let reader: NCSnellV4Reader
+    private let stripper = NCSnellReplyStripper()
+
+    init(raw: NCStream, psk: Data, target: NCTarget) {
+        self.raw = raw
+        writer = NCSnellV4Writer(psk: psk)
+        reader = NCSnellV4Reader(psk: psk)
+        if let wire = writer.write(NCSnell.connectHeader(host: target.host, port: target.port, version: 4)) {
+            raw.send(wire)
+        }
+    }
+
+    func send(_ data: Data) {
+        if let wire = writer.write(data) { raw.send(wire) }
+        else { raw.cancel() }
+    }
+
+    func receive(_ handler: @escaping (Data?, Error?) -> Void) {
+        raw.receive { [weak self] data, error in
+            guard let self else { handler(nil, error); return }
+            guard let data else { handler(nil, error); return }
+            guard let pieces = self.reader.feed(data) else {
+                handler(nil, NSError(domain: "NativeCore", code: 4, userInfo: [NSLocalizedDescriptionKey: "snell v4 decode failed"]))
+                return
+            }
+            for piece in pieces {
+                switch piece {
+                case .end:
+                    handler(nil, nil)
+                    return
+                case .data(let plain):
+                    if let out = self.stripper.feed(plain), !out.isEmpty {
+                        handler(out, nil)
+                        return
+                    }
+                    if let failure = self.stripper.failure {
+                        handler(nil, NSError(domain: "NativeCore", code: 4, userInfo: [NSLocalizedDescriptionKey: failure]))
+                        return
+                    }
+                }
+            }
+            self.receive(handler)
+        }
+    }
+
+    func cancel() { raw.cancel() }
+}
+
 enum NCConnector {
     enum Failure: Error {
         case rejected
@@ -167,6 +292,22 @@ enum NCConnector {
             raw.start { err in
                 guard err == nil else { completion(nil, err); return }
                 completion(NCSSRelayStream(raw: raw, encoder: enc, decoder: dec, target: target), nil)
+            }
+        case "snell":
+            guard let password = proxy.password else {
+                queue.async { completion(nil, Failure.handshake("snell missing psk")) }
+                return
+            }
+            let version = proxy.fields["version"]?.int ?? 1
+            let psk = Data(password.utf8)
+            let raw = NCStream(to: server, port: port, queue: queue)
+            raw.start { err in
+                guard err == nil else { completion(nil, err); return }
+                if version >= 4 {
+                    completion(NCSnellV4Relay(raw: raw, psk: psk, target: target), nil)
+                } else {
+                    completion(NCSnellStreamRelay(raw: raw, psk: psk, version: version, target: target), nil)
+                }
             }
         case "trojan":
             guard let password = proxy.password else {
