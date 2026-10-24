@@ -62,3 +62,14 @@
 - 协议/规则语义：与 mihomo 差分（同配置、同输入，比命中策略/DNS 应答/REST 输出）。
 - 真机（用户负责）：装包后看诊断 → 隧道内存曲线，对照现版本 26–29 MB 起步 /
   40 MB 平台期；浸泡与 jetsam 观察按 C 线清单执行。
+
+## 平台限制记录（2026-10-24 核查）
+
+- **TUIC（v4/v5）暂不可行**：① TUIC 的 Authenticate / Packet / Dissociate /
+  Heartbeat 命令全部走 QUIC 单向流，而 Network.framework 的 NWConnectionGroup
+  只暴露双向流提取（`extract(connectionTo:using:)`），无公开的单向流 API；
+  ② v5 的认证令牌还需 TLS ExportKeyingMaterial（RFC 5705 exporter），
+  Network.framework 同样未暴露。绕行方案是内嵌完整 QUIC 栈（如 quiche/msquic
+  的 C 库），属独立立项量级，不在本批次内。连接器对 tuic 类型返回明确的
+  unsupported 说明，不静默失败。
+- Hysteria2 的 QUIC datagram 绑定方式仍待真机验证（见 NCHysteria2 注释）。

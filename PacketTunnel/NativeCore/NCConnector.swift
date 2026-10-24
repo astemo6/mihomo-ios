@@ -208,6 +208,14 @@ enum NCConnector {
             }
         case "vmess":
             connectVMess(target: target, proxy: proxy, server: server, port: port, queue: queue, completion: completion)
+        case "tuic":
+            // Platform-blocked, see docs/native-core-design.md: TUIC auth
+            // and UDP commands live on QUIC unidirectional streams, which
+            // Network.framework does not expose (v5 also needs the TLS
+            // keying-material exporter). Fail loudly, never silently.
+            queue.async {
+                completion(nil, Failure.unsupported("tuic: needs QUIC uni streams + TLS exporter, unavailable in Network.framework"))
+            }
         default:
             queue.async { completion(nil, Failure.unsupported(proxy.type)) }
         }
