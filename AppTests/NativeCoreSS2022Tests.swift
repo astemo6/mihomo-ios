@@ -23,12 +23,15 @@ final class NativeCoreSS2022Tests: XCTestCase {
     private var password32: String { psk32.base64EncodedString() }
 
     func testSessionKeyVectors() {
+        // Ground truth from sing-shadowsocks2 shadowaead_2022.SessionKey
+        // (re-verified 2026-10-24 against the module source + a clean Go
+        // run; an earlier generation of this vector was wrong).
         let salt32 = Data((0..<32).map { UInt8(0x20 + $0) })
         XCTAssertEqual(hex(NCSS2022.sessionKey(psk: psk32, salt: salt32, keyLen: 32)),
-                       "ccc2e54e046b0d57ca1f81b9f1a2ba261aea75426b87e2062921d30209e11b09")
+                       "374fca03e4dae7f998fd7e59c1edfcc8e3197f4db1c19ca1671be3b66a92ddda")
         let salt16 = Data((0..<16).map { UInt8(0x20 + $0) })
         XCTAssertEqual(hex(NCSS2022.sessionKey(psk: Data(psk32.prefix(16)), salt: salt16, keyLen: 16)),
-                       "8f02550f215b98ec53d910ea25f70009")
+                       "8180421f8f56092ca7544a64ff852536")
     }
 
     func testPSKParsing() {
