@@ -35,13 +35,53 @@ final class AnalyticsHistory: ObservableObject {
     static let hostCap = 120
     private var dirty = false
     private var lastSave = Date.distantPast
-    private var url: URL { AppShared.containerURL.appendingPathComponent("analytics-history.json") }
+    private let url: URL
+    /// E 线 #3: the stored history is read and decoded off the main thread (up to 90 days × 120 hosts of
+    /// JSON). Until it is in, deltas collect in `days` and saving waits, so nothing on disk is lost or
+    /// overwritten; `finishLoad` merges the two.
+    private(set) var isLoaded = false
 
-    init() {
-        if let d = try? Data(contentsOf: url), let v = try? JSONDecoder().decode([Day].self, from: d) { days = v }
+    init(fileURL: URL? = nil) {
+        let url = fileURL ?? AppShared.containerURL.appendingPathComponent("analytics-history.json")
+        self.url = url
+        Task.detached(priority: .utility) { [weak self] in
+            let stored = AnalyticsHistory.read(url)
+            await self?.finishLoad(stored)
+        }
         NotificationCenter.default.addObserver(forName: UIApplication.didEnterBackgroundNotification, object: nil, queue: .main) { [weak self] _ in
             Task { @MainActor in self?.save(force: true) }
         }
+    }
+
+    nonisolated static func read(_ url: URL) -> [Day]? {
+        guard let d = try? Data(contentsOf: url) else { return nil }
+        return try? JSONDecoder().decode([Day].self, from: d)
+    }
+
+    private func finishLoad(_ stored: [Day]?) {
+        guard !isLoaded else { return } // clear() came first: the stored history is gone
+        isLoaded = true
+        if let stored, !stored.isEmpty {
+            days = Self.merge(stored: stored, live: days, keep: Self.keepDays)
+        }
+        if dirty { save(force: false) }
+    }
+
+    /// The stored days with the deltas counted before they were loaded added in (same day: summed),
+    /// oldest first (day keys are yyyy-MM-dd), at most `keep`.
+    nonisolated static func merge(stored: [Day], live: [Day], keep: Int) -> [Day] {
+        guard !live.isEmpty else { return stored }
+        var byDay = Dictionary(stored.map { ($0.day, $0) }, uniquingKeysWith: { a, _ in a })
+        for d in live {
+            guard var s = byDay[d.day] else { byDay[d.day] = d; continue }
+            s.direct = s.direct + d.direct
+            s.proxy = s.proxy + d.proxy
+            for (k, v) in d.policies { s.policies[k] = (s.policies[k] ?? Bytes()) + v }
+            for (k, v) in d.hosts { s.hosts[k] = (s.hosts[k] ?? Bytes()) + v }
+            byDay[d.day] = s
+        }
+        let out = byDay.values.sorted { $0.day < $1.day }
+        return out.count > keep ? Array(out.suffix(keep)) : out
     }
 
     /// Policies that count as direct (everything else with bytes is proxy). REJECT has no bytes.
@@ -76,7 +116,8 @@ final class AnalyticsHistory: ObservableObject {
     }
 
     func save(force: Bool) {
-        guard dirty, force || Date().timeIntervalSince(lastSave) > 60 else { return }
+        // Before the stored history is loaded a write would replace it with only the new deltas.
+        guard isLoaded, dirty, force || Date().timeIntervalSince(lastSave) > 60 else { return }
         dirty = false
         lastSave = Date()
         // Trim each stored day to the caps so the file stays small.
@@ -96,6 +137,7 @@ final class AnalyticsHistory: ObservableObject {
     func clear() {
         days = []
         dirty = false
+        isLoaded = true // a load still in flight must not bring the cleared history back
         try? FileManager.default.removeItem(at: url)
     }
 

@@ -13,7 +13,7 @@ import NetworkExtension
 /// write source for back-pressure, batched drains toward the system, and short back-off on ENOBUFS.
 /// This is an independent, smaller implementation for this project (also GPL-3.0).
 final class PacketFlowBridge {
-    private static let headerSize = 4
+    private static let headerSize = PacketFraming.headerSize
     private static let maxPacket = 65_535
     private static let socketBuffer: Int32 = 1 << 20
     private static let maxDrainBatch = 64
@@ -35,8 +35,15 @@ final class PacketFlowBridge {
     private var backoffScheduled = false
     private var backoffSteps = 0
 
-    /// Packets read from the system, waiting to be sent to the core.
-    private var pending: [Data] = []
+    /// Packets read from the system, waiting to be sent to the core. E 线 #2: kept as the system's own
+    /// `Data` plus its family and framed only at send time (`PacketFraming.send`, two iovecs), instead
+    /// of a new header + copy `Data` per packet.
+    private struct Outbound {
+        let packet: Data
+        let family: Int32
+        var size: Int { PacketFraming.headerSize + packet.count }
+    }
+    private var pending: [Outbound] = []
     private var pendingHead = 0
     private var pendingBytes = 0
     private var recvBuffer = [UInt8](repeating: 0, count: PacketFlowBridge.maxPacket + PacketFlowBridge.headerSize)
@@ -127,8 +134,8 @@ final class PacketFlowBridge {
                 guard self.running, self.generation == gen else { return }
                 self.readOutstanding = false
                 for (i, p) in packets.enumerated() {
-                    let family = i < protocols.count ? protocols[i].int32Value : Self.family(of: p)
-                    self.enqueue(Self.frame(p, family: family))
+                    let family = i < protocols.count ? protocols[i].int32Value : PacketFraming.family(of: p)
+                    self.enqueue(Outbound(packet: p, family: family))
                 }
                 self.packetsIn &+= UInt64(packets.count)
                 self.flushToCore()
@@ -137,24 +144,25 @@ final class PacketFlowBridge {
         }
     }
 
-    private func enqueue(_ frame: Data) {
-        guard pending.count - pendingHead < maxPendingPackets, pendingBytes + frame.count <= maxPendingBytes else {
+    private func enqueue(_ out: Outbound) {
+        let size = out.size
+        guard pending.count - pendingHead < maxPendingPackets, pendingBytes + size <= maxPendingBytes else {
             dropped &+= 1
             return
         }
-        pending.append(frame)
-        pendingBytes += frame.count
+        pending.append(out)
+        pendingBytes += size
     }
 
     private func flushToCore() {
         guard running, !backoffScheduled else { return }
         while pendingHead < pending.count {
-            let frame = pending[pendingHead]
-            let fd = flowFD
-            let n = frame.withUnsafeBytes { buf -> Int in send(fd, buf.baseAddress, buf.count, MSG_DONTWAIT) }
-            if n == frame.count {
+            let out = pending[pendingHead]
+            let size = out.size
+            let n = PacketFraming.send(fd: flowFD, family: out.family, packet: out.packet)
+            if n == size {
                 pendingHead += 1
-                pendingBytes -= frame.count
+                pendingBytes -= size
                 continue
             }
             let e = errno
@@ -172,7 +180,7 @@ final class PacketFlowBridge {
             // Oversized or broken datagram: drop it rather than wedge the queue.
             dropped &+= 1
             pendingHead += 1
-            pendingBytes -= frame.count
+            pendingBytes -= size
             if n < 0 && (e == EPIPE || e == EBADF || e == ECONNRESET) {
                 fail("send errno \(e)")
                 return
@@ -282,18 +290,6 @@ final class PacketFlowBridge {
     }
 
     // MARK: - framing
-
-    static func frame(_ packet: Data, family: Int32) -> Data {
-        var f = UInt32(bitPattern: family).bigEndian
-        var out = Data(bytes: &f, count: headerSize)
-        out.append(packet)
-        return out
-    }
-
-    static func family(of packet: Data) -> Int32 {
-        guard let first = packet.first else { return AF_INET }
-        return (first >> 4) == 6 ? AF_INET6 : AF_INET
-    }
 
     static func posix(_ call: String) -> NSError {
         let code = errno
