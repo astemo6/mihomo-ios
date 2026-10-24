@@ -162,7 +162,8 @@ func newDecoder(enc string, b []byte, limit int) (*decoder, error) {
 		}
 		return d, nil
 	case "br":
-		br := brotli.NewReader(bytes.NewReader(b))
+		// strict: a truncated br stream is a decode error, never a silently shorter body (brotlistrict.go)
+		br := newStrictBrotli(bytes.NewReader(b))
 		return &decoder{r: br, reset: func() error { return br.Reset(bytes.NewReader(b)) }, close: nop}, nil
 	case "zstd":
 		zr, err := zstd.NewReader(bytes.NewReader(b), zstd.WithDecoderLowmem(true), zstd.WithDecoderConcurrency(1), zstd.WithDecoderMaxMemory(uint64(limit)+1))
