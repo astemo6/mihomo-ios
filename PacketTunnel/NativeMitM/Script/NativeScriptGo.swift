@@ -160,6 +160,17 @@ final class NativeScriptHost: ScriptGoHost {
     private var slotSeq: Int64 = 0
     private var ticketSeq: Int64 = 0
     private var activeSlots: Int64 = 0
+    // large-body admission (bridge/mitm largebody.go)
+    private var waitingTokens: Set<Int64> = []
+    private var cancelledTokens: Set<Int64> = []
+    /// granted large-body limits by ticket, and their sum: concurrent grants share one budget (bodyHardMax).
+    private var largeGrants: [Int64: Int64] = [:]
+    private var largeCharged: Int64 = 0
+    /// ticket → rule, so bodyLoaded can remember how large a rule's bodies decode (the unknown-length estimate).
+    private var ticketRules: [Int64: Int] = [:]
+    private var bodyHints: [Int: Int64] = [:]
+    private var lastReclaim: TimeInterval = 0
+    private var jscCollectPending = false
 
     func ready() -> Bool { true }
 
@@ -169,7 +180,10 @@ final class NativeScriptHost: ScriptGoHost {
         return tokenSeq
     }
 
-    func cancel(_ token: Int64) {}
+    func cancel(_ token: Int64) {
+        lock.lock(); defer { lock.unlock() }
+        if waitingTokens.contains(token) { cancelledTokens.insert(token) }
+    }
 
     func reserve(gen: Int64, rule: Int, token: Int64) -> ScriptReserveAnswer {
         lock.lock(); defer { lock.unlock() }
@@ -293,7 +307,9 @@ final class NativeScriptHost: ScriptGoHost {
     static let maxScriptBody: Int64 = 4 << 20
     static let bodyHardMax: Int64 = 8 << 20
     static let bodyBudgetMin: Int64 = 256 << 10
-    static let largeBodyReserve: Int64 = 4 << 20
+    /// Kept free by the dynamic budget (bridge/mitm largebody.go: 3 MB, was 4 — the running script is interrupted
+    /// below 2.5 MB and the governor sheds connections at 3 MB, so 3 MB is the line nothing crosses).
+    static let largeBodyReserve: Int64 = 3 << 20
     static let bodyCopyFactor: Int64 = 3
 
     /// The body budget from the memory iOS still allows the extension (unknown → MaxScriptBody).
@@ -319,20 +335,210 @@ final class NativeScriptHost: ScriptGoHost {
         return "上限 \(limit >> 10) KB"
     }
 
+    // MARK: large-body admission (port of bridge/mitm/largebody.go, 8b29812 — astemo6/Muse)
+    //
+    // A body for a script on the dynamic budget is estimated before it is read (Content-Length × the encoding's
+    // typical ratio, or what this rule's bodies decoded to before when the length is unknown). When the budget is
+    // short of it, room is made first — JavaScriptCore garbage collected, the governor's reclaim (or malloc relief)
+    // — and the admission waits up to largeBodyWait for running scripts to end, with this flow's script slot given
+    // back meanwhile. A wait that ran out still admits the body at the tight budget ((avail − reserve) / 2) when the
+    // body's low estimate fits it.
+
+    static let largeBodyWait: TimeInterval = 4
+    static let largeBodyStall: TimeInterval = 1
+    static let largeBodyPoll: TimeInterval = 0.1
+    static let smallWorkMax: Int64 = 256 << 10
+    static let tightCopyFactor: Int64 = 2
+    /// below this the running script is interrupted anyway (handler.go bodyAvailFloor / scriptAvailFloor)
+    static let bodyAvailFloor: Int64 = 5 << 19
+
+    /// decoded / encoded size assumed for a body with a known Content-Length.
+    static func decodeRatio(_ enc: String) -> Int64 {
+        switch enc.trimmingCharacters(in: .whitespaces).lowercased() {
+        case "", "identity": return 1
+        case "br": return 8
+        default: return 6 // gzip, deflate, others
+        }
+    }
+
+    static func estimateDecoded(_ cl: Int64, _ enc: String, _ hint: Int64) -> Int64 {
+        let est = cl < 0 ? hint : cl &* decodeRatio(enc)
+        return Swift.min(Swift.max(est, 0), bodyHardMax)
+    }
+
+    /// the least a body is likely to decode to: identity its length, encoded CL × 3, unknown length the hint.
+    static func estimateLow(_ cl: Int64, _ enc: String, _ hint: Int64) -> Int64 {
+        if cl < 0 { return Swift.min(Swift.max(hint, 0), bodyHardMax) }
+        if decodeRatio(enc) > 1 { return Swift.min(cl &* 3, bodyHardMax) }
+        return cl
+    }
+
+    /// available memory a body of est decoded bytes needs: reserve + copy factor × est.
+    static func largeBodyNeed(_ est: Int64) -> Int64 { largeBodyReserve + bodyCopyFactor * est }
+
+    static func availableMemory() -> Int64? {
+        let a = Int64(os_proc_available_memory())
+        return a > 0 ? a : nil
+    }
+
+    static func heapHigh() -> Bool {
+        guard let l = NativeMemoryGovernor.active?.level else { return false }
+        return l >= .high
+    }
+
+    /// the dynamic budget allows est now (and memory is above the floor).
+    static func roomFor(_ est: Int64) -> Bool {
+        guard let avail = availableMemory() else { return true }
+        return avail >= bodyAvailFloor && avail >= largeBodyNeed(est)
+    }
+
+    /// dynamicBodyMax at tightCopyFactor (0 below the floor or without a reading).
+    static func tightBodyMax() -> Int64 {
+        guard let avail = availableMemory(), avail >= bodyAvailFloor else { return 0 }
+        return Swift.max(0, Swift.min((avail - largeBodyReserve) / tightCopyFactor, bodyHardMax))
+    }
+
+    /// Makes room: JavaScriptCore garbage (coalesced, off this thread — collection takes the VM lock a running
+    /// script holds) and the governor's reclaim, or malloc relief without a governor. At most once a second.
+    private func reclaimForLargeBody() {
+        let now = Date().timeIntervalSince1970
+        lock.lock()
+        if now - lastReclaim < 1 { lock.unlock(); return }
+        lastReclaim = now
+        let startGC = !jscCollectPending
+        if startGC { jscCollectPending = true }
+        lock.unlock()
+        if startGC {
+            DispatchQueue.global(qos: .utility).async { [weak self] in
+                JSCScriptEngine.shared.collect()
+                guard let self else { return }
+                self.lock.lock(); self.jscCollectPending = false; self.lock.unlock()
+            }
+        }
+        if let g = NativeMemoryGovernor.active {
+            _ = g.runReclaim(upTo: .high, why: "large script body")
+        } else {
+            _ = malloc_zone_pressure_relief(nil, 0)
+        }
+    }
+
+    /// Waits (bounded by largeBodyWait and the token's cancel) for room for est decoded bytes; low is the least the
+    /// body is expected to need. The flow's script slot is given back while waiting. Returns (room found, ms waited).
+    private func waitLargeHeadroom(est: Int64, low: Int64, token: Int64) -> (Bool, Int) {
+        guard Self.availableMemory() != nil, est > 0 else { return (true, 0) }
+        reclaimForLargeBody()
+        if Self.roomFor(est) { return (true, 0) }
+        let start = Date()
+        lock.lock()
+        waitingTokens.insert(token)
+        let parked = activeSlots > 0
+        if parked { activeSlots -= 1 }
+        lock.unlock()
+        var ok = false
+        var best = Self.availableMemory() ?? 0
+        var rose = Date()
+        while Date().timeIntervalSince(start) < Self.largeBodyWait {
+            Thread.sleep(forTimeInterval: Self.largeBodyPoll)
+            lock.lock(); let cancelled = cancelledTokens.contains(token); lock.unlock()
+            if cancelled { break }
+            reclaimForLargeBody()
+            if Self.roomFor(est) { ok = true; break }
+            let avail = Self.availableMemory() ?? 0
+            if avail > best + (256 << 10) { best = avail; rose = Date() }
+            if low > 0, Date().timeIntervalSince(rose) >= Self.largeBodyStall {
+                // nothing more is coming back: settle for the low estimate, or stop when only the tight fallback fits
+                if Self.roomFor(low) { ok = true; break }
+                if Self.tightBodyMax() >= low { break }
+            }
+        }
+        if !ok { ok = Self.roomFor(est) }
+        lock.lock()
+        waitingTokens.remove(token)
+        cancelledTokens.remove(token)
+        if parked { activeSlots += 1 }
+        lock.unlock()
+        return (ok, Int(Date().timeIntervalSince(start) * 1000))
+    }
+
+    /// The admission step for a dynamic-budget script: (limit, granted) — granted > 0 when this step decided it.
+    private func largeBodyRoom(rule: Int, limit: Int64, url: String, contentLength: Int64, enc: String, token: Int64) -> (Int64, Int64) {
+        let maxSize = entry(rule)?.maxSize ?? 0
+        if maxSize > 0 && maxSize == limit { return (limit, 0) } // capped by its own max-size, not the budget
+        let hint: Int64 = { lock.lock(); defer { lock.unlock() }; return bodyHints[rule] ?? 0 }()
+        let est = Self.estimateDecoded(contentLength, enc, hint)
+        if est <= Self.smallWorkMax || (est <= limit && !Self.heapHigh()) { return (limit, 0) }
+        let low = Self.estimateLow(contentLength, enc, hint)
+        let (ok, waited) = waitLargeHeadroom(est: est, low: low, token: token)
+        var nl = scriptBodyLimit(rule)
+        var granted: Int64 = 0
+        var mode = "已腾出"
+        if ok {
+            granted = nl
+        } else {
+            let t = Self.tightBodyMax()
+            if t > nl && low > 0 && t >= low {
+                nl = t; granted = t; mode = "按紧凑预算处理"
+            } else {
+                mode = "仍不足"
+            }
+        }
+        if maxSize > 0 && nl > maxSize { nl = maxSize; if granted > 0 { granted = maxSize } }
+        if waited > 0 || granted > 0 {
+            let avail = Double(Self.availableMemory() ?? 0) / 1048576
+            StartupLog.write(String(format: "[MitM] 大响应体（预计解压 %lld KB）等待内存 %ld ms，%@：预算 %lld → %lld KB，隧道可用 %.1f MB：%@",
+                                    est >> 10, waited, mode, limit >> 10, nl >> 10, avail, String(url.prefix(100))))
+        }
+        return (nl, granted)
+    }
+
     func bodyAdmit(gen: Int64, rule: Int, respRules: [Int], url: String, contentLength: Int64, enc: String, token: Int64) -> ScriptAdmit {
-        let limit = scriptBodyLimit(rule)
+        var (limit, granted) = largeBodyRoom(rule: rule, limit: scriptBodyLimit(rule), url: url, contentLength: contentLength, enc: enc, token: token)
         if contentLength > limit {
             return ScriptAdmit(ok: false, skip: "响应体 \(contentLength >> 10) KB 超过上限 \(limit >> 10) KB（\(limitNote(rule, limit))）")
         }
-        let ticket: Int64 = { lock.lock(); defer { lock.unlock() }; ticketSeq += 1; return ticketSeq }()
+        lock.lock()
+        ticketSeq += 1
+        let ticket = ticketSeq
+        ticketRules[ticket] = rule
+        if granted > 0 {
+            // concurrent grants share one budget: a grant past what is left of it falls back to the plain budget
+            let left = Self.bodyHardMax - largeCharged
+            if granted > left {
+                let plain = scriptBodyLimit(rule)
+                granted = Swift.max(left, 0)
+                if granted <= plain { granted = 0; limit = Swift.min(limit, plain) } else { limit = Swift.min(limit, granted) }
+            }
+            if granted > 0 { largeGrants[ticket] = granted; largeCharged += granted }
+        }
+        lock.unlock()
+        if contentLength > limit {
+            bodyRelease(ticket: ticket)
+            return ScriptAdmit(ok: false, skip: "响应体 \(contentLength >> 10) KB 超过上限 \(limit >> 10) KB（\(limitNote(rule, limit))）")
+        }
         // cap: the decode limit for the store (the largest any of the response's scripts takes)
-        let cap = respRules.map { scriptBodyLimit($0) }.max() ?? limit
+        let cap = respRules.map { $0 == rule ? limit : scriptBodyLimit($0) }.max() ?? limit
         return ScriptAdmit(ok: true, ticket: ticket, cap: Swift.max(cap, limit), limit: limit)
     }
 
-    func bodyLoaded(ticket: Int64, url: String, decoded: Int64) -> String { "" }
+    /// remembers how large a rule's bodies decode (decays towards smaller answers), for unknown-length estimates.
+    private func noteBodyDecoded(ticket: Int64, _ n: Int64) {
+        lock.lock(); defer { lock.unlock() }
+        guard let rule = ticketRules[ticket] else { return }
+        let prev = bodyHints[rule] ?? 0
+        if bodyHints[rule] == nil && bodyHints.count >= 256, let k = bodyHints.keys.first { bodyHints.removeValue(forKey: k) }
+        bodyHints[rule] = Swift.min(Swift.max(n, prev * 3 / 4), Self.bodyHardMax)
+    }
+
+    func bodyLoaded(ticket: Int64, url: String, decoded: Int64) -> String {
+        if decoded > 0 { noteBodyDecoded(ticket: ticket, decoded) }
+        return ""
+    }
     func bodyFailed(ticket: Int64, url: String, kind: String, raw: Int64, detail: String) -> String { "" }
-    func bodyRelease(ticket: Int64) {}
+    func bodyRelease(ticket: Int64) {
+        lock.lock(); defer { lock.unlock() }
+        ticketRules.removeValue(forKey: ticket)
+        if let g = largeGrants.removeValue(forKey: ticket) { largeCharged = Swift.max(0, largeCharged - g) }
+    }
     func bodyCheck(gen: Int64, rule: Int, blen: Int64, limit: Int64) -> ScriptBodyCheck {
         let l = limit < 0 ? scriptBodyLimit(rule) : limit
         if blen <= l { return ScriptBodyCheck(limit: l) }
