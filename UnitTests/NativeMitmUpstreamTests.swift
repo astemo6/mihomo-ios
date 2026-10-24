@@ -275,6 +275,41 @@ final class NativeMitmUpstreamTests: XCTestCase {
         XCTAssertEqual(p.statsNow().idle, 0)
     }
 
+    /// feat/native-slim: Config.maxDialing queues acquires beyond the cap (FIFO) and starts them as dials finish;
+    /// every acquire still completes, a released connection serves a waiter first, a cancelled waiter is skipped.
+    func testDialCapQueuesAcquires() throws {
+        let (_, port) = try relay(.echo)
+        var cfg = UpstreamPool.Config()
+        cfg.maxDialing = { 2 }
+        cfg.maxIdlePerHost = 8
+        let p = pool(port: port, cfg)
+        let t = UpstreamTarget(host: "cap.test", port: 80, tls: false)
+        let lock = NSLock()
+        var got: [UpstreamConnection] = []
+        var maxDialing = 0
+        let all = expectation(description: "8 acquires")
+        all.expectedFulfillmentCount = 8
+        let cancelled = expectation(description: "cancelled waiter")
+        for i in 0..<9 {
+            let a = p.acquire(t) { r in
+                if i == 8 {
+                    if case .failure(.cancelled) = r { cancelled.fulfill() } else { XCTFail("cancelled waiter got \(r)") }
+                    return
+                }
+                lock.lock(); if case .success(let c) = r { got.append(c) }; lock.unlock()
+                all.fulfill()
+            }
+            if i == 8 { a.cancel() }
+            let s = p.statsNow()
+            maxDialing = max(maxDialing, s.dialing)
+        }
+        wait(for: [all, cancelled], timeout: 10)
+        lock.lock(); let conns = got; lock.unlock()
+        XCTAssertEqual(conns.count, 8)
+        XCTAssertLessThanOrEqual(maxDialing, 2, "never more than the cap in flight")
+        for c in conns { p.release(c, reusable: false) }
+    }
+
     func testIdleTimeoutAndCaps() throws {
         let (_, port) = try relay(.echo)
         var cfg = UpstreamPool.Config()

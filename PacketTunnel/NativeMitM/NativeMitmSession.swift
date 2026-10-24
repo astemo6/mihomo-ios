@@ -47,10 +47,79 @@ enum NativeMitmRuntime {
     /// Bounds (memory cap): live sessions, bytes buffered per session.
     static var maxSessions = 48
     static var maxBufferedPerSession = 256 << 10
-    static let ioChunk = 64 << 10
+    /// Largest piece one read / Go pull / lane read asks for. 16 KB = one TLS record (feat/native-slim; was 64 KB):
+    /// a bigger max only makes Network.framework / dispatch_data hand over (and Swift copy) bigger contiguous slabs.
+    static var ioChunk: Int { slim.smallChunks ? 16 << 10 : 64 << 10 }
+
+    /// feat/native-slim: per-session footprint reductions, each switchable so NativeMitmMemoryTests can measure
+    /// what it saves (all on in production; `legacy` = the 13f6c41 behaviour).
+    struct Slim: Equatable {
+        /// Session queues target one shared concurrent (non-overcommit) queue instead of each being its own
+        /// overcommit root: a burst whose sessions block in Go calls no longer spawns a GCD thread per session.
+        var sharedQueues = true
+        /// ioChunk 16 KB instead of 64 KB.
+        var smallChunks = true
+        /// Drop the session's client / upstream buffers (capacity included) whenever they are empty between
+        /// exchanges, so an idle keep-alive session holds no buffer at all.
+        var releaseIdleBuffers = true
+        /// Upstream TLS connections through the relay share one NWParameters.PrivacyContext per relay port instead
+        /// of creating one per connection.
+        var sharedPrivacyContext = true
+        /// After a burst of native connections closed (sessions + upstream connections, ≥ 16, then 250 ms quiet),
+        /// give malloc's free pages back (malloc_zone_pressure_relief). Measured 2026-10-24 (NativeMitmMemoryTests):
+        /// most of a burst's footprint right after it is freed-but-dirty malloc memory (Network.framework / TLS
+        /// buffers of the connections that already closed), which jetsam counts until malloc returns it.
+        var reliefAfterBurst = true
+        /// Upstream dials (TCP + relay CONNECT + TLS handshake) in flight at once (UpstreamPool); nil = no limit.
+        /// 8 (cdd2ae2, NativeMitmMemoryTests, 100-connection burst, every connection native): peak footprint
+        /// +19.4 MB unlimited → +11.6 MB at 24 → +7.5 MB at 8 (Go path +7.0). Each Network.framework TLS dial through
+        /// the relay's CONNECT proxy costs ~130 KB of malloc while it handshakes; a burst of them is the whole native
+        /// excess. Cost: a burst of more than 8 new upstream connections waits for dial slots (FIFO; a connection
+        /// released meanwhile serves a waiter first).
+        var maxConcurrentDials: Int? = 8
+        static let legacy = Slim(sharedQueues: false, smallChunks: false, releaseIdleBuffers: false, sharedPrivacyContext: false,
+                                 reliefAfterBurst: false, maxConcurrentDials: nil)
+    }
+    static var slim = Slim()
+
+    /// Shared target of every session queue (Slim.sharedQueues). Concurrent custom queues are non-overcommit, so the
+    /// serial session queues that target it run on GCD's width-limited pool.
+    static let sessionTarget = DispatchQueue(label: "tern.mitm.s2.sessions", qos: .userInitiated, attributes: .concurrent)
 
     private static let lock = NSLock()
     private static var live = 0
+
+    // MARK: malloc relief after a burst (Slim.reliefAfterBurst)
+    private static var churn = 0
+    private static var churnGen: UInt64 = 0
+    private static let reliefQueue = DispatchQueue(label: "tern.mitm.s2.relief", qos: .utility)
+    /// Reliefs done (tests / diagnostics).
+    private(set) static var reliefs = 0
+
+    /// One native connection (session or upstream) closed.
+    static func noteChurn() {
+        guard slim.reliefAfterBurst else { return }
+        lock.lock()
+        churn += 1
+        churnGen &+= 1
+        let gen = churnGen
+        let now = churn >= 256 // never quiet: don't wait for it
+        if now { churn = 0 }
+        lock.unlock()
+        if now { reliefQueue.async { relieve() }; return }
+        reliefQueue.asyncAfter(deadline: .now() + 0.25) {
+            lock.lock()
+            let fire = gen == churnGen && churn >= 16
+            if fire { churn = 0 }
+            lock.unlock()
+            if fire { relieve() }
+        }
+    }
+
+    private static func relieve() {
+        _ = malloc_zone_pressure_relief(nil, 0)
+        lock.lock(); reliefs += 1; lock.unlock()
+    }
     private static var ids: Int64 = 0
 
     /// listen()-time reservations not yet claimed by a session (oldest first). Go asks listen() and then hands the
@@ -212,6 +281,7 @@ final class NativeMitmSession {
     private let queue: DispatchQueue
 
     private var clientBuf = Data()
+    private let releaseIdle: Bool
     private var clientEOF = false
     private var finished = false
     private var flowID: Int64 = 0
@@ -229,7 +299,10 @@ final class NativeMitmSession {
         guard NativeMitmRuntime.acquire() else { conn.stream.close(); return nil }
         id = NativeMitmRuntime.nextID()
         self.conn = conn; self.codec = codec; self.upstream = upstream; self.driver = driver; self.bodies = bodies
-        queue = DispatchQueue(label: "tern.mitm.s2.session.\(id)")
+        queue = NativeMitmRuntime.slim.sharedQueues
+            ? DispatchQueue(label: "tern.mitm.s2.session", target: NativeMitmRuntime.sessionTarget)
+            : DispatchQueue(label: "tern.mitm.s2.session.\(id)")
+        releaseIdle = NativeMitmRuntime.slim.releaseIdleBuffers
     }
 
     func start() {
@@ -323,6 +396,12 @@ final class NativeMitmSession {
     private func nextRequest() {
         guard !finished else { return }
         flowID = 0; sentBody = 0; responseStarted = false
+        if releaseIdle {
+            // An emptied Data keeps its capacity (removeFirst / removeSubrange): an idle keep-alive session would
+            // hold the largest piece it ever buffered.
+            if clientBuf.isEmpty { clientBuf = Data() }
+            if upBuf.isEmpty { upBuf = Data() }
+        }
         arm(requestsServed == 0 ? Self.timeouts.firstHead : Self.timeouts.keepAliveIdle, "request head")
         parseRequestHead()
     }
@@ -860,6 +939,7 @@ final class NativeMitmSession {
         clientBuf = Data(); upBuf = Data()
         NativeMitmRuntime.release()
         NativeMitmRuntime.drop(id)
+        NativeMitmRuntime.noteChurn()
         onFinish?(cancelled ?? error)
         onFinish = nil
     }

@@ -239,4 +239,6 @@ enum NativeMitmBench {
     /// The bench engine's recent log lines (cleared by reading).
     static func goLog() -> String { LibmihomoMitmBenchLog() }
     static func relayPort() -> Int { Int(LibmihomoMitmRelayPort()) }
+    /// Go GC + scavenge (rate limited to 1/s by Go): the memory bench's "relieved" reading.
+    static func freeGoMemory() { _ = LibmihomoNativeFreeOSMemory() }
 }

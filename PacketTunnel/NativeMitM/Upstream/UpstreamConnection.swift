@@ -158,6 +158,25 @@ final class UpstreamConnection: UpstreamByteStream, CustomStringConvertible {
 
     deinit { conn.cancel() }
 
+    /// The relay's CONNECT proxy context. feat/native-slim: one per relay port (was one per connection; a context
+    /// carries its own proxy / resolver / TLS session state, and 100 of them stayed around after a burst).
+    @available(iOS 17.0, macOS 14.0, *)
+    static func privacyContext(relay: NWEndpoint.Port) -> NWParameters.PrivacyContext {
+        func make() -> NWParameters.PrivacyContext {
+            let ctx = NWParameters.PrivacyContext(description: "tern.nativemitm.upstream")
+            ctx.proxyConfigurations = [ProxyConfiguration(httpCONNECTProxy: .hostPort(host: "127.0.0.1", port: relay), tlsOptions: nil)]
+            return ctx
+        }
+        guard NativeMitmRuntime.slim.sharedPrivacyContext else { return make() }
+        ctxLock.lock(); defer { ctxLock.unlock() }
+        if let c = sharedContext, c.port == relay.rawValue, let ctx = c.ctx as? NWParameters.PrivacyContext { return ctx }
+        let ctx = make()
+        sharedContext = (relay.rawValue, ctx)
+        return ctx
+    }
+    private static let ctxLock = NSLock()
+    private static var sharedContext: (port: UInt16, ctx: AnyObject)?
+
     /// Memory bench only (UnitTests/NativeMitmMemoryTests): the bench origin's certificate is signed by a throwaway
     /// CA the system does not trust. Never set by the app or the tunnel.
     static var trustAnyOriginForTesting = false
@@ -192,9 +211,7 @@ final class UpstreamConnection: UpstreamByteStream, CustomStringConvertible {
                 sec_protocol_options_set_verify_block(sec, { _, _, complete in complete(true) }, queue)
             }
             let params = NWParameters(tls: tls, tcp: tcp)
-            let ctx = NWParameters.PrivacyContext(description: "tern.nativemitm.upstream")
-            ctx.proxyConfigurations = [ProxyConfiguration(httpCONNECTProxy: .hostPort(host: "127.0.0.1", port: rport), tlsOptions: nil)]
-            params.setPrivacyContext(ctx)
+            params.setPrivacyContext(Self.privacyContext(relay: rport))
             guard let oport = NWEndpoint.Port(rawValue: target.port) else {
                 queue.async { completion(.failure(.invalidTarget("port"))) }
                 return nil
@@ -412,6 +429,7 @@ final class UpstreamConnection: UpstreamByteStream, CustomStringConvertible {
 
     func closeOnQueue() {
         if openCompletion != nil { finishOpen(.failure(.cancelled)); return }
+        if !closed && opened { NativeMitmRuntime.noteChurn() }
         closed = true
         isIdle = false
         onIdleEvent = nil
