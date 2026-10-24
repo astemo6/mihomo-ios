@@ -429,18 +429,69 @@ enum NCTLSVerify {
     }
 }
 
+/// ClientHello shape variants for the `fingerprint` config key. These are
+/// recognizable browser shapes (cipher/group/signature lists and a few
+/// extension toggles), not byte-exact uTLS clones. The key share stays
+/// X25519-only — that's the only group our handshake can actually use —
+/// and the REALITY header layout (session ID at offset 39) is kept.
+struct NCClientHelloProfile {
+    let cipherSuites: [UInt16]
+    let groups: [UInt16]
+    let sigAlgs: [UInt16]
+    let sct: Bool
+    let sessionTicket: Bool
+    let paddingTo512: Bool
+
+    static let chrome = NCClientHelloProfile(
+        cipherSuites: [0x1301, 0x1302, 0x1303, 0xc02b, 0xc02f, 0xc02c, 0xc030, 0xcca9, 0xcca8, 0xc013, 0xc014],
+        groups: [0x001d, 0x0017, 0x0018],
+        sigAlgs: [0x0403, 0x0804, 0x0401, 0x0503, 0x0805, 0x0501, 0x0806, 0x0601, 0x0201],
+        sct: true, sessionTicket: true, paddingTo512: true)
+    static let firefox = NCClientHelloProfile(
+        cipherSuites: [0x1301, 0x1303, 0x1302, 0xc02b, 0xc02f, 0xcca9, 0xcca8, 0xc02c, 0xc030, 0xc013, 0xc014, 0x009c, 0x009d, 0x002f, 0x0035],
+        groups: [0x001d, 0x0017, 0x0019, 0x0018, 0x0100, 0x0101],
+        sigAlgs: [0x0403, 0x0503, 0x0603, 0x0804, 0x0805, 0x0806, 0x0401, 0x0501, 0x0601, 0x0303, 0x0301, 0x0302],
+        sct: true, sessionTicket: true, paddingTo512: false)
+    static let safari = NCClientHelloProfile(
+        cipherSuites: [0x1301, 0x1302, 0x1303, 0xc02c, 0xc02b, 0xcca9, 0xc030, 0xc02f, 0xcca8, 0xc014, 0xc013, 0x009c, 0x009d, 0x002f, 0x0035, 0x000a],
+        groups: [0x001d, 0x0017, 0x0018],
+        sigAlgs: [0x0403, 0x0804, 0x0401, 0x0503, 0x0805, 0x0501, 0x0806, 0x0601, 0x0203, 0x0201],
+        sct: true, sessionTicket: false, paddingTo512: false)
+    static let ios = NCClientHelloProfile(
+        cipherSuites: [0x1301, 0x1302, 0x1303, 0xc02c, 0xc02b, 0xcca9, 0xc030, 0xc02f, 0xc014, 0xc013],
+        groups: [0x001d, 0x0017, 0x0018],
+        sigAlgs: [0x0403, 0x0804, 0x0401, 0x0503, 0x0805, 0x0501, 0x0806, 0x0601, 0x0201],
+        sct: true, sessionTicket: false, paddingTo512: false)
+
+    static func named(_ name: String?) -> NCClientHelloProfile {
+        switch (name ?? "chrome").lowercased() {
+        case "firefox": return .firefox
+        case "safari": return .safari
+        case "ios": return .ios
+        case "random": return [.chrome, .firefox, .safari].randomElement() ?? .chrome
+        default: return .chrome
+        }
+    }
+}
+
 extension NCTLS13 {
-    /// Build the ClientHello handshake message (Chrome-shaped, TLS 1.3 with
-    /// an X25519 key share). The session ID field starts at byte offset 39 —
+    /// Build the ClientHello handshake message (TLS 1.3 with an X25519
+    /// key share). The session ID field starts at byte offset 39 —
     /// REALITY sealing depends on that exact layout.
     static func buildClientHello(random: Data, sessionID: Data, serverName: String, alpn: [String], keyShare: Data) -> Data {
+        buildClientHello(random: random, sessionID: sessionID, serverName: serverName,
+                         alpn: alpn, keyShare: keyShare, profile: .chrome)
+    }
+
+    static func buildClientHello(random: Data, sessionID: Data, serverName: String, alpn: [String],
+                                 keyShare: Data, profile: NCClientHelloProfile) -> Data {
         var body = Data()
         body.appendBE16(0x0303) // legacy version
         body.append(random)
         body.append(UInt8(sessionID.count))
         body.append(sessionID)
         var suites = Data()
-        for s: UInt16 in [0x1301, 0x1302, 0x1303, 0xc02b, 0xc02f, 0xc02c, 0xc030, 0xcca9, 0xcca8, 0xc013, 0xc014] {
+        for s in profile.cipherSuites {
             suites.appendBE16(s)
         }
         body.appendBE16(UInt16(suites.count))
@@ -461,13 +512,13 @@ extension NCTLS13 {
         sni.append(name)
         ext(0, sni)
         var groups = Data()
-        groups.appendBE16(6)
-        for g: UInt16 in [0x001d, 0x0017, 0x0018] { groups.appendBE16(g) }
+        groups.appendBE16(UInt16(profile.groups.count * 2))
+        for g in profile.groups { groups.appendBE16(g) }
         ext(10, groups)
         ext(11, Data([0x03, 0x00, 0x01, 0x02]))
         var sigs = Data()
-        sigs.appendBE16(18)
-        for s: UInt16 in [0x0403, 0x0804, 0x0401, 0x0503, 0x0805, 0x0501, 0x0806, 0x0601, 0x0201] { sigs.appendBE16(s) }
+        sigs.appendBE16(UInt16(profile.sigAlgs.count * 2))
+        for s in profile.sigAlgs { sigs.appendBE16(s) }
         ext(13, sigs)
         var alpnData = Data()
         var protocols = Data()
@@ -479,9 +530,9 @@ extension NCTLS13 {
         alpnData.append(protocols)
         ext(16, alpnData)
         ext(5, Data([0x01, 0x00, 0x00, 0x00, 0x00]))
-        ext(18, Data())
+        if profile.sct { ext(18, Data()) }
         ext(23, Data())
-        ext(35, Data())
+        if profile.sessionTicket { ext(35, Data()) }
         ext(43, Data([0x03, 0x03, 0x04, 0x03, 0x03]))
         ext(45, Data([0x01, 0x01]))
         var share = Data()
@@ -501,7 +552,7 @@ extension NCTLS13 {
         message.append(body)
 
         // Chrome-style padding to at least 512 bytes of handshake message.
-        if message.count < 512 {
+        if profile.paddingTo512 && message.count < 512 {
             let padLen = 512 - message.count - 4
             if padLen > 0 {
                 var exts2 = exts

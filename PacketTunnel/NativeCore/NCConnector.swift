@@ -458,7 +458,8 @@ enum NCConnector {
                 if isVision, useTLS, let uuidBytes = NCVLESS.uuidBytes(uuid) {
                     let tls = NCTLSClientStream(raw: raw, config: .init(
                         serverName: proxy.fields["servername"]?.string ?? proxy.fields["sni"]?.string ?? server,
-                        allowInsecure: proxy.fields["skip-cert-verify"]?.bool ?? false), queue: queue)
+                        allowInsecure: proxy.fields["skip-cert-verify"]?.bool ?? false,
+                        profile: NCClientHelloProfile.named(proxy.fields["fingerprint"]?.string ?? proxy.fields["client-fingerprint"]?.string)), queue: queue)
                     tls.startHandshake { herr in
                         guard herr == nil else { completion(nil, herr); return }
                         let vision = NCVisionStream(tls: tls, uuid: uuidBytes)
@@ -541,7 +542,8 @@ enum NCConnector {
             guard err == nil else { completion(nil, err); return }
             let tls = NCTLSClientStream(raw: raw, config: .init(
                 serverName: proxy.fields["servername"]?.string ?? proxy.fields["sni"]?.string ?? server,
-                reality: reality), queue: queue)
+                reality: reality,
+                profile: NCClientHelloProfile.named(proxy.fields["fingerprint"]?.string ?? proxy.fields["client-fingerprint"]?.string)), queue: queue)
             tls.startHandshake { herr in
                 completion(herr == nil ? tls : nil, herr)
             }

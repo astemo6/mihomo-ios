@@ -63,3 +63,28 @@ final class NativeCoreHpackTests: XCTestCase {
         XCTAssertEqual(out?.map { [$0.0, $0.1] }, headers.map { [$0.0, $0.1] })
     }
 }
+
+/// ClientHello fingerprint profiles keep the REALITY layout invariant.
+final class NativeCoreFingerprintTests: XCTestCase {
+    func testProfilesVaryAndKeepLayout() {
+        let random = Data((0..<32).map { UInt8($0) })
+        let share = Data((0..<32).map { UInt8(0xa0 + $0) })
+        for profile in [NCClientHelloProfile.chrome, .firefox, .safari, .ios] {
+            let hello = NCTLS13.buildClientHello(random: random, sessionID: Data(count: 32),
+                                                 serverName: "example.com", alpn: ["h2"],
+                                                 keyShare: share, profile: profile)
+            // Handshake header 4B, then legacy version (2) + random (32)
+            // puts the session-id length at offset 39.
+            XCTAssertEqual(hello[4 + 2 + 32], 32)
+            XCTAssertEqual(Data(hello[5..<37]), random)
+        }
+        let chrome = NCTLS13.buildClientHello(random: random, sessionID: Data(count: 32),
+                                              serverName: "example.com", alpn: ["h2"],
+                                              keyShare: share, profile: .chrome)
+        let firefox = NCTLS13.buildClientHello(random: random, sessionID: Data(count: 32),
+                                               serverName: "example.com", alpn: ["h2"],
+                                               keyShare: share, profile: .firefox)
+        XCTAssertNotEqual(chrome, firefox)
+        XCTAssertGreaterThanOrEqual(chrome.count, 512) // chrome pads
+    }
+}

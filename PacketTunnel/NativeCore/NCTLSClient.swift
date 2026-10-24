@@ -15,6 +15,8 @@ final class NCTLSClientStream: NCRelayStream {
         var alpn: [String] = ["h2", "http/1.1"]
         var reality: NCTLS13.RealityParams? = nil
         var allowInsecure: Bool = false // plain mode only: skip SecTrust result
+        /// ClientHello shape from the proxy's `fingerprint` field.
+        var profile: NCClientHelloProfile = .chrome
     }
 
     enum TLSError: Error {
@@ -94,7 +96,7 @@ final class NCTLSClientStream: NCRelayStream {
         }
         let hello = NCTLS13.buildClientHello(random: clientRandom, sessionID: Data(repeating: 0, count: 32),
                                           serverName: config.serverName, alpn: config.alpn,
-                                          keyShare: clientShare)
+                                          keyShare: clientShare, profile: config.profile)
         var wireHello = hello
         if let reality = config.reality, let authKey, let sidPlain {
             guard let sealed = NCTLS13.realitySealSessionID(authKey: authKey, plain: sidPlain,
