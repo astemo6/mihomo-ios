@@ -10,6 +10,17 @@
 // Request log: every native decision is reported to Go's request log through NativeRequestRecorder (batched, off
 // the request path), so the 请求 list / capture shows it like a Go-handled request (bridge/mitm/nativerecord.go).
 //
+// Body rewrites (stage 3b, switch `nativeMitmBody`, default OFF): a forward whose request or response has body
+// rules Swift can run becomes a BodyFlow. The request body is taken (need-body) and rewritten here; the response
+// body is taken whole (≤ 256 KB, known length) and decoded, rewritten and served here (NativeBodyExec). Whenever
+// that is not certain to match Go — at the response head (chunked, large, no body) or once the body is in (not
+// UTF-8 / not JSON / an encoding not decoded exactly like Go / a jq error / a slow regex) — the exchange is
+// "adopted" by Go: MitmFlowBegin runs again with the original head (Go's request phase for a request Swift
+// forwarded is deterministic: no scripts, no body Go needs except the request body pushed back to it), then
+// MitmFlowResponse with the upstream head and the buffered body; every later call for the id is relayed to that
+// Go flow. A body flow's request-log entry is written only once Swift has answered it natively (an adopted one is
+// Go's own entry).
+//
 // Snapshot freshness: MitmRewriteGeneration() is checked on every request (an int from Go); the JSON is fetched and
 // decoded only when it moved (engine reload). A request racing a reload may use the previous rule set — the same
 // window the Go path has between reading its state pointer and the reload storing a new one.
@@ -107,12 +118,44 @@ final class NativeRewriteDriver: MitmFlowDriving {
         case local(body: Data, offset: Int)
         case forward(plan: RewriteDecision.ResponsePlan, method: String, engine: NativeRewriteEngine)
         case responded(body: Data, offset: Int)
+        case body(BodyFlow)
         case done
+    }
+
+    /// A forward with body rules (stage 3b).
+    private final class BodyFlow {
+        enum Stage { case requestBody, forwarded, responseBody, responded, adopted, failed }
+        let head: HTTPRequestHead
+        let conn: MitmConnInfo
+        let engine: NativeRewriteEngine
+        var fwd: RewriteDecision.Forward
+        var stage: Stage
+        var reqIn = Data()                 // the client's request body as pushed
+        var reqOut = Data(), reqOff = 0    // the rewritten request body (read .request)
+        var respHead: HTTPResponseHead?
+        var respLength: Int64 = -1
+        var respIn = Data()                // the upstream's response body as pushed
+        var respOut = Data(), respOff = 0  // the rewritten response body (read .response)
+        var goID: Int64 = 0                // adopted: the Go flow
+        var pending: [Data] = []           // adopted: body pieces Go has not taken yet ("more")
+        var pendingWhich = FlowBodyWhich.response
+        var pendingClose = false
+        var rawServe: Data?                // adopted: Go said "upstream" after Swift had read the body itself
+        var rawOff = 0
+        var firstEvent: NativeRequestEvent? // the deferred "forward" log event
+        let t0: UInt64
+        init(head: HTTPRequestHead, conn: MitmConnInfo, engine: NativeRewriteEngine, fwd: RewriteDecision.Forward, t0: UInt64) {
+            self.head = head; self.conn = conn; self.engine = engine; self.fwd = fwd; self.t0 = t0
+            stage = fwd.requestBody != nil ? .requestBody : .forwarded
+        }
     }
 
     struct Stats: Equatable {
         var local = 0, forward = 0, drop = 0, deferred = 0, off = 0
         var reasons: [String: Int] = [:]
+        /// stage 3b: body flows answered in Swift / handed to Go mid-way (with why).
+        var bodyNative = 0, bodyAdopted = 0
+        var adoptReasons: [String: Int] = [:]
     }
 
     /// A natively forwarded request's request-log state (until end / cancel / upstream failure).
@@ -168,15 +211,18 @@ final class NativeRewriteDriver: MitmFlowDriving {
     func requestPhase(head: HTTPRequestHead, conn: MitmConnInfo) -> FlowDecision {
         guard NativeRewriteRuntime.enabled else { count(\.off); return inner.requestPhase(head: head, conn: conn) }
         guard let engine = provider.current() else { count(\.deferred, reason: "no snapshot"); return inner.requestPhase(head: head, conn: conn) }
-        if let d = native(Self.request(head, conn), engine: engine) { return d }
+        if let d = native(Self.request(head, conn), engine: engine, head: head, conn: conn, bodies: NativeBodyRuntime.enabled) { return d }
         return inner.requestPhase(head: head, conn: conn)
     }
 
     /// The native decision for q (nil: deferred to Go, counted). Records the request-log event of the decision.
-    func native(_ q: RewriteRequest, engine: NativeRewriteEngine) -> FlowDecision? {
+    /// head / conn: the session's request (needed for body flows, which Go may have to adopt); without them body
+    /// rules are left to Go.
+    func native(_ q: RewriteRequest, engine: NativeRewriteEngine, head: HTTPRequestHead? = nil, conn: MitmConnInfo? = nil,
+                bodies: Bool = false) -> FlowDecision? {
         let wall = Date().timeIntervalSince1970
         let t0 = DispatchTime.now().uptimeNanoseconds
-        switch engine.decide(q) {
+        switch engine.decide(q, bodies: bodies && head != nil && conn != nil) {
         case .go(let why):
             count(\.deferred, reason: why)
             return nil
@@ -195,6 +241,18 @@ final class NativeRewriteDriver: MitmFlowDriving {
                 if engine.capture && !l.logNoCapture && !l.logBody.isEmpty { e.body = l.logBody }
             }
             return d
+        case .forward(let f) where f.requestBody != nil || f.response.hasBody:
+            guard let head, let conn else { count(\.deferred, reason: "body without head"); return nil }
+            count(\.forward)
+            let bf = BodyFlow(head: head, conn: conn, engine: engine, fwd: f, t0: t0)
+            bf.firstEvent = makeFirst("forward", f.log, engine: engine, wall: wall, t0: t0)
+            let id = newID(.body(bf))
+            if f.requestBody != nil {
+                var d = FlowDecision(id: id, action: .needBody)
+                d.which = FlowBodyWhich.request.rawValue
+                return d
+            }
+            return forwardDecision(id, f, bodyMode: f.bodyMode, length: f.length)
         case .forward(let f):
             count(\.forward)
             let id = newID(.forward(plan: f.response, method: f.method, engine: engine))
@@ -212,6 +270,28 @@ final class NativeRewriteDriver: MitmFlowDriving {
     private static func ms(since t0: UInt64) -> Double {
         let now = DispatchTime.now().uptimeNanoseconds
         return now > t0 ? Double(now - t0) / 1e6 : 0
+    }
+
+    private func forwardDecision(_ id: Int64, _ f: RewriteDecision.Forward, bodyMode: FlowBodyMode, length: Int64) -> FlowDecision {
+        var d = FlowDecision(id: id, action: .forward)
+        d.method = f.method; d.url = f.url; d.host = f.host; d.headers = f.headers; d.body = bodyMode; d.length = length
+        return d
+    }
+
+    /// A first event built now (its ms measured now) but recorded later (body flows: only once answered natively).
+    private func makeFirst(_ ev: String, _ log: RewriteLog, engine: NativeRewriteEngine, wall: Double, t0: UInt64) -> NativeRequestEvent? {
+        guard let recorder = recorder else { return nil }
+        return NativeRequestEvent(k: recorder.newKey(), ev: ev, t: wall, ms: Self.ms(since: t0), gen: engine.generation,
+                                  rules: log.rules.isEmpty ? nil : log.rules, method: log.method, url: log.url, host: log.host,
+                                  tls: log.tls, headers: log.headers.isEmpty ? nil : log.headers)
+    }
+
+    /// Records a body flow's deferred forward event (once) and opens its log state.
+    private func commitFirst(_ id: Int64, _ bf: BodyFlow) {
+        guard let recorder = recorder, let e = bf.firstEvent else { return }
+        bf.firstEvent = nil
+        recorder.add(e)
+        lock.lock(); logs[id] = LogCtx(key: e.k, start: bf.t0); lock.unlock()
     }
 
     /// The first event of a native request (drop / local / forward); returns its key (nil: no recorder).
@@ -246,14 +326,189 @@ final class NativeRewriteDriver: MitmFlowDriving {
 
     func await(_ id: Int64) -> FlowDecision {
         if id >= 0 { return inner.await(id) }
-        return FlowDecision(id: id, action: .error, note: "native flow has no pending decision")
+        guard let bf = bodyFlow(id) else { return FlowDecision(id: id, action: .error, note: "native flow has no pending decision") }
+        switch bf.stage {
+        case .adopted:
+            return mapped(id, inner.await(bf.goID))
+        case .requestBody:
+            guard let plan = bf.fwd.requestBody else { return FlowDecision(id: id, action: .error, note: "no request body plan") }
+            switch NativeBodyExec.request(plan, body: bf.reqIn) {
+            case .body(let b):
+                bf.reqOut = b
+                bf.stage = .forwarded
+                // setBody: r.Header Content-Length is the final length in Go's ent.ReqHeaders
+                if var e = bf.firstEvent, var hs = e.headers {
+                    for k in hs.indices where hs[k].count == 2 && hs[k][0] == "Content-Length" { hs[k][1] = String(b.count) }
+                    e.headers = hs
+                    bf.firstEvent = e
+                }
+                if !bf.fwd.response.hasBody { commitFirst(id, bf); count(\.bodyNative) }
+                return forwardDecision(id, bf.fwd, bodyMode: b.isEmpty ? .none : .read, length: Int64(b.count))
+            case .handBack(let why):
+                return adoptRequest(id, bf, why: why)
+            }
+        case .responseBody:
+            guard let h = bf.respHead else { return FlowDecision(id: id, action: .error, note: "no response head") }
+            switch NativeBodyExec.response(bf.fwd.response.steps, status: h.status, headers: headerPairs(h.headers), length: bf.respLength, raw: bf.respIn) {
+            case .native(let r):
+                bf.respOut = r.body
+                bf.stage = .responded
+                count(\.bodyNative)
+                commitFirst(id, bf)
+                updateLog(id) { c in c.responded = true; c.upstreamMode = true } // Go counts the bytes the client reads
+                emit(id, last: false) { c in
+                    NativeRequestEvent(k: c.key, ev: "response", ms: Self.ms(since: c.start), gen: bf.engine.generation,
+                                       rules: r.rules.isEmpty ? nil : r.rules, status: r.status, headers: r.logHeaders.isEmpty ? nil : r.logHeaders)
+                }
+                var d = FlowDecision(id: id, action: .respond)
+                d.status = r.status; d.headers = r.headers; d.body = .read; d.length = r.length; d.note = r.note
+                return d
+            case .handBack(let why):
+                return adoptResponse(id, bf, buffered: true, why: why)
+            }
+        default:
+            return FlowDecision(id: id, action: .error, note: "native flow has no pending decision")
+        }
+    }
+
+    // MARK: body flows
+
+    private func bodyFlow(_ id: Int64) -> BodyFlow? {
+        lock.lock(); defer { lock.unlock() }
+        if case .body(let bf)? = flows[id] { return bf }
+        return nil
+    }
+
+    private func adopted(_ why: String) {
+        lock.lock()
+        counters.bodyAdopted += 1
+        counters.adoptReasons[why, default: 0] += 1
+        lock.unlock()
+    }
+
+    /// A Go decision handed to the session under the native id.
+    private func mapped(_ id: Int64, _ d: FlowDecision) -> FlowDecision {
+        var d = d
+        d.id = id
+        return d
+    }
+
+    /// FlowWrite of a whole buffered body: pieces Go did not take ("full" after its decision) wait in pending for
+    /// a "more"; "stop" drops the rest. false: the flow is gone.
+    private func push(_ bf: BodyFlow, _ which: FlowBodyWhich, _ data: Data, close: Bool) -> Bool {
+        var off = 0
+        let chunk = 32 << 10
+        while off < data.count {
+            let piece = data.subdata(in: off..<min(off + chunk, data.count))
+            switch inner.write(bf.goID, which, piece) {
+            case .taken:
+                off += piece.count
+            case .stop:
+                return true
+            case .full:
+                var rest: [Data] = []
+                var o = off
+                while o < data.count { rest.append(data.subdata(in: o..<min(o + chunk, data.count))); o += chunk }
+                bf.pending = rest
+                bf.pendingWhich = which
+                bf.pendingClose = close
+                return true
+            case .gone:
+                return false
+            }
+        }
+        if close { inner.closeBody(bf.goID, which, error: "") }
+        return true
+    }
+
+    /// Go takes the request before anything went upstream: MitmFlowBegin + the buffered request body.
+    private func adoptRequest(_ id: Int64, _ bf: BodyFlow, why: String) -> FlowDecision {
+        adopted(why)
+        var d = inner.requestPhase(head: bf.head, conn: bf.conn)
+        bf.goID = d.id
+        bf.stage = .adopted
+        bf.firstEvent = nil
+        if d.action == .needBody {
+            guard push(bf, .request, bf.reqIn, close: true) else { return FlowDecision(id: id, action: .error, note: "go flow gone") }
+            d = inner.await(bf.goID)
+        }
+        return mapped(id, d)
+    }
+
+    /// Go takes the exchange after Swift forwarded the request: MitmFlowBegin again (same rules, same request →
+    /// the same forward), then MitmFlowResponse; buffered: the response body Swift already read is pushed to Go.
+    private func adoptResponse(_ id: Int64, _ bf: BodyFlow, buffered: Bool, why: String) -> FlowDecision {
+        adopted(why)
+        bf.firstEvent = nil
+        bf.stage = .adopted
+        var d = inner.requestPhase(head: bf.head, conn: bf.conn)
+        bf.goID = d.id
+        if d.action == .needBody {
+            guard push(bf, .request, bf.reqIn, close: true) else { return FlowDecision(id: id, action: .error, note: "go flow gone") }
+            d = inner.await(bf.goID)
+            // whatever Go would send upstream was already sent by Swift: drop its request body
+            if d.action == .forward && d.body == .read {
+                for _ in 0..<10000 {
+                    if inner.read(bf.goID, .request, max: 128 << 10).isEmpty {
+                        if inner.readState(bf.goID, .request) != .again { break }
+                    }
+                }
+            }
+        }
+        guard d.action == .forward, let h = bf.respHead else {
+            inner.cancel(bf.goID, why: "native adopt: request phase changed")
+            bf.stage = .failed
+            return FlowDecision(id: id, action: .error, note: "adopt: Go answered \(d.action.rawValue)")
+        }
+        var r = inner.responsePhase(bf.goID, head: h, length: bf.respLength)
+        if !buffered { return mapped(id, r) }
+        if r.action == .needBody {
+            guard push(bf, .response, bf.respIn, close: true) else { return FlowDecision(id: id, action: .error, note: "go flow gone") }
+            r = inner.await(bf.goID)
+        }
+        if r.action == .respond && r.body == .upstream {
+            // Go would relay the upstream's body untouched — Swift already read it: serve those bytes
+            bf.rawServe = bf.respIn
+            r.body = .read
+            r.length = Int64(bf.respIn.count)
+        }
+        return mapped(id, r)
     }
 
     func responsePhase(_ id: Int64, head: HTTPResponseHead, length: Int64) -> FlowDecision {
         if id >= 0 { return inner.responsePhase(id, head: head, length: length) }
+        if let bf = bodyFlow(id) { return bodyResponse(id, bf, head: head, length: length) }
         lock.lock()
         let f = flows[id]
         lock.unlock()
+        return headerResponse(id, f, head: head, length: length)
+    }
+
+    private func bodyResponse(_ id: Int64, _ bf: BodyFlow, head: HTTPResponseHead, length: Int64) -> FlowDecision {
+        switch bf.stage {
+        case .adopted:
+            return mapped(id, inner.responsePhase(bf.goID, head: head, length: length))
+        case .forwarded:
+            break
+        default:
+            return FlowDecision(id: id, action: .error, note: "native flow is not waiting for a response")
+        }
+        bf.respHead = head
+        bf.respLength = length
+        if !bf.fwd.response.hasBody {
+            // request body rules only: the response is the header-only path (its log state is open already)
+            return headerResponse(id, .forward(plan: bf.fwd.response, method: bf.fwd.method, engine: bf.engine), head: head, length: length)
+        }
+        if let why = NativeBodyExec.responseHeadOK(status: head.status, headers: headerPairs(head.headers), length: length, method: bf.fwd.method) {
+            return adoptResponse(id, bf, buffered: false, why: why)
+        }
+        bf.stage = .responseBody
+        var d = FlowDecision(id: id, action: .needBody)
+        d.which = FlowBodyWhich.response.rawValue
+        return d
+    }
+
+    private func headerResponse(_ id: Int64, _ f: NativeFlow?, head: HTTPResponseHead, length: Int64) -> FlowDecision {
         guard case .forward(let plan, let method, let engine)? = f,
               let r = engine.respond(plan, status: head.status, headers: headerPairs(head.headers), length: length, method: method) else {
             emit(id, last: true) { c in NativeRequestEvent(k: c.key, ev: "error", ms: Self.ms(since: c.start)) }
@@ -277,15 +532,84 @@ final class NativeRewriteDriver: MitmFlowDriving {
     }
 
     func write(_ id: Int64, _ which: FlowBodyWhich, _ data: Data) -> FlowWriteResult {
-        id >= 0 ? inner.write(id, which, data) : .stop
+        if id >= 0 { return inner.write(id, which, data) }
+        guard let bf = bodyFlow(id) else { return .stop }
+        switch (bf.stage, which) {
+        case (.adopted, _): return inner.write(bf.goID, which, data)
+        case (.requestBody, .request):
+            if bf.reqIn.count + data.count > NativeBodyRuntime.maxBody + 1 { return .stop }
+            bf.reqIn.append(data)
+            return .taken
+        case (.responseBody, .response):
+            if bf.respIn.count + data.count > NativeBodyRuntime.maxBody + 1 { return .stop }
+            bf.respIn.append(data)
+            return .taken
+        default: return .stop
+        }
     }
 
     func closeBody(_ id: Int64, _ which: FlowBodyWhich, error: String) {
-        if id >= 0 { inner.closeBody(id, which, error: error) }
+        if id >= 0 { inner.closeBody(id, which, error: error); return }
+        guard let bf = bodyFlow(id) else { return }
+        if bf.stage == .adopted { inner.closeBody(bf.goID, which, error: error); return }
+        if !error.isEmpty && (bf.stage == .requestBody || bf.stage == .responseBody) { bf.stage = .failed }
+    }
+
+    /// An adopted flow's read: Go asking for more of a body Swift holds is fed from pending.
+    private func adoptedRead(_ bf: BodyFlow, _ which: FlowBodyWhich, max: Int) -> Data {
+        if which == .response, let raw = bf.rawServe {
+            let n = Swift.min(Swift.max(max, 1), raw.count - bf.rawOff)
+            if n <= 0 { return Data() }
+            defer { bf.rawOff += n }
+            return raw.subdata(in: bf.rawOff..<(bf.rawOff + n))
+        }
+        for _ in 0..<64 {
+            let d = inner.read(bf.goID, which, max: max)
+            if !d.isEmpty { return d }
+            guard inner.readState(bf.goID, which) == .more, feedPending(bf, which) else { return d }
+        }
+        return Data()
+    }
+
+    /// Pushes the next pending piece (or the close) after a "more". false: nothing left to give.
+    private func feedPending(_ bf: BodyFlow, _ which: FlowBodyWhich) -> Bool {
+        guard bf.pendingWhich == which else { return false }
+        if let next = bf.pending.first {
+            switch inner.write(bf.goID, which, next) {
+            case .taken: bf.pending.removeFirst()
+            case .full: break
+            case .stop, .gone: bf.pending.removeAll(); bf.pendingClose = false; return false
+            }
+            return true
+        }
+        if bf.pendingClose {
+            bf.pendingClose = false
+            inner.closeBody(bf.goID, which, error: "")
+            return true
+        }
+        return false
     }
 
     func read(_ id: Int64, _ which: FlowBodyWhich, max: Int) -> Data {
         if id >= 0 { return inner.read(id, which, max: max) }
+        if let bf = bodyFlow(id) {
+            switch bf.stage {
+            case .adopted: return adoptedRead(bf, which, max: max)
+            case .forwarded, .responseBody, .responded:
+                if which == .request {
+                    let n = Swift.min(Swift.max(max, 1), bf.reqOut.count - bf.reqOff)
+                    if n <= 0 { return Data() }
+                    defer { bf.reqOff += n }
+                    return bf.reqOut.subdata(in: bf.reqOff..<(bf.reqOff + n))
+                }
+                guard bf.stage == .responded else { return Data() }
+                let n = Swift.min(Swift.max(max, 1), bf.respOut.count - bf.respOff)
+                if n <= 0 { return Data() }
+                defer { bf.respOff += n }
+                return bf.respOut.subdata(in: bf.respOff..<(bf.respOff + n))
+            default: return Data()
+            }
+        }
         guard which == .response else { return Data() }
         lock.lock(); defer { lock.unlock() }
         switch flows[id] {
@@ -306,6 +630,17 @@ final class NativeRewriteDriver: MitmFlowDriving {
 
     func readState(_ id: Int64, _ which: FlowBodyWhich) -> FlowReadState {
         if id >= 0 { return inner.readState(id, which) }
+        if let bf = bodyFlow(id) {
+            switch bf.stage {
+            case .adopted:
+                if which == .response, bf.rawServe != nil { return .eof }
+                let st = inner.readState(bf.goID, which)
+                if st == .more && feedPending(bf, which) { return .again }
+                return st
+            case .forwarded, .responseBody, .responded: return .eof
+            default: return .failed("err: native body flow failed")
+            }
+        }
         guard which == .response else { return .failed("err: no body to read") }
         lock.lock(); defer { lock.unlock() }
         switch flows[id] {
@@ -316,11 +651,20 @@ final class NativeRewriteDriver: MitmFlowDriving {
 
     func upstreamFailed(_ id: Int64, why: String) {
         if id >= 0 { return inner.upstreamFailed(id, why: why) }
+        if let bf = bodyFlow(id) {
+            if bf.stage == .adopted { return inner.upstreamFailed(bf.goID, why: why) }
+            commitFirst(id, bf) // Swift forwarded it: the entry is native
+        }
         emit(id, last: true) { c in NativeRequestEvent(k: c.key, ev: "upstream", ms: Self.ms(since: c.start), why: why) }
     }
 
     func end(_ id: Int64, sent: Int64, error: String) {
         if id >= 0 { return inner.end(id, sent: sent, error: error) }
+        if let bf = bodyFlow(id) {
+            lock.lock(); flows.removeValue(forKey: id); lock.unlock()
+            if bf.stage == .adopted || bf.stage == .failed && bf.goID != 0 { return inner.end(bf.goID, sent: sent, error: error) }
+            commitFirst(id, bf)
+        }
         lock.lock(); flows.removeValue(forKey: id); lock.unlock()
         emit(id, last: true) { c in
             NativeRequestEvent(k: c.key, ev: "end", ms: Self.ms(since: c.start), sent: c.upstreamMode && sent > 0 ? sent : nil,
@@ -330,6 +674,11 @@ final class NativeRewriteDriver: MitmFlowDriving {
 
     func cancel(_ id: Int64, why: String) {
         if id >= 0 { return inner.cancel(id, why: why) }
+        if let bf = bodyFlow(id) {
+            lock.lock(); flows.removeValue(forKey: id); lock.unlock()
+            if bf.stage == .adopted || bf.stage == .failed && bf.goID != 0 { return inner.cancel(bf.goID, why: why) }
+            commitFirst(id, bf)
+        }
         lock.lock(); flows.removeValue(forKey: id); lock.unlock()
         emit(id, last: true) { c in
             NativeRequestEvent(k: c.key, ev: "cancel", ms: Self.ms(since: c.start), resp: c.responded ? true : nil, why: why.isEmpty ? nil : why)

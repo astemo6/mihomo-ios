@@ -110,6 +110,12 @@ type SnapRule struct {
 	OpsOK    bool           `json:"opsOK,omitempty"` // every header op can be applied natively
 	Local    *SnapLocal     `json:"local,omitempty"` // map local: inline answer (nil: Go serves it)
 	Script   *SnapScript    `json:"script,omitempty"`
+	// Body rewrites (bodysnap.go, stage 3b): BodyOK when Swift can run the rule exactly like Go.
+	Body    []SnapBodyOp `json:"body,omitempty"`
+	JSONOps []SnapJSONOp `json:"jsonOps,omitempty"`
+	JQ      []SnapJQStep `json:"jq,omitempty"`
+	BodyOK  bool         `json:"bodyOK,omitempty"`
+	BodyWhy string       `json:"bodyWhy,omitempty"`
 }
 
 // SnapHost is one MitM hostname pattern (HostMatcher).
@@ -306,6 +312,8 @@ func snapRule(i int, r *Rule, e *Engine) SnapRule {
 		if r.Script != nil {
 			sr.Script = &SnapScript{Name: r.Script.Name, Type: r.Script.Type, RequiresBody: r.Script.RequiresBody}
 		}
+	case KindBody, KindJQ, KindJSON:
+		snapBody(&sr, r)
 	}
 	return sr
 }

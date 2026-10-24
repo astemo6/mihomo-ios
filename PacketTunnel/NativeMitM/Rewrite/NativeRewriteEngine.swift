@@ -66,14 +66,26 @@ enum RewriteDecision {
         var url: String
         var host: String
         var headers: [[String]]
-        var bodyMode: FlowBodyMode   // .none or .client
+        var bodyMode: FlowBodyMode   // .none or .client (.read: the native request body plan produces it)
         var length: Int64
         var response: ResponsePlan
         var log = RewriteLog()
+        /// stage 3b: request body rules Swift runs once the body is in (length > 0); nil none.
+        var requestBody: NativeRequestBodyPlan?
     }
     /// Header operations of the response-phase header rules that matched, in order (applied to the upstream head),
     /// and those rules' indices (logged at the response).
-    struct ResponsePlan { var ops: [[RWSnapHeaderOp]] = []; var rules: [Int] = [] }
+    struct ResponsePlan {
+        var ops: [[RWSnapHeaderOp]] = []
+        var rules: [Int] = []
+        /// stage 3b: header and body rules in Go's order; hasBody → NativeBodyExec.response, not respond().
+        var steps: [ResponseStep] = []
+        var hasBody = false
+    }
+    enum ResponseStep {
+        case header([RWSnapHeaderOp], Int)
+        case body(NativeBodyRule)
+    }
 
     case go(String)
     case drop(RewriteLog)
@@ -113,6 +125,17 @@ final class NativeRewriteEngine {
     private let exc: [(pat: String, port: Int)]
     /// Rules whose patterns (and ops) Swift can evaluate / all rules (diagnostics).
     let portable: Int, total: Int
+    /// stage 3b: compiled body rules by Ruleset index (nil entry: not portable), built on first use.
+    private let bodyLock = NSLock()
+    private var bodyRules: [Int: NativeBodyRule?] = [:]
+
+    private func bodyRule(_ r: Rule) -> NativeBodyRule? {
+        bodyLock.lock(); defer { bodyLock.unlock() }
+        if let c = bodyRules[r.snap.i] { return c }
+        let c = NativeBodyRule(r.snap)
+        bodyRules[r.snap.i] = c
+        return c
+    }
 
     init(snapshot s: RWSnapshot) {
         generation = s.gen ?? 0
@@ -191,7 +214,9 @@ final class NativeRewriteEngine {
         return s
     }
 
-    func decide(_ q: RewriteRequest) -> RewriteDecision {
+    /// bodies: stage 3b body rules may be run natively (NativeBodyRuntime.enabled); false = stage 3a behaviour.
+    func decide(_ q: RewriteRequest, bodies: Bool = false) -> RewriteDecision {
+        let bodies = bodies && !capture
         // ---- FlowHead.request + requestURL, reproducing Go's parsing (or deferring where Swift cannot) ----
         let method = q.method.isEmpty ? "GET" : q.method
         if !method.utf8.allSatisfy(RWAscii.isTokenByte) { return .go("method") }
@@ -308,6 +333,7 @@ final class NativeRewriteEngine {
         }
 
         // ---- 3. request phase rules in order ----
+        var reqBodyRules: [NativeBodyRule] = []
         for rule in active where rule.phase != "response" {
             switch rule.kind {
             case "header":
@@ -328,11 +354,27 @@ final class NativeRewriteEngine {
                 switch matches(rule, u, r) {
                 case .unknown(let why): return .go(why)
                 case .no: continue
-                case .yes: return .go(rule.kind)
+                case .yes: break
                 }
+                guard bodies, rule.kind != "script", let br = bodyRule(rule) else { return .go(rule.kind) }
+                reqBodyRules.append(br)
+                log.rules.append(rule.snap.i)
             default:
                 continue
             }
+        }
+
+        // the request body rules (Go: loadBody once, setBody after each rule that succeeded)
+        var reqPlan: NativeRequestBodyPlan?
+        if !reqBodyRules.isEmpty {
+            if r.contentLength < 0 || r.contentLength > Int64(NativeBodyRuntime.maxBody) { return .go("request body length") }
+            if r.contentLength == 0 {
+                // no body (http.NoBody): a regex leaves it empty, a json / jq rule fails on it (Go skips the rule)
+                if reqBodyRules.contains(where: { $0.kind != "body" }) { return .go("empty request body") }
+            } else {
+                reqPlan = NativeRequestBodyPlan(rules: reqBodyRules, length: r.contentLength)
+            }
+            r.header.set("Content-Length", String(r.contentLength)) // setBody; the final length is patched in later
         }
 
         // ---- 4. response rules against the final URL ----
@@ -343,6 +385,11 @@ final class NativeRewriteEngine {
             case .no: continue
             case .yes: break
             }
+            if bodies, rule.kind == "body" || rule.kind == "jq" || rule.kind == "json", let br = bodyRule(rule) {
+                plan.steps.append(.body(br))
+                plan.hasBody = true
+                continue
+            }
             guard rule.kind == "header", rule.snap.opsOK == true else { return .go("response \(rule.kind)") }
             let ops = rule.snap.headers ?? []
             // regex ops read the upstream's values, unknown until the response: the patterns must compile now
@@ -352,6 +399,7 @@ final class NativeRewriteEngine {
             }
             plan.ops.append(ops)
             plan.rules.append(rule.snap.i)
+            plan.steps.append(.header(ops, rule.snap.i))
         }
 
         // ---- 5. the outbound request (flowOutbound + forward) ----
@@ -367,15 +415,18 @@ final class NativeRewriteEngine {
         if !upType.isEmpty { out.set("Connection", "Upgrade"); out.set("Upgrade", upType) }
         for k in ["Forwarded", "X-Forwarded-For", "X-Forwarded-Host", "X-Forwarded-Proto"] { out.del(k) }
         out.del("Content-Length")
+        // requestPhase: a response body rule makes Go ask only for encodings it can decode (after ent.ReqHeaders)
+        if plan.hasBody { out.set("Accept-Encoding", "gzip, deflate, br") }
         guard let cleaned = GoURL.cleanQuery(r.query) else { return .go("query") }
         // out.URL.String(): r.URL with the target's scheme and host, the cleaned query
         var outURL = target.scheme + "://" + target.host
         if !r.path.isEmpty && !r.path.hasPrefix("/") { outURL += "/" }
         outURL += r.path
         if r.forceQuery || !cleaned.isEmpty { outURL += "?" + cleaned }
-        let (mode, length): (FlowBodyMode, Int64) = r.contentLength == 0 ? (.none, 0) : (.client, r.contentLength)
+        var (mode, length): (FlowBodyMode, Int64) = r.contentLength == 0 ? (.none, 0) : (.client, r.contentLength)
+        if reqPlan != nil { mode = .read }
         return .forward(.init(method: method, url: outURL, host: r.host, headers: out.sortedPairs, bodyMode: mode, length: length,
-                              response: plan, log: log))
+                              response: plan, log: log, requestBody: reqPlan))
     }
 
     // MARK: - Map Local from a file
