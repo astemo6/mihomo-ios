@@ -98,4 +98,99 @@ final class NativeBodyStoreTests: XCTestCase {
         defer { store.free(bad) }
         XCTAssertNil(store.text(bad))
     }
+
+    /// Feeds data in chunks; "ok" / "too-big" / "decode" / "internal: …" and the decoded length.
+    private static func run(_ store: NativeBodyStore, _ h: Int64, _ data: Data, chunk: Int) -> (String, Int64) {
+        var off = 0
+        while off < data.count {
+            let end = min(data.count, off + chunk)
+            let r = store.write(h, b: data.subdata(in: off..<end))
+            off = end
+            if !r.isEmpty { return (r == "too-big" ? "too-big" : (r.hasPrefix("decode:") ? "decode" : "internal: " + r), -1) }
+        }
+        let n = store.finish(h)
+        return (n >= 0 ? "ok" : (n == -2 ? "too-big" : (n == -1 ? "decode" : "internal")), n)
+    }
+
+    private func fixture(_ name: String) throws -> (Fixture, Data) {
+        let f = try XCTUnwrap(try fixtures().first { $0.name == name }, name)
+        return (f, try XCTUnwrap(Data(base64Encoded: f.data), name))
+    }
+
+    /// Like Go's compress/gzip: the CRC-32 / ISIZE trailer of every member is checked.
+    func testGzipTrailerChecked() throws {
+        let store = NativeBodyStore.shared
+        let (f, data) = try fixture("gzip-plain")
+        for (what, at) in [("crc", data.count - 8), ("isize", data.count - 4)] {
+            var bad = data
+            bad[bad.startIndex + at] ^= 0x5a
+            for chunk in [1, 4096, bad.count] {
+                let h = store.open(f.enc, limit: f.limit, hint: -1)
+                XCTAssertEqual(Self.run(store, h, bad, chunk: chunk).0, "decode", "\(what) chunk \(chunk): \(store.err(h))")
+                store.free(h)
+            }
+        }
+        // a trailer cut short
+        let h = store.open(f.enc, limit: f.limit, hint: -1)
+        XCTAssertEqual(Self.run(store, h, data.prefix(data.count - 3), chunk: 333).0, "decode")
+        store.free(h)
+    }
+
+    /// Bytes after a complete gzip member that do not start another member are ignored (design §3.6).
+    func testGzipTrailingGarbageIgnored() throws {
+        let store = NativeBodyStore.shared
+        let (f, data) = try fixture("gzip-plain")
+        for tail in [Data([0x00]), Data(repeating: 0x41, count: 40), Data([0x1f, 0x8b, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00])] {
+            for chunk in [1, 7, 4096] {
+                let h = store.open(f.enc, limit: f.limit, hint: -1)
+                let (verdict, n) = Self.run(store, h, data + tail, chunk: chunk)
+                // a second "member" with a bad method byte is invalid -> garbage; Go errors there too, we pass the body
+                XCTAssertEqual(verdict, "ok", "tail \(tail.count) chunk \(chunk): \(store.err(h))")
+                XCTAssertEqual(Int(n), f.len)
+                store.free(h)
+            }
+        }
+    }
+
+    /// Native text keeps a leading BOM (Go's string(b) does; String(data:encoding:) would drop it).
+    func testTextKeepsBOM() {
+        let store = NativeBodyStore.shared
+        let h = [UInt8]([0xef, 0xbb, 0xbf, 0x7b, 0x7d]).withUnsafeBytes { store.store($0) }
+        defer { store.free(h) }
+        XCTAssertEqual(store.text(h), "\u{FEFF}{}")
+        // a truncated 4-byte sequence (one U+FFFD under maximal-subpart rules, same byte count) is not valid text
+        let bad = [UInt8]([0x61, 0xf0, 0x9f, 0x98, 0x62]).withUnsafeBytes { store.store($0) }
+        defer { store.free(bad) }
+        XCTAssertNil(store.text(bad))
+    }
+
+    /// Several bodies decoded at once from different threads (Go calls from many goroutines), plus a free racing reads.
+    func testConcurrentHandles() throws {
+        let store = NativeBodyStore.shared
+        let cases = try ["br", "gzip-multi-member", "deflate-zlib", "gzip-header-fields"].map { try fixture($0) }
+        let failures = NSLock()
+        var problems: [String] = []
+        DispatchQueue.concurrentPerform(iterations: 32) { i in
+            let (f, data) = cases[i % cases.count]
+            let h = store.open(f.enc, limit: f.limit, hint: Int64(data.count))
+            let (verdict, n) = Self.run(store, h, data, chunk: [1, 333, 4096, 32 << 10][i % 4])
+            var out = Data()
+            while let piece = store.read(h, raw: false, off: Int64(out.count), n: 32 << 10), !piece.isEmpty { out.append(piece) }
+            let ok = verdict == "ok" && Int(n) == f.len && Self.hex(out) == f.sha256
+            if !ok {
+                failures.lock()
+                problems.append("\(f.name) #\(i): \(verdict) \(n)")
+                failures.unlock()
+            }
+            // free while another thread may still look the handle up: it must just see a dead handle
+            DispatchQueue.global().async { _ = store.withDecoded(h) { _ in } }
+            store.free(h)
+            if store.read(h, raw: false, off: 0, n: 1) != nil || store.withDecoded(h, { _ in }) {
+                failures.lock()
+                problems.append("\(f.name) #\(i): readable after free")
+                failures.unlock()
+            }
+        }
+        XCTAssertEqual(problems, [])
+    }
 }
