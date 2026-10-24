@@ -51,7 +51,7 @@
 | 类别 | 任务 | 文件 | 依赖 | 估算 | 真机 | 负责人 | 状态 |
 |---|---|---|---|---|---|---|---|
 | B1 解压与 body 存储（Swift） | `NativeBodyStore` 首次编译、`NativeBodyStoreTests` 通过；gzip 多段、zlib/raw deflate、brotli（`COMPRESSION_BROTLI`）流式解码 | `PacketTunnel/NativeBodyStore.swift`、`UnitTests/NativeBody*` | 分支推上来 | 0.5–1 天 | 否 | 维护者（Hark） | 代码已写，未编译 |
-| B2 JSC 接入（Swift） | `JSCScriptEngine` 读原生 blob、生成 UTF-8 文本、≥64 KB 结果原生存放 | `PacketTunnel/JSCScriptEngine.swift` | B1 | 0.5 天 | 否 | 维护者（Hark） | 代码已写，未编译 |
+| B2 JSC 接入（Swift） | `JSCScriptEngine` 读原生 blob、生成 UTF-8 文本、≥64 KB 结果原生存放 | `PacketTunnel/JSCScriptEngine.swift` | B1 | 0.5 天 | 否 | 维护者（Hark） | ✅ `feat/native-b2` d65a0a9，CI 58/58（run 40054079596）；待合入 feat/native-mitm |
 | B3 Go 侧通道与回退 | body 通道、预算/准入语义、失败回退与熔断；Go brotli 截断数据误收（一行修复） | `bridge/mitm/nativelane.go`、`handler_lane.go`、`bridge/nativebodies.go` | 无 | 0.5 天 | 否 | 维护者（A 线） | 已完成，待 `-race` |
 | B4 兼容语料 | 把 QX 重写清单与 Surge / Loon / Egern 语法样例做成回放用例，覆盖 body 通道（JSC 与 goja 结果一致） | `UnitTests/ScriptEngineConformance.json`、`bridge/mitm/testdata/**` | 无 | 0.5–1 天 | 否 | astemo6 | ✅ `feat/b4-conformance` 0f5ffe3：语料 37→49 条（QX/Surge/Loon/Egern body 通道 12 条）+ testdata 四方言样本；TestEngineConformance 与 mitm 整包本地全绿（goja + native 替身），JSC 侧待 CI 的 ScriptEngineConformanceTests 复核 |
 | B5 第一期真机验证 | YouTube / 小红书 / 喜马拉雅各 5 分钟内存曲线；iOS 17 与 18 br 解码；熔断不触发；1 小时后原生 body 计数归零 | 只提 Issue（与 C 线合作） | B1、B2 | 1–2 天 | 是 | 待认领 | 待办 |
