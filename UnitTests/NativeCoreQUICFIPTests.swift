@@ -20,7 +20,10 @@ final class NativeCoreQUICFIPTests: XCTestCase {
     func testQUICSniff() {
         // Keys for DCID 8394c8f03e515708 (RFC 9001 App. A values, generated
         // with Go): key 1f369613…, iv fa044b2f…, hp 9f50449e….
-        let packet = hex("c600000001088394c8f03e5157080000405ef046b451939b7ca362c0a5e53f6c22dd6988baba5401fabdb11bdc15c4308caa1ea6df4ec4eea1ddf3d6bd27fb13e5e574e90272d731e3b576aadddbee49087943c635759b966e8e966e428f7fde7e84aa4bd6c26c790c451d0215f69394")
+        // Packet rebuilt 2026-10-25 with a well-formed ClientHello (the
+        // first hand-assembled one dropped a zero byte in the SNI name
+        // length, making the extension internally inconsistent).
+        let packet = hex("c700000001088394c8f03e5157080000405f1446b451909b7ca361c0a5e53f6c22dd6988baba5401fabdb11bdc15c4308caa1ea6df4ec4eea1ddf3d6bd27fb13e5e574e90272d731e3aa76aaddd0805411755eda3c3ed69a6ce3bd45418e7ed938798d7f072663396da37126d24236c1c4")
         // Stage 1: RFC 9001 key schedule via NCTLS13 primitives directly.
         let salt = hex("38762cf7f55934b34d179ae6a4c80cadccbb7f0a")
         let initial = NCTLS13.hkdfExtract(.sha256, salt: salt, ikm: hex("8394c8f03e515708"))
@@ -34,23 +37,23 @@ final class NativeCoreQUICFIPTests: XCTestCase {
         let hpKey = NCTLS13.expandLabel(.sha256, secret: clientSecret, label: "quic hp", context: Data(), length: 16)
         let sample = Data(packet[22..<38])
         XCTAssertEqual(NCAES(key: hpKey)?.encryptBlock(sample),
-                       hex("96f06a00abcfe3ef6b7adbb8abb5f675"))
+                       hex("d714c3bf4128779f90e7c0d8be5f6a9d"))
         // Stage 1.6: manual AEAD open with the known unprotected header
         // (pn = 0, so the nonce is the raw iv) and packet bytes 19..<112.
         let quicKey = NCTLS13.expandLabel(.sha256, secret: clientSecret, label: "quic key", context: Data(), length: 16)
         let quicIV = NCTLS13.expandLabel(.sha256, secret: clientSecret, label: "quic iv", context: Data(), length: 12)
         var combined = Data(quicIV)
-        combined.append(Data(packet[19..<112]))
+        combined.append(Data(packet[19..<113]))
         let box = try? AES.GCM.SealedBox(combined: combined)
-        let aad = hex("c000000001088394c8f03e5157080000405e00")
+        let aad = hex("c000000001088394c8f03e5157080000405f00")
         let opened = box.flatMap { try? AES.GCM.open($0, using: SymmetricKey(data: quicKey), authenticating: aad) }
         XCTAssertEqual(opened.map { Data($0) },
-                       hex("06004049010000450303aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa00000213010100001a0000000f000e000b6578616d706c652e636f6d002b0003020304"))
+                       hex("0600404a010000460303aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa00000213010100001b00000010000e00000b6578616d706c652e636f6d002b0003020304"))
         // Stage 2: full Initial decryption.
         let payload = NCQUICSniffer.decryptInitial(packet)
         XCTAssertNotNil(payload)
         if let payload {
-            XCTAssertEqual(payload.prefix(4), hex("06004049"))
+            XCTAssertEqual(payload.prefix(4), hex("0600404a"))
             // Stage 3: frame walk + ClientHello parse.
             XCTAssertEqual(NCQUICSniffer.sni(fromPayload: payload), "example.com")
         }
