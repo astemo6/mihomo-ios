@@ -53,12 +53,12 @@
 | B1 解压与 body 存储（Swift） | `NativeBodyStore` 首次编译、`NativeBodyStoreTests` 通过；gzip 多段、zlib/raw deflate、brotli（`COMPRESSION_BROTLI`）流式解码 | `PacketTunnel/NativeBodyStore.swift`、`UnitTests/NativeBody*` | 分支推上来 | 0.5–1 天 | 否 | 维护者（Hark） | 代码已写，未编译 |
 | B2 JSC 接入（Swift） | `JSCScriptEngine` 读原生 blob、生成 UTF-8 文本、≥64 KB 结果原生存放 | `PacketTunnel/JSCScriptEngine.swift` | B1 | 0.5 天 | 否 | 维护者（Hark） | 代码已写，未编译 |
 | B3 Go 侧通道与回退 | body 通道、预算/准入语义、失败回退与熔断；Go brotli 截断数据误收（一行修复） | `bridge/mitm/nativelane.go`、`handler_lane.go`、`bridge/nativebodies.go` | 无 | 0.5 天 | 否 | 维护者（A 线） | 已完成，待 `-race` |
-| B4 兼容语料 | 把 QX 重写清单与 Surge / Loon / Egern 语法样例做成回放用例，覆盖 body 通道（JSC 与 goja 结果一致） | `UnitTests/ScriptEngineConformance.json`、`bridge/mitm/testdata/**` | 无 | 0.5–1 天 | 否 | 待认领 | 待办 |
+| B4 兼容语料 | 把 QX 重写清单与 Surge / Loon / Egern 语法样例做成回放用例，覆盖 body 通道（JSC 与 goja 结果一致） | `UnitTests/ScriptEngineConformance.json`、`bridge/mitm/testdata/**` | 无 | 0.5–1 天 | 否 | astemo6 | 进行中 |
 | B5 第一期真机验证 | YouTube / 小红书 / 喜马拉雅各 5 分钟内存曲线；iOS 17 与 18 br 解码；熔断不触发；1 小时后原生 body 计数归零 | 只提 Issue（与 C 线合作） | B1、B2 | 1–2 天 | 是 | 待认领 | 待办 |
 | B6 Go flow API | 规则匹配与脚本语义留在 Go，Swift 只负责分帧和搬数据 | `bridge/mitm/flow*.go` | 分支推上来（目前只有设计） | 3–5 天 | 否 | 维护者（Hark） | 待办 |
-| B7 TLS 终止（Swift） | 按主机签发叶证书（PKCS#12，iOS 17/18 导入验证）、证书缓存、握手失败上报证书固定逻辑 | `PacketTunnel/NativeMitM/TLS*.swift` | B6 | 2–3 天 | 是 | 待认领 | 骨架 |
-| B8 HTTP/1.1 解析与上游（Swift） | 请求/响应头重写、分块传输、通过 Go `relay.go` 回连 mihomo | `PacketTunnel/NativeMitM/HTTP*.swift`、`Upstream*.swift` | B6 | 3–5 天 | 是 | 待认领 | 骨架 |
-| B9 边界情况 | WebSocket、网络切换、只报 h2 的客户端（gRPC）留在 Go | `PacketTunnel/NativeMitM/**`（与 B7/B8 负责人协调） | B7、B8 | 2–3 天 | 是 | 待认领 | 待办 |
+| B7 TLS 终止（Swift） | 按主机签发叶证书（PKCS#12，iOS 17/18 导入验证）、证书缓存、握手失败上报证书固定逻辑 | `PacketTunnel/NativeMitM/TLS*.swift` | B6 | 2–3 天 | 是 | astemo6 | 骨架 |
+| B8 HTTP/1.1 解析与上游（Swift） | 请求/响应头重写、分块传输、通过 Go `relay.go` 回连 mihomo | `PacketTunnel/NativeMitM/HTTP*.swift`、`Upstream*.swift` | B6 | 3–5 天 | 是 | astemo6 | 骨架 |
+| B9 边界情况 | WebSocket、网络切换、只报 h2 的客户端（gRPC）留在 Go | `PacketTunnel/NativeMitM/**`（与 B7/B8 负责人协调） | B7、B8 | 2–3 天 | 是 | astemo6 | 待办 |
 | B10 第二期对比 | 第二期与 Go 路径的内存对比，决定是否上线 | 只提 Issue | B7–B9 | 1 天 | 是 | 待认领 | 待办 |
 
 顺序：第一期（B1–B5）大约 3–5 天就能上线，拿到大部分内存收益（3 MB gzip body 在 Go 堆里从 +4.2–6.5 MB 降到 +0.6–1.6 MB）。第二期（B6–B10）预计 2–3 周，收益约 1–3 MB，先看 B5 实测再决定做不做。现在就能开工的：B4（B3 由维护者收尾）。
