@@ -70,6 +70,9 @@ targets:
       # feat/s3-mem: native memory governor (switch nativeMemGovernor, default OFF); in the app for
       # UnitTests/NativeMitmMemoryGovernorTests.swift and because NativeBodyStore / the session / JSC consult it.
       - path: PacketTunnel/NativeMitM/Memory
+      # native MitM stage 3a: the native rewrite engine (switch nativeMitmRewrite, default OFF), in the app only for
+      # UnitTests/NativeMitmRewriteTests.swift.
+      - path: PacketTunnel/NativeMitM/Rewrite
     configFiles:
       Debug: Config/App.signing.xcconfig
       Release: Config/App.signing.xcconfig
