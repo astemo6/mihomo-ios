@@ -136,9 +136,10 @@ enum NCDelayTester {
         }
     }
 
-    /// Measures multiple group members concurrently (bounded concurrency), reporting both
-    /// successes (ms) and failures (nil) for every member. Enforces an overall timeout
-    /// so slow or hanging probes never block the engine.
+    /// Measures multiple group members concurrently (bounded concurrency), reporting
+    /// successes (ms) and failures (nil). A per-member timeout plus an overall round
+    /// timeout (scaled to the member count) keep hung probes from stalling the caller;
+    /// members that miss the round are absent from the result, not marked dead.
     static func measureGroup(
         groupEngine: NCGroupEngine?,
         members: [String],
@@ -171,34 +172,27 @@ enum NCDelayTester {
             queue.async { completion(res) }
         }
 
-        let roundTimeout = overallTimeoutMs ?? (timeoutMs + 2000)
+        // Bound the round so hung members can never stall the caller: every member
+        // gets its own timeout, plus slack for queueing behind the concurrency cap.
+        let rounds = (members.count + maxConcurrency - 1) / maxConcurrency
+        let roundTimeout = overallTimeoutMs ?? (timeoutMs * rounds + 5000)
         DispatchQueue.global(qos: .userInitiated).asyncAfter(deadline: .now() + .milliseconds(roundTimeout)) {
             lock.lock()
             let current = results
             lock.unlock()
-            var filled = current
-            for m in members where filled[m] == nil {
-                filled[m] = nil
-            }
-            finishOnce(filled)
+            finishOnce(current)
         }
 
         for member in members {
             group.enter()
             DispatchQueue.global(qos: .userInitiated).async {
                 if isCancelled() {
-                    lock.lock()
-                    if results[member] == nil { results[member] = nil }
-                    lock.unlock()
                     group.leave()
                     return
                 }
                 semaphore.wait()
                 if isCancelled() {
                     semaphore.signal()
-                    lock.lock()
-                    if results[member] == nil { results[member] = nil }
-                    lock.unlock()
                     group.leave()
                     return
                 }
@@ -216,11 +210,7 @@ enum NCDelayTester {
             lock.lock()
             let res = results
             lock.unlock()
-            var filled = res
-            for m in members where filled[m] == nil {
-                filled[m] = nil
-            }
-            finishOnce(filled)
+            finishOnce(res)
         }
     }
 }
@@ -278,22 +268,22 @@ final class NCHealthCheckScheduler {
         }
     }
 
-    /// Called when real traffic resolves through a proxy group.
+    /// Called when real traffic resolves through a proxy group. Lazy groups only
+    /// probe on use, so a touch is their wake-up call; non-lazy groups ignore it.
     func notifyTouch(group groupName: String) {
         queue.async { [weak self] in
             guard let self = self, self.isRunning, let engine = self.engine, let cfg = engine.effectiveConfig else { return }
-            guard let g = cfg.groupMap[groupName], g.type == "url-test" || g.type == "fallback" else { return }
-            guard g.lazy, !self.activeProbingGroups.contains(g.name) else { return }
-
+            guard let g = cfg.groupMap[groupName], g.type == "url-test" || g.type == "fallback", g.lazy else { return }
+            guard !self.activeProbingGroups.contains(g.name) else { return }
+            // Never probed or overdue → probe now; otherwise the armed timer
+            // already covers the next round.
             let now = Date()
             let interval = TimeInterval(max(g.interval, 5))
-            let lastCheck = self.lastCheckTime[g.name]
-            // If never probed or overdue, probe immediately; otherwise schedule
-            if lastCheck == nil || now.timeIntervalSince(lastCheck!) >= interval {
-                self.probeGroup(g)
-            } else {
+            if let lastCheck = self.lastCheckTime[g.name], now.timeIntervalSince(lastCheck) < interval {
                 self.scheduleNext()
+                return
             }
+            self.probeGroup(g)
         }
     }
 
@@ -301,22 +291,30 @@ final class NCHealthCheckScheduler {
         guard isRunning, let engine = engine, let cfg = engine.effectiveConfig else { return }
         let now = Date()
         let eligible = cfg.groups.filter { $0.type == "url-test" || $0.type == "fallback" }
-        guard !eligible.isEmpty else { return }
+        guard !eligible.isEmpty else {
+            armTimer(for: nil)
+            return
+        }
+        let eligibleNames = Set(eligible.map(\.name))
+        // Forget bookkeeping for groups the (reloaded) config no longer knows.
+        nextCheckTime = nextCheckTime.filter { eligibleNames.contains($0.key) }
+        lastCheckTime = lastCheckTime.filter { eligibleNames.contains($0.key) }
+        activeProbingGroups = activeProbingGroups.filter(eligibleNames.contains)
 
         var nextDeadline: Date?
 
         for g in eligible {
             let interval = TimeInterval(max(g.interval, 5))
             if g.lazy {
-                let lastTouch = engine.groupEngine?.lastTouch(for: g.name)
-                // Lazy: only probe if the group has been used recently (within interval * 2)
-                if let lastTouch = lastTouch, now.timeIntervalSince(lastTouch) <= interval * 2 {
-                    let due = nextCheckTime[g.name] ?? now
-                    if now >= due {
-                        probeGroup(g)
-                    } else if nextDeadline == nil || due < nextDeadline! {
-                        nextDeadline = due
-                    }
+                // Lazy (mihomo semantics): only probe groups the tunnel actually
+                // used recently; unused groups sleep until touched.
+                guard let lastTouch = engine.groupEngine?.lastTouch(for: g.name),
+                      now.timeIntervalSince(lastTouch) <= interval * 2 else { continue }
+                let due = nextCheckTime[g.name] ?? now
+                if now >= due {
+                    probeGroup(g)
+                } else if nextDeadline == nil || due < nextDeadline! {
+                    nextDeadline = due
                 }
             } else {
                 // Non-lazy: probe continuously on schedule
@@ -336,6 +334,12 @@ final class NCHealthCheckScheduler {
         guard isRunning, !activeProbingGroups.contains(g.name) else { return }
         guard !g.proxies.isEmpty else { return }
 
+        let groupEngine = engine?.groupEngine
+        // Nodes the connector cannot dial are already avoided by selection;
+        // probing them would only burn a timeout.
+        let members = g.proxies.filter { !(groupEngine?.unsupported.contains($0) ?? false) }
+        guard !members.isEmpty else { return }
+
         let now = Date()
         let interval = TimeInterval(max(g.interval, 5))
         nextCheckTime[g.name] = now.addingTimeInterval(interval)
@@ -343,11 +347,10 @@ final class NCHealthCheckScheduler {
 
         let testURL = g.url ?? "http://www.gstatic.com/generate_204"
         let timeoutMs = g.fields["timeout"]?.int ?? 5000
-        let groupEngine = engine?.groupEngine
 
         NCDelayTester.measureGroup(
             groupEngine: groupEngine,
-            members: g.proxies,
+            members: members,
             url: testURL,
             timeoutMs: timeoutMs,
             queue: queue,
@@ -371,20 +374,16 @@ final class NCHealthCheckScheduler {
         }
     }
 
+    /// Arms the single timer for the earliest pending deadline. nil means
+    /// nothing is due (e.g. only lazy groups the tunnel has not used yet): no
+    /// timer is armed, since touches (notifyTouch) and config reloads
+    /// (updateConfig) wake the scheduler on demand.
     private func armTimer(for deadline: Date?) {
         timer?.cancel()
         timer = nil
-        guard isRunning else { return }
+        guard isRunning, let deadline else { return }
 
-        let now = Date()
-        let delaySeconds: Double
-        if let deadline = deadline {
-            delaySeconds = max(0.5, deadline.timeIntervalSince(now))
-        } else {
-            // Heartbeat check for lazy groups or newly added groups
-            delaySeconds = 60.0
-        }
-
+        let delaySeconds = max(0.5, deadline.timeIntervalSince(Date()))
         let t = DispatchSource.makeTimerSource(queue: queue)
         t.schedule(deadline: .now() + delaySeconds)
         t.setEventHandler { [weak self] in

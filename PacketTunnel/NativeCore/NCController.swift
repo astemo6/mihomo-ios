@@ -230,6 +230,7 @@ final class NCController {
 
     private func proxiesJSON() -> [String: Any] {
         guard let cfg = engine.effectiveConfig, let groups = engine.groupEngine else { return [:] }
+        let snapshot = groups.statusSnapshot()
         var out: [String: Any] = [:]
         let now = ISO8601DateFormatter().string(from: Date())
         for p in cfg.proxies {
@@ -237,9 +238,9 @@ final class NCController {
                 "name": p.name,
                 "type": Self.displayType(p.type),
                 "udp": p.udp,
-                "alive": groups.alive[p.name] ?? true,
+                "alive": snapshot.alive[p.name] ?? true,
             ]
-            if let d = groups.delays[p.name] {
+            if let d = snapshot.delays[p.name] {
                 item["history"] = [["time": now, "delay": d]]
             } else {
                 item["history"] = [Any]()
@@ -255,7 +256,7 @@ final class NCController {
                 "udp": true,
                 "alive": true,
                 "history": [Any](),
-                "fixed": groups.selections[g.name] ?? "",
+                "fixed": snapshot.selections[g.name] ?? "",
             ]
         }
         out["DIRECT"] = ["name": "DIRECT", "type": "Direct", "udp": true, "alive": true, "history": [Any]()]

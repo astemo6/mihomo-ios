@@ -107,26 +107,20 @@ final class NCGroupEngine {
     var onGroupTouched: ((String) -> Void)?
     private let lock = NSRecursiveLock()
 
-    func touch(_ groupName: String) {
-        lock.lock()
-        let now = Date()
-        let shouldNotify: Bool
-        if let last = lastTouched[groupName], now.timeIntervalSince(last) < 1.0 {
-            shouldNotify = false
-        } else {
-            lastTouched[groupName] = now
-            shouldNotify = true
-        }
-        lock.unlock()
-        if shouldNotify {
-            onGroupTouched?(groupName)
-        }
-    }
-
     func lastTouch(for groupName: String) -> Date? {
         lock.lock()
         defer { lock.unlock() }
         return lastTouched[groupName]
+    }
+
+    /// Throttle bookkeeping for the touch notification; caller holds the lock.
+    private func noteTouchLocked(_ groupName: String) -> Bool {
+        let now = Date()
+        if let last = lastTouched[groupName], now.timeIntervalSince(last) < 1.0 {
+            return false
+        }
+        lastTouched[groupName] = now
+        return true
     }
 
     func recordDelay(name: String, ms: Int) {
@@ -148,7 +142,8 @@ final class NCGroupEngine {
         alive[name] = false
     }
 
-    func setSelection(group: String, member: String?) {
+    @discardableResult
+    func setSelection(group: String, member: String?) -> [String: String] {
         lock.lock()
         defer { lock.unlock() }
         if let member {
@@ -156,6 +151,16 @@ final class NCGroupEngine {
         } else {
             selections.removeValue(forKey: group)
         }
+        return selections
+    }
+
+    /// Locked point-in-time copies for status endpoints and state handoff:
+    /// the health-check scheduler writes delays/alive from its own queue, so
+    /// readers must not touch the dictionaries directly.
+    func statusSnapshot() -> (selections: [String: String], delays: [String: Int], alive: [String: Bool]) {
+        lock.lock()
+        defer { lock.unlock() }
+        return (selections, delays, alive)
     }
 
     /// The member a SUBNET condition forces for this group right now:
@@ -201,15 +206,7 @@ final class NCGroupEngine {
         guard !visited.contains(g.name) else { return .unknown(policy) }
         var visited = visited
         visited.insert(g.name)
-        let now = Date()
-        let shouldNotify: Bool
-        if let last = lastTouched[g.name], now.timeIntervalSince(last) < 1.0 {
-            shouldNotify = false
-        } else {
-            lastTouched[g.name] = now
-            shouldNotify = true
-        }
-        if shouldNotify {
+        if noteTouchLocked(g.name) {
             onGroupTouched?(g.name)
         }
         if g.type == "relay" {

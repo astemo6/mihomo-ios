@@ -172,9 +172,12 @@ final class NativeCoreEngine {
         let merged = mergedConfig(base: cfg)
         let engine = NCGroupEngine(config: merged)
         if let old = groups {
-            engine.selections = old.selections
-            engine.delays = old.delays
-            engine.alive = old.alive
+            // Snapshot under the old engine's lock: the health-check scheduler
+            // may be writing delays/alive from its own queue right now.
+            let snap = old.statusSnapshot()
+            engine.selections = snap.selections
+            engine.delays = snap.delays
+            engine.alive = snap.alive
         } else if let data = try? Data(contentsOf: selectionsFile),
                   let saved = try? JSONDecoder().decode([String: String].self, from: data) {
             // Selections survive a reconnect (mihomo keeps them in cache.db, store-selected).
@@ -286,8 +289,8 @@ final class NativeCoreEngine {
     var effectiveMode: String { modeOverride ?? config?.mode ?? "rule" }
 
     func setSelection(group: String, member: String?) {
-        groups?.setSelection(group: group, member: member)
-        if let sel = groups?.selections, let data = try? JSONEncoder().encode(sel) {
+        guard let sel = groups?.setSelection(group: group, member: member) else { return }
+        if let data = try? JSONEncoder().encode(sel) {
             try? data.write(to: selectionsFile, options: .atomic)
         }
     }
