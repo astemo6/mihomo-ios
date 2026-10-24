@@ -207,7 +207,7 @@ struct BackupView: View {
             Section {
                 VStack(alignment: .leading, spacing: 6) {
                     Text("包含").font(.caption.weight(.semibold)).foregroundStyle(.secondary)
-                    Text("配置与订阅（含离线选择的节点）· 手动节点 · 内核覆写 · DNS · 自定义规则 · MitM 主机名 · 重写 · 脚本 · 模块").font(.footnote)
+                    Text("配置与订阅（含离线选择的节点）· 本地节点 · 内核覆写 · DNS · 自定义规则 · MitM 主机名 · 重写 · 脚本 · 模块").font(.footnote)
                     Text("不含：规则集 / 节点集缓存、地理数据库、连接记录。").font(.caption2).foregroundStyle(.secondary)
                 }
                 Toggle("包含 MitM 根证书和私钥", isOn: $includeCA)

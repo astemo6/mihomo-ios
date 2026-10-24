@@ -14296,36 +14296,36 @@
         }
       }
     },
-    "先经过另一个节点或策略组再连接这个节点（代理链）。开启「把手动节点加入每个配置」后，也可以选择当前订阅里的策略组。": {
+    "先经过另一个节点或策略组再连接这个节点（代理链）。开启「把本地节点加入每个配置」后，也可以选择当前订阅里的策略组。": {
       "localizations": {
         "zh-Hant": {
           "stringUnit": {
             "state": "translated",
-            "value": "先經過另一個節點或策略組再連線這個節點（代理鏈）。開啟「把手動節點加入每個配置」後，也可以選擇當前訂閱裡的策略組。"
+            "value": "先經過另一個節點或策略組再連線這個節點（代理鏈）。開啟「把本地節點加入每個配置」後，也可以選擇當前訂閱裡的策略組。"
           }
         },
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "Connect through another node or group before this node (proxy chain). With \"Add manual nodes to every profile\" on, groups of the current subscription can be picked too."
+            "value": "Connect through another node or group before this node (proxy chain). With \"Add local nodes to every profile\" on, groups of the current subscription can be picked too."
           }
         },
         "ja": {
           "stringUnit": {
             "state": "translated",
-            "value": "このノードの前に別のノードやグループを経由します（プロキシチェーン）。「手動ノードをすべてのプロファイルに追加」をオンにすると、現在の購読のグループも選べます。"
+            "value": "このノードの前に別のノードやグループを経由します（プロキシチェーン）。「ローカルノードをすべてのプロファイルに追加」をオンにすると、現在の購読のグループも選べます。"
           }
         },
         "ko": {
           "stringUnit": {
             "state": "translated",
-            "value": "이 노드에 연결하기 전에 다른 노드나 그룹을 거칩니다(프록시 체인). '수동 노드를 모든 프로파일에 추가'를 켜면 현재 구독의 그룹도 선택할 수 있습니다."
+            "value": "이 노드에 연결하기 전에 다른 노드나 그룹을 거칩니다(프록시 체인). '로컬 노드를 모든 프로파일에 추가'를 켜면 현재 구독의 그룹도 선택할 수 있습니다."
           }
         },
         "ru": {
           "stringUnit": {
             "state": "translated",
-            "value": "Перед этим узлом трафик идёт через другой узел или группу (цепочка прокси). Если включено «Добавлять ручные узлы в каждый профиль», можно выбрать и группы текущей подписки."
+            "value": "Перед этим узлом трафик идёт через другой узел или группу (цепочка прокси). Если включено «Добавлять локальные узлы в каждый профиль», можно выбрать и группы текущей подписки."
           }
         }
       }
@@ -18307,31 +18307,37 @@
         "zh-Hant": {
           "stringUnit": {
             "state": "translated",
-            "value": "包含配置與訂閱、手動節點、模組、腳本、覆寫、DNS、自定義規則、策略組編輯；不含 MitM 證書、腳本儲存資料和快取。自動上傳只在內容有變化時進行；下載需要手動確認，覆蓋前會自動儲存快照。"
+            "value": "包含配置與訂閱、本地節點、模組、腳本、覆寫、DNS、自定義規則、策略組編輯；不含 MitM 證書、腳本儲存資料和快取。自動上傳只在內容有變化時進行；下載需要手動確認，覆蓋前會自動儲存快照。"
           }
         },
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "Includes profiles and subscriptions, manual nodes, modules, scripts, overrides, DNS, custom rules and group edits; not the MitM certificate, script storage data or caches. Automatic upload only runs when something changed; downloading needs your confirmation and a snapshot is saved before overwriting."
+            "value": "Includes profiles and subscriptions, local nodes, modules, scripts, overrides, DNS, custom rules and group edits; not the MitM certificate, script storage data or caches. Automatic upload only runs when something changed; downloading needs your confirmation and a snapshot is saved before overwriting."
           }
         },
         "ja": {
           "stringUnit": {
             "state": "translated",
-            "value": "プロファイルと購読、手動ノード、モジュール、スクリプト、上書き設定、DNS、カスタムルール、ポリシーグループの編集を含みます。MitM 証明書、スクリプトの保存データとキャッシュは含みません。自動アップロードは内容が変わったときだけ行います。ダウンロードは確認が必要で、上書き前にスナップショットを保存します。"
+            "value": "プロファイルと購読、ローカルノード、モジュール、スクリプト、上書き設定、DNS、カスタムルール、ポリシーグループの編集を含みます。MitM 証明書、スクリプトの保存データとキャッシュは含みません。自動アップロードは内容が変わったときだけ行います。ダウンロードは確認が必要で、上書き前にスナップショットを保存します。"
           }
         },
         "ko": {
           "stringUnit": {
             "state": "translated",
-            "value": "프로파일과 구독, 수동 노드, 모듈, 스크립트, 덮어쓰기, DNS, 사용자 지정 규칙, 정책 그룹 편집을 포함하며 MitM 인증서, 스크립트 저장 데이터와 캐시는 포함하지 않습니다. 자동 업로드는 내용이 바뀌었을 때만 실행됩니다. 다운로드는 확인이 필요하며 덮어쓰기 전에 스냅샷을 저장합니다."
+            "value": "프로파일과 구독, 로컬 노드, 모듈, 스크립트, 덮어쓰기, DNS, 사용자 지정 규칙, 정책 그룹 편집을 포함하며 MitM 인증서, 스크립트 저장 데이터와 캐시는 포함하지 않습니다. 자동 업로드는 내용이 바뀌었을 때만 실행됩니다. 다운로드는 확인이 필요하며 덮어쓰기 전에 스냅샷을 저장합니다."
           }
         },
         "ru": {
           "stringUnit": {
             "state": "translated",
-            "value": "Включает профили и подписки, ручные узлы, модули, скрипты, переопределения, DNS, свои правила и правки групп; без сертификата MitM, данных хранилища скриптов и кэшей. Автоотправка — только при изменениях; загрузка требует подтверждения, перед перезаписью сохраняется снимок."
+            "value": "Включает профили и подписки, локальные узлы, модули, скрипты, переопределения, DNS, свои правила и правки групп; без сертификата MitM, данных хранилища скриптов и кэшей. Автоотправка — только при изменениях; загрузка требует подтверждения, перед перезаписью сохраняется снимок."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "包含配置与订阅、本地节点、模块、脚本、覆写、DNS、自定义规则、策略组编辑；不含 MitM 证书、脚本存储数据和缓存。自动上传只在内容有变化时进行；下载需要手动确认，覆盖前会自动保存快照。"
           }
         }
       }
@@ -27487,36 +27493,36 @@
         }
       }
     },
-    "已添加 %lld 个节点到「手动节点」": {
+    "已添加 %lld 个节点到「本地节点」": {
       "localizations": {
         "zh-Hant": {
           "stringUnit": {
             "state": "translated",
-            "value": "已新增 %lld 個節點到「手動節點」"
+            "value": "已新增 %lld 個節點到「本地節點」"
           }
         },
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "Added %lld nodes to “Manual Nodes”"
+            "value": "Added %lld nodes to “Local Nodes”"
           }
         },
         "ja": {
           "stringUnit": {
             "state": "translated",
-            "value": "%lld 個のノードを「手動ノード」に追加しました"
+            "value": "%lld 個のノードを「ローカルノード」に追加しました"
           }
         },
         "ko": {
           "stringUnit": {
             "state": "translated",
-            "value": "노드 %lld개를 ‘수동 노드’에 추가했습니다"
+            "value": "노드 %lld개를 ‘로컬 노드’에 추가했습니다"
           }
         },
         "ru": {
           "stringUnit": {
             "state": "translated",
-            "value": "Добавлено узлов в «Ручные узлы»: %lld"
+            "value": "Добавлено узлов в «Локальные узлы»: %lld"
           }
         }
       }
@@ -27526,31 +27532,37 @@
         "zh-Hant": {
           "stringUnit": {
             "state": "translated",
-            "value": "已新增 %lld 個節點到手動節點"
+            "value": "已新增 %lld 個節點到本地節點"
           }
         },
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "Added %lld nodes to Manual Nodes"
+            "value": "Added %lld nodes to Local Nodes"
           }
         },
         "ja": {
           "stringUnit": {
             "state": "translated",
-            "value": "手動ノードに %lld 件のノードを追加しました"
+            "value": "ローカルノードに %lld 件のノードを追加しました"
           }
         },
         "ko": {
           "stringUnit": {
             "state": "translated",
-            "value": "수동 노드에 노드 %lld개를 추가했습니다"
+            "value": "로컬 노드에 노드 %lld개를 추가했습니다"
           }
         },
         "ru": {
           "stringUnit": {
             "state": "translated",
-            "value": "Добавлено узлов в «Ручные узлы»: %lld"
+            "value": "Добавлено узлов в «Локальные узлы»: %lld"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "已添加 %lld 个节点到本地节点"
           }
         }
       }
@@ -30498,31 +30510,37 @@
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "Manual Nodes"
+            "value": "Local Nodes"
           }
         },
         "zh-Hant": {
           "stringUnit": {
             "state": "translated",
-            "value": "手動節點"
+            "value": "本地節點"
           }
         },
         "ja": {
           "stringUnit": {
             "state": "translated",
-            "value": "手動ノード"
+            "value": "ローカルノード"
           }
         },
         "ko": {
           "stringUnit": {
             "state": "translated",
-            "value": "수동 노드"
+            "value": "로컬 노드"
           }
         },
         "ru": {
           "stringUnit": {
             "state": "translated",
-            "value": "Ручные узлы"
+            "value": "Локальные узлы"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "本地节点"
           }
         }
       }
@@ -31006,36 +31024,36 @@
         }
       }
     },
-    "把手动节点加入每个配置": {
+    "把本地节点加入每个配置": {
       "localizations": {
-        "en": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Add Manual Nodes to Every Profile"
-          }
-        },
         "zh-Hant": {
           "stringUnit": {
             "state": "translated",
-            "value": "把手動節點加入每個配置"
+            "value": "把本地節點加入每個配置"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Add Local Nodes to Every Profile"
           }
         },
         "ja": {
           "stringUnit": {
             "state": "translated",
-            "value": "手動ノードをすべてのプロファイルに追加"
+            "value": "ローカルノードをすべてのプロファイルに追加"
           }
         },
         "ko": {
           "stringUnit": {
             "state": "translated",
-            "value": "모든 프로파일에 수동 노드 추가"
+            "value": "모든 프로파일에 로컬 노드 추가"
           }
         },
         "ru": {
           "stringUnit": {
             "state": "translated",
-            "value": "Добавлять ручные узлы во все профили"
+            "value": "Добавлять локальные узлы во все профили"
           }
         }
       }
@@ -42976,31 +42994,37 @@
         "zh-Hant": {
           "stringUnit": {
             "state": "translated",
-            "value": "新增手動節點前"
+            "value": "新增本地節點前"
           }
         },
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "Before adding manual nodes"
+            "value": "Before adding local nodes"
           }
         },
         "ja": {
           "stringUnit": {
             "state": "translated",
-            "value": "手動ノードを追加する前"
+            "value": "ローカルノードを追加する前"
           }
         },
         "ko": {
           "stringUnit": {
             "state": "translated",
-            "value": "수동 노드 추가 전"
+            "value": "로컬 노드 추가 전"
           }
         },
         "ru": {
           "stringUnit": {
             "state": "translated",
-            "value": "Перед добавлением ручных узлов"
+            "value": "Перед добавлением локальных узлов"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "添加本地节点前"
           }
         }
       }
@@ -47864,31 +47888,37 @@
         "zh-Hant": {
           "stringUnit": {
             "state": "translated",
-            "value": "編輯手動節點前"
+            "value": "編輯本地節點前"
           }
         },
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "Before editing a manual node"
+            "value": "Before editing a local node"
           }
         },
         "ja": {
           "stringUnit": {
             "state": "translated",
-            "value": "手動ノードを編集する前"
+            "value": "ローカルノードを編集する前"
           }
         },
         "ko": {
           "stringUnit": {
             "state": "translated",
-            "value": "수동 노드 편집 전"
+            "value": "로컬 노드 편집 전"
           }
         },
         "ru": {
           "stringUnit": {
             "state": "translated",
-            "value": "Перед правкой ручного узла"
+            "value": "Перед правкой локального узла"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "编辑本地节点前"
           }
         }
       }
@@ -57615,36 +57645,36 @@
         }
       }
     },
-    "配置与订阅（含离线选择的节点）· 手动节点 · 内核覆写 · DNS · 自定义规则 · MitM 主机名 · 重写 · 脚本 · 模块": {
+    "配置与订阅（含离线选择的节点）· 本地节点 · 内核覆写 · DNS · 自定义规则 · MitM 主机名 · 重写 · 脚本 · 模块": {
       "localizations": {
-        "en": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Profiles and subscriptions (incl. offline node choices) · Manual nodes · Core overrides · DNS · Custom rules · MitM host names · Rewrites · Scripts · Modules"
-          }
-        },
         "zh-Hant": {
           "stringUnit": {
             "state": "translated",
-            "value": "配置與訂閱（含離線選擇的節點）· 手動節點 · 核心覆寫 · DNS · 自定義規則 · MitM 主機名 · 重寫 · 腳本 · 模組"
+            "value": "配置與訂閱（含離線選擇的節點）· 本地節點 · 核心覆寫 · DNS · 自定義規則 · MitM 主機名 · 重寫 · 腳本 · 模組"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Profiles and subscriptions (incl. offline node choices) · Local nodes · Core overrides · DNS · Custom rules · MitM host names · Rewrites · Scripts · Modules"
           }
         },
         "ja": {
           "stringUnit": {
             "state": "translated",
-            "value": "プロファイルと購読（オフラインのノード選択を含む）· 手動ノード · コアの上書き · DNS · カスタムルール · MitM ホスト名 · 書き換え · スクリプト · モジュール"
+            "value": "プロファイルと購読（オフラインのノード選択を含む）· ローカルノード · コアの上書き · DNS · カスタムルール · MitM ホスト名 · 書き換え · スクリプト · モジュール"
           }
         },
         "ko": {
           "stringUnit": {
             "state": "translated",
-            "value": "프로파일과 구독(오프라인 노드 선택 포함) · 수동 노드 · 코어 덮어쓰기 · DNS · 사용자 지정 규칙 · MitM 호스트 이름 · 재작성 · 스크립트 · 모듈"
+            "value": "프로파일과 구독(오프라인 노드 선택 포함) · 로컬 노드 · 코어 덮어쓰기 · DNS · 사용자 지정 규칙 · MitM 호스트 이름 · 재작성 · 스크립트 · 모듈"
           }
         },
         "ru": {
           "stringUnit": {
             "state": "translated",
-            "value": "Профили и подписки (с офлайн-выбором узлов) · ручные узлы · переопределения ядра · DNS · свои правила · хосты MitM · перезапись · скрипты · модули"
+            "value": "Профили и подписки (с офлайн-выбором узлов) · локальные узлы · переопределения ядра · DNS · свои правила · хосты MitM · перезапись · скрипты · модули"
           }
         }
       }
@@ -61429,40 +61459,40 @@
         }
       }
     },
-    "删除这个手动节点？": {
-      "extractionState": "manual",
+    "删除这个本地节点？": {
       "localizations": {
         "zh-Hant": {
           "stringUnit": {
             "state": "translated",
-            "value": "刪除這個手動節點？"
+            "value": "刪除這個本地節點？"
           }
         },
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "Delete this manual node?"
+            "value": "Delete this local node?"
           }
         },
         "ja": {
           "stringUnit": {
             "state": "translated",
-            "value": "この手動ノードを削除しますか？"
+            "value": "このローカルノードを削除しますか？"
           }
         },
         "ko": {
           "stringUnit": {
             "state": "translated",
-            "value": "이 수동 노드를 삭제할까요?"
+            "value": "이 로컬 노드를 삭제할까요?"
           }
         },
         "ru": {
           "stringUnit": {
             "state": "translated",
-            "value": "Удалить этот ручной узел?"
+            "value": "Удалить этот локальный узел?"
           }
         }
-      }
+      },
+      "extractionState": "manual"
     },
     "加为策略组": {
       "extractionState": "manual",
@@ -61534,40 +61564,40 @@
         }
       }
     },
-    "协议由 mihomo 内核 %@ 提供。节点保存在「手动节点」中；在 工具 → 节点与订阅 → 本地 打开「把手动节点加入每个配置」后，可在任何订阅的策略里选择。": {
-      "extractionState": "manual",
+    "协议由 mihomo 内核 %@ 提供。节点保存在「本地节点」中；在 工具 → 节点与订阅 → 本地 打开「把本地节点加入每个配置」后，可在任何订阅的策略里选择。": {
       "localizations": {
         "zh-Hant": {
           "stringUnit": {
             "state": "translated",
-            "value": "協議由 mihomo 核心 %@ 提供。節點儲存在「手動節點」中；在 工具 → 節點與訂閱 → 本地 開啟「把手動節點加入每個配置」後，可在任何訂閱的策略裡選擇。"
+            "value": "協議由 mihomo 核心 %@ 提供。節點儲存在「本地節點」中；在 工具 → 節點與訂閱 → 本地 開啟「把本地節點加入每個配置」後，可在任何訂閱的策略裡選擇。"
           }
         },
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "Protocols are provided by the mihomo core %@. Nodes are saved in \"Manual Nodes\"; turn on \"Add manual nodes to every profile\" in Tools → Nodes & subscriptions → Local to pick them in any subscription's policies."
+            "value": "Protocols are provided by the mihomo core %@. Nodes are saved in \"Local Nodes\"; turn on \"Add local nodes to every profile\" in Tools → Nodes & subscriptions → Local to pick them in any subscription's policies."
           }
         },
         "ja": {
           "stringUnit": {
             "state": "translated",
-            "value": "プロトコルは mihomo コア %@ が提供します。ノードは「手動ノード」に保存されます。ツール → ノードと購読 → ローカルで「手動ノードをすべてのプロファイルに追加」をオンにすると、どの購読のポリシーでも選択できます。"
+            "value": "プロトコルは mihomo コア %@ が提供します。ノードは「ローカルノード」に保存されます。ツール → ノードと購読 → ローカルで「ローカルノードをすべてのプロファイルに追加」をオンにすると、どの購読のポリシーでも選択できます。"
           }
         },
         "ko": {
           "stringUnit": {
             "state": "translated",
-            "value": "프로토콜은 mihomo 코어 %@가 제공합니다. 노드는 '수동 노드'에 저장되며, 도구 → 노드 및 구독 → 로컬에서 '수동 노드를 모든 프로파일에 추가'를 켜면 어떤 구독의 정책에서도 선택할 수 있습니다."
+            "value": "프로토콜은 mihomo 코어 %@가 제공합니다. 노드는 '로컬 노드'에 저장되며, 도구 → 노드 및 구독 → 로컬에서 '로컬 노드를 모든 프로파일에 추가'를 켜면 어떤 구독의 정책에서도 선택할 수 있습니다."
           }
         },
         "ru": {
           "stringUnit": {
             "state": "translated",
-            "value": "Протоколы предоставляет ядро mihomo %@. Узлы сохраняются в «Ручных узлах»; включите «Добавлять ручные узлы в каждый профиль» в разделе «Инструменты → Узлы и подписки → Локально», чтобы выбирать их в политиках любой подписки."
+            "value": "Протоколы предоставляет ядро mihomo %@. Узлы сохраняются в «Локальных узлах»; включите «Добавлять локальные узлы в каждый профиль» в разделе «Инструменты → Узлы и подписки → Локально», чтобы выбирать их в политиках любой подписки."
           }
         }
-      }
+      },
+      "extractionState": "manual"
     },
     "台湾节点": {
       "extractionState": "manual",
@@ -62164,40 +62194,40 @@
         }
       }
     },
-    "当前配置就是「手动节点」": {
-      "extractionState": "manual",
+    "当前配置就是「本地节点」": {
       "localizations": {
         "zh-Hant": {
           "stringUnit": {
             "state": "translated",
-            "value": "當前配置就是「手動節點」"
+            "value": "當前配置就是「本地節點」"
           }
         },
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "The current profile is \"Manual Nodes\""
+            "value": "The current profile is \"Local Nodes\""
           }
         },
         "ja": {
           "stringUnit": {
             "state": "translated",
-            "value": "現在のプロファイルは「手動ノード」です"
+            "value": "現在のプロファイルは「ローカルノード」です"
           }
         },
         "ko": {
           "stringUnit": {
             "state": "translated",
-            "value": "현재 프로파일이 '수동 노드'입니다"
+            "value": "현재 프로파일이 '로컬 노드'입니다"
           }
         },
         "ru": {
           "stringUnit": {
             "state": "translated",
-            "value": "Текущий профиль — «Ручные узлы»"
+            "value": "Текущий профиль — «Локальные узлы»"
           }
         }
-      }
+      },
+      "extractionState": "manual"
     },
     "德国节点": {
       "extractionState": "manual",
@@ -62269,75 +62299,75 @@
         }
       }
     },
-    "手动节点只在「手动节点」配置里使用": {
-      "extractionState": "manual",
+    "本地节点只在「本地节点」配置里使用": {
       "localizations": {
         "zh-Hant": {
           "stringUnit": {
             "state": "translated",
-            "value": "手動節點只在「手動節點」配置裡使用"
+            "value": "本地節點只在「本地節點」配置裡使用"
           }
         },
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "Manual nodes are only used in the \"Manual Nodes\" profile"
+            "value": "Local nodes are only used in the \"Local Nodes\" profile"
           }
         },
         "ja": {
           "stringUnit": {
             "state": "translated",
-            "value": "手動ノードは「手動ノード」プロファイルでのみ使われます"
+            "value": "ローカルノードは「ローカルノード」プロファイルでのみ使われます"
           }
         },
         "ko": {
           "stringUnit": {
             "state": "translated",
-            "value": "수동 노드는 '수동 노드' 프로파일에서만 사용됩니다"
+            "value": "로컬 노드는 '로컬 노드' 프로파일에서만 사용됩니다"
           }
         },
         "ru": {
           "stringUnit": {
             "state": "translated",
-            "value": "Ручные узлы используются только в профиле «Ручные узлы»"
+            "value": "Локальные узлы используются только в профиле «Локальные узлы»"
           }
         }
-      }
+      },
+      "extractionState": "manual"
     },
-    "手动节点已加入每个配置": {
-      "extractionState": "manual",
+    "本地节点已加入每个配置": {
       "localizations": {
         "zh-Hant": {
           "stringUnit": {
             "state": "translated",
-            "value": "手動節點已加入每個配置"
+            "value": "本地節點已加入每個配置"
           }
         },
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "Manual nodes are added to every profile"
+            "value": "Local nodes are added to every profile"
           }
         },
         "ja": {
           "stringUnit": {
             "state": "translated",
-            "value": "手動ノードはすべてのプロファイルに追加されています"
+            "value": "ローカルノードはすべてのプロファイルに追加されています"
           }
         },
         "ko": {
           "stringUnit": {
             "state": "translated",
-            "value": "수동 노드가 모든 프로파일에 추가됩니다"
+            "value": "로컬 노드가 모든 프로파일에 추가됩니다"
           }
         },
         "ru": {
           "stringUnit": {
             "state": "translated",
-            "value": "Ручные узлы добавлены в каждый профиль"
+            "value": "Локальные узлы добавлены в каждый профиль"
           }
         }
-      }
+      },
+      "extractionState": "manual"
     },
     "指纹": {
       "extractionState": "manual",
@@ -63949,41 +63979,6 @@
         }
       }
     },
-    "还没有手动节点": {
-      "extractionState": "manual",
-      "localizations": {
-        "zh-Hant": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "還沒有手動節點"
-          }
-        },
-        "en": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "No manual nodes yet"
-          }
-        },
-        "ja": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "手動ノードはまだありません"
-          }
-        },
-        "ko": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "아직 수동 노드가 없습니다"
-          }
-        },
-        "ru": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Ручных узлов пока нет"
-          }
-        }
-      }
-    },
     "还没有本地节点": {
       "extractionState": "manual",
       "localizations": {
@@ -64054,40 +64049,40 @@
         }
       }
     },
-    "这个手动节点不在当前配置里：在 工具 → 节点与订阅 → 本地 打开「把手动节点加入每个配置」，或把「手动节点」设为当前配置。": {
-      "extractionState": "manual",
+    "这个本地节点不在当前配置里：在 工具 → 节点与订阅 → 本地 打开「把本地节点加入每个配置」，或把「本地节点」设为当前配置。": {
       "localizations": {
         "zh-Hant": {
           "stringUnit": {
             "state": "translated",
-            "value": "這個手動節點不在當前配置裡：在 工具 → 節點與訂閱 → 本地 開啟「把手動節點加入每個配置」，或把「手動節點」設為當前配置。"
+            "value": "這個本地節點不在當前配置裡：在 工具 → 節點與訂閱 → 本地 開啟「把本地節點加入每個配置」，或把「本地節點」設為當前配置。"
           }
         },
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "This manual node isn't in the current profile: turn on \"Add manual nodes to every profile\" in Tools → Nodes & subscriptions → Local, or make \"Manual Nodes\" the current profile."
+            "value": "This local node isn't in the current profile: turn on \"Add local nodes to every profile\" in Tools → Nodes & subscriptions → Local, or make \"Local Nodes\" the current profile."
           }
         },
         "ja": {
           "stringUnit": {
             "state": "translated",
-            "value": "この手動ノードは現在のプロファイルにありません。ツール → ノードと購読 → ローカルで「手動ノードをすべてのプロファイルに追加」をオンにするか、「手動ノード」を現在のプロファイルにしてください。"
+            "value": "このローカルノードは現在のプロファイルにありません。ツール → ノードと購読 → ローカルで「ローカルノードをすべてのプロファイルに追加」をオンにするか、「ローカルノード」を現在のプロファイルにしてください。"
           }
         },
         "ko": {
           "stringUnit": {
             "state": "translated",
-            "value": "이 수동 노드는 현재 프로파일에 없습니다. 도구 → 노드 및 구독 → 로컬에서 '수동 노드를 모든 프로파일에 추가'를 켜거나 '수동 노드'를 현재 프로파일로 설정하세요."
+            "value": "이 로컬 노드는 현재 프로파일에 없습니다. 도구 → 노드 및 구독 → 로컬에서 '로컬 노드를 모든 프로파일에 추가'를 켜거나 '로컬 노드'를 현재 프로파일로 설정하세요."
           }
         },
         "ru": {
           "stringUnit": {
             "state": "translated",
-            "value": "Этого ручного узла нет в текущем профиле: включите «Добавлять ручные узлы в каждый профиль» в разделе «Инструменты → Узлы и подписки → Локально» или сделайте «Ручные узлы» текущим профилем."
+            "value": "Этого локального узла нет в текущем профиле: включите «Добавлять локальные узлы в каждый профиль» в разделе «Инструменты → Узлы и подписки → Локально» или сделайте «Локальные узлы» текущим профилем."
           }
         }
-      }
+      },
+      "extractionState": "manual"
     },
     "这个节点来自连接中的内核，还没有本地缓存，暂时没有更多信息。": {
       "extractionState": "manual",
@@ -64410,31 +64405,37 @@
         "zh-Hant": {
           "stringUnit": {
             "state": "translated",
-            "value": "%lld 行 → 手動節點"
+            "value": "%lld 行 → 本地節點"
           }
         },
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "%lld lines → Manual Nodes"
+            "value": "%lld lines → Local Nodes"
           }
         },
         "ja": {
           "stringUnit": {
             "state": "translated",
-            "value": "%lld 行 → 手動ノード"
+            "value": "%lld 行 → ローカルノード"
           }
         },
         "ko": {
           "stringUnit": {
             "state": "translated",
-            "value": "%lld줄 → 수동 노드"
+            "value": "%lld줄 → 로컬 노드"
           }
         },
         "ru": {
           "stringUnit": {
             "state": "translated",
-            "value": "Строк: %lld → ручные узлы"
+            "value": "Строк: %lld → локальные узлы"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%lld 行 → 本地节点"
           }
         }
       }
@@ -86515,75 +86516,75 @@
         }
       }
     },
-    "「%@」现在是可编辑的手动节点，不受订阅更新影响。": {
-      "extractionState": "manual",
+    "「%@」现在是可编辑的本地节点，不受订阅更新影响。": {
       "localizations": {
         "zh-Hant": {
           "stringUnit": {
             "state": "translated",
-            "value": "「%@」現在是可編輯的手動節點，不受訂閱更新影響。"
+            "value": "「%@」現在是可編輯的本地節點，不受訂閱更新影響。"
           }
         },
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "“%@” is now an editable manual node; subscription updates won’t change it."
+            "value": "“%@” is now an editable local node; subscription updates won’t change it."
           }
         },
         "ja": {
           "stringUnit": {
             "state": "translated",
-            "value": "「%@」は編集可能な手動ノードになりました。購読の更新の影響を受けません。"
+            "value": "「%@」は編集可能なローカルノードになりました。購読の更新の影響を受けません。"
           }
         },
         "ko": {
           "stringUnit": {
             "state": "translated",
-            "value": "\"%@\"은(는) 이제 편집 가능한 수동 노드이며 구독 업데이트의 영향을 받지 않습니다."
+            "value": "\"%@\"은(는) 이제 편집 가능한 로컬 노드이며 구독 업데이트의 영향을 받지 않습니다."
           }
         },
         "ru": {
           "stringUnit": {
             "state": "translated",
-            "value": "«%@» теперь редактируемый ручной узел; обновления подписки его не меняют."
+            "value": "«%@» теперь редактируемый локальный узел; обновления подписки его не меняют."
           }
         }
-      }
+      },
+      "extractionState": "manual"
     },
-    "「%@」现在是可编辑的手动节点，不受订阅更新影响。它还不在当前配置里：在 工具 → 节点与订阅 → 本地 打开「把手动节点加入每个配置」。": {
-      "extractionState": "manual",
+    "「%@」现在是可编辑的本地节点，不受订阅更新影响。它还不在当前配置里：在 工具 → 节点与订阅 → 本地 打开「把本地节点加入每个配置」。": {
       "localizations": {
         "zh-Hant": {
           "stringUnit": {
             "state": "translated",
-            "value": "「%@」現在是可編輯的手動節點，不受訂閱更新影響。它還不在當前配置裡：在 工具 → 節點與訂閱 → 本地 開啟「把手動節點加入每個配置」。"
+            "value": "「%@」現在是可編輯的本地節點，不受訂閱更新影響。它還不在當前配置裡：在 工具 → 節點與訂閱 → 本地 開啟「把本地節點加入每個配置」。"
           }
         },
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "“%@” is now an editable manual node; subscription updates won’t change it. It isn’t in the current profile yet: turn on “Add manual nodes to every profile” in Tools → Nodes & subscriptions → Local."
+            "value": "“%@” is now an editable local node; subscription updates won’t change it. It isn’t in the current profile yet: turn on “Add local nodes to every profile” in Tools → Nodes & subscriptions → Local."
           }
         },
         "ja": {
           "stringUnit": {
             "state": "translated",
-            "value": "「%@」は編集可能な手動ノードになりました。購読の更新の影響を受けません。まだ現在のプロファイルにはありません：ツール → ノードと購読 → ローカルで「手動ノードをすべてのプロファイルに追加」をオンにしてください。"
+            "value": "「%@」は編集可能なローカルノードになりました。購読の更新の影響を受けません。まだ現在のプロファイルにはありません：ツール → ノードと購読 → ローカルで「ローカルノードをすべてのプロファイルに追加」をオンにしてください。"
           }
         },
         "ko": {
           "stringUnit": {
             "state": "translated",
-            "value": "\"%@\"은(는) 이제 편집 가능한 수동 노드이며 구독 업데이트의 영향을 받지 않습니다. 아직 현재 프로파일에 없습니다: 도구 → 노드 및 구독 → 로컬에서 '수동 노드를 모든 프로파일에 추가'를 켜세요."
+            "value": "\"%@\"은(는) 이제 편집 가능한 로컬 노드이며 구독 업데이트의 영향을 받지 않습니다. 아직 현재 프로파일에 없습니다: 도구 → 노드 및 구독 → 로컬에서 '로컬 노드를 모든 프로파일에 추가'를 켜세요."
           }
         },
         "ru": {
           "stringUnit": {
             "state": "translated",
-            "value": "«%@» теперь редактируемый ручной узел; обновления подписки его не меняют. Его ещё нет в текущем профиле: включите «Добавлять ручные узлы в каждый профиль» в разделе «Инструменты → Узлы и подписки → Локально»."
+            "value": "«%@» теперь редактируемый локальный узел; обновления подписки его не меняют. Его ещё нет в текущем профиле: включите «Добавлять локальные узлы в каждый профиль» в разделе «Инструменты → Узлы и подписки → Локально»."
           }
         }
-      }
+      },
+      "extractionState": "manual"
     },
     "读取节点信息失败": {
       "extractionState": "manual",
@@ -88533,37 +88534,36 @@
         }
       }
     },
-    "连接方式 · 内核 · 测速": {
-      "extractionState": "manual",
+    "连接方式 · 隧道 · 内核 · 测速": {
       "localizations": {
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "連線方式 · 隧道 · 核心 · 測速"
+          }
+        },
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "Connection · Core · Speed Test"
+            "value": "Connection · Tunnel · Core · Speed Test"
           }
         },
         "ja": {
           "stringUnit": {
             "state": "translated",
-            "value": "接続方法 · コア · 速度テスト"
+            "value": "接続方法 · トンネル · コア · 速度テスト"
           }
         },
         "ko": {
           "stringUnit": {
             "state": "translated",
-            "value": "연결 방식 · 코어 · 속도 측정"
+            "value": "연결 방식 · 터널 · 코어 · 속도 측정"
           }
         },
         "ru": {
           "stringUnit": {
             "state": "translated",
-            "value": "Подключение · ядро · замер"
-          }
-        },
-        "zh-Hant": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "連線方式 · 核心 · 測速"
+            "value": "Подключение · туннель · ядро · замер"
           }
         }
       }
@@ -101010,6 +101010,74 @@
           "stringUnit": {
             "state": "translated",
             "value": "Зависимости"
+          }
+        }
+      }
+    },
+    "刷新失败：%@": {
+      "localizations": {
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "重新整理失敗：%@"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Refresh failed: %@"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "更新に失敗しました：%@"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "새로 고침 실패: %@"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Не удалось обновить: %@"
+          }
+        }
+      }
+    },
+    "无法读取面板：%@": {
+      "localizations": {
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "無法讀取面板：%@"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Couldn't load panels: %@"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "パネルを読み込めません：%@"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "패널을 불러오지 못했습니다: %@"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Не удалось загрузить панели: %@"
           }
         }
       }

@@ -242,7 +242,7 @@ struct OnboardingView: View {
                 show(String(localized: "已导入配置：") + p.name, error: false)
             } else {
                 let n = try await store.addManualNodes(text: s)
-                show(String(localized: "已添加 \(n) 个节点到「手动节点」"), error: false)
+                show(String(localized: "已添加 \(n) 个节点到「本地节点」"), error: false)
             }
         } catch {
             show(error.localizedDescription, error: true)

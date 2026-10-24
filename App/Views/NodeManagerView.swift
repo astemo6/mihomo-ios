@@ -178,7 +178,7 @@ struct NodeListView: View {
         .sheet(isPresented: $exportSub) { SubscriptionExportSheet() }
         .sheet(item: $editSub, onDismiss: { Task { await model.reload() } }) { s in NodeSubSheet(sub: s).environmentObject(ProfileStore.shared).environmentObject(VPNManager.shared) }
         .sheet(item: $editing, onDismiss: { Task { await model.reload() } }) { t in NodeEditorView(node: t.node).environmentObject(ProfileStore.shared) }
-        .confirmationDialog("删除这个手动节点？", isPresented: Binding(get: { confirmDelete != nil }, set: { if !$0 { confirmDelete = nil } }),
+        .confirmationDialog("删除这个本地节点？", isPresented: Binding(get: { confirmDelete != nil }, set: { if !$0 { confirmDelete = nil } }),
                             titleVisibility: .visible, presenting: confirmDelete) { n in
             Button("删除", role: .destructive) { Task { await model.delete(n) } }
         } message: { n in Text(verbatim: n.name) }
@@ -285,7 +285,7 @@ struct NodeListView: View {
     func emptyRow(_ src: NodeSource) -> some View {
         switch src.kind {
         case .manual:
-            EmptyStateRow(icon: "plus.viewfinder", title: "还没有手动节点", message: "点右上角 + 粘贴分享链接、扫码或选择协议填写。")
+            EmptyStateRow(icon: "plus.viewfinder", title: "还没有本地节点", message: "点右上角 + 粘贴分享链接、扫码或选择协议填写。")
         case .subscription, .provider:
             if src.cached {
                 EmptyStateRow(icon: "icloud.and.arrow.down", title: "没有节点")
@@ -481,7 +481,7 @@ struct NodeDetailView: View {
                 kv("UDP", (info?.udp ?? node.udp) ? String(localized: "支持") : String(localized: "未开启"))
                 sourceRow
                 if !node.inRuntime && node.source.kind == .manual {
-                    Text("这个手动节点不在当前配置里：在 工具 → 节点与订阅 → 本地 打开「把手动节点加入每个配置」，或把「手动节点」设为当前配置。")
+                    Text("这个本地节点不在当前配置里：在 工具 → 节点与订阅 → 本地 打开「把本地节点加入每个配置」，或把「本地节点」设为当前配置。")
                         .font(.footnote).foregroundStyle(.secondary)
                 }
             }
@@ -652,12 +652,12 @@ struct NodeDetailView: View {
             Button("好", role: .cancel) {}
         } message: { a in
             a.inRuntime
-                ? Text("「\(a.name)」现在是可编辑的手动节点，不受订阅更新影响。")
-                : Text("「\(a.name)」现在是可编辑的手动节点，不受订阅更新影响。它还不在当前配置里：在 工具 → 节点与订阅 → 本地 打开「把手动节点加入每个配置」。")
+                ? Text("「\(a.name)」现在是可编辑的本地节点，不受订阅更新影响。")
+                : Text("「\(a.name)」现在是可编辑的本地节点，不受订阅更新影响。它还不在当前配置里：在 工具 → 节点与订阅 → 本地 打开「把本地节点加入每个配置」。")
         }
         .onDisappear { hideSecrets() }
         .onChange(of: scenePhase) { phase in if phase != .active { hideSecrets() } }
-        .confirmationDialog("删除这个手动节点？", isPresented: $confirmDelete, titleVisibility: .visible) {
+        .confirmationDialog("删除这个本地节点？", isPresented: $confirmDelete, titleVisibility: .visible) {
             Button("删除", role: .destructive) { Task { await model.delete(node); dismiss() } }
         }
         .alert("提示", isPresented: Binding(get: { message != nil }, set: { if !$0 { message = nil } })) {
@@ -819,7 +819,7 @@ struct NodeDetailView: View {
         case .profile:
             kv("来源", String(localized: "配置") + " · " + node.source.name)
         case .manual:
-            kv("来源", String(localized: "手动节点"))
+            kv("来源", String(localized: "本地节点"))
         case .subscription:
             if let s = nodeSubs.subs.first(where: { $0.id == node.source.subID }) {
                 Button { editSub = s } label: {
@@ -1054,9 +1054,9 @@ struct AddedLocalAlert: ViewModifier {
             Button("好", role: .cancel) {}
         } message: { a in
             if a.inRuntime {
-                Text("「\(a.name)」现在是可编辑的手动节点，不受订阅更新影响。")
+                Text("「\(a.name)」现在是可编辑的本地节点，不受订阅更新影响。")
             } else {
-                Text("「\(a.name)」现在是可编辑的手动节点，不受订阅更新影响。它还不在当前配置里：在 工具 → 节点与订阅 → 本地 打开「把手动节点加入每个配置」。")
+                Text("「\(a.name)」现在是可编辑的本地节点，不受订阅更新影响。它还不在当前配置里：在 工具 → 节点与订阅 → 本地 打开「把本地节点加入每个配置」。")
             }
         }
     }

@@ -536,7 +536,7 @@ struct NodeEditorView: View {
                         LabeledContent("前置代理", value: dialer.isEmpty ? String(localized: "无") : dialer)
                     }
                 } footer: {
-                    Text("先经过另一个节点或策略组再连接这个节点（代理链）。开启「把手动节点加入每个配置」后，也可以选择当前订阅里的策略组。")
+                    Text("先经过另一个节点或策略组再连接这个节点（代理链）。开启「把本地节点加入每个配置」后，也可以选择当前订阅里的策略组。")
                 }
                 .listRowBackground(Theme.card)
                 if let error {

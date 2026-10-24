@@ -227,7 +227,8 @@ struct HomePanelsSection: View {
             ForEach(rows) { row in
                 switch row {
                 case .panel(let e):
-                    PanelCard(p: e.item, refreshing: e.live && (model.refreshing.contains(e.item.id) || e.item.running), offline: !e.live) {
+                    PanelCard(p: e.item, refreshing: e.live && (model.refreshing.contains(e.item.id) || e.item.running), offline: !e.live,
+                              refreshFailure: e.live ? model.failure(for: e.item) : nil) {
                         Task { await model.refresh(e.item) }
                     }
                     .contextMenu {

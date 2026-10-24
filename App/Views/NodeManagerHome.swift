@@ -180,11 +180,11 @@ struct NodeManagerView: View {
                             Text("本地节点").font(.subheadline.weight(.semibold))
                             Group {
                                 if manualActive {
-                                    Text("当前配置就是「手动节点」")
+                                    Text("当前配置就是「本地节点」")
                                 } else if mergeManual {
-                                    Text("手动节点已加入每个配置")
+                                    Text("本地节点已加入每个配置")
                                 } else {
-                                    Text("手动节点只在「手动节点」配置里使用")
+                                    Text("本地节点只在「本地节点」配置里使用")
                                 }
                             }
                             .font(.caption).foregroundStyle(.secondary).lineLimit(2)
@@ -194,7 +194,7 @@ struct NodeManagerView: View {
                     }
                 }
                 if !manualActive {
-                    Toggle(isOn: $mergeManual) { Label("把手动节点加入每个配置", systemImage: "square.and.pencil") }
+                    Toggle(isOn: $mergeManual) { Label("把本地节点加入每个配置", systemImage: "square.and.pencil") }
                         .onChange(of: mergeManual) { on in
                             var o = CoreOverrides.load()
                             guard o.mergeManual != on else { return }
