@@ -20,7 +20,9 @@ import Network
 ///     documented iOS 15 QUIC entry points.
 ///  2. `quicOptions.securityProtocolOptions` for SNI / cert-verify control —
 ///     mirrors how NWProtocolTLS.Options is used elsewhere in this target.
-///  3. Stream multiplexing via `NWConnectionGroup(with: .endpoint(_:), using:)`
+///  3. Stream multiplexing via `NWConnectionGroup(with: NWMultiplexGroup(to:), using:)`
+///     + `group.extract(connectionTo:using:)` — verified against Apple docs
+///     (NWMultiplexGroup is the NWGroupDescriptor for multiplexed QUIC).
 ///     + `NWConnection(from: group)` + `group.newConnectionHandler` — the
 ///     WWDC21 QUIC group model. If the descriptor case name differs, this is
 ///     the first place to fix.
@@ -415,7 +417,7 @@ final class NCHysteria2Connection {
 
         let endpoint = NWEndpoint.hostPort(host: NWEndpoint.Host(server),
                                            port: NWEndpoint.Port(rawValue: UInt16(clamping: port)) ?? .any)
-        let group = NWConnectionGroup(with: NWConnectionGroup.Descriptor.endpoint(endpoint), using: parameters)
+        let group = NWConnectionGroup(with: NWMultiplexGroup(to: endpoint), using: parameters)
         self.group = group
         group.stateUpdateHandler = { [weak self] (groupState: NWConnectionGroup.State) in
             guard let self else { return }
@@ -467,7 +469,7 @@ final class NCHysteria2Connection {
 
     private func newStreamConnection() -> NWConnection? {
         guard let group else { return nil }
-        return NWConnection(from: group)
+        return group.extract(connectionTo: nil, using: nil)
     }
 
     /// Open a proxied TCP flow. Returns nil unless the connection is

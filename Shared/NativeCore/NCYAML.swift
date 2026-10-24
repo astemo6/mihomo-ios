@@ -275,7 +275,7 @@ enum NCYAML {
                     }
                     guard s.first == ":" else { break }
                     s = s.dropFirst()
-                    let key = Self.scalar(keyText.trimmingCharacters(in: .whitespaces))?.string ?? keyText.trimmingCharacters(in: .whitespaces)
+                    let key = Self.scalar(keyText.trimmingCharacters(in: .whitespaces)).string ?? keyText.trimmingCharacters(in: .whitespaces)
                     if let v = parseFlow(&s) { obj[key] = v }
                     skipSpaces(&s)
                     if s.first == "," { s = s.dropFirst(); continue }
