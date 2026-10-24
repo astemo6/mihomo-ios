@@ -16,9 +16,9 @@ package mitm
 // The response phase is the Go path's own modifyResponse, called on an *http.Response built from the head
 // with an in-pipe as its body, so admission, budgets (bodyBudget, bigBodyLock, the dynamic body cap), the
 // native body lane, header rewrites, body rewrites, scripts and every pass-through fallback are the very same
-// code. The request phase is serveHTTP's rule loop (flow_request.go) minus net/http's ResponseWriter and
-// ReverseProxy, kept in step by TestFlowRequestPhaseTracksServeHTTP and checked against the Go path by the
-// differential tests in flow_parity_test.go.
+// code. The request phase is the Go path's own requestPhase (handler.go, shared with serveHTTP) writing to a
+// flowWriter instead of net/http's ResponseWriter, with flowOutbound standing in for ReverseProxy; the
+// differential tests in flow_parity_test.go check both paths against each other.
 //
 // Body modes in decisions (what the native side sends next):
 //

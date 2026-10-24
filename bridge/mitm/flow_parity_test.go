@@ -5,13 +5,8 @@ package mitm
 // client the same status, headers and body, and the upstream the same request.
 
 import (
-	"bytes"
-	"crypto/sha256"
-	"encoding/hex"
 	"fmt"
 	"net/http"
-	"os"
-	"regexp"
 	"strings"
 	"testing"
 )
@@ -279,33 +274,3 @@ func TestFlowParityLane(t *testing.T) {
 	}
 	waitLive(t, l)
 }
-
-// TestFlowRequestPhaseTracksServeHTTP: flowRequestPhase is serveHTTP's rule loop. When serveHTTP changes, port
-// the change to flow_request.go and update the hash.
-func TestFlowRequestPhaseTracksServeHTTP(t *testing.T) {
-	src, err := os.ReadFile("handler.go")
-	if err != nil {
-		t.Fatal(err)
-	}
-	m := regexp.MustCompile(`(?s)\nfunc \(e \*Engine\) serveHTTP\(.*?\n}\n`).Find(src)
-	if m == nil {
-		t.Fatal("serveHTTP not found in handler.go")
-	}
-	// comments and blank lines do not matter
-	var b bytes.Buffer
-	for _, l := range strings.Split(string(m), "\n") {
-		l = strings.TrimSpace(l)
-		if l == "" || strings.HasPrefix(l, "//") {
-			continue
-		}
-		b.WriteString(l + "\n")
-	}
-	sum := sha256.Sum256(b.Bytes())
-	got := hex.EncodeToString(sum[:])
-	if got != serveHTTPHash {
-		t.Fatalf("serveHTTP changed (sha256 %s): port the change to flowRequestPhase in flow_request.go, then set serveHTTPHash", got)
-	}
-}
-
-// serveHTTPHash: serveHTTP as flowRequestPhase mirrors it (feat/native-mitm 4fec47b / native-base).
-const serveHTTPHash = "6a4b163d79460ff9f65e388fc993575bcd1fbd3ac391167f046fb43b0abbbf24"

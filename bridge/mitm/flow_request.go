@@ -2,16 +2,12 @@ package mitm
 
 // Request and response phases of the native flow API (flow.go).
 //
-// flowRequestPhase is serveHTTP (handler.go) with the net/http plumbing taken out: the same rule loop in the
-// same order with the same helpers (matchReq, applyHeaderOps, applyBodyRule, mapLocalData /
-// serveLargeMapLocal, the script runner's Reserve / RunReserved, reserveFailed, phaseBodyCap,
-// scriptBodyLimit, bodyBudget, heapHigh), writing local answers to a flowWriter instead of the connection and
-// stopping where serveHTTP hands the request to httputil.ReverseProxy. Keep the two in step:
-// TestFlowRequestPhaseTracksServeHTTP fails when serveHTTP changes, and flow_parity_test.go drives both paths
-// with the same rules and compares what the client and the upstream see.
+// flowRequestPhase runs the same requestPhase as serveHTTP (handler.go: one implementation of the request
+// rule loop), writing local answers to a flowWriter instead of the connection and stopping where serveHTTP
+// hands the request to httputil.ReverseProxy; flowOutbound reproduces what ReverseProxy would send.
+// flow_parity_test.go drives both paths with the same rules and compares what the client and the upstream see.
 
 import (
-	"bytes"
 	"context"
 	"errors"
 	"fmt"
@@ -135,326 +131,30 @@ func (nf *NativeFlow) runRequest(r *http.Request) {
 	nf.e.flowRequestPhase(nf, w, r)
 }
 
-// flowRequestPhase: serveHTTP's steps 1–3 and the response-rule match, ending in a "forward" decision.
+// flowRequestPhase is the request phase of a native flow: the Go path's own requestPhase (handler.go) with
+// local answers going to the flowWriter, ending in a "forward" decision with the outbound request as
+// ReverseProxy would send it.
 func (e *Engine) flowRequestPhase(nf *NativeFlow, w *flowWriter, r *http.Request) {
-	st := e.state()
-	meta, _ := r.Context().Value(metaKey{}).(*connMeta)
-	u := requestURL(r, meta)
-	ent := e.Requests.Start(r, u, meta != nil && meta.tls)
+	p := e.startRequest(r)
+	ent := p.ent
 	nf.ent = ent
 	defer func() {
-		if p := recover(); p != nil {
-			if p == http.ErrAbortHandler {
+		if v := recover(); v != nil {
+			if v == http.ErrAbortHandler {
 				ent.Finish(0, "已断开")
 			}
-			panic(p)
+			panic(v) // runRequest answers drop / 502
 		}
 	}()
-	capture := st.cfg.capture()
-
-	rules := st.rs.Rules
-	if !st.cfg.AnyOn() {
-		rules = nil
+	defer p.releaseBody()
+	f := e.requestPhase(p, w, r)
+	if f == nil {
+		return // answered locally (w committed the "local" decision)
 	}
-
-	// 1. URL rewrite — first match wins.
-	for _, rule := range rules {
-		if rule.Kind != KindURL || !rule.matchReq(u, r) {
-			continue
-		}
-		ent.Match(rule.label())
-		switch rule.Action {
-		case "reject-drop":
-			ent.Finish(0, "拒绝（断开）")
-			panic(http.ErrAbortHandler)
-		case "reject", "reject-200", "reject-img", "reject-dict", "reject-array":
-			status, ctype, body := 404, "text/plain", []byte{}
-			switch rule.Action {
-			case "reject-200":
-				status = 200
-			case "reject-img":
-				status, ctype, body = 200, "image/gif", tinyGIF
-			case "reject-dict":
-				status, ctype, body = 200, "application/json", []byte("{}")
-			case "reject-array":
-				status, ctype, body = 200, "application/json", []byte("[]")
-			}
-			writeLocal(w, status, http.Header{"Content-Type": {ctype}}, body)
-			ent.Local(status, w.Header(), body, capture)
-			return
-		case "302", "307":
-			loc, err := rule.re.Replace(u, rule.Target, -1, 1)
-			if err != nil {
-				loc = rule.Target
-			}
-			code := http.StatusFound
-			if rule.Action == "307" {
-				code = http.StatusTemporaryRedirect
-			}
-			w.Header().Set("Location", loc)
-			w.WriteHeader(code)
-			ent.Local(code, w.Header(), nil, capture)
-			return
-		case "header":
-			nu, err := rule.re.Replace(u, rule.Target, -1, 1)
-			if err == nil {
-				if pu, err := url.Parse(nu); err == nil && pu.Host != "" {
-					u = nu
-					r.URL = pu
-					r.Host = pu.Host
-					ent.SetURL(u)
-				}
-			}
-		}
-		break
-	}
-
-	// 2. Map Local — first match wins.
-	for _, rule := range rules {
-		if rule.Kind != KindMapLocal || !rule.matchReq(u, r) {
-			continue
-		}
-		ent.Match(rule.label())
-		if e.serveLargeMapLocal(w, rule, ent, capture) {
-			return
-		}
-		body, ctype, err := e.mapLocalData(rule)
-		if err != nil {
-			e.logf("warning", fmt.Sprintf("[MitM] 本地映射数据读取失败：%s", err))
-		}
-		h := http.Header{}
-		for k, v := range rule.RespHeaders {
-			h.Set(k, v)
-		}
-		if h.Get("Content-Type") == "" && ctype != "" {
-			h.Set("Content-Type", ctype)
-		}
-		st := rule.Status
-		if st == 0 {
-			st = 200
-		}
-		writeLocal(w, st, h, body)
-		ent.Local(st, h, body, capture)
-		return
-	}
-
-	// 3. Request phase: header rewrites, body rewrites and scripts in rule order.
-	var reqBody []byte
-	bodyLoaded, bodyOK := false, false
-	var releaseReq func()
-	defer func() {
-		if releaseReq != nil {
-			releaseReq()
-		}
-	}()
-	reqCap := phaseBodyCap(rules, "request")
-	reqSkip := ""
-	loadBody := func(limit int) bool {
-		if bodyLoaded {
-			return bodyOK && len(reqBody) <= limit
-		}
-		bodyLoaded = true
-		if r.Body == nil || r.Body == http.NoBody {
-			bodyOK = true
-			return true
-		}
-		if heapHigh() {
-			reqSkip = heapHighReason()
-			e.logf("warning", fmt.Sprintf("[MitM] %s，跳过请求体处理：%s", reqSkip, clip(u, 100)))
-			return false
-		}
-		want := int64(reqCap)
-		if r.ContentLength > 0 && r.ContentLength < want {
-			want = r.ContentLength
-		}
-		if r.ContentLength > int64(limit) {
-			bodyLoaded = false
-			reqSkip = fmt.Sprintf("请求体 %d KB 超过上限 %d KB", r.ContentLength>>10, limit>>10)
-			return false
-		}
-		if r.ContentLength > int64(reqCap) {
-			reqSkip = fmt.Sprintf("请求体 %d KB 超过上限 %d KB", r.ContentLength>>10, reqCap>>10)
-			return false
-		}
-		rel := bodyBudget.acquire(r.Context(), want, bodyBudgetWait)
-		if rel == nil {
-			reqSkip = "同时处理的请求/响应体过多"
-			e.logf("warning", fmt.Sprintf("[MitM] 同时处理的请求/响应体过多，跳过：%s", clip(u, 100)))
-			return false
-		}
-		releaseReq = rel
-		b, rest, ok := readCapped(r.Body, reqCap)
-		if !ok {
-			reqSkip = fmt.Sprintf("请求体超过上限 %d KB", reqCap>>10)
-			r.Body = struct {
-				io.Reader
-				io.Closer
-			}{io.MultiReader(bytes.NewReader(b), rest), r.Body}
-			return false
-		}
-		reqBody = b
-		bodyOK = true
-		r.Body = io.NopCloser(bytes.NewReader(b))
-		r.ContentLength = int64(len(b))
-		if len(b) > limit {
-			reqSkip = fmt.Sprintf("请求体 %d KB 超过上限 %d KB", len(b)>>10, limit>>10)
-		}
-		return len(b) <= limit
-	}
-	setBody := func(b []byte) {
-		reqBody = b
-		bodyLoaded, bodyOK = true, true
-		r.Body = io.NopCloser(bytes.NewReader(b))
-		r.ContentLength = int64(len(b))
-		r.Header.Set("Content-Length", strconv.Itoa(len(b)))
-	}
-	for _, rule := range rules {
-		if rule.Phase == "response" {
-			continue
-		}
-		switch rule.Kind {
-		case KindHeader:
-			if rule.matchReq(u, r) {
-				ent.Match(rule.label())
-				if r.Header.Get("Host") == "" {
-					r.Header.Set("Host", r.Host)
-				}
-				applyHeaderOps(r.Header, rule.Headers, func() string { return r.Method + " " + r.URL.RequestURI() + " HTTP/1.1" })
-				if h := r.Header.Get("Host"); h != "" {
-					r.Host = h
-				}
-				r.Header.Del("Host")
-			}
-		case KindBody, KindJQ, KindJSON:
-			if rule.matchReq(u, r) && loadBody(MaxBody) {
-				nb, err := e.applyBodyRule(rule, reqBody)
-				if err != nil {
-					e.logf("warning", fmt.Sprintf("[MitM] 请求体改写失败（%s）：%s", rule.Desc, err))
-					continue
-				}
-				ent.Match(rule.label())
-				setBody(nb)
-			}
-		case KindScript:
-			if !rule.matchReq(u, r) {
-				continue
-			}
-			sreq := &ScriptHTTP{URL: u, Method: r.Method, Header: r.Header, Host: r.Host}
-			slot, err := e.scripts.Reserve(r.Context(), rule)
-			if err != nil {
-				e.reserveFailed(rule, ent, err)
-				continue
-			}
-			if rule.Script.RequiresBody {
-				if limit := scriptBodyLimit(rule.Script); !loadBody(limit) {
-					slot.Release()
-					why := reqSkip
-					if bodyLoaded && bodyOK && len(reqBody) > limit {
-						why = fmt.Sprintf("请求体 %d KB 超过上限 %d KB（%s）", len(reqBody)>>10, limit>>10, bodyLimitNote(rule.Script, limit))
-					}
-					if why == "" {
-						why = "请求体超过上限"
-					}
-					e.Logs.Add(rule.Script.Name, "warn", "跳过脚本："+why)
-					ent.Note("跳过脚本：" + rule.Script.Name + " — " + why)
-					continue
-				}
-				sreq.Body, sreq.HasBody = reqBody, true
-			}
-			ent.Match(rule.label())
-			res, err := e.scripts.RunReserved(r.Context(), slot, rule, sreq, nil)
-			slot.Release()
-			if err != nil {
-				e.Logs.Add(rule.Script.Name, "error", err.Error())
-				ent.Note(scriptErrNote(rule.Script.Name, err))
-				continue
-			}
-			if res.Abort {
-				ent.Finish(0, "脚本中止："+rule.Script.Name)
-				panic(http.ErrAbortHandler)
-			}
-			if res.Response != nil {
-				h := res.Response.Header
-				if h == nil {
-					h = http.Header{}
-				}
-				code := res.Response.Status
-				if !validScriptStatus(code) {
-					if code != 0 {
-						e.Logs.Add(rule.Script.Name, "warn", fmt.Sprintf("脚本返回的状态码 %d 无效，按 200 处理", code))
-					}
-					code = 200
-				}
-				writeLocal(w, code, h, res.Response.Body)
-				ent.Local(code, h, res.Response.Body, capture)
-				return
-			}
-			if res.URL != "" && res.URL != u {
-				if pu, err := url.Parse(res.URL); err == nil && pu.Host != "" {
-					u = res.URL
-					r.URL = pu
-					r.Host = pu.Host
-					ent.SetURL(u)
-				}
-			}
-			if res.Method != "" {
-				r.Method = strings.ToUpper(res.Method)
-			}
-			if res.Header != nil {
-				r.Header = res.Header
-				if h := r.Header.Get("Host"); h != "" {
-					r.Host = h
-				}
-				r.Header.Del("Host")
-			}
-			if res.BodySet {
-				setBody(res.Body)
-			}
-		}
-	}
-
-	var respRules []*Rule
-	for _, rule := range rules {
-		if rule.Phase == "response" && rule.Kind != KindURL && rule.Kind != KindMapLocal && rule.matchReq(u, r) {
-			respRules = append(respRules, rule)
-		}
-	}
-
-	if capture {
-		if reqBody != nil {
-			ent.ReqBody(reqBody)
-		} else if r.ContentLength > 0 && r.ContentLength <= captureLimit && r.Body != nil {
-			if b, rest, ok := readCapped(r.Body, captureLimit); ok {
-				ent.ReqBody(b)
-				r.Body = io.NopCloser(bytes.NewReader(b))
-			} else {
-				r.Body = struct {
-					io.Reader
-					io.Closer
-				}{io.MultiReader(bytes.NewReader(b), rest), r.Body}
-			}
-		}
-	}
-	ent.ReqHeaders(r.Method, r.Header)
-
-	needRespBody := false
-	for _, rule := range respRules {
-		if rule.Kind == KindBody || rule.Kind == KindJQ || rule.Kind == KindJSON || (rule.Kind == KindScript && rule.Script.RequiresBody) {
-			needRespBody = true
-		}
-	}
-	if needRespBody {
-		r.Header.Set("Accept-Encoding", "gzip, deflate, br")
-	}
-
 	// --- where serveHTTP builds the ReverseProxy: the outbound request as ReverseProxy would send it ---
-	f := &flow{st: st, ent: ent, url: u, rules: respRules}
-	target, _ := url.Parse(u)
+	target, _ := url.Parse(f.url)
 	out := flowOutbound(r, target)
-	if releaseReq != nil {
-		releaseReq()
-		releaseReq = nil
-	}
+	p.releaseBody()
 	nf.forward(out, f)
 }
 

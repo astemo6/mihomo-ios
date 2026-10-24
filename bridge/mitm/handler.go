@@ -223,21 +223,93 @@ func requestURL(r *http.Request, meta *connMeta) string {
 }
 
 func (e *Engine) serveHTTP(w http.ResponseWriter, r *http.Request) {
-	st := e.state()
-	meta, _ := r.Context().Value(metaKey{}).(*connMeta)
-	u := requestURL(r, meta)
-	ent := e.Requests.Start(r, u, meta != nil && meta.tls)
+	p := e.startRequest(r)
+	ent := p.ent
 	defer func() {
-		if p := recover(); p != nil {
-			if p == http.ErrAbortHandler {
+		if v := recover(); v != nil {
+			if v == http.ErrAbortHandler {
 				ent.Finish(0, "已断开")
-				panic(p)
+				panic(v)
 			}
-			e.logf("error", fmt.Sprintf("[MitM] 处理 %s 时出错：%v", clip(u, 100), p))
+			e.logf("error", fmt.Sprintf("[MitM] 处理 %s 时出错：%v", clip(p.u, 100), v))
 			ent.Finish(502, "内部错误")
 			http.Error(w, "mitm error", http.StatusBadGateway)
 		}
 	}()
+	defer p.releaseBody()
+	f := e.requestPhase(p, w, r)
+	if f == nil {
+		return // answered locally
+	}
+	defer func() {
+		if f.release != nil {
+			f.release()
+		}
+	}()
+	target, _ := url.Parse(f.url)
+	rp := &httputil.ReverseProxy{
+		Rewrite: func(pr *httputil.ProxyRequest) {
+			pr.Out.URL.Scheme = target.Scheme
+			pr.Out.URL.Host = target.Host
+			pr.Out.Host = r.Host
+			if pr.Out.Header.Get("User-Agent") == "" {
+				pr.Out.Header["User-Agent"] = nil
+			}
+		},
+		Transport:     e.upstream(),
+		FlushInterval: -1,
+		ErrorLog:      nil,
+		ModifyResponse: func(resp *http.Response) error {
+			return e.modifyResponse(f, resp)
+		},
+		ErrorHandler: func(w http.ResponseWriter, req *http.Request, err error) {
+			if err == context.Canceled {
+				ent.Finish(0, "客户端取消")
+				return
+			}
+			ent.Finish(502, "上游错误："+shortErr(err))
+			w.WriteHeader(http.StatusBadGateway)
+		},
+	}
+	// The rewrite / script work on the request body is done: hand its budget back before waiting on
+	// upstream (the bytes are only streamed from here on).
+	p.releaseBody()
+	rp.ServeHTTP(w, r)
+}
+
+// reqPhase is one request's state across requestPhase and its caller (serveHTTP, or the native flow's
+// flowRequestPhase): u follows URL rewrites (also when the phase panics), release is the request body's
+// share of bodyBudget while one is held.
+type reqPhase struct {
+	st      *state
+	ent     *Entry
+	u       string
+	release func()
+}
+
+func (e *Engine) startRequest(r *http.Request) *reqPhase {
+	meta, _ := r.Context().Value(metaKey{}).(*connMeta)
+	u := requestURL(r, meta)
+	return &reqPhase{st: e.state(), u: u, ent: e.Requests.Start(r, u, meta != nil && meta.tls)}
+}
+
+// releaseBody hands the request body's budget back (idempotent).
+func (p *reqPhase) releaseBody() {
+	if p.release != nil {
+		p.release()
+		p.release = nil
+	}
+}
+
+// requestPhase is the request half of the MitM handler, shared by the Go path (serveHTTP) and the native flow
+// API (flowRequestPhase): URL rewrites, Map Local, request header / body rewrites and scripts in rule order,
+// then the response-rule match against the final URL. A local answer (reject, redirect, Map Local, a script's
+// $done({response})) is written to w and nil is returned; reject-drop and a script abort panic with
+// http.ErrAbortHandler. Otherwise r is the request to send upstream and the returned flow carries the
+// response-phase rules. The caller releases p's body budget (p.releaseBody) when it no longer needs the body.
+func (e *Engine) requestPhase(p *reqPhase, w http.ResponseWriter, r *http.Request) *flow {
+	st, ent, u := p.st, p.ent, p.u
+	defer func() { p.u = u }()
 	capture := st.cfg.capture()
 
 	rules := st.rs.Rules
@@ -269,7 +341,7 @@ func (e *Engine) serveHTTP(w http.ResponseWriter, r *http.Request) {
 			}
 			writeLocal(w, status, http.Header{"Content-Type": {ctype}}, body)
 			ent.Local(status, w.Header(), body, capture)
-			return
+			return nil
 		case "302", "307":
 			loc, err := rule.re.Replace(u, rule.Target, -1, 1)
 			if err != nil {
@@ -282,7 +354,7 @@ func (e *Engine) serveHTTP(w http.ResponseWriter, r *http.Request) {
 			w.Header().Set("Location", loc)
 			w.WriteHeader(code)
 			ent.Local(code, w.Header(), nil, capture)
-			return
+			return nil
 		case "header":
 			nu, err := rule.re.Replace(u, rule.Target, -1, 1)
 			if err == nil {
@@ -304,7 +376,7 @@ func (e *Engine) serveHTTP(w http.ResponseWriter, r *http.Request) {
 		}
 		ent.Match(rule.label())
 		if e.serveLargeMapLocal(w, rule, ent, capture) {
-			return
+			return nil
 		}
 		body, ctype, err := e.mapLocalData(rule)
 		if err != nil {
@@ -323,18 +395,12 @@ func (e *Engine) serveHTTP(w http.ResponseWriter, r *http.Request) {
 		}
 		writeLocal(w, st, h, body)
 		ent.Local(st, h, body, capture)
-		return
+		return nil
 	}
 
 	// 3. Request phase: header rewrites, body rewrites and scripts in rule order.
 	var reqBody []byte
 	bodyLoaded, bodyOK := false, false
-	var releaseReq func()
-	defer func() {
-		if releaseReq != nil {
-			releaseReq()
-		}
-	}()
 	// review5 P0-1 / P2-2: the body is read once, with reqCap (MaxBody, or a max-size=-1 script's
 	// MaxScriptBody), after taking a share of the global body budget. Each caller's limit (MaxBody for
 	// rewrites, scriptBodyLimit for scripts) is compared against the loaded length.
@@ -373,7 +439,7 @@ func (e *Engine) serveHTTP(w http.ResponseWriter, r *http.Request) {
 			e.logf("warning", fmt.Sprintf("[MitM] 同时处理的请求/响应体过多，跳过：%s", clip(u, 100)))
 			return false
 		}
-		releaseReq = rel
+		p.release = rel
 		b, rest, ok := readCapped(r.Body, reqCap)
 		if !ok {
 			reqSkip = fmt.Sprintf("请求体超过上限 %d KB", reqCap>>10)
@@ -481,7 +547,7 @@ func (e *Engine) serveHTTP(w http.ResponseWriter, r *http.Request) {
 				}
 				writeLocal(w, code, h, res.Response.Body)
 				ent.Local(code, h, res.Response.Body, capture)
-				return
+				return nil
 			}
 			if res.URL != "" && res.URL != u {
 				if pu, err := url.Parse(res.URL); err == nil && pu.Host != "" {
@@ -546,43 +612,7 @@ func (e *Engine) serveHTTP(w http.ResponseWriter, r *http.Request) {
 		r.Header.Set("Accept-Encoding", "gzip, deflate, br")
 	}
 
-	f := &flow{st: st, ent: ent, url: u, rules: respRules}
-	defer func() {
-		if f.release != nil {
-			f.release()
-		}
-	}()
-	target, _ := url.Parse(u)
-	rp := &httputil.ReverseProxy{
-		Rewrite: func(pr *httputil.ProxyRequest) {
-			pr.Out.URL.Scheme = target.Scheme
-			pr.Out.URL.Host = target.Host
-			pr.Out.Host = r.Host
-			if pr.Out.Header.Get("User-Agent") == "" {
-				pr.Out.Header["User-Agent"] = nil
-			}
-		},
-		Transport:     e.upstream(),
-		FlushInterval: -1,
-		ErrorLog:      nil,
-		ModifyResponse: func(resp *http.Response) error {
-			return e.modifyResponse(f, resp)
-		},
-		ErrorHandler: func(w http.ResponseWriter, req *http.Request, err error) {
-			if err == context.Canceled {
-				ent.Finish(0, "客户端取消")
-				return
-			}
-			ent.Finish(502, "上游错误："+shortErr(err))
-			w.WriteHeader(http.StatusBadGateway)
-		},
-	}
-	// The rewrite / script work on the request body is done: hand its budget back before waiting on
-	// upstream (the bytes are only streamed from here on).
-	if releaseReq != nil {
-		releaseReq()
-	}
-	rp.ServeHTTP(w, r)
+	return &flow{st: st, ent: ent, url: u, rules: respRules}
 }
 
 const captureLimit = 32 * 1024
