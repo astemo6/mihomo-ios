@@ -14,7 +14,7 @@
 | 线 | 内容 | 负责人 | 拥有的文件 | 基线分支 | 何时开始 |
 |---|---|---|---|---|---|
 | A | v0.19.22 集成、CI、发版；原生 MitM 的 Go 侧 | 维护者（Hark） | 集成分支 `release/0.19.17`、`test/home-egern-v2`、`CHANGELOG.md`、版本号、`bridge/**` | — | 进行中 |
-| B | 原生 MitM 的 Swift 侧（编译、单测、TLS 前端） | 待认领 | `PacketTunnel/NativeBodyStore.swift`、`PacketTunnel/NativeMitM/**`、`PacketTunnel/JSCScriptEngine.swift`、`UnitTests/NativeBody*` | `feat/native-mitm`（0.19.22 发版后由 A 线推上来） | 0.19.22 发版后 |
+| B | 原生 MitM / 重写 / 脚本，拆成 B1–B10 十个类别，各自认领 | 见 B 线表 | 见 B 线表 | `feat/native-mitm` | B3/B4/B6 现在可做，其余等 0.19.22 发版 |
 | C | 真机验证（不写代码） | 待认领 | 只提 Issue / 贴日志 | 正式版 / TestFlight | 0.19.22 发版后 |
 | D | 界面与文案小修 | 待认领 | `App/Views/**`、`App/Localizable.xcstrings`（文案只此一线改） | 0.19.22 发版后的 `main` | 0.19.22 发版后 |
 | E | 隧道性能优化 | 待认领 | `PacketTunnel/**`（B 线文件除外）、Sub-Store 相关 | 0.19.22 发版后的 `main` | 0.19.22 发版后 |
@@ -43,15 +43,26 @@
 | 12 | Go brotli 读取器接受截断的 br 数据（一行修复） | — | 待办 |
 | 13 | 原生 MitM Go 侧（body 通道、TLS 交接、relay）已在 `feat/native-mitm` 4fec47b，发版后推送并交给 B 线 | 4fec47b | 本地完成 |
 
-## B 线：原生 MitM Swift 侧（待认领，0.19.22 发版后开始）
+## B 线：原生 MitM / 重写 / 脚本（按类别拆分，可多人并行）
 
-设计文档发版后放到 `docs/native-mitm-design.md`。Go 侧接口由 A 线维护，要改接口在这里留言。
+目标：mihomo（Go）继续管协议、规则、DNS、TUN；把最吃内存的 MitM → 重写 → 脚本热路径搬到扩展里的原生 Swift + JavaScriptCore，任何一步失败自动回到 Go 路径。代码在 `feat/native-mitm`（4fec47b，0.19.22 发版后由 A 线推上来）；设计文档同时放到 `docs/native-mitm-design.md`。
 
-| # | 事项 | 估算 | 需真机 | 状态 |
-|---|---|---|---|---|
-| 1 | 第一阶段：`NativeBodyStore.swift` 首次 CI 编译、`NativeBodyStoreTests` 通过（推 `test/native-mitm`，提交信息带 `[unit:NativeBodyStoreTests]`） | 0.5–1 天 | 否 | 待办 |
-| 2 | 第一阶段：真机内存与正确性（YouTube / 小红书 / 喜马拉雅各 5 分钟，iOS 17 与 18 的 br 解码，熔断不触发，1 小时后原生 body 计数归零） | 1–2 天 | 是（与 C 线配合） | 待办 |
-| 3 | 第二阶段：Swift TLS 前端、HTTP/1.1、上游连接（`PacketTunnel/NativeMitM/**`，目前未加入编译目标）。先看第一阶段实测再决定是否做 | 5–8 天 | 是 | 暂缓 |
+每个类别一个负责人，只改「文件」列里的文件；跨类别改接口先在条目下留言。「依赖」为空的现在就能做（不需要等 0.19.22，也不占 CI）。
+
+| 类别 | 任务 | 文件 | 依赖 | 估算 | 真机 | 负责人 | 状态 |
+|---|---|---|---|---|---|---|---|
+| B1 解压与 body 存储（Swift） | `NativeBodyStore` 首次编译、`NativeBodyStoreTests` 通过；gzip 多段、zlib/raw deflate、brotli（`COMPRESSION_BROTLI`）流式解码 | `PacketTunnel/NativeBodyStore.swift`、`UnitTests/NativeBody*` | 分支推上来 | 0.5–1 天 | 否 | 待认领 | 代码已写，未编译 |
+| B2 JSC 接入（Swift） | `JSCScriptEngine` 读原生 blob、生成 UTF-8 文本、≥64 KB 结果原生存放 | `PacketTunnel/JSCScriptEngine.swift` | B1 | 0.5 天 | 否 | 待认领 | 代码已写，未编译 |
+| B3 Go 侧通道与回退 | body 通道、预算/准入语义、失败回退与熔断；Go brotli 截断数据误收（一行修复） | `bridge/mitm/nativelane.go`、`handler_lane.go`、`bridge/nativebodies.go` | 无 | 0.5 天 | 否 | 维护者（A 线） | 已完成，待 `-race` |
+| B4 兼容语料 | 把 QX 重写清单与 Surge / Loon / Egern 语法样例做成回放用例，覆盖 body 通道（JSC 与 goja 结果一致） | `UnitTests/ScriptEngineConformance.json`、`bridge/mitm/testdata/**` | 无 | 0.5–1 天 | 否 | 待认领 | 待办 |
+| B5 第一期真机验证 | YouTube / 小红书 / 喜马拉雅各 5 分钟内存曲线；iOS 17 与 18 br 解码；熔断不触发；1 小时后原生 body 计数归零 | 只提 Issue（与 C 线合作） | B1、B2 | 1–2 天 | 是 | 待认领 | 待办 |
+| B6 Go flow API | 规则匹配与脚本语义留在 Go，Swift 只负责分帧和搬数据 | `bridge/mitm/flow*.go` | 无（只有设计） | 3–5 天 | 否 | 待认领 | 待办 |
+| B7 TLS 终止（Swift） | 按主机签发叶证书（PKCS#12，iOS 17/18 导入验证）、证书缓存、握手失败上报证书固定逻辑 | `PacketTunnel/NativeMitM/TLS*.swift` | B6 | 2–3 天 | 是 | 待认领 | 骨架 |
+| B8 HTTP/1.1 解析与上游（Swift） | 请求/响应头重写、分块传输、通过 Go `relay.go` 回连 mihomo | `PacketTunnel/NativeMitM/HTTP*.swift`、`Upstream*.swift` | B6 | 3–5 天 | 是 | 待认领 | 骨架 |
+| B9 边界情况 | WebSocket、网络切换、只报 h2 的客户端（gRPC）留在 Go | `PacketTunnel/NativeMitM/**`（与 B7/B8 负责人协调） | B7、B8 | 2–3 天 | 是 | 待认领 | 待办 |
+| B10 第二期对比 | 第二期与 Go 路径的内存对比，决定是否上线 | 只提 Issue | B7–B9 | 1 天 | 是 | 待认领 | 待办 |
+
+顺序：第一期（B1–B5）大约 3–5 天就能上线，拿到大部分内存收益（3 MB gzip body 在 Go 堆里从 +4.2–6.5 MB 降到 +0.6–1.6 MB）。第二期（B6–B10）预计 2–3 周，收益约 1–3 MB，先看 B5 实测再决定做不做。现在就能开工的：B3、B4、B6。
 
 ## C 线：真机验证（待认领，不写代码）
 
