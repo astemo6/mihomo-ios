@@ -207,10 +207,25 @@ struct NCCanonicalConfig: Equatable {
     var groupMap: [String: NCGroupModel] { Dictionary(groups.map { ($0.name, $0) }, uniquingKeysWith: { a, _ in a }) }
 
     /// Bridge to the legacy runtime config while the engine migrates.
+    /// DNS fields are reconstructed from the model so enhanced mode,
+    /// fake ranges and filters survive the trip.
     func legacyConfig() -> NCConfig {
-        NCConfig(mode: mode, logLevel: logLevel, ipv6: ipv6,
-                 proxies: nodes, groups: groups.map { $0.legacy() }, rules: rules,
-                 dns: NCDNSConfig(fields: [:]), raw: [:])
+        var dnsFields: [String: NCJSONValue] = [:]
+        switch dns.mode {
+        case .fakeIP: dnsFields["enhanced-mode"] = .string("fake-ip")
+        case .redirHost: dnsFields["enhanced-mode"] = .string("redir-host")
+        case .normal: dnsFields["enhanced-mode"] = .string("normal")
+        }
+        dnsFields["fake-ip-range"] = .string(dns.fakeIPRange4)
+        if let range6 = dns.fakeIPRange6 { dnsFields["fake-ip-range6"] = .string(range6) }
+        if !dns.alwaysRealIP.isEmpty {
+            dnsFields["fake-ip-filter"] = .array(dns.alwaysRealIP.map { .string($0) })
+        }
+        let servers = (dns.defaultServers + dns.encryptedServers).map { NCJSONValue.string($0.raw) }
+        if !servers.isEmpty { dnsFields["nameserver"] = .array(servers) }
+        return NCConfig(mode: mode, logLevel: logLevel, ipv6: ipv6,
+                        proxies: nodes, groups: groups.map { $0.legacy() }, rules: rules,
+                        dns: NCDNSConfig(fields: dnsFields), raw: [:])
     }
 }
 

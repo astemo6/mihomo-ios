@@ -29,18 +29,56 @@ final class NativeCoreEngine {
     }
 
     /// Loads (or reloads) the config for `home`. Returns an error message or nil.
+    /// Config acquisition, in order: (1) `runtime.yaml` read directly by
+    /// the built-in YAML parser — no Go involved; (2) `runtime.conf`
+    /// (Surge/Loon/Quantumult X) via the canonical importers; (3) the Go
+    /// bridge's JSON export as a transitional fallback for YAML shapes
+    /// the subset parser cannot handle (anchors at scale, merge keys in
+    /// odd spots, …). Which source won is kept in `configSource`.
+    private func loadConfig(home: String) -> (NCConfig?, String?) {
+        let homeURL = URL(fileURLWithPath: home)
+        if let text = try? String(contentsOf: homeURL.appendingPathComponent("runtime.yaml"), encoding: .utf8),
+           let root = NCYAML.parse(text)?.object {
+            configSource = "yaml"
+            loadedCanonical = nil
+            return (NCConfig.decode(root: root), nil)
+        }
+        if let text = try? String(contentsOf: homeURL.appendingPathComponent("runtime.conf"), encoding: .utf8) {
+            let canonical: NCCanonicalConfig
+            if text.contains("_local]") || text.contains("[server_") {
+                canonical = NCQXImport.quantumultx(text)
+            } else if text.contains("[Remote Proxy]") || text.contains("[Remote Rule]") {
+                canonical = NCConfImport.loon(text)
+            } else {
+                canonical = NCConfImport.surge(text)
+            }
+            configSource = "conf:\(canonical.sourceFormat)"
+            loadedCanonical = canonical
+            return (canonical.legacyConfig(), nil)
+        }
+        var err: NSError?
+        let json = LibmihomoNativeConfigJSON(home, &err)
+        if let err { return (nil, "NativeConfigJSON: \(err.localizedDescription)") }
+        guard !json.isEmpty, let cfg = try? NCConfig.decode(jsonData: Data(json.utf8)) else {
+            return (nil, "native core: config decode failed")
+        }
+        configSource = "go-json"
+        loadedCanonical = nil
+        return (cfg, nil)
+    }
+
+    private(set) var configSource = ""
+    private var loadedCanonical: NCCanonicalConfig?
+
     @discardableResult
     func load(home: String) -> String? {
         self.home = home
-        var err: NSError?
-        let json = LibmihomoNativeConfigJSON(home, &err)
-        if let err { return "NativeConfigJSON: \(err.localizedDescription)" }
-        guard !json.isEmpty, let cfg = try? NCConfig.decode(jsonData: Data(json.utf8)) else {
-            return "native core: config decode failed"
-        }
+        let (loadedCfg, loadError) = loadConfig(home: home)
+        if let loadError { return loadError }
+        guard let cfg = loadedCfg else { return "native core: config decode failed" }
         config = cfg
         rules = cfg.rules.compactMap(NCRule.parse)
-        let canonical = NCCanonicalConfig.from(mihomo: cfg)
+        let canonical = loadedCanonical ?? NCCanonicalConfig.from(mihomo: cfg)
         canonicalGroupMap = canonical.groupMap
         let pool = NCFakeIPPool(range: cfg.dns.fakeIPRange, range6: cfg.dns.fakeIPRange6,
                                 filter: cfg.dns.fakeIPFilter)
@@ -174,6 +212,13 @@ final class NativeCoreEngine {
     // MARK: Routing
 
     var groupEngine: NCGroupEngine? { groups }
+
+    /// The config the controller should present: base config merged with
+    /// subscription nodes (routing already runs on this view).
+    var effectiveConfig: NCConfig? {
+        guard let cfg = config else { return nil }
+        return groups != nil ? mergedConfig(base: cfg) : cfg
+    }
 
     /// Controller-driven mode override (PATCH /configs); nil = config's mode.
     var modeOverride: String?

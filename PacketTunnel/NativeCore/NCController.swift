@@ -186,7 +186,7 @@ final class NCController {
         // /group/{name}/delay
         if comps.count == 3, comps[0] == "group", comps[2] == "delay", req.method == "GET" {
             let name = comps[1]
-            guard let group = engine.config?.groupMap[name] else {
+            guard let group = engine.effectiveConfig?.groupMap[name] else {
                 respond(conn, status: 404, json: ["message": "group not found"])
                 return
             }
@@ -215,7 +215,7 @@ final class NCController {
     // MARK: Payload builders
 
     private func proxiesJSON() -> [String: Any] {
-        guard let cfg = engine.config, let groups = engine.groupEngine else { return [:] }
+        guard let cfg = engine.effectiveConfig, let groups = engine.groupEngine else { return [:] }
         var out: [String: Any] = [:]
         let now = ISO8601DateFormatter().string(from: Date())
         for p in cfg.proxies {

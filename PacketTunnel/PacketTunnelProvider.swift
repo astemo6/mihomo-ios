@@ -92,6 +92,17 @@ final class PacketTunnelProvider: NEPacketTunnelProvider {
     private var _stopped = false
 
     override func startTunnel(options: [String: NSObject]?, completionHandler: @escaping (Error?) -> Void) {
+        // Native core SUBNET rules key off the current SSID: stash it in
+        // the App Group for the group engine's ssidProvider. Best-effort —
+        // fetchCurrent may return nil without the location entitlement.
+        NEHotspotNetwork.fetchCurrent { network in
+            let defaults = UserDefaults(suiteName: AppShared.appGroup)
+            if let ssid = network?.ssid {
+                defaults?.set(ssid, forKey: "nativeCoreSSID")
+            } else {
+                defaults?.removeObject(forKey: "nativeCoreSSID")
+            }
+        }
         TunnelErrorLog.clear()
         StartupLog.begin("startTunnel")
         LibmihomoSetStageLog(StartupLog.url.path, TimeZone.current.secondsFromGMT())
