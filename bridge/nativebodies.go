@@ -58,6 +58,10 @@ func NativeBlobBase() int64 { return mitm.NativeBlobBase }
 // NativeLaneStats is the lane's line for diagnostics ("" when none is registered).
 func NativeLaneStats() string { return mitm.LaneStats() }
 
+// NativeLaneLive is the number of lane handles the Go side holds right now (0 when no body is in flight; engine
+// conformance checks it after lane cases, next to NativeBodyStore's own count).
+func NativeLaneLive() int64 { return mitm.LaneLiveHandles() }
+
 // ---- stage 2: native TLS front (bridge/mitm/nativeterm.go, relay.go) ----
 
 // NativeTLSFront is implemented in Swift (PacketTunnel/NativeMitM, not built yet). Listen returns the loopback
