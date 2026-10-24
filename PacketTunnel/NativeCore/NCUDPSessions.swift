@@ -1064,3 +1064,66 @@ final class NCUDPVLESSSession: NCUDPSession {
         raw.cancel()
     }
 }
+
+/// ShadowsocksR UDP: every packet gets a fresh IV prepended and the
+/// whole [atyp + payload] is stream-ciphered (origin / auth_sha1_v4 add
+/// nothing at the packet layer, like the reference).
+final class NCUDPSSRSession: NCUDPSession {
+    var onReply: (Data) -> Void = { _ in }
+    private let conn: NWConnection
+    private let method: String
+    private let key: Data
+    private let ivSize: Int
+    private var cancelled = false
+
+    init?(proxy: NCProxy, queue: DispatchQueue) {
+        guard let cipherName = proxy.cipher?.lowercased(), let pw = proxy.password,
+              let server = proxy.server, let port = proxy.port,
+              NCSSStreamCipher.isStreamMethod(cipherName),
+              let probe = NCSSStreamCipher(method: cipherName, key: Data(count: 32))
+        else { return nil }
+        method = cipherName
+        ivSize = probe.ivSize
+        key = NCShadowsocks.masterKey(password: pw, length: NCSSStreamCipher.keyLength(for: cipherName))
+        conn = NWConnection(host: NWEndpoint.Host(server),
+                            port: NWEndpoint.Port(rawValue: UInt16(clamping: port)) ?? .any,
+                            using: .udp)
+        conn.stateUpdateHandler = { [weak self] state in
+            if case .ready = state { self?.receiveLoop() }
+        }
+        conn.start(queue: queue)
+    }
+
+    private func receiveLoop() {
+        conn.receiveMessage { [weak self] data, _, _, error in
+            guard let self, !cancelled else { return }
+            if let data, data.count > ivSize,
+               let cipher = NCSSStreamCipher(method: method, key: key) {
+                cipher.forEncryption = false
+                cipher.setIV(Data(data.prefix(ivSize)))
+                let plain = cipher.process(Data(data.dropFirst(ivSize)))
+                if let payload = NCUDPSSSession.stripTargetHeader(plain) {
+                    onReply(payload)
+                }
+            }
+            if error == nil { receiveLoop() }
+        }
+    }
+
+    func sendPacket(_ payload: Data, to target: NCTarget) {
+        guard let cipher = NCSSStreamCipher(method: method, key: key) else { return }
+        let iv = Data((0..<ivSize).map { _ in UInt8.random(in: 0...255) })
+        cipher.forEncryption = true
+        cipher.setIV(iv)
+        var packet = iv
+        var plain = target.atypEncoded
+        plain.append(payload)
+        packet.append(cipher.process(plain))
+        conn.send(content: packet, completion: .idempotent)
+    }
+
+    func cancel() {
+        cancelled = true
+        conn.cancel()
+    }
+}

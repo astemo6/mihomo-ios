@@ -346,6 +346,43 @@ enum NCConnector {
                 guard let raw else { completion(nil, err); return }
                 completion(NCSSRelayStream(raw: raw, encoder: enc, decoder: dec, target: target), nil)
             }
+        case "ssr":
+            guard let password = proxy.password, let cipher = proxy.cipher?.lowercased(),
+                  NCSSStreamCipher.isStreamMethod(cipher) else {
+                queue.async { completion(nil, Failure.unsupported("ssr needs a stream cipher (aes-*/chacha20/rc4-md5)")) }
+                return
+            }
+            let protoName = (proxy.fields["protocol"]?.string ?? "origin").lowercased()
+            let obfsName = (proxy.fields["obfs"]?.string ?? "plain").lowercased()
+            guard protoName == "origin" || protoName == "auth_sha1_v4" else {
+                queue.async { completion(nil, Failure.unsupported("ssr protocol \(protoName) not yet implemented (origin/auth_sha1_v4 only)")) }
+                return
+            }
+            guard obfsName == "plain" || obfsName == "http_simple" else {
+                queue.async { completion(nil, Failure.unsupported("ssr obfs \(obfsName) not yet implemented (plain/http_simple only)")) }
+                return
+            }
+            let key = NCShadowsocks.masterKey(password: password,
+                                              length: NCSSStreamCipher.keyLength(for: cipher))
+            let ivSize = NCSSStreamCipher(method: cipher, key: key)?.ivSize ?? 16
+            let clientIV = Data((0..<ivSize).map { _ in UInt8.random(in: 0...255) })
+            var proto: NCSSRAuthSHA1V4?
+            if protoName == "auth_sha1_v4" {
+                let state = ssrAuthState(for: proxy.name)
+                proto = NCSSRAuthSHA1V4(key: key, iv: clientIV, auth: state.next())
+            }
+            var obfs: NCSSRHTTPSimple?
+            if obfsName == "http_simple" {
+                obfs = NCSSRHTTPSimple(server: server, port: port,
+                                       param: proxy.fields["obfs-param"]?.string, ivSize: ivSize)
+            }
+            obtainStream(transport: transport, make: { NCStream(to: server, port: port, queue: queue) }) { raw, err in
+                guard let raw else { completion(nil, err); return }
+                let relay = NCSSRRelayStream(raw: raw, method: cipher, key: key, clientIV: clientIV,
+                                             proto: proto, obfs: obfs)
+                relay.send(target.atypEncoded)
+                completion(relay, nil)
+            }
         case "snell":
             guard let password = proxy.password else {
                 queue.async { completion(nil, Failure.handshake("snell missing psk")) }
@@ -626,6 +663,18 @@ enum NCConnector {
 
     static func smuxProtocol(_ proxy: NCProxy) -> String {
         proxy.fields["smux"]?.object?["protocol"]?.string ?? "h2mux"
+    }
+
+    private static var ssrAuthRegistry: [String: NCSSRAuthState] = [:]
+    private static let ssrAuthLock = NSLock()
+
+    private static func ssrAuthState(for name: String) -> NCSSRAuthState {
+        ssrAuthLock.lock()
+        defer { ssrAuthLock.unlock() }
+        if let existing = ssrAuthRegistry[name] { return existing }
+        let state = NCSSRAuthState()
+        ssrAuthRegistry[name] = state
+        return state
     }
 
     private static var muxRegistry: [String: NCMuxSession] = [:]
