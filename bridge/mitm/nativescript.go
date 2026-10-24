@@ -67,6 +67,9 @@ type nsCharge struct {
 	enc      string
 	ctx      context.Context
 	released bool
+	// reqRelease: a native request script's body share (NativeScriptReqBodyAdmit: acquireSmall / bodyBudget.acquire,
+	// requestPhase's p.release) instead of a response charge.
+	reqRelease func()
 }
 
 var nativeScripts = &nsReg{ctxs: map[int64]nsCtx{}, slots: map[int64]*nsSlot{}, charges: map[int64]*nsCharge{}}
@@ -479,6 +482,10 @@ func NativeScriptBodyRelease(ticket int64) {
 		return
 	}
 	nsHeld.Add(-1)
+	if c.reqRelease != nil {
+		c.reqRelease()
+		return
+	}
 	c.charge.release()
 }
 

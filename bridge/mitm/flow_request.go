@@ -136,6 +136,10 @@ func (nf *NativeFlow) runRequest(r *http.Request) {
 // ReverseProxy would send it.
 func (e *Engine) flowRequestPhase(nf *NativeFlow, w *flowWriter, r *http.Request) {
 	p := e.startRequest(r)
+	if nf.scripted != nil {
+		p.st = nf.scripted.st // the rules the native side matched (current or one reload back)
+		p.scripted = nf.scripted
+	}
 	ent := p.ent
 	nf.ent = ent
 	defer func() {

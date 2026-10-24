@@ -143,3 +143,32 @@ func MitmScriptFetch(gen int64, rule int, token int64, arg string, body []byte) 
 	}
 	return &MitmScriptFetchResult{f: e.NativeScriptFetch(gen, rule, token, arg, body)}
 }
+
+// MitmScriptReqBodyAdmit is requestPhase's loadBody admission for a native request script (native-final): JSON
+// {ok, ticket, cap, limit} | {skip, retry} (see mitm.NativeScriptReqBodyAdmit). Release with MitmScriptBodyRelease.
+func MitmScriptReqBodyAdmit(gen int64, rule int, url string, contentLength int64, token int64) string {
+	e := curEngine()
+	if e == nil {
+		return `{"gone":true,"skip":"MitM engine not running"}`
+	}
+	return e.NativeScriptReqBodyAdmit(gen, rule, url, contentLength, token)
+}
+
+// MitmScriptReqBodySkip logs requestPhase's 「跳过脚本：」 line for a request script whose body was refused and
+// returns the request-log note (blen ≥ 0: a loaded body over the script's limit).
+func MitmScriptReqBodySkip(gen int64, rule int, why string, blen int64) string {
+	e := curEngine()
+	if e == nil {
+		return ""
+	}
+	return e.NativeScriptReqBodySkip(gen, rule, why, blen)
+}
+
+// MitmScriptReqLimit is scriptBodyLimit of rule's script (-1: gone / not running).
+func MitmScriptReqLimit(gen int64, rule int) int64 {
+	e := curEngine()
+	if e == nil {
+		return -1
+	}
+	return e.NativeScriptReqLimit(gen, rule)
+}

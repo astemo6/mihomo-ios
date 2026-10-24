@@ -8,7 +8,7 @@ package mitm
 // is applied with the same Entry calls the Go path makes at the same point, so the request list and the detail
 // view cannot tell a native entry from a Go one:
 //
-//	drop      requestPhase reject-drop: Match(url rule) · Finish(0, 「拒绝（断开）」)
+//	drop      requestPhase reject-drop: Match(url rule) · Finish(0, 「拒绝（断开）」); a request script's abort: why
 //	local     reject* / 302 / 307 / Map Local: Match(rules…) · SetURL · Local(status, headers, body, capture)
 //	forward   the request goes upstream: Match(url header rule, request header rules…) · SetURL · ReqHeaders
 //	response  modifyResponse: Match(response header rules…) · Response(status, headers); 101 → Finish(101, 「WebSocket / Upgrade」)
@@ -63,6 +63,8 @@ type NativeRecord struct {
 	// Notes: request-log notes of the event, in order (native script dispatch, lane s3-script: skipped scripts,
 	// script errors, an abort) — written before the event's own action, like modifyResponse's ent.Note calls.
 	Notes []string `json:"notes,omitempty"`
+	// ReqMethod (forward): the method after the request phase when a native request script changed it.
+	ReqMethod string `json:"rmethod,omitempty"`
 }
 
 const nativeRecPendingMax = 512
@@ -129,10 +131,18 @@ func (e *Engine) applyNative(rec *NativeRecord) bool {
 		for _, l := range e.nativeLabels(rec) {
 			ent.Match(l)
 		}
+		// native request scripts (native-final): their notes (skipped / failed scripts) in the request phase
+		for _, n := range rec.Notes {
+			ent.Note(n)
+		}
 		ms := nativeMs(rec.Ms)
 		switch rec.Ev {
 		case "drop":
-			ent.finishAt(0, "拒绝（断开）", ms)
+			why := "拒绝（断开）"
+			if rec.Why != "" {
+				why = rec.Why // a request script's abort: 「脚本中止：<name>」
+			}
+			ent.finishAt(0, why, ms)
 		case "local":
 			ent.SetURL(rec.URL)
 			body := rec.Body
@@ -148,7 +158,11 @@ func (e *Engine) applyNative(rec *NativeRecord) bool {
 			ent.finishAt(-1, "", ms)
 		case "forward":
 			ent.SetURL(rec.URL)
-			ent.ReqHeaders(ent.Method, headerFromPairs(rec.Headers))
+			method := ent.Method
+			if rec.ReqMethod != "" {
+				method = rec.ReqMethod // a request script changed it (ent.ReqHeaders(r.Method, …))
+			}
+			ent.ReqHeaders(method, headerFromPairs(rec.Headers))
 			recs.mu.Lock()
 			recs.pending[rec.K] = ent
 			recs.order = append(recs.order, rec.K)

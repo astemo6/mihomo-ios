@@ -41,6 +41,9 @@ type flowSim struct {
 	cut     int                                          // close the client after this many response bytes (0: never)
 	discard bool                                         // count lane body bytes without keeping them (heap tests)
 	chunked bool                                         // send the request body without a length (Transfer-Encoding: chunked)
+	// native-final: request scripts already run natively (FlowHead.Gen / Scripted)
+	scriptedGen int64
+	scripted    []FlowScripted
 }
 
 func newFlowSim(t testing.TB, e *Engine) *flowSim { return &flowSim{t: t, e: e, chunk: 7 << 10} }
@@ -161,6 +164,7 @@ func (s *flowSim) do(method, rawurl string, hdr http.Header, body []byte) simRes
 	if body == nil {
 		head.Length = 0
 	}
+	head.Gen, head.Scripted = s.scriptedGen, s.scripted
 	if s.chunked && body != nil {
 		head.Length = -1
 		head.Headers = append(head.Headers, [2]string{"Transfer-Encoding", "chunked"})
