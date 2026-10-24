@@ -44,14 +44,23 @@ final class NativeBodyStore: NSObject, LibmihomoNativeBodyStoreProtocol, JSCNati
         /// gzip: bytes of `raw` already consumed as headers / deflate data / trailers; deflate: zlib header seen.
         var consumed = 0
         var inHeader = true
-        var trailerLeft = 0
-        /// gzip member being decoded: where its 8-byte trailer starts in `raw`, CRC-32 and size of its output
-        /// (checked against the trailer like Go's compress/gzip, so a damaged body never reaches a script).
-        var trailerStart = 0
+        /// gzip member being decoded: CRC-32 and size of its output (checked against the trailer like Go's
+        /// compress/gzip, so a damaged body never reaches a script).
         var crc: UInt32 = 0
         var memberSize = 0
         /// gzip: bytes after a complete member that are not another member — ignored to the end.
         var ignoreRest = false
+        /// gzip: the member's deflate stream ended; its trailer is searched in raw[trailerSearch...trailerMax+8].
+        var awaitTrailer = false
+        var trailerSearch = 0
+        var trailerMax = 0
+        /// Where the last two pumps started in `raw` and where the last one ended: the stream's end lies in
+        /// there (the previous call too in case the decoder only reports END on the next call). memberStart =
+        /// first deflate byte of the current gzip member.
+        var callStart = 0
+        var prevCallStart = 0
+        var callEnd = 0
+        var memberStart = 0
 
         init(codec: Codec, limit: Int, hint: Int) {
             self.codec = codec
@@ -233,6 +242,20 @@ final class NativeBodyStore: NSObject, LibmihomoNativeBodyStoreProtocol, JSCNati
         return h
     }
 
+    /// Keeps `data` as a new handle without copying it (Data is copy-on-write; nothing here mutates it). 0 for empty.
+    func adopt(_ data: Data) -> Int64 {
+        guard !data.isEmpty else { return 0 }
+        let b = Body(codec: .identity, limit: data.count, hint: 0)
+        b.raw = data
+        b.finished = true
+        lock.lock()
+        seq += 1
+        let h = seq
+        bodies[h] = b
+        lock.unlock()
+        return h
+    }
+
     // MARK: decoding
 
     private func body(_ h: Int64) -> Body? {
@@ -308,16 +331,28 @@ final class NativeBodyStore: NSObject, LibmihomoNativeBodyStoreProtocol, JSCNati
                     b.consumed = b.raw.count
                     return ""
                 }
-                if b.trailerLeft > 0 {
-                    let take = min(b.trailerLeft, b.raw.count - b.consumed)
-                    b.consumed += take
-                    b.trailerLeft -= take
-                    if b.trailerLeft > 0 { return finalize ? fail2(b, "truncated gzip trailer") : "" }
-                    let t = b.raw.startIndex + b.trailerStart
-                    if Self.le32(b.raw, t) != b.crc { return fail2(b, "gzip checksum mismatch") }
-                    if Self.le32(b.raw, t + 4) != UInt32(truncatingIfNeeded: b.memberSize) {
-                        return fail2(b, "gzip size mismatch")
+                if b.awaitTrailer {
+                    // Apple's decoder may take input past the end of the deflate stream (it reports END with the
+                    // whole input used — seen in CI), so src_size cannot say where the 8-byte trailer starts. It is
+                    // found by value instead: the first offset in the span of the call that ended the stream where
+                    // CRC-32 and ISIZE of this member's output follow (a false match needs 64 bits to agree).
+                    let crc = b.crc, size = UInt32(truncatingIfNeeded: b.memberSize), base = b.raw.startIndex
+                    var e = b.trailerSearch
+                    var found = false
+                    while e <= b.trailerMax && e + 8 <= b.raw.count {
+                        if Self.le32(b.raw, base + e) == crc && Self.le32(b.raw, base + e + 4) == size {
+                            found = true
+                            break
+                        }
+                        e += 1
                     }
+                    if !found {
+                        if e > b.trailerMax { return fail2(b, "gzip checksum mismatch") }
+                        b.trailerSearch = e
+                        return finalize ? fail2(b, "truncated gzip trailer") : ""
+                    }
+                    b.consumed = e + 8
+                    b.awaitTrailer = false
                     b.inHeader = true // another member may follow (multi-member gzip)
                 }
                 if b.inHeader {
@@ -340,6 +375,9 @@ final class NativeBodyStore: NSObject, LibmihomoNativeBodyStoreProtocol, JSCNati
                         b.streamEnded = false
                         b.crc = 0
                         b.memberSize = 0
+                        b.memberStart = b.consumed
+                        b.callStart = b.consumed
+                        b.prevCallStart = b.consumed
                         b.closeStream()
                         guard Self.startStream(b, COMPRESSION_ZLIB) else { return "internal: stream init" }
                     case .none:
@@ -356,8 +394,9 @@ final class NativeBodyStore: NSObject, LibmihomoNativeBodyStoreProtocol, JSCNati
                 let r = pump(b, finalize: finalize)
                 if !r.isEmpty { return r }
                 if b.streamEnded {
-                    b.trailerStart = b.consumed
-                    b.trailerLeft = 8 // CRC32 + ISIZE
+                    b.awaitTrailer = true
+                    b.trailerSearch = max(b.memberStart, min(b.callStart, b.prevCallStart))
+                    b.trailerMax = b.callEnd
                     continue
                 }
                 if finalize { return fail2(b, "unexpected end of gzip data") }
@@ -391,6 +430,9 @@ final class NativeBodyStore: NSObject, LibmihomoNativeBodyStoreProtocol, JSCNati
             }
             s.pointee.src_ptr = base + b.consumed
             s.pointee.src_size = avail
+            b.prevCallStart = b.callStart
+            b.callStart = b.consumed
+            b.callEnd = b.raw.count
             result = drain(b, s, scratch, flags: finalize ? Int32(COMPRESSION_STREAM_FINALIZE.rawValue) : 0)
             // a failure inside drain destroyed the stream (fail → closeStream): s must not be read then
             if !b.failed { b.consumed = b.raw.count - s.pointee.src_size }

@@ -152,6 +152,17 @@ final class NativeBodyStoreTests: XCTestCase {
         }
     }
 
+    func testAdoptKeepsBytes() {
+        let store = NativeBodyStore.shared
+        XCTAssertEqual(store.adopt(Data()), 0)
+        let d = Data((0..<100_000).map { UInt8(truncatingIfNeeded: $0) })
+        let h = store.adopt(d)
+        XCTAssertGreaterThan(h, 0)
+        defer { store.free(h) }
+        XCTAssertEqual(store.len(h, raw: false), Int64(d.count))
+        XCTAssertEqual(store.read(h, raw: false, off: 99_990, n: 100), d.subdata(in: 99_990..<100_000))
+    }
+
     /// Native text keeps a leading BOM (Go's string(b) does; String(data:encoding:) would drop it).
     func testTextKeepsBOM() {
         let store = NativeBodyStore.shared
