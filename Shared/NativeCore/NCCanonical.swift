@@ -189,6 +189,36 @@ struct NCMitmConfig: Equatable {
     var skipCertVerify: Bool = false
     var h2: Bool = true
     var captureBodies: Bool = false
+
+    func matches(host: String) -> Bool {
+        guard enabled || !hostnames.isEmpty else { return false }
+        let h = host.lowercased()
+        var matched = false
+        for raw in hostnames {
+            let item = raw.trimmingCharacters(in: .whitespaces).lowercased()
+            guard !item.isEmpty else { continue }
+            if item.hasPrefix("-") {
+                let pat = String(item.dropFirst()).trimmingCharacters(in: .whitespaces)
+                if matchesPattern(host: h, pattern: pat) {
+                    return false
+                }
+            } else {
+                if matchesPattern(host: h, pattern: item) {
+                    matched = true
+                }
+            }
+        }
+        return matched
+    }
+
+    private func matchesPattern(host: String, pattern: String) -> Bool {
+        if pattern == "*" { return true }
+        if pattern.hasPrefix("*.") {
+            let suffix = pattern.dropFirst(1)
+            return host.hasSuffix(suffix) || host == pattern.dropFirst(2)
+        }
+        return host == pattern
+    }
 }
 
 /// Rewrite rule: URL rewrites, header rewrites, map local, body rewrites.

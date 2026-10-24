@@ -189,8 +189,37 @@ final class NCDataPlane {
     /// app dialed a bare IP; otherwise keep the IP as the target.
     private func decide(_ s: TCPSession) {
         switch NCSniffer.detect(s.pending) {
-        case .tls(let sni, _):
+        case .tls(let sni, let alpn):
             if let sni { s.ruleDomain = sni; s.target = NCTarget(host: sni, port: s.target.port) }
+            if let sni, engine.isMitm(host: sni) {
+                let alpnStr = alpn.joined(separator: ",")
+                let mitmPort = MitmTLSFront.shared.listen(host: sni, alpn: alpnStr)
+                if mitmPort > 0 {
+                    s.state = .connecting
+                    s.policyName = "MITM"
+                    s.chainName = "MITM"
+                    let stream = NCStream(to: "127.0.0.1", port: Int(mitmPort), queue: queue)
+                    stream.start { [weak self, weak s] err in
+                        guard let self, let s, s.state == .connecting else {
+                            stream.cancel()
+                            return
+                        }
+                        if let err {
+                            self.close(s)
+                            return
+                        }
+                        s.relay = stream
+                        s.state = .open
+                        if !s.pending.isEmpty {
+                            self.countUp(s, s.pending.count)
+                            stream.send(s.pending)
+                            s.pending = Data()
+                        }
+                        self.receiveLoop(s)
+                    }
+                    return
+                }
+            }
             connect(s)
         case .http(let host, _):
             if let host { s.ruleDomain = host; s.target = NCTarget(host: host, port: s.target.port) }

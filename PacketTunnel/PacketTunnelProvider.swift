@@ -81,6 +81,7 @@ final class PacketTunnelProvider: NEPacketTunnelProvider {
     private var bridge: PacketFlowBridge?
     private var nativePlane: NCDataPlane?
     private var nativeController: NCController?
+    private var nativeMemSampler: NativeMemoryGovernorSampler?
     private var memoryGuard: MemoryGuard?
     private var traffic: TrafficRecorder?
     private var liveStats: LiveStatsSampler?
@@ -208,7 +209,24 @@ final class PacketTunnelProvider: NEPacketTunnelProvider {
                                                       port: overrides.controllerPort, secret: overrides.secret)
                             controller?.start()
                         }
-                        self.stopLock.lock(); self.nativePlane = plane; self.nativeController = controller; self.stopLock.unlock()
+                        NativeCoreEngine.active = engine
+                        if let canonical = engine.loadedCanonicalConfig {
+                            let snapshot = canonical.buildRewriteSnapshot()
+                            NativeRewriteEngine.load(snapshot)
+                        }
+                        if #available(iOS 17, *) {
+                            let mitmInstalled = NativeMitmRuntime.install(front: MitmTLSFront.shared,
+                                                                         upstream: NCUpstreamConnector.shared,
+                                                                         codec: HTTPLaneCodec())
+                            StartupLog.write("native track MitM lane: \(mitmInstalled ? "on" : "off")")
+                        }
+                        let memSampler = NativeMemoryGovernorSampler.makeDefault { _, _ in }
+                        memSampler.start()
+                        self.stopLock.lock()
+                        self.nativePlane = plane
+                        self.nativeController = controller
+                        self.nativeMemSampler = memSampler
+                        self.stopLock.unlock()
                         StartupLog.write("native core data plane up, \(engine.statsLine)")
                         completionHandler(nil)
                         return
@@ -363,9 +381,12 @@ final class PacketTunnelProvider: NEPacketTunnelProvider {
         TunnelStopReason.clearAlive() // fix/vpn-stays-on: a clean stop (after the traffic timer can no longer re-mark)
         LibmihomoStop()
         LibmihomoDumpDiagnostics()
+        takeNativeMemSampler()?.stop()
         takeNativeController()?.stop()
         takeNativePlane()?.stop()
         takeBridge()?.stop()
+        UpstreamPool.shared.closeIdle()
+        NativeCoreEngine.active = nil
         completionHandler()
     }
 
@@ -397,6 +418,14 @@ final class PacketTunnelProvider: NEPacketTunnelProvider {
         let c = nativeController
         nativeController = nil
         return c
+    }
+
+    /// Removes and returns the native memory governor sampler exactly once.
+    private func takeNativeMemSampler() -> NativeMemoryGovernorSampler? {
+        stopLock.lock(); defer { stopLock.unlock() }
+        let s = nativeMemSampler
+        nativeMemSampler = nil
+        return s
     }
 
     /// The traffic recorder, read under stopLock (handleAppMessage / sleep run on the NE queue).

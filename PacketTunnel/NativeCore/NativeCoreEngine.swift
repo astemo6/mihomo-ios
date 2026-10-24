@@ -7,6 +7,8 @@ import Libmihomo
 /// to outbounds. The data plane (TUN/lwIP) lands in the next batch; until the
 /// provider switch is wired, nothing calls this in production paths.
 final class NativeCoreEngine {
+    public static var active: NativeCoreEngine?
+
     private(set) var config: NCConfig?
     private(set) var isRunning = false
     private var rules: [NCRule] = []
@@ -70,6 +72,17 @@ final class NativeCoreEngine {
     private(set) var configSource = ""
     private var loadedCanonical: NCCanonicalConfig?
 
+    var loadedCanonicalConfig: NCCanonicalConfig? { loadedCanonical }
+
+    func isMitm(host: String) -> Bool {
+        loadedCanonical?.mitm.matches(host: host) ?? false
+    }
+
+    func lookupCountry(_ ipStr: String) -> String? {
+        guard let ip = NCIP(ipStr), let db = geoIPDB else { return nil }
+        return db.lookup(ip)
+    }
+
     @discardableResult
     func load(home: String) -> String? {
         self.home = home
@@ -113,11 +126,13 @@ final class NativeCoreEngine {
         let homeURL = URL(fileURLWithPath: home)
         if let data = try? Data(contentsOf: homeURL.appendingPathComponent("geoip.metadb")) {
             geoIPDB = NCMMDB(data: data)
+            NativeScriptHost.geoLookup = { [weak self] ip in self?.lookupCountry(ip) }
         }
         if let data = try? Data(contentsOf: homeURL.appendingPathComponent("ASN.mmdb")), data.count > 1024 {
             asnDB = NCMMDB(data: data)
         }
         isRunning = true
+        Self.active = self
         return nil
     }
 
