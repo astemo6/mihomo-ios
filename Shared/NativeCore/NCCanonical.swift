@@ -119,6 +119,7 @@ struct NCGroupModel: Equatable {
     var url: String? = nil
     var interval: Int = 300
     var tolerance: Int = 0
+    var lazy: Bool = true
     var strategy: String? = nil // load-balance: round-robin | consistent-hashing
     var includeRegex: String? = nil
     var excludeRegex: String? = nil
@@ -143,6 +144,7 @@ struct NCGroupModel: Equatable {
         if let url { fields["url"] = .string(url) }
         fields["interval"] = .number(Double(interval))
         fields["tolerance"] = .number(Double(tolerance))
+        fields["lazy"] = .bool(lazy)
         if let strategy { fields["strategy"] = .string(strategy) }
         if !use.isEmpty { fields["use"] = .array(use.map { .string($0) }) }
         if !subnetConditions.isEmpty {
@@ -313,6 +315,7 @@ extension NCCanonicalConfig {
             }
             return NCGroupModel(name: g.name, kind: kind, members: g.proxies,
                                 url: g.url, interval: g.interval, tolerance: g.tolerance,
+                                lazy: g.lazy,
                                 strategy: g.fields["strategy"]?.string, use: g.use)
         }
 

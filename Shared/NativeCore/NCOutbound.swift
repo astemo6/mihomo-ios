@@ -103,6 +103,60 @@ final class NCGroupEngine {
     /// owner supplies it; nil = network unknown.
     var ssidProvider: () -> String? = { nil }
     private var rrCounters: [String: Int] = [:]
+    private var lastTouched: [String: Date] = [:]
+    var onGroupTouched: ((String) -> Void)?
+    private let lock = NSRecursiveLock()
+
+    func touch(_ groupName: String) {
+        lock.lock()
+        let now = Date()
+        let shouldNotify: Bool
+        if let last = lastTouched[groupName], now.timeIntervalSince(last) < 1.0 {
+            shouldNotify = false
+        } else {
+            lastTouched[groupName] = now
+            shouldNotify = true
+        }
+        lock.unlock()
+        if shouldNotify {
+            onGroupTouched?(groupName)
+        }
+    }
+
+    func lastTouch(for groupName: String) -> Date? {
+        lock.lock()
+        defer { lock.unlock() }
+        return lastTouched[groupName]
+    }
+
+    func recordDelay(name: String, ms: Int) {
+        lock.lock()
+        defer { lock.unlock() }
+        if ms > 0 {
+            delays[name] = ms
+            alive[name] = true
+        } else {
+            delays[name] = 0
+            alive[name] = false
+        }
+    }
+
+    func recordFailure(name: String) {
+        lock.lock()
+        defer { lock.unlock() }
+        delays[name] = 0
+        alive[name] = false
+    }
+
+    func setSelection(group: String, member: String?) {
+        lock.lock()
+        defer { lock.unlock() }
+        if let member {
+            selections[group] = member
+        } else {
+            selections.removeValue(forKey: group)
+        }
+    }
 
     /// The member a SUBNET condition forces for this group right now:
     /// an exact SSID hit beats DEFAULT, which beats manual selection —
@@ -131,7 +185,9 @@ final class NCGroupEngine {
     }
 
     func resolve(_ policy: String) -> Resolution {
-        resolve(policy, visited: [])
+        lock.lock()
+        defer { lock.unlock() }
+        return resolve(policy, visited: [])
     }
 
     private func resolve(_ policy: String, visited: Set<String>) -> Resolution {
@@ -145,6 +201,17 @@ final class NCGroupEngine {
         guard !visited.contains(g.name) else { return .unknown(policy) }
         var visited = visited
         visited.insert(g.name)
+        let now = Date()
+        let shouldNotify: Bool
+        if let last = lastTouched[g.name], now.timeIntervalSince(last) < 1.0 {
+            shouldNotify = false
+        } else {
+            lastTouched[g.name] = now
+            shouldNotify = true
+        }
+        if shouldNotify {
+            onGroupTouched?(g.name)
+        }
         if g.type == "relay" {
             // Every member must itself resolve to proxy material; the
             // concatenation is the chain, in group order.
@@ -205,6 +272,8 @@ final class NCGroupEngine {
 
     /// The member a group would route to right now (one level, no recursion).
     func currentMember(of group: NCProxyGroup) -> String? {
+        lock.lock()
+        defer { lock.unlock() }
         let all = group.proxies
         guard !all.isEmpty else { return nil }
         let usable = all.filter { !unsupported.contains($0) }
@@ -224,6 +293,9 @@ final class NCGroupEngine {
     }
 
     private func delayOf(_ name: String) -> Int {
-        delays[name] ?? Int.max
+        lock.lock()
+        defer { lock.unlock() }
+        guard let d = delays[name], d > 0, alive[name] ?? true else { return Int.max }
+        return d
     }
 }
