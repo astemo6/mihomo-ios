@@ -349,10 +349,17 @@ func (e *Engine) serveHTTP(w http.ResponseWriter, r *http.Request) {
 			bodyOK = true
 			return true
 		}
+		small := false
 		if heapHigh() {
-			reqSkip = heapHighReason()
-			e.logf("warning", fmt.Sprintf("[MitM] %s，跳过请求体处理：%s", reqSkip, clip(u, 100)))
-			return false
+			if !smallWorkOK(r.ContentLength, smallBodyFloor) {
+				reqSkip = heapHighReason()
+				e.logf("warning", fmt.Sprintf("[MitM] %s，跳过请求体处理：%s", reqSkip, clip(u, 100)))
+				return false
+			}
+			small = true
+			if reqCap > smallWorkMax {
+				reqCap = smallWorkMax
+			}
 		}
 		want := int64(reqCap)
 		if r.ContentLength > 0 && r.ContentLength < want {
@@ -367,7 +374,12 @@ func (e *Engine) serveHTTP(w http.ResponseWriter, r *http.Request) {
 			reqSkip = fmt.Sprintf("请求体 %d KB 超过上限 %d KB", r.ContentLength>>10, reqCap>>10)
 			return false
 		}
-		rel := bodyBudget.acquire(r.Context(), want, bodyBudgetWait)
+		var rel func()
+		if small || want <= smallWorkMax {
+			rel = acquireSmall(r.Context(), want, bodyBudgetWait)
+		} else {
+			rel = bodyBudget.acquire(r.Context(), want, bodyBudgetWait)
+		}
 		if rel == nil {
 			reqSkip = "同时处理的请求/响应体过多"
 			e.logf("warning", fmt.Sprintf("[MitM] 同时处理的请求/响应体过多，跳过：%s", clip(u, 100)))
@@ -684,10 +696,21 @@ func (e *Engine) modifyResponse(f *flow, resp *http.Response) error {
 		}
 		loaded = true
 		tooBig = true
+		small := false // fix/xmly-memory: memory is short, only small work may go ahead
 		if heapHigh() {
-			respSkip = heapHighReason()
-			e.logf("warning", fmt.Sprintf("[MitM] %s，跳过响应体处理：%s", respSkip, clip(f.url, 100)))
-			return false
+			cl := resp.ContentLength
+			if resp.Header.Get("Content-Encoding") != "" && cl >= 0 {
+				cl = min(cl*4, smallWorkMax) // compressed: judged on a typical decoded size, capped below
+			}
+			if !smallWorkOK(cl, smallBodyFloor) {
+				respSkip = heapHighReason()
+				e.logf("warning", fmt.Sprintf("[MitM] %s，跳过响应体处理：%s", respSkip, clip(f.url, 100)))
+				return false
+			}
+			small = true
+			if respCap > smallWorkMax {
+				respCap = smallWorkMax
+			}
 		}
 		if resp.ContentLength > int64(limit) && resp.Header.Get("Content-Encoding") == "" {
 			loaded = false // a later rule with a larger limit may still read it
@@ -733,6 +756,7 @@ func (e *Engine) modifyResponse(f *flow, resp *http.Response) error {
 				return false
 			}
 		}
+		charge.small = small || want <= smallWorkMax
 		if err := charge.ensure(want); err != nil {
 			respSkip = fmt.Sprintf("同时处理的响应体过多（需 %d KB，已占用 %d KB / %d KB）", want>>10, bodyBudget.inUse()>>10, bodyBudget.capNow()>>10)
 			e.logf("warning", fmt.Sprintf("[MitM] %s，跳过：%s", respSkip, clip(f.url, 100)))

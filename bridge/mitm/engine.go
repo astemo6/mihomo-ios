@@ -43,10 +43,15 @@ type state struct {
 // Engine is the local HTTP(S) engine. It listens on 127.0.0.1 as an HTTP CONNECT proxy that the
 // injected mihomo outbound __MITM__ points to.
 type Engine struct {
-	home   string
-	dial   DialFunc
-	logf   Logger
-	notify atomic.Pointer[Notifier]
+	// reclaimH: this engine's reclaim registered as reclaimHook while it runs (headroom.go).
+	reclaimH *func()
+	// clientConns: client-side MitM connections → unix nanos since they went idle (0: a request is in
+	// flight). HTTP/2 reports idle / active through ConnState too (fix/xmly-memory, closeIdleClients).
+	clientConns sync.Map
+	home        string
+	dial        DialFunc
+	logf        Logger
+	notify      atomic.Pointer[Notifier]
 
 	ln   net.Listener
 	port int
@@ -138,6 +143,7 @@ func (e *Engine) Start() error {
 		ReadHeaderTimeout: 30 * time.Second,
 		IdleTimeout:       90 * time.Second,
 		ErrorLog:          log.New(io.Discard, "", 0),
+		ConnState:         e.trackConnState,
 		ConnContext: func(ctx context.Context, c net.Conn) context.Context {
 			if tc, ok := c.(*tls.Conn); ok {
 				c = tc.NetConn()
@@ -152,6 +158,9 @@ func (e *Engine) Start() error {
 	srv, ch := e.srv, e.tlsCh // r7 P3-8: the goroutine must not read fields a later Stop/Start rewrites
 	go func() { _ = srv.Serve(&chanListener{ch: ch, addr: ln.Addr(), closed: &e.closing}) }()
 	go e.acceptLoop(ln)
+	h := e.reclaim
+	reclaimHook.Store(&h)
+	e.reclaimH = &h
 	e.logf("info", fmt.Sprintf("[MitM] 引擎已启动 127.0.0.1:%d", e.port))
 	return nil
 }
@@ -164,6 +173,7 @@ func (e *Engine) Stop() {
 		return
 	}
 	e.closing.Store(true)
+	reclaimHook.CompareAndSwap(e.reclaimH, nil)
 	_ = e.ln.Close()
 	if e.srv != nil {
 		_ = e.srv.Close()
@@ -267,7 +277,18 @@ type metaConn struct {
 	meta *connMeta
 }
 
-func (c *metaConn) Read(p []byte) (int, error) { return c.r.Read(p) }
+// Read drains what the CONNECT parser buffered (the ClientHello), then reads the connection directly:
+// fix/xmly-memory — the 8–16 KB bufio.Reader stayed with every intercepted connection for its whole life
+// (74–107 connections while 喜马拉雅 was open). A connection has one reader at a time (tls.Conn serializes).
+func (c *metaConn) Read(p []byte) (int, error) {
+	if r := c.r; r != nil {
+		if r.Buffered() > 0 {
+			return r.Read(p)
+		}
+		c.r = nil
+	}
+	return c.Conn.Read(p)
+}
 
 type chanListener struct {
 	ch     chan net.Conn

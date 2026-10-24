@@ -1,6 +1,11 @@
 package mitm
 
-import "fmt"
+import (
+	"fmt"
+	"net"
+	"net/http"
+	"time"
+)
 
 // v0.19.22 (device log 2026-10-23, v0.19.20): the extension sat at 40 MB of phys_footprint with
 // 「memory pressure critical」 for two hours and was then killed by jetsam. The MemoryGuard called
@@ -18,11 +23,57 @@ type ShedStats struct {
 	BodyBytes    int  // captured request-log body text dropped
 	IdleClosed   bool // upstream keep-alive connections closed
 	Dequeued     int  // requests waiting for a large script that were turned away (pass through)
+	// ClientIdleClosed: idle client-side MitM connections were closed (fix/xmly-memory).
+	ClientIdleClosed bool
+}
+
+// clientIdleMin: a client-side MitM connection idle at least this long may be closed by the critical shed.
+var clientIdleMin = 5 * time.Second
+
+// trackConnState is the MitM server's ConnState hook (HTTP/1 and HTTP/2).
+func (e *Engine) trackConnState(c net.Conn, st http.ConnState) {
+	switch st {
+	case http.StateNew, http.StateActive:
+		e.clientConns.Store(c, int64(0))
+	case http.StateIdle:
+		e.clientConns.Store(c, time.Now().UnixNano())
+	case http.StateClosed, http.StateHijacked:
+		e.clientConns.Delete(c)
+	}
+}
+
+// closeIdleClients closes client-side MitM connections idle for at least minIdle; returns how many.
+func (e *Engine) closeIdleClients(minIdle time.Duration) int {
+	n := 0
+	now := time.Now().UnixNano()
+	e.clientConns.Range(func(k, v any) bool {
+		if t, _ := v.(int64); t != 0 && now-t >= int64(minIdle) {
+			_ = k.(net.Conn).Close()
+			e.clientConns.Delete(k)
+			n++
+		}
+		return true
+	})
+	return n
+}
+
+// shedConnsAvail: the critical shed turns queued script requests away and closes idle connections only
+// below this much available memory (the running script is interrupted at scriptAvailFloor).
+const shedConnsAvail = scriptAvailFloor + 1<<20
+
+// shedConnsNow: below shedConnsAvail, or no probe (app process, tests: as before).
+func shedConnsNow() bool {
+	a, known := availableMemoryNow()
+	return !known || a < shedConnsAvail
 }
 
 func (s ShedStats) String() string {
-	return fmt.Sprintf("scripts %d (%.1f MB), sources %d (%.1f MB), captured bodies %.1f MB, queued script requests %d",
-		s.Programs, float64(s.ProgramBytes)/(1<<20), s.Sources, float64(s.SourceBytes)/(1<<20), float64(s.BodyBytes)/(1<<20), s.Dequeued)
+	conns := ""
+	if s.IdleClosed || s.ClientIdleClosed {
+		conns = ", idle MitM connections closed"
+	}
+	return fmt.Sprintf("scripts %d (%.1f MB), sources %d (%.1f MB), captured bodies %.1f MB, queued script requests %d%s",
+		s.Programs, float64(s.ProgramBytes)/(1<<20), s.Sources, float64(s.SourceBytes)/(1<<20), float64(s.BodyBytes)/(1<<20), s.Dequeued, conns)
 }
 
 // CacheStats is what the engine holds now (periodic memory line).
@@ -104,13 +155,21 @@ func (e *Engine) Shed(level int) ShedStats {
 		}
 		s.BodyBytes = e.Requests.DropBodies(limit)
 	}
-	if level >= ShedCritical {
+	// fix/xmly-memory (device 2026-10-24): the critical shed fired 4 s after the tunnel started, the moment
+	// 喜马拉雅 opened its connections (iOS reports "critical" at ~10 MB available), turned the waiting script
+	// request away (「内存紧张，已取消排队中的脚本（排队 547 ms）」) and closed the upstream connections the
+	// burst was about to reuse — the footprint went UP (39.8 → 42.1 MB) while the requests reconnected.
+	// Queued requests and connections now go only when memory is really near the limit.
+	if level >= ShedCritical && shedConnsNow() {
 		// v0.19.22: requests waiting for a large script hold their connection, goroutines and upstream
 		// buffers; at the critical level they pass through unchanged now (the device log showed shed
 		// L2 freeing ~1 MB while the queue kept growing).
 		if e.scripts != nil && e.scripts.queue != nil {
 			s.Dequeued = e.scripts.queue.kickAll()
 		}
+		// Client-side MitM connections without a request in flight (HTTP/2 or keep-alive): each holds
+		// two TLS states, framer buffers and two goroutines; the app reconnects on its next request.
+		s.ClientIdleClosed = e.closeIdleClients(clientIdleMin) > 0
 		e.tmu.Lock()
 		if e.transport != nil {
 			e.transport.CloseIdleConnections()
