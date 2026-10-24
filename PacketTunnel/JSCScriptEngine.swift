@@ -287,8 +287,9 @@ final class JSCScriptEngine: NSObject, LibmihomoScriptEngineProtocol {
         // fix/xmly-memory: a run's garbage (the 喜马拉雅 script: JSC heap capacity +5 MB per burst in the Bun/LLInt
         // rig, back to +0.4 MB after a collection) stays in the footprint until JSC's own heuristics collect.
         // When the tunnel is short of memory it is collected right after the run.
+        // os_proc_available_memory is 0 where no limit applies (simulator, macOS): treated as unknown.
         let avail = ProcessMemory.availableBytes()
-        if avail >= 0 && avail < Self.collectBelowAvailable {
+        if avail > 0 && avail < Self.collectBelowAvailable {
             scheduleGC(full: discarded)
         }
     }
