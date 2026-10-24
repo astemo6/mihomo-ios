@@ -59,6 +59,24 @@
 - 设置文件（App Group 容器 `mihomo/`）：`subscriptions.json`（每个订阅的节点处理规则）、`overrides.json`（内核覆写，含 `tunnelMode` `mixedPort` `tunMTU` `geoMirror` `geoURLs` `mergeManual`，解码容错；不含任何密钥）、`secrets.json`（控制器密钥与局域网共享密码，0600，只进加密备份）、`dns.json`、`rules.json`、`engine/`（MitM / 重写 / 脚本 / 模块）；每个配置旁的 `<id>.selected.json` 保存离线选择的节点。
 - 工程由 XcodeGen 从 `project.yml` 生成；**Bundle ID 与 App Group 只在 `project.yml` 顶部改一处**。
 
+### 编程语言分工（2026-10-24）
+
+| 部分 | 现行（已发布） | 原生迁移（开发中，开关默认关，失败一律回落 Go） |
+|---|---|---|
+| 界面、VPN 管理、配置管理 | Swift（SwiftUI） | — |
+| 协议、分流、DNS、TUN | Go（mihomo，gomobile `bridge/`） | 保持 Go |
+| packetFlow 桥接、MemoryGuard、流量记录 | Swift | — |
+| MitM TLS / HTTP/1.1 / 上游连接 | Go | Swift（`PacketTunnel/NativeMitM/`，iOS 17+，`nativeMitmStage2`） |
+| MitM HTTP/2 | Go | Swift（`nativeMitmH2`） |
+| 重写匹配（reject、302/307、URL、header、部分 Map Local） | Go | Swift（`nativeMitmRewrite`） |
+| 改响应体、jq / JSON 重写 | Go | Swift（`nativeMitmBody`） |
+| 脚本调度 | Go | Swift（`nativeMitmScript`；`$httpClient` 仍经 Go 分流） |
+| 脚本执行 | Swift JavaScriptCore（Go goja 备用） | — |
+| Body 缓存 | Go | Swift `NativeBodyStore`（`nativeBodyLane.enabled`） |
+| 内存调度 | Go governor | Swift 统一调度并设置 GOMEMLIMIT（`nativeMemGovernor`） |
+
+原生部分只有在实测整体进程 footprint 和 Go 侧内存都低于 Go 路径时才默认开启。
+
 ## 协议支持
 
 内核按 mihomo 默认构建（只加 `with_gvisor`，不使用任何 `no_*` 裁剪标签），包含 mihomo 支持的全部出站协议：Shadowsocks（含 2022、obfs / v2ray-plugin / shadow-tls 插件）、ShadowsocksR、VMess、VLESS（含 Reality、XTLS-Vision）、Trojan、Hysteria、Hysteria2、TUIC v5、WireGuard、Snell、AnyTLS、Mieru、SSH、SOCKS5、HTTP/HTTPS 等。
