@@ -22,7 +22,24 @@ final class NativeMitmMemoryTests: XCTestCase {
         var goLog: [String] = []
         var fpBefore: UInt64 = 0, fpAfter: UInt64 = 0
         var goBefore: GoMem?, goAfter: GoMem?
+        /// feat/native-slim attribution: malloc bytes in use (all zones), thread count, footprint after teardown.
+        var mallocBefore = 0, mallocAfter = 0
+        var threadsBefore = 0, threadsAfter = 0, threadsPeak = 0
+        var fpResidual: UInt64 = 0
     }
+
+    /// Modes: "go" (Go path), "native" (production cap 48, slim on), "native-nocap" (every connection native, slim
+    /// on), then no-cap ablations (feat/native-slim) — one Slim knob back to the 13f6c41 behaviour each, and all of
+    /// them ("nocap-legacy") — so the medians say what each knob saves.
+    static let modes: [(name: String, cap: Bool, slim: NativeMitmRuntime.Slim?)] = {
+        var own = NativeMitmRuntime.Slim(); own.sharedQueues = false
+        var ctx = NativeMitmRuntime.Slim(); ctx.sharedPrivacyContext = false
+        var big = NativeMitmRuntime.Slim(); big.smallChunks = false
+        var keep = NativeMitmRuntime.Slim(); keep.releaseIdleBuffers = false
+        return [("go", true, nil), ("native", true, NativeMitmRuntime.Slim()), ("native-nocap", false, NativeMitmRuntime.Slim()),
+                ("nocap-legacy", false, .legacy), ("nocap-ownqueues", false, own), ("nocap-ownctx", false, ctx),
+                ("nocap-64k", false, big), ("nocap-keepbufs", false, keep)]
+    }()
 
     static func mb(_ b: Int64) -> String { String(format: "%+.2f", Double(b) / 1_048_576) }
     static func mbAbs(_ b: UInt64) -> String { String(format: "%.2f", Double(b) / 1_048_576) }
@@ -31,7 +48,7 @@ final class NativeMitmMemoryTests: XCTestCase {
         guard #available(iOS 17.0, *) else { throw XCTSkip("native front needs iOS 17") }
         // "native" = production session cap (NativeMitmRuntime.maxSessions, 48: the rest of the burst stays on the
         // Go path); "native-nocap" = every connection native.
-        let modes = ["go", "native", "native-nocap"]
+        let modes = Self.modes.map(\.name)
         // uncounted warm-up of every mode: grows the allocator and the pools once so no counted run pays for it
         for m in modes { _ = try burst(mode: m) }
         // 4 rounds, order alternating forward / reversed (run-order drift lands on every mode alike); medians reported
@@ -41,7 +58,7 @@ final class NativeMitmMemoryTests: XCTestCase {
         }
         for (i, r) in runs.enumerated() {
             guard let gb = r.goBefore, let ga = r.goAfter else { continue }
-            let line = "[s2-memory] run \(i + 1) \(r.mode): \(r.ok)/\(Self.conns) requests passed; footprint \(Self.mbAbs(r.fpBefore)) → \(Self.mbAbs(r.fpAfter)) MB (\(Self.mb(Int64(r.fpAfter) - Int64(r.fpBefore))) MB); Go heap \(Self.mb(ga.heapInuse - gb.heapInuse)) MB, Go sys \(Self.mb(ga.sys - gb.sys)) MB, stacks \(Self.mb(ga.stack - gb.stack)) MB, goroutines \(ga.goroutines - gb.goroutines >= 0 ? "+" : "")\(ga.goroutines - gb.goroutines); handed \(ga.handed - gb.handed), fell back \(ga.fellBack - gb.fellBack)"
+            let line = "[s2-memory] run \(i + 1) \(r.mode): \(r.ok)/\(Self.conns) requests passed; footprint \(Self.mbAbs(r.fpBefore)) → \(Self.mbAbs(r.fpAfter)) MB (\(Self.mb(Int64(r.fpAfter) - Int64(r.fpBefore))) MB), after teardown \(Self.mb(Int64(r.fpResidual) - Int64(r.fpBefore))) MB; malloc \(Self.mb(Int64(r.mallocAfter - r.mallocBefore))) MB; threads \(r.threadsBefore) → \(r.threadsAfter) (peak \(r.threadsPeak)); Go heap \(Self.mb(ga.heapInuse - gb.heapInuse)) MB, Go sys \(Self.mb(ga.sys - gb.sys)) MB, stacks \(Self.mb(ga.stack - gb.stack)) MB, goroutines \(ga.goroutines - gb.goroutines >= 0 ? "+" : "")\(ga.goroutines - gb.goroutines); handed \(ga.handed - gb.handed), fell back \(ga.fellBack - gb.fellBack)"
             print(line)
             NSLog("%@", line)
             if !r.failures.isEmpty { print("[s2-memory] run \(i + 1) failures: \(r.failures.prefix(3).joined(separator: " | "))") }
@@ -57,9 +74,20 @@ final class NativeMitmMemoryTests: XCTestCase {
         let heap: (Run) -> Int64? = { r in r.goAfter.flatMap { a in r.goBefore.map { a.heapInuse - $0.heapInuse } } }
         let sys: (Run) -> Int64? = { r in r.goAfter.flatMap { a in r.goBefore.map { a.sys - $0.sys } } }
         let stk: (Run) -> Int64? = { r in r.goAfter.flatMap { a in r.goBefore.map { a.stack - $0.stack } } }
+        let mal: (Run) -> Int64? = { Int64($0.mallocAfter - $0.mallocBefore) }
+        let res: (Run) -> Int64? = { Int64($0.fpResidual) - Int64($0.fpBefore) }
+        let thr: (Run) -> Int64? = { Int64($0.threadsAfter - $0.threadsBefore) * 1_048_576 } // median() divides by 1 MiB
+        let pk: (Run) -> Int64? = { Int64($0.threadsPeak - $0.threadsBefore) * 1_048_576 }
+        let gor: (Run) -> Int64? = { r in r.goAfter.flatMap { a in r.goBefore.map { Int64(a.goroutines - $0.goroutines) * 1_048_576 } } }
+        let okc: (Run) -> Int64? = { Int64($0.ok) * 1_048_576 }
+        print("[s2-memory] MEDIANS (\(Self.conns) conns, 4 counted runs per mode; footprint/malloc/Go in MB; per-conn = footprint ÷ \(Self.conns))")
         for m in modes {
-            let line = String(format: "[s2-memory] median %@: footprint %+.2f MB, Go heap %+.2f MB, Go sys %+.2f MB, stacks %+.2f MB (Go side heap+stacks %+.2f MB)",
-                              m, median(m, fp), median(m, heap), median(m, sys), median(m, stk), median(m, heap) + median(m, stk))
+            let name: NSString = m.padding(toLength: 16, withPad: " ", startingAt: 0) as NSString
+            let f: Double = median(m, fp)
+            var args: [CVarArg] = [name, f, f * 1024 / Double(Self.conns), median(m, res), median(m, mal)]
+            args += [median(m, thr), median(m, pk), median(m, heap), median(m, sys), median(m, stk)]
+            args += [median(m, gor), median(m, okc), Self.conns]
+            let line = String(format: "[s2-memory] median %@ footprint %+6.2f MB (%+4.0f KB/conn) | after teardown %+6.2f | malloc %+6.2f | threads %+4.0f (peak %+4.0f) | Go heap %+5.2f sys %+5.2f stacks %+5.2f goroutines %+4.0f | ok %3.0f/%d", arguments: args)
             print(line)
             NSLog("%@", line)
         }
@@ -69,7 +97,9 @@ final class NativeMitmMemoryTests: XCTestCase {
         for r in runs { XCTAssertEqual(r.ok, Self.conns, "\(r.mode): \(r.ok)/\(Self.conns) requests answered") }
         for r in runs where r.mode != "go" {
             if let a = r.goAfter, let b = r.goBefore {
-                XCTAssertGreaterThanOrEqual(a.handed - b.handed, Int64(r.mode == "native" ? min(Self.conns, NativeMitmRuntime.maxSessions) : Self.conns),
+                let capped = Self.modes.first(where: { $0.name == r.mode })?.cap ?? true
+                let want = capped ? min(Self.conns, NativeMitmRuntime.maxSessions) : Self.conns
+                XCTAssertGreaterThanOrEqual(a.handed - b.handed, Int64(want),
                                             "\(r.mode): native front took too few connections")
             }
         }
@@ -77,11 +107,14 @@ final class NativeMitmMemoryTests: XCTestCase {
 
     @available(iOS 17.0, *)
     private func burst(mode: String) throws -> Run {
-        let native = mode != "go"
+        let spec = Self.modes.first { $0.name == mode }!
+        let native = spec.slim != nil
         var run = Run(mode: mode)
         let cap = NativeMitmRuntime.maxSessions
-        if mode == "native-nocap" { NativeMitmRuntime.maxSessions = Self.conns + 8 }
-        defer { NativeMitmRuntime.maxSessions = cap }
+        let slim = NativeMitmRuntime.slim
+        if !spec.cap { NativeMitmRuntime.maxSessions = Self.conns + 8 }
+        if let s = spec.slim { NativeMitmRuntime.slim = s }
+        defer { NativeMitmRuntime.maxSessions = cap; NativeMitmRuntime.slim = slim }
         struct Start: Decodable { var enginePort: Int?; var error: String? }
         let st = try JSONDecoder().decode(Start.self, from: Data(NativeMitmBench.start().utf8))
         guard let port = st.enginePort, st.error == nil else { throw XCTSkip("bench engine: \(st.error ?? "?")") }
@@ -109,6 +142,9 @@ final class NativeMitmMemoryTests: XCTestCase {
         warm.cancel()
         Thread.sleep(forTimeInterval: 0.5)
         run.goBefore = goMem()
+        run.mallocBefore = FootprintProbe.mallocInUse()
+        run.threadsBefore = FootprintProbe.threadCount()
+        run.threadsPeak = run.threadsBefore
         run.fpBefore = ProcessMemory.footprintBytes()
 
         let clients = (0..<Self.conns).map { _ in BenchClient(enginePort: port) }
@@ -125,12 +161,22 @@ final class NativeMitmMemoryTests: XCTestCase {
                 group.leave()
             }
         }
-        if group.wait(timeout: .now() + 60) == .timedOut { lock.lock(); failures.append("burst timed out after 60 s"); lock.unlock() }
+        // thread peak while the burst runs (sampled every 20 ms)
+        var timedOut = true
+        let deadline60 = Date().addingTimeInterval(60)
+        while Date() < deadline60 {
+            if group.wait(timeout: .now() + 0.02) == .success { timedOut = false; break }
+            run.threadsPeak = max(run.threadsPeak, FootprintProbe.threadCount())
+        }
+        if timedOut { lock.lock(); failures.append("burst timed out after 60 s"); lock.unlock() }
         Thread.sleep(forTimeInterval: 1.0) // idle keep-alive
         lock.lock(); run.ok = ok; run.failures = failures; lock.unlock()
         run.nativeErrors = NativeMitmRuntime.recentErrors
         run.goLog = NativeMitmBench.goLog().split(separator: "\n").map(String.init).filter { !$0.hasPrefix("info ") }
         run.fpAfter = ProcessMemory.footprintBytes()
+        run.mallocAfter = FootprintProbe.mallocInUse()
+        run.threadsAfter = FootprintProbe.threadCount()
+        run.threadsPeak = max(run.threadsPeak, run.threadsAfter)
         run.goAfter = goMem()
         for c in clients { c.cancel() }
         // sessions end when their clients go; nothing may leak into the next run (or the next test class)
@@ -140,6 +186,10 @@ final class NativeMitmMemoryTests: XCTestCase {
         }
         XCTAssertEqual(NativeMitmRuntime.runningSessions, 0, "\(mode): sessions still running after the clients left")
         XCTAssertEqual(NativeMitmRuntime.liveSessions, 0, "\(mode): session slots leaked")
+        // what stays after everything closed (allocator retention / leaks), after a malloc pressure relief
+        Thread.sleep(forTimeInterval: 0.5)
+        FootprintProbe.relieve()
+        run.fpResidual = ProcessMemory.footprintBytes()
         return run
     }
 

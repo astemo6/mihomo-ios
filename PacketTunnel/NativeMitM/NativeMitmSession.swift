@@ -47,7 +47,31 @@ enum NativeMitmRuntime {
     /// Bounds (memory cap): live sessions, bytes buffered per session.
     static var maxSessions = 48
     static var maxBufferedPerSession = 256 << 10
-    static let ioChunk = 64 << 10
+    /// Largest piece one read / Go pull / lane read asks for. 16 KB = one TLS record (feat/native-slim; was 64 KB):
+    /// a bigger max only makes Network.framework / dispatch_data hand over (and Swift copy) bigger contiguous slabs.
+    static var ioChunk: Int { slim.smallChunks ? 16 << 10 : 64 << 10 }
+
+    /// feat/native-slim: per-session footprint reductions, each switchable so NativeMitmMemoryTests can measure
+    /// what it saves (all on in production; `legacy` = the 13f6c41 behaviour).
+    struct Slim: Equatable {
+        /// Session queues target one shared concurrent (non-overcommit) queue instead of each being its own
+        /// overcommit root: a burst whose sessions block in Go calls no longer spawns a GCD thread per session.
+        var sharedQueues = true
+        /// ioChunk 16 KB instead of 64 KB.
+        var smallChunks = true
+        /// Drop the session's client / upstream buffers (capacity included) whenever they are empty between
+        /// exchanges, so an idle keep-alive session holds no buffer at all.
+        var releaseIdleBuffers = true
+        /// Upstream TLS connections through the relay share one NWParameters.PrivacyContext per relay port instead
+        /// of creating one per connection.
+        var sharedPrivacyContext = true
+        static let legacy = Slim(sharedQueues: false, smallChunks: false, releaseIdleBuffers: false, sharedPrivacyContext: false)
+    }
+    static var slim = Slim()
+
+    /// Shared target of every session queue (Slim.sharedQueues). Concurrent custom queues are non-overcommit, so the
+    /// serial session queues that target it run on GCD's width-limited pool.
+    static let sessionTarget = DispatchQueue(label: "tern.mitm.s2.sessions", qos: .userInitiated, attributes: .concurrent)
 
     private static let lock = NSLock()
     private static var live = 0
@@ -212,6 +236,7 @@ final class NativeMitmSession {
     private let queue: DispatchQueue
 
     private var clientBuf = Data()
+    private let releaseIdle: Bool
     private var clientEOF = false
     private var finished = false
     private var flowID: Int64 = 0
@@ -229,7 +254,10 @@ final class NativeMitmSession {
         guard NativeMitmRuntime.acquire() else { conn.stream.close(); return nil }
         id = NativeMitmRuntime.nextID()
         self.conn = conn; self.codec = codec; self.upstream = upstream; self.driver = driver; self.bodies = bodies
-        queue = DispatchQueue(label: "tern.mitm.s2.session.\(id)")
+        queue = NativeMitmRuntime.slim.sharedQueues
+            ? DispatchQueue(label: "tern.mitm.s2.session", target: NativeMitmRuntime.sessionTarget)
+            : DispatchQueue(label: "tern.mitm.s2.session.\(id)")
+        releaseIdle = NativeMitmRuntime.slim.releaseIdleBuffers
     }
 
     func start() {
@@ -323,6 +351,12 @@ final class NativeMitmSession {
     private func nextRequest() {
         guard !finished else { return }
         flowID = 0; sentBody = 0; responseStarted = false
+        if releaseIdle {
+            // An emptied Data keeps its capacity (removeFirst / removeSubrange): an idle keep-alive session would
+            // hold the largest piece it ever buffered.
+            if clientBuf.isEmpty { clientBuf = Data() }
+            if upBuf.isEmpty { upBuf = Data() }
+        }
         arm(requestsServed == 0 ? Self.timeouts.firstHead : Self.timeouts.keepAliveIdle, "request head")
         parseRequestHead()
     }
