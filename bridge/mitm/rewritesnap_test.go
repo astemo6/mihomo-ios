@@ -853,3 +853,25 @@ func TestRewriteFlowCost(t *testing.T) {
 	measure("reject", "/rej")
 	measure("header rewrite + response header", "/h/add")
 }
+
+// TestFlowResponseRightAfterForward: FlowResponse straight after a forward decision must run the response
+// phase, not race the request goroutine's teardown (it answered "request phase ended without a decision").
+func TestFlowResponseRightAfterForward(t *testing.T) {
+	home := t.TempDir()
+	e, _ := rwEngine(t, home, []rwModule{{"edge", "edge", rwEdgeModule}})
+	defer e.Stop()
+	hj, _ := json.Marshal(FlowHead{Method: "GET", Target: "/h/x", Headers: rwBaseHeaders, ConnHost: "edge.test.com", ConnPort: 443, TLS: true})
+	rh, _ := json.Marshal(FlowRespHead{Status: 200, Headers: rwCannedResp, Length: 2})
+	for i := 0; i < 2000; i++ {
+		d := rwDecode(t, e.FlowBegin(string(hj)))
+		if d.Action != "forward" {
+			t.Fatalf("run %d: %+v", i, d)
+		}
+		r := rwDecode(t, FlowResponse(d.ID, string(rh)))
+		FlowEnd(d.ID, 0, "")
+		if r.Action != "respond" {
+			t.Fatalf("run %d: response %+v", i, r)
+		}
+	}
+	waitFlows(t)
+}
