@@ -415,96 +415,15 @@ final class NCController {
     /// End-to-end delay through the named node (or group's current member):
     /// open a relay to the test URL and time until the first response byte.
     private func measureDelay(name: String, url: String, timeoutMs: Int, completion: @escaping (Int?) -> Void) {
-        guard let groups = engine.groupEngine else {
-            completion(nil)
-            return
-        }
-        let resolution = groups.resolve(name)
-        guard let target = Self.httpTarget(url) else {
-            completion(nil)
-            return
-        }
-        let start = Date()
-        var done = false
-        let finish: (Int?) -> Void = { ms in
-            guard !done else { return }
-            done = true
-            completion(ms)
-        }
-        let workQueue = DispatchQueue(label: "nc.delay", qos: .userInitiated)
-        workQueue.asyncAfter(deadline: .now() + .milliseconds(timeoutMs)) { finish(nil) }
-        if case .direct = resolution {
-            let stream = target.tls
-                ? NCStream(to: target.host, port: target.port, tlsServerName: target.host, allowInsecure: false, queue: workQueue)
-                : NCStream(to: target.host, port: target.port, queue: workQueue)
-            stream.start { err in
-                if err != nil { finish(nil); return }
-                Self.httpProbe(stream: stream, target: target, start: start, finish: finish)
-            }
-            return
-        }
-        NCConnector.connect(target: NCTarget(host: target.host, port: target.port), resolution: resolution, queue: workQueue) { relay, _ in
-            guard let relay else { finish(nil); return }
-            Self.httpProbe(relay: relay, target: target, start: start, finish: finish)
-        }
-    }
-
-    private static func httpTarget(_ urlString: String) -> (host: String, port: Int, tls: Bool, path: String)? {
-        guard let url = URL(string: urlString), let host = url.host else { return nil }
-        let tls = url.scheme == "https"
-        let port = url.port ?? (tls ? 443 : 80)
-        let path = url.path.isEmpty ? "/" : url.path
-        return (host, port, tls, path)
-    }
-
-    private static func httpProbe(stream: NCStream, target: (host: String, port: Int, tls: Bool, path: String),
-                                  start: Date, finish: @escaping (Int?) -> Void) {
-        stream.send(Data("GET \(target.path) HTTP/1.1\r\nHost: \(target.host)\r\nConnection: close\r\n\r\n".utf8))
-        stream.receive { data, _ in
-            if data != nil {
-                finish(Int(Date().timeIntervalSince(start) * 1000))
-            } else {
-                finish(nil)
-            }
-            stream.cancel()
-        }
-    }
-
-    private static func httpProbe(relay: NCRelayStream, target: (host: String, port: Int, tls: Bool, path: String),
-                                  start: Date, finish: @escaping (Int?) -> Void) {
-        relay.send(Data("GET \(target.path) HTTP/1.1\r\nHost: \(target.host)\r\nConnection: close\r\n\r\n".utf8))
-        relay.receive { data, _ in
-            if data != nil {
-                finish(Int(Date().timeIntervalSince(start) * 1000))
-            } else {
-                finish(nil)
-            }
-            relay.cancel()
-        }
+        NCDelayTester.measureDelay(groupEngine: engine.groupEngine, name: name, url: url, timeoutMs: timeoutMs, completion: completion)
     }
 
     private func measureGroupDelay(members: [String], url: String, timeoutMs: Int,
                                    completion: @escaping ([String: Int]) -> Void) {
-        let group = DispatchGroup()
-        let lock = NSLock()
-        var results: [String: Int] = [:]
-        let semaphore = DispatchSemaphore(value: 10)
-        for member in members {
-            group.enter()
-            DispatchQueue.global(qos: .userInitiated).async {
-                semaphore.wait()
-                self.measureDelay(name: member, url: url, timeoutMs: timeoutMs) { ms in
-                    if let ms {
-                        lock.lock()
-                        results[member] = ms
-                        lock.unlock()
-                    }
-                    semaphore.signal()
-                    group.leave()
-                }
-            }
+        NCDelayTester.measureGroup(groupEngine: engine.groupEngine, members: members, url: url, timeoutMs: timeoutMs, queue: queue) { results in
+            let successes = results.compactMapValues { $0 }
+            completion(successes)
         }
-        group.notify(queue: queue) { completion(results) }
     }
 
     // MARK: Responses

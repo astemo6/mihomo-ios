@@ -23,6 +23,7 @@ final class NativeCoreEngine {
     private var nodeSubStore: NCNodeSubscriptionStore?
     private var nodeSubs: [NCNodeSubscription] = []
     private var canonicalGroupMap: [String: NCGroupModel] = [:]
+    private var healthCheck: NCHealthCheckScheduler?
     private var home = ""
 
     private var fakeIPFile: URL {
@@ -154,6 +155,10 @@ final class NativeCoreEngine {
             asnDB = NCMMDB(data: data)
         }
         isRunning = true
+        healthCheck?.stop()
+        let hc = NCHealthCheckScheduler(engine: self)
+        hc.start()
+        healthCheck = hc
         Self.active = self
         return nil
     }
@@ -185,7 +190,11 @@ final class NativeCoreEngine {
         engine.ssidProvider = {
             UserDefaults(suiteName: AppShared.appGroup)?.string(forKey: "nativeCoreSSID")
         }
+        engine.onGroupTouched = { [weak self] groupName in
+            self?.healthCheck?.notifyTouch(group: groupName)
+        }
         groups = engine
+        healthCheck?.updateConfig()
     }
 
     private func mergedConfig(base cfg: NCConfig) -> NCConfig {
@@ -239,6 +248,8 @@ final class NativeCoreEngine {
     }
 
     func stop() {
+        healthCheck?.stop()
+        healthCheck = nil
         persistFakeIP()
         isRunning = false
         config = nil
@@ -275,19 +286,18 @@ final class NativeCoreEngine {
     var effectiveMode: String { modeOverride ?? config?.mode ?? "rule" }
 
     func setSelection(group: String, member: String?) {
-        if let member {
-            groups?.selections[group] = member
-        } else {
-            groups?.selections.removeValue(forKey: group)
-        }
+        groups?.setSelection(group: group, member: member)
         if let sel = groups?.selections, let data = try? JSONEncoder().encode(sel) {
             try? data.write(to: selectionsFile, options: .atomic)
         }
     }
 
     func recordDelay(name: String, ms: Int) {
-        groups?.delays[name] = ms
-        groups?.alive[name] = ms > 0
+        groups?.recordDelay(name: name, ms: ms)
+    }
+
+    func recordFailure(name: String) {
+        groups?.recordFailure(name: name)
     }
 
     /// Policy name for a connection, following the config mode:
