@@ -435,7 +435,12 @@ final class NCSSRAuthSHA1V4 {
             let first = Int(frame[4])
             let dataStart = first < 255 ? first + 4 : Int(Self.be16(frame, 5)) + 4
             out.append(frame[dataStart..<(length - 4)])
-            inBuffer.removeFirst(length)
+            // NOT removeFirst: that leaves inBuffer a slice whose indices
+            // start at `length`, and the next decode() call's 0-based
+            // subscripts trap (this killed the test runner mid-suite,
+            // leaving suites "passed" but xcodebuild at exit 65).
+            // Data(dropFirst) re-bases, like the H2/AnyTLS splitters.
+            inBuffer = Data(inBuffer.dropFirst(length))
         }
         return out
     }
