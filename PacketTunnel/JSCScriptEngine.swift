@@ -126,6 +126,16 @@ final class JSCScriptEngine: NSObject, LibmihomoScriptEngineProtocol {
     /// One engine-conformance case (UnitTests/ScriptEngineConformance.json) on goja and JavaScriptCore.
     static func conformance(home: String, caseJSON: String) -> String { LibmihomoScriptConformance(home, caseJSON) }
 
+    /// Unit tests (lane conformance cases): registers a native body store with the core and this engine, nil
+    /// unregisters (the tunnel uses NativeBodyStore.register() and never unregisters).
+    static func setLaneForTests(_ lane: (NSObject & LibmihomoNativeBodyStoreProtocol & JSCNativeBlobProvider)?) {
+        nativeBlobs = lane
+        LibmihomoSetNativeBodyStore(lane)
+    }
+
+    /// Lane handles the Go side holds right now (0 when no body is in flight).
+    static func laneLive() -> Int64 { LibmihomoNativeLaneLive() }
+
     /// Every goroutine's stack (the conformance test logs it when a case hangs).
     static func goroutineDump() -> String { LibmihomoGoroutineDump() }
 
