@@ -1,7 +1,4 @@
-// Native MitM stage 2, lane `upstream` (B8b): one byte pipe from the native front to the origin, opened through Go's
-// upstream relay (bridge/mitm/relay.go, port from LibmihomoMitmRelayPort()). The relay is a loopback-only HTTP
-// CONNECT proxy whose dials are mihomo INNER connections, so the user's rules, policy groups and proxies apply
-// exactly as on the Go path; this layer never resolves or dials the origin itself.
+// Native MitM stage 2, lane `upstream` (B8b): byte pipe from the native front to the origin.
 //
 // Raw bytes only: no URLSession, no automatic decompression, no header normalisation. The HTTP lane frames
 // requests / responses on top of this stream (design §12.8 items 1–2).
@@ -47,7 +44,7 @@ protocol UpstreamByteStream: AnyObject {
 }
 
 enum UpstreamError: Error, Equatable, CustomStringConvertible {
-    case relayUnavailable                    // LibmihomoMitmRelayPort() == 0 (engine not running)
+    case relayUnavailable                    // relay not running
     case invalidTarget(String)               // CR/LF/space in host or policy, port 0
     case unsupported(String)                 // tls through the relay needs iOS 17
     case connectFailed(String)               // NWConnection failed / waiting while opening (incl. TLS errors)
@@ -81,8 +78,7 @@ struct UpstreamTarget: Hashable, CustomStringConvertible {
     let port: UInt16
     let tls: Bool
     let policy: String?
-    /// The engine's MitM skip-cert-verify (LibmihomoMitmSkipCertVerify): origin certificates are not verified,
-    /// as on the Go path. Part of the pool key, so a setting change never reuses a connection opened under the other.
+    /// MitM skip-cert-verify: origin certificates are not verified.
     let skipVerify: Bool
 
     init(host: String, port: UInt16, tls: Bool = true, policy: String? = nil, skipVerify: Bool = false) {
@@ -195,36 +191,56 @@ final class UpstreamConnection: UpstreamByteStream, CustomStringConvertible {
             queue.async { completion(.failure(err)) }
             return nil
         }
-        guard relayPort > 0, relayPort <= 65535, let rport = NWEndpoint.Port(rawValue: UInt16(relayPort)) else {
+        guard relayPort != 0 else {
             queue.async { completion(.failure(.relayUnavailable)) }
             return nil
         }
         let tcp = NWProtocolTCP.Options()
         tcp.noDelay = true
         let nw: NWConnection
-        if target.tls {
-            guard #available(iOS 17.0, macOS 14.0, *) else {
-                queue.async { completion(.failure(.unsupported("TLS through the relay needs iOS 17"))) }
-                return nil
-            }
-            let tls = NWProtocolTLS.Options()
-            let sec = tls.securityProtocolOptions
-            if !target.isIPLiteral { sec_protocol_options_set_tls_server_name(sec, target.host) }
-            for p in alpn { sec_protocol_options_add_tls_application_protocol(sec, p) }
-            if trustAnyOriginForTesting || target.skipVerify {
-                sec_protocol_options_set_verify_block(sec, { _, _, complete in complete(true) }, queue)
-            }
-            let params = NWParameters(tls: tls, tcp: tcp)
-            params.setPrivacyContext(Self.privacyContext(relay: rport))
-            guard let oport = NWEndpoint.Port(rawValue: target.port) else {
-                queue.async { completion(.failure(.invalidTarget("port"))) }
-                return nil
-            }
-            nw = NWConnection(host: NWEndpoint.Host(target.host), port: oport, using: params)
-        } else {
-            nw = NWConnection(host: "127.0.0.1", port: rport, using: NWParameters(tls: nil, tcp: tcp))
+        guard let oport = NWEndpoint.Port(rawValue: target.port) else {
+            queue.async { completion(.failure(.invalidTarget("port"))) }
+            return nil
         }
-        let c = UpstreamConnection(target: target, relayPort: UInt16(relayPort), queue: queue, id: id, conn: nw)
+        if relayPort > 0 {
+            guard relayPort <= 65535, let rport = NWEndpoint.Port(rawValue: UInt16(relayPort)) else {
+                queue.async { completion(.failure(.relayUnavailable)) }
+                return nil
+            }
+            if target.tls {
+                guard #available(iOS 17.0, macOS 14.0, *) else {
+                    queue.async { completion(.failure(.unsupported("TLS through the relay needs iOS 17"))) }
+                    return nil
+                }
+                let tls = NWProtocolTLS.Options()
+                let sec = tls.securityProtocolOptions
+                if !target.isIPLiteral { sec_protocol_options_set_tls_server_name(sec, target.host) }
+                for p in alpn { sec_protocol_options_add_tls_application_protocol(sec, p) }
+                if trustAnyOriginForTesting || target.skipVerify {
+                    sec_protocol_options_set_verify_block(sec, { _, _, complete in complete(true) }, queue)
+                }
+                let params = NWParameters(tls: tls, tcp: tcp)
+                params.setPrivacyContext(Self.privacyContext(relay: rport))
+                nw = NWConnection(host: NWEndpoint.Host(target.host), port: oport, using: params)
+            } else {
+                nw = NWConnection(host: "127.0.0.1", port: rport, using: NWParameters(tls: nil, tcp: tcp))
+            }
+        } else {
+            // Direct native connection
+            if target.tls {
+                let tls = NWProtocolTLS.Options()
+                let sec = tls.securityProtocolOptions
+                if !target.isIPLiteral { sec_protocol_options_set_tls_server_name(sec, target.host) }
+                for p in alpn { sec_protocol_options_add_tls_application_protocol(sec, p) }
+                if trustAnyOriginForTesting || target.skipVerify {
+                    sec_protocol_options_set_verify_block(sec, { _, _, complete in complete(true) }, queue)
+                }
+                nw = NWConnection(host: NWEndpoint.Host(target.host), port: oport, using: NWParameters(tls: tls, tcp: tcp))
+            } else {
+                nw = NWConnection(host: NWEndpoint.Host(target.host), port: oport, using: NWParameters(tls: nil, tcp: tcp))
+            }
+        }
+        let c = UpstreamConnection(target: target, relayPort: relayPort > 0 ? UInt16(relayPort) : 0, queue: queue, id: id, conn: nw)
         c.offeredALPN = alpn
         c.openCompletion = completion
         nw.stateUpdateHandler = { [weak c] st in c?.handleState(st) }
@@ -252,7 +268,11 @@ final class UpstreamConnection: UpstreamByteStream, CustomStringConvertible {
                 }
                 finishOpen(.success(self))
             } else {
-                sendConnect()
+                if relayPort > 0 {
+                    sendConnect()
+                } else {
+                    finishOpen(.success(self))
+                }
             }
         case .waiting(let err):
             // Loopback relay: waiting means refused / unreachable; don't sit in Network's retry loop.

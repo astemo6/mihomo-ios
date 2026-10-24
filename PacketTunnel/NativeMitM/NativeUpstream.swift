@@ -48,7 +48,7 @@ final class NativeUpstream: NSObject, URLSessionDataDelegate {
 
     private lazy var session: URLSession = {
         let c = URLSessionConfiguration.ephemeral
-        let port = Int(LibmihomoMitmRelayPort())
+        let port = 0
         // iOS has no kCFNetworkProxiesHTTPS* constants; these are their string values.
         c.connectionProxyDictionary = ["HTTPSEnable": 1, "HTTPSProxy": "127.0.0.1", "HTTPSPort": port,
                                        "HTTPEnable": 1, "HTTPProxy": "127.0.0.1", "HTTPPort": port]

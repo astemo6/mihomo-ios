@@ -11,11 +11,10 @@
 // per-connection SNI callback. Hosts in use at once are few (tens); idle listeners are closed after 60 s.
 
 import Foundation
-import Libmihomo
 import Network
 import Security
 
-final class NativeTLSFront: NSObject, LibmihomoNativeTLSFrontProtocol {
+final class NativeTLSFront: NSObject {
     static let shared = NativeTLSFront()
 
     private let queue = DispatchQueue(label: "tern.native-mitm.front")
@@ -31,11 +30,7 @@ final class NativeTLSFront: NSObject, LibmihomoNativeTLSFrontProtocol {
         init(listener: NWListener) { self.listener = listener }
     }
 
-    static func register() {
-        LibmihomoSetNativeTLSFront(shared)
-    }
-
-    // MARK: LibmihomoNativeTLSFrontProtocol (called on a Go goroutine; may block briefly)
+    static func register() {}
 
     func listen(_ host: String?, alpn: String?) -> Int64 {
         guard let host, !host.isEmpty else { return 0 }
@@ -110,8 +105,7 @@ final class NativeTLSFront: NSObject, LibmihomoNativeTLSFrontProtocol {
                 NativeHTTP1Session(connection: conn, host: host).start()
             case .failed(let error):
                 if !handshook {
-                    // pinning memory lives in Go (review5 P1-6 semantics)
-                    _ = LibmihomoMitmNativeHandshakeFailed(host, Self.classify(error))
+                    NCPinningMemory.shared.pin(host)
                 }
                 conn.cancel()
             default:
@@ -153,15 +147,9 @@ final class NativeTLSFront: NSObject, LibmihomoNativeTLSFrontProtocol {
     /// The leaf identity Go signed for host (PKCS#12, password "tern"; SecPKCS12Import keeps it in memory).
     private static func identity(for host: String) -> SecIdentity? {
         if let box = identityCache.object(forKey: host as NSString) { return box.identity }
-        guard let p12 = LibmihomoMitmLeafIdentity(host) else { return nil }
-        var items: CFArray?
-        let opts = [kSecImportExportPassphrase as String: "tern"] as CFDictionary
-        guard SecPKCS12Import(p12 as CFData, opts, &items) == errSecSuccess,
-              let list = items as? [[String: Any]], let first = list.first,
-              let any = first[kSecImportItemIdentity as String] else { return nil }
-        let identity = any as! SecIdentity // CF type: the cast cannot fail when the key is present
-        identityCache.setObject(SecIdentityBox(identity), forKey: host as NSString)
-        return identity
+        guard let ident = LeafCertIssuer.shared.identity(for: host) else { return nil }
+        identityCache.setObject(SecIdentityBox(ident.secIdentity), forKey: host as NSString)
+        return ident.secIdentity
     }
 
     // MARK: idle sweep (call from the tunnel's existing 30 s timer)

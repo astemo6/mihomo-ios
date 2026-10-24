@@ -4,11 +4,10 @@
 // HTTP lane says the exchange ended cleanly (`release(_:reusable: true)`) and the stream is still fully open
 // with nothing unread; while idle one receive stays outstanding, so a server close evicts it right away.
 //
-// The relay port is read per dial (LibmihomoMitmRelayPort() starts the relay lazily and returns 0 when the engine
+// The relay port is read per dial (returns 0 when the engine
 // is not running); `closeIdle()` should be called on engine reload / network change / tunnel stop.
 
 import Foundation
-import Libmihomo
 
 final class UpstreamPool {
     struct Config {
@@ -67,7 +66,7 @@ final class UpstreamPool {
         let timer: DispatchWorkItem
     }
 
-    static let shared = UpstreamPool(relayPort: { Int(LibmihomoMitmRelayPort()) })
+    static let shared = UpstreamPool(relayPort: { 0 })
 
     let queue: DispatchQueue
     let config: Config

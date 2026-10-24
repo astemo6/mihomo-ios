@@ -10,7 +10,6 @@
 // responseBody / onHead and never which protocol carried it.
 
 import Foundation
-import Libmihomo
 
 /// An opened origin connection.
 final class H2UpstreamTransport {
@@ -58,7 +57,7 @@ final class H2RelayUpstreamOpener: H2UpstreamOpening {
         lock.lock(); ids += 1; let id = ids; lock.unlock()
         let pool = self.pool
         UpstreamConnection.open(target: UpstreamTarget(host: host, port: UInt16(port), tls: true),
-                                relayPort: Int(LibmihomoMitmRelayPort()), queue: pool.queue, id: id,
+                                relayPort: pool.relayPort() > 0 ? pool.relayPort() : -1, queue: pool.queue, id: id,
                                 connectTimeout: pool.config.connectTimeout, alpn: ["h2", "http/1.1"]) { r in
             switch r {
             case .failure(let e): completion(.failure(e))
