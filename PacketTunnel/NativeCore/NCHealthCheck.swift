@@ -3,7 +3,7 @@ import Foundation
 /// Reusable HTTP/HTTPS probe and latency measurement core, used by both
 /// `NCController` (manual /delay and /group/{name}/delay) and `NCHealthCheckScheduler`
 /// (background periodic and lazy health checks).
-enum NCDelayTester {
+enum NCTunnelDelayTester {
     static func httpTarget(_ urlString: String) -> (host: String, port: Int, tls: Bool, path: String)? {
         guard let url = URL(string: urlString), let host = url.host else { return nil }
         let tls = url.scheme == "https"
@@ -348,7 +348,7 @@ final class NCHealthCheckScheduler {
         let testURL = g.url ?? "http://www.gstatic.com/generate_204"
         let timeoutMs = g.fields["timeout"]?.int ?? 5000
 
-        NCDelayTester.measureGroup(
+        NCTunnelDelayTester.measureGroup(
             groupEngine: groupEngine,
             members: members,
             url: testURL,

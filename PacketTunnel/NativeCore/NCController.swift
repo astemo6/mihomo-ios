@@ -416,12 +416,12 @@ final class NCController {
     /// End-to-end delay through the named node (or group's current member):
     /// open a relay to the test URL and time until the first response byte.
     private func measureDelay(name: String, url: String, timeoutMs: Int, completion: @escaping (Int?) -> Void) {
-        NCDelayTester.measureDelay(groupEngine: engine.groupEngine, name: name, url: url, timeoutMs: timeoutMs, completion: completion)
+        NCTunnelDelayTester.measureDelay(groupEngine: engine.groupEngine, name: name, url: url, timeoutMs: timeoutMs, completion: completion)
     }
 
     private func measureGroupDelay(members: [String], url: String, timeoutMs: Int,
                                    completion: @escaping ([String: Int]) -> Void) {
-        NCDelayTester.measureGroup(groupEngine: engine.groupEngine, members: members, url: url, timeoutMs: timeoutMs, queue: queue) { results in
+        NCTunnelDelayTester.measureGroup(groupEngine: engine.groupEngine, members: members, url: url, timeoutMs: timeoutMs, queue: queue) { results in
             let successes = results.compactMapValues { $0 }
             completion(successes)
         }
