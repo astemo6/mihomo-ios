@@ -47,7 +47,7 @@ final class NCDataPlane {
         var downBytes: Int64 = 0
         var chainName = ""
         var ruleText = ""
-        var policyName = 
+        var policyName = ""
         enum State { case deciding, connecting, open, closed }
         init(conn: NCTunStack.TCPConn, target: NCTarget, ruleDomain: String?) {
             self.conn = conn
@@ -191,7 +191,7 @@ final class NCDataPlane {
     private func connect(_ s: TCPSession) {
         guard s.state == .deciding else { return }
         s.state = .connecting
-        let ctx = NCMatchContext(domain: s.ruleDomain,
+        let ctx = engine.matchContext(domain: s.ruleDomain,
                                  ip: s.target.ip,
                                  dstPort: s.target.port,
                                  network: "tcp")
@@ -331,9 +331,9 @@ final class NCDataPlane {
             }
             // Not fake-IP business (filter host, other record types): forward
             // the query to the configured nameserver, like mihomo does.
-            if let server = engine.firstUDPNameserver {
+            if let upstream = engine.firstDNSUpstream {
                 let sid = info.id
-                dnsForwarder.forward(data, server: server) { [weak self] resp in
+                dnsForwarder.forward(data, upstream: upstream) { [weak self] resp in
                     if let resp { self?.stack.udpSend(session: sid, resp) }
                 }
             } else {
@@ -352,7 +352,7 @@ final class NCDataPlane {
             return
         }
         let target = engine.derefFakeIP(info.dst)
-        let ctx = NCMatchContext(domain: target.host != info.dst.host ? target.host : nil,
+        let ctx = engine.matchContext(domain: target.host != info.dst.host ? target.host : nil,
                                  ip: info.dst.ip,
                                  dstPort: info.dst.port,
                                  network: "udp")
@@ -368,6 +368,18 @@ final class NCDataPlane {
                 return
             }
             session = ss
+        case .proxy(let proxy) where proxy.type == "vmess":
+            guard let vm = NCUDPVMessSession(proxy: proxy, target: target, queue: queue) else {
+                udpDropped += 1
+                return
+            }
+            session = vm
+        case .proxy(let proxy) where proxy.type == "vless":
+            guard let vl = NCUDPVLESSSession(proxy: proxy, target: target, queue: queue) else {
+                udpDropped += 1
+                return
+            }
+            session = vl
         case .proxy(let proxy) where proxy.type == "trojan":
             session = NCUDPTrojanSession(proxy: proxy, firstTarget: target, queue: queue)
         default:

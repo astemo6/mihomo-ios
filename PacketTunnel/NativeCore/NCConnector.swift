@@ -146,13 +146,43 @@ enum NCConnector {
                     completion(nil, Failure.handshake("vless bad uuid"))
                     return
                 }
-                raw.send(head)
-                completion(raw, nil)
+                transportStream(raw: raw, proxy: proxy, server: server) { base, terr in
+                    guard let base else { completion(nil, terr); return }
+                    base.send(head)
+                    completion(NCVLESSRelayStream(raw: base), nil)
+                }
             }
         case "vmess":
             connectVMess(target: target, proxy: proxy, server: server, port: port, queue: queue, completion: completion)
         default:
             queue.async { completion(nil, Failure.unsupported(proxy.type)) }
+        }
+    }
+
+    // MARK: WebSocket transport (VMess/VLESS "ws" network)
+
+    static func wsOptions(_ proxy: NCProxy) -> (path: String, headers: [String: String]) {
+        let opts = proxy.fields["ws-opts"]?.object
+        var headers: [String: String] = [:]
+        if let h = opts?["headers"]?.object {
+            for (k, v) in h { if let str = v.string { headers[k] = str } }
+        }
+        return (opts?["path"]?.string ?? "/", headers)
+    }
+
+    /// If the proxy uses the ws transport, wrap the connected raw stream and
+    /// run the upgrade; otherwise pass the raw stream through.
+    static func transportStream(raw: NCStream, proxy: NCProxy, server: String,
+                                completion: @escaping (NCRelayStream?, Error?) -> Void) {
+        guard (proxy.fields["network"]?.string ?? "tcp") == "ws" else {
+            completion(raw, nil)
+            return
+        }
+        let (path, headers) = wsOptions(proxy)
+        let host = proxy.fields["ws-opts"]?.object?["headers"]?.object?["Host"]?.string ?? server
+        let ws = NCWebSocketStream(raw: raw, hostHeader: host, path: path, headers: headers)
+        ws.startHandshake { err in
+            completion(err == nil ? ws : nil, err)
         }
     }
 
@@ -167,7 +197,7 @@ enum NCConnector {
             return
         }
         let network = proxy.fields["network"]?.string ?? "tcp"
-        guard network == "tcp" else {
+        guard network == "tcp" || network == "ws" else {
             queue.async { completion(nil, Failure.unsupported("vmess network \(network)")) }
             return
         }
@@ -196,6 +226,16 @@ enum NCConnector {
         }
         raw.start { err in
             guard err == nil else { completion(nil, err); return }
+            transportStream(raw: raw, proxy: proxy, server: server) { base, terr in
+                guard let base else { completion(nil, terr); return }
+                finishVMess(base: base, target: target, uuidBytes: uuidBytes, security: security, completion: completion)
+            }
+        }
+    }
+
+    private static func finishVMess(base: NCRelayStream, target: NCTarget, uuidBytes: Data, security: UInt8,
+                                    completion: @escaping (NCRelayStream?, Error?) -> Void) {
+        do {
             let reqKey = randomData(16)
             let reqNonce = randomData(16)
             let respV = randomData(1)[0]
@@ -209,7 +249,7 @@ enum NCConnector {
                                             plainHeader: plain,
                                             time: Int64(Date().timeIntervalSince1970),
                                             authRandom4: randomData(4), connNonce: randomData(8))
-            completion(NCVMessRelayStream(raw: raw, sealedHeader: sealed,
+            completion(NCVMessRelayStream(raw: base, sealedHeader: sealed,
                                           reqKey: reqKey, reqNonce: reqNonce,
                                           respV: respV, security: security), nil)
         }
@@ -341,7 +381,7 @@ final class NCBufferedStream: NCRelayStream {
 /// VMess relay: sends the sealed header first, then chunk-encoded body frames;
 /// inbound, the AEAD response header is consumed before body chunks decode.
 final class NCVMessRelayStream: NCRelayStream {
-    private let raw: NCStream
+    private let raw: NCRelayStream
     private let encoder: NCVMessChunkEncoder?
     private let respReader: NCVMessResponseReader
     private let respKeys: (key: Data, nonce: Data)
@@ -349,7 +389,7 @@ final class NCVMessRelayStream: NCRelayStream {
     private var decoder: NCVMessChunkDecoder?
     private var responseStarted = false
 
-    init(raw: NCStream, sealedHeader: Data, reqKey: Data, reqNonce: Data, respV: UInt8, security: UInt8) {
+    init(raw: NCRelayStream, sealedHeader: Data, reqKey: Data, reqNonce: Data, respV: UInt8, security: UInt8) {
         self.raw = raw
         self.security = security
         self.encoder = security == NCVMess.securityNone ? nil

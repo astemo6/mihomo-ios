@@ -418,3 +418,332 @@ final class NCUDPTrojanSession: NCUDPSession {
         raw.cancel()
     }
 }
+
+/// Parsed nameserver entry: plain UDP, DNS-over-TLS, or DNS-over-HTTPS.
+enum NCDNSUpstream: Equatable {
+    case udp(host: String)
+    case dot(host: String, port: Int)
+    case doh(url: String)
+
+    static func parse(_ raw: String) -> NCDNSUpstream? {
+        if raw.hasPrefix("tls://") {
+            let rest = String(raw.dropFirst(6))
+            let parts = rest.split(separator: ":", maxSplits: 1)
+            guard let host = parts.first, !host.isEmpty else { return nil }
+            return .dot(host: String(host), port: parts.count > 1 ? Int(parts[1]) ?? 853 : 853)
+        }
+        if raw.hasPrefix("https://") {
+            return .doh(url: raw)
+        }
+        if raw.hasPrefix("udp://") {
+            let host = String(raw.dropFirst(6)).split(separator: ":").first.map(String.init) ?? ""
+            return host.isEmpty ? nil : .udp(host: host)
+        }
+        if raw.contains("://") || raw == "system" { return nil }
+        let host = raw.split(separator: ":").first.map(String.init) ?? raw
+        return host.isEmpty ? nil : .udp(host: host)
+    }
+}
+
+extension NCDNSForwarder {
+    /// Forward via any upstream kind.
+    func forward(_ query: Data, upstream: NCDNSUpstream, completion: @escaping (Data?) -> Void) {
+        switch upstream {
+        case .udp(let host):
+            forward(query, server: host, completion: completion)
+        case .dot(let host, let port):
+            Self.forwardDoT(query, host: host, port: port, queue: queue, completion: completion)
+        case .doh(let url):
+            Self.forwardDoH(query, urlString: url, queue: queue, completion: completion)
+        }
+    }
+
+    /// DoT (RFC 7858): TLS stream, 2-byte length framing both ways.
+    private static func forwardDoT(_ query: Data, host: String, port: Int, queue: DispatchQueue,
+                                   completion: @escaping (Data?) -> Void) {
+        let stream = NCStream(to: host, port: port, tlsServerName: host, allowInsecure: false, queue: queue)
+        var done = false
+        func finish(_ data: Data?) {
+            guard !done else { return }
+            done = true
+            stream.cancel()
+            completion(data)
+        }
+        stream.start { err in
+            guard err == nil else { finish(nil); return }
+            var framed = Data()
+            framed.appendBE16(UInt16(query.count))
+            framed.append(query)
+            stream.send(framed)
+            var buffer = Data()
+            func pump() {
+                stream.receive { data, _ in
+                    guard let data else { finish(nil); return }
+                    buffer.append(data)
+                    if buffer.count >= 2 {
+                        let len = Int(buffer[0]) << 8 | Int(buffer[1])
+                        if buffer.count >= 2 + len {
+                            finish(Data(buffer[2..<(2 + len)]))
+                            return
+                        }
+                    }
+                    pump()
+                }
+            }
+            pump()
+        }
+        queue.asyncAfter(deadline: .now() + 5) { finish(nil) }
+    }
+
+    /// DoH (RFC 8484): POST the wire query to the HTTPS endpoint, read the
+    /// wire answer (Content-Length or chunked body).
+    private static func forwardDoH(_ query: Data, urlString: String, queue: DispatchQueue,
+                                   completion: @escaping (Data?) -> Void) {
+        guard let url = URL(string: urlString), let host = url.host else {
+            completion(nil)
+            return
+        }
+        let port = url.port ?? 443
+        let path = url.path.isEmpty ? "/dns-query" : url.path
+        let stream = NCStream(to: host, port: port, tlsServerName: host, allowInsecure: false, queue: queue)
+        var done = false
+        func finish(_ data: Data?) {
+            guard !done else { return }
+            done = true
+            stream.cancel()
+            completion(data)
+        }
+        stream.start { err in
+            guard err == nil else { finish(nil); return }
+            var head = "POST \(path) HTTP/1.1\r\nHost: \(host)\r\nContent-Type: application/dns-message\r\nAccept: application/dns-message\r\nContent-Length: \(query.count)\r\nConnection: close\r\n\r\n"
+            var request = Data(head.utf8)
+            head = ""
+            request.append(query)
+            stream.send(request)
+            var buffer = Data()
+            func pump() {
+                stream.receive { data, error in
+                    if let data { buffer.append(data) }
+                    if let body = Self.dohBody(buffer) {
+                        finish(body)
+                        return
+                    }
+                    if data == nil {
+                        finish(nil)
+                        return
+                    }
+                    if error == nil { pump() }
+                }
+            }
+            pump()
+        }
+        queue.asyncAfter(deadline: .now() + 6) { finish(nil) }
+    }
+
+    /// Extract the body once the full HTTP response has arrived.
+    private static func dohBody(_ data: Data) -> Data? {
+        guard let headEnd = data.range(of: Data("\r\n\r\n".utf8)) else { return nil }
+        let head = String(decoding: data[data.startIndex..<headEnd.lowerBound], as: UTF8.self).lowercased()
+        let body = Data(data[headEnd.upperBound...])
+        if head.contains("transfer-encoding: chunked") {
+            var out = Data()
+            var rest = body
+            while true {
+                guard let lineEnd = rest.range(of: Data("\r\n".utf8)) else { return nil }
+                let sizeText = String(decoding: rest[rest.startIndex..<lineEnd.lowerBound], as: UTF8.self)
+                guard let size = Int(sizeText.trimmingCharacters(in: .whitespaces), radix: 16) else { return nil }
+                if size == 0 { return out }
+                let chunkStart = lineEnd.upperBound
+                guard rest.count - chunkStart >= size + 2 else { return nil }
+                out.append(Data(rest[chunkStart..<(chunkStart + size)]))
+                rest = Data(rest[(chunkStart + size + 2)...])
+            }
+        }
+        if let match = head.range(of: "content-length:"),
+           let end = head[match.upperBound...].range(of: "\r\n") {
+            let lenText = head[match.upperBound..<end.lowerBound].trimmingCharacters(in: .whitespaces)
+            if let len = Int(lenText), body.count >= len {
+                return Data(body.prefix(len))
+            }
+            return nil
+        }
+        return nil
+    }
+}
+
+/// VMess UDP: a dedicated VMess connection (command 0x02) per destination —
+/// the sing-vmess packet connection: the body is the AEAD chunk stream, one
+/// record per datagram, target only in the request header.
+final class NCUDPVMessSession: NCUDPSession {
+    var onReply: (Data) -> Void = { _ in }
+    private let raw: NCStream
+    private let encoder: NCVMessChunkEncoder?
+    private let respReader: NCVMessResponseReader
+    private let respKeys: (key: Data, nonce: Data)
+    private let security: UInt8
+    private var decoder: NCVMessChunkDecoder?
+    private var responseStarted = false
+    private var cancelled = false
+
+    init?(proxy: NCProxy, target: NCTarget, queue: DispatchQueue) {
+        guard (proxy.fields["alterId"]?.int ?? 0) == 0,
+              let uuidString = proxy.uuid,
+              let uuidBytes = NCVLESS.uuidBytes(uuidString).map({ Data($0) })
+                ?? Optional(NCSHA1.uuidV5NilNamespace(uuidString)) else { return nil }
+        let sec: UInt8
+        switch (proxy.fields["cipher"]?.string ?? "auto").lowercased() {
+        case "auto", "aes-128-gcm": sec = NCVMess.securityAESGCM
+        case "chacha20-poly1305": sec = NCVMess.securityChaCha
+        case "none": sec = NCVMess.securityNone
+        default: return nil
+        }
+        security = sec
+        if proxy.fields["tls"]?.bool ?? false {
+            raw = NCStream(to: proxy.server ?? "", port: proxy.port ?? 0,
+                           tlsServerName: proxy.fields["servername"]?.string ?? proxy.fields["sni"]?.string ?? proxy.server ?? "",
+                           allowInsecure: proxy.fields["skip-cert-verify"]?.bool ?? false,
+                           queue: queue)
+        } else {
+            raw = NCStream(to: proxy.server ?? "", port: proxy.port ?? 0, queue: queue)
+        }
+        let reqKey = NCConnector.randomData(16)
+        let reqNonce = NCConnector.randomData(16)
+        let respV = NCConnector.randomData(1)[0]
+        encoder = sec == NCVMess.securityNone ? nil
+            : NCVMessChunkEncoder(bodyKey: reqKey, nonceBase: reqNonce, security: sec)
+        respKeys = NCVMess.responseKeys(reqKey: reqKey, reqNonce: reqNonce)
+        respReader = NCVMessResponseReader(respKey: respKeys.key, respNonce: respKeys.nonce, expectedV: respV)
+        raw.start { [weak self] err in
+            guard let self, err == nil else { return }
+            let option: UInt8 = sec == NCVMess.securityNone ? 0
+                : NCVMess.optionChunkStream | NCVMess.optionChunkMasking
+            let plain = NCVMess.plainHeader(reqNonce: reqNonce, reqKey: reqKey, respV: respV,
+                                            option: option, security: sec,
+                                            padding: NCConnector.randomData(Int(NCConnector.randomData(1)[0]) % 16),
+                                            target: target, command: 0x02)
+            let sealed = NCVMess.sealHeader(cmdKey: NCVMess.cmdKey(uuidBytes: uuidBytes),
+                                            plainHeader: plain,
+                                            time: Int64(Date().timeIntervalSince1970),
+                                            authRandom4: NCConnector.randomData(4),
+                                            connNonce: NCConnector.randomData(8))
+            self.raw.send(sealed)
+            self.receiveLoop()
+        }
+    }
+
+    private func receiveLoop() {
+        raw.receive { [weak self] data, error in
+            guard let self, !self.cancelled else { return }
+            guard let data else { return }
+            if !responseStarted {
+                respReader.feed(data)
+                switch respReader.state {
+                case .failed:
+                    return
+                case .reading:
+                    break
+                case .done:
+                    responseStarted = true
+                    if security != NCVMess.securityNone {
+                        decoder = NCVMessChunkDecoder(bodyKey: respKeys.key, nonceBase: respKeys.nonce, security: security)
+                    }
+                    let rest = respReader.bodyRemainder
+                    if !rest.isEmpty { deliver(rest) }
+                }
+            } else {
+                deliver(data)
+            }
+            if error == nil { self.receiveLoop() }
+        }
+    }
+
+    private func deliver(_ data: Data) {
+        guard let decoder else {
+            onReply(data) // security none: the datagram stream is raw (rare)
+            return
+        }
+        guard let messages = decoder.feedMessages(data) else { return }
+        for m in messages { onReply(m) }
+    }
+
+    func send(_ data: Data, to target: NCTarget) {
+        if let encoder {
+            raw.send(encoder.encode(data))
+        } else {
+            raw.send(data)
+        }
+    }
+
+    func cancel() {
+        cancelled = true
+        raw.cancel()
+    }
+}
+
+/// VLESS UDP: dedicated connection per destination (command 0x02); datagrams
+/// are framed as BE16 length + payload in both directions after the response
+/// head (version + addon length).
+final class NCUDPVLESSSession: NCUDPSession {
+    var onReply: (Data) -> Void = { _ in }
+    private let raw: NCStream
+    private var buffer = Data()
+    private var responseHeadConsumed = false
+    private var cancelled = false
+
+    init?(proxy: NCProxy, target: NCTarget, queue: DispatchQueue) {
+        guard let uuid = proxy.uuid,
+              let head = NCVLESS.requestHead(uuid: uuid, target: target, command: 0x02) else { return nil }
+        if proxy.fields["tls"]?.bool ?? false {
+            raw = NCStream(to: proxy.server ?? "", port: proxy.port ?? 0,
+                           tlsServerName: proxy.fields["servername"]?.string ?? proxy.fields["sni"]?.string ?? proxy.server ?? "",
+                           allowInsecure: proxy.fields["skip-cert-verify"]?.bool ?? false,
+                           queue: queue)
+        } else {
+            raw = NCStream(to: proxy.server ?? "", port: proxy.port ?? 0, queue: queue)
+        }
+        raw.start { [weak self] err in
+            guard let self, err == nil else { return }
+            self.raw.send(head)
+            self.receiveLoop()
+        }
+    }
+
+    private func receiveLoop() {
+        raw.receive { [weak self] data, error in
+            guard let self, !self.cancelled else { return }
+            guard let data else { return }
+            self.buffer.append(data)
+            self.parseFrames()
+            if error == nil { self.receiveLoop() }
+        }
+    }
+
+    private func parseFrames() {
+        if !responseHeadConsumed {
+            guard buffer.count >= 2 else { return }
+            let addonLen = Int(buffer[1])
+            guard buffer.count >= 2 + addonLen else { return }
+            buffer = Data(buffer.dropFirst(2 + addonLen))
+            responseHeadConsumed = true
+        }
+        while buffer.count >= 2 {
+            let len = Int(buffer[0]) << 8 | Int(buffer[1])
+            guard buffer.count >= 2 + len else { return }
+            let payload = Data(buffer[2..<(2 + len)])
+            buffer = Data(buffer.dropFirst(2 + len))
+            onReply(payload)
+        }
+    }
+
+    func send(_ data: Data, to target: NCTarget) {
+        var framed = Data()
+        framed.appendBE16(UInt16(clamping: data.count))
+        framed.append(data)
+        raw.send(framed)
+    }
+
+    func cancel() {
+        cancelled = true
+        raw.cancel()
+    }
+}

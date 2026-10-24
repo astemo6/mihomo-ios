@@ -13,6 +13,8 @@ final class NativeCoreEngine {
     private var groups: NCGroupEngine?
     private(set) var fakeIP: NCFakeIPPool?
     private var dnsResponder: NCFakeIPResponder?
+    private var geoIPDB: NCMMDB?
+    private var asnDB: NCMMDB?
     private var home = ""
 
     private var fakeIPFile: URL {
@@ -38,8 +40,27 @@ final class NativeCoreEngine {
         }
         fakeIP = pool
         dnsResponder = nil
+        let homeURL = URL(fileURLWithPath: home)
+        if let data = try? Data(contentsOf: homeURL.appendingPathComponent("geoip.metadb")) {
+            geoIPDB = NCMMDB(data: data)
+        }
+        if let data = try? Data(contentsOf: homeURL.appendingPathComponent("ASN.mmdb")), data.count > 1024 {
+            asnDB = NCMMDB(data: data)
+        }
         isRunning = true
         return nil
+    }
+
+    /// Build a match context with this engine's GeoIP/ASN lookups injected.
+    func matchContext(domain: String?, ip: NCIP?, srcIP: NCIP? = nil, dstPort: Int?, network: String) -> NCMatchContext {
+        var ctx = NCMatchContext(domain: domain, ip: ip, srcIP: srcIP, dstPort: dstPort, network: network)
+        if let geoIPDB {
+            ctx.countryOf = { geoIPDB.countryCode(for: $0) }
+        }
+        if let asnDB {
+            ctx.asnOf = { asnDB.asn(for: $0) }
+        }
+        return ctx
     }
 
     func stop() {
@@ -105,15 +126,11 @@ final class NativeCoreEngine {
         return groups.resolve(policy(for: ctx))
     }
 
-    /// First configured nameserver usable as plain UDP DNS (others, like
-    /// DoH/DoT entries, are skipped until those transports land).
-    var firstUDPNameserver: String? {
+    /// First configured nameserver, of any supported kind (plain UDP,
+    /// tls:// DoT, https:// DoH).
+    var firstDNSUpstream: NCDNSUpstream? {
         for raw in config?.dns.nameservers ?? [] {
-            var entry = raw
-            if entry.hasPrefix("udp://") { entry = String(entry.dropFirst(6)) }
-            if entry.contains("://") { continue }
-            let host = entry.split(separator: ":").first.map(String.init) ?? entry
-            if NCIP(host) != nil { return host }
+            if let up = NCDNSUpstream.parse(raw) { return up }
         }
         return nil
     }

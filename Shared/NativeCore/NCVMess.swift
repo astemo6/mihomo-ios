@@ -199,7 +199,17 @@ final class NCVMessChunkDecoder {
         self.shake = NCShake128(seed: nonceBase)
     }
 
+    /// Per-record plaintexts from the most recent feed call (VMess UDP maps
+    /// one AEAD record to one datagram).
+    private(set) var lastMessages: [Data] = []
+
+    func feedMessages(_ data: Data) -> [Data]? {
+        guard feed(data) != nil else { return nil }
+        return lastMessages
+    }
+
     func feed(_ data: Data) -> Data? {
+        lastMessages = []
         if finished { return Data() }
         buffer.append(data)
         var out = Data()
@@ -230,6 +240,7 @@ final class NCVMessChunkDecoder {
             }
             guard let plain else { return nil }
             out.append(plain)
+            lastMessages.append(plain)
         }
         return out
     }

@@ -5,7 +5,7 @@ import Foundation
 /// field 1 when set (e.g. "xtls-rprx-vision"); Vision's padding/unpadding of
 /// the stream itself arrives with the Vision batch.
 enum NCVLESS {
-    static func requestHead(uuid: String, target: NCTarget, flow: String = "") -> Data? {
+    static func requestHead(uuid: String, target: NCTarget, flow: String = "", command: UInt8 = 0x01) -> Data? {
         guard let id = uuidBytes(uuid) else { return nil }
         var out = Data()
         out.append(0x00) // version
@@ -20,7 +20,7 @@ enum NCVLESS {
             out.append(UInt8(addons.count))
             out.append(addons)
         }
-        out.append(0x01) // command: TCP
+        out.append(command) // 0x01 TCP, 0x02 UDP
         out.append(UInt8(target.port >> 8))
         out.append(UInt8(target.port & 0xff))
         out.append(addressEncoded(target)) // VLESS address types differ from SOCKS
