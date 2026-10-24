@@ -14,8 +14,12 @@ enum NCJSONValue: Equatable {
     init(_ any: Any) {
         switch any {
         case is NSNull: self = .null
+        case let n as NSNumber:
+            // JSONSerialization numbers 0/1 happily cast to Bool on Darwin;
+            // only a genuine CFBoolean may become .bool.
+            if CFGetTypeID(n) == CFBooleanGetTypeID() { self = .bool(n.boolValue) }
+            else { self = .number(n.doubleValue) }
         case let b as Bool: self = .bool(b)
-        case let n as NSNumber: self = .number(n.doubleValue)
         case let s as String: self = .string(s)
         case let a as [Any]: self = .array(a.map(NCJSONValue.init))
         case let o as [String: Any]: self = .object(o.mapValues(NCJSONValue.init))

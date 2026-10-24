@@ -147,10 +147,10 @@ final class NativeCoreGroupTests: XCTestCase {
 final class NativeCoreOutboundTests: XCTestCase {
     func testBuilders() {
         let t = NCTarget(host: "example.com", port: 443)
-        XCTAssertEqual(hex(t.atypEncoded), "036578616d706c652e636f6d01bb")
+        XCTAssertEqual(hex(t.atypEncoded), "030b6578616d706c652e636f6d01bb")
         XCTAssertEqual(hex(NCSOCKS5.greeting(username: nil, password: nil)), "050100")
         let req = NCSOCKS5.connectRequest(target: t)
-        XCTAssertEqual(hex(req), "050100036578616d706c652e636f6d01bb")
+        XCTAssertEqual(hex(req), "050100030b6578616d706c652e636f6d01bb")
         // Response: ver, rep=0, rsv, atyp=v4, 1.2.3.4:80
         let resp = unhex("05000001" + "01020304" + "0050")
         XCTAssertEqual(NCSOCKS5.parseResponse(resp)?.0, 10)
@@ -347,14 +347,14 @@ final class NativeCoreVLESSTests: XCTestCase {
     func testRequestHeadNoFlow() {
         let head = NCVLESS.requestHead(uuid: "b831381d-6324-4d53-ad4f-8cda48b30811",
                                        target: NCTarget(host: "google.com", port: 443))
-        XCTAssertEqual(hex(head), "00b831381d63244d53ad4f8cda48b30811000101bb0209676f6f676c652e636f6d")
+        XCTAssertEqual(hex(head), "00b831381d63244d53ad4f8cda48b30811000101bb020a676f6f676c652e636f6d")
     }
 
     func testRequestHeadWithFlow() {
         let head = NCVLESS.requestHead(uuid: "b831381d-6324-4d53-ad4f-8cda48b30811",
                                        target: NCTarget(host: "google.com", port: 443),
                                        flow: "xtls-rprx-vision")
-        XCTAssertEqual(hex(head), "00b831381d63244d53ad4f8cda48b30811120a1078746c732d727072782d766973696f6e0101bb0209676f6f676c652e636f6d")
+        XCTAssertEqual(hex(head), "00b831381d63244d53ad4f8cda48b30811120a1078746c732d727072782d766973696f6e0101bb020a676f6f676c652e636f6d")
     }
 
     func testBadUUID() {

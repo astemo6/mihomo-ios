@@ -44,7 +44,7 @@ final class NativeCoreTLS13Tests: XCTestCase {
 
     func testHKDFRFC5869() {
         let ikm = Data(repeating: 0x0b, count: 22)
-        let salt = unhex("000102030405060708090a0b")
+        let salt = unhex("000102030405060708090a0b0c") // RFC 5869 TC1 salt is 13 bytes
         let info = unhex("f0f1f2f3f4f5f6f7f8f9")
         let prk = NCTLS13.hkdfExtract(.sha256, salt: salt, ikm: ikm)
         XCTAssertEqual(hex(prk), "077709362c2e32df0ddc3f0dc47bba6390b6c73bb50f9c3122ec844ad7c2b3e5")

@@ -30,11 +30,13 @@ enum NCIP: Equatable, Hashable {
         // Embedded IPv4 tail (::ffff:1.2.3.4)
         var v4Tail: [UInt8] = []
         if let dot = s.lastIndex(of: ".") {
-            var colon = dot
-            while colon > s.startIndex, s[s.index(before: colon)] != ":" { colon = s.index(before: colon) }
-            guard let v4 = parseV4(String(s[s.index(after: colon)...])) else { return nil }
+            // Walk back from the last dot to the first char of the v4 tail;
+            // the ':' separator sits right before it.
+            var tailStart = dot
+            while tailStart > s.startIndex, s[s.index(before: tailStart)] != ":" { tailStart = s.index(before: tailStart) }
+            guard tailStart > s.startIndex, let v4 = parseV4(String(s[tailStart...])) else { return nil }
             v4Tail = [UInt8((v4 >> 24) & 0xff), UInt8((v4 >> 16) & 0xff), UInt8((v4 >> 8) & 0xff), UInt8(v4 & 0xff)]
-            s = String(s[...colon]) + "0:0"
+            s = String(s[..<tailStart]) + "0:0"
         }
         let halves = s.components(separatedBy: "::")
         guard halves.count <= 2 else { return nil }

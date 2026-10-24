@@ -44,8 +44,7 @@ enum NCSniffer {
         var alpn: [String] = []
         while r.remaining >= 4 {
             guard let extType = r.u16(), let extSize = r.u16(), r.remaining >= extSize else { break }
-            let body = Data(r.bytes.prefix(Int(extSize)))
-            r.skip(Int(extSize))
+            guard let body = r.take(Int(extSize)) else { break }
             if extType == 0x0000 { sni = parseServerName(body) }
             if extType == 0x0010 { alpn = parseALPN(body) }
         }
@@ -57,8 +56,8 @@ enum NCSniffer {
         guard let listLen = r.u16(), r.remaining >= Int(listLen) else { return nil }
         while r.remaining >= 3 {
             guard let nameType = r.u8(), let nameLen = r.u16(), r.remaining >= nameLen else { return nil }
-            let name = String(decoding: r.bytes.prefix(Int(nameLen)), as: UTF8.self)
-            r.skip(Int(nameLen))
+            guard let nameData = r.take(Int(nameLen)) else { return nil }
+            let name = String(decoding: nameData, as: UTF8.self)
             if nameType == 0 { return name }
         }
         return nil
@@ -70,8 +69,8 @@ enum NCSniffer {
         var out: [String] = []
         while r.remaining >= 1 {
             guard let len = r.u8(), r.remaining >= len else { break }
-            out.append(String(decoding: r.bytes.prefix(Int(len)), as: UTF8.self))
-            r.skip(Int(len))
+            guard let item = r.take(Int(len)) else { break }
+            out.append(String(decoding: item, as: UTF8.self))
         }
         return out
     }
@@ -120,5 +119,13 @@ struct NCReader {
         guard n >= 0, remaining >= n else { return false }
         pos += n
         return true
+    }
+
+    /// Slice of the next n bytes at the cursor (NOT from the buffer start),
+    /// advancing past them.
+    mutating func take(_ n: Int) -> Data? {
+        guard n >= 0, remaining >= n else { return nil }
+        defer { pos += n }
+        return Data(bytes[pos..<(pos + n)])
     }
 }
