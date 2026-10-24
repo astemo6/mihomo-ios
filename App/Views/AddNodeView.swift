@@ -147,7 +147,7 @@ struct AddNodeView: View {
             Section {
                 ForEach(Self.protocols) { p in protoRow(p, new: false) }
             } header: { Text("常用协议") } footer: {
-                Text("协议由 mihomo 内核 \(LibmihomoVersion()) 提供。节点保存在「手动节点」中；在 工具 → 节点与订阅 → 本地 打开「把手动节点加入每个配置」后，可在任何订阅的策略里选择。")
+                Text("协议由 mihomo 内核 \(LibmihomoVersion()) 提供。节点保存在「本地节点」中；在 工具 → 节点与订阅 → 本地 打开「把本地节点加入每个配置」后，可在任何订阅的策略里选择。")
             }
             .listRowBackground(Theme.card)
         }

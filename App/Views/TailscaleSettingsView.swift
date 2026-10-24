@@ -64,7 +64,7 @@ struct TailscaleSettingsView: View {
         .sheet(item: $editing, onDismiss: { Task { await model.reload() } }) { t in
             NodeEditorView(node: t.node).environmentObject(store)
         }
-        .confirmationDialog("删除这个手动节点？", isPresented: Binding(get: { confirmDelete != nil }, set: { if !$0 { confirmDelete = nil } }),
+        .confirmationDialog("删除这个本地节点？", isPresented: Binding(get: { confirmDelete != nil }, set: { if !$0 { confirmDelete = nil } }),
                             titleVisibility: .visible, presenting: confirmDelete) { n in
             Button("删除", role: .destructive) { Task { await model.delete(n) } }
         } message: { n in Text(verbatim: n.name) }

@@ -142,7 +142,7 @@ struct MoreView: View {
 
         Section {
             NavigationLink { LazyDestination { AdvancedSettingsView() } } label: {
-                MoreRow(id: "高级设置", title: "高级设置", subtitle: "连接方式 · 内核 · 测速", symbol: "gearshape.2", tone: .neutral)
+                MoreRow(id: "高级设置", title: "高级设置", subtitle: "连接方式 · 隧道 · 内核 · 测速", symbol: "gearshape.2", tone: .neutral)
             }
         } header: { Text("高级") }
         .listRowBackground(Theme.card)

@@ -6,10 +6,18 @@ final class PanelsModel: ObservableObject {
     static let shared = PanelsModel()
     @Published var panels: [PanelItem] = []
     @Published var refreshing: Set<String> = []
+    /// Lane D: a panel refresh that failed (controller unreachable, timeout, HTTP error) used to be dropped by `try?`
+    /// — the spinner stopped and the old content stayed. The failure is kept with the controller's own reason and
+    /// shown on the card until the panel has content newer than the failure.
+    @Published private(set) var refreshFailures: [String: PanelRefreshFailure] = [:]
+    /// Lane D: why the panel list itself could not be read (the list on screen is the last one that loaded).
+    @Published private(set) var loadError: String?
     /// v0.15: panel ids pinned to Home (ids are stable hashes of module + panel name), in pin order.
     @Published var pinned: [String] = UserDefaults.standard.stringArray(forKey: "panels.pinned") ?? []
     /// v0.17 UI tests (-UITestSeed -UITestDemoPanels): one script panel + one static Stash tile, no engine.
     let demo = UITestSeed.enabled && UITestSeed.args.contains("-UITestDemoPanels")
+    /// UI tests: demo panels, but 刷新 sends the real request (no engine runs, so it fails with the real reason).
+    let demoLiveRefresh = UITestSeed.enabled && UITestSeed.args.contains("-UITestPanelRefreshLive")
 
     init() {
         if demo { panels = UITestSeed.demoPanels() }
@@ -51,18 +59,42 @@ final class PanelsModel: ObservableObject {
 
     func load() async {
         if demo { return }
-        guard VPNManager.shared.isConnected else { panels = []; return }
-        if let l = try? await ControllerClient.shared.mitmPanels() { panels = l }
+        guard VPNManager.shared.isConnected else { panels = []; loadError = nil; return }
+        do {
+            panels = try await ControllerClient.shared.mitmPanels()
+            loadError = nil
+        } catch {
+            if let reason = Self.reason(error) { loadError = reason }
+        }
     }
 
     func refresh(_ p: PanelItem) async {
-        if demo { return }
+        if demo && !demoLiveRefresh { return }
         refreshing.insert(p.id)
         defer { refreshing.remove(p.id) }
-        if let np = try? await ControllerClient.shared.mitmRefreshPanel(p.id),
-           let i = panels.firstIndex(where: { $0.id == p.id }) {
-            panels[i] = np
+        do {
+            let np = try await ControllerClient.shared.mitmRefreshPanel(p.id)
+            refreshFailures[p.id] = nil
+            if let i = panels.firstIndex(where: { $0.id == p.id }) { panels[i] = np }
+        } catch {
+            guard let reason = Self.reason(error) else { return }
+            refreshFailures[p.id] = PanelRefreshFailure(reason: reason, at: Date().timeIntervalSince1970)
         }
+    }
+
+    /// The failure to show on a card: only while the panel has nothing newer (an auto-refresh by the extension that
+    /// succeeded later replaces it).
+    func failure(for p: PanelItem) -> String? {
+        guard let f = refreshFailures[p.id], f.at > (p.updated ?? 0) else { return nil }
+        return f.reason
+    }
+
+    /// The error's own text; nil for a cancelled request (page left, pull-to-refresh replaced), which is no failure.
+    static func reason(_ error: Error) -> String? {
+        if error is CancellationError { return nil }
+        if let u = error as? URLError, u.code == .cancelled { return nil }
+        let text = error.localizedDescription.trimmingCharacters(in: .whitespacesAndNewlines)
+        return text.isEmpty ? nil : text
     }
 
     /// Fills panels that were never run, or whose update-interval has passed.
@@ -77,6 +109,12 @@ final class PanelsModel: ObservableObject {
             }
         }
     }
+}
+
+struct PanelRefreshFailure: Equatable {
+    let reason: String
+    /// When the refresh failed (seconds since 1970, like PanelItem.updated).
+    let at: Double
 }
 
 extension Color {
@@ -108,6 +146,12 @@ struct PanelsView: View {
                 } else if model.panels.isEmpty {
                     Card { EmptyStateRow(icon: "square.grid.2x2", title: "没有面板", message: "启用带 Surge [Panel] 或 Stash tiles 的模块后，面板会出现在这里。") }
                 }
+                if vpn.isConnected, let e = model.loadError {
+                    Label { Text("无法读取面板：\(e)") } icon: { Image(systemName: "exclamationmark.triangle.fill") }
+                        .font(.caption).foregroundStyle(Theme.warn).lineLimit(3)
+                        .frame(maxWidth: .infinity, alignment: .leading)
+                        .accessibilityIdentifier("panels.loadError")
+                }
                 if model.panels.isEmpty {
                     // User 2026-10-22 「这些面板在哪里可以安装」: panels come from modules — one tap to the module library.
                     NavigationLink { LazyDestination { ModuleGalleryView() } } label: {
@@ -122,7 +166,8 @@ struct PanelsView: View {
                     .accessibilityIdentifier("panels.gallery")
                 }
                 ForEach(model.panels) { p in
-                    PanelCard(p: p, refreshing: model.refreshing.contains(p.id) || p.running, pinned: model.isPinned(p)) {
+                    PanelCard(p: p, refreshing: model.refreshing.contains(p.id) || p.running, pinned: model.isPinned(p),
+                              refreshFailure: model.failure(for: p)) {
                         Task { await model.refresh(p) }
                     }
                     .contextMenu {
@@ -166,6 +211,8 @@ struct PanelCard: View {
     var pinned = false
     /// feat/panels: last result shown while disconnected (no refresh button).
     var offline = false
+    /// Lane D: why the last 刷新 of this panel failed (PanelsModel.failure(for:)); nil when it did not or content is newer.
+    var refreshFailure: String? = nil
     let onRefresh: () -> Void
     @ObservedObject private var overrides = PanelOverrideStore.shared
     /// v0.17: the user's title / icon (磁贴编辑) over the module's.
@@ -199,6 +246,8 @@ struct PanelCard: View {
                         } else {
                             Button(action: onRefresh) { Image(systemName: "arrow.clockwise").font(.caption) }
                                 .buttonStyle(.borderless)
+                                .accessibilityLabel(Text("刷新"))
+                                .accessibilityIdentifier("panel.refresh")
                         }
                     }
                 }
@@ -207,6 +256,11 @@ struct PanelCard: View {
                 }
                 if let e = p.error, !e.isEmpty {
                     Text(e).font(.caption2).foregroundStyle(Theme.bad).lineLimit(3)
+                }
+                if let f = refreshFailure, !offline, !refreshing {
+                    Label { Text("刷新失败：\(f)") } icon: { Image(systemName: "exclamationmark.triangle.fill") }
+                        .font(.caption2).foregroundStyle(Theme.warn).lineLimit(2)
+                        .accessibilityIdentifier("panel.refreshError")
                 }
                 HStack(spacing: 6) {
                     FormatBadge(format: p.format)

@@ -255,7 +255,7 @@ struct ProfilesView: View {
                     message = String(localized: "已导入配置")
                 } else {
                     let n = try await store.addManualNodes(text: s)
-                    message = String(localized: "已添加 \(n) 个节点到「手动节点」")
+                    message = String(localized: "已添加 \(n) 个节点到「本地节点」")
                 }
             } catch { message = error.localizedDescription }
         }
