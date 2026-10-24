@@ -33,7 +33,7 @@ final class NCStream {
         conn = NWConnection(to: Self.endpoint(host, port: port), using: params)
     }
 
-    private static func endpoint(_ host: String, port: Int) -> NWEndpoint {
+    static func endpoint(_ host: String, port: Int) -> NWEndpoint {
         let p = NWEndpoint.Port(rawValue: UInt16(clamping: port)) ?? .any
         if let v4 = IPv4Address(host) {
             return .hostPort(host: .ipv4(v4), port: p)

@@ -227,6 +227,15 @@ enum NCConnector {
         case handshake(String)
     }
 
+    /// Opens a relay stream to `target` through `proxy`.
+    /// Completion fires on `queue` exactly once.
+    static func connect(target: NCTarget,
+                        proxy: NCProxy,
+                        queue: DispatchQueue,
+                        completion: @escaping (NCRelayStream?, Error?) -> Void) {
+        connectViaProxy(target: target, proxy: proxy, queue: queue, completion: completion)
+    }
+
     /// Opens a relay stream to `target` through the resolved outbound.
     /// Completion fires on `queue` exactly once.
     static func connect(target: NCTarget,
