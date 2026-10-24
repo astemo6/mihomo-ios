@@ -15,6 +15,7 @@ final class NativeCoreEngine {
     private var dnsResponder: NCFakeIPResponder?
     private var geoIPDB: NCMMDB?
     private var asnDB: NCMMDB?
+    private var ruleProviders: NCRuleProviderStore?
     private var home = ""
 
     private var fakeIPFile: URL {
@@ -40,6 +41,13 @@ final class NativeCoreEngine {
         }
         fakeIP = pool
         dnsResponder = nil
+        // Rule providers: cache-first load, then refresh whatever is stale.
+        let store = NCRuleProviderStore(dir: URL(fileURLWithPath: home)
+            .appendingPathComponent("nativecore-rulesets"))
+        let providers = NCRuleProviderStore.providers(from: cfg)
+        let stale = store.loadCached(providers: providers, home: home)
+        ruleProviders = store
+        if !stale.isEmpty { store.refreshAll(stale) }
         let homeURL = URL(fileURLWithPath: home)
         if let data = try? Data(contentsOf: homeURL.appendingPathComponent("geoip.metadb")) {
             geoIPDB = NCMMDB(data: data)
@@ -60,6 +68,9 @@ final class NativeCoreEngine {
         if let asnDB {
             ctx.asnOf = { asnDB.asn(for: $0) }
         }
+        if let ruleProviders {
+            ctx.ruleSetContains = { name, c in ruleProviders.contains(name: name, ctx: c) }
+        }
         return ctx
     }
 
@@ -71,6 +82,7 @@ final class NativeCoreEngine {
         groups = nil
         fakeIP = nil
         dnsResponder = nil
+        ruleProviders = nil
     }
 
     func persistFakeIP() {
