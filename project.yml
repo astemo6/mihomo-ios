@@ -109,7 +109,11 @@ targets:
         # stage-1 skeletons stay out until the tls/http/upstream lanes replace them.
         # feat/native-core-eval: PacketFlowBridge (the socketpair to the Go core) is gone with Go; NativeCore reads the
         # packet flow itself (NCDataPlane).
-        excludes: ["**/*.entitlements", "NativeMitM/NativeHTTP1Session.swift", "NativeMitM/NativeTLSFront.swift", "NativeMitM/NativeUpstream.swift", "PacketFlowBridge.swift"]
+        excludes: ["**/*.entitlements", "NativeMitM/NativeHTTP1Session.swift", "NativeMitM/NativeTLSFront.swift", "NativeMitM/NativeUpstream.swift", "PacketFlowBridge.swift", "NativeMitM/Script/TernPrelude.js"]
+      # feat/native-core-eval: the script prelude (bridge/mitm PreludeSource, kept current by
+      # TestNativePreludeBundleCurrent) for the native script host — no Go engine hands it over any more.
+      - path: PacketTunnel/NativeMitM/Script/TernPrelude.js
+        buildPhase: resources
       # The Live Activity attributes are app + widget only (keeps ActivityKit out of the tunnel's memory).
       - path: Shared
         excludes: ["LiveActivityShared.swift", "LiveActivityViews.swift", "TunnelControl.swift"]

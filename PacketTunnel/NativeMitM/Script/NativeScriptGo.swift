@@ -182,8 +182,108 @@ final class NativeScriptHost: ScriptGoHost {
         if activeSlots > 0 { activeSlots -= 1 }
     }
 
+    // MARK: scripts (feat/native-core-eval)
+    //
+    // The app (bridge/nativeprep.go → mitm.ExportScriptManifest) writes nativecore-scripts.json: per script rule its
+    // rule index, the code file (BOM stripped, Egern adapted), the run timeout and __tern_begin's setup base. The
+    // prelude is the target's TernPrelude.js (= Go's PreludeSource, TestNativePreludeBundleCurrent). prepare() loads
+    // a script into JavaScriptCore the first time it runs (and again after the engine dropped it: reload).
+
+    struct ManifestEntry: Decodable {
+        var i: Int
+        var key: String?
+        var name: String
+        var type: String?
+        var file: String?
+        var timeoutMs: Int64?
+        var err: String?
+        /// The setup base as JSON text (decoded from the raw "setup" object).
+        var setupJSON = "{}"
+        enum CodingKeys: String, CodingKey { case i, key, name, type, file, timeoutMs, err }
+    }
+
+    private var home = ""
+    private var manifest: [Int: ManifestEntry] = [:]
+    private var loadedKeys: Set<String> = []
+    private var preludeState: String?   // nil: not tried; "": ready; else the error
+    private var logLines = 0
+
+    /// The prelude handed to JavaScriptCore (bundled resource).
+    static func bundledPrelude() -> String? {
+        guard let url = Bundle.main.url(forResource: "TernPrelude", withExtension: "js") else { return nil }
+        return try? String(contentsOf: url, encoding: .utf8)
+    }
+
+    /// Prepares the prelude (once) and reads the app's script manifest. Returns a log line.
+    @discardableResult
+    func load(home: String) -> String {
+        lock.lock()
+        let needPrelude = preludeState == nil
+        lock.unlock()
+        if needPrelude {
+            let state: String
+            if let p = Self.bundledPrelude() {
+                state = JSCScriptEngine.shared.prepare(p)
+            } else {
+                state = "TernPrelude.js missing from the bundle"
+            }
+            lock.lock(); preludeState = state; lock.unlock()
+        }
+        var entries: [Int: ManifestEntry] = [:]
+        var note = ""
+        let url = URL(fileURLWithPath: home).appendingPathComponent("nativecore-scripts.json")
+        if let data = try? Data(contentsOf: url),
+           let obj = (try? JSONSerialization.jsonObject(with: data)) as? [String: Any],
+           let list = obj["scripts"] as? [[String: Any]] {
+            for raw in list {
+                guard let d = try? JSONSerialization.data(withJSONObject: raw),
+                      var e = try? JSONDecoder().decode(ManifestEntry.self, from: d) else { continue }
+                if let setup = raw["setup"], let sd = try? JSONSerialization.data(withJSONObject: setup),
+                   let ss = String(data: sd, encoding: .utf8) {
+                    e.setupJSON = ss
+                }
+                entries[e.i] = e
+            }
+        } else {
+            note = " (no nativecore-scripts.json)"
+        }
+        lock.lock()
+        self.home = home
+        manifest = entries
+        let pState = preludeState ?? ""
+        lock.unlock()
+        let bad = entries.values.filter { $0.err != nil }.count
+        let engine = JSCScriptEngine.shared.canInterrupt ? "interruptible" : "NOT interruptible (scripts off)"
+        return "\(entries.count) script rule(s), \(bad) unloadable\(note); prelude \(pState.isEmpty ? "ok" : pState); JSC \(engine)"
+    }
+
     func prepare(gen: Int64, rule: Int, slot: Int64, reload: Bool) -> ScriptPrepared {
-        ScriptPrepared(ok: true, key: "rule_\(rule)", err: nil)
+        lock.lock()
+        let entry = manifest[rule]
+        let home = self.home
+        let pState = preludeState
+        lock.unlock()
+        guard let entry else { return ScriptPrepared(ok: false, err: "脚本规则已更新") }
+        if let pState, !pState.isEmpty { return ScriptPrepared(ok: false, err: "脚本引擎不可用：" + pState) }
+        if let err = entry.err { return ScriptPrepared(ok: false, err: err) }
+        guard let key = entry.key, let file = entry.file else { return ScriptPrepared(ok: false, err: "加载脚本失败：无脚本文件") }
+        lock.lock()
+        let loaded = loadedKeys.contains(key)
+        lock.unlock()
+        if !loaded || reload {
+            let url = URL(fileURLWithPath: home).appendingPathComponent(file)
+            guard let code = try? String(contentsOf: url, encoding: .utf8) else {
+                return ScriptPrepared(ok: false, err: "加载脚本失败：读取 \(file) 失败")
+            }
+            let msg = JSCScriptEngine.shared.load(key, name: entry.name, source: code)
+            if !msg.isEmpty { return ScriptPrepared(ok: false, err: msg) }
+            lock.lock(); loadedKeys.insert(key); lock.unlock()
+        }
+        var p = ScriptPrepared(ok: true, key: key)
+        p.name = entry.name
+        p.timeoutMs = entry.timeoutMs ?? 10_000
+        p.setupJSON = entry.setupJSON
+        return p
     }
 
     func bodyAdmit(gen: Int64, rule: Int, respRules: [Int], url: String, contentLength: Int64, enc: String, token: Int64) -> ScriptAdmit {
@@ -229,6 +329,11 @@ final class NativeScriptHost: ScriptGoHost {
             }
         case "sclear":
             return NCPersistentStore.shared.clear() ? "true" : "false"
+        case "log":
+            // console.log & co (Go's log ring is gone): the startup log, bounded per line.
+            lock.lock(); logLines += 1; let n = logLines; lock.unlock()
+            if n <= 500 { StartupLog.write("script #\(rule): " + String(arg.prefix(300))) }
+            return ""
         case "btoa":
             return Data(arg.utf8).base64EncodedString()
         case "atob":
@@ -296,7 +401,8 @@ final class NativeScriptHost: ScriptGoHost {
             }
         }
         if !body.isEmpty { request.httpBody = body }
-        if let timeout = req.timeout, timeout > 0 { request.timeoutInterval = timeout / 1000.0 }
+        // Go's fetchReq: 15 s unless the script asks (ms).
+        request.timeoutInterval = (req.timeout ?? 0) > 0 ? req.timeout! / 1000.0 : 15
 
         let sem = DispatchSemaphore(value: 0)
         var respData = Data()
@@ -328,15 +434,23 @@ final class NativeScriptHost: ScriptGoHost {
         let task = session.dataTask(with: request) { data, response, error in
             defer { sem.signal() }
             if let error {
-                respMeta = #"{"id":\#(req.id),"err":"\#(error.localizedDescription)"}"#
+                let o: [String: Any] = ["id": req.id, "err": error.localizedDescription]
+                if let md = try? JSONSerialization.data(withJSONObject: o), let ms = String(data: md, encoding: .utf8) {
+                    respMeta = ms
+                }
                 return
             }
             if let http = response as? HTTPURLResponse {
                 respData = data ?? Data()
                 var pairs: [[String]] = []
+                // URLSession hands over the decoded body: drop the encoding / length of the encoded one.
                 for (k, v) in http.allHeaderFields {
-                    pairs.append([String(describing: k), String(describing: v)])
+                    let name = String(describing: k)
+                    let lower = name.lowercased()
+                    if lower == "content-encoding" || lower == "content-length" { continue }
+                    pairs.append([name, String(describing: v)])
                 }
+                pairs.append(["Content-Length", String(respData.count)])
                 let metaObj: [String: Any] = [
                     "id": req.id,
                     "status": http.statusCode,
@@ -349,7 +463,8 @@ final class NativeScriptHost: ScriptGoHost {
             }
         }
         task.resume()
-        _ = sem.wait(timeout: .now() + (request.timeoutInterval > 0 ? request.timeoutInterval : 15.0))
+        if sem.wait(timeout: .now() + request.timeoutInterval + 1) == .timedOut { task.cancel() }
+        session.finishTasksAndInvalidate() // the session retains its delegate until invalidated
         return NativeScriptFetch(meta: respMeta, body: respData)
     }
 

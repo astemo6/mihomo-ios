@@ -22,6 +22,8 @@ final class NativeMitmFlowDriver: MitmFlowDriving, MitmScriptedFlowStarting {
     private let lock = NSLock()
     private var seq: Int64 = 0
     private var flows: [Int64: Flow] = [:]
+    /// Bodies this driver serves (read): a request script's body (bodySet) or its local answer (mock).
+    private var served: [Int64: [FlowBodyWhich: (data: Data, off: Int)]] = [:]
     /// Deferred flows forwarded unchanged since start (diagnostics).
     private(set) var passed: Int64 = 0
 
@@ -58,18 +60,72 @@ final class NativeMitmFlowDriver: MitmFlowDriving, MitmScriptedFlowStarting {
     func requestPhase(head: HTTPRequestHead, conn: MitmConnInfo) -> FlowDecision {
         let f = Flow(method: head.method, url: Self.forwardURL(head: head, conn: conn), host: head.host,
                      headers: Self.pairs(head.headers))
+        return register(f) { [self] id in decision(id, .forward, f) }
+    }
+
+    /// Request scripts already ran natively (NativeRequestScripts); `scripted` holds their outcomes in run order
+    /// (FlowHead.Scripted, bridge/mitm/flowscripted.go). Go applied them in its request phase; here they are folded
+    /// onto the forward: abort → drop, a local answer (mock) → local, else the last url / method / headers / body.
+    func requestPhase(head: HTTPRequestHead, conn: MitmConnInfo, gen: Int64, scripted: [[String: Any]]) -> FlowDecision {
+        var f = Flow(method: head.method, url: Self.forwardURL(head: head, conn: conn), host: head.host,
+                     headers: Self.pairs(head.headers))
+        var body: Data?
+        for o in scripted {
+            if o["abort"] as? Bool == true {
+                return register(f) { id in FlowDecision(id: id, action: .drop) }
+            }
+            if let m = o["mock"] as? [String: Any] {
+                let mb = (m["body"] as? String).flatMap { Data(base64Encoded: $0) } ?? Data()
+                let st = (m["status"] as? Int).flatMap { $0 == 0 ? nil : $0 } ?? 200
+                let hs = Self.stringPairs(m["headers"]) ?? [["Content-Type", "text/plain; charset=utf-8"]]
+                return register(f, serve: (.response, mb)) { id in
+                    var d = FlowDecision(id: id, action: .local)
+                    d.status = st
+                    d.headers = hs.filter { $0.count == 2 && $0[0].lowercased() != "content-length" && $0[0].lowercased() != "transfer-encoding" }
+                    d.body = mb.isEmpty ? FlowBodyMode.none : .read
+                    d.length = Int64(mb.count)
+                    return d
+                }
+            }
+            if let u = o["url"] as? String, !u.isEmpty, let c = URLComponents(string: u), let h = c.host, !h.isEmpty {
+                // a new URL: the request goes to its host (Go sets req.Host from it)
+                let authority = c.port.map { "\(h):\($0)" } ?? h
+                f.url = u
+                f.host = authority
+                f.headers = f.headers.map { $0.count == 2 && $0[0].lowercased() == "host" ? [$0[0], authority] : $0 }
+            }
+            if let m = o["method"] as? String, !m.isEmpty { f.method = m }
+            if let h = Self.stringPairs(o["headers"]) { f.headers = h }
+            if o["bodySet"] as? Bool == true {
+                body = (o["body"] as? String).flatMap { Data(base64Encoded: $0) } ?? Data()
+            }
+        }
+        if let body {
+            f.headers = f.headers.filter { $0.count == 2 && $0[0].lowercased() != "content-length" && $0[0].lowercased() != "transfer-encoding" }
+            return register(f, serve: (.request, body)) { [self] id in
+                var d = decision(id, .forward, f)
+                d.body = body.isEmpty ? FlowBodyMode.none : .read
+                d.length = Int64(body.count)
+                return d
+            }
+        }
+        return register(f) { [self] id in decision(id, .forward, f) }
+    }
+
+    private static func stringPairs(_ v: Any?) -> [[String]]? {
+        guard let a = v as? [[Any]] else { return nil }
+        return a.compactMap { p in p.count == 2 ? [String(describing: p[0]), String(describing: p[1])] : nil }
+    }
+
+    private func register(_ f: Flow, serve: (FlowBodyWhich, Data)? = nil, _ make: (Int64) -> FlowDecision) -> FlowDecision {
         lock.lock()
         seq += 1
         let id = seq
         flows[id] = f
+        if let sv = serve { served[id] = [sv.0: (data: sv.1, off: 0)] }
         passed += 1
         lock.unlock()
-        return decision(id, .forward, f)
-    }
-
-    /// Request scripts already ran natively (NativeRequestScripts) and their outcome is in `head`; forward it.
-    func requestPhase(head: HTTPRequestHead, conn: MitmConnInfo, gen: Int64, scripted: [[String: Any]]) -> FlowDecision {
-        requestPhase(head: head, conn: conn)
+        return make(id)
     }
 
     /// Only reached after a need-body, which this driver never asks for; forward what we have.
@@ -87,6 +143,7 @@ final class NativeMitmFlowDriver: MitmFlowDriving, MitmScriptedFlowStarting {
         lock.lock()
         let known = flows[id] != nil
         lock.unlock()
+        // (a local answer never reaches the response phase)
         guard known else { return FlowDecision(id: id, action: .error, note: "flow not found") }
         var d = FlowDecision(id: id, action: head.status == 101 ? .upgrade : .respond)
         d.status = head.status
@@ -96,19 +153,27 @@ final class NativeMitmFlowDriver: MitmFlowDriving, MitmScriptedFlowStarting {
         return d
     }
 
-    // No body ever goes through this driver (forward .client / respond .upstream stream past it).
+    // Client / upstream bodies never go through this driver (forward .client / respond .upstream stream past it);
+    // only a request script's body or local answer is served from here.
     func write(_ id: Int64, _ which: FlowBodyWhich, _ data: Data) -> FlowWriteResult { .stop }
     func closeBody(_ id: Int64, _ which: FlowBodyWhich, error: String) {}
-    func read(_ id: Int64, _ which: FlowBodyWhich, max: Int) -> Data { Data() }
+    func read(_ id: Int64, _ which: FlowBodyWhich, max: Int) -> Data {
+        lock.lock(); defer { lock.unlock() }
+        guard let b = served[id]?[which], b.off < b.data.count else { return Data() }
+        let end = Swift.min(b.off + Swift.max(max, 1), b.data.count)
+        let piece = b.data.subdata(in: (b.data.startIndex + b.off)..<(b.data.startIndex + end))
+        served[id]?[which] = (b.data, end)
+        return piece
+    }
     func readState(_ id: Int64, _ which: FlowBodyWhich) -> FlowReadState { .eof }
     func upstreamFailed(_ id: Int64, why: String) {}
 
     func end(_ id: Int64, sent: Int64, error: String) {
-        lock.lock(); flows.removeValue(forKey: id); lock.unlock()
+        lock.lock(); flows.removeValue(forKey: id); served.removeValue(forKey: id); lock.unlock()
     }
 
     func cancel(_ id: Int64, why: String) {
-        lock.lock(); flows.removeValue(forKey: id); lock.unlock()
+        lock.lock(); flows.removeValue(forKey: id); served.removeValue(forKey: id); lock.unlock()
     }
 
     var openFlows: Int { lock.lock(); defer { lock.unlock() }; return flows.count }

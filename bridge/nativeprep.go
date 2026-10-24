@@ -12,6 +12,8 @@ package libmihomo
 //   runtime-groups.json        the app's group order (as Start writes it)
 //   nativecore-rewrite.json    the MitM / rewrite / script snapshot (mitm.RewriteSnapshot) for the native rewrite
 //                              engine and the data plane's MitM host matcher ("" file removed when nothing is on)
+//   nativecore-scripts.json    every script rule's code file (nativecore-scripts/<key>.js) and run setup, for the
+//                              tunnel's native script host (mitm.ExportScriptManifest)
 //   nativecore-geosite/*.list  one classical rule list per GEOSITE code the rules use
 //   nativecore-prep.json       what was prepared and what NativeCore will not do with it (shown in 诊断)
 //
@@ -48,6 +50,7 @@ type nativePrep struct {
 	Geosite  []string `json:"geosite,omitempty"`
 	Rewrite  bool     `json:"rewrite"`
 	Hosts    int      `json:"mitmHosts"`
+	Scripts  int      `json:"scripts"`
 	Lowered  []string `json:"lowered,omitempty"`
 	Warnings []string `json:"warnings,omitempty"`
 }
@@ -120,6 +123,19 @@ func PrepareNativeRuntime(home, configPath string) (string, error) {
 		}
 	} else {
 		_ = os.Remove(snapPath)
+	}
+	// The scripts' code + run setup for the tunnel's native script host (no Go, no module parsing there).
+	var scriptRS *mitm.Ruleset
+	if cfg != nil && cfg.AnyOn() {
+		scriptRS = rs
+	}
+	if n, bad, err := mitm.ExportScriptManifest(home, cfg, scriptRS); err != nil {
+		rep.Warnings = append(rep.Warnings, "脚本清单写入失败："+err.Error())
+	} else {
+		rep.Scripts = n
+		if bad > 0 {
+			rep.Warnings = append(rep.Warnings, fmt.Sprintf("%d 个脚本加载失败（见 %s）", bad, mitm.ScriptManifestFile))
+		}
 	}
 	if b, err := json.Marshal(rep); err == nil {
 		_ = writeAtomicFile(filepath.Join(home, NativePrepFile), b)

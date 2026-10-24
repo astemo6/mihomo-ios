@@ -73,6 +73,7 @@ final class NativeTunnelCore {
         p?.stop()
         e?.stop()
         NativeCoreEngine.active = nil
+        NCPersistentStore.shared.flush() // $persistentStore writes still waiting for their coalesced flush
     }
 
     /// Re-reads the config the app just prepared (TunnelMessage.reload / .reloadHot). nil = applied.
@@ -108,6 +109,8 @@ final class NativeTunnelCore {
 
     /// The app's rewrite / MitM snapshot (bridge/mitm ExportRewriteSnapshot); .conf profiles carry their own.
     private func loadRewriteSnapshot(home: String, engine: NativeCoreEngine) {
+        // Scripts: the prelude once per process, the app's script manifest (code files + run setup) every load.
+        StartupLog.write("native scripts: " + NativeScriptHost.shared.load(home: home))
         let url = URL(fileURLWithPath: home).appendingPathComponent("nativecore-rewrite.json")
         if let text = try? String(contentsOf: url, encoding: .utf8), let snap = RWSnapshot.decode(text) {
             NativeRewriteSnapshotSource.shared.setSnapshot(snap, json: text)

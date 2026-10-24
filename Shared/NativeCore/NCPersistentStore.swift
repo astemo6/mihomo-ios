@@ -1,46 +1,102 @@
 import Foundation
 
-/// Pure Swift Persistent Store backing $persistentStore / $prefs.
-/// Replaces Go's Store (`bridge/mitm/store.go`).
-/// Persists key-value pairs as a JSON object in `<home>/engine/store.json`.
+/// Pure Swift persistent store backing $persistentStore / $prefs — Go's Store (bridge/mitm/store.go) ported:
+/// a JSON object of strings in `<home>/engine/store.json` that the app can view and edit too.
+///
+///   - reads follow the file: when its modification date changed (the app's 持久化存储 editor, a restore) and this
+///     process has no unflushed changes, it is re-read before answering;
+///   - writes change memory at once and reach the file within `flushDelay` (coalesced);
+///   - a flush whose file changed meanwhile re-reads it and re-applies only the keys this process changed, so
+///     neither side's edits are lost;
+///   - a file that exists but does not decode (twice, 50 ms apart — a writer may be mid-replace) is kept as
+///     store.json.bad and never overwritten by an empty store.
 public final class NCPersistentStore {
     public static let shared = NCPersistentStore()
 
+    static var flushDelay: TimeInterval = 0.25
+
     private let lock = NSLock()
-    private var data: [String: String] = [:]
-    private var fileURL: URL?
-    private var saveTimer: DispatchSourceTimer?
+    private var data: [String: String]?
+    private var mtime: Date?
+    /// Keys changed since the last flush (nil value = deleted).
+    private var pending: [String: String?] = [:]
+    private var cleared = false
+    private var timerArmed = false
+    private let fileURL: URL
     private let queue = DispatchQueue(label: "nc.persistentstore", qos: .utility)
-    private var dirty = false
 
     init(homeURL: URL = AppShared.homeURL) {
-        let storeURL = homeURL.appendingPathComponent("engine/store.json")
-        self.fileURL = storeURL
-        load()
+        fileURL = homeURL.appendingPathComponent("engine/store.json")
     }
 
-    private func load() {
-        guard let url = fileURL,
-              let raw = try? Data(contentsOf: url),
-              let dict = (try? JSONSerialization.jsonObject(with: raw)) as? [String: String] else {
-            return
-        }
-        lock.lock()
-        data = dict
-        lock.unlock()
+    /// Test hook: a store on any file.
+    init(fileURL: URL) {
+        self.fileURL = fileURL
     }
+
+    // MARK: file
+
+    private func modDate() -> Date? {
+        (try? FileManager.default.attributesOfItem(atPath: fileURL.path)[.modificationDate]) as? Date
+    }
+
+    private enum ReadResult { case missing, ok([String: String], Date?), bad }
+
+    private func readOnce() -> ReadResult {
+        let fm = FileManager.default
+        guard fm.fileExists(atPath: fileURL.path) else { return .missing }
+        let mt = modDate()
+        guard let raw = try? Data(contentsOf: fileURL) else { return .missing }
+        if raw.isEmpty { return .ok([:], mt) }
+        guard let obj = try? JSONSerialization.jsonObject(with: raw), let dict = obj as? [String: Any] else { return .bad }
+        var out: [String: String] = [:]
+        for (k, v) in dict {
+            if let s = v as? String { out[k] = s } else if !(v is NSNull) { out[k] = "\(v)" }
+        }
+        return .ok(out, mt)
+    }
+
+    /// nil: the file is unreadable (quarantined); keep what is in memory.
+    private func readFile() -> ReadResult {
+        var r = readOnce()
+        if case .bad = r {
+            Thread.sleep(forTimeInterval: 0.05)
+            r = readOnce()
+            if case .bad = r {
+                let bad = fileURL.appendingPathExtension("bad")
+                try? FileManager.default.removeItem(at: bad)
+                try? FileManager.default.moveItem(at: fileURL, to: bad)
+            }
+        }
+        return r
+    }
+
+    /// Lock held. Re-reads the file when it changed and nothing of ours waits for a flush.
+    private func loadLocked() {
+        if data != nil && (!pending.isEmpty || cleared) { return }
+        let mt = modDate()
+        if data != nil && mt == mtime { return }
+        switch readFile() {
+        case .ok(let m, let d): data = m; mtime = d
+        case .missing: if data == nil { data = [:] }; mtime = nil
+        case .bad: if data == nil { data = [:] }
+        }
+    }
+
+    // MARK: API
 
     public func read(key: String) -> String? {
-        lock.lock()
-        defer { lock.unlock() }
-        return data[key]
+        lock.lock(); defer { lock.unlock() }
+        loadLocked()
+        return data?[key]
     }
 
     @discardableResult
     public func write(key: String, value: String) -> Bool {
         lock.lock()
-        data[key] = value
-        dirty = true
+        loadLocked()
+        data?[key] = value
+        pending[key] = .some(value)
         lock.unlock()
         scheduleFlush()
         return true
@@ -49,8 +105,9 @@ public final class NCPersistentStore {
     @discardableResult
     public func delete(key: String) -> Bool {
         lock.lock()
-        data.removeValue(forKey: key)
-        dirty = true
+        loadLocked()
+        data?.removeValue(forKey: key)
+        pending[key] = .some(nil)
         lock.unlock()
         scheduleFlush()
         return true
@@ -59,50 +116,54 @@ public final class NCPersistentStore {
     @discardableResult
     public func clear() -> Bool {
         lock.lock()
-        data.removeAll()
-        dirty = true
+        data = [:]
+        pending.removeAll()
+        cleared = true
         lock.unlock()
         scheduleFlush()
         return true
     }
 
+    /// Writes our changes, merged onto the file as it is now.
     public func flush() {
         lock.lock()
-        guard dirty, let url = fileURL else {
-            lock.unlock()
-            return
+        defer { lock.unlock() }
+        guard !pending.isEmpty || cleared else { return }
+        var base = data ?? [:]
+        if modDate() != mtime {
+            // the app edited the file: its content + only the keys we changed
+            switch readFile() {
+            case .ok(let m, _): base = cleared ? [:] : m
+            case .missing: base = [:]
+            case .bad: break // keep memory; the bad file was moved aside
+            }
+            for (k, v) in pending {
+                if let v { base[k] = v } else { base.removeValue(forKey: k) }
+            }
         }
-        let copy = data
-        dirty = false
-        lock.unlock()
-
         do {
-            let dir = url.deletingLastPathComponent()
-            try FileManager.default.createDirectory(at: dir, withIntermediateDirectories: true)
-            let raw = try JSONSerialization.data(withJSONObject: copy, options: [.sortedKeys, .prettyPrinted])
-            try raw.write(to: url, options: .atomic)
+            try FileManager.default.createDirectory(at: fileURL.deletingLastPathComponent(), withIntermediateDirectories: true)
+            let raw = try JSONSerialization.data(withJSONObject: base, options: [.sortedKeys])
+            try raw.write(to: fileURL, options: .atomic)   // unique temp file + rename (never a shared .tmp)
+            data = base
+            mtime = modDate()
+            pending.removeAll()
+            cleared = false
         } catch {
-            // Silently ignore disk write error
+            StartupLog.write("persistent store: write failed: \(error.localizedDescription)")
         }
     }
 
     private func scheduleFlush() {
-        queue.async { [weak self] in
+        lock.lock()
+        let arm = !timerArmed
+        timerArmed = true
+        lock.unlock()
+        guard arm else { return }
+        queue.asyncAfter(deadline: .now() + Self.flushDelay) { [weak self] in
             guard let self else { return }
-            self.lock.lock()
-            if self.saveTimer == nil {
-                let t = DispatchSource.makeTimerSource(queue: self.queue)
-                t.schedule(deadline: .now() + 0.25)
-                t.setEventHandler { [weak self] in
-                    self?.flush()
-                    self?.lock.lock()
-                    self?.saveTimer = nil
-                    self?.lock.unlock()
-                }
-                t.resume()
-                self.saveTimer = t
-            }
-            self.lock.unlock()
+            self.lock.lock(); self.timerArmed = false; self.lock.unlock()
+            self.flush()
         }
     }
 }

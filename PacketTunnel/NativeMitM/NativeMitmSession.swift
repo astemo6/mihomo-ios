@@ -71,7 +71,10 @@ enum NativeMitmRuntime {
 
     /// A native engine switch: an explicit app-group value wins, else ON while selective mode is installed.
     /// `explicit` is the cached app-group value (nil: key absent).
-    static func engineSwitch(explicit: Bool?) -> Bool { explicit ?? selectiveEngines }
+    /// feat/native-core-eval: in the Go-free tunnel the native rewrite / body / script engines are the only ones — an
+    /// engine "off" would leave its rules unapplied with nothing behind it, so they are always on (an app-group value
+    /// left over from the Go builds is ignored).
+    static func engineSwitch(explicit: Bool?) -> Bool { true }
 
     /// Reads an engine's app-group key (nil: absent).
     static func explicitSwitch(_ key: String) -> Bool? {
