@@ -3,7 +3,6 @@
 // `nativeMemGovernor` switch is on.
 
 import Foundation
-import Libmihomo
 
 /// phys_footprint + os_proc_available_memory (Shared/Startup.swift ProcessMemory).
 struct ProcessMemorySampler: NativeMemorySampling {
@@ -12,16 +11,14 @@ struct ProcessMemorySampler: NativeMemorySampling {
     }
 }
 
-/// The Go side through gomobile.
-final class LibmihomoGoMemoryControl: GoMemoryControlling {
-    func setActive(_ on: Bool) { LibmihomoSetNativeMemoryGovernor(on) }
-    func info() -> GoMemoryInfo? {
-        try? JSONDecoder().decode(GoMemoryInfo.self, from: Data(LibmihomoNativeGoMemory().utf8))
-    }
-    func setLimit(_ bytes: Int64) -> Int64 { LibmihomoNativeGovernLimit(bytes) }
-    func freeOSMemory() -> Bool { LibmihomoNativeFreeOSMemory() }
-    func shed(level: Int, flags: GoShedFlags, reason: String) -> String { LibmihomoNativeShed(level, flags.rawValue, reason) }
-    func shedConnections(percent: Int) -> Int { LibmihomoShedConnections(percent) }
+/// Pure Swift memory control (no-op stand-in when Go is not running).
+final class NativeNoopMemoryControl: GoMemoryControlling {
+    func setActive(_ on: Bool) {}
+    func info() -> GoMemoryInfo? { GoMemoryInfo() }
+    func setLimit(_ bytes: Int64) -> Int64 { bytes }
+    func freeOSMemory() -> Bool { true }
+    func shed(level: Int, flags: GoShedFlags, reason: String) -> String { "" }
+    func shedConnections(percent: Int) -> Int { 0 }
 }
 
 extension NativeMemoryGovernor {
@@ -107,7 +104,7 @@ final class NativeMemoryGovernorSampler {
 
     /// Production: process readings, Go bridge, standard reclaimers, logs to the startup log.
     static func makeDefault(onSample: @escaping (UInt64, Int) -> Void) -> NativeMemoryGovernorSampler {
-        let go = LibmihomoGoMemoryControl()
+        let go = NativeNoopMemoryControl()
         let g = NativeMemoryGovernor(memory: ProcessMemorySampler(), go: go, reclaimers: NativeMemoryGovernor.standardReclaimers(),
                                      log: { StartupLog.write($0) })
         return NativeMemoryGovernorSampler(governor: g, go: go, onSample: onSample)
@@ -168,7 +165,6 @@ final class NativeMemoryGovernorSampler {
         guard !stopped else { return }
         let fp = ProcessMemory.footprintBytes()
         let avail = ProcessMemory.availableBytes()
-        LibmihomoRecordMemorySample(Int64(fp), Int64(avail))
         governor.tick()
         onSample(fp, avail)
         // the governor's own line next to Go's periodic memory line: every 5 min from `elevated`, else 30 min
