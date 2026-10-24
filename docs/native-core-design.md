@@ -73,3 +73,20 @@
   的 C 库），属独立立项量级，不在本批次内。连接器对 tuic 类型返回明确的
   unsupported 说明，不静默失败。
 - Hysteria2 的 QUIC datagram 绑定方式仍待真机验证（见 NCHysteria2 注释）。
+- **WireGuard 暂不可行（架构量级）**：WireGuard 出站是包模式（整条 IP 层），
+  需要在出站内部再跑一个完整的 TCP/IP 栈/虚拟网卡把流式连接封成 IP 包，
+  与现有流式出站抽象不是一层东西；且握手噪声协议 + Curve25519 之外还要
+  处理 keepalive/漫游等会话状态。属独立立项量级，不在本批次内，连接器
+  返回 unsupported。
+- **VLESS encryption 暂不可行（部署目标）**：该特性基于 ML-KEM-768 后量子
+  密钥封装；CryptoKit 的 ML-KEM 是 iOS 26 才有的 API，本项目部署目标为
+  iOS 16/17，无系统实现；纯 Swift 实现 ML-KEM 风险与体量都不适合在本
+  批次内仓促引入。等部署目标上移或另行立项后再做。
+- **Mieru 未实现**：使用率极低的私有协议，未排期；连接器返回 unsupported。
+- **SSR 为部分覆盖**：已实现流密码全集（AES-CTR/CFB、ChaCha20 原始/IETF、
+  XChaCha20、RC4-MD5）、protocol 的 origin 与 auth_sha1_v4、obfs 的 plain
+  与 http_simple（TCP+UDP）。未实现：auth_aes128_md5/sha1、auth_chain_a/b、
+  obfs 的 tls1.2_ticket_auth / http_post / random_head——命中这些组合时
+  连接器返回明确的 unsupported 说明。
+- **SS 的 simple-obfs 插件（plugin: obfs）未实现**：与 SSR obfs 是两套东西，
+  后续可单独补 http 模式。

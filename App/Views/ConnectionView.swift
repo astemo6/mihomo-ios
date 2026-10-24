@@ -194,7 +194,7 @@ struct ConnectionView: View {
                         needsReconnect = true
                     }
                 if nativeCore {
-                    Text("原生内核：下次连接时用 Swift/lwIP 原生数据面替代 Go 内核（协议/规则/DNS 与 mihomo 一致，配置照常生效）；启动失败会自动回退 Go 内核。实验阶段（v1）：已接入 SS/VMess/VLESS/Trojan/SOCKS5/HTTP/Hysteria2 出站与 UDP 转发、REALITY（手写 TLS 1.3）、控制器兼容（节点/连接/流量/测速）、VLESS Vision；TUIC、WireGuard 与 MitM 尚未接入，异常时关掉此开关重连即可。")
+                    Text("原生内核：下次连接时用 Swift/lwIP 原生数据面替代 Go 内核（协议/规则/DNS 与 mihomo 一致，配置照常生效）；启动失败会自动回退 Go 内核。实验阶段：已接入 SS（含 2022）、VMess/VLESS/Trojan/SOCKS5/HTTP/Hysteria2/Snell/AnyTLS/SSR 出站与 UDP 转发、REALITY（手写 TLS 1.3）、VLESS Vision、gRPC/h2 传输、sing-mux、链式代理、TLS 指纹、控制器兼容（节点/连接/流量/测速）；TUIC、WireGuard 受平台 API 限制尚未接入（见仓库设计文档），MitM 不属原生内核范围，异常时关掉此开关重连即可。")
                         .font(.footnote).foregroundStyle(.secondary)
                 }
             }
