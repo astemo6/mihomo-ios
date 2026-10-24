@@ -62,6 +62,8 @@ targets:
       - path: PacketTunnel/NativeMitM/NativeMitmSession.swift
       # feat/s2-tls: native MitM TLS front (B7), in the app only for UnitTests/NativeMitmTLSTests.swift; never registered there.
       - path: PacketTunnel/NativeMitM/TLS
+      # native MitM stage 2 lane http (B8a): pure-Foundation HTTP/1.1 parser, also in the app for UnitTests/NativeMitmHTTPTests.
+      - path: PacketTunnel/NativeMitM/HTTP
     configFiles:
       Debug: Config/App.signing.xcconfig
       Release: Config/App.signing.xcconfig
