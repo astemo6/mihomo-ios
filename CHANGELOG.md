@@ -4,7 +4,7 @@
 
 ## 未发布
 
-- **（开发中，默认关闭）原生 MitM 第 3b 期：请求体 / 响应体改写在 Swift 里完成**：开关 `nativeMitmBody`（需同时打开 `nativeMitmRewrite`）。打开后，原生解密的 HTTP/1.1 请求里，Go 判定可移植的 body 改写规则（Surge / QX / Loon / Egern 的正则替换、Loon `response-body-json-del/replace/add`、jq 中 `路径 = 常量`、`del(路径, …)` 及它们的 `|` 组合）直接在隧道的 Swift 代码里执行：读入整个请求体或响应体（256 KB 以内、长度已知），按 Go 的规则解压 gzip / deflate / br、依次执行规则、以新的 Content-Length 发出，结果与 Go 逐字节相同，不再经过 Go 的 flow、管道和请求 goroutine。凡是不能确定与 Go 一致的情况（正则 Go 走 regexp2、`\b`、`$`、嵌套重复；body 不是 UTF-8 或不是 JSON；jq 用到 `map` / `select` / `if` 等或运行出错；编码解不开或不在支持之列；超过 256 KB、chunked、HEAD / 204；正则运行超过 250 ms），整个请求交还 Go 原样处理，行为与现在完全一样。一致性测试：2834 个 Go 生成的真实交换（含用户的 QX 规则集），Swift 原生处理且逐字节相同 955 个，交还 Go 1879 个，不一致 0；Go 侧每个原生处理的请求少分配约 0.2–1.9 MB（视 body 大小和规则类型）、少 9–13 次桥接调用和 2 个短命 goroutine。
+- **（开发中，默认关闭）原生 MitM 第 3b 期：请求体 / 响应体改写在 Swift 里完成**：开关 `nativeMitmBody`（需同时打开 `nativeMitmRewrite`）。打开后，原生解密的 HTTP/1.1 请求里，Go 判定可移植的 body 改写规则（Surge / QX / Loon / Egern 的正则替换、Loon `response-body-json-del/replace/add`、jq 中 `路径 = 常量`、`del(路径, …)`、`路径 |= map(select(条件))`（条件为 or / and / not、与字符串/布尔/null 比较、`has`）及它们的 `|` 组合）直接在隧道的 Swift 代码里执行：读入整个请求体或响应体（256 KB 以内、长度已知），按 Go 的规则解压 gzip / deflate / br、依次执行规则、以新的 Content-Length 发出，结果与 Go 逐字节相同，不再经过 Go 的 flow、管道和请求 goroutine。凡是不能确定与 Go 一致的情况（正则 Go 走 regexp2、`\b`、`$`、嵌套重复；body 不是 UTF-8 或不是 JSON；jq 用到数字比较、`test`、`[]` 迭代、`if` 等或运行出错；编码解不开或不在支持之列；超过 256 KB、chunked、HEAD / 204；正则运行超过 250 ms），整个请求交还 Go 原样处理，行为与现在完全一样。一致性测试（iOS 模拟器）：3195 个 Go 生成的交换（含用户的 QX 规则集：其中正则规则 28/28、jq 29/32、json 2/2 可在 Swift 执行），Swift 原生处理且逐字节相同 1314 个，交还 Go 1881 个（多为有意构造的非 JSON、类型不符、损坏编码、超大或 chunked 响应），不一致 0；Go 侧每个原生处理的请求少分配约 0.2–1.9 MB（视 body 大小和规则类型）、少 9–13 次桥接调用和 2 个短命 goroutine。
 
 ## v0.19.22（build 317，2026-10-24）
 
