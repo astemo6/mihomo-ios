@@ -553,7 +553,30 @@ func (rc *runCtx) requestStop(reason int32) {
 	}
 }
 
-func (rc *runCtx) code() string { return rc.src }
+// reloadCode is the code a native engine evaluates when it lost the script's context ("missing" from Begin,
+// e.g. after JavaScriptCore was restarted): the same transformation as the first compile (scriptCode: BOM
+// removed, a native Egern module adapted). rc.src is "" when the program came from the cache by file
+// signature (programFor did not read the file), so the source is read again then — evaluating "" would load
+// an empty script that never calls $done.
+func (rc *runCtx) reloadCode() (string, error) {
+	src := rc.src
+	if src == "" && rc.script != nil {
+		switch {
+		case rc.script.Source != nil:
+			src = string(rc.script.Source)
+		case rc.script.Path != "" && rc.e != nil && rc.e.res != nil:
+			b, err := rc.e.res.Get(rc.script.Path, rc.script.UpdateInterval)
+			if err != nil {
+				return "", fmt.Errorf("加载脚本失败：%w", err)
+			}
+			src = string(b)
+		}
+	}
+	if src == "" {
+		return "", errors.New("脚本源码为空，无法重新载入")
+	}
+	return scriptCode([]byte(src))
+}
 
 // ---- NativeRun (also used by the goja primitives) ----
 

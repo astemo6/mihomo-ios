@@ -120,7 +120,11 @@ func (e nativeEngine) begin(rc *runCtx, c *compiled, setup string) error {
 	res := e.guard(rc, func() string { return e.n.Begin(rc, c.key, setup) })
 	if res == "missing" {
 		// the engine dropped the context on its own (restart): load again once
-		if err := e.compile(c, rc.name, rc.code()); err != nil {
+		code, err := rc.reloadCode()
+		if err != nil {
+			return err
+		}
+		if err := e.compile(c, rc.name, code); err != nil {
 			return err
 		}
 		res = e.guard(rc, func() string { return e.n.Begin(rc, c.key, setup) })
