@@ -43,6 +43,7 @@
 | 13 | 原生 MitM Go 侧（body 通道、TLS 交接、relay）已在 `feat/native-mitm` 4fec47b，发版后推送并交给 B 线 | 4fec47b → 07698ee | ✅ rebase 到 v0.19.22 e33f838，合入 B1/B2/B4/B6；推为 `test/native-mitm` 07698ee，Go（含 `-race`）+ JSC 一致性 69/69 + NativeBodyStoreTests 8/8 全绿（feat/native-mitm 仍只在本地）。与集成分支的合并：仅 `bridge/mitm/handler.go` 一处两边都保留 |
 | 14 | JavaScriptCore 丢失脚本上下文后重新载入：以前用未处理的源码（不去 BOM、不转换 Egern 脚本），按文件签名命中缓存时甚至载入空脚本 | 1249bde | ✅ 已合入集成分支，Go 测试 TestNativeReloadAfterMissingContext；test/home-egern-v2 CI 绿，随下一版发布 |
 | 15 | v0.19.23 集成：喜马拉雅内存（小 body ≤256 KB 按大小准入、拒绝前先回收、严重级别清理更克制、GOMEMLIMIT 防抖底线、Go/JSC 内存分项诊断、JSC 真回收）+ `feat/native-mitm` 第一期（原生 body 通道默认关闭，回退 Go） | 897fffd, 975e105, 07698ee → 集成 55cdee4 | ✅ build 330 已发布（2026-10-24，main bd3f9dd，同版并入原生 MitM 第 2–3 期代码，开关全部默认关闭）；待真机看诊断 |
+| 16 | Go 释放的内存及时还给 iOS（真机 v0.19.23：喜马拉雅那阵过后 2 个连接仍占 41 MB，Go 存活约 14 MB）：每秒看一次 Go 驻留内存，一阵过后（比上次归还多 2 MB 且 Go 连续 2 秒无分配）回收归还一次，带退避；开关 `goPageReturn.enabled` 默认开。核实：iOS 对 `MADV_FREE_REUSABLE` 立即计入，Tailscale 的 mprotect 补丁无额外效果，`GODEBUG=madvdontneed` 在 iOS 无效 | f53cdb8, 7639bed, cdd1da5 → main 0a426c2 | ✅ 合入 main（未发版）；NativeMitmMemoryTests：一阵结束 5 s / 10 s 后 +5.5→+2.5 MB（dark）、+4.7→+2.5 MB（light），峰值不变；Self-test 40102645877 + 40105591184（Go 绿）；待随下一版发布后真机看诊断里的 "page return" |
 
 ## B 线：原生 MitM / 重写 / 脚本（按类别拆分，可多人并行）
 
