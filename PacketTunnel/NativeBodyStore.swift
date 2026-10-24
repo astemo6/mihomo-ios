@@ -24,9 +24,9 @@ final class NativeBodyStore: NSObject, LibmihomoNativeBodyStoreProtocol, JSCNati
     /// Refuse new bodies below this much available memory (Go's dynamic budget normally refuses first).
     private static let availFloor = 6 << 20
 
-    private enum Codec { case identity, gzip, deflate, brotli }
+    fileprivate enum Codec { case identity, gzip, deflate, brotli }
 
-    private final class Body {
+    fileprivate final class Body {
         let codec: Codec
         let limit: Int
         let lock = NSLock()
@@ -36,6 +36,8 @@ final class NativeBodyStore: NSObject, LibmihomoNativeBodyStoreProtocol, JSCNati
         var err = ""
         var failed = false
         var finished = false
+        /// Set by `free` (a caller still holding the object from before sees a dead handle).
+        var gone = false
         // decoder state
         var stream: UnsafeMutablePointer<compression_stream>?
         var streamEnded = false
@@ -43,6 +45,13 @@ final class NativeBodyStore: NSObject, LibmihomoNativeBodyStoreProtocol, JSCNati
         var consumed = 0
         var inHeader = true
         var trailerLeft = 0
+        /// gzip member being decoded: where its 8-byte trailer starts in `raw`, CRC-32 and size of its output
+        /// (checked against the trailer like Go's compress/gzip, so a damaged body never reaches a script).
+        var trailerStart = 0
+        var crc: UInt32 = 0
+        var memberSize = 0
+        /// gzip: bytes after a complete member that are not another member — ignored to the end.
+        var ignoreRest = false
 
         init(codec: Codec, limit: Int, hint: Int) {
             self.codec = codec
@@ -106,10 +115,9 @@ final class NativeBodyStore: NSObject, LibmihomoNativeBodyStoreProtocol, JSCNati
     }
 
     func write(_ h: Int64, b data: Data?) -> String {
-        guard let b = body(h) else { return "gone" }
-        guard let data, !data.isEmpty else { return "" }
-        b.lock.lock()
+        guard let b = locked(h) else { return "gone" }
         defer { b.lock.unlock() }
+        guard let data, !data.isEmpty else { return "" }
         if b.failed { return b.err == "too-big" ? "too-big" : "decode: " + b.err }
         if b.finished { return "internal: write after finish" }
         if b.raw.count + data.count > b.limit && (b.codec == .identity || b.raw.count + data.count > Self.rawCap(b.limit)) {
@@ -122,8 +130,7 @@ final class NativeBodyStore: NSObject, LibmihomoNativeBodyStoreProtocol, JSCNati
     }
 
     func finish(_ h: Int64) -> Int64 {
-        guard let b = body(h) else { return -3 }
-        b.lock.lock()
+        guard let b = locked(h) else { return -3 }
         defer { b.lock.unlock() }
         if b.failed { return b.err == "too-big" ? -2 : -1 }
         if b.codec != .identity {
@@ -140,22 +147,19 @@ final class NativeBodyStore: NSObject, LibmihomoNativeBodyStoreProtocol, JSCNati
     }
 
     func err(_ h: Int64) -> String {
-        guard let b = body(h) else { return "gone" }
-        b.lock.lock()
+        guard let b = locked(h) else { return "gone" }
         defer { b.lock.unlock() }
         return b.err
     }
 
     func len(_ h: Int64, raw: Bool) -> Int64 {
-        guard let b = body(h) else { return -1 }
-        b.lock.lock()
+        guard let b = locked(h) else { return -1 }
         defer { b.lock.unlock() }
         return Int64(raw ? b.raw.count : b.decoded.count)
     }
 
     func read(_ h: Int64, raw: Bool, off: Int64, n: Int64) -> Data? {
-        guard let b = body(h) else { return nil }
-        b.lock.lock()
+        guard let b = locked(h) else { return nil }
         defer { b.lock.unlock() }
         let src = raw ? b.raw : b.decoded
         let o = Int(clamping: off)
@@ -172,6 +176,7 @@ final class NativeBodyStore: NSObject, LibmihomoNativeBodyStoreProtocol, JSCNati
         lock.unlock()
         if let b {
             b.lock.lock()
+            b.gone = true
             b.closeStream()
             b.raw = Data()
             b.dec = Data()
@@ -196,8 +201,7 @@ final class NativeBodyStore: NSObject, LibmihomoNativeBodyStoreProtocol, JSCNati
     // MARK: JSCNativeBlobProvider (JavaScriptCore engine, on the thread running JavaScript)
 
     func withDecoded(_ h: Int64, _ body: (UnsafeRawBufferPointer) -> Void) -> Bool {
-        guard let b = self.body(h) else { return false }
-        b.lock.lock()
+        guard let b = locked(h) else { return false }
         defer { b.lock.unlock() }
         guard !b.failed else { return false }
         b.decoded.withUnsafeBytes { body($0) }
@@ -205,12 +209,16 @@ final class NativeBodyStore: NSObject, LibmihomoNativeBodyStoreProtocol, JSCNati
     }
 
     func text(_ h: Int64) -> String? {
-        guard let b = body(h) else { return nil }
-        b.lock.lock()
+        guard let b = locked(h) else { return nil }
         defer { b.lock.unlock() }
+        guard !b.failed else { return nil }
         // Valid UTF-8 only: invalid input goes to the Go host, whose U+FFFD replacement is the reference
-        // (strings.ToValidUTF8 — one U+FFFD per run of invalid bytes).
-        return String(data: b.decoded, encoding: .utf8)
+        // (strings.ToValidUTF8 — one U+FFFD per run of invalid bytes). Not String(data:encoding:), which drops a
+        // leading BOM that Go's string(b) keeps: decode leniently, then accept only an exact round trip.
+        return b.decoded.withUnsafeBytes { (buf: UnsafeRawBufferPointer) -> String? in
+            let s = String(decoding: buf, as: UTF8.self)
+            return s.utf8.elementsEqual(buf) ? s : nil
+        }
     }
 
     func store(_ bytes: UnsafeRawBufferPointer) -> Int64 {
@@ -231,6 +239,17 @@ final class NativeBodyStore: NSObject, LibmihomoNativeBodyStoreProtocol, JSCNati
         lock.lock()
         defer { lock.unlock() }
         return bodies[h]
+    }
+
+    /// The body for h, locked; nil (not locked) when unknown or freed meanwhile. Pair with `b.lock.unlock()`.
+    private func locked(_ h: Int64) -> Body? {
+        guard let b = body(h) else { return nil }
+        b.lock.lock()
+        if b.gone {
+            b.lock.unlock()
+            return nil
+        }
+        return b
     }
 
     private func refuse() -> Int64 {
@@ -285,11 +304,20 @@ final class NativeBodyStore: NSObject, LibmihomoNativeBodyStoreProtocol, JSCNati
                 if b.streamEnded { return "" } // adler32 trailer and anything after it are ignored
                 return pump(b, finalize: finalize)
             case .gzip:
+                if b.ignoreRest {
+                    b.consumed = b.raw.count
+                    return ""
+                }
                 if b.trailerLeft > 0 {
                     let take = min(b.trailerLeft, b.raw.count - b.consumed)
                     b.consumed += take
                     b.trailerLeft -= take
                     if b.trailerLeft > 0 { return finalize ? fail2(b, "truncated gzip trailer") : "" }
+                    let t = b.raw.startIndex + b.trailerStart
+                    if Self.le32(b.raw, t) != b.crc { return fail2(b, "gzip checksum mismatch") }
+                    if Self.le32(b.raw, t + 4) != UInt32(truncatingIfNeeded: b.memberSize) {
+                        return fail2(b, "gzip size mismatch")
+                    }
                     b.inHeader = true // another member may follow (multi-member gzip)
                 }
                 if b.inHeader {
@@ -300,21 +328,35 @@ final class NativeBodyStore: NSObject, LibmihomoNativeBodyStoreProtocol, JSCNati
                     }
                     switch Self.gzipHeaderLength(b.raw, from: b.consumed) {
                     case .some(-1):
-                        if b.streamEnded { b.consumed = b.raw.count; return "" } // trailing garbage after a member
+                        if b.streamEnded { // trailing garbage after a member
+                            b.ignoreRest = true
+                            b.consumed = b.raw.count
+                            return ""
+                        }
                         return fail2(b, "invalid gzip header")
                     case .some(let n):
                         b.consumed += n
                         b.inHeader = false
                         b.streamEnded = false
+                        b.crc = 0
+                        b.memberSize = 0
                         b.closeStream()
                         guard Self.startStream(b, COMPRESSION_ZLIB) else { return "internal: stream init" }
                     case .none:
-                        return finalize ? fail2(b, "truncated gzip header") : ""
+                        if !finalize { return "" }
+                        // one stray byte after a complete member cannot start a header: ignored like longer garbage
+                        if b.streamEnded && b.raw.count - b.consumed < 2 {
+                            b.ignoreRest = true
+                            b.consumed = b.raw.count
+                            return ""
+                        }
+                        return fail2(b, "truncated gzip header")
                     }
                 }
                 let r = pump(b, finalize: finalize)
                 if !r.isEmpty { return r }
                 if b.streamEnded {
+                    b.trailerStart = b.consumed
                     b.trailerLeft = 8 // CRC32 + ISIZE
                     continue
                 }
@@ -361,6 +403,7 @@ final class NativeBodyStore: NSObject, LibmihomoNativeBodyStoreProtocol, JSCNati
         while true {
             s.pointee.dst_ptr = scratch
             s.pointee.dst_size = Self.scratchSize
+            let srcBefore = s.pointee.src_size
             let status = compression_stream_process(s, flags)
             let produced = Self.scratchSize - s.pointee.dst_size
             if produced > 0 {
@@ -369,6 +412,10 @@ final class NativeBodyStore: NSObject, LibmihomoNativeBodyStoreProtocol, JSCNati
                     return "too-big"
                 }
                 b.dec.append(scratch, count: produced)
+                if b.codec == .gzip {
+                    b.crc = Self.crc32(b.crc, scratch, produced)
+                    b.memberSize += produced
+                }
             }
             switch status {
             case COMPRESSION_STATUS_END:
@@ -377,11 +424,32 @@ final class NativeBodyStore: NSObject, LibmihomoNativeBodyStoreProtocol, JSCNati
             case COMPRESSION_STATUS_OK:
                 // more to do while input remains or the output buffer came back full
                 if s.pointee.src_size == 0 && produced < Self.scratchSize { return "" }
+                // no progress at all: wait for more input (finish reports a stream that never ended)
+                if produced == 0 && s.pointee.src_size == srcBefore { return "" }
             default:
                 fail(b, "corrupt compressed data")
                 return "decode: corrupt compressed data"
             }
         }
+    }
+
+    private static func le32(_ d: Data, _ i: Int) -> UInt32 {
+        UInt32(d[i]) | UInt32(d[i + 1]) << 8 | UInt32(d[i + 2]) << 16 | UInt32(d[i + 3]) << 24
+    }
+
+    /// CRC-32 (IEEE, reflected, as gzip uses), table built once.
+    private static let crcTable: [UInt32] = (0..<256).map { (n: Int) -> UInt32 in
+        var c = UInt32(n)
+        for _ in 0..<8 { c = c & 1 != 0 ? 0xEDB8_8320 ^ (c >> 1) : c >> 1 }
+        return c
+    }
+
+    private static func crc32(_ crc: UInt32, _ p: UnsafePointer<UInt8>, _ n: Int) -> UInt32 {
+        var c = ~crc
+        crcTable.withUnsafeBufferPointer { t in
+            for i in 0..<n { c = t[Int((c ^ UInt32(p[i])) & 0xff)] ^ (c >> 8) }
+        }
+        return ~c
     }
 
     /// Length of the gzip member header at raw[from...]: nil = need more bytes, -1 = not a gzip header.
