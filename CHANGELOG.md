@@ -15,6 +15,7 @@
   - 不支持的情况在脚本运行之前自动交回 Go，结果与原来一致：上游响应体是分块传输 / 长度未知、编码不是 gzip / deflate / br、不需要响应体的脚本排在需要响应体的脚本之前、请求阶段的脚本（http-request）、开启了抓包记录响应体等。
   - 一致性测试（同一个 Go 引擎、同一个 JavaScriptCore，同一批请求分别经 Go 和原生层处理，比较决定、响应体、脚本日志和请求记录）覆盖 Surge / Loon / Quantumult X / Egern 写法、二进制模式、max-size、超时、argument、脚本出错、中止、`$httpClient`、gzip / deflate / br、HEAD / 204 / 304 等。
   - 每个原生处理的脚本响应在 Go 侧少分配约 100 KB（另加整个响应体经 gomobile 推入 Go 的一份拷贝），运行期间不再新建 goroutine，响应体不再经过 Go。
+- **原生 HTTP/2 解密（实验，默认关闭）**：原生 MitM 以前只会 HTTP/1.1，App 用 HTTP/2 连接（以及只支持 HTTP/2 的 gRPC 客户端）一律交给 Go 处理。现在原生前端可以直接用 HTTP/2 与 App 通信：HPACK 头部压缩、多路复用、流量控制都在 Swift 里完成，每个请求仍由 Go 决定怎样重写、拒绝、重定向、本地应答和运行脚本（与 HTTP/1.1 用同一套接口），到源站按对方支持的协议走 HTTP/2（同一主机共用一条连接）或 HTTP/1.1。开关 `nativeMitmH2` 默认关闭；关闭时 HTTP/2 连接和以前一样由 Go 处理。单个请求遇到不支持的写法（扩展 CONNECT / HTTP/2 上的 WebSocket、CONNECT、格式错误的请求）只重置这一个请求，不影响同一连接上的其他请求；同一连接上最多同时 16 个请求，每个请求最多缓存 64 KB、每条连接 256 KB 未处理的数据；连续出现协议错误时本次运行自动改回 Go 处理。Go 侧估算：每条 HTTP/2 连接少 2 个 goroutine、约 60 KB 堆和 19 KB 栈，每个进行中的请求少 2 个 goroutine、约 45 KB 堆（原生时 Go 只保留约 2.5 KB 的请求状态，不常驻 goroutine）。
 
 ## v0.19.22（build 317，2026-10-24）
 

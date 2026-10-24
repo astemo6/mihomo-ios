@@ -9,7 +9,10 @@
 //   - the handshake fails before ready → no ServerHello reaches Go → Go's first-byte fallback (3 s) on the
 //     untouched buffer, and the failure kind goes to LibmihomoMitmNativeHandshakeFailed for pinning memory.
 // One listener per host: Network.framework fixes a listener's TLS identity at creation and has no public per-SNI
-// certificate callback. TLS: server identity = Go leaf, ALPN http/1.1 only, min TLS 1.2.
+// certificate callback. TLS: server identity = Go leaf, ALPN http/1.1, min TLS 1.2.
+// s3-h2: when native h2 is on (NativeH2Runtime, switch nativeMitmH2) and the client's offer (Go passes it to
+// listen) contains "h2", the connection goes to a second listener for the host offering "h2, http/1.1"; the
+// accepted stream reports the negotiated ALPN and the session layer picks NativeH2Session or NativeMitmSession.
 // Not registered here — the `wire` lane calls register() behind the runtime switch (NativeMitmRuntime.defaultOn, iOS 17+).
 
 import Foundation
@@ -67,7 +70,8 @@ final class MitmTLSFront: NSObject, LibmihomoNativeTLSFrontProtocol {
         // Admission (session cap + runtime switch, set by NativeMitmRuntime.install): decided here, before Go hands
         // the connection over, so a declined connection still takes the Go path.
         if let admit, !admit() { return 0 }
-        switch port(for: host) {
+        let h2 = NativeH2Runtime.enabled && (alpn ?? "").split(separator: ",").contains { $0.trimmingCharacters(in: .whitespaces) == "h2" }
+        switch port(for: host, h2: h2) {
         case .success(let p): return Int64(p)
         case .failure:
             unadmit?()
@@ -89,11 +93,14 @@ final class MitmTLSFront: NSObject, LibmihomoNativeTLSFrontProtocol {
     private var _unadmit: (() -> Void)?
 
     /// Port of the loopback TLS listener for host, created on first use.
-    func port(for rawHost: String) -> Result<UInt16, NativeTLSError> {
+    /// h2: the listener offering "h2, http/1.1" (a separate listener per host and ALPN set — Network.framework
+    /// fixes both at creation).
+    func port(for rawHost: String, h2: Bool = false) -> Result<UInt16, NativeTLSError> {
         let host = BoundedLRU<LeafIdentity>.normalize(rawHost)
+        let key = h2 ? host + "#h2" : host
         guard onAccept != nil else { return .failure(.listenerFailed) }
         lock.lock()
-        if let e = listeners[host], e.port != 0 {
+        if let e = listeners[key], e.port != 0 {
             e.lastUse = Date()
             lock.unlock()
             return .success(e.port)
@@ -110,30 +117,31 @@ final class MitmTLSFront: NSObject, LibmihomoNativeTLSFrontProtocol {
         case .success(let l): leaf = l
         case .failure(let e): return .failure(e)
         }
-        guard let entry = makeListener(host: host, identity: leaf.identity) else { return .failure(.listenerFailed) }
+        guard let entry = makeListener(host: host, key: key, identity: leaf.identity, h2: h2) else { return .failure(.listenerFailed) }
         lock.lock()
-        if let raced = listeners[host], raced.port != 0 { // another goroutine won
+        if let raced = listeners[key], raced.port != 0 { // another goroutine won
             lock.unlock()
             entry.listener.cancel()
             return .success(raced.port)
         }
-        listeners[host] = entry
+        listeners[key] = entry
         lock.unlock()
         return .success(entry.port)
     }
 
-    static func tlsOptions(identity: SecIdentity) -> NWProtocolTLS.Options? {
+    static func tlsOptions(identity: SecIdentity, h2: Bool = false) -> NWProtocolTLS.Options? {
         let tls = NWProtocolTLS.Options()
         let sec = tls.securityProtocolOptions
         guard let sid = sec_identity_create(identity) else { return nil }
         sec_protocol_options_set_local_identity(sec, sid)
+        if h2 { sec_protocol_options_add_tls_application_protocol(sec, "h2") }
         sec_protocol_options_add_tls_application_protocol(sec, "http/1.1")
         sec_protocol_options_set_min_tls_protocol_version(sec, .TLSv12)
         return tls
     }
 
-    private func makeListener(host: String, identity: SecIdentity) -> Entry? {
-        guard let tls = Self.tlsOptions(identity: identity) else { return nil }
+    private func makeListener(host: String, key: String, identity: SecIdentity, h2: Bool) -> Entry? {
+        guard let tls = Self.tlsOptions(identity: identity, h2: h2) else { return nil }
         let params = NWParameters(tls: tls, tcp: NWProtocolTCP.Options())
         params.requiredLocalEndpoint = NWEndpoint.hostPort(host: "127.0.0.1", port: .any)
         params.allowLocalEndpointReuse = true
@@ -147,7 +155,7 @@ final class MitmTLSFront: NSObject, LibmihomoNativeTLSFrontProtocol {
                 ready.signal()
             case .failed, .cancelled:
                 ready.signal()
-                self?.forget(host, listener: listener)
+                self?.forget(key, listener: listener)
             default:
                 break
             }
