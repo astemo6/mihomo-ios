@@ -139,7 +139,12 @@ func TestTimelineProbeAndPassive(t *testing.T) {
 	if rec == nil || rec.Pre || rec.FirstUp == nil || rec.FirstDown == nil {
 		t.Fatalf("record %+v", rec)
 	}
-	if rec.FirstUp.Lo < 40 || rec.FirstDown.Hi < 200 || rec.FirstDown.Hi-rec.FirstDown.Lo > 3*float64(tlTick/time.Millisecond) {
+	// The first upload happens ≥ 60 ms after the dial returned and the first download ≥ 210 ms (60 + 150 server
+	// delay). Bounds come from 20 ms tracker samples measured from the connection's own start, which can lag the
+	// dial's return by a few ms under -race (seen: up [37.9, 57.9] → its Hi is the bound that must hold), so allow
+	// one tick of slack on the upper bounds instead of a fixed lower bound.
+	tick := float64(tlTick / time.Millisecond)
+	if rec.FirstUp.Hi < 60-tick || rec.FirstDown.Hi < 210-tick || rec.FirstDown.Hi-rec.FirstDown.Lo > 3*tick {
 		t.Fatalf("bounds %+v %+v", rec.FirstUp, rec.FirstDown)
 	}
 }
