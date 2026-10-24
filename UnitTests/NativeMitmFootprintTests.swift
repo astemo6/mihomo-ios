@@ -42,7 +42,26 @@ enum FootprintProbe {
 final class NativeMitmFootprintTests: XCTestCase {
     static let n = 100
 
-    struct Sample { var fp: Int64; var malloc: Int64; var threads: Int64; var residual: Int64; var goHeap: Int64; var ok: Int }
+    struct Sample { var fp: Int64; var malloc: Int64; var threads: Int64; var residual: Int64; var goHeap: Int64; var ok: Int; var peak: Int64 = 0 }
+
+    /// Samples phys_footprint every 5 ms on its own thread until stopped; the maximum seen.
+    final class PeakSampler {
+        private let lock = NSLock()
+        private var running = true
+        private var maxFP: UInt64 = 0
+        init() {
+            maxFP = ProcessMemory.footprintBytes()
+            Thread.detachNewThread { [self] in
+                while true {
+                    let f = ProcessMemory.footprintBytes()
+                    lock.lock(); maxFP = Swift.max(maxFP, f); let go = running; lock.unlock()
+                    if !go { break }
+                    usleep(5_000)
+                }
+            }
+        }
+        func stop() -> UInt64 { lock.lock(); running = false; let m = maxFP; lock.unlock(); return m }
+    }
 
     private var benchStarted = false
 
@@ -71,7 +90,9 @@ final class NativeMitmFootprintTests: XCTestCase {
             FootprintProbe.relieve()
             let fp0 = Int64(ProcessMemory.footprintBytes()), m0 = Int64(FootprintProbe.mallocInUse())
             let t0 = Int64(FootprintProbe.threadCount()), g0 = goHeap()
+            let sampler = PeakSampler()
             let (ok, teardown) = try setup()
+            let pk = Int64(sampler.stop())
             Thread.sleep(forTimeInterval: 1.0)
             let fp1 = Int64(ProcessMemory.footprintBytes()), m1 = Int64(FootprintProbe.mallocInUse())
             let t1 = Int64(FootprintProbe.threadCount()), g1 = goHeap()
@@ -79,14 +100,14 @@ final class NativeMitmFootprintTests: XCTestCase {
             Thread.sleep(forTimeInterval: 1.0)
             FootprintProbe.relieve()
             let fp2 = Int64(ProcessMemory.footprintBytes())
-            if round > 0 { samples.append(Sample(fp: fp1 - fp0, malloc: m1 - m0, threads: t1 - t0, residual: fp2 - fp0, goHeap: g1 - g0, ok: ok)) }
+            if round > 0 { samples.append(Sample(fp: fp1 - fp0, malloc: m1 - m0, threads: t1 - t0, residual: fp2 - fp0, goHeap: g1 - g0, ok: ok, peak: max(pk, fp1) - fp0)) }
         }
         func med(_ f: (Sample) -> Int64) -> Int64 { let v = samples.map(f).sorted(); return v[v.count / 2] }
         let s = Sample(fp: med(\.fp), malloc: med(\.malloc), threads: med(\.threads), residual: med(\.residual),
-                       goHeap: med(\.goHeap), ok: samples.map(\.ok).min() ?? 0)
+                       goHeap: med(\.goHeap), ok: samples.map(\.ok).min() ?? 0, peak: med(\.peak))
         let kb = { (b: Int64) in String(format: "%+.1f", Double(b) / 1024 / Double(Self.n)) }
         let mb = { (b: Int64) in String(format: "%+.2f", Double(b) / 1_048_576) }
-        let line = "[s2-attr] \(name.padding(toLength: 30, withPad: " ", startingAt: 0)) footprint \(kb(s.fp)) KB/\(unit) (\(mb(s.fp)) MB) | malloc \(kb(s.malloc)) KB/\(unit) | threads \(s.threads >= 0 ? "+" : "")\(s.threads) | after teardown \(mb(s.residual)) MB | Go heap \(mb(s.goHeap)) MB | ok \(s.ok)/\(Self.n)"
+        let line = "[s2-attr] \(name.padding(toLength: 30, withPad: " ", startingAt: 0)) footprint \(kb(s.fp)) KB/\(unit) (\(mb(s.fp)) MB) | peak while opening \(kb(s.peak)) KB/\(unit) | malloc \(kb(s.malloc)) KB/\(unit) | threads \(s.threads >= 0 ? "+" : "")\(s.threads) | after teardown \(mb(s.residual)) MB | Go heap \(mb(s.goHeap)) MB | ok \(s.ok)/\(Self.n)"
         print(line)
         NSLog("%@", line)
         return s

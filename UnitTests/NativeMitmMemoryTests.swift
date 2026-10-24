@@ -37,10 +37,12 @@ final class NativeMitmMemoryTests: XCTestCase {
     static let modes: [(name: String, cap: Bool, slim: NativeMitmRuntime.Slim?)] = {
         // 90a7b2f measured the other knobs one by one: shared PrivacyContext / 16 KB io / idle buffer release are
         // within this bench's run-to-run noise (±3 MB); own queues cost +3.9 MB (thread peak +48).
-        var own = NativeMitmRuntime.Slim(); own.sharedQueues = false
-        var norelief = NativeMitmRuntime.Slim(); norelief.reliefAfterBurst = false
+        // a84818d: relief knob −3.9 MB at 1 s; with relief + Go scavenge every mode retains ~+2.5–2.7 MB (go too) —
+        // the native excess is the burst's transient (peak), so this round limits concurrent upstream dials.
+        var d8 = NativeMitmRuntime.Slim(); d8.maxConcurrentDials = 8
+        var d24 = NativeMitmRuntime.Slim(); d24.maxConcurrentDials = 24
         return [("go", true, nil), ("native", true, NativeMitmRuntime.Slim()), ("native-nocap", false, NativeMitmRuntime.Slim()),
-                ("nocap-norelief", false, norelief), ("nocap-legacy", false, .legacy), ("nocap-ownqueues", false, own)]
+                ("nocap-dial8", false, d8), ("nocap-dial24", false, d24), ("nocap-legacy", false, .legacy)]
     }()
 
     static func mb(_ b: Int64) -> String { String(format: "%+.2f", Double(b) / 1_048_576) }

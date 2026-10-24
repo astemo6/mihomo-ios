@@ -70,8 +70,10 @@ enum NativeMitmRuntime {
         /// most of a burst's footprint right after it is freed-but-dirty malloc memory (Network.framework / TLS
         /// buffers of the connections that already closed), which jetsam counts until malloc returns it.
         var reliefAfterBurst = true
+        /// Upstream dials (TCP + relay CONNECT + TLS handshake) in flight at once (UpstreamPool); nil = no limit.
+        var maxConcurrentDials: Int? = nil
         static let legacy = Slim(sharedQueues: false, smallChunks: false, releaseIdleBuffers: false, sharedPrivacyContext: false,
-                                 reliefAfterBurst: false)
+                                 reliefAfterBurst: false, maxConcurrentDials: nil)
     }
     static var slim = Slim()
 

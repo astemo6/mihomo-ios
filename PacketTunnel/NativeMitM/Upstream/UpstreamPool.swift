@@ -16,6 +16,10 @@ final class UpstreamPool {
         var maxIdleTotal = 16
         var idleTimeout: TimeInterval = 60
         var connectTimeout: TimeInterval = 20
+        /// feat/native-slim: most dials (TCP + CONNECT + TLS handshake) in flight at once; nil = no limit. Further
+        /// acquires wait FIFO (a connection released meanwhile serves them first). Read per acquire, so
+        /// NativeMitmRuntime.slim can change it.
+        var maxDialing: () -> Int? = { NativeMitmRuntime.slim.maxConcurrentDials }
     }
 
     struct Stats: Equatable {
@@ -70,6 +74,7 @@ final class UpstreamPool {
     private let relayPort: () -> Int
     private var idle: [UpstreamTarget: [IdleEntry]] = [:]
     private var idleCount = 0
+    private var waiting: [(target: UpstreamTarget, acq: Acquisition)] = []
     private var nextID: UInt64 = 0
     private var stats = Stats()
 
@@ -99,6 +104,10 @@ final class UpstreamPool {
             a.fire(.success(c))
             return
         }
+        if let cap = config.maxDialing(), stats.dialing >= max(1, cap) {
+            waiting.append((target, a))
+            return
+        }
         nextID += 1
         stats.dials += 1
         stats.dialing += 1
@@ -110,8 +119,24 @@ final class UpstreamPool {
             if counted, let self = self { counted = false; self.stats.dialing -= 1; if case .failure = r { self.stats.dialFailures += 1 } }
             a.dialing = nil
             a.fire(r)
+            self?.drainWaiting()
         }
         if a.completion != nil { a.dialing = c }
+    }
+
+    /// Starts waiting acquires while dial slots are free (and serves them from the idle list first).
+    private func drainWaiting() {
+        while !waiting.isEmpty {
+            if let cap = config.maxDialing(), stats.dialing >= max(1, cap) {
+                // a waiter whose target has an idle connection need not wait for a dial slot
+                guard let i = waiting.firstIndex(where: { idle[$0.target] != nil && $0.acq.completion != nil }) else { return }
+                let w = waiting.remove(at: i)
+                acquireOnQueue(w.target, w.acq)
+                continue
+            }
+            let w = waiting.removeFirst()
+            acquireOnQueue(w.target, w.acq)
+        }
     }
 
     private func popIdle(_ target: UpstreamTarget) -> UpstreamConnection? {
@@ -160,6 +185,7 @@ final class UpstreamPool {
         while idleCount > config.maxIdleTotal, let oldest = oldestIdle() { evict(oldest.conn.target, oldest.conn) }
         stats.idle = idleCount
         if conn.isIdle { conn.startIdleProbe() }
+        if !waiting.isEmpty { drainWaiting() }
     }
 
     private func oldestIdle() -> IdleEntry? {
