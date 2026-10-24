@@ -74,8 +74,8 @@ final class NativeCoreSSRTests: XCTestCase {
     }
 
     func testAuthSHA1V4() throws {
-        let key = Data((0..<32).map { UInt8($0xa0 + $0) })
-        let iv = Data((0..<16).map { UInt8($0x50 + $0) })
+        let key = Data((0..<32).map { UInt8(0xa0 + $0) })
+        let iv = Data((0..<16).map { UInt8(0x50 + $0) })
         let proto = NCSSRAuthSHA1V4(key: key, iv: iv, auth: (clientID: hex("11223344"), connectionID: 0x010203))
         proto.now = { 1_700_000_000 }
         proto.randomBelow = { _ in 0 } // deterministic: no extra head, randLen 0… see below
@@ -96,9 +96,9 @@ final class NativeCoreSSRTests: XCTestCase {
         let storedCRC = UInt32(wire[2]) | UInt32(wire[3]) << 8 | UInt32(wire[4]) << 16 | UInt32(wire[5]) << 24
         XCTAssertEqual(NCChecksum.crc32(crcInput), storedCRC)
         // Auth data: time LE, clientID, connID LE at offset 2+4+1 = 7.
-        XCTAssertEqual([UInt8](wire[7..<11]), [0x00, 0xf1, 0x53, 0x65]) // 1700000000 LE
-        XCTAssertEqual([UInt8](wire[11..<15]), [0x11, 0x22, 0x33, 0x44])
-        XCTAssertEqual([UInt8](wire[15..<19]), [0x03, 0x02, 0x01, 0x00])
+        XCTAssertEqual(Data(wire[7..<11]), Data([0x00, 0xf1, 0x53, 0x65])) // 1700000000 LE
+        XCTAssertEqual(Data(wire[11..<15]), Data([0x11, 0x22, 0x33, 0x44]))
+        XCTAssertEqual(Data(wire[15..<19]), Data([0x03, 0x02, 0x01, 0x00]))
         // HMAC tail = HMAC-SHA1(iv+key, everything before it)[..10].
         let pack = Data(wire.prefix(packedLen))
         let mac = NCHMACSHA1.mac(key: iv + key, message: Data(pack.prefix(packedLen - 10)))
