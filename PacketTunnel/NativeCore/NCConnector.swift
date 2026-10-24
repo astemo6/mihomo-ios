@@ -478,19 +478,51 @@ enum NCConnector {
         return (opts?["path"]?.string ?? "/", headers)
     }
 
-    /// If the proxy uses the ws transport, wrap the connected raw stream and
-    /// run the upgrade; otherwise pass the raw stream through.
+    /// Wrap the connected raw stream with the configured transport
+    /// (ws / grpc / h2), or pass it through for plain tcp.
     static func transportStream(raw: NCRelayStream, proxy: NCProxy, server: String,
                                 completion: @escaping (NCRelayStream?, Error?) -> Void) {
-        guard (proxy.fields["network"]?.string ?? "tcp") == "ws" else {
+        let network = proxy.fields["network"]?.string ?? "tcp"
+        switch network {
+        case "ws":
+            let (path, headers) = wsOptions(proxy)
+            let host = proxy.fields["ws-opts"]?.object?["headers"]?.object?["Host"]?.string ?? server
+            let ws = NCWebSocketStream(raw: raw, hostHeader: host, path: path, headers: headers)
+            ws.startHandshake { err in
+                completion(err == nil ? ws : nil, err)
+            }
+        case "grpc":
+            let service = proxy.fields["grpc-opts"]?.object?["grpc-service-name"]?.string ?? "GunService"
+            let authority = proxy.fields["servername"]?.string ?? proxy.fields["sni"]?.string ?? server
+            let tunnel = NCH2TunnelStream(raw: raw, grpc: true)
+            tunnel.startHandshake(headers: [
+                (":method", "POST"),
+                (":path", "/\(service)/Tun"),
+                (":scheme", "https"),
+                (":authority", authority),
+                ("content-type", "application/grpc"),
+                ("user-agent", "grpc-go/1.0"),
+                ("te", "trailers"),
+            ]) { err in
+                completion(err == nil ? tunnel : nil, err)
+            }
+        case "h2", "http":
+            let opts = proxy.fields["h2-opts"]?.object
+            let path = opts?["path"]?.string ?? "/"
+            let authority = opts?["host"]?.array?.first?.string
+                ?? proxy.fields["servername"]?.string ?? proxy.fields["sni"]?.string ?? server
+            let tunnel = NCH2TunnelStream(raw: raw, grpc: false)
+            tunnel.startHandshake(headers: [
+                (":method", "POST"),
+                (":path", path),
+                (":scheme", "https"),
+                (":authority", authority),
+                ("content-type", "application/octet-stream"),
+            ]) { err in
+                completion(err == nil ? tunnel : nil, err)
+            }
+        default:
             completion(raw, nil)
-            return
-        }
-        let (path, headers) = wsOptions(proxy)
-        let host = proxy.fields["ws-opts"]?.object?["headers"]?.object?["Host"]?.string ?? server
-        let ws = NCWebSocketStream(raw: raw, hostHeader: host, path: path, headers: headers)
-        ws.startHandshake { err in
-            completion(err == nil ? ws : nil, err)
         }
     }
 
@@ -556,7 +588,7 @@ enum NCConnector {
             return
         }
         let network = proxy.fields["network"]?.string ?? "tcp"
-        guard network == "tcp" || network == "ws" else {
+        guard ["tcp", "ws", "grpc", "h2", "http"].contains(network) else {
             queue.async { completion(nil, Failure.unsupported("vmess network \(network)")) }
             return
         }
