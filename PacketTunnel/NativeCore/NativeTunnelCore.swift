@@ -110,7 +110,7 @@ final class NativeTunnelCore {
     private func loadRewriteSnapshot(home: String, engine: NativeCoreEngine) {
         let url = URL(fileURLWithPath: home).appendingPathComponent("nativecore-rewrite.json")
         if let text = try? String(contentsOf: url, encoding: .utf8), let snap = RWSnapshot.decode(text) {
-            NativeRewriteSnapshotSource.shared.setSnapshot(snap)
+            NativeRewriteSnapshotSource.shared.setSnapshot(snap, json: text)
             NativeRewriteEngine.load(snap)
             StartupLog.write("native rewrite snapshot: \(snap.rules?.count ?? 0) rules, \(snap.inc?.count ?? 0) MitM hosts, on \(snap.on)")
         } else if let canonical = engine.loadedCanonicalConfig {

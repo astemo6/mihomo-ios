@@ -21,7 +21,7 @@ import Foundation
 import Network
 import Security
 
-final class MitmTLSFront: NSObject, MitmTLSFronting {
+final class MitmTLSFront: NSObject {
     static let shared = MitmTLSFront()
 
     /// Set by the session layer (`wire`). Called on `queue` once per handshaken client connection. While nil,
@@ -30,9 +30,6 @@ final class MitmTLSFront: NSObject, MitmTLSFronting {
         get { lock.lock(); defer { lock.unlock() }; return _onAccept }
         set { lock.lock(); _onAccept = newValue; lock.unlock() }
     }
-    /// Set by wire lane (S2Contract MitmTLSFronting conformance)
-    var acceptHandler: ((MitmAcceptedConnection) -> Void)?
-
     /// Reported handshake failures (stored in Swift NCPinningMemory). Injectable for tests.
     var reportHandshakeFailure: (String, String) -> Void = { host, kind in
         if kind == "cert" || kind == "closed" {
@@ -71,11 +68,6 @@ final class MitmTLSFront: NSObject, MitmTLSFronting {
         // Pure native: registered in NativeCore data plane
     }
 
-    // MARK: MitmTLSFronting
-
-    func listen(host: String, alpn: String) -> Int64 {
-        listen(host as String?, alpn: alpn as String?)
-    }
 
     func listen(_ host: String?, alpn: String?) -> Int64 {
         guard let host, !host.isEmpty else { return 0 }

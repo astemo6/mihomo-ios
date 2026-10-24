@@ -78,10 +78,13 @@ protocol RewriteSnapshotSource: AnyObject {
     /// Go applies the given response header rules of snapshot `gen` (Swift could not: see NativeRewriteEngine
     /// respond). nil: unavailable.
     func headerOps(gen: Int64, rules: [Int], status: Int, headers: [[String]]) -> [[String]]?
+    /// The decoded snapshot (nil none). Default: decodes snapshotJSON().
+    func currentSnapshot() -> RWSnapshot?
 }
 
 extension RewriteSnapshotSource {
     func headerOps(gen: Int64, rules: [Int], status: Int, headers: [[String]]) -> [[String]]? { nil }
+    func currentSnapshot() -> RWSnapshot? { RWSnapshot.decode(snapshotJSON()) }
 }
 
 final class NativeRewriteSnapshotSource: RewriteSnapshotSource {
@@ -89,14 +92,23 @@ final class NativeRewriteSnapshotSource: RewriteSnapshotSource {
     private let lock = NSLock()
     private var gen: Int64 = 1
     private var snapshot: RWSnapshot?
+    /// The JSON the snapshot was read from (nativecore-rewrite.json); "" when it was built from a .conf profile.
+    private var json = ""
 
-    func setSnapshot(_ s: RWSnapshot) {
+    /// RWSnapshot is Decodable only: keep the decoded value (with this source's generation) plus the source text.
+    func setSnapshot(_ s: RWSnapshot, json: String = "") {
         lock.lock()
         defer { lock.unlock() }
         gen += 1
         var copy = s
         copy.gen = gen
         snapshot = copy
+        self.json = json
+    }
+
+    func currentSnapshot() -> RWSnapshot? {
+        lock.lock(); defer { lock.unlock() }
+        return snapshot
     }
 
     func generation() -> Int64 {
@@ -106,10 +118,7 @@ final class NativeRewriteSnapshotSource: RewriteSnapshotSource {
 
     func snapshotJSON() -> String {
         lock.lock(); defer { lock.unlock() }
-        guard let s = snapshot, let d = try? JSONEncoder().encode(s), let str = String(data: d, encoding: .utf8) else {
-            return ""
-        }
-        return str
+        return snapshot == nil ? "" : json
     }
 }
 
@@ -129,7 +138,7 @@ final class NativeRewriteProvider {
         lock.lock(); defer { lock.unlock() }
         if let e = engine, e.generation == gen { return e }
         if failedGen == gen { return nil }
-        guard let s = RWSnapshot.decode(source.snapshotJSON()), (s.gen ?? 0) == gen else {
+        guard let s = source.currentSnapshot(), (s.gen ?? 0) == gen else {
             failedGen = gen
             engine = nil
             return nil

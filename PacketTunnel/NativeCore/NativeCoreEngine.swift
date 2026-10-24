@@ -85,13 +85,18 @@ final class NativeCoreEngine {
     private(set) var unparsedRules: [String] = []
     /// NCSupport.report for the loaded config.
     private(set) var supportReport: [String] = []
+    /// The app's per-profile selections (`<profile>.selected.json`, bridge/inspect.go SaveSelection) — the same file
+    /// the app writes when a node is picked while the VPN is off, so both sides agree.
     private var selectionsFile: URL {
-        URL(fileURLWithPath: home).appendingPathComponent("nativecore-selections.json")
+        if let profile = AppShared.activeProfileURL {
+            return profile.deletingPathExtension().appendingPathExtension("selected.json")
+        }
+        return URL(fileURLWithPath: home).appendingPathComponent("nativecore-selections.json")
     }
 
     func lookupCountry(_ ipStr: String) -> String? {
         guard let ip = NCIP(ipStr), let db = geoIPDB else { return nil }
-        return db.lookup(ip)
+        return db.countryCode(for: ip)
     }
 
     @discardableResult

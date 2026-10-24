@@ -32,6 +32,15 @@ public final class NCCAManager {
             initIssuerLocked(cert: loaded.caCert, key: loaded.caKey)
             return loaded
         }
+        // Never replace a CA that exists but could not be read: the user trusts that certificate (installed profile).
+        // feat/native-core-eval: Go's CA (bridge/mitm/ca.go) is PKCS#8 — read by loadCA below; an imported RSA CA is
+        // not supported by the native issuer yet, so MitM stays off with a log line instead of a new CA.
+        let dir = Self.caDir(home: home)
+        if FileManager.default.fileExists(atPath: dir.appendingPathComponent("ca.pem").path)
+            || FileManager.default.fileExists(atPath: dir.appendingPathComponent("ca.key").path) {
+            StartupLog.write("native MitM: CA in engine/ca could not be read (not a P-256 key?) — MitM off, CA left untouched")
+            return nil
+        }
         do {
             let generated = try Self.generateCA(home: home)
             caCert = generated.caCert
@@ -95,10 +104,75 @@ public final class NCCAManager {
             kSecAttrKeySizeInBits as String: 256,
         ]
         var err: Unmanaged<CFError>?
-        guard let key = SecKeyCreateWithData(keyDER as CFData, keyAttrs as CFDictionary, &err) else {
+        // Security wants X9.63 (04 || X || Y || K); Go writes PKCS#8 (RFC 5208) wrapping an RFC 5915 ECPrivateKey.
+        guard let x963 = Self.x963(fromPKCS8OrSEC1: keyDER, certDER: certDER),
+              let key = SecKeyCreateWithData(x963 as CFData, keyAttrs as CFDictionary, &err) else {
             return nil
         }
         return (cert, key)
+    }
+
+    // MARK: - Minimal DER reading (PKCS#8 / SEC 1 EC private keys)
+
+    /// (tag, contents) of the TLV at `i`, advancing `i` past it.
+    static func derTLV(_ d: [UInt8], _ i: inout Int) -> (UInt8, ArraySlice<UInt8>)? {
+        guard i + 2 <= d.count else { return nil }
+        let tag = d[i]; i += 1
+        var len = Int(d[i]); i += 1
+        if len & 0x80 != 0 {
+            let n = len & 0x7f
+            guard n > 0, n <= 4, i + n <= d.count else { return nil }
+            len = 0
+            for _ in 0..<n { len = len << 8 | Int(d[i]); i += 1 }
+        }
+        guard len >= 0, i + len <= d.count else { return nil }
+        defer { i += len }
+        return (tag, d[i..<(i + len)])
+    }
+
+    /// X9.63 private key from PKCS#8 or a bare SEC 1 ECPrivateKey (P-256). The public point comes from the key
+    /// structure, else from the CA certificate's SubjectPublicKeyInfo (the CA's own key).
+    static func x963(fromPKCS8OrSEC1 der: Data, certDER: Data) -> Data? {
+        let d = [UInt8](der)
+        var i = 0
+        guard let (t0, outer) = derTLV(d, &i), t0 == 0x30 else { return nil }
+        var j = 0
+        let o = Array(outer)
+        guard let (tv, _) = derTLV(o, &j), tv == 0x02 else { return nil }
+        guard let (t2, second) = derTLV(o, &j) else { return nil }
+        var sec1: [UInt8]
+        if t2 == 0x30 {
+            // PKCS#8: version, AlgorithmIdentifier, OCTET STRING { ECPrivateKey }
+            guard let (t3, inner) = derTLV(o, &j), t3 == 0x04 else { return nil }
+            sec1 = Array(inner)
+        } else if t2 == 0x04 {
+            sec1 = d // SEC 1 already: version, privateKey OCTET STRING, …
+            _ = second
+        } else {
+            return nil
+        }
+        var k = 0
+        guard let (s0, ecpk) = derTLV(sec1, &k), s0 == 0x30 else { return nil }
+        let e = Array(ecpk)
+        var m = 0
+        guard let (ev, _) = derTLV(e, &m), ev == 0x02, let (ep, priv) = derTLV(e, &m), ep == 0x04 else { return nil }
+        var scalar = Array(priv)
+        if scalar.count > 32 { scalar = Array(scalar.suffix(32)) }
+        while scalar.count < 32 { scalar.insert(0, at: 0) }
+        var point: [UInt8]?
+        while m < e.count, let (tag, val) = derTLV(e, &m) {
+            if tag == 0xa1 { // [1] publicKey BIT STRING
+                var n = 0
+                let v = Array(val)
+                if let (bt, bits) = derTLV(v, &n), bt == 0x03, bits.count == 66 { point = Array(bits.dropFirst()) }
+            }
+        }
+        if point == nil, let cert = SecCertificateCreateWithData(nil, certDER as CFData), let pub = SecCertificateCopyKey(cert),
+           let ext = SecKeyCopyExternalRepresentation(pub, nil) as Data?, ext.count == 65 {
+            point = [UInt8](ext)
+        }
+        guard let p = point, p.count == 65, p[0] == 0x04 else { return nil }
+        return Data(p + scalar)
     }
 
     /// Generates a new 10-year ECDSA P-256 root CA in Swift and writes to disk.

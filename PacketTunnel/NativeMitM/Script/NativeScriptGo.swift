@@ -218,8 +218,8 @@ final class NativeScriptHost: ScriptGoHost {
                   let kl = Int(rest[..<colon]) else { return "false" }
             let after = String(rest[rest.index(after: colon)...])
             let utf16 = after.utf16
-            guard utf16.count >= kl,
-                  let keyEnd = String.Index(utf16Offset: kl, in: after) else { return "false" }
+            guard kl >= 0, utf16.count >= kl else { return "false" }
+            let keyEnd = String.Index(utf16Offset: kl, in: after)
             let key = String(after[..<keyEnd])
             let val = String(after[keyEnd...])
             if del {

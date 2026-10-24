@@ -59,7 +59,7 @@ struct NativeRequestEvent: Encodable, Equatable {
 }
 
 final class NativeRequestRecorder {
-    static let shared = NativeRequestRecorder(sink: GoNativeRequestLogSink())
+    static let shared = NativeRequestRecorder(sink: InMemoryNativeRequestLogSink.shared)
 
     struct Stats: Equatable { var queued = 0, sent = 0, dropped = 0, batches = 0, shed = 0 }
 

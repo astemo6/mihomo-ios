@@ -1,235 +1,115 @@
 import Foundation
 
-/// Pure Swift MitM Flow Driver.
-/// Replaces Go's Flow API (`bridge/mitm/flow.go` and `GoMitmFlowDriver`).
-/// Executes URL rewrite, header rewrite, map local, scripts, and body handling
-/// entirely within Swift in-process memory.
+/// feat/native-core-eval: pass-through flow driver behind NativeRewriteDriver (the inner driver of the Go-free tunnel).
+///
+/// NativeRewriteDriver (main's stage 3a, s3-full, s3-script) already decides every rewrite / reject / redirect /
+/// map local / header / body / script rule natively. What it defers used to go to Go's flow API
+/// (bridge/mitm/flow.go via GoMitmFlowDriver). With no Go in the extension, a deferred flow is forwarded unchanged:
+/// the request goes to its origin as the client sent it (body streamed from the client) and the response comes back
+/// as the origin sent it (body streamed from upstream). Nothing is buffered here; the driver only remembers each
+/// flow's head to build the forward URL. Flows the native engine cannot handle are therefore not rewritten — that is
+/// the documented regression (work/native-core-eval.md), never a broken connection.
 final class NativeMitmFlowDriver: MitmFlowDriving, MitmScriptedFlowStarting {
     static let shared = NativeMitmFlowDriver()
 
-    private final class FlowContext {
-        let id: Int64
-        var head: HTTPRequestHead
-        var conn: MitmConnInfo
-        var reqBody = Data()
-        var respBody = Data()
-        var localBody = Data()
-        var localOffset = 0
-        var state: String = "init"
-        var error: String?
-
-        init(id: Int64, head: HTTPRequestHead, conn: MitmConnInfo) {
-            self.id = id
-            self.head = head
-            self.conn = conn
-        }
+    private struct Flow {
+        var method: String
+        var url: String
+        var host: String?
+        var headers: [[String]]
     }
 
     private let lock = NSLock()
     private var seq: Int64 = 0
-    private var flows: [Int64: FlowContext] = [:]
+    private var flows: [Int64: Flow] = [:]
+    /// Deferred flows forwarded unchanged since start (diagnostics).
+    private(set) var passed: Int64 = 0
 
     init() {}
 
-    private func nextID() -> Int64 {
-        lock.lock()
-        defer { lock.unlock() }
-        seq += 1
-        return seq
+    /// Absolute URL for a request head: absolute-form targets as is, else scheme from the connection + Host.
+    static func forwardURL(head: HTTPRequestHead, conn: MitmConnInfo) -> String {
+        let target = head.target
+        let lower = target.lowercased()
+        if lower.hasPrefix("http://") || lower.hasPrefix("https://") { return target }
+        let scheme = conn.tls ? "https" : "http"
+        var authority = head.host ?? ""
+        if authority.isEmpty {
+            let h = conn.host.contains(":") && !conn.host.hasPrefix("[") ? "[\(conn.host)]" : conn.host
+            let defaultPort = conn.tls ? 443 : 80
+            authority = conn.port == defaultPort || conn.port == 0 ? h : "\(h):\(conn.port)"
+        }
+        let path = target.isEmpty ? "/" : (target.hasPrefix("/") ? target : "/" + target)
+        return "\(scheme)://\(authority)\(path)"
+    }
+
+    private static func pairs(_ h: HTTPHeaderList) -> [[String]] { h.map { [$0.name, $0.value] } }
+
+    private func decision(_ id: Int64, _ action: FlowDecision.Action, _ f: Flow) -> FlowDecision {
+        var d = FlowDecision(id: id, action: action)
+        d.method = f.method
+        d.url = f.url
+        d.host = f.host
+        d.headers = f.headers
+        d.body = .client
+        return d
     }
 
     func requestPhase(head: HTTPRequestHead, conn: MitmConnInfo) -> FlowDecision {
-        let id = nextID()
-        let ctx = FlowContext(id: id, head: head, conn: conn)
+        let f = Flow(method: head.method, url: Self.forwardURL(head: head, conn: conn), host: head.host,
+                     headers: Self.pairs(head.headers))
         lock.lock()
-        flows[id] = ctx
+        seq += 1
+        let id = seq
+        flows[id] = f
+        passed += 1
         lock.unlock()
-
-        let length: Int64 = head.isChunked ? -1 : (head.contentLength ?? 0)
-        let req = RewriteRequest(
-            method: head.method,
-            target: head.target,
-            host: head.host ?? "",
-            headers: headerPairs(head.headers),
-            length: length,
-            connHost: conn.host,
-            connPort: conn.port,
-            tls: conn.tls
-        )
-
-        // Evaluate native rewrite rules
-        let decision = NativeRewriteEngine.shared.request(req, state: RequestScriptState())
-        switch decision {
-        case .local(let l):
-            ctx.localBody = l.body
-            return FlowDecision(
-                id: id,
-                action: .local,
-                method: head.method,
-                url: head.target,
-                status: l.status,
-                headers: l.headers,
-                body: l.bodyMode,
-                length: l.length
-            )
-        case .drop:
-            return FlowDecision(id: id, action: .drop)
-        case .forward(let f):
-            return FlowDecision(
-                id: id,
-                action: .forward,
-                method: f.method,
-                url: f.url,
-                host: f.host,
-                headers: f.headers
-            )
-        case .pauseScript(let p):
-            if p.requiresBody && length != 0 {
-                return FlowDecision(id: id, action: .needBody)
-            }
-            // Forward by default if script doesn't abort
-            return FlowDecision(id: id, action: .forward, method: head.method, url: head.target, headers: headerPairs(head.headers))
-        case .body(let b):
-            if b.reqBodyMode == .needBody {
-                return FlowDecision(id: id, action: .needBody)
-            }
-            return FlowDecision(id: id, action: .forward, method: head.method, url: head.target, headers: headerPairs(head.headers))
-        case .go:
-            // Pure native: forward request as-is
-            return FlowDecision(
-                id: id,
-                action: .forward,
-                method: head.method,
-                url: head.target,
-                host: head.host,
-                headers: headerPairs(head.headers)
-            )
-        }
+        return decision(id, .forward, f)
     }
 
+    /// Request scripts already ran natively (NativeRequestScripts) and their outcome is in `head`; forward it.
     func requestPhase(head: HTTPRequestHead, conn: MitmConnInfo, gen: Int64, scripted: [[String: Any]]) -> FlowDecision {
         requestPhase(head: head, conn: conn)
     }
 
+    /// Only reached after a need-body, which this driver never asks for; forward what we have.
     func await(_ id: Int64) -> FlowDecision {
         lock.lock()
-        let ctx = flows[id]
+        let f = flows[id]
         lock.unlock()
-        guard let ctx else {
-            return FlowDecision(id: id, action: .error, note: "flow not found")
-        }
-        return FlowDecision(
-            id: id,
-            action: .forward,
-            method: ctx.head.method,
-            url: ctx.head.target,
-            host: ctx.head.host,
-            headers: headerPairs(ctx.head.headers)
-        )
+        guard let f else { return FlowDecision(id: id, action: .error, note: "flow not found") }
+        var d = decision(id, .forward, f)
+        d.body = FlowBodyMode.none
+        return d
     }
 
     func responsePhase(_ id: Int64, head: HTTPResponseHead, length: Int64) -> FlowDecision {
         lock.lock()
-        let ctx = flows[id]
+        let known = flows[id] != nil
         lock.unlock()
-
-        var headers = headerPairs(head.headers)
-        if let ctx {
-            let req = RewriteRequest(
-                method: ctx.head.method,
-                target: ctx.head.target,
-                host: ctx.head.host ?? "",
-                headers: headerPairs(ctx.head.headers),
-                length: length,
-                connHost: ctx.conn.host,
-                connPort: ctx.conn.port,
-                tls: ctx.conn.tls
-            )
-            // Apply response header rewrites if any
-            let respDecision = NativeRewriteEngine.shared.respond(req, status: head.status, headers: headers, length: length)
-            switch respDecision {
-            case .done(let d):
-                headers = d.headers
-            default:
-                break
-            }
-        }
-
-        return FlowDecision(
-            id: id,
-            action: .respond,
-            status: head.status,
-            headers: headers,
-            length: length
-        )
+        guard known else { return FlowDecision(id: id, action: .error, note: "flow not found") }
+        var d = FlowDecision(id: id, action: head.status == 101 ? .upgrade : .respond)
+        d.status = head.status
+        d.headers = Self.pairs(head.headers)
+        d.body = .upstream
+        d.length = length
+        return d
     }
 
-    func write(_ id: Int64, _ which: FlowBodyWhich, _ data: Data) -> FlowWriteResult {
-        lock.lock()
-        defer { lock.unlock() }
-        guard let ctx = flows[id] else { return .gone }
-        if which == .request {
-            ctx.reqBody.append(data)
-        } else {
-            ctx.respBody.append(data)
-        }
-        return .taken
-    }
-
-    func closeBody(_ id: Int64, _ which: FlowBodyWhich, error: String) {
-        lock.lock()
-        defer { lock.unlock() }
-        guard let ctx = flows[id] else { return }
-        if !error.isEmpty {
-            ctx.error = error
-        }
-    }
-
-    func read(_ id: Int64, _ which: FlowBodyWhich, max: Int) -> Data {
-        lock.lock()
-        defer { lock.unlock() }
-        guard let ctx = flows[id] else { return Data() }
-        let source: Data
-        if which == .request {
-            source = ctx.reqBody
-        } else if !ctx.localBody.isEmpty {
-            source = ctx.localBody
-        } else {
-            source = ctx.respBody
-        }
-        if ctx.localOffset >= source.count { return Data() }
-        let end = min(ctx.localOffset + max, source.count)
-        let slice = source.subdata(in: ctx.localOffset..<end)
-        ctx.localOffset = end
-        return slice
-    }
-
-    func readState(_ id: Int64, _ which: FlowBodyWhich) -> FlowReadState {
-        lock.lock()
-        defer { lock.unlock() }
-        guard let ctx = flows[id] else { return .failed("gone") }
-        let total = ctx.localBody.isEmpty ? ctx.respBody.count : ctx.localBody.count
-        if ctx.localOffset >= total {
-            return .eof
-        }
-        return .more
-    }
-
-    func upstreamFailed(_ id: Int64, why: String) {
-        lock.lock()
-        defer { lock.unlock() }
-        flows[id]?.error = why
-    }
+    // No body ever goes through this driver (forward .client / respond .upstream stream past it).
+    func write(_ id: Int64, _ which: FlowBodyWhich, _ data: Data) -> FlowWriteResult { .stop }
+    func closeBody(_ id: Int64, _ which: FlowBodyWhich, error: String) {}
+    func read(_ id: Int64, _ which: FlowBodyWhich, max: Int) -> Data { Data() }
+    func readState(_ id: Int64, _ which: FlowBodyWhich) -> FlowReadState { .eof }
+    func upstreamFailed(_ id: Int64, why: String) {}
 
     func end(_ id: Int64, sent: Int64, error: String) {
-        lock.lock()
-        defer { lock.unlock() }
-        flows.removeValue(forKey: id)
+        lock.lock(); flows.removeValue(forKey: id); lock.unlock()
     }
 
     func cancel(_ id: Int64, why: String) {
-        lock.lock()
-        defer { lock.unlock() }
-        flows.removeValue(forKey: id)
+        lock.lock(); flows.removeValue(forKey: id); lock.unlock()
     }
+
+    var openFlows: Int { lock.lock(); defer { lock.unlock() }; return flows.count }
 }

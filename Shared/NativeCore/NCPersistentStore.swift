@@ -13,7 +13,7 @@ public final class NCPersistentStore {
     private let queue = DispatchQueue(label: "nc.persistentstore", qos: .utility)
     private var dirty = false
 
-    public init(homeURL: URL = AppShared.homeURL) {
+    init(homeURL: URL = AppShared.homeURL) {
         let storeURL = homeURL.appendingPathComponent("engine/store.json")
         self.fileURL = storeURL
         load()
