@@ -166,6 +166,15 @@ type NativeFlow struct {
 	// afterPhase: a FlowEnd that arrived while the phase goroutine ran; it runs when the goroutine returns.
 	afterPhase func()
 
+	// rbuf: FlowRead's buffer per direction, reused for the flow's life (rbusy guards it against a second
+	// reader of the same direction, which then gets a fresh slice). The bytes FlowRead returns are copied by
+	// gomobile into the NSData it hands to Swift (return values are "retained": fromSlice copies), so a fresh
+	// slice per call was pure garbage — about the whole body per flow (16 KB reads), which put a burst of large
+	// bodies handed back by the native front at ~1× body above the Go path (rel25 smoke bench, jq 960 KB ×16:
+	// selective Go heap peak +14.9 MB).
+	rbuf  [2][]byte
+	rbusy [2]atomic.Bool
+
 	held     atomic.Int64 // pipe bytes this flow buffers
 	lastSeen atomic.Int64 // unix nanos of the last API call
 	ended    atomic.Bool
@@ -452,7 +461,8 @@ func FlowClose(id int64, which int, errText string) {
 }
 
 // FlowRead pulls up to max bytes of a body Go produced (which 0: towards the upstream, 1: towards the
-// client). Empty: see FlowReadState.
+// client). Empty: see FlowReadState. The returned slice is the flow's read buffer: valid until the next
+// FlowRead of the same flow and direction (gomobile copies it before Swift sees it; Go callers copy or append).
 func FlowRead(id int64, which int, max int) []byte {
 	nf := lookupFlow(id)
 	if nf == nil || which < 0 || which > 1 {
@@ -468,7 +478,16 @@ func FlowRead(id int64, which int, max int) []byte {
 		nf.setState(which, "err: no body to read")
 		return nil
 	}
-	buf := make([]byte, max)
+	var buf []byte
+	if nf.rbusy[which].CompareAndSwap(false, true) {
+		defer nf.rbusy[which].Store(false)
+		if cap(nf.rbuf[which]) < max {
+			nf.rbuf[which] = make([]byte, max)
+		}
+		buf = nf.rbuf[which][:max]
+	} else {
+		buf = make([]byte, max) // a concurrent reader of the same direction (not expected): no sharing
+	}
 	n := 0
 	for n < max {
 		k, err := r.Read(buf[n:])

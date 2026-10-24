@@ -328,6 +328,16 @@ func (b *byteBudget) capLocked() int64 {
 	return c
 }
 
+// force charges n bytes without waiting, past the budget's size if need be (a granted large body). Release
+// as acquire's.
+func (b *byteBudget) force(n int64) func() {
+	b.mu.Lock()
+	b.used += n
+	b.mu.Unlock()
+	var once sync.Once
+	return func() { once.Do(func() { b.release(n) }) }
+}
+
 func (b *byteBudget) capNow() int64 {
 	b.mu.Lock()
 	defer b.mu.Unlock()
@@ -351,6 +361,17 @@ type bodyCharge struct {
 	big  func() // bigBodyLock held for this body (v0.19.22); released with the charge
 	// small: the body is small work (fix/xmly-memory): totals up to smallWorkMax fall back to smallBudget.
 	small bool
+	// granted: fix/selective-largebody — bytes largeBodyRoom checked available memory for (after making room);
+	// a total up to it is charged even when the shared budget (sized from the same memory reading, with a 6 MB
+	// floor) cannot give it in time, so the gate that just made room does not turn the body away again.
+	granted int64
+}
+
+// grant raises granted (the lane path's second chance).
+func (c *bodyCharge) grant(n int64) {
+	c.mu.Lock()
+	c.granted = max(c.granted, n)
+	c.mu.Unlock()
 }
 
 // ensure grows the charge to total bytes (waiting up to bodyBudgetWait for the difference).
@@ -365,7 +386,14 @@ func (c *bodyCharge) ensure(total int64) error {
 	if c.small && total <= smallWorkMax {
 		rel = acquireSmall(c.ctx, need, bodyBudgetWait)
 	} else {
-		rel = bodyBudget.acquire(c.ctx, need, bodyBudgetWait)
+		wait := bodyBudgetWait
+		if total <= c.granted {
+			wait = 0 // forced below if the budget has no room right now
+		}
+		rel = bodyBudget.acquire(c.ctx, need, wait)
+	}
+	if rel == nil && total <= c.granted {
+		rel = bodyBudget.force(need)
 	}
 	if rel == nil {
 		return errors.New("body budget")

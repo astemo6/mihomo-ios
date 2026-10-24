@@ -41,9 +41,10 @@ const bodyCopyFactor = 3
 // JSON answers through to their scripts; the memory gates decide about running them).
 const bodyBudgetMin = 256 << 10
 
-// largeBodyReserve is what the dynamic body budget keeps free (the run floor before fix/xmly-memory-2, which
-// lowered scriptAvailFloor for small work; large bodies keep the old margin).
-const largeBodyReserve = 4 << 20
+// largeBodyReserve is what the dynamic body budget keeps free. fix/selective-largebody: 3 MB (was 4 MB, the run
+// floor before fix/xmly-memory-2): the running script is interrupted below scriptAvailFloor (2.5 MB) and
+// MemoryGuard closes connections at 3 MB, so the budget stops at that line (largebody.go).
+const largeBodyReserve = 3 << 20
 
 // dynamicBodyMax is the largest body a script may be handed right now. v0.19.22 (user 2026-10-23
 // 「YouTube也有问题」: 「跳过脚本：响应体解压后超过 2048 KB（Content-Encoding: br，压缩 812 KB）」 and the
@@ -784,7 +785,7 @@ func (e *Engine) modifyResponse(f *flow, resp *http.Response) error {
 		}
 		return len(body)
 	}
-	loadBody := func(limit int) bool {
+	loadBody := func(limit int, sc *Script) bool {
 		if loaded {
 			if !tooBig && blen() > limit {
 				respSkip = fmt.Sprintf("响应体 %d KB 超过上限 %d KB", blen()>>10, limit>>10)
@@ -793,6 +794,21 @@ func (e *Engine) modifyResponse(f *flow, resp *http.Response) error {
 		}
 		loaded = true
 		tooBig = true
+		// fix/selective-largebody: a body for a script with the dynamic budget that is likely larger than the
+		// budget allows right now makes room first (memory back to the OS, caches / JavaScriptCore garbage
+		// reclaimed) and waits for running scripts — its HTTP slot parked — before the cap is decided.
+		granted := 0
+		if nc, nby, g, uerr := e.largeBodyRoom(resp.Request.Context(), f.rules, respCap, respCapScript, resp.ContentLength,
+			resp.Header.Get("Content-Encoding"), f.url, loadSlot.park, func() error { return loadSlot.unpark(resp.Request.Context()) }); uerr != nil {
+			respSkip = "等待内存后脚本槽位不可用：" + uerr.Error()
+			e.logf("warning", fmt.Sprintf("[MitM] %s，原样放行：%s", respSkip, clip(f.url, 100)))
+			return false
+		} else if nc != respCap || g > 0 {
+			respCap, respCapScript, granted = nc, nby, g
+			if sc != nil {
+				limit = grantedLimit(sc, granted)
+			}
+		}
 		small := false // fix/xmly-memory: memory is short, only small work may go ahead
 		if heapHigh() {
 			cl := resp.ContentLength
@@ -836,7 +852,7 @@ func (e *Engine) modifyResponse(f *flow, resp *http.Response) error {
 		if want > int64(respCap) {
 			want = int64(respCap)
 		}
-		charge := &bodyCharge{ctx: resp.Request.Context()}
+		charge := &bodyCharge{ctx: resp.Request.Context(), granted: int64(granted)}
 		f.release = charge.release
 		// v0.19.22: bodies above bigBodyThreshold go one at a time (announced length, or a compressed
 		// body that is likely to decode past it).
@@ -881,7 +897,27 @@ func (e *Engine) modifyResponse(f *flow, resp *http.Response) error {
 			return false
 		}
 		if lane != nil {
-			h, n, outcome := e.loadBodyLane(f, resp, lane, enc, want, respCap, respCapScript, charge, takeBig, &respSkip)
+			grow := func(est int64) (int, *Script) {
+				if !dynamicCapped(respCapScript, respCap) {
+					return 0, nil
+				}
+				rctx := resp.Request.Context()
+				// at least a little more than what did not fit (est: twice the old cap)
+				nc, nby, g, werr := e.makeRoom(rctx, f.rules, respCap, respCapScript, est, int64(respCap)+int64(respCap)/4, f.url,
+					loadSlot.park, func() error { return loadSlot.unpark(rctx) })
+				if werr != nil {
+					return 0, nil
+				}
+				if nc > respCap {
+					respCap, respCapScript = nc, nby
+					charge.grant(int64(g))
+					if sc != nil {
+						limit = grantedLimit(sc, g)
+					}
+				}
+				return nc, nby
+			}
+			h, n, outcome := e.loadBodyLane(f, resp, lane, enc, want, respCap, respCapScript, charge, takeBig, &respSkip, grow)
 			switch outcome {
 			case laneLoaded:
 				nativeH, nativeLen = h, n
@@ -930,6 +966,7 @@ func (e *Engine) modifyResponse(f *flow, resp *http.Response) error {
 			// leave the body untouched (never pass on a truncated decode)
 			respSkip = fmt.Sprintf("响应体解码失败（Content-Encoding: %s，%d KB）：%v", enc, len(b)>>10, err)
 			if errors.Is(err, errBodyTooBig) {
+				noteBodyTooBig(respCapScript, int64(respCap))
 				respSkip = fmt.Sprintf("响应体解压后超过 %d KB（%s；Content-Encoding: %s，压缩 %d KB）", respCap>>10, bodyLimitNote(respCapScript, respCap), enc, len(b)>>10)
 				e.logf("warning", fmt.Sprintf("[MitM] %s，原样放行：%s", respSkip, clip(f.url, 100)))
 			}
@@ -941,6 +978,7 @@ func (e *Engine) modifyResponse(f *flow, resp *http.Response) error {
 		}
 		tooBig = false
 		body = dec
+		noteBodyDecoded(respCapScript, int64(len(dec)))
 		if enc != "" && len(dec) >= bigBodyThreshold {
 			rawBody, rawEnc = b, enc
 		}
@@ -984,7 +1022,7 @@ func (e *Engine) modifyResponse(f *flow, resp *http.Response) error {
 			ent.Match(rule.label())
 			applyHeaderOps(resp.Header, rule.Headers, func() string { return "HTTP/1.1 " + resp.Status })
 		case KindBody, KindJQ, KindJSON:
-			if !loadBody(MaxBody) {
+			if !loadBody(MaxBody, nil) {
 				e.logf("warning", fmt.Sprintf("[MitM] 响应体超过 %d KB 或编码不支持，跳过：%s", MaxBody>>10, rule.Desc))
 				continue
 			}
@@ -1005,7 +1043,7 @@ func (e *Engine) modifyResponse(f *flow, resp *http.Response) error {
 			}
 			if rule.Script.RequiresBody {
 				loadSlot = slot
-				ok := loadBody(scriptBodyLimit(rule.Script))
+				ok := loadBody(scriptBodyLimit(rule.Script), rule.Script)
 				loadSlot = nil
 				if limit := scriptBodyLimit(rule.Script); !ok {
 					slot.Release()

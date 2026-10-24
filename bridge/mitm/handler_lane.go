@@ -65,20 +65,55 @@ func laneEncodingOK(enc string) bool {
 // the decoded size is charged once known (like the Go path). takeBig takes bigBodyLock when the decoded body
 // turns out large. On laneSkipped resp.Body has been replaced by something that yields the original bytes
 // (the encoded bytes the lane received, then the rest of the upstream).
-func (e *Engine) loadBodyLane(f *flow, resp *http.Response, lane NativeBodies, enc string, want int64, respCap int, capScript *Script, charge *bodyCharge, takeBig func() bool, respSkip *string) (int64, int64, int) {
+//
+// grow (nil: none) is fix/selective-largebody's second chance for an encoded body that decoded past respCap: it
+// makes room for est decoded bytes (waitLargeHeadroom, slot parked) and returns the new cap (≤ respCap: no
+// room). The body is then decoded again from the encoded bytes received so far (copied out of the lane, the
+// first handle freed) followed by the rest of the upstream.
+func (e *Engine) loadBodyLane(f *flow, resp *http.Response, lane NativeBodies, enc string, want int64, respCap int, capScript *Script, charge *bodyCharge, takeBig func() bool, respSkip *string, grow func(est int64) (int, *Script)) (int64, int64, int) {
 	if !laneEncodingOK(enc) {
 		return 0, 0, laneRefusedOutcome
 	}
 	ctx := resp.Request.Context()
 	upstream := resp.Body
-	res, err := laneLoad(ctx, lane, e.logf, upstream, enc, int64(respCap), resp.ContentLength)
+	var src io.Reader = upstream // what laneLoad reads: the upstream, or the replayed bytes then the upstream
+	res, err := laneLoad(ctx, lane, e.logf, src, enc, int64(respCap), resp.ContentLength)
 	if errors.Is(err, errLaneRefused) {
 		return 0, 0, laneRefusedOutcome
 	}
+	if errors.Is(err, errBodyTooBig) && grow != nil && enc != "" && res.consumed && ctx.Err() == nil && res.raw <= 1<<20 {
+		noteBodyTooBig(capScript, int64(respCap))
+		// the decoded part is dropped before waiting (only the encoded bytes are kept, in Go: they are small)
+		if raw, ok := laneReadRaw(lane, res.h, res.raw); ok {
+			laneFree(lane, res.h)
+			src = io.MultiReader(bytes.NewReader(raw), bytes.NewReader(res.pending), upstream)
+			oldCap := respCap
+			nc, nby := grow(2 * int64(respCap))
+			if nc <= oldCap {
+				// still no room: pass the original through (the encoded bytes received, then the upstream's rest)
+				*respSkip = fmt.Sprintf("响应体解压后超过 %d KB（%s；Content-Encoding: %s，已收 %d KB）", oldCap>>10, bodyLimitNote(capScript, oldCap), orNone(enc), res.raw>>10)
+				e.logf("warning", fmt.Sprintf("[MitM] %s，原样放行：%s", *respSkip, clip(f.url, 100)))
+				resp.Body = &multiCloser{Reader: src, closers: []io.Closer{upstream}}
+				return 0, 0, laneSkipped
+			}
+			largeRetries.Add(1)
+			e.logf("info", fmt.Sprintf("[MitM] 响应体解压后超过 %d KB，腾出内存后按 %d KB 重新解码（已收 %d KB）：%s", oldCap>>10, nc>>10, res.raw>>10, clip(f.url, 100)))
+			respCap, capScript = nc, nby
+			res, err = laneLoad(ctx, lane, e.logf, src, enc, int64(respCap), resp.ContentLength)
+			if err == nil {
+				largeRetriesOK.Add(1)
+			}
+			if errors.Is(err, errLaneRefused) {
+				// nothing of src was read by the new lane: the Go path reads it (replayed bytes first)
+				resp.Body = &multiCloser{Reader: src, closers: []io.Closer{upstream}}
+				return 0, 0, laneRefusedOutcome
+			}
+		}
+	}
 	passRaw := func() {
-		// what the lane received, then whatever the upstream still has (a too-big body stopped mid-way)
+		// what the lane received, then whatever the source still has (a too-big body stopped mid-way)
 		rr := newLaneReader(lane, res.h, true, e.logf)
-		resp.Body = &multiCloser{Reader: io.MultiReader(rr, bytes.NewReader(res.pending), upstream), closers: []io.Closer{rr, upstream}}
+		resp.Body = &multiCloser{Reader: io.MultiReader(rr, bytes.NewReader(res.pending), src), closers: []io.Closer{rr, upstream}}
 	}
 	if err != nil {
 		switch {
@@ -88,6 +123,7 @@ func (e *Engine) loadBodyLane(f *flow, resp *http.Response, lane NativeBodies, e
 			resp.Body = io.NopCloser(strings.NewReader("")) // nobody reads it any more
 			_ = upstream.Close()
 		case errors.Is(err, errBodyTooBig):
+			noteBodyTooBig(capScript, int64(respCap))
 			*respSkip = fmt.Sprintf("响应体解压后超过 %d KB（%s；Content-Encoding: %s，已收 %d KB）", respCap>>10, bodyLimitNote(capScript, respCap), orNone(enc), res.raw>>10)
 			e.logf("warning", fmt.Sprintf("[MitM] %s，原样放行：%s", *respSkip, clip(f.url, 100)))
 			passRaw()
@@ -121,6 +157,7 @@ func (e *Engine) loadBodyLane(f *flow, resp *http.Response, lane NativeBodies, e
 		return 0, 0, laneSkipped
 	}
 	_ = want
+	noteBodyDecoded(capScript, res.decoded)
 	return res.h, res.decoded, laneLoaded
 }
 
@@ -139,4 +176,19 @@ func (m *multiCloser) Close() error {
 		_ = c.Close()
 	}
 	return nil
+}
+
+// laneReadRaw copies the n encoded bytes a lane handle received (a too-big load's input, re-decoded with a larger
+// cap). ok false: the lane gave fewer bytes.
+func laneReadRaw(lane NativeBodies, h, n int64) ([]byte, bool) {
+	out := make([]byte, 0, n)
+	for off := int64(0); off < n; {
+		b := lane.Read(h, true, off, min(n-off, 256<<10))
+		if len(b) == 0 {
+			return nil, false
+		}
+		out = append(out, b...)
+		off += int64(len(b))
+	}
+	return out, true
 }

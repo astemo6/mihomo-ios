@@ -44,6 +44,9 @@ type nsReg struct {
 	ctxs    map[int64]nsCtx
 	slots   map[int64]*nsSlot
 	charges map[int64]*nsCharge
+	// tokSlot: the slot last reserved under a token (fix/selective-largebody: NativeScriptBodyAdmit parks it while
+	// it waits for memory).
+	tokSlot map[int64]int64
 }
 
 type nsCtx struct {
@@ -72,7 +75,7 @@ type nsCharge struct {
 	reqRelease func()
 }
 
-var nativeScripts = &nsReg{ctxs: map[int64]nsCtx{}, slots: map[int64]*nsSlot{}, charges: map[int64]*nsCharge{}}
+var nativeScripts = &nsReg{ctxs: map[int64]nsCtx{}, slots: map[int64]*nsSlot{}, charges: map[int64]*nsCharge{}, tokSlot: map[int64]int64{}}
 
 // Counters (tests, diagnostics): native runs prepared, slots and charges currently held.
 var (
@@ -178,6 +181,7 @@ func (e *Engine) NativeScriptReserve(gen int64, rule int, token int64) string {
 	reg.mu.Lock()
 	id := reg.next()
 	reg.slots[id] = &nsSlot{sl: sl, s: e.scripts}
+	reg.tokSlot[token] = id
 	reg.mu.Unlock()
 	nsHeld.Add(1)
 	return jsonString(nsReserveJS{Slot: id})
@@ -201,6 +205,11 @@ func NativeScriptRelease(slot int64, ran bool) {
 	reg.mu.Lock()
 	s := reg.slots[slot]
 	delete(reg.slots, slot)
+	for t, id := range reg.tokSlot {
+		if id == slot {
+			delete(reg.tokSlot, t)
+		}
+	}
 	reg.mu.Unlock()
 	if s == nil {
 		return
@@ -347,8 +356,22 @@ func (e *Engine) NativeScriptBodyAdmit(gen int64, rule int, respRules string, ur
 	if r == nil || len(rules) == 0 {
 		return jsonString(nsAdmitJS{Gone: true, Skip: "脚本规则已更新"})
 	}
-	limit := scriptBodyLimit(r.Script)
 	respCap, respCapScript := phaseBodyCapScript(rules, "")
+	// fix/selective-largebody: make room / wait (the HTTP slot parked) for a body likely larger than the dynamic
+	// budget allows now, then decide with the budget read again.
+	var park func()
+	var unpark func() error
+	if sl := slotForToken(token); sl != nil {
+		park = sl.park
+		unpark = func() error { return sl.unpark(tokenCtx(token)) }
+	}
+	respCap, respCapScript, granted, werr := e.largeBodyRoom(tokenCtx(token), rules, respCap, respCapScript, contentLength, enc, url, park, unpark)
+	limit := grantedLimit(r.Script, granted)
+	if werr != nil {
+		skip := "等待内存后脚本槽位不可用：" + werr.Error()
+		e.logf("warning", fmt.Sprintf("[MitM] %s，原样放行：%s", skip, clip(url, 100)))
+		return jsonString(nsAdmitJS{Skip: skip, Limit: int64(limit)})
+	}
 	if heapHigh() {
 		cl := contentLength
 		if enc != "" && cl >= 0 {
@@ -362,12 +385,12 @@ func (e *Engine) NativeScriptBodyAdmit(gen int64, rule int, respRules string, ur
 		if respCap > smallWorkMax {
 			respCap = smallWorkMax
 		}
-		return e.nsAdmitRest(rules, limit, respCap, respCapScript, true, url, contentLength, enc, token)
+		return e.nsAdmitRest(rules, limit, respCap, respCapScript, true, url, contentLength, enc, token, granted)
 	}
-	return e.nsAdmitRest(rules, limit, respCap, respCapScript, false, url, contentLength, enc, token)
+	return e.nsAdmitRest(rules, limit, respCap, respCapScript, false, url, contentLength, enc, token, granted)
 }
 
-func (e *Engine) nsAdmitRest(rules []*Rule, limit, respCap int, respCapScript *Script, small bool, url string, contentLength int64, enc string, token int64) string {
+func (e *Engine) nsAdmitRest(rules []*Rule, limit, respCap int, respCapScript *Script, small bool, url string, contentLength int64, enc string, token int64, granted int) string {
 	if contentLength > int64(limit) && enc == "" {
 		return jsonString(nsAdmitJS{Retry: true, Limit: int64(limit), Skip: fmt.Sprintf("响应体 %d KB 超过上限 %d KB", contentLength>>10, limit>>10)})
 	}
@@ -382,7 +405,7 @@ func (e *Engine) nsAdmitRest(rules []*Rule, limit, respCap int, respCapScript *S
 		want = int64(respCap)
 	}
 	ctx := tokenCtx(token)
-	charge := &bodyCharge{ctx: ctx}
+	charge := &bodyCharge{ctx: ctx, granted: int64(granted)}
 	if (enc == "" && contentLength > bigBodyThreshold) || (enc != "" && contentLength > bigBodyThreshold/4) {
 		rel := acquireBigBody(ctx)
 		if rel == nil {
@@ -425,6 +448,7 @@ func (e *Engine) NativeScriptBodyLoaded(ticket int64, url string, decoded int64)
 		return "脚本规则已更新"
 	}
 	ch := c.charge
+	noteBodyDecoded(c.capBy, decoded)
 	if decoded > bigBodyThreshold && ch.big == nil {
 		rel := acquireBigBody(c.ctx)
 		if rel == nil {
@@ -458,6 +482,7 @@ func (e *Engine) NativeScriptBodyFailed(ticket int64, url, kind string, raw int6
 	}
 	switch kind {
 	case "too-big":
+		noteBodyTooBig(capBy, int64(respCap))
 		skip := fmt.Sprintf("响应体解压后超过 %d KB（%s；Content-Encoding: %s，已收 %d KB）", respCap>>10, bodyLimitNote(capBy, respCap), orNone(enc), raw>>10)
 		e.logf("warning", fmt.Sprintf("[MitM] %s，原样放行：%s", skip, clip(url, 100)))
 		return skip
@@ -778,4 +803,15 @@ func NativeScriptMemLow() bool {
 // NativeScriptStats: native script work counters (diagnostics).
 func NativeScriptStats() string {
 	return fmt.Sprintf("native scripts prepared %d, held %d", nsPrepared.Load(), nsHeld.Load())
+}
+
+// slotForToken: the HTTP slot the native dispatcher holds for the response under token (nil: none).
+func slotForToken(token int64) *Slot {
+	reg := nativeScripts
+	reg.mu.Lock()
+	defer reg.mu.Unlock()
+	if s := reg.slots[reg.tokSlot[token]]; s != nil {
+		return s.sl
+	}
+	return nil
 }

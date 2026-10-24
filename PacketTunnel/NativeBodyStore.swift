@@ -64,6 +64,11 @@ final class NativeBodyStore: NSObject, LibmihomoNativeBodyStoreProtocol, JSCNati
         /// feat/s3-mem: capacity reserved from the hint; trimForMemory copies each finished body at most once.
         var reserved = 0
         var compacted = false
+        /// fix/selective-largebody: `dec` reserved up to `limit` before the first byte is decoded, so a large body
+        /// decodes into one buffer. Appending grew it by doubling — each step a new buffer plus a copy, the old one
+        /// alive until the copy ends (≈ 2–3× the decoded size at the moment the limit is reached, and up to 2× slack
+        /// afterwards). The reservation is address space only: pages count in the footprint once written.
+        var decReserved = false
 
         init(codec: Codec, limit: Int, hint: Int) {
             self.codec = codec
@@ -72,7 +77,14 @@ final class NativeBodyStore: NSObject, LibmihomoNativeBodyStoreProtocol, JSCNati
                 reserved = min(hint, limit)
                 raw.reserveCapacity(reserved)
             }
+            if codec != .identity && limit >= Self.decReserveMin {
+                dec.reserveCapacity(limit)
+                decReserved = true
+            }
         }
+
+        /// Encoded bodies with a decode limit at least this large reserve `dec` up front (smaller ones are cheap).
+        static let decReserveMin = 256 << 10
 
         var decoded: Data { codec == .identity ? raw : dec }
 
@@ -236,7 +248,8 @@ final class NativeBodyStore: NSObject, LibmihomoNativeBodyStoreProtocol, JSCNati
                     freed += b.reserved - b.raw.count
                     b.raw = Self.exactCopy(b.raw)
                 }
-                if b.codec != .identity, b.dec.count >= 64 << 10, b.dec.count <= maxCopy {
+                // a reserved `dec` has no written slack to give back (its untouched pages were never resident)
+                if b.codec != .identity, !b.decReserved, b.dec.count >= 64 << 10, b.dec.count <= maxCopy {
                     b.dec = Self.exactCopy(b.dec)
                 }
                 b.closeStream()

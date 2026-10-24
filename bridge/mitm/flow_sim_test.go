@@ -11,6 +11,7 @@ import (
 	"io"
 	"net/http"
 	"net/url"
+	"runtime"
 	"strconv"
 	"strings"
 	"testing"
@@ -41,6 +42,9 @@ type flowSim struct {
 	cut     int                                          // close the client after this many response bytes (0: never)
 	discard bool                                         // count lane body bytes without keeping them (heap tests)
 	chunked bool                                         // send the request body without a length (Transfer-Encoding: chunked)
+	// readAlloc: when non-nil, the response body pulled with FlowRead is counted, not kept, and the bytes Go
+	// allocated during that pull are stored here (heap tests: FlowRead garbage).
+	readAlloc *uint64
 	// native-final: request scripts already run natively (FlowHead.Gen / Scripted)
 	scriptedGen int64
 	scripted    []FlowScripted
@@ -141,6 +145,40 @@ func (s *flowSim) pull(id int64, which int, src *pusher) ([]byte, string) {
 		}
 		if i > 1<<20 {
 			return out, "no progress"
+		}
+	}
+}
+
+// pullCount is pull without keeping the bytes: body length and the Go bytes allocated while reading it.
+func (s *flowSim) pullCount(id int64, which int, src *pusher) (n int64, alloc uint64, why string) {
+	var a, b runtime.MemStats
+	runtime.ReadMemStats(&a)
+	defer func() {
+		runtime.ReadMemStats(&b)
+		alloc = b.TotalAlloc - a.TotalAlloc
+	}()
+	for i := 0; ; i++ {
+		got := FlowRead(id, which, 16<<10) // the native session's ioChunk
+		n += int64(len(got))
+		if len(got) > 0 {
+			continue
+		}
+		switch st := FlowReadState(id, which); {
+		case st == "eof":
+			return n, 0, ""
+		case st == "more":
+			if src == nil || src.stopped {
+				return n, 0, "more without a source"
+			}
+			if !src.done {
+				src.push(s.e, id, which)
+			}
+		case st == "":
+		default:
+			return n, 0, st
+		}
+		if i > 1<<20 {
+			return n, 0, "no progress"
 		}
 	}
 }
@@ -318,6 +356,15 @@ func (s *flowSim) do(method, rawurl string, hdr http.Header, body []byte) simRes
 	case "upstream":
 		res.body = up.rest()
 	case "read":
+		if s.readAlloc != nil {
+			n, alloc, why := s.pullCount(id, flowResp, up)
+			*s.readAlloc = alloc
+			res.n = n
+			if why != "" {
+				res.err = "response body: " + why
+			}
+			return res
+		}
 		b, why := s.pull(id, flowResp, up)
 		res.body = b
 		if why != "" && why != "cut" {

@@ -144,17 +144,19 @@ func TestYouTube3MBUnderDynamicBudget(t *testing.T) {
 		})
 	}
 
-	// Really short of memory (8 MB available → budget (8-4)/3 ≈ 1.3 MB): passed through unchanged, and
-	// the WARN says which budget it used.
+	// Really short of memory (8 MB available, nothing to reclaim → budget (8-3)/3 ≈ 1.7 MB after the large-body
+	// wait; fix/selective-largebody: reserve 3 MB, was (8-4)/3): passed through unchanged, and the WARN says which
+	// budget it used.
 	t.Run("headroom-8MB", func(t *testing.T) {
 		tunnelConditions(t, 0, 8<<20)
+		shortLargeBodyWait(t, 300*time.Millisecond)
 		c, _, e := ytEngineE(t, "yt_ddgksf2013_qx.conf", ytQXURL, qx)
 		ok, n := ytPost(t, c)
 		if ok || n < 512<<10 {
 			t.Fatalf("expected the original answer, stripped=%v len=%d", ok, n)
 		}
 		notes := entryNotes(e)
-		if !strings.Contains(notes, "响应体解压后超过 1365 KB（当前内存预算 1365 KB，隧道可用 8.0 MB；Content-Encoding: br") {
+		if !strings.Contains(notes, "响应体解压后超过 1706 KB（当前内存预算 1706 KB，隧道可用 8.0 MB；Content-Encoding: br") {
 			t.Fatalf("notes %q", notes)
 		}
 	})
@@ -163,7 +165,7 @@ func TestYouTube3MBUnderDynamicBudget(t *testing.T) {
 // TestScriptMaxSizeHonoured: an explicit max-size is the script's limit (Surge / Loon semantics) even
 // when the budget is larger; -1 and no max-size take the budget.
 func TestScriptMaxSizeHonoured(t *testing.T) {
-	tunnelConditions(t, 0, 30<<20) // budget (30-4)/3 ≈ 8.7 MB → BodyHardMax
+	tunnelConditions(t, 0, 30<<20) // budget (30-3)/3 ≈ 8.7 MB → BodyHardMax
 	if got := scriptBodyLimit(&Script{MaxSize: 128 << 10}); got != 128<<10 {
 		t.Fatalf("max-size 128 KB → %d", got)
 	}
