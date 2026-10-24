@@ -1,6 +1,7 @@
 package libmihomo
 
 import (
+	"math"
 	"runtime"
 	"runtime/debug"
 	"sync/atomic"
@@ -82,6 +83,10 @@ func TestPageReturnLoop(t *testing.T) {
 	oldFree := prFree
 	prFree = func() { debug.FreeOSMemory(); calls.Add(1) }
 	defer func() { SetGoPageReturn(false); prInterval, prFree = old, oldFree }()
+	// earlier tests in the package leave GOMEMLIMIT / GOGC low (startGC: 26 MB, GOGC 75 or 40): the GC would then
+	// recycle the burst within the limit and Go's resident memory never grows (CI 40102645877: 31.9 → 31.9 MB)
+	defer debug.SetMemoryLimit(debug.SetMemoryLimit(math.MaxInt64))
+	defer debug.SetGCPercent(debug.SetGCPercent(100))
 	debug.FreeOSMemory()
 
 	burst := func() {
