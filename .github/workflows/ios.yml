@@ -275,6 +275,11 @@ jobs:
             unzip -p "$IPA" Payload/Mihomo.app/PlugIns/MihomoWidget.appex/Info.plist > /tmp/wid.plist && plutil -p /tmp/wid.plist | grep -E "NSExtensionPointIdentifier|CFBundleIdentifier|MinimumOSVersion"
           fi
           unzip -p "$IPA" Payload/Mihomo.app/PlugIns/PacketTunnel.appex/Info.plist > /tmp/ext.plist && plutil -p /tmp/ext.plist | grep -E "NSExtension|Mihomo|CFBundleIdentifier"
+          # feat/native-core-eval: the tunnel kernel is NativeCore — no Go runtime may be linked into the extension.
+          if unzip -p "$IPA" Payload/Mihomo.app/PlugIns/PacketTunnel.appex/PacketTunnel | grep -aq "Go buildinf:"; then
+            echo "::error::PacketTunnel still contains a Go runtime"; exit 1
+          fi
+          echo "PacketTunnel: no Go runtime (NativeCore)"
           {
             echo "### $IPA"
             echo "- mihomo ${MIHOMO_VERSION}, signed=${SIGNED}"
@@ -288,8 +293,10 @@ jobs:
       # v0.15 test variant: ONE dynamic Libmihomo.framework embedded in Mihomo.app/Frameworks and loaded by the
       # tunnel via @rpath (@executable_path/../../Frameworks). The normal IPAs above keep static linking.
       # Unsigned flow only. No widget in this variant (the widget never links the core).
+      # feat/native-core-eval: the tunnel no longer links Go (NativeCore), so there is nothing to share — the variant
+      # is off; the step stays for history until the branch lands.
       - name: Shared-core variant (dynamic Libmihomo.framework)
-        if: env.SIGNED != '1'
+        if: false
         run: |
           set -euo pipefail
           bash scripts/shared_core.sh Frameworks/Libmihomo.xcframework FrameworksShared "$APP_ID" "$VER" 2>&1 | tee shared-core.log

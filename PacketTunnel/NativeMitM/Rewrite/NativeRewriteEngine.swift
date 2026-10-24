@@ -162,6 +162,29 @@ struct RewriteResponse {
 }
 
 final class NativeRewriteEngine {
+    private static var _shared: NativeRewriteEngine?
+    private static let _sharedLock = NSLock()
+
+    static var shared: NativeRewriteEngine {
+        get {
+            _sharedLock.lock()
+            defer { _sharedLock.unlock() }
+            if let s = _shared { return s }
+            let empty = NativeRewriteEngine(snapshot: RWSnapshot(version: 1, gen: 0, on: false, capture: false))
+            _shared = empty
+            return empty
+        }
+        set {
+            _sharedLock.lock()
+            _shared = newValue
+            _sharedLock.unlock()
+        }
+    }
+
+    static func load(_ snapshot: RWSnapshot) {
+        shared = NativeRewriteEngine(snapshot: snapshot)
+    }
+
     private struct Rule {
         let snap: RWSnapRule
         let re: RWRegex?

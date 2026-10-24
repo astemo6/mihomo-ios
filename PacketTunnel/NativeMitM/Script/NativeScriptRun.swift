@@ -16,7 +16,9 @@
 // the same way); timers and fetches only post jobs. Host calls come in on that thread too (inside JavaScriptCore).
 
 import Foundation
+#if !TERN_NO_GO
 import Libmihomo
+#endif
 
 /// The JavaScript engine as a run uses it (JSCScriptEngine; a protocol for the unit tests).
 protocol NativeJSEngine: AnyObject {

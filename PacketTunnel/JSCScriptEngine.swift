@@ -1,6 +1,8 @@
 import Foundation
 import JavaScriptCore
+#if !TERN_NO_GO
 import Libmihomo
+#endif
 
 /// feat/jsc-engine: MitM / rewrite / task scripts run in JavaScriptCore instead of goja (Go).
 ///
@@ -55,6 +57,7 @@ protocol JSCRun: AnyObject {
     func shouldStop() -> Bool
 }
 
+#if !TERN_NO_GO
 /// Go's run (bridge ScriptRun) behind `JSCRun`.
 final class GoJSCRun: JSCRun {
     private let r: LibmihomoScriptRun
@@ -68,6 +71,15 @@ final class GoJSCRun: JSCRun {
     func take(_ id: Int64) -> Data? { r.take(id) }
     func shouldStop() -> Bool { r.shouldStop() }
 }
+
+#endif
+
+#if TERN_NO_GO
+/// The Go-free tunnel (TERN_NO_GO): nobody calls the engine through gomobile.
+protocol JSCEngineGoBinding {}
+#else
+typealias JSCEngineGoBinding = LibmihomoScriptEngineProtocol
+#endif
 
 /// The one thread JSCScriptEngine runs JavaScriptCore on (CI 40079040185 light:1: the unit-test host died in
 /// `MachineThreads::gatherConservativeRoots` → `pas_panic_on_out_of_memory_error` during a collection).
@@ -171,7 +183,7 @@ final class JSCThread {
     }
 }
 
-final class JSCScriptEngine: NSObject, LibmihomoScriptEngineProtocol {
+final class JSCScriptEngine: NSObject, JSCEngineGoBinding {
     static let shared = JSCScriptEngine()
 
     /// Where every JavaScriptCore call of the engine runs (see JSCThread).
@@ -183,7 +195,11 @@ final class JSCScriptEngine: NSObject, LibmihomoScriptEngineProtocol {
     /// already freed (withDecoded false → the Go host, which answers nothing for a dead run).
     static var nativeBlobs: JSCNativeBlobProvider?
     /// First native blob id (LibmihomoNativeBlobBase, 2^52).
+    #if TERN_NO_GO
+    private static let nativeBase: Int64 = NativeBodyStore.defaultBlobBase
+    #else
     private static let nativeBase: Int64 = LibmihomoNativeBlobBase()
+    #endif
 
     private final class Entry {
         let key: String
@@ -255,6 +271,13 @@ final class JSCScriptEngine: NSObject, LibmihomoScriptEngineProtocol {
         super.init()
     }
 
+    #if TERN_NO_GO
+    /// The Go-free tunnel: the native script dispatcher calls the engine directly; nothing to register.
+    @discardableResult
+    static func register() -> String { "" }
+    static func status() -> String { #"{"engine":"native","go":false}"# }
+    static func selfTestIfRequested() {}
+    #else
     /// Registers the engine with the core once per process (tunnel start, 脚本调试 in the app).
     @discardableResult
     static func register() -> String {
@@ -297,6 +320,7 @@ final class JSCScriptEngine: NSObject, LibmihomoScriptEngineProtocol {
             NSLog("[jsc-selftest] %@ %@", r, status())
         }
     }
+    #endif
 
     // MARK: LibmihomoScriptEngineProtocol
 
@@ -392,10 +416,12 @@ final class JSCScriptEngine: NSObject, LibmihomoScriptEngineProtocol {
         scheduleGC(full: true)
     }
 
+    #if !TERN_NO_GO
     func begin(_ run: LibmihomoScriptRun?, key: String?, setup: String?) -> String {
         guard let run, let key else { return Self.err("internal", "missing run") }
         return begin(run: GoJSCRun(run), key: key, setup: setup ?? "{}")
     }
+    #endif
 
     /// Starts a run on key's context: "" ok, "missing" (key not loaded), else error JSON {kind, message} — Go's Begin,
     /// also called by the native script dispatcher (lane s3-script) with its own run. `call` / `end` take its runID.

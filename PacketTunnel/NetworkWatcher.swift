@@ -1,7 +1,6 @@
 import Foundation
 import Network
 import NetworkExtension
-import Libmihomo
 
 /// Watches the physical network (Wi-Fi ⇄ cellular, interface changes), tells the core which network it is
 /// on (按网络切换策略, v0.9) and runs the engine's network-changed event scripts. The first path update
@@ -78,7 +77,7 @@ final class NetworkWatcher {
         // ipsec, type .other) first, and binding the core to it loops every socket back into the tunnel.
         let physIface = path.availableInterfaces.first { [.wifi, .cellular, .wiredEthernet].contains($0.type) }
         let physical = path.status == .satisfied ? (physIface?.name ?? "") : ""
-        LibmihomoSetPhysicalInterface(physical)
+        NativeTunnelCore.shared.setPhysicalInterface(physical)
         guard path.status == .satisfied else { return }
         let iface = path.availableInterfaces.first
         let type: String
@@ -128,7 +127,7 @@ final class NetworkWatcher {
         defer { last = json }
         guard let prev = last else {
             // Baseline: the policy for the network the tunnel started on.
-            let msg = LibmihomoSetNetworkState(type, ssid ?? "")
+            let msg = NativeTunnelCore.shared.setNetworkState(type: type, ssid: ssid)
             StartupLog.write("network: \(type)\(ssid == nil ? "" : " (SSID known)")\(msg.isEmpty ? "" : ", " + msg)")
             return
         }
@@ -139,12 +138,12 @@ final class NetworkWatcher {
             guard let self, !self.stopped else { return }
             // v0.19 网络变化时清空 DNS 缓存 (更多 → 内核设置, on by default).
             if self.flushDNS {
-                LibmihomoFlushDNSCache()
+                NativeTunnelCore.shared.flushDNSCache()
                 StartupLog.write("network changed (\(type)): DNS cache cleared")
             }
-            let msg = LibmihomoSetNetworkState(type, ssid ?? "")
+            let msg = NativeTunnelCore.shared.setNetworkState(type: type, ssid: ssid)
             if !msg.isEmpty { StartupLog.write(msg) }
-            let n = LibmihomoNotifyNetworkChanged(json)
+            let n = NativeTunnelCore.shared.notifyNetworkChanged(json)
             if n > 0 { StartupLog.write("network changed (\(type), \(iface.isEmpty ? "-" : iface)): \(n) event script(s)") }
             // feat/loon-menu-notify: 更多 → 通知 → 网络变化 (default off).
             if NotifyPrefs.allows(.network) {

@@ -1,11 +1,12 @@
 import Foundation
 import NetworkExtension
-import Libmihomo
 import UserNotifications
+import Darwin
 
 /// Posts local notifications for scripts ($notification.post / $notify) and, feat/loon-menu-notify, for the core's
-/// policy watcher events (policywatch.go), each behind its 更多 → 通知 switch.
-final class ScriptNotifier: NSObject, LibmihomoNotifierProtocol {
+/// policy watcher events (policywatch.go), each behind its 更多 → 通知 switch. feat/native-core-eval: nothing calls it
+/// through Go any more; kept for the native policy watcher / script host to post through (not wired yet).
+final class ScriptNotifier: NSObject {
     func notify(_ payload: String?) {
         guard let data = payload?.data(using: .utf8),
               let n = try? JSONDecoder().decode(ScriptNotification.self, from: data) else { return }
@@ -82,8 +83,8 @@ final class PacketTunnelProvider: NEPacketTunnelProvider {
     static let goPageReturnDefault = true
 
     private let notifier = ScriptNotifier()
-    private let memoryProbe = ExtensionMemoryProbe()
-    private var bridge: PacketFlowBridge?
+    /// feat/native-core-eval: the tunnel kernel (NativeCore, Swift + lwIP). The extension does not link Go.
+    private let core = NativeTunnelCore.shared
     private var memoryGuard: MemoryGuard?
     /// feat/s3-mem: replaces memoryGuard while the app-group switch nativeMemGovernor is on (default off).
     private var nativeMemGovernor: NativeMemoryGovernorSampler?
@@ -99,8 +100,6 @@ final class PacketTunnelProvider: NEPacketTunnelProvider {
     override func startTunnel(options: [String: NSObject]?, completionHandler: @escaping (Error?) -> Void) {
         TunnelErrorLog.clear()
         StartupLog.begin("startTunnel")
-        LibmihomoSetStageLog(StartupLog.url.path, TimeZone.current.secondsFromGMT())
-        LibmihomoSetTimeZone(TimeZone.current.identifier, TimeZone.current.secondsFromGMT())
         StartupLog.write("startTunnel called, \(ProcessMemory.summary())")
         // fix/vpn-stays-on: the previous tunnel's alive marker is still there = it never reached stopTunnel (jetsam /
         // crash / power off). Recorded as 上次断开原因 so 诊断 shows why the VPN was found off.
@@ -151,113 +150,67 @@ final class PacketTunnelProvider: NEPacketTunnelProvider {
         var overrides = CoreOverrides.load()
         // v0.8 IPv6 自动: decided once per start from the physical network; Go gets the same answer.
         overrides.ipv6 = overrides.resolvedIPv6()
-        LibmihomoSetNetworkIPv6(overrides.ipv6)
         StartupLog.write("ipv6 mode \(overrides.ipv6Mode) → \(overrides.ipv6 ? "on" : "off"), ip preference \(overrides.ipPreference)")
-        LibmihomoSetNotifier(notifier)
-        LibmihomoSetPolicyEvents(NotifyPrefs.coreMask) // feat/loon-menu-notify: 策略组异常 / 自动策略切换 / 节点异常
-        LibmihomoSetMemoryLimit(Int32(overrides.memoryLimitMB))
-        LibmihomoSetMemoryProbe(memoryProbe)
-        // feat/go-pagereturn: Go hands the pages a burst freed back to iOS ~2 s after the burst ends (one GC +
-        // scavenge when Go is quiet again; bridge/pagereturn.go) instead of 30 s – 2 min later. App-group key
-        // goPageReturn.enabled overrides the default.
-        let pageReturn = AppShared.defaults.object(forKey: Self.goPageReturnKey) as? Bool ?? Self.goPageReturnDefault
-        LibmihomoSetGoPageReturn(pageReturn)
-        StartupLog.write("go page return: \(pageReturn ? "on" : "off")")
-        // feat/jsc-engine: MitM / rewrite / task scripts run in JavaScriptCore (goja stays the fallback).
-        let jsc = JSCScriptEngine.register()
-        StartupLog.write("script engine: \(jsc.isEmpty ? "JavaScriptCore" : "goja (JavaScriptCore unavailable: \(jsc))"), \(LibmihomoScriptEngineStatus())")
-        // feat/native-mitm stage 1: response bodies that only scripts read are decoded and kept in native memory
-        // (NativeBodyStore) instead of the Go heap. Only with JavaScriptCore; Go falls back to its own path on any
-        // lane failure (and switches the lane off for the run after three).
-        // Registered before LibmihomoStart and never unregistered: handles still in flight at a stop are freed by
-        // their Go owners (handler / laneReader), and a nil store would make those frees no-ops (a leak).
-        // v0.19.23: default OFF until device-verified — only an explicit app-group flag
-        // (nativeBodyLane.enabled = true) turns it on; without a registered store every body takes the Go path.
-        let laneWanted = AppShared.defaults.bool(forKey: "nativeBodyLane.enabled")
-        // feat/selective-native: selective native MitM runs scripts natively, which needs the store registered too.
-        var selectiveWanted = false
-        if #available(iOS 17, *) { selectiveWanted = NativeMitmRuntime.mode == .selective }
-        if jsc.isEmpty && (laneWanted || selectiveWanted) {
-            NativeBodyStore.register()
-            StartupLog.write("native body lane: on (\(laneWanted ? "" : "for selective native MitM, ")\(LibmihomoNativeLaneStats()))")
-        } else {
-            StartupLog.write("native body lane: off (\(jsc.isEmpty ? "default off" : "needs JavaScriptCore"))")
-        }
-        // native MitM stage 2 (B9): native TLS front + HTTP/1.1 session, rules still decided in Go. Default
-        // NativeMitmRuntime.defaultOn (app-group key nativeMitmStage2 overrides); iOS 17+ only (the upstream lane's CONNECT-proxied
-        // TLS needs it). Off / declined / over the session cap → Go terminates TLS itself, as before.
-        // feat/selective-native: selective mode (switch nativeMitmSelective) hands the front only hosts with a body /
-        // jq / json rewrite or a script rule; without JavaScriptCore it stays off (native scripts need it).
+        // feat/native-core-eval: scripts run in JavaScriptCore driven by the native MitM lane (no Go engine).
+        _ = JSCScriptEngine.register()
+        NativeBodyStore.register()
         if #available(iOS 17, *) {
-            if selectiveWanted && !jsc.isEmpty {
-                StartupLog.write("native MitM stage 2: off (selective mode needs JavaScriptCore)")
-            } else {
-                let on = NativeMitmRuntime.installDefault()
-                StartupLog.write("native MitM stage 2: \(on ? (NativeMitmRuntime.selectiveEngines ? "selective" : "on") : "off")")
-            }
+            // Every MitM host the app's snapshot names is terminated natively (selective / Go handover no longer exist).
+            let on = NativeMitmRuntime.install(front: MitmTLSFront.shared, upstream: NCUpstreamConnector.shared,
+                                               codec: HTTPLaneCodec(), force: true, selective: false)
+            StartupLog.write("native MitM: \(on ? "on" : "off")")
+        } else {
+            StartupLog.write("native MitM: off (needs iOS 17)")
         }
-        let proxyOnly = overrides.isProxyOnly
+        if overrides.isProxyOnly {
+            completionHandler(Self.error("原生内核暂不支持「仅代理」连接方式，请在 更多 → 连接方式 选择 TUN"))
+            return
+        }
+        if overrides.isMixed {
+            StartupLog.write("mix mode: the native core has no local proxy listener yet — running as tun only (no system proxy)")
+        }
+        let proxyOnly = false
         // 接管所有网络流量: with includeAllNetworks iOS scopes this extension's own unbound sockets into the tunnel
         // too, so the core's proxy / DIRECT / DNS sockets must be bound to the physical interface (Go side,
         // physiface.go). The VPN configuration's value is the one iOS enforces (overrides.json is logged next to it).
         let includeAll = protocolConfiguration.includeAllNetworks
-        LibmihomoSetBindPhysicalInterface(includeAll)
-        StartupLog.write("tunnel scope: includeAllNetworks \(includeAll ? "on" : "off") (setting \(overrides.includeAllNetworks ? "on" : "off")), enforceRoutes \(protocolConfiguration.enforceRoutes), excludeLocalNetworks \(protocolConfiguration.excludeLocalNetworks)\(includeAll ? ", " + LibmihomoPhysicalInterfaceStatus() : "")")
-        StartupLog.write("mode \(proxyOnly ? "proxy-only (NEProxySettings)" : overrides.isMixed ? "mix (tun + system proxy)" : "tun (NEPacketTunnelFlow bridge)"), quic \(overrides.blockQUIC), routes +\(overrides.includedRoutes.count)/-\(overrides.excludedRoutes.count)\(overrides.notDefaultRoute ? " (not default route)" : "")\(overrides.hideVPNIcon ? " (hide icon)" : ""), mtu \(overrides.tunMTU), GOMEMLIMIT \(overrides.memoryLimitMB) MB\(overrides.safeMode ? ", SAFE MODE" : "")")
+        StartupLog.write("tunnel scope: includeAllNetworks \(includeAll ? "on" : "off") (setting \(overrides.includeAllNetworks ? "on" : "off")), enforceRoutes \(protocolConfiguration.enforceRoutes), excludeLocalNetworks \(protocolConfiguration.excludeLocalNetworks)")
+        StartupLog.write("mode \(proxyOnly ? "proxy-only (NEProxySettings)" : overrides.isMixed ? "mix (tun + system proxy)" : "tun (NEPacketTunnelFlow bridge)"), quic \(overrides.blockQUIC), routes +\(overrides.includedRoutes.count)/-\(overrides.excludedRoutes.count)\(overrides.notDefaultRoute ? " (not default route)" : "")\(overrides.hideVPNIcon ? " (hide icon)" : ""), mtu \(overrides.tunMTU), kernel NativeCore\(overrides.safeMode ? ", SAFE MODE" : "")")
         if let v = Bundle.main.object(forInfoDictionaryKey: "CFBundleShortVersionString") as? String {
-            StartupLog.write("tunnel \(v) (\(Bundle.main.object(forInfoDictionaryKey: "CFBundleVersion") as? String ?? "?")), \(LibmihomoVersion())")
+            StartupLog.write("tunnel \(v) (\(Bundle.main.object(forInfoDictionaryKey: "CFBundleVersion") as? String ?? "?")), \(NativeTunnelCore.version)")
         }
 
-        // Watchdog: never leave the system at "连接中…" (Go has its own 20 s bound; this covers anything else).
+        // Watchdog: never leave the system at "连接中…".
         DispatchQueue.global().asyncAfter(deadline: .now() + 30) {
             completionHandler(Self.error("启动超时（30 秒）。请到 更多 → 诊断 查看启动日志"))
         }
 
         StartupLog.write("applying tunnel network settings")
-        setTunnelNetworkSettings(Self.networkSettings(overrides)) { [weak self] error in
+        var netOverrides = overrides
+        if netOverrides.isMixed { netOverrides.tunnelMode = "tun" }
+        setTunnelNetworkSettings(Self.networkSettings(netOverrides)) { [weak self] error in
             guard let self else { return }
             if let error {
                 completionHandler(Self.error("设置隧道网络失败：\(error.localizedDescription)"))
                 return
             }
             StartupLog.write("settings applied")
-            var fd: Int32 = 0
-            if !proxyOnly {
-                let b = PacketFlowBridge(flow: self.packetFlow)
-                b.onFailure = { [weak self] why in
-                    self?.cancelTunnelWithError(Self.error("数据包桥接失败：\(why)"))
-                }
-                do {
-                    fd = try b.start()
-                } catch {
-                    completionHandler(Self.error("无法创建数据包桥接：\(error.localizedDescription)"))
-                    return
-                }
-                self.stopLock.lock(); self.bridge = b; self.stopLock.unlock()
-                StartupLog.write("packet-flow bridge up, core fd \(fd)")
-            }
-            // Off the NetworkExtension callback queue: LibmihomoStart returns within 20 s at most.
+            _ = proxyOnly
             DispatchQueue.global(qos: .userInitiated).async {
                 StartupLog.write("core start begin")
-                var err: NSError?
-                LibmihomoStart(AppShared.homeURL.path, profile.path, fd, &err)
-                StartupLog.write("core start returned\(err.map { ": " + $0.localizedDescription } ?? " OK"), \(ProcessMemory.summary()), \(LibmihomoMemoryStats())")
-                if let err {
-                    self.takeBridge()?.stop()
-                    LibmihomoDumpDiagnostics()
-                    completionHandler(Self.error("内核启动失败：\(err.localizedDescription)"))
+                do {
+                    try self.core.start(home: AppShared.homeURL.path, flow: self.packetFlow, mtu: overrides.tunMTU,
+                                        controllerPort: overrides.controllerPort, secret: overrides.secret)
+                } catch {
+                    completionHandler(error)
                     return
                 }
-                // Review 6 R6A-1: publish the helpers under stopLock, so a stopTunnel either sees them (and stops
-                // them) or has already set `stopped` (and nothing is started). The watchdog may also have failed
-                // the start meanwhile: then the core must not keep running in an extension iOS has written off.
+                StartupLog.write("core start returned OK, \(ProcessMemory.summary())")
                 let timedOut = startTimedOut()
                 let started: Bool = {
                     self.stopLock.lock(); defer { self.stopLock.unlock() }
                     guard !self._stopped, !timedOut else { return false }
                     if NativeMemoryGovernor.enabled {
-                        // feat/s3-mem: one coordinator (Swift) for levels, admission, reclaim, shed and GOMEMLIMIT;
-                        // Go's governor stands down while it runs (bridge/nativegov.go).
                         let g = NativeMemoryGovernorSampler.makeDefault(onSample: { MemorySnapshotWriter.save(fp: $0, avail: $1) })
                         g.start()
                         self.nativeMemGovernor = g
@@ -280,14 +233,13 @@ final class PacketTunnelProvider: NEPacketTunnelProvider {
                 guard started else {
                     StartupLog.write(timedOut ? "core start returned after the start watchdog: stopping the core again"
                                               : "stopTunnel arrived during core start: stopping the core again")
-                    LibmihomoStop()
-                    self.takeBridge()?.stop()
+                    self.core.stop()
                     completionHandler(Self.error("已断开"))
                     return
                 }
                 completionHandler(nil)
                 DispatchQueue.global().asyncAfter(deadline: .now() + 15) { [weak self] in
-                    StartupLog.write("+15 s: \(ProcessMemory.summary()), \(LibmihomoMemoryStats()), bridge \(self?.currentBridge?.stats ?? "-"), \(LibmihomoPhysicalInterfaceStatus())")
+                    StartupLog.write("+15 s: \(ProcessMemory.summary()), \(self?.core.engine?.statsLine ?? "-")")
                 }
             }
         }
@@ -350,13 +302,12 @@ final class PacketTunnelProvider: NEPacketTunnelProvider {
 
     override func stopTunnel(with reason: NEProviderStopReason, completionHandler: @escaping () -> Void) {
         let why = TunnelStopReason.describe(reason.rawValue)
-        StartupLog.write("stopTunnel reason=\(reason.rawValue)（\(why)）, \(ProcessMemory.summary()), bridge \(currentBridge?.stats ?? "-")")
+        StartupLog.write("stopTunnel reason=\(reason.rawValue)（\(why)）, \(ProcessMemory.summary())")
         TunnelStopReason.record(reason.rawValue)
         // feat/loon-menu-notify: 更多 → 通知 → VPN 意外断开 (posted first: the extension goes away right after).
         if let key = TunnelNotice.unexpectedStopKey(reason.rawValue), NotifyPrefs.allows(.vpn) {
             TunnelNotice.post(kind: .vpn, title: NotifyText.loc("VPN 意外断开"), body: NotifyText.loc(key))
         }
-        LibmihomoSetPolicyEvents(0)
         // r7: tell a running app at once (Live Activity end); a suspended app catches up on its next status check.
         CFNotificationCenterPostNotification(CFNotificationCenterGetDarwinNotifyCenter(),
                                              CFNotificationName(AppShared.tunnelStoppedNotification as CFString), nil, nil, true)
@@ -380,27 +331,11 @@ final class PacketTunnelProvider: NEPacketTunnelProvider {
         memoryGuard?.stop()
         nativeMemGovernor?.stop()
         TunnelStopReason.clearAlive() // fix/vpn-stays-on: a clean stop (after the traffic timer can no longer re-mark)
-        LibmihomoStop()
-        // feat/native-mitm: lane handles go back to 0 once the core stopped (one still being freed may show here; a count
-        // that stays across stops is a leak)
-        if JSCScriptEngine.nativeBlobs != nil { StartupLog.write("native body lane after stop: \(NativeBodyStore.shared.stats())") }
-        LibmihomoDumpDiagnostics()
-        takeBridge()?.stop()
+        core.stop()
+        if #available(iOS 17, *) { NativeMitmRuntime.uninstall() }
+        UpstreamPool.shared.closeIdle()
+        StartupLog.write("native body lane after stop: \(NativeBodyStore.shared.stats())")
         completionHandler()
-    }
-
-    /// The bridge, read under stopLock (written by the start path on another queue).
-    private var currentBridge: PacketFlowBridge? {
-        stopLock.lock(); defer { stopLock.unlock() }
-        return bridge
-    }
-
-    /// Removes and returns the bridge exactly once (start-failure path and stopTunnel can both get here).
-    private func takeBridge() -> PacketFlowBridge? {
-        stopLock.lock(); defer { stopLock.unlock() }
-        let b = bridge
-        bridge = nil
-        return b
     }
 
     /// The traffic recorder, read under stopLock (handleAppMessage / sleep run on the NE queue).
@@ -425,13 +360,12 @@ final class PacketTunnelProvider: NEPacketTunnelProvider {
             // Read `network` here, on the provider's queue: stopTunnel clears it there too (v0.19.1, was read
             // from the background queue while stopTunnel could be writing it).
             stopLock.lock(); let nw = network; stopLock.unlock()
+            _ = profile
             DispatchQueue.global(qos: .userInitiated).async {
-                var err: NSError?
-                if hot { LibmihomoReloadHot(profile.path, &err) } else { LibmihomoReload(profile.path, &err) }
-                nw?.refreshSettings() // settings saved by the app before it asked for the reload
-                // Review 6 R6A-3: success is a non-empty "ok" (an empty reply can reach the app as nil, which the app
-                // now reads as a timeout).
-                completionHandler?(Data((err?.localizedDescription ?? TunnelMessage.reloadOK).utf8))
+                // The app prepared the new runtime config (PrepareNativeRuntime) before sending this.
+                let err = self.core.reload(hot: hot)
+                nw?.refreshSettings()
+                completionHandler?(Data((err ?? TunnelMessage.reloadOK).utf8))
             }
         case .directIP:
             // Sockets opened by the provider itself are not routed through its own tunnel,
@@ -441,31 +375,27 @@ final class PacketTunnelProvider: NEPacketTunnelProvider {
                 completionHandler?(info.flatMap { try? JSONEncoder().encode($0) })
             }
         case .freeMemory:
-            LibmihomoFreeMemory()
+            NativeTunnelMemory.relieve()
             completionHandler?(nil)
         case .version:
-            completionHandler?(LibmihomoVersion().data(using: .utf8))
+            completionHandler?(NativeTunnelCore.version.data(using: .utf8))
         case .flushStats:
             currentTraffic?.sampleNow()
-            LibmihomoFlushRuleHits()
             completionHandler?(nil)
         case .dumpDiagnostics:
-            LibmihomoRecordMemorySample(Int64(ProcessMemory.footprintBytes()), Int64(ProcessMemory.availableBytes()))
-            LibmihomoDumpDiagnostics()
-            completionHandler?("\(ProcessMemory.summary()), \(LibmihomoMemoryStats())".data(using: .utf8))
+            let support = core.engine?.supportReport.joined(separator: "; ") ?? ""
+            StartupLog.write("diagnostics: \(ProcessMemory.summary()), \(core.engine?.statsLine ?? "-")\(support.isEmpty ? "" : ", unsupported: " + support)")
+            completionHandler?("\(ProcessMemory.summary()), \(core.engine?.statsLine ?? "-")".data(using: .utf8))
         case .memoryStats:
             completionHandler?(Data(MemorySnapshotWriter.snapshot().utf8))
         case .applyNetworkPolicy:
-            let n = LibmihomoApplyNetworkPolicy()
-            completionHandler?("\(n)".data(using: .utf8))
+            completionHandler?("0".data(using: .utf8)) // 网络策略 (per-network mode switching) not in the native core yet
         case .notifyPrefs:
-            LibmihomoSetPolicyEvents(NotifyPrefs.coreMask)
             completionHandler?(nil)
         case .tailscaleInfo:
-            completionHandler?(Data(LibmihomoTailscaleNodes().utf8))
+            completionHandler?(Data("[]".utf8))
         case .reloadStatus:
-            // fix/xmly-memory-2: answered at once (a small lock in Go), also while a reload holds the core lock.
-            completionHandler?(Data(LibmihomoReloadStatus().utf8))
+            completionHandler?(Data(core.reloadStatus().utf8))
         case .none:
             completionHandler?(nil)
         }
@@ -473,8 +403,7 @@ final class PacketTunnelProvider: NEPacketTunnelProvider {
 
     override func sleep(completionHandler: @escaping () -> Void) {
         currentTraffic?.sample()
-        LibmihomoFlushRuleHits()
-        LibmihomoFreeMemory()
+        NativeTunnelMemory.relieve()
         completionHandler()
     }
 
@@ -491,13 +420,24 @@ final class PacketTunnelProvider: NEPacketTunnelProvider {
     }
 }
 
-/// v0.18: footprint / headroom for the Go side (Tailscale start guard).
-final class ExtensionMemoryProbe: NSObject, LibmihomoMemoryProbeProtocol {
-    func footprint() -> Int64 { Int64(ProcessMemory.footprintBytes()) }
-    func available() -> Int64 { Int64(ProcessMemory.availableBytes()) }
+/// feat/native-core-eval: what the Go core's FreeMemory / ShedMemory did, for native memory: idle upstreams and the
+/// malloc zones' free pages go back to iOS.
+enum NativeTunnelMemory {
+    static func relieve() {
+        UpstreamPool.shared.closeIdle()
+        malloc_zone_pressure_relief(nil, 0)
+    }
+
+    /// level 1 = light, 2 = critical (closes the oldest quarter of connections too, like Go's critical shed).
+    @discardableResult
+    static func shed(level: Int, reason: String) -> String {
+        relieve()
+        if level >= 2 { NativeTunnelCore.shared.shedConnections(percent: 25) }
+        return ""
+    }
 }
 
-/// v0.18 隧道内存: one snapshot = Swift-measured footprint / peak / available + Go numbers + Tailscale status.
+/// v0.18 隧道内存/// v0.18 隧道内存: one snapshot = Swift-measured footprint / peak / available + Go numbers + Tailscale status.
 enum MemorySnapshotWriter {
     private static var trackedPeak: UInt64 = 0
     private static let lock = NSLock()
@@ -507,20 +447,10 @@ enum MemorySnapshotWriter {
         trackedPeak = max(trackedPeak, fp)
         let peak = max(trackedPeak, ProcessMemory.peakBytes())
         lock.unlock()
-        var json = LibmihomoMemorySnapshot(Int64(fp), Int64(peak), Int64(avail))
-        // native MitM stage 2: Go reports on / handed / fellBack; the live session count is Swift's.
+        var obj = NativeTunnelCore.shared.memorySnapshot(footprint: fp, peak: peak, available: avail)
         // feat/s3-mem: 隧道内存 → 内存调度 row (only while the native governor runs).
-        let governor = NativeMemoryGovernor.active
-        if var obj = (try? JSONSerialization.jsonObject(with: Data(json.utf8))) as? [String: Any] {
-            var changed = false
-            if var native = obj["native"] as? [String: Any] {
-                native["sessions"] = NativeMitmRuntime.liveSessions
-                obj["native"] = native
-                changed = true
-            }
-            if let g = governor { obj["governor"] = g.snapshotFields(); changed = true }
-            if changed, let d = try? JSONSerialization.data(withJSONObject: obj), let s = String(data: d, encoding: .utf8) { json = s }
-        }
+        if let g = NativeMemoryGovernor.active { obj["governor"] = g.snapshotFields() }
+        let json = NativeTunnelCore.json(obj)
         TunnelMemoryFile.write(json)
         return json
     }
@@ -591,7 +521,7 @@ final class MemoryGuard {
         let avail = ProcessMemory.availableBytes()
         if critical || fp >= warningShedAtBytes {
             // Go rate-limits and backs off by itself (ShedMemory), so every event may ask.
-            _ = LibmihomoShedMemory(critical ? 2 : 1, critical ? "memory pressure critical" : "memory pressure warning")
+            NativeTunnelMemory.shed(level: critical ? 2 : 1, reason: critical ? "memory pressure critical" : "memory pressure warning")
         }
         evaluate(fp: fp, avail: avail, freeAt: UInt64.max, why: "memory pressure")
     }
@@ -611,7 +541,6 @@ final class MemoryGuard {
         guard !stopped else { return }
         let fp = ProcessMemory.footprintBytes()
         let avail = ProcessMemory.availableBytes()
-        LibmihomoRecordMemorySample(Int64(fp), Int64(avail))
         MemorySnapshotWriter.save(fp: fp, avail: avail)
         evaluate(fp: fp, avail: avail, freeAt: freeAtBytes, why: "timer")
         // Sample faster while close to the limit, slowly otherwise (battery).
@@ -624,7 +553,7 @@ final class MemoryGuard {
         let lowAvail = avail >= 0 && avail < shedAvailableBelow
         if fp >= freeAt || fp >= shedAtBytes || lowAvail {
             let level = (lowAvail || fp >= shedAtBytes) ? 2 : 1
-            _ = LibmihomoShedMemory(level, why)
+            NativeTunnelMemory.shed(level: level, reason: why)
         }
         guard (fp >= shedAtBytes || lowAvail) && armed else { return }
         // Re-check after returning memory: often that alone is enough.
@@ -635,8 +564,8 @@ final class MemoryGuard {
         armed = false
         lastShed = Date()
         let percent = (avail2 >= 0 && avail2 < 2 << 20) ? 50 : 25
-        let n = LibmihomoShedConnections(percent)
-        LibmihomoFreeMemory()
+        let n = NativeTunnelCore.shared.shedConnections(percent: percent)
+        NativeTunnelMemory.relieve()
         StartupLog.write("memory guard (\(why)): closed \(n) oldest connections (\(percent) %) at footprint \(fp2 >> 20) MB → \(ProcessMemory.summary())")
         // feat/loon-menu-notify: 更多 → 通知 → 内存警告 (default off), at most every 10 minutes.
         if n > 0, Date().timeIntervalSince(lastNotice) > 600, NotifyPrefs.allows(.memory) {
@@ -706,7 +635,7 @@ final class LiveStatsSampler {
         let w = LiveStats.wanted
         if w != sampling { schedule(wanted: w) }
         guard w else { return }
-        let s = LiveStats(status: LibmihomoLiveStatus())
+        let s = LiveStats(status: NativeTunnelCore.shared.liveStatus())
         guard !stopped else { return }
         s.save()
     }
@@ -761,7 +690,7 @@ final class TrafficRecorder {
 
     private func sampleOnQueue() {
         guard !stopped else { return }
-        let parts = LibmihomoTrafficTotals().split(separator: ",").compactMap { Int64($0) }
+        let parts = NativeTunnelCore.shared.trafficTotals().split(separator: ",").compactMap { Int64($0) }
         guard parts.count == 2 else { return }
         let up = parts[0], down = parts[1]
         // Counters restart with the core; a smaller value means a restart, count from zero.

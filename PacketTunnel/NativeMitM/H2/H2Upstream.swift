@@ -10,7 +10,9 @@
 // responseBody / onHead and never which protocol carried it.
 
 import Foundation
+#if !TERN_NO_GO
 import Libmihomo
+#endif
 
 /// An opened origin connection.
 final class H2UpstreamTransport {
@@ -58,7 +60,7 @@ final class H2RelayUpstreamOpener: H2UpstreamOpening {
         lock.lock(); ids += 1; let id = ids; lock.unlock()
         let pool = self.pool
         UpstreamConnection.open(target: UpstreamTarget(host: host, port: UInt16(port), tls: true),
-                                relayPort: Int(LibmihomoMitmRelayPort()), queue: pool.queue, id: id,
+                                relayPort: H2UpstreamRelay.port(pool), queue: pool.queue, id: id,
                                 connectTimeout: pool.config.connectTimeout, alpn: ["h2", "http/1.1"]) { r in
             switch r {
             case .failure(let e): completion(.failure(e))
@@ -509,5 +511,17 @@ final class H2UpstreamManager: H2ConnectionOwner {
         let ws = waiting
         waiting.removeAll()
         for (_, list) in ws { list.forEach { w in queue.async { w(.failure(S2Error.cancelled)) } } }
+    }
+}
+
+/// The relay port for h2 upstreams: Go's CONNECT relay in the app-hosted tests; in the Go-free tunnel there is no relay
+/// (native h2 is not offered there — NativeH2Runtime.enabled stays false — so this is never dialled).
+enum H2UpstreamRelay {
+    static func port(_ pool: UpstreamPool) -> Int {
+        #if TERN_NO_GO
+        return pool.relayPort() > 0 ? pool.relayPort() : 0
+        #else
+        return Int(LibmihomoMitmRelayPort())
+        #endif
     }
 }

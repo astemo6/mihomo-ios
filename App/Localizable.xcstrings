@@ -10704,6 +10704,40 @@
         }
       }
     },
+    "生成运行配置失败：": {
+      "localizations": {
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "生成執行設定失敗："
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Could not build the runtime config: "
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "実行設定の生成に失敗："
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "실행 설정 생성 실패: "
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Не удалось собрать рабочую конфигурацию: "
+          }
+        }
+      }
+    },
     "脚本保存的数据（如 BoxJS 设置、登录信息）都会被删除，无法恢复。": {
       "extractionState": "manual",
       "localizations": {

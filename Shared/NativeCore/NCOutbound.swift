@@ -1,0 +1,229 @@
+import Foundation
+
+/// A connection target as rules and outbounds see it.
+struct NCTarget: Equatable {
+    var host: String // domain or IP literal
+    var port: Int
+
+    var ip: NCIP? { NCIP(host) }
+
+    /// SOCKS / Shadowsocks target encoding: ATYP + address + port (big-endian).
+    var atypEncoded: Data {
+        var out = Data()
+        if let ip = ip {
+            switch ip {
+            case .v4:
+                out.append(0x01)
+                out.append(contentsOf: ip.bytes)
+            case .v6:
+                out.append(0x04)
+                out.append(contentsOf: ip.bytes)
+            }
+        } else {
+            let utf8 = Array(host.utf8.prefix(255))
+            out.append(0x03)
+            out.append(UInt8(utf8.count))
+            out.append(contentsOf: utf8)
+        }
+        out.append(UInt8((port >> 8) & 0xff))
+        out.append(UInt8(port & 0xff))
+        return out
+    }
+}
+
+/// Stateless wire builders for the simple outbounds (SOCKS5, HTTP CONNECT).
+/// Socket I/O lives in the tunnel glue; these stay pure and unit-testable.
+enum NCSOCKS5 {
+    static func greeting(username: String?, password: String?) -> Data {
+        if username != nil {
+            return Data([0x05, 0x02, 0x00, 0x02])
+        }
+        return Data([0x05, 0x01, 0x00])
+    }
+
+    static func authRequest(username: String, password: String) -> Data {
+        var out = Data([0x01, UInt8(min(username.utf8.count, 255))])
+        out.append(contentsOf: username.utf8.prefix(255))
+        out.append(UInt8(min(password.utf8.count, 255)))
+        out.append(contentsOf: password.utf8.prefix(255))
+        return out
+    }
+
+    static func connectRequest(target: NCTarget, udp: Bool = false) -> Data {
+        var out = Data([0x05, udp ? 0x03 : 0x01, 0x00])
+        out.append(target.atypEncoded)
+        return out
+    }
+
+    /// Parse a SOCKS5 response header. Returns (bytesConsumed, replyCode) or nil
+    /// when more bytes are needed. Throws nothing; replyCode != 0 means failure.
+    static func parseResponse(_ data: Data) -> (Int, Int)? {
+        guard data.count >= 4 else { return nil }
+        let atyp = data[3]
+        var need: Int
+        switch atyp {
+        case 0x01: need = 4 + 4 + 2
+        case 0x04: need = 4 + 16 + 2
+        case 0x03:
+            guard data.count >= 5 else { return nil }
+            need = 4 + 1 + Int(data[4]) + 2
+        default: return nil
+        }
+        guard data.count >= need else { return nil }
+        return (need, Int(data[1]))
+    }
+}
+
+enum NCHTTPProxy {
+    static func connectRequest(target: NCTarget, username: String?, password: String?) -> Data {
+        let authority = target.ip?.isV4 == false && target.ip != nil ? "[\(target.host)]:\(target.port)" : "\(target.host):\(target.port)"
+        var lines = "CONNECT \(authority) HTTP/1.1\r\nHost: \(authority)\r\nProxy-Connection: Keep-Alive\r\n"
+        if let u = username {
+            let cred = Data("\(u):\(password ?? "")".utf8).base64EncodedString()
+            lines += "Proxy-Authorization: Basic \(cred)\r\n"
+        }
+        lines += "\r\n"
+        return Data(lines.utf8)
+    }
+}
+
+/// Resolves a policy name through proxy groups to a concrete outbound, the way
+/// mihomo does: select uses the stored choice, url-test picks the lowest delay,
+/// fallback picks the first alive member, load-balance rotates. DIRECT and
+/// REJECT are terminal pseudo-policies. Loop-safe via a visited set.
+final class NCGroupEngine {
+    private let config: NCConfig
+    var selections: [String: String] = [:] // group name -> chosen member
+    var delays: [String: Int] = [:] // proxy name -> last measured delay ms (nil/<=0 = unknown or dead)
+    var alive: [String: Bool] = [:]
+    /// Nodes the connector cannot dial (NCSupport.unsupportedReason): groups pick around them (feat/native-core-eval).
+    var unsupported: Set<String> = []
+    /// Current Wi-Fi SSID, for SUBNET-conditioned groups (Surge SUBNET /
+    /// QX ssid policies carried in group fields["subnet"]). The engine
+    /// owner supplies it; nil = network unknown.
+    var ssidProvider: () -> String? = { nil }
+    private var rrCounters: [String: Int] = [:]
+
+    /// The member a SUBNET condition forces for this group right now:
+    /// an exact SSID hit beats DEFAULT, which beats manual selection —
+    /// auto-switching by network is the group's whole purpose.
+    private func subnetForcedMember(_ g: NCProxyGroup) -> String? {
+        guard let map = g.fields["subnet"]?.object, !map.isEmpty else { return nil }
+        if let ssid = ssidProvider(), let hit = map[ssid]?.string, g.proxies.contains(hit) {
+            return hit
+        }
+        if let def = map["DEFAULT"]?.string, g.proxies.contains(def) { return def }
+        return nil
+    }
+
+    init(config: NCConfig) { self.config = config }
+
+    enum Resolution: Equatable {
+        case direct
+        case reject
+        case proxy(NCProxy)
+        /// Ordered chain of ≥2 proxies: dial member 0 directly, tunnel
+        /// through it to member 1's server, and so on; the last member
+        /// connects to the real target. Produced by relay groups and by
+        /// `dialer-proxy` expansion.
+        case chain([NCProxy])
+        case unknown(String)
+    }
+
+    func resolve(_ policy: String) -> Resolution {
+        resolve(policy, visited: [])
+    }
+
+    private func resolve(_ policy: String, visited: Set<String>) -> Resolution {
+        switch policy.uppercased() {
+        case "DIRECT": return .direct
+        case "REJECT", "REJECT-DROP": return .reject
+        default: break
+        }
+        if let p = config.proxyMap[policy] { return expandDialer(p, visited: visited) }
+        guard let g = config.groupMap[policy] else { return .unknown(policy) }
+        guard !visited.contains(g.name) else { return .unknown(policy) }
+        var visited = visited
+        visited.insert(g.name)
+        if g.type == "relay" {
+            // Every member must itself resolve to proxy material; the
+            // concatenation is the chain, in group order.
+            var chain: [NCProxy] = []
+            for member in g.proxies {
+                switch resolve(member, visited: visited) {
+                case .proxy(let p): chain.append(p)
+                case .chain(let ps): chain.append(contentsOf: ps)
+                default: return .unknown(policy)
+                }
+            }
+            if chain.count == 1 { return .proxy(chain[0]) }
+            return chain.isEmpty ? .unknown(policy) : .chain(chain)
+        }
+        let all = g.proxies
+        guard !all.isEmpty else { return .unknown(policy) }
+        let usable = all.filter { !unsupported.contains($0) }
+        let members = usable.isEmpty ? all : usable
+        let chosen: String
+        if let forced = subnetForcedMember(g) {
+            chosen = forced
+        } else if let sel = selections[g.name], members.contains(sel) {
+            chosen = sel // explicit choice / pin (controller PUT) wins for every type
+        } else {
+            switch g.type {
+            case "url-test":
+                chosen = members.min(by: { delayOf($0) < delayOf($1) }) ?? members[0]
+            case "fallback":
+                chosen = members.first(where: { alive[$0] ?? true }) ?? members[0]
+            case "load-balance":
+                let i = (rrCounters[g.name] ?? 0) % members.count
+                rrCounters[g.name] = i + 1
+                chosen = members[i]
+            default: // select and anything else: first member
+                chosen = members[0]
+            }
+        }
+        return resolve(chosen, visited: visited)
+    }
+
+    /// `dialer-proxy`: this proxy's server is itself reached through the
+    /// named outbound (a proxy or a group). Expands to a chain with the
+    /// dialer first; loops degrade to .unknown via the visited set.
+    private func expandDialer(_ proxy: NCProxy, visited: Set<String>) -> Resolution {
+        guard let dialerName = proxy.fields["dialer-proxy"]?.string, !dialerName.isEmpty else {
+            return .proxy(proxy)
+        }
+        let key = "dialer:\(proxy.name)"
+        guard !visited.contains(key) else { return .unknown(proxy.name) }
+        var visited = visited
+        visited.insert(key)
+        switch resolve(dialerName, visited: visited) {
+        case .proxy(let d): return .chain([d, proxy])
+        case .chain(let ds): return .chain(ds + [proxy])
+        default: return .unknown(proxy.name)
+        }
+    }
+
+    /// The member a group would route to right now (one level, no recursion).
+    func currentMember(of group: NCProxyGroup) -> String? {
+        let all = group.proxies
+        guard !all.isEmpty else { return nil }
+        let usable = all.filter { !unsupported.contains($0) }
+        let members = usable.isEmpty ? all : usable
+        if let forced = subnetForcedMember(group) { return forced }
+        if let sel = selections[group.name], members.contains(sel) { return sel }
+        switch group.type {
+        case "url-test":
+            return members.min(by: { delayOf($0) < delayOf($1) }) ?? members[0]
+        case "fallback":
+            return members.first(where: { alive[$0] ?? true }) ?? members[0]
+        case "load-balance":
+            return members[(rrCounters[group.name] ?? 0) % members.count]
+        default:
+            return members[0]
+        }
+    }
+
+    private func delayOf(_ name: String) -> Int {
+        delays[name] ?? Int.max
+    }
+}

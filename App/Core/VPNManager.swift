@@ -263,6 +263,11 @@ final class VPNManager: ObservableObject {
             }
             userStopped = false
             TunnelErrorLog.clear()
+            // feat/native-core-eval: the Go-free tunnel reads the runtime config the app builds.
+            if let err = await NativeRuntimePrep.prepare() {
+                lastError = err
+                return
+            }
             try m.connection.startVPNTunnel(options: TunnelStartOption.options)
         } catch {
             lastError = String(localized: "启动失败：") + Self.describe(error)
@@ -553,6 +558,7 @@ final class VPNManager: ObservableObject {
         // v0.19.8: the extension answers when the new config is applied; with proxy-providers that takes longer than
         // the 8 s default, and a reply missing after 8 s used to count as success while the core still ran the old
         // config (a group order save then read the old order back and looked like it did nothing).
+        if let err = await NativeRuntimePrep.prepare() { return err } // feat/native-core-eval: the tunnel re-reads it
         let before = Self.reloadStatus(await send(.reloadStatus, timeout: 3))
         let data = await send(hot ? .reloadHot : .reload, timeout: 45)
         NotificationCenter.default.post(name: .egressMayHaveChanged, object: nil)

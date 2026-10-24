@@ -107,7 +107,9 @@ targets:
       - path: PacketTunnel
         # native MitM stage 2: NativeMitM/ is built (runtime switch default OFF, NativeMitmRuntime); the three
         # stage-1 skeletons stay out until the tls/http/upstream lanes replace them.
-        excludes: ["**/*.entitlements", "NativeMitM/NativeHTTP1Session.swift", "NativeMitM/NativeTLSFront.swift", "NativeMitM/NativeUpstream.swift"]
+        # feat/native-core-eval: PacketFlowBridge (the socketpair to the Go core) is gone with Go; NativeCore reads the
+        # packet flow itself (NCDataPlane).
+        excludes: ["**/*.entitlements", "NativeMitM/NativeHTTP1Session.swift", "NativeMitM/NativeTLSFront.swift", "NativeMitM/NativeUpstream.swift", "PacketFlowBridge.swift"]
       # The Live Activity attributes are app + widget only (keeps ActivityKit out of the tunnel's memory).
       - path: Shared
         excludes: ["LiveActivityShared.swift", "LiveActivityViews.swift", "TunnelControl.swift"]
@@ -119,9 +121,10 @@ targets:
     configFiles:
       Debug: Config/Tunnel.signing.xcconfig
       Release: Config/Tunnel.signing.xcconfig
+    # feat/native-core-eval: the tunnel kernel is NativeCore (Swift + vendored lwIP). The extension no longer links
+    # Libmihomo (no Go runtime in the NE process); the app still links it for its utility functions and writes the
+    # runtime config the tunnel reads (bridge/nativeprep.go).
     dependencies:
-      - framework: Frameworks/Libmihomo.xcframework
-        embed: false
       - sdk: NetworkExtension.framework
     settings:
       base:
@@ -131,6 +134,15 @@ targets:
         CODE_SIGN_ENTITLEMENTS: PacketTunnel/PacketTunnel.entitlements
         APPLICATION_EXTENSION_API_ONLY: YES
         SKIP_INSTALL: YES
+        # Native core (docs/native-core-design.md): vendored lwIP bridge.
+        SWIFT_OBJC_BRIDGING_HEADER: PacketTunnel/NativeCore/NCBridge.h
+        HEADER_SEARCH_PATHS:
+          - $(PROJECT_DIR)/PacketTunnel/NativeCore/lwip
+          - $(PROJECT_DIR)/PacketTunnel/NativeCore/lwip/include
+          - $(PROJECT_DIR)/PacketTunnel/NativeCore/lwip/port
+        GCC_PREPROCESSOR_DEFINITIONS: $(inherited)
+        # Files shared with the app pick their Go-free variant with this (see nogo_check in the eval notes).
+        SWIFT_ACTIVE_COMPILATION_CONDITIONS: $(inherited) TERN_NO_GO
 
   MihomoWidget:
     type: app-extension
@@ -139,7 +151,9 @@ targets:
     sources:
       - path: Widget
         excludes: ["**/*.entitlements"]
+      # NativeCore is app + tunnel only; keep it out of the widget (memory/size).
       - path: Shared
+        excludes: ["NativeCore/**"]
       - path: App/Localizable.xcstrings
         buildPhase: resources
     configFiles:

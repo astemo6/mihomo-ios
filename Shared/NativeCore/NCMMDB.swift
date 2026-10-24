@@ -1,0 +1,232 @@
+import Foundation
+
+/// MaxMind DB reader (the format of geoip.metadb / GeoLite2-Country.mmdb /
+/// ASN.mmdb bundled with the app): binary search tree over IP bits, records
+/// decoded from the data section (maps, arrays, strings, numbers, booleans,
+/// pointers). Lookup only; no network iteration.
+final class NCMMDB {
+    private let data: Data
+    private let nodeCount: Int
+    private let recordSize: Int // bits per record (24/28/32)
+    private let ipVersion: Int
+    private let treeSize: Int
+    private let dataStart: Int
+
+    init?(data: Data) {
+        self.data = data
+        // Metadata follows the marker "\xab\xcd\xefMaxMind.com".
+        let marker = Data([0xab, 0xcd, 0xef]) + Data("MaxMind.com".utf8)
+        guard let markerRange = data.range(of: marker, options: .backwards) else { return nil }
+        var decoder = NCMMDBDecoder(data: data, offset: markerRange.upperBound)
+        guard let meta = decoder.decode(), case .object(let m) = meta,
+              let nodes = m["node_count"]?.int, let recSize = m["record_size"]?.int else { return nil }
+        nodeCount = nodes
+        recordSize = recSize
+        ipVersion = m["ip_version"]?.int ?? 6
+        treeSize = nodeCount * recordSize * 2 / 8
+        dataStart = treeSize + 16 // separator
+    }
+
+    /// Raw record for an IP, if any network covers it.
+    func lookup(_ ip: NCIP) -> NCJSONValue? {
+        let bits: [UInt8]
+        let bitCount: Int
+        switch ip {
+        case .v4:
+            if ipVersion == 6 {
+                bits = [0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0xff, 0xff] + ip.bytes
+                bitCount = 128
+            } else {
+                bits = ip.bytes
+                bitCount = 32
+            }
+        case .v6:
+            guard ipVersion == 6 else { return nil }
+            bits = ip.bytes
+            bitCount = 128
+        }
+        var node = 0
+        for i in 0..<bitCount {
+            let bit = (bits[i / 8] >> (7 - (i % 8))) & 1
+            node = readRecord(node: node, index: Int(bit))
+            if node > nodeCount {
+                let pointer = node - nodeCount - 16
+                var decoder = NCMMDBDecoder(data: data, offset: dataStart + pointer, dataStart: dataStart)
+                return decoder.decode()
+            }
+            if node == nodeCount { return nil }
+        }
+        return nil
+    }
+
+    private func readRecord(node: Int, index: Int) -> Int {
+        let byteOffset = node * recordSize * 2 / 8 + index * recordSize / 8
+        switch recordSize {
+        case 24:
+            return Int(data[byteOffset]) << 16 | Int(data[byteOffset + 1]) << 8 | Int(data[byteOffset + 2])
+        case 28:
+            let middle = data[byteOffset + 3]
+            if index == 0 {
+                return Int(middle & 0xf0) << 20 | Int(data[byteOffset]) << 16 | Int(data[byteOffset + 1]) << 8 | Int(data[byteOffset + 2])
+            } else {
+                let offset2 = byteOffset + 4
+                return Int(middle & 0x0f) << 24 | Int(data[offset2]) << 16 | Int(data[offset2 + 1]) << 8 | Int(data[offset2 + 2])
+            }
+        case 32:
+            return Int(data[byteOffset]) << 24 | Int(data[byteOffset + 1]) << 16 | Int(data[byteOffset + 2]) << 8 | Int(data[byteOffset + 3])
+        default:
+            return nodeCount
+        }
+    }
+
+    /// Country code for an IP: handles GeoLite2 records ({"country":
+    /// {"iso_code": …}}), MetaCubeX metadb records ({"country_code": …}) and
+    /// bare string records.
+    func countryCode(for ip: NCIP) -> String? {
+        guard let record = lookup(ip) else { return nil }
+        switch record {
+        case .string(let s):
+            return s
+        case .object(let m):
+            if let cc = m["country_code"]?.string { return cc }
+            if let iso = m["country"]?.object?["iso_code"]?.string { return iso }
+            if let iso = m["registered_country"]?.object?["iso_code"]?.string { return iso }
+            return nil
+        default:
+            return nil
+        }
+    }
+
+    /// ASN for an IP from an ASN database ({"autonomous_system_number": …}).
+    func asn(for ip: NCIP) -> Int? {
+        guard let record = lookup(ip), case .object(let m) = record else { return nil }
+        return m["autonomous_system_number"]?.int
+    }
+}
+
+/// The mmdb data-section value decoder (control byte: type + size, with
+/// extended types, pointers, and the 29/30/31 size escapes).
+private struct NCMMDBDecoder {
+    let data: Data
+    var offset: Int
+    var dataStart: Int = 0
+
+    mutating func decode() -> NCJSONValue? {
+        guard offset < data.count else { return nil }
+        let ctrl = data[offset]
+        offset += 1
+        var type = Int(ctrl >> 5)
+        let sizeBits = Int(ctrl & 0x1f)
+        if type == 1 { // extended type follows
+            guard offset < data.count else { return nil }
+            type = Int(data[offset]) + 7
+            offset += 1
+        }
+        if type == 2 { // pointer: size bits encode the pointer width/value
+            let pointerSize = (sizeBits >> 3) & 0x3
+            let base = sizeBits & 0x7
+            let pointer: Int
+            switch pointerSize {
+            case 0:
+                guard offset < data.count else { return nil }
+                pointer = base << 8 | Int(data[offset])
+                offset += 1
+            case 1:
+                guard offset + 1 < data.count else { return nil }
+                pointer = (base << 16 | Int(data[offset]) << 8 | Int(data[offset + 1])) + 2048
+                offset += 2
+            case 2:
+                guard offset + 2 < data.count else { return nil }
+                pointer = (base << 24 | Int(data[offset]) << 16 | Int(data[offset + 1]) << 8 | Int(data[offset + 2])) + 526336
+                offset += 3
+            default:
+                guard offset + 3 < data.count else { return nil }
+                pointer = Int(data[offset]) << 24 | Int(data[offset + 1]) << 16 | Int(data[offset + 2]) << 8 | Int(data[offset + 3])
+                offset += 4
+            }
+            var target = NCMMDBDecoder(data: data, offset: dataStart + pointer, dataStart: dataStart)
+            return target.decode()
+        }
+        let size: Int
+        switch sizeBits {
+        case 29:
+            guard offset < data.count else { return nil }
+            size = 29 + Int(data[offset])
+            offset += 1
+        case 30:
+            guard offset + 1 < data.count else { return nil }
+            size = 285 + (Int(data[offset]) << 8 | Int(data[offset + 1]))
+            offset += 2
+        case 31:
+            guard offset + 2 < data.count else { return nil }
+            size = 65821 + (Int(data[offset]) << 16 | Int(data[offset + 1]) << 8 | Int(data[offset + 2]))
+            offset += 3
+        default:
+            size = sizeBits
+        }
+        switch type {
+        case 3: // utf8 string
+            guard offset + size <= data.count else { return nil }
+            let s = String(decoding: data[offset..<(offset + size)], as: UTF8.self)
+            offset += size
+            return .string(s)
+        case 5, 6, 9: // bytes / uint16 / uint64: big-endian unsigned
+            var value: UInt64 = 0
+            for k in 0..<size {
+                guard offset + k < data.count else { return nil }
+                value = value << 8 | UInt64(data[offset + k])
+            }
+            offset += size
+            if type == 5 { return .string("bytes(\(size))") }
+            return .number(Double(value))
+        case 10: // uint128 -> approximate
+            var value: Double = 0
+            for k in 0..<size {
+                guard offset + k < data.count else { return nil }
+                value = value * 256 + Double(data[offset + k])
+            }
+            offset += size
+            return .number(value)
+        case 8: // int32
+            var raw: UInt32 = 0
+            for k in 0..<size {
+                guard offset + k < data.count else { return nil }
+                raw = raw << 8 | UInt32(data[offset + k])
+            }
+            offset += size
+            if size > 0, size < 4 { raw <<= (4 - size) * 8 }
+            return .number(Double(Int32(bitPattern: raw)))
+        case 7: // map
+            var obj: [String: NCJSONValue] = [:]
+            for _ in 0..<size {
+                guard let key = decode(), case .string(let k) = key, let value = decode() else { return nil }
+                obj[k] = value
+            }
+            return .object(obj)
+        case 11: // array
+            var arr: [NCJSONValue] = []
+            for _ in 0..<size {
+                guard let v = decode() else { return nil }
+                arr.append(v)
+            }
+            return .array(arr)
+        case 14: // boolean: the size bits ARE the value
+            return .bool(sizeBits != 0)
+        case 4, 15: // double / float
+            guard offset + size <= data.count else { return nil }
+            let bytes = [UInt8](data[offset..<(offset + size)])
+            offset += size
+            if type == 4, size == 8 {
+                let bits = bytes.reduce(UInt64(0)) { $0 << 8 | UInt64($1) }
+                return .number(Double(bitPattern: bits))
+            }
+            if type == 15, size == 4 {
+                let bits = bytes.reduce(UInt32(0)) { $0 << 8 | UInt32($1) }
+                return .number(Double(Float(bitPattern: bits)))
+            }
+            return .number(0)
+        default:
+            return nil
+        }
+    }
+}
