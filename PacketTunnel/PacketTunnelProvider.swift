@@ -442,6 +442,9 @@ final class PacketTunnelProvider: NEPacketTunnelProvider {
             completionHandler?(nil)
         case .tailscaleInfo:
             completionHandler?(Data(LibmihomoTailscaleNodes().utf8))
+        case .reloadStatus:
+            // fix/xmly-memory-2: answered at once (a small lock in Go), also while a reload holds the core lock.
+            completionHandler?(Data(LibmihomoReloadStatus().utf8))
         case .none:
             completionHandler?(nil)
         }

@@ -1129,6 +1129,8 @@ func (s *ScriptRunner) run(parent context.Context, rule *Rule, req, resp *Script
 		// the caller streams lane bodies: large results may stay in the lane (host op "nblob")
 		setup = func(rc *runCtx) { rc.laneOK = true }
 	}
+	runsActive.Add(1)
+	defer func() { runsActive.Add(-1); scheduleRunRelief() }()
 	rc, err := s.execute(parent, rule.Script, req, resp, sem, holdsBig, 120*time.Second, 10*time.Second, setup)
 	if err != nil {
 		return nil, err // execute already freed the run's lane handles
@@ -1894,9 +1896,17 @@ func (rc *runCtx) do(fr *fetchReq) *fetchResp {
 	}
 	// fix/xmly-memory: a small answer (cookie, JSON) is judged on its own size; only large or unknown
 	// downloads are refused by the general gate when memory is short.
-	small := cl0 >= 0 && cl0 <= smallWorkMax
-	if heapHigh() && !(small && smallWorkOK(cl0, smallFetchFloor)) {
-		return &fetchResp{err: errors.New("内存紧张，已跳过下载（保护隧道内存）")}
+	// fix/xmly-memory-2 (device 2026-10-24 22:16: 「付费接口异常 / 免费接口异常：内存紧张，已跳过下载」 at ~5 MB
+	// available): an answer without Content-Length (chunked, HTTP/2 — the 喜马拉雅 API) counted as large and
+	// was refused below bodyAvailFloor (6 MB). Now only an answer announced larger than smallWorkMax is large;
+	// unknown ones are judged as small (smallUnknownEstimate), wait briefly for headroom, and their read is
+	// capped at smallWorkMax while memory is short.
+	readCap := MaxScriptBody
+	if heapHigh() {
+		if cl0 > smallWorkMax || !waitSmallWork(ctx, cl0, smallFetchFloor, fetchHeadroomWait) {
+			return &fetchResp{err: errors.New("内存紧张，已跳过下载（保护隧道内存）")}
+		}
+		readCap = smallWorkMax
 	}
 	charge := &fetchCharge{ctx: ctx}
 	release := charge.release
@@ -1907,11 +1917,14 @@ func (rc *runCtx) do(fr *fetchReq) *fetchResp {
 	}
 	// v0.19.9 (review 5 P2-5): read one byte past the cap and fail loudly instead of handing the script a
 	// silently truncated body (it then failed later in JSON.parse).
-	b, err := charge.read(resp.Body, cl, MaxScriptBody)
+	b, err := charge.read(resp.Body, cl, readCap)
 	if err != nil {
 		return fail(err)
 	}
-	if len(b) > MaxScriptBody {
+	if len(b) > readCap {
+		if readCap < MaxScriptBody {
+			return fail(fmt.Errorf("内存紧张，响应体超过 %d KB，已跳过下载（保护隧道内存）", readCap>>10))
+		}
 		return fail(fmt.Errorf("响应体超过 %d MB", MaxScriptBody>>20))
 	}
 	if ce := resp.Header.Get("Content-Encoding"); ce != "" && !strings.EqualFold(ce, "identity") {
@@ -1931,6 +1944,10 @@ func (rc *runCtx) do(fr *fetchReq) *fetchResp {
 	}
 	return &fetchResp{status: resp.StatusCode, header: resp.Header, body: b, release: release}
 }
+
+// fetchHeadroomWait: how long a small $httpClient answer waits for headroom while memory is short
+// (fix/xmly-memory-2; the script's own timeout still bounds it through ctx).
+var fetchHeadroomWait = 2 * time.Second
 
 // fetchBudgetWait is how long a script download waits for body budget before trying the single
 // unbudgeted slot (fetchbudget.go).

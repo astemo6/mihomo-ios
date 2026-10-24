@@ -169,18 +169,19 @@ func TestXimalayaTunnelMemoryGates(t *testing.T) {
 			t.Fatalf("compiled %d times for 3 requests, want 1", n)
 		}
 	})
-	// 3. Really short of memory (3 MB left): skipped with the reason in the script log and the note.
+	// 3. Really short of memory (2 MB left; fix/xmly-memory-2: 3 MB now admits small bodies, below the
+	// 2.75 MB small-body floor they are skipped): skipped with the reason in the script log and the note.
 	t.Run("short-of-memory", func(t *testing.T) {
-		tunnelConditions(t, 0, 3<<20)
+		tunnelConditions(t, 0, 2<<20)
 		x := newXmlyRig(t)
 		ok, notes := x.homePage(t)
 		joined := strings.Join(notes, " | ")
-		if ok || !strings.Contains(joined, "跳过脚本：ximalaya — 内存紧张（隧道可用 3.0 MB）") {
+		if ok || !strings.Contains(joined, "跳过脚本：ximalaya — 内存紧张（隧道可用 2.0 MB）") {
 			t.Fatalf("ok=%v notes=%q", ok, notes)
 		}
 		var logged bool
 		for _, l := range x.e.Logs.List(0, "ximalaya") {
-			logged = logged || strings.Contains(l.Msg, "跳过脚本：内存紧张（隧道可用 3.0 MB）")
+			logged = logged || strings.Contains(l.Msg, "跳过脚本：内存紧张（隧道可用 2.0 MB）")
 		}
 		if !logged {
 			t.Fatalf("script log lacks the reason: %+v", x.e.Logs.List(0, ""))
