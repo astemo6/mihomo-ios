@@ -1808,8 +1808,24 @@ final class MihomoUITests: MihomoUITestCase {
         if !field.exists { field = app.textFields.matching(identifier: "rule.text").firstMatch }
         XCTAssertTrue(field.waitForExistence(timeout: 5), "rule text field")
         field.tap()
-        if let v = field.value as? String, !v.isEmpty, v != L("规则") {
+        // A prefilled rule (编辑规则 on an existing row): the tap can land the caret at the start, and deleting from
+        // there removed nothing (test91 typed in front of the old rule). Put the caret at the end first, then
+        // Select All → delete if anything is left.
+        let filled: (XCUIElement) -> String? = { f in
+            guard let v = f.value as? String, !v.isEmpty, v != L("规则"), v != (f.placeholderValue ?? "") else { return nil }
+            return v
+        }
+        if let v = filled(field) {
+            field.coordinate(withNormalizedOffset: CGVector(dx: 0.97, dy: 0.92)).tap()
+            usleep(300_000)
             field.typeText(String(repeating: XCUIKeyboardKey.delete.rawValue, count: v.count + 2))
+            if filled(field) != nil {
+                field.press(forDuration: 1.0)
+                if tapIfExists(app.menuItems.matching(NSPredicate(format: "label IN %@", ["Select All", "全选"])).firstMatch, timeout: 2) {
+                    field.typeText(XCUIKeyboardKey.delete.rawValue)
+                }
+            }
+            XCTAssertNil(filled(field), "rule text cleared before typing")
         }
         field.typeText(text)
         usleep(1_200_000)
