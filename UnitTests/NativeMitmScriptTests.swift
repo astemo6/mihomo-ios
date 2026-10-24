@@ -48,6 +48,29 @@ final class NativeMitmScriptTests: XCTestCase {
     reqscript = type=http-request,pattern=^https://api\\.test\\.com/reqscript,script-path=req.js
     rule: http-response ^https://api\\.test\\.com/hrule header-add X-Rule yes
     hrule = type=http-response,pattern=^https://api\\.test\\.com/hrule,requires-body=1,script-path=vip.js
+    rqhdr = type=http-request,pattern=^https://api\\.test\\.com/rqhdr,script-path=req.js
+    rqurl = type=http-request,pattern=^https://api\\.test\\.com/rqurl,script-path=rqurl.js
+    rqmethod = type=http-request,pattern=^https://api\\.test\\.com/rqmethod,script-path=rqmethod.js
+    rqbody = type=http-request,pattern=^https://api\\.test\\.com/rqbody,requires-body=1,script-path=rqbody.js
+    rqjson = type=http-request,pattern=^https://api\\.test\\.com/rqjson,requires-body=1,script-path=rqjson.js
+    rqkeep = type=http-request,pattern=^https://api\\.test\\.com/rqkeep,requires-body=1,script-path=none.js
+    rqmock = type=http-request,pattern=^https://api\\.test\\.com/rqmock,script-path=rqmock.js
+    rqqx = type=http-request,pattern=^https://api\\.test\\.com/rqqx,script-path=rqqx.js
+    rqbad = type=http-request,pattern=^https://api\\.test\\.com/rqbad,script-path=rqbad.js
+    rqabort = type=http-request,pattern=^https://api\\.test\\.com/rqabort,script-path=abort.js
+    rqerr = type=http-request,pattern=^https://api\\.test\\.com/rqerr,script-path=err.js
+    rqstore = type=http-request,pattern=^https://api\\.test\\.com/rqstore,script-path=rqstore.js
+    rqsmall = type=http-request,pattern=^https://api\\.test\\.com/rqsmall,requires-body=1,max-size=16,script-path=rqbody.js
+    rqtwo1 = type=http-request,pattern=^https://api\\.test\\.com/rqtwo,script-path=req.js
+    rqtwo2 = type=http-request,pattern=^https://api\\.test\\.com/rqtwo,requires-body=1,script-path=rqbody.js
+    rqresp1 = type=http-request,pattern=^https://api\\.test\\.com/rqresp,script-path=rqurl.js
+    rqresp2 = type=http-response,pattern=^https://api\\.test\\.com/rqresp2,script-path=hdr.js
+    rqhb1 = type=http-request,pattern=^https://api\\.test\\.com/rqhb,script-path=req.js
+    rqhb2 = type=http-response,pattern=^https://api\\.test\\.com/rqhb,requires-body=1,script-path=vip.js
+    rqmix1 = type=http-request,pattern=^https://api\\.test\\.com/rqmix,script-path=req.js
+    rqmix2 = type=http-request,pattern=^https://api\\.test\\.com/rqmix,requires-body=1,script-path=rqbody.js
+    rule: http-request ^https://api\\.test\\.com/rqrule header-add X-Rule-Req yes
+    rqrule = type=http-request,pattern=^https://api\\.test\\.com/rqrule,script-path=req.js
     """
 
     private static let scripts: [String: String] = [
@@ -74,6 +97,14 @@ final class NativeMitmScriptTests: XCTestCase {
         "same.js": #"$done({body: $response.body});"#,
         "text.js": #"$done({body: "[" + $response.body + "]"});"#,
         "req.js": #"var h = $request.headers; h["X-Req"] = "1"; $done({headers: h});"#,
+        "rqurl.js": #"$done({url: $request.url.replace("/rqurl", "/rqurl2").replace("/rqresp", "/rqresp2") + "&added=1"});"#,
+        "rqmethod.js": #"$done({method: "post", headers: Object.assign({}, $request.headers, {"X-M": $request.method})});"#,
+        "rqbody.js": #"$done({body: "[" + ($request.body || "") + "]"});"#,
+        "rqjson.js": #"var o = JSON.parse($request.body); o.injected = true; $done({body: JSON.stringify(o)});"#,
+        "rqmock.js": #"$done({response: {status: 201, headers: {"Content-Type": "text/plain", "X-Mock": "1"}, body: "mocked " + $request.method}});"#,
+        "rqqx.js": #"$done({status: "HTTP/1.1 403 Forbidden", headers: {"X-QX": "1"}, body: "qx"});"#,
+        "rqbad.js": #"$done({response: {status: 99, body: "bad status"}});"#,
+        "rqstore.js": #"$persistentStore.write("rv-" + $request.url.length, "rqk"); var h = $request.headers; h["X-Store"] = $persistentStore.read("rqk"); $done({headers: h});"#,
     ]
 
     private struct Case {
@@ -308,6 +339,198 @@ final class NativeMitmScriptTests: XCTestCase {
         XCTAssertGreaterThanOrEqual(st.script, 36, "most cases are handled natively")
         XCTAssertEqual(native.liveNativeFlows, 0, "native flows left")
         XCTAssertEqual(JSCScriptEngine.laneLive(), 0, "Go lane handles left")
+    }
+
+    // MARK: request scripts (native-final)
+
+    private struct ReqCase {
+        var name: String
+        var path: String
+        var method = "GET"
+        var body = Data()
+        var chunked = false
+        var respChunked = false
+    }
+
+    private static var reqCases: [ReqCase] {
+        let json = Data(#"{"a":1}"#.utf8)
+        return [
+            ReqCase(name: "rq headers", path: "/rqhdr?q=1"),
+            ReqCase(name: "rq headers POST body untouched", path: "/rqhdr?p", method: "POST", body: json),
+            ReqCase(name: "rq url", path: "/rqurl?q=1"),
+            ReqCase(name: "rq method", path: "/rqmethod?q=1"),
+            ReqCase(name: "rq body", path: "/rqbody?q=1", method: "POST", body: Data("hello".utf8)),
+            ReqCase(name: "rq body GET (no body)", path: "/rqbody?g"),
+            ReqCase(name: "rq json", path: "/rqjson", method: "PUT", body: json),
+            ReqCase(name: "rq keep body", path: "/rqkeep", method: "POST", body: Data("keep me".utf8)),
+            ReqCase(name: "rq mock", path: "/rqmock?q=1"),
+            ReqCase(name: "rq qx mock", path: "/rqqx"),
+            ReqCase(name: "rq bad status mock", path: "/rqbad"),
+            ReqCase(name: "rq abort", path: "/rqabort"),
+            ReqCase(name: "rq error", path: "/rqerr"),
+            ReqCase(name: "rq store", path: "/rqstore?a=1"),
+            ReqCase(name: "rq store again", path: "/rqstore?a=22"),
+            ReqCase(name: "rq small (skipped)", path: "/rqsmall", method: "POST", body: Data(String(repeating: "z", count: 100).utf8)),
+            ReqCase(name: "rq two scripts", path: "/rqtwo", method: "POST", body: Data("two".utf8)),
+            ReqCase(name: "rq url then response script", path: "/rqresp?x=1"),
+            ReqCase(name: "rq header rule + script", path: "/rqrule"),
+            ReqCase(name: "rq then response hand-back (chunked response)", path: "/rqhb", respChunked: true),
+            ReqCase(name: "rq then chunked request (hand-over)", path: "/rqmix", method: "POST", body: Data("chunk".utf8), chunked: true),
+            ReqCase(name: "rq mix fixed length", path: "/rqmix", method: "POST", body: Data("fixed".utf8)),
+        ]
+    }
+
+    private struct ReqOutcome: Equatable {
+        var first = ""
+        var forward = ""
+        var reqBody = Data()
+        var resp = Outcome()
+    }
+
+    private func pushAll(_ d: MitmFlowDriving, _ id: Int64, _ which: FlowBodyWhich, _ body: Data) {
+        var off = 0, tries = 0
+        while off < body.count {
+            let end = min(off + 32 << 10, body.count)
+            switch d.write(id, which, body.subdata(in: off..<end)) {
+            case .full:
+                tries += 1
+                if tries > 5000 { off = body.count } else { usleep(1000) }
+            case .stop, .gone: off = body.count
+            case .taken: off = end
+            }
+        }
+        d.closeBody(id, which, error: "")
+    }
+
+    private func readAll(_ d: MitmFlowDriving, _ id: Int64, _ which: FlowBodyWhich) -> Data {
+        var out = Data(), tries = 0
+        while tries < 20000 {
+            let b = d.read(id, which, max: 64 << 10)
+            if !b.isEmpty { out.append(b); continue }
+            if d.readState(id, which) != .again { break }
+            tries += 1
+            usleep(500)
+        }
+        return out
+    }
+
+    private func driveReq(_ d: MitmFlowDriving, _ c: ReqCase) -> ReqOutcome {
+        var hs: [(String, String)] = [("Host", Self.host), ("User-Agent", "Client/2"), ("Accept", "*/*")]
+        if c.chunked { hs.append(("Transfer-Encoding", "chunked")) } else if !c.body.isEmpty { hs.append(("Content-Length", String(c.body.count))) }
+        if !c.body.isEmpty { hs.append(("Content-Type", "application/json")) }
+        let head = HTTPRequestHead(method: c.method, target: c.path, headers: hs)
+        let conn = MitmConnInfo(host: Self.host, port: 443, tls: true, connID: 1)
+        var out = ReqOutcome()
+        var r = d.requestPhase(head: head, conn: conn)
+        var clientBodyTaken = false
+        if r.action == .needBody {
+            pushAll(d, r.id, .request, c.body)
+            clientBodyTaken = true
+            r = d.await(r.id)
+        }
+        let id = r.id
+        out.first = "\(r.action) \(r.status ?? 0)"
+        guard r.action == .forward else {
+            if r.action == .local {
+                out.first += " " + (r.headers ?? []).map { $0.joined(separator: ": ") }.sorted().joined(separator: "; ")
+                out.reqBody = readAll(d, id, .response) // the local body (kept in reqBody for the comparison)
+            }
+            d.end(id, sent: Int64(out.reqBody.count), error: "")
+            return out
+        }
+        out.forward = "\(r.method ?? "") \(r.url ?? "") host=\(r.host ?? "") body=\(r.body?.rawValue ?? "") len=\(r.length) " +
+            (r.headers ?? []).map { $0.joined(separator: ": ") }.sorted().joined(separator: "; ")
+        switch r.body ?? .none {
+        case .read: out.reqBody = readAll(d, id, .request)
+        case .client: out.reqBody = clientBodyTaken ? Data("<client body taken>".utf8) : c.body
+        default: break
+        }
+        let rbody = Data(#"{"r":1}"#.utf8)
+        var rh: [(String, String)] = [("Content-Type", "application/json")]
+        if c.respChunked { rh.append(("Transfer-Encoding", "chunked")) } else { rh.append(("Content-Length", String(rbody.count))) }
+        var resp = d.responsePhase(id, head: HTTPResponseHead(status: 200, reason: "OK", headers: rh), length: c.respChunked ? -1 : Int64(rbody.count))
+        var pushed = false
+        while resp.action == .needBody {
+            pushAll(d, id, .response, rbody)
+            pushed = true
+            resp = d.await(id)
+        }
+        out.resp.action = "\(resp.action)"
+        out.resp.status = resp.status ?? 0
+        out.resp.headers = (resp.headers ?? []).map { $0.joined(separator: ": ") }.sorted()
+        out.resp.note = resp.action == .error ? (resp.note ?? "") : ""
+        if resp.action == .respond {
+            switch resp.body ?? .none {
+            case .read: out.resp.body = readAll(d, id, .response)
+            case .upstream: out.resp.body = pushed ? Data("<upstream after push>".utf8) : rbody
+            case .lane:
+                if let l = resp.lane {
+                    let n = NativeBodyStore.shared.len(l.handle, raw: l.raw)
+                    if n > 0 { out.resp.body = NativeBodyStore.shared.read(l.handle, raw: l.raw, off: 0, n: n) ?? Data() }
+                }
+            default: break
+            }
+        }
+        d.end(id, sent: Int64(out.resp.body.count), error: "")
+        return out
+    }
+
+    /// native-final: http-request scripts run natively (engine stops at the script, Swift runs it, applies $done)
+    /// vs the Go flow — the forwarded request (method, URL, headers, body), local answers, drops, the response, the
+    /// script log and the request-log entry must be identical. Requests Swift cannot finish are handed to Go with the
+    /// outcomes so far (FlowHead.Scripted) and must still agree (no script runs twice: the logs would differ).
+    func testNativeRequestScriptsMatchGo() throws {
+        XCTAssertEqual(JSCScriptEngine.register(), "")
+        let store = NativeBodyStore.shared
+        JSCScriptEngine.setLaneForTests(store)
+        defer {
+            LibmihomoMitmScriptTestStop()
+            JSCScriptEngine.setLaneForTests(nil)
+            NativeScriptRuntime.override = nil
+            NativeRewriteRuntime.override = nil
+        }
+        let home = NSTemporaryDirectory() + "native-reqscript-\(UUID().uuidString)"
+        try FileManager.default.createDirectory(atPath: home, withIntermediateDirectories: true)
+        let sj = String(data: try JSONSerialization.data(withJSONObject: Self.scripts), encoding: .utf8) ?? "{}"
+        let started = LibmihomoMitmScriptTestStart(home, Self.conf, sj, Self.host)
+        XCTAssertEqual(started, "", "test engine")
+        guard started.isEmpty else { return }
+        XCTAssertTrue(LibmihomoMitmScriptReady(), "JavaScriptCore + lane registered")
+        _ = take(expectRequests: 0)
+
+        NativeRewriteRuntime.override = true
+        NativeScriptRuntime.override = true
+        let recorder = NativeRequestRecorder(sink: GoNativeRequestLogSink(), watchMemory: false)
+        let native = NativeRewriteDriver(inner: GoMitmFlowDriver(), provider: NativeRewriteProvider(source: GoRewriteSnapshotSource()),
+                                         recorder: recorder)
+        let goDriver = GoMitmFlowDriver()
+        var same = 0, mismatches: [String] = [], report: [String] = []
+        for c in Self.reqCases {
+            let before = native.stats
+            let g = driveReq(goDriver, c)
+            let gs = take(expectRequests: 1)
+            let n = driveReq(native, c)
+            recorder.flushNow()
+            recorder.waitIdle()
+            let ns = take(expectRequests: 1)
+            let after = native.stats
+            let how = after.reqScript > before.reqScript ? "native" : (after.reqScriptHandedOver > before.reqScriptHandedOver ? "handed over" : "go")
+            var diffs: [String] = []
+            if g != n { diffs.append("decision:\n  go     \(g)\n  native \(n)") }
+            if gs.logs != ns.logs { diffs.append("logs:\n  go     \(gs.logs)\n  native \(ns.logs)") }
+            if gs.requests != ns.requests { diffs.append("request log:\n  go     \(gs.requests)\n  native \(ns.requests)") }
+            report.append("\(c.name): \(how) — \(diffs.isEmpty ? "same" : "DIFFERENT")")
+            if diffs.isEmpty { same += 1 } else { mismatches.append("\(c.name) (\(how)):\n" + diffs.joined(separator: "\n")) }
+            XCTAssertEqual(LibmihomoMitmScriptHeld(), 0, "\(c.name): Go handles left")
+        }
+        let st = native.stats
+        let summary = "native request-script conformance: \(Self.reqCases.count) cases, same \(same), mismatches \(mismatches.count); finished natively \(st.reqScript), handed over \(st.reqScriptHandedOver) \(st.handOverReasons); response hand-backs \(st.scriptHandedBack) \(st.handBackReasons)"
+        print("[native-reqscript] " + summary)
+        for l in report { print("[native-reqscript] " + l) }
+        for m in mismatches { print("[native-reqscript] MISMATCH " + m) }
+        XCTAssertTrue(mismatches.isEmpty, summary + "\n" + mismatches.joined(separator: "\n\n"))
+        XCTAssertGreaterThanOrEqual(st.reqScript, 15, "most request-script cases are finished natively")
+        XCTAssertEqual(native.liveNativeFlows, 0, "native flows left")
     }
 
     private func describe(_ o: Outcome) -> String {

@@ -36,6 +36,12 @@ struct NativeScriptResult {
     /// With bodySet: the new body is this store handle (body nil); ownership passes to the caller.
     var nativeBody: Int64 = 0
     var abort = false
+    // request phase (native-final): parseDone(requestPhase=true) — a local answer, the URL, the method, and the
+    // header pairs as the script returned them (pairsHeader order)
+    var mock: RequestScriptOutcome.Mock?
+    var url: String?
+    var method: String?
+    var headerPairs: [[String]]?
 }
 
 final class NativeScriptRun: JSCRun {
@@ -64,6 +70,8 @@ final class NativeScriptRun: JSCRun {
     private let nativeBase: Int64
     /// The run may hand large results back through the store ("nblob"): the response body is a store body.
     let laneOK: Bool
+    /// native-final: an http-request script ($done parsed with requestPhase = true).
+    var requestPhase = false
 
     // host state (hmu)
     private let hmu = NSLock()
@@ -434,10 +442,20 @@ final class NativeScriptRun: JSCRun {
 
     // MARK: $done
 
+    private struct DoneMock: Decodable {
+        var status: StatusValue?
+        var statusCode: StatusValue?
+        var headers: [[String]]?
+        var body: Int64?
+    }
+
     private struct DoneDesc: Decodable {
         var kind: String?
         var err: String?
         var abort: Bool?
+        var mock: DoneMock?
+        var url: String?
+        var method: String?
         var status: StatusValue?
         var statusCode: StatusValue?
         var headers: [[String]]?
@@ -500,6 +518,30 @@ final class NativeScriptRun: JSCRun {
         var res = NativeScriptResult()
         guard d.kind == "obj" else { return res }
         if d.abort == true { res.abort = true; return res }
+        if requestPhase {
+            if let m = d.mock {
+                var st = Self.parseStatus(m.status)
+                if st == 0 { st = Self.parseStatus(m.statusCode) }
+                var body = Data()
+                if let id = m.body, id >= 0 { body = blobBytes(id) ?? Data() }
+                res.mock = RequestScriptOutcome.Mock(status: st, headers: m.headers.map { $0.filter { $0.count == 2 } }, body: body)
+                return res
+            }
+            res.url = d.url
+            res.method = d.method
+            if let hs = d.headers {
+                let pairs = hs.filter { $0.count == 2 }
+                var h = GoHeader()
+                for kv in pairs { h.add(kv[0], kv[1]) }
+                res.headers = h
+                res.headerPairs = pairs
+            }
+            if let id = d.body, id >= 0 {
+                res.body = blobBytes(id) ?? Data()
+                res.bodySet = true
+            }
+            return res
+        }
         res.status = Self.parseStatus(d.status)
         if res.status == 0 { res.status = Self.parseStatus(d.statusCode) }
         if let hs = d.headers {
@@ -532,6 +574,17 @@ final class NativeScriptRun: JSCRun {
             res.bodySet = true
         }
         return res
+    }
+
+    /// rc.blobBytes: a blob's bytes (request phase: always bytes, never a lane handle).
+    private func blobBytes(_ id: Int64) -> Data? {
+        hmu.lock()
+        defer { hmu.unlock() }
+        switch blobs[id] {
+        case .bytes(let x, _)?: return x
+        case .native(let h, _)?: return nativeBytes(h)
+        case nil: return nil
+        }
     }
 
     /// fixSetCookie: an unchanged joined value gets the original lines back, a changed one is split before each

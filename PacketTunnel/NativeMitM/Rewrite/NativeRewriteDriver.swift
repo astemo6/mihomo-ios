@@ -25,6 +25,12 @@
 // scripts becomes a ScriptFlow run by NativeScriptResponse (Script/NativeScriptDispatcher.swift); anything it cannot
 // reproduce exactly is handed back to the Go flow before a script ran.
 //
+// Request scripts (native-final, switch `nativeMitmScript`): the engine stops at an http-request script, the
+// script runs here (Script/NativeRequestScripts.swift; a requires-body script takes the request body from the
+// session first: need-body .request), the engine goes on with its outcome. A request Swift cannot finish after a
+// script ran is handed to Go with FlowHead.Scripted (the outcomes so far): Go's requestPhase applies them instead of
+// running the scripts again. A response-script flow that hands its response back does the same.
+//
 // Snapshot freshness: MitmRewriteGeneration() is checked on every request (an int from Go); the JSON is fetched and
 // decoded only when it moved (engine reload). A request racing a reload may use the previous rule set — the same
 // window the Go path has between reading its state pointer and the reload storing a new one.
@@ -117,6 +123,11 @@ final class NativeRewriteProvider {
 
 // MARK: - Driver
 
+/// A Go flow driver that can start a request whose request scripts Swift already ran (FlowHead.Gen / Scripted).
+protocol MitmScriptedFlowStarting: AnyObject {
+    func requestPhase(head: HTTPRequestHead, conn: MitmConnInfo, gen: Int64, scripted: [[String: Any]]) -> FlowDecision
+}
+
 final class NativeRewriteDriver: MitmFlowDriving {
     private enum NativeFlow {
         case local(body: Data, offset: Int)
@@ -125,7 +136,28 @@ final class NativeRewriteDriver: MitmFlowDriving {
         case body(BodyFlow)
         /// Lane s3-script: a forward whose response runs http-response scripts natively.
         case script(ScriptFlow)
+        /// native-final: a request script waits for the request body (need-body .request).
+        case reqScript(ReqScriptFlow)
+        /// native-final: handed to Go after request scripts ran natively — every call goes to this Go flow.
+        case relay(Int64)
         case done
+    }
+
+    /// The request of a native request-script run (native-final).
+    final class ReqScriptFlow {
+        let q: RewriteRequest
+        let engine: NativeRewriteEngine
+        let head: HTTPRequestHead
+        let conn: MitmConnInfo
+        let rewrite: Bool, scripts: Bool, bodies: Bool
+        let wall: Double
+        let t0: UInt64
+        let rs: NativeRequestScripts
+        init(q: RewriteRequest, engine: NativeRewriteEngine, head: HTTPRequestHead, conn: MitmConnInfo, rewrite: Bool, scripts: Bool,
+             bodies: Bool, wall: Double, t0: UInt64, rs: NativeRequestScripts) {
+            self.q = q; self.engine = engine; self.head = head; self.conn = conn; self.rewrite = rewrite; self.scripts = scripts
+            self.bodies = bodies; self.wall = wall; self.t0 = t0; self.rs = rs
+        }
     }
 
     /// A native script flow (lane s3-script). Its request-log "forward" is written only when the response is
@@ -140,6 +172,10 @@ final class NativeRewriteDriver: MitmFlowDriving {
         let t0: UInt64
         var response: NativeScriptResponse?
         var goID: Int64 = 0
+        /// native-final: request scripts that ran natively (FlowHead.Scripted for a hand-back) and the client body
+        /// Swift read for them (pushed to Go if its request phase loads it again).
+        var scripted: [[String: Any]] = []
+        var clientBody: Data?
         var out = Data()
         var offset = 0
         var closedWithError = false
@@ -186,6 +222,9 @@ final class NativeRewriteDriver: MitmFlowDriving {
         /// Lane s3-script: script responses handled natively / handed back to Go (reasons in handBackReasons).
         var script = 0, scriptHandedBack = 0
         var handBackReasons: [String: Int] = [:]
+        /// native-final: requests whose request scripts ran natively and that Swift finished / handed to Go.
+        var reqScript = 0, reqScriptHandedOver = 0
+        var handOverReasons: [String: Int] = [:]
     }
 
     /// A natively forwarded request's request-log state (until end / cancel / upstream failure).
@@ -209,6 +248,9 @@ final class NativeRewriteDriver: MitmFlowDriving {
     private let lock = NSLock()
     private var flows: [Int64: NativeFlow] = [:]
     private var logs: [Int64: LogCtx] = [:]
+    /// native-final: request bodies Swift serves for a forward (read .request): a request script's body or the
+    /// client body it read.
+    private var reqBodies: [Int64: (body: Data, off: Int)] = [:]
     private var nextID: Int64 = 0
     private var counters = Stats()
 
@@ -265,7 +307,21 @@ final class NativeRewriteDriver: MitmFlowDriving {
         let wall = Date().timeIntervalSince1970
         let t0 = DispatchTime.now().uptimeNanoseconds
         let withHead = head != nil && conn != nil
-        let decision = engine.decide(q, bodies: bodies && withHead, scripts: scripts && withHead)
+        var plain: RewriteDecision?
+        if scripts, let head, let conn, inner is MitmScriptedFlowStarting, let js = scriptJS(), scriptGo.ready() {
+            // native-final: http-request scripts run here
+            var pause: RequestScriptPause?
+            let state = RequestScriptState()
+            let d0 = engine.decide(q, bodies: bodies, scripts: true, requestScripts: state, pause: &pause)
+            if pause != nil {
+                let rs = NativeRequestScripts(gen: engine.generation, go: scriptGo, js: js, store: scriptStore(), nativeBase: nativeBlobBase)
+                let rf = ReqScriptFlow(q: q, engine: engine, head: head, conn: conn, rewrite: rewrite, scripts: scripts, bodies: bodies,
+                                       wall: wall, t0: t0, rs: rs)
+                return runRequestScripts(rf, flowID: nil)
+            }
+            plain = d0 // no request script matched: the usual decision (same rules, same answer)
+        }
+        let decision = plain ?? engine.decide(q, bodies: bodies && withHead, scripts: scripts && withHead)
         if case .forward(let f) = decision, f.response.scripts != nil, let head, let conn {
             let sf = ScriptFlow(plan: f.response, engine: engine, head: head, conn: conn, log: f.log, wall: wall, t0: t0)
             let id = newID(.script(sf))
@@ -334,9 +390,11 @@ final class NativeRewriteDriver: MitmFlowDriving {
     /// A first event built now (its ms measured now) but recorded later (body flows: only once answered natively).
     private func makeFirst(_ ev: String, _ log: RewriteLog, engine: NativeRewriteEngine, wall: Double, t0: UInt64) -> NativeRequestEvent? {
         guard let recorder = recorder else { return nil }
-        return NativeRequestEvent(k: recorder.newKey(), ev: ev, t: wall, ms: Self.ms(since: t0), gen: engine.generation,
-                                  rules: log.rules.isEmpty ? nil : log.rules, method: log.method, url: log.url, host: log.host,
-                                  tls: log.tls, headers: log.headers.isEmpty ? nil : log.headers)
+        var e = NativeRequestEvent(k: recorder.newKey(), ev: ev, t: wall, ms: Self.ms(since: t0), gen: engine.generation,
+                                   rules: log.rules.isEmpty ? nil : log.rules, method: log.method, url: log.url, host: log.host,
+                                   tls: log.tls, headers: log.headers.isEmpty ? nil : log.headers)
+        Self.scriptFields(&e, log)
+        return e
     }
 
     /// Records a body flow's deferred forward event (once) and opens its log state.
@@ -356,9 +414,17 @@ final class NativeRewriteDriver: MitmFlowDriving {
         var e = NativeRequestEvent(k: key, ev: ev, t: wall, ms: Self.ms(since: t0), gen: engine.generation,
                                    rules: log.rules.isEmpty ? nil : log.rules, method: log.method, url: log.url, host: log.host,
                                    tls: log.tls, headers: log.headers.isEmpty ? nil : log.headers)
+        Self.scriptFields(&e, log)
         fill?(&e)
         recorder.add(e)
         return key
+    }
+
+    /// native-final: the request scripts' part of a first event (notes, an abort's reason, the changed method).
+    private static func scriptFields(_ e: inout NativeRequestEvent, _ log: RewriteLog) {
+        if !log.notes.isEmpty { e.notes = log.notes }
+        if !log.why.isEmpty { e.why = log.why }
+        if !log.reqMethod.isEmpty { e.rmethod = log.reqMethod }
     }
 
     /// A later event of a natively forwarded request; `last` drops its log state.
@@ -379,6 +445,19 @@ final class NativeRewriteDriver: MitmFlowDriving {
 
     func await(_ id: Int64) -> FlowDecision {
         if id >= 0 { return inner.await(id) }
+        if let g = relayID(id) { return relabel(inner.await(g), id) }
+        if let rf = reqScriptFlow(id) {
+            if rf.rs.pushFailed {
+                lock.lock(); flows[id] = .done; lock.unlock()
+                rf.rs.end()
+                return FlowDecision(id: id, action: .error, note: "request body truncated")
+            }
+            switch rf.rs.bodyArrived() {
+            case .next: return runRequestScripts(rf, flowID: id)
+            case .needBody: return FlowDecision(id: id, action: .error, note: "native request script wants a second body")
+            case .handOver(let why): return handOver(rf, why: why, flowID: id)
+            }
+        }
         if let sf = scriptFlow(id) {
             if sf.goID != 0 { return relabel(inner.await(sf.goID), id) }
             guard let r = sf.response else { return FlowDecision(id: id, action: .error, note: "native script flow has no response") }
@@ -545,6 +624,7 @@ final class NativeRewriteDriver: MitmFlowDriving {
 
     func responsePhase(_ id: Int64, head: HTTPResponseHead, length: Int64) -> FlowDecision {
         if id >= 0 { return inner.responsePhase(id, head: head, length: length) }
+        if let g = relayID(id) { return relabel(inner.responsePhase(g, head: head, length: length), id) }
         if let bf = bodyFlow(id) { return bodyResponse(id, bf, head: head, length: length) }
         lock.lock()
         let f = flows[id]
@@ -602,6 +682,8 @@ final class NativeRewriteDriver: MitmFlowDriving {
 
     func write(_ id: Int64, _ which: FlowBodyWhich, _ data: Data) -> FlowWriteResult {
         if id >= 0 { return inner.write(id, which, data) }
+        if let g = relayID(id) { return inner.write(g, which, data) }
+        if let rf = reqScriptFlow(id) { return which == .request ? rf.rs.write(data) : .stop }
         if let sf = scriptFlow(id) {
             if sf.goID != 0 { return inner.write(sf.goID, which, data) }
             guard which == .response, let r = sf.response else { return .stop }
@@ -624,6 +706,8 @@ final class NativeRewriteDriver: MitmFlowDriving {
 
     func closeBody(_ id: Int64, _ which: FlowBodyWhich, error: String) {
         if id >= 0 { inner.closeBody(id, which, error: error); return }
+        if let g = relayID(id) { inner.closeBody(g, which, error: error); return }
+        if let rf = reqScriptFlow(id) { if !error.isEmpty { rf.rs.pushError() }; return }
         if let sf = scriptFlow(id) {
             if sf.goID != 0 { inner.closeBody(sf.goID, which, error: error); return }
             if !error.isEmpty { sf.closedWithError = true }
@@ -671,6 +755,8 @@ final class NativeRewriteDriver: MitmFlowDriving {
 
     func read(_ id: Int64, _ which: FlowBodyWhich, max: Int) -> Data {
         if id >= 0 { return inner.read(id, which, max: max) }
+        if which == .request, let b = servedRequestBody(id, max: max) { return b }
+        if let g = relayID(id) { return inner.read(g, which, max: max) }
         if let sf = scriptFlow(id) {
             if sf.goID != 0 { return inner.read(sf.goID, which, max: max) }
             guard which == .response else { return Data() }
@@ -719,6 +805,8 @@ final class NativeRewriteDriver: MitmFlowDriving {
 
     func readState(_ id: Int64, _ which: FlowBodyWhich) -> FlowReadState {
         if id >= 0 { return inner.readState(id, which) }
+        if which == .request, hasServedRequestBody(id) { return .eof }
+        if let g = relayID(id) { return inner.readState(g, which) }
         if let sf = scriptFlow(id) {
             if sf.goID != 0 { return inner.readState(sf.goID, which) }
             return which == .response ? .eof : .failed("err: no body to read")
@@ -744,6 +832,7 @@ final class NativeRewriteDriver: MitmFlowDriving {
 
     func upstreamFailed(_ id: Int64, why: String) {
         if id >= 0 { return inner.upstreamFailed(id, why: why) }
+        if let g = relayID(id) { return inner.upstreamFailed(g, why: why) }
         if let sf = scriptFlow(id) {
             if sf.goID != 0 { return inner.upstreamFailed(sf.goID, why: why) }
             lock.lock(); flows.removeValue(forKey: id); lock.unlock()
@@ -763,6 +852,9 @@ final class NativeRewriteDriver: MitmFlowDriving {
 
     func end(_ id: Int64, sent: Int64, error: String) {
         if id >= 0 { return inner.end(id, sent: sent, error: error) }
+        dropServedRequestBody(id)
+        if let g = relayID(id) { lock.lock(); flows.removeValue(forKey: id); lock.unlock(); return inner.end(g, sent: sent, error: error) }
+        if let rf = reqScriptFlow(id) { lock.lock(); flows.removeValue(forKey: id); lock.unlock(); rf.rs.end(); return }
         if let sf = scriptFlow(id) {
             lock.lock(); flows.removeValue(forKey: id); lock.unlock()
             sf.response?.end()
@@ -789,6 +881,9 @@ final class NativeRewriteDriver: MitmFlowDriving {
 
     func cancel(_ id: Int64, why: String) {
         if id >= 0 { return inner.cancel(id, why: why) }
+        dropServedRequestBody(id)
+        if let g = relayID(id) { lock.lock(); flows.removeValue(forKey: id); lock.unlock(); return inner.cancel(g, why: why) }
+        if let rf = reqScriptFlow(id) { lock.lock(); flows.removeValue(forKey: id); lock.unlock(); rf.rs.end(); return }
         if let sf = scriptFlow(id) {
             lock.lock(); flows.removeValue(forKey: id); lock.unlock()
             sf.response?.end()
@@ -869,7 +964,7 @@ final class NativeRewriteDriver: MitmFlowDriving {
     /// decides the same forward), then FlowResponse with the upstream's head. Every later call for id goes to it.
     private func handBack(_ id: Int64, _ sf: ScriptFlow, head: HTTPResponseHead, length: Int64, why: String) -> FlowDecision {
         countScript(handedBack: why)
-        let d = inner.requestPhase(head: sf.head, conn: sf.conn)
+        let d = goBegin(sf.head, sf.conn, gen: sf.engine.generation, scripted: sf.scripted, clientBody: sf.clientBody, alreadySent: true)
         guard d.action == .forward, d.id > 0 else {
             if d.id > 0 { inner.cancel(d.id, why: "native hand-back") }
             return FlowDecision(id: id, action: .error, note: "hand-back: Go answered \(d.action) (\(d.note ?? ""))")
@@ -911,6 +1006,205 @@ final class NativeRewriteDriver: MitmFlowDriving {
         }
         var d = FlowDecision(id: id, action: out.action)
         d.status = out.status; d.headers = out.headers; d.body = out.bodyMode; d.length = out.length; d.lane = out.lane; d.note = out.note
+        return d
+    }
+    // MARK: - native-final: request scripts
+
+    private func relayID(_ id: Int64) -> Int64? {
+        lock.lock(); defer { lock.unlock() }
+        if case .relay(let g)? = flows[id] { return g }
+        return nil
+    }
+
+    private func reqScriptFlow(_ id: Int64) -> ReqScriptFlow? {
+        lock.lock(); defer { lock.unlock() }
+        if case .reqScript(let rf)? = flows[id] { return rf }
+        return nil
+    }
+
+    private func servedRequestBody(_ id: Int64, max: Int) -> Data? {
+        lock.lock(); defer { lock.unlock() }
+        guard let (body, off) = reqBodies[id] else { return nil }
+        let n = Swift.min(Swift.max(max, 1), body.count - off)
+        if n <= 0 { return Data() }
+        reqBodies[id] = (body, off + n)
+        let start = body.startIndex + off
+        return body.subdata(in: start..<(start + n))
+    }
+
+    private func hasServedRequestBody(_ id: Int64) -> Bool {
+        lock.lock(); defer { lock.unlock() }
+        return reqBodies[id] != nil
+    }
+
+    private func dropServedRequestBody(_ id: Int64) {
+        lock.lock(); reqBodies.removeValue(forKey: id); lock.unlock()
+    }
+
+    private func countReqScript(handedOver why: String?) {
+        lock.lock()
+        if let why {
+            counters.reqScriptHandedOver += 1
+            counters.handOverReasons[why, default: 0] += 1
+        } else {
+            counters.reqScript += 1
+        }
+        lock.unlock()
+    }
+
+    /// Decide → run the script the engine stopped at → decide again, until a decision (or a body wait / hand-over).
+    /// flowID: the native id the session already holds (after a body wait), nil: none yet.
+    private func runRequestScripts(_ rf: ReqScriptFlow, flowID: Int64?) -> FlowDecision {
+        for _ in 0..<4096 {
+            var pause: RequestScriptPause?
+            let d = rf.engine.decide(rf.q, bodies: rf.bodies, scripts: true, requestScripts: rf.rs.state, pause: &pause)
+            guard let p = pause else { return finishRequestScripts(rf, d, flowID: flowID) }
+            switch rf.rs.step(p) {
+            case .next:
+                continue
+            case .handOver(let why):
+                return handOver(rf, why: why, flowID: flowID)
+            case .needBody:
+                let id: Int64
+                if let flowID {
+                    lock.lock(); flows[flowID] = .reqScript(rf); lock.unlock()
+                    id = flowID
+                } else {
+                    id = newID(.reqScript(rf))
+                }
+                var nd = FlowDecision(id: id, action: .needBody)
+                nd.which = FlowBodyWhich.request.rawValue
+                return nd
+            }
+        }
+        return handOver(rf, why: "request scripts loop", flowID: flowID)
+    }
+
+    /// The engine's decision after the request scripts.
+    private func finishRequestScripts(_ rf: ReqScriptFlow, _ decision: RewriteDecision, flowID: Int64?) -> FlowDecision {
+        let rs = rf.rs
+        if case .go(let why) = decision { return handOver(rf, why: why, flowID: flowID) }
+        if case .forward(let f) = decision, f.requestBody != nil || f.response.hasBody {
+            return handOver(rf, why: "request script with body rules", flowID: flowID) // (the engine hands these over already)
+        }
+        let engine = rf.engine
+        let wall = rf.wall, t0 = rf.t0
+        func place(_ f: NativeFlow) -> Int64 {
+            if let flowID { lock.lock(); flows[flowID] = f; lock.unlock(); return flowID }
+            return newID(f)
+        }
+        countReqScript(handedOver: nil)
+        switch decision {
+        case .go:
+            return FlowDecision(id: flowID ?? 0, action: .error, note: "unreachable")
+        case .drop(var log):
+            log.notes = rs.notes
+            rs.end()
+            count(\.drop)
+            let id = place(.done)
+            emitFirst("drop", log, engine: engine, wall: wall, t0: t0)
+            return FlowDecision(id: id, action: .drop)
+        case .local(var l):
+            l.log.notes = rs.notes
+            if let w = rs.mockWarn {
+                _ = scriptGo.host(gen: engine.generation, rule: w.rule, op: "log", arg: "warn\n脚本返回的状态码 \(w.status) 无效，按 200 处理")
+            }
+            rs.end()
+            count(\.local)
+            var d = FlowDecision(id: place(.local(body: l.body, offset: 0)), action: .local)
+            d.status = l.status; d.headers = l.headers; d.body = l.bodyMode; d.length = l.length
+            emitFirst("local", l.log, engine: engine, wall: wall, t0: t0) { e in
+                e.status = l.status
+                e.len = l.logLen ?? Int64(l.logBody.count)
+                if engine.capture && !l.logNoCapture && !l.logBody.isEmpty { e.body = l.logBody }
+            }
+            return d
+        case .forward(var f):
+            f.log.notes = rs.notes
+            // the body Go would send: a script's body, else the client body Swift read for a script
+            let served: Data? = f.scriptBody ?? (rs.state.bodyLoaded ? rs.clientBytes : nil)
+            var mode = f.bodyMode, length = f.length
+            if let b = served { (mode, length) = b.isEmpty ? (.none, 0) : (.read, Int64(b.count)) }
+            let scripted = rs.scriptedForGo
+            let clientBody = rs.clientBytes
+            rs.end()
+            count(\.forward)
+            let id: Int64
+            if f.response.scripts != nil {
+                let sf = ScriptFlow(plan: f.response, engine: engine, head: rf.head, conn: rf.conn, log: f.log, wall: wall, t0: t0)
+                sf.scripted = scripted
+                sf.clientBody = clientBody
+                id = place(.script(sf))
+            } else {
+                id = place(.forward(plan: f.response, method: f.method, engine: engine))
+                if let key = emitFirst("forward", f.log, engine: engine, wall: wall, t0: t0) {
+                    lock.lock(); logs[id] = LogCtx(key: key, start: t0); lock.unlock()
+                }
+            }
+            if let b = served, !b.isEmpty { lock.lock(); reqBodies[id] = (b, 0); lock.unlock() }
+            return forwardDecision(id, f, bodyMode: mode, length: length)
+        }
+    }
+
+    /// Go takes the request with the request-script outcomes so far.
+    private func handOver(_ rf: ReqScriptFlow, why: String, flowID: Int64?) -> FlowDecision {
+        countReqScript(handedOver: why)
+        let rs = rf.rs
+        let held = rs.clientBytes
+        let scripted = rs.scriptedForGo
+        rs.end()
+        var d = goBegin(rf.head, rf.conn, gen: rf.engine.generation, scripted: scripted, clientBody: held, alreadySent: false)
+        // Go forwards the client body untouched but Swift holds it: serve those bytes
+        var serve: Data?
+        if d.action == .forward, d.body == .client, let b = held {
+            d.body = b.isEmpty ? FlowBodyMode.none : .read
+            d.length = Int64(b.count)
+            serve = b
+        }
+        guard d.id > 0 else { return flowID.map { relabel(d, $0) } ?? d }
+        if flowID == nil && serve == nil { return d } // nothing of the request is in Swift: the Go flow as it is
+        let id: Int64
+        if let flowID {
+            lock.lock(); flows[flowID] = .relay(d.id); lock.unlock()
+            id = flowID
+        } else {
+            id = newID(.relay(d.id))
+        }
+        if let b = serve, !b.isEmpty { lock.lock(); reqBodies[id] = (b, 0); lock.unlock() }
+        return relabel(d, id)
+    }
+
+    /// MitmFlowBegin with FlowHead.Scripted; a request phase that loads the body again gets the bytes Swift holds.
+    /// alreadySent: Swift already sent the request upstream (a response hand-back) — whatever request body Go would
+    /// send is drained.
+    private func goBegin(_ head: HTTPRequestHead, _ conn: MitmConnInfo, gen: Int64, scripted: [[String: Any]], clientBody: Data?,
+                         alreadySent: Bool) -> FlowDecision {
+        guard !scripted.isEmpty, let starter = inner as? MitmScriptedFlowStarting else { return inner.requestPhase(head: head, conn: conn) }
+        var d = starter.requestPhase(head: head, conn: conn, gen: gen, scripted: scripted)
+        if d.action == .needBody, d.id > 0, let body = clientBody {
+            var off = 0
+            var tries = 0
+            pushing: while off < body.count {
+                let end = Swift.min(off + (32 << 10), body.count)
+                switch inner.write(d.id, .request, body.subdata(in: (body.startIndex + off)..<(body.startIndex + end))) {
+                case .taken: off = end
+                case .full:
+                    tries += 1
+                    if tries > 5000 { break pushing }
+                    usleep(1000)
+                case .stop, .gone: break pushing
+                }
+            }
+            inner.closeBody(d.id, .request, error: "")
+            d = inner.await(d.id)
+            if alreadySent && d.action == .forward && d.body == .read {
+                for _ in 0..<10000 {
+                    if inner.read(d.id, .request, max: 128 << 10).isEmpty {
+                        if inner.readState(d.id, .request) != .again { break }
+                    }
+                }
+            }
+        }
         return d
     }
 }

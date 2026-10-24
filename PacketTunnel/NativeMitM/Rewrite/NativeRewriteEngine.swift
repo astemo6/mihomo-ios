@@ -43,6 +43,49 @@ struct RewriteLog {
     var method = ""
     var tls = true
     var headers: [[String]] = []   // local: the response headers Go logs; forward: r.Header after the request rules
+    // native request scripts (native-final): the drop reason of a script's abort (「脚本中止：<name>」), the
+    // request-log notes of the request scripts (skipped / failed, in order) and the method after them when changed
+    var why = ""
+    var notes: [String] = []
+    var reqMethod = ""
+}
+
+/// The outcome of one http-request script the native dispatcher ran (NativeRequestScripts.swift), applied by the
+/// engine where Go's requestPhase applies it (handler.go: Match, abort, local answer, URL / method / headers / body).
+struct RequestScriptOutcome {
+    enum Kind { case skipped, failed, ran }
+    struct Mock {
+        var status: Int              // as the script returned it (validScriptStatus applied by the engine)
+        var headers: [[String]]?
+        var body: Data
+    }
+    var kind: Kind
+    var abort = false
+    var abortWhy = ""
+    var url: String?
+    var method: String?
+    var headers: [[String]]?
+    var bodySet = false
+    var body = Data()
+    var mock: Mock?
+}
+
+/// What the engine needs from the request-script dispatcher: the outcomes so far (by Ruleset index) and whether the
+/// client's request body is in Swift's hands (Go: loadBody read it).
+struct RequestScriptState {
+    var outcomes: [Int: RequestScriptOutcome] = [:]
+    var bodyLoaded = false
+}
+
+/// The engine stopped at a request script without an outcome: the request as the script sees it ($request).
+struct RequestScriptPause {
+    var rule: Int
+    var requiresBody: Bool
+    var url: String
+    var method: String
+    var header: GoHeader          // r.Header (Host taken out)
+    var host: String              // r.Host
+    var contentLength: Int64      // r.ContentLength (-1 chunked)
 }
 
 /// What the native engine decided.
@@ -72,6 +115,8 @@ enum RewriteDecision {
         var log = RewriteLog()
         /// stage 3b: request body rules Swift runs once the body is in (length > 0); nil none.
         var requestBody: NativeRequestBodyPlan?
+        /// native-final: the body a request script set ($done({body})) — sent instead of the client's; nil none.
+        var scriptBody: Data?
     }
     /// Header operations of the response-phase header rules that matched, in order (applied to the upstream head),
     /// and those rules' indices (logged at the response).
@@ -228,6 +273,22 @@ final class NativeRewriteEngine {
     /// instead of deferring the request (request-phase scripts: see requestScripts, final integration).
     /// A request that would need both a native body flow and a native script flow is handed to Go.
     func decide(_ q: RewriteRequest, bodies: Bool = false, scripts: Bool = false) -> RewriteDecision {
+        var pause: RequestScriptPause?
+        return decideCore(q, bodies: bodies, scripts: scripts, requestScripts: nil, pause: &pause)
+    }
+
+    /// native-final: decide with http-request scripts run by the native dispatcher. A request script without an
+    /// outcome in `state` stops the engine: the answer is then .go and `pause` says which script and the request it
+    /// sees; the dispatcher runs it, adds its outcome and calls this again (the request phase up to the script is
+    /// deterministic, so re-running it reaches the same point — exactly how Go's FlowHead.Scripted hand-over works).
+    func decide(_ q: RewriteRequest, bodies: Bool, scripts: Bool, requestScripts state: RequestScriptState,
+                pause: inout RequestScriptPause?) -> RewriteDecision {
+        pause = nil
+        return decideCore(q, bodies: bodies, scripts: scripts, requestScripts: capture ? nil : state, pause: &pause)
+    }
+
+    private func decideCore(_ q: RewriteRequest, bodies: Bool, scripts: Bool, requestScripts: RequestScriptState?,
+                            pause: inout RequestScriptPause?) -> RewriteDecision {
         let bodies = bodies && !capture
         // ---- FlowHead.request + requestURL, reproducing Go's parsing (or deferring where Swift cannot) ----
         let method = q.method.isEmpty ? "GET" : q.method
@@ -269,6 +330,7 @@ final class NativeRewriteEngine {
         if let (hh, port) = GoURL.splitHostPort(host), (scheme == "https" && port == "443") || (scheme == "http" && port == "80") { urlHost = hh }
         var u = scheme + "://" + urlHost + r.requestURI
         if u.utf8.count > 8192 || !RWAscii.isVisible(u) { return .go("url") }
+        let clientBody = cl != 0     // the client sends a body (Go: r.Body is not http.NoBody)
 
         let active = on ? rules : []
 
@@ -346,6 +408,8 @@ final class NativeRewriteEngine {
 
         // ---- 3. request phase rules in order ----
         var reqBodyRules: [NativeBodyRule] = []
+        var scriptsRan = false
+        var scriptBody: Data?
         for rule in active where rule.phase != "response" {
             switch rule.kind {
             case "header":
@@ -368,6 +432,63 @@ final class NativeRewriteEngine {
                 case .no: continue
                 case .yes: break
                 }
+                if rule.kind == "script", let rs = requestScripts {
+                    // native-final: an http-request script — its outcome where Go's requestPhase applies it
+                    guard let sc = rule.snap.script else { return .go("request script") }
+                    guard let o = rs.outcomes[rule.snap.i] else {
+                        pause = RequestScriptPause(rule: rule.snap.i, requiresBody: sc.requiresBody == true, url: u, method: r.method,
+                                                   header: r.header, host: r.host, contentLength: r.contentLength)
+                        return .go("request script")
+                    }
+                    scriptsRan = true
+                    switch o.kind {
+                    case .skipped: continue
+                    case .failed: log.rules.append(rule.snap.i); continue   // ent.Match, then the error note
+                    case .ran: log.rules.append(rule.snap.i)
+                    }
+                    if o.abort {
+                        log.url = u
+                        log.why = o.abortWhy
+                        return .drop(log)
+                    }
+                    if let m = o.mock {
+                        guard NativeRewriteEngine.scriptHeadersOK(m.headers ?? []) else { return .go("script response headers") }
+                        let status = (200...999).contains(m.status) ? m.status : 200
+                        let h = GoHeader(pairs: m.headers ?? [])
+                        log.url = u
+                        log.headers = h.sortedPairs // ent.Local(code, h, …): the script's map, not the writer's
+                        return NativeRewriteEngine.logged(NativeRewriteEngine.writeLocal(status: status, header: h, body: m.body), log, m.body)
+                    }
+                    if let nu = o.url, !nu.isEmpty, nu != u {
+                        // url.Parse(res.URL) with a host: Swift takes only what it parses exactly like Go
+                        guard let p = GoURL.parseAbsolute(nu) else { return .go("script url") }
+                        u = nu
+                        log.url = u
+                        r.host = p.host; r.path = p.path; r.query = p.query; r.forceQuery = p.forceQuery; r.scheme = p.scheme
+                    }
+                    if let m = o.method, !m.isEmpty {
+                        guard m.utf8.allSatisfy({ $0 < 0x80 }) else { return .go("script method") }
+                        let up = m.uppercased() // strings.ToUpper on ASCII
+                        guard up.utf8.allSatisfy(RWAscii.isTokenByte) else { return .go("script method") }
+                        r.method = up
+                    }
+                    if let hs = o.headers {
+                        guard NativeRewriteEngine.scriptHeadersOK(hs) else { return .go("script headers") }
+                        var nh = GoHeader(pairs: hs)
+                        let hv = nh.get("Host")
+                        if !hv.isEmpty { r.host = hv }
+                        nh.del("Host")
+                        r.header = nh
+                    }
+                    if o.bodySet {
+                        // a body set over a client body nobody read: Go leaves the client's bytes unread (hand it over)
+                        if clientBody && !rs.bodyLoaded { return .go("script body over an unread client body") }
+                        r.header.set("Content-Length", String(o.body.count)) // setBody
+                        r.contentLength = Int64(o.body.count)
+                        scriptBody = o.body
+                    }
+                    continue
+                }
                 guard bodies, rule.kind != "script", let br = bodyRule(rule) else { return .go(rule.kind) }
                 reqBodyRules.append(br)
                 log.rules.append(rule.snap.i)
@@ -376,6 +497,11 @@ final class NativeRewriteEngine {
             }
         }
 
+        if scriptsRan {
+            if u.utf8.count > 8192 || !RWAscii.isVisible(u) { return .go("url") }
+            // request scripts next to request body rules: one body owner (Go) — hand the request over
+            if !reqBodyRules.isEmpty { return .go("request script with body rules") }
+        }
         // the request body rules (Go: loadBody once, setBody after each rule that succeeded)
         var reqPlan: NativeRequestBodyPlan?
         if !reqBodyRules.isEmpty {
@@ -424,6 +550,8 @@ final class NativeRewriteEngine {
             plan.steps.append(.header(ops, rule.snap.i))
             steps.append(ScriptPlanStep(rule: rule.snap.i, kind: .header(ops)))
         }
+        // native-final: request scripts that ran and a response body flow → Go takes the request (one body owner)
+        if scriptsRan && plan.hasBody { return .go("request script with body rules") }
         if hasScript {
             // the native script dispatcher applies header ops without a Go fallback, and a script flow is not a body
             // flow: a regex header op, a body rule or a request body rule next to a script → Go
@@ -437,6 +565,7 @@ final class NativeRewriteEngine {
         guard let target = GoURL.parseAbsolute(u) else { return .go("target url") } // url.Parse(f.url)
         log.url = u
         log.headers = r.header.sortedPairs   // ent.ReqHeaders(r.Method, r.Header)
+        if r.method != method { log.reqMethod = r.method }
         // requestPhase: a response body rule / body script asks only for encodings Go can decode
         if needRespBody { r.header.set("Accept-Encoding", "gzip, deflate, br") }
         var out = r.header
@@ -458,13 +587,14 @@ final class NativeRewriteEngine {
             plan.requestHeader = out
             plan.requestHost = r.host
             plan.url = outURL
-            plan.method = method
+            plan.method = r.method
         }
         out.del("Content-Length")
         var (mode, length): (FlowBodyMode, Int64) = r.contentLength == 0 ? (.none, 0) : (.client, r.contentLength)
         if reqPlan != nil { mode = .read }
-        return .forward(.init(method: method, url: outURL, host: r.host, headers: out.sortedPairs, bodyMode: mode, length: length,
-                              response: plan, log: log, requestBody: reqPlan))
+        if let b = scriptBody { (mode, length) = b.isEmpty ? (.none, 0) : (.read, Int64(b.count)) }
+        return .forward(.init(method: r.method, url: outURL, host: r.host, headers: out.sortedPairs, bodyMode: mode, length: length,
+                              response: plan, log: log, requestBody: reqPlan, scriptBody: scriptBody))
     }
 
     // MARK: - Map Local from a file
@@ -688,6 +818,16 @@ final class NativeRewriteEngine {
     // MARK: - Input proofs (Swift decides only where Go provably reads the same)
 
     /// A host[:port] Go keeps verbatim everywhere it is used: letters, digits, "-", ".", optional ":digits".
+    /// Header pairs from a script that Swift sends exactly as Go would (pairsHeader + the transport's checks):
+    /// token names, values without CR / LF / NUL. Anything else → Go.
+    static func scriptHeadersOK(_ hs: [[String]]) -> Bool {
+        for kv in hs {
+            guard kv.count == 2, !kv[0].isEmpty, kv[0].utf8.allSatisfy(RWAscii.isTokenByte) else { return false }
+            if kv[1].utf8.contains(where: { $0 == 0x0D || $0 == 0x0A || $0 == 0 }) { return false }
+        }
+        return true
+    }
+
     static func plainHost(_ h: String) -> Bool {
         let parts = h.split(separator: ":", maxSplits: 2, omittingEmptySubsequences: false)
         guard parts.count <= 2, let name = parts.first, !name.isEmpty else { return false }

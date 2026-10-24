@@ -43,6 +43,8 @@ struct NativeRequestEvent: Encodable, Equatable {
     var why: String? = nil
     /// Request-log notes (lane s3-script: skipped scripts, script errors, an abort), in order.
     var notes: [String]? = nil
+    /// native-final: forward — the method after the request scripts when one changed it.
+    var rmethod: String? = nil
 }
 
 final class NativeRequestRecorder {

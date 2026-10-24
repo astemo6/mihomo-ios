@@ -275,6 +275,20 @@ final class GoMitmFlowDriver: MitmFlowDriving {
     }
 }
 
+extension GoMitmFlowDriver: MitmScriptedFlowStarting {
+    /// MitmFlowBegin with the request scripts Swift already ran (FlowHead.Gen / Scripted, bridge/mitm/flowscripted.go).
+    func requestPhase(head: HTTPRequestHead, conn: MitmConnInfo, gen: Int64, scripted: [[String: Any]]) -> FlowDecision {
+        let length: Int64 = head.isChunked ? -1 : (head.contentLength ?? 0)
+        let obj: [String: Any] = [
+            "method": head.method, "target": head.target, "host": head.host ?? "",
+            "headers": headerPairs(head.headers), "length": length,
+            "connHost": conn.host, "connPort": conn.port, "tls": conn.tls, "connId": conn.connID,
+            "gen": gen, "scripted": scripted,
+        ]
+        return FlowDecision.decode(LibmihomoMitmFlowBegin(Self.json(obj)))
+    }
+}
+
 // MARK: - Session
 
 final class NativeMitmSession {

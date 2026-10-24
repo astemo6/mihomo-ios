@@ -118,6 +118,10 @@ protocol ScriptGoHost: AnyObject {
     func api(gen: Int64, rule: Int, arg: String) -> String
     func fetch(gen: Int64, rule: Int, token: Int64, arg: String, body: Data) -> ScriptFetch
     func memLow() -> Bool
+    // native-final: the request body of an http-request script (requestPhase's loadBody, bridge/mitm/flowscripted.go)
+    func reqBodyAdmit(gen: Int64, rule: Int, url: String, contentLength: Int64, token: Int64) -> ScriptAdmit
+    func reqBodySkip(gen: Int64, rule: Int, why: String, blen: Int64) -> String
+    func reqLimit(gen: Int64, rule: Int) -> Int64
     /// Go-side handles still held for native script work (tests: 0 after every flow).
     func held() -> Int64
 }
@@ -174,5 +178,10 @@ final class GoScriptHost: ScriptGoHost {
         GoScriptFetch(LibmihomoMitmScriptFetch(gen, rule, token, arg, body))
     }
     func memLow() -> Bool { LibmihomoMitmScriptMemLow() }
+    func reqBodyAdmit(gen: Int64, rule: Int, url: String, contentLength: Int64, token: Int64) -> ScriptAdmit {
+        decodeJSON(LibmihomoMitmScriptReqBodyAdmit(gen, rule, url, contentLength, token), ScriptAdmit(gone: true))
+    }
+    func reqBodySkip(gen: Int64, rule: Int, why: String, blen: Int64) -> String { LibmihomoMitmScriptReqBodySkip(gen, rule, why, blen) }
+    func reqLimit(gen: Int64, rule: Int) -> Int64 { LibmihomoMitmScriptReqLimit(gen, rule) }
     func held() -> Int64 { LibmihomoMitmScriptHeld() }
 }
