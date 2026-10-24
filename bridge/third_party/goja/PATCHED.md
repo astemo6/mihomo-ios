@@ -89,3 +89,6 @@ the ScriptRunner compile path ~42 MB → ~30 MB (bridge/mitm TestSubStoreCompile
 Equivalence: third_party/goja/mihomo_release_test.go compares Compile and CompileReleasing instruction
 by instruction (`TERN_JS_CORPUS=<dir of .js> go test -run CompileReleasing` inside third_party/goja;
 189 sources identical). Drop / re-apply together with the copy.
+
+Patches 5 / 6 touch runtime.go, parser/parser.go and add mihomo_release_test.go: all three are in
+scripts/goja_diff_check.sh's ALLOWED list.
