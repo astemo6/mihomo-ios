@@ -75,7 +75,7 @@ func TestScriptQueueShrinksUnderMemoryPressure(t *testing.T) {
 		t.Fatalf("tight memory: %v", err)
 	}
 	q3 := newScriptQueue()
-	tunnelConditions(t, 0, 3<<20) // below bodyAvailFloor: nobody waits
+	tunnelConditions(t, 0, 2<<20) // below scriptAvailFloor (fix/xmly-memory-2; 3–6 MB: one waiter): nobody waits
 	if _, _, err := q3.admit("a.js", true); err == nil || !strings.Contains(err.Error(), "内存紧张") {
 		t.Fatalf("critical memory: %v", err)
 	}

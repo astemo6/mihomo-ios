@@ -93,7 +93,9 @@ var hotAllowed = map[string]bool{"rules": true, "rule-providers": true, "mode": 
 
 // ReloadHot is Reload for a switch the user flipped: applied in place when possible (see the file comment),
 // otherwise the full Reload. The startup log says which ("hot-apply <what>" or "reload (<why>)").
-func ReloadHot(configPath string) error {
+func ReloadHot(configPath string) (err error) {
+	done := reloadBegin("hot")
+	defer func() { done(err) }()
 	mu.Lock()
 	defer mu.Unlock()
 	if !running.Load() {

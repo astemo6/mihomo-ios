@@ -64,7 +64,7 @@ func (c *fetchCharge) ensure(total int64) error {
 	// totals take the small pool when the global budget has no room right now.
 	if total <= smallWorkMax {
 		n := min(max(total-c.held, 64<<10), smallWorkMax-c.held)
-		if smallWorkOK(total, smallFetchFloor) {
+		if waitSmallWork(c.ctx, total, smallFetchFloor, fetchHeadroomWait) { // fix/xmly-memory-2: wait, don't refuse
 			if rel := acquireSmall(c.ctx, n, fetchBudgetWait); rel != nil {
 				c.held += n
 				c.rels = append(c.rels, rel)

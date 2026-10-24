@@ -60,15 +60,24 @@ const queueDefaultRun = time.Second
 // queueTightAvail: below this much available memory only one request may wait.
 const queueTightAvail = 12 << 20
 
-// queueLimit is how many requests may wait now: queueMaxWaitingN, 1 when memory is tight, 0 when the
-// body gates already refuse work (heapHigh).
+// queueLimit is how many requests may wait now: queueMaxWaitingN, 1 when memory is tight (also while the
+// body gates refuse large work), 0 only when not even a running script would be allowed to continue
+// (below scriptAvailFloor after reclaiming).
+// fix/xmly-memory-2: heapHigh (< 6 MB available) used to mean 0 — the 喜马拉雅 burst at ~5 MB then turned
+// every request behind the running one away (「脚本排队过长，已跳过（内存紧张…）」) instead of running them one
+// after another; the runs are serialized by bigSem anyway, so one waiter costs a connection, not a run.
 func queueLimit() int {
 	n := int(queueMaxWaitingN.Load())
 	if a, known := availableMemory(); known && a < queueTightAvail {
 		n = min(n, 1)
 	}
 	if heapHigh() {
-		n = 0
+		n = min(n, 1)
+		if ok, known, _ := availableAtLeast(scriptAvailFloor); known && !ok {
+			n = 0
+		} else if !known {
+			n = 0 // no probe: the GOMEMLIMIT heuristic says the heap is high — as before
+		}
 	}
 	return n
 }

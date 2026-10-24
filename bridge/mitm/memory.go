@@ -27,8 +27,15 @@ const availReserve = 4 << 20
 // bodyAvailFloor: below this much available memory body work (rewrites, body scripts) is skipped.
 const bodyAvailFloor = 6 << 20
 
-// scriptAvailFloor: a running script is interrupted when available memory falls below this.
-const scriptAvailFloor = 4 << 20
+// scriptAvailFloor: a running script is interrupted when available memory falls below this (after returning
+// memory to the OS and reclaiming caches once).
+// fix/xmly-memory-2 (v0.19.23 device 2026-10-24 22:14–22:16, 喜马拉雅): 4 MB refused every run and every
+// small $httpClient request while the extension idled at 3–5 MB available (footprint 41 MB with only 2
+// connections, peak 46.5 MB, never killed): 「跳过脚本：内存紧张（隧道可用 3.1 MB）」 ×6 and
+// 「获取Cookie失败:内存紧张，已跳过下载」 at 3.1 MB, 「付费接口异常：内存紧张，已跳过下载」 at ~5 MB. iOS kills
+// at 0, the Swift MemoryGuard starts closing connections at 3 MB; a run of the 喜马拉雅 script holds a few
+// hundred KB of Go memory (JavaScriptCore reuses its warmed heap), so 2.5 MB keeps a margin.
+const scriptAvailFloor = 5 << 19 // 2.5 MB
 
 var availProbe atomic.Pointer[func() int64]
 

@@ -41,6 +41,10 @@ const bodyCopyFactor = 3
 // JSON answers through to their scripts; the memory gates decide about running them).
 const bodyBudgetMin = 256 << 10
 
+// largeBodyReserve is what the dynamic body budget keeps free (the run floor before fix/xmly-memory-2, which
+// lowered scriptAvailFloor for small work; large bodies keep the old margin).
+const largeBodyReserve = 4 << 20
+
 // dynamicBodyMax is the largest body a script may be handed right now. v0.19.22 (user 2026-10-23
 // 「YouTube也有问题」: 「跳过脚本：响应体解压后超过 2048 KB（Content-Encoding: br，压缩 812 KB）」 and the
 // ads came back): instead of a fixed 2 MB, what the extension still has above scriptAvailFloor
@@ -51,7 +55,7 @@ func dynamicBodyMax() (limit int, avail int64, known bool) {
 	if !known {
 		return MaxScriptBody, 0, false
 	}
-	n := (avail - scriptAvailFloor) / bodyCopyFactor
+	n := (avail - largeBodyReserve) / bodyCopyFactor
 	if n < bodyBudgetMin {
 		n = bodyBudgetMin
 	}
@@ -430,7 +434,8 @@ func (e *Engine) requestPhase(p *reqPhase, w http.ResponseWriter, r *http.Reques
 		}
 		small := false
 		if heapHigh() {
-			if !smallWorkOK(r.ContentLength, smallBodyFloor) {
+			// fix/xmly-memory-2: wait briefly for headroom (reclaim, the burst ending) instead of refusing at once.
+			if !waitSmallWork(r.Context(), r.ContentLength, smallBodyFloor, smallHeadroomWait) {
 				reqSkip = heapHighReason()
 				e.logf("warning", fmt.Sprintf("[MitM] %s，跳过请求体处理：%s", reqSkip, clip(u, 100)))
 				return false
@@ -794,7 +799,12 @@ func (e *Engine) modifyResponse(f *flow, resp *http.Response) error {
 			if resp.Header.Get("Content-Encoding") != "" && cl >= 0 {
 				cl = min(cl*4, smallWorkMax) // compressed: judged on a typical decoded size, capped below
 			}
-			if !smallWorkOK(cl, smallBodyFloor) {
+			var rctx context.Context
+			if resp.Request != nil {
+				rctx = resp.Request.Context()
+			}
+			// fix/xmly-memory-2: wait briefly for headroom instead of refusing at once.
+			if !waitSmallWork(rctx, cl, smallBodyFloor, smallHeadroomWait) {
 				respSkip = heapHighReason()
 				e.logf("warning", fmt.Sprintf("[MitM] %s，跳过响应体处理：%s", respSkip, clip(f.url, 100)))
 				return false
