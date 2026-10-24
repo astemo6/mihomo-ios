@@ -628,6 +628,11 @@ func (e *Engine) requestPhase(p *reqPhase, w http.ResponseWriter, r *http.Reques
 			respRules = append(respRules, rule)
 		}
 	}
+	// feat/selective-native: a heavy rule matched on the Go path → the host's next connections go native
+	// (selective.go; no-op unless selective mode is on).
+	if NativeSelective() != SelectiveOff {
+		e.selectiveLearnRules(st, selRequestHost(r), respRules)
+	}
 
 	if capture {
 		if reqBody != nil {

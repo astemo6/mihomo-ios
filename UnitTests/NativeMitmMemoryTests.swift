@@ -304,19 +304,26 @@ final class BenchClient {
     private(set) var failure: String?
     /// What a complete answer contains (the bench JSON; with the combo rules, the jq rule's mark).
     private let needle: String
+    private var needleData: Data { Data(needle.utf8) }
 
-    init(enginePort: Int, needle: String = "\"keep\":1") {
+    /// feat/selective-native: host / path of the request (the large-body bench uses heavy.bench.test too).
+    private let host: String
+    private let path: String
+
+    init(enginePort: Int, needle: String = "\"keep\":1", host: String = "api.bench.test", path: String = "/json") {
         self.needle = needle
+        self.host = host
+        self.path = path
         let tls = NWProtocolTLS.Options()
         let sec = tls.securityProtocolOptions
-        sec_protocol_options_set_tls_server_name(sec, "api.bench.test")
+        sec_protocol_options_set_tls_server_name(sec, host)
         sec_protocol_options_add_tls_application_protocol(sec, "http/1.1")
         sec_protocol_options_set_verify_block(sec, { _, _, complete in complete(true) }, Self.queue)
         let params = NWParameters(tls: tls, tcp: NWProtocolTCP.Options())
         let ctx = NWParameters.PrivacyContext(description: "test.s2mem")
         ctx.proxyConfigurations = [ProxyConfiguration(httpCONNECTProxy: .hostPort(host: "127.0.0.1", port: NWEndpoint.Port(rawValue: UInt16(enginePort))!), tlsOptions: nil)]
         params.setPrivacyContext(ctx)
-        conn = NWConnection(host: "api.bench.test", port: 443, using: params)
+        conn = NWConnection(host: NWEndpoint.Host(host), port: 443, using: params)
     }
 
     func start(_ completion: @escaping (Bool) -> Void) {
@@ -325,7 +332,7 @@ final class BenchClient {
             guard let self else { return }
             switch st {
             case .ready:
-                let req = "GET /json HTTP/1.1\r\nHost: api.bench.test\r\nUser-Agent: s2mem\r\nAccept: */*\r\n\r\n"
+                let req = "GET \(self.path) HTTP/1.1\r\nHost: \(self.host)\r\nUser-Agent: s2mem\r\nAccept: */*\r\n\r\n"
                 self.conn.send(content: Data(req.utf8), completion: .contentProcessed { [weak self] e in
                     if let e { self?.finish(false, "send: \(e)") } else { self?.receive() }
                 })
@@ -341,8 +348,11 @@ final class BenchClient {
         conn.receive(minimumIncompleteLength: 1, maximumLength: 64 << 10) { [weak self] data, _, eof, err in
             guard let self else { return }
             if let data { self.buf.append(data) }
-            if let s = String(data: self.buf, encoding: .utf8), s.contains(self.needle) {
-                self.finish(s.hasPrefix("HTTP/1.1 200"), s.hasPrefix("HTTP/1.1 200") ? nil : String(s.prefix(200)))
+            // needle search over the tail only (a large answer arrives in many pieces)
+            let tailFrom = Swift.max(self.buf.startIndex, self.buf.endIndex - (data?.count ?? 0) - self.needleData.count)
+            if self.buf[tailFrom...].range(of: self.needleData) != nil {
+                let ok = self.buf.starts(with: Data("HTTP/1.1 200".utf8))
+                self.finish(ok, ok ? nil : String(decoding: self.buf.prefix(200), as: UTF8.self))
                 return
             }
             if eof || err != nil {

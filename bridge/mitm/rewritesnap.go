@@ -197,6 +197,7 @@ func forgetSnapshot(e *Engine) {
 	delete(snapCaches, e)
 	snapMu.Unlock()
 	forgetNativeRecords(e)
+	forgetSelective(e) // feat/selective-native (selective.go)
 }
 
 // snapState is the state behind snapshot generation gen (nil: unknown — older than one reload back).

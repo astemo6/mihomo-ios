@@ -126,6 +126,10 @@ func (e *Engine) tryNativeTLS(mc *metaConn, host string, h2 bool) bool {
 	if t == nil {
 		return false
 	}
+	// feat/selective-native: in selective mode only hosts with a heavy rule (body / jq / json / script) go native.
+	if !e.selectiveWants(host) {
+		return false
+	}
 	br := mc.r
 	if _, err := br.Peek(5); err != nil {
 		return false
