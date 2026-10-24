@@ -45,6 +45,10 @@ type DebugInput struct {
 	// Engine forces a script engine: "goja" / "native" (JavaScriptCore); "" = the default (engine
 	// conformance tests run one input on both).
 	Engine string `json:"engine,omitempty"`
+	// lane (engine conformance, feat/native-mitm): the response body goes through the native body lane,
+	// encoded with laneEnc first, the way modifyResponse streams it (conformancelane.go).
+	lane    bool
+	laneEnc string
 }
 
 // DebugLog is one console line (t = ms since start).
@@ -212,11 +216,32 @@ func debugRunOn(e *Engine, in DebugInput) (out DebugOutput) {
 		}
 	}
 
+	// feat/native-mitm: a lane case holds the response body in the lane (resp.Body nil, NativeBody set);
+	// origBody stays the plain body for the summary's sizes. lane owns the handles until the run is over.
+	var lc *laneCase
+	origBody := []byte(nil)
+	if resp != nil {
+		origBody = resp.Body
+	}
+	if in.lane && resp != nil {
+		var lerr error
+		if lc, lerr = laneCaseOpen(resp, in.laneEnc); lerr != nil {
+			out.Error = lerr.Error()
+			return
+		}
+		defer lc.close()
+		inner := setup
+		setup = func(rc *runCtx) { inner(rc); rc.laneOK = true }
+	}
+
 	runner := e.scripts
 	rc, err := runner.executeOn(in.Engine, nil, sc, req, resp, make(chan struct{}, 1), false, 60*time.Second, 10*time.Second, setup)
 	if err != nil {
 		out.Error = err.Error()
 		return
+	}
+	if lc != nil {
+		lc.rc = rc
 	}
 	out.OK = true
 	if rc == nil || !rc.done {
@@ -233,6 +258,9 @@ func debugRunOn(e *Engine, in DebugInput) (out DebugOutput) {
 	if err != nil {
 		out.OK, out.Error = false, err.Error()
 		return
+	}
+	if lc != nil {
+		lc.result(res)
 	}
 	if res.Abort {
 		out.Summary = append(out.Summary, "脚本中止了请求（ctx.abort）")
@@ -280,9 +308,12 @@ func debugRunOn(e *Engine, in DebugInput) (out DebugOutput) {
 			out.Summary = append(out.Summary, fmt.Sprintf("响应头已替换（%d 个）", len(res.Header)))
 		}
 		b := resp.Body
+		if lc != nil {
+			b = lc.body() // read back from the lane, as the handler streams it
+		}
 		if res.BodySet {
 			b = res.Body
-			out.Summary = append(out.Summary, fmt.Sprintf("响应体已修改（%d → %d 字节）", len(resp.Body), len(res.Body)))
+			out.Summary = append(out.Summary, fmt.Sprintf("响应体已修改（%d → %d 字节）", len(origBody), len(res.Body)))
 		}
 		r.Body, r.BodyBase64 = bodyOut(b)
 		out.Result = r

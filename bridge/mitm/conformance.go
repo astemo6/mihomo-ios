@@ -18,6 +18,10 @@ type ConformanceCase struct {
 	Input  DebugInput `json:"input"`
 	Expect []string   `json:"expect"`
 	Repeat int        `json:"repeat,omitempty"`
+	// Lane: the native engine's run takes the response body through the native body lane (conformancelane.go),
+	// encoded with Encoding ("" / gzip / deflate / br) first; goja runs the plain case as the reference.
+	Lane     bool   `json:"lane,omitempty"`
+	Encoding string `json:"encoding,omitempty"`
 }
 
 // ConformanceResult compares the engines on one case.
@@ -30,6 +34,8 @@ type ConformanceResult struct {
 	Diff     string   `json:"diff,omitempty"`
 	GojaMs   int64    `json:"gojaMs"`
 	NativeMs int64    `json:"nativeMs"`
+	// LaneLive: lane handles the Go side still held after the case (lane cases; must be 0).
+	LaneLive int64 `json:"laneLive,omitempty"`
 }
 
 var (
@@ -69,7 +75,15 @@ func RunConformance(home string, c ConformanceCase, requireNative bool) Conforma
 		for i := 0; i < n; i++ {
 			in := c.Input
 			in.Engine = engine
+			lane := c.Lane && engine == EngineNative && laneAny() != nil
+			in.lane, in.laneEnc = lane, c.Encoding
+			live0 := laneLive.Load()
 			out := debugRunOn(e, in)
+			if lane {
+				if leak := laneLive.Load() - live0; leak != 0 {
+					return normalizeDebug(out), ms, fmt.Sprintf("lane leak %d (run %d on %s)", leak, i+1, engine)
+				}
+			}
 			_ = e.Store.Flush()
 			ms += out.DurationMs
 			s := normalizeDebug(out)
@@ -91,6 +105,9 @@ func RunConformance(home string, c ConformanceCase, requireNative bool) Conforma
 			r.Missing = append(r.Missing, e)
 		}
 	}
+	if c.Lane && laneAny() == nil && requireNative {
+		r.Diff = "lane not registered"
+	}
 	if nativeUsable() {
 		r.Native, r.NativeMs, d = run(EngineNative)
 		if d != "" && r.Diff == "" {
@@ -101,6 +118,9 @@ func RunConformance(home string, c ConformanceCase, requireNative bool) Conforma
 		}
 	} else if requireNative {
 		r.Diff = "native engine not registered"
+	}
+	if c.Lane {
+		r.LaneLive = laneLive.Load()
 	}
 	r.OK = len(r.Missing) == 0 && r.Diff == ""
 	return r
