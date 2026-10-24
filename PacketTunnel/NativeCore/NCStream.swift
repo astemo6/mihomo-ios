@@ -1,5 +1,6 @@
 import Foundation
 import Network
+import Security
 
 /// A single TCP byte stream over NWConnection, with one-shot receives: the
 /// caller (handshake code, then the relay pump) chains receive calls, which
@@ -11,17 +12,36 @@ final class NCStream {
     private var cancelled = false
 
     init(to host: String, port: Int, tls: Bool = false, queue: DispatchQueue) {
-        let endpoint: NWEndpoint
-        if let v4 = IPv4Address(host) {
-            endpoint = .hostPort(host: .ipv4(v4), port: NWEndpoint.Port(rawValue: UInt16(clamping: port)) ?? .any)
-        } else if let v6 = IPv6Address(host) {
-            endpoint = .hostPort(host: .ipv6(v6), port: NWEndpoint.Port(rawValue: UInt16(clamping: port)) ?? .any)
-        } else {
-            endpoint = .hostPort(host: NWEndpoint.Host(host), port: NWEndpoint.Port(rawValue: UInt16(clamping: port)) ?? .any)
-        }
-        let params: NWParameters = tls ? .tls : .tcp
-        conn = NWConnection(to: endpoint, using: params)
         self.queue = queue
+        conn = NWConnection(to: Self.endpoint(host, port: port), using: tls ? .tls : .tcp)
+    }
+
+    /// TLS with proxy-protocol options: explicit SNI (servername) and optional
+    /// skip-cert-verify, as Trojan/VLESS/VMess configs carry them.
+    init(to host: String, port: Int, tlsServerName: String?, allowInsecure: Bool, queue: DispatchQueue) {
+        self.queue = queue
+        let tlsOptions = NWProtocolTLS.Options()
+        if let sni = tlsServerName, !sni.isEmpty {
+            sec_protocol_options_set_tls_server_name(tlsOptions.securityProtocolOptions, sni)
+        }
+        if allowInsecure {
+            sec_protocol_options_set_verify_block(tlsOptions.securityProtocolOptions, { _, _, complete in
+                complete(true)
+            }, queue)
+        }
+        let params = NWParameters(tls: tlsOptions, tcp: NWProtocolTCP.Options())
+        conn = NWConnection(to: Self.endpoint(host, port: port), using: params)
+    }
+
+    private static func endpoint(_ host: String, port: Int) -> NWEndpoint {
+        let p = NWEndpoint.Port(rawValue: UInt16(clamping: port)) ?? .any
+        if let v4 = IPv4Address(host) {
+            return .hostPort(host: .ipv4(v4), port: p)
+        }
+        if let v6 = IPv6Address(host) {
+            return .hostPort(host: .ipv6(v6), port: p)
+        }
+        return .hostPort(host: NWEndpoint.Host(host), port: p)
     }
 
     /// Starts the connection; `ready` fires exactly once (nil error on success).

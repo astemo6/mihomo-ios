@@ -336,3 +336,28 @@ final class NativeCoreTrojanTests: XCTestCase {
         XCTAssertEqual(Data(head.suffix(2)), Data([0x0d, 0x0a]))
     }
 }
+
+// MARK: - VLESS
+
+final class NativeCoreVLESSTests: XCTestCase {
+    private func hex(_ d: Data?) -> String {
+        (d ?? Data()).map { String(format: "%02x", $0) }.joined()
+    }
+
+    func testRequestHeadNoFlow() {
+        let head = NCVLESS.requestHead(uuid: "b831381d-6324-4d53-ad4f-8cda48b30811",
+                                       target: NCTarget(host: "google.com", port: 443))
+        XCTAssertEqual(hex(head), "00b831381d63244d53ad4f8cda48b30811000101bb0209676f6f676c652e636f6d")
+    }
+
+    func testRequestHeadWithFlow() {
+        let head = NCVLESS.requestHead(uuid: "b831381d-6324-4d53-ad4f-8cda48b30811",
+                                       target: NCTarget(host: "google.com", port: 443),
+                                       flow: "xtls-rprx-vision")
+        XCTAssertEqual(hex(head), "00b831381d63244d53ad4f8cda48b30811120a1078746c732d727072782d766973696f6e0101bb0209676f6f676c652e636f6d")
+    }
+
+    func testBadUUID() {
+        XCTAssertNil(NCVLESS.requestHead(uuid: "not-a-uuid", target: NCTarget(host: "a.com", port: 80)))
+    }
+}

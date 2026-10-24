@@ -110,6 +110,45 @@ enum NCConnector {
                 guard err == nil else { completion(nil, err); return }
                 completion(NCSSRelayStream(raw: raw, encoder: enc, decoder: dec, target: target), nil)
             }
+        case "trojan":
+            guard let password = proxy.password else {
+                queue.async { completion(nil, Failure.handshake("trojan missing password")) }
+                return
+            }
+            let raw = NCStream(to: server, port: port,
+                               tlsServerName: proxy.fields["sni"]?.string ?? server,
+                               allowInsecure: proxy.fields["skip-cert-verify"]?.bool ?? false,
+                               queue: queue)
+            raw.start { err in
+                guard err == nil else { completion(nil, err); return }
+                raw.send(NCTrojan.requestHead(password: password, target: target))
+                completion(raw, nil)
+            }
+        case "vless":
+            guard let uuid = proxy.uuid else {
+                queue.async { completion(nil, Failure.handshake("vless missing uuid")) }
+                return
+            }
+            let useTLS = proxy.fields["tls"]?.bool ?? false
+            let raw: NCStream
+            if useTLS {
+                raw = NCStream(to: server, port: port,
+                               tlsServerName: proxy.fields["servername"]?.string ?? proxy.fields["sni"]?.string ?? server,
+                               allowInsecure: proxy.fields["skip-cert-verify"]?.bool ?? false,
+                               queue: queue)
+            } else {
+                raw = NCStream(to: server, port: port, queue: queue)
+            }
+            raw.start { err in
+                guard err == nil else { completion(nil, err); return }
+                guard let head = NCVLESS.requestHead(uuid: uuid, target: target,
+                                                     flow: proxy.fields["flow"]?.string ?? "") else {
+                    completion(nil, Failure.handshake("vless bad uuid"))
+                    return
+                }
+                raw.send(head)
+                completion(raw, nil)
+            }
         default:
             queue.async { completion(nil, Failure.unsupported(proxy.type)) }
         }
