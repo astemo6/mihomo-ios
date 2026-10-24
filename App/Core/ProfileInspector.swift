@@ -283,7 +283,9 @@ final class ProfileInspector: ObservableObject {
         // v0.15.2: bind the test sockets to Wi-Fi / cellular so another app's VPN (QX, Surge …) that is up
         // while ours is off does not carry the test through its own node too. The core falls back to
         // normal routing when the bind fails.
-        LibmihomoSetOfflineTestInterface(await PhysicalInterface.current() ?? "")
+        let iface = await PhysicalInterface.current() ?? ""
+        NCDelayTester.setOfflineInterface(iface)
+        LibmihomoSetOfflineTestInterface(iface)
         let tcp = ControllerClient.tcpHandshake
         var idx = 0
         while idx < names.count {
@@ -292,7 +294,10 @@ final class ProfileInspector: ObservableObject {
             let got = await withTaskGroup(of: (String, Int).self, returning: [(String, Int)].self) { tg in
                 for n in batch {
                     let u = NodeSettingsStore.customURL(for: n) ?? url
-                    tg.addTask { (n, Int(await BlockingWork.run { tcp ? LibmihomoTCPDelayByName(home, path, n, u, timeout) : LibmihomoTestDelayByName(home, path, n, u, timeout) })) }
+                    tg.addTask { (n, Int(await BlockingWork.run {
+                        tcp ? NCDelayTester.tcpDelayByName(homeDir: home, profilePath: path, name: n, url: u, timeoutMs: timeout)
+                            : NCDelayTester.testDelayByName(homeDir: home, profilePath: path, name: n, url: u, timeoutMs: timeout)
+                    })) }
                 }
                 var out: [(String, Int)] = []
                 for await r in tg { out.append(r) }
