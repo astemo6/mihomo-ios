@@ -69,7 +69,7 @@ func egernCompress(op string, in []byte) ([]byte, error) {
 	case "gunzip", "inflate":
 		return inflateAny(in)
 	case "unbrotli":
-		return readAll(brotli.NewReader(bytes.NewReader(in)))
+		return readAll(newStrictBrotli(bytes.NewReader(in))) // truncated input is an error (brotlistrict.go)
 	}
 	return nil, errors.New("unknown op")
 }

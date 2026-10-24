@@ -42,6 +42,11 @@ func upstreamHandler() http.Handler {
 		}
 		_ = json.NewEncoder(w).Encode(map[string]any{"method": r.Method, "path": r.URL.Path, "headers": h, "body": string(b), "host": r.Host})
 	})
+	mux.HandleFunc("/brx", func(w http.ResponseWriter, r *http.Request) { // brotlistrict_test.go
+		w.Header().Set("Content-Type", "application/json")
+		w.Header().Set("Content-Encoding", "br")
+		_, _ = w.Write(brxBody.Load().([]byte))
+	})
 	mux.HandleFunc("/bin", func(w http.ResponseWriter, r *http.Request) {
 		_, _ = w.Write([]byte{0, 1, 2, 3, 250, 251})
 	})
