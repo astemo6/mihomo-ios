@@ -110,6 +110,10 @@ type snapCache struct {
 	st  *state
 	gen int64
 	js  []byte
+	// prevSt / prevGen: the state one reload back, so a native request record (nativerecord.go) that raced a
+	// reload still finds its rule labels.
+	prevSt  *state
+	prevGen int64
 }
 
 var (
@@ -131,8 +135,12 @@ func (e *Engine) rewriteSnap() *snapCache {
 	s := buildRewriteSnapshot(st)
 	s.Gen = gen
 	js, _ := json.Marshal(s)
-	c = &snapCache{st: st, gen: gen, js: js}
-	snapCaches[e] = c
+	nc := &snapCache{st: st, gen: gen, js: js}
+	if c != nil {
+		nc.prevSt, nc.prevGen = c.st, c.gen
+	}
+	snapCaches[e] = nc
+	c = nc
 	return c
 }
 
@@ -157,6 +165,23 @@ func forgetSnapshot(e *Engine) {
 	snapMu.Lock()
 	delete(snapCaches, e)
 	snapMu.Unlock()
+	forgetNativeRecords(e)
+}
+
+// snapState is the state behind snapshot generation gen (nil: unknown — older than one reload back).
+func (e *Engine) snapState(gen int64) *state {
+	snapMu.Lock()
+	defer snapMu.Unlock()
+	c := snapCaches[e]
+	switch {
+	case c == nil || gen == 0:
+		return nil
+	case c.gen == gen:
+		return c.st
+	case c.prevGen == gen:
+		return c.prevSt
+	}
+	return nil
 }
 
 func buildRewriteSnapshot(st *state) *RewriteSnapshot {

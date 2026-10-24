@@ -41,6 +41,22 @@ final class NativeMitmRewriteTests: XCTestCase {
         var needsGo: Bool?
         var expect: Decision
         var resp: Resp?
+        var log: LogEntry?
+    }
+    /// The request-log entry Go's flow API left (bridge/mitm/nativerecord.go: what the native records must reproduce).
+    struct LogEntry: Decodable, Equatable {
+        var method: String
+        var url: String
+        var host: String
+        var mitm: Bool
+        var status: Int
+        var matched: [String]?
+        var notes: [String]?
+        var local: Bool?
+        var done: Bool
+        var bytes: Int64
+        var reqHeaders: [String: String]?
+        var respHeaders: [String: String]?
     }
     struct HostCase: Decodable { var host: String; var port: Int; var match: Bool }
     struct Suite: Decodable {
@@ -48,6 +64,7 @@ final class NativeMitmRewriteTests: XCTestCase {
         var snapshot: RWSnapshot
         var cases: [Case]?
         var hosts: [HostCase]?
+        var labels: [String]?
     }
     struct Fixtures: Decodable { var version: Int; var suites: [Suite] }
 
@@ -240,10 +257,179 @@ final class NativeMitmRewriteTests: XCTestCase {
 
     override func tearDown() { NativeRewriteRuntime.override = nil }
 
+    // MARK: request log
+
+    final class Sink: NativeRequestLogSink {
+        var batches: [String] = []
+        func record(_ json: String) -> Int { batches.append(json); return 1 }
+    }
+
+    struct Ev: Decodable {
+        var k: Int64
+        var ev: String
+        var t: Double?
+        var ms: Double
+        var gen: Int64?
+        var rules: [Int]?
+        var method: String?
+        var url: String?
+        var host: String?
+        var tls: Bool?
+        var status: Int?
+        var headers: [[String]]?
+        var len: Int64?
+        var body: Data?
+        var sent: Int64?
+        var resp: Bool?
+        var why: String?
+    }
+
+    private static func events(_ batches: [String]) -> [Ev] {
+        batches.flatMap { (try? JSONDecoder().decode([Ev].self, from: Data($0.utf8))) ?? [] }
+    }
+
+    private static func recorder(_ sink: Sink) -> NativeRequestRecorder {
+        NativeRequestRecorder(sink: sink, maxQueued: 1 << 20, flushAt: 1 << 20, delay: 3600, watchMemory: false)
+    }
+
+    /// What bridge/mitm/nativerecord.go makes of a request's events (the same Entry calls in the same order).
+    private static func entry(_ evs: [Ev], labels: [String]) -> LogEntry? {
+        guard let first = evs.first else { return nil }
+        func flat(_ h: [[String]]?) -> [String: String]? {
+            let m = GoHeader(pairs: h ?? []).map.mapValues { $0.joined(separator: ", ") }
+            return m.isEmpty ? nil : m
+        }
+        func names(_ r: [Int]?) -> [String] { (r ?? []).compactMap { $0 >= 0 && $0 < labels.count ? labels[$0] : nil } }
+        var host = first.host ?? ""
+        if let i = host.lastIndex(of: ":"), i != host.startIndex, !host[i...].contains("]") { host = String(host[..<i]) }
+        var e = LogEntry(method: (first.method ?? "").isEmpty ? "GET" : first.method!, url: first.url ?? "", host: host, mitm: first.tls ?? false,
+                         status: 0, matched: nil, notes: nil, local: nil, done: false, bytes: 0, reqHeaders: nil, respHeaders: nil)
+        func match(_ r: [Int]?) { let n = names(r); if !n.isEmpty { e.matched = (e.matched ?? []) + n } }
+        func note(_ s: String) { e.notes = (e.notes ?? []) + [s] }
+        func finish(_ status: Int, _ n: String) {
+            if e.done { return }
+            e.done = true
+            if status >= 0 { e.status = status }
+            if !n.isEmpty { note(n) }
+        }
+        for v in evs {
+            switch v.ev {
+            case "drop": match(v.rules); finish(0, "拒绝（断开）")
+            case "local":
+                match(v.rules); e.url = v.url ?? ""; e.local = true; e.status = v.status ?? 0
+                e.respHeaders = flat(v.headers); e.bytes = v.len ?? 0; finish(-1, "")
+            case "forward": match(v.rules); e.url = v.url ?? ""; e.reqHeaders = flat(v.headers)
+            case "response":
+                if v.status != 101 { match(v.rules) }
+                e.status = v.status ?? 0; e.respHeaders = flat(v.headers)
+                if v.status == 101 { finish(101, "WebSocket / Upgrade") }
+            case "end":
+                e.bytes += v.sent ?? 0
+                if let w = v.why, !w.isEmpty, v.resp == true { note(w) }
+                finish(-1, "")
+            case "cancel":
+                let w = (v.why ?? "").isEmpty ? "客户端取消" : v.why!
+                if v.resp == true { note(w); finish(-1, "") } else { finish(0, w) }
+            case "upstream": finish(502, "上游错误：" + (v.why ?? ""))
+            case "error": finish(502, "内部错误")
+            default: return nil
+            }
+        }
+        return e
+    }
+
+    private static func normalized(_ l: LogEntry) -> LogEntry {
+        var x = l
+        if x.matched?.isEmpty == true { x.matched = nil }
+        if x.notes?.isEmpty == true { x.notes = nil }
+        if x.local == false { x.local = nil }
+        if x.reqHeaders?.isEmpty == true { x.reqHeaders = nil }
+        if x.respHeaders?.isEmpty == true { x.respHeaders = nil }
+        return x
+    }
+
+    /// Every request the native driver answers produces, through its request-log events, exactly the entry Go's
+    /// flow API wrote for it (matched labels, URL, host, status, headers, notes, bytes) — across all fixture suites.
+    func testRequestLogMatchesGo() throws {
+        let fx = try fixtures()
+        var checked = 0, failed = 0
+        for s in fx.suites {
+            let labels = s.labels ?? []
+            let engine = NativeRewriteEngine(snapshot: s.snapshot)
+            let sink = Sink()
+            let rec = Self.recorder(sink)
+            let d = NativeRewriteDriver(inner: Inner(), provider: NativeRewriteProvider(source: FakeSource(Self.snapJSON)), recorder: rec)
+            for c in s.cases ?? [] {
+                guard let want = c.log else { continue }
+                guard let dec = d.native(Self.request(c), engine: engine) else { continue }
+                if dec.action == .forward, let r = c.resp {
+                    _ = d.responsePhase(dec.id, head: HTTPResponseHead(status: r.status, reason: "", headers: headerList(r.headers ?? [])), length: r.length)
+                }
+                d.end(dec.id, sent: 0, error: "")
+                sink.batches.removeAll()
+                rec.flushNow()
+                let evs = Self.events(sink.batches)
+                guard let got = Self.entry(evs, labels: labels) else {
+                    failed += 1
+                    XCTFail("[\(s.name)] \(c.name): no request-log events (\(sink.batches))")
+                    continue
+                }
+                if Self.normalized(got) != Self.normalized(want) {
+                    failed += 1
+                    if failed <= 20 { XCTFail("[\(s.name)] \(c.name):\n native \(got)\n go     \(want)") }
+                    continue
+                }
+                checked += 1
+            }
+            XCTAssertEqual(d.openLogEntries, 0, s.name)
+            XCTAssertEqual(rec.stats.dropped, 0, s.name)
+        }
+        print("NativeMitmRewrite request log: \(checked) native entries identical to Go's, \(failed) different")
+        XCTAssertEqual(failed, 0)
+        XCTAssertGreaterThan(checked, 1000)
+    }
+
+    func testRecorderBoundsBatchesAndSheds() throws {
+        let sink = Sink()
+        let r = NativeRequestRecorder(sink: sink, maxQueued: 4, flushAt: 4, delay: 3600, watchMemory: false)
+        for i in 0..<6 { r.add(NativeRequestEvent(k: Int64(i), ev: "drop", ms: 0)) }
+        r.flushNow()
+        XCTAssertEqual(sink.batches.count, 1)
+        XCTAssertEqual(Self.events(sink.batches).map(\.k), [0, 1, 2, 3])
+        XCTAssertEqual(r.stats.dropped, 2)
+        XCTAssertEqual(r.stats.sent, 4)
+
+        // reaching flushAt sends without waiting for the delay; the JSON is what Go decodes (base64 body, no nulls)
+        let s2 = Sink()
+        let r2 = NativeRequestRecorder(sink: s2, maxQueued: 8, flushAt: 2, delay: 3600, watchMemory: false)
+        r2.add(NativeRequestEvent(k: 1, ev: "local", t: 1.5, ms: 0.25, rules: [3], status: 200, headers: [["Content-Type", "x"]], len: 2, body: Data("{}".utf8)))
+        r2.add(NativeRequestEvent(k: 2, ev: "end", ms: 1, sent: 7, resp: true))
+        r2.waitIdle()   // no flushNow: reaching flushAt alone sent the batch
+        XCTAssertEqual(s2.batches.count, 1)
+        let obj = try JSONSerialization.jsonObject(with: Data(s2.batches[0].utf8)) as? [[String: Any]]
+        XCTAssertEqual(obj?.count, 2)
+        XCTAssertEqual(obj?[0]["body"] as? String, "e30=")
+        XCTAssertEqual(obj?[0]["rules"] as? [Int], [3])
+        XCTAssertNil(obj?[1]["url"])
+        XCTAssertEqual(obj?[1]["sent"] as? Int, 7)
+
+        // memory pressure: the queue is dropped and recording pauses
+        r2.add(NativeRequestEvent(k: 3, ev: "drop", ms: 0))
+        r2.shed(pause: 60)
+        r2.add(NativeRequestEvent(k: 4, ev: "drop", ms: 0))
+        XCTAssertEqual(r2.stats.queued, 0)
+        XCTAssertEqual(r2.stats.shed, 1)
+        XCTAssertEqual(r2.stats.dropped, 2)
+        r2.shed(pause: 0)
+        r2.add(NativeRequestEvent(k: 5, ev: "drop", ms: 0))
+        XCTAssertEqual(r2.stats.queued, 1)
+        XCTAssertNotEqual(r2.newKey(), r2.newKey())
+    }
+
     func testDriverOffPassesThrough() {
         NativeRewriteRuntime.override = false
         let inner = Inner(), src = FakeSource(Self.snapJSON)
-        let d = NativeRewriteDriver(inner: inner, provider: NativeRewriteProvider(source: src))
+        let d = NativeRewriteDriver(inner: inner, provider: NativeRewriteProvider(source: src), recorder: nil)
         XCTAssertEqual(d.requestPhase(head: head("/ad"), conn: conn).id, 9)
         XCTAssertEqual(inner.calls, ["begin /ad"])
         XCTAssertEqual(src.fetches, 0)
@@ -252,7 +438,9 @@ final class NativeMitmRewriteTests: XCTestCase {
     func testDriverNativeLocalForwardAndDefer() {
         NativeRewriteRuntime.override = true
         let inner = Inner(), src = FakeSource(Self.snapJSON)
-        let d = NativeRewriteDriver(inner: inner, provider: NativeRewriteProvider(source: src))
+        let sink = Sink()
+        let rec = Self.recorder(sink)
+        let d = NativeRewriteDriver(inner: inner, provider: NativeRewriteProvider(source: src), recorder: rec)
 
         let rej = d.requestPhase(head: head("/ad"), conn: conn)
         XCTAssertEqual(rej.action, .local); XCTAssertLessThan(rej.id, 0)
@@ -285,6 +473,37 @@ final class NativeMitmRewriteTests: XCTestCase {
         XCTAssertEqual(d.stats.local, 2); XCTAssertEqual(d.stats.forward, 1); XCTAssertEqual(d.stats.deferred, 1)
         XCTAssertEqual(src.fetches, 1)
 
+        // request log: one event per native decision, the forward's response and end; nothing for the Go request
+        rec.flushNow()
+        let evs = Self.events(sink.batches)
+        XCTAssertEqual(evs.map(\.ev), ["local", "local", "forward", "response", "end"])
+        XCTAssertEqual(evs[0].rules, [0]); XCTAssertEqual(evs[0].url, "https://a.com/ad"); XCTAssertEqual(evs[0].status, 200)
+        XCTAssertEqual(evs[0].len, 2); XCTAssertNil(evs[0].body) // capture off
+        XCTAssertEqual(evs[0].headers ?? [], [["Content-Length", "2"], ["Content-Type", "application/json"]])
+        XCTAssertEqual(evs[1].rules, [1]); XCTAssertEqual(evs[1].headers ?? [], [["Content-Type", "text/plain; charset=utf-8"]]); XCTAssertEqual(evs[1].len, 5)
+        XCTAssertNil(evs[2].rules); XCTAssertEqual(evs[2].host, "a.com"); XCTAssertEqual(evs[2].method, "GET"); XCTAssertEqual(evs[2].tls, true)
+        XCTAssertEqual(evs[2].headers ?? [], [["User-Agent", "t"]])
+        XCTAssertEqual(evs[3].rules, [2]); XCTAssertEqual(evs[3].status, 200)
+        XCTAssertEqual(evs[3].headers ?? [], [["Content-Length", "3"], ["X-R", "1"]])
+        XCTAssertEqual(evs[4].sent, 3); XCTAssertEqual(evs[4].resp, true); XCTAssertNil(evs[4].why)
+        XCTAssertEqual(Set(evs[2...].map(\.k)).count, 1)
+        XCTAssertEqual(Set(evs.map(\.k)).count, 3)
+        XCTAssertTrue(evs.allSatisfy { $0.ms >= 0 })
+        XCTAssertNotNil(evs[0].t); XCTAssertNil(evs[3].t)
+        XCTAssertEqual(d.openLogEntries, 0)
+
+        // cancel / upstream failure of native forwards
+        sink.batches.removeAll()
+        let c1 = d.requestPhase(head: head("/h/1"), conn: conn)
+        d.cancel(c1.id, why: "")
+        let c2 = d.requestPhase(head: head("/h/2"), conn: conn)
+        d.upstreamFailed(c2.id, why: "dial: refused")
+        d.end(c2.id, sent: 0, error: "")
+        rec.flushNow()
+        XCTAssertEqual(Self.events(sink.batches).map(\.ev), ["forward", "cancel", "forward", "upstream"])
+        XCTAssertEqual(Self.events(sink.batches)[3].why, "dial: refused")
+        XCTAssertEqual(d.openLogEntries, 0)
+
         // a reload (new generation) fetches the new snapshot once; a bad one defers everything to Go
         src.gen = 2
         src.json = "{\"version\":99}"
@@ -296,7 +515,9 @@ final class NativeMitmRewriteTests: XCTestCase {
     func testSessionAnswersRejectWithoutGo() {
         NativeRewriteRuntime.override = true
         let inner = Inner()
-        let d = NativeRewriteDriver(inner: inner, provider: NativeRewriteProvider(source: FakeSource(Self.snapJSON)))
+        let sink = Sink()
+        let rec = Self.recorder(sink)
+        let d = NativeRewriteDriver(inner: inner, provider: NativeRewriteProvider(source: FakeSource(Self.snapJSON)), recorder: rec)
         let client = NativeMitmSessionTests.MemStream()
         let up = NativeMitmSessionTests.Upstream(response: Data())
         let s = NativeMitmSession(conn: MitmAcceptedConnection(stream: client, host: "a.com", port: 443, alpn: "http/1.1", connID: 3),
@@ -312,6 +533,8 @@ final class NativeMitmRewriteTests: XCTestCase {
         XCTAssertTrue(up.opened.isEmpty)
         XCTAssertTrue(inner.calls.isEmpty, "\(inner.calls)")
         XCTAssertEqual(d.liveNativeFlows, 0)
+        rec.flushNow()
+        XCTAssertEqual(Self.events(sink.batches).map(\.ev), ["local"])
     }
 }
 

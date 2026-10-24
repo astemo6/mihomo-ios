@@ -27,3 +27,16 @@ func MitmRewriteSnapshot() string {
 	}
 	return e.RewriteSnapshotJSON()
 }
+
+// MitmRecordNative writes request-log entries for requests the Swift rewrite engine answered itself
+// (bridge/mitm/nativerecord.go): js is a JSON array of events, batched by Swift off the request path. It returns
+// how many events were applied (-1: bad JSON; 0 also when the MitM engine is not running). No flow, no goroutine.
+func MitmRecordNative(js string) int64 {
+	engMu.Lock()
+	e := eng
+	engMu.Unlock()
+	if e == nil {
+		return 0
+	}
+	return int64(e.RecordNative(js))
+}
