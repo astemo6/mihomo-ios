@@ -18,6 +18,8 @@ import (
 	"path/filepath"
 	"runtime"
 	"runtime/debug"
+	"strings"
+	"sync"
 
 	"github.com/astemo6/mihomo-ios/bridge/mitm"
 	pkcs12 "software.sslmate.com/src/go-pkcs12"
@@ -31,6 +33,30 @@ type s2bench struct {
 }
 
 var benchCur *s2bench
+
+// benchLog keeps the bench engine's last log lines (MitmBenchLog), so a failing bench run can say why.
+var benchLog struct {
+	sync.Mutex
+	lines []string
+}
+
+func benchLogf(level, msg string) {
+	benchLog.Lock()
+	benchLog.lines = append(benchLog.lines, level+" "+msg)
+	if n := len(benchLog.lines); n > 40 {
+		benchLog.lines = append([]string(nil), benchLog.lines[n-40:]...)
+	}
+	benchLog.Unlock()
+}
+
+// MitmBenchLog returns (and clears) the bench engine's recent log lines, newline-separated.
+func MitmBenchLog() string {
+	benchLog.Lock()
+	defer benchLog.Unlock()
+	s := strings.Join(benchLog.lines, "\n")
+	benchLog.lines = nil
+	return s
+}
 
 // nativeMitmStatus is the 隧道内存 snapshot's "native" object: whether stage 2 is live, connections handed over /
 // fallen back since start (the tunnel adds its live session count).
@@ -93,7 +119,7 @@ func MitmBenchStart() string {
 		c1, c2 := net.Pipe() // inner.HandleTcp
 		benchRelay(c2, tc)
 		return c1, nil
-	}, func(string, string) {})
+	}, benchLogf)
 	if err := e.Start(); err != nil {
 		return fail(err)
 	}

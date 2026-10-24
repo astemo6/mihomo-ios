@@ -99,6 +99,12 @@ enum NativeMitmRuntime {
     }
 
     static func release() { lock.lock(); live = max(0, live - 1); lock.unlock() }
+
+    /// The last few exchange failures ("<status> <error>", newest last): 隧道内存 diagnostics and the memory bench.
+    private static var errors: [String] = []
+    static func noteError(_ s: String) { lock.lock(); errors.append(s); if errors.count > 16 { errors.removeFirst(errors.count - 16) }; lock.unlock() }
+    static var recentErrors: [String] { lock.lock(); defer { lock.unlock() }; return errors }
+    static func clearErrors() { lock.lock(); errors.removeAll(); lock.unlock() }
     static func nextID() -> Int64 { lock.lock(); defer { lock.unlock() }; ids += 1; return ids }
 
     /// Wire the lanes together. Registers the front with Go only when the switch is on; returns whether it did.
@@ -311,9 +317,9 @@ final class NativeMitmSession {
             return fail(error, status: status)
         }
         readClient { [self] more in
-            if !more && clientBuf.isEmpty { return finish(cancelled: nil) } // clean keep-alive close / half-close
-            if !more { return fail(S2Error.closed, status: 400) }           // truncated head
-            parseRequestHead()
+            if !more && clientEOF && clientBuf.isEmpty { return finish(cancelled: nil) } // clean keep-alive close / half-close
+            if !more && clientEOF { return fail(S2Error.closed, status: 400) }           // truncated head
+            parseRequestHead() // also after a read that delivered nothing without EOF (a non-data TLS record): read on
         }
     }
 
@@ -736,6 +742,7 @@ final class NativeMitmSession {
     /// Error after the handover: 502/504/400 if nothing of this response went out, else cut.
     private func fail(_ error: Error, status: Int?) {
         guard !finished else { return }
+        NativeMitmRuntime.noteError("\(status.map(String.init) ?? "cut") \(conn.host): \(error)")
         if let status, !responseStarted {
             let body = Data("Tern native MitM: \(error)\n".utf8)
             let reason = Self.reason(status)

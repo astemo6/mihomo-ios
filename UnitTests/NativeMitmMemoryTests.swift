@@ -18,6 +18,8 @@ final class NativeMitmMemoryTests: XCTestCase {
         var mode: String
         var ok = 0
         var failures: [String] = []
+        var nativeErrors: [String] = []
+        var goLog: [String] = []
         var fpBefore: UInt64 = 0, fpAfter: UInt64 = 0
         var goBefore: GoMem?, goAfter: GoMem?
     }
@@ -43,6 +45,8 @@ final class NativeMitmMemoryTests: XCTestCase {
             print(line)
             NSLog("%@", line)
             if !r.failures.isEmpty { print("[s2-memory] run \(i + 1) failures: \(r.failures.prefix(3).joined(separator: " | "))") }
+            if !r.nativeErrors.isEmpty { print("[s2-memory] run \(i + 1) native errors: \(r.nativeErrors.suffix(4).joined(separator: " | "))") }
+            if !r.goLog.isEmpty { print("[s2-memory] run \(i + 1) engine log: \(r.goLog.suffix(6).joined(separator: " | "))") }
         }
         func median(_ m: String, _ f: (Run) -> Int64?) -> Double {
             let v = runs.filter { $0.mode == m }.compactMap(f).map { Double($0) / 1_048_576 }.sorted()
@@ -97,9 +101,11 @@ final class NativeMitmMemoryTests: XCTestCase {
                 UpstreamConnection.trustAnyOriginForTesting = false
             }
         }
+        NativeMitmRuntime.clearErrors()
+        _ = NativeMitmBench.goLog()
         // warm-up: listener, leaf, relay, pools
         let warm = BenchClient(enginePort: port)
-        XCTAssertTrue(warm.run(timeout: 15), "\(mode) warm-up request failed: \(warm.failure ?? "timeout")")
+        XCTAssertTrue(warm.run(timeout: 15), "\(mode) warm-up request failed: \(warm.failure ?? "timeout"); native: \(NativeMitmRuntime.recentErrors.last ?? "-"); engine: \(NativeMitmBench.goLog().split(separator: "\n").suffix(3).joined(separator: " | "))")
         warm.cancel()
         Thread.sleep(forTimeInterval: 0.5)
         run.goBefore = goMem()
@@ -122,6 +128,8 @@ final class NativeMitmMemoryTests: XCTestCase {
         if group.wait(timeout: .now() + 60) == .timedOut { lock.lock(); failures.append("burst timed out after 60 s"); lock.unlock() }
         Thread.sleep(forTimeInterval: 1.0) // idle keep-alive
         lock.lock(); run.ok = ok; run.failures = failures; lock.unlock()
+        run.nativeErrors = NativeMitmRuntime.recentErrors
+        run.goLog = NativeMitmBench.goLog().split(separator: "\n").map(String.init).filter { !$0.hasPrefix("info ") }
         run.fpAfter = ProcessMemory.footprintBytes()
         run.goAfter = goMem()
         for c in clients { c.cancel() }
@@ -187,7 +195,11 @@ final class BenchClient {
                 self.finish(s.hasPrefix("HTTP/1.1 200"), s.hasPrefix("HTTP/1.1 200") ? nil : String(s.prefix(200)))
                 return
             }
-            if eof || err != nil { self.finish(false, "eof/err \(String(describing: err)) after \(self.buf.count) bytes"); return }
+            if eof || err != nil {
+                let got = String(decoding: self.buf.prefix(240), as: UTF8.self).replacingOccurrences(of: "\r\n", with: "⏎")
+                self.finish(false, "eof/err \(String(describing: err)) after \(self.buf.count) bytes: \(got)")
+                return
+            }
             self.receive()
         }
     }

@@ -236,5 +236,7 @@ enum NativeMitmBench {
     /// JSON {heapInuse, sys, stack, goroutines, handed, fellBack} after a GC.
     static func goMemory() -> String { LibmihomoMitmBenchMem() }
     static func stop() { LibmihomoMitmBenchStop() }
+    /// The bench engine's recent log lines (cleared by reading).
+    static func goLog() -> String { LibmihomoMitmBenchLog() }
     static func relayPort() -> Int { Int(LibmihomoMitmRelayPort()) }
 }

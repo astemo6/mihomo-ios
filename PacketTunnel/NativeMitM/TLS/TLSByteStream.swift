@@ -17,6 +17,8 @@ final class TLSByteStream: ByteStream {
 
     private let lock = NSLock()
     private var closed = false
+    /// closeWrite() queued a FIN that has not been processed yet: close() then lets it go out first.
+    private var finPending = false
 
     init(connection: NWConnection, host: String, sni: String?, alpn: String?) {
         self.connection = connection
@@ -37,15 +39,33 @@ final class TLSByteStream: ByteStream {
 
     /// Half-close: sends close_notify / FIN after queued data, keeps reading.
     func closeWrite() {
-        connection.send(content: nil, contentContext: .finalMessage, isComplete: true, completion: .idempotent)
+        lock.lock()
+        if closed || finPending { lock.unlock(); return }
+        finPending = true
+        lock.unlock()
+        connection.send(content: nil, contentContext: .finalMessage, isComplete: true, completion: .contentProcessed { [weak self] _ in
+            guard let self else { return }
+            self.lock.lock(); self.finPending = false; let cancel = self.closed; self.lock.unlock()
+            if cancel { self.connection.cancel() }
+        })
     }
 
     func close() {
         lock.lock()
         let first = !closed
         closed = true
+        let pending = finPending
         lock.unlock()
-        if first { connection.cancel() }
+        guard first else { return }
+        // A queued FIN (the session's closeWrite() right before close()) carries the last bytes and close_notify:
+        // cancelling now dropped them (2026-10-24 bench: clients got a 502 head without its body, then a reset).
+        // The FIN's completion cancels; the backstop covers a peer that never reads.
+        if pending {
+            let c = connection
+            DispatchQueue.global().asyncAfter(deadline: .now() + 2) { c.cancel() }
+        } else {
+            connection.cancel()
+        }
     }
 
     /// SNI + ALPN of a ready TLS connection.
