@@ -361,3 +361,35 @@ final class NativeCoreVLESSTests: XCTestCase {
         XCTAssertNil(NCVLESS.requestHead(uuid: "not-a-uuid", target: NCTarget(host: "a.com", port: 80)))
     }
 }
+
+// MARK: - Crypto primitives (MD5 / AES / CRC32 / FNV)
+
+final class NativeCoreCryptoTests: XCTestCase {
+    private func hex(_ d: Data) -> String { d.map { String(format: "%02x", $0) }.joined() }
+
+    func testMD5RFC1321() {
+        XCTAssertEqual(hex(NCMD5.hash(Data())), "d41d8cd98f00b204e9800998ecf8427e")
+        XCTAssertEqual(hex(NCMD5.hash(Data("abc".utf8))), "900150983cd24fb0d6963f7d28e17f72")
+        XCTAssertEqual(hex(NCMD5.hash(Data("message digest".utf8))), "f96b697d7cb7938d525a2f31aaf161d0")
+        XCTAssertEqual(hex(NCMD5.hash(Data("abcdefghijklmnopqrstuvwxyz".utf8))), "c3fcd3d76192e4007dfb496cca67e13b")
+        XCTAssertEqual(hex(NCMD5.hash(Data(String(repeating: "1234567890", count: 8).utf8))), "57edf4a22be3c955ac49da2e2107b67a")
+    }
+
+    func testAESFIPS197() {
+        let pt = Data((0..<16).map { UInt8($0) })
+        let k128 = Data((0..<16).map { UInt8($0) })
+        let k256 = Data((0..<32).map { UInt8($0) })
+        let aes128 = NCAES(key: k128)!
+        XCTAssertEqual(hex(aes128.encryptBlock(pt)), "0a940bb5416ef045f1c39458c653ea5a")
+        XCTAssertEqual(aes128.decryptBlock(aes128.encryptBlock(pt)), pt)
+        let aes256 = NCAES(key: k256)!
+        XCTAssertEqual(hex(aes256.encryptBlock(pt)), "5a6e045708fb7196f02e553d02c3a692")
+        XCTAssertEqual(aes256.decryptBlock(aes256.encryptBlock(pt)), pt)
+    }
+
+    func testCRC32AndFNV() {
+        XCTAssertEqual(NCCRC32.checksum(Data("123456789".utf8)), 0xcbf43926)
+        XCTAssertEqual(NCFNV1a.hash32(Data()), 0x811c9dc5)
+        XCTAssertEqual(NCFNV1a.hash32(Data("a".utf8)), 0xe40c292c)
+    }
+}
