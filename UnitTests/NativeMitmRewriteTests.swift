@@ -172,36 +172,185 @@ final class NativeMitmRewriteTests: XCTestCase {
         XCTAssertGreaterThan(native, goNative / 2, "native engine decided only \(native) of \(goNative) Go-native cases")
     }
 
-    // MARK: replacement templates (regexp2 non-ECMAScript rules)
+    // MARK: regexp2 → ICU translation (lane s3-full)
 
-    private func rx(_ p: String, groups: Int) -> RWRegex {
-        RWRegex(RWSnapRegex(p: p, ok: true, lit: nil, fold: nil, groups: groups, named: nil, empty: false))
+    struct RxIn: Decodable { var s: String; var m: Bool; var f: String?; var a: String? }
+    struct RxCase: Decodable { var re: RWSnapRegex; var re2: Bool?; var repl: Bool?; var t: String?; var tp: RWSnapTemplate?; var `in`: [RxIn] }
+    struct RxTarget: Decodable { var t: String; var err: Bool?; var host: String?; var path: String?; var query: String?; var force: Bool? }
+    struct RxHost: Decodable { var hp: String; var err: Bool?; var host: String?; var port: String? }
+    struct RxNet: Decodable {
+        var targets: [RxTarget]
+        var queries: [[String]]
+        var hosts: [RxHost]
+        var status: [String: String]
+        var sniff: [[String]]
+    }
+    struct RxFixtures: Decodable { var version: Int; var cases: [RxCase]; var pathEsc: [Int]; var queryEsc: [Int]; var net: RxNet }
+
+    private func regexFixtures() throws -> RxFixtures? {
+        let bundle = Bundle(for: NativeMitmRewriteTests.self)
+        guard let url = bundle.url(forResource: "NativeMitmRegexFixtures", withExtension: "json") else {
+            XCTFail("NativeMitmRegexFixtures.json missing from the test bundle")
+            return nil
+        }
+        return try JSONDecoder().decode(RxFixtures.self, from: Data(contentsOf: url))
     }
 
-    func testTemplateExpansion() {
-        let r = rx("^https://a\\.com/(\\w+)/(\\d+)", groups: 2)
-        let u = "https://a.com/abc/123?q"
-        XCTAssertEqual(r.replaceFirst(u, template: "https://b.com/$2/$1"), "https://b.com/123/abc?q")
-        XCTAssertEqual(r.replaceFirst(u, template: "$$1-$&"), "$1-https://a.com/abc/123?q")
-        XCTAssertEqual(r.replaceFirst(u, template: "x$3y"), "x$3y?q")          // no group 3: literal
-        XCTAssertEqual(r.replaceFirst(u, template: "${2}0"), "1230?q")
-        XCTAssertEqual(r.replaceFirst(u, template: "$20"), "$20?q")            // greedy digits, no group 20
-        XCTAssertEqual(r.replaceFirst(u, template: "${-}/$"), "${-}/$?q")       // ${ + non-word char: literal; trailing $ literal
-        XCTAssertNil(r.replaceFirst(u, template: "${x}"))                     // ${name}: left to Go
-        XCTAssertNil(r.replaceFirst(u, template: "$`"))
-        XCTAssertNil(r.replaceFirst(u, template: "${name}"))
-        let all = rx("(\\w+)/(\\d+)", groups: 2)
-        XCTAssertEqual(all.replaceAll("Mozilla/5 Tern/12", template: "$2-$1"), "5-Mozilla 12-Tern")
-        XCTAssertNil(RWRegex(RWSnapRegex(p: "x*", ok: true, lit: nil, fold: nil, groups: 0, named: nil, empty: true)).replaceAll("abc", template: "y"))
+    /// Go's ICU translations (bridge/mitm/rewriteicu.go) of 1500 generated regexp2 patterns and every CI-suite
+    /// rule pattern, replayed on NSRegularExpression: match / first replacement / replace-all must equal what
+    /// regexp2 (or RE2, where Go matches URLs with it) produced. A pattern ICU refuses (an unbounded look-behind)
+    /// is fine — the engine then hands the request to Go.
+    func testRegexTranslationMatchesRegexp2() throws {
+        guard let fx = try regexFixtures() else { return }
+        var ok = 0, refused = 0, bad = 0, checks = 0
+        for c in fx.cases {
+            let r = RWRegex(c.re)
+            guard r.compiles else { refused += 1; continue }
+            var caseBad = false
+            for i in c.in {
+                checks += 1
+                let m = r.match(i.s)
+                if m == .unknown || (m == .yes) != i.m {
+                    caseBad = true
+                    if bad < 20 { XCTFail("match \(c.re.p) → \(c.re.icu ?? "") on \(i.s.debugDescription): regexp2 \(i.m), ICU \(m)") }
+                }
+                if c.repl == true, let tp = c.tp {
+                    let f = r.replaceFirst(i.s, tp), a = r.replaceAll(i.s, tp)
+                    if f != i.f || a != i.a {
+                        caseBad = true
+                        if bad < 20 { XCTFail("replace \(c.re.p) / \(c.t ?? "") on \(i.s.debugDescription): regexp2 \(i.f.debugDescription) \(i.a.debugDescription), ICU \(f.debugDescription) \(a.debugDescription)") }
+                    }
+                }
+            }
+            if caseBad { bad += 1 } else { ok += 1 }
+        }
+        print("NativeMitmRegex translation: \(fx.cases.count) patterns, \(checks) inputs; identical \(ok), ICU refused \(refused), different \(bad)")
+        XCTAssertEqual(bad, 0)
+        XCTAssertGreaterThan(ok, fx.cases.count * 9 / 10)
+    }
+
+    /// net/url, net, net/http pieces (GoNetSemantics.swift) against Go's own answers.
+    func testGoNetSemantics() throws {
+        guard let fx = try regexFixtures() else { return }
+        XCTAssertEqual(GoURL.pathEsc.map { Int($0) }, fx.pathEsc.map { Int(UInt32(truncatingIfNeeded: $0)) })
+        XCTAssertEqual(GoURL.queryEsc.map { Int($0) }, fx.queryEsc.map { Int(UInt32(truncatingIfNeeded: $0)) })
+        for t in fx.net.targets {
+            let got = GoURL.parseRequestURI(t.t)
+            if t.err == true {
+                XCTAssertNil(got, "target \(t.t.debugDescription): Go errors")
+                continue
+            }
+            guard let g = got else { continue } // refused: Go decides (allowed)
+            XCTAssertEqual(g.path, t.path ?? "", t.t)
+            XCTAssertEqual(g.query, t.query ?? "", t.t)
+            XCTAssertEqual(g.forceQuery, t.force ?? false, t.t)
+            XCTAssertEqual(g.host ?? "", t.host ?? "", t.t)
+        }
+        for q in fx.net.queries { XCTAssertEqual(GoURL.cleanQuery(q[0]), q[1], q[0]) }
+        for h in fx.net.hosts {
+            let got = GoURL.splitHostPort(h.hp)
+            if h.err == true { XCTAssertNil(got, h.hp); continue }
+            XCTAssertEqual(got?.0, h.host ?? "", h.hp)
+            XCTAssertEqual(got?.1, h.port ?? "", h.hp)
+        }
+        for code in 0..<1000 { XCTAssertEqual(GoStatus.text[code], fx.net.status[String(code)], "status \(code)") }
+        for s in fx.net.sniff {
+            let d = Data(base64Encoded: s[0]) ?? Data()
+            XCTAssertEqual(GoSniff.detect(d), s[1], s[0])
+        }
+    }
+
+    private func rx(_ p: String, icu: String, groups: Int, slots: [Int]? = nil) -> RWRegex {
+        RWRegex(RWSnapRegex(p: p, ok: true, icu: icu, slots: slots, lit: nil, fold: nil, groups: groups, named: nil, empty: false))
+    }
+
+    func testTemplateProgram() {
+        // (a)(?<n>b)(c): regexp2 numbers the named group last — slots [0,1,3,2] map slot → ICU group
+        let r = rx("(a)(?<n>b)(c)", icu: "(a)(b)(c)", groups: 3, slots: [0, 1, 3, 2])
+        // "[$1|$2|${n}|$+|$`|$'|$$]": literals, slot 1, slot 2 (= ICU 3), slot 3 (= ICU 2), last group, before, after
+        let tp = RWSnapTemplate(s: ["[", "|", "|", "|", "|", "|", "|$]"], r: [0, -6, 1, -7, 2, -8, 3, -2, 4, -4, 5, -3, 6])
+        XCTAssertEqual(r.replaceFirst("xabcy", tp), "x[a|c|b|b|x|y|$]y")
+        XCTAssertEqual(r.replaceAll("abcabc", RWSnapTemplate(s: ["-"], r: [0])), "--")
+        XCTAssertNil(r.replaceFirst("é abc", tp), "non-ASCII input: Go decides")
+        // empty matches are walked like regexp2 does
+        let e = rx("x*", icu: "x*", groups: 0)
+        XCTAssertEqual(e.replaceAll("axb", RWSnapTemplate(s: ["-"], r: [0])), "-a--b-")
     }
 
     func testLiteralPrefilterSkipsRegex() {
-        // not portable, but the literal proves it cannot match: decided without Go
-        let r = RWRegex(RWSnapRegex(p: "^https://a\\.com/\\p{L}+", ok: false, lit: "https://a.com/", fold: nil, groups: 0, named: nil, empty: false))
+        // not translatable, but the literal proves it cannot match: decided without Go
+        let r = RWRegex(RWSnapRegex(p: "^https://a\\.com/(?(x)y)", ok: false, lit: "https://a.com/", fold: nil, groups: 0, named: nil, empty: false))
         if case .no = r.match("https://b.com/x") {} else { XCTFail("literal should rule it out") }
-        if case .unknown = r.match("https://a.com/x") {} else { XCTFail("non-portable pattern must be unknown") }
-        let f = RWRegex(RWSnapRegex(p: "(?i)^https://A\\.com/X", ok: true, lit: "https://a.com/x", fold: true, groups: 0, named: nil, empty: false))
-        if case .yes = f.match("https://A.COM/x") {} else { XCTFail("fold literal") }
+        if case .unknown = r.match("https://a.com/x") {} else { XCTFail("untranslatable pattern must be unknown") }
+        let f = rx("(?i)^https://A\\.com/X", icu: "\\Ahttps\\x3a\\x2f\\x2f[Aa]\\x2e[Cc][Oo][Mm]\\x2f[Xx]", groups: 0)
+        if case .yes = f.match("https://A.COM/x") {} else { XCTFail("explicit case sets") }
+    }
+
+    /// Map Local from a file: read where Go reads it, Content-Type from the extension or sniffed, a missing local
+    /// file serves an empty body (Go's read error), a missing / stale remote one goes to Go, a large one is served
+    /// whole with Content-Length and no captured body.
+    func testMapLocalFile() throws {
+        let dir = FileManager.default.temporaryDirectory.appendingPathComponent("rwfile-\(UUID().uuidString)")
+        try FileManager.default.createDirectory(at: dir, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: dir) }
+        let small = dir.appendingPathComponent("a.json"), sniff = dir.appendingPathComponent("blob"), big = dir.appendingPathComponent("big.bin")
+        try Data("{\"a\":1}".utf8).write(to: small)
+        try Data("<html>x".utf8).write(to: sniff)
+        try Data(repeating: 0x41, count: 600 << 10).write(to: big)
+        func snap(_ rules: String) -> NativeRewriteEngine {
+            NativeRewriteEngine(json: #"{"version":1,"gen":3,"on":true,"capture":true,"inc":[],"exc":[],"rules":["# + rules + "]}")!
+        }
+        func rule(_ i: Int, _ name: String, file: String) -> String {
+            #"{"i":\#(i),"kind":"maplocal","phase":"request","re":{"p":"^https://f\\.com/\#(name)$","ok":true,"icu":"\\Ahttps\\x3a\\x2f\\x2ff\\x2ecom\\x2f\#(name)(?=\\x0a?\\z)","groups":0},"local":{"status":200,"headers":[],"body":null,"file":\#(file)}}"#
+        }
+        let e = snap([
+            rule(0, "s", file: #"{"path":"\#(small.path)","ctype":"application/json","large":524288}"#),
+            rule(1, "n", file: #"{"path":"\#(sniff.path)","large":524288}"#),
+            rule(2, "m", file: #"{"path":"\#(dir.path)/missing.txt","ctype":"text/plain; charset=utf-8","large":524288}"#),
+            rule(3, "r", file: #"{"path":"\#(dir.path)/missing-remote","remote":true,"maxAge":86400,"large":524288}"#),
+            rule(4, "b", file: #"{"path":"\#(big.path)","large":524288}"#),
+        ].joined(separator: ","))
+        func q(_ t: String) -> RewriteRequest {
+            RewriteRequest(method: "GET", target: t, host: "f.com", headers: [], length: 0, connHost: "f.com", connPort: 443)
+        }
+        guard case .local(let s) = e.decide(q("/s")) else { return XCTFail("small file") }
+        XCTAssertEqual(s.headers, [["Content-Type", "application/json"]])
+        XCTAssertEqual(s.body, Data("{\"a\":1}".utf8))
+        XCTAssertEqual(s.length, 7)
+        guard case .local(let n) = e.decide(q("/n")) else { return XCTFail("sniffed file") }
+        XCTAssertEqual(n.headers, [["Content-Type", "text/html; charset=utf-8"]])
+        guard case .local(let m) = e.decide(q("/m")) else { return XCTFail("missing local file") }
+        XCTAssertEqual(m.status, 200)
+        XCTAssertEqual(m.length, 0)
+        XCTAssertEqual(m.bodyMode, .none)
+        if case .go = e.decide(q("/r")) {} else { XCTFail("missing remote file: Go downloads it") }
+        guard case .local(let b) = e.decide(q("/b")) else { return XCTFail("large file") }
+        XCTAssertEqual(b.length, Int64(600 << 10))
+        XCTAssertEqual(b.body.count, 600 << 10)
+        XCTAssertEqual(b.headers, [["Content-Type", "text/plain; charset=utf-8"]])
+        XCTAssertEqual(b.logLen, Int64(600 << 10))
+        XCTAssertTrue(b.logNoCapture)
+        XCTAssertEqual(b.log.headers, [["Content-Length", "614400"], ["Content-Type", "text/plain; charset=utf-8"]])
+    }
+
+    /// A response replace-regex on a value Swift does not run regexes on (non-ASCII) goes to Go's header-op
+    /// helper; without it the native response fails (the session then answers an error).
+    func testResponseRegexFallsBackToGo() {
+        let json = #"{"version":1,"gen":5,"on":true,"capture":false,"inc":[],"exc":[],"rules":[{"i":0,"kind":"header","phase":"response","re":{"p":"^https://f\\.com/","ok":true,"icu":"\\Ahttps\\x3a\\x2f\\x2ff\\x2ecom\\x2f","groups":0},"opsOK":true,"headers":[{"op":"replace-regex","name":"X-A","value":"y","re":{"p":"x","ok":true,"icu":"x","groups":0},"tp":{"s":["y"],"r":[0]}}]}]}"#
+        let e = NativeRewriteEngine(json: json)!
+        guard case .forward(let f) = e.decide(RewriteRequest(method: "GET", target: "/", host: "f.com", headers: [], length: 0, connHost: "f.com", connPort: 443)) else {
+            return XCTFail("forward")
+        }
+        let ascii = e.respond(f.response, status: 200, headers: [["X-A", "axa"], ["Content-Length", "0"]], length: 0, method: "GET")
+        XCTAssertEqual(ascii?.headers, [["X-A", "aya"]])
+        XCTAssertNil(e.respond(f.response, status: 200, headers: [["X-A", "éx"]], length: 0, method: "GET"))
+        var asked: (Int64, [Int], Int, [[String]])?
+        e.headerOpsFallback = { gen, rules, status, headers in asked = (gen, rules, status, headers); return [["X-A", "éy"]] }
+        let viaGo = e.respond(f.response, status: 200, headers: [["X-A", "éx"]], length: 0, method: "GET")
+        XCTAssertEqual(viaGo?.headers, [["X-A", "éy"]])
+        XCTAssertEqual(asked?.0, 5)
+        XCTAssertEqual(asked?.1, [0])
+        XCTAssertEqual(asked?.3, [["X-A", "éx"]])
     }
 
     func testHeaderCanonicalAndHop() {

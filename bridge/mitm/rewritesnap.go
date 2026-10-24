@@ -25,9 +25,13 @@ import (
 	"encoding/base64"
 	"encoding/json"
 	"net/http"
+	"path"
+	"strconv"
 	"strings"
 	"sync"
 	"sync/atomic"
+
+	"github.com/dlclark/regexp2"
 )
 
 // RewriteSnapshotVersion is the snapshot schema; Swift ignores a snapshot whose version it does not know.
@@ -38,21 +42,27 @@ const snapLocalMax = 64 << 10
 
 // SnapRegex is one compiled pattern.
 type SnapRegex struct {
-	P      string `json:"p"`              // the pattern as regexp2 compiled it
-	OK     bool   `json:"ok"`             // ICU matches it like Go on printable-ASCII input
-	Lit    string `json:"lit,omitempty"`  // every match contains this literal ("" none known)
-	Fold   bool   `json:"fold,omitempty"` // Lit is compared ASCII case-insensitively
-	Groups int    `json:"groups"`         // numbered capture groups
+	P      string `json:"p"`               // the pattern as regexp2 compiled it
+	OK     bool   `json:"ok"`              // Swift can match it: ICU (the icu pattern) reads it like Go on ASCII input
+	ICU    string `json:"icu,omitempty"`   // the explicit ICU translation (rewriteicu.go); Swift compiles this, not p
+	Slots  []int  `json:"slots,omitempty"` // regexp2 capture slot → ICU group index (identity when absent)
+	Lit    string `json:"lit,omitempty"`   // every match contains this literal ("" none known)
+	Fold   bool   `json:"fold,omitempty"`  // Lit is compared ASCII case-insensitively
+	Groups int    `json:"groups"`          // numbered capture groups
 	Named  bool   `json:"named,omitempty"`
 	Empty  bool   `json:"empty,omitempty"` // can match the empty string (Go: RE2 says so, or unknown)
 }
 
 // SnapHeaderOp is one header operation (handler.go applyHeaderOps).
 type SnapHeaderOp struct {
-	Op    string     `json:"op"` // add / del / replace / replace-regex (raw is never ok)
+	Op    string     `json:"op"` // add / del / replace / replace-regex / raw (QX header-block regex)
 	Name  string     `json:"name,omitempty"`
 	Value string     `json:"value,omitempty"`
 	Re    *SnapRegex `json:"re,omitempty"`
+	// TP: Value parsed as regexp2 parses a replacement (raw: after \r \n unescaping); TPErr: regexp2 rejects it
+	// (Go then leaves the header unchanged).
+	TP    *SnapTemplate `json:"tp,omitempty"`
+	TPErr bool          `json:"tperr,omitempty"`
 }
 
 // SnapLocal is a Map Local answer Go computed (handler.go mapLocalData): status and the header map
@@ -61,6 +71,18 @@ type SnapLocal struct {
 	Status  int         `json:"status"`
 	Headers [][2]string `json:"headers"`
 	Body    []byte      `json:"body"`
+	File    *SnapFile   `json:"file,omitempty"` // served from a file (Headers: the rule's own, no Content-Type default)
+}
+
+// SnapFile is a Map Local answer read from disk at request time (handler.go serveLargeMapLocal / mapLocalData):
+// Path is where Go reads it (local: Resources.LocalPath; remote: CachePath). Remote: missing or older than
+// MaxAge seconds → Go (it downloads / refreshes). CType "" → http.DetectContentType of the first 512 bytes.
+type SnapFile struct {
+	Path   string `json:"path"`
+	Remote bool   `json:"remote,omitempty"`
+	CType  string `json:"ctype,omitempty"`
+	MaxAge int    `json:"maxAge,omitempty"`
+	Large  int    `json:"large"` // files of at least this size are streamed (memCacheMax): no captured body
 }
 
 // SnapScript names a script rule (always handed to Go: the JSC host runs it there).
@@ -76,11 +98,14 @@ type SnapRule struct {
 	Kind  string     `json:"kind"`
 	Phase string     `json:"phase"`
 	Re    *SnapRegex `json:"re,omitempty"` // nil: the rule never matches (no pattern)
-	// HGate: a QX url-and-header condition (needs Go when the URL matches).
+	// HGate: a QX url-and-header condition; HRe its pattern (matched against the request line + headers).
 	HGate    bool           `json:"hgate,omitempty"`
+	HRe      *SnapRegex     `json:"hre,omitempty"`
 	Action   string         `json:"action,omitempty"`
 	Target   string         `json:"target,omitempty"`
 	TargetOK bool           `json:"targetOK,omitempty"` // Target is a replacement Swift expands like regexp2
+	TP       *SnapTemplate  `json:"tp,omitempty"`       // Target as regexp2 parses it
+	TPErr    bool           `json:"tperr,omitempty"`    // regexp2 rejects Target (302/307 → Location: Target; header → no change)
 	Headers  []SnapHeaderOp `json:"headers,omitempty"`
 	OpsOK    bool           `json:"opsOK,omitempty"` // every header op can be applied natively
 	Local    *SnapLocal     `json:"local,omitempty"` // map local: inline answer (nil: Go serves it)
@@ -132,7 +157,7 @@ func (e *Engine) rewriteSnap() *snapCache {
 		return c
 	}
 	gen := snapGen.Add(1)
-	s := buildRewriteSnapshot(st)
+	s := buildRewriteSnapshot(st, e)
 	s.Gen = gen
 	js, _ := json.Marshal(s)
 	nc := &snapCache{st: st, gen: gen, js: js}
@@ -184,7 +209,7 @@ func (e *Engine) snapState(gen int64) *state {
 	return nil
 }
 
-func buildRewriteSnapshot(st *state) *RewriteSnapshot {
+func buildRewriteSnapshot(st *state, e *Engine) *RewriteSnapshot {
 	s := &RewriteSnapshot{Version: RewriteSnapshotVersion, Inc: []SnapHost{}, Exc: []SnapHost{}, Rules: []SnapRule{}}
 	if st == nil {
 		return s
@@ -205,7 +230,7 @@ func buildRewriteSnapshot(st *state) *RewriteSnapshot {
 		return s
 	}
 	for i, r := range st.rs.Rules {
-		sr := snapRule(i, r)
+		sr := snapRule(i, r, e)
 		s.Total++
 		if snapRulePortable(sr) {
 			s.Portable++
@@ -227,18 +252,26 @@ func snapRulePortable(sr SnapRule) bool {
 	case KindMapLocal:
 		return sr.Local != nil
 	}
+	if sr.HGate && (sr.HRe == nil || !sr.HRe.OK) {
+		return false
+	}
 	return true // body / jq / json / script: Swift knows when they match (and hands those requests to Go)
 }
 
-func snapRule(i int, r *Rule) SnapRule {
+func snapRule(i int, r *Rule, e *Engine) SnapRule {
 	sr := SnapRule{I: i, Kind: r.Kind, Phase: r.Phase, Action: r.Action, Target: r.Target, HGate: r.hre != nil}
+	redirect := r.Kind == KindURL && (r.Action == "302" || r.Action == "307" || r.Action == "header")
 	if r.re != nil {
-		sr.Re = snapRegex(r.re.String())
+		sr.Re = snapRegexOf(r.re, r.fre != nil, redirect)
+	}
+	if r.hre != nil {
+		sr.HRe = snapRegexOf(r.hre, false, false)
 	}
 	switch r.Kind {
 	case KindURL:
-		if sr.Re != nil && (r.Action == "302" || r.Action == "307" || r.Action == "header") {
-			sr.TargetOK = sr.Re.OK && portableRepl(r.Target, sr.Re)
+		if sr.Re != nil && redirect {
+			sr.TP, sr.TPErr = snapTemplate(r.re, r.Target)
+			sr.TargetOK = sr.Re.OK && (sr.TP != nil || sr.TPErr)
 		}
 	case KindHeader:
 		sr.OpsOK = true
@@ -246,22 +279,29 @@ func snapRule(i int, r *Rule) SnapRule {
 			so := SnapHeaderOp{Op: op.Op, Name: op.Name, Value: op.Value}
 			switch op.Op {
 			case "add", "del", "replace":
-			case "replace-regex":
+			case "replace-regex", "raw":
 				if op.re == nil {
-					sr.OpsOK = false
+					if op.Op == "replace-regex" {
+						break // Go skips it
+					}
 					break
 				}
-				so.Re = snapRegex(op.re.String())
-				if !so.Re.OK || so.Re.Empty || !portableRepl(op.Value, so.Re) {
+				so.Re = snapRegexOf(op.re, false, true)
+				v := op.Value
+				if op.Op == "raw" {
+					v = unescapeCRLF(v)
+				}
+				so.TP, so.TPErr = snapTemplate(op.re, v)
+				if !so.Re.OK || so.TP == nil && !so.TPErr {
 					sr.OpsOK = false
 				}
-			default: // raw (QX header regex: Go walks a map, order not fixed) and anything new
+			default: // anything new
 				sr.OpsOK = false
 			}
 			sr.Headers = append(sr.Headers, so)
 		}
 	case KindMapLocal:
-		sr.Local = snapMapLocal(r)
+		sr.Local = snapMapLocal(r, e)
 	case KindScript:
 		if r.Script != nil {
 			sr.Script = &SnapScript{Name: r.Script.Name, Type: r.Script.Type, RequiresBody: r.Script.RequiresBody}
@@ -270,10 +310,30 @@ func snapRule(i int, r *Rule) SnapRule {
 	return sr
 }
 
+// snapTemplate parses a replacement as regexp2.Replace does (tperr: Replace returns an error for it).
+func snapTemplate(re *regexp2.Regexp, repl string) (*SnapTemplate, bool) {
+	if re == nil {
+		return nil, false
+	}
+	tp, ok := rx2Template(re, repl)
+	if ok {
+		return tp, false
+	}
+	if strings.Contains(repl, "$_") {
+		return nil, false // not reproduced (rx2Template)
+	}
+	// confirm the error is regexp2's own (not our reflection failing)
+	if _, err := re.Replace("", repl, -1, -1); err != nil {
+		return nil, true
+	}
+	return nil, false
+}
+
 // snapMapLocal computes the inline Map Local answer as requestPhase would start writeLocal (nil: Go).
-func snapMapLocal(r *Rule) *SnapLocal {
+func snapMapLocal(r *Rule, e *Engine) *SnapLocal {
 	var body []byte
 	var ctype string
+	var file *SnapFile
 	switch r.DataType {
 	case "tiny-gif":
 		body, ctype = tinyGIF, "image/gif"
@@ -287,8 +347,15 @@ func snapMapLocal(r *Rule) *SnapLocal {
 		body, ctype = []byte(r.Data), guessTextType(r.Data)
 	case "json":
 		body, ctype = []byte(r.Data), "application/json"
-	default: // file / URL: the resource cache, large-file streaming — Go
-		return nil
+	default: // file / URL: read at request time (snapFile), or Go
+		if r.Data == "" {
+			ctype = "text/plain" // mapLocalData: no data → empty text/plain
+			break
+		}
+		file = snapFile(r, e)
+		if file == nil {
+			return nil
+		}
 	}
 	if len(body) > snapLocalMax {
 		return nil
@@ -303,7 +370,7 @@ func snapMapLocal(r *Rule) *SnapLocal {
 		seen[ck] = true
 		h.Set(k, v)
 	}
-	if h.Get("Content-Type") == "" && ctype != "" {
+	if file == nil && h.Get("Content-Type") == "" && ctype != "" {
 		h.Set("Content-Type", ctype)
 	}
 	st := r.Status
@@ -313,18 +380,88 @@ func snapMapLocal(r *Rule) *SnapLocal {
 	if st < 100 || st > 999 {
 		return nil
 	}
-	return &SnapLocal{Status: st, Headers: flowHeaderPairs(h), Body: body}
+	return &SnapLocal{Status: st, Headers: flowHeaderPairs(h), Body: body, File: file}
 }
 
-func snapRegex(p string) *SnapRegex {
-	ok, named, groups := portableRegex(p)
+// snapFile: where requestPhase reads a Map Local file / URL (nil: Go only — no engine home, a scheme other
+// than http(s) / a local path).
+func snapFile(r *Rule, e *Engine) *SnapFile {
+	if e == nil || e.res == nil || r.DataType != "" && r.DataType != "file" {
+		return nil
+	}
+	f := &SnapFile{Large: memCacheMax}
+	if isRemote(r.Data) {
+		f.Path, f.Remote, f.MaxAge = CachePath(e.home, r.Data), true, 86400
+	} else {
+		f.Path = e.res.LocalPath(r.Data)
+	}
+	// guessType's extension table (the content sniff runs in Swift when it has no answer)
+	if t := guessType(r.Data, nil); t != http.DetectContentType(nil) || snapExtKnown(r.Data) {
+		f.CType = t
+	}
+	return f
+}
+
+// snapExtKnown: guessType answers from the extension (its table) rather than by sniffing.
+func snapExtKnown(p string) bool {
+	if i := strings.IndexAny(p, "?#"); i >= 0 {
+		p = p[:i]
+	}
+	switch strings.ToLower(path.Ext(p)) {
+	case ".json", ".html", ".htm", ".js", ".gif", ".png", ".jpg", ".jpeg", ".txt":
+		return true
+	}
+	return false
+}
+
+// snapRegexOf describes a compiled rule pattern: re2 = Go matches it with RE2 (compileURLRe), replace = its
+// captures / match positions are used (redirect / rewrite / replace-regex / raw).
+func snapRegexOf(re *regexp2.Regexp, re2, replace bool) *SnapRegex {
+	p := re.String()
 	lit, fold := requiredLiteral(p)
-	sr := &SnapRegex{P: p, OK: ok, Lit: lit, Fold: fold, Groups: groups, Named: named}
+	sr := &SnapRegex{P: p, Lit: lit, Fold: fold}
+	t := rx2Translate(re, p, re2, replace)
+	if t.Why == "" {
+		sr.OK, sr.ICU = true, t.ICU
+		sr.Groups = len(t.Slots) - 1
+		identity := true
+		for i, v := range t.Slots {
+			if v != i {
+				identity = false
+			}
+		}
+		if !identity {
+			sr.Slots = t.Slots
+		}
+	} else {
+		sr.Groups = len(re.GetGroupNumbers()) - 1
+	}
+	sr.Named = len(re.GetGroupNames()) > 0 && hasNamedGroup(re)
 	sr.Empty = true
-	if re := compileURLRe(p); re != nil {
-		sr.Empty = re.MatchString("")
+	if cre := compileURLRe(p); cre != nil {
+		sr.Empty = cre.MatchString("")
+	} else if m, err := re.MatchString(""); err == nil {
+		sr.Empty = m
 	}
 	return sr
+}
+
+func hasNamedGroup(re *regexp2.Regexp) bool {
+	for _, n := range re.GetGroupNames() {
+		if _, err := strconv.Atoi(n); err != nil {
+			return true
+		}
+	}
+	return false
+}
+
+// snapRegex describes pattern p (tests / tools; rules use snapRegexOf on the compiled pattern).
+func snapRegex(p string) *SnapRegex {
+	re, err := compileRe(p)
+	if err != nil {
+		return &SnapRegex{P: p}
+	}
+	return snapRegexOf(re, compileURLRe(re.String()) != nil, true)
 }
 
 // portableRegex: the pattern uses only syntax that regexp2 (.NET), RE2 (when Go picked it) and ICU read
@@ -502,6 +639,52 @@ func requiredLiteral(p string) (string, bool) {
 	}
 	depth := 0
 	inClass := false
+	// skipQuant: past a "{n}" / "{n,}" / "{n,m}" quantifier right after position i (a quantifier after a
+	// non-literal atom is not literal text — "\d{5,10}" holds no "5,10").
+	skipQuant := func(i int) int {
+		if i+1 >= len(p) || p[i+1] != '{' {
+			return i
+		}
+		j := i + 2
+		d := j
+		for j < len(p) && p[j] >= '0' && p[j] <= '9' {
+			j++
+		}
+		if j == d {
+			return i
+		}
+		if j < len(p) && p[j] == ',' {
+			j++
+			for j < len(p) && p[j] >= '0' && p[j] <= '9' {
+				j++
+			}
+		}
+		if j < len(p) && p[j] == '}' {
+			return j
+		}
+		return i
+	}
+	// skipEscape: i at a backslash whose next byte is a word character: past the escape's argument
+	// (\xHH \uHHHH \cX \p{…} \k<…>).
+	skipEscape := func(i int) int {
+		if i+1 >= len(p) {
+			return i
+		}
+		switch p[i+1] {
+		case 'x':
+			return min(i+3, len(p)-1)
+		case 'u':
+			return min(i+5, len(p)-1)
+		case 'c':
+			return min(i+2, len(p)-1)
+		case 'p', 'P', 'k':
+			if j := strings.IndexAny(p[i+1:], "}>'"); j >= 0 {
+				return i + 1 + j
+			}
+			return len(p) - 1
+		}
+		return i + 1
+	}
 	for i := 0; i < len(p); i++ {
 		c := p[i]
 		if inClass {
@@ -509,19 +692,29 @@ func requiredLiteral(p string) (string, bool) {
 				i++
 			} else if c == ']' {
 				inClass = false
+				if depth == 0 {
+					i = skipQuant(i)
+				}
 			}
 			continue
 		}
 		if depth > 0 {
 			switch c {
 			case '\\':
-				i++
+				if i+1 < len(p) && isWord(p[i+1]) {
+					i = skipEscape(i)
+				} else {
+					i++
+				}
 			case '[':
 				inClass = true
 			case '(':
 				depth++
 			case ')':
 				depth--
+				if depth == 0 {
+					i = skipQuant(i)
+				}
 			}
 			continue
 		}
@@ -534,7 +727,11 @@ func requiredLiteral(p string) (string, bool) {
 				return "", false
 			}
 			d := p[i+1]
-			i++
+			if isWord(d) {
+				i = skipEscape(i)
+			} else {
+				i++
+			}
 			if !isWord(d) && d >= 0x20 && d <= 0x7e {
 				lit, isLit = d, true
 			}
@@ -556,6 +753,7 @@ func requiredLiteral(p string) (string, bool) {
 		}
 		if !isLit {
 			end()
+			i = skipQuant(i)
 			continue
 		}
 		// quantifier after the atom

@@ -587,6 +587,22 @@ func rwStripGen(s rwSuite) rwSuite {
 	var m map[string]any
 	_ = json.Unmarshal(s.Snapshot, &m)
 	delete(m, "gen")
+	// Map Local file paths live under the test's temporary engine home: make them stable (and absent on the
+	// Swift side, as they were for Go when the fixture was made: missing local file → empty body, missing
+	// remote one → Go downloads).
+	if rules, ok := m["rules"].([]any); ok {
+		for _, r := range rules {
+			if l, ok := r.(map[string]any)["local"].(map[string]any); ok {
+				if f, ok := l["file"].(map[string]any); ok {
+					if p, ok := f["path"].(string); ok {
+						if i := strings.Index(p, "/engine/"); i >= 0 {
+							f["path"] = "/nonexistent-tern-home" + p[i:]
+						}
+					}
+				}
+			}
+		}
+	}
 	s.Snapshot, _ = json.Marshal(m)
 	return s
 }
@@ -696,20 +712,22 @@ func TestRewriteSnapshotReload(t *testing.T) {
 		`^https://edge\.test\.com/g/(\w+)/(\d+)`: func(r SnapRule) bool {
 			return r.Re.OK && r.TargetOK && r.Re.Lit == "https://edge.test.com/g/" && r.Re.Groups == 2
 		},
-		`^https://edge\.test\.com/(?<n>named)/x`:  func(r SnapRule) bool { return r.Re.OK && r.Re.Named && !r.TargetOK },
+		`^https://edge\.test\.com/(?<n>named)/x`:  func(r SnapRule) bool { return r.Re.OK && r.Re.Named && r.TargetOK && r.TP != nil },
 		`^https://edge\.test\.com/(?<=x)lb`:       func(r SnapRule) bool { return r.Re.OK }, // ICU decides at compile time (bounded lookbehind)
-		`^https://edge\.test\.com/u/\p{L}+`:       func(r SnapRule) bool { return !r.Re.OK && r.Re.Lit == "https://edge.test.com/u/" },
-		`^https://edge\.test\.com/bk/(a)\1`:       func(r SnapRule) bool { return !r.Re.OK },
+		`^https://edge\.test\.com/u/\p{L}+`:       func(r SnapRule) bool { return r.Re.OK && r.Re.ICU != "" && r.Re.Lit == "https://edge.test.com/u/" },
+		`^https://edge\.test\.com/bk/(a)\1`:       func(r SnapRule) bool { return r.Re.OK && strings.Contains(r.Re.ICU, `(?:\1)`) },
 		`(?i)^https://EDGE\.test\.com/CASE`:       func(r SnapRule) bool { return r.Re.OK && r.Re.Fold && r.Re.Lit == "https://edge.test.com/case" },
 		`^https://edge\.test\.com/alt/(one|two)$`: func(r SnapRule) bool { return r.Re.OK && r.Re.Lit == "https://edge.test.com/alt/" },
 		`^https://edge\.test\.com/ml/text`: func(r SnapRule) bool {
 			return r.Local != nil && string(r.Local.Body) == "hello" && r.Local.Status == 200
 		},
-		`^https://edge\.test\.com/ml/file`: func(r SnapRule) bool { return r.Local == nil },
-		`^https://edge\.test\.com/h/empty`: func(r SnapRule) bool { return !r.OpsOK },
+		`^https://edge\.test\.com/ml/file`: func(r SnapRule) bool {
+			return r.Local != nil && r.Local.File != nil && r.Local.File.Remote && r.Local.File.CType == "application/json"
+		},
+		`^https://edge\.test\.com/h/empty`: func(r SnapRule) bool { return r.OpsOK && r.Headers[0].TP != nil },
 		`^https://edge\.test\.com/h/rx`:    func(r SnapRule) bool { return r.OpsOK },
-		`^https://qx\.test\.com/uh`:        func(r SnapRule) bool { return r.HGate },
-		`^https://qx\.test\.com/raw`:       func(r SnapRule) bool { return !r.OpsOK },
+		`^https://qx\.test\.com/uh`:        func(r SnapRule) bool { return r.HGate && r.HRe != nil && r.HRe.OK },
+		`^https://qx\.test\.com/raw`:       func(r SnapRule) bool { return r.OpsOK && r.Headers[0].Re != nil && r.Headers[0].TP != nil },
 		`^https://edge\.test\.com/s/resp`:  func(r SnapRule) bool { return r.Script != nil && r.Script.RequiresBody },
 	}
 	for p, ok := range want {
