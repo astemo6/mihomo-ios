@@ -819,7 +819,9 @@ func Start(homeDir, configPath string, tunFd int32) error {
 }
 
 // Reload re-reads the profile (and overrides.json) while keeping the same tun fd.
-func Reload(configPath string) error {
+func Reload(configPath string) (err error) {
+	done := reloadBegin("full")
+	defer func() { done(err) }()
 	mu.Lock()
 	defer mu.Unlock()
 	return reloadLocked(configPath)

@@ -568,7 +568,9 @@ func (e *Engine) interceptTLS(st *state, mc *metaConn, target string) {
 	}
 	tc := tls.Server(mc, cfg)
 	ctx, cancel := context.WithTimeout(context.Background(), 15*time.Second)
+	doneHS := handshakeTurn(ctx)
 	err := tc.HandshakeContext(ctx)
+	doneHS()
 	cancel()
 	if err != nil {
 		if e.shouldPin(host, err, certSent.Load()) {

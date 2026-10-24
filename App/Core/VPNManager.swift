@@ -553,17 +553,67 @@ final class VPNManager: ObservableObject {
         // v0.19.8: the extension answers when the new config is applied; with proxy-providers that takes longer than
         // the 8 s default, and a reply missing after 8 s used to count as success while the core still ran the old
         // config (a group order save then read the old order back and looked like it did nothing).
+        let before = Self.reloadStatus(await send(.reloadStatus, timeout: 3))
         let data = await send(hot ? .reloadHot : .reload, timeout: 45)
         NotificationCenter.default.post(name: .egressMayHaveChanged, object: nil)
+        if data == nil, isConnected, let r = await followUpReload(baseline: before?.done) { return r.message }
         return Self.reloadResult(data, stillConnected: isConnected)
     }
+
+    /// fix/xmly-memory-2 (device 2026-10-24 22:14, 喜马拉雅 open, 3 MB available: 「重载失败：重新加载超时」): the reply
+    /// to a reload can be late or lost while the extension is memory-critical, though the core goes on applying it. After
+    /// the 45 s timeout ask the core (`reloadStatus`, answered at once) for up to 60 s more: a finished reload reports
+    /// its real result; still running or no answer → nil (the caller keeps the timeout message).
+    private func followUpReload(baseline: Int64?) async -> ReloadFollowUp? {
+        let deadline = Date().addingTimeInterval(60)
+        while isConnected, Date() < deadline {
+            let st = Self.reloadStatus(await send(.reloadStatus, timeout: 3))
+            switch Self.reloadFollowUp(st, baselineDone: baseline) {
+            case .finished(let msg): return .finished(msg)
+            case .unknown: return nil
+            case .running: try? await Task.sleep(nanoseconds: 2_000_000_000)
+            }
+        }
+        return nil
+    }
+
+    struct ReloadStatus: Decodable, Equatable {
+        var running: Bool
+        var seq: Int64
+        var done: Int64
+        var lastError: String
+    }
+
+    enum ReloadFollowUp: Equatable {
+        case finished(String?) // the reload's own result (nil = applied)
+        case running
+        case unknown
+        var message: String? { if case .finished(let m) = self { return m }; return nil }
+    }
+
+    nonisolated static func reloadStatus(_ data: Data?) -> ReloadStatus? {
+        guard let data else { return nil }
+        return try? JSONDecoder().decode(ReloadStatus.self, from: data)
+    }
+
+    /// What a reload status read after a timed-out reply means. baselineDone: reloads finished before this one was sent
+    /// (nil when that read failed: then only "nothing running any more" counts as finished).
+    nonisolated static func reloadFollowUp(_ st: ReloadStatus?, baselineDone: Int64?) -> ReloadFollowUp {
+        guard let st else { return .unknown }
+        if st.running { return .running }
+        if let b = baselineDone, st.done <= b { return .unknown } // ours never reached the core: really lost
+        return .finished(st.lastError.isEmpty ? nil : st.lastError)
+    }
+
+    /// The text reloadResult gives for a reply that timed out (callers that run in the background stay quiet on it).
+    nonisolated static var reloadTimeoutMessage: String { String(localized: "重新加载超时：内核可能仍在使用旧配置，请稍后重试或重新连接。") }
 
     /// Review 6 R6A-3: nil = applied. No reply while the tunnel is still up means the reload did not finish within
     /// the timeout (the core may still run the old config) — that used to count as success. No reply because the
     /// tunnel went down is fine: the next start reads the new config anyway.
     nonisolated static func reloadResult(_ data: Data?, stillConnected: Bool) -> String? {
         guard let data else {
-            return stillConnected ? String(localized: "重新加载超时：内核可能仍在使用旧配置，请稍后重试或重新连接。") : nil
+            return stillConnected ? reloadTimeoutMessage : nil
         }
         let msg = String(decoding: data, as: UTF8.self).trimmingCharacters(in: .whitespacesAndNewlines)
         return msg.isEmpty || msg == TunnelMessage.reloadOK ? nil : msg

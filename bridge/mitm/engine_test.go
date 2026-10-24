@@ -47,6 +47,26 @@ func upstreamHandler() http.Handler {
 		w.Header().Set("Content-Encoding", "br")
 		_, _ = w.Write(brxBody.Load().([]byte))
 	})
+	// fix/xmly-memory-2: answers without Content-Length (flushed: chunked / HTTP/2 without the header), as the
+	// 喜马拉雅 API sends them. /chunked echoes X-Want; /chunkedbig is 300 KB; /jsonchunked is /json's body.
+	mux.HandleFunc("/chunked", func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+		_, _ = io.WriteString(w, `{"headers":{"X-Want":"`)
+		w.(http.Flusher).Flush()
+		_, _ = io.WriteString(w, r.Header.Get("X-Want")+`"}}`)
+	})
+	mux.HandleFunc("/chunkedbig", func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+		_, _ = io.WriteString(w, `{"headers":{"X-Want":"`)
+		w.(http.Flusher).Flush()
+		_, _ = io.WriteString(w, strings.Repeat("x", 300<<10)+`"}}`)
+	})
+	mux.HandleFunc("/jsonchunked", func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+		_, _ = io.WriteString(w, `{"ad":true,`)
+		w.(http.Flusher).Flush()
+		_, _ = io.WriteString(w, `"data":{"ads":[1,2],"keep":1}}`)
+	})
 	mux.HandleFunc("/bin", func(w http.ResponseWriter, r *http.Request) {
 		_, _ = w.Write([]byte{0, 1, 2, 3, 250, 251})
 	})

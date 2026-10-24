@@ -751,6 +751,9 @@ enum TunnelMessage: String {
     case notifyPrefs
     /// v0.19.22 更多 → 高级设置 → 网络 → Tailscale: the live Tailscale nodes and their tailnet addresses (JSON, LibmihomoTailscaleNodes).
     case tailscaleInfo
+    /// fix/xmly-memory-2: the core's reload state (JSON, LibmihomoReloadStatus) — the app asks after a reload reply timed
+    /// out, to tell a reload still being applied from a finished or lost one.
+    case reloadStatus
 
     /// Review 6 R6A-3: the extension's reply to `reload` when the new config is applied (anything else is the error).
     static let reloadOK = "ok"

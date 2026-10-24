@@ -159,9 +159,9 @@ func TestXmlyShedCriticalKeepsQueueWithRoom(t *testing.T) {
 	if st := h.e.Shed(ShedCritical); st.ClientIdleClosed || st.IdleClosed {
 		t.Fatalf("connections closed with 7 MB available: %+v", st)
 	}
-	fixedAvail(t, func() int64 { return 4 << 20 })
+	fixedAvail(t, func() int64 { return 3 << 20 }) // below shedConnsAvail (3.5 MB since fix/xmly-memory-2)
 	if st := h.e.Shed(ShedCritical); !st.ClientIdleClosed || !st.IdleClosed {
-		t.Fatalf("idle connections kept at 4 MB: %+v", st)
+		t.Fatalf("idle connections kept at 3 MB: %+v", st)
 	}
 	// the client reconnects on its next request
 	SetAvailableMemoryProbe(nil)

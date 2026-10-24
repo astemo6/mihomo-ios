@@ -146,10 +146,14 @@ final class ResourceStore: ObservableObject {
         }
     }
 
-    private func finish(changed: Bool) async {
+    /// quiet (the automatic update when the app becomes active): a reload that timed out is not shown — nobody asked for
+    /// it, the core goes on applying it, and an alert popping up over whatever page is open (fix/xmly-memory-2: over 脚本日志
+    /// while 喜马拉雅 kept the extension memory-critical) only alarms. Real errors still show.
+    private func finish(changed: Bool, quiet: Bool = false) async {
         EngineStore.shared.reparseModules()
         reload()
         if changed, VPNManager.shared.isConnected, let err = await VPNManager.shared.reload() {
+            if quiet && err == VPNManager.reloadTimeoutMessage { return }
             message = String(localized: "重载失败：\(err)")
         }
     }
@@ -199,7 +203,7 @@ final class ResourceStore: ObservableObject {
         for it in items where it.kind != "module" && it.enabled && it.isRemote && (!onlyDue || it.isDue) {
             if await download(it) { changed = true }
         }
-        await finish(changed: changed)
+        await finish(changed: changed, quiet: onlyDue)
         if !onlyDue {
             let failed = items.filter { ($0.error ?? "").isEmpty == false && $0.enabled }
             message = failed.isEmpty ? "已全部更新" : "\(failed.count) 项更新失败，详见列表"
