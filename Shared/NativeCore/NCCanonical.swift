@@ -182,8 +182,38 @@ struct NCDNSModel: Equatable {
     }
 }
 
-/// Non-fatal import findings: unmapped parameters and skipped non-kernel
-/// sections ([Rewrite]/[MITM]/[Script]) are reported, never silently dropped.
+/// MitM configuration parsed from canonical sources (Surge / Loon [Mitm], QX [mitm], mihomo mitm:).
+struct NCMitmConfig: Equatable {
+    var enabled: Bool = false
+    var hostnames: [String] = []
+    var skipCertVerify: Bool = false
+    var h2: Bool = true
+    var captureBodies: Bool = false
+}
+
+/// Rewrite rule: URL rewrites, header rewrites, map local, body rewrites.
+struct NCRewriteRule: Equatable {
+    var kind: String       // "url", "header", "body", "maplocal"
+    var phase: String      // "request", "response"
+    var pattern: String    // URL regex or pattern
+    var action: String?    // "reject", "reject-200", "reject-img", "reject-dict", "reject-array", "reject-drop", "302", "307", "header"
+    var target: String?    // replacement URL or header value or map-local content
+    var extra: [String: String] = [:]
+}
+
+/// Script rule: http-request, http-response, cron.
+struct NCScriptRule: Equatable {
+    var name: String
+    var type: String       // "http-request", "http-response", "cron"
+    var pattern: String
+    var scriptPath: String?
+    var requiresBody: Bool = false
+    var timeoutMs: Int64 = 10000
+    var extra: [String: String] = [:]
+}
+
+/// Non-fatal import findings: unmapped parameters and unrecognized sections
+/// are reported, never silently dropped.
 struct NCImportReport: Equatable {
     var warnings: [String] = []
     var skippedSections: [String] = []
@@ -201,6 +231,9 @@ struct NCCanonicalConfig: Equatable {
     var groups: [NCGroupModel] = []
     var ruleSets: [NCRuleSetRef] = []
     var rules: [String] = []
+    var mitm = NCMitmConfig()
+    var rewrites: [NCRewriteRule] = []
+    var scripts: [NCScriptRule] = []
     var report = NCImportReport()
 
     var nodeMap: [String: NCProxy] { Dictionary(nodes.map { ($0.name, $0) }, uniquingKeysWith: { a, _ in a }) }
@@ -309,6 +342,16 @@ extension NCCanonicalConfig {
                 return NCRuleSetRef(name: name, url: o["url"]?.string,
                                     interval: o["interval"]?.int ?? 86400, fields: o)
             }
+        }
+
+        // mitm
+        if let mitmObj = cfg.raw["mitm"]?.object {
+            out.mitm.enabled = mitmObj["enabled"]?.bool ?? (mitmObj["enable"]?.bool ?? true)
+            if let hosts = mitmObj["hostnames"]?.array?.compactMap({ $0.string }) ?? mitmObj["hostname"]?.array?.compactMap({ $0.string }) {
+                out.mitm.hostnames = hosts
+            }
+            out.mitm.skipCertVerify = mitmObj["skip-cert-verify"]?.bool ?? (mitmObj["skip-server-cert-verify"]?.bool ?? false)
+            out.mitm.h2 = mitmObj["h2"]?.bool ?? true
         }
         return out
     }

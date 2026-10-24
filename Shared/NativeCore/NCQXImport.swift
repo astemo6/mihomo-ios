@@ -26,8 +26,42 @@ enum NCQXImport {
         let sections = NCConfImport.splitSections(text)
         let map = NCConfImport.sectionMap(sections)
         let handled: Set<String> = ["general", "dns", "server_local", "server_remote",
-                                    "policy", "filter_local", "filter_remote", "host"]
+                                    "policy", "filter_local", "filter_remote", "host",
+                                    "mitm", "rewrite_local", "rewrite_remote"]
         for s in sections where !handled.contains(s.key) { report.skippedSections.append(s.name) }
+
+        if let lines = map["mitm"] {
+            for line in lines {
+                if let (k, v) = NCConfImport.keyValueLine(line) {
+                    if k.lowercased() == "hostname" {
+                        let hosts = v.split(separator: ",").map { $0.trimmingCharacters(in: .whitespaces) }.filter { !$0.isEmpty }
+                        cfg.mitm.hostnames.append(contentsOf: hosts)
+                        cfg.mitm.enabled = true
+                    } else if k.lowercased() == "skip_validating_cert" {
+                        cfg.mitm.skipCertVerify = (NCConfImport.boolValue(v) ?? false)
+                    }
+                }
+            }
+        }
+        if let lines = map["rewrite_local"] {
+            for line in lines {
+                let trimmed = line.trimmingCharacters(in: .whitespaces)
+                if trimmed.isEmpty || trimmed.hasPrefix("#") || trimmed.hasPrefix(";") { continue }
+                let parts = trimmed.components(separatedBy: .whitespaces).filter { !$0.isEmpty }
+                guard parts.count >= 3, parts[1].lowercased() == "url" else { continue }
+                let pattern = parts[0]
+                let action = parts[2]
+                if action.hasPrefix("reject") {
+                    cfg.rewrites.append(NCRewriteRule(kind: "url", phase: "request", pattern: pattern, action: action, target: nil))
+                } else if (action == "302" || action == "307"), parts.count >= 4 {
+                    cfg.rewrites.append(NCRewriteRule(kind: "url", phase: "request", pattern: pattern, action: action, target: parts[3]))
+                } else if action.hasPrefix("script-") || action.hasPrefix("request-") || action.hasPrefix("response-") {
+                    let type = action.contains("response") ? "http-response" : "http-request"
+                    let path = parts.count >= 4 ? parts[3] : ""
+                    cfg.scripts.append(NCScriptRule(name: "qx_script", type: type, pattern: pattern, scriptPath: path))
+                }
+            }
+        }
 
         // [general]: no kernel mapping; only DNS-relevant keys are reported.
         if let lines = map["general"] {

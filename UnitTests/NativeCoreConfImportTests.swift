@@ -155,7 +155,8 @@ final class NativeCoreConfImportTests: XCTestCase {
         // Remote-rule RULE-SET lines are appended after local [Rule] lines.
         XCTAssertEqual(c.rules, ["DOMAIN-SUFFIX,example.com,PROXY",
                                  "RULE-SET,https://loon.example.com/rules.list,PROXY"])
-        XCTAssertTrue(c.report.skippedSections.contains("Mitm"))
+        XCTAssertTrue(c.mitm.skipCertVerify)
+        XCTAssertFalse(c.report.skippedSections.contains("Mitm"))
     }
 
     func testQuantumultXImport() {

@@ -27,7 +27,6 @@
 // exchange completed cleanly.
 
 import Foundation
-import Libmihomo
 
 // MARK: - Runtime switch
 
@@ -202,19 +201,18 @@ enum NativeMitmRuntime {
     static func clearErrors() { lock.lock(); errors.removeAll(); lock.unlock() }
     static func nextID() -> Int64 { lock.lock(); defer { lock.unlock() }; ids += 1; return ids }
 
-    /// Wire the lanes together. Registers the front with Go only when the switch is on; returns whether it did.
+    /// Wire the lanes together.
     @discardableResult
-    static func install(front: MitmTLSFronting & LibmihomoNativeTLSFrontProtocol, upstream: MitmUpstreamConnecting,
+    static func install(front: MitmTLSFronting, upstream: MitmUpstreamConnecting,
                         codec: HTTPCodec, bodies: NativeBodyReading = NativeBodyStore.shared,
-                        driver: MitmFlowDriving = NativeRewriteDriver(inner: GoMitmFlowDriver()), force: Bool = false,
+                        driver: MitmFlowDriving = NativeRewriteDriver(inner: NativeMitmFlowDriver.shared), force: Bool = false,
                         h2Opener: H2UpstreamOpening? = nil) -> Bool {
-        guard force || enabled else { LibmihomoSetNativeTLSFront(nil); LibmihomoMitmSetNativeH2(false); return false }
         forced = force
         if let f = front as? MitmTLSFront {
             f.admit = { (NativeMitmRuntime.forced || NativeMitmRuntime.enabled) && NativeMitmRuntime.reserve() }
             f.unadmit = { NativeMitmRuntime.unreserve() }
         }
-        // s3-h2: connections that negotiated h2 (only offered while nativeMitmH2 is on) get the native h2 session.
+        // s3-h2: connections that negotiated h2 get the native h2 session.
         let opener = h2Opener ?? H2RelayUpstreamOpener(h1: upstream)
         front.acceptHandler = { conn in
             if conn.alpn == "h2" {
@@ -224,15 +222,11 @@ enum NativeMitmRuntime {
             }
         }
         NativeH2Runtime.resetBreaker()
-        LibmihomoMitmSetNativeH2(NativeH2Runtime.enabled)
-        LibmihomoSetNativeTLSFront(front)
         return true
     }
 
     static func uninstall() {
         forced = false
-        LibmihomoSetNativeTLSFront(nil)
-        LibmihomoMitmSetNativeH2(false)
         cancelAll("native MitM off")
         NativeH2Runtime.cancelAll()
     }
@@ -243,32 +237,27 @@ enum NativeMitmRuntime {
 
 extension NativeBodyStore: NativeBodyReading {}
 
-// MARK: - Go driver (B6 gomobile API)
+// MARK: - Flow driver adapter (forwards to NativeMitmFlowDriver)
 
 final class GoMitmFlowDriver: MitmFlowDriving {
+    private let inner = NativeMitmFlowDriver.shared
+
     func requestPhase(head: HTTPRequestHead, conn: MitmConnInfo) -> FlowDecision {
-        let length: Int64 = head.isChunked ? -1 : (head.contentLength ?? 0)
-        let obj: [String: Any] = [
-            "method": head.method, "target": head.target, "host": head.host ?? "",
-            "headers": headerPairs(head.headers), "length": length,
-            "connHost": conn.host, "connPort": conn.port, "tls": conn.tls, "connId": conn.connID,
-        ]
-        return FlowDecision.decode(LibmihomoMitmFlowBegin(Self.json(obj)))
+        inner.requestPhase(head: head, conn: conn)
     }
-    func await(_ id: Int64) -> FlowDecision { FlowDecision.decode(LibmihomoMitmFlowAwait(id)) }
+    func await(_ id: Int64) -> FlowDecision { inner.await(id) }
     func responsePhase(_ id: Int64, head: HTTPResponseHead, length: Int64) -> FlowDecision {
-        let obj: [String: Any] = ["status": head.status, "headers": headerPairs(head.headers), "length": length]
-        return FlowDecision.decode(LibmihomoMitmFlowResponse(id, Self.json(obj)))
+        inner.responsePhase(id, head: head, length: length)
     }
     func write(_ id: Int64, _ which: FlowBodyWhich, _ data: Data) -> FlowWriteResult {
-        FlowWriteResult(rawValue: LibmihomoMitmFlowWrite(id, which.rawValue, data)) ?? .gone
+        inner.write(id, which, data)
     }
-    func closeBody(_ id: Int64, _ which: FlowBodyWhich, error: String) { LibmihomoMitmFlowClose(id, which.rawValue, error) }
-    func read(_ id: Int64, _ which: FlowBodyWhich, max: Int) -> Data { LibmihomoMitmFlowRead(id, which.rawValue, max) ?? Data() }
-    func readState(_ id: Int64, _ which: FlowBodyWhich) -> FlowReadState { FlowReadState(LibmihomoMitmFlowReadState(id, which.rawValue)) }
-    func upstreamFailed(_ id: Int64, why: String) { LibmihomoMitmFlowUpstreamFailed(id, why) }
-    func end(_ id: Int64, sent: Int64, error: String) { LibmihomoMitmFlowEnd(id, sent, error) }
-    func cancel(_ id: Int64, why: String) { LibmihomoMitmFlowCancel(id, why) }
+    func closeBody(_ id: Int64, _ which: FlowBodyWhich, error: String) { inner.closeBody(id, which, error: error) }
+    func read(_ id: Int64, _ which: FlowBodyWhich, max: Int) -> Data { inner.read(id, which, max: max) }
+    func readState(_ id: Int64, _ which: FlowBodyWhich) -> FlowReadState { inner.readState(id, which) }
+    func upstreamFailed(_ id: Int64, why: String) { inner.upstreamFailed(id, why: why) }
+    func end(_ id: Int64, sent: Int64, error: String) { inner.end(id, sent: sent, error: error) }
+    func cancel(_ id: Int64, why: String) { inner.cancel(id, why: why) }
 
     static func json(_ o: [String: Any]) -> String {
         (try? JSONSerialization.data(withJSONObject: o)).flatMap { String(data: $0, encoding: .utf8) } ?? "{}"
@@ -276,16 +265,8 @@ final class GoMitmFlowDriver: MitmFlowDriving {
 }
 
 extension GoMitmFlowDriver: MitmScriptedFlowStarting {
-    /// MitmFlowBegin with the request scripts Swift already ran (FlowHead.Gen / Scripted, bridge/mitm/flowscripted.go).
     func requestPhase(head: HTTPRequestHead, conn: MitmConnInfo, gen: Int64, scripted: [[String: Any]]) -> FlowDecision {
-        let length: Int64 = head.isChunked ? -1 : (head.contentLength ?? 0)
-        let obj: [String: Any] = [
-            "method": head.method, "target": head.target, "host": head.host ?? "",
-            "headers": headerPairs(head.headers), "length": length,
-            "connHost": conn.host, "connPort": conn.port, "tls": conn.tls, "connId": conn.connID,
-            "gen": gen, "scripted": scripted,
-        ]
-        return FlowDecision.decode(LibmihomoMitmFlowBegin(Self.json(obj)))
+        inner.requestPhase(head: head, conn: conn, gen: gen, scripted: scripted)
     }
 }
 

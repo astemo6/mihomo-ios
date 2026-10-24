@@ -24,7 +24,6 @@
 // plugs in through NativeH2Runtime.admitStream (false → REFUSED_STREAM) and the shared session cap.
 
 import Foundation
-import Libmihomo
 
 // MARK: - Switch, limits, breaker
 
@@ -85,7 +84,6 @@ enum NativeH2Runtime {
         let trip = failures.count >= 3 && !tripped
         if trip { tripped = true; failures = [] }
         lock.unlock()
-        if trip { LibmihomoMitmSetNativeH2(false) }
     }
 
     /// Re-arm (tests; a reload re-installs the front).

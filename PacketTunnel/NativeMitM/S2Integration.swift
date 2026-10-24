@@ -2,7 +2,6 @@
 // S2Contract.swift so NativeMitmSession drives them. No behaviour of its own beyond the body de-framer.
 
 import Foundation
-import Libmihomo
 
 // MARK: - http lane → HTTPCodec
 
@@ -204,7 +203,7 @@ final class UpstreamPoolConnector: MitmUpstreamConnecting {
     let pool: UpstreamPool
     /// The engine's skip-cert-verify, read per open (a reload can change it).
     let skipVerify: () -> Bool
-    init(pool: UpstreamPool = .shared, skipVerify: @escaping () -> Bool = { LibmihomoMitmSkipCertVerify() }) {
+    init(pool: UpstreamPool = .shared, skipVerify: @escaping () -> Bool = { false }) {
         self.pool = pool; self.skipVerify = skipVerify
     }
     func open(host: String, port: Int, tls: Bool, completion: @escaping (Result<MitmUpstreamLease, Error>) -> Void) {
@@ -232,17 +231,12 @@ extension NativeMitmRuntime {
 /// Never called by the app or the tunnel.
 enum NativeMitmBench {
     /// JSON {enginePort, ca} or {error}.
-    static func start() -> String { LibmihomoMitmBenchStart() }
-    /// native-final combo bench: start with rewrite rules on the bench host (comboRules: request header, response
-    /// header and response jq rules).
-    static func start(rules: String) -> String { LibmihomoMitmBenchStartRules(rules) }
-    static func comboRules() -> String { LibmihomoMitmBenchComboRules() }
-    /// JSON {heapInuse, sys, stack, goroutines, handed, fellBack} after a GC.
-    static func goMemory() -> String { LibmihomoMitmBenchMem() }
-    static func stop() { LibmihomoMitmBenchStop() }
-    /// The bench engine's recent log lines (cleared by reading).
-    static func goLog() -> String { LibmihomoMitmBenchLog() }
-    static func relayPort() -> Int { Int(LibmihomoMitmRelayPort()) }
-    /// Go GC + scavenge (rate limited to 1/s by Go): the memory bench's "relieved" reading.
-    static func freeGoMemory() { _ = LibmihomoNativeFreeOSMemory() }
+    static func start() -> String { "{}" }
+    static func start(rules: String) -> String { "{}" }
+    static func comboRules() -> String { "{}" }
+    static func goMemory() -> String { "{}" }
+    static func stop() {}
+    static func goLog() -> String { "" }
+    static func relayPort() -> Int { 0 }
+    static func freeGoMemory() {}
 }

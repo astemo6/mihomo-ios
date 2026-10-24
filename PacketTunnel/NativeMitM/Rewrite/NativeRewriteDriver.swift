@@ -36,7 +36,6 @@
 // window the Go path has between reading its state pointer and the reload storing a new one.
 
 import Foundation
-import Libmihomo
 
 // MARK: - Switch
 
@@ -79,14 +78,32 @@ extension RewriteSnapshotSource {
     func headerOps(gen: Int64, rules: [Int], status: Int, headers: [[String]]) -> [[String]]? { nil }
 }
 
-final class GoRewriteSnapshotSource: RewriteSnapshotSource {
-    func generation() -> Int64 { LibmihomoMitmRewriteGeneration() }
-    func snapshotJSON() -> String { LibmihomoMitmRewriteSnapshot() }
-    func headerOps(gen: Int64, rules: [Int], status: Int, headers: [[String]]) -> [[String]]? {
-        guard let rj = try? JSONSerialization.data(withJSONObject: rules), let hj = try? JSONSerialization.data(withJSONObject: headers) else { return nil }
-        let out = LibmihomoMitmRewriteHeaderOps(gen, String(decoding: rj, as: UTF8.self), status, String(decoding: hj, as: UTF8.self))
-        guard !out.isEmpty, let pairs = try? JSONSerialization.jsonObject(with: Data(out.utf8)) as? [[String]] else { return nil }
-        return pairs
+final class NativeRewriteSnapshotSource: RewriteSnapshotSource {
+    static let shared = NativeRewriteSnapshotSource()
+    private let lock = NSLock()
+    private var gen: Int64 = 1
+    private var snapshot: RWSnapshot?
+
+    func setSnapshot(_ s: RWSnapshot) {
+        lock.lock()
+        defer { lock.unlock() }
+        gen += 1
+        var copy = s
+        copy.gen = gen
+        snapshot = copy
+    }
+
+    func generation() -> Int64 {
+        lock.lock(); defer { lock.unlock() }
+        return gen
+    }
+
+    func snapshotJSON() -> String {
+        lock.lock(); defer { lock.unlock() }
+        guard let s = snapshot, let d = try? JSONEncoder().encode(s), let str = String(data: d, encoding: .utf8) else {
+            return ""
+        }
+        return str
     }
 }
 
@@ -244,7 +261,7 @@ final class NativeRewriteDriver: MitmFlowDriving {
         JSCScriptEngine.nativeBlobs != nil && JSCScriptEngine.shared.canInterrupt ? JSCScriptEngine.shared : nil
     }
     var scriptStore: () -> ScriptBodyStore? = { JSCScriptEngine.nativeBlobs as? ScriptBodyStore }
-    var nativeBlobBase: Int64 = LibmihomoNativeBlobBase()
+    var nativeBlobBase: Int64 = NativeBodyStore.defaultBlobBase
     private let lock = NSLock()
     private var flows: [Int64: NativeFlow] = [:]
     private var logs: [Int64: LogCtx] = [:]
@@ -254,7 +271,7 @@ final class NativeRewriteDriver: MitmFlowDriving {
     private var nextID: Int64 = 0
     private var counters = Stats()
 
-    init(inner: MitmFlowDriving, provider: NativeRewriteProvider = NativeRewriteProvider(source: GoRewriteSnapshotSource()),
+    init(inner: MitmFlowDriving, provider: NativeRewriteProvider = NativeRewriteProvider(source: NativeRewriteSnapshotSource.shared),
          recorder: NativeRequestRecorder? = NativeRequestRecorder.shared) {
         self.inner = inner
         self.provider = provider

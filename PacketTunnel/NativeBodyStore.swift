@@ -1,21 +1,13 @@
 import Compression
 import Foundation
-import Libmihomo
 import os
 
-/// feat/native-mitm stage 1: the native body lane (bridge/mitm/nativelane.go, work/native-mitm-design.md §3).
-///
-/// Response bodies that only scripts read are streamed here by the Go engine, still encoded, in ≤ 32 KB chunks
-/// (`open` / `write` / `finish`) and decoded as they arrive with the Compression framework (gzip, deflate, br —
-/// `COMPRESSION_BROTLI`, iOS 15+, the tunnel targets 17). The decoded bytes live in malloc'd memory, never in the
-/// Go heap: the JavaScriptCore engine reads them directly for `__tern.take` of ids ≥ `LibmihomoNativeBlobBase()`
-/// (JSCScriptEngine `nativeBlobs`), stores large results here (`store`), and Go streams the final body to the
-/// client with `read`.
-///
-/// Every method is synchronous and thread-safe. The Go side owns handle lifetimes (`free`); Go counts internal
-/// failures (anything but "too-big" / "decode: …") and switches the lane off for the session after three.
-final class NativeBodyStore: NSObject, LibmihomoNativeBodyStoreProtocol, JSCNativeBlobProvider {
+/// The native body lane for MitM response bodies.
+/// Decodes gzip, deflate, and brotli streamingly into malloc'd memory without touching Go.
+/// JSC reads them directly through JSCNativeBlobProvider.
+final class NativeBodyStore: NSObject, JSCNativeBlobProvider {
     static let shared = NativeBodyStore()
+    static let defaultBlobBase: Int64 = 10_000_000
 
     /// Large `__tern.put` / UTF-8 results at least this big stay in the lane (smaller ones go to Go as before).
     let putMin = 64 << 10
@@ -95,13 +87,12 @@ final class NativeBodyStore: NSObject, LibmihomoNativeBodyStoreProtocol, JSCNati
 
     private override init() { super.init() }
 
-    /// Registers the lane with the core (after JSCScriptEngine.register() succeeded) and with the JS engine.
+    /// Registers the lane with the JS engine.
     static func register() {
         JSCScriptEngine.nativeBlobs = shared
-        LibmihomoSetNativeBodyStore(shared)
     }
 
-    // MARK: LibmihomoNativeBodyStoreProtocol
+    // MARK: In-process Body Store
 
     func open(_ enc: String?, limit: Int64, hint: Int64) -> Int64 {
         let codec: Codec

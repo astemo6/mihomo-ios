@@ -109,7 +109,7 @@ struct MitmAcceptedConnection {
     let connID: Int64          // stable id for logs / Go flow heads
 }
 
-/// The TLS lane's front. It conforms to LibmihomoNativeTLSFrontProtocol in its own file (Go calls listen()).
+/// The TLS lane's front.
 protocol MitmTLSFronting: AnyObject {
     /// Go → native: loopback port presenting a leaf for host, 0 declines (Go terminates TLS itself).
     func listen(host: String, alpn: String) -> Int64

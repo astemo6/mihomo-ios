@@ -477,10 +477,15 @@ enum NCConfImport {
         var cfg = NCCanonicalConfig(sourceFormat: "surge")
         let sections = splitSections(text)
         let map = sectionMap(sections)
-        let handled: Set<String> = ["general", "proxy", "proxy group", "rule", "host"]
+        let handled: Set<String> = ["general", "proxy", "proxy group", "rule", "host",
+                                    "mitm", "url rewrite", "header rewrite", "script", "body rewrite", "map local"]
         for s in sections where !handled.contains(s.key) { report.skippedSections.append(s.name) }
 
         if let lines = map["general"] { applyGeneral(lines: lines, formatLabel: "surge", cfg: &cfg, report: &report) }
+        if let lines = map["mitm"] { applyMitm(lines: lines, cfg: &cfg) }
+        if let lines = map["url rewrite"] { applyURLRewrite(lines: lines, cfg: &cfg) }
+        if let lines = map["header rewrite"] { applyHeaderRewrite(lines: lines, cfg: &cfg) }
+        if let lines = map["script"] { applyScript(lines: lines, cfg: &cfg) }
         if let lines = map["proxy"] {
             for line in lines {
                 guard let p = parseNamedNodeLine(line) else {
@@ -523,10 +528,16 @@ enum NCConfImport {
         var cfg = NCCanonicalConfig(sourceFormat: "loon")
         let sections = splitSections(text)
         let map = sectionMap(sections)
-        let handled: Set<String> = ["general", "proxy", "proxy group", "rule", "host", "remote proxy", "remote rule"]
+        let handled: Set<String> = ["general", "proxy", "proxy group", "rule", "host", "remote proxy", "remote rule",
+                                    "mitm", "url rewrite", "header rewrite", "script", "rewrite"]
         for s in sections where !handled.contains(s.key) { report.skippedSections.append(s.name) }
 
         if let lines = map["general"] { applyGeneral(lines: lines, formatLabel: "loon", cfg: &cfg, report: &report) }
+        if let lines = map["mitm"] { applyMitm(lines: lines, cfg: &cfg) }
+        if let lines = map["url rewrite"] { applyURLRewrite(lines: lines, cfg: &cfg) }
+        if let lines = map["rewrite"] { applyURLRewrite(lines: lines, cfg: &cfg) }
+        if let lines = map["header rewrite"] { applyHeaderRewrite(lines: lines, cfg: &cfg) }
+        if let lines = map["script"] { applyScript(lines: lines, cfg: &cfg) }
         if let lines = map["proxy"] {
             for line in lines {
                 guard let p = parseNamedNodeLine(line) else {
@@ -627,6 +638,112 @@ enum NCConfImport {
             // the canonical rule still needs one, so reference the set name.
             cfg.rules.append("RULE-SET,\(url),\(name)")
             report.warnings.append("loon [Remote Rule]: '\(url)' has no policy=; referencing it by name '\(name)'")
+        }
+    }
+
+    // MARK: - MitM & Rewrite Import Helpers
+
+    static func applyMitm(lines: [String], cfg: inout NCCanonicalConfig) {
+        for line in lines {
+            let trimmed = line.trimmingCharacters(in: .whitespaces)
+            if trimmed.isEmpty || trimmed.hasPrefix("#") || trimmed.hasPrefix("//") || trimmed.hasPrefix(";") { continue }
+            guard let (k, v) = keyValueLine(trimmed) else { continue }
+            let key = k.lowercased()
+            switch key {
+            case "hostname":
+                let hosts = v.split(separator: ",").map { $0.trimmingCharacters(in: .whitespaces) }.filter { !$0.isEmpty }
+                cfg.mitm.hostnames.append(contentsOf: hosts)
+                cfg.mitm.enabled = true
+            case "skip-server-cert-verify":
+                cfg.mitm.skipCertVerify = boolValue(v) ?? false
+            case "h2":
+                cfg.mitm.h2 = boolValue(v) ?? true
+            case "enable":
+                cfg.mitm.enabled = boolValue(v) ?? true
+            default:
+                break
+            }
+        }
+    }
+
+    static func applyURLRewrite(lines: [String], cfg: inout NCCanonicalConfig) {
+        for line in lines {
+            let trimmed = line.trimmingCharacters(in: .whitespaces)
+            if trimmed.isEmpty || trimmed.hasPrefix("#") || trimmed.hasPrefix("//") || trimmed.hasPrefix(";") { continue }
+            let parts = trimmed.components(separatedBy: .whitespaces).filter { !$0.isEmpty }
+            guard parts.count >= 2 else { continue }
+            let pattern = parts[0]
+            let second = parts[1]
+            if second.hasPrefix("reject") {
+                cfg.rewrites.append(NCRewriteRule(kind: "url", phase: "request", pattern: pattern, action: second, target: nil))
+            } else if parts.count >= 3 {
+                let action = parts[2]
+                cfg.rewrites.append(NCRewriteRule(kind: "url", phase: "request", pattern: pattern, action: action, target: second))
+            } else {
+                cfg.rewrites.append(NCRewriteRule(kind: "url", phase: "request", pattern: pattern, action: "302", target: second))
+            }
+        }
+    }
+
+    static func applyHeaderRewrite(lines: [String], cfg: inout NCCanonicalConfig) {
+        for line in lines {
+            let trimmed = line.trimmingCharacters(in: .whitespaces)
+            if trimmed.isEmpty || trimmed.hasPrefix("#") || trimmed.hasPrefix("//") || trimmed.hasPrefix(";") { continue }
+            let parts = trimmed.components(separatedBy: .whitespaces).filter { !$0.isEmpty }
+            guard parts.count >= 3 else { continue }
+            let pattern = parts[0]
+            let op = parts[1]
+            let header = parts[2]
+            let value = parts.count > 3 ? parts.dropFirst(3).joined(separator: " ") : nil
+            cfg.rewrites.append(NCRewriteRule(kind: "header", phase: "request", pattern: pattern, action: op, target: value, extra: ["op": op, "header": header]))
+        }
+    }
+
+    static func applyScript(lines: [String], cfg: inout NCCanonicalConfig) {
+        for line in lines {
+            let trimmed = line.trimmingCharacters(in: .whitespaces)
+            if trimmed.isEmpty || trimmed.hasPrefix("#") || trimmed.hasPrefix("//") || trimmed.hasPrefix(";") { continue }
+            if trimmed.hasPrefix("http-request ") || trimmed.hasPrefix("http-response ") {
+                let type = trimmed.hasPrefix("http-response ") ? "http-response" : "http-request"
+                let rest = String(trimmed.dropFirst(type.count + 1)).trimmingCharacters(in: .whitespaces)
+                let tokens = rest.split(separator: ",", omittingEmptySubsequences: true).map { $0.trimmingCharacters(in: .whitespaces) }
+                guard !tokens.isEmpty else { continue }
+                let pattern = tokens[0]
+                var name = "script"
+                var path = ""
+                var reqBody = false
+                for t in tokens.dropFirst() {
+                    if let eq = t.firstIndex(of: "=") {
+                        let k = String(t[..<eq]).trimmingCharacters(in: .whitespaces).lowercased()
+                        let v = String(t[t.index(after: eq)...]).trimmingCharacters(in: .whitespaces)
+                        if k == "tag" || k == "name" { name = v }
+                        else if k == "script-path" { path = v }
+                        else if k == "requires-body" { reqBody = (boolValue(v) ?? false) }
+                    }
+                }
+                cfg.scripts.append(NCScriptRule(name: name, type: type, pattern: pattern, scriptPath: path, requiresBody: reqBody))
+            } else if let eq = trimmed.firstIndex(of: "=") {
+                let name = String(trimmed[..<eq]).trimmingCharacters(in: .whitespaces)
+                let params = String(trimmed[trimmed.index(after: eq)...]).trimmingCharacters(in: .whitespaces)
+                let tokens = params.split(separator: ",").map { $0.trimmingCharacters(in: .whitespaces) }
+                var type = "http-request"
+                var pattern = ""
+                var path = ""
+                var reqBody = false
+                for t in tokens {
+                    if let peq = t.firstIndex(of: "=") {
+                        let k = String(t[..<peq]).trimmingCharacters(in: .whitespaces).lowercased()
+                        let v = String(t[t.index(after: peq)...]).trimmingCharacters(in: .whitespaces)
+                        if k == "type" { type = v }
+                        else if k == "pattern" { pattern = v }
+                        else if k == "script-path" { path = v }
+                        else if k == "requires-body" { reqBody = (boolValue(v) ?? (v == "1")) }
+                    }
+                }
+                if !pattern.isEmpty {
+                    cfg.scripts.append(NCScriptRule(name: name, type: type, pattern: pattern, scriptPath: path, requiresBody: reqBody))
+                }
+            }
         }
     }
 }

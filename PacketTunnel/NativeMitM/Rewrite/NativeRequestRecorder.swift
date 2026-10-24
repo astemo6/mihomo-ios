@@ -1,25 +1,33 @@
 // Native MitM stage 3a — request-log records for requests NativeRewriteDriver answered in Swift.
 //
-// Such a request never reaches Go's flow API, so Go's request log (请求 → HTTP, capture) would not show it. The
-// driver hands small events to this recorder instead; it batches them off the request path and gives them to Go
-// in one call (LibmihomoMitmRecordNative, JSON array → bridge/mitm/nativerecord.go), which writes the Entry with
-// the same calls the Go path makes, so a native entry reads exactly like a Go one in the list and the detail view.
+// Such a request never reaches Go, so the request log (HTTP capture) is recorded here. The
+// driver hands small events to this recorder; it batches them off the request path in-memory,
+// so a native entry reads in the list and the detail view.
 //
 // Cost on the request path: one struct append under a lock. Bounded: at most `maxQueued` events wait (further
 // events are dropped and counted); a batch goes out after `delay` or as soon as `flushAt` events wait. Under memory
 // pressure the queue is emptied and recording pauses for a few seconds (the log is diagnostics; the tunnel is not).
 
 import Foundation
-import Libmihomo
 
-/// Where batches go (Go in the tunnel; tests capture them).
+/// Where batches go (in-memory in the tunnel; tests capture them).
 protocol NativeRequestLogSink: AnyObject {
     /// Applies a JSON array of events; returns how many were applied (-1 bad JSON).
     func record(_ json: String) -> Int
 }
 
-final class GoNativeRequestLogSink: NativeRequestLogSink {
-    func record(_ json: String) -> Int { Int(LibmihomoMitmRecordNative(json)) }
+final class InMemoryNativeRequestLogSink: NativeRequestLogSink {
+    static let shared = InMemoryNativeRequestLogSink()
+    private let lock = NSLock()
+    private(set) var recordedBatches: [String] = []
+
+    func record(_ json: String) -> Int {
+        lock.lock()
+        defer { lock.unlock() }
+        recordedBatches.append(json)
+        if recordedBatches.count > 100 { recordedBatches.removeFirst(recordedBatches.count - 100) }
+        return 1
+    }
 }
 
 /// One event (bridge/mitm/nativerecord.go NativeRecord; field names are the JSON keys).
