@@ -57,6 +57,9 @@ targets:
       # feat/native-mitm: the native body lane, built into the app only so the unit tests can drive it
       # (UnitTests/NativeBodyStoreTests.swift); the app never registers it.
       - path: PacketTunnel/NativeBodyStore.swift
+      # native MitM stage 2 (lane wire): the shared contract + session, in the app only for NativeMitmSessionTests.
+      - path: PacketTunnel/NativeMitM/S2Contract.swift
+      - path: PacketTunnel/NativeMitM/NativeMitmSession.swift
     configFiles:
       Debug: Config/App.signing.xcconfig
       Release: Config/App.signing.xcconfig
@@ -83,8 +86,9 @@ targets:
     platform: iOS
     sources:
       - path: PacketTunnel
-        # feat/native-mitm: NativeMitM/ is the stage-2 skeleton (native TLS front); not built until it compiles on CI.
-        excludes: ["**/*.entitlements", "NativeMitM/**"]
+        # native MitM stage 2: NativeMitM/ is built (runtime switch default OFF, NativeMitmRuntime); the three
+        # stage-1 skeletons stay out until the tls/http/upstream lanes replace them.
+        excludes: ["**/*.entitlements", "NativeMitM/NativeHTTP1Session.swift", "NativeMitM/NativeTLSFront.swift", "NativeMitM/NativeUpstream.swift"]
       # The Live Activity attributes are app + widget only (keeps ActivityKit out of the tunnel's memory).
       - path: Shared
         excludes: ["LiveActivityShared.swift", "LiveActivityViews.swift", "TunnelControl.swift"]
