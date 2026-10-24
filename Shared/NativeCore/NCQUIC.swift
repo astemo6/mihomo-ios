@@ -77,7 +77,8 @@ enum NCQUICSniffer {
         let ciphertext = Data(bytes[(pnOffset + pnLength)..<packetEnd])
         guard ciphertext.count > 16,
               let sealed = try? AES.GCM.SealedBox(combined: Data(nonce) + ciphertext),
-              let payload = try? AES.GCM.open(sealed, using: SymmetricKey(data: key)) else { return nil }
+              let payload = try? AES.GCM.open(sealed, using: SymmetricKey(data: key),
+                                               authenticating: Data(header)) else { return nil }
         return payload
     }
 

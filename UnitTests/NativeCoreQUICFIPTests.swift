@@ -1,3 +1,4 @@
+import CryptoKit
 import XCTest
 @testable import Mihomo
 
@@ -28,6 +29,23 @@ final class NativeCoreQUICFIPTests: XCTestCase {
                        hex("1f369613dd76d5467730efcbe3b1a22d"))
         XCTAssertEqual(NCTLS13.expandLabel(.sha256, secret: clientSecret, label: "quic hp", context: Data(), length: 16),
                        hex("9f50449e04a0e810283a1e9933adedd2"))
+        // Stage 1.5: header-protection mask via NCAES over the sample
+        // (packet bytes 22..<38), cross-checked against Go crypto/aes.
+        let hpKey = NCTLS13.expandLabel(.sha256, secret: clientSecret, label: "quic hp", context: Data(), length: 16)
+        let sample = Data(packet[22..<38])
+        XCTAssertEqual(NCAES(key: hpKey)?.encryptBlock(sample),
+                       hex("96f06a00abcfe3ef6b7adbb8abb5f675"))
+        // Stage 1.6: manual AEAD open with the known unprotected header
+        // (pn = 0, so the nonce is the raw iv) and packet bytes 19..<112.
+        let quicKey = NCTLS13.expandLabel(.sha256, secret: clientSecret, label: "quic key", context: Data(), length: 16)
+        let quicIV = NCTLS13.expandLabel(.sha256, secret: clientSecret, label: "quic iv", context: Data(), length: 12)
+        var combined = Data(quicIV)
+        combined.append(Data(packet[19..<112]))
+        let box = try? AES.GCM.SealedBox(combined: combined)
+        let aad = hex("c000000001088394c8f03e5157080000405e00")
+        let opened = box.flatMap { try? AES.GCM.open($0, using: SymmetricKey(data: quicKey), authenticating: aad) }
+        XCTAssertEqual(opened.map { Data($0) },
+                       hex("06004049010000450303aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa00000213010100001a0000000f000e000b6578616d706c652e636f6d002b0003020304"))
         // Stage 2: full Initial decryption.
         let payload = NCQUICSniffer.decryptInitial(packet)
         XCTAssertNotNil(payload)
