@@ -42,6 +42,7 @@
 | 12 | Go brotli 读取器接受截断的 br 数据（一行修复） | — | ✅ cd98419 合入，Go 绿；build 317 已发布 |
 | 13 | 原生 MitM Go 侧（body 通道、TLS 交接、relay）已在 `feat/native-mitm` 4fec47b，发版后推送并交给 B 线 | 4fec47b → 07698ee | ✅ rebase 到 v0.19.22 e33f838，合入 B1/B2/B4/B6；推为 `test/native-mitm` 07698ee，Go（含 `-race`）+ JSC 一致性 69/69 + NativeBodyStoreTests 8/8 全绿（feat/native-mitm 仍只在本地）。与集成分支的合并：仅 `bridge/mitm/handler.go` 一处两边都保留 |
 | 14 | JavaScriptCore 丢失脚本上下文后重新载入：以前用未处理的源码（不去 BOM、不转换 Egern 脚本），按文件签名命中缓存时甚至载入空脚本 | 1249bde | ✅ 已合入集成分支，Go 测试 TestNativeReloadAfterMissingContext；test/home-egern-v2 CI 绿，随下一版发布 |
+| 15 | v0.19.23 集成：喜马拉雅内存（小 body ≤256 KB 按大小准入、拒绝前先回收、严重级别清理更克制、GOMEMLIMIT 防抖底线、Go/JSC 内存分项诊断、JSC 真回收）+ `feat/native-mitm` 第一期（原生 body 通道默认关闭，回退 Go） | 897fffd, 975e105, 07698ee → 集成 55cdee4 | 🔄 test/home-egern-v2 全量 CI 进行中，全绿即发 v0.19.23；之后真机看诊断 |
 
 ## B 线：原生 MitM / 重写 / 脚本（按类别拆分，可多人并行）
 
