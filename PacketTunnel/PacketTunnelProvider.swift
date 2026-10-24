@@ -80,6 +80,7 @@ final class PacketTunnelProvider: NEPacketTunnelProvider {
     private let memoryProbe = ExtensionMemoryProbe()
     private var bridge: PacketFlowBridge?
     private var nativePlane: NCDataPlane?
+    private var nativeController: NCController?
     private var memoryGuard: MemoryGuard?
     private var traffic: TrafficRecorder?
     private var liveStats: LiveStatsSampler?
@@ -190,7 +191,13 @@ final class PacketTunnelProvider: NEPacketTunnelProvider {
                     let plane = NCDataPlane(engine: engine, flow: self.packetFlow, mtu: UInt16(clamping: overrides.tunMTU))
                     do {
                         try plane.start()
-                        self.stopLock.lock(); self.nativePlane = plane; self.stopLock.unlock()
+                        var controller: NCController?
+                        if overrides.controllerPort > 0 {
+                            controller = NCController(engine: engine, plane: plane,
+                                                      port: overrides.controllerPort, secret: overrides.secret)
+                            controller?.start()
+                        }
+                        self.stopLock.lock(); self.nativePlane = plane; self.nativeController = controller; self.stopLock.unlock()
                         StartupLog.write("native core data plane up, \(engine.statsLine)")
                         completionHandler(nil)
                         return
@@ -345,6 +352,7 @@ final class PacketTunnelProvider: NEPacketTunnelProvider {
         TunnelStopReason.clearAlive() // fix/vpn-stays-on: a clean stop (after the traffic timer can no longer re-mark)
         LibmihomoStop()
         LibmihomoDumpDiagnostics()
+        takeNativeController()?.stop()
         takeNativePlane()?.stop()
         takeBridge()?.stop()
         completionHandler()
@@ -370,6 +378,14 @@ final class PacketTunnelProvider: NEPacketTunnelProvider {
         let p = nativePlane
         nativePlane = nil
         return p
+    }
+
+    /// Removes and returns the native controller exactly once.
+    private func takeNativeController() -> NCController? {
+        stopLock.lock(); defer { stopLock.unlock() }
+        let c = nativeController
+        nativeController = nil
+        return c
     }
 
     /// The traffic recorder, read under stopLock (handleAppMessage / sleep run on the NE queue).
