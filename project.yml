@@ -67,6 +67,9 @@ targets:
       - path: PacketTunnel/NativeMitM/HTTP
       # native MitM stage 2 lane `upstream` (B8b): built into the app only for UnitTests/NativeMitmUpstreamTests.swift.
       - path: PacketTunnel/NativeMitM/Upstream
+      # native MitM stage 3a: the native rewrite engine (switch nativeMitmRewrite, default OFF), in the app only for
+      # UnitTests/NativeMitmRewriteTests.swift.
+      - path: PacketTunnel/NativeMitM/Rewrite
     configFiles:
       Debug: Config/App.signing.xcconfig
       Release: Config/App.signing.xcconfig

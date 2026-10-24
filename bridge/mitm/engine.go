@@ -160,6 +160,7 @@ func (e *Engine) Start() error {
 
 // Stop closes the listener and all state.
 func (e *Engine) Stop() {
+	forgetSnapshot(e) // stage 3a: the native rewrite snapshot of this engine (rewritesnap.go)
 	e.StopRelay()
 	e.tasks.shutdown()
 	_ = e.Store.Flush() // v0.19.9: coalesced $persistentStore writes reach the file before the tunnel goes

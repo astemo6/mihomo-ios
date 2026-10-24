@@ -8,6 +8,10 @@
 //     (Go: header/body rewrites, response scripts, body lane) → body from upstream / Go pipe / NativeBodyStore
 //     → client. Keep-alive loop; pipelined bytes stay in the client buffer.
 //
+// Stage 3a (Rewrite/NativeRewriteDriver.swift): the default driver asks the native rewrite engine first when the
+// separate switch `nativeMitmRewrite` is on (default OFF); a native decision never reaches Go, a deferral or the
+// switch off goes to GoMitmFlowDriver exactly as before.
+//
 // Fallback: the session only exists after Go handed the connection over (first byte from the TLS lane). Before
 // that every failure is Go's first-byte fallback (nativeterm.go). The runtime switch (NativeMitmRuntime, default
 // OFF) decides whether the TLS front is registered at all; when off, or past the session cap, listen() answers 0
@@ -58,7 +62,7 @@ enum NativeMitmRuntime {
     @discardableResult
     static func install(front: MitmTLSFronting & LibmihomoNativeTLSFrontProtocol, upstream: MitmUpstreamConnecting,
                         codec: HTTPCodec, bodies: NativeBodyReading = NativeBodyStore.shared,
-                        driver: MitmFlowDriving = GoMitmFlowDriver()) -> Bool {
+                        driver: MitmFlowDriving = NativeRewriteDriver(inner: GoMitmFlowDriver())) -> Bool {
         guard enabled else { LibmihomoSetNativeTLSFront(nil); return false }
         front.acceptHandler = { conn in
             NativeMitmSession(conn: conn, codec: codec, upstream: upstream, driver: driver, bodies: bodies)?.start()
