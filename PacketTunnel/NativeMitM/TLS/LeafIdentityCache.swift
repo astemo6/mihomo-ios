@@ -1,17 +1,15 @@
 // feat/s2-tls (native MitM stage 2, B7): per-host TLS server identities for the native front.
 //
-// Certificates are NEVER issued in Swift: the leaf comes from Go (LibmihomoMitmLeafIdentity → Engine.LeafIdentity,
-// PKCS#12 Legacy, leaf + CA chain + shared leaf key, password mitm.LeafIdentityPassword "tern"), so the native
-// front and the Go path always present the same certificate. SecPKCS12Import keeps it in memory (no keychain).
+// In pure native mode, leaf certificates are issued locally in Swift via NCCAManager / LeafCertIssuer,
+// signed by the user's CA and packaged as PKCS#12. SecPKCS12Import keeps it in memory (no keychain).
 // The bounded LRU follows astemo6's draft CertCache (origin/draft/native-mitm-b7b8 6b53dc6: normalized host key,
 // most-recent-first eviction), plus a byte budget, since every entry pins a SecIdentity + its key in the NE.
 
 import Foundation
-import Libmihomo
 import Security
 
 enum NativeTLSError: Error, Equatable {
-    /// Go has no CA / no leaf for this host (LibmihomoMitmLeafIdentity returned nil).
+    /// No CA / no leaf for this host (leaf issuance returned nil).
     case noIdentity
     /// SecPKCS12Import failed (status) or returned no identity (errSecItemNotFound).
     case importFailed(OSStatus)
@@ -112,19 +110,19 @@ final class BoundedLRU<Value> {
     }
 }
 
-/// host → SecIdentity, imported from Go's PKCS#12 on first use. Failures are not cached (the CA may be installed
-/// later; Go's own breaker limits retries).
+/// host → SecIdentity, imported from PKCS#12 on first use. Failures are not cached (the CA may be installed
+/// later).
 final class LeafIdentityCache {
-    static let password = "tern" // = mitm.LeafIdentityPassword (bridge/mitm/nativeterm.go)
+    static let password = "tern"
 
-    /// Defaults: 64 hosts (the Go CA's leaf cache size) and 1 MB (a P-256 leaf p12 is ~2.5 KB, RSA-2048 ~4 KB).
+    /// Defaults: 64 hosts and 1 MB (a P-256 leaf p12 is ~2.5 KB).
     static let shared = LeafIdentityCache()
 
     let cache: BoundedLRU<LeafIdentity>
     private let source: (String) -> Data?
 
     init(maxCount: Int = 64, maxBytes: Int = 1 << 20,
-         source: @escaping (String) -> Data? = { LibmihomoMitmLeafIdentity($0) }) {
+         source: @escaping (String) -> Data? = { NCCAManager.shared.leafP12(for: $0) }) {
         cache = BoundedLRU(maxCount: maxCount, maxBytes: maxBytes)
         self.source = source
     }

@@ -6,8 +6,7 @@
 // once our ServerHello arrives. Every failure here is a FALLBACK SIGNAL, never a client-visible error:
 //   - listen returns 0 (no handler, no identity, import failed, listener budget full, listener won't start)
 //     → Go terminates TLS itself;
-//   - the handshake fails before ready → no ServerHello reaches Go → Go's first-byte fallback (3 s) on the
-//     untouched buffer, and the failure kind goes to LibmihomoMitmNativeHandshakeFailed for pinning memory.
+//   - the handshake fails before ready → no ServerHello reaches caller, and the failure kind goes to NCPinningMemory.
 // One listener per host: Network.framework fixes a listener's TLS identity at creation and has no public per-SNI
 // certificate callback. TLS: server identity = Go leaf, ALPN http/1.1, min TLS 1.2.
 // s3-h2: when native h2 is on (NativeH2Runtime, switch nativeMitmH2) and the client's offer (Go passes it to
@@ -16,22 +15,26 @@
 // Not registered here — the `wire` lane calls register() behind the runtime switch (NativeMitmRuntime.defaultOn, iOS 17+).
 
 import Foundation
-import Libmihomo
 import Network
 import Security
 
-final class MitmTLSFront: NSObject, LibmihomoNativeTLSFrontProtocol {
+final class MitmTLSFront: NSObject, MitmTLSFronting {
     static let shared = MitmTLSFront()
 
     /// Set by the session layer (`wire`). Called on `queue` once per handshaken client connection. While nil,
-    /// listen() declines so Go keeps every connection.
+    /// listen() declines.
     var onAccept: ((TLSByteStream) -> Void)? {
         get { lock.lock(); defer { lock.unlock() }; return _onAccept }
         set { lock.lock(); _onAccept = newValue; lock.unlock() }
     }
-    /// Reported handshake failures (defaults to Go's pinning memory). Injectable for tests.
+    /// Set by wire lane (S2Contract MitmTLSFronting conformance)
+    var acceptHandler: ((MitmAcceptedConnection) -> Void)?
+
+    /// Reported handshake failures (stored in Swift NCPinningMemory). Injectable for tests.
     var reportHandshakeFailure: (String, String) -> Void = { host, kind in
-        _ = LibmihomoMitmNativeHandshakeFailed(host, kind)
+        if kind == "cert" || kind == "closed" {
+            NCPinningMemory.shared.markPinned(host)
+        }
     }
 
     let identities: LeafIdentityCache
@@ -61,14 +64,20 @@ final class MitmTLSFront: NSObject, LibmihomoNativeTLSFrontProtocol {
         self.handshakeTimeout = handshakeTimeout
     }
 
-    func register() { LibmihomoSetNativeTLSFront(self) }
+    func register() {
+        // Pure native: registered in NativeCore data plane
+    }
 
-    // MARK: LibmihomoNativeTLSFrontProtocol (Go goroutine; may block up to ~1 s)
+    // MARK: MitmTLSFronting
+
+    func listen(host: String, alpn: String) -> Int64 {
+        listen(host as String?, alpn: alpn as String?)
+    }
 
     func listen(_ host: String?, alpn: String?) -> Int64 {
         guard let host, !host.isEmpty else { return 0 }
-        // Admission (session cap + runtime switch, set by NativeMitmRuntime.install): decided here, before Go hands
-        // the connection over, so a declined connection still takes the Go path.
+        if NCPinningMemory.shared.isPinned(host) { return 0 }
+        // Admission (session cap + runtime switch, set by NativeMitmRuntime.install): decided here
         if let admit, !admit() { return 0 }
         let h2 = NativeH2Runtime.enabled && (alpn ?? "").split(separator: ",").contains { $0.trimmingCharacters(in: .whitespaces) == "h2" }
         switch port(for: host, h2: h2) {
