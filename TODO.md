@@ -28,18 +28,18 @@
 
 | # | 事项 | 提交 | 状态 |
 |---|---|---|---|
-| 1 | 喜马拉雅自动断连：脚本有界准入队列、断开即释放、内存紧张原样放行 | 32431dc, 17598a4 | 已合入，等 CI |
-| 2 | YouTube 去广告失效：尊重 `max-size` / `-1` / `binary-body-mode`，动态 body 预算，大 body 串行 | 同上 | 已合入，等 CI |
-| 3 | JavaScriptCore 默认脚本引擎，失败/超时/wedge 自动回退 goja | 15b1ea4 | 87c90f6 一致性 37/37 绿（goja 1285 ms / JSC 2061 ms，stops 1，无 wedge），等 072f77a 全量 CI |
-| 4 | mihomo v1.19.33 | 21d0699 | 已合入，等 CI |
-| 5 | 设置热应用 + 高级设置 → 网络 → Tailscale | c1fbb6a | 已合入，等 CI |
-| 6 | Final 策略、配置规则编辑/停用/删除/恢复，「分流规则」 | 3f6faef | test91 Final 选择页「恢复配置原样」找不到 → 072f77a 移到顶部，等 CI |
-| 7 | 界面审查（标题、旧路径、通知权限、搜索入口） | 51e19db | 已合入，等 CI |
-| 8 | 首页下拉卡顿 | 365247b | PinnedHeaderScrollTests 4/4 绿（87c90f6），等 072f77a 全量 CI |
-| 9 | 更多页行高统一 | 029a983 | test91_RowHeightParity 绿（87c90f6），等 072f77a 全量 CI |
-| 10 | 既有 UI 测试失败（test03/05/09/11/12/25/33/40/58）；可莉分类名翻译；订阅页脚「左滑删除或编辑」 | c48f714, b12faaf, 87c90f6 | ✅ 87c90f6 中英 light:1/3、dark 全绿，等 072f77a 复核 |
-| 11 | `bridge.Start` 数据竞争 | 集成分支 | `-race` ours 0（竞争已消失）；测试 hook 二次 close panic → 4b2ea57，等 CI |
-| 12 | Go brotli 读取器接受截断的 br 数据（一行修复） | — | 待办 |
+| 1 | 喜马拉雅自动断连：脚本有界准入队列、断开即释放、内存紧张原样放行 | 32431dc, 17598a4 | ✅ v0.19.22 build 317 已发布，等真机验证 |
+| 2 | YouTube 去广告失效：尊重 `max-size` / `-1` / `binary-body-mode`，动态 body 预算，大 body 串行 | 同上 | ✅ v0.19.22 build 317 已发布，等真机验证 |
+| 3 | JavaScriptCore 默认脚本引擎，失败/超时/wedge 自动回退 goja | 15b1ea4 | ✅ 一致性 37/37（072f77a：goja 1275 ms / JSC 1448 ms 中文，1305 / 2030 ms 英文；stops 1，无 wedge）；build 317 已发布 |
+| 4 | mihomo v1.19.33 | 21d0699 | ✅ build 317 已发布 |
+| 5 | 设置热应用 + 高级设置 → 网络 → Tailscale | c1fbb6a | ✅ build 317 已发布 |
+| 6 | Final 策略、配置规则编辑/停用/删除/恢复，「分流规则」 | 3f6faef | ✅ test91_ProfileRuleAndFinalEdit 绿（072f77a + 测试 02f3eb2，light/dark）；build 317 已发布 |
+| 7 | 界面审查（标题、旧路径、通知权限、搜索入口） | 51e19db | ✅ build 317 已发布 |
+| 8 | 首页下拉卡顿 | 365247b | ✅ PinnedHeaderScrollTests 4/4 绿（072f77a）；build 317 已发布 |
+| 9 | 更多页行高统一 | 029a983 | ✅ test91_RowHeightParity 绿（072f77a）；build 317 已发布 |
+| 10 | 既有 UI 测试失败（test03/05/09/11/12/25/33/40/58）；可莉分类名翻译；订阅页脚「左滑删除或编辑」 | c48f714, b12faaf, 87c90f6 | ✅ 072f77a 中英各分片绿（test30/test31 偶发失败单独重跑通过）；build 317 已发布 |
+| 11 | `bridge.Start` 数据竞争 | 集成分支 | ✅ `-race` ours 0，Go 全绿（3eb2815）；build 317 已发布 |
+| 12 | Go brotli 读取器接受截断的 br 数据（一行修复） | — | ✅ cd98419 合入，Go 绿；build 317 已发布 |
 | 13 | 原生 MitM Go 侧（body 通道、TLS 交接、relay）已在 `feat/native-mitm` 4fec47b，发版后推送并交给 B 线 | 4fec47b | 本地完成 |
 
 ## B 线：原生 MitM / 重写 / 脚本（按类别拆分，可多人并行）
