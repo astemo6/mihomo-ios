@@ -16,8 +16,8 @@
 | A | v0.19.22 集成、CI、发版；原生 MitM 的 Go 侧 | 维护者（Hark） | 集成分支 `release/0.19.17`、`test/home-egern-v2`、`CHANGELOG.md`、版本号、`bridge/**` | — | 进行中 |
 | B | 原生 MitM / 重写 / 脚本，拆成 B1–B10 十个类别，各自认领 | 见 B 线表 | 见 B 线表 | `feat/native-mitm` | B4 现在可做，其余等 0.19.22 发版 |
 | C | 真机验证（不写代码） | 待认领 | 只提 Issue / 贴日志 | 正式版 / TestFlight | 0.19.22 发版后 |
-| D | 界面与文案小修 | 维护者（Hark） | `App/Views/**`、`App/Localizable.xcstrings`（文案只此一线改） | 0.19.22 发版后的 `main` | 现在（分支先不合入，0.19.22 发版后再合） |
-| E | 隧道性能优化 | 维护者（Hark） | `PacketTunnel/**`（B 线文件除外）、Sub-Store 相关 | 0.19.22 发版后的 `main` | 现在（分支先不合入，0.19.22 发版后再合） |
+| D | 界面与文案小修 | 维护者（Hark） | `App/Views/**`、`App/Localizable.xcstrings`（文案只此一线改） | 0.19.22 发版后的 `main` | ✅ `fix/lane-d-ui` 3581b73 CI 全绿，0.19.22 发版后合入 |
+| E | 隧道性能优化 | 维护者（Hark） | `PacketTunnel/**`（B 线文件除外）、Sub-Store 相关 | 0.19.22 发版后的 `main` | ✅ `fix/lane-e-perf` 40d377e（CI e015237 全绿），0.19.22 发版后合入 |
 | F | CI 与自动化 | 维护者（Hark） | `.github/workflows/**`、`scripts/**` | `main` | 现在可开始 |
 
 说明：0.19.22 正在集成，`App/`、`PacketTunnel/`、`bridge/` 冲突风险很高，所以 B / D / E 等发版后再动；F 和 A 不重叠，现在就能做。
