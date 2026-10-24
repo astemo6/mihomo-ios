@@ -102,6 +102,12 @@ final class ScriptEngineConformanceTests: XCTestCase {
         defer { try? FileManager.default.removeItem(at: home) }
         let cases = try corpus()
         XCTAssertGreaterThan(cases.count, 30)
+        // feat/native-mitm: "lane" cases run the JavaScriptCore side through the real native body store (Swift
+        // decoding, blob ids ≥ 2^52 served by the engine, large results kept native); every handle must be gone
+        // after each case, on the Go side (laneLive) and in the store.
+        let laneCases = cases.filter { $0["lane"] as? Bool == true }.count
+        if laneCases > 0 { JSCScriptEngine.setLaneForTests(NativeBodyStore.shared) }
+        defer { if laneCases > 0 { JSCScriptEngine.setLaneForTests(nil) } }
         var gojaMs: Int64 = 0, jscMs: Int64 = 0, passed = 0
         for (i, c) in cases.enumerated() {
             let name = c["name"] as? String ?? "?"
@@ -122,7 +128,15 @@ final class ScriptEngineConformanceTests: XCTestCase {
             let n = (r["nativeMs"] as? NSNumber)?.int64Value ?? 0
             gojaMs += g
             jscMs += n
-            let ok = r["ok"] as? Bool == true
+            var ok = r["ok"] as? Bool == true
+            if laneCases > 0 {
+                let goLive = (r["laneLive"] as? NSNumber)?.int64Value ?? 0
+                let st = NativeBodyStore.shared.stats()
+                if goLive != 0 || !st.hasPrefix("native bodies 0 ") {
+                    ok = false
+                    XCTFail("\(name): lane handles left: go \(goLive), store \(st)")
+                }
+            }
             if ok { passed += 1 }
             Self.log("\(i + 1)/\(cases.count) \(name) \(ok ? "ok" : "FAIL") goja \(g) ms, jsc \(n) ms, wall \(wall) ms")
             if !ok { Self.appendDiag("failures.txt", "\(name): \(out)\n") }
@@ -131,5 +145,12 @@ final class ScriptEngineConformanceTests: XCTestCase {
         }
         // Simulator numbers (the app process may JIT; the tunnel extension on a device runs the interpreter).
         Self.log("\(passed)/\(cases.count) cases passed: goja \(gojaMs) ms, JavaScriptCore \(jscMs) ms; \(JSCScriptEngine.status())")
+        if laneCases > 0 {
+            let st = NativeBodyStore.shared.stats()
+            Self.log("lane: \(laneCases) cases; \(st); go live \(JSCScriptEngine.laneLive())")
+            // the lane was really used (bodies opened by Go in the store), not silently skipped
+            let opened = st.range(of: #"opened (\d+)"#, options: .regularExpression).flatMap { Int(st[$0].dropFirst(7)) } ?? 0
+            XCTAssertGreaterThanOrEqual(opened, laneCases, "lane cases did not open store bodies: \(st)")
+        }
     }
 }
