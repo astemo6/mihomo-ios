@@ -683,9 +683,13 @@ func (e *Engine) modifyResponse(f *flow, resp *http.Response) error {
 	laneHanded := false
 	defer func() {
 		if nativeH > 0 && !laneHanded {
-			laneFree(laneAny(), nativeH)
+			laneFree(lane, nativeH)
 		}
 	}()
+	// laneSkipBody: a lane-backed pass-through body (handler_lane.go laneSkipped: the encoded bytes the lane
+	// received, then the upstream's rest). Whatever replaces resp.Body later must close it, or the lane
+	// handle stays allocated in native memory for the rest of the run.
+	var laneSkipBody io.Closer
 	blen := func() int {
 		if nativeH > 0 {
 			return int(nativeLen)
@@ -772,6 +776,7 @@ func (e *Engine) modifyResponse(f *flow, resp *http.Response) error {
 				}
 				return nativeLen <= int64(limit)
 			case laneSkipped:
+				laneSkipBody = resp.Body
 				return false // skipped (respSkip says why); resp.Body passes the original through
 			}
 			// the lane refused before reading anything: the Go path below
@@ -838,6 +843,10 @@ func (e *Engine) modifyResponse(f *flow, resp *http.Response) error {
 			return
 		}
 		closeUpstream()
+		if laneSkipBody != nil {
+			_ = laneSkipBody.Close() // frees the lane handle behind the pass-through body it replaces
+			laneSkipBody = nil
+		}
 		resp.Body = io.NopCloser(bytes.NewReader(b))
 		resp.ContentLength = int64(len(b))
 		resp.Header.Set("Content-Length", strconv.Itoa(len(b)))
@@ -937,19 +946,22 @@ func (e *Engine) modifyResponse(f *flow, resp *http.Response) error {
 			case res.BodySet && res.NativeBody > 0:
 				// the new body stays in the lane (or is the lane body handed back as is)
 				if nativeH > 0 && nativeH != res.NativeBody {
-					laneFree(laneAny(), nativeH)
+					laneFree(lane, nativeH)
 				}
-				nativeH, nativeLen, body = res.NativeBody, laneAny().Len(res.NativeBody, false), nil
+				nativeH, nativeLen, body = res.NativeBody, -1, nil
+				if lane != nil { // always: a lane result needs a lane body first
+					nativeLen = lane.Len(res.NativeBody, false)
+				}
 				loaded, tooBig = true, false
 				if nativeLen < 0 {
-					// the lane lost the result: nothing sane to send
-					nativeH = 0
+					// the lane lost the result: nothing sane to send (the deferred free still balances the
+					// handle count; Free of an unknown handle is a no-op in the store)
 					laneFailure(e.logf, "result handle gone")
 					return fmt.Errorf("脚本 %s 的结果丢失", rule.Script.Name)
 				}
 			case res.BodySet:
 				if nativeH > 0 {
-					laneFree(laneAny(), nativeH)
+					laneFree(lane, nativeH)
 					nativeH, nativeLen = 0, 0
 				}
 				setBody(res.Body)
@@ -968,11 +980,11 @@ func (e *Engine) modifyResponse(f *flow, resp *http.Response) error {
 			resp.Header.Del("Transfer-Encoding")
 			resp.TransferEncoding = nil
 		}
-		lr := newLaneReader(laneAny(), nativeH, false, e.logf)
+		lr := newLaneReader(lane, nativeH, false, e.logf)
 		laneHanded = true
 		ent.Response(resp.StatusCode, resp.Header)
 		if capture {
-			ent.RespBody(lanePrefix(laneAny(), nativeH, captureLimit), "")
+			ent.RespBody(lanePrefix(lane, nativeH, captureLimit), "")
 		}
 		if noBody {
 			_ = lr.Close()

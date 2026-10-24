@@ -216,7 +216,9 @@ func laneLoad(ctx context.Context, n NativeBodies, logf Logger, r io.Reader, enc
 		if k > 0 {
 			res.consumed = true
 			res.raw += int64(k)
-			if res.raw > limit && enc == "" {
+			// parity with the Go path (readCapped): the received bytes themselves are capped at limit, whatever
+			// the encoding — an incompressible "compressed" body would otherwise hold raw + decoded natively
+			if res.raw > limit {
 				res.pending = append([]byte(nil), buf[:k]...)
 				return fail(errBodyTooBig)
 			}
