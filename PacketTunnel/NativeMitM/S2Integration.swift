@@ -233,6 +233,10 @@ extension NativeMitmRuntime {
 enum NativeMitmBench {
     /// JSON {enginePort, ca} or {error}.
     static func start() -> String { LibmihomoMitmBenchStart() }
+    /// native-final combo bench: start with rewrite rules on the bench host (comboRules: request header, response
+    /// header and response jq rules).
+    static func start(rules: String) -> String { LibmihomoMitmBenchStartRules(rules) }
+    static func comboRules() -> String { LibmihomoMitmBenchComboRules() }
     /// JSON {heapInuse, sys, stack, goroutines, handed, fellBack} after a GC.
     static func goMemory() -> String { LibmihomoMitmBenchMem() }
     static func stop() { LibmihomoMitmBenchStop() }

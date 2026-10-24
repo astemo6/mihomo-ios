@@ -18,6 +18,7 @@ import (
 	"path/filepath"
 	"runtime"
 	"runtime/debug"
+	"strconv"
 	"strings"
 	"sync"
 
@@ -90,7 +91,20 @@ func benchRelay(a, b net.Conn) {
 
 // MitmBenchStart starts the bench engine for host "api.bench.test" (every upstream reaches a local origin that
 // answers small JSON, through a mihomo stand-in). Returns JSON {enginePort, ca (base64 DER)} or {error}.
-func MitmBenchStart() string {
+func MitmBenchStart() string { return MitmBenchStartRules("") }
+
+// benchComboRules: the combo bench's rule set (native-final) — a request header rule, a response header rule and a
+// response jq rule on the bench JSON, all of which the native rewrite / body engines decide in Swift.
+const benchComboRules = `http-request ^https://api\.bench\.test/json header-add X-Bench 1
+http-response ^https://api\.bench\.test/json header-add X-Bench-Resp 1
+http-response-jq ^https://api\.bench\.test/json '.data.list = [] | .data.combo = true'`
+
+// MitmBenchComboRules returns benchComboRules (for MitmBenchStartRules).
+func MitmBenchComboRules() string { return benchComboRules }
+
+// MitmBenchStartRules is MitmBenchStart with rewrite rules (newline-separated [URL Rewrite] / [Header Rewrite] /
+// body / jq lines) on the bench host — the combo memory bench (native-final) measures the rule engines too.
+func MitmBenchStartRules(rules string) string {
 	fail := func(err error) string {
 		b, _ := json.Marshal(map[string]string{"error": err.Error()})
 		return string(b)
@@ -125,6 +139,11 @@ func MitmBenchStart() string {
 	}
 	b.e = e
 	cfg := &mitm.Config{Enabled: true, MitM: true, Hostnames: []string{"api.bench.test"}, SkipCertVerify: true}
+	for i, l := range strings.Split(rules, "\n") {
+		if l = strings.TrimSpace(l); l != "" {
+			cfg.Rules = append(cfg.Rules, mitm.Item{ID: "bench" + strconv.Itoa(i), Enabled: true, Line: l})
+		}
+	}
 	_ = os.MkdirAll(mitm.ScriptsDir(home), 0o755)
 	e.Reload(cfg, mitm.Build(home, cfg))
 	p12, err := e.LeafIdentity("api.bench.test")

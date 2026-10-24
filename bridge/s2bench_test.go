@@ -100,6 +100,37 @@ func TestMitmBenchRoundTrip(t *testing.T) {
 	}
 }
 
+// The combo bench's rules (native-final): the Go path applies all three on the bench JSON.
+func TestMitmBenchComboRules(t *testing.T) {
+	var st struct {
+		EnginePort int    `json:"enginePort"`
+		CA         string `json:"ca"`
+		Error      string `json:"error"`
+	}
+	if err := json.Unmarshal([]byte(MitmBenchStartRules(MitmBenchComboRules())), &st); err != nil || st.Error != "" {
+		t.Fatalf("start: %v %s", err, st.Error)
+	}
+	defer MitmBenchStop()
+	der, _ := base64.StdEncoding.DecodeString(st.CA)
+	ca, err := x509.ParseCertificate(der)
+	if err != nil {
+		t.Fatal(err)
+	}
+	pool := x509.NewCertPool()
+	pool.AddCert(ca)
+	pu, _ := url.Parse(fmt.Sprintf("http://127.0.0.1:%d", st.EnginePort))
+	c := &http.Client{Timeout: 10 * time.Second, Transport: &http.Transport{Proxy: http.ProxyURL(pu), TLSClientConfig: &tls.Config{RootCAs: pool}}}
+	resp, err := c.Get("https://api.bench.test/json")
+	if err != nil {
+		t.Fatal(err)
+	}
+	b, _ := io.ReadAll(resp.Body)
+	resp.Body.Close()
+	if resp.Header.Get("X-Bench-Resp") != "1" || !strings.Contains(string(b), `"keep":1`) || !strings.Contains(string(b), `"combo":true`) || !strings.Contains(string(b), `"list":[]`) {
+		t.Fatalf("combo rules not applied: %v %q", resp.Header, b)
+	}
+}
+
 type bufferedConn struct {
 	net.Conn
 	r *bufio.Reader
