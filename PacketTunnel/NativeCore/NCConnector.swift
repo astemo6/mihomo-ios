@@ -115,6 +115,14 @@ enum NCConnector {
                 queue.async { completion(nil, Failure.handshake("trojan missing password")) }
                 return
             }
+            if realityParams(proxy) != nil {
+                dialReality(proxy: proxy, server: server, port: port, queue: queue) { base, err in
+                    guard let base else { completion(nil, err); return }
+                    base.send(NCTrojan.requestHead(password: password, target: target))
+                    completion(base, nil)
+                }
+                return
+            }
             let raw = NCStream(to: server, port: port,
                                tlsServerName: proxy.fields["sni"]?.string ?? server,
                                allowInsecure: proxy.fields["skip-cert-verify"]?.bool ?? false,
@@ -127,6 +135,22 @@ enum NCConnector {
         case "vless":
             guard let uuid = proxy.uuid else {
                 queue.async { completion(nil, Failure.handshake("vless missing uuid")) }
+                return
+            }
+            if realityParams(proxy) != nil {
+                guard let head = NCVLESS.requestHead(uuid: uuid, target: target,
+                                                     flow: proxy.fields["flow"]?.string ?? "") else {
+                    queue.async { completion(nil, Failure.handshake("vless bad uuid")) }
+                    return
+                }
+                dialReality(proxy: proxy, server: server, port: port, queue: queue) { base0, err in
+                    guard let base0 else { completion(nil, err); return }
+                    transportStream(raw: base0, proxy: proxy, server: server) { base, terr in
+                        guard let base else { completion(nil, terr); return }
+                        base.send(head)
+                        completion(NCVLESSRelayStream(raw: base), nil)
+                    }
+                }
                 return
             }
             let useTLS = proxy.fields["tls"]?.bool ?? false
@@ -152,10 +176,58 @@ enum NCConnector {
                     completion(NCVLESSRelayStream(raw: base), nil)
                 }
             }
+        case "hysteria2", "hy2":
+            sharedHysteria2(proxy: proxy, server: server, port: port, queue: queue) { conn, err in
+                guard let conn, let stream = conn.openTCP(target: target) else {
+                    completion(nil, err ?? Failure.handshake("hysteria2 open stream failed"))
+                    return
+                }
+                completion(stream, nil)
+            }
         case "vmess":
             connectVMess(target: target, proxy: proxy, server: server, port: port, queue: queue, completion: completion)
         default:
             queue.async { completion(nil, Failure.unsupported(proxy.type)) }
+        }
+    }
+
+    // MARK: REALITY
+
+    /// Parse reality-opts {public-key (base64url), short-id (hex)}.
+    static func realityParams(_ proxy: NCProxy) -> NCTLS13.RealityParams? {
+        guard let opts = proxy.fields["reality-opts"]?.object,
+              let pubB64 = opts["public-key"]?.string else { return nil }
+        var b64 = pubB64.replacingOccurrences(of: "-", with: "+").replacingOccurrences(of: "_", with: "/")
+        while b64.count % 4 != 0 { b64.append("=") }
+        guard let pub = Data(base64Encoded: b64), pub.count == 32 else { return nil }
+        var shortID = Data()
+        let shortHex = opts["short-id"]?.string ?? ""
+        var idx = shortHex.startIndex
+        while idx < shortHex.endIndex, shortID.count < 8 {
+            let next = shortHex.index(idx, offsetBy: 2, limitedBy: shortHex.endIndex) ?? shortHex.endIndex
+            guard let byte = UInt8(shortHex[idx..<next], radix: 16) else { break }
+            shortID.append(byte)
+            idx = next
+        }
+        return NCTLS13.RealityParams(publicKey: pub, shortID: shortID)
+    }
+
+    /// Dial TCP and run the hand-rolled TLS 1.3 REALITY handshake over it.
+    static func dialReality(proxy: NCProxy, server: String, port: Int, queue: DispatchQueue,
+                            completion: @escaping (NCRelayStream?, Error?) -> Void) {
+        guard let reality = realityParams(proxy) else {
+            queue.async { completion(nil, Failure.handshake("reality-opts invalid")) }
+            return
+        }
+        let raw = NCStream(to: server, port: port, queue: queue)
+        raw.start { err in
+            guard err == nil else { completion(nil, err); return }
+            let tls = NCTLSClientStream(raw: raw, config: .init(
+                serverName: proxy.fields["servername"]?.string ?? proxy.fields["sni"]?.string ?? server,
+                reality: reality), queue: queue)
+            tls.startHandshake { herr in
+                completion(herr == nil ? tls : nil, herr)
+            }
         }
     }
 
@@ -172,7 +244,7 @@ enum NCConnector {
 
     /// If the proxy uses the ws transport, wrap the connected raw stream and
     /// run the upgrade; otherwise pass the raw stream through.
-    static func transportStream(raw: NCStream, proxy: NCProxy, server: String,
+    static func transportStream(raw: NCRelayStream, proxy: NCProxy, server: String,
                                 completion: @escaping (NCRelayStream?, Error?) -> Void) {
         guard (proxy.fields["network"]?.string ?? "tcp") == "ws" else {
             completion(raw, nil)
@@ -183,6 +255,57 @@ enum NCConnector {
         let ws = NCWebSocketStream(raw: raw, hostHeader: host, path: path, headers: headers)
         ws.startHandshake { err in
             completion(err == nil ? ws : nil, err)
+        }
+    }
+
+    // MARK: Hysteria2 (shared QUIC connection per proxy)
+
+    private static var hy2Registry: [String: NCHysteria2Connection] = [:]
+    private static let hy2Lock = NSLock()
+
+    static func sharedHysteria2(proxy: NCProxy, server: String, port: Int, queue: DispatchQueue,
+                                completion: @escaping (NCHysteria2Connection?, Error?) -> Void) {
+        let key = "\(proxy.name)|\(server)|\(port)"
+        hy2Lock.lock()
+        if let existing = hy2Registry[key] {
+            hy2Lock.unlock()
+            waitHy2Ready(existing, queue: queue, attempts: 60, completion: completion)
+            return
+        }
+        guard let conn = NCHysteria2Connection(proxy: proxy, queue: queue) else {
+            hy2Lock.unlock()
+            queue.async { completion(nil, Failure.handshake("hysteria2 bad config")) }
+            return
+        }
+        hy2Registry[key] = conn
+        hy2Lock.unlock()
+        conn.start { err in
+            if err == nil {
+                completion(conn, nil)
+            } else {
+                hy2Lock.lock()
+                hy2Registry.removeValue(forKey: key)
+                hy2Lock.unlock()
+                completion(nil, err)
+            }
+        }
+    }
+
+    private static func waitHy2Ready(_ conn: NCHysteria2Connection, queue: DispatchQueue, attempts: Int,
+                                     completion: @escaping (NCHysteria2Connection?, Error?) -> Void) {
+        switch conn.state {
+        case .ready:
+            completion(conn, nil)
+        case .failed, .closed:
+            completion(nil, Failure.handshake("hysteria2 connection failed"))
+        default:
+            guard attempts > 0 else {
+                completion(nil, Failure.handshake("hysteria2 connect timeout"))
+                return
+            }
+            queue.asyncAfter(deadline: .now() + 0.25) {
+                waitHy2Ready(conn, queue: queue, attempts: attempts - 1, completion: completion)
+            }
         }
     }
 
@@ -213,6 +336,16 @@ enum NCConnector {
         case "none": security = NCVMess.securityNone
         default:
             queue.async { completion(nil, Failure.unsupported("vmess cipher \(proxy.fields["cipher"]?.string ?? "?")")) }
+            return
+        }
+        if realityParams(proxy) != nil {
+            dialReality(proxy: proxy, server: server, port: port, queue: queue) { base0, err in
+                guard let base0 else { completion(nil, err); return }
+                transportStream(raw: base0, proxy: proxy, server: server) { base, terr in
+                    guard let base else { completion(nil, terr); return }
+                    finishVMess(base: base, target: target, uuidBytes: uuidBytes, security: security, completion: completion)
+                }
+            }
             return
         }
         let raw: NCStream

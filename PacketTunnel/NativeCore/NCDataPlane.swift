@@ -368,6 +368,12 @@ final class NCDataPlane {
                 return
             }
             session = ss
+        case .proxy(let proxy) where proxy.type == "hysteria2" || proxy.type == "hy2":
+            guard let hy2 = NCUDPHysteria2Session(proxy: proxy, queue: queue) else {
+                udpDropped += 1
+                return
+            }
+            session = hy2
         case .proxy(let proxy) where proxy.type == "vmess":
             guard let vm = NCUDPVMessSession(proxy: proxy, target: target, queue: queue) else {
                 udpDropped += 1

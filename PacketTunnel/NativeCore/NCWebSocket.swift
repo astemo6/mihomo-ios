@@ -5,7 +5,7 @@ import Foundation
 /// VLESS. Client frames are masked as required; server messages are
 /// reassembled across fragmentation and surfaced as stream bytes.
 final class NCWebSocketStream: NCRelayStream {
-    private let raw: NCStream
+    private let raw: NCRelayStream
     private let hostHeader: String
     private let path: String
     private let extraHeaders: [String: String]
@@ -14,7 +14,7 @@ final class NCWebSocketStream: NCRelayStream {
     private var fragmentBuffer = Data()
     private var closed = false
 
-    init(raw: NCStream, hostHeader: String, path: String, headers: [String: String]) {
+    init(raw: NCRelayStream, hostHeader: String, path: String, headers: [String: String]) {
         self.raw = raw
         self.hostHeader = hostHeader
         self.path = path.hasPrefix("/") ? path : "/" + path

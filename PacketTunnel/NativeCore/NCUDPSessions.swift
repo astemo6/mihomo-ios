@@ -294,11 +294,11 @@ final class NCUDPSSSession: NCUDPSession {
     private var cancelled = false
 
     init?(proxy: NCProxy, queue: DispatchQueue) {
-        guard let cipher = proxy.cipher, let password = proxy.password,
+        guard let cipherName = proxy.cipher, let pw = proxy.password,
               let server = proxy.server, let port = proxy.port,
-              NCShadowsocks.spec(for: cipher) != nil else { return nil }
-        self.cipher = cipher
-        self.password = password
+              NCShadowsocks.spec(for: cipherName) != nil else { return nil }
+        self.cipher = cipherName
+        self.password = pw
         conn = NWConnection(host: NWEndpoint.Host(server),
                             port: NWEndpoint.Port(rawValue: UInt16(clamping: port)) ?? .any,
                             using: .udp)
@@ -586,10 +586,9 @@ final class NCUDPVMessSession: NCUDPSession {
     private var cancelled = false
 
     init?(proxy: NCProxy, target: NCTarget, queue: DispatchQueue) {
-        guard (proxy.fields["alterId"]?.int ?? 0) == 0,
-              let uuidString = proxy.uuid,
-              let uuidBytes = NCVLESS.uuidBytes(uuidString).map({ Data($0) })
-                ?? Optional(NCSHA1.uuidV5NilNamespace(uuidString)) else { return nil }
+        let uuidBytesOpt: Data? = proxy.uuid.flatMap { uuidString in
+            NCVLESS.uuidBytes(uuidString).map { Data($0) } ?? NCSHA1.uuidV5NilNamespace(uuidString)
+        }
         let sec: UInt8
         switch (proxy.fields["cipher"]?.string ?? "auto").lowercased() {
         case "auto", "aes-128-gcm": sec = NCVMess.securityAESGCM
@@ -597,6 +596,7 @@ final class NCUDPVMessSession: NCUDPSession {
         case "none": sec = NCVMess.securityNone
         default: return nil
         }
+        guard (proxy.fields["alterId"]?.int ?? 0) == 0, let uuidBytes = uuidBytesOpt else { return nil }
         security = sec
         if proxy.fields["tls"]?.bool ?? false {
             raw = NCStream(to: proxy.server ?? "", port: proxy.port ?? 0,
@@ -691,8 +691,8 @@ final class NCUDPVLESSSession: NCUDPSession {
     private var cancelled = false
 
     init?(proxy: NCProxy, target: NCTarget, queue: DispatchQueue) {
-        guard let uuid = proxy.uuid,
-              let head = NCVLESS.requestHead(uuid: uuid, target: target, command: 0x02) else { return nil }
+        let headOpt: Data? = proxy.uuid.flatMap { NCVLESS.requestHead(uuid: $0, target: target, command: 0x02) }
+        guard let head = headOpt else { return nil }
         if proxy.fields["tls"]?.bool ?? false {
             raw = NCStream(to: proxy.server ?? "", port: proxy.port ?? 0,
                            tlsServerName: proxy.fields["servername"]?.string ?? proxy.fields["sni"]?.string ?? proxy.server ?? "",

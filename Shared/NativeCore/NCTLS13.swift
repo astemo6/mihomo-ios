@@ -1,0 +1,527 @@
+import Foundation
+import CryptoKit
+import Security
+
+/// TLS 1.3 (RFC 8446) key schedule and primitives, plus the REALITY client
+/// authentication math (aligned with mihomo component/tls/reality.go, which
+/// itself follows XTLS/REALITY). Pure value logic — the record/handshake
+/// state machine lives in NCTLSClient.swift.
+enum NCTLS13 {
+    enum HashKind {
+        case sha256, sha384
+
+        var length: Int { self == .sha256 ? 32 : 48 }
+
+        func hash(_ data: Data) -> Data {
+            switch self {
+            case .sha256: return Data(SHA256.hash(data: data))
+            case .sha384: return Data(SHA384.hash(data: data))
+            }
+        }
+
+        func hmac(key: Data, _ data: Data) -> Data {
+            switch self {
+            case .sha256:
+                return HMAC<SHA256>.authenticationCode(for: data, using: SymmetricKey(data: key)).withUnsafeBytes { Data($0) }
+            case .sha384:
+                return HMAC<SHA384>.authenticationCode(for: data, using: SymmetricKey(data: key)).withUnsafeBytes { Data($0) }
+            }
+        }
+    }
+
+    enum Suite: UInt16 {
+        case aes128GCM = 0x1301
+        case aes256GCM = 0x1302
+        case chacha20 = 0x1303
+
+        var hashKind: HashKind { self == .aes256GCM ? .sha384 : .sha256 }
+        var keyLength: Int {
+            switch self {
+            case .aes128GCM: return 16
+            case .aes256GCM, .chacha20: return 32
+            }
+        }
+    }
+
+    // MARK: HKDF (RFC 5869) over the suite hash
+
+    static func hkdfExtract(_ kind: HashKind, salt: Data, ikm: Data) -> Data {
+        kind.hmac(key: salt, ikm)
+    }
+
+    static func hkdfExpand(_ kind: HashKind, prk: Data, info: Data, length: Int) -> Data {
+        var out = Data()
+        var previous = Data()
+        var counter: UInt8 = 1
+        while out.count < length {
+            var input = previous
+            input.append(info)
+            input.append(counter)
+            previous = kind.hmac(key: prk, input)
+            out.append(previous)
+            counter &+= 1
+        }
+        return Data(out.prefix(length))
+    }
+
+    static func expandLabel(_ kind: HashKind, secret: Data, label: String, context: Data, length: Int) -> Data {
+        let fullLabel = Data("tls13 ".utf8) + Data(label.utf8)
+        var info = Data()
+        info.appendBE16(UInt16(length))
+        info.append(UInt8(fullLabel.count))
+        info.append(fullLabel)
+        info.append(UInt8(context.count))
+        info.append(context)
+        return hkdfExpand(kind, prk: secret, info: info, length: length)
+    }
+
+    static func deriveSecret(_ kind: HashKind, secret: Data, label: String, transcriptHash: Data) -> Data {
+        expandLabel(kind, secret: secret, label: label, context: transcriptHash, length: kind.length)
+    }
+
+    /// The full client-side schedule from the ECDHE shared secret and the two
+    /// transcript checkpoints (ClientHello..ServerHello and ..server Finished).
+    struct Schedule {
+        let clientHandshakeSecret: Data
+        let serverHandshakeSecret: Data
+        let clientAppSecret: Data
+        let serverAppSecret: Data
+
+        init(kind: HashKind, ecdhe: Data, hashCHtoSH: Data, hashCHtoServerFinished: Data) {
+            let zero = Data(repeating: 0, count: kind.length)
+            let emptyHash = kind.hash(Data())
+            let early = hkdfExtract(kind, salt: zero, ikm: zero)
+            let derived1 = deriveSecret(kind, secret: early, label: "derived", transcriptHash: emptyHash)
+            let handshake = hkdfExtract(kind, salt: derived1, ikm: ecdhe)
+            clientHandshakeSecret = deriveSecret(kind, secret: handshake, label: "c hs traffic", transcriptHash: hashCHtoSH)
+            serverHandshakeSecret = deriveSecret(kind, secret: handshake, label: "s hs traffic", transcriptHash: hashCHtoSH)
+            let derived2 = deriveSecret(kind, secret: handshake, label: "derived", transcriptHash: emptyHash)
+            let master = hkdfExtract(kind, salt: derived2, ikm: zero)
+            clientAppSecret = deriveSecret(kind, secret: master, label: "c ap traffic", transcriptHash: hashCHtoServerFinished)
+            serverAppSecret = deriveSecret(kind, secret: master, label: "s ap traffic", transcriptHash: hashCHtoServerFinished)
+        }
+    }
+
+    static func trafficKeyIV(_ kind: HashKind, suite: Suite, secret: Data) -> (key: Data, iv: Data) {
+        (expandLabel(kind, secret: secret, label: "key", context: Data(), length: suite.keyLength),
+         expandLabel(kind, secret: secret, label: "iv", context: Data(), length: 12))
+    }
+
+    static func finishedVerifyData(_ kind: HashKind, trafficSecret: Data, transcriptHash: Data) -> Data {
+        let key = expandLabel(kind, secret: trafficSecret, label: "finished", context: Data(), length: kind.length)
+        return kind.hmac(key: key, transcriptHash)
+    }
+
+    static func updateTrafficSecret(_ kind: HashKind, secret: Data) -> Data {
+        expandLabel(kind, secret: secret, label: "traffic upd", context: Data(), length: kind.length)
+    }
+
+    /// AEAD seal/open for one TLS record (nonce = IV XOR sequence).
+    static func sealRecord(suite: Suite, key: Data, iv: Data, seq: UInt64, header: Data, plaintext: Data) -> Data? {
+        let nonce = recordNonce(iv: iv, seq: seq)
+        switch suite {
+        case .aes128GCM, .aes256GCM:
+            guard let n = try? AES.GCM.Nonce(data: nonce),
+                  let box = try? AES.GCM.seal(plaintext, using: SymmetricKey(data: key), nonce: n, authenticating: header),
+                  let combined = box.combined else { return nil }
+            return Data(combined.dropFirst(12))
+        case .chacha20:
+            guard let n = try? ChaChaPoly.Nonce(data: nonce),
+                  let box = try? ChaChaPoly.seal(plaintext, using: SymmetricKey(data: key), nonce: n, authenticating: header) else { return nil }
+            return Data(box.combined.dropFirst(12))
+        }
+    }
+
+    static func openRecord(suite: Suite, key: Data, iv: Data, seq: UInt64, header: Data, sealed: Data) -> Data? {
+        let nonce = recordNonce(iv: iv, seq: seq)
+        var combined = nonce
+        combined.append(sealed)
+        switch suite {
+        case .aes128GCM, .aes256GCM:
+            guard let box = try? AES.GCM.SealedBox(combined: combined) else { return nil }
+            return try? AES.GCM.open(box, using: SymmetricKey(data: key), authenticating: header)
+        case .chacha20:
+            guard let box = try? ChaChaPoly.SealedBox(combined: combined) else { return nil }
+            return try? ChaChaPoly.open(box, using: SymmetricKey(data: key), authenticating: header)
+        }
+    }
+
+    private static func recordNonce(iv: Data, seq: UInt64) -> Data {
+        var nonce = iv
+        for i in 0..<8 {
+            nonce[nonce.count - 1 - i] ^= UInt8((seq >> UInt64(i * 8)) & 0xff)
+        }
+        return nonce
+    }
+
+    // MARK: REALITY
+
+    struct RealityParams {
+        let publicKey: Data // 32-byte X25519
+        let shortID: Data // 0...8 bytes
+    }
+
+    /// authKey = HKDF-SHA256(ikm: X25519(clientPriv, serverPub),
+    /// salt: clientRandom[0..<20], info: "REALITY"), 32 bytes out.
+    static func realityAuthKey(clientPrivate: Curve25519.KeyAgreement.PrivateKey, serverPublic: Data, clientRandom: Data) -> Data? {
+        guard let pub = try? Curve25519.KeyAgreement.PublicKey(rawRepresentation: serverPublic),
+              let shared = try? clientPrivate.sharedSecretFromKeyAgreement(with: pub) else { return nil }
+        let sharedData = shared.withUnsafeBytes { Data($0) }
+        let prk = hkdfExtract(.sha256, salt: Data(clientRandom.prefix(20)), ikm: sharedData)
+        return hkdfExpand(.sha256, prk: prk, info: Data("REALITY".utf8), length: 32)
+    }
+
+    /// The 16 plaintext session-ID bytes REALITY seals into the hello:
+    /// [1, 8, 2, 0] || BE32 unix time || shortID (zero-padded to 8).
+    static func realitySessionIDPlain(shortID: Data, unixTime: UInt32) -> Data {
+        var sid = Data([1, 8, 2, 0])
+        sid.appendBE32(unixTime)
+        var sidTail = Data(shortID.prefix(8))
+        while sidTail.count < 8 { sidTail.append(0) }
+        sid.append(sidTail)
+        return sid
+    }
+
+    /// Seal the session ID exactly as the Go client does: AES-256-GCM with
+    /// authKey, nonce = clientRandom[20..<32], AAD = the whole ClientHello
+    /// handshake message with the session-ID field still zeroed.
+    static func realitySealSessionID(authKey: Data, plain: Data, clientRandom: Data, aad: Data) -> Data? {
+        let nonce = Data(clientRandom.suffix(12))
+        guard let n = try? AES.GCM.Nonce(data: nonce),
+              let box = try? AES.GCM.seal(plain, using: SymmetricKey(data: authKey), nonce: n, authenticating: aad),
+              let combined = box.combined else { return nil }
+        return Data(combined.dropFirst(12))
+    }
+
+    /// REALITY server proof: the leaf certificate's signature field equals
+    /// HMAC-SHA512(authKey, leaf Ed25519 public key).
+    static func realityVerifyLeaf(authKey: Data, leafDER: Data) -> Bool {
+        guard let cert = NCX509Certificate(der: leafDER),
+              cert.publicKeyAlgorithm == .ed25519,
+              let signature = cert.signatureValue else { return false }
+        let mac = HMAC<SHA512>.authenticationCode(for: cert.publicKeyBytes, using: SymmetricKey(data: authKey))
+        return Data(mac) == signature
+    }
+}
+
+/// A deliberately small X.509 reader: just enough to find the subject public
+/// key info and the signature value of a certificate (no chain building —
+/// that is SecTrust's job in the plain-TLS path).
+struct NCX509Certificate {
+    enum PublicKeyAlgorithm {
+        case ed25519, rsa, ecP256, ecP384, unknown
+    }
+
+    let publicKeyAlgorithm: PublicKeyAlgorithm
+    /// Raw public key bytes (Ed25519: 32 bytes; RSA: PKCS#1 DER; EC: x9.63 point).
+    let publicKeyBytes: Data
+    /// The certificate's signatureValue, without the BIT STRING header byte.
+    let signatureValue: Data?
+
+    init?(der: Data) {
+        var reader = NCDERReader(data: der)
+        guard let cert = reader.readTLV(), cert.tag == 0x30 else { return nil }
+        var certReader = NCDERReader(data: cert.value)
+        guard let tbs = certReader.readTLV(), tbs.tag == 0x30,
+              let _ = certReader.readTLV(), // signature algorithm
+              let sig = certReader.readTLV(), sig.tag == 0x03, sig.value.count > 1 else { return nil }
+        signatureValue = Data(sig.value.dropFirst())
+        var tbsReader = NCDERReader(data: tbs.value)
+        // [0] version (optional), serial, alg, issuer, validity, subject, SPKI
+        var fields: [(tag: UInt8, value: Data)] = []
+        while let field = tbsReader.readTLV() { fields.append(field) }
+        let spkiIndex = fields.first?.tag == 0xa0 ? 6 : 5
+        guard fields.count > spkiIndex, fields[spkiIndex].tag == 0x30 else { return nil }
+        var spkiReader = NCDERReader(data: fields[spkiIndex].value)
+        guard let alg = spkiReader.readTLV(), alg.tag == 0x30,
+              let keyBits = spkiReader.readTLV(), keyBits.tag == 0x03, keyBits.value.count > 1 else { return nil }
+        var algReader = NCDERReader(data: alg.value)
+        guard let oid = algReader.readTLV(), oid.tag == 0x06 else { return nil }
+        let oidBytes = [UInt8](oid.value)
+        publicKeyBytes = Data(keyBits.value.dropFirst())
+        switch oidBytes {
+        case [0x2b, 0x65, 0x70]: // 1.3.101.112 Ed25519
+            publicKeyAlgorithm = .ed25519
+        case [0x2a, 0x86, 0x48, 0x86, 0xf7, 0x0d, 0x01, 0x01, 0x01]: // rsaEncryption
+            publicKeyAlgorithm = .rsa
+        case [0x2a, 0x86, 0x48, 0xce, 0x3d, 0x02, 0x01]: // ecPublicKey
+            // params carry the curve OID
+            if let curve = algReader.readTLV(), curve.tag == 0x06 {
+                switch [UInt8](curve.value) {
+                case [0x2a, 0x86, 0x48, 0xce, 0x3d, 0x03, 0x01, 0x07]:
+                    publicKeyAlgorithm = .ecP256
+                case [0x2b, 0x81, 0x04, 0x00, 0x22]:
+                    publicKeyAlgorithm = .ecP384
+                default:
+                    publicKeyAlgorithm = .unknown
+                }
+            } else {
+                publicKeyAlgorithm = .unknown
+            }
+        default:
+            publicKeyAlgorithm = .unknown
+        }
+    }
+}
+
+/// Minimal DER TLV walker.
+struct NCDERReader {
+    let data: Data
+    var offset = 0
+
+    mutating func readTLV() -> (tag: UInt8, value: Data)? {
+        guard offset + 2 <= data.count else { return nil }
+        let tag = data[offset]
+        var idx = offset + 1
+        var length = Int(data[idx])
+        idx += 1
+        if length & 0x80 != 0 {
+            let count = length & 0x7f
+            guard count >= 1, count <= 4, idx + count <= data.count else { return nil }
+            length = 0
+            for _ in 0..<count {
+                length = length << 8 | Int(data[idx])
+                idx += 1
+            }
+        }
+        guard idx + length <= data.count else { return nil }
+        let value = Data(data[idx..<(idx + length)])
+        offset = idx + length
+        return (tag, value)
+    }
+}
+
+/// CertificateVerify signature checks (RFC 8446 §4.4.3): Ed25519 and ECDSA
+/// through CryptoKit; RSA-PSS by hand (raw RSA public operation via
+/// Security, then EMSA-PSS verification with MGF1) to control the exact PSS
+/// parameters TLS mandates.
+enum NCTLSVerify {
+    static func certificateVerify(scheme: UInt16, cert: NCX509Certificate, signedContent: Data, signature: Data) -> Bool {
+        switch scheme {
+        case 0x0807: // ed25519
+            guard cert.publicKeyAlgorithm == .ed25519,
+                  let pub = try? Curve25519.Signing.PublicKey(rawRepresentation: cert.publicKeyBytes) else { return false }
+            return pub.isValidSignature(signature, for: signedContent)
+        case 0x0403: // ecdsa_secp256r1_sha256
+            guard cert.publicKeyAlgorithm == .ecP256,
+                  let pub = try? P256.Signing.PublicKey(x963Representation: cert.publicKeyBytes),
+                  let raw = derToRaw(signature, partLength: 32),
+                  let sig = try? P256.Signing.ECDSASignature(rawRepresentation: raw) else { return false }
+            return pub.isValidSignature(sig, for: Data(SHA256.hash(data: signedContent)))
+        case 0x0503: // ecdsa_secp384r1_sha384
+            guard cert.publicKeyAlgorithm == .ecP384,
+                  let pub = try? P384.Signing.PublicKey(x963Representation: cert.publicKeyBytes),
+                  let raw = derToRaw(signature, partLength: 48),
+                  let sig = try? P384.Signing.ECDSASignature(rawRepresentation: raw) else { return false }
+            return pub.isValidSignature(sig, for: Data(SHA384.hash(data: signedContent)))
+        case 0x0804, 0x0805, 0x0806: // rsa_pss_rsae_sha256/384/512
+            guard cert.publicKeyAlgorithm == .rsa else { return false }
+            let kind: NCTLS13.HashKind = scheme == 0x0804 ? .sha256 : .sha384
+            let digest: Data
+            let saltLength: Int
+            switch scheme {
+            case 0x0804: digest = Data(SHA256.hash(data: signedContent)); saltLength = 32
+            case 0x0805: digest = Data(SHA384.hash(data: signedContent)); saltLength = 48
+            default:
+                digest = Data(SHA512.hash(data: signedContent)); saltLength = 64
+                return verifyPSS(cert: cert, digest: digest, signature: signature, hashKind: nil, saltLength: saltLength)
+            }
+            _ = kind
+            return verifyPSS(cert: cert, digest: digest, signature: signature, hashKind: kind, saltLength: saltLength)
+        default:
+            return false
+        }
+    }
+
+    private static func derToRaw(_ der: Data, partLength: Int) -> Data? {
+        var reader = NCDERReader(data: der)
+        guard let seq = reader.readTLV(), seq.tag == 0x30 else { return nil }
+        var inner = NCDERReader(data: seq.value)
+        guard let r = inner.readTLV(), r.tag == 0x02, let s = inner.readTLV(), s.tag == 0x02 else { return nil }
+        func padded(_ value: Data) -> Data {
+            var v = value
+            while v.count > 1, v.first == 0, v.count > partLength { v = Data(v.dropFirst()) }
+            while v.count < partLength { v = Data([0]) + v }
+            return v
+        }
+        let out = padded(r.value) + padded(s.value)
+        return out.count == partLength * 2 ? out : nil
+    }
+
+    /// EMSA-PSS verification: EM = RSA public op(signature); unmask with
+    /// MGF1(hash), then H' must equal hash(00*8 || digest || salt).
+    private static func verifyPSS(cert: NCX509Certificate, digest: Data, signature: Data, hashKind: NCTLS13.HashKind?, saltLength: Int) -> Bool {
+        guard let em = rsaPublicOperation(publicKeyDER: cert.publicKeyBytes, input: signature) else { return false }
+        let hashLength = digest.count
+        let emBits = rsaModulusBits(publicKeyDER: cert.publicKeyBytes) - 1
+        let emLen = (emBits + 7) / 8
+        guard em.count >= emLen, em.suffix(emLen).last == 0xbc else { return false }
+        let emBlock = Data(em.suffix(emLen))
+        let maskedDB = emBlock.prefix(emLen - hashLength - 1)
+        let h = emBlock[emLen - hashLength - 1..<emLen - 1]
+        var dbMask = mgf1(seed: Data(h), length: maskedDB.count, hashLength: hashLength)
+        var db = Data()
+        for i in 0..<maskedDB.count { db.append(maskedDB[i] ^ dbMask[i]) }
+        let unusedBits = 8 * emLen - emBits
+        if unusedBits > 0 {
+            db[0] &= UInt8(0xff >> unusedBits)
+            dbMask = dbMask // silence
+        }
+        // DB must be 00...00 || 01 || salt
+        var idx = 0
+        while idx < db.count, db[idx] == 0 { idx += 1 }
+        guard idx < db.count, db[idx] == 0x01 else { return false }
+        let salt = Data(db[(idx + 1)...])
+        guard salt.count == saltLength else { return false }
+        var mPrime = Data(repeating: 0, count: 8)
+        mPrime.append(digest)
+        mPrime.append(salt)
+        let hPrime: Data
+        switch digest.count {
+        case 32: hPrime = Data(SHA256.hash(data: mPrime))
+        case 48: hPrime = Data(SHA384.hash(data: mPrime))
+        case 64: hPrime = Data(SHA512.hash(data: mPrime))
+        default: return false
+        }
+        return hPrime == Data(h)
+    }
+
+    private static func mgf1(seed: Data, length: Int, hashLength: Int) -> Data {
+        var out = Data()
+        var counter: UInt32 = 0
+        while out.count < length {
+            var input = seed
+            input.appendBE32(counter)
+            switch hashLength {
+            case 32: out.append(Data(SHA256.hash(data: input)))
+            case 48: out.append(Data(SHA384.hash(data: input)))
+            default: out.append(Data(SHA512.hash(data: input)))
+            }
+            counter += 1
+        }
+        return Data(out.prefix(length))
+    }
+
+    /// Raw RSA public-key operation through Security (m^e mod n).
+    private static func rsaPublicOperation(publicKeyDER: Data, input: Data) -> Data? {
+        let attributes: [String: Any] = [
+            kSecAttrKeyType as String: kSecAttrKeyTypeRSA,
+            kSecAttrKeyClass as String: kSecAttrKeyClassPublic,
+        ]
+        guard let key = SecKeyCreateWithData(publicKeyDER as CFData, attributes as CFDictionary, nil) else { return nil }
+        var error: Unmanaged<CFError>?
+        guard let result = SecKeyCreateEncryptedData(key, .rsaEncryptionRaw, input as CFData, &error) else { return nil }
+        return result as Data
+    }
+
+    private static func rsaModulusBits(publicKeyDER: Data) -> Int {
+        var reader = NCDERReader(data: publicKeyDER)
+        guard let seq = reader.readTLV(), seq.tag == 0x30 else { return 0 }
+        var inner = NCDERReader(data: seq.value)
+        guard let modulus = inner.readTLV(), modulus.tag == 0x02 else { return 0 }
+        var bytes = modulus.value
+        while bytes.count > 1, bytes.first == 0 { bytes = Data(bytes.dropFirst()) }
+        var bits = bytes.count * 8
+        if let first = bytes.first {
+            var b = first
+            while b & 0x80 == 0, b != 0 { bits -= 1; b <<= 1 }
+        }
+        return bits
+    }
+}
+
+extension NCTLS13 {
+    /// Build the ClientHello handshake message (Chrome-shaped, TLS 1.3 with
+    /// an X25519 key share). The session ID field starts at byte offset 39 —
+    /// REALITY sealing depends on that exact layout.
+    static func buildClientHello(random: Data, sessionID: Data, serverName: String, alpn: [String], keyShare: Data) -> Data {
+        var body = Data()
+        body.appendBE16(0x0303) // legacy version
+        body.append(random)
+        body.append(UInt8(sessionID.count))
+        body.append(sessionID)
+        var suites = Data()
+        for s: UInt16 in [0x1301, 0x1302, 0x1303, 0xc02b, 0xc02f, 0xc02c, 0xc030, 0xcca9, 0xcca8, 0xc013, 0xc014] {
+            suites.appendBE16(s)
+        }
+        body.appendBE16(UInt16(suites.count))
+        body.append(suites)
+        body.append(contentsOf: [0x01, 0x00]) // compression: null only
+
+        var exts = Data()
+        func ext(_ type: UInt16, _ payload: Data) {
+            exts.appendBE16(type)
+            exts.appendBE16(UInt16(payload.count))
+            exts.append(payload)
+        }
+        var sni = Data()
+        let name = Data(serverName.utf8)
+        sni.appendBE16(UInt16(name.count + 3))
+        sni.append(0x00)
+        sni.appendBE16(UInt16(name.count))
+        sni.append(name)
+        ext(0, sni)
+        var groups = Data()
+        groups.appendBE16(6)
+        for g: UInt16 in [0x001d, 0x0017, 0x0018] { groups.appendBE16(g) }
+        ext(10, groups)
+        ext(11, Data([0x03, 0x00, 0x01, 0x02]))
+        var sigs = Data()
+        sigs.appendBE16(18)
+        for s: UInt16 in [0x0403, 0x0804, 0x0401, 0x0503, 0x0805, 0x0501, 0x0806, 0x0601, 0x0201] { sigs.appendBE16(s) }
+        ext(13, sigs)
+        var alpnData = Data()
+        var protocols = Data()
+        for p in alpn {
+            protocols.append(UInt8(p.utf8.count))
+            protocols.append(contentsOf: p.utf8)
+        }
+        alpnData.appendBE16(UInt16(protocols.count))
+        alpnData.append(protocols)
+        ext(16, alpnData)
+        ext(5, Data([0x01, 0x00, 0x00, 0x00, 0x00]))
+        ext(18, Data())
+        ext(23, Data())
+        ext(35, Data())
+        ext(43, Data([0x03, 0x03, 0x04, 0x03, 0x03]))
+        ext(45, Data([0x01, 0x01]))
+        var share = Data()
+        share.appendBE16(UInt16(keyShare.count + 4))
+        share.appendBE16(0x001d)
+        share.appendBE16(UInt16(keyShare.count))
+        share.append(keyShare)
+        ext(51, share)
+
+        body.appendBE16(UInt16(exts.count))
+        body.append(exts)
+
+        var message = Data()
+        message.append(0x01) // client_hello
+        message.append(0x00)
+        message.appendBE16(UInt16(body.count))
+        message.append(body)
+
+        // Chrome-style padding to at least 512 bytes of handshake message.
+        if message.count < 512 {
+            let padLen = 512 - message.count - 4
+            if padLen > 0 {
+                var exts2 = exts
+                exts2.appendBE16(21)
+                exts2.appendBE16(UInt16(padLen))
+                exts2.append(Data(repeating: 0, count: padLen))
+                var body2 = Data()
+                let extStart = body.count - exts.count - 2
+                body2.append(body.prefix(extStart))
+                body2.appendBE16(UInt16(exts2.count))
+                body2.append(exts2)
+                var message2 = Data()
+                message2.append(0x01)
+                message2.append(0x00)
+                message2.appendBE16(UInt16(body2.count))
+                message2.append(body2)
+                return message2
+            }
+        }
+        return message
+    }
+}
