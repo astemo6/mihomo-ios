@@ -20,6 +20,7 @@ struct ConnectionView: View {
     @State private var resetting = false
     @State private var needsReconnect = false
     @State private var ssidHint: String?
+    @State private var nativeCore = UserDefaults(suiteName: AppShared.appGroup)?.bool(forKey: "nativeCoreEnabled") ?? false
     @State private var ssidAddTick = 0
 
     var body: some View {
@@ -186,6 +187,16 @@ struct ConnectionView: View {
                 } label: { countRow("DNS 劫持", o.dnsHijack, invalid: !DNSHijackSpec.invalid(o.dnsHijack).isEmpty) }
                 .accessibilityIdentifier("conn.dnsHijack")
                 Toggle("隐藏 VPN 图标（实验）", isOn: $o.hideVPNIcon).accessibilityIdentifier("conn.hideVPNIcon")
+                Toggle("原生内核（实验）", isOn: $nativeCore)
+                    .accessibilityIdentifier("conn.nativeCore")
+                    .onChange(of: nativeCore) { v in
+                        UserDefaults(suiteName: AppShared.appGroup)?.set(v, forKey: "nativeCoreEnabled")
+                        needsReconnect = true
+                    }
+                if nativeCore {
+                    Text("原生内核：下次连接时用 Swift/lwIP 原生数据面替代 Go 内核（协议/规则/DNS 与 mihomo 一致，配置照常生效）；启动失败会自动回退 Go 内核。实验阶段：UDP 暂只应答 DNS，控制器统计与部分协议（VMess/VLESS 等）尚未接入，异常时关掉此开关重连即可。")
+                        .font(.footnote).foregroundStyle(.secondary)
+                }
             }
             if o.isProxyOnly || o.isMixed {
                 NavigationLink {
