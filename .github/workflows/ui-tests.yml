@@ -1,7 +1,7 @@
 # test/selftest: self-tests without a device. Runs on pushes to test/** branches (a workflow_dispatch workflow
 # must exist on the default branch before it can be dispatched) and by workflow_dispatch with run_tests=true
 # once merged. Never releases. A commit message containing [only:<testName>] runs just that UI test ([unit:<Class>] adds a unit test class), [skip-go]
-# skips the Go job.
+# skips the Go job, [skip-ui] skips the UI shards (Go-only changes).
 # - go: go vet + the whole bridge test suite with the race detector (Linux).
 # - ui: XCUITest target (project-uitests.yml) on an iOS simulator with the synthetic -UITestSeed profile,
 #   zh-Hans and en, light and dark. Screenshots and per-test reports are uploaded as artifacts only.
@@ -116,7 +116,8 @@ jobs:
           retention-days: 14
 
   ui:
-    if: ${{ github.event_name == 'push' || inputs.run_tests }}
+    # [skip-ui] in the pushed commit message: Go-only change, the macOS UI shards are not run.
+    if: ${{ (github.event_name == 'push' && !contains(github.event.head_commit.message, '[skip-ui]')) || inputs.run_tests }}
     runs-on: macos-15
     timeout-minutes: 120
     strategy:
