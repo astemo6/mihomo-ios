@@ -292,13 +292,23 @@ final class NCUDPSSSession: NCUDPSession {
     private let cipher: String
     private let password: String
     private var cancelled = false
+    /// Set for 2022-blake3-* ciphers: per-session packet crypto (one UDP
+    /// session per app flow, matching the session model of the spec).
+    private let ss2022: NCSS2022UDPCrypto?
 
     init?(proxy: NCProxy, queue: DispatchQueue) {
         guard let cipherName = proxy.cipher, let pw = proxy.password,
               let server = proxy.server, let port = proxy.port,
-              NCShadowsocks.spec(for: cipherName) != nil else { return nil }
+              NCShadowsocks.spec(for: cipherName) != nil || NCSS2022.isMethod2022(cipherName)
+        else { return nil }
         self.cipher = cipherName
         self.password = pw
+        if NCSS2022.isMethod2022(cipherName) {
+            guard let crypto = NCSS2022UDPCrypto(method: cipherName, password: pw) else { return nil }
+            ss2022 = crypto
+        } else {
+            ss2022 = nil
+        }
         conn = NWConnection(host: NWEndpoint.Host(server),
                             port: NWEndpoint.Port(rawValue: UInt16(clamping: port)) ?? .any,
                             using: .udp)
@@ -311,9 +321,13 @@ final class NCUDPSSSession: NCUDPSession {
     private func receiveLoop() {
         conn.receiveMessage { [weak self] data, _, _, error in
             guard let self, !self.cancelled else { return }
-            if let data, let dec = NCSSDecoder(cipher: cipher, password: password),
-               let plain = dec.feed(data), let payload = Self.stripTargetHeader(plain) {
-                self.onReply(payload)
+            if let data {
+                if let ss2022 {
+                    if let decoded = ss2022.decodePacket(data) { self.onReply(decoded.1) }
+                } else if let dec = NCSSDecoder(cipher: cipher, password: password),
+                          let plain = dec.feed(data), let payload = Self.stripTargetHeader(plain) {
+                    self.onReply(payload)
+                }
             }
             if error == nil { self.receiveLoop() }
         }
@@ -336,6 +350,13 @@ final class NCUDPSSSession: NCUDPSession {
     }
 
     func send(_ data: Data, to target: NCTarget) {
+        if let ss2022 {
+            guard let packet = ss2022.encodePacket(target: target, payload: data,
+                                                   timestamp: UInt64(Date().timeIntervalSince1970))
+            else { return }
+            conn.send(content: packet, completion: .idempotent)
+            return
+        }
         guard let enc = NCSSEncoder(cipher: cipher, password: password) else { return }
         var plain = target.atypEncoded
         plain.append(data)

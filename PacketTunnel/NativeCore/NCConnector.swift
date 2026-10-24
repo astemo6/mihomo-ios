@@ -52,6 +52,48 @@ final class NCSSRelayStream: NCRelayStream {
     func cancel() { raw.cancel() }
 }
 
+/// SS2022 relay: the request head (salt + sealed headers) goes out at
+/// connect; the response decoder validates the header before payload flows.
+final class NCSS2022RelayStream: NCRelayStream {
+    private let raw: NCStream
+    private let encoder: NCSS2022Encoder
+    private let decoder: NCSS2022Decoder
+
+    init(raw: NCStream, encoder: NCSS2022Encoder, decoder: NCSS2022Decoder, target: NCTarget) {
+        self.raw = raw
+        self.encoder = encoder
+        self.decoder = decoder
+        if let head = encoder.requestHead(target: target,
+                                          timestamp: UInt64(Date().timeIntervalSince1970)) {
+            raw.send(head)
+        }
+    }
+
+    func send(_ data: Data) {
+        if let wire = encoder.encode(data) { raw.send(wire) }
+        else { raw.cancel() }
+    }
+
+    func receive(_ handler: @escaping (Data?, Error?) -> Void) {
+        raw.receive { [weak self] data, error in
+            guard let self else { handler(nil, error); return }
+            guard let data else { handler(nil, error); return }
+            guard let pieces = self.decoder.feed(data) else {
+                handler(nil, NSError(domain: "NativeCore", code: 3, userInfo: [NSLocalizedDescriptionKey: "shadowsocks 2022 decode failed"]))
+                return
+            }
+            let joined = pieces.reduce(into: Data()) { $0.append($1) }
+            if joined.isEmpty {
+                self.receive(handler)
+            } else {
+                handler(joined, nil)
+            }
+        }
+    }
+
+    func cancel() { raw.cancel() }
+}
+
 enum NCConnector {
     enum Failure: Error {
         case rejected
@@ -99,13 +141,29 @@ enum NCConnector {
                 httpHandshake(raw: raw, target: target, proxy: proxy, completion: completion)
             }
         case "ss":
-            guard let cipher = proxy.cipher, let password = proxy.password,
-                  let enc = NCSSEncoder(cipher: cipher, password: password),
-                  let dec = NCSSDecoder(cipher: cipher, password: password) else {
+            guard let cipher = proxy.cipher, let password = proxy.password else {
                 queue.async { completion(nil, Failure.handshake("bad shadowsocks cipher/password")) }
                 return
             }
             let raw = NCStream(to: server, port: port, queue: queue)
+            if NCSS2022.isMethod2022(cipher) {
+                guard let enc = NCSS2022Encoder(method: cipher, password: password),
+                      let dec = NCSS2022Decoder(method: cipher, password: password,
+                                                requestSalt: enc.salt) else {
+                    queue.async { completion(nil, Failure.handshake("bad shadowsocks 2022 password")) }
+                    return
+                }
+                raw.start { err in
+                    guard err == nil else { completion(nil, err); return }
+                    completion(NCSS2022RelayStream(raw: raw, encoder: enc, decoder: dec, target: target), nil)
+                }
+                return
+            }
+            guard let enc = NCSSEncoder(cipher: cipher, password: password),
+                  let dec = NCSSDecoder(cipher: cipher, password: password) else {
+                queue.async { completion(nil, Failure.handshake("bad shadowsocks cipher/password")) }
+                return
+            }
             raw.start { err in
                 guard err == nil else { completion(nil, err); return }
                 completion(NCSSRelayStream(raw: raw, encoder: enc, decoder: dec, target: target), nil)
