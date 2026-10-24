@@ -80,6 +80,8 @@ final class PacketTunnelProvider: NEPacketTunnelProvider {
     private let memoryProbe = ExtensionMemoryProbe()
     private var bridge: PacketFlowBridge?
     private var memoryGuard: MemoryGuard?
+    /// feat/s3-mem: replaces memoryGuard while the app-group switch nativeMemGovernor is on (default off).
+    private var nativeMemGovernor: NativeMemoryGovernorSampler?
     private var traffic: TrafficRecorder?
     private var liveStats: LiveStatsSampler?
     private var network: NetworkWatcher?
@@ -229,9 +231,17 @@ final class PacketTunnelProvider: NEPacketTunnelProvider {
                 let started: Bool = {
                     self.stopLock.lock(); defer { self.stopLock.unlock() }
                     guard !self._stopped, !timedOut else { return false }
-                    let guardian = MemoryGuard()
-                    guardian.start()
-                    self.memoryGuard = guardian
+                    if NativeMemoryGovernor.enabled {
+                        // feat/s3-mem: one coordinator (Swift) for levels, admission, reclaim, shed and GOMEMLIMIT;
+                        // Go's governor stands down while it runs (bridge/nativegov.go).
+                        let g = NativeMemoryGovernorSampler.makeDefault(onSample: { MemorySnapshotWriter.save(fp: $0, avail: $1) })
+                        g.start()
+                        self.nativeMemGovernor = g
+                    } else {
+                        let guardian = MemoryGuard()
+                        guardian.start()
+                        self.memoryGuard = guardian
+                    }
                     let rec = TrafficRecorder()
                     rec.start()
                     self.traffic = rec
@@ -330,6 +340,8 @@ final class PacketTunnelProvider: NEPacketTunnelProvider {
         stopLock.lock()
         _stopped = true
         let (traffic, liveStats, network, memoryGuard) = (self.traffic, self.liveStats, self.network, self.memoryGuard)
+        let nativeMemGovernor = self.nativeMemGovernor
+        self.nativeMemGovernor = nil
         self.liveStats = nil
         self.network = nil
         self.memoryGuard = nil
@@ -338,6 +350,7 @@ final class PacketTunnelProvider: NEPacketTunnelProvider {
         liveStats?.stop()
         network?.stop()
         memoryGuard?.stop()
+        nativeMemGovernor?.stop()
         TunnelStopReason.clearAlive() // fix/vpn-stays-on: a clean stop (after the traffic timer can no longer re-mark)
         LibmihomoStop()
         // feat/native-mitm: lane handles go back to 0 once the core stopped (one still being freed may show here; a count
@@ -465,11 +478,17 @@ enum MemorySnapshotWriter {
         lock.unlock()
         var json = LibmihomoMemorySnapshot(Int64(fp), Int64(peak), Int64(avail))
         // native MitM stage 2: Go reports on / handed / fellBack; the live session count is Swift's.
-        if var obj = (try? JSONSerialization.jsonObject(with: Data(json.utf8))) as? [String: Any],
-           var native = obj["native"] as? [String: Any] {
-            native["sessions"] = NativeMitmRuntime.liveSessions
-            obj["native"] = native
-            if let d = try? JSONSerialization.data(withJSONObject: obj), let s = String(data: d, encoding: .utf8) { json = s }
+        // feat/s3-mem: 隧道内存 → 内存调度 row (only while the native governor runs).
+        let governor = NativeMemoryGovernor.active
+        if var obj = (try? JSONSerialization.jsonObject(with: Data(json.utf8))) as? [String: Any] {
+            var changed = false
+            if var native = obj["native"] as? [String: Any] {
+                native["sessions"] = NativeMitmRuntime.liveSessions
+                obj["native"] = native
+                changed = true
+            }
+            if let g = governor { obj["governor"] = g.snapshotFields(); changed = true }
+            if changed, let d = try? JSONSerialization.data(withJSONObject: obj), let s = String(data: d, encoding: .utf8) { json = s }
         }
         TunnelMemoryFile.write(json)
         return json

@@ -370,8 +370,11 @@ func memTick(footprint, available int64, now time.Time) {
 	conns, idle := trackConnActivity(now, idleConnAge)
 	var ms runtime.MemStats
 	runtime.ReadMemStats(&ms)
-	if v := governLimit(footprint, ms.HeapAlloc); v > 0 {
-		stage("memory governor: GOMEMLIMIT → %s at footprint %s, available %s, go heap %s", mbs(v), mbs(footprint), mbs(available), mbu(ms.HeapAlloc))
+	// feat/s3-mem: with the native (Swift) governor on, it owns GOMEMLIMIT (nativegov.go).
+	if !nativeGovOn.Load() {
+		if v := governLimit(footprint, ms.HeapAlloc); v > 0 {
+			stage("memory governor: GOMEMLIMIT → %s at footprint %s, available %s, go heap %s", mbs(v), mbs(footprint), mbs(available), mbu(ms.HeapAlloc))
+		}
 	}
 	pressure := (available >= 0 && available < memPressureAvail) || footprint >= memGovernTarget
 	every := memLogCalmEvery

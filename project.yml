@@ -67,6 +67,9 @@ targets:
       - path: PacketTunnel/NativeMitM/HTTP
       # native MitM stage 2 lane `upstream` (B8b): built into the app only for UnitTests/NativeMitmUpstreamTests.swift.
       - path: PacketTunnel/NativeMitM/Upstream
+      # feat/s3-mem: native memory governor (switch nativeMemGovernor, default OFF); in the app for
+      # UnitTests/NativeMitmMemoryGovernorTests.swift and because NativeBodyStore / the session / JSC consult it.
+      - path: PacketTunnel/NativeMitM/Memory
     configFiles:
       Debug: Config/App.signing.xcconfig
       Release: Config/App.signing.xcconfig

@@ -18,6 +18,8 @@ struct TunnelMemorySnapshot: Decodable, Equatable {
     /// native MitM stage 2 (iOS 17+): whether the native front is live, its open sessions, connections it took
     /// over / that fell back to Go since the tunnel started. nil from extensions older than this field.
     var native: NativeMitmMemoryStatus?
+    /// feat/s3-mem: the native memory governor (switch nativeMemGovernor), nil while it is off.
+    var governor: NativeGovernorStatus?
 
     /// The extension's limit as iOS applies it (footprint + what is still available), else ~50 MB.
     var limit: Int64 { available >= 0 ? footprint + available : 50 << 20 }
@@ -35,6 +37,24 @@ struct NativeMitmMemoryStatus: Decodable, Equatable {
         let s = sessions ?? 0, h = Int(handed ?? 0), f = Int(fellBack ?? 0)
         return f > 0 ? String(localized: "开启 · \(s) 个会话 · 已接手 \(h) · 回退 \(f)")
                      : String(localized: "开启 · \(s) 个会话 · 已接手 \(h)")
+    }
+}
+
+struct NativeGovernorStatus: Decodable, Equatable {
+    var level: String
+    var refused: Int?
+    var line: String?
+
+    /// 「内存调度」 row: 原生 · 偏高 · 已拒绝 2.
+    var text: String {
+        let l: String
+        switch level {
+        case "elevated": l = String(localized: "偏高")
+        case "high": l = String(localized: "紧张")
+        case "critical": l = String(localized: "危急")
+        default: l = String(localized: "正常")
+        }
+        return String(localized: "原生 · \(l) · 已拒绝 \(refused ?? 0)")
     }
 }
 
@@ -142,6 +162,9 @@ struct TunnelMemorySection: View {
                 }
                 if let c = s.connections { row("连接数", "\(c)", id: "diag.memory.conns", color: nil) }
                 if let n = s.native { row("原生解密", n.text, id: "diag.memory.nativeMitm", color: nil) }
+                if let g = s.governor {
+                    row("内存调度", g.text, id: "diag.memory.governor", color: g.level == "critical" ? Theme.bad : g.level == "high" ? Theme.warn : nil)
+                }
                 if let t = s.tailscale, t.nodes > 0 { tailscaleRows(t) }
             } else {
                 EmptyStateRow(icon: "memorychip", title: "暂无内存数据", message: "连接一次后显示隧道扩展的内存占用。")

@@ -61,12 +61,31 @@ enum NativeMitmRuntime {
         reserved.removeAll { now.timeIntervalSince($0) > reservationTTL }
     }
 
-    /// Whether another session may start (live + reserved below the cap).
-    static var canAccept: Bool { lock.lock(); defer { lock.unlock() }; pruneLocked(); return live + reserved.count < maxSessions }
+    /// Whether another session may start: live + reserved below the cap, then (feat/s3-mem) the native memory
+    /// governor, when on, admits it as small work; declined → Go path.
+    static var canAccept: Bool {
+        lock.lock()
+        pruneLocked()
+        let room = live + reserved.count < maxSessions
+        lock.unlock()
+        return room && governorAdmitsSession()
+    }
+
+    /// feat/s3-mem: nil governor (switch nativeMemGovernor off) admits everything.
+    private static func governorAdmitsSession() -> Bool {
+        NativeMemoryGovernor.active?.admit(.session, bytes: NativeMemoryGovernor.sessionCost) ?? true
+    }
     static var liveSessions: Int { lock.lock(); defer { lock.unlock() }; return live }
 
     /// listen(): hold a slot for the connection Go is about to hand over. false → decline (Go terminates TLS).
+    /// Order: reservation room (cap) → governor admission (feat/s3-mem) → the session runs with the installed
+    /// driver (NativeRewriteDriver, feat/s3-rewrite).
     static func reserve() -> Bool {
+        lock.lock()
+        pruneLocked()
+        guard live + reserved.count < maxSessions else { lock.unlock(); return false }
+        lock.unlock()
+        guard governorAdmitsSession() else { return false }
         lock.lock(); defer { lock.unlock() }
         pruneLocked()
         guard live + reserved.count < maxSessions else { return false }
