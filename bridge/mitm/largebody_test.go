@@ -176,7 +176,10 @@ func TestYouTubeBrWithXmlyAt6_7MB(t *testing.T) {
 			bodyHints.Unlock()
 			tunnelConditions(t, 0, 20<<20) // warm-up: compile both scripts with room
 			c, e := ytXmlyEngine(t)
-			if !xmlyHomePage(c) {
+			if raceEnabled {
+		t.Skip("real 喜马拉雅 script is too slow under the race detector (CI 40119565072: homePage not unlocked in time)")
+	}
+	if !xmlyHomePage(c) {
 				t.Fatal("xmly warm-up not unlocked")
 			}
 			if ok, _ := ytPost(t, c); !ok {
