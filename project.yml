@@ -112,7 +112,9 @@ targets:
     sources:
       - path: Widget
         excludes: ["**/*.entitlements"]
+      # NativeCore is app + tunnel only; keep it out of the widget (memory/size).
       - path: Shared
+        excludes: ["NativeCore/**"]
       - path: App/Localizable.xcstrings
         buildPhase: resources
     configFiles:

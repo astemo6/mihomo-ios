@@ -1,0 +1,150 @@
+import Foundation
+
+/// A connection target as rules and outbounds see it.
+struct NCTarget: Equatable {
+    var host: String // domain or IP literal
+    var port: Int
+
+    var ip: NCIP? { NCIP(host) }
+
+    /// SOCKS / Shadowsocks target encoding: ATYP + address + port (big-endian).
+    var atypEncoded: Data {
+        var out = Data()
+        if let ip = ip {
+            switch ip {
+            case .v4:
+                out.append(0x01)
+                out.append(contentsOf: ip.bytes)
+            case .v6:
+                out.append(0x04)
+                out.append(contentsOf: ip.bytes)
+            }
+        } else {
+            let utf8 = Array(host.utf8.prefix(255))
+            out.append(0x03)
+            out.append(UInt8(utf8.count))
+            out.append(contentsOf: utf8)
+        }
+        out.append(UInt8((port >> 8) & 0xff))
+        out.append(UInt8(port & 0xff))
+        return out
+    }
+}
+
+/// Stateless wire builders for the simple outbounds (SOCKS5, HTTP CONNECT).
+/// Socket I/O lives in the tunnel glue; these stay pure and unit-testable.
+enum NCSOCKS5 {
+    static func greeting(username: String?, password: String?) -> Data {
+        if username != nil {
+            return Data([0x05, 0x02, 0x00, 0x02])
+        }
+        return Data([0x05, 0x01, 0x00])
+    }
+
+    static func authRequest(username: String, password: String) -> Data {
+        var out = Data([0x01, UInt8(min(username.utf8.count, 255))])
+        out.append(contentsOf: username.utf8.prefix(255))
+        out.append(UInt8(min(password.utf8.count, 255)))
+        out.append(contentsOf: password.utf8.prefix(255))
+        return out
+    }
+
+    static func connectRequest(target: NCTarget, udp: Bool = false) -> Data {
+        var out = Data([0x05, udp ? 0x03 : 0x01, 0x00])
+        out.append(target.atypEncoded)
+        return out
+    }
+
+    /// Parse a SOCKS5 response header. Returns (bytesConsumed, replyCode) or nil
+    /// when more bytes are needed. Throws nothing; replyCode != 0 means failure.
+    static func parseResponse(_ data: Data) -> (Int, Int)? {
+        guard data.count >= 4 else { return nil }
+        let atyp = data[3]
+        var need: Int
+        switch atyp {
+        case 0x01: need = 4 + 4 + 2
+        case 0x04: need = 4 + 16 + 2
+        case 0x03:
+            guard data.count >= 5 else { return nil }
+            need = 4 + 1 + Int(data[4]) + 2
+        default: return nil
+        }
+        guard data.count >= need else { return nil }
+        return (need, Int(data[1]))
+    }
+}
+
+enum NCHTTPProxy {
+    static func connectRequest(target: NCTarget, username: String?, password: String?) -> Data {
+        let authority = target.ip?.isV4 == false && target.ip != nil ? "[\(target.host)]:\(target.port)" : "\(target.host):\(target.port)"
+        var lines = "CONNECT \(authority) HTTP/1.1\r\nHost: \(authority)\r\nProxy-Connection: Keep-Alive\r\n"
+        if let u = username {
+            let cred = Data("\(u):\(password ?? "")".utf8).base64EncodedString()
+            lines += "Proxy-Authorization: Basic \(cred)\r\n"
+        }
+        lines += "\r\n"
+        return Data(lines.utf8)
+    }
+}
+
+/// Resolves a policy name through proxy groups to a concrete outbound, the way
+/// mihomo does: select uses the stored choice, url-test picks the lowest delay,
+/// fallback picks the first alive member, load-balance rotates. DIRECT and
+/// REJECT are terminal pseudo-policies. Loop-safe via a visited set.
+final class NCGroupEngine {
+    private let config: NCConfig
+    var selections: [String: String] = [:] // group name -> chosen member
+    var delays: [String: Int] = [:] // proxy name -> last measured delay ms (nil/<=0 = unknown or dead)
+    var alive: [String: Bool] = [:]
+    private var rrCounters: [String: Int] = [:]
+
+    init(config: NCConfig) { self.config = config }
+
+    enum Resolution: Equatable {
+        case direct
+        case reject
+        case proxy(NCProxy)
+        case unknown(String)
+    }
+
+    func resolve(_ policy: String) -> Resolution {
+        resolve(policy, visited: [])
+    }
+
+    private func resolve(_ policy: String, visited: Set<String>) -> Resolution {
+        switch policy.uppercased() {
+        case "DIRECT": return .direct
+        case "REJECT", "REJECT-DROP": return .reject
+        default: break
+        }
+        if let p = config.proxyMap[policy] { return .proxy(p) }
+        guard let g = config.groupMap[policy] else { return .unknown(policy) }
+        guard !visited.contains(g.name) else { return .unknown(policy) }
+        var visited = visited
+        visited.insert(g.name)
+        let members = g.proxies
+        guard !members.isEmpty else { return .unknown(policy) }
+        let chosen: String
+        switch g.type {
+        case "url-test":
+            chosen = members.min(by: { delayOf($0) < delayOf($1) }) ?? members[0]
+        case "fallback":
+            chosen = members.first(where: { alive[$0] ?? true }) ?? members[0]
+        case "load-balance":
+            let i = (rrCounters[g.name] ?? 0) % members.count
+            rrCounters[g.name] = i + 1
+            chosen = members[i]
+        default: // select and anything else: stored choice, else GLOBAL-style first member
+            if let sel = selections[g.name], members.contains(sel) {
+                chosen = sel
+            } else {
+                chosen = members[0]
+            }
+        }
+        return resolve(chosen, visited: visited)
+    }
+
+    private func delayOf(_ name: String) -> Int {
+        delays[name] ?? Int.max
+    }
+}
