@@ -280,6 +280,12 @@ jobs:
             echo "::error::PacketTunnel still contains a Go runtime"; exit 1
           fi
           echo "PacketTunnel: no Go runtime (NativeCore)"
+          # The native script host reads the bundled prelude (no Go engine hands it over).
+          unzip -l "$IPA" > /tmp/ipa-list.txt
+          if ! grep -q "PacketTunnel.appex/TernPrelude.js" /tmp/ipa-list.txt; then
+            echo "::error::PacketTunnel.appex lacks TernPrelude.js (MitM scripts could not run)"; exit 1
+          fi
+          echo "PacketTunnel: TernPrelude.js bundled"
           {
             echo "### $IPA"
             echo "- mihomo ${MIHOMO_VERSION}, signed=${SIGNED}"
