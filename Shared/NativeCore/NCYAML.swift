@@ -30,7 +30,7 @@ enum NCYAML {
                 let raw = rawLine.hasSuffix("\r") ? String(rawLine.dropLast()) : rawLine
                 let indent = raw.prefix(while: { $0 == " " }).count
                 let content = String(raw.dropFirst(indent))
-                lines.append(Line(indent: indent, content: Self.stripComment(content), raw: content))
+                lines.append(Line(indent: indent, content: Self.stripComment(content), raw: raw))
             }
         }
 
