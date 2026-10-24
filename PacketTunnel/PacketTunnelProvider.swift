@@ -156,7 +156,14 @@ final class PacketTunnelProvider: NEPacketTunnelProvider {
         // feat/native-mitm stage 1: response bodies that only scripts read are decoded and kept in native memory
         // (NativeBodyStore) instead of the Go heap. Only with JavaScriptCore; Go falls back to its own path on any
         // lane failure (and switches the lane off for the run after three).
-        if jsc.isEmpty { NativeBodyStore.register() }
+        // Registered before LibmihomoStart and never unregistered: handles still in flight at a stop are freed by
+        // their Go owners (handler / laneReader), and a nil store would make those frees no-ops (a leak).
+        if jsc.isEmpty {
+            NativeBodyStore.register()
+            StartupLog.write("native body lane: on (\(LibmihomoNativeLaneStats()))")
+        } else {
+            StartupLog.write("native body lane: off (needs JavaScriptCore)")
+        }
         let proxyOnly = overrides.isProxyOnly
         // 接管所有网络流量: with includeAllNetworks iOS scopes this extension's own unbound sockets into the tunnel
         // too, so the core's proxy / DIRECT / DNS sockets must be bound to the physical interface (Go side,
@@ -327,6 +334,9 @@ final class PacketTunnelProvider: NEPacketTunnelProvider {
         memoryGuard?.stop()
         TunnelStopReason.clearAlive() // fix/vpn-stays-on: a clean stop (after the traffic timer can no longer re-mark)
         LibmihomoStop()
+        // feat/native-mitm: lane handles go back to 0 once the core stopped (one still being freed may show here; a count
+        // that stays across stops is a leak)
+        if JSCScriptEngine.nativeBlobs != nil { StartupLog.write("native body lane after stop: \(NativeBodyStore.shared.stats())") }
         LibmihomoDumpDiagnostics()
         takeBridge()?.stop()
         completionHandler()
