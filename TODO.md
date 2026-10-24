@@ -42,7 +42,7 @@
 | 12 | Go brotli 读取器接受截断的 br 数据（一行修复） | — | ✅ cd98419 合入，Go 绿；build 317 已发布 |
 | 13 | 原生 MitM Go 侧（body 通道、TLS 交接、relay）已在 `feat/native-mitm` 4fec47b，发版后推送并交给 B 线 | 4fec47b → 07698ee | ✅ rebase 到 v0.19.22 e33f838，合入 B1/B2/B4/B6；推为 `test/native-mitm` 07698ee，Go（含 `-race`）+ JSC 一致性 69/69 + NativeBodyStoreTests 8/8 全绿（feat/native-mitm 仍只在本地）。与集成分支的合并：仅 `bridge/mitm/handler.go` 一处两边都保留 |
 | 14 | JavaScriptCore 丢失脚本上下文后重新载入：以前用未处理的源码（不去 BOM、不转换 Egern 脚本），按文件签名命中缓存时甚至载入空脚本 | 1249bde | ✅ 已合入集成分支，Go 测试 TestNativeReloadAfterMissingContext；test/home-egern-v2 CI 绿，随下一版发布 |
-| 15 | v0.19.23 集成：喜马拉雅内存（小 body ≤256 KB 按大小准入、拒绝前先回收、严重级别清理更克制、GOMEMLIMIT 防抖底线、Go/JSC 内存分项诊断、JSC 真回收）+ `feat/native-mitm` 第一期（原生 body 通道默认关闭，回退 Go） | 897fffd, 975e105, 07698ee → 集成 55cdee4 | 🔄 test/home-egern-v2 全量 CI 进行中，全绿即发 v0.19.23；之后真机看诊断 |
+| 15 | v0.19.23 集成：喜马拉雅内存（小 body ≤256 KB 按大小准入、拒绝前先回收、严重级别清理更克制、GOMEMLIMIT 防抖底线、Go/JSC 内存分项诊断、JSC 真回收）+ `feat/native-mitm` 第一期（原生 body 通道默认关闭，回退 Go） | 897fffd, 975e105, 07698ee → 集成 55cdee4 | ✅ build 330 已发布（2026-10-24，main bd3f9dd，同版并入原生 MitM 第 2–3 期代码，开关全部默认关闭）；待真机看诊断 |
 
 ## B 线：原生 MitM / 重写 / 脚本（按类别拆分，可多人并行）
 
@@ -58,9 +58,9 @@
 | B4 兼容语料 | 把 QX 重写清单与 Surge / Loon / Egern 语法样例做成回放用例，覆盖 body 通道（JSC 与 goja 结果一致） | `UnitTests/ScriptEngineConformance.json`、`bridge/mitm/testdata/**` | 无 | 0.5–1 天 | 否 | astemo6 | ✅ `feat/b4-conformance` 0f5ffe3：语料 37→49 条（QX/Surge/Loon/Egern body 通道 12 条）+ testdata 四方言样本；TestEngineConformance 与 mitm 整包本地全绿（goja + native 替身），JSC 侧待 CI 的 ScriptEngineConformanceTests 复核 |
 | B5 第一期真机验证 | YouTube / 小红书 / 喜马拉雅各 5 分钟内存曲线；iOS 17 与 18 br 解码；熔断不触发；1 小时后原生 body 计数归零 | 只提 Issue（与 C 线合作） | B1、B2 | 1–2 天 | 是 | 待认领 | 待办 |
 | B6 Go flow API | 规则匹配与脚本语义留在 Go，Swift 只负责分帧和搬数据 | `bridge/mitm/flow*.go` | 分支推上来（目前只有设计） | 3–5 天 | 否 | 维护者（Hark） | ✅ f8fb461 已合入 `feat/native-mitm`（请求阶段与 serveHTTP 同一实现 4be43b9），07698ee CI 绿 |
-| B7 TLS 终止（Swift） | 按主机签发叶证书（PKCS#12，iOS 17/18 导入验证）、证书缓存、握手失败上报证书固定逻辑 | `PacketTunnel/NativeMitM/TLS*.swift` | B6 | 2–3 天 | 是 | 维护者（Hark）接手（2026-10-24，基于 astemo6 草稿，四路并行） | 进行中（feat/s2-wire 集成）|
-| B8 HTTP/1.1 解析与上游（Swift） | 请求/响应头重写、分块传输、通过 Go `relay.go` 回连 mihomo | `PacketTunnel/NativeMitM/HTTP*.swift`、`Upstream*.swift` | B6 | 3–5 天 | 是 | 维护者（Hark）接手（2026-10-24，基于 astemo6 草稿，四路并行） | 进行中（feat/s2-wire 集成）|
-| B9 边界情况 | WebSocket、网络切换、只报 h2 的客户端（gRPC）留在 Go | `PacketTunnel/NativeMitM/**`（与 B7/B8 负责人协调） | B7、B8 | 2–3 天 | 是 | 维护者（Hark）接手（2026-10-24，基于 astemo6 草稿，四路并行） | 进行中（feat/s2-wire 集成）|
+| B7 TLS 终止（Swift） | 按主机签发叶证书（PKCS#12，iOS 17/18 导入验证）、证书缓存、握手失败上报证书固定逻辑 | `PacketTunnel/NativeMitM/TLS*.swift` | B6 | 2–3 天 | 是 | 维护者（Hark）接手（2026-10-24，基于 astemo6 草稿，四路并行） | ✅ 代码随 v0.19.23（build 330）发布，开关 `nativeMitmStage2` 默认关闭（模拟对比：全部走 Go 内存最低） |
+| B8 HTTP/1.1 解析与上游（Swift） | 请求/响应头重写、分块传输、通过 Go `relay.go` 回连 mihomo | `PacketTunnel/NativeMitM/HTTP*.swift`、`Upstream*.swift` | B6 | 3–5 天 | 是 | 维护者（Hark）接手（2026-10-24，基于 astemo6 草稿，四路并行） | ✅ 代码随 v0.19.23（build 330）发布，开关 `nativeMitmStage2` 默认关闭（模拟对比：全部走 Go 内存最低） |
+| B9 边界情况 | WebSocket、网络切换、只报 h2 的客户端（gRPC）留在 Go | `PacketTunnel/NativeMitM/**`（与 B7/B8 负责人协调） | B7、B8 | 2–3 天 | 是 | 维护者（Hark）接手（2026-10-24，基于 astemo6 草稿，四路并行） | ✅ 代码随 v0.19.23（build 330）发布，开关 `nativeMitmStage2` 默认关闭（模拟对比：全部走 Go 内存最低） |
 | B10 第二期对比 | 第二期与 Go 路径的内存对比，决定是否上线 | 只提 Issue | B7–B9 | 1 天 | 是 | 待认领 | 待办 |
 
 顺序：第一期（B1–B5）大约 3–5 天就能上线，拿到大部分内存收益（3 MB gzip body 在 Go 堆里从 +4.2–6.5 MB 降到 +0.6–1.6 MB）。第二期（B6–B10）预计 2–3 周，收益约 1–3 MB，先看 B5 实测再决定做不做。现在就能开工的：B4（B3 由维护者收尾）。
