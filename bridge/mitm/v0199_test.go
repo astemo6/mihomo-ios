@@ -307,8 +307,9 @@ func TestV0199SubStoreBackend(t *testing.T) {
 	refused := false
 	for _, l := range h.e.Logs.List(seq, "") {
 		// The compile gate is the expected refusal; under -race (larger heap) the earlier heap gate can
-		// already skip the request body (「内存紧张，跳过请求体处理」) — either way nothing is compiled.
-		if strings.Contains(l.Msg, "脚本过大") || strings.Contains(l.Msg, "跳过请求体处理") {
+		// already skip the request body — either way nothing is compiled. That skip reaches the script log
+		// as 「跳过脚本：内存紧张…」 (the 「…跳过请求体处理」 line goes to the engine log, not to e.Logs).
+		if strings.Contains(l.Msg, "脚本过大") || strings.Contains(l.Msg, "跳过请求体处理") || strings.HasPrefix(l.Msg, "跳过脚本：") {
 			refused = true
 			t.Logf("26 MB limit: %s", l.Msg)
 		}
