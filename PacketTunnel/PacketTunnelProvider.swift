@@ -174,17 +174,27 @@ final class PacketTunnelProvider: NEPacketTunnelProvider {
         // v0.19.23: default OFF until device-verified — only an explicit app-group flag
         // (nativeBodyLane.enabled = true) turns it on; without a registered store every body takes the Go path.
         let laneWanted = AppShared.defaults.bool(forKey: "nativeBodyLane.enabled")
-        if jsc.isEmpty && laneWanted {
+        // feat/selective-native: selective native MitM runs scripts natively, which needs the store registered too.
+        var selectiveWanted = false
+        if #available(iOS 17, *) { selectiveWanted = NativeMitmRuntime.mode == .selective }
+        if jsc.isEmpty && (laneWanted || selectiveWanted) {
             NativeBodyStore.register()
-            StartupLog.write("native body lane: on (\(LibmihomoNativeLaneStats()))")
+            StartupLog.write("native body lane: on (\(laneWanted ? "" : "for selective native MitM, ")\(LibmihomoNativeLaneStats()))")
         } else {
             StartupLog.write("native body lane: off (\(jsc.isEmpty ? "default off" : "needs JavaScriptCore"))")
         }
         // native MitM stage 2 (B9): native TLS front + HTTP/1.1 session, rules still decided in Go. Default
         // NativeMitmRuntime.defaultOn (app-group key nativeMitmStage2 overrides); iOS 17+ only (the upstream lane's CONNECT-proxied
         // TLS needs it). Off / declined / over the session cap → Go terminates TLS itself, as before.
+        // feat/selective-native: selective mode (switch nativeMitmSelective) hands the front only hosts with a body /
+        // jq / json rewrite or a script rule; without JavaScriptCore it stays off (native scripts need it).
         if #available(iOS 17, *) {
-            StartupLog.write("native MitM stage 2: \(NativeMitmRuntime.installDefault() ? "on" : "off")")
+            if selectiveWanted && !jsc.isEmpty {
+                StartupLog.write("native MitM stage 2: off (selective mode needs JavaScriptCore)")
+            } else {
+                let on = NativeMitmRuntime.installDefault()
+                StartupLog.write("native MitM stage 2: \(on ? (NativeMitmRuntime.selectiveEngines ? "selective" : "on") : "off")")
+            }
         }
         let proxyOnly = overrides.isProxyOnly
         // 接管所有网络流量: with includeAllNetworks iOS scopes this extension's own unbound sockets into the tunnel

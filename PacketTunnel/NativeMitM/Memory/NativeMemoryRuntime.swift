@@ -27,7 +27,7 @@ final class LibmihomoGoMemoryControl: GoMemoryControlling {
 extension NativeMemoryGovernor {
     /// The native memory the governor can take back, cheapest first. The stage-2 pieces (upstream pool, TLS
     /// identities) are only touched when the native front is on (their `shared` instances are lazy).
-    static func standardReclaimers(nativeFront: Bool = NativeMitmRuntime.enabled) -> [NativeReclaimer] {
+    static func standardReclaimers(nativeFront: Bool = NativeMitmRuntime.active) -> [NativeReclaimer] {
         var r: [NativeReclaimer] = [
             NativeReclaimer(name: "native bodies", from: .elevated) { level in
                 NativeBodyStore.shared.trimForMemory(maxCopy: level >= .critical ? 256 << 10 : 1 << 20)

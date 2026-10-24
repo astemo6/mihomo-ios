@@ -61,23 +61,23 @@
 
 ### 编程语言分工（2026-10-24 实测后）
 
-| 部分 | 现行 v0.19.22 | 下一版默认 | 原生 Swift 版（随版带上，开关默认关） |
+| 部分 | 现行 v0.19.24 | 下一版默认 | 原生 Swift 版（随版带上） |
 |---|---|---|---|
 | 界面、VPN、配置/订阅管理 | Swift | Swift | — |
 | packetFlow 桥接、MemoryGuard、流量记录 | Swift | Swift | — |
 | 出站协议、分流规则、策略组、DNS、TUN | Go（mihomo） | Go（必须） | — |
 | `$httpClient`、远程下载、MitM 上游出口 | Go | Go（必须经分流） | — |
-| MitM TLS 终止 / CONNECT / HTTP/1.1 | Go | Go | `nativeMitmStage2` |
-| MitM HTTP/2 | Go | Go | `nativeMitmH2` |
-| 重写匹配 | Go | Go | `nativeMitmRewrite`（1769/1779 原生，0 差异） |
-| 改 body / jq | Go | Go | `nativeMitmBody` |
-| 脚本调度（响应 + 请求阶段） | Go | Go | `nativeMitmScript`（请求 22/22、响应 41/41 一致） |
-| 脚本执行 | JavaScriptCore | JavaScriptCore（独占专用线程，修 GC 崩溃） | — |
-| Body 缓存 | Go | Go | `nativeBodyLane.enabled` |
-| 内存调度 | Go | Go | `nativeMemGovernor` |
+| MitM TLS 终止 / CONNECT / HTTP/1.1 | Go | **按主机**：有改 body / jq / 脚本规则的主机 Swift，其余 Go（`nativeMitmSelective` 默认开） | `nativeMitmStage2`（全部连接，默认关） |
+| MitM HTTP/2 | Go | Go | `nativeMitmH2`（默认关） |
+| 重写匹配 | Go | 上述主机 Swift，其余 Go | `nativeMitmRewrite`（1769/1779 原生，0 差异） |
+| 改 body / jq | Go | 上述主机 Swift（≤256 KB，更大交回 Go），其余 Go | `nativeMitmBody` |
+| 脚本调度（响应 + 请求阶段） | Go | 上述主机 Swift，其余 Go | `nativeMitmScript`（请求 22/22、响应 41/41 一致） |
+| 脚本执行 | JavaScriptCore | JavaScriptCore（独占专用线程） | — |
+| Body 缓存 | Go | 有 JavaScriptCore 时原生（按主机模式需要） | `nativeBodyLane.enabled` |
+| 内存调度 | Go | Go | `nativeMemGovernor`（默认关） |
 | 证书签发、请求日志/抓包、定时任务触发 | Go | Go | — |
 
-原生默认关的原因：100 连接组合实测整体 footprint 全 Go +5.70 MB，原生最好 +6.24 MB（Go 堆从 +1.85 降到 +0.45 MB，但 iOS TLS 连接每条约 44 KB，Go 约 24 KB）。只有实测整体 footprint 和 Go 侧都低于 Go 路径时才默认开启。
+为什么按主机：100 个普通解密连接全 Go +5.70 MB，全部原生最好 +6.24 MB（iOS TLS 连接每条约 44 KB，Go 约 24 KB），普通转发 Go 更省；但有大响应体的脚本 / jq 时原生省得多（模拟：16 个 2 MB 脚本峰值 −18～−20 MB；90 普通 + 10 个 2 MB 脚本 −20～−26 MB；100 普通连接按主机模式与全 Go 相同，+0.3 / −0.8 MB 属误差）。所以只把有这类规则的主机交给原生。
 
 ## 协议支持
 

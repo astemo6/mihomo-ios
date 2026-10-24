@@ -173,3 +173,60 @@ func TestMitmBenchFlowResponseRightAfterForward(t *testing.T) {
 		MitmFlowEnd(id, 0, "")
 	}
 }
+
+// feat/selective-native: the large-body bench's rules on heavy.bench.test (jq on /jq, requires-body script on
+// /script, both on N KB of JSON) apply on the Go path, and api.bench.test stays a plain pass-through.
+func TestMitmBenchHeavyConf(t *testing.T) {
+	SetMemoryProbe(zeroProbe{})
+	defer SetMemoryProbe(nil)
+	var st struct {
+		EnginePort int    `json:"enginePort"`
+		CA         string `json:"ca"`
+		Error      string `json:"error"`
+	}
+	if err := json.Unmarshal([]byte(MitmBenchStartConf(MitmBenchHeavyConf())), &st); err != nil || st.Error != "" {
+		t.Fatalf("start: %v %s", err, st.Error)
+	}
+	defer MitmBenchStop()
+	der, _ := base64.StdEncoding.DecodeString(st.CA)
+	ca, err := x509.ParseCertificate(der)
+	if err != nil {
+		t.Fatal(err)
+	}
+	pool := x509.NewCertPool()
+	pool.AddCert(ca)
+	pu, _ := url.Parse(fmt.Sprintf("http://127.0.0.1:%d", st.EnginePort))
+	c := &http.Client{Timeout: 60 * time.Second, Transport: &http.Transport{Proxy: http.ProxyURL(pu), TLSClientConfig: &tls.Config{RootCAs: pool}}}
+	get := func(u string) string {
+		resp, err := c.Get(u)
+		if err != nil {
+			t.Fatal(err)
+		}
+		b, _ := io.ReadAll(resp.Body)
+		resp.Body.Close()
+		if resp.StatusCode != 200 {
+			t.Fatalf("%s: %d", u, resp.StatusCode)
+		}
+		return string(b)
+	}
+	for _, u := range []string{"https://heavy.bench.test/jq?kb=200", "https://heavy.bench.test/jq?kb=960", "https://heavy.bench.test/script?kb=2048", "https://heavy.bench.test/script?kb=3584"} {
+		b := get(u)
+		if !strings.Contains(b, `"combo":true`) || len(b) > 4096 {
+			t.Logf("engine log: %s", MitmBenchLog())
+			t.Fatalf("%s: rule not applied (%d bytes) %.200q", u, len(b), b)
+		}
+	}
+	if b := get("https://api.bench.test/json"); !strings.Contains(b, `"keep":1`) || strings.Contains(b, "combo") {
+		t.Fatalf("plain host: %q", b)
+	}
+	if b := get("https://api.bench.test/json?kb=64"); len(b) < 64<<10 {
+		t.Fatalf("plain big: %d bytes", len(b))
+	}
+	var pk struct {
+		HeapObjects uint64 `json:"heapObjects"`
+		Mapped      uint64 `json:"mapped"`
+	}
+	if err := json.Unmarshal([]byte(MitmBenchMemPeek()), &pk); err != nil || pk.HeapObjects == 0 || pk.Mapped == 0 {
+		t.Fatalf("peek: %v %+v", err, pk)
+	}
+}

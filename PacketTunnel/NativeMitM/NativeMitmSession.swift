@@ -47,6 +47,36 @@ enum NativeMitmRuntime {
         return defaults.bool(forKey: defaultsKey)
     }
 
+    /// feat/selective-native: how the front is used. `.all` every eligible connection (nativeMitmStage2 on);
+    /// `.selective` only hosts with a body / jq / json rewrite or a script rule (NativeMitmSelective, Go decides per
+    /// host: bridge/mitm/selective.go); `.off` Go terminates everything. An explicit nativeMitmStage2 wins both ways
+    /// (false also turns selective mode off).
+    enum Mode: Equatable { case off, selective, all }
+
+    static func mode(in defaults: UserDefaults?) -> Mode {
+        if let defaults, defaults.object(forKey: defaultsKey) != nil { return defaults.bool(forKey: defaultsKey) ? .all : .off }
+        if defaultOn { return .all }
+        return NativeMitmSelective.enabled(in: defaults) ? .selective : .off
+    }
+    static var mode: Mode { mode(in: UserDefaults(suiteName: appGroup)) }
+    /// The front is wanted at all (full or selective).
+    static var active: Bool { mode != .off }
+
+    /// Selective mode is installed: the native rewrite / body / script engines default ON (their own app-group keys
+    /// still win) — only heavy hosts reach the front, and those are what the engines are for.
+    static var selectiveEngines: Bool { lock.lock(); defer { lock.unlock() }; return _selectiveEngines }
+    private static var _selectiveEngines = false
+
+    /// A native engine switch: an explicit app-group value wins, else ON while selective mode is installed.
+    /// `explicit` is the cached app-group value (nil: key absent).
+    static func engineSwitch(explicit: Bool?) -> Bool { explicit ?? selectiveEngines }
+
+    /// Reads an engine's app-group key (nil: absent).
+    static func explicitSwitch(_ key: String) -> Bool? {
+        guard let d = UserDefaults(suiteName: appGroup), d.object(forKey: key) != nil else { return nil }
+        return d.bool(forKey: key)
+    }
+
     /// Bounds (memory cap): live sessions, bytes buffered per session.
     static var maxSessions = 48
     static var maxBufferedPerSession = 256 << 10
@@ -207,11 +237,21 @@ enum NativeMitmRuntime {
     static func install(front: MitmTLSFronting & LibmihomoNativeTLSFrontProtocol, upstream: MitmUpstreamConnecting,
                         codec: HTTPCodec, bodies: NativeBodyReading = NativeBodyStore.shared,
                         driver: MitmFlowDriving = NativeRewriteDriver(inner: GoMitmFlowDriver()), force: Bool = false,
-                        h2Opener: H2UpstreamOpening? = nil) -> Bool {
-        guard force || enabled else { LibmihomoSetNativeTLSFront(nil); LibmihomoMitmSetNativeH2(false); return false }
+                        h2Opener: H2UpstreamOpening? = nil, selective: Bool? = nil) -> Bool {
+        let m = mode
+        guard force || m != .off else {
+            LibmihomoSetNativeTLSFront(nil); LibmihomoMitmSetNativeH2(false); LibmihomoMitmSetNativeSelective(0)
+            lock.lock(); _selectiveEngines = false; lock.unlock()
+            return false
+        }
         forced = force
+        // feat/selective-native: selective = Go hands over only hosts with heavy rules; the engines default ON then.
+        // nil: from the switches (never for a forced install unless asked — the memory benches pick explicitly).
+        let sel = selective ?? (!force && m == .selective)
+        lock.lock(); _selectiveEngines = sel; lock.unlock()
+        LibmihomoMitmSetNativeSelective(sel ? NativeMitmSelective.kinds : 0)
         if let f = front as? MitmTLSFront {
-            f.admit = { (NativeMitmRuntime.forced || NativeMitmRuntime.enabled) && NativeMitmRuntime.reserve() }
+            f.admit = { (NativeMitmRuntime.forced || NativeMitmRuntime.active) && NativeMitmRuntime.reserve() }
             f.unadmit = { NativeMitmRuntime.unreserve() }
         }
         // s3-h2: connections that negotiated h2 (only offered while nativeMitmH2 is on) get the native h2 session.
@@ -231,6 +271,8 @@ enum NativeMitmRuntime {
 
     static func uninstall() {
         forced = false
+        lock.lock(); _selectiveEngines = false; lock.unlock()
+        LibmihomoMitmSetNativeSelective(0)
         LibmihomoSetNativeTLSFront(nil)
         LibmihomoMitmSetNativeH2(false)
         cancelAll("native MitM off")
@@ -239,6 +281,27 @@ enum NativeMitmRuntime {
 
     /// install(force:) (the memory bench): listen() accepts regardless of the switch.
     private(set) static var forced = false
+}
+
+// MARK: - Selective switch (feat/selective-native)
+
+enum NativeMitmSelective {
+    /// App-group key; an explicit value wins over `defaultOn`. Only used while nativeMitmStage2 is absent.
+    static let defaultsKey = "nativeMitmSelective"
+    /// Default when the key is absent — decided by UnitTests/NativeMitmSelectiveTests (78837e9, Self-test 40102633460,
+    /// light:1 + dark:0, medians of 4, footprint Δ peak / 1 s after, selective − all Go): script 2 MB −18…−20 / −40 MB,
+    /// script 3.5 MB −7…−16 / −22…−26 MB, jq 960 KB −3…−9 / −4…−30 MB, jq 200 KB +1.2…+1.5 / −2…−4.5 MB,
+    /// mixed 90 plain + 10 script −20…−26 / −24…−28 MB, plain 100 +0.3 / −0.8 MB (noise: no host qualifies, the code
+    /// path is the Go one). ON.
+    static let defaultOn = true
+    /// Which rules make a host native (bridge/mitm/selective.go): 1 = body / jq / json rewrites + scripts,
+    /// 2 = scripts only.
+    static let kinds = 1
+
+    static func enabled(in defaults: UserDefaults?) -> Bool {
+        guard let defaults, defaults.object(forKey: defaultsKey) != nil else { return defaultOn }
+        return defaults.bool(forKey: defaultsKey)
+    }
 }
 
 extension NativeBodyStore: NativeBodyReading {}

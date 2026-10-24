@@ -28,18 +28,21 @@ enum NativeBodyRuntime {
     static var override: Bool?
 
     private static let lock = NSLock()
-    private static var cached = false
+    private static var cached: Bool?
     private static var readAt: TimeInterval = 0
 
+    /// Explicit app-group value, else ON while selective native mode is installed (feat/selective-native).
     static var enabled: Bool {
         if let o = override { return o }
-        lock.lock(); defer { lock.unlock() }
+        lock.lock()
         let now = Date().timeIntervalSince1970
         if now - readAt > 1 {
             readAt = now
-            cached = UserDefaults(suiteName: NativeMitmRuntime.appGroup)?.bool(forKey: defaultsKey) ?? false
+            cached = NativeMitmRuntime.explicitSwitch(defaultsKey)
         }
-        return cached
+        let explicit = cached
+        lock.unlock()
+        return NativeMitmRuntime.engineSwitch(explicit: explicit)
     }
 }
 
