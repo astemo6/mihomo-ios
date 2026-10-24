@@ -1110,7 +1110,7 @@ final class NCUDPSSRSession: NCUDPSession {
         }
     }
 
-    func sendPacket(_ payload: Data, to target: NCTarget) {
+    func send(_ payload: Data, to target: NCTarget) {
         guard let cipher = NCSSStreamCipher(method: method, key: key) else { return }
         let iv = Data((0..<ivSize).map { _ in UInt8.random(in: 0...255) })
         cipher.forEncryption = true

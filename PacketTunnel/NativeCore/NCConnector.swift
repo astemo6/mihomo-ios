@@ -379,8 +379,7 @@ enum NCConnector {
             obtainStream(transport: transport, make: { NCStream(to: server, port: port, queue: queue) }) { raw, err in
                 guard let raw else { completion(nil, err); return }
                 let relay = NCSSRRelayStream(raw: raw, method: cipher, key: key, clientIV: clientIV,
-                                             proto: proto, obfs: obfs)
-                relay.send(target.atypEncoded)
+                                             proto: proto, obfs: obfs, target: target)
                 completion(relay, nil)
             }
         case "snell":
