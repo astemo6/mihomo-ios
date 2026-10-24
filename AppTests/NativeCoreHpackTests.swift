@@ -76,7 +76,7 @@ final class NativeCoreFingerprintTests: XCTestCase {
             // Handshake header 4B, then legacy version (2) + random (32)
             // puts the session-id length at offset 39.
             XCTAssertEqual(hello[4 + 2 + 32], 32)
-            XCTAssertEqual(Data(hello[5..<37]), random)
+            XCTAssertEqual(Data(hello[6..<38]), random)
         }
         let chrome = NCTLS13.buildClientHello(random: random, sessionID: Data(count: 32),
                                               serverName: "example.com", alpn: ["h2"],
