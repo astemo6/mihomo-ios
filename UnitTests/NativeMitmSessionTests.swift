@@ -2,8 +2,8 @@ import XCTest
 @testable import Mihomo
 
 /// Native MitM stage 2 (lane wire, B9): NativeMitmSession against fakes of the other lanes and of Go's flow API.
-/// The codec here is a minimal stand-in (the http lane's real one replaces it at integration); what is under test
-/// is the wiring: which Go call happens when, keep-alive, body modes, cleanup on every exit.
+/// Uses the integrated http lane (HTTPLaneCodec); what is under test is the wiring: which Go call happens when,
+/// keep-alive, body modes, cleanup on every exit.
 final class NativeMitmSessionTests: XCTestCase {
 
     // MARK: fakes
@@ -13,7 +13,7 @@ final class NativeMitmSessionTests: XCTestCase {
         private let lock = NSLock()
         private var inbox = Data()
         private var eof = false
-        private var waiting: ((Data, Bool, Error?) -> Void)?
+        private var waiting: ((Data?, Bool, Error?) -> Void)?
         private(set) var written = Data()
         private(set) var closed = false
         private(set) var halfClosed = false
@@ -22,7 +22,7 @@ final class NativeMitmSessionTests: XCTestCase {
             lock.lock(); inbox.append(d); if e { eof = true }; let w = waiting; waiting = nil; lock.unlock()
             if let w { deliver(w) }
         }
-        private func deliver(_ cb: @escaping (Data, Bool, Error?) -> Void) {
+        private func deliver(_ cb: @escaping (Data?, Bool, Error?) -> Void) {
             lock.lock()
             if closed { lock.unlock(); return cb(Data(), true, S2Error.cancelled) }
             if inbox.isEmpty && !eof { waiting = cb; lock.unlock(); return }
@@ -30,7 +30,7 @@ final class NativeMitmSessionTests: XCTestCase {
             lock.unlock()
             DispatchQueue.global().async { cb(d, e, nil) }
         }
-        func read(min: Int, max: Int, completion: @escaping (Data, Bool, Error?) -> Void) { deliver(completion) }
+        func read(min: Int, max: Int, completion: @escaping (Data?, Bool, Error?) -> Void) { deliver(completion) }
         func write(_ data: Data, completion: @escaping (Error?) -> Void) {
             lock.lock(); let c = closed; if !c { written.append(data) }; lock.unlock()
             DispatchQueue.global().async { completion(c ? S2Error.cancelled : nil) }
@@ -99,80 +99,6 @@ final class NativeMitmSessionTests: XCTestCase {
         }
     }
 
-    /// Minimal HTTP/1.1 codec (Content-Length / chunked / close-delimited) — stand-in for the http lane.
-    struct MiniCodec: HTTPCodec {
-        private func split(_ buffer: inout Data) -> (String, [HTTPHeaderField], Data)? {
-            guard let r = buffer.range(of: Data("\r\n\r\n".utf8)) else { return nil }
-            let raw = buffer.subdata(in: buffer.startIndex..<r.upperBound)
-            buffer.removeSubrange(buffer.startIndex..<r.upperBound)
-            let lines = String(decoding: raw, as: UTF8.self).components(separatedBy: "\r\n").filter { !$0.isEmpty }
-            let hs = lines.dropFirst().compactMap { l -> HTTPHeaderField? in
-                guard let i = l.firstIndex(of: ":") else { return nil }
-                return HTTPHeaderField(String(l[..<i]), l[l.index(after: i)...].trimmingCharacters(in: .whitespaces))
-            }
-            return (lines.first ?? "", hs, raw)
-        }
-        func parseRequestHead(_ buffer: inout Data) throws -> HTTPRequestHead? {
-            guard let (start, hs, raw) = split(&buffer) else { return nil }
-            let p = start.split(separator: " ").map(String.init)
-            guard p.count == 3 else { throw S2Error.protocolError("start line") }
-            return HTTPRequestHead(method: p[0], target: p[1], version: p[2], rawStartLine: start, headers: hs, rawBytes: raw)
-        }
-        func parseResponseHead(_ buffer: inout Data) throws -> HTTPResponseHead? {
-            guard let (start, hs, raw) = split(&buffer) else { return nil }
-            let p = start.split(separator: " ", maxSplits: 2).map(String.init)
-            guard p.count >= 2, let st = Int(p[1]) else { throw S2Error.protocolError("status line") }
-            return HTTPResponseHead(version: p[0], status: st, reason: p.count > 2 ? p[2] : "", rawStartLine: start, headers: hs, rawBytes: raw)
-        }
-        func requestFraming(_ h: HTTPRequestHead) -> HTTPBodyFraming {
-            h.isChunked ? .chunked : (h.contentLength.map { $0 > 0 ? .contentLength($0) : .none } ?? .none)
-        }
-        func responseFraming(_ h: HTTPResponseHead, requestMethod: String) -> HTTPBodyFraming {
-            if requestMethod == "HEAD" || h.status == 204 || h.status == 304 { return .none }
-            if h.isChunked { return .chunked }
-            if let n = h.contentLength { return n > 0 ? .contentLength(n) : .none }
-            return .closeDelimited
-        }
-        func makeDecoder(_ f: HTTPBodyFraming) -> HTTPBodyDecoding { Dec(f) }
-        func serialize(_ h: HTTPRequestHead) -> Data {
-            Data((h.rawStartLine + "\r\n" + h.headers.map { "\($0.name): \($0.value)\r\n" }.joined() + "\r\n").utf8)
-        }
-        func serialize(_ h: HTTPResponseHead) -> Data {
-            Data((h.rawStartLine + "\r\n" + h.headers.map { "\($0.name): \($0.value)\r\n" }.joined() + "\r\n").utf8)
-        }
-        func chunk(_ p: Data) -> Data { Data(String(p.count, radix: 16).utf8) + Data("\r\n".utf8) + p + Data("\r\n".utf8) }
-        var lastChunk: Data { Data("0\r\n\r\n".utf8) }
-
-        final class Dec: HTTPBodyDecoding {
-            let f: HTTPBodyFraming
-            var left: Int64 = 0
-            init(_ f: HTTPBodyFraming) { self.f = f; if case .contentLength(let n) = f { left = n } }
-            func feed(_ w: Data) throws -> HTTPBodyChunk {
-                switch f {
-                case .none: return HTTPBodyChunk(payload: Data(), consumed: 0, done: true)
-                case .closeDelimited: return HTTPBodyChunk(payload: w, consumed: w.count, done: false)
-                case .contentLength:
-                    let n = Int(min(Int64(w.count), left)); left -= Int64(n)
-                    return HTTPBodyChunk(payload: w.prefix(n), consumed: n, done: left == 0)
-                case .chunked:
-                    // whole-message only (tests feed complete chunked bodies)
-                    var out = Data(); var i = w.startIndex
-                    while let r = w[i...].range(of: Data("\r\n".utf8)) {
-                        guard let size = Int(String(decoding: w[i..<r.lowerBound], as: UTF8.self), radix: 16) else { throw S2Error.protocolError("chunk") }
-                        if size == 0 { return HTTPBodyChunk(payload: out, consumed: r.upperBound + 2 - w.startIndex, done: true) }
-                        guard w.endIndex >= r.upperBound + size + 2 else { break }
-                        out.append(w[r.upperBound..<(r.upperBound + size)]); i = r.upperBound + size + 2
-                    }
-                    return HTTPBodyChunk(payload: out, consumed: i - w.startIndex, done: false)
-                }
-            }
-            func finishAtEOF() throws -> Data {
-                if case .closeDelimited = f { return Data() }
-                throw S2Error.closed
-            }
-        }
-    }
-
     // MARK: harness
 
     private var client: MemStream!
@@ -188,7 +114,7 @@ final class NativeMitmSessionTests: XCTestCase {
     @discardableResult
     private func run(_ upstream: Upstream, request: String, eof: Bool = true, block: Bool = true) -> NativeMitmSession? {
         let s = NativeMitmSession(conn: MitmAcceptedConnection(stream: client, host: "ex.com", port: 443, alpn: "http/1.1", connID: 7),
-                                  codec: MiniCodec(), upstream: upstream, driver: driver, bodies: bodies)
+                                  codec: HTTPLaneCodec(), upstream: upstream, driver: driver, bodies: bodies)
         let done = block ? expectation(description: "finished") : nil
         if let done { s?.onFinish = { _ in done.fulfill() } }
         s?.start()
@@ -254,7 +180,7 @@ final class NativeMitmSessionTests: XCTestCase {
         var first = true
         let laneResp = driver.resp
         driver.resp = { h in if first { first = false; return FlowDecision.decode(#"{"id":1,"action":"need-body","which":1,"length":0}"#) }; return laneResp(h) }
-        driver.awaitD = { laneResp(HTTPResponseHead(version: "", status: 200, reason: "", rawStartLine: "", headers: [], rawBytes: Data())) }
+        driver.awaitD = { laneResp(HTTPResponseHead(status: 200, reason: "OK", headers: [])) }
         run(up, request: "GET /a HTTP/1.1\r\nHost: ex.com\r\nConnection: close\r\n\r\n")
         XCTAssertEqual(driver.pushed[.response], Data("abc".utf8))
         XCTAssertTrue(client.text.contains("Content-Length: 150000"))
@@ -296,7 +222,7 @@ final class NativeMitmSessionTests: XCTestCase {
     func testSessionCapRefusesAndClosesStream() {
         NativeMitmRuntime.maxSessions = 0
         let s = NativeMitmSession(conn: MitmAcceptedConnection(stream: client, host: "ex.com", port: 443, alpn: nil, connID: 1),
-                                  codec: MiniCodec(), upstream: Upstream(response: Data()), driver: driver, bodies: bodies)
+                                  codec: HTTPLaneCodec(), upstream: Upstream(response: Data()), driver: driver, bodies: bodies)
         XCTAssertNil(s)
         XCTAssertTrue(client.closed)
         XCTAssertFalse(NativeMitmRuntime.canAccept)
@@ -309,5 +235,46 @@ final class NativeMitmSessionTests: XCTestCase {
         XCTAssertEqual(FlowDecision.decode("not json").action, .error)
         XCTAssertEqual(FlowDecision.decode(#"{"id":5,"action":"weird","length":3}"#).action, .unknown)
         XCTAssertFalse(NativeMitmRuntime.enabled) // default OFF
+    }
+
+    // MARK: body de-framer (S2Integration.swift)
+
+    func testBodyDecoderChunkedAtEverySplit() throws {
+        let wire = Data("5;ext=1\r\nhello\r\n6\r\n world\r\n0\r\nX-T: 1\r\n\r\nNEXT".utf8)
+        for split in 0...wire.count {
+            let d = HTTPBodyDecoder(.chunked)
+            var buf = Data(), out = Data(), done = false
+            for part in [wire.prefix(split), wire.suffix(from: split)] {
+                buf.append(contentsOf: part)
+                let c = try d.feed(buf)
+                buf.removeFirst(c.consumed); out.append(c.payload); done = c.done
+                if done { break }
+            }
+            XCTAssertTrue(done, "split \(split)")
+            XCTAssertEqual(String(decoding: out, as: UTF8.self), "hello world", "split \(split)")
+            XCTAssertEqual(String(decoding: buf, as: UTF8.self), "NEXT", "split \(split)")
+        }
+    }
+
+    func testBodyDecoderLengthAndCloseAndErrors() throws {
+        let d = HTTPBodyDecoder(.contentLength(3))
+        let c = try d.feed(Data("abcdef".utf8))
+        XCTAssertEqual(c.payload, Data("abc".utf8)); XCTAssertEqual(c.consumed, 3); XCTAssertTrue(c.done)
+        XCTAssertThrowsError(try HTTPBodyDecoder(.contentLength(3)).finishAtEOF())
+        let u = HTTPBodyDecoder(.untilClose)
+        XCTAssertEqual(try u.feed(Data("xy".utf8)).payload, Data("xy".utf8))
+        XCTAssertNoThrow(try u.finishAtEOF())
+        XCTAssertThrowsError(try HTTPBodyDecoder(.chunked).feed(Data("zz\r\n".utf8)))
+    }
+
+    func testLaneCodecHeadParsingKeepsBytesAndPipelinedRest() throws {
+        var buf = Data("\r\nGET /a HTTP/1.1\r\nhOsT: ex.com\r\nX-Dup: 1\r\nX-Dup: 2\r\n\r\nGET /b".utf8)
+        let h = try XCTUnwrap(HTTPLaneCodec().parseRequestHead(&buf))
+        XCTAssertEqual(h.method, "GET"); XCTAssertEqual(h.target, "/a"); XCTAssertEqual(h.host, "ex.com")
+        XCTAssertEqual(h.headers.map(\.name), ["hOsT", "X-Dup", "X-Dup"])
+        XCTAssertEqual(String(decoding: buf, as: UTF8.self), "GET /b")
+        var partial = Data("GET /b HTTP/1.1\r\nHost".utf8)
+        XCTAssertNil(try HTTPLaneCodec().parseRequestHead(&partial))
+        XCTAssertEqual(partial.count, 21)
     }
 }

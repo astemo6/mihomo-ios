@@ -79,14 +79,14 @@ final class GoMitmFlowDriver: MitmFlowDriving {
         let length: Int64 = head.isChunked ? -1 : (head.contentLength ?? 0)
         let obj: [String: Any] = [
             "method": head.method, "target": head.target, "host": head.host ?? "",
-            "headers": head.headers.pairs, "length": length,
+            "headers": headerPairs(head.headers), "length": length,
             "connHost": conn.host, "connPort": conn.port, "tls": conn.tls, "connId": conn.connID,
         ]
         return FlowDecision.decode(LibmihomoMitmFlowBegin(Self.json(obj)))
     }
     func await(_ id: Int64) -> FlowDecision { FlowDecision.decode(LibmihomoMitmFlowAwait(id)) }
     func responsePhase(_ id: Int64, head: HTTPResponseHead, length: Int64) -> FlowDecision {
-        let obj: [String: Any] = ["status": head.status, "headers": head.headers.pairs, "length": length]
+        let obj: [String: Any] = ["status": head.status, "headers": headerPairs(head.headers), "length": length]
         return FlowDecision.decode(LibmihomoMitmFlowResponse(id, Self.json(obj)))
     }
     func write(_ id: Int64, _ which: FlowBodyWhich, _ data: Data) -> FlowWriteResult {
@@ -179,6 +179,7 @@ final class NativeMitmSession {
             self.queue.async {
                 guard !self.finished else { return }
                 if let err { return self.finish(cancelled: "client read: \(err)") }
+                let data = data ?? Data()
                 self.clientBuf.append(data)
                 if eof { self.clientEOF = true }
                 cb(!data.isEmpty)
@@ -193,6 +194,7 @@ final class NativeMitmSession {
             self.queue.async {
                 guard !self.finished else { return }
                 if let err { return self.fail(S2Error.upstream("read: \(err)"), status: 502) }
+                let data = data ?? Data()
                 self.upBuf.append(data)
                 cb(!(eof && data.isEmpty))
             }
@@ -240,6 +242,10 @@ final class NativeMitmSession {
         } catch {
             var status = 400
             if case S2Error.tooLarge = error { status = 431 }
+            switch error as? HTTPParseError {
+            case .headTooLarge?, .lineTooLong?, .tooManyHeaders?: status = 431
+            default: break
+            }
             return fail(error, status: status)
         }
         readClient { [self] more in
@@ -343,24 +349,22 @@ final class NativeMitmSession {
         }
         var headers = d.headerFields.filter { !Self.framingHeader($0.name) }
         let hostValue = d.host ?? (url.port.map { "\(host):\($0)" } ?? host)
-        if headers.first("Host") == nil { headers.insert(HTTPHeaderField("Host", hostValue), at: 0) }
-        if head.isUpgrade, let up = head.headers.first("Upgrade") {
-            headers.append(HTTPHeaderField("Connection", "Upgrade")); headers.append(HTTPHeaderField("Upgrade", up))
+        if headerValue(headers, "Host") == nil { headers.insert(("Host", hostValue), at: 0) }
+        if head.isUpgrade, let up = head.value(for: "Upgrade") {
+            headers.append(("Connection", "Upgrade")); headers.append(("Upgrade", up))
         }
         var len = d.length
         if mode == .client { if case .contentLength(let n) = reqFraming { len = n } else { len = -1 } }
         switch mode {
         case .none:
-            if ["POST", "PUT", "PATCH"].contains(d.method ?? head.method) { headers.append(HTTPHeaderField("Content-Length", "0")) }
+            if ["POST", "PUT", "PATCH"].contains(d.method ?? head.method) { headers.append(("Content-Length", "0")) }
         case .client, .read, .lane:
-            headers.append(len >= 0 ? HTTPHeaderField("Content-Length", String(len)) : HTTPHeaderField("Transfer-Encoding", "chunked"))
+            headers.append(len >= 0 ? ("Content-Length", String(len)) : ("Transfer-Encoding", "chunked"))
         case .upstream:
             return fail(S2Error.go("body upstream in forward"), status: 502)
         }
         let method = d.method ?? head.method
-        let start = "\(method) \(target) HTTP/1.1"
-        let upHead = HTTPRequestHead(method: method, target: target, version: "HTTP/1.1", rawStartLine: start,
-                                     headers: headers, rawBytes: Data())
+        let upHead = HTTPRequestHead(method: method, target: target, version: "HTTP/1.1", headers: headers)
         arm(Self.timeouts.upstreamHead, "upstream connect")
         upstream.open(host: host, port: port, tls: scheme == "https") { [weak self] r in
             guard let self else { return }
@@ -372,7 +376,8 @@ final class NativeMitmSession {
                     self.fail(S2Error.upstream("\(e)"), status: 502)
                 case .success(let l):
                     self.lease = l; self.upBuf.removeAll()
-                    self.writeUpstream(self.codec.serialize(upHead)) {
+                    guard let wire = self.serialized(upHead) else { return }
+                    self.writeUpstream(wire) {
                         self.sendRequestBody(mode, len: len, reqFraming: reqFraming, lane: d.lane) {
                             self.arm(Self.timeouts.upstreamHead, "upstream head")
                             self.readResponseHead(head)
@@ -381,6 +386,15 @@ final class NativeMitmSession {
                 }
             }
         }
+    }
+
+    /// Serializes a head the session built from Go's decision; a head Go's values made unserializable (CR/LF in a
+    /// header) fails the exchange (502 if nothing went out yet) instead of putting bad bytes on the wire.
+    private func serialized(_ h: HTTPRequestHead) -> Data? {
+        do { return try codec.serialize(h) } catch { fail(error, status: 502); return nil }
+    }
+    private func serialized(_ h: HTTPResponseHead) -> Data? {
+        do { return try codec.serialize(h) } catch { fail(error, status: 502); return nil }
     }
 
     static func reason(_ s: Int) -> String {
@@ -462,7 +476,7 @@ final class NativeMitmSession {
     private func readResponseHead(_ req: HTTPRequestHead) {
         do {
             if let h = try codec.parseResponseHead(&upBuf) {
-                if (100..<200).contains(h.status) && h.status != 101 { return readResponseHead(req) } // drop interim 1xx
+                if h.isInterim { return readResponseHead(req) } // drop interim 1xx
                 disarm()
                 let framing = codec.responseFraming(h, requestMethod: req.method)
                 let length: Int64
@@ -490,7 +504,7 @@ final class NativeMitmSession {
             var len = d.length
             if mode == .upstream { switch framing { case .contentLength(let n): len = n; case .none: len = 0; default: len = -1 } }
             let upstreamClean = mode == .upstream || bodyPushed || framing == .none
-            let keep = req.keepAlive && up.keepAlive && clientMayContinue && framing != .closeDelimited
+            let keep = req.keepAlive && up.keepAlive && clientMayContinue && framing != .untilClose
             sendResponse(status: d.status ?? up.status, headers: d.headerFields, mode: mode, length: len, lane: d.lane,
                          method: req.method, clientVersion: req.version, keepAlive: keep, upFraming: framing) { [self] ok in
                 endFlow(ok ? "" : "client write")
@@ -500,11 +514,11 @@ final class NativeMitmSession {
         case .upgrade:
             guard up.status == 101 else { return fail(S2Error.go("upgrade on \(up.status)"), status: 502) }
             var hs = d.headerFields.filter { !Self.framingHeader($0.name) }
-            hs.append(HTTPHeaderField("Connection", "Upgrade"))
-            if let u = up.headers.first("Upgrade") { hs.append(HTTPHeaderField("Upgrade", u)) }
-            let h = HTTPResponseHead(version: "HTTP/1.1", status: 101, reason: "Switching Protocols",
-                                     rawStartLine: "HTTP/1.1 101 Switching Protocols", headers: hs, rawBytes: Data())
-            writeClient(codec.serialize(h)) { [self] in tunnel() }
+            hs.append(("Connection", "Upgrade"))
+            if let u = up.value(for: "Upgrade") { hs.append(("Upgrade", u)) }
+            let h = HTTPResponseHead(status: 101, reason: "Switching Protocols", headers: hs)
+            guard let wire = serialized(h) else { return }
+            writeClient(wire) { [self] in tunnel() }
         case .error, .busy, .drop, .unknown, .forward, .local:
             fail(S2Error.go(d.note ?? "response \(d.action)"), status: 502)
         }
@@ -551,7 +565,7 @@ final class NativeMitmSession {
     }
 
     /// Writes a response head + body to the client. done(false) when the body could not be sent completely.
-    private func sendResponse(status: Int, headers: [HTTPHeaderField], mode: FlowBodyMode, length: Int64,
+    private func sendResponse(status: Int, headers: HTTPHeaderList, mode: FlowBodyMode, length: Int64,
                               lane: FlowDecision.Lane?, method: String, clientVersion: String, keepAlive: Bool,
                               upFraming: HTTPBodyFraming = .none, done: @escaping (Bool) -> Void) {
         var hs = headers.filter { !Self.framingHeader($0.name) }
@@ -560,20 +574,20 @@ final class NativeMitmSession {
         var chunked = false
         var keep = keepAlive
         if !bodyless || method == "HEAD" {
-            if length >= 0 { hs.append(HTTPHeaderField("Content-Length", String(length))) }
-            else if !bodyless && !http10 { hs.append(HTTPHeaderField("Transfer-Encoding", "chunked")); chunked = true }
+            if length >= 0 { hs.append(("Content-Length", String(length))) }
+            else if !bodyless && !http10 { hs.append(("Transfer-Encoding", "chunked")); chunked = true }
             else if !bodyless { keep = false } // close-delimited towards an HTTP/1.0 client
         }
-        if !keep { hs.append(HTTPHeaderField("Connection", "close")) }
-        else if http10 { hs.append(HTTPHeaderField("Connection", "keep-alive")) }
+        if !keep { hs.append(("Connection", "close")) }
+        else if http10 { hs.append(("Connection", "keep-alive")) }
         let reason = Self.reason(status)
-        let start = "HTTP/1.1 \(status) \(reason)"
-        let head = HTTPResponseHead(version: "HTTP/1.1", status: status, reason: reason, rawStartLine: start, headers: hs, rawBytes: Data())
+        let head = HTTPResponseHead(status: status, reason: reason, headers: hs)
         let out: (Data, @escaping () -> Void) -> Void = { [self] d, n in writeClient(chunked ? codec.chunk(d) : d, n) }
         let fin = { [self] in
             if chunked { writeClient(codec.lastChunk) { done(true) } } else { done(true) }
         }
-        writeClient(codec.serialize(head)) { [self] in
+        guard let headWire = serialized(head) else { return }
+        writeClient(headWire) { [self] in
             if bodyless { return done(true) }
             switch mode {
             case .none: fin()
@@ -630,7 +644,7 @@ final class NativeMitmSession {
                     self.queue.async {
                         guard !self.finished else { return }
                         if err != nil { return self.finish(cancelled: "tunnel read") }
-                        to.write(d) { [weak self] werr in
+                        to.write(d ?? Data()) { [weak self] werr in
                             self?.queue.async {
                                 guard let self, !self.finished else { return }
                                 if werr != nil { return self.finish(cancelled: "tunnel write") }
@@ -663,12 +677,11 @@ final class NativeMitmSession {
         if let status, !responseStarted {
             let body = Data("Tern native MitM: \(error)\n".utf8)
             let reason = Self.reason(status)
-            let h = HTTPResponseHead(version: "HTTP/1.1", status: status, reason: reason, rawStartLine: "HTTP/1.1 \(status) \(reason)",
-                                     headers: [HTTPHeaderField("Content-Type", "text/plain; charset=utf-8"),
-                                               HTTPHeaderField("Content-Length", String(body.count)),
-                                               HTTPHeaderField("Connection", "close")], rawBytes: Data())
+            let h = HTTPResponseHead(status: status, reason: reason,
+                                     headers: [("Content-Type", "text/plain; charset=utf-8"),
+                                               ("Content-Length", String(body.count)), ("Connection", "close")])
             responseStarted = true
-            conn.stream.write(codec.serialize(h) + body) { [weak self] _ in
+            conn.stream.write(((try? codec.serialize(h)) ?? Data()) + body) { [weak self] _ in
                 self?.queue.async { self?.finish(cancelled: nil, error: "\(error)") }
             }
             return

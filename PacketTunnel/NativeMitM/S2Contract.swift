@@ -36,7 +36,7 @@ enum S2Error: Error, Equatable {
 protocol ByteStream: AnyObject {
     /// Delivers between `min` and `max` bytes, or fewer at EOF. `isEOF` true: the peer half-closed (no more data
     /// will follow; data may still be non-empty). error non-nil: the stream is dead.
-    func read(min: Int, max: Int, completion: @escaping (_ data: Data, _ isEOF: Bool, _ error: Error?) -> Void)
+    func read(min: Int, max: Int, completion: @escaping (_ data: Data?, _ isEOF: Bool, _ error: Error?) -> Void)
     /// Writes all of `data` (empty data is allowed and completes immediately).
     func write(_ data: Data, completion: @escaping (_ error: Error?) -> Void)
     /// Half-close: send FIN / close_notify after pending writes; reads keep working.
@@ -45,63 +45,29 @@ protocol ByteStream: AnyObject {
     func close()
 }
 
-// MARK: - HTTP heads (the http lane fills these; wire and Go consume them)
+// MARK: - HTTP heads
+// Canonical types are the http lane's (HTTP/HTTPMessage.swift): HTTPRequestHead / HTTPResponseHead (byte-faithful,
+// rawBytes kept while unmodified), HTTPHeaderList = [(name, value)] (order and case preserved), HTTPBodyFraming
+// (.none / .contentLength / .chunked / .untilClose). The helpers below are what the session needs on top.
 
-/// One header line, name and value exactly as received (order and case preserved).
-struct HTTPHeaderField: Equatable {
-    var name: String
-    var value: String
-    init(_ name: String, _ value: String) { self.name = name; self.value = value }
+func headerValue(_ h: HTTPHeaderList, _ name: String) -> String? {
+    h.first { $0.name.caseInsensitiveCompare(name) == .orderedSame }?.value
+}
+func headerPairs(_ h: HTTPHeaderList) -> [[String]] { h.map { [$0.name, $0.value] } }
+func headerList(_ p: [[String]]) -> HTTPHeaderList { p.compactMap { $0.count == 2 ? ($0[0], $0[1]) : nil } }
+
+extension HTTPRequestHead {
+    var host: String? { value(for: "Host") }
+    var contentLength: Int64? { value(for: "Content-Length").flatMap { Int64($0.trimmingCharacters(in: .whitespaces)) } }
+    var isChunked: Bool { tokens(for: "Transfer-Encoding").contains("chunked") }
+    var isUpgrade: Bool { requestsUpgrade && !isConnect }
+    var keepAlive: Bool { wantsKeepAlive }
 }
 
-extension Array where Element == HTTPHeaderField {
-    func first(_ name: String) -> String? { first { $0.name.caseInsensitiveCompare(name) == .orderedSame }?.value }
-    func all(_ name: String) -> [String] { filter { $0.name.caseInsensitiveCompare(name) == .orderedSame }.map(\.value) }
-    var pairs: [[String]] { map { [$0.name, $0.value] } }
-    static func fromPairs(_ p: [[String]]) -> [HTTPHeaderField] { p.compactMap { $0.count == 2 ? HTTPHeaderField($0[0], $0[1]) : nil } }
-}
-
-struct HTTPRequestHead: Equatable {
-    var method: String
-    var target: String          // request-target as sent (origin-form "/p?q" or absolute-form)
-    var version: String         // "HTTP/1.1" / "HTTP/1.0"
-    var rawStartLine: String
-    var headers: [HTTPHeaderField]
-    var rawBytes: Data          // the whole head incl. the final CRLFCRLF, untouched
-
-    var host: String? { headers.first("Host") }
-    var contentLength: Int64? { headers.first("Content-Length").flatMap { Int64($0.trimmingCharacters(in: .whitespaces)) } }
-    var isChunked: Bool { headers.all("Transfer-Encoding").joined(separator: ",").lowercased().contains("chunked") }
-    var expectsContinue: Bool { headers.first("Expect")?.lowercased() == "100-continue" }
-    var isUpgrade: Bool { headers.first("Upgrade") != nil }
-    var keepAlive: Bool {
-        let c = headers.all("Connection").joined(separator: ",").lowercased()
-        return version == "HTTP/1.0" ? c.contains("keep-alive") : !c.contains("close")
-    }
-}
-
-struct HTTPResponseHead: Equatable {
-    var version: String
-    var status: Int
-    var reason: String
-    var rawStartLine: String
-    var headers: [HTTPHeaderField]
-    var rawBytes: Data
-
-    var contentLength: Int64? { headers.first("Content-Length").flatMap { Int64($0.trimmingCharacters(in: .whitespaces)) } }
-    var isChunked: Bool { headers.all("Transfer-Encoding").joined(separator: ",").lowercased().contains("chunked") }
-    var keepAlive: Bool {
-        let c = headers.all("Connection").joined(separator: ",").lowercased()
-        return version == "HTTP/1.0" ? c.contains("keep-alive") : !c.contains("close")
-    }
-}
-
-/// How a message body is delimited on the wire (RFC 9112 §6).
-enum HTTPBodyFraming: Equatable {
-    case none
-    case contentLength(Int64)
-    case chunked
-    case closeDelimited   // responses only
+extension HTTPResponseHead {
+    var contentLength: Int64? { value(for: "Content-Length").flatMap { Int64($0.trimmingCharacters(in: .whitespaces)) } }
+    var isChunked: Bool { tokens(for: "Transfer-Encoding").contains("chunked") }
+    var keepAlive: Bool { wantsKeepAlive }
 }
 
 /// Result of feeding wire bytes into a body decoder.
@@ -118,16 +84,16 @@ protocol HTTPBodyDecoding: AnyObject {
     func finishAtEOF() throws -> Data
 }
 
-/// The http lane's codec as the session uses it. Stateless; parsers return nil when more bytes are needed and
-/// remove the consumed head bytes from `buffer`. Limits (header count/size) throw S2Error.tooLarge.
+/// The codec as the session uses it (HTTPLaneCodec wraps the http lane). Parsers return nil when more bytes are
+/// needed and remove the consumed head bytes from `buffer`. Limits throw (HTTPParseError.headTooLarge etc).
 protocol HTTPCodec {
     func parseRequestHead(_ buffer: inout Data) throws -> HTTPRequestHead?
     func parseResponseHead(_ buffer: inout Data) throws -> HTTPResponseHead?
     func requestFraming(_ head: HTTPRequestHead) -> HTTPBodyFraming
     func responseFraming(_ head: HTTPResponseHead, requestMethod: String) -> HTTPBodyFraming
     func makeDecoder(_ framing: HTTPBodyFraming) -> HTTPBodyDecoding
-    func serialize(_ head: HTTPRequestHead) -> Data
-    func serialize(_ head: HTTPResponseHead) -> Data
+    func serialize(_ head: HTTPRequestHead) throws -> Data
+    func serialize(_ head: HTTPResponseHead) throws -> Data
     func chunk(_ payload: Data) -> Data       // one chunk; empty payload is not allowed (use lastChunk)
     var lastChunk: Data { get }               // "0\r\n\r\n"
 }
@@ -205,7 +171,7 @@ struct FlowDecision: Decodable, Equatable {
     var lane: Lane?
     var note: String?
 
-    var headerFields: [HTTPHeaderField] { .fromPairs(headers ?? []) }
+    var headerFields: HTTPHeaderList { headerList(headers ?? []) }
 
     static func decode(_ json: String) -> FlowDecision {
         if let d = try? JSONDecoder().decode(FlowDecision.self, from: Data(json.utf8)) { return d }

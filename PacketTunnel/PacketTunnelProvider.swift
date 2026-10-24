@@ -164,6 +164,12 @@ final class PacketTunnelProvider: NEPacketTunnelProvider {
         } else {
             StartupLog.write("native body lane: off (needs JavaScriptCore)")
         }
+        // native MitM stage 2 (B9): native TLS front + HTTP/1.1 session, rules still decided in Go. Default OFF
+        // (app-group key nativeMitmStage2) until device-verified; iOS 17+ only (the upstream lane's CONNECT-proxied
+        // TLS needs it). Off / declined / over the session cap → Go terminates TLS itself, as before.
+        if #available(iOS 17, *) {
+            StartupLog.write("native MitM stage 2: \(NativeMitmRuntime.installDefault() ? "on" : "off")")
+        }
         let proxyOnly = overrides.isProxyOnly
         // 接管所有网络流量: with includeAllNetworks iOS scopes this extension's own unbound sockets into the tunnel
         // too, so the core's proxy / DIRECT / DNS sockets must be bound to the physical interface (Go side,
