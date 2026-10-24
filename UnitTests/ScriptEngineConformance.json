@@ -1066,6 +1066,25 @@
   ]
  },
  {
+  "name": "bom-text-go-path",
+  "input": {
+   "code": "var b = $response.body; console.log('L19', b.length, b.charCodeAt(0)); $done({body: b + '!'});",
+   "type": "http-response",
+   "name": "bom-text-go-path",
+   "response": {
+    "status": 200,
+    "headers": {
+     "Content-Type": "application/json"
+    },
+    "body": "77u/eyJhZCI6dHJ1ZSwiaXRlbXMiOlsxLDIsM10sInMiOiLkuK3mlocifQ==",
+    "bodyBase64": true
+   }
+  },
+  "expect": [
+   "L19 37 65279"
+  ]
+ },
+ {
   "name": "lane-gzip-json-rewrite",
   "input": {
    "code": "var o = JSON.parse($response.body); o.ad = false; console.log('L1', $response.body.length, o.s); $done({body: JSON.stringify(o)});",
@@ -1145,6 +1164,25 @@
   },
   "expect": [
    "L19 37 65279"
+  ]
+ },
+ {
+  "name": "bom-invalid-utf8-go-path",
+  "input": {
+   "code": "var b = $response.body; console.log('L20', b.length, b.charCodeAt(0), b.charCodeAt(7), b.charCodeAt(8)); $done({body: b});",
+   "type": "http-response",
+   "name": "bom-invalid-utf8-go-path",
+   "response": {
+    "status": 200,
+    "headers": {
+     "Content-Type": "application/json"
+    },
+    "body": "77u/eyJhIjoi//7DIn0=",
+    "bodyBase64": true
+   }
+  },
+  "expect": [
+   "L20 10 65279 65533 34"
   ]
  },
  {

@@ -350,6 +350,7 @@ final class JSCScriptEngine: NSObject, LibmihomoScriptEngineProtocol {
         let host: @convention(block) (String?, String?) -> String = { [weak c] op, arg in
             guard let run = c?.run, let op else { return "" }
             if let lane = JSCScriptEngine.nativeBlobs, let r = JSCScriptEngine.laneHost(run, lane, op, arg ?? "") { return r }
+            if op == "text", let id = Int64(arg ?? "") { return JSCScriptEngine.goBlobText(run, id) }
             return run.host(op, arg: arg ?? "")
         }
         let put: @convention(block) (JSValue?, Double, Double) -> Double = { [weak c] buf, off, len in
@@ -523,6 +524,25 @@ final class JSCScriptEngine: NSObject, LibmihomoScriptEngineProtocol {
             return nil
         default:
             return nil
+        }
+    }
+
+    /// "text" of a Go blob, built here from its bytes (run.take: the same blob lookup as the host op, temp blobs
+    /// go away the same way). Through the host op the text reached Swift as a Go string converted by gomobile
+    /// with NSString(bytesNoCopy:…encoding: .utf8), which drops a leading BOM (CI 40052493849 bom-text-go-path:
+    /// goja 37 characters, JavaScriptCore 36). CFStringCreateWithBytes with isExternalRepresentation false keeps
+    /// it; peak memory is the same as before (Go's copy, then the CFString, then JavaScriptCore's copy).
+    private static func goBlobText(_ run: LibmihomoScriptRun, _ id: Int64) -> String {
+        guard let data = run.take(id), !data.isEmpty else { return "" }
+        return data.withUnsafeBytes { (buf: UnsafeRawBufferPointer) -> String in
+            guard isValidUTF8(buf), let base = buf.baseAddress else { return goText(buf) }
+            let bom = buf.count >= 3 && buf[0] == 0xEF && buf[1] == 0xBB && buf[2] == 0xBF
+            if let cf = CFStringCreateWithBytes(kCFAllocatorDefault, base.assumingMemoryBound(to: UInt8.self), buf.count,
+                                                CFStringBuiltInEncodings.UTF8.rawValue, false),
+               !bom || (CFStringGetLength(cf) > 0 && CFStringGetCharacterAtIndex(cf, 0) == 0xFEFF) {
+                return cf as String
+            }
+            return String(decoding: buf, as: UTF8.self)
         }
     }
 
