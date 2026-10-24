@@ -17,6 +17,9 @@ final class NativeCoreEngine {
     private var asnDB: NCMMDB?
     private var ruleProviders: NCRuleProviderStore?
     private var dnsPolicy: NCDNSPolicy?
+    private var nodeSubStore: NCNodeSubscriptionStore?
+    private var nodeSubs: [NCNodeSubscription] = []
+    private var canonicalGroupMap: [String: NCGroupModel] = [:]
     private var home = ""
 
     private var fakeIPFile: URL {
@@ -35,7 +38,8 @@ final class NativeCoreEngine {
         }
         config = cfg
         rules = cfg.rules.compactMap(NCRule.parse)
-        groups = NCGroupEngine(config: cfg)
+        let canonical = NCCanonicalConfig.from(mihomo: cfg)
+        canonicalGroupMap = canonical.groupMap
         let pool = NCFakeIPPool(range: cfg.dns.fakeIPRange, filter: cfg.dns.fakeIPFilter)
         if let data = try? Data(contentsOf: fakeIPFile) {
             pool.restore(data: data)
@@ -51,8 +55,18 @@ final class NativeCoreEngine {
         if !stale.isEmpty { store.refreshAll(stale) }
         // DNS policy (hosts answers + per-domain upstreams) from the
         // canonical view of the same config.
-        let canonical = NCCanonicalConfig.from(mihomo: cfg)
         dnsPolicy = NCDNSPolicy(model: canonical.dns, hosts: canonical.hosts)
+        // Node subscriptions: cached nodes merge into the effective config;
+        // stale ones refresh in the background and rebuild the group engine.
+        nodeSubs = canonical.subscriptions
+        let subStore = NCNodeSubscriptionStore(dir: URL(fileURLWithPath: home)
+            .appendingPathComponent("nativecore-nodesubs"))
+        nodeSubStore = subStore
+        let staleSubs = subStore.loadCached(canonical.subscriptions)
+        rebuildGroupEngine()
+        for sub in staleSubs {
+            subStore.refresh(sub) { [weak self] in self?.rebuildGroupEngine() }
+        }
         let homeURL = URL(fileURLWithPath: home)
         if let data = try? Data(contentsOf: homeURL.appendingPathComponent("geoip.metadb")) {
             geoIPDB = NCMMDB(data: data)
@@ -62,6 +76,59 @@ final class NativeCoreEngine {
         }
         isRunning = true
         return nil
+    }
+
+    /// (Re)build the group engine over the merged effective config:
+    /// config nodes/groups plus subscription nodes, with group membership
+    /// expanded through each group's `use` subscriptions and regex filters.
+    /// Selections/delays survive rebuilds (subscription refresh lands async).
+    private func rebuildGroupEngine() {
+        guard let cfg = config else { return }
+        let engine = NCGroupEngine(config: mergedConfig(base: cfg))
+        if let old = groups {
+            engine.selections = old.selections
+            engine.delays = old.delays
+            engine.alive = old.alive
+        }
+        engine.ssidProvider = {
+            UserDefaults(suiteName: AppShared.appGroup)?.string(forKey: "nativeCoreSSID")
+        }
+        groups = engine
+    }
+
+    private func mergedConfig(base cfg: NCConfig) -> NCConfig {
+        guard let store = nodeSubStore, !nodeSubs.isEmpty else { return cfg }
+        var names = Set(cfg.proxies.map { $0.name })
+        let groupNames = Set(cfg.groups.map { $0.name })
+        var subNodesBySub: [String: [NCProxy]] = [:]
+        var proxies = cfg.proxies
+        for sub in nodeSubs {
+            let nodes = store.nodes(for: sub).filter {
+                !names.contains($0.name) && !groupNames.contains($0.name)
+            }
+            for n in nodes { names.insert(n.name) }
+            subNodesBySub[sub.name] = nodes
+            proxies.append(contentsOf: nodes)
+        }
+        let groups = cfg.groups.map { g -> NCProxyGroup in
+            let cg = canonicalGroupMap[g.name]
+            let use = cg?.use ?? g.use
+            guard !use.isEmpty else { return g }
+            let include = cg?.includeRegex ?? g.fields["filter"]?.string
+            let exclude = cg?.excludeRegex ?? g.fields["exclude-filter"]?.string
+            var members = g.proxies
+            for subName in use {
+                for node in subNodesBySub[subName] ?? [] where
+                    NCNodeFilter.matches(node.name, include: include, exclude: exclude)
+                    && !members.contains(node.name) {
+                    members.append(node.name)
+                }
+            }
+            return NCProxyGroup(name: g.name, type: g.type, proxies: members, fields: g.fields)
+        }
+        return NCConfig(mode: cfg.mode, logLevel: cfg.logLevel, ipv6: cfg.ipv6,
+                        proxies: proxies, groups: groups, rules: cfg.rules,
+                        dns: cfg.dns, raw: cfg.raw)
     }
 
     /// Build a match context with this engine's GeoIP/ASN lookups injected.
@@ -89,6 +156,9 @@ final class NativeCoreEngine {
         dnsResponder = nil
         ruleProviders = nil
         dnsPolicy = nil
+        nodeSubStore = nil
+        nodeSubs = []
+        canonicalGroupMap = [:]
     }
 
     func persistFakeIP() {

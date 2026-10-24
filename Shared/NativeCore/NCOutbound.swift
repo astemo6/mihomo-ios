@@ -96,7 +96,23 @@ final class NCGroupEngine {
     var selections: [String: String] = [:] // group name -> chosen member
     var delays: [String: Int] = [:] // proxy name -> last measured delay ms (nil/<=0 = unknown or dead)
     var alive: [String: Bool] = [:]
+    /// Current Wi-Fi SSID, for SUBNET-conditioned groups (Surge SUBNET /
+    /// QX ssid policies carried in group fields["subnet"]). The engine
+    /// owner supplies it; nil = network unknown.
+    var ssidProvider: () -> String? = { nil }
     private var rrCounters: [String: Int] = [:]
+
+    /// The member a SUBNET condition forces for this group right now:
+    /// an exact SSID hit beats DEFAULT, which beats manual selection —
+    /// auto-switching by network is the group's whole purpose.
+    private func subnetForcedMember(_ g: NCProxyGroup) -> String? {
+        guard let map = g.fields["subnet"]?.object, !map.isEmpty else { return nil }
+        if let ssid = ssidProvider(), let hit = map[ssid]?.string, g.proxies.contains(hit) {
+            return hit
+        }
+        if let def = map["DEFAULT"]?.string, g.proxies.contains(def) { return def }
+        return nil
+    }
 
     init(config: NCConfig) { self.config = config }
 
@@ -125,7 +141,9 @@ final class NCGroupEngine {
         let members = g.proxies
         guard !members.isEmpty else { return .unknown(policy) }
         let chosen: String
-        if let sel = selections[g.name], members.contains(sel) {
+        if let forced = subnetForcedMember(g) {
+            chosen = forced
+        } else if let sel = selections[g.name], members.contains(sel) {
             chosen = sel // explicit choice / pin (controller PUT) wins for every type
         } else {
             switch g.type {
@@ -148,6 +166,7 @@ final class NCGroupEngine {
     func currentMember(of group: NCProxyGroup) -> String? {
         let members = group.proxies
         guard !members.isEmpty else { return nil }
+        if let forced = subnetForcedMember(group) { return forced }
         if let sel = selections[group.name], members.contains(sel) { return sel }
         switch group.type {
         case "url-test":

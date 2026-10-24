@@ -319,21 +319,24 @@ enum NCQXImport {
         case "load-balance":
             group = NCGroupModel(name: name, kind: .loadBalance, members: positional)
         case "ssid":
-            // NCGroupModel has no subnet-conditions field yet, so the group
-            // degrades to a select pinned to the DEFAULT target and the
-            // per-SSID mapping is reported, not silently dropped.
+            // Subnet conditions land in the canonical model; members are all
+            // targets (DEFAULT first) so the group stays meaningful even
+            // when no SSID is known.
+            var conditions: [String: String] = [:]
             var members: [String] = []
-            var deferred: [String] = []
             for token in positional {
                 guard let colon = token.firstIndex(of: ":") else { continue }
                 let ssid = String(token[..<colon])
                 let target = String(token[token.index(after: colon)...])
-                if ssid == "DEFAULT" { members = [target] } else { deferred.append("\(ssid)→\(target)") }
+                conditions[ssid] = target
+                if !members.contains(target) { members.append(target) }
             }
-            group = NCGroupModel(name: name, kind: .select, members: members)
-            if !deferred.isEmpty {
-                report.warnings.append("quantumultx ssid group '\(name)': SSID conditions deferred (no canonical field): \(deferred.joined(separator: ", "))")
+            if let def = conditions["DEFAULT"] {
+                members.removeAll { $0 == def }
+                members.insert(def, at: 0)
             }
+            group = NCGroupModel(name: name, kind: .select, members: members,
+                                 subnetConditions: conditions)
         default:
             report.warnings.append("quantumultx [policy]: unrecognized policy kind '\(rawKind)' skipped: \(line)")
             return nil

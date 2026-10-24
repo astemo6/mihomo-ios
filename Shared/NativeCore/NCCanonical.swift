@@ -123,6 +123,9 @@ struct NCGroupModel: Equatable {
     var includeRegex: String? = nil
     var excludeRegex: String? = nil
     var use: [String] = [] // names of NCNodeSubscription feeding this group
+    /// SUBNET conditions (Surge SUBNET / QX ssid policies): network key
+    /// (a Wi-Fi SSID, or "DEFAULT") → member to route to on that network.
+    var subnetConditions: [String: String] = [:]
 
     /// Adapter back to the legacy group shape the existing group engine
     /// consumes, so the engine needs no changes while importers land.
@@ -142,6 +145,9 @@ struct NCGroupModel: Equatable {
         fields["tolerance"] = .number(Double(tolerance))
         if let strategy { fields["strategy"] = .string(strategy) }
         if !use.isEmpty { fields["use"] = .array(use.map { .string($0) }) }
+        if !subnetConditions.isEmpty {
+            fields["subnet"] = .object(subnetConditions.mapValues { .string($0) })
+        }
         return NCProxyGroup(name: name, type: type, proxies: members, fields: fields)
     }
 }
