@@ -67,6 +67,17 @@ struct RWSnapJQStep: Decodable {
     var path: [BodyJSONKey]?
     var paths: [[BodyJSONKey]]?
     var v: String?
+    var cond: RWSnapJQCond?
+}
+
+/// A select() condition (bodysnap.go SnapJQCond).
+final class RWSnapJQCond: Decodable {
+    var k: String
+    var a: RWSnapJQCond?
+    var b: RWSnapJQCond?
+    var p: [BodyJSONKey]?
+    var v: String?
+    var key: String?
 }
 
 // MARK: - A compiled body rule
@@ -74,7 +85,7 @@ struct RWSnapJQStep: Decodable {
 final class NativeBodyRule {
     enum Part { case lit(String), group(Int) }
     enum RegexOp { case skip, replace(NSRegularExpression, [Part]) }
-    enum JQStep { case set([BodyJSONKey], BodyJSON), del([[BodyJSONKey]]) }
+    enum JQStep { case set([BodyJSONKey], BodyJSON), del([[BodyJSONKey]]), filter([BodyJSONKey], BodyJQ.Cond) }
 
     let index: Int
     let kind: String
@@ -114,6 +125,9 @@ final class NativeBodyRule {
                     jqSteps.append(.set(s.path ?? [], v))
                 case "del":
                     jqSteps.append(.del(s.paths ?? []))
+                case "filter":
+                    guard let c = s.cond.flatMap(BodyJQ.Cond.init) else { return nil }
+                    jqSteps.append(.filter(s.path ?? [], c))
                 default:
                     return nil
                 }
@@ -142,6 +156,7 @@ final class NativeBodyRule {
                     switch s {
                     case .set(let p, let n): v = try BodyJQ.setpath(v, p, n)
                     case .del(let ps): v = try BodyJQ.delpaths(v, ps)
+                    case .filter(let p, let c): v = try BodyJQ.filter(v, p, c)
                     }
                 }
             } catch {

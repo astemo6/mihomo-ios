@@ -448,4 +448,82 @@ enum BodyJQ {
         for p in paths { u = try update(u, p[...], .deleted) }
         return deleteEmpty(u)
     }
+
+    // MARK: P |= map(select(C)) (gojq _modify with getpath, map = [.[] | f], select = if f then . else empty end)
+
+    indirect enum Cond {
+        case or(Cond, Cond), and(Cond, Cond), not(Cond)
+        case eq([BodyJSONKey], BodyJSON), ne([BodyJSONKey], BodyJSON)
+        case truthy([BodyJSONKey])
+        case has([BodyJSONKey], [UInt8])
+
+        init?(_ c: RWSnapJQCond) {
+            switch c.k {
+            case "or", "and":
+                guard let a = c.a.flatMap(Cond.init), let b = c.b.flatMap(Cond.init) else { return nil }
+                self = c.k == "or" ? .or(a, b) : .and(a, b)
+            case "not":
+                guard let a = c.a.flatMap(Cond.init) else { return nil }
+                self = .not(a)
+            case "eq", "ne":
+                guard let vs = c.v, let v = BodyJSON.parse(vs) else { return nil }
+                switch v {
+                case .string, .bool, .null: break
+                default: return nil // numbers compare numerically in jq
+                }
+                self = c.k == "eq" ? .eq(c.p ?? [], v) : .ne(c.p ?? [], v)
+            case "truthy": self = .truthy(c.p ?? [])
+            case "has":
+                guard let k = c.key else { return nil }
+                self = .has(c.p ?? [], Array(k.utf8))
+            default: return nil
+            }
+        }
+    }
+
+    /// `.a.b` / `.[n]` on a value: null for null / missing / out of range; an error for any other type.
+    static func get(_ v: BodyJSON, _ p: [BodyJSONKey]) throws -> BodyJSON {
+        var cur = v
+        for k in p {
+            switch (k, cur) {
+            case (_, .null): cur = .null
+            case (.key(let s), .object(let m)): cur = m[s] ?? .null
+            case (.index(let i), .array(let a)):
+                let j = i < 0 ? i + a.count : i
+                cur = (j >= 0 && j < a.count) ? a[j] : .null
+            default: throw Failure()
+            }
+        }
+        return cur
+    }
+
+    static func truthy(_ v: BodyJSON) -> Bool {
+        switch v {
+        case .null, .bool(false): return false
+        default: return true
+        }
+    }
+
+    static func eval(_ c: Cond, _ x: BodyJSON) throws -> Bool {
+        switch c {
+        case .or(let a, let b): return try eval(a, x) || eval(b, x)
+        case .and(let a, let b): return try eval(a, x) && eval(b, x)
+        case .not(let a): return !(try eval(a, x))
+        case .eq(let p, let v): return try get(x, p) == v
+        case .ne(let p, let v): return try get(x, p) != v
+        case .truthy(let p): return truthy(try get(x, p))
+        case .has(let p, let k):
+            switch try get(x, p) {
+            case .object(let m): return m[k] != nil
+            case .null: return false
+            default: throw Failure()
+            }
+        }
+    }
+
+    static func filter(_ v: BodyJSON, _ path: [BodyJSONKey], _ c: Cond) throws -> BodyJSON {
+        guard case .array(let a) = try get(v, path) else { throw Failure() } // map over an object / null / scalar: Go
+        let kept = try a.filter { try eval(c, $0) }
+        return try setpath(v, path, .array(kept))
+    }
 }

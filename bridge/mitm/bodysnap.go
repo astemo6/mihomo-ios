@@ -24,6 +24,7 @@ package mitm
 // JSON, a compression it cannot decode exactly, larger than 256 KB, a jq runtime error, a slow regex).
 
 import (
+	"encoding/json"
 	"fmt"
 	"regexp"
 	"regexp/syntax"
@@ -55,12 +56,24 @@ type SnapJSONOp struct {
 	V    string `json:"v"` // the value as Go's encodeJSON writes it (a JSON text inside a string: number literals stay exact)
 }
 
-// SnapJQStep is one step of a jq pipe: "set" (Path = V) or "del" (Paths).
+// SnapJQStep is one step of a jq pipe: "set" (Path = V), "del" (Paths) or "filter" (Path |= map(select(Cond))).
 type SnapJQStep struct {
-	Op    string  `json:"op"`
-	Path  []any   `json:"path,omitempty"`
-	Paths [][]any `json:"paths,omitempty"`
-	V     string  `json:"v,omitempty"` // JSON text, as in SnapJSONOp
+	Op    string      `json:"op"`
+	Path  []any       `json:"path,omitempty"`
+	Paths [][]any     `json:"paths,omitempty"`
+	V     string      `json:"v,omitempty"` // JSON text, as in SnapJSONOp
+	Cond  *SnapJQCond `json:"cond,omitempty"`
+}
+
+// SnapJQCond is a select() condition: or / and (A, B), not (A), eq / ne (path P against the constant V: a string,
+// boolean or null), truthy (path P), has (Key in the value at path P).
+type SnapJQCond struct {
+	K   string      `json:"k"`
+	A   *SnapJQCond `json:"a,omitempty"`
+	B   *SnapJQCond `json:"b,omitempty"`
+	P   []any       `json:"p,omitempty"`
+	V   string      `json:"v,omitempty"`
+	Key string      `json:"key,omitempty"`
 }
 
 // snapBody fills the body fields of a body / jq / json rule.
@@ -386,6 +399,28 @@ func jqSteps(q *gojq.Query, out *[]SnapJQStep) string {
 		}
 		*out = append(*out, SnapJQStep{Op: "set", Path: path, V: v})
 		return ""
+	case gojq.OpModify:
+		// P |= map(select(C))
+		path, w := jqPath(q.Left)
+		if w != "" {
+			return w
+		}
+		r := q.Right
+		if !jqPlain(r) || r.Op != 0 || r.Term == nil || r.Term.Type != gojq.TermTypeFunc || len(r.Term.SuffixList) != 0 ||
+			r.Term.Func.Name != "map" || len(r.Term.Func.Args) != 1 {
+			return "jq modify"
+		}
+		a := r.Term.Func.Args[0]
+		if !jqPlain(a) || a.Op != 0 || a.Term == nil || a.Term.Type != gojq.TermTypeFunc || len(a.Term.SuffixList) != 0 ||
+			a.Term.Func.Name != "select" || len(a.Term.Func.Args) != 1 {
+			return "jq modify"
+		}
+		c, w := jqCond(a.Term.Func.Args[0])
+		if w != "" {
+			return w
+		}
+		*out = append(*out, SnapJQStep{Op: "filter", Path: path, Cond: c})
+		return ""
 	case 0:
 	default:
 		return "jq operator " + q.Op.String()
@@ -563,4 +598,101 @@ func jqConstTerm(t *gojq.Term) bool {
 		return true
 	}
 	return false
+}
+
+// jqCond compiles a select() condition of the supported forms.
+func jqCond(q *gojq.Query) (*SnapJQCond, string) {
+	if !jqPlain(q) {
+		return nil, "jq cond"
+	}
+	switch q.Op {
+	case gojq.OpOr, gojq.OpAnd:
+		a, w := jqCond(q.Left)
+		if w != "" {
+			return nil, w
+		}
+		b, w := jqCond(q.Right)
+		if w != "" {
+			return nil, w
+		}
+		k := "and"
+		if q.Op == gojq.OpOr {
+			k = "or"
+		}
+		return &SnapJQCond{K: k, A: a, B: b}, ""
+	case gojq.OpEq, gojq.OpNe:
+		k := "eq"
+		if q.Op == gojq.OpNe {
+			k = "ne"
+		}
+		pq, cq := q.Left, q.Right
+		if _, w := jqPath(pq); w != "" {
+			pq, cq = q.Right, q.Left
+		}
+		p, w := jqPath(pq)
+		if w != "" {
+			return nil, w
+		}
+		v, w := jqConst(cq)
+		if w != "" {
+			return nil, w
+		}
+		if v != "null" && v != "true" && v != "false" && !strings.HasPrefix(v, `"`) {
+			return nil, "jq cond value" // numbers compare numerically in jq (1 == 1.0): left to Go
+		}
+		return &SnapJQCond{K: k, P: p, V: v}, ""
+	case gojq.OpPipe:
+		r := q.Right
+		if jqPlain(r) && r.Op == 0 && r.Term != nil && r.Term.Type == gojq.TermTypeFunc && len(r.Term.SuffixList) == 0 {
+			switch {
+			case r.Term.Func.Name == "not" && len(r.Term.Func.Args) == 0:
+				a, w := jqCond(q.Left)
+				if w != "" {
+					return nil, w
+				}
+				return &SnapJQCond{K: "not", A: a}, ""
+			case r.Term.Func.Name == "has" && len(r.Term.Func.Args) == 1:
+				p, w := jqPath(q.Left)
+				if w != "" {
+					return nil, w
+				}
+				return jqHas(p, r.Term.Func.Args[0])
+			}
+		}
+		return nil, "jq cond pipe"
+	case 0:
+	default:
+		return nil, "jq cond operator"
+	}
+	t := q.Term
+	if t == nil || len(t.SuffixList) != 0 && t.Type != gojq.TermTypeIndex && t.Type != gojq.TermTypeIdentity {
+		return nil, "jq cond term"
+	}
+	switch {
+	case t.Type == gojq.TermTypeQuery && len(t.SuffixList) == 0:
+		return jqCond(t.Query)
+	case t.Type == gojq.TermTypeFunc && t.Func.Name == "not" && len(t.Func.Args) == 0 && len(t.SuffixList) == 0:
+		return &SnapJQCond{K: "not", A: &SnapJQCond{K: "truthy", P: []any{}}}, ""
+	case t.Type == gojq.TermTypeFunc && t.Func.Name == "has" && len(t.Func.Args) == 1 && len(t.SuffixList) == 0:
+		return jqHas([]any{}, t.Func.Args[0])
+	case t.Type == gojq.TermTypeIndex || t.Type == gojq.TermTypeIdentity:
+		p, w := jqPath(q)
+		if w != "" {
+			return nil, w
+		}
+		return &SnapJQCond{K: "truthy", P: p}, ""
+	}
+	return nil, "jq cond term"
+}
+
+func jqHas(p []any, arg *gojq.Query) (*SnapJQCond, string) {
+	v, w := jqConst(arg)
+	if w != "" || !strings.HasPrefix(v, `"`) {
+		return nil, "jq has"
+	}
+	var key string
+	if err := json.Unmarshal([]byte(v), &key); err != nil {
+		return nil, "jq has"
+	}
+	return &SnapJQCond{K: "has", P: p, Key: key}, ""
 }

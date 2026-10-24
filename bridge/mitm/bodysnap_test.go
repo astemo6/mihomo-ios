@@ -98,6 +98,9 @@ http-response-jq ^https://body\.test\.com/j/set '.data.list = [] | .data.flag = 
 http-response-jq ^https://body\.test\.com/j/root '. = {"ok":true}'
 http-response-jq ^https://body\.test\.com/j/idx '.arr[3] = 1'
 http-response-jq ^https://body\.test\.com/j/map '.data |= map(select(.ad | not))'
+http-response-jq ^https://body\.test\.com/j/sel '.data.feeds |= map(select((.type == "EDITOR_PICK" or .name != "x") and (has("adCategory") | not))) | .data.n = null'
+http-response-jq ^https://body\.test\.com/j/num '.data |= map(select(.n == 1.5))'
+http-response-jq ^https://body\.test\.com/j/iter '.data |= map(select(.list[].x != "y"))'
 http-request-jq ^https://body\.test\.com/q/jq '.k = 3'
 [Header Rewrite]
 http-response ^https://body\.test\.com/r/hdr header-add X-B 1
@@ -281,10 +284,22 @@ func bdDocs(paths [][]any) []string {
 		return rec(v, p)
 	}
 	leaf := map[string]any{"keep": json.Number("1"), "ad": true, "list": []any{json.Number("1"), "two", nil}}
-	full := root
-	for _, p := range paths {
-		full = set(full, p, leaf)
+	item := func(ad bool, name, typ, id, title string) map[string]any {
+		return map[string]any{"ad": ad, "name": name, "type": typ, "id": id, "title": title, "n": json.Number("1.50")}
 	}
+	arr := []any{item(true, "大赛", "EDITOR_PICK", "4154", "设置"), item(false, "x", "X", "1", "历史记录"),
+		map[string]any{"adCategory": json.Number("3"), "name": nil}, map[string]any{}, item(false, "大赛2", "DISCOVERY_EPISODE_RECOMMEND", "4165", "y")}
+	mixed := append(append([]any{}, arr...), "str", json.Number("5"))
+	build := func(l any) any {
+		v := root
+		for _, p := range paths {
+			v = set(v, p, l)
+		}
+		return v
+	}
+	full := build(leaf)
+	full2 := build(arr)
+	full3 := build(mixed)
 	wrong := root
 	for _, p := range paths {
 		if len(p) > 1 {
@@ -305,7 +320,7 @@ func bdDocs(paths [][]any) []string {
 		return s
 	}
 	f := enc(full)
-	return []string{f, enc(wrong), "{}", "[]", "<html>not json</html>", f + " x", "\ufeff" + f, " \n\t" + f + "\r\n", `{"a":"\ud800"}`, `{"a":1}{"b":2}`}
+	return []string{f, enc(full2), enc(full3), enc(wrong), "{}", "[]", "<html>not json</html>", f + " x", "\ufeff" + f, " \n\t" + f + "\r\n", `{"a":"\ud800"}`, `{"a":1}{"b":2}`}
 }
 
 // bdPaths: the paths a body rule edits (json ops, jq steps).
@@ -703,7 +718,7 @@ func TestBodySnapshotExport(t *testing.T) {
 		`^https://body\.test\.com/r/plain`: true, `^https://body\.test\.com/r/multi`: true, `^https://body\.test\.com/r/fold`: true,
 		`^https://body\.test\.com/r/line`: true, `^https://body\.test\.com/r/named`: true, `^https://body\.test\.com/r/look`: false,
 		`^https://body\.test\.com/r/wordb`: false, `^https://body\.test\.com/r/dollar`: false, `^https://body\.test\.com/r/nested`: false,
-		`^https://body\.test\.com/j/del`: true, `^https://body\.test\.com/j/set`: true, `^https://body\.test\.com/j/map`: false,
+		`^https://body\.test\.com/j/del`: true, `^https://body\.test\.com/j/set`: true, `^https://body\.test\.com/j/map`: true, `^https://body\.test\.com/j/sel`: true, `^https://body\.test\.com/j/num`: false, `^https://body\.test\.com/j/iter`: false,
 		`^https://body\.test\.com/l/add`: true, `^https://body\.test\.com/q/jq`: true,
 	}
 	seen := 0

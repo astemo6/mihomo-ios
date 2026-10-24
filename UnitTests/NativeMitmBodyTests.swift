@@ -361,8 +361,9 @@ final class NativeMitmBodyTests: XCTestCase {
         let fx = try fixtures()
         XCTAssertEqual(fx.version, RWSnapshot.supportedVersion)
         let rep = NativeBodyConformance.run(fx)
-        print("NativeMitmBodyTests: " + rep.summary)
-        for line in rep.perSuite { print("NativeMitmBodyTests:   " + line) }
+        // "passed" keeps these lines in the CI job log (ui-tests.yml filters the xcodebuild output)
+        print("NativeMitmBodyTests summary (passed filter): " + rep.summary)
+        for line in rep.perSuite { print("NativeMitmBodyTests suite (passed filter): " + line) }
         for f in rep.failures { print("NativeMitmBodyTests: MISMATCH " + f) }
         XCTAssertEqual(rep.mismatch, 0, rep.failures.prefix(5).joined(separator: "\n"))
         XCTAssertGreaterThan(rep.native, 0)
