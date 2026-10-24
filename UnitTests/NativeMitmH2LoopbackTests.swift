@@ -139,19 +139,20 @@ final class NativeMitmH2LoopbackTests: XCTestCase {
         print("H2LOOPBACK counters \(after)")
     }
 
-    /// Many concurrent streams on one client connection: one native session, one upstream h2 connection, the
-    /// stream cap respected (the Go client queues beyond SETTINGS_MAX_CONCURRENT_STREAMS).
+    /// Concurrent streams on one client connection: one native session, all streams multiplexed. 16 requests =
+    /// the first alone + 15 at once, within SETTINGS_MAX_CONCURRENT_STREAMS (16) — beyond it Go's client (not
+    /// strict) dials another connection, which is also fine but not what this test counts.
     func testNativeH2ConcurrentStreamsOneConnection() throws {
         try installNative()
         let before = NativeH2Runtime.counters
         var reqs: [[String: Any]] = []
-        for i in 0..<40 { reqs.append(["path": i % 4 == 0 ? "/big?n=\(100_000 + i)" : "/echo?i=\(i)"]) }
+        for i in 0..<16 { reqs.append(["path": i % 4 == 0 ? "/big?n=\(100_000 + i)" : "/echo?i=\(i)"]) }
         let run = try fetch(["concurrent": true, "requests": reqs])
         let after = NativeH2Runtime.counters
         XCTAssertEqual(run.conns, 1)
         XCTAssertEqual(after.sessions - before.sessions, 1)
-        XCTAssertEqual(after.streams - before.streams, 40)
-        XCTAssertEqual(after.upstreamH2 - before.upstreamH2, 40)
+        XCTAssertEqual(after.streams - before.streams, 16)
+        XCTAssertEqual(after.upstreamH2 - before.upstreamH2, 16)
         for (i, r) in (run.results ?? []).enumerated() {
             XCTAssertNil(r.error, "\(i)")
             XCTAssertEqual(r.status, 200, "\(i)")

@@ -216,6 +216,10 @@ func MitmH2SelfTestStart(rules string) string {
 		st.ownsEng = true
 	}
 	engMu.Unlock()
+	// Body rules must run whatever the host process's heap looks like (without a probe the gates fall back to
+	// the GOMEMLIMIT heuristics, which refuse body work once earlier tests left the heap high — CI run
+	// 40077591151). Never set inside the tunnel: the self-test refuses while a real engine runs.
+	mitm.SetAvailableMemoryProbe(func() int64 { return 1 << 30 })
 	h2st = st
 	return h2stJSON()
 }
@@ -254,6 +258,7 @@ func MitmH2SelfTestStop() {
 	}
 	mitm.SetNativeTerminator(nil)
 	mitm.SetNativeH2(false)
+	mitm.SetAvailableMemoryProbe(nil)
 	engMu.Lock()
 	if h2st.ownsEng && eng == h2st.e {
 		eng = nil
@@ -341,10 +346,21 @@ func MitmH2SelfTestFetch(specJSON string) string {
 	if len(protos) == 0 {
 		protos = []string{"h2", "http/1.1"}
 	}
+	// http.Protocols, not TLSClientConfig.NextProtos: the transport adds "http/1.1" back to an explicit
+	// NextProtos, so an h2-only client (gRPC) can only be expressed this way (CI run 40077591151).
+	var pr http.Protocols
+	for _, p := range protos {
+		switch p {
+		case "h2":
+			pr.SetHTTP2(true)
+		case "http/1.1":
+			pr.SetHTTP1(true)
+		}
+	}
 	var conns atomic.Int64
 	tr := &http.Transport{
-		TLSClientConfig:     &tls.Config{InsecureSkipVerify: true, NextProtos: protos},
-		ForceAttemptHTTP2:   true,
+		TLSClientConfig:     &tls.Config{InsecureSkipVerify: true},
+		Protocols:           &pr,
 		DisableCompression:  true,
 		MaxConnsPerHost:     1,
 		MaxIdleConnsPerHost: 1,

@@ -51,4 +51,25 @@ func TestMitmH2SelfTestGoPath(t *testing.T) {
 		t.Errorf("204: %+v", r[10])
 	}
 	t.Logf("%s", MitmH2SelfTestFetch(`{"requests":[{"path":"/trailers"},{"path":"/gzip"}]}`))
+	// h2-only client (what gRPC offers): served over h2 by the Go path
+	var only struct {
+		Results []struct {
+			Status int    `json:"status"`
+			Proto  string `json:"proto"`
+			Error  string `json:"error"`
+		} `json:"results"`
+	}
+	if err := json.Unmarshal([]byte(MitmH2SelfTestFetch(`{"protos":["h2"],"requests":[{"path":"/json"}]}`)), &only); err != nil ||
+		len(only.Results) != 1 || only.Results[0].Status != 200 || only.Results[0].Proto != "HTTP/2.0" {
+		t.Fatalf("h2-only client: %+v %v", only, err)
+	}
+	var h1 struct {
+		Results []struct {
+			Proto string `json:"proto"`
+		} `json:"results"`
+	}
+	_ = json.Unmarshal([]byte(MitmH2SelfTestFetch(`{"protos":["http/1.1"],"requests":[{"path":"/json"}]}`)), &h1)
+	if len(h1.Results) != 1 || h1.Results[0].Proto != "HTTP/1.1" {
+		t.Fatalf("http/1.1-only client: %+v", h1)
+	}
 }
