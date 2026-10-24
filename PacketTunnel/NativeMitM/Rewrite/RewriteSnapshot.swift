@@ -12,6 +12,10 @@ import Foundation
 struct RWSnapRegex: Decodable {
     var p: String
     var ok: Bool
+    /// Go's explicit ICU translation (bridge/mitm/rewriteicu.go), valid for ASCII input.
+    var icu: String?
+    /// regexp2 capture slot → ICU group index (nil: identity).
+    var slots: [Int]?
     var lit: String?
     var fold: Bool?
     var groups: Int
@@ -19,17 +23,37 @@ struct RWSnapRegex: Decodable {
     var empty: Bool?
 }
 
+/// A replacement as regexp2 parsed it (syntax.ReplacerData): r >= 0 → s[r]; r <= -5 → capture slot -5-r;
+/// -4 text before the match ($`), -3 after it ($'), -2 last group ($+), -1 whole input ($_).
+struct RWSnapTemplate: Decodable {
+    var s: [String]?
+    var r: [Int]
+}
+
 struct RWSnapHeaderOp: Decodable {
     var op: String
     var name: String?
     var value: String?
     var re: RWSnapRegex?
+    var tp: RWSnapTemplate?
+    /// regexp2 rejects the replacement: Go leaves the header unchanged.
+    var tperr: Bool?
 }
 
 struct RWSnapLocal: Decodable {
     var status: Int
     var headers: [[String]]?
     var body: Data?
+    var file: RWSnapFile?
+}
+
+/// A Map Local answer read from disk at request time (handler.go serveLargeMapLocal / mapLocalData).
+struct RWSnapFile: Decodable {
+    var path: String
+    var remote: Bool?
+    var ctype: String?
+    var maxAge: Int?
+    var large: Int
 }
 
 struct RWSnapScript: Decodable {
@@ -44,9 +68,12 @@ struct RWSnapRule: Decodable {
     var phase: String
     var re: RWSnapRegex?
     var hgate: Bool?
+    var hre: RWSnapRegex?
     var action: String?
     var target: String?
     var targetOK: Bool?
+    var tp: RWSnapTemplate?
+    var tperr: Bool?
     var headers: [RWSnapHeaderOp]?
     var opsOK: Bool?
     var local: RWSnapLocal?
@@ -146,6 +173,11 @@ struct GoHeader: Equatable {
     private(set) var map: [String: [String]] = [:]
 
     init() {}
+
+    /// Pairs as Go produced them (canonical keys already; nothing trimmed).
+    init(raw pairs: [[String]]) {
+        for kv in pairs where kv.count == 2 { map[kv[0], default: []].append(kv[1]) }
+    }
 
     /// headerFromPairs (flow.go): key trimmed, empty keys skipped, Add.
     init(pairs: [[String]]) {

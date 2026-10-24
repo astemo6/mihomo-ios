@@ -40,3 +40,16 @@ func MitmRecordNative(js string) int64 {
 	}
 	return int64(e.RecordNative(js))
 }
+
+// MitmRewriteHeaderOps applies response header rules for the native rewrite engine when Swift cannot (a non-ASCII
+// upstream value, an order-dependent QX raw rewrite): rulesJSON is a JSON int array of Ruleset indices of snapshot
+// generation gen, headersJSON the response header pairs; returns the resulting pairs ("" when it cannot).
+func MitmRewriteHeaderOps(gen int64, rulesJSON string, status int, headersJSON string) string {
+	engMu.Lock()
+	e := eng
+	engMu.Unlock()
+	if e == nil {
+		return ""
+	}
+	return e.RewriteHeaderOpsJSON(gen, rulesJSON, status, headersJSON)
+}

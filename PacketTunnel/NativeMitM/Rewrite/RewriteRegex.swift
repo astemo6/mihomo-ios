@@ -1,11 +1,15 @@
-// Native MitM stage 3a — one rule pattern on NSRegularExpression (ICU), used only where Go said ICU reads it
-// like Go does (RWSnapRegex.ok) and only on printable-ASCII input. Compiled lazily: a rule whose required literal
-// is not in the URL is ruled out without a regex (and without compiling one), which keeps both the per-request
-// cost and the resident memory of thousands of module rules small.
+// Native MitM stage 3 — one rule pattern on NSRegularExpression (ICU).
 //
-// Replacements follow regexp2's non-ECMAScript rules (the Go path's Replace): $$, $&, $n / ${n} with greedy
-// digits (a missing group leaves the text literal), any other "$" literal. Go marks templates using $` $' $+ $_,
-// ${name} or a pattern with named groups as not portable; those never reach expand().
+// Swift compiles the explicit ICU translation Go made of the regexp2 pattern (bridge/mitm/rewriteicu.go): every
+// character class / literal is an explicit set of ASCII code points, anchors are spelled out, capture groups are
+// unnamed and renumbered (`slots` maps regexp2's capture slots to ICU group indices). The translation is exact
+// for ASCII input only, so every input is checked to be ASCII first (anything else: .unknown → Go decides).
+// Compiled lazily: a rule whose required literal is not in the URL is ruled out without a regex (and without
+// compiling one), which keeps both the per-request cost and the resident memory of thousands of module rules
+// small.
+//
+// Replacements run the program Go parsed with regexp2's own replacement parser (RWSnapTemplate): literals,
+// capture slots, $` $' $+ $_ — so templates mean exactly what regexp2.Replace makes of them.
 
 import Foundation
 
@@ -25,17 +29,29 @@ final class RWRegex {
         fold = src.fold ?? false
     }
 
+    /// The pattern Swift compiles: Go's ICU translation (older snapshots: the pattern itself when Go marked it
+    /// portable).
+    var icuPattern: String? {
+        guard src.ok else { return nil }
+        return src.icu ?? src.p
+    }
+
     /// The compiled expression; nil when ICU rejects it or its group count differs from Go's (then: Go decides).
-    private var regex: NSRegularExpression? {
+    var regex: NSRegularExpression? {
         lock.lock(); defer { lock.unlock() }
         if !tried {
             tried = true
-            if src.ok, let re = try? NSRegularExpression(pattern: src.p, options: []), re.numberOfCaptureGroups == src.groups {
+            if let p = icuPattern, let re = try? NSRegularExpression(pattern: p, options: []), re.numberOfCaptureGroups == src.groups {
                 compiled = re
             }
         }
         return compiled
     }
+
+    /// Whether ICU accepted the pattern (compiles it now).
+    var compiles: Bool { regex != nil }
+
+    static func isASCII(_ s: String) -> Bool { s.utf8.allSatisfy { $0 < 0x80 } }
 
     /// Could the URL contain a match at all? false is exact (every match contains the literal).
     func literalAllows(_ s: String) -> Bool {
@@ -43,34 +59,85 @@ final class RWRegex {
         return RWAscii.contains(fold ? RWAscii.lower(s) : s, lit)
     }
 
-    /// Whether the pattern matches s (s is printable ASCII). unknown: only Go can tell.
+    /// Whether the pattern matches s. unknown: only Go can tell (not translatable, ICU refused, non-ASCII input).
     func match(_ s: String) -> Match {
         if !literalAllows(s) { return .no }
-        guard src.ok, let re = regex else { return .unknown }
+        guard src.ok, RWRegex.isASCII(s), let re = regex else { return .unknown }
+        switch RWRegex.first(re, s) {
+        case .timeout: return .unknown
+        case .none: return .no
+        case .match: return .yes
+        }
+    }
+
+    enum First { case none, match(NSTextCheckingResult), timeout }
+
+    /// Time budget for one ICU search: a pathological pattern must not stall the tunnel (Go's regexp2 has its
+    /// own 200 ms MatchTimeout, after which it reports no match — such inputs go to Go, which decides).
+    static var timeLimit: TimeInterval = 0.05
+
+    /// The first match, searched with progress callbacks so the search can be abandoned after timeLimit.
+    static func first(_ re: NSRegularExpression, _ s: String) -> First {
         let ns = s as NSString
-        return re.firstMatch(in: s, options: [], range: NSRange(location: 0, length: ns.length)) != nil ? .yes : .no
+        let deadline = Date().addingTimeInterval(timeLimit)
+        var found: NSTextCheckingResult?
+        var timedOut = false
+        re.enumerateMatches(in: s, options: [.reportProgress], range: NSRange(location: 0, length: ns.length)) { m, _, stop in
+            if let m = m {
+                found = m
+                stop.pointee = true
+            } else if Date() > deadline {
+                timedOut = true
+                stop.pointee = true
+            }
+        }
+        if let m = found { return .match(m) }
+        return timedOut ? .timeout : .none
+    }
+
+    /// Every match (nil: the time budget ran out).
+    static func all(_ re: NSRegularExpression, _ s: String) -> [NSTextCheckingResult]? {
+        let ns = s as NSString
+        let deadline = Date().addingTimeInterval(timeLimit)
+        var out: [NSTextCheckingResult] = []
+        var timedOut = false
+        re.enumerateMatches(in: s, options: [.reportProgress], range: NSRange(location: 0, length: ns.length)) { m, _, stop in
+            if let m = m {
+                out.append(m)
+            } else if Date() > deadline {
+                timedOut = true
+                stop.pointee = true
+            }
+        }
+        return timedOut ? nil : out
     }
 
     /// regexp2 Replace(s, template, -1, 1): the first match replaced. nil: cannot do it like Go.
-    func replaceFirst(_ s: String, template: String) -> String? {
-        guard src.ok, let re = regex else { return nil }
+    func replaceFirst(_ s: String, _ tp: RWSnapTemplate) -> String? {
+        guard src.ok, RWRegex.isASCII(s), let re = regex else { return nil }
         let ns = s as NSString
-        guard let m = re.firstMatch(in: s, options: [], range: NSRange(location: 0, length: ns.length)) else { return s }
-        guard let rep = expand(template, m, ns) else { return nil }
+        let m: NSTextCheckingResult
+        switch RWRegex.first(re, s) {
+        case .timeout: return nil
+        case .none: return s
+        case .match(let x): m = x
+        }
+        guard let rep = run(tp, m, ns) else { return nil }
         let r = m.range
         return ns.substring(to: r.location) + rep + ns.substring(from: r.location + r.length)
     }
 
-    /// regexp2 Replace(s, template, -1, -1): every match replaced. Only for patterns that cannot match empty
-    /// (Go guarantees: RWSnapRegex.empty false), where ICU and .NET walk matches alike.
-    func replaceAll(_ s: String, template: String) -> String? {
-        guard src.ok, src.empty != true, let re = regex else { return nil }
+    /// regexp2 Replace(s, template, -1, -1): every match replaced (ICU walks matches, empty ones included, the way
+    /// regexp2 does — held to it by NativeMitmRegexFixtures).
+    func replaceAll(_ s: String, _ tp: RWSnapTemplate) -> String? {
+        guard src.ok, RWRegex.isASCII(s), let re = regex else { return nil }
         let ns = s as NSString
         var out = ""
         var at = 0
-        for m in re.matches(in: s, options: [], range: NSRange(location: 0, length: ns.length)) {
-            if m.range.length == 0 { return nil }
-            guard let rep = expand(template, m, ns) else { return nil }
+        guard let ms = RWRegex.all(re, s) else { return nil }
+        if ms.isEmpty { return s }
+        for m in ms {
+            guard let rep = run(tp, m, ns) else { return nil }
             out += ns.substring(with: NSRange(location: at, length: m.range.location - at))
             out += rep
             at = m.range.location + m.range.length
@@ -79,56 +146,45 @@ final class RWRegex {
         return out
     }
 
-    private func group(_ m: NSTextCheckingResult, _ g: Int, _ ns: NSString) -> [UInt8] {
-        guard g <= m.numberOfRanges - 1 else { return [] }
-        let r = m.range(at: g)
-        if r.location == NSNotFound { return [] }
-        return Array(ns.substring(with: r).utf8)
+    /// ICU group index of regexp2 capture slot `slot`.
+    private func icuGroup(_ slot: Int) -> Int? {
+        if let s = src.slots {
+            return slot >= 0 && slot < s.count ? s[slot] : nil
+        }
+        return slot >= 0 && slot <= src.groups ? slot : nil
     }
 
-    /// Expands a .NET replacement template for match m. nil: a form Swift does not reproduce.
-    func expand(_ template: String, _ m: NSTextCheckingResult, _ ns: NSString) -> String? {
-        let t = Array(template.utf8)
-        let groups = src.groups
-        var out = [UInt8]()
-        var i = 0
-        let dollar = UInt8(ascii: "$")
-        while i < t.count {
-            let c = t[i]
-            if c != dollar { out.append(c); i += 1; continue }
-            if i + 1 >= t.count { out.append(dollar); i += 1; continue }
-            var j = i + 1
-            var angled = false
-            if t[j] == UInt8(ascii: "{") && t.count - j > 1 { angled = true; j += 1 }
-            let ch = t[j]
-            if RWAscii.isDigit(ch) {
-                var k = j
-                var num = 0
-                while k < t.count && RWAscii.isDigit(t[k]) {
-                    if k - j >= 9 { return nil } // regexp2 reports an out-of-range group: an error on the Go path
-                    num = num * 10 + Int(t[k] - 0x30)
-                    k += 1
-                }
-                if !angled {
-                    if num <= groups { out += group(m, num, ns); i = k; continue }
-                } else if k < t.count && t[k] == UInt8(ascii: "}") {
-                    if num <= groups { out += group(m, num, ns); i = k + 1; continue }
-                }
-            } else if angled {
-                if ch >= 0x80 || RWAscii.isTokenByte(ch) && (ch == UInt8(ascii: "_") || (ch | 0x20) >= 0x61 && (ch | 0x20) <= 0x7A) {
-                    return nil // ${name}: Go keeps such templates
-                }
+    private func group(_ m: NSTextCheckingResult, slot: Int, _ ns: NSString) -> String? {
+        guard let g = icuGroup(slot), g < m.numberOfRanges else { return nil }
+        let r = m.range(at: g)
+        if r.location == NSNotFound { return "" }
+        return ns.substring(with: r)
+    }
+
+    /// regexp2 replacementImpl over the parsed template. nil: a slot Swift cannot map.
+    func run(_ tp: RWSnapTemplate, _ m: NSTextCheckingResult, _ ns: NSString) -> String? {
+        var out = ""
+        let strings = tp.s ?? []
+        let capsize = (src.slots?.count) ?? (src.groups + 1)
+        for r in tp.r {
+            if r >= 0 {
+                guard r < strings.count else { return nil }
+                out += strings[r]
+            } else if r < -4 {
+                guard let g = group(m, slot: -5 - r, ns) else { return nil }
+                out += g
             } else {
-                switch ch {
-                case dollar: out.append(dollar); i = j + 1; continue
-                case UInt8(ascii: "&"): out += group(m, 0, ns); i = j + 1; continue
-                case UInt8(ascii: "`"), UInt8(ascii: "'"), UInt8(ascii: "+"), UInt8(ascii: "_"): return nil
-                default: break
+                switch r {
+                case -4: out += ns.substring(to: m.range.location)
+                case -3: out += ns.substring(from: m.range.location + m.range.length)
+                case -2:
+                    guard let g = group(m, slot: capsize - 1, ns) else { return nil }
+                    out += g
+                case -1: out += ns as String
+                default: return nil
                 }
             }
-            out.append(dollar) // unrecognised: a literal "$", scanning goes on right after it
-            i += 1
         }
-        return String(decoding: out, as: UTF8.self)
+        return out
     }
 }

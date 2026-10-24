@@ -49,11 +49,24 @@ protocol RewriteSnapshotSource: AnyObject {
     func generation() -> Int64
     /// The snapshot JSON ("" none).
     func snapshotJSON() -> String
+    /// Go applies the given response header rules of snapshot `gen` (Swift could not: see NativeRewriteEngine
+    /// respond). nil: unavailable.
+    func headerOps(gen: Int64, rules: [Int], status: Int, headers: [[String]]) -> [[String]]?
+}
+
+extension RewriteSnapshotSource {
+    func headerOps(gen: Int64, rules: [Int], status: Int, headers: [[String]]) -> [[String]]? { nil }
 }
 
 final class GoRewriteSnapshotSource: RewriteSnapshotSource {
     func generation() -> Int64 { LibmihomoMitmRewriteGeneration() }
     func snapshotJSON() -> String { LibmihomoMitmRewriteSnapshot() }
+    func headerOps(gen: Int64, rules: [Int], status: Int, headers: [[String]]) -> [[String]]? {
+        guard let rj = try? JSONSerialization.data(withJSONObject: rules), let hj = try? JSONSerialization.data(withJSONObject: headers) else { return nil }
+        let out = LibmihomoMitmRewriteHeaderOps(gen, String(decoding: rj, as: UTF8.self), status, String(decoding: hj, as: UTF8.self))
+        guard !out.isEmpty, let pairs = try? JSONSerialization.jsonObject(with: Data(out.utf8)) as? [[String]] else { return nil }
+        return pairs
+    }
 }
 
 /// Holds the engine for the current generation.
@@ -78,6 +91,9 @@ final class NativeRewriteProvider {
             return nil
         }
         let e = NativeRewriteEngine(snapshot: s)
+        e.headerOpsFallback = { [weak source = self.source] gen, rules, status, headers in
+            source?.headerOps(gen: gen, rules: rules, status: status, headers: headers)
+        }
         engine = e
         loads += 1
         return e
@@ -175,8 +191,8 @@ final class NativeRewriteDriver: MitmFlowDriving {
             d.status = l.status; d.headers = l.headers; d.body = l.bodyMode; d.length = l.length
             emitFirst("local", l.log, engine: engine, wall: wall, t0: t0) { e in
                 e.status = l.status
-                e.len = Int64(l.logBody.count)
-                if engine.capture && !l.logBody.isEmpty { e.body = l.logBody }
+                e.len = l.logLen ?? Int64(l.logBody.count)
+                if engine.capture && !l.logNoCapture && !l.logBody.isEmpty { e.body = l.logBody }
             }
             return d
         case .forward(let f):
