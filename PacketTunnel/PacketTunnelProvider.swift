@@ -80,6 +80,8 @@ final class PacketTunnelProvider: NEPacketTunnelProvider {
     private let memoryProbe = ExtensionMemoryProbe()
     private var bridge: PacketFlowBridge?
     private var memoryGuard: MemoryGuard?
+    /// feat/s3-mem: replaces memoryGuard while the app-group switch nativeMemGovernor is on (default off).
+    private var nativeMemGovernor: NativeMemoryGovernorSampler?
     private var traffic: TrafficRecorder?
     private var liveStats: LiveStatsSampler?
     private var network: NetworkWatcher?
@@ -167,6 +169,12 @@ final class PacketTunnelProvider: NEPacketTunnelProvider {
         } else {
             StartupLog.write("native body lane: off (\(jsc.isEmpty ? "default off" : "needs JavaScriptCore"))")
         }
+        // native MitM stage 2 (B9): native TLS front + HTTP/1.1 session, rules still decided in Go. Default
+        // NativeMitmRuntime.defaultOn (app-group key nativeMitmStage2 overrides); iOS 17+ only (the upstream lane's CONNECT-proxied
+        // TLS needs it). Off / declined / over the session cap → Go terminates TLS itself, as before.
+        if #available(iOS 17, *) {
+            StartupLog.write("native MitM stage 2: \(NativeMitmRuntime.installDefault() ? "on" : "off")")
+        }
         let proxyOnly = overrides.isProxyOnly
         // 接管所有网络流量: with includeAllNetworks iOS scopes this extension's own unbound sockets into the tunnel
         // too, so the core's proxy / DIRECT / DNS sockets must be bound to the physical interface (Go side,
@@ -226,9 +234,17 @@ final class PacketTunnelProvider: NEPacketTunnelProvider {
                 let started: Bool = {
                     self.stopLock.lock(); defer { self.stopLock.unlock() }
                     guard !self._stopped, !timedOut else { return false }
-                    let guardian = MemoryGuard()
-                    guardian.start()
-                    self.memoryGuard = guardian
+                    if NativeMemoryGovernor.enabled {
+                        // feat/s3-mem: one coordinator (Swift) for levels, admission, reclaim, shed and GOMEMLIMIT;
+                        // Go's governor stands down while it runs (bridge/nativegov.go).
+                        let g = NativeMemoryGovernorSampler.makeDefault(onSample: { MemorySnapshotWriter.save(fp: $0, avail: $1) })
+                        g.start()
+                        self.nativeMemGovernor = g
+                    } else {
+                        let guardian = MemoryGuard()
+                        guardian.start()
+                        self.memoryGuard = guardian
+                    }
                     let rec = TrafficRecorder()
                     rec.start()
                     self.traffic = rec
@@ -331,6 +347,8 @@ final class PacketTunnelProvider: NEPacketTunnelProvider {
         // later .flushStats / sleep still made the stopped recorder read the core's counters again after
         // stop() had flushed the last delta (TrafficRecorder now also ignores samples once stopped).
         self.traffic = nil
+        let nativeMemGovernor = self.nativeMemGovernor
+        self.nativeMemGovernor = nil
         self.liveStats = nil
         self.network = nil
         self.memoryGuard = nil
@@ -339,6 +357,7 @@ final class PacketTunnelProvider: NEPacketTunnelProvider {
         liveStats?.stop()
         network?.stop()
         memoryGuard?.stop()
+        nativeMemGovernor?.stop()
         TunnelStopReason.clearAlive() // fix/vpn-stays-on: a clean stop (after the traffic timer can no longer re-mark)
         LibmihomoStop()
         // feat/native-mitm: lane handles go back to 0 once the core stopped (one still being freed may show here; a count
@@ -464,7 +483,20 @@ enum MemorySnapshotWriter {
         trackedPeak = max(trackedPeak, fp)
         let peak = max(trackedPeak, ProcessMemory.peakBytes())
         lock.unlock()
-        let json = LibmihomoMemorySnapshot(Int64(fp), Int64(peak), Int64(avail))
+        var json = LibmihomoMemorySnapshot(Int64(fp), Int64(peak), Int64(avail))
+        // native MitM stage 2: Go reports on / handed / fellBack; the live session count is Swift's.
+        // feat/s3-mem: 隧道内存 → 内存调度 row (only while the native governor runs).
+        let governor = NativeMemoryGovernor.active
+        if var obj = (try? JSONSerialization.jsonObject(with: Data(json.utf8))) as? [String: Any] {
+            var changed = false
+            if var native = obj["native"] as? [String: Any] {
+                native["sessions"] = NativeMitmRuntime.liveSessions
+                obj["native"] = native
+                changed = true
+            }
+            if let g = governor { obj["governor"] = g.snapshotFields(); changed = true }
+            if changed, let d = try? JSONSerialization.data(withJSONObject: obj), let s = String(data: d, encoding: .utf8) { json = s }
+        }
         TunnelMemoryFile.write(json)
         return json
     }

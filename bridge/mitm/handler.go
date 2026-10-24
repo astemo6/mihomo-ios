@@ -296,6 +296,8 @@ type reqPhase struct {
 	ent     *Entry
 	u       string
 	release func()
+	// scripted: outcomes of request scripts Swift already ran (flow API hand-over, flowscripted.go); nil none.
+	scripted *flowScriptedSet
 }
 
 func (e *Engine) startRequest(r *http.Request) *reqPhase {
@@ -488,7 +490,7 @@ func (e *Engine) requestPhase(p *reqPhase, w http.ResponseWriter, r *http.Reques
 		r.ContentLength = int64(len(b))
 		r.Header.Set("Content-Length", strconv.Itoa(len(b)))
 	}
-	for _, rule := range rules {
+	for ri, rule := range rules {
 		if rule.Phase == "response" {
 			continue // matched below against the final URL
 		}
@@ -520,37 +522,57 @@ func (e *Engine) requestPhase(p *reqPhase, w http.ResponseWriter, r *http.Reques
 			if !rule.matchReq(u, r) {
 				continue
 			}
-			sreq := &ScriptHTTP{URL: u, Method: r.Method, Header: r.Header, Host: r.Host}
-			// review5 P0-1: take the script slot before loading the body, so queued scripts don't
-			// each hold a body while they wait.
-			slot, err := e.scripts.Reserve(r.Context(), rule)
-			if err != nil {
-				e.reserveFailed(rule, ent, err)
-				continue
-			}
-			if rule.Script.RequiresBody {
-				if limit := scriptBodyLimit(rule.Script); !loadBody(limit) {
-					slot.Release()
-					why := reqSkip
-					if bodyLoaded && bodyOK && len(reqBody) > limit {
-						why = fmt.Sprintf("请求体 %d KB 超过上限 %d KB（%s）", len(reqBody)>>10, limit>>10, bodyLimitNote(rule.Script, limit))
-					}
-					if why == "" {
-						why = "请求体超过上限"
-					}
-					e.Logs.Add(rule.Script.Name, "warn", "跳过脚本："+why)
-					ent.Note("跳过脚本：" + rule.Script.Name + " — " + why)
+			var res *ScriptResult
+			if inj := p.scripted.at(ri); inj != nil {
+				// native-final: Swift ran this script already (its log lines are written); apply the outcome
+				// at the same point, with the same request-log calls, and load the body as Go would have
+				if inj.Load && rule.Script.RequiresBody {
+					loadBody(scriptBodyLimit(rule.Script))
+				}
+				if inj.Skip != "" {
+					ent.Note(inj.Skip)
 					continue
 				}
-				sreq.Body, sreq.HasBody = reqBody, true
-			}
-			ent.Match(rule.label())
-			res, err := e.scripts.RunReserved(r.Context(), slot, rule, sreq, nil)
-			slot.Release()
-			if err != nil {
-				e.Logs.Add(rule.Script.Name, "error", err.Error())
-				ent.Note(scriptErrNote(rule.Script.Name, err))
-				continue
+				ent.Match(rule.label())
+				if inj.Fail != "" {
+					ent.Note(inj.Fail)
+					continue
+				}
+				res = inj.result()
+			} else {
+				sreq := &ScriptHTTP{URL: u, Method: r.Method, Header: r.Header, Host: r.Host}
+				// review5 P0-1: take the script slot before loading the body, so queued scripts don't
+				// each hold a body while they wait.
+				slot, err := e.scripts.Reserve(r.Context(), rule)
+				if err != nil {
+					e.reserveFailed(rule, ent, err)
+					continue
+				}
+				if rule.Script.RequiresBody {
+					if limit := scriptBodyLimit(rule.Script); !loadBody(limit) {
+						slot.Release()
+						why := reqSkip
+						if bodyLoaded && bodyOK && len(reqBody) > limit {
+							why = fmt.Sprintf("请求体 %d KB 超过上限 %d KB（%s）", len(reqBody)>>10, limit>>10, bodyLimitNote(rule.Script, limit))
+						}
+						if why == "" {
+							why = "请求体超过上限"
+						}
+						e.Logs.Add(rule.Script.Name, "warn", "跳过脚本："+why)
+						ent.Note("跳过脚本：" + rule.Script.Name + " — " + why)
+						continue
+					}
+					sreq.Body, sreq.HasBody = reqBody, true
+				}
+				ent.Match(rule.label())
+				var err2 error
+				res, err2 = e.scripts.RunReserved(r.Context(), slot, rule, sreq, nil)
+				slot.Release()
+				if err2 != nil {
+					e.Logs.Add(rule.Script.Name, "error", err2.Error())
+					ent.Note(scriptErrNote(rule.Script.Name, err2))
+					continue
+				}
 			}
 			if res.Abort {
 				ent.Finish(0, "脚本中止："+rule.Script.Name)

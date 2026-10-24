@@ -82,6 +82,11 @@ type FlowHead struct {
 	ConnPort int    `json:"connPort"`
 	TLS      bool   `json:"tls"`
 	ConnID   int64  `json:"connId"`
+	// Scripted (native request scripts, native-final): request-phase scripts Swift already ran for this request,
+	// by Ruleset index of snapshot generation Gen. requestPhase applies their outcomes where it would run them
+	// (flowscripted.go) — the hand-over of a natively started request to Go never runs a script twice.
+	Gen      int64          `json:"gen,omitempty"`
+	Scripted []FlowScripted `json:"scripted,omitempty"`
 }
 
 // FlowRespHead is the upstream response head (JSON from Swift).
@@ -154,6 +159,9 @@ type NativeFlow struct {
 	respBody io.ReadCloser
 	respMode string // body mode of the response decision
 	laneH    int64  // lane handle handed to the native side (respMode "lane")
+
+	// scripted: request scripts Swift already ran (FlowHead.Scripted), nil none.
+	scripted *flowScriptedSet
 
 	// afterPhase: a FlowEnd that arrived while the phase goroutine ran; it runs when the goroutine returns.
 	afterPhase func()
@@ -310,9 +318,17 @@ func (e *Engine) FlowBegin(headJSON string) string {
 		flowBusy.Add(1)
 		return flowDecision{Action: "busy", Note: "too many native flows"}.json()
 	}
+	var scripted *flowScriptedSet
+	if len(head.Scripted) > 0 {
+		st := e.snapState(head.Gen)
+		if st == nil {
+			return flowDecision{Action: "error", Note: "scripted: rules changed"}.json()
+		}
+		scripted = newFlowScriptedSet(st, head.Scripted)
+	}
 	startReaper()
 	ctx, cancel := context.WithCancelCause(context.Background())
-	nf := &NativeFlow{id: flowSeq.Add(1), e: e, ctx: ctx, cancel: cancel, stage: "request"}
+	nf := &NativeFlow{id: flowSeq.Add(1), e: e, ctx: ctx, cancel: cancel, stage: "request", scripted: scripted}
 	nf.cond = sync.NewCond(&nf.mu)
 	nf.touch()
 	nf.in[flowReq] = newFlowPipe(nf, flowReq, false)
@@ -507,6 +523,13 @@ func FlowResponse(id int64, headJSON string) string {
 		return flowDecision{ID: id, Action: "error", Status: 502, Note: "bad head: " + err.Error()}.json()
 	}
 	nf.mu.Lock()
+	// The request phase goroutine publishes "forward" and only then runs its deferred bookkeeping, which reads
+	// final / phaseActive — the very fields the response phase resets. Wait for it to return (phaseDone
+	// broadcasts): an immediate FlowResponse otherwise got the request goroutine's "request phase ended
+	// without a decision" as its answer (seen under -race, stage 3a).
+	for nf.phaseActive && nf.stage == "upstream" {
+		nf.cond.Wait()
+	}
 	if nf.stage != "upstream" || nf.f == nil {
 		st := nf.stage
 		nf.mu.Unlock()

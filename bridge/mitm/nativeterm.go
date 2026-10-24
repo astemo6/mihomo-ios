@@ -112,20 +112,16 @@ func TermStats() (handed, fellBack int64) { return termHanded.Load(), termFellBa
 // nativeEligible decides whether the native front may take a connection whose ClientHello offered alpn.
 // Stage 2 serves HTTP/1.1 only: a client that offers only h2 (gRPC) stays on the Go path, which speaks h2.
 func nativeEligible(alpn []string) bool {
-	if len(alpn) == 0 {
-		return true // no ALPN: HTTP/1.1
-	}
-	for _, p := range alpn {
-		if p == "http/1.1" {
-			return true
-		}
-	}
-	return false
+	_, ok := nativeOffer(alpn, false)
+	return ok
 }
 
 // tryNativeTLS hands mc to the native front. true: the native side owns the connection (or it is closed);
 // false: nothing was consumed from mc — terminate TLS in Go.
-func (e *Engine) tryNativeTLS(mc *metaConn, host string) bool {
+//
+// h2: the native front may serve HTTP/2 on this connection (the engine's h2 option and the native h2 switch,
+// nativeh2.go); otherwise "h2" is removed from the offer it sees and h2-only clients stay on the Go path.
+func (e *Engine) tryNativeTLS(mc *metaConn, host string, h2 bool) bool {
 	t := termNow()
 	if t == nil {
 		return false
@@ -142,11 +138,11 @@ func (e *Engine) tryNativeTLS(mc *metaConn, host string) bool {
 	if err != nil {
 		return false
 	}
-	alpn := parseALPN(hello[5:])
-	if !nativeEligible(alpn) {
+	offer, ok := nativeOffer(parseALPN(hello[5:]), h2)
+	if !ok {
 		return false
 	}
-	port := t.Listen(host, strings.Join(alpn, ","))
+	port := t.Listen(host, strings.Join(offer, ","))
 	if port <= 0 || port > 65535 {
 		return false
 	}
@@ -174,7 +170,7 @@ func (e *Engine) tryNativeTLS(mc *metaConn, host string) bool {
 		return true
 	}
 	termHanded.Add(1)
-	pipe(mc, &bufConn{Conn: nc, r: nbr})
+	handoffPipe(mc, &bufConn{Conn: nc, r: nbr}) // lean: leanpipe.go
 	return true
 }
 
@@ -303,3 +299,7 @@ func (e *Engine) NativeHandshakeFailed(host, kind string) bool {
 	e.Requests.AddFailure(host, "native handshake: "+kind)
 	return pin
 }
+
+// NativeFrontActive reports whether a native front is registered and its breaker has not switched it off
+// (diagnostics: 隧道内存).
+func NativeFrontActive() bool { return termNow() != nil }

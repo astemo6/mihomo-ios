@@ -44,8 +44,138 @@ extension JSCNativeBlobProvider {
     func adopt(_ data: Data) -> Int64 { data.withUnsafeBytes { store($0) } }
 }
 
+/// One script run as the engine sees it (the prelude's `__tern.host / put / take` and the time-limit check): Go's
+/// runCtx (`LibmihomoScriptRun`, wrapped by `GoJSCRun`) or, lane s3-script, a run dispatched by Swift
+/// (`NativeScriptRun`, PacketTunnel/NativeMitM/Script/) whose blobs, timers and `$done` never go through Go.
+protocol JSCRun: AnyObject {
+    var runID: Int64 { get }
+    func host(_ op: String, _ arg: String) -> String
+    func put(_ data: Data) -> Int64
+    func take(_ id: Int64) -> Data?
+    func shouldStop() -> Bool
+}
+
+/// Go's run (bridge ScriptRun) behind `JSCRun`.
+final class GoJSCRun: JSCRun {
+    private let r: LibmihomoScriptRun
+    let runID: Int64
+    init(_ r: LibmihomoScriptRun) {
+        self.r = r
+        runID = r.id_()
+    }
+    func host(_ op: String, _ arg: String) -> String { r.host(op, arg: arg) }
+    func put(_ data: Data) -> Int64 { r.put(data) }
+    func take(_ id: Int64) -> Data? { r.take(id) }
+    func shouldStop() -> Bool { r.shouldStop() }
+}
+
+/// The one thread JSCScriptEngine runs JavaScriptCore on (CI 40079040185 light:1: the unit-test host died in
+/// `MachineThreads::gatherConservativeRoots` → `pas_panic_on_out_of_memory_error` during a collection).
+///
+/// JavaScriptCore adds every thread that ever takes a VM's API lock to the VM's thread group for good, and each
+/// collection suspends those threads and copies their stacks conservatively, from the stack pointer to the stack
+/// origin WTF recorded for the thread. The engine used to be called on whatever thread asked: Go's OS threads
+/// (gomobile calls) and the native dispatcher's queues. Such a thread later runs Go code on a goroutine stack, which
+/// lives in the Go heap (above the thread's own stack on iOS): a collection that suspends it there computes a
+/// wrapped-around stack size and dies allocating the copy buffer — JavaScriptCore's own collections as well as the
+/// explicit ones (`scheduleGC`). So:
+///   - every JavaScriptCore call (contexts, evaluation, JSValue / JSContext releases, collections) runs on this
+///     thread, which never runs Go code except inside a JavaScript callback (`__tern.host` / put / take, the time
+///     limit callback) — the API lock and heap access are held then, so no collection can scan it;
+///   - jobs never release a Go object (gomobile proxy) here outside such a callback: `sync` drops the job before
+///     waking the caller (which still holds what it passed in), and `end` releases the run on another queue.
+final class JSCThread {
+    private final class Job {
+        var work: (() -> Void)?
+        let done: DispatchSemaphore?
+        init(_ work: @escaping () -> Void, done: DispatchSemaphore?) {
+            self.work = work
+            self.done = done
+        }
+    }
+
+    private final class Box<T> {
+        var value: T?
+    }
+
+    private let cond = NSCondition()
+    private var jobs: [Job?] = []
+    private var head = 0
+    private var current: pthread_t?
+
+    /// 1 MB of stack: JavaScriptCore derives its recursion limit from it (Go's threads, which ran scripts before,
+    /// have 512 KB).
+    init(name: String, stackSize: Int = 1 << 20) {
+        let t = Thread { [unowned self] in self.loop() }
+        t.name = name
+        t.stackSize = stackSize
+        t.qualityOfService = .userInitiated
+        t.start()
+        cond.lock()
+        while current == nil { cond.wait() }
+        cond.unlock()
+    }
+
+    var isCurrent: Bool {
+        guard let t = current else { return false }
+        return pthread_equal(t, pthread_self()) != 0
+    }
+
+    /// Runs body on the thread and returns its result (inline when already on it: a JavaScript callback that reaches
+    /// the engine again through Go).
+    func sync<T>(_ body: @escaping () -> T) -> T {
+        if isCurrent { return body() }
+        let box = Box<T>()
+        let done = DispatchSemaphore(value: 0)
+        enqueue(Job({ box.value = body() }, done: done))
+        done.wait()
+        let v = box.value!
+        box.value = nil
+        return v
+    }
+
+    /// Queues body (FIFO with sync jobs).
+    func async(_ body: @escaping () -> Void) {
+        enqueue(Job(body, done: nil))
+    }
+
+    private func enqueue(_ j: Job) {
+        cond.lock()
+        jobs.append(j)
+        cond.signal()
+        cond.unlock()
+    }
+
+    private func loop() {
+        cond.lock()
+        current = pthread_self()
+        cond.broadcast()
+        cond.unlock()
+        while true {
+            cond.lock()
+            while head == jobs.count { cond.wait() }
+            guard let j = jobs[head] else { fatalError("JSCThread: empty slot") }
+            jobs[head] = nil
+            head += 1
+            if head > 64 && head * 2 > jobs.count {
+                jobs.removeFirst(head)
+                head = 0
+            }
+            cond.unlock()
+            autoreleasepool {
+                j.work?()
+                j.work = nil // the closure and what it captured go away here, before the caller resumes
+            }
+            j.done?.signal()
+        }
+    }
+}
+
 final class JSCScriptEngine: NSObject, LibmihomoScriptEngineProtocol {
     static let shared = JSCScriptEngine()
+
+    /// Where every JavaScriptCore call of the engine runs (see JSCThread).
+    private let js: JSCThread
 
     /// The native body lane (set once by the tunnel before LibmihomoStart, never cleared; nil in the app). Read on
     /// the JavaScript thread. After a wedge Go runs scripts on goja and stops opening lane bodies (`nativeUsable`),
@@ -73,7 +203,7 @@ final class JSCScriptEngine: NSObject, LibmihomoScriptEngineProtocol {
     private final class Ctx {
         let context: JSContext
         var main: JSValue?
-        var run: LibmihomoScriptRun?
+        var run: JSCRun?
         var busy = false
         var terminated = false
         var poisoned = false
@@ -106,18 +236,22 @@ final class JSCScriptEngine: NSObject, LibmihomoScriptEngineProtocol {
     private var byRef: [OpaquePointer: Ctx] = [:]
     private var gcContext: JSContext?
     private var timeLimit = false
+    /// Whether a run can be interrupted (JSContextGroupSetExecutionTimeLimit was found). The native script dispatcher
+    /// (lane s3-script) runs scripts only then: without it a runaway script could only be abandoned by Go's guard.
+    var canInterrupt: Bool { lock.lock(); defer { lock.unlock() }; return timeLimit }
     private var contextsMade = 0
-    /// fix/xmly-memory: garbage collections asked for (0 none, 1 eden, 2 full) and run on `gcQueue`; the JSC heap
+    /// fix/xmly-memory: garbage collections asked for (0 none, 1 eden, 2 full) and run on the engine thread; the JSC heap
     /// as last measured after one (stats()). `JSGarbageCollect` only *hints* (`reportAbandonedObjectGraph`): after
     /// Go dropped a context or the tunnel was short of memory, nothing was collected until JSC's own timer.
-    private let gcQueue = DispatchQueue(label: "tern.jsc.gc", qos: .utility)
     private var gcPending = 0
     private var gcRuns = 0
     private var heapAfterGC = -1.0
     private var capacityAfterGC = -1.0
 
     private override init() {
-        vm = JSVirtualMachine()
+        let thread = JSCThread(name: "tern.jsc")
+        js = thread
+        vm = thread.sync { () -> JSVirtualMachine in JSVirtualMachine() }
         super.init()
     }
 
@@ -168,6 +302,10 @@ final class JSCScriptEngine: NSObject, LibmihomoScriptEngineProtocol {
 
     func prepare(_ prelude: String?) -> String {
         guard let prelude, !prelude.isEmpty else { return "empty prelude" }
+        return js.sync { [self] in prepareOnJS(prelude) }
+    }
+
+    private func prepareOnJS(_ prelude: String) -> String {
         lock.lock()
         self.prelude = prelude
         lock.unlock()
@@ -190,6 +328,10 @@ final class JSCScriptEngine: NSObject, LibmihomoScriptEngineProtocol {
     func load(_ key: String?, name: String?, source: String?) -> String {
         guard let key, let source else { return "missing source" }
         let name = name ?? "script"
+        return js.sync { [self] in loadOnJS(key, name: name, source: source) }
+    }
+
+    private func loadOnJS(_ key: String, name: String, source: String) -> String {
         // Syntax check of the wrapped script (a top-level `return` is allowed, as in Surge); a script that only
         // parses unwrapped is evaluated as it is on every run.
         let wrapped = "(function(){ return function(){\n" + source + "\n}; })()"
@@ -228,6 +370,11 @@ final class JSCScriptEngine: NSObject, LibmihomoScriptEngineProtocol {
 
     func drop(_ key: String?) {
         guard let key else { return }
+        // queued: releasing the contexts waits for a running script, the caller (Go's cache eviction) does not
+        js.async { [self] in dropOnJS(key) }
+    }
+
+    private func dropOnJS(_ key: String) {
         lock.lock()
         if let e = entries.removeValue(forKey: key) {
             e.dropped = true
@@ -247,7 +394,23 @@ final class JSCScriptEngine: NSObject, LibmihomoScriptEngineProtocol {
 
     func begin(_ run: LibmihomoScriptRun?, key: String?, setup: String?) -> String {
         guard let run, let key else { return Self.err("internal", "missing run") }
-        let runID = run.id_()
+        return begin(run: GoJSCRun(run), key: key, setup: setup ?? "{}")
+    }
+
+    /// Starts a run on key's context: "" ok, "missing" (key not loaded), else error JSON {kind, message} — Go's Begin,
+    /// also called by the native script dispatcher (lane s3-script) with its own run. `call` / `end` take its runID.
+    func begin(run: JSCRun, key: String, setup: String) -> String {
+        // feat/s3-mem: the native memory governor (when on) admits the run by its setup size (small work allowed
+        // down to ~4.5 MB, reclaim — JSC garbage included, asynchronously — before refusing). Go reports the refusal
+        // as a script error and passes the message through unchanged. Checked before the JSC thread hop (never on it).
+        if let g = NativeMemoryGovernor.active, !g.admit(.script, bytes: setup.utf8.count) {
+            return Self.err("memory", "内存紧张，已跳过脚本（原生内存调度）")
+        }
+        return js.sync { [self] in beginOnJS(run: run, key: key, setup: setup) }
+    }
+
+    private func beginOnJS(run: JSCRun, key: String, setup: String) -> String {
+        let runID = run.runID
         lock.lock()
         guard let entry = entries[key] else {
             lock.unlock()
@@ -288,7 +451,7 @@ final class JSCScriptEngine: NSObject, LibmihomoScriptEngineProtocol {
         runs[runID] = Slot(ctx: c, entry: entry, temp: temp)
         lock.unlock()
 
-        if let r = invoke(c, "__tern_begin", setup ?? "{}", name: entry.name) { return r }
+        if let r = invoke(c, "__tern_begin", setup, name: entry.name) { return r }
         c.exception = nil
         if let main = c.main {
             _ = main.call(withArguments: [])
@@ -299,6 +462,10 @@ final class JSCScriptEngine: NSObject, LibmihomoScriptEngineProtocol {
     }
 
     func call(_ runID: Int64, fn: String?, arg: String?) -> String {
+        js.sync { [self] in callOnJS(runID, fn: fn, arg: arg) }
+    }
+
+    private func callOnJS(_ runID: Int64, fn: String?, arg: String?) -> String {
         lock.lock()
         let slot = runs[runID]
         lock.unlock()
@@ -307,12 +474,28 @@ final class JSCScriptEngine: NSObject, LibmihomoScriptEngineProtocol {
     }
 
     func end(_ runID: Int64) {
+        // queued like drop: the caller does not wait for a running script (FIFO, so a later begin sees the context
+        // free again). The run is released off the engine thread: GoJSCRun holds a gomobile proxy whose release runs
+        // Go code, which the engine thread must not do outside a JavaScript callback (JSCThread).
+        js.async { [self] in
+            guard let run = endOnJS(runID) else { return }
+            // the queue owns the last reference (the local one here goes first)
+            let owned = Unmanaged.passRetained(run as AnyObject)
+            Self.releaseQueue.async { owned.release() }
+        }
+    }
+
+    /// Where runs ended on the engine thread are released (never touches JavaScriptCore).
+    private static let releaseQueue = DispatchQueue(label: "tern.jsc.release", qos: .utility)
+
+    private func endOnJS(_ runID: Int64) -> JSCRun? {
         lock.lock()
         guard let slot = runs.removeValue(forKey: runID) else {
             lock.unlock()
-            return
+            return nil
         }
         let c = slot.ctx
+        let run = c.run
         c.run = nil
         c.busy = false
         if let e = c.exception { trash.append(e) }
@@ -334,6 +517,7 @@ final class JSCScriptEngine: NSObject, LibmihomoScriptEngineProtocol {
         if avail > 0 && avail < Self.collectBelowAvailable {
             scheduleGC(full: discarded)
         }
+        return run
     }
 
     /// Below this much available memory every finished run is followed by a collection.
@@ -342,8 +526,13 @@ final class JSCScriptEngine: NSObject, LibmihomoScriptEngineProtocol {
     func stats() -> String {
         lock.lock()
         defer { lock.unlock() }
-        let loaded = entries.values.filter { $0.primary != nil }.count
-        let bytes = entries.values.reduce(0) { $0 + $1.source.utf8.count }
+        // counted in place (no array of entries outliving the lock: the last release of a context must happen on
+        // the engine thread, JSCThread)
+        var loaded = 0, bytes = 0
+        for e in entries.values {
+            if e.primary != nil { loaded += 1 }
+            bytes += e.source.utf8.count
+        }
         refLock.lock()
         let checks = limitChecks, stops = limitStops
         refLock.unlock()
@@ -369,8 +558,8 @@ final class JSCScriptEngine: NSObject, LibmihomoScriptEngineProtocol {
         return unsafeBitCast(p, to: GCFunction.self)
     }
 
-    /// Collects on `gcQueue` (coalesced; a running script holds the VM lock, so the collection waits for it there
-    /// instead of blocking the caller: Go's shed / reclaim path or the end of a run).
+    /// Collects on the engine thread (queued and coalesced: a running script holds it, so the collection waits for
+    /// it there instead of blocking the caller: Go's shed / reclaim path or the end of a run).
     private func scheduleGC(full: Bool) {
         lock.lock()
         let was = gcPending
@@ -378,7 +567,7 @@ final class JSCScriptEngine: NSObject, LibmihomoScriptEngineProtocol {
         let haveContext = gcContext != nil
         lock.unlock()
         guard was == 0, haveContext else { return }
-        gcQueue.async { [self] in
+        js.async { [self] in
             lock.lock()
             let kind = gcPending
             gcPending = 0
@@ -425,7 +614,7 @@ final class JSCScriptEngine: NSObject, LibmihomoScriptEngineProtocol {
             guard let run = c?.run, let op else { return "" }
             if let lane = JSCScriptEngine.nativeBlobs, let r = JSCScriptEngine.laneHost(run, lane, op, arg ?? "") { return r }
             if op == "text", let id = Int64(arg ?? "") { return JSCScriptEngine.goBlobText(run, id) }
-            return run.host(op, arg: arg ?? "")
+            return run.host(op, arg ?? "")
         }
         let put: @convention(block) (JSValue?, Double, Double) -> Double = { [weak c] buf, off, len in
             guard let run = c?.run, let buf else { return -1 }
@@ -554,7 +743,7 @@ final class JSCScriptEngine: NSObject, LibmihomoScriptEngineProtocol {
 
     // MARK: bytes
 
-    private static func put(_ run: LibmihomoScriptRun, _ buf: JSValue, _ off: Double, _ len: Double) -> Int64 {
+    private static func put(_ run: JSCRun, _ buf: JSValue, _ off: Double, _ len: Double) -> Int64 {
         guard let ctx = buf.context else { return -1 }
         let ref = ctx.jsGlobalContextRef
         guard JSValueGetTypedArrayType(ref, buf.jsValueRef, nil) == kJSTypedArrayTypeArrayBuffer,
@@ -568,7 +757,7 @@ final class JSCScriptEngine: NSObject, LibmihomoScriptEngineProtocol {
             // a large result stays native: stored in the lane, owned by the run on the Go side ("" = not taken)
             let h = lane.store(UnsafeRawBufferPointer(start: p.advanced(by: o), count: n))
             if h > 0 {
-                if let id = Int64(run.host("nblob", arg: String(h))), id > 0 { return id }
+                if let id = Int64(run.host("nblob", String(h))), id > 0 { return id }
                 lane.free(h)
             }
         }
@@ -577,7 +766,7 @@ final class JSCScriptEngine: NSObject, LibmihomoScriptEngineProtocol {
 
     /// Host ops the engine answers itself for lane bodies: "text" of a native blob (Go's U+FFFD rules, goText) and "utf8" of a
     /// large string (stored in the lane). nil: ask the Go host.
-    private static func laneHost(_ run: LibmihomoScriptRun, _ lane: JSCNativeBlobProvider, _ op: String, _ arg: String) -> String? {
+    private static func laneHost(_ run: JSCRun, _ lane: JSCNativeBlobProvider, _ op: String, _ arg: String) -> String? {
         switch op {
         case "text":
             guard let id = Int64(arg), id >= nativeBase else { return nil }
@@ -593,7 +782,7 @@ final class JSCScriptEngine: NSObject, LibmihomoScriptEngineProtocol {
             guard let data = arg.data(using: .utf8) else { return nil }
             let h = lane.adopt(data)
             guard h > 0 else { return nil }
-            if let id = Int64(run.host("nblob", arg: String(h))), id > 0 { return String(id) }
+            if let id = Int64(run.host("nblob", String(h))), id > 0 { return String(id) }
             lane.free(h) // "" = this run does not take lane results (request phase, task, debug run): Go blob
             return nil
         default:
@@ -606,7 +795,7 @@ final class JSCScriptEngine: NSObject, LibmihomoScriptEngineProtocol {
     /// with NSString(bytesNoCopy:…encoding: .utf8), which drops a leading BOM (CI 40052493849 bom-text-go-path:
     /// goja 37 characters, JavaScriptCore 36). CFStringCreateWithBytes with isExternalRepresentation false keeps
     /// it; peak memory is the same as before (Go's copy, then the CFString, then JavaScriptCore's copy).
-    private static func goBlobText(_ run: LibmihomoScriptRun, _ id: Int64) -> String {
+    private static func goBlobText(_ run: JSCRun, _ id: Int64) -> String {
         guard let data = run.take(id), !data.isEmpty else { return "" }
         return data.withUnsafeBytes { (buf: UnsafeRawBufferPointer) -> String in
             guard isValidUTF8(buf), let base = buf.baseAddress else { return goText(buf) }
@@ -704,7 +893,7 @@ final class JSCScriptEngine: NSObject, LibmihomoScriptEngineProtocol {
         return Int64(d)
     }
 
-    private static func take(_ run: LibmihomoScriptRun, _ id: Int64, _ ctx: JSContext) -> JSValue? {
+    private static func take(_ run: JSCRun, _ id: Int64, _ ctx: JSContext) -> JSValue? {
         let ref = ctx.jsGlobalContextRef
         if id >= nativeBase, let lane = nativeBlobs {
             // a lane body: copied straight from native memory into a fresh Uint8Array (never through Go)

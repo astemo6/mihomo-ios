@@ -70,7 +70,7 @@ type Engine struct {
 	strikes sync.Map // host -> *pinStrike (review5 P1-6)
 
 	srv     *http.Server
-	tlsCh   chan net.Conn
+	tlsLn   atomic.Pointer[chanListener] // feeds intercepted connections to srv (handOff; atomic: handOff may race a restart)
 	closing atomic.Bool
 
 	Requests *RequestLog
@@ -83,7 +83,8 @@ type Engine struct {
 	geo      atomic.Pointer[GeoLookup]
 	api      atomic.Pointer[APIFunc]
 
-	relay *Relay // feat/native-mitm: upstream relay for the native front (relay.go), under tmu
+	relay   *Relay                          // feat/native-mitm: upstream relay for the native front (relay.go), under tmu
+	relayTo atomic.Pointer[ConnHandoffFunc] // feat/s2-pipe: relay hands its socket to the core (relay.go)
 
 	loop     atomic.Pointer[LoopFunc]
 	loopLog  atomic.Int64 // unix seconds of the last loop warning
@@ -139,7 +140,8 @@ func (e *Engine) Start() error {
 	e.ln = ln
 	e.port = ln.Addr().(*net.TCPAddr).Port
 	e.livePort.Store(int32(e.port))
-	e.tlsCh = make(chan net.Conn, 16)
+	tl := &chanListener{ch: make(chan net.Conn, 16), done: make(chan struct{}), addr: ln.Addr(), closed: &e.closing}
+	e.tlsLn.Store(tl)
 	e.srv = &http.Server{
 		Handler:           http.HandlerFunc(e.serveHTTP),
 		ReadHeaderTimeout: 30 * time.Second,
@@ -157,8 +159,8 @@ func (e *Engine) Start() error {
 		},
 	}
 	e.srv.SetKeepAlivesEnabled(true)
-	srv, ch := e.srv, e.tlsCh // r7 P3-8: the goroutine must not read fields a later Stop/Start rewrites
-	go func() { _ = srv.Serve(&chanListener{ch: ch, addr: ln.Addr(), closed: &e.closing}) }()
+	srv := e.srv // r7 P3-8: the goroutine must not read fields a later Stop/Start rewrites
+	go func() { _ = srv.Serve(tl) }()
 	go e.acceptLoop(ln)
 	h := e.reclaim
 	reclaimHook.Store(&h)
@@ -169,6 +171,7 @@ func (e *Engine) Start() error {
 
 // Stop closes the listener and all state.
 func (e *Engine) Stop() {
+	forgetSnapshot(e) // stage 3a: the native rewrite snapshot of this engine (rewritesnap.go)
 	e.StopRelay()
 	e.tasks.shutdown()
 	_ = e.Store.Flush() // v0.19.9: coalesced $persistentStore writes reach the file before the tunnel goes
@@ -294,22 +297,61 @@ func (c *metaConn) Read(p []byte) (int, error) {
 	return c.Conn.Read(p)
 }
 
+// chanListener hands intercepted connections to the engine's http.Server. ch is never closed (a send racing a
+// close was a data race, and a panic the sender had to recover from); done ends Accept and refuses new ones.
 type chanListener struct {
 	ch     chan net.Conn
+	done   chan struct{}
 	addr   net.Addr
 	closed *atomic.Bool
 	once   sync.Once
 }
 
 func (l *chanListener) Accept() (net.Conn, error) {
-	c, ok := <-l.ch
-	if !ok {
+	select {
+	case c := <-l.ch:
+		return c, nil
+	case <-l.done:
 		return nil, net.ErrClosed
 	}
-	return c, nil
 }
+
+// send queues c for Accept; false (c closed) once the listener is closed.
+func (l *chanListener) send(c net.Conn) bool {
+	select {
+	case <-l.done:
+	default:
+		select {
+		case l.ch <- c:
+			select { // Close may have drained ch just before this send landed: drain again so c is not stranded
+			case <-l.done:
+				l.drain()
+			default:
+			}
+			return true
+		case <-l.done:
+		}
+	}
+	_ = c.Close()
+	return false
+}
+
+func (l *chanListener) drain() {
+	for {
+		select {
+		case c := <-l.ch:
+			_ = c.Close()
+		default:
+			return
+		}
+	}
+}
+
 func (l *chanListener) Close() error {
-	l.once.Do(func() { defer func() { recover() }(); close(l.ch) })
+	l.once.Do(func() {
+		close(l.done)
+		l.drain() // connections queued but never accepted
+	})
 	return nil
 }
 func (l *chanListener) Addr() net.Addr { return l.addr }
@@ -494,7 +536,7 @@ func (e *Engine) shouldIntercept(st *state, host string, port int) bool {
 func (e *Engine) interceptTLS(st *state, mc *metaConn, target string) {
 	// feat/native-mitm stage 2: the native TLS front may take the connection (nativeterm.go); when it
 	// declines or fails before its first byte nothing was consumed and Go terminates TLS as before.
-	if e.tryNativeTLS(mc, mc.meta.host) {
+	if e.tryNativeTLS(mc, mc.meta.host, st.cfg.h2() && NativeH2()) {
 		return
 	}
 	nextProtos := []string{"http/1.1"}
@@ -617,12 +659,11 @@ func tlsClientRejection(err error) int {
 }
 
 func (e *Engine) handOff(c net.Conn) {
-	defer func() {
-		if recover() != nil {
-			_ = c.Close()
-		}
-	}()
-	e.tlsCh <- c
+	if l := e.tlsLn.Load(); l != nil {
+		l.send(c)
+		return
+	}
+	_ = c.Close()
 }
 
 func shortErr(err error) string {
