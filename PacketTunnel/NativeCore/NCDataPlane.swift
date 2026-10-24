@@ -17,6 +17,13 @@ final class NCDataPlane {
 
     private var timer: DispatchSourceTimer?
     private var sessions: [UInt: TCPSession] = [:]
+    private var udpSessions: [UInt32: UDPSessionEntry] = [:]
+    private lazy var dnsForwarder = NCDNSForwarder(queue: queue)
+
+    private struct UDPSessionEntry {
+        let session: NCUDPSession
+        var lastUsed: Date
+    }
     private var dnsReplies = 0
     private var udpDropped = 0
     private(set) var isRunning = false
@@ -76,6 +83,8 @@ final class NCDataPlane {
                 stack.tcpAbort(s.conn)
             }
             sessions.removeAll()
+            for e in udpSessions.values { e.session.cancel() }
+            udpSessions.removeAll()
             stack.stop()
             isRunning = false
         }
@@ -105,6 +114,11 @@ final class NCDataPlane {
                 connect(s) // server-first protocol or silent client: go by IP
             }
             if s.state == .open { drain(s) }
+        }
+        // Mirror the C stack's 120 s UDP idle expiry on our side.
+        for (id, entry) in udpSessions where now.timeIntervalSince(entry.lastUsed) > 120 {
+            entry.session.cancel()
+            udpSessions.removeValue(forKey: id)
         }
     }
 
@@ -226,14 +240,60 @@ final class NCDataPlane {
     // MARK: UDP
 
     private func udp(_ info: NCTunStack.UDPSessionInfo, _ data: Data) {
-        if info.dst.port == 53, let reply = engine.handleDNSQuery(data) {
-            dnsReplies += 1
-            stack.udpSend(session: info.id, reply)
+        if info.dst.port == 53 {
+            if let reply = engine.handleDNSQuery(data) {
+                dnsReplies += 1
+                stack.udpSend(session: info.id, reply)
+                return
+            }
+            // Not fake-IP business (filter host, other record types): forward
+            // the query to the configured nameserver, like mihomo does.
+            if let server = engine.firstUDPNameserver {
+                let sid = info.id
+                dnsForwarder.forward(data, server: server) { [weak self] resp in
+                    if let resp { self?.stack.udpSend(session: sid, resp) }
+                }
+            } else {
+                udpDropped += 1
+            }
             return
         }
-        // Proxied UDP (SOCKS5 UDP associate / direct) lands in the next
-        // data-plane batch; DNS is the only UDP answered for now.
-        udpDropped += 1
+        udpForward(info, data)
+    }
+
+    private func udpForward(_ info: NCTunStack.UDPSessionInfo, _ data: Data) {
+        if var entry = udpSessions[info.id] {
+            entry.lastUsed = Date()
+            udpSessions[info.id] = entry
+            entry.session.send(data, to: engine.derefFakeIP(info.dst))
+            return
+        }
+        let target = engine.derefFakeIP(info.dst)
+        let ctx = NCMatchContext(domain: target.host != info.dst.host ? target.host : nil,
+                                 ip: info.dst.ip,
+                                 dstPort: info.dst.port,
+                                 network: "udp")
+        let session: NCUDPSession
+        switch engine.resolve(ctx) {
+        case .direct:
+            session = NCUDPDirectSession(target: target, queue: queue)
+        case .proxy(let proxy) where proxy.type == "socks5":
+            session = NCUDPSocks5Session(proxy: proxy, queue: queue)
+        case .proxy(let proxy) where proxy.type == "trojan":
+            // Trojan UDP rides its TLS stream; lands with the SS/Trojan UDP batch.
+            udpDropped += 1
+            _ = proxy
+            return
+        default:
+            udpDropped += 1
+            return
+        }
+        let sid = info.id
+        session.onReply = { [weak self] payload in
+            self?.stack.udpSend(session: sid, payload)
+        }
+        udpSessions[info.id] = UDPSessionEntry(session: session, lastUsed: Date())
+        session.send(data, to: target)
     }
 }
 

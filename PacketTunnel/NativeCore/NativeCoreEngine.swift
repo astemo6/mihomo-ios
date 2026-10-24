@@ -78,6 +78,19 @@ final class NativeCoreEngine {
         return groups.resolve(policy(for: ctx))
     }
 
+    /// First configured nameserver usable as plain UDP DNS (others, like
+    /// DoH/DoT entries, are skipped until those transports land).
+    var firstUDPNameserver: String? {
+        for raw in config?.dns.nameservers ?? [] {
+            var entry = raw
+            if entry.hasPrefix("udp://") { entry = String(entry.dropFirst(6)) }
+            if entry.contains("://") { continue }
+            let host = entry.split(separator: ":").first.map(String.init) ?? entry
+            if NCIP(host) != nil { return host }
+        }
+        return nil
+    }
+
     /// Answers a raw DNS query in fake-IP mode (A -> fake IP, AAAA -> empty
     /// NOERROR). nil means the query is not fake-IP business and must be
     /// forwarded upstream by the caller.
