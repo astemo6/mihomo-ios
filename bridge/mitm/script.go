@@ -872,6 +872,50 @@ type Slot struct {
 	bigAt  time.Time
 	bigKey string
 	ran    bool
+	// parked: the HTTP slot itself is given back while the caller waits for something that is not a
+	// script (E 线 #1: bigBodyLock), so other HTTP scripts are not held up by that wait. The large-bundle
+	// lock (big) is kept: it is the scriptQueue's turn, and giving it up would reorder the queue.
+	parked bool
+	wait   time.Duration // how long Reserve waited for the slot; unpark waits as long
+}
+
+// park gives the HTTP slot back for the duration of a non-script wait; unpark takes it again.
+// Only the goroutine holding the slot calls park / unpark / Release (no locking needed).
+func (sl *Slot) park() {
+	if sl == nil || sl.parked {
+		return
+	}
+	sl.parked = true
+	<-sl.s.sem
+}
+
+// unpark takes the HTTP slot back after park, bounded like Reserve (the script's timeout, or until
+// ctx ends). On error the slot stays parked and Release only gives back the large-bundle lock.
+func (sl *Slot) unpark(ctx context.Context) error {
+	if sl == nil || !sl.parked {
+		return nil
+	}
+	select {
+	case sl.s.sem <- struct{}{}:
+		sl.parked = false
+		return nil
+	default:
+	}
+	w := sl.wait
+	if w <= 0 {
+		w = 10 * time.Second
+	}
+	t := time.NewTimer(w)
+	defer t.Stop()
+	select {
+	case sl.s.sem <- struct{}{}:
+		sl.parked = false
+		return nil
+	case <-t.C:
+		return errors.New("脚本排队超时")
+	case <-ctx.Done():
+		return &errQueueSkip{"客户端已断开，跳过脚本"}
+	}
 }
 
 // Release gives the slot (and the large-bundle lock) back; idempotent.
@@ -880,7 +924,9 @@ func (sl *Slot) Release() {
 		return
 	}
 	sl.once.Do(func() {
-		<-sl.s.sem
+		if !sl.parked {
+			<-sl.s.sem
+		}
 		if sl.big {
 			if sl.ran {
 				sl.s.queue.observe(sl.bigKey, time.Since(sl.bigAt))
@@ -901,7 +947,7 @@ func (s *ScriptRunner) Reserve(parent context.Context, rule *Rule) (*Slot, error
 		parent = context.Background()
 	}
 	wait := scriptTimeout(rule.Script, 120*time.Second, 10*time.Second)
-	sl := &Slot{s: s}
+	sl := &Slot{s: s, wait: wait}
 	if s.knownSize(rule.Script) >= largeProgSource {
 		// v0.19.19 (喜马拉雅): large bundles run one at a time, and the 喜马拉雅 script costs ~1 s of goja
 		// per run, so a player page firing 6–10 matching requests queued the last ones (track/v4/baseInfo,
