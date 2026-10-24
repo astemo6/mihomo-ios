@@ -466,3 +466,85 @@ final class NativeCoreVMessTests: XCTestCase {
         XCTAssertEqual(dec.feed(unhex("8e5540387f8943863177611c700a6d10a08b2d5bffd7b1b9")), Data("world!".utf8))
     }
 }
+
+// MARK: - YAML subset parser
+
+final class NativeCoreYAMLTests: XCTestCase {
+    private let sample = """
+    # a comment
+    mixed-port: 7890
+    mode: rule
+    ipv6: true
+    external-controller: 127.0.0.1:9090
+    dns:
+      enable: true
+      nameserver:
+        - 223.5.5.5
+        - https://doh.pub/dns-query
+      fake-ip-range: 198.18.0.1/16
+      fake-ip-filter:
+        - '*.lan'
+        - time.*.com
+    proxies:
+      - name: "ss one"
+        type: ss
+        server: example.com
+        port: 8388
+        cipher: aes-128-gcm
+        password: "p@ss: word"
+        udp: true
+      - {name: direct-out, type: direct}
+    proxy-groups:
+      - name: PROXY
+        type: select
+        proxies: [ss one, direct-out, DIRECT]
+    rules:
+      - DOMAIN-SUFFIX,google.com,PROXY
+      - GEOIP,CN,DIRECT
+      - MATCH,PROXY
+    empty-list: []
+    nothing: ~
+    ratio: 1.5
+    literal: |
+      line one
+      line two
+    """
+
+    func testParseSample() {
+        guard case .object(let root)? = NCYAML.parse(sample) else {
+            XCTFail("root not object")
+            return
+        }
+        XCTAssertEqual(root["mixed-port"]?.int, 7890)
+        XCTAssertEqual(root["mode"]?.string, "rule")
+        XCTAssertEqual(root["ipv6"]?.bool, true)
+        XCTAssertEqual(root["external-controller"]?.string, "127.0.0.1:9090")
+        let dns = root["dns"]?.object
+        XCTAssertEqual(dns?["nameserver"]?.array?.compactMap { $0.string }, ["223.5.5.5", "https://doh.pub/dns-query"])
+        XCTAssertEqual(dns?["fake-ip-filter"]?.array?.compactMap { $0.string }, ["*.lan", "time.*.com"])
+        let proxies = root["proxies"]?.array
+        XCTAssertEqual(proxies?.count, 2)
+        XCTAssertEqual(proxies?[0].object?["password"]?.string, "p@ss: word")
+        XCTAssertEqual(proxies?[0].object?["port"]?.int, 8388)
+        XCTAssertEqual(proxies?[1].object?["name"]?.string, "direct-out")
+        let group = root["proxy-groups"]?.array?.first?.object
+        XCTAssertEqual(group?["proxies"]?.array?.compactMap { $0.string }, ["ss one", "direct-out", "DIRECT"])
+        XCTAssertEqual(root["rules"]?.array?.count, 3)
+        XCTAssertEqual(root["empty-list"]?.array?.count, 0)
+        XCTAssertEqual(root["nothing"], NCJSONValue.null)
+        XCTAssertEqual(root["ratio"]?.number, 1.5)
+        XCTAssertEqual(root["literal"]?.string, "line one\nline two\n")
+    }
+
+    func testConfigFromYAML() {
+        guard case .object(let root)? = NCYAML.parse(sample) else {
+            XCTFail("root not object")
+            return
+        }
+        let cfg = NCConfig.decode(root: root)
+        XCTAssertEqual(cfg.proxies.count, 2)
+        XCTAssertEqual(cfg.proxyMap["ss one"]?.server, "example.com")
+        XCTAssertEqual(cfg.groupMap["PROXY"]?.type, "select")
+        XCTAssertEqual(cfg.rules.count, 3)
+    }
+}

@@ -127,17 +127,19 @@ final class NCGroupEngine {
         let chosen: String
         if let sel = selections[g.name], members.contains(sel) {
             chosen = sel // explicit choice / pin (controller PUT) wins for every type
-        } else        switch g.type {
-        case "url-test":
-            chosen = members.min(by: { delayOf($0) < delayOf($1) }) ?? members[0]
-        case "fallback":
-            chosen = members.first(where: { alive[$0] ?? true }) ?? members[0]
-        case "load-balance":
-            let i = (rrCounters[g.name] ?? 0) % members.count
-            rrCounters[g.name] = i + 1
-            chosen = members[i]
-        default: // select and anything else: first member
-            chosen = members[0]
+        } else {
+            switch g.type {
+            case "url-test":
+                chosen = members.min(by: { delayOf($0) < delayOf($1) }) ?? members[0]
+            case "fallback":
+                chosen = members.first(where: { alive[$0] ?? true }) ?? members[0]
+            case "load-balance":
+                let i = (rrCounters[g.name] ?? 0) % members.count
+                rrCounters[g.name] = i + 1
+                chosen = members[i]
+            default: // select and anything else: first member
+                chosen = members[0]
+            }
         }
         return resolve(chosen, visited: visited)
     }
