@@ -46,8 +46,8 @@ final class NativeMitmScriptTests: XCTestCase {
     plainfirst1 = type=http-response,pattern=^https://api\\.test\\.com/plainfirst,script-path=hdr.js
     plainfirst2 = type=http-response,pattern=^https://api\\.test\\.com/plainfirst,requires-body=1,script-path=vip.js
     reqscript = type=http-request,pattern=^https://api\\.test\\.com/reqscript,script-path=req.js
-    rule: http-response ^https://api\\.test\\.com/hdrrule header-add X-Rule yes
-    hdrrule = type=http-response,pattern=^https://api\\.test\\.com/hdrrule,requires-body=1,script-path=vip.js
+    rule: http-response ^https://api\\.test\\.com/hrule header-add X-Rule yes
+    hrule = type=http-response,pattern=^https://api\\.test\\.com/hrule,requires-body=1,script-path=vip.js
     """
 
     private static let scripts: [String: String] = [
@@ -91,7 +91,7 @@ final class NativeMitmScriptTests: XCTestCase {
     private static var cases: [Case] {
         var c: [Case] = []
         for p in ["vip", "qx", "loon", "egern", "status", "badstatus", "hdr", "none", "err", "abort", "spin", "delay", "fetch",
-                  "fetchgz", "after", "nodone", "big", "arg", "same", "two", "hdrrule"] {
+                  "fetchgz", "after", "nodone", "big", "arg", "same", "two", "hrule"] {
             c.append(Case(name: p, path: "/\(p)?q=1"))
         }
         c.append(Case(name: "qx again (store read)", path: "/qx?q=2"))
@@ -259,6 +259,7 @@ final class NativeMitmScriptTests: XCTestCase {
         JSCScriptEngine.setLaneForTests(store)
         defer {
             LibmihomoMitmScriptTestStop()
+            JSCScriptEngine.setLaneForTests(nil)
             NativeScriptRuntime.override = nil
             NativeRewriteRuntime.override = nil
         }
@@ -304,7 +305,7 @@ final class NativeMitmScriptTests: XCTestCase {
         for l in report { print("[native-script] " + l) }
         for m in mismatches { print("[native-script] MISMATCH " + m) }
         XCTAssertTrue(mismatches.isEmpty, summary + "\n" + mismatches.joined(separator: "\n\n"))
-        XCTAssertGreaterThanOrEqual(st.script, 30, "most cases are handled natively")
+        XCTAssertGreaterThanOrEqual(st.script, 36, "most cases are handled natively")
         XCTAssertEqual(native.liveNativeFlows, 0, "native flows left")
         XCTAssertEqual(JSCScriptEngine.laneLive(), 0, "Go lane handles left")
     }
