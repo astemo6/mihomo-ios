@@ -166,12 +166,21 @@ func ReadSource(filename string, src interface{}) ([]byte, error) {
 //	// Parse some JavaScript, yielding a *ast.Program and/or an ErrorList
 //	program, err := parser.ParseFile(nil, "", `if (abc > 1) {}`, 0)
 func ParseFile(fileSet *file.FileSet, filename string, src interface{}, mode Mode, options ...Option) (*ast.Program, error) {
+	// mihomo-ios patch 5: a string source is used as is. ReadSource turned it into []byte and back into
+	// a string — two transient copies of the whole source (2.6 MB for a Sub-Store bundle) at the start of
+	// the compile peak.
+	if s, ok := src.(string); ok {
+		return parseString(fileSet, filename, s, mode, options...)
+	}
 	str, err := ReadSource(filename, src)
 	if err != nil {
 		return nil, err
 	}
+	return parseString(fileSet, filename, string(str), mode, options...)
+}
+
+func parseString(fileSet *file.FileSet, filename string, str string, mode Mode, options ...Option) (*ast.Program, error) {
 	{
-		str := string(str)
 
 		base := 1
 		if fileSet != nil {

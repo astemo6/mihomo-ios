@@ -82,6 +82,11 @@ type compiler struct {
 	scope *scope
 	block *block
 
+	// mihomo-ios patch 6: releaseBodies drops a function literal's AST body once the literal has been
+	// compiled (CompileReleasing). released guards against compiling one of them twice.
+	releaseBodies bool
+	released      map[ast.Node]struct{}
+
 	classScope *classScope
 
 	enumGetExpr compiledEnumGetExpr
@@ -95,9 +100,13 @@ type compiler struct {
 }
 
 type binding struct {
-	scope        *scope
-	name         unistring.String
-	accessPoints map[*scope]*[]int
+	scope *scope
+	name  unistring.String
+	// mihomo-ios patch 5: a small slice instead of map[*scope]*[]int (one map + one boxed slice per
+	// binding cost ~250 bytes; a Sub-Store bundle has tens of thousands of bindings alive at once).
+	// accessIdx is built only for bindings used from many scopes, so lookups stay O(1) there.
+	accessPoints []scopeAccess
+	accessIdx    map[*scope]int
 	isConst      bool
 	isStrict     bool
 	isArg        bool
@@ -105,34 +114,59 @@ type binding struct {
 	inStash      bool
 }
 
-func (b *binding) getAccessPointsForScope(s *scope) *[]int {
-	m := b.accessPoints[s]
-	if m == nil {
-		a := make([]int, 0, 1)
-		m = &a
-		if b.accessPoints == nil {
-			b.accessPoints = make(map[*scope]*[]int)
-		}
-		b.accessPoints[s] = m
+// scopeAccess: the access points (pc relative to scope.base) of one binding from one scope.
+type scopeAccess struct {
+	scope *scope
+	aps   []int32
+}
+
+const accessIdxMin = 8
+
+// getAccessPointsForScope returns the access list for s; the pointer is only valid until the next call
+// (the slice may grow), so callers append through it at once.
+func (b *binding) getAccessPointsForScope(s *scope) *[]int32 {
+	if n := len(b.accessPoints); n > 0 && b.accessPoints[n-1].scope == s { // the common case
+		return &b.accessPoints[n-1].aps
 	}
-	return m
+	if b.accessIdx != nil {
+		if i, ok := b.accessIdx[s]; ok {
+			return &b.accessPoints[i].aps
+		}
+	} else {
+		for i := range b.accessPoints {
+			if b.accessPoints[i].scope == s {
+				return &b.accessPoints[i].aps
+			}
+		}
+	}
+	b.accessPoints = append(b.accessPoints, scopeAccess{scope: s})
+	n := len(b.accessPoints)
+	if b.accessIdx != nil {
+		b.accessIdx[s] = n - 1
+	} else if n > accessIdxMin {
+		b.accessIdx = make(map[*scope]int, n)
+		for i := range b.accessPoints {
+			b.accessIdx[b.accessPoints[i].scope] = i
+		}
+	}
+	return &b.accessPoints[n-1].aps
 }
 
 func (b *binding) markAccessPointAt(pos int) {
 	scope := b.scope.c.scope
 	m := b.getAccessPointsForScope(scope)
-	*m = append(*m, pos-scope.base)
+	*m = append(*m, int32(pos-scope.base))
 }
 
 func (b *binding) markAccessPointAtScope(scope *scope, pos int) {
 	m := b.getAccessPointsForScope(scope)
-	*m = append(*m, pos-scope.base)
+	*m = append(*m, int32(pos-scope.base))
 }
 
 func (b *binding) markAccessPoint() {
 	scope := b.scope.c.scope
 	m := b.getAccessPointsForScope(scope)
-	*m = append(*m, len(scope.prg.code)-scope.base)
+	*m = append(*m, int32(len(scope.prg.code)-scope.base))
 }
 
 func (b *binding) emitGet() {
@@ -277,7 +311,7 @@ func (b *binding) moveToStash() {
 
 func (b *binding) useCount() (count int) {
 	for _, a := range b.accessPoints {
-		count += len(*a)
+		count += len(a.aps)
 	}
 	return
 }
@@ -631,7 +665,8 @@ func (s *scope) finaliseVarAlloc(stackOffset int) (stashSize, stackSize int) {
 			this = true
 		}
 		if allInStash || b.inStash {
-			for scope, aps := range b.accessPoints {
+			for _, sa := range b.accessPoints {
+				scope, aps := sa.scope, sa.aps
 				var level uint32
 				for sc := scope; sc != nil && sc != s; sc = sc.outer {
 					if sc.needStash || sc.isDynamic() {
@@ -646,8 +681,8 @@ func (s *scope) finaliseVarAlloc(stackOffset int) (stashSize, stackSize int) {
 				code := scope.prg.code
 				if this {
 					if derivedCtor {
-						for _, pc := range *aps {
-							ap := &code[base+pc]
+						for _, pc := range aps {
+							ap := &code[base+int(pc)]
 							switch (*ap).(type) {
 							case loadStack:
 								*ap = loadThisStash(idx)
@@ -660,12 +695,12 @@ func (s *scope) finaliseVarAlloc(stackOffset int) (stashSize, stackSize int) {
 							case _ret:
 								*ap = cret(idx)
 							default:
-								s.c.assert(false, s.c.p.sourceOffset(pc), "Unsupported instruction for 'this'")
+								s.c.assert(false, s.c.p.sourceOffset(int(pc)), "Unsupported instruction for 'this'")
 							}
 						}
 					} else {
-						for _, pc := range *aps {
-							ap := &code[base+pc]
+						for _, pc := range aps {
+							ap := &code[base+int(pc)]
 							switch (*ap).(type) {
 							case loadStack:
 								*ap = loadStash(idx)
@@ -674,13 +709,13 @@ func (s *scope) finaliseVarAlloc(stackOffset int) (stashSize, stackSize int) {
 							case initStackP:
 								*ap = initStashP(idx)
 							default:
-								s.c.assert(false, s.c.p.sourceOffset(pc), "Unsupported instruction for 'this'")
+								s.c.assert(false, s.c.p.sourceOffset(int(pc)), "Unsupported instruction for 'this'")
 							}
 						}
 					}
 				} else {
-					for _, pc := range *aps {
-						ap := &code[base+pc]
+					for _, pc := range aps {
+						ap := &code[base+int(pc)]
 						switch i := (*ap).(type) {
 						case loadStack:
 							*ap = loadStash(idx)
@@ -705,7 +740,7 @@ func (s *scope) finaliseVarAlloc(stackOffset int) (stashSize, stackSize int) {
 						case *resolveMixed:
 							i.idx = idx
 						default:
-							s.c.assert(false, s.c.p.sourceOffset(pc), "Unsupported instruction for binding: %T", i)
+							s.c.assert(false, s.c.p.sourceOffset(int(pc)), "Unsupported instruction for binding: %T", i)
 						}
 					}
 				}
@@ -721,7 +756,8 @@ func (s *scope) finaliseVarAlloc(stackOffset int) (stashSize, stackSize int) {
 					idx = stackIdx + stackOffset
 				}
 			}
-			for scope, aps := range b.accessPoints {
+			for _, sa := range b.accessPoints {
+				scope, aps := sa.scope, sa.aps
 				var level int
 				for sc := scope; sc != nil && sc != s; sc = sc.outer {
 					if sc.needStash || sc.isDynamic() {
@@ -735,8 +771,8 @@ func (s *scope) finaliseVarAlloc(stackOffset int) (stashSize, stackSize int) {
 				base := scope.base
 				if this {
 					if derivedCtor {
-						for _, pc := range *aps {
-							ap := &code[base+pc]
+						for _, pc := range aps {
+							ap := &code[base+int(pc)]
 							switch (*ap).(type) {
 							case loadStack:
 								*ap = loadThisStack{}
@@ -749,15 +785,15 @@ func (s *scope) finaliseVarAlloc(stackOffset int) (stashSize, stackSize int) {
 							case _ret:
 								// no-op, already in the right place
 							default:
-								s.c.assert(false, s.c.p.sourceOffset(pc), "Unsupported instruction for 'this'")
+								s.c.assert(false, s.c.p.sourceOffset(int(pc)), "Unsupported instruction for 'this'")
 							}
 						}
 					} /*else {
 						no-op
 					}*/
 				} else if argsInStash {
-					for _, pc := range *aps {
-						ap := &code[base+pc]
+					for _, pc := range aps {
+						ap := &code[base+int(pc)]
 						switch i := (*ap).(type) {
 						case loadStack:
 							*ap = loadStack1(idx)
@@ -782,12 +818,12 @@ func (s *scope) finaliseVarAlloc(stackOffset int) (stashSize, stackSize int) {
 						case *resolveMixed:
 							*ap = &resolveMixedStack1{typ: i.typ, name: i.name, idx: idx, level: uint8(level), strict: i.strict}
 						default:
-							s.c.assert(false, s.c.p.sourceOffset(pc), "Unsupported instruction for binding: %T", i)
+							s.c.assert(false, s.c.p.sourceOffset(int(pc)), "Unsupported instruction for binding: %T", i)
 						}
 					}
 				} else {
-					for _, pc := range *aps {
-						ap := &code[base+pc]
+					for _, pc := range aps {
+						ap := &code[base+int(pc)]
 						switch i := (*ap).(type) {
 						case loadStack:
 							*ap = loadStack(idx)
@@ -812,7 +848,7 @@ func (s *scope) finaliseVarAlloc(stackOffset int) (stashSize, stackSize int) {
 						case *resolveMixed:
 							*ap = &resolveMixedStack{typ: i.typ, name: i.name, idx: idx, level: uint8(level), strict: i.strict}
 						default:
-							s.c.assert(false, s.c.p.sourceOffset(pc), "Unsupported instruction for binding: %T", i)
+							s.c.assert(false, s.c.p.sourceOffset(int(pc)), "Unsupported instruction for binding: %T", i)
 						}
 					}
 				}

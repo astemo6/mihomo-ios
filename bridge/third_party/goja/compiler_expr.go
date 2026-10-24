@@ -127,6 +127,9 @@ type compiledFunctionLiteral struct {
 	isExpr          bool
 
 	isAsync, isGenerator bool
+
+	// mihomo-ios patch 6: drops the AST body after compile (nil unless releaseBodies).
+	release func()
 }
 
 type compiledBracketExpr struct {
@@ -1701,6 +1704,10 @@ func (e *compiledFunctionLiteral) compile() (prg *Program, name unistring.String
 	}
 	e.c.popScope()
 	e.c.p = savedPrg
+	if e.release != nil {
+		e.release()
+		e.release, e.body, e.declarationList = nil, nil, nil
+	}
 
 	return
 }
@@ -1743,6 +1750,7 @@ func (e *compiledFunctionLiteral) emitGetter(putOnStack bool) {
 }
 
 func (c *compiler) compileFunctionLiteral(v *ast.FunctionLiteral, isExpr bool) *compiledFunctionLiteral {
+	c.checkNotReleased(v)
 	strictBody := c.isStrictStatement(v.Body)
 	if v.Name != nil && (c.scope.strict || strictBody != nil) {
 		c.checkIdentifierName(v.Name.Name, int(v.Name.Idx)-1)
@@ -1762,6 +1770,13 @@ func (c *compiler) compileFunctionLiteral(v *ast.FunctionLiteral, isExpr bool) *
 		strict:          strictBody,
 		isAsync:         v.Async,
 		isGenerator:     v.Generator,
+	}
+	if c.releaseBodies {
+		r.release = func() {
+			c.markReleased(v)
+			v.Body = &ast.BlockStatement{LeftBrace: v.Body.LeftBrace, RightBrace: v.Body.RightBrace}
+			v.DeclarationList = nil
+		}
 	}
 	r.init(c, v.Idx0())
 	return r
@@ -2253,6 +2268,7 @@ func (c *compiler) compileCtor(ctor *ast.FunctionLiteral, derived bool) (p *Prog
 }
 
 func (c *compiler) compileArrowFunctionLiteral(v *ast.ArrowFunctionLiteral) *compiledFunctionLiteral {
+	c.checkNotReleased(v)
 	var strictBody *ast.StringLiteral
 	var body []ast.Statement
 	switch b := v.Body.(type) {
@@ -2277,6 +2293,18 @@ func (c *compiler) compileArrowFunctionLiteral(v *ast.ArrowFunctionLiteral) *com
 		typ:             funcArrow,
 		strict:          strictBody,
 		isAsync:         v.Async,
+	}
+	if c.releaseBodies {
+		r.release = func() {
+			c.markReleased(v)
+			switch b := v.Body.(type) {
+			case *ast.BlockStatement:
+				v.Body = &ast.BlockStatement{LeftBrace: b.LeftBrace, RightBrace: b.RightBrace}
+			case *ast.ExpressionBody:
+				v.Body = &ast.BlockStatement{LeftBrace: b.Idx0(), RightBrace: b.Idx1() - 1}
+			}
+			v.DeclarationList = nil
+		}
 	}
 	r.init(c, v.Idx0())
 	return r
@@ -3601,5 +3629,25 @@ func (e *compiledYieldExpression) emitGetter(putOnStack bool) {
 		} else {
 			e.c.emit(yield)
 		}
+	}
+}
+
+// mihomo-ios patch 6 (CompileReleasing): errBodyReleased is raised when a function literal whose AST
+// body was already dropped is compiled again; CompileReleasing then compiles the source normally.
+type errBodyReleased struct{}
+
+func (c *compiler) markReleased(n ast.Node) {
+	if c.released == nil {
+		c.released = make(map[ast.Node]struct{})
+	}
+	c.released[n] = struct{}{}
+}
+
+func (c *compiler) checkNotReleased(n ast.Node) {
+	if c.released == nil {
+		return
+	}
+	if _, ok := c.released[n]; ok {
+		panic(errBodyReleased{})
 	}
 }

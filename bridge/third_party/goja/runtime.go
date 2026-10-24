@@ -1366,6 +1366,42 @@ func Compile(name, src string, strict bool) (*Program, error) {
 	return compile(name, src, strict, true, nil)
 }
 
+// CompileReleasing is Compile with a lower memory peak for large sources (mihomo-ios patch 6): each
+// function literal's AST body is dropped as soon as the literal is compiled, so the syntax tree of a
+// bundle shrinks while it is compiled instead of staying whole until the end. The program is the same.
+// Should the compiler ever need a dropped body again, the source is compiled again with Compile.
+func CompileReleasing(name, src string, strict bool) (p *Program, err error) {
+	prg, err := Parse(name, src)
+	if err != nil {
+		return nil, err
+	}
+	again := false
+	p, err = func() (p *Program, err error) {
+		c := newCompiler()
+		c.releaseBodies = true
+		defer func() {
+			if x := recover(); x != nil {
+				p = nil
+				switch x1 := x.(type) {
+				case errBodyReleased:
+					again = true
+				case *CompilerSyntaxError:
+					err = x1
+				default:
+					panic(x)
+				}
+			}
+		}()
+		c.compile(prg, strict, true, nil)
+		return c.p, nil
+	}()
+	if again {
+		prg = nil
+		return Compile(name, src, strict)
+	}
+	return p, err
+}
+
 // CompileAST creates an internal representation of the JavaScript code that can be later run using the Runtime.RunProgram()
 // method. This representation is not linked to a runtime in any way and can be run in multiple runtimes (possibly
 // at the same time).

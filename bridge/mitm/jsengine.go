@@ -103,9 +103,12 @@ func (gojaEngine) borrows() bool { return true }
 
 func (gojaEngine) compile(c *compiled, name, code string) error {
 	// Wrap so a top-level `return` (allowed by Surge/JSC scripts) does not break compilation.
-	p, err := goja.Compile(name+".js", "(function(){\n"+code+"\n}).call(this);", false)
+	// E 线 #5: CompileReleasing drops each function's syntax tree once it is compiled (same program as
+	// goja.Compile, see third_party/goja/PATCHED.md patch 6): a 1.3 MB Sub-Store bundle's live compile
+	// peak goes from ~35 MB to ~22 MB (ScriptRunner compile path ~42 MB → ~30 MB, TestSubStoreCompilePeakReleasing).
+	p, err := goja.CompileReleasing(name+".js", "(function(){\n"+code+"\n}).call(this);", false)
 	if err != nil {
-		p2, err2 := goja.Compile(name+".js", code, false)
+		p2, err2 := goja.CompileReleasing(name+".js", code, false)
 		if err2 != nil {
 			return fmt.Errorf("脚本语法错误：%v", err)
 		}
