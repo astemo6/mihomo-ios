@@ -69,7 +69,19 @@ enum RewriteDecision {
     }
     /// Header operations of the response-phase header rules that matched, in order (applied to the upstream head),
     /// and those rules' indices (logged at the response).
-    struct ResponsePlan { var ops: [[RWSnapHeaderOp]] = []; var rules: [Int] = [] }
+    struct ResponsePlan {
+        var ops: [[RWSnapHeaderOp]] = []
+        var rules: [Int] = []
+        /// Lane s3-script: the response rules in order (header and script) when http-response scripts matched —
+        /// the native script dispatcher runs them (NativeScriptDispatcher.swift); nil: header rules only.
+        var scripts: [ScriptPlanStep]?
+        /// The outbound request as the response scripts see it ($request): out.Header before Content-Length is
+        /// taken out of the decision, Accept-Encoding as sent.
+        var requestHeader = GoHeader()
+        var requestHost = ""
+        var url = ""
+        var method = ""
+    }
 
     case go(String)
     case drop(RewriteLog)
@@ -168,7 +180,9 @@ final class NativeRewriteEngine {
         var scheme: String
     }
 
-    func decide(_ q: RewriteRequest) -> RewriteDecision {
+    /// scripts: lane s3-script — response-phase http-response scripts are planned for the native script dispatcher
+    /// instead of deferring the request (request-phase scripts are still handed to Go).
+    func decide(_ q: RewriteRequest, scripts: Bool = false) -> RewriteDecision {
         // ---- FlowHead.request + requestURL, only where Swift can prove Go builds the same request ----
         let method = q.method.isEmpty ? "GET" : q.method
         if !method.utf8.allSatisfy(RWAscii.isTokenByte) { return .go("method") }
@@ -308,11 +322,21 @@ final class NativeRewriteEngine {
 
         // ---- 4. response rules against the final URL ----
         var plan = RewriteDecision.ResponsePlan()
+        var steps: [ScriptPlanStep] = []
+        var hasScript = false, needRespBody = false
         for rule in active where rule.phase == "response" && rule.kind != "url" && rule.kind != "maplocal" {
             switch matches(rule, u) {
             case .unknown(let why): return .go(why)
             case .no: continue
             case .yes: break
+            }
+            if rule.kind == "script" && scripts {
+                guard let sc = rule.snap.script else { return .go("response script") }
+                if capture { return .go("capture") } // Go records the script's body; the native side does not
+                hasScript = true
+                if sc.requiresBody == true { needRespBody = true }
+                steps.append(ScriptPlanStep(rule: rule.snap.i, kind: .script(requiresBody: sc.requiresBody == true)))
+                continue
             }
             guard rule.kind == "header", rule.snap.opsOK == true else { return .go("response \(rule.kind)") }
             let ops = rule.snap.headers ?? []
@@ -321,12 +345,16 @@ final class NativeRewriteEngine {
             if ops.contains(where: { $0.op == "replace-regex" }) { return .go("response replace-regex") }
             plan.ops.append(ops)
             plan.rules.append(rule.snap.i)
+            steps.append(ScriptPlanStep(rule: rule.snap.i, kind: .header(ops)))
         }
+        if hasScript { plan.scripts = steps }
 
         // ---- 5. the outbound request (flowOutbound + forward) ----
         guard r.host.isEmpty || NativeRewriteEngine.plainHost(r.host) else { return .go("host after rules") }
         log.url = u
         log.headers = r.header.sortedPairs   // ent.ReqHeaders(r.Method, r.Header)
+        // requestPhase: a response body rule / body script asks only for encodings Go can decode
+        if needRespBody { r.header.set("Accept-Encoding", "gzip, deflate, br") }
         var out = r.header
         let upType = out.containsToken("Connection", "Upgrade") ? out.get("Upgrade") : ""
         let teTrailers = r.header.containsToken("Te", "trailers")
@@ -334,6 +362,12 @@ final class NativeRewriteEngine {
         if teTrailers { out.set("Te", "trailers") }
         if !upType.isEmpty { out.set("Connection", "Upgrade"); out.set("Upgrade", upType) }
         for k in ["Forwarded", "X-Forwarded-For", "X-Forwarded-Host", "X-Forwarded-Proto"] { out.del(k) }
+        if hasScript {
+            plan.requestHeader = out
+            plan.requestHost = r.host
+            plan.url = u
+            plan.method = method
+        }
         out.del("Content-Length")
         if let qy = r.query, qy.contains(";") || !NativeRewriteEngine.validEscapes(qy) { return .go("query") }
         let (mode, length): (FlowBodyMode, Int64) = r.contentLength == 0 ? (.none, 0) : (.client, r.contentLength)

@@ -44,6 +44,31 @@ extension JSCNativeBlobProvider {
     func adopt(_ data: Data) -> Int64 { data.withUnsafeBytes { store($0) } }
 }
 
+/// One script run as the engine sees it (the prelude's `__tern.host / put / take` and the time-limit check): Go's
+/// runCtx (`LibmihomoScriptRun`, wrapped by `GoJSCRun`) or, lane s3-script, a run dispatched by Swift
+/// (`NativeScriptRun`, PacketTunnel/NativeMitM/Script/) whose blobs, timers and `$done` never go through Go.
+protocol JSCRun: AnyObject {
+    var runID: Int64 { get }
+    func host(_ op: String, _ arg: String) -> String
+    func put(_ data: Data) -> Int64
+    func take(_ id: Int64) -> Data?
+    func shouldStop() -> Bool
+}
+
+/// Go's run (bridge ScriptRun) behind `JSCRun`.
+final class GoJSCRun: JSCRun {
+    private let r: LibmihomoScriptRun
+    let runID: Int64
+    init(_ r: LibmihomoScriptRun) {
+        self.r = r
+        runID = r.id_()
+    }
+    func host(_ op: String, _ arg: String) -> String { r.host(op, arg: arg) }
+    func put(_ data: Data) -> Int64 { r.put(data) }
+    func take(_ id: Int64) -> Data? { r.take(id) }
+    func shouldStop() -> Bool { r.shouldStop() }
+}
+
 final class JSCScriptEngine: NSObject, LibmihomoScriptEngineProtocol {
     static let shared = JSCScriptEngine()
 
@@ -73,7 +98,7 @@ final class JSCScriptEngine: NSObject, LibmihomoScriptEngineProtocol {
     private final class Ctx {
         let context: JSContext
         var main: JSValue?
-        var run: LibmihomoScriptRun?
+        var run: JSCRun?
         var busy = false
         var terminated = false
         var poisoned = false
@@ -106,6 +131,9 @@ final class JSCScriptEngine: NSObject, LibmihomoScriptEngineProtocol {
     private var byRef: [OpaquePointer: Ctx] = [:]
     private var gcContext: JSContext?
     private var timeLimit = false
+    /// Whether a run can be interrupted (JSContextGroupSetExecutionTimeLimit was found). The native script dispatcher
+    /// (lane s3-script) runs scripts only then: without it a runaway script could only be abandoned by Go's guard.
+    var canInterrupt: Bool { lock.lock(); defer { lock.unlock() }; return timeLimit }
     private var contextsMade = 0
     /// fix/xmly-memory: garbage collections asked for (0 none, 1 eden, 2 full) and run on `gcQueue`; the JSC heap
     /// as last measured after one (stats()). `JSGarbageCollect` only *hints* (`reportAbandonedObjectGraph`): after
@@ -247,7 +275,13 @@ final class JSCScriptEngine: NSObject, LibmihomoScriptEngineProtocol {
 
     func begin(_ run: LibmihomoScriptRun?, key: String?, setup: String?) -> String {
         guard let run, let key else { return Self.err("internal", "missing run") }
-        let runID = run.id_()
+        return begin(run: GoJSCRun(run), key: key, setup: setup ?? "{}")
+    }
+
+    /// Starts a run on key's context: "" ok, "missing" (key not loaded), else error JSON {kind, message} — Go's Begin,
+    /// also called by the native script dispatcher (lane s3-script) with its own run. `call` / `end` take its runID.
+    func begin(run: JSCRun, key: String, setup: String) -> String {
+        let runID = run.runID
         lock.lock()
         guard let entry = entries[key] else {
             lock.unlock()
@@ -288,7 +322,7 @@ final class JSCScriptEngine: NSObject, LibmihomoScriptEngineProtocol {
         runs[runID] = Slot(ctx: c, entry: entry, temp: temp)
         lock.unlock()
 
-        if let r = invoke(c, "__tern_begin", setup ?? "{}", name: entry.name) { return r }
+        if let r = invoke(c, "__tern_begin", setup, name: entry.name) { return r }
         c.exception = nil
         if let main = c.main {
             _ = main.call(withArguments: [])
@@ -425,7 +459,7 @@ final class JSCScriptEngine: NSObject, LibmihomoScriptEngineProtocol {
             guard let run = c?.run, let op else { return "" }
             if let lane = JSCScriptEngine.nativeBlobs, let r = JSCScriptEngine.laneHost(run, lane, op, arg ?? "") { return r }
             if op == "text", let id = Int64(arg ?? "") { return JSCScriptEngine.goBlobText(run, id) }
-            return run.host(op, arg: arg ?? "")
+            return run.host(op, arg ?? "")
         }
         let put: @convention(block) (JSValue?, Double, Double) -> Double = { [weak c] buf, off, len in
             guard let run = c?.run, let buf else { return -1 }
@@ -554,7 +588,7 @@ final class JSCScriptEngine: NSObject, LibmihomoScriptEngineProtocol {
 
     // MARK: bytes
 
-    private static func put(_ run: LibmihomoScriptRun, _ buf: JSValue, _ off: Double, _ len: Double) -> Int64 {
+    private static func put(_ run: JSCRun, _ buf: JSValue, _ off: Double, _ len: Double) -> Int64 {
         guard let ctx = buf.context else { return -1 }
         let ref = ctx.jsGlobalContextRef
         guard JSValueGetTypedArrayType(ref, buf.jsValueRef, nil) == kJSTypedArrayTypeArrayBuffer,
@@ -568,7 +602,7 @@ final class JSCScriptEngine: NSObject, LibmihomoScriptEngineProtocol {
             // a large result stays native: stored in the lane, owned by the run on the Go side ("" = not taken)
             let h = lane.store(UnsafeRawBufferPointer(start: p.advanced(by: o), count: n))
             if h > 0 {
-                if let id = Int64(run.host("nblob", arg: String(h))), id > 0 { return id }
+                if let id = Int64(run.host("nblob", String(h))), id > 0 { return id }
                 lane.free(h)
             }
         }
@@ -577,7 +611,7 @@ final class JSCScriptEngine: NSObject, LibmihomoScriptEngineProtocol {
 
     /// Host ops the engine answers itself for lane bodies: "text" of a native blob (Go's U+FFFD rules, goText) and "utf8" of a
     /// large string (stored in the lane). nil: ask the Go host.
-    private static func laneHost(_ run: LibmihomoScriptRun, _ lane: JSCNativeBlobProvider, _ op: String, _ arg: String) -> String? {
+    private static func laneHost(_ run: JSCRun, _ lane: JSCNativeBlobProvider, _ op: String, _ arg: String) -> String? {
         switch op {
         case "text":
             guard let id = Int64(arg), id >= nativeBase else { return nil }
@@ -593,7 +627,7 @@ final class JSCScriptEngine: NSObject, LibmihomoScriptEngineProtocol {
             guard let data = arg.data(using: .utf8) else { return nil }
             let h = lane.adopt(data)
             guard h > 0 else { return nil }
-            if let id = Int64(run.host("nblob", arg: String(h))), id > 0 { return String(id) }
+            if let id = Int64(run.host("nblob", String(h))), id > 0 { return String(id) }
             lane.free(h) // "" = this run does not take lane results (request phase, task, debug run): Go blob
             return nil
         default:
@@ -606,7 +640,7 @@ final class JSCScriptEngine: NSObject, LibmihomoScriptEngineProtocol {
     /// with NSString(bytesNoCopy:…encoding: .utf8), which drops a leading BOM (CI 40052493849 bom-text-go-path:
     /// goja 37 characters, JavaScriptCore 36). CFStringCreateWithBytes with isExternalRepresentation false keeps
     /// it; peak memory is the same as before (Go's copy, then the CFString, then JavaScriptCore's copy).
-    private static func goBlobText(_ run: LibmihomoScriptRun, _ id: Int64) -> String {
+    private static func goBlobText(_ run: JSCRun, _ id: Int64) -> String {
         guard let data = run.take(id), !data.isEmpty else { return "" }
         return data.withUnsafeBytes { (buf: UnsafeRawBufferPointer) -> String in
             guard isValidUTF8(buf), let base = buf.baseAddress else { return goText(buf) }
@@ -704,7 +738,7 @@ final class JSCScriptEngine: NSObject, LibmihomoScriptEngineProtocol {
         return Int64(d)
     }
 
-    private static func take(_ run: LibmihomoScriptRun, _ id: Int64, _ ctx: JSContext) -> JSValue? {
+    private static func take(_ run: JSCRun, _ id: Int64, _ ctx: JSContext) -> JSValue? {
         let ref = ctx.jsGlobalContextRef
         if id >= nativeBase, let lane = nativeBlobs {
             // a lane body: copied straight from native memory into a fresh Uint8Array (never through Go)
