@@ -59,24 +59,25 @@
 - 设置文件（App Group 容器 `mihomo/`）：`subscriptions.json`（每个订阅的节点处理规则）、`overrides.json`（内核覆写，含 `tunnelMode` `mixedPort` `tunMTU` `geoMirror` `geoURLs` `mergeManual`，解码容错；不含任何密钥）、`secrets.json`（控制器密钥与局域网共享密码，0600，只进加密备份）、`dns.json`、`rules.json`、`engine/`（MitM / 重写 / 脚本 / 模块）；每个配置旁的 `<id>.selected.json` 保存离线选择的节点。
 - 工程由 XcodeGen 从 `project.yml` 生成；**Bundle ID 与 App Group 只在 `project.yml` 顶部改一处**。
 
-### 编程语言分工（2026-10-24 更新）
+### 编程语言分工（2026-10-24 实测后）
 
-| 部分 | 现行（已发布 v0.19.22） | 下一版（集成中，原生开关默认关，失败一律回落 Go） |
-|---|---|---|
-| 界面、VPN 管理、配置管理 | Swift（SwiftUI） | 不变 |
-| 协议、分流、DNS、TUN | Go（mihomo，gomobile `bridge/`） | 保持 Go |
-| packetFlow 桥接、MemoryGuard、流量记录 | Swift | 不变 |
-| MitM TLS 终止 / HTTP/1.1 / 上游连接 | Go | 保持 Go 默认：Swift 版（`nativeMitmStage2`，iOS 17+）实测 100 连接 footprint +6.85 MB，高于 Go 的 +6.14 MB（Network.framework TLS 连接约 44 KB，Go 约 24 KB） |
-| MitM HTTP/2 | Go | Swift（`nativeMitmH2`，每连接 16 流，受内存调度准入） |
-| 重写匹配（reject、302/307、URL、header、Map Local 含本地文件、复杂正则） | Go | Swift（`nativeMitmRewrite`，语料 1769/1779 原生、0 差异；正则由 Go 翻译为 ICU） |
-| 改响应体、jq / JSON 重写 | Go | Swift（`nativeMitmBody`） |
-| 脚本调度（响应阶段 + 请求阶段） | Go | Swift（`nativeMitmScript`；`$httpClient` 仍经 Go 分流，`$persistentStore` 共享） |
-| 脚本执行 | Swift JavaScriptCore（Go goja 备用） | JavaScriptCore 改为独占一条专用线程（修复 GC 扫描 Go 线程栈导致的崩溃） |
-| Body 缓存 | Go | Swift `NativeBodyStore`（`nativeBodyLane.enabled`） |
-| 内存调度 | Go governor | Swift 统一调度并设置 GOMEMLIMIT（`nativeMemGovernor`） |
-| 证书签发、CONNECT 前端、请求日志/抓包存储、定时任务与面板脚本、远程脚本下载 | Go | 保持 Go |
+| 部分 | 现行 v0.19.22 | 下一版默认 | 原生 Swift 版（随版带上，开关默认关） |
+|---|---|---|---|
+| 界面、VPN、配置/订阅管理 | Swift | Swift | — |
+| packetFlow 桥接、MemoryGuard、流量记录 | Swift | Swift | — |
+| 出站协议、分流规则、策略组、DNS、TUN | Go（mihomo） | Go（必须） | — |
+| `$httpClient`、远程下载、MitM 上游出口 | Go | Go（必须经分流） | — |
+| MitM TLS 终止 / CONNECT / HTTP/1.1 | Go | Go | `nativeMitmStage2` |
+| MitM HTTP/2 | Go | Go | `nativeMitmH2` |
+| 重写匹配 | Go | Go | `nativeMitmRewrite`（1769/1779 原生，0 差异） |
+| 改 body / jq | Go | Go | `nativeMitmBody` |
+| 脚本调度（响应 + 请求阶段） | Go | Go | `nativeMitmScript`（请求 22/22、响应 41/41 一致） |
+| 脚本执行 | JavaScriptCore | JavaScriptCore（独占专用线程，修 GC 崩溃） | — |
+| Body 缓存 | Go | Go | `nativeBodyLane.enabled` |
+| 内存调度 | Go | Go | `nativeMemGovernor` |
+| 证书签发、请求日志/抓包、定时任务触发 | Go | Go | — |
 
-原则：最低隧道内存优先。原生部分只有在组合实测中整体进程 footprint 和 Go 侧内存都低于 Go 路径时才默认开启，否则保持 Go。
+原生默认关的原因：100 连接组合实测整体 footprint 全 Go +5.70 MB，原生最好 +6.24 MB（Go 堆从 +1.85 降到 +0.45 MB，但 iOS TLS 连接每条约 44 KB，Go 约 24 KB）。只有实测整体 footprint 和 Go 侧都低于 Go 路径时才默认开启。
 
 ## 协议支持
 
