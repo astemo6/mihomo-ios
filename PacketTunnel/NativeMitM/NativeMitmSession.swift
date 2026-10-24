@@ -65,7 +65,13 @@ enum NativeMitmRuntime {
         /// Upstream TLS connections through the relay share one NWParameters.PrivacyContext per relay port instead
         /// of creating one per connection.
         var sharedPrivacyContext = true
-        static let legacy = Slim(sharedQueues: false, smallChunks: false, releaseIdleBuffers: false, sharedPrivacyContext: false)
+        /// After a burst of native connections closed (sessions + upstream connections, ≥ 16, then 250 ms quiet),
+        /// give malloc's free pages back (malloc_zone_pressure_relief). Measured 2026-10-24 (NativeMitmMemoryTests):
+        /// most of a burst's footprint right after it is freed-but-dirty malloc memory (Network.framework / TLS
+        /// buffers of the connections that already closed), which jetsam counts until malloc returns it.
+        var reliefAfterBurst = true
+        static let legacy = Slim(sharedQueues: false, smallChunks: false, releaseIdleBuffers: false, sharedPrivacyContext: false,
+                                 reliefAfterBurst: false)
     }
     static var slim = Slim()
 
@@ -75,6 +81,38 @@ enum NativeMitmRuntime {
 
     private static let lock = NSLock()
     private static var live = 0
+
+    // MARK: malloc relief after a burst (Slim.reliefAfterBurst)
+    private static var churn = 0
+    private static var churnGen: UInt64 = 0
+    private static let reliefQueue = DispatchQueue(label: "tern.mitm.s2.relief", qos: .utility)
+    /// Reliefs done (tests / diagnostics).
+    private(set) static var reliefs = 0
+
+    /// One native connection (session or upstream) closed.
+    static func noteChurn() {
+        guard slim.reliefAfterBurst else { return }
+        lock.lock()
+        churn += 1
+        churnGen &+= 1
+        let gen = churnGen
+        let now = churn >= 256 // never quiet: don't wait for it
+        if now { churn = 0 }
+        lock.unlock()
+        if now { reliefQueue.async { relieve() }; return }
+        reliefQueue.asyncAfter(deadline: .now() + 0.25) {
+            lock.lock()
+            let fire = gen == churnGen && churn >= 16
+            if fire { churn = 0 }
+            lock.unlock()
+            if fire { relieve() }
+        }
+    }
+
+    private static func relieve() {
+        _ = malloc_zone_pressure_relief(nil, 0)
+        lock.lock(); reliefs += 1; lock.unlock()
+    }
     private static var ids: Int64 = 0
 
     /// listen()-time reservations not yet claimed by a session (oldest first). Go asks listen() and then hands the
@@ -894,6 +932,7 @@ final class NativeMitmSession {
         clientBuf = Data(); upBuf = Data()
         NativeMitmRuntime.release()
         NativeMitmRuntime.drop(id)
+        NativeMitmRuntime.noteChurn()
         onFinish?(cancelled ?? error)
         onFinish = nil
     }

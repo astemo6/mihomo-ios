@@ -429,6 +429,7 @@ final class UpstreamConnection: UpstreamByteStream, CustomStringConvertible {
 
     func closeOnQueue() {
         if openCompletion != nil { finishOpen(.failure(.cancelled)); return }
+        if !closed && opened { NativeMitmRuntime.noteChurn() }
         closed = true
         isIdle = false
         onIdleEvent = nil
