@@ -35,7 +35,13 @@ protocol JSCNativeBlobProvider: AnyObject {
     func withDecoded(_ h: Int64, _ body: (UnsafeRawBufferPointer) -> Void) -> Bool
     /// Stores a copy of bytes as a new handle (0: refused).
     func store(_ bytes: UnsafeRawBufferPointer) -> Int64
+    /// Keeps data as a new handle without copying it (0: refused / empty). Default: store(), one copy.
+    func adopt(_ data: Data) -> Int64
     func free(_ h: Int64)
+}
+
+extension JSCNativeBlobProvider {
+    func adopt(_ data: Data) -> Int64 { data.withUnsafeBytes { store($0) } }
 }
 
 final class JSCScriptEngine: NSObject, LibmihomoScriptEngineProtocol {
@@ -507,8 +513,10 @@ final class JSCScriptEngine: NSObject, LibmihomoScriptEngineProtocol {
             let units = (arg as NSString).length
             if units * 3 < lane.putMin { return nil }
             if units < lane.putMin && arg.utf8.count < lane.putMin { return nil }
-            var s = arg
-            let h = s.withUTF8 { lane.store(UnsafeRawBufferPointer($0)) }
+            // one copy: the string's UTF-8 straight into a Data the store keeps (a bridged NSString would be
+            // transcoded into a native String first by withUTF8, then copied again by store)
+            guard let data = arg.data(using: .utf8) else { return nil }
+            let h = lane.adopt(data)
             guard h > 0 else { return nil }
             if let id = Int64(run.host("nblob", arg: String(h))), id > 0 { return String(id) }
             lane.free(h) // "" = this run does not take lane results (request phase, task, debug run): Go blob
