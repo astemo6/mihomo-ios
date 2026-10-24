@@ -279,11 +279,14 @@ final class NCDataPlane {
             session = NCUDPDirectSession(target: target, queue: queue)
         case .proxy(let proxy) where proxy.type == "socks5":
             session = NCUDPSocks5Session(proxy: proxy, queue: queue)
+        case .proxy(let proxy) where proxy.type == "ss":
+            guard let ss = NCUDPSSSession(proxy: proxy, queue: queue) else {
+                udpDropped += 1
+                return
+            }
+            session = ss
         case .proxy(let proxy) where proxy.type == "trojan":
-            // Trojan UDP rides its TLS stream; lands with the SS/Trojan UDP batch.
-            udpDropped += 1
-            _ = proxy
-            return
+            session = NCUDPTrojanSession(proxy: proxy, firstTarget: target, queue: queue)
         default:
             udpDropped += 1
             return

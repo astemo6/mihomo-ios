@@ -282,3 +282,139 @@ final class NCDNSForwarder {
         queue.asyncAfter(deadline: .now() + 5) { finish(nil) }
     }
 }
+
+/// Shadowsocks UDP: every datagram is an independent SIP022 AEAD packet
+/// (fresh salt, target header inside), so the stream encoder/decoder are
+/// re-created per packet.
+final class NCUDPSSSession: NCUDPSession {
+    var onReply: (Data) -> Void = { _ in }
+    private let conn: NWConnection
+    private let cipher: String
+    private let password: String
+    private var cancelled = false
+
+    init?(proxy: NCProxy, queue: DispatchQueue) {
+        guard let cipher = proxy.cipher, let password = proxy.password,
+              let server = proxy.server, let port = proxy.port,
+              NCShadowsocks.spec(for: cipher) != nil else { return nil }
+        self.cipher = cipher
+        self.password = password
+        conn = NWConnection(host: NWEndpoint.Host(server),
+                            port: NWEndpoint.Port(rawValue: UInt16(clamping: port)) ?? .any,
+                            using: .udp)
+        conn.stateUpdateHandler = { [weak self] state in
+            if case .ready = state { self?.receiveLoop() }
+        }
+        conn.start(queue: queue)
+    }
+
+    private func receiveLoop() {
+        conn.receiveMessage { [weak self] data, _, _, error in
+            guard let self, !self.cancelled else { return }
+            if let data, let dec = NCSSDecoder(cipher: cipher, password: password),
+               let plain = dec.feed(data), let payload = Self.stripTargetHeader(plain) {
+                self.onReply(payload)
+            }
+            if error == nil { self.receiveLoop() }
+        }
+    }
+
+    /// Parse a SOCKS-style ATYP header off the front of a decrypted packet.
+    static func stripTargetHeader(_ data: Data) -> Data? {
+        guard let first = data.first else { return nil }
+        var offset: Int
+        switch first {
+        case 0x01: offset = 1 + 4 + 2
+        case 0x04: offset = 1 + 16 + 2
+        case 0x03:
+            guard data.count >= 2 else { return nil }
+            offset = 1 + 1 + Int(data[1]) + 2
+        default: return nil
+        }
+        guard data.count > offset else { return nil }
+        return Data(data[offset...])
+    }
+
+    func send(_ data: Data, to target: NCTarget) {
+        guard let enc = NCSSEncoder(cipher: cipher, password: password) else { return }
+        var plain = target.atypEncoded
+        plain.append(data)
+        guard plain.count <= 0x3fff, let packet = enc.encode(plain) else { return }
+        conn.send(content: packet, completion: .idempotent)
+    }
+
+    func cancel() {
+        cancelled = true
+        conn.cancel()
+    }
+}
+
+/// Trojan UDP: packets ride the TLS stream (UDP command in the request head),
+/// framed as ATYP + length + CRLF + payload.
+final class NCUDPTrojanSession: NCUDPSession {
+    var onReply: (Data) -> Void = { _ in }
+    private let raw: NCStream
+    private var buffer = Data()
+    private var cancelled = false
+
+    init(proxy: NCProxy, firstTarget: NCTarget, queue: DispatchQueue) {
+        raw = NCStream(to: proxy.server ?? "", port: proxy.port ?? 0,
+                       tlsServerName: proxy.fields["sni"]?.string ?? proxy.server ?? "",
+                       allowInsecure: proxy.fields["skip-cert-verify"]?.bool ?? false,
+                       queue: queue)
+        raw.start { [weak self] err in
+            guard let self, err == nil, let password = proxy.password else { return }
+            self.raw.send(NCTrojan.requestHead(password: password, target: firstTarget, udp: true))
+            self.receiveLoop()
+        }
+    }
+
+    private func receiveLoop() {
+        raw.receive { [weak self] data, error in
+            guard let self, !self.cancelled else { return }
+            guard let data else { return }
+            self.buffer.append(data)
+            self.parseFrames()
+            if error == nil { self.receiveLoop() }
+        }
+    }
+
+    private func parseFrames() {
+        while let (payload, consumed) = Self.parseFrame(buffer) {
+            buffer = Data(buffer.dropFirst(consumed))
+            onReply(payload)
+        }
+    }
+
+    /// One frame: ATYP header + len(2) + CRLF + payload. nil = need more bytes
+    /// (or a malformed frame, which also just waits — the stream is trusted
+    /// past the TLS layer in practice; a bad frame resyncs never, matching
+    /// other clients' simple parsers).
+    static func parseFrame(_ data: Data) -> (payload: Data, consumed: Int)? {
+        guard let first = data.first else { return nil }
+        var headerLen: Int
+        switch first {
+        case 0x01: headerLen = 1 + 4 + 2
+        case 0x04: headerLen = 1 + 16 + 2
+        case 0x03:
+            guard data.count >= 2 else { return nil }
+            headerLen = 1 + 1 + Int(data[1]) + 2
+        default: return nil
+        }
+        guard data.count >= headerLen + 2 + 2 else { return nil }
+        let len = Int(data[headerLen]) << 8 | Int(data[headerLen + 1])
+        guard data[headerLen + 2] == 0x0d, data[headerLen + 3] == 0x0a else { return nil }
+        let total = headerLen + 2 + 2 + len
+        guard data.count >= total else { return nil }
+        return (Data(data[(headerLen + 4)..<total]), total)
+    }
+
+    func send(_ data: Data, to target: NCTarget) {
+        raw.send(NCTrojan.udpPacket(target: target, payload: data))
+    }
+
+    func cancel() {
+        cancelled = true
+        raw.cancel()
+    }
+}
