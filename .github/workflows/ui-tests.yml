@@ -2,7 +2,8 @@
 # must exist on the default branch before it can be dispatched) and by workflow_dispatch with run_tests=true
 # once merged. Never releases. A commit message containing [only:<testName>] runs just that UI test ([unit:<Class>] adds a unit test class), [skip-go]
 # skips the Go job, [skip-ui] skips the UI shards (Go-only changes).
-# - go: go vet + the whole bridge test suite with the race detector (Linux).
+# - plan: picks the UI path (smoke or full matrix, see "UI path" below). Ubuntu, ~20 s.
+# - go: go vet + the whole bridge test suite with the race detector (Linux). Not affected by the UI path.
 # - ui: XCUITest target (project-uitests.yml) on an iOS simulator with the synthetic -UITestSeed profile,
 #   zh-Hans and en, light and dark. Screenshots and per-test reports are uploaded as artifacts only.
 # The release workflow (ios.yml) and project.yml are not touched by this file.
@@ -12,6 +13,37 @@
 #   any other repo       → everything
 # Full matrix in one repo: workflow_dispatch shard=all, or [shard:all] in the pushed commit message.
 # scripts/selftest-split.sh pushes a test/** branch to both remotes and waits for both runs.
+#
+# UI path (2026-10-24, maintainer rule: a release that touches no UI and no copy runs the smoke shard + unit
+# tests + the IPA build only):
+#   The plan job diffs HEAD against its base and classifies every changed file.
+#     base = merge-base(HEAD, origin/main) for test/** pushes and dispatches on a branch (the whole branch,
+#            not just the pushed commit). When that is HEAD itself (dispatch on main, or a test/** branch
+#            sitting on main = the release path) the base is the newest release tag v*-build* below HEAD.
+#            No base found → full.
+#   UI-affecting files (any one → full matrix as before):
+#     App/**            views, view models, Assets.xcassets, Localizable.xcstrings, Info.plist, Resources
+#     Shared/**         compiled into the app + widget; holds String(localized:) copy and LiveActivityViews
+#     Widget/**         widget / Live Activity UI
+#     UITests/**        the UI tests themselves
+#     project-uitests.yml  UI / unit test targets and scheme
+#     *.xcstrings *.strings *.stringsdict *.lproj/** *.xcassets/** *.storyboard *.xib  anywhere
+#     project.yml       only when a changed line mentions the app/widget UI: a path App/Shared/Widget,
+#                       xcstrings, ASSETCATALOG, INFOPLIST, PRODUCT_NAME, AppIcon, AccentColor, DisplayName
+#   Everything else (bridge/**, PacketTunnel/**, Geo/**, Config/**, UnitTests/**, scripts/**, .github/**,
+#   docs) is not UI-affecting → smoke.
+#   smoke = one combo, zh-Hans light (astemo6 / other repos; the astemo666 en mirror runs no UI job):
+#     SMOKE_TESTS (launch + tab/page navigation + node manager) + every MihomoUnitTests class. The app,
+#     test bundle and framework are built in full, so a compile break still fails.
+#   full  = today's matrix (repository split above; light:1/2/3 + dark:0 per language).
+# Markers / inputs (commit message of the pushed head; dispatch input `shard`):
+#   [shard:all]   / shard=all    full matrix, both languages, in this repo (wins over everything)
+#   [shard:smoke] / shard=smoke  force smoke even when UI files changed
+#   [shard:full]  / shard=full   force the full repository-split matrix even when no UI file changed
+#   (none)        / shard=auto   the diff rule above
+#   [only:<test>] / [unit:<Class>] / inputs.only  explicit selection, unchanged: light shard 1 + dark:0 as
+#                 before (smoke: runs the selection in the one smoke combo when [shard:smoke] is also given)
+#   [skip-go], [skip-ui]  unchanged.
 name: Self-test
 
 on:
@@ -35,9 +67,9 @@ on:
         required: false
         default: false
       shard:
-        description: "auto = split by repository (astemo6 go+zh-Hans, astemo666 en); all = full matrix here"
+        description: "auto = smoke if no UI-affecting file changed (see header), else split by repository; full = split by repository; smoke = one zh-Hans light smoke combo; all = full matrix here"
         type: choice
-        options: [auto, all]
+        options: [auto, full, smoke, all]
         required: false
         default: auto
 
@@ -49,6 +81,96 @@ concurrency:
   cancel-in-progress: true
 
 jobs:
+  plan:
+    # Picks the UI path: smoke (one combo) when the branch changes no UI-affecting file, else the full matrix.
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    outputs:
+      combos: ${{ steps.plan.outputs.combos }}
+      mode: ${{ steps.plan.outputs.mode }}
+    steps:
+      - uses: actions/checkout@v5
+        with:
+          # Whole history without blobs: enough for merge-base / tags / name-only diffs (blobs fetched on demand).
+          fetch-depth: 0
+          filter: blob:none
+      - name: Plan
+        id: plan
+        env:
+          COMMIT_MSG: ${{ github.event.head_commit.message }}
+          SHARD_INPUT: ${{ inputs.shard }}
+          ONLY_INPUT: ${{ inputs.only }}
+          REPO: ${{ github.repository }}
+        run: |
+          set -uo pipefail
+          FORCE=""
+          case "${SHARD_INPUT:-}" in all|smoke|full) FORCE="$SHARD_INPUT" ;; esac
+          if [ -z "$FORCE" ]; then
+            if printf '%s' "$COMMIT_MSG" | grep -qF '[shard:all]'; then FORCE=all
+            elif printf '%s' "$COMMIT_MSG" | grep -qF '[shard:smoke]'; then FORCE=smoke
+            elif printf '%s' "$COMMIT_MSG" | grep -qF '[shard:full]'; then FORCE=full
+            fi
+          fi
+          SELECTION=0
+          if [ -n "${ONLY_INPUT:-}" ] || printf '%s' "$COMMIT_MSG" | grep -qE '\[(only|unit):[A-Za-z0-9_]+\]'; then SELECTION=1; fi
+          BASE=""; BASE_DESC=""; UI_FILES=""; NCHANGED=0
+          if [ -n "$FORCE" ]; then
+            MODE=$FORCE; REASON="forced ($FORCE)"
+          elif [ "$SELECTION" = 1 ]; then
+            MODE=full; REASON="explicit [only:]/[unit:] selection (unchanged behaviour)"
+          else
+            MB=$(git merge-base HEAD origin/main 2>/dev/null || true)
+            HEADSHA=$(git rev-parse HEAD)
+            if [ -n "$MB" ] && [ "$MB" != "$HEADSHA" ]; then
+              BASE=$MB; BASE_DESC="merge-base with origin/main"
+            else
+              TAG=$(git describe --tags --abbrev=0 --match 'v*-build*' HEAD 2>/dev/null || true)
+              if [ -n "$TAG" ]; then BASE=$(git rev-list -n1 "$TAG"); BASE_DESC="last release tag $TAG"; fi
+            fi
+            if [ -z "$BASE" ]; then
+              MODE=full; REASON="no diff base found"
+            elif ! CHANGED=$(git diff --name-only "$BASE" HEAD); then
+              MODE=full; REASON="git diff failed"
+            else
+              NCHANGED=$(printf '%s\n' "$CHANGED" | grep -c . || true)
+              while IFS= read -r f; do
+                [ -n "$f" ] || continue
+                ui=0
+                case "$f" in
+                  App/*|Shared/*|Widget/*|UITests/*|project-uitests.yml) ui=1 ;;
+                  *.xcstrings|*.strings|*.stringsdict|*.storyboard|*.xib|*.lproj/*|*.xcassets/*) ui=1 ;;
+                  project.yml)
+                    if git diff "$BASE" HEAD -- project.yml | grep -E '^[+-][^+-]' \
+                      | grep -qE 'path: *(App|Shared|Widget)|xcstrings|ASSETCATALOG|INFOPLIST|PRODUCT_NAME|AppIcon|AccentColor|DisplayName'; then ui=1; fi ;;
+                esac
+                [ "$ui" = 1 ] && UI_FILES="$UI_FILES$f"$'\n'
+              done <<< "$CHANGED"
+              if [ -n "$UI_FILES" ]; then MODE=full; REASON="UI-affecting files changed"; else MODE=smoke; REASON="no UI-affecting file changed"; fi
+            fi
+          fi
+          ALL='["zh-Hans:light:1","zh-Hans:light:2","zh-Hans:light:3","en:light:1","en:light:2","en:light:3","zh-Hans:dark:0","en:dark:0"]'
+          case "$MODE" in
+            all) COMBOS=$ALL ;;
+            smoke) if [ "$REPO" = astemo666/mihomo-ios ]; then COMBOS='[]'; else COMBOS='["zh-Hans:light:smoke"]'; fi ;;
+            *) case "$REPO" in
+                 astemo666/mihomo-ios) COMBOS='["en:light:1","en:light:2","en:light:3","en:dark:0"]' ;;
+                 astemo6/mihomo-ios) COMBOS='["zh-Hans:light:1","zh-Hans:light:2","zh-Hans:light:3","zh-Hans:dark:0"]' ;;
+                 *) COMBOS=$ALL ;;
+               esac ;;
+          esac
+          echo "mode=$MODE ($REASON) base=${BASE:-none} ${BASE_DESC} changed=$NCHANGED combos=$COMBOS"
+          { echo "mode=$MODE"; echo "combos=$COMBOS"; } >> "$GITHUB_OUTPUT"
+          {
+            echo "### UI path: $MODE"
+            echo "- reason: $REASON"
+            [ -n "$BASE" ] && echo "- base: \`${BASE:0:12}\` ($BASE_DESC), $NCHANGED changed file(s)"
+            echo "- combos: \`$COMBOS\`"
+            if [ -n "$UI_FILES" ]; then
+              echo "- UI-affecting files:"
+              printf '%s' "$UI_FILES" | head -n 30 | sed 's/^/  - /'
+            fi
+          } >> "$GITHUB_STEP_SUMMARY"
+
   go:
     if: ${{ ((github.event_name == 'push' && !contains(github.event.head_commit.message, '[skip-go]')) || (inputs.run_tests && !inputs.skip_go)) && (github.repository != 'astemo666/mihomo-ios' || inputs.shard == 'all' || contains(github.event.head_commit.message, '[shard:all]')) }}
     runs-on: ubuntu-latest
@@ -117,16 +239,19 @@ jobs:
 
   ui:
     # [skip-ui] in the pushed commit message: Go-only change, the macOS UI shards are not run.
-    if: ${{ (github.event_name == 'push' && !contains(github.event.head_commit.message, '[skip-ui]')) || inputs.run_tests }}
+    # The plan job's combos are [] when nothing runs here (smoke on the astemo666 en mirror).
+    needs: plan
+    if: ${{ ((github.event_name == 'push' && !contains(github.event.head_commit.message, '[skip-ui]')) || inputs.run_tests) && needs.plan.outputs.combos != '[]' }}
     runs-on: macos-15
     timeout-minutes: 120
     strategy:
       fail-fast: false
       matrix:
-        # Shard by repository (see header). Full list when shard=all, [shard:all], or an unknown repository.
+        # Full path: shard by repository (see header); full list when shard=all, [shard:all], or an unknown repository.
         # Review 6 OPT-1: light is split in two test shards (:1 = test01–test30 since r7, :2 = the rest + unit tests, so new
         # tests land there automatically) — one light job took 72–80 min of the 120 min limit, now ~45 min each.
-        combo: ${{ fromJSON(((inputs.shard == 'all' || contains(github.event.head_commit.message, '[shard:all]')) && '["zh-Hans:light:1","zh-Hans:light:2","zh-Hans:light:3","en:light:1","en:light:2","en:light:3","zh-Hans:dark:0","en:dark:0"]') || (github.repository == 'astemo666/mihomo-ios' && '["en:light:1","en:light:2","en:light:3","en:dark:0"]') || (github.repository == 'astemo6/mihomo-ios' && '["zh-Hans:light:1","zh-Hans:light:2","zh-Hans:light:3","zh-Hans:dark:0"]') || '["zh-Hans:light:1","zh-Hans:light:2","zh-Hans:light:3","en:light:1","en:light:2","en:light:3","zh-Hans:dark:0","en:dark:0"]') }}
+        # From the plan job: smoke = ["zh-Hans:light:smoke"]; full = the repository split; all = all 8 combos.
+        combo: ${{ fromJSON(needs.plan.outputs.combos) }}
     steps:
       - uses: actions/checkout@v5
       - name: Combo
@@ -250,6 +375,12 @@ jobs:
             exit 0
           fi
           if [ ${#SEL[@]} -eq 0 ] && [ "$STYLE" = dark ]; then SEL=("${DARK_ONLY[@]}"); fi
+          # Smoke path (no UI-affecting change, see header): launch + navigation UI tests and every unit test class.
+          SMOKE_TESTS="test01_TabsAndHome test03_MoreEveryPage test04_NodeManager"
+          if [ ${#SEL[@]} -eq 0 ] && [ "$SHARD" = smoke ]; then
+            for t in $SMOKE_TESTS; do SEL+=(-only-testing:"MihomoUITests/MihomoUITests/$t"); done
+            SEL+=(-only-testing:MihomoUnitTests)
+          fi
           if [ ${#SEL[@]} -eq 0 ] && [ "$SHARD" = 1 ]; then
             for t in $SHARD1_TESTS; do SEL+=(-only-testing:"MihomoUITests/MihomoUITests/$t"); done
           fi

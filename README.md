@@ -92,6 +92,12 @@
 - **没有签名 secrets**：`CODE_SIGNING_ALLOWED=NO` 构建，然后用 `codesign -s -`（伪签名）把 entitlements 写进 App 和扩展，打包为 `Mihomo-<版本>-build<N>-widget-unsigned.ipa`（v0.19 前另有不含小组件的 `-unsigned.ipa`）。Release 中同时附带 `app.entitlements` / `tunnel.entitlements`，方便重签工具使用。
 - **有签名 secrets**：导入证书和两个描述文件，导出 `Mihomo-<版本>-build<N>-signed.ipa`。
 
+`.github/workflows/ui-tests.yml`（Self-test，push 到 `test/**` 或手动运行）：Go 测试（含 `-race`）+ 模拟器 UI / 单元测试，不发布。UI 部分先由 `plan` job 选路径：
+
+- **冒烟（smoke）**：分支相对 `origin/main` 的 merge-base（分支就在 main 上时，相对最近的发布标签 `v*-build*`）没有改动任何影响界面或文案的文件时，只跑一个组合（zh-Hans 浅色）：`test01_TabsAndHome`、`test03_MoreEveryPage`、`test04_NodeManager` + 全部 `MihomoUnitTests`；App 与测试包照常完整编译。
+- **完整（full）**：改到 `App/**`、`Shared/**`、`Widget/**`、`UITests/**`、`project-uitests.yml`、任意 `*.xcstrings` / `*.strings` / `*.lproj` / `*.xcassets`，或 `project.yml` 里涉及 App/Shared/Widget 路径、字符串目录、资源、Info.plist、产品名、图标的行时，按原来的矩阵跑。
+- 提交信息标记：`[shard:all]` 本仓库跑全部 8 个组合；`[shard:smoke]` 强制冒烟；`[shard:full]` 强制完整矩阵；`[only:<测试>]` / `[unit:<类>]` 只跑指定测试；`[skip-go]` / `[skip-ui]` 跳过 Go / UI。手动运行的 `shard` 输入对应 auto / full / smoke / all。完整规则见该 workflow 文件头部注释。
+
 ## 获取可安装的签名版本
 
 需要付费的 Apple Developer 账号（个人免费账号无法使用 Network Extension 能力）。
