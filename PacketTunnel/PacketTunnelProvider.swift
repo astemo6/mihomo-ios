@@ -313,6 +313,10 @@ final class PacketTunnelProvider: NEPacketTunnelProvider {
         stopLock.lock()
         _stopped = true
         let (traffic, liveStats, network, memoryGuard) = (self.traffic, self.liveStats, self.network, self.memoryGuard)
+        // E 线 #4: the recorder is dropped like the other helpers. It stayed referenced after the stop, so a
+        // later .flushStats / sleep still made the stopped recorder read the core's counters again after
+        // stop() had flushed the last delta (TrafficRecorder now also ignores samples once stopped).
+        self.traffic = nil
         self.liveStats = nil
         self.network = nil
         self.memoryGuard = nil
@@ -656,6 +660,7 @@ final class TrafficRecorder {
     private var timer: DispatchSourceTimer?
     private var lastUp: Int64 = 0
     private var lastDown: Int64 = 0
+    private var stopped = false // queue-confined: after stop() flushed the last delta, samples do nothing
 
     func start() {
         let t = DispatchSource.makeTimerSource(queue: queue)
@@ -671,7 +676,10 @@ final class TrafficRecorder {
     func stop() {
         timer?.cancel()
         timer = nil
-        queue.sync { sampleOnQueue() }
+        queue.sync {
+            sampleOnQueue()
+            stopped = true
+        }
     }
 
     func sample() { queue.async { [weak self] in self?.sampleOnQueue() } }
@@ -679,6 +687,7 @@ final class TrafficRecorder {
     func sampleNow() { queue.sync { sampleOnQueue() } }
 
     private func sampleOnQueue() {
+        guard !stopped else { return }
         let parts = LibmihomoTrafficTotals().split(separator: ",").compactMap { Int64($0) }
         guard parts.count == 2 else { return }
         let up = parts[0], down = parts[1]
