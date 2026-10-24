@@ -145,6 +145,13 @@ enum NCConnector {
                 }
                 dialReality(proxy: proxy, server: server, port: port, queue: queue) { base0, err in
                     guard let base0 else { completion(nil, err); return }
+                    if visionFlow(proxy), let tlsClient = base0 as? NCTLSClientStream,
+                       let uuidBytes = NCVLESS.uuidBytes(uuid) {
+                        let vision = NCVisionStream(tls: tlsClient, uuid: uuidBytes)
+                        vision.send(head)
+                        completion(NCVLESSRelayStream(raw: vision), nil)
+                        return
+                    }
                     transportStream(raw: base0, proxy: proxy, server: server) { base, terr in
                         guard let base else { completion(nil, terr); return }
                         base.send(head)
@@ -154,13 +161,16 @@ enum NCConnector {
                 return
             }
             let useTLS = proxy.fields["tls"]?.bool ?? false
+            let isVision = visionFlow(proxy)
             let raw: NCStream
-            if useTLS {
+            if useTLS && !isVision {
                 raw = NCStream(to: server, port: port,
                                tlsServerName: proxy.fields["servername"]?.string ?? proxy.fields["sni"]?.string ?? server,
                                allowInsecure: proxy.fields["skip-cert-verify"]?.bool ?? false,
                                queue: queue)
             } else {
+                // Vision needs the hand-rolled TLS client over a raw socket
+                // (the splice must reach the socket), so no NWConnection TLS.
                 raw = NCStream(to: server, port: port, queue: queue)
             }
             raw.start { err in
@@ -168,6 +178,18 @@ enum NCConnector {
                 guard let head = NCVLESS.requestHead(uuid: uuid, target: target,
                                                      flow: proxy.fields["flow"]?.string ?? "") else {
                     completion(nil, Failure.handshake("vless bad uuid"))
+                    return
+                }
+                if isVision, useTLS, let uuidBytes = NCVLESS.uuidBytes(uuid) {
+                    let tls = NCTLSClientStream(raw: raw, config: .init(
+                        serverName: proxy.fields["servername"]?.string ?? proxy.fields["sni"]?.string ?? server,
+                        allowInsecure: proxy.fields["skip-cert-verify"]?.bool ?? false), queue: queue)
+                    tls.startHandshake { herr in
+                        guard herr == nil else { completion(nil, herr); return }
+                        let vision = NCVisionStream(tls: tls, uuid: uuidBytes)
+                        vision.send(head)
+                        completion(NCVLESSRelayStream(raw: vision), nil)
+                    }
                     return
                 }
                 transportStream(raw: raw, proxy: proxy, server: server) { base, terr in
@@ -189,6 +211,13 @@ enum NCConnector {
         default:
             queue.async { completion(nil, Failure.unsupported(proxy.type)) }
         }
+    }
+
+    /// xtls-rprx-vision applies only over a direct TLS 1.3 TCP stream —
+    /// ws/grpc transports can't splice, so they keep the unframed behavior.
+    static func visionFlow(_ proxy: NCProxy) -> Bool {
+        proxy.fields["flow"]?.string == "xtls-rprx-vision"
+            && (proxy.fields["network"]?.string ?? "tcp") == "tcp"
     }
 
     // MARK: REALITY

@@ -51,6 +51,12 @@ final class NCTLSClientStream: NCRelayStream {
     private var plaintextOut: [Data] = []
     private var pendingReceive: ((Data?, Error?) -> Void)?
 
+    // Vision direct-splice state: after spliceOut(), the record layer is
+    // detached and raw socket bytes are forwarded verbatim.
+    private var spliced = false
+    private var splicePending: ((Data?, Error?) -> Void)?
+    private var spliceOverflow: [Data] = []
+
     init(raw: NCStream, config: Config, queue: DispatchQueue) {
         self.raw = raw
         self.config = config
@@ -111,6 +117,18 @@ final class NCTLSClientStream: NCRelayStream {
     private func pumpRaw() {
         raw.receive { [weak self] data, error in
             guard let self else { return }
+            if self.spliced {
+                // Vision direct splice: socket bytes are inner plaintext now.
+                if let data {
+                    if let h = self.splicePending { self.splicePending = nil; h(data, nil) }
+                    else { self.spliceOverflow.append(data) }
+                    self.pumpRaw()
+                } else {
+                    self.closed = true
+                    if let h = self.splicePending { self.splicePending = nil; h(nil, error) }
+                }
+                return
+            }
             if let data { self.readBuffer.append(data) }
             self.processRecords()
             if data == nil {
@@ -512,5 +530,37 @@ final class NCTLSClientStream: NCRelayStream {
     func cancel() {
         closed = true
         raw.cancel()
+    }
+
+    // MARK: Vision direct splice
+
+    /// The raw socket under this TLS session.
+    var rawStream: NCStream { raw }
+
+    /// Detach from the record layer (XTLS Vision commandDirect): returns the
+    /// decrypted-but-unconsumed plaintext chunks and the unparsed raw tail —
+    /// bytes past the last complete record, which after a splice are inner
+    /// plaintext (mirrors Go tls.Conn's rawInput drain). From now on, raw
+    /// socket bytes are delivered verbatim through `receiveSpliced`.
+    func spliceOut() -> (plaintext: [Data], rawTail: Data) {
+        spliced = true
+        let plain = plaintextOut
+        plaintextOut = []
+        let tail = readBuffer
+        readBuffer = Data()
+        return (plain, tail)
+    }
+
+    /// One-shot verbatim receive for post-splice raw bytes.
+    func receiveSpliced(_ handler: @escaping (Data?, Error?) -> Void) {
+        if !spliceOverflow.isEmpty {
+            handler(spliceOverflow.removeFirst(), nil)
+            return
+        }
+        if closed {
+            handler(nil, nil)
+            return
+        }
+        splicePending = handler
     }
 }
