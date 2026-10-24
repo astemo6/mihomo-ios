@@ -64,6 +64,32 @@ type rwCase struct {
 	NeedsGo bool       `json:"needsGo,omitempty"`
 	Expect  rwDecision `json:"expect"`
 	Resp    *rwResp    `json:"resp,omitempty"`
+	// Log: the request-log entry the Go flow left once the flow ended (native-answerable cases only): the native
+	// driver's records must produce the same entry (UnitTests/NativeMitmRewriteTests testRequestLogMatchesGo).
+	Log *rwLog `json:"log,omitempty"`
+}
+
+// rwLog is an Entry without its id / times.
+type rwLog struct {
+	Method  string            `json:"method"`
+	URL     string            `json:"url"`
+	Host    string            `json:"host"`
+	MitM    bool              `json:"mitm"`
+	Status  int               `json:"status"`
+	Matched []string          `json:"matched,omitempty"`
+	Notes   []string          `json:"notes,omitempty"`
+	Local   bool              `json:"local,omitempty"`
+	Done    bool              `json:"done"`
+	Bytes   int64             `json:"bytes"`
+	ReqHdr  map[string]string `json:"reqHeaders,omitempty"`
+	RespHdr map[string]string `json:"respHeaders,omitempty"`
+}
+
+func rwLogOf(e *Entry) *rwLog {
+	e.mu.Lock()
+	defer e.mu.Unlock()
+	return &rwLog{Method: e.Method, URL: e.URL, Host: e.Host, MitM: e.MitM, Status: e.Status, Matched: append([]string(nil), e.Matched...),
+		Notes: append([]string(nil), e.Notes...), Local: e.IsLocal, Done: e.Done, Bytes: e.Bytes, ReqHdr: e.ReqHdr, RespHdr: e.RespHdr}
 }
 
 type rwHostCase struct {
@@ -77,6 +103,8 @@ type rwSuite struct {
 	Snapshot json.RawMessage `json:"snapshot"`
 	Cases    []rwCase        `json:"cases"`
 	Hosts    []rwHostCase    `json:"hosts"`
+	// Labels: the request-log label of every rule, by Ruleset index (what Entry.Matched shows).
+	Labels []string `json:"labels"`
 }
 
 type rwFixtures struct {
@@ -248,7 +276,28 @@ func rwRun(t testing.TB, e *Engine, c *rwCase) {
 	}
 	hj, _ := json.Marshal(head)
 	d := rwDecode(t, e.FlowBegin(string(hj)))
-	defer FlowEnd(d.ID, 0, "")
+	var ent *Entry
+	if nf := lookupFlow(d.ID); nf != nil {
+		nf.mu.Lock()
+		ent = nf.ent
+		nf.mu.Unlock()
+	}
+	defer func() {
+		FlowEnd(d.ID, 0, "")
+		if ent == nil || (d.Action != "local" && d.Action != "drop" && d.Action != "forward") {
+			return
+		}
+		for i := 0; i < 2000; i++ {
+			ent.mu.Lock()
+			done := ent.Done
+			ent.mu.Unlock()
+			if done {
+				break
+			}
+			time.Sleep(time.Millisecond)
+		}
+		c.Log = rwLogOf(ent)
+	}()
 	c.Expect = rwFrom(d)
 	switch d.Action {
 	case "local":
@@ -313,6 +362,10 @@ func rwSuiteLimited(t testing.TB, name string, mods []rwModule, extra []rwCase, 
 	defer e.Stop()
 	s := rwSuite{Name: name, Snapshot: json.RawMessage(e.RewriteSnapshotJSON())}
 	st := e.state()
+	s.Labels = []string{}
+	for _, r := range st.rs.Rules {
+		s.Labels = append(s.Labels, r.label())
+	}
 	seen := map[string]bool{}
 	add := func(c rwCase) {
 		key := c.Method + " " + c.ConnHost + " " + c.Target + " " + fmt.Sprint(c.Headers, c.Length, c.Host)
@@ -598,6 +651,9 @@ func TestRewriteFixturesCurrent(t *testing.T) {
 		_ = json.Unmarshal(c.Snapshot, &b2)
 		if fmt.Sprint(a) != fmt.Sprint(b2) {
 			t.Errorf("suite %s: snapshot changed — regenerate the fixture", s.Name)
+		}
+		if fmt.Sprint(s.Labels) != fmt.Sprint(c.Labels) {
+			t.Errorf("suite %s: rule labels changed — regenerate the fixture", s.Name)
 		}
 		if len(s.Cases) != len(c.Cases) {
 			t.Errorf("suite %s: %d cases now, %d committed", s.Name, len(s.Cases), len(c.Cases))

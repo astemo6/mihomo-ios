@@ -34,6 +34,17 @@ struct RewriteRequest {
     var tls: Bool = true
 }
 
+/// What a native decision tells the request log (bridge/mitm/nativerecord.go): what Go's requestPhase would have
+/// written into the Entry up to the decision.
+struct RewriteLog {
+    var rules: [Int] = []          // Ruleset indices in Go's Match order
+    var url = ""                   // the URL at the decision (after a header URL rewrite)
+    var host = ""                  // r.Host as the request arrived (Go strips the port)
+    var method = ""
+    var tls = true
+    var headers: [[String]] = []   // local: the response headers Go logs; forward: r.Header after the request rules
+}
+
 /// What the native engine decided.
 enum RewriteDecision {
     struct Local {
@@ -42,6 +53,9 @@ enum RewriteDecision {
         var body: Data
         var bodyMode: FlowBodyMode   // .none or .read (pull `body`)
         var length: Int64
+        var log = RewriteLog()
+        /// The local body's full length / bytes (Entry.Bytes; captured when capture is on). `body` is what is sent.
+        var logBody = Data()
     }
     struct Forward {
         var method: String
@@ -51,12 +65,14 @@ enum RewriteDecision {
         var bodyMode: FlowBodyMode   // .none or .client
         var length: Int64
         var response: ResponsePlan
+        var log = RewriteLog()
     }
-    /// Header operations of the response-phase header rules that matched, in order (applied to the upstream head).
-    struct ResponsePlan { var ops: [[RWSnapHeaderOp]] = [] }
+    /// Header operations of the response-phase header rules that matched, in order (applied to the upstream head),
+    /// and those rules' indices (logged at the response).
+    struct ResponsePlan { var ops: [[RWSnapHeaderOp]] = []; var rules: [Int] = [] }
 
     case go(String)
-    case drop
+    case drop(RewriteLog)
     case local(Local)
     case forward(Forward)
 
@@ -71,6 +87,8 @@ struct RewriteResponse {
     var bodyMode: FlowBodyMode        // .upstream or .none
     var length: Int64
     var note: String?
+    /// resp.Header as modifyResponse leaves it for ent.Response (Content-Length still there).
+    var logHeaders: [[String]] = []
 }
 
 final class NativeRewriteEngine {
@@ -190,6 +208,7 @@ final class NativeRewriteEngine {
             if (scheme == "https" && port == "443") || (scheme == "http" && port == "80") { urlHost = String(host[..<c]) }
         }
         var r = Req(method: method, header: h, host: host, contentLength: cl, path: path, query: query, scheme: scheme)
+        var log = RewriteLog(rules: [], url: "", host: host, method: method, tls: q.tls, headers: [])
         var u = scheme + "://" + urlHost + path + (query.map { "?" + $0 } ?? "")
         if u.utf8.count > 8192 || !RWAscii.isVisible(u) { return .go("url") }
 
@@ -203,9 +222,11 @@ final class NativeRewriteEngine {
             case .yes: break
             }
             let action = rule.snap.action ?? ""
+            log.rules.append(rule.snap.i)
+            log.url = u
             switch action {
             case "reject-drop":
-                return .drop
+                return .drop(log)
             case "reject", "reject-200", "reject-img", "reject-dict", "reject-array":
                 var status = 404, ctype = "text/plain", body = Data()
                 switch action {
@@ -217,18 +238,24 @@ final class NativeRewriteEngine {
                 }
                 var lh = GoHeader()
                 lh.set("Content-Type", ctype)
-                return NativeRewriteEngine.writeLocal(status: status, header: lh, body: body)
+                // ent.Local(status, w.Header(), …): the writer's header after writeLocal
+                var wh = lh
+                wh.del("Content-Encoding"); wh.del("Transfer-Encoding"); wh.set("Content-Length", String(body.count))
+                log.headers = wh.sortedPairs
+                return NativeRewriteEngine.logged(NativeRewriteEngine.writeLocal(status: status, header: lh, body: body), log, body)
             case "302", "307":
                 guard rule.snap.targetOK == true, let re = rule.re,
                       let loc = re.replaceFirst(u, template: rule.snap.target ?? "") else { return .go("redirect template") }
                 var lh = GoHeader()
                 lh.set("Location", loc)
-                return NativeRewriteEngine.commitLocal(status: action == "307" ? 307 : 302, header: lh, first: nil)
+                log.headers = lh.sortedPairs
+                return NativeRewriteEngine.logged(NativeRewriteEngine.commitLocal(status: action == "307" ? 307 : 302, header: lh, first: nil), log, Data())
             case "header":
                 guard rule.snap.targetOK == true, let re = rule.re,
                       let nu = re.replaceFirst(u, template: rule.snap.target ?? "") else { return .go("rewrite template") }
                 guard let p = NativeRewriteEngine.parseAbsolute(nu) else { return .go("rewritten url") }
                 u = nu
+                log.url = u
                 r.scheme = p.scheme; r.host = p.host; r.path = p.path; r.query = p.query
             default:
                 return .go("url action \(action)")
@@ -244,7 +271,12 @@ final class NativeRewriteEngine {
             case .yes: break
             }
             guard let l = rule.snap.local else { return .go("map local file") }
-            return NativeRewriteEngine.writeLocal(status: l.status, header: GoHeader(pairs: l.headers ?? []), body: l.body ?? Data())
+            log.rules.append(rule.snap.i)
+            log.url = u
+            // ent.Local(st, h, body, …): the rule's header map, before writeLocal touched the writer's copy
+            log.headers = GoHeader(pairs: l.headers ?? []).sortedPairs
+            return NativeRewriteEngine.logged(NativeRewriteEngine.writeLocal(status: l.status, header: GoHeader(pairs: l.headers ?? []), body: l.body ?? Data()),
+                                              log, l.body ?? Data())
         }
 
         // ---- 3. request phase rules in order ----
@@ -257,6 +289,7 @@ final class NativeRewriteEngine {
                 case .yes: break
                 }
                 guard rule.snap.opsOK == true else { return .go("header ops") }
+                log.rules.append(rule.snap.i)
                 if r.header.get("Host").isEmpty { r.header.set("Host", r.host) }
                 guard NativeRewriteEngine.apply(rule.snap.headers ?? [], to: &r.header) else { return .go("header op input") }
                 let nh = r.header.get("Host")
@@ -287,10 +320,13 @@ final class NativeRewriteEngine {
             // regex on could only be refused then, when Go can no longer take over. Such rules stay with Go.
             if ops.contains(where: { $0.op == "replace-regex" }) { return .go("response replace-regex") }
             plan.ops.append(ops)
+            plan.rules.append(rule.snap.i)
         }
 
         // ---- 5. the outbound request (flowOutbound + forward) ----
         guard r.host.isEmpty || NativeRewriteEngine.plainHost(r.host) else { return .go("host after rules") }
+        log.url = u
+        log.headers = r.header.sortedPairs   // ent.ReqHeaders(r.Method, r.Header)
         var out = r.header
         let upType = out.containsToken("Connection", "Upgrade") ? out.get("Upgrade") : ""
         let teTrailers = r.header.containsToken("Te", "trailers")
@@ -302,7 +338,7 @@ final class NativeRewriteEngine {
         if let qy = r.query, qy.contains(";") || !NativeRewriteEngine.validEscapes(qy) { return .go("query") }
         let (mode, length): (FlowBodyMode, Int64) = r.contentLength == 0 ? (.none, 0) : (.client, r.contentLength)
         return .forward(.init(method: method, url: u, host: r.host, headers: out.sortedPairs, bodyMode: mode, length: length,
-                              response: plan))
+                              response: plan, log: log))
     }
 
     // MARK: - Response phase (natively forwarded requests)
@@ -320,7 +356,8 @@ final class NativeRewriteEngine {
         }
         let noBody = method == "HEAD" || status == 204 || status == 304 || (100..<200).contains(status)
         if status == 101 {
-            return RewriteResponse(action: .upgrade, status: 101, headers: h.sortedPairs, bodyMode: .upstream, length: -1, note: nil)
+            return RewriteResponse(action: .upgrade, status: 101, headers: h.sortedPairs, bodyMode: .upstream, length: -1, note: nil,
+                                   logHeaders: h.sortedPairs)
         }
         h.removeHopByHop()
         for ops in plan.ops {
@@ -333,6 +370,7 @@ final class NativeRewriteEngine {
         } else if contentLength >= 0 {
             outLen = contentLength
         }
+        let logHeaders = h.sortedPairs // ent.Response(resp.StatusCode, resp.Header) at the end of modifyResponse
         if !noBody { h.del("Content-Length") }
         h.del("Transfer-Encoding")
         let ct = h.get("Content-Type")
@@ -341,7 +379,7 @@ final class NativeRewriteEngine {
         // (Go hands back an empty body; the native driver serves it the same way).
         let mode: FlowBodyMode = noBody ? .none : (contentLength == 0 ? .read : .upstream)
         return RewriteResponse(action: .respond, status: status, headers: h.sortedPairs, bodyMode: mode,
-                               length: outLen, note: media == "text/event-stream" ? "flush" : nil)
+                               length: outLen, note: media == "text/event-stream" ? "flush" : nil, logHeaders: logHeaders)
     }
 
     // MARK: - Pieces
@@ -376,6 +414,14 @@ final class NativeRewriteEngine {
             }
         }
         return true
+    }
+
+    /// Attaches the request-log view to a local decision (a deferral passes through).
+    static func logged(_ d: RewriteDecision, _ log: RewriteLog, _ body: Data) -> RewriteDecision {
+        guard case .local(var l) = d else { return d }
+        l.log = log
+        l.logBody = body
+        return .local(l)
     }
 
     /// handler.go writeLocal followed by flowWriter.commit.

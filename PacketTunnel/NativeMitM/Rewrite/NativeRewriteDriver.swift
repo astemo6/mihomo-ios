@@ -7,6 +7,9 @@
 // snapshot, an unknown snapshot version or any inconsistency → the Go flow exactly as before. The session is not
 // changed: it cannot tell a native decision from a Go one.
 //
+// Request log: every native decision is reported to Go's request log through NativeRequestRecorder (batched, off
+// the request path), so the 请求 list / capture shows it like a Go-handled request (bridge/mitm/nativerecord.go).
+//
 // Snapshot freshness: MitmRewriteGeneration() is checked on every request (an int from Go); the JSON is fetched and
 // decoded only when it moved (engine reload). A request racing a reload may use the previous rule set — the same
 // window the Go path has between reading its state pointer and the reload storing a new one.
@@ -96,20 +99,34 @@ final class NativeRewriteDriver: MitmFlowDriving {
         var reasons: [String: Int] = [:]
     }
 
+    /// A natively forwarded request's request-log state (until end / cancel / upstream failure).
+    private struct LogCtx {
+        let key: Int64
+        let start: UInt64          // uptime ns at the request phase
+        var responded = false      // a "respond" decision exists (Go: nf.respBody != nil)
+        var upstreamMode = false   // the body is relayed from the upstream (Go counts the bytes the native side sent)
+    }
+
     let inner: MitmFlowDriving
     let provider: NativeRewriteProvider
+    let recorder: NativeRequestRecorder?
     private let lock = NSLock()
     private var flows: [Int64: NativeFlow] = [:]
+    private var logs: [Int64: LogCtx] = [:]
     private var nextID: Int64 = 0
     private var counters = Stats()
 
-    init(inner: MitmFlowDriving, provider: NativeRewriteProvider = NativeRewriteProvider(source: GoRewriteSnapshotSource())) {
+    init(inner: MitmFlowDriving, provider: NativeRewriteProvider = NativeRewriteProvider(source: GoRewriteSnapshotSource()),
+         recorder: NativeRequestRecorder? = NativeRequestRecorder.shared) {
         self.inner = inner
         self.provider = provider
+        self.recorder = recorder
     }
 
     var stats: Stats { lock.lock(); defer { lock.unlock() }; return counters }
     var liveNativeFlows: Int { lock.lock(); defer { lock.unlock() }; return flows.count }
+    /// Native forwards whose request-log entry is still open (tests).
+    var openLogEntries: Int { lock.lock(); defer { lock.unlock() }; return logs.count }
 
     private func newID(_ f: NativeFlow) -> Int64 {
         lock.lock(); defer { lock.unlock() }
@@ -135,24 +152,80 @@ final class NativeRewriteDriver: MitmFlowDriving {
     func requestPhase(head: HTTPRequestHead, conn: MitmConnInfo) -> FlowDecision {
         guard NativeRewriteRuntime.enabled else { count(\.off); return inner.requestPhase(head: head, conn: conn) }
         guard let engine = provider.current() else { count(\.deferred, reason: "no snapshot"); return inner.requestPhase(head: head, conn: conn) }
-        switch engine.decide(Self.request(head, conn)) {
+        if let d = native(Self.request(head, conn), engine: engine) { return d }
+        return inner.requestPhase(head: head, conn: conn)
+    }
+
+    /// The native decision for q (nil: deferred to Go, counted). Records the request-log event of the decision.
+    func native(_ q: RewriteRequest, engine: NativeRewriteEngine) -> FlowDecision? {
+        let wall = Date().timeIntervalSince1970
+        let t0 = DispatchTime.now().uptimeNanoseconds
+        switch engine.decide(q) {
         case .go(let why):
             count(\.deferred, reason: why)
-            return inner.requestPhase(head: head, conn: conn)
-        case .drop:
+            return nil
+        case .drop(let log):
             count(\.drop)
-            return FlowDecision(id: newID(.done), action: .drop)
+            let id = newID(.done)
+            emitFirst("drop", log, engine: engine, wall: wall, t0: t0)
+            return FlowDecision(id: id, action: .drop)
         case .local(let l):
             count(\.local)
             var d = FlowDecision(id: newID(.local(body: l.body, offset: 0)), action: .local)
             d.status = l.status; d.headers = l.headers; d.body = l.bodyMode; d.length = l.length
+            emitFirst("local", l.log, engine: engine, wall: wall, t0: t0) { e in
+                e.status = l.status
+                e.len = Int64(l.logBody.count)
+                if engine.capture && !l.logBody.isEmpty { e.body = l.logBody }
+            }
             return d
         case .forward(let f):
             count(\.forward)
-            var d = FlowDecision(id: newID(.forward(plan: f.response, method: f.method, engine: engine)), action: .forward)
+            let id = newID(.forward(plan: f.response, method: f.method, engine: engine))
+            var d = FlowDecision(id: id, action: .forward)
             d.method = f.method; d.url = f.url; d.host = f.host; d.headers = f.headers; d.body = f.bodyMode; d.length = f.length
+            if let key = emitFirst("forward", f.log, engine: engine, wall: wall, t0: t0) {
+                lock.lock(); logs[id] = LogCtx(key: key, start: t0); lock.unlock()
+            }
             return d
         }
+    }
+
+    // MARK: request log
+
+    private static func ms(since t0: UInt64) -> Double {
+        let now = DispatchTime.now().uptimeNanoseconds
+        return now > t0 ? Double(now - t0) / 1e6 : 0
+    }
+
+    /// The first event of a native request (drop / local / forward); returns its key (nil: no recorder).
+    @discardableResult
+    private func emitFirst(_ ev: String, _ log: RewriteLog, engine: NativeRewriteEngine, wall: Double, t0: UInt64,
+                           _ fill: ((inout NativeRequestEvent) -> Void)? = nil) -> Int64? {
+        guard let recorder = recorder else { return nil }
+        let key = recorder.newKey()
+        var e = NativeRequestEvent(k: key, ev: ev, t: wall, ms: Self.ms(since: t0), gen: engine.generation,
+                                   rules: log.rules.isEmpty ? nil : log.rules, method: log.method, url: log.url, host: log.host,
+                                   tls: log.tls, headers: log.headers.isEmpty ? nil : log.headers)
+        fill?(&e)
+        recorder.add(e)
+        return key
+    }
+
+    /// A later event of a natively forwarded request; `last` drops its log state.
+    private func emit(_ id: Int64, last: Bool, _ make: (LogCtx) -> NativeRequestEvent?) {
+        guard let recorder = recorder else { return }
+        lock.lock()
+        guard let ctx = logs[id] else { lock.unlock(); return }
+        if last { logs.removeValue(forKey: id) }
+        lock.unlock()
+        if let e = make(ctx) { recorder.add(e) }
+    }
+
+    private func updateLog(_ id: Int64, _ f: (inout LogCtx) -> Void) {
+        lock.lock()
+        if var c = logs[id] { f(&c); logs[id] = c }
+        lock.unlock()
     }
 
     func await(_ id: Int64) -> FlowDecision {
@@ -167,11 +240,21 @@ final class NativeRewriteDriver: MitmFlowDriving {
         lock.unlock()
         guard case .forward(let plan, let method, let engine)? = f,
               let r = engine.respond(plan, status: head.status, headers: headerPairs(head.headers), length: length, method: method) else {
+            emit(id, last: true) { c in NativeRequestEvent(k: c.key, ev: "error", ms: Self.ms(since: c.start)) }
             return FlowDecision(id: id, action: .error, note: "native flow is not waiting for a response")
         }
         lock.lock()
         flows[id] = .responded(body: Data(), offset: 0)
         lock.unlock()
+        updateLog(id) { c in
+            c.responded = r.action == .respond
+            c.upstreamMode = r.bodyMode == .upstream
+        }
+        emit(id, last: false) { c in
+            NativeRequestEvent(k: c.key, ev: "response", ms: Self.ms(since: c.start), gen: engine.generation,
+                               rules: plan.rules.isEmpty ? nil : plan.rules, status: r.status,
+                               headers: r.logHeaders.isEmpty ? nil : r.logHeaders)
+        }
         var d = FlowDecision(id: id, action: r.action)
         d.status = r.status; d.headers = r.headers; d.body = r.bodyMode; d.length = r.length; d.note = r.note
         return d
@@ -216,16 +299,24 @@ final class NativeRewriteDriver: MitmFlowDriving {
     }
 
     func upstreamFailed(_ id: Int64, why: String) {
-        if id >= 0 { inner.upstreamFailed(id, why: why) }
+        if id >= 0 { return inner.upstreamFailed(id, why: why) }
+        emit(id, last: true) { c in NativeRequestEvent(k: c.key, ev: "upstream", ms: Self.ms(since: c.start), why: why) }
     }
 
     func end(_ id: Int64, sent: Int64, error: String) {
         if id >= 0 { return inner.end(id, sent: sent, error: error) }
         lock.lock(); flows.removeValue(forKey: id); lock.unlock()
+        emit(id, last: true) { c in
+            NativeRequestEvent(k: c.key, ev: "end", ms: Self.ms(since: c.start), sent: c.upstreamMode && sent > 0 ? sent : nil,
+                               resp: c.responded ? true : nil, why: error.isEmpty ? nil : error)
+        }
     }
 
     func cancel(_ id: Int64, why: String) {
         if id >= 0 { return inner.cancel(id, why: why) }
         lock.lock(); flows.removeValue(forKey: id); lock.unlock()
+        emit(id, last: true) { c in
+            NativeRequestEvent(k: c.key, ev: "cancel", ms: Self.ms(since: c.start), resp: c.responded ? true : nil, why: why.isEmpty ? nil : why)
+        }
     }
 }
