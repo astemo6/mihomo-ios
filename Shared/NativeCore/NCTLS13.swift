@@ -365,7 +365,6 @@ enum NCTLSVerify {
         let unusedBits = 8 * emLen - emBits
         if unusedBits > 0 {
             db[0] &= UInt8(0xff >> unusedBits)
-            dbMask = dbMask // silence
         }
         // DB must be 00...00 || 01 || salt
         var idx = 0

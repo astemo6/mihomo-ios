@@ -344,8 +344,8 @@ final class NCTLSClientStream: NCRelayStream {
 
     private func handleServerFinished(_ message: Data) {
         let body = Data(message.dropFirst(4))
-        guard let readSecret else { fail(TLSError.handshake("Finished before keys")); return }
-        let expected = NCTLS13.finishedVerifyData(kind, trafficSecret: readSecret, transcriptHash: kind.hash(transcript))
+        guard let hsReadSecret = readSecret else { fail(TLSError.handshake("Finished before keys")); return }
+        let expected = NCTLS13.finishedVerifyData(kind, trafficSecret: hsReadSecret, transcriptHash: kind.hash(transcript))
         guard body == expected else {
             fail(TLSError.handshake("server Finished verify failed"))
             return
@@ -359,8 +359,8 @@ final class NCTLSClientStream: NCRelayStream {
         let cAP = NCTLS13.deriveSecret(kind, secret: master, label: "c ap traffic", transcriptHash: hashThroughServerFinished)
         let sAP = NCTLS13.deriveSecret(kind, secret: master, label: "s ap traffic", transcriptHash: hashThroughServerFinished)
         // Send client Finished under the handshake write keys first.
-        guard let writeSecret else { return }
-        let verifyData = NCTLS13.finishedVerifyData(kind, trafficSecret: writeSecret, transcriptHash: hashThroughServerFinished)
+        guard let hsWriteSecret = writeSecret else { return }
+        let verifyData = NCTLS13.finishedVerifyData(kind, trafficSecret: hsWriteSecret, transcriptHash: hashThroughServerFinished)
         var finished = Data()
         finished.append(0x14)
         finished.append(0x00)
