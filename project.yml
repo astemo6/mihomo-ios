@@ -57,6 +57,8 @@ targets:
       # feat/native-mitm: the native body lane, built into the app only so the unit tests can drive it
       # (UnitTests/NativeBodyStoreTests.swift); the app never registers it.
       - path: PacketTunnel/NativeBodyStore.swift
+      # feat/s2-tls: native MitM TLS front (B7), in the app only for UnitTests/NativeMitmTLSTests.swift; never registered there.
+      - path: PacketTunnel/NativeMitM/TLS
     configFiles:
       Debug: Config/App.signing.xcconfig
       Release: Config/App.signing.xcconfig
@@ -84,7 +86,8 @@ targets:
     sources:
       - path: PacketTunnel
         # feat/native-mitm: NativeMitM/ is the stage-2 skeleton (native TLS front); not built until it compiles on CI.
-        excludes: ["**/*.entitlements", "NativeMitM/**"]
+        # stage 2 lanes build NativeMitM/<lane>/ subfolders; the top-level stage-1 skeleton files stay out.
+        excludes: ["**/*.entitlements", "NativeMitM/*.swift"]
       # The Live Activity attributes are app + widget only (keeps ActivityKit out of the tunnel's memory).
       - path: Shared
         excludes: ["LiveActivityShared.swift", "LiveActivityViews.swift", "TunnelControl.swift"]
