@@ -17,7 +17,6 @@ import (
 	"fmt"
 	"runtime"
 	"runtime/debug"
-	"runtime/metrics"
 	"strings"
 	"sync"
 	"sync/atomic"
@@ -65,28 +64,8 @@ func SetNativeMemoryGovernor(on bool) {
 // NativeMemoryGovernorOn reports whether the Swift governor drives.
 func NativeMemoryGovernorOn() bool { return nativeGovOn.Load() }
 
-// nonGarbageNow is the part of Go's memory (what GOMEMLIMIT counts: all mapped minus released) a GC cannot
-// free: everything except the heap objects that were not live after the last cycle. Tests swap it.
-var nonGarbageNow = func() int64 {
-	s := []metrics.Sample{
-		{Name: "/memory/classes/total:bytes"},
-		{Name: "/memory/classes/heap/released:bytes"},
-		{Name: "/memory/classes/heap/objects:bytes"},
-		{Name: "/gc/heap/live:bytes"},
-	}
-	metrics.Read(s)
-	for _, x := range s {
-		if x.Value.Kind() != metrics.KindUint64 {
-			return 0
-		}
-	}
-	mapped := int64(s[0].Value.Uint64() - s[1].Value.Uint64())
-	garbage := int64(s[2].Value.Uint64()) - int64(s[3].Value.Uint64())
-	if garbage < 0 {
-		garbage = 0
-	}
-	return mapped - garbage
-}
+// The non-garbage part of Go's memory is memshed.go's goNonGarbage (fix/xmly-memory's anti-thrash floor): one
+// definition for both governors since the native-final integration (s3-mem had its own copy, nonGarbageNow).
 
 // NativeGoMemory is what the Swift governor needs to decide (JSON, bytes): live heap, non-garbage, the
 // anti-thrash floor, GOMEMLIMIT now / configured, stacks, GC count, goroutines, loan.
@@ -96,7 +75,7 @@ func NativeGoMemory() string {
 	govern.Lock()
 	cfg := govern.configured
 	govern.Unlock()
-	ng := nonGarbageNow()
+	ng := goNonGarbage()
 	out := map[string]any{
 		"heap":       ms.HeapAlloc,
 		"nonGarbage": ng,
@@ -132,7 +111,7 @@ func NativeGovernLimit(want int64) int64 {
 	if cfg <= 0 || cfg >= 1<<40 {
 		return cur
 	}
-	v := nativeClamp(want, cfg, nonGarbageNow())
+	v := nativeClamp(want, cfg, goNonGarbage())
 	if d := v - cur; d > -(512<<10) && d < 512<<10 {
 		return cur
 	}

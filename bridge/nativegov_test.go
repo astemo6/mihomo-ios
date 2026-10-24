@@ -14,10 +14,10 @@ import (
 func withNativeGov(t *testing.T, cfg int64) {
 	t.Helper()
 	old := debug.SetMemoryLimit(-1)
-	oldNG := nonGarbageNow
+	oldNG := goNonGarbage
 	t.Cleanup(func() {
 		nativeGovOn.Store(false)
-		nonGarbageNow = oldNG
+		goNonGarbage = oldNG
 		debug.SetMemoryLimit(old)
 		setConfiguredLimit(old)
 	})
@@ -50,7 +50,7 @@ func TestS3NativeClamp(t *testing.T) {
 
 func TestS3NativeGovernLimit(t *testing.T) {
 	withNativeGov(t, 26<<20)
-	nonGarbageNow = func() int64 { return 12 << 20 }
+	goNonGarbage = func() int64 { return 12 << 20 }
 	if v := NativeGovernLimit(20 << 20); v != 20<<20 || debug.SetMemoryLimit(-1) != 20<<20 {
 		t.Fatalf("lower: %d MB", v>>20)
 	}
@@ -59,7 +59,7 @@ func TestS3NativeGovernLimit(t *testing.T) {
 		t.Fatalf("small step applied: %d", v)
 	}
 	// floor rises with Go's non-garbage memory
-	nonGarbageNow = func() int64 { return 30 << 20 }
+	goNonGarbage = func() int64 { return 30 << 20 }
 	if v := NativeGovernLimit(18 << 20); v != 32<<20 {
 		t.Fatalf("anti-thrash: %d MB, want 32", v>>20)
 	}
@@ -67,7 +67,7 @@ func TestS3NativeGovernLimit(t *testing.T) {
 	if v := NativeGovernLimit(0); v != 32<<20 {
 		t.Fatalf("restore with high non-garbage: %d MB", v>>20)
 	}
-	nonGarbageNow = func() int64 { return 10 << 20 }
+	goNonGarbage = func() int64 { return 10 << 20 }
 	if v := NativeGovernLimit(0); v != 26<<20 || debug.SetMemoryLimit(-1) != 26<<20 {
 		t.Fatalf("restore: %d MB", v>>20)
 	}
@@ -82,7 +82,7 @@ func TestS3NativeGovernLimit(t *testing.T) {
 // configured limit and the Go governor acts again.
 func TestS3MemTickStandsDown(t *testing.T) {
 	withNativeGov(t, 26<<20)
-	nonGarbageNow = func() int64 { return 8 << 20 }
+	goNonGarbage = func() int64 { return 8 << 20 }
 	now := time.Now()
 	for i := 0; i < 5; i++ {
 		memTick(45<<20, 4<<20, now.Add(time.Duration(i)*time.Second))
@@ -130,7 +130,7 @@ func TestS3NativeShedFlags(t *testing.T) {
 
 func TestS3NativeGoMemoryJSON(t *testing.T) {
 	withNativeGov(t, 26<<20)
-	nonGarbageNow = func() int64 { return 20 << 20 }
+	goNonGarbage = func() int64 { return 20 << 20 }
 	var m struct {
 		Heap, NonGarbage, Floor, Limit, Configured int64
 		Goroutines                                 int

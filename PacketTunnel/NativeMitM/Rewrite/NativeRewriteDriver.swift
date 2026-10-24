@@ -199,6 +199,13 @@ final class NativeRewriteDriver: MitmFlowDriving {
     let inner: MitmFlowDriving
     let provider: NativeRewriteProvider
     let recorder: NativeRequestRecorder?
+    /// Lane s3-script: what the native script dispatcher uses (production: Go bridge, JavaScriptCore, NativeBodyStore).
+    var scriptGo: ScriptGoHost = GoScriptHost.shared
+    var scriptJS: () -> NativeJSEngine? = {
+        JSCScriptEngine.nativeBlobs != nil && JSCScriptEngine.shared.canInterrupt ? JSCScriptEngine.shared : nil
+    }
+    var scriptStore: () -> ScriptBodyStore? = { JSCScriptEngine.nativeBlobs as? ScriptBodyStore }
+    var nativeBlobBase: Int64 = LibmihomoNativeBlobBase()
     private let lock = NSLock()
     private var flows: [Int64: NativeFlow] = [:]
     private var logs: [Int64: LogCtx] = [:]
