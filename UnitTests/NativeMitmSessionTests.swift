@@ -244,11 +244,13 @@ final class NativeMitmSessionTests: XCTestCase {
         for split in 0...wire.count {
             let d = HTTPBodyDecoder(.chunked)
             var buf = Data(), out = Data(), done = false
-            for part in [wire.prefix(split), wire.suffix(from: split)] {
+            let parts = [wire.prefix(split), wire.suffix(from: split)]
+            for (k, part) in parts.enumerated() {
                 buf.append(contentsOf: part)
+                if done { continue } // the body ended in an earlier part: the rest only accumulates
                 let c = try d.feed(buf)
                 buf.removeFirst(c.consumed); out.append(c.payload); done = c.done
-                if done { break }
+                _ = k
             }
             XCTAssertTrue(done, "split \(split)")
             XCTAssertEqual(String(decoding: out, as: UTF8.self), "hello world", "split \(split)")
