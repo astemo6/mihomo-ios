@@ -106,3 +106,31 @@ type bufferedConn struct {
 }
 
 func (c *bufferedConn) Read(p []byte) (int, error) { return c.r.Read(p) }
+
+// The native session's sequence on the bench engine: response phase straight after a forward decision, many
+// times (before the flow.go fix from feat/s3-rewrite 09a4223 it could get the request goroutine's leftover
+// "request phase ended without a decision", which the session answers with 502).
+func TestMitmBenchFlowResponseRightAfterForward(t *testing.T) {
+	if js := MitmBenchStart(); strings.Contains(js, `"error"`) {
+		t.Fatal(js)
+	}
+	defer MitmBenchStop()
+	begin := `{"method":"GET","target":"/json","host":"api.bench.test","headers":[["Host","api.bench.test"]],"length":0,"connHost":"api.bench.test","connPort":443,"tls":true,"connId":1}`
+	resp := `{"status":200,"headers":[["Content-Type","application/json"],["Content-Length","2"]],"length":2}`
+	var d struct {
+		ID     int64  `json:"id"`
+		Action string `json:"action"`
+		Note   string `json:"note"`
+	}
+	for i := 0; i < 2000; i++ {
+		if err := json.Unmarshal([]byte(MitmFlowBegin(begin)), &d); err != nil || d.Action != "forward" {
+			t.Fatalf("run %d begin: %+v %v", i, d, err)
+		}
+		id := d.ID
+		d.Action, d.Note = "", ""
+		if err := json.Unmarshal([]byte(MitmFlowResponse(id, resp)), &d); err != nil || d.Action == "error" || d.Action == "" {
+			t.Fatalf("run %d response: %+v %v", i, d, err)
+		}
+		MitmFlowEnd(id, 0, "")
+	}
+}

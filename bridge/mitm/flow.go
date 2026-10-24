@@ -507,6 +507,13 @@ func FlowResponse(id int64, headJSON string) string {
 		return flowDecision{ID: id, Action: "error", Status: 502, Note: "bad head: " + err.Error()}.json()
 	}
 	nf.mu.Lock()
+	// The request phase goroutine publishes "forward" and only then runs its deferred bookkeeping, which reads
+	// final / phaseActive — the very fields the response phase resets. Wait for it to return (phaseDone
+	// broadcasts): an immediate FlowResponse otherwise got the request goroutine's "request phase ended
+	// without a decision" as its answer (seen under -race, stage 3a).
+	for nf.phaseActive && nf.stage == "upstream" {
+		nf.cond.Wait()
+	}
 	if nf.stage != "upstream" || nf.f == nil {
 		st := nf.stage
 		nf.mu.Unlock()
