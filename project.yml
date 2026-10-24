@@ -70,6 +70,9 @@ targets:
       # native MitM stage 3a: the native rewrite engine (switch nativeMitmRewrite, default OFF), in the app only for
       # UnitTests/NativeMitmRewriteTests.swift.
       - path: PacketTunnel/NativeMitM/Rewrite
+      # native MitM stage 3 lane s3-h2: native HTTP/2 (switch nativeMitmH2, default OFF), in the app only for
+      # UnitTests/NativeMitmH2Tests.swift + NativeMitmH2LoopbackTests.swift.
+      - path: PacketTunnel/NativeMitM/H2
     configFiles:
       Debug: Config/App.signing.xcconfig
       Release: Config/App.signing.xcconfig

@@ -8,6 +8,9 @@
 //     (Go: header/body rewrites, response scripts, body lane) → body from upstream / Go pipe / NativeBodyStore
 //     → client. Keep-alive loop; pipelined bytes stay in the client buffer.
 //
+// Stage 3 lane s3-h2 (H2/NativeH2Session.swift): a connection whose TLS handshake negotiated h2 (offered only
+// while the switch `nativeMitmH2` is on, default OFF) is served by NativeH2Session with the same driver.
+//
 // Stage 3a (Rewrite/NativeRewriteDriver.swift): the default driver asks the native rewrite engine first when the
 // separate switch `nativeMitmRewrite` is on (default OFF); a native decision never reaches Go, a deferral or the
 // switch off goes to GoMitmFlowDriver exactly as before.
@@ -62,16 +65,25 @@ enum NativeMitmRuntime {
     @discardableResult
     static func install(front: MitmTLSFronting & LibmihomoNativeTLSFrontProtocol, upstream: MitmUpstreamConnecting,
                         codec: HTTPCodec, bodies: NativeBodyReading = NativeBodyStore.shared,
-                        driver: MitmFlowDriving = NativeRewriteDriver(inner: GoMitmFlowDriver())) -> Bool {
-        guard enabled else { LibmihomoSetNativeTLSFront(nil); return false }
+                        driver: MitmFlowDriving = NativeRewriteDriver(inner: GoMitmFlowDriver()),
+                        h2Opener: H2UpstreamOpening? = nil) -> Bool {
+        guard enabled else { LibmihomoSetNativeTLSFront(nil); LibmihomoMitmSetNativeH2(false); return false }
+        // s3-h2: connections that negotiated h2 (only offered while nativeMitmH2 is on) get the native h2 session.
+        let opener = h2Opener ?? H2RelayUpstreamOpener(h1: upstream)
         front.acceptHandler = { conn in
-            NativeMitmSession(conn: conn, codec: codec, upstream: upstream, driver: driver, bodies: bodies)?.start()
+            if conn.alpn == "h2" {
+                NativeH2Session(conn: conn, codec: codec, opener: opener, driver: driver, bodies: bodies)?.start()
+            } else {
+                NativeMitmSession(conn: conn, codec: codec, upstream: upstream, driver: driver, bodies: bodies)?.start()
+            }
         }
+        NativeH2Runtime.resetBreaker()
+        LibmihomoMitmSetNativeH2(NativeH2Runtime.enabled)
         LibmihomoSetNativeTLSFront(front)
         return true
     }
 
-    static func uninstall() { LibmihomoSetNativeTLSFront(nil) }
+    static func uninstall() { LibmihomoSetNativeTLSFront(nil); LibmihomoMitmSetNativeH2(false); NativeH2Runtime.cancelAll() }
 }
 
 extension NativeBodyStore: NativeBodyReading {}

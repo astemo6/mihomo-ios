@@ -1,0 +1,432 @@
+{
+ "hpack": [
+  {
+   "name": "requests",
+   "tableSize": 4096,
+   "blocks": [
+    {
+     "hex": "3fe11f8287418b1d665cbe474d7415721e9f458c63b85894a593fcac731600ff7a95de5b2a602b814fe8dae73d45fb50dab72817576bfb538b1d75d0620d263d4c7441ea508d9bd9abfa5242cb40d25fa523b360861c01fb523805578dba51d85b141c645e42cabcd39b",
+     "fields": [
+      [
+       ":method",
+       "GET"
+      ],
+      [
+       ":scheme",
+       "https"
+      ],
+      [
+       ":authority",
+       "api.example.com"
+      ],
+      [
+       ":path",
+       "/v1/feed?page=1"
+      ],
+      [
+       "user-agent",
+       "Tern/1.0 (iPhone; iOS 17.4)"
+      ],
+      [
+       "accept",
+       "application/json"
+      ],
+      [
+       "accept-encoding",
+       "gzip, deflate, br"
+      ],
+      [
+       "cookie",
+       "a=1; b=2"
+      ],
+      [
+       "authorization",
+       "Bearer abc.def.ghi"
+      ]
+     ]
+    },
+    {
+     "hex": "8287c4458c63b85894a593fcac7316017fc3c2c160861c01fb523819",
+     "fields": [
+      [
+       ":method",
+       "GET"
+      ],
+      [
+       ":scheme",
+       "https"
+      ],
+      [
+       ":authority",
+       "api.example.com"
+      ],
+      [
+       ":path",
+       "/v1/feed?page=2"
+      ],
+      [
+       "user-agent",
+       "Tern/1.0 (iPhone; iOS 17.4)"
+      ],
+      [
+       "accept",
+       "application/json"
+      ],
+      [
+       "accept-encoding",
+       "gzip, deflate, br"
+      ],
+      [
+       "cookie",
+       "a=1; b=3"
+      ]
+     ]
+    },
+    {
+     "hex": "8387c6458863b858b6ba0e393f5f981d75d0620d263d4c795bc78f0b4a7b295adb282d443c85935c8308996b4086f2b12d424f4fff8801efdfbf7efdfbf7efdfbf7efdfbf7efdfbf7efdfbf7efdfbf7efdfbf7efdfbf7efdfbf7efdfbf7efdfbf7efdfbf7efdfbf7efdfbf7efdfbf7efdfbf7efdfbf7efdfbf7efdfbf7efdfbf7efdfbf7efdfbf7efdfbf7efdfbf7efdfbf7efdfbf7efdfbf7efdfbf7efdfbf7efdfbf7efdfbf7efdfbf7efdfbf7efdfbf7efdfbf7efdfbf7efdfbf7efdfbf7efdfbf7efdfbf7efdfbf7efdfbf7efdfbf7efdfbf7efdfbf7efdfbf7efdfbf7efdfbf7efdfbf7efdfbf7efdfbf7efdfbf7efdfbf7efdfbf7efdfbf7efdfbf7efdfbf7efdfbf7efdfbf7efdfbf7efdfbf7efdfbf7efdfbf7efdfbf7efdfbf7efdfbf7efdfbf7efdfbf7efdfbf7efdfbf7efdfbf7efdfbf7efdfbf7efdfbf7f",
+     "fields": [
+      [
+       ":method",
+       "POST"
+      ],
+      [
+       ":scheme",
+       "https"
+      ],
+      [
+       ":authority",
+       "api.example.com"
+      ],
+      [
+       ":path",
+       "/v1/upload"
+      ],
+      [
+       "content-type",
+       "application/x-www-form-urlencoded"
+      ],
+      [
+       "content-length",
+       "1234"
+      ],
+      [
+       "x-custom",
+       "vvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvv"
+      ]
+     ]
+    }
+   ]
+  },
+  {
+   "name": "responses-small-table",
+   "tableSize": 256,
+   "blocks": [
+    {
+     "hex": "3fe101885f961d75d0620d263d4c7441eafb50938ec415305a99567b6196dc34fd282694d444a82009c500edc002e000a62d1bff779441a483cfaf7f6a6b1a67818fb531a535eaaa8f5f588daec3771a4bf4a523f2b0e62c00",
+     "fields": [
+      [
+       ":status",
+       "200"
+      ],
+      [
+       "content-type",
+       "application/json; charset=utf-8"
+      ],
+      [
+       "date",
+       "Sat, 24 Oct 2026 07:00:00 GMT"
+      ],
+      [
+       "set-cookie",
+       "sid=xyz; Path=/; HttpOnly"
+      ],
+      [
+       "cache-control",
+       "private, max-age=0"
+      ]
+     ]
+    },
+    {
+     "hex": "8b6196dc34fd282694d444a82009c500edc002e002a62d1bff62052261626322c0",
+     "fields": [
+      [
+       ":status",
+       "304"
+      ],
+      [
+       "date",
+       "Sat, 24 Oct 2026 07:00:01 GMT"
+      ],
+      [
+       "etag",
+       "\"abc\""
+      ],
+      [
+       "cache-control",
+       "private, max-age=0"
+      ]
+     ]
+    },
+    {
+     "hex": "8d5c01304086f2b466a8767a06636166e920ff",
+     "fields": [
+      [
+       ":status",
+       "404"
+      ],
+      [
+       "content-length",
+       "0"
+      ],
+      [
+       "x-binary",
+       "café ÿ"
+      ]
+     ]
+    }
+   ]
+  }
+ ],
+ "frames": [
+  {
+   "name": "data",
+   "hex": "00000500010000000168656c6c6f",
+   "expect": {
+    "endStream": true,
+    "flowSize": 5,
+    "payload": "68656c6c6f",
+    "stream": 1,
+    "type": "data"
+   }
+  },
+  {
+   "name": "data padded",
+   "hex": "00000b0008000000030761626300000000000000",
+   "expect": {
+    "endStream": false,
+    "flowSize": 11,
+    "payload": "616263",
+    "stream": 3,
+    "type": "data"
+   }
+  },
+  {
+   "name": "headers priority padded",
+   "hex": "00000d01290000000504800000010f82878400000000",
+   "expect": {
+    "block": "828784",
+    "endHeaders": false,
+    "endStream": true,
+    "stream": 5,
+    "type": "headers"
+   }
+  },
+  {
+   "name": "continuation",
+   "hex": "00000109040000000541",
+   "expect": {
+    "block": "41",
+    "endHeaders": true,
+    "stream": 5,
+    "type": "continuation"
+   }
+  },
+  {
+   "name": "settings",
+   "hex": "000018040000000000000300000064000400100000000500008000009900000007",
+   "expect": {
+    "ack": false,
+    "type": "settings",
+    "values": [
+     [
+      3,
+      100
+     ],
+     [
+      4,
+      1048576
+     ],
+     [
+      5,
+      32768
+     ],
+     [
+      153,
+      7
+     ]
+    ]
+   }
+  },
+  {
+   "name": "settings ack",
+   "hex": "000000040100000000",
+   "expect": {
+    "ack": true,
+    "type": "settings",
+    "values": []
+   }
+  },
+  {
+   "name": "ping",
+   "hex": "0000080600000000000102030405060708",
+   "expect": {
+    "ack": false,
+    "payload": "0102030405060708",
+    "type": "ping"
+   }
+  },
+  {
+   "name": "ping ack",
+   "hex": "0000080601000000000102030405060708",
+   "expect": {
+    "ack": true,
+    "payload": "0102030405060708",
+    "type": "ping"
+   }
+  },
+  {
+   "name": "goaway",
+   "hex": "000011070000000000000000070000000b63616c6d20646f776e",
+   "expect": {
+    "code": 11,
+    "debug": "63616c6d20646f776e",
+    "lastStream": 7,
+    "type": "goaway"
+   }
+  },
+  {
+   "name": "window update conn",
+   "hex": "00000408000000000000100000",
+   "expect": {
+    "increment": 1048576,
+    "stream": 0,
+    "type": "windowUpdate"
+   }
+  },
+  {
+   "name": "window update stream",
+   "hex": "00000408000000000900000001",
+   "expect": {
+    "increment": 1,
+    "stream": 9,
+    "type": "windowUpdate"
+   }
+  },
+  {
+   "name": "rst",
+   "hex": "00000403000000000900000008",
+   "expect": {
+    "code": 8,
+    "stream": 9,
+    "type": "rstStream"
+   }
+  },
+  {
+   "name": "priority",
+   "hex": "00000502000000000b00000003c8",
+   "expect": {
+    "stream": 11,
+    "type": "priority"
+   }
+  },
+  {
+   "name": "push promise",
+   "hex": "000006050400000001000000028287",
+   "expect": {
+    "block": "8287",
+    "endHeaders": true,
+    "promised": 2,
+    "stream": 1,
+    "type": "pushPromise"
+   }
+  },
+  {
+   "name": "unknown type",
+   "hex": "000001fa010000000d78",
+   "expect": {
+    "rawType": 250,
+    "stream": 13,
+    "type": "unknown"
+   }
+  },
+  {
+   "name": "err data on stream 0",
+   "hex": "00000100000000000078",
+   "expect": {
+    "error": 1
+   }
+  },
+  {
+   "name": "err padding too long",
+   "hex": "000003000800000001056162",
+   "expect": {
+    "error": 1
+   }
+  },
+  {
+   "name": "err settings length",
+   "hex": "0000050400000000000003000000",
+   "expect": {
+    "error": 6
+   }
+  },
+  {
+   "name": "err settings ack payload",
+   "hex": "000006040100000000000300000001",
+   "expect": {
+    "error": 6
+   }
+  },
+  {
+   "name": "err ping length",
+   "hex": "000003060000000000010203",
+   "expect": {
+    "error": 6
+   }
+  },
+  {
+   "name": "err ping on stream",
+   "hex": "0000080600000000010000000000000000",
+   "expect": {
+    "error": 1
+   }
+  },
+  {
+   "name": "err window update length",
+   "hex": "000003080000000000000001",
+   "expect": {
+    "error": 6
+   }
+  },
+  {
+   "name": "err rst on stream 0",
+   "hex": "00000403000000000000000008",
+   "expect": {
+    "error": 1
+   }
+  },
+  {
+   "name": "err priority length",
+   "hex": "00000402000000000300000001",
+   "expect": {
+    "error": 6,
+    "stream": 3
+   }
+  },
+  {
+   "name": "err headers depends on itself",
+   "hex": "000006012400000003000000031082",
+   "expect": {
+    "error": 1,
+    "stream": 3
+   }
+  },
+  {
+   "name": "err goaway on stream",
+   "hex": "0000080700000000010000000000000000",
+   "expect": {
+    "error": 1
+   }
+  }
+ ]
+}

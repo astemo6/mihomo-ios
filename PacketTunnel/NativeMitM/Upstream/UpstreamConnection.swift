@@ -12,7 +12,8 @@
 //   reply; bytes after the reply's blank line are kept and delivered first.
 // - tls (the MitM upstream, iOS 17+): NWConnection to host:port with NWParameters(tls:) and a privacy context
 //   whose only proxy is ProxyConfiguration(httpCONNECTProxy: 127.0.0.1:<relay>). Network.framework sends the
-//   CONNECT; TLS to the origin uses the system trust store, SNI = host (not for IP literals), ALPN "http/1.1" only.
+//   CONNECT; TLS to the origin uses the system trust store, SNI = host (not for IP literals), ALPN "http/1.1" (the
+//   native h2 session also offers "h2", s3-h2).
 //   iOS 16 has no per-connection CONNECT proxy in Network.framework: `.unsupported` → the caller keeps the Go
 //   path for that connection (the same fallback the native front already has).
 //
@@ -114,6 +115,9 @@ final class UpstreamConnection: UpstreamByteStream, CustomStringConvertible {
     var requestsServed = 0
     /// ALPN the origin picked (tls mode; nil when the server sent none).
     private(set) var negotiatedALPN: String?
+    /// ALPN offered to the origin (tls mode): "http/1.1" for the stage-2 session; "h2", "http/1.1" for the native
+    /// h2 session (H2/H2Upstream.swift), which then speaks whichever the origin picked.
+    private(set) var offeredALPN: [String] = ["http/1.1"]
 
     private let conn: NWConnection
     private let relayPort: UInt16
@@ -158,7 +162,7 @@ final class UpstreamConnection: UpstreamByteStream, CustomStringConvertible {
     /// `close()`d to abort the open (completion then reports `.cancelled`). Completion runs once, on `queue`.
     @discardableResult
     static func open(target: UpstreamTarget, relayPort: Int, queue: DispatchQueue, id: UInt64,
-                     connectTimeout: TimeInterval,
+                     connectTimeout: TimeInterval, alpn: [String] = ["http/1.1"],
                      completion: @escaping (Result<UpstreamConnection, UpstreamError>) -> Void) -> UpstreamConnection? {
         if let err = target.validate() {
             queue.async { completion(.failure(err)) }
@@ -179,7 +183,7 @@ final class UpstreamConnection: UpstreamByteStream, CustomStringConvertible {
             let tls = NWProtocolTLS.Options()
             let sec = tls.securityProtocolOptions
             if !target.isIPLiteral { sec_protocol_options_set_tls_server_name(sec, target.host) }
-            sec_protocol_options_add_tls_application_protocol(sec, "http/1.1")
+            for p in alpn { sec_protocol_options_add_tls_application_protocol(sec, p) }
             let params = NWParameters(tls: tls, tcp: tcp)
             let ctx = NWParameters.PrivacyContext(description: "tern.nativemitm.upstream")
             ctx.proxyConfigurations = [ProxyConfiguration(httpCONNECTProxy: .hostPort(host: "127.0.0.1", port: rport), tlsOptions: nil)]
@@ -193,6 +197,7 @@ final class UpstreamConnection: UpstreamByteStream, CustomStringConvertible {
             nw = NWConnection(host: "127.0.0.1", port: rport, using: NWParameters(tls: nil, tcp: tcp))
         }
         let c = UpstreamConnection(target: target, relayPort: UInt16(relayPort), queue: queue, id: id, conn: nw)
+        c.offeredALPN = alpn
         c.openCompletion = completion
         nw.stateUpdateHandler = { [weak c] st in c?.handleState(st) }
         let t = DispatchWorkItem { [weak c] in c?.finishOpen(.failure(.timeout)) }
@@ -213,7 +218,7 @@ final class UpstreamConnection: UpstreamByteStream, CustomStringConvertible {
                    let p = sec_protocol_metadata_get_negotiated_protocol(meta.securityProtocolMetadata) {
                     negotiatedALPN = String(cString: p)
                 }
-                if let a = negotiatedALPN, a != "http/1.1" {
+                if let a = negotiatedALPN, !offeredALPN.contains(a) {
                     finishOpen(.failure(.connectFailed("origin chose ALPN \(a)")))
                     return
                 }

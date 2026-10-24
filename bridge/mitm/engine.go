@@ -474,7 +474,7 @@ func (e *Engine) shouldIntercept(st *state, host string, port int) bool {
 func (e *Engine) interceptTLS(st *state, mc *metaConn, target string) {
 	// feat/native-mitm stage 2: the native TLS front may take the connection (nativeterm.go); when it
 	// declines or fails before its first byte nothing was consumed and Go terminates TLS as before.
-	if e.tryNativeTLS(mc, mc.meta.host) {
+	if e.tryNativeTLS(mc, mc.meta.host, st.cfg.h2() && NativeH2()) {
 		return
 	}
 	nextProtos := []string{"http/1.1"}
