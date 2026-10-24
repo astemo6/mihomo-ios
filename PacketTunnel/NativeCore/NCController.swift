@@ -367,7 +367,7 @@ final class NCController {
             }
             return
         }
-        NCConnector.connect(target: target, resolution: resolution, queue: workQueue) { relay, _ in
+        NCConnector.connect(target: NCTarget(host: target.host, port: target.port), resolution: resolution, queue: workQueue) { relay, _ in
             guard let relay else { finish(nil); return }
             Self.httpProbe(relay: relay, target: target, start: start, finish: finish)
         }

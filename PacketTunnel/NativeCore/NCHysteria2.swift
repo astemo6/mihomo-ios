@@ -403,7 +403,7 @@ final class NCHysteria2Connection {
 
         let quicOptions = NWProtocolQUIC.Options(alpn: ["h2"])
         let tlsOptions = quicOptions.securityProtocolOptions
-        sec_protocol_options_set_tls_min_version(tlsOptions, .TLSv13)
+        sec_protocol_options_set_tls_min_version(tlsOptions, .tlsProtocol13)
         if let sni, !sni.isEmpty {
             sec_protocol_options_set_tls_server_name(tlsOptions, sni)
         }
@@ -415,15 +415,15 @@ final class NCHysteria2Connection {
 
         let endpoint = NWEndpoint.hostPort(host: NWEndpoint.Host(server),
                                            port: NWEndpoint.Port(rawValue: UInt16(clamping: port)) ?? .any)
-        let group = NWConnectionGroup(with: .endpoint(endpoint), using: parameters)
+        let group = NWConnectionGroup(with: NWConnectionGroup.Descriptor.endpoint(endpoint), using: parameters)
         self.group = group
-        group.stateUpdateHandler = { [weak self] groupState in
+        group.stateUpdateHandler = { [weak self] (groupState: NWConnectionGroup.State) in
             guard let self else { return }
             if case .failed(let error) = groupState, self.state == .connecting || self.state == .authenticating {
                 self.finishStart(error)
             }
         }
-        group.newConnectionHandler = { [weak self] incoming in
+        group.newConnectionHandler = { [weak self] (incoming: NWConnection) in
             // Server-initiated stream: hysteria2 servers do not open streams
             // to clients in v2; cancel anything unexpected.
             _ = self
