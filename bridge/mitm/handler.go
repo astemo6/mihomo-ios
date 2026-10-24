@@ -93,6 +93,17 @@ var bigBodyWait = 3 * time.Second
 
 var bigBodyLock = make(chan struct{}, 1)
 
+// tryBigBody takes bigBodyLock if it is free right now (nil: busy).
+func tryBigBody() func() {
+	select {
+	case bigBodyLock <- struct{}{}:
+		var once sync.Once
+		return func() { once.Do(func() { <-bigBodyLock }) }
+	default:
+		return nil
+	}
+}
+
 // acquireBigBody takes bigBodyLock (nil: timed out or ctx ended).
 func acquireBigBody(ctx context.Context) func() {
 	t := time.NewTimer(bigBodyWait)
@@ -675,6 +686,9 @@ func (e *Engine) modifyResponse(f *flow, resp *http.Response) error {
 	// rawBody / rawEnc: the compressed original of a large decoded body (scripts borrow body itself).
 	var rawBody []byte
 	var rawEnc string
+	// loadSlot: the HTTP script slot held by the script whose rule is loading the body (nil for body
+	// rewrites); parked while waiting for bigBodyLock.
+	var loadSlot *Slot
 	loadBody := func(limit int) bool {
 		if loaded {
 			if !tooBig && len(body) > limit {
@@ -719,7 +733,23 @@ func (e *Engine) modifyResponse(f *flow, resp *http.Response) error {
 			if charge.big != nil {
 				return true
 			}
-			rel := acquireBigBody(resp.Request.Context())
+			// E 线 #1: when the lock is busy, a script loading its body gives its HTTP slot back for the
+			// wait (up to bigBodyWait), so other HTTP scripts run meanwhile; it takes the slot again
+			// before the body is read. Admission (the large-bundle queue turn) and the body budget are
+			// unchanged.
+			rel := tryBigBody()
+			if rel == nil {
+				loadSlot.park()
+				rel = acquireBigBody(resp.Request.Context())
+				if uerr := loadSlot.unpark(resp.Request.Context()); uerr != nil {
+					if rel != nil {
+						rel()
+					}
+					respSkip = "等待大响应体后脚本槽位不可用：" + uerr.Error()
+					e.logf("warning", fmt.Sprintf("[MitM] %s，原样放行：%s", respSkip, clip(f.url, 100)))
+					return false
+				}
+			}
 			if rel == nil {
 				respSkip = fmt.Sprintf("另一个大响应体正在处理（本响应 %d KB，已等待 %d 秒）", max(want, resp.ContentLength)>>10, int(bigBodyWait/time.Second))
 				e.logf("warning", fmt.Sprintf("[MitM] %s，原样放行：%s", respSkip, clip(f.url, 100)))
@@ -836,7 +866,10 @@ func (e *Engine) modifyResponse(f *flow, resp *http.Response) error {
 				continue
 			}
 			if rule.Script.RequiresBody {
-				if limit := scriptBodyLimit(rule.Script); !loadBody(limit) {
+				loadSlot = slot
+				ok := loadBody(scriptBodyLimit(rule.Script))
+				loadSlot = nil
+				if limit := scriptBodyLimit(rule.Script); !ok {
 					slot.Release()
 					why := respSkip
 					if loaded && !tooBig && len(body) > limit {
