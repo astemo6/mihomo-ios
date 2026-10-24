@@ -58,6 +58,20 @@ func (c *fetchCharge) ensure(total int64) error {
 	if need < fetchChunk {
 		need = fetchChunk
 	}
+	// fix/xmly-memory (device 2026-10-24: 「获取Cookie失败:内存预算不足，已跳过下载」): a small answer does not
+	// wait for the global budget — under pressure it has shrunk to 256 KB and the response that started the
+	// script holds it until the script ends, so the fetch waited fetchBudgetWait and was refused. Small
+	// totals take the small pool when the global budget has no room right now.
+	if total <= smallWorkMax {
+		n := min(max(total-c.held, 64<<10), smallWorkMax-c.held)
+		if smallWorkOK(total, smallFetchFloor) {
+			if rel := acquireSmall(c.ctx, n, fetchBudgetWait); rel != nil {
+				c.held += n
+				c.rels = append(c.rels, rel)
+				return nil
+			}
+		}
+	}
 	if c.held+need > int64(MaxScriptBody) {
 		need = max(total-c.held, int64(MaxScriptBody)-c.held)
 	}

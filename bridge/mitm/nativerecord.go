@@ -16,6 +16,10 @@ package mitm
 //	cancel    NativeFlow.end(cancelled): after a response Note(why) · Finish(-1) (its body's Close); before it Finish(0, why)
 //	upstream  FlowUpstreamFailed: Finish(502, 「上游错误：」+why)
 //	error     a response the native engine could not finish: Finish(502, 「内部错误」)
+//	abort     a natively run response script aborted: Match(rules…) · Note(notes…) · Finish(502, 「上游错误：」+why)
+//
+// notes (lane s3-script, native script dispatch): the event's request-log notes in order (skipped scripts, script
+// errors) — "response" writes them after its Match calls, every other event before its own action.
 //
 // Rules travel as indices into the Ruleset of snapshot generation gen; their labels come from that state (the
 // current one or one reload back). Times are Swift's: t is the request's start (unix seconds), ms the time from
@@ -30,6 +34,7 @@ package mitm
 
 import (
 	"encoding/json"
+	"errors"
 	"math"
 	"net/http"
 	"sync"
@@ -55,6 +60,9 @@ type NativeRecord struct {
 	Sent    int64       `json:"sent,omitempty"`    // end: body bytes delivered from the upstream (upstream mode)
 	Resp    bool        `json:"resp,omitempty"`    // end / cancel: a response decision exists (Go: nf.respBody != nil)
 	Why     string      `json:"why,omitempty"`
+	// Notes: request-log notes of the event, in order (native script dispatch, lane s3-script: skipped scripts,
+	// script errors, an abort) — written before the event's own action, like modifyResponse's ent.Note calls.
+	Notes []string `json:"notes,omitempty"`
 }
 
 const nativeRecPendingMax = 512
@@ -160,7 +168,7 @@ func (e *Engine) applyNative(rec *NativeRecord) bool {
 			recs.mu.Unlock()
 		}
 		return true
-	case "response", "end", "cancel", "upstream", "error":
+	case "response", "end", "cancel", "upstream", "error", "abort":
 		recs.mu.Lock()
 		ent := recs.pending[rec.K]
 		if ent != nil && rec.Ev != "response" {
@@ -171,12 +179,20 @@ func (e *Engine) applyNative(rec *NativeRecord) bool {
 			return false
 		}
 		ms := nativeMs(rec.Ms)
+		if rec.Ev != "response" {
+			for _, n := range rec.Notes {
+				ent.Note(n)
+			}
+		}
 		switch rec.Ev {
 		case "response":
 			if rec.Status != http.StatusSwitchingProtocols {
 				for _, l := range e.nativeLabels(rec) {
 					ent.Match(l)
 				}
+			}
+			for _, n := range rec.Notes {
+				ent.Note(n)
 			}
 			ent.Response(rec.Status, headerFromPairs(rec.Headers))
 			if rec.Status == http.StatusSwitchingProtocols {
@@ -206,6 +222,12 @@ func (e *Engine) applyNative(rec *NativeRecord) bool {
 			ent.finishAt(502, "上游错误："+rec.Why, ms)
 		case "error":
 			ent.finishAt(502, "内部错误", ms)
+		case "abort":
+			// a response script aborted (Egern ctx.abort()): runResponse's modifyResponse error → 502
+			for _, l := range e.nativeLabels(rec) {
+				ent.Match(l)
+			}
+			ent.finishAt(502, "上游错误："+shortErr(errors.New(rec.Why)), ms)
 		}
 		return true
 	}

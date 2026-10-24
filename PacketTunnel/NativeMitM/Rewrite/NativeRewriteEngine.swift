@@ -81,6 +81,15 @@ enum RewriteDecision {
         /// stage 3b: header and body rules in Go's order; hasBody → NativeBodyExec.response, not respond().
         var steps: [ResponseStep] = []
         var hasBody = false
+        /// Lane s3-script: the response rules in order (header and script) when http-response scripts matched —
+        /// the native script dispatcher runs them (NativeScriptDispatcher.swift); nil: header rules only.
+        var scripts: [ScriptPlanStep]?
+        /// The outbound request as the response scripts see it ($request): out.Header before Content-Length is
+        /// taken out of the decision, Accept-Encoding as sent.
+        var requestHeader = GoHeader()
+        var requestHost = ""
+        var url = ""
+        var method = ""
     }
     enum ResponseStep {
         case header([RWSnapHeaderOp], Int)
@@ -215,7 +224,10 @@ final class NativeRewriteEngine {
     }
 
     /// bodies: stage 3b body rules may be run natively (NativeBodyRuntime.enabled); false = stage 3a behaviour.
-    func decide(_ q: RewriteRequest, bodies: Bool = false) -> RewriteDecision {
+    /// scripts: lane s3-script — response-phase http-response scripts are planned for the native script dispatcher
+    /// instead of deferring the request (request-phase scripts: see requestScripts, final integration).
+    /// A request that would need both a native body flow and a native script flow is handed to Go.
+    func decide(_ q: RewriteRequest, bodies: Bool = false, scripts: Bool = false) -> RewriteDecision {
         let bodies = bodies && !capture
         // ---- FlowHead.request + requestURL, reproducing Go's parsing (or deferring where Swift cannot) ----
         let method = q.method.isEmpty ? "GET" : q.method
@@ -379,11 +391,21 @@ final class NativeRewriteEngine {
 
         // ---- 4. response rules against the final URL ----
         var plan = RewriteDecision.ResponsePlan()
+        var steps: [ScriptPlanStep] = []
+        var hasScript = false, needRespBody = false
         for rule in active where rule.phase == "response" && rule.kind != "url" && rule.kind != "maplocal" {
             switch matches(rule, u, r) {
             case .unknown(let why): return .go(why)
             case .no: continue
             case .yes: break
+            }
+            if rule.kind == "script" && scripts {
+                guard let sc = rule.snap.script else { return .go("response script") }
+                if capture { return .go("capture") } // Go records the script's body; the native side does not
+                hasScript = true
+                if sc.requiresBody == true { needRespBody = true }
+                steps.append(ScriptPlanStep(rule: rule.snap.i, kind: .script(requiresBody: sc.requiresBody == true)))
+                continue
             }
             if bodies, rule.kind == "body" || rule.kind == "jq" || rule.kind == "json", let br = bodyRule(rule) {
                 plan.steps.append(.body(br))
@@ -400,6 +422,14 @@ final class NativeRewriteEngine {
             plan.ops.append(ops)
             plan.rules.append(rule.snap.i)
             plan.steps.append(.header(ops, rule.snap.i))
+            steps.append(ScriptPlanStep(rule: rule.snap.i, kind: .header(ops)))
+        }
+        if hasScript {
+            // the native script dispatcher applies header ops without a Go fallback, and a script flow is not a body
+            // flow: a regex header op, a body rule or a request body rule next to a script → Go
+            if plan.hasBody || reqPlan != nil { return .go("script with body rules") }
+            if plan.ops.contains(where: { $0.contains(where: { $0.op == "replace-regex" || $0.op == "raw" }) }) { return .go("script with regex header op") }
+            plan.scripts = steps
         }
 
         // ---- 5. the outbound request (flowOutbound + forward) ----
@@ -407,6 +437,8 @@ final class NativeRewriteEngine {
         guard let target = GoURL.parseAbsolute(u) else { return .go("target url") } // url.Parse(f.url)
         log.url = u
         log.headers = r.header.sortedPairs   // ent.ReqHeaders(r.Method, r.Header)
+        // requestPhase: a response body rule / body script asks only for encodings Go can decode
+        if needRespBody { r.header.set("Accept-Encoding", "gzip, deflate, br") }
         var out = r.header
         let upType = out.containsToken("Connection", "Upgrade") ? out.get("Upgrade") : ""
         let teTrailers = r.header.containsToken("Te", "trailers")
@@ -414,7 +446,6 @@ final class NativeRewriteEngine {
         if teTrailers { out.set("Te", "trailers") }
         if !upType.isEmpty { out.set("Connection", "Upgrade"); out.set("Upgrade", upType) }
         for k in ["Forwarded", "X-Forwarded-For", "X-Forwarded-Host", "X-Forwarded-Proto"] { out.del(k) }
-        out.del("Content-Length")
         // requestPhase: a response body rule makes Go ask only for encodings it can decode (after ent.ReqHeaders)
         if plan.hasBody { out.set("Accept-Encoding", "gzip, deflate, br") }
         guard let cleaned = GoURL.cleanQuery(r.query) else { return .go("query") }
@@ -423,6 +454,13 @@ final class NativeRewriteEngine {
         if !r.path.isEmpty && !r.path.hasPrefix("/") { outURL += "/" }
         outURL += r.path
         if r.forceQuery || !cleaned.isEmpty { outURL += "?" + cleaned }
+        if hasScript {
+            plan.requestHeader = out
+            plan.requestHost = r.host
+            plan.url = outURL
+            plan.method = method
+        }
+        out.del("Content-Length")
         var (mode, length): (FlowBodyMode, Int64) = r.contentLength == 0 ? (.none, 0) : (.client, r.contentLength)
         if reqPlan != nil { mode = .read }
         return .forward(.init(method: method, url: outURL, host: r.host, headers: out.sortedPairs, bodyMode: mode, length: length,

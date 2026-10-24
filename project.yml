@@ -73,6 +73,9 @@ targets:
       # native MitM stage 3a: the native rewrite engine (switch nativeMitmRewrite, default OFF), in the app only for
       # UnitTests/NativeMitmRewriteTests.swift.
       - path: PacketTunnel/NativeMitM/Rewrite
+      # native MitM stage 3 lane s3-script: the native script dispatcher (switch nativeMitmScript, default OFF), in the app
+      # only for UnitTests/NativeMitmScriptTests.swift.
+      - path: PacketTunnel/NativeMitM/Script
     configFiles:
       Debug: Config/App.signing.xcconfig
       Release: Config/App.signing.xcconfig

@@ -36,6 +36,7 @@ import (
 	"fmt"
 	"runtime"
 	"runtime/debug"
+	"runtime/metrics"
 	"strings"
 	"sync"
 	"time"
@@ -196,8 +197,14 @@ func shedNow(level int, why string) string {
 		parts = append(parts, st.String())
 	}
 	if level >= mitm.ShedCritical {
-		clearDNSCaches()
-		parts = append(parts, "DNS caches cleared")
+		// fix/xmly-memory (device 2026-10-24 11:34): a pressure *event* arrives while an app opens its
+		// connections; clearing the DNS caches then made every one of them resolve again (the shed
+		// line read footprint 39.8 → 42.1 MB). The caches are capped (iosDNSCacheMax) and go on the
+		// timer / before a reload, on an event only near the limit, and at most every dnsClearEvery.
+		if dnsClearDue(why, before.avail) {
+			clearDNSCaches()
+			parts = append(parts, "DNS caches cleared")
+		}
 		clearValidateCache()
 		if before.avail >= 0 && before.avail < memPressureAvail {
 			if n := closeIdleConnections(idleConnAge); n > 0 {
@@ -205,9 +212,11 @@ func shedNow(level int, why string) string {
 			}
 		}
 	}
-	runtime.GC()
-	debug.FreeOSMemory()
+	debug.FreeOSMemory() // a full GC + scavenge (the runtime.GC() before it only doubled the stop)
 	after := readMem()
+	if v := governLimit(after.fp, after.heap); v > 0 {
+		parts = append(parts, "GOMEMLIMIT "+mbs(v))
+	}
 	line := fmt.Sprintf("memory shed L%d (%s): footprint %s → %s, available %s → %s, go heap %s → %s; %s",
 		level, why, mbs(before.fp), mbs(after.fp), mbs(before.avail), mbs(after.avail), mbu(before.heap), mbu(after.heap), strings.Join(parts, "; "))
 	stage("%s", line)
@@ -262,6 +271,32 @@ func ShedMemory(level int, reason string) string {
 	}
 	shedState.Unlock()
 	return line
+}
+
+// dnsClearEvery: the critical shed clears the DNS caches at most this often.
+var dnsClearEvery = 2 * time.Minute
+
+var lastDNSClear struct {
+	sync.Mutex
+	at time.Time
+}
+
+// dnsClearEventAvail: a pressure event clears the DNS caches only below this much available.
+const dnsClearEventAvail = 5 << 20
+
+// dnsClearDue: on the timer / before a reload, on an event only below dnsClearEventAvail (or without a
+// probe); not twice within dnsClearEvery.
+func dnsClearDue(why string, avail int64) bool {
+	if !(why == "timer" || why == "before reload" || avail < dnsClearEventAvail) {
+		return false
+	}
+	lastDNSClear.Lock()
+	defer lastDNSClear.Unlock()
+	if !lastDNSClear.at.IsZero() && time.Since(lastDNSClear.at) < dnsClearEvery {
+		return false
+	}
+	lastDNSClear.at = time.Now()
+	return true
 }
 
 func clearDNSCaches() {
@@ -322,10 +357,17 @@ func governLimit(fp int64, liveHeap uint64) int64 {
 	if govern.lowered == 0 && cur != cfg {
 		return 0
 	}
+	// fix/xmly-memory (device 2026-10-24: gc 1158 cycles in the first 12 s, ~100 per second): GOMEMLIMIT
+	// counts all Go memory — stacks (5 MB with 300–400 goroutines), span overhead and runtime metadata as
+	// well as the heap — so with 22 MB of heap spans in use the 26 MB limit (and the governor's 22.7 MB)
+	// sat below what Go holds even without any garbage. The GC then ran back to back (CPU limiter at 50 %)
+	// without lowering the footprint, and slower requests kept their connections and goroutines longer.
+	// The limit now stays at least antiThrashSlack above the non-garbage part of Go's memory.
+	floor := goNonGarbage() + antiThrashSlack
 	switch {
 	case fp >= memGovernTarget:
 		want := cur - (fp - memGovernTarget) - 1<<20
-		lo := max(int64(memGovernFloor), int64(liveHeap)+memGovernHeadroom)
+		lo := max(int64(memGovernFloor), int64(liveHeap)+memGovernHeadroom, floor)
 		if want < lo {
 			want = lo
 		}
@@ -335,12 +377,76 @@ func governLimit(fp int64, liveHeap uint64) int64 {
 		debug.SetMemoryLimit(want)
 		govern.lowered = want
 		return want
-	case fp < memGovernRelax && govern.lowered != 0:
+	case fp < memGovernRelax && govern.lowered != 0 && floor <= cfg:
 		debug.SetMemoryLimit(cfg)
 		govern.lowered = 0
 		return cfg
 	}
+	// anti-thrash: the limit (configured or lowered) is below what Go holds without garbage
+	if cur < floor && floor > memGovernFloor {
+		want := min(floor, cfg+antiThrashMaxRaise)
+		if want > cur {
+			debug.SetMemoryLimit(want)
+			govern.lowered = want
+			return want
+		}
+	}
 	return 0
+}
+
+// antiThrashSlack: garbage the GC may keep above Go's non-garbage memory before it collects again.
+const antiThrashSlack = 2 << 20
+
+// antiThrashMaxRaise: the anti-thrash floor never raises the limit more than this above the configured one.
+const antiThrashMaxRaise = 16 << 20
+
+// goNonGarbage is the part of Go's memory (what GOMEMLIMIT counts: all mapped, minus released) that a GC
+// cannot free: everything except the heap objects that were not live after the last cycle. Tests swap it.
+var goNonGarbage = func() int64 {
+	s := []metrics.Sample{
+		{Name: "/memory/classes/total:bytes"},
+		{Name: "/memory/classes/heap/released:bytes"},
+		{Name: "/memory/classes/heap/objects:bytes"},
+		{Name: "/gc/heap/live:bytes"},
+	}
+	metrics.Read(s)
+	for _, x := range s {
+		if x.Value.Kind() != metrics.KindUint64 {
+			return 0
+		}
+	}
+	mapped := int64(s[0].Value.Uint64() - s[1].Value.Uint64())
+	garbage := int64(s[2].Value.Uint64()) - int64(s[3].Value.Uint64())
+	if garbage < 0 {
+		garbage = 0
+	}
+	return mapped - garbage
+}
+
+// goMemClasses is the Go memory breakdown for the memory line (MB): span overhead in heap, free heap not
+// yet returned, stacks, runtime metadata and other runtime memory.
+func goMemClasses() string {
+	s := []metrics.Sample{
+		{Name: "/memory/classes/heap/unused:bytes"},
+		{Name: "/memory/classes/heap/free:bytes"},
+		{Name: "/memory/classes/heap/stacks:bytes"},
+		{Name: "/memory/classes/os-stacks:bytes"},
+		{Name: "/memory/classes/metadata/mspan/inuse:bytes"},
+		{Name: "/memory/classes/metadata/mcache/inuse:bytes"},
+		{Name: "/memory/classes/metadata/other:bytes"},
+		{Name: "/memory/classes/other:bytes"},
+		{Name: "/memory/classes/profiling/buckets:bytes"},
+		{Name: "/gc/heap/live:bytes"},
+	}
+	metrics.Read(s)
+	v := func(i int) float64 {
+		if s[i].Value.Kind() != metrics.KindUint64 {
+			return 0
+		}
+		return float64(s[i].Value.Uint64()) / (1 << 20)
+	}
+	return fmt.Sprintf("live %.1f, span slack %.1f, free %.1f, stacks %.1f, metadata %.1f, other %.1f, non-garbage %.1f MB",
+		v(9), v(0), v(1), v(2)+v(3), v(4)+v(5)+v(6), v(7)+v(8), float64(goNonGarbage())/(1<<20))
 }
 
 // ---------- periodic memory line ----------
@@ -360,9 +466,16 @@ func memDetail(r memReading, conns, idle int) string {
 	if e != nil {
 		cs = e.Stats().String()
 	}
-	return fmt.Sprintf("memory: footprint %s, available %s; go heap %s (in use %s, idle %s, released %s), stacks %s, go sys %s, gc %d, goroutines %d; connections %d (idle ≥%s: %d); %s; dns cache ≤%d/resolver; GOMEMLIMIT %s",
-		mbs(r.fp), mbs(r.avail), mbu(r.heap), mbu(r.inuse), mbu(r.idle), mbu(r.released), mbu(r.stacks), mbu(r.sys), r.numGC, r.gor,
-		conns, idleConnAge, idle, cs, iosDNSCacheMax, mbs(debug.SetMemoryLimit(-1)))
+	js := ""
+	engMu.Lock()
+	se := scriptEngine
+	engMu.Unlock()
+	if se != nil {
+		js = "; " + se.Stats()
+	}
+	return fmt.Sprintf("memory: footprint %s, available %s; go heap %s (in use %s, idle %s, released %s), stacks %s, go sys %s, gc %d, goroutines %d; go classes: %s; connections %d (idle ≥%s: %d); %s%s; dns cache ≤%d/resolver; GOMEMLIMIT %s",
+		mbs(r.fp), mbs(r.avail), mbu(r.heap), mbu(r.inuse), mbu(r.idle), mbu(r.released), mbu(r.stacks), mbu(r.sys), r.numGC, r.gor, goMemClasses(),
+		conns, idleConnAge, idle, cs, js, iosDNSCacheMax, mbs(debug.SetMemoryLimit(-1)))
 }
 
 // memTick runs on every MemoryGuard sample: connection activity, the governor, and the periodic line.

@@ -25,7 +25,7 @@ final class GoNativeRequestLogSink: NativeRequestLogSink {
 /// One event (bridge/mitm/nativerecord.go NativeRecord; field names are the JSON keys).
 struct NativeRequestEvent: Encodable, Equatable {
     var k: Int64
-    var ev: String           // drop / local / forward / response / end / cancel / upstream / error
+    var ev: String           // drop / local / forward / response / end / cancel / upstream / error / abort
     var t: Double? = nil     // request start, unix seconds (first event of a request)
     var ms: Double           // start → this event, milliseconds
     var gen: Int64? = nil
@@ -41,6 +41,8 @@ struct NativeRequestEvent: Encodable, Equatable {
     var sent: Int64? = nil
     var resp: Bool? = nil
     var why: String? = nil
+    /// Request-log notes (lane s3-script: skipped scripts, script errors, an abort), in order.
+    var notes: [String]? = nil
 }
 
 final class NativeRequestRecorder {
