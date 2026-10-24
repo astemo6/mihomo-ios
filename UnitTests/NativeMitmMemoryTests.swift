@@ -310,10 +310,18 @@ final class BenchClient {
     private let host: String
     private let path: String
 
-    init(enginePort: Int, needle: String = "\"keep\":1", host: String = "api.bench.test", path: String = "/json") {
+    /// feat/selective-native: whether the needle (a rule's mark) was in the answer. With `completeWithoutNeedle` a
+    /// complete answer without it (a rule the Go path skipped under its body gates and passed through) also finishes
+    /// the client (ok, applied false) instead of waiting for a needle that never comes.
+    private(set) var applied = false
+    private let completeWithoutNeedle: Bool
+
+    init(enginePort: Int, needle: String = "\"keep\":1", host: String = "api.bench.test", path: String = "/json",
+         completeWithoutNeedle: Bool = false) {
         self.needle = needle
         self.host = host
         self.path = path
+        self.completeWithoutNeedle = completeWithoutNeedle
         let tls = NWProtocolTLS.Options()
         let sec = tls.securityProtocolOptions
         sec_protocol_options_set_tls_server_name(sec, host)
@@ -352,6 +360,12 @@ final class BenchClient {
             let tailFrom = Swift.max(self.buf.startIndex, self.buf.endIndex - (data?.count ?? 0) - self.needleData.count)
             if self.buf[tailFrom...].range(of: self.needleData) != nil {
                 let ok = self.buf.starts(with: Data("HTTP/1.1 200".utf8))
+                self.applied = true
+                self.finish(ok, ok ? nil : String(decoding: self.buf.prefix(200), as: UTF8.self))
+                return
+            }
+            if self.completeWithoutNeedle, BenchResponse.complete(self.buf) {
+                let ok = self.buf.starts(with: Data("HTTP/1.1 200".utf8))
                 self.finish(ok, ok ? nil : String(decoding: self.buf.prefix(200), as: UTF8.self))
                 return
             }
@@ -380,4 +394,23 @@ final class BenchClient {
     }
 
     func cancel() { conn.cancel() }
+}
+
+/// feat/selective-native: whether buf holds one complete HTTP/1.1 response (head + Content-Length body, or a chunked
+/// body through its last chunk). No length and not chunked: never complete (keep-alive answers always carry one).
+enum BenchResponse {
+    static func complete(_ buf: Data) -> Bool {
+        guard let headEnd = buf.range(of: Data("\r\n\r\n".utf8))?.upperBound else { return false }
+        let head = String(decoding: buf[buf.startIndex..<headEnd], as: UTF8.self).lowercased()
+        let body = buf.count - (headEnd - buf.startIndex)
+        for line in head.split(separator: "\r\n") {
+            if line.hasPrefix("content-length:"), let n = Int(line.dropFirst("content-length:".count).trimmingCharacters(in: .whitespaces)) {
+                return body >= n
+            }
+            if line.hasPrefix("transfer-encoding:"), line.contains("chunked") {
+                return buf.suffix(5) == Data("0\r\n\r\n".utf8)
+            }
+        }
+        return false
+    }
 }

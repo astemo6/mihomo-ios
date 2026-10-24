@@ -16,7 +16,8 @@ import Libmihomo
 ///   plain: 100 plain connections.
 /// Modes:
 ///   go         all Go (production default: JavaScriptCore registered, no native body store);
-///   go+lane    all Go with the stage-1 native body store registered (scripts read the body from native memory);
+///   go+lane    all Go with the stage-1 native body store registered (scripts read the body from native memory) —
+///              measured in the decision run (78837e9, Self-test 40102633460), no longer in the default workloads;
 ///   selective  native front installed in selective mode (production cap 48): Go hands over only hosts with a heavy
 ///              rule, the native rewrite / body / script engines on (selective default), body store registered;
 ///   allnative  native front for every connection (no cap) + native engines (the v0.19.23 "all native" reference).
@@ -35,8 +36,8 @@ final class NativeMitmSelectiveTests: XCTestCase {
     static let heavyWorkloads: [Workload] = [
         Workload(name: "jq-200k", plain: 0, heavy: 16, heavyPath: "/jq?kb=200", modes: [.go, .selective]),
         Workload(name: "jq-960k", plain: 0, heavy: 16, heavyPath: "/jq?kb=960", modes: [.go, .selective]),
-        Workload(name: "script-2m", plain: 0, heavy: 16, heavyPath: "/script?kb=2048", modes: [.go, .goLane, .selective]),
-        Workload(name: "script-3.5m", plain: 0, heavy: 16, heavyPath: "/script?kb=3584", modes: [.go, .goLane, .selective]),
+        Workload(name: "script-2m", plain: 0, heavy: 16, heavyPath: "/script?kb=2048", modes: [.go, .selective]),
+        Workload(name: "script-3.5m", plain: 0, heavy: 16, heavyPath: "/script?kb=3584", modes: [.go, .selective]),
     ]
     static let mixed = Workload(name: "mixed-90+10", plain: 90, heavy: 10, heavyPath: "/script?kb=2048", modes: [.go, .selective, .allnative])
     static let plain = Workload(name: "plain-100", plain: 100, heavy: 0, heavyPath: "", modes: [.go, .selective])
@@ -49,6 +50,8 @@ final class NativeMitmSelectiveTests: XCTestCase {
         var workload: String
         var mode: Mode
         var ok = 0
+        /// answers that carried the rule's mark (Go skips body rules under its burst gates and passes the body on)
+        var applied = 0
         var failures: [String] = []
         var fpBefore: UInt64 = 0, fpAfter: UInt64 = 0, fpPeak: UInt64 = 0
         var heapBefore: Int64 = 0, heapPeak: Int64 = 0, mappedBefore: Int64 = 0, mappedPeak: Int64 = 0
@@ -136,6 +139,8 @@ final class NativeMitmSelectiveTests: XCTestCase {
             XCTAssertEqual(r.ok, total, "\(w.name) \(r.mode.rawValue): \(r.ok)/\(total) answered; \(r.failures.prefix(2)); native \(r.nativeErrors.suffix(2)); engine \(r.goLog.suffix(3))")
             switch r.mode {
             case .selective:
+                // the native engines apply every heavy rule (the Go path may skip some under its gates: reported)
+                XCTAssertEqual(r.applied, total, "\(w.name) selective: rule applied \(r.applied)/\(total); engine \(r.goLog.suffix(3))")
                 XCTAssertEqual(r.handed, Int64(min(w.heavy, NativeMitmRuntime.maxSessions)), "\(w.name) selective: native front took \(r.handed), want the heavy connections only")
                 XCTAssertGreaterThanOrEqual(r.selSkipped, Int64(w.plain), "\(w.name) selective: plain connections not kept on Go")
             case .allnative:
@@ -157,8 +162,8 @@ final class NativeMitmSelectiveTests: XCTestCase {
         let M = 1_048_576.0
         var out: [String] = []
         for (i, r) in runs.enumerated() {
-            out.append(String(format: "[selective] run passed %@ #%d %@: ok %d/%d, footprint peak %@ after %@ MB, Go heap peak %@ mapped peak %@ MB, malloc %@ MB, handed %lld (selective %lld/%lld), %.0f ms",
-                              w.name as NSString, i + 1, r.mode.rawValue as NSString, r.ok, w.plain + w.heavy,
+            out.append(String(format: "[selective] run passed %@ #%d %@: ok %d/%d (rule applied %d), footprint peak %@ after %@ MB, Go heap peak %@ mapped peak %@ MB, malloc %@ MB, handed %lld (selective %lld/%lld), %.0f ms",
+                              w.name as NSString, i + 1, r.mode.rawValue as NSString, r.ok, w.plain + w.heavy, r.applied,
                               Self.mb(Double(Int64(r.fpPeak) - Int64(r.fpBefore)) / M) as NSString, Self.mb(Double(Int64(r.fpAfter) - Int64(r.fpBefore)) / M) as NSString,
                               Self.mb(Double(r.heapPeak - r.heapBefore) / M) as NSString, Self.mb(Double(r.mappedPeak - r.mappedBefore) / M) as NSString,
                               Self.mb(Double(r.mallocAfter - r.mallocBefore) / M) as NSString, r.handed, r.selHanded, r.selSkipped, r.seconds * 1000))
@@ -171,12 +176,13 @@ final class NativeMitmSelectiveTests: XCTestCase {
         let mal: (Run) -> Double = { Double($0.mallocAfter - $0.mallocBefore) / M }
         let ms: (Run) -> Double = { $0.seconds * 1000 }
         let okc: (Run) -> Double = { Double($0.ok) }
+        let appc: (Run) -> Double = { Double($0.applied) }
         for m in w.modes {
-            out.append(String(format: "[selective] MEDIAN passed %@ %@: footprint peak %@ MB, after 1 s %@ MB | Go heap peak %@ MB, Go mapped peak %@ MB, Go heap after GC %@ MB | malloc %@ MB | burst %.0f ms | ok %.0f/%d",
+            out.append(String(format: "[selective] MEDIAN passed %@ %@: footprint peak %@ MB, after 1 s %@ MB | Go heap peak %@ MB, Go mapped peak %@ MB, Go heap after GC %@ MB | malloc %@ MB | burst %.0f ms | ok %.0f/%d, rule applied %.0f",
                               w.name as NSString, (m.rawValue as NSString).padding(toLength: 9, withPad: " ", startingAt: 0) as NSString,
                               Self.mb(median(runs, m, peak)) as NSString, Self.mb(median(runs, m, after)) as NSString,
                               Self.mb(median(runs, m, heapPk)) as NSString, Self.mb(median(runs, m, mapPk)) as NSString, Self.mb(median(runs, m, heapGC)) as NSString,
-                              Self.mb(median(runs, m, mal)) as NSString, median(runs, m, ms), median(runs, m, okc), w.plain + w.heavy))
+                              Self.mb(median(runs, m, mal)) as NSString, median(runs, m, ms), median(runs, m, okc), w.plain + w.heavy, median(runs, m, appc)))
         }
         if w.modes.contains(.selective) {
             let d = median(runs, .selective, peak) - median(runs, .go, peak)
@@ -270,8 +276,8 @@ final class NativeMitmSelectiveTests: XCTestCase {
         let heavyAt = Set((0..<w.heavy).map { k in Int((Double(k) + 0.5) * Double(total) / Double(w.heavy)) })
         let clients: [BenchClient] = (0..<total).map { i in
             heavyAt.contains(i)
-                ? BenchClient(enginePort: port, needle: heavyNeedle, host: "heavy.bench.test", path: w.heavyPath)
-                : BenchClient(enginePort: port, needle: plainNeedle)
+                ? BenchClient(enginePort: port, needle: heavyNeedle, host: "heavy.bench.test", path: w.heavyPath, completeWithoutNeedle: true)
+                : BenchClient(enginePort: port, needle: plainNeedle, completeWithoutNeedle: true)
         }
         let group = DispatchGroup()
         let lock = NSLock()
@@ -301,6 +307,7 @@ final class NativeMitmSelectiveTests: XCTestCase {
         if timedOut { lock.lock(); failures.append("burst timed out after 90 s"); lock.unlock() }
         Thread.sleep(forTimeInterval: 1.0) // idle keep-alive
         lock.lock(); run.ok = ok; run.failures = failures; lock.unlock()
+        run.applied = clients.filter(\.applied).count
         run.fpAfter = ProcessMemory.footprintBytes()
         run.fpPeak = max(run.fpPeak, run.fpAfter)
         run.mallocAfter = FootprintProbe.mallocInUse()

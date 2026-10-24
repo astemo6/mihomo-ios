@@ -288,9 +288,12 @@ enum NativeMitmRuntime {
 enum NativeMitmSelective {
     /// App-group key; an explicit value wins over `defaultOn`. Only used while nativeMitmStage2 is absent.
     static let defaultsKey = "nativeMitmSelective"
-    /// Default when the key is absent — decided by UnitTests/NativeMitmSelectiveTests (large-body, mixed and plain
-    /// bursts, all-Go vs selective).
-    static let defaultOn = false
+    /// Default when the key is absent — decided by UnitTests/NativeMitmSelectiveTests (78837e9, Self-test 40102633460,
+    /// light:1 + dark:0, medians of 4, footprint Δ peak / 1 s after, selective − all Go): script 2 MB −18…−20 / −40 MB,
+    /// script 3.5 MB −7…−16 / −22…−26 MB, jq 960 KB −3…−9 / −4…−30 MB, jq 200 KB +1.2…+1.5 / −2…−4.5 MB,
+    /// mixed 90 plain + 10 script −20…−26 / −24…−28 MB, plain 100 +0.3 / −0.8 MB (noise: no host qualifies, the code
+    /// path is the Go one). ON.
+    static let defaultOn = true
     /// Which rules make a host native (bridge/mitm/selective.go): 1 = body / jq / json rewrites + scripts,
     /// 2 = scripts only.
     static let kinds = 1
