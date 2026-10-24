@@ -29,6 +29,8 @@ final class NativeMitmMemoryTests: XCTestCase {
         /// Peak footprint while the burst ran (sampled every 20 ms); footprint with the sessions still open after
         /// malloc pressure relief + Go GC/scavenge (what the live sessions really retain).
         var fpPeak: UInt64 = 0, fpRelieved: UInt64 = 0, mallocRelieved = 0
+        /// Seconds from the burst's start until the last of its requests was answered (latency cost of the caps).
+        var burstSeconds: Double = 0
     }
 
     /// Modes: "go" (Go path), "native" (production cap 48, slim on), "native-nocap" (every connection native, slim
@@ -39,10 +41,10 @@ final class NativeMitmMemoryTests: XCTestCase {
         // within this bench's run-to-run noise (±3 MB); own queues cost +3.9 MB (thread peak +48).
         // a84818d: relief knob −3.9 MB at 1 s; with relief + Go scavenge every mode retains ~+2.5–2.7 MB (go too) —
         // the native excess is the burst's transient (peak), so this round limits concurrent upstream dials.
-        var d8 = NativeMitmRuntime.Slim(); d8.maxConcurrentDials = 8
-        var d24 = NativeMitmRuntime.Slim(); d24.maxConcurrentDials = 24
+        // cdd2ae2: dial cap 8 → nocap peak +7.5 MB (unlimited +19.4, 24 → +11.6, go +7.0): now the default.
+        var nodial = NativeMitmRuntime.Slim(); nodial.maxConcurrentDials = nil
         return [("go", true, nil), ("native", true, NativeMitmRuntime.Slim()), ("native-nocap", false, NativeMitmRuntime.Slim()),
-                ("nocap-dial8", false, d8), ("nocap-dial24", false, d24), ("nocap-legacy", false, .legacy)]
+                ("nocap-nodialcap", false, nodial), ("nocap-legacy", false, .legacy)]
     }()
 
     static func mb(_ b: Int64) -> String { String(format: "%+.2f", Double(b) / 1_048_576) }
@@ -62,7 +64,7 @@ final class NativeMitmMemoryTests: XCTestCase {
         }
         for (i, r) in runs.enumerated() {
             guard let gb = r.goBefore, let ga = r.goAfter else { continue }
-            let line = "[s2-memory] run \(i + 1) \(r.mode): \(r.ok)/\(Self.conns) requests passed; footprint \(Self.mbAbs(r.fpBefore)) → \(Self.mbAbs(r.fpAfter)) MB (\(Self.mb(Int64(r.fpAfter) - Int64(r.fpBefore))) MB), peak \(Self.mb(Int64(r.fpPeak) - Int64(r.fpBefore))) MB, relieved \(Self.mb(Int64(r.fpRelieved) - Int64(r.fpBefore))) MB, after teardown \(Self.mb(Int64(r.fpResidual) - Int64(r.fpBefore))) MB; malloc \(Self.mb(Int64(r.mallocAfter - r.mallocBefore))) MB; threads \(r.threadsBefore) → \(r.threadsAfter) (peak \(r.threadsPeak)); Go heap \(Self.mb(ga.heapInuse - gb.heapInuse)) MB, Go sys \(Self.mb(ga.sys - gb.sys)) MB, stacks \(Self.mb(ga.stack - gb.stack)) MB, goroutines \(ga.goroutines - gb.goroutines >= 0 ? "+" : "")\(ga.goroutines - gb.goroutines); handed \(ga.handed - gb.handed), fell back \(ga.fellBack - gb.fellBack)"
+            let line = "[s2-memory] run \(i + 1) \(r.mode): \(r.ok)/\(Self.conns) requests passed; footprint \(Self.mbAbs(r.fpBefore)) → \(Self.mbAbs(r.fpAfter)) MB (\(Self.mb(Int64(r.fpAfter) - Int64(r.fpBefore))) MB), peak \(Self.mb(Int64(r.fpPeak) - Int64(r.fpBefore))) MB, relieved \(Self.mb(Int64(r.fpRelieved) - Int64(r.fpBefore))) MB, after teardown \(Self.mb(Int64(r.fpResidual) - Int64(r.fpBefore))) MB; malloc \(Self.mb(Int64(r.mallocAfter - r.mallocBefore))) MB; threads \(r.threadsBefore) → \(r.threadsAfter) (peak \(r.threadsPeak)); burst \(Int(r.burstSeconds * 1000)) ms; Go heap \(Self.mb(ga.heapInuse - gb.heapInuse)) MB, Go sys \(Self.mb(ga.sys - gb.sys)) MB, stacks \(Self.mb(ga.stack - gb.stack)) MB, goroutines \(ga.goroutines - gb.goroutines >= 0 ? "+" : "")\(ga.goroutines - gb.goroutines); handed \(ga.handed - gb.handed), fell back \(ga.fellBack - gb.fellBack)"
             print(line)
             NSLog("%@", line)
             if !r.failures.isEmpty { print("[s2-memory] run \(i + 1) failures: \(r.failures.prefix(3).joined(separator: " | "))") }
@@ -87,6 +89,7 @@ final class NativeMitmMemoryTests: XCTestCase {
         let peak: (Run) -> Int64? = { Int64($0.fpPeak) - Int64($0.fpBefore) }
         let rel: (Run) -> Int64? = { Int64($0.fpRelieved) - Int64($0.fpBefore) }
         let malRel: (Run) -> Int64? = { Int64($0.mallocRelieved - $0.mallocBefore) }
+        let secs: (Run) -> Int64? = { Int64($0.burstSeconds * 1000) * 1_048_576 } // ms after median()
         print("[s2-memory] MEDIANS (\(Self.conns) conns, 4 counted runs per mode; footprint/malloc/Go in MB; per-conn = footprint ÷ \(Self.conns))")
         for m in modes {
             let name: NSString = m.padding(toLength: 16, withPad: " ", startingAt: 0) as NSString
@@ -98,8 +101,8 @@ final class NativeMitmMemoryTests: XCTestCase {
             print(line)
             NSLog("%@", line)
             var a2: [CVarArg] = [name, median(m, peak), median(m, rel), median(m, rel) * 1024 / Double(Self.conns), median(m, malRel)]
-            a2 += [median(m, malRel) * 1024 / Double(Self.conns)]
-            let line2 = String(format: "[s2-memory] median %@ peak during burst %+6.2f MB | sessions open, after malloc relief + Go scavenge: footprint %+6.2f MB (%+4.0f KB/conn), malloc %+6.2f MB (%+4.0f KB/conn)", arguments: a2)
+            a2 += [median(m, malRel) * 1024 / Double(Self.conns), median(m, secs)]
+            let line2 = String(format: "[s2-memory] median %@ peak during burst %+6.2f MB | sessions open, after malloc relief + Go scavenge: footprint %+6.2f MB (%+4.0f KB/conn), malloc %+6.2f MB (%+4.0f KB/conn) | burst answered in %.0f ms", arguments: a2)
             print(line2)
             NSLog("%@", line2)
         }
@@ -174,6 +177,7 @@ final class NativeMitmMemoryTests: XCTestCase {
                 group.leave()
             }
         }
+        let burstStart = Date()
         // thread peak while the burst runs (sampled every 20 ms)
         var timedOut = true
         let deadline60 = Date().addingTimeInterval(60)
@@ -183,6 +187,7 @@ final class NativeMitmMemoryTests: XCTestCase {
             run.fpPeak = max(run.fpPeak, ProcessMemory.footprintBytes())
         }
         if timedOut { lock.lock(); failures.append("burst timed out after 60 s"); lock.unlock() }
+        run.burstSeconds = Date().timeIntervalSince(burstStart)
         Thread.sleep(forTimeInterval: 1.0) // idle keep-alive
         lock.lock(); run.ok = ok; run.failures = failures; lock.unlock()
         run.nativeErrors = NativeMitmRuntime.recentErrors

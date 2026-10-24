@@ -71,7 +71,12 @@ enum NativeMitmRuntime {
         /// buffers of the connections that already closed), which jetsam counts until malloc returns it.
         var reliefAfterBurst = true
         /// Upstream dials (TCP + relay CONNECT + TLS handshake) in flight at once (UpstreamPool); nil = no limit.
-        var maxConcurrentDials: Int? = nil
+        /// 8 (cdd2ae2, NativeMitmMemoryTests, 100-connection burst, every connection native): peak footprint
+        /// +19.4 MB unlimited → +11.6 MB at 24 → +7.5 MB at 8 (Go path +7.0). Each Network.framework TLS dial through
+        /// the relay's CONNECT proxy costs ~130 KB of malloc while it handshakes; a burst of them is the whole native
+        /// excess. Cost: a burst of more than 8 new upstream connections waits for dial slots (FIFO; a connection
+        /// released meanwhile serves a waiter first).
+        var maxConcurrentDials: Int? = 8
         static let legacy = Slim(sharedQueues: false, smallChunks: false, releaseIdleBuffers: false, sharedPrivacyContext: false,
                                  reliefAfterBurst: false, maxConcurrentDials: nil)
     }
