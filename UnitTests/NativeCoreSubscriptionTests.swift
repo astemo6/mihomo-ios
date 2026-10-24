@@ -89,7 +89,7 @@ final class NativeCoreSubscriptionTests: XCTestCase {
                 "name": .string("Auto"), "type": .string("select"),
                 "proxies": .array([.string("MobileProxy"), .string("HomeProxy")]),
                 "subnet": .object(["HomeWiFi": .string("HomeProxy"), "DEFAULT": .string("MobileProxy")]),
-            ])],
+            ])]),
         ])
         let engine = NCGroupEngine(config: cfg)
         var ssid: String? = "HomeWiFi"
