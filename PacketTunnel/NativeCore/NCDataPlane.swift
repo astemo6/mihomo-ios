@@ -73,7 +73,9 @@ final class NCDataPlane {
         stack.onTCPData = { [weak self] conn, data in self?.tcpData(conn, data) }
         stack.onTCPError = { [weak self] conn in self?.tcpError(conn) }
         stack.onUDP = { [weak self] info, data in self?.udp(info, data) }
-        guard stack.start(ip4: "198.18.0.1", ip6: nil, mtu: mtu) else {
+        // The v6 address mirrors PacketTunnelProvider's NEIPv6Settings so
+        // fake-IP v6 destinations terminate in the stack like v4 ones.
+        guard stack.start(ip4: "198.18.0.1", ip6: "fdfe:dcba:9876::1", mtu: mtu) else {
             throw NCDataPlaneError.stackStartFailed
         }
         isRunning = true
@@ -111,7 +113,17 @@ final class NCDataPlane {
         flow?.readPackets { [weak self] packets, _ in
             guard let self else { return }
             self.queue.async {
-                for p in packets { self.stack.input(p) }
+                for p in packets {
+                    // ICMP echo to fake-IP / tunnel addresses: answer in
+                    // place (those destinations aren't stack addresses).
+                    if let dst = NCICMPEcho.echoRequestDestination(p),
+                       self.engine.shouldAnswerEcho(to: dst),
+                       let reply = NCICMPEcho.reply(for: p) {
+                        self.stack.onOutput(reply)
+                        continue
+                    }
+                    self.stack.input(p)
+                }
                 self.readLoop()
             }
         }
@@ -335,7 +347,10 @@ final class NCDataPlane {
             if let upstream = engine.dnsUpstream(for: data) {
                 let sid = info.id
                 dnsForwarder.forward(data, upstream: upstream) { [weak self] resp in
-                    if let resp { self?.stack.udpSend(session: sid, resp) }
+                    if let resp {
+                        self?.engine.recordDNSResponse(query: data, response: resp)
+                        self?.stack.udpSend(session: sid, resp)
+                    }
                 }
             } else {
                 udpDropped += 1

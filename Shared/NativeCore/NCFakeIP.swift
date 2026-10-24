@@ -14,7 +14,16 @@ final class NCFakeIPPool {
     private let lock = NSLock()
     let filter: [String]
 
-    init(range: String = "198.18.0.1/16", filter: [String] = []) {
+    // IPv6 fake pool (fake-ip-range6): offsets live in the low 64 bits of
+    // the range; hosts map independently of the v4 pool.
+    private let base6: [UInt8]?
+    private var prefix6: Int = 0
+    private let count6: UInt64
+    private var hostToIP6: [String: UInt64] = [:]
+    private var ipToHost6: [Data: String] = [:]
+    private var nextOffset6: UInt64 = 1
+
+    init(range: String = "198.18.0.1/16", range6: String? = nil, filter: [String] = []) {
         let cidr = NCCIDR(range) ?? NCCIDR("198.18.0.1/16")!
         switch cidr.network {
         case .v4(let v):
@@ -24,7 +33,60 @@ final class NCFakeIPPool {
         case .v6:
             base = 0xc612_0001; count = 0x1_0000 // v6 fake ranges are not used in practice; fall back to the v4 default
         }
+        if let range6, let cidr6 = NCCIDR(range6), case .v6(let bytes) = cidr6.network {
+            prefix6 = cidr6.bits
+            let hostBits = 128 - cidr6.bits
+            count6 = hostBits >= 64 ? UInt64.max : (UInt64(1) << hostBits)
+            // Zero the host bits of the base address.
+            var b = bytes
+            for i in 0..<16 {
+                let bitPos = i * 8
+                if bitPos + 8 <= cidr6.bits { continue }
+                if bitPos >= cidr6.bits { b[i] = 0 } else {
+                    let keep = cidr6.bits - bitPos
+                    b[i] = b[i] & (0xff << (8 - keep))
+                }
+            }
+            base6 = b
+        } else {
+            base6 = nil
+            count6 = 0
+        }
         self.filter = filter
+    }
+
+    var hasRange6: Bool { base6 != nil }
+
+    private func address6Bytes(forOffset offset: UInt64) -> [UInt8] {
+        var b = base6!
+        var v = offset
+        var i = 15
+        while v > 0, i >= 0 {
+            b[i] = b[i] | UInt8(v & 0xff)
+            v >>= 8
+            i -= 1
+        }
+        return b
+    }
+
+    /// Stable fake IPv6 address for a host when range6 is configured.
+    func address6(for host: String) -> NCIP? {
+        guard base6 != nil else { return nil }
+        lock.lock(); defer { lock.unlock() }
+        let h = host.lowercased()
+        if let existing = hostToIP6[h] { return .v6(address6Bytes(forOffset: existing)) }
+        for _ in 0..<min(count6, 1 << 20) {
+            let candidate = nextOffset6
+            nextOffset6 = (nextOffset6 + 1) % count6
+            if nextOffset6 == 0 { nextOffset6 = 1 }
+            let bytes = address6Bytes(forOffset: candidate)
+            if ipToHost6[Data(bytes)] == nil {
+                hostToIP6[h] = candidate
+                ipToHost6[Data(bytes)] = h
+                return .v6(bytes)
+            }
+        }
+        return nil
     }
 
     func shouldFake(_ host: String) -> Bool {
@@ -62,9 +124,32 @@ final class NCFakeIPPool {
     }
 
     func host(for ip: NCIP) -> String? {
-        guard case .v4(let v) = ip else { return nil }
         lock.lock(); defer { lock.unlock() }
-        return ipToHost[v]
+        switch ip {
+        case .v4(let v):
+            return ipToHost[v]
+        case .v6(let bytes):
+            return ipToHost6[Data(bytes)]
+        }
+    }
+
+    /// Whether an address sits inside either fake range (regardless of
+    /// whether this pool handed it out — e.g. after a restart).
+    func isFakeAddress(_ ip: NCIP) -> Bool {
+        switch ip {
+        case .v4(let v):
+            return v >= base && v - base < count
+        case .v6(let bytes):
+            guard let base6 else { return false }
+            let fullBytes = prefix6 / 8
+            for i in 0..<fullBytes where bytes[i] != base6[i] { return false }
+            let remBits = prefix6 % 8
+            if remBits > 0, fullBytes < 16 {
+                let mask = UInt8(0xff << (8 - remBits))
+                if bytes[fullBytes] & mask != base6[fullBytes] & mask { return false }
+            }
+            return true
+        }
     }
 
     var size: Int { lock.lock(); defer { lock.unlock() }; return hostToIP.count }

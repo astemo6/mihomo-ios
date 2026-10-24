@@ -151,7 +151,6 @@ struct NCDNSMessage: Equatable {
 /// answer returns nil, meaning: forward the original query upstream.
 final class NCFakeIPResponder {
     let pool: NCFakeIPPool
-    var answerAAAAWithFake = false // v6 fake ranges arrive with the data plane batch
 
     init(pool: NCFakeIPPool) { self.pool = pool }
 
@@ -174,13 +173,79 @@ final class NCFakeIPResponder {
             resp.answers = [NCDNSRecord(name: q.name, type: q.type, klass: q.klass, ttl: 1,
                                         rdata: Data(ip.bytes))]
         case NCDNSMessage.typeAAAA:
-            // Fake-ip mode: no v6 fake address yet -> NOERROR with no records,
-            // which keeps clients on the v4 fake path (mihomo behaves the same
-            // when its fake-ip range is v4-only).
-            resp.answers = []
+            if let ip6 = pool.address6(for: host) {
+                resp.answers = [NCDNSRecord(name: q.name, type: q.type, klass: q.klass, ttl: 1,
+                                            rdata: Data(ip6.bytes))]
+            } else {
+                // No v6 fake range configured -> NOERROR with no records,
+                // which keeps clients on the v4 fake path (mihomo behaves
+                // the same when its fake-ip range is v4-only).
+                resp.answers = []
+            }
         default:
             return nil
         }
         return resp.serialized()
     }
+}
+
+
+extension NCDNSMessage {
+    /// A/AAAA answers as (address, ttl) pairs.
+    var addressAnswers: [(NCIP, UInt32)] {
+        answers.compactMap { record in
+            switch record.type {
+            case NCDNSMessage.typeA where record.rdata.count == 4:
+                let v = UInt32(record.rdata[0]) << 24 | UInt32(record.rdata[1]) << 16
+                    | UInt32(record.rdata[2]) << 8 | UInt32(record.rdata[3])
+                return (.v4(v), record.ttl)
+            case NCDNSMessage.typeAAAA where record.rdata.count == 16:
+                return (.v6([UInt8](record.rdata)), record.ttl)
+            default:
+                return nil
+            }
+        }
+    }
+}
+
+/// redir-host mode support: remembers which real IPs a host resolved to,
+/// so connections to those IPs can be rule-matched by the original host
+/// (mihomo's redir-host behaves the same). TTL-bound, size-capped.
+final class NCRealIPMap {
+    private struct Entry {
+        var host: String
+        var expires: Date
+    }
+
+    private var map: [NCIP: Entry] = [:]
+    private let lock = NSLock()
+    private let cap = 4096
+    var now: () -> Date = { Date() }
+
+    func record(host: String, answers: [(NCIP, UInt32)]) {
+        guard !answers.isEmpty else { return }
+        lock.lock(); defer { lock.unlock() }
+        if map.count >= cap {
+            // Drop expired first; if still full, clear (simple + bounded).
+            let t = now()
+            map = map.filter { $0.value.expires > t }
+            if map.count >= cap { map.removeAll() }
+        }
+        for (ip, ttl) in answers {
+            let clamped = min(max(ttl, 30), 3600)
+            map[ip] = Entry(host: host.lowercased(), expires: now().addingTimeInterval(Double(clamped)))
+        }
+    }
+
+    func host(for ip: NCIP) -> String? {
+        lock.lock(); defer { lock.unlock() }
+        guard let entry = map[ip] else { return nil }
+        if entry.expires <= now() {
+            map.removeValue(forKey: ip)
+            return nil
+        }
+        return entry.host
+    }
+
+    var size: Int { lock.lock(); defer { lock.unlock() }; return map.count }
 }

@@ -73,6 +73,7 @@ struct NCDNSConfig: Equatable {
     let fields: [String: NCJSONValue]
     var enable: Bool { fields["enable"]?.bool ?? true }
     var fakeIPRange: String { fields["fake-ip-range"]?.string ?? "198.18.0.1/16" }
+    var fakeIPRange6: String? { fields["fake-ip-range6"]?.string }
     var fakeIPFilter: [String] { fields["fake-ip-filter"]?.array?.compactMap { $0.string } ?? [] }
     var nameservers: [String] { fields["nameserver"]?.array?.compactMap { $0.string } ?? [] }
     var enhancedMode: String { fields["enhanced-mode"]?.string ?? "fake-ip" }

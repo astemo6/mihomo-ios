@@ -15,6 +15,10 @@ enum NCSniffer {
         if first == 0x16 {
             return parseClientHello(data)
         }
+        // QUIC long-header Initial: fixed bit + long form set.
+        if first & 0xc0 == 0xc0, let sni = NCQUICSniffer.sni(from: data) {
+            return .tls(sni: sni, alpn: ["h3"])
+        }
         // HTTP methods are uppercase ASCII tokens followed by a space.
         if let head = String(decoding: data.prefix(16), as: UTF8.self).split(separator: " ").first,
            ["GET", "POST", "PUT", "HEAD", "DELETE", "PATCH", "OPTIONS", "CONNECT", "TRACE"].contains(String(head)) {
@@ -31,6 +35,13 @@ enum NCSniffer {
               r.skip(2), // record version
               let recLen = r.u16(), r.remaining >= 4 else { return .unknown }
         _ = recLen
+        return parseHandshake(Data(data.dropFirst(r.pos)))
+    }
+
+    /// Parse starting at the handshake message itself ([type][len24]…),
+    /// as carried inside QUIC CRYPTO frames.
+    static func parseHandshake(_ data: Data) -> Detected {
+        var r = NCReader(data)
         guard r.u8() == 0x01, // ClientHello
               r.skip(3), // handshake length
               r.skip(2), // client version
