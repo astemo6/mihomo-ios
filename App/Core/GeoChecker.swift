@@ -81,7 +81,7 @@ enum GeoChecker {
         }
         let body = String(decoding: data, as: UTF8.self)
         let home = AppShared.homeURL.path
-        let json = await Task.detached { LibmihomoGeoLocationRun(home, code, url.absoluteString, body) }.value
+        let json = await Task.detached { NCGeoStore.locationRun(homeDir: home, code: code, apiURL: url.absoluteString, body: body) }.value
         guard let r = try? JSONDecoder().decode(ScriptResult.self, from: Data(json.utf8)) else { return info }
         if let e = r.error, !e.isEmpty { await setError(e); return info }
         if info == nil, let ip = r.ip, !ip.isEmpty { info = IPInfo(ip: ip, source: url.host) }
