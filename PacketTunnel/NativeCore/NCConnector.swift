@@ -149,9 +149,78 @@ enum NCConnector {
                 raw.send(head)
                 completion(raw, nil)
             }
+        case "vmess":
+            connectVMess(target: target, proxy: proxy, server: server, port: port, queue: queue, completion: completion)
         default:
             queue.async { completion(nil, Failure.unsupported(proxy.type)) }
         }
+    }
+
+    // MARK: VMess (AEAD, alterId 0)
+
+    private static func connectVMess(target: NCTarget, proxy: NCProxy, server: String, port: Int,
+                                     queue: DispatchQueue,
+                                     completion: @escaping (NCRelayStream?, Error?) -> Void) {
+        let alterID = proxy.fields["alterId"]?.int ?? 0
+        guard alterID == 0 else {
+            queue.async { completion(nil, Failure.unsupported("vmess legacy alterId \(alterID)")) }
+            return
+        }
+        let network = proxy.fields["network"]?.string ?? "tcp"
+        guard network == "tcp" else {
+            queue.async { completion(nil, Failure.unsupported("vmess network \(network)")) }
+            return
+        }
+        guard let uuidString = proxy.uuid,
+              let uuidBytes = NCVLESS.uuidBytes(uuidString).map({ Data($0) }) ?? Optional(NCSHA1.uuidV5NilNamespace(uuidString)) else {
+            queue.async { completion(nil, Failure.handshake("vmess missing uuid")) }
+            return
+        }
+        let security: UInt8
+        switch (proxy.fields["cipher"]?.string ?? "auto").lowercased() {
+        case "auto", "aes-128-gcm": security = NCVMess.securityAESGCM
+        case "chacha20-poly1305": security = NCVMess.securityChaCha
+        case "none": security = NCVMess.securityNone
+        default:
+            queue.async { completion(nil, Failure.unsupported("vmess cipher \(proxy.fields["cipher"]?.string ?? "?")")) }
+            return
+        }
+        let raw: NCStream
+        if proxy.fields["tls"]?.bool ?? false {
+            raw = NCStream(to: server, port: port,
+                           tlsServerName: proxy.fields["servername"]?.string ?? proxy.fields["sni"]?.string ?? server,
+                           allowInsecure: proxy.fields["skip-cert-verify"]?.bool ?? false,
+                           queue: queue)
+        } else {
+            raw = NCStream(to: server, port: port, queue: queue)
+        }
+        raw.start { err in
+            guard err == nil else { completion(nil, err); return }
+            let reqKey = randomData(16)
+            let reqNonce = randomData(16)
+            let respV = randomData(1)[0]
+            let option: UInt8 = security == NCVMess.securityNone ? 0
+                : NCVMess.optionChunkStream | NCVMess.optionChunkMasking
+            let paddingCount = Int(randomData(1)[0]) % 16
+            let plain = NCVMess.plainHeader(reqNonce: reqNonce, reqKey: reqKey, respV: respV,
+                                            option: option, security: security,
+                                            padding: randomData(paddingCount), target: target)
+            let sealed = NCVMess.sealHeader(cmdKey: NCVMess.cmdKey(uuidBytes: uuidBytes),
+                                            plainHeader: plain,
+                                            time: Int64(Date().timeIntervalSince1970),
+                                            authRandom4: randomData(4), connNonce: randomData(8))
+            completion(NCVMessRelayStream(raw: raw, sealedHeader: sealed,
+                                          reqKey: reqKey, reqNonce: reqNonce,
+                                          respV: respV, security: security), nil)
+        }
+    }
+
+    static func randomData(_ count: Int) -> Data {
+        var rng = SystemRandomNumberGenerator()
+        var out = Data()
+        out.reserveCapacity(count)
+        for _ in 0..<count { out.append(UInt8.random(in: 0...255, using: &rng)) }
+        return out
     }
 
     // MARK: SOCKS5 handshake
@@ -266,4 +335,84 @@ final class NCBufferedStream: NCRelayStream {
     }
 
     func cancel() { inner.cancel() }
+}
+
+
+/// VMess relay: sends the sealed header first, then chunk-encoded body frames;
+/// inbound, the AEAD response header is consumed before body chunks decode.
+final class NCVMessRelayStream: NCRelayStream {
+    private let raw: NCStream
+    private let encoder: NCVMessChunkEncoder?
+    private let respReader: NCVMessResponseReader
+    private let respKeys: (key: Data, nonce: Data)
+    private let security: UInt8
+    private var decoder: NCVMessChunkDecoder?
+    private var responseStarted = false
+
+    init(raw: NCStream, sealedHeader: Data, reqKey: Data, reqNonce: Data, respV: UInt8, security: UInt8) {
+        self.raw = raw
+        self.security = security
+        self.encoder = security == NCVMess.securityNone ? nil
+            : NCVMessChunkEncoder(bodyKey: reqKey, nonceBase: reqNonce, security: security)
+        self.respKeys = NCVMess.responseKeys(reqKey: reqKey, reqNonce: reqNonce)
+        self.respReader = NCVMessResponseReader(respKey: respKeys.key, respNonce: respKeys.nonce, expectedV: respV)
+        raw.send(sealedHeader)
+    }
+
+    func send(_ data: Data) {
+        if let encoder {
+            raw.send(encoder.encode(data))
+        } else {
+            raw.send(data) // security none over TCP is a plain stream
+        }
+    }
+
+    func receive(_ handler: @escaping (Data?, Error?) -> Void) {
+        raw.receive { [weak self] data, error in
+            guard let self else { handler(nil, error); return }
+            guard let data else { handler(nil, error); return }
+            if !responseStarted {
+                respReader.feed(data)
+                switch respReader.state {
+                case .failed:
+                    handler(nil, NCConnector.Failure.handshake("vmess response header"))
+                    return
+                case .reading:
+                    receive(handler)
+                    return
+                case .done:
+                    responseStarted = true
+                    if security != NCVMess.securityNone {
+                        decoder = NCVMessChunkDecoder(bodyKey: respKeys.key, nonceBase: respKeys.nonce, security: security)
+                    }
+                    let rest = respReader.bodyRemainder
+                    if rest.isEmpty {
+                        receive(handler)
+                    } else {
+                        deliver(rest, handler)
+                    }
+                    return
+                }
+            }
+            deliver(data, handler)
+        }
+    }
+
+    private func deliver(_ data: Data, _ handler: @escaping (Data?, Error?) -> Void) {
+        guard let decoder else {
+            handler(data, nil) // security none: plaintext body
+            return
+        }
+        guard let plain = decoder.feed(data) else {
+            handler(nil, NCConnector.Failure.handshake("vmess body decode"))
+            return
+        }
+        if plain.isEmpty && !decoder.finished {
+            receive(handler)
+            return
+        }
+        handler(plain, nil)
+    }
+
+    func cancel() { raw.cancel() }
 }

@@ -393,3 +393,76 @@ final class NativeCoreCryptoTests: XCTestCase {
         XCTAssertEqual(NCFNV1a.hash32(Data("a".utf8)), 0xe40c292c)
     }
 }
+
+// MARK: - VMess (vectors generated with the real sing-vmess Go library)
+
+final class NativeCoreVMessTests: XCTestCase {
+    private func hex(_ d: Data) -> String { d.map { String(format: "%02x", $0) }.joined() }
+    private func unhex(_ s: String) -> Data {
+        var out = Data()
+        var idx = s.startIndex
+        while idx < s.endIndex {
+            let next = s.index(idx, offsetBy: 2)
+            out.append(UInt8(s[idx..<next], radix: 16)!)
+            idx = next
+        }
+        return out
+    }
+
+    func testShake128Vectors() {
+        XCTAssertEqual(hex(NCShake128(seed: Data()).read(32)),
+                       "7f9c2ba4e88f827d616045507605853ed73b8093f6efbc88eb1a6eacfa66ef26")
+        XCTAssertEqual(hex(NCShake128(seed: Data((16..<32).map { UInt8($0) })).read(16)),
+                       "fc918e43ecc4b6aea436a3be55984a75")
+        XCTAssertEqual(hex(NCShake128(seed: Data("abc".utf8)).read(16)),
+                       "5881092dd818bf5cf8a3ddb793fbcba7")
+    }
+
+    func testSHA1AndUUIDv5() {
+        XCTAssertEqual(hex(NCSHA1.hash(Data("abc".utf8))), "a9993e364706816aba3e25717850c26c9cd0d89d")
+        XCTAssertEqual(hex(NCSHA1.uuidV5NilNamespace("test-string")), "f26edc5d820e5e86ade0932eaabeefc7")
+    }
+
+    func testCmdKeyAndKDF() {
+        let uuid = unhex("b831381d63244d53ad4f8cda48b30811")
+        let cmdKey = NCVMess.cmdKey(uuidBytes: uuid)
+        XCTAssertEqual(hex(cmdKey), "b50d916ac0cec067981af8e5f38a758f")
+        let auth = unhex("00112233445566778899aabbccddeeff")
+        let nonce = unhex("0102030405060708")
+        let lenKey = NCVMess.kdf(key: cmdKey, values: [Data("VMess Header AEAD Key_Length".utf8), auth, nonce])
+        XCTAssertEqual(hex(Data(lenKey.prefix(16))), "849560ea0eb7da19a3a59a48d19b0085")
+        let lenNonce = NCVMess.kdf(key: cmdKey, values: [Data("VMess Header AEAD Nonce_Length".utf8), auth, nonce])
+        XCTAssertEqual(hex(Data(lenNonce.prefix(12))), "6d940d2b2ec74db24aa33e9a")
+    }
+
+    func testSealedLengthAndHeader() {
+        // Rebuild the Go vector inputs: lenKey/lenNonce above seal BE16(100)
+        // with authID as AAD; payKey/payNonce seal the 100-byte ramp header.
+        let cmdKey = unhex("b50d916ac0cec067981af8e5f38a758f")
+        let auth = unhex("00112233445566778899aabbccddeeff")
+        let nonce = unhex("0102030405060708")
+        let lenKey = Data(NCVMess.kdf(key: cmdKey, values: [Data("VMess Header AEAD Key_Length".utf8), auth, nonce]).prefix(16))
+        let lenNonce = Data(NCVMess.kdf(key: cmdKey, values: [Data("VMess Header AEAD Nonce_Length".utf8), auth, nonce]).prefix(12))
+        var lenPlain = Data()
+        lenPlain.appendBE16(100)
+        XCTAssertEqual(hex(NCVMess.gcmSeal(key: lenKey, nonce: lenNonce, plain: lenPlain, aad: auth)!),
+                       "4f62575127ce12f352a0d09a1d04472e3ae9")
+        let payKey = Data(NCVMess.kdf(key: cmdKey, values: [Data("VMess Header AEAD Key".utf8), auth, nonce]).prefix(16))
+        let payNonce = Data(NCVMess.kdf(key: cmdKey, values: [Data("VMess Header AEAD Nonce".utf8), auth, nonce]).prefix(12))
+        let header = Data((0..<100).map { UInt8($0) })
+        XCTAssertEqual(hex(NCVMess.gcmSeal(key: payKey, nonce: payNonce, plain: header, aad: auth)!),
+                       "75748ec14494afebf71161e6cd4fe09079e1c32c1cfceda4ced9a8fb82cb63fa85c641e97c6271fcb759ef749b9636d5555f9493ea4793589031a326b227c1f101d92aab03c341e0b0bd747dd3ba8d802a7706acb86b5d415407d9e5f3090893af89bceda62ce203c85343cabd1280b4b5396068")
+    }
+
+    func testBodyChunksMatchGo() {
+        let reqKey = unhex("000102030405060708090a0b0c0d0e0f")
+        let reqNonce = unhex("101112131415161718191a1b1c1d1e1f")
+        let enc = NCVMessChunkEncoder(bodyKey: reqKey, nonceBase: reqNonce, security: NCVMess.securityAESGCM)
+        XCTAssertEqual(hex(enc.encode(Data("hello".utf8))), "fc84a316c4d586054e854b4a74fc9040de5bd5eb74d177")
+        XCTAssertEqual(hex(enc.encode(Data("world!".utf8))), "8e5540387f8943863177611c700a6d10a08b2d5bffd7b1b9")
+        // And the decoder round-trips the same wire bytes.
+        let dec = NCVMessChunkDecoder(bodyKey: reqKey, nonceBase: reqNonce, security: NCVMess.securityAESGCM)
+        XCTAssertEqual(dec.feed(unhex("fc84a316c4d586054e854b4a74fc9040de5bd5eb74d177")), Data("hello".utf8))
+        XCTAssertEqual(dec.feed(unhex("8e5540387f8943863177611c700a6d10a08b2d5bffd7b1b9")), Data("world!".utf8))
+    }
+}

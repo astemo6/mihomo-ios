@@ -111,3 +111,52 @@ enum NCFNV1a {
         return h
     }
 }
+
+/// SHA-1 (FIPS 180-1). Only used for the UUIDv5 fallback when a VMess/VLESS
+/// config carries a non-UUID user string (mihomo's UUIDMap behavior).
+enum NCSHA1 {
+    static func hash(_ data: Data) -> Data {
+        var msg = [UInt8](data)
+        let bitLen = UInt64(msg.count) * 8
+        msg.append(0x80)
+        while msg.count % 64 != 56 { msg.append(0) }
+        for i in stride(from: 56, through: 0, by: -8) { msg.append(UInt8((bitLen >> UInt64(i)) & 0xff)) }
+        var h: [UInt32] = [0x67452301, 0xefcdab89, 0x98badcfe, 0x10325476, 0xc3d2e1f0]
+        for chunkStart in stride(from: 0, to: msg.count, by: 64) {
+            var w = [UInt32](repeating: 0, count: 80)
+            for i in 0..<16 {
+                let o = chunkStart + i * 4
+                w[i] = UInt32(msg[o]) << 24 | UInt32(msg[o + 1]) << 16 | UInt32(msg[o + 2]) << 8 | UInt32(msg[o + 3])
+            }
+            for i in 16..<80 {
+                w[i] = (w[i - 3] ^ w[i - 8] ^ w[i - 14] ^ w[i - 16]) <<< 1
+            }
+            var (a, b, c, d, e) = (h[0], h[1], h[2], h[3], h[4])
+            for i in 0..<80 {
+                let f: UInt32
+                let k: UInt32
+                switch i / 20 {
+                case 0: f = (b & c) | (~b & d); k = 0x5a827999
+                case 1: f = b ^ c ^ d; k = 0x6ed9eba1
+                case 2: f = (b & c) | (b & d) | (c & d); k = 0x8f1bbcdc
+                default: f = b ^ c ^ d; k = 0xca62c1d6
+                }
+                let tmp = (a <<< 5) &+ f &+ e &+ k &+ w[i]
+                e = d; d = c; c = b <<< 30; b = a; a = tmp
+            }
+            h[0] &+= a; h[1] &+= b; h[2] &+= c; h[3] &+= d; h[4] &+= e
+        }
+        var out = Data()
+        for v in h { out.appendBE32(v) }
+        return out
+    }
+
+    /// RFC 4122 UUIDv5 with the nil namespace (mihomo's UUIDMap fallback for
+    /// non-UUID strings).
+    static func uuidV5NilNamespace(_ string: String) -> Data {
+        var digest = [UInt8](hash(NCVMess.cat(Data(repeating: 0, count: 16), Data(string.utf8))).prefix(16))
+        digest[6] = (digest[6] & 0x0f) | 0x50
+        digest[8] = (digest[8] & 0x3f) | 0x80
+        return Data(digest)
+    }
+}
