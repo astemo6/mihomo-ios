@@ -214,9 +214,9 @@ final class NCDNSForwarder {
         self.queue = queue
     }
 
-    func forward(_ query: Data, server: String, completion: @escaping (Data?) -> Void) {
-        let port = NWEndpoint.Port(rawValue: 53) ?? .any
-        let conn = NWConnection(host: NWEndpoint.Host(server), port: port, using: .udp)
+    func forward(_ query: Data, server: String, port: Int = 53, completion: @escaping (Data?) -> Void) {
+        let nwPort = NWEndpoint.Port(rawValue: UInt16(clamping: port)) ?? .any
+        let conn = NWConnection(host: NWEndpoint.Host(server), port: nwPort, using: .udp)
         var done = false
         func finish(_ data: Data?) {
             guard !done else { return }
@@ -235,7 +235,7 @@ final class NCDNSForwarder {
                         }
                         // Truncated bit (TC) set: retry over TCP like resolvers do.
                         if data.count > 2, data[2] & 0x02 != 0 {
-                            Self.forwardTCP(query, server: server, queue: self.queue) { finish($0 ?? data) }
+                            Self.forwardTCP(query, server: server, port: port, queue: self.queue) { finish($0 ?? data) }
                         } else {
                             finish(data)
                         }
@@ -251,8 +251,8 @@ final class NCDNSForwarder {
         queue.asyncAfter(deadline: .now() + 5) { finish(nil) }
     }
 
-    private static func forwardTCP(_ query: Data, server: String, queue: DispatchQueue, completion: @escaping (Data?) -> Void) {
-        let conn = NWConnection(host: NWEndpoint.Host(server), port: NWEndpoint.Port(rawValue: 53) ?? .any, using: .tcp)
+    static func forwardTCP(_ query: Data, server: String, port: Int = 53, queue: DispatchQueue, completion: @escaping (Data?) -> Void) {
+        let conn = NWConnection(host: NWEndpoint.Host(server), port: NWEndpoint.Port(rawValue: UInt16(clamping: port)) ?? .any, using: .tcp)
         var done = false
         func finish(_ data: Data?) {
             guard !done else { return }
@@ -419,29 +419,57 @@ final class NCUDPTrojanSession: NCUDPSession {
     }
 }
 
-/// Parsed nameserver entry: plain UDP, DNS-over-TLS, or DNS-over-HTTPS.
+/// Parsed nameserver entry: plain UDP/TCP, DoT, DoH, or DoQ (RFC 9250) —
+/// the full encrypted-DNS set Surge/Loon/QX all support.
 enum NCDNSUpstream: Equatable {
-    case udp(host: String)
+    case udp(host: String, port: Int)
+    case tcp(host: String, port: Int)
     case dot(host: String, port: Int)
     case doh(url: String)
+    case doq(host: String, port: Int)
 
-    static func parse(_ raw: String) -> NCDNSUpstream? {
-        if raw.hasPrefix("tls://") {
-            let rest = String(raw.dropFirst(6))
+    static func parse(_ raw0: String) -> NCDNSUpstream? {
+        var raw = raw0
+        if let hash = raw.firstIndex(of: "#") { raw = String(raw[..<hash]) }
+        func hostPort(_ rest: String, _ def: Int) -> (String, Int)? {
             let parts = rest.split(separator: ":", maxSplits: 1)
             guard let host = parts.first, !host.isEmpty else { return nil }
-            return .dot(host: String(host), port: parts.count > 1 ? Int(parts[1]) ?? 853 : 853)
+            return (String(host), parts.count > 1 ? Int(parts[1]) ?? def : def)
+        }
+        if raw.hasPrefix("tls://"), let hp = hostPort(String(raw.dropFirst(6)), 853) {
+            return .dot(host: hp.0, port: hp.1)
+        }
+        if raw.hasPrefix("quic://"), let hp = hostPort(String(raw.dropFirst(7)), 853) {
+            return .doq(host: hp.0, port: hp.1)
+        }
+        if raw.hasPrefix("tcp://"), let hp = hostPort(String(raw.dropFirst(6)), 53) {
+            return .tcp(host: hp.0, port: hp.1)
         }
         if raw.hasPrefix("https://") {
             return .doh(url: raw)
         }
-        if raw.hasPrefix("udp://") {
-            let host = String(raw.dropFirst(6)).split(separator: ":").first.map(String.init) ?? ""
-            return host.isEmpty ? nil : .udp(host: host)
+        if raw.hasPrefix("udp://"), let hp = hostPort(String(raw.dropFirst(6)), 53) {
+            return .udp(host: hp.0, port: hp.1)
         }
         if raw.contains("://") || raw == "system" { return nil }
-        let host = raw.split(separator: ":").first.map(String.init) ?? raw
-        return host.isEmpty ? nil : .udp(host: host)
+        guard let hp = hostPort(raw, 53) else { return nil }
+        return .udp(host: hp.0, port: hp.1)
+    }
+
+    /// Map a canonical DNS server reference onto a forwardable upstream.
+    init?(_ ref: NCDNSServerRef) {
+        switch ref.scheme {
+        case .udp: self = .udp(host: ref.host, port: ref.port)
+        case .tcp: self = .tcp(host: ref.host, port: ref.port)
+        case .dot: self = .dot(host: ref.host, port: ref.port)
+        case .doq: self = .doq(host: ref.host, port: ref.port)
+        case .doh:
+            var url = "https://\(ref.host)"
+            if ref.port != 443 { url += ":\(ref.port)" }
+            url += ref.path ?? "/dns-query"
+            self = .doh(url: url)
+        case .dhcp, .system: return nil
+        }
     }
 }
 
@@ -449,13 +477,71 @@ extension NCDNSForwarder {
     /// Forward via any upstream kind.
     func forward(_ query: Data, upstream: NCDNSUpstream, completion: @escaping (Data?) -> Void) {
         switch upstream {
-        case .udp(let host):
-            forward(query, server: host, completion: completion)
+        case .udp(let host, let port):
+            forward(query, server: host, port: port, completion: completion)
+        case .tcp(let host, let port):
+            Self.forwardTCP(query, server: host, port: port, queue: queue, completion: completion)
         case .dot(let host, let port):
             Self.forwardDoT(query, host: host, port: port, queue: queue, completion: completion)
         case .doh(let url):
             Self.forwardDoH(query, urlString: url, queue: queue, completion: completion)
+        case .doq(let host, let port):
+            Self.forwardDoQ(query, host: host, port: port, queue: queue, completion: completion)
         }
+    }
+
+    /// DoQ (RFC 9250): one bidirectional QUIC stream per query inside a
+    /// throwaway connection group; the message is length-prefixed exactly
+    /// like DNS-over-TCP, and the send side is closed after the query.
+    private static func forwardDoQ(_ query: Data, host: String, port: Int, queue: DispatchQueue,
+                                   completion: @escaping (Data?) -> Void) {
+        let endpoint = NWEndpoint.hostPort(host: NWEndpoint.Host(host),
+                                           port: NWEndpoint.Port(rawValue: UInt16(clamping: port)) ?? .any)
+        let quicOptions = NWProtocolQUIC.Options(alpn: ["doq"])
+        if let sec = quicOptions.securityProtocolOptions {
+            sec_protocol_options_set_min_tls_protocol_version(sec, .tlsProtocol13)
+        }
+        let params = NWParameters(quic: quicOptions)
+        let group = NWConnectionGroup(with: NWMultiplexGroup(to: endpoint), using: params)
+        var done = false
+        func finish(_ data: Data?) {
+            guard !done else { return }
+            done = true
+            group.cancel()
+            completion(data)
+        }
+        group.stateUpdateHandler = { state in
+            switch state {
+            case .ready:
+                guard let conn = group.extract(connectionTo: nil, using: nil) else {
+                    finish(nil)
+                    return
+                }
+                conn.stateUpdateHandler = { cstate in
+                    if case .failed = cstate { finish(nil) }
+                }
+                conn.start(queue: queue)
+                var framed = Data()
+                framed.appendBE16(UInt16(query.count))
+                framed.append(query)
+                conn.send(content: framed, contentContext: .defaultMessage, isComplete: true,
+                          completion: .contentProcessed { _ in
+                    conn.receive(minimumIncompleteLength: 2, maximumLength: 2) { lenData, _, _, _ in
+                        guard let lenData, lenData.count == 2 else { finish(nil); return }
+                        let len = Int(lenData[0]) << 8 | Int(lenData[1])
+                        conn.receive(minimumIncompleteLength: len, maximumLength: len) { data, _, _, _ in
+                            finish(data)
+                        }
+                    }
+                })
+            case .failed:
+                finish(nil)
+            default:
+                break
+            }
+        }
+        group.start(queue: queue)
+        queue.asyncAfter(deadline: .now() + 5) { finish(nil) }
     }
 
     /// DoT (RFC 7858): TLS stream, 2-byte length framing both ways.

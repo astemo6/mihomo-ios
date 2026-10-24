@@ -324,14 +324,14 @@ final class NCDataPlane {
 
     private func udp(_ info: NCTunStack.UDPSessionInfo, _ data: Data) {
         if info.dst.port == 53 {
-            if let reply = engine.handleDNSQuery(data) {
+            if let reply = engine.dnsHostsReply(data) ?? engine.handleDNSQuery(data) {
                 dnsReplies += 1
                 stack.udpSend(session: info.id, reply)
                 return
             }
             // Not fake-IP business (filter host, other record types): forward
-            // the query to the configured nameserver, like mihomo does.
-            if let upstream = engine.firstDNSUpstream {
+            // the query to its assigned upstream (per-domain policy first).
+            if let upstream = engine.dnsUpstream(for: data) {
                 let sid = info.id
                 dnsForwarder.forward(data, upstream: upstream) { [weak self] resp in
                     if let resp { self?.stack.udpSend(session: sid, resp) }

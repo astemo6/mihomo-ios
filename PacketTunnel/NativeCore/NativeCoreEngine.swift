@@ -16,6 +16,7 @@ final class NativeCoreEngine {
     private var geoIPDB: NCMMDB?
     private var asnDB: NCMMDB?
     private var ruleProviders: NCRuleProviderStore?
+    private var dnsPolicy: NCDNSPolicy?
     private var home = ""
 
     private var fakeIPFile: URL {
@@ -48,6 +49,10 @@ final class NativeCoreEngine {
         let stale = store.loadCached(providers: providers, home: home)
         ruleProviders = store
         if !stale.isEmpty { store.refreshAll(stale) }
+        // DNS policy (hosts answers + per-domain upstreams) from the
+        // canonical view of the same config.
+        let canonical = NCCanonicalConfig.from(mihomo: cfg)
+        dnsPolicy = NCDNSPolicy(model: canonical.dns, hosts: canonical.hosts)
         let homeURL = URL(fileURLWithPath: home)
         if let data = try? Data(contentsOf: homeURL.appendingPathComponent("geoip.metadb")) {
             geoIPDB = NCMMDB(data: data)
@@ -83,6 +88,7 @@ final class NativeCoreEngine {
         fakeIP = nil
         dnsResponder = nil
         ruleProviders = nil
+        dnsPolicy = nil
     }
 
     func persistFakeIP() {
@@ -145,6 +151,25 @@ final class NativeCoreEngine {
             if let up = NCDNSUpstream.parse(raw) { return up }
         }
         return nil
+    }
+
+    /// Hosts-table answer for a query, if any (checked before fake-IP:
+    /// a [Host] entry wins over the fake pool in all three reference apps).
+    func dnsHostsReply(_ query: Data) -> Data? {
+        dnsPolicy?.hostsReply(queryData: query)
+    }
+
+    /// Upstream for a query that neither hosts nor fake-IP answered: the
+    /// per-domain assignment (nameserver-policy / [Host] server: / QX
+    /// server=/) when one exists, else the first configured default.
+    func dnsUpstream(for query: Data) -> NCDNSUpstream? {
+        if let policy = dnsPolicy, let msg = NCDNSMessage.parse(query),
+           let name = msg.questions.first?.name {
+            for ref in policy.servers(for: name) {
+                if let up = NCDNSUpstream(ref) { return up }
+            }
+        }
+        return firstDNSUpstream
     }
 
     /// Answers a raw DNS query in fake-IP mode (A -> fake IP, AAAA -> empty
