@@ -203,6 +203,7 @@ final class NCDataPlane {
         case .direct: "DIRECT"
         case .reject: "REJECT"
         case .proxy(let p): p.name
+        case .chain(let ps): ps.map { $0.name }.joined(separator: " -> ")
         case .unknown(let n): n
         }
         NCConnector.connect(target: s.target, resolution: resolution, queue: queue) { [weak self, weak s] relay, _ in

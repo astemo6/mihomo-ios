@@ -120,6 +120,11 @@ final class NCGroupEngine {
         case direct
         case reject
         case proxy(NCProxy)
+        /// Ordered chain of ≥2 proxies: dial member 0 directly, tunnel
+        /// through it to member 1's server, and so on; the last member
+        /// connects to the real target. Produced by relay groups and by
+        /// `dialer-proxy` expansion.
+        case chain([NCProxy])
         case unknown(String)
     }
 
@@ -133,11 +138,25 @@ final class NCGroupEngine {
         case "REJECT", "REJECT-DROP": return .reject
         default: break
         }
-        if let p = config.proxyMap[policy] { return .proxy(p) }
+        if let p = config.proxyMap[policy] { return expandDialer(p, visited: visited) }
         guard let g = config.groupMap[policy] else { return .unknown(policy) }
         guard !visited.contains(g.name) else { return .unknown(policy) }
         var visited = visited
         visited.insert(g.name)
+        if g.type == "relay" {
+            // Every member must itself resolve to proxy material; the
+            // concatenation is the chain, in group order.
+            var chain: [NCProxy] = []
+            for member in g.proxies {
+                switch resolve(member, visited: visited) {
+                case .proxy(let p): chain.append(p)
+                case .chain(let ps): chain.append(contentsOf: ps)
+                default: return .unknown(policy)
+                }
+            }
+            if chain.count == 1 { return .proxy(chain[0]) }
+            return chain.isEmpty ? .unknown(policy) : .chain(chain)
+        }
         let members = g.proxies
         guard !members.isEmpty else { return .unknown(policy) }
         let chosen: String
@@ -160,6 +179,24 @@ final class NCGroupEngine {
             }
         }
         return resolve(chosen, visited: visited)
+    }
+
+    /// `dialer-proxy`: this proxy's server is itself reached through the
+    /// named outbound (a proxy or a group). Expands to a chain with the
+    /// dialer first; loops degrade to .unknown via the visited set.
+    private func expandDialer(_ proxy: NCProxy, visited: Set<String>) -> Resolution {
+        guard let dialerName = proxy.fields["dialer-proxy"]?.string, !dialerName.isEmpty else {
+            return .proxy(proxy)
+        }
+        let key = "dialer:\(proxy.name)"
+        guard !visited.contains(key) else { return .unknown(proxy.name) }
+        var visited = visited
+        visited.insert(key)
+        switch resolve(dialerName, visited: visited) {
+        case .proxy(let d): return .chain([d, proxy])
+        case .chain(let ds): return .chain(ds + [proxy])
+        default: return .unknown(proxy.name)
+        }
     }
 
     /// The member a group would route to right now (one level, no recursion).

@@ -15,11 +15,11 @@ extension NCStream: NCRelayStream {}
 /// chunk, sent at connect time), decodes on receive, swallowing chunks that
 /// carry only salt/framing (receive again until real plaintext or EOF).
 final class NCSSRelayStream: NCRelayStream {
-    private let raw: NCStream
+    private let raw: NCRelayStream
     private let encoder: NCSSEncoder
     private let decoder: NCSSDecoder
 
-    init(raw: NCStream, encoder: NCSSEncoder, decoder: NCSSDecoder, target: NCTarget) {
+    init(raw: NCRelayStream, encoder: NCSSEncoder, decoder: NCSSDecoder, target: NCTarget) {
         self.raw = raw
         self.encoder = encoder
         self.decoder = decoder
@@ -55,11 +55,11 @@ final class NCSSRelayStream: NCRelayStream {
 /// SS2022 relay: the request head (salt + sealed headers) goes out at
 /// connect; the response decoder validates the header before payload flows.
 final class NCSS2022RelayStream: NCRelayStream {
-    private let raw: NCStream
+    private let raw: NCRelayStream
     private let encoder: NCSS2022Encoder
     private let decoder: NCSS2022Decoder
 
-    init(raw: NCStream, encoder: NCSS2022Encoder, decoder: NCSS2022Decoder, target: NCTarget) {
+    init(raw: NCRelayStream, encoder: NCSS2022Encoder, decoder: NCSS2022Decoder, target: NCTarget) {
         self.raw = raw
         self.encoder = encoder
         self.decoder = decoder
@@ -123,12 +123,12 @@ final class NCSnellReplyStripper {
 
 /// Snell v1–v3 relay: SS-framed AEAD stream + connect header + reply byte.
 final class NCSnellStreamRelay: NCRelayStream {
-    private let raw: NCStream
+    private let raw: NCRelayStream
     private let encoder: NCSnellStreamEncoder
     private let decoder: NCSnellStreamDecoder
     private let stripper = NCSnellReplyStripper()
 
-    init(raw: NCStream, psk: Data, version: Int, target: NCTarget) {
+    init(raw: NCRelayStream, psk: Data, version: Int, target: NCTarget) {
         self.raw = raw
         encoder = NCSnellStreamEncoder(psk: psk, version: version)
         decoder = NCSnellStreamDecoder(psk: psk, version: version)
@@ -169,12 +169,12 @@ final class NCSnellStreamRelay: NCRelayStream {
 
 /// Snell v4/v5 relay: frame-based stream + connect header + reply byte.
 final class NCSnellV4Relay: NCRelayStream {
-    private let raw: NCStream
+    private let raw: NCRelayStream
     private let writer: NCSnellV4Writer
     private let reader: NCSnellV4Reader
     private let stripper = NCSnellReplyStripper()
 
-    init(raw: NCStream, psk: Data, target: NCTarget) {
+    init(raw: NCRelayStream, psk: Data, target: NCTarget) {
         self.raw = raw
         writer = NCSnellV4Writer(psk: psk)
         reader = NCSnellV4Reader(psk: psk)
@@ -243,11 +243,48 @@ enum NCConnector {
             queue.async { completion(nil, Failure.unknownPolicy(name)) }
         case .proxy(let proxy):
             connectViaProxy(target: target, proxy: proxy, queue: queue, completion: completion)
+        case .chain(let proxies):
+            connectChain(target: target, proxies: proxies, queue: queue, completion: completion)
         }
+    }
+
+    /// Fold a proxy chain: hop i handshakes over hop i-1's relay toward
+    /// hop i+1's server; the last hop aims at the real target.
+    private static func connectChain(target: NCTarget, proxies: [NCProxy], queue: DispatchQueue,
+                                     completion: @escaping (NCRelayStream?, Error?) -> Void) {
+        func step(_ index: Int, _ transport: NCRelayStream?) {
+            let proxy = proxies[index]
+            let isLast = index == proxies.count - 1
+            guard isLast || (proxies[index + 1].server != nil && proxies[index + 1].port != nil) else {
+                queue.async { completion(nil, Failure.handshake("chain member missing server/port")) }
+                return
+            }
+            let hopTarget = isLast ? target
+                : NCTarget(host: proxies[index + 1].server!, port: proxies[index + 1].port!)
+            connectViaProxy(target: hopTarget, proxy: proxy, queue: queue,
+                            allowMux: false, transport: transport) { relay, err in
+                guard let relay else { completion(nil, err); return }
+                if isLast { completion(relay, nil) } else { step(index + 1, relay) }
+            }
+        }
+        step(0, nil)
+    }
+
+    /// The byte pipe for one hop: a provided chain transport when present,
+    /// otherwise a freshly dialed direct stream.
+    private static func obtainStream(transport: NCRelayStream?, make: () -> NCStream,
+                                     completion: @escaping (NCRelayStream?, Error?) -> Void) {
+        if let transport {
+            completion(transport, nil)
+            return
+        }
+        let raw = make()
+        raw.start { err in completion(err == nil ? raw : nil, err) }
     }
 
     private static func connectViaProxy(target: NCTarget, proxy: NCProxy, queue: DispatchQueue,
                                         allowMux: Bool = true,
+                                        transport: NCRelayStream? = nil,
                                         completion: @escaping (NCRelayStream?, Error?) -> Void) {
         guard let server = proxy.server, let port = proxy.port else {
             queue.async { completion(nil, Failure.handshake("proxy \(proxy.name) missing server/port")) }
@@ -255,7 +292,7 @@ enum NCConnector {
         }
         // sing-mux (h2mux) interception: vmess/vless flows ride a shared
         // session whose own proxy connection targets the mux destination.
-        if allowMux, proxy.type == "vmess" || proxy.type == "vless",
+        if allowMux, transport == nil, proxy.type == "vmess" || proxy.type == "vless",
            smuxEnabled(proxy), target != NCMux.destination {
             guard smuxProtocol(proxy) == "h2mux" else {
                 queue.async { completion(nil, Failure.unsupported("smux protocol \(smuxProtocol(proxy)) (h2mux only)")) }
@@ -269,15 +306,17 @@ enum NCConnector {
         }
         switch proxy.type {
         case "socks5":
-            let raw = NCStream(to: server, port: port, queue: queue)
-            raw.start { err in
-                guard err == nil else { completion(nil, err); return }
+            obtainStream(transport: transport, make: { NCStream(to: server, port: port, queue: queue) }) { raw, err in
+                guard let raw else { completion(nil, err); return }
                 socksHandshake(raw: raw, target: target, proxy: proxy, completion: completion)
             }
         case "http", "https":
-            let raw = NCStream(to: server, port: port, tls: proxy.type == "https", queue: queue)
-            raw.start { err in
-                guard err == nil else { completion(nil, err); return }
+            if transport != nil && proxy.type == "https" {
+                queue.async { completion(nil, Failure.unsupported("https proxy over a chain transport")) }
+                return
+            }
+            obtainStream(transport: transport, make: { NCStream(to: server, port: port, tls: proxy.type == "https", queue: queue) }) { raw, err in
+                guard let raw else { completion(nil, err); return }
                 httpHandshake(raw: raw, target: target, proxy: proxy, completion: completion)
             }
         case "ss":
@@ -285,7 +324,6 @@ enum NCConnector {
                 queue.async { completion(nil, Failure.handshake("bad shadowsocks cipher/password")) }
                 return
             }
-            let raw = NCStream(to: server, port: port, queue: queue)
             if NCSS2022.isMethod2022(cipher) {
                 guard let enc = NCSS2022Encoder(method: cipher, password: password),
                       let dec = NCSS2022Decoder(method: cipher, password: password,
@@ -293,8 +331,8 @@ enum NCConnector {
                     queue.async { completion(nil, Failure.handshake("bad shadowsocks 2022 password")) }
                     return
                 }
-                raw.start { err in
-                    guard err == nil else { completion(nil, err); return }
+                obtainStream(transport: transport, make: { NCStream(to: server, port: port, queue: queue) }) { raw, err in
+                    guard let raw else { completion(nil, err); return }
                     completion(NCSS2022RelayStream(raw: raw, encoder: enc, decoder: dec, target: target), nil)
                 }
                 return
@@ -304,8 +342,8 @@ enum NCConnector {
                 queue.async { completion(nil, Failure.handshake("bad shadowsocks cipher/password")) }
                 return
             }
-            raw.start { err in
-                guard err == nil else { completion(nil, err); return }
+            obtainStream(transport: transport, make: { NCStream(to: server, port: port, queue: queue) }) { raw, err in
+                guard let raw else { completion(nil, err); return }
                 completion(NCSSRelayStream(raw: raw, encoder: enc, decoder: dec, target: target), nil)
             }
         case "snell":
@@ -315,9 +353,8 @@ enum NCConnector {
             }
             let version = proxy.fields["version"]?.int ?? 1
             let psk = Data(password.utf8)
-            let raw = NCStream(to: server, port: port, queue: queue)
-            raw.start { err in
-                guard err == nil else { completion(nil, err); return }
+            obtainStream(transport: transport, make: { NCStream(to: server, port: port, queue: queue) }) { raw, err in
+                guard let raw else { completion(nil, err); return }
                 if version >= 4 {
                     completion(NCSnellV4Relay(raw: raw, psk: psk, target: target), nil)
                 } else {
@@ -327,6 +364,10 @@ enum NCConnector {
         case "trojan":
             guard let password = proxy.password else {
                 queue.async { completion(nil, Failure.handshake("trojan missing password")) }
+                return
+            }
+            if transport != nil {
+                queue.async { completion(nil, Failure.unsupported("trojan over a chain transport (TLS termination needs its own socket)")) }
                 return
             }
             if realityParams(proxy) != nil {
@@ -349,6 +390,10 @@ enum NCConnector {
         case "vless":
             guard let uuid = proxy.uuid else {
                 queue.async { completion(nil, Failure.handshake("vless missing uuid")) }
+                return
+            }
+            if transport != nil && realityParams(proxy) != nil {
+                queue.async { completion(nil, Failure.unsupported("vless reality over a chain transport")) }
                 return
             }
             if realityParams(proxy) != nil {
@@ -376,6 +421,22 @@ enum NCConnector {
             }
             let useTLS = proxy.fields["tls"]?.bool ?? false
             let isVision = visionFlow(proxy)
+            if let transport {
+                // Over a chain pipe only the plaintext transports work:
+                // TLS termination and Vision need their own socket.
+                guard !useTLS, !isVision, realityParams(proxy) == nil,
+                      let head = NCVLESS.requestHead(uuid: uuid, target: target,
+                                                     flow: proxy.fields["flow"]?.string ?? "") else {
+                    queue.async { completion(nil, Failure.unsupported("vless tls/vision/reality over a chain transport")) }
+                    return
+                }
+                transportStream(raw: transport, proxy: proxy, server: server) { base, terr in
+                    guard let base else { completion(nil, terr); return }
+                    base.send(head)
+                    completion(NCVLESSRelayStream(raw: base), nil)
+                }
+                return
+            }
             let raw: NCStream
             if useTLS && !isVision {
                 raw = NCStream(to: server, port: port,
@@ -413,6 +474,10 @@ enum NCConnector {
                 }
             }
         case "hysteria2", "hy2":
+            if transport != nil {
+                queue.async { completion(nil, Failure.unsupported("hysteria2 over a chain transport")) }
+                return
+            }
             sharedHysteria2(proxy: proxy, server: server, port: port, queue: queue) { conn, err in
                 guard let conn, let stream = conn.openTCP(target: target) else {
                     completion(nil, err ?? Failure.handshake("hysteria2 open stream failed"))
@@ -421,7 +486,8 @@ enum NCConnector {
                 completion(stream, nil)
             }
         case "vmess":
-            connectVMess(target: target, proxy: proxy, server: server, port: port, queue: queue, completion: completion)
+            connectVMess(target: target, proxy: proxy, server: server, port: port, queue: queue,
+                         transport: transport, completion: completion)
         case "tuic":
             // Platform-blocked, see docs/native-core-design.md: TUIC auth
             // and UDP commands live on QUIC unidirectional streams, which
@@ -665,6 +731,7 @@ enum NCConnector {
 
     private static func connectVMess(target: NCTarget, proxy: NCProxy, server: String, port: Int,
                                      queue: DispatchQueue,
+                                     transport: NCRelayStream? = nil,
                                      completion: @escaping (NCRelayStream?, Error?) -> Void) {
         let alterID = proxy.fields["alterId"]?.int ?? 0
         guard alterID == 0 else {
@@ -691,12 +758,27 @@ enum NCConnector {
             return
         }
         if realityParams(proxy) != nil {
+            guard transport == nil else {
+                queue.async { completion(nil, Failure.unsupported("vmess reality over a chain transport")) }
+                return
+            }
             dialReality(proxy: proxy, server: server, port: port, queue: queue) { base0, err in
                 guard let base0 else { completion(nil, err); return }
                 transportStream(raw: base0, proxy: proxy, server: server) { base, terr in
                     guard let base else { completion(nil, terr); return }
                     finishVMess(base: base, target: target, uuidBytes: uuidBytes, security: security, completion: completion)
                 }
+            }
+            return
+        }
+        if let transport {
+            guard !(proxy.fields["tls"]?.bool ?? false) else {
+                queue.async { completion(nil, Failure.unsupported("vmess tls over a chain transport")) }
+                return
+            }
+            transportStream(raw: transport, proxy: proxy, server: server) { base, terr in
+                guard let base else { completion(nil, terr); return }
+                finishVMess(base: base, target: target, uuidBytes: uuidBytes, security: security, completion: completion)
             }
             return
         }
@@ -750,7 +832,7 @@ enum NCConnector {
 
     // MARK: SOCKS5 handshake
 
-    private static func socksHandshake(raw: NCStream, target: NCTarget, proxy: NCProxy,
+    private static func socksHandshake(raw: NCRelayStream, target: NCTarget, proxy: NCProxy,
                                        completion: @escaping (NCRelayStream?, Error?) -> Void) {
         let username = proxy.fields["username"]?.string
         let password = proxy.fields["password"]?.string
@@ -778,7 +860,7 @@ enum NCConnector {
         }
     }
 
-    private static func socksRequest(raw: NCStream, target: NCTarget, buf: NCByteBuffer,
+    private static func socksRequest(raw: NCRelayStream, target: NCTarget, buf: NCByteBuffer,
                                      completion: @escaping (NCRelayStream?, Error?) -> Void) {
         raw.send(NCSOCKS5.connectRequest(target: target))
         func step() {
@@ -800,7 +882,7 @@ enum NCConnector {
 
     // MARK: HTTP CONNECT handshake
 
-    private static func httpHandshake(raw: NCStream, target: NCTarget, proxy: NCProxy,
+    private static func httpHandshake(raw: NCRelayStream, target: NCTarget, proxy: NCProxy,
                                       completion: @escaping (NCRelayStream?, Error?) -> Void) {
         let username = proxy.fields["username"]?.string
         let password = proxy.fields["password"]?.string
@@ -825,7 +907,7 @@ enum NCConnector {
     }
 
     /// Accumulate into `buf` until it holds at least `n` bytes (or EOF/error).
-    private static func receiveInto(raw: NCStream, buf: NCByteBuffer, atLeast n: Int,
+    private static func receiveInto(raw: NCRelayStream, buf: NCByteBuffer, atLeast n: Int,
                                     done: @escaping (Error?) -> Void) {
         if buf.count >= n { done(nil); return }
         raw.receive { data, error in
@@ -839,10 +921,10 @@ enum NCConnector {
 /// Wraps a stream whose first inbound bytes were already read during the
 /// handshake: they are delivered before any fresh receive.
 final class NCBufferedStream: NCRelayStream {
-    private let inner: NCStream
+    private let inner: NCRelayStream
     private var prefix: Data
 
-    init(inner: NCStream, prefix: Data) {
+    init(inner: NCRelayStream, prefix: Data) {
         self.inner = inner
         self.prefix = prefix
     }
