@@ -26,6 +26,12 @@ final class NCDataPlane {
     }
     private var dnsReplies = 0
     private var udpDropped = 0
+    private(set) var totalUp: Int64 = 0
+    private(set) var totalDown: Int64 = 0
+    private(set) var totalProxyUp: Int64 = 0
+    private(set) var totalProxyDown: Int64 = 0
+    /// Lock-protected mirror of live state for the controller (other queues).
+    let stats = NCDataPlaneStats()
     private(set) var isRunning = false
 
     final class TCPSession {
@@ -37,6 +43,11 @@ final class NCDataPlane {
         var relay: NCRelayStream?
         var state: State = .deciding
         let acceptedAt = Date()
+        var upBytes: Int64 = 0
+        var downBytes: Int64 = 0
+        var chainName = ""
+        var ruleText = ""
+        var policyName = 
         enum State { case deciding, connecting, open, closed }
         init(conn: NCTunStack.TCPConn, target: NCTarget, ruleDomain: String?) {
             self.conn = conn
@@ -108,6 +119,7 @@ final class NCDataPlane {
 
     private func tick() {
         stack.poll()
+        refreshStats()
         let now = Date()
         for s in sessions.values {
             if s.state == .deciding, now.timeIntervalSince(s.acceptedAt) > 1.5 {
@@ -148,6 +160,7 @@ final class NCDataPlane {
         case .connecting:
             s.pending.append(data)
         case .open:
+            countUp(s, data.count)
             s.relay?.send(data)
         case .closed:
             break
@@ -182,7 +195,16 @@ final class NCDataPlane {
                                  ip: s.target.ip,
                                  dstPort: s.target.port,
                                  network: "tcp")
+        let (policyName, ruleText) = engine.policyWithRule(for: ctx)
+        s.policyName = policyName
+        s.ruleText = ruleText ?? ""
         let resolution = engine.resolve(ctx)
+        s.chainName = switch resolution {
+        case .direct: "DIRECT"
+        case .reject: "REJECT"
+        case .proxy(let p): p.name
+        case .unknown(let n): n
+        }
         NCConnector.connect(target: s.target, resolution: resolution, queue: queue) { [weak self, weak s] relay, _ in
             guard let self, let s, s.state == .connecting else {
                 relay?.cancel()
@@ -195,6 +217,7 @@ final class NCDataPlane {
             s.relay = relay
             s.state = .open
             if !s.pending.isEmpty {
+                countUp(s, s.pending.count)
                 relay.send(s.pending)
                 s.pending = Data()
             }
@@ -206,6 +229,7 @@ final class NCDataPlane {
         s.relay?.receive { [weak self, weak s] data, error in
             guard let self, let s, s.state == .open else { return }
             if let data, !data.isEmpty {
+                countDown(s, data.count)
                 s.outbox.append(data)
                 self.drain(s)
                 self.receiveLoop(s)
@@ -214,6 +238,65 @@ final class NCDataPlane {
             } else {
                 self.close(s)
             }
+        }
+    }
+
+    private func countUp(_ s: TCPSession, _ n: Int) {
+        s.upBytes += Int64(n)
+        totalUp += Int64(n)
+        if s.chainName != "DIRECT" { totalProxyUp += Int64(n) }
+    }
+
+    private func countDown(_ s: TCPSession, _ n: Int) {
+        s.downBytes += Int64(n)
+        totalDown += Int64(n)
+        if s.chainName != "DIRECT" { totalProxyDown += Int64(n) }
+    }
+
+    /// Snapshot refresh for the controller's stats mirror (called on the tick).
+    private func refreshStats() {
+        let fmt = ISO8601DateFormatter()
+        fmt.formatOptions = [.withInternetDateTime, .withFractionalSeconds]
+        let conns: [[String: Any]] = sessions.values.map { s in
+            [
+                "id": String(s.key),
+                "metadata": [
+                    "network": "tcp",
+                    "type": "Native",
+                    "sourceIP": "198.18.0.1",
+                    "sourcePort": String(s.conn.srcPort),
+                    "destinationIP": s.conn.dst.host,
+                    "destinationPort": String(s.conn.dst.port),
+                    "host": s.ruleDomain ?? "",
+                    "sniffHost": "",
+                    "process": "",
+                    "remoteDestination": s.target.host,
+                ],
+                "upload": s.upBytes,
+                "download": s.downBytes,
+                "start": fmt.string(from: s.acceptedAt),
+                "chains": [s.chainName],
+                "rule": s.ruleText,
+                "rulePayload": "",
+            ]
+        }
+        stats.update(connections: conns, up: totalUp, down: totalDown,
+                     proxyUp: totalProxyUp, proxyDown: totalProxyDown)
+    }
+
+    /// Controller entry points (safe from any queue).
+    func requestCloseConnection(id: String) {
+        queue.async { [weak self] in
+            guard let self, let key = UInt(id),
+                  let s = sessions[key] else { return }
+            close(s)
+        }
+    }
+
+    func requestCloseAllConnections() {
+        queue.async { [weak self] in
+            guard let self else { return }
+            for s in Array(sessions.values) { close(s) }
         }
     }
 
@@ -307,5 +390,32 @@ final class NCDataPlane {
 enum NativeCoreSwitch {
     static var isEnabled: Bool {
         UserDefaults(suiteName: AppShared.appGroup)?.bool(forKey: "nativeCoreEnabled") ?? false
+    }
+}
+
+/// Thread-safe stats mirror: the data plane writes on its queue (every tick),
+/// the controller reads from its own queue.
+final class NCDataPlaneStats {
+    private let lock = NSLock()
+    private var connections: [[String: Any]] = []
+    private(set) var up: Int64 = 0
+    private(set) var down: Int64 = 0
+    private(set) var proxyUp: Int64 = 0
+    private(set) var proxyDown: Int64 = 0
+
+    func update(connections: [[String: Any]], up: Int64, down: Int64, proxyUp: Int64, proxyDown: Int64) {
+        lock.lock()
+        self.connections = connections
+        self.up = up
+        self.down = down
+        self.proxyUp = proxyUp
+        self.proxyDown = proxyDown
+        lock.unlock()
+    }
+
+    func snapshot() -> (connections: [[String: Any]], up: Int64, down: Int64, proxyUp: Int64, proxyDown: Int64) {
+        lock.lock()
+        defer { lock.unlock() }
+        return (connections, up, down, proxyUp, proxyDown)
     }
 }

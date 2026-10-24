@@ -125,7 +125,9 @@ final class NCGroupEngine {
         let members = g.proxies
         guard !members.isEmpty else { return .unknown(policy) }
         let chosen: String
-        switch g.type {
+        if let sel = selections[g.name], members.contains(sel) {
+            chosen = sel // explicit choice / pin (controller PUT) wins for every type
+        } else        switch g.type {
         case "url-test":
             chosen = members.min(by: { delayOf($0) < delayOf($1) }) ?? members[0]
         case "fallback":
@@ -134,14 +136,27 @@ final class NCGroupEngine {
             let i = (rrCounters[g.name] ?? 0) % members.count
             rrCounters[g.name] = i + 1
             chosen = members[i]
-        default: // select and anything else: stored choice, else GLOBAL-style first member
-            if let sel = selections[g.name], members.contains(sel) {
-                chosen = sel
-            } else {
-                chosen = members[0]
-            }
+        default: // select and anything else: first member
+            chosen = members[0]
         }
         return resolve(chosen, visited: visited)
+    }
+
+    /// The member a group would route to right now (one level, no recursion).
+    func currentMember(of group: NCProxyGroup) -> String? {
+        let members = group.proxies
+        guard !members.isEmpty else { return nil }
+        if let sel = selections[group.name], members.contains(sel) { return sel }
+        switch group.type {
+        case "url-test":
+            return members.min(by: { delayOf($0) < delayOf($1) }) ?? members[0]
+        case "fallback":
+            return members.first(where: { alive[$0] ?? true }) ?? members[0]
+        case "load-balance":
+            return members[(rrCounters[group.name] ?? 0) % members.count]
+        default:
+            return members[0]
+        }
     }
 
     private func delayOf(_ name: String) -> Int {

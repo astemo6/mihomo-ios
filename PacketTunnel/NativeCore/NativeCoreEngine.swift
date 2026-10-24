@@ -59,17 +59,44 @@ final class NativeCoreEngine {
 
     // MARK: Routing
 
+    var groupEngine: NCGroupEngine? { groups }
+
+    /// Controller-driven mode override (PATCH /configs); nil = config's mode.
+    var modeOverride: String?
+
+    var effectiveMode: String { modeOverride ?? config?.mode ?? "rule" }
+
+    func setSelection(group: String, member: String?) {
+        if let member {
+            groups?.selections[group] = member
+        } else {
+            groups?.selections.removeValue(forKey: group)
+        }
+    }
+
+    func recordDelay(name: String, ms: Int) {
+        groups?.delays[name] = ms
+        groups?.alive[name] = ms > 0
+    }
+
     /// Policy name for a connection, following the config mode:
     /// direct -> DIRECT; global -> the GLOBAL group; rule -> first rule hit.
     func policy(for ctx: NCMatchContext) -> String {
-        guard let cfg = config else { return "DIRECT" }
-        switch cfg.mode {
+        policyWithRule(for: ctx).policy
+    }
+
+    func policyWithRule(for ctx: NCMatchContext) -> (policy: String, rule: String?) {
+        guard let cfg = config else { return ("DIRECT", nil) }
+        switch effectiveMode {
         case "direct":
-            return "DIRECT"
+            return ("DIRECT", nil)
         case "global":
-            return cfg.groupMap["GLOBAL"] != nil ? "GLOBAL" : (cfg.groups.first?.name ?? "DIRECT")
+            return (cfg.groupMap["GLOBAL"] != nil ? "GLOBAL" : (cfg.groups.first?.name ?? "DIRECT"), nil)
         default:
-            return NCRuleMatcher.evaluate(rules, ctx) ?? "DIRECT"
+            if let hit = NCRuleMatcher.firstMatch(rules, ctx) {
+                return (hit.policy, hit.raw)
+            }
+            return ("DIRECT", nil)
         }
     }
 

@@ -159,6 +159,11 @@ struct NCRuleMatcher {
     }
 
     /// First matching rule wins (mihomo/clash semantics). Returns its policy.
+    static func firstMatch(_ rules: [NCRule], _ ctx: NCMatchContext) -> NCRule? {
+        for r in rules where matches(r, ctx) { return r }
+        return nil
+    }
+
     static func evaluate(_ rules: [NCRule], _ ctx: NCMatchContext) -> String? {
         for r in rules where matches(r, ctx) { return r.policy }
         return nil
