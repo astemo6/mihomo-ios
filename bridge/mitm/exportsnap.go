@@ -50,6 +50,7 @@ type ScriptManifestEntry struct {
 	Type      string          `json:"type"`
 	File      string          `json:"file,omitempty"`
 	TimeoutMs int64           `json:"timeoutMs"`
+	MaxSize   int             `json:"maxSize,omitempty"` // the script's max-size (bytes; scriptBodyLimit)
 	Setup     json.RawMessage `json:"setup,omitempty"` // runCtx.setupJSON(nil, nil): __tern_begin's base
 	Err       string          `json:"err,omitempty"`   // load / adapt error, reported as the script's run error
 }
@@ -75,7 +76,7 @@ func ExportScriptManifest(home string, cfg *Config, rs *Ruleset) (int, int, erro
 				continue
 			}
 			sc := r.Script
-			ent := ScriptManifestEntry{I: i, Name: sc.Name, Type: sc.Type,
+			ent := ScriptManifestEntry{I: i, Name: sc.Name, Type: sc.Type, MaxSize: sc.MaxSize,
 				TimeoutMs: scriptTimeout(sc, 120*time.Second, 10*time.Second).Milliseconds()}
 			rc := &runCtx{script: sc, name: sc.Name, e: e}
 			if setup, err := rc.setupJSON(nil, nil); err == nil {

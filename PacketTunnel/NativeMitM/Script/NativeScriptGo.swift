@@ -11,6 +11,7 @@
 // ScriptGoHost is a protocol so the unit tests can count calls; production is GoScriptHost.
 
 import Foundation
+import os
 import UserNotifications
 
 // MARK: - Switch
@@ -196,10 +197,11 @@ final class NativeScriptHost: ScriptGoHost {
         var type: String?
         var file: String?
         var timeoutMs: Int64?
+        var maxSize: Int64?
         var err: String?
         /// The setup base as JSON text (decoded from the raw "setup" object).
         var setupJSON = "{}"
-        enum CodingKeys: String, CodingKey { case i, key, name, type, file, timeoutMs, err }
+        enum CodingKeys: String, CodingKey { case i, key, name, type, file, timeoutMs, maxSize, err }
     }
 
     private var home = ""
@@ -286,21 +288,84 @@ final class NativeScriptHost: ScriptGoHost {
         return p
     }
 
+    // MARK: body budget (bridge/mitm handler.go dynamicBodyMax / scriptBodyLimit)
+
+    static let maxScriptBody: Int64 = 4 << 20
+    static let bodyHardMax: Int64 = 8 << 20
+    static let bodyBudgetMin: Int64 = 256 << 10
+    static let largeBodyReserve: Int64 = 4 << 20
+    static let bodyCopyFactor: Int64 = 3
+
+    /// The body budget from the memory iOS still allows the extension (unknown → MaxScriptBody).
+    static func dynamicBodyMax() -> Int64 {
+        let avail = Int64(os_proc_available_memory())
+        if avail <= 0 { return maxScriptBody }
+        return Swift.min(Swift.max((avail - largeBodyReserve) / bodyCopyFactor, bodyBudgetMin), bodyHardMax)
+    }
+
+    private func entry(_ rule: Int) -> ManifestEntry? { lock.lock(); defer { lock.unlock() }; return manifest[rule] }
+
+    /// The body size handed to rule's script: its max-size within the dynamic budget.
+    func scriptBodyLimit(_ rule: Int) -> Int64 {
+        let dyn = Self.dynamicBodyMax()
+        if let m = entry(rule)?.maxSize, m > 0, m < dyn { return m }
+        return dyn
+    }
+
+    private func limitNote(_ rule: Int, _ limit: Int64) -> String {
+        if let m = entry(rule)?.maxSize, m > 0, m == limit { return "脚本 max-size \(limit >> 10) KB" }
+        let avail = Int64(os_proc_available_memory())
+        if avail > 0 { return String(format: "当前内存预算 %d KB，隧道可用 %.1f MB", limit >> 10, Double(avail) / 1048576) }
+        return "上限 \(limit >> 10) KB"
+    }
+
     func bodyAdmit(gen: Int64, rule: Int, respRules: [Int], url: String, contentLength: Int64, enc: String, token: Int64) -> ScriptAdmit {
+        let limit = scriptBodyLimit(rule)
+        if contentLength > limit {
+            return ScriptAdmit(ok: false, skip: "响应体 \(contentLength >> 10) KB 超过上限 \(limit >> 10) KB（\(limitNote(rule, limit))）")
+        }
         let ticket: Int64 = { lock.lock(); defer { lock.unlock() }; ticketSeq += 1; return ticketSeq }()
-        return ScriptAdmit(ok: true, ticket: ticket, cap: 256 << 10, limit: 256 << 10)
+        // cap: the decode limit for the store (the largest any of the response's scripts takes)
+        let cap = respRules.map { scriptBodyLimit($0) }.max() ?? limit
+        return ScriptAdmit(ok: true, ticket: ticket, cap: Swift.max(cap, limit), limit: limit)
     }
 
     func bodyLoaded(ticket: Int64, url: String, decoded: Int64) -> String { "" }
     func bodyFailed(ticket: Int64, url: String, kind: String, raw: Int64, detail: String) -> String { "" }
     func bodyRelease(ticket: Int64) {}
     func bodyCheck(gen: Int64, rule: Int, blen: Int64, limit: Int64) -> ScriptBodyCheck {
-        ScriptBodyCheck(limit: 256 << 10)
+        let l = limit < 0 ? scriptBodyLimit(rule) : limit
+        if blen <= l { return ScriptBodyCheck(limit: l) }
+        let why = "响应体 \(blen >> 10) KB 超过上限 \(l >> 10) KB（\(limitNote(rule, l))）"
+        return ScriptBodyCheck(limit: l, note: skip(gen: gen, rule: rule, why: why))
     }
 
-    func skip(gen: Int64, rule: Int, why: String) -> String { "" }
+    /// modifyResponse's 「跳过脚本：」 line (startup log here) and the request-log note.
+    func skip(gen: Int64, rule: Int, why: String) -> String {
+        let name = entry(rule)?.name ?? "script"
+        let w = why.isEmpty ? "响应体超过上限或编码不支持" : why
+        StartupLog.write("跳过脚本：\(name) — \(w)")
+        return "跳过脚本：" + name + " — " + w
+    }
+
     func fail(gen: Int64, rule: Int, mode: String, detail: String, stop: Int, timeoutMs: Int64, afterDone: Bool) -> ScriptFail {
-        ScriptFail()
+        let name = entry(rule)?.name ?? "script"
+        let why: String
+        switch stop {
+        case 1: why = "脚本超时（\(timeoutMs / 1000) 秒）"
+        case 2: why = "内存紧张，脚本已停止"
+        case 3: why = "连接已关闭，脚本已停止"
+        default: why = detail.isEmpty ? "脚本错误" : detail
+        }
+        StartupLog.write("脚本失败：\(name) — \(why)\(afterDone ? "（$done 之后）" : "")")
+        var f = ScriptFail()
+        if afterDone && stop == 0 {
+            f.ignored = true // an exception after $done: logged, the answer stands (Go: Ignored, no note)
+            f.msg = why
+        } else {
+            f.note = "脚本错误：" + name + " — " + why
+        }
+        return f
     }
 
     func host(gen: Int64, rule: Int, op: String, arg: String) -> String {
@@ -473,12 +538,18 @@ final class NativeScriptHost: ScriptGoHost {
     }
 
     func reqBodyAdmit(gen: Int64, rule: Int, url: String, contentLength: Int64, token: Int64) -> ScriptAdmit {
+        let limit = scriptBodyLimit(rule)
+        if contentLength > limit {
+            return ScriptAdmit(ok: false, skip: "请求体 \(contentLength >> 10) KB 超过上限 \(limit >> 10) KB（\(limitNote(rule, limit))）")
+        }
         let ticket: Int64 = { lock.lock(); defer { lock.unlock() }; ticketSeq += 1; return ticketSeq }()
-        return ScriptAdmit(ok: true, ticket: ticket, cap: 256 << 10, limit: 256 << 10)
+        return ScriptAdmit(ok: true, ticket: ticket, cap: limit, limit: limit)
     }
 
-    func reqBodySkip(gen: Int64, rule: Int, why: String, blen: Int64) -> String { "" }
-    func reqLimit(gen: Int64, rule: Int) -> Int64 { 256 << 10 }
+    func reqBodySkip(gen: Int64, rule: Int, why: String, blen: Int64) -> String {
+        skip(gen: gen, rule: rule, why: why.isEmpty ? "请求体 \(blen >> 10) KB 超过上限" : why)
+    }
+    func reqLimit(gen: Int64, rule: Int) -> Int64 { scriptBodyLimit(rule) }
     func held() -> Int64 {
         lock.lock(); defer { lock.unlock() }
         return activeSlots
