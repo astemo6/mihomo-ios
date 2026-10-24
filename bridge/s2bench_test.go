@@ -101,7 +101,15 @@ func TestMitmBenchRoundTrip(t *testing.T) {
 }
 
 // The combo bench's rules (native-final): the Go path applies all three on the bench JSON.
+type zeroProbe struct{}
+
+func (zeroProbe) Footprint() int64 { return 1 << 20 }
+func (zeroProbe) Available() int64 { return 0 }
+
 func TestMitmBenchComboRules(t *testing.T) {
+	// a probe left behind by an earlier test (the simulator's answers 0) must not turn the Go path's body gates off
+	SetMemoryProbe(zeroProbe{})
+	defer SetMemoryProbe(nil)
 	var st struct {
 		EnginePort int    `json:"enginePort"`
 		CA         string `json:"ca"`

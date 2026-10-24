@@ -12,6 +12,7 @@ import (
 	"encoding/json"
 	"errors"
 	"io"
+	"math"
 	"net"
 	"net/http"
 	"os"
@@ -31,6 +32,10 @@ type s2bench struct {
 	origin net.Listener
 	srv    *http.Server
 	home   string
+	// prevLimit: the Go memory limit before a bench with rules pinned it off (-1: not pinned)
+	prevLimit   int64
+	prevProbe   MemoryProbe
+	probePinned bool
 }
 
 var benchCur *s2bench
@@ -122,7 +127,7 @@ func MitmBenchStartRules(rules string) string {
 	if err != nil {
 		return fail(err)
 	}
-	b := &s2bench{home: home}
+	b := &s2bench{home: home, prevLimit: -1}
 	var originAddr string
 	dialOrigin := func() (net.Conn, error) { return net.Dial("tcp", originAddr) }
 	e := mitm.New(home, func(ctx context.Context, network, addr, policy string) (net.Conn, error) {
@@ -184,6 +189,16 @@ func MitmBenchStartRules(rules string) string {
 		benchRelay(c, tc) // tunnel.HandleTCPConn on the socket itself
 		return nil
 	})
+	if strings.TrimSpace(rules) != "" {
+		// body rules: earlier tests in the same process may leave a Go memory limit behind (GOMEMLIMIT / the
+		// governor), and heapHigh() would then skip the jq rule on the Go path — the bench compares paths, not gates
+		b.prevLimit = debug.SetMemoryLimit(math.MaxInt64)
+		// …and a registered available-memory probe (the simulator answers 0) would make every body gate say no
+		if pb, _ := memProbe.Load().(probeBox); pb.p != nil {
+			b.prevProbe, b.probePinned = pb.p, true
+			mitm.SetAvailableMemoryProbe(nil)
+		}
+	}
 	eng, benchCur = e, b
 	out, _ := json.Marshal(map[string]any{"enginePort": e.Port(), "ca": base64.StdEncoding.EncodeToString(ca.DER)})
 	return string(out)
@@ -214,6 +229,12 @@ func MitmBenchStop() {
 		return
 	}
 	mitm.SetNativeTerminator(nil)
+	if b.prevLimit >= 0 {
+		debug.SetMemoryLimit(b.prevLimit)
+	}
+	if b.probePinned {
+		SetMemoryProbe(b.prevProbe)
+	}
 	b.e.Stop()
 	_ = b.srv.Close()
 	_ = os.RemoveAll(filepath.Clean(b.home))
