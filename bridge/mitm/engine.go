@@ -83,6 +83,8 @@ type Engine struct {
 	geo      atomic.Pointer[GeoLookup]
 	api      atomic.Pointer[APIFunc]
 
+	relay *Relay // feat/native-mitm: upstream relay for the native front (relay.go), under tmu
+
 	loop     atomic.Pointer[LoopFunc]
 	loopLog  atomic.Int64 // unix seconds of the last loop warning
 	LoopHits atomic.Int64
@@ -167,6 +169,7 @@ func (e *Engine) Start() error {
 
 // Stop closes the listener and all state.
 func (e *Engine) Stop() {
+	e.StopRelay()
 	e.tasks.shutdown()
 	_ = e.Store.Flush() // v0.19.9: coalesced $persistentStore writes reach the file before the tunnel goes
 	if e.ln == nil {
@@ -232,6 +235,7 @@ func (e *Engine) Reload(cfg *Config, rs *Ruleset) {
 	// overwriting a Go 1.24+ sync.Map (HashTrieMap) mid-use crashes the extension.
 	e.pinned.Clear()
 	e.strikes.Clear()
+	ResetLaneBreaker() // feat/native-mitm: a reload gives a tripped native body lane another chance
 	e.tmu.Lock()
 	skip := cfg.SkipCertVerify || (rs.SkipCertVerify != nil && *rs.SkipCertVerify)
 	if e.transport != nil && e.tSkip != skip {
@@ -488,6 +492,11 @@ func (e *Engine) shouldIntercept(st *state, host string, port int) bool {
 }
 
 func (e *Engine) interceptTLS(st *state, mc *metaConn, target string) {
+	// feat/native-mitm stage 2: the native TLS front may take the connection (nativeterm.go); when it
+	// declines or fails before its first byte nothing was consumed and Go terminates TLS as before.
+	if e.tryNativeTLS(mc, mc.meta.host) {
+		return
+	}
 	nextProtos := []string{"http/1.1"}
 	if st.cfg.h2() {
 		nextProtos = []string{"h2", "http/1.1"}

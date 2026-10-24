@@ -234,21 +234,93 @@ func requestURL(r *http.Request, meta *connMeta) string {
 }
 
 func (e *Engine) serveHTTP(w http.ResponseWriter, r *http.Request) {
-	st := e.state()
-	meta, _ := r.Context().Value(metaKey{}).(*connMeta)
-	u := requestURL(r, meta)
-	ent := e.Requests.Start(r, u, meta != nil && meta.tls)
+	p := e.startRequest(r)
+	ent := p.ent
 	defer func() {
-		if p := recover(); p != nil {
-			if p == http.ErrAbortHandler {
+		if v := recover(); v != nil {
+			if v == http.ErrAbortHandler {
 				ent.Finish(0, "已断开")
-				panic(p)
+				panic(v)
 			}
-			e.logf("error", fmt.Sprintf("[MitM] 处理 %s 时出错：%v", clip(u, 100), p))
+			e.logf("error", fmt.Sprintf("[MitM] 处理 %s 时出错：%v", clip(p.u, 100), v))
 			ent.Finish(502, "内部错误")
 			http.Error(w, "mitm error", http.StatusBadGateway)
 		}
 	}()
+	defer p.releaseBody()
+	f := e.requestPhase(p, w, r)
+	if f == nil {
+		return // answered locally
+	}
+	defer func() {
+		if f.release != nil {
+			f.release()
+		}
+	}()
+	target, _ := url.Parse(f.url)
+	rp := &httputil.ReverseProxy{
+		Rewrite: func(pr *httputil.ProxyRequest) {
+			pr.Out.URL.Scheme = target.Scheme
+			pr.Out.URL.Host = target.Host
+			pr.Out.Host = r.Host
+			if pr.Out.Header.Get("User-Agent") == "" {
+				pr.Out.Header["User-Agent"] = nil
+			}
+		},
+		Transport:     e.upstream(),
+		FlushInterval: -1,
+		ErrorLog:      nil,
+		ModifyResponse: func(resp *http.Response) error {
+			return e.modifyResponse(f, resp)
+		},
+		ErrorHandler: func(w http.ResponseWriter, req *http.Request, err error) {
+			if err == context.Canceled {
+				ent.Finish(0, "客户端取消")
+				return
+			}
+			ent.Finish(502, "上游错误："+shortErr(err))
+			w.WriteHeader(http.StatusBadGateway)
+		},
+	}
+	// The rewrite / script work on the request body is done: hand its budget back before waiting on
+	// upstream (the bytes are only streamed from here on).
+	p.releaseBody()
+	rp.ServeHTTP(w, r)
+}
+
+// reqPhase is one request's state across requestPhase and its caller (serveHTTP, or the native flow's
+// flowRequestPhase): u follows URL rewrites (also when the phase panics), release is the request body's
+// share of bodyBudget while one is held.
+type reqPhase struct {
+	st      *state
+	ent     *Entry
+	u       string
+	release func()
+}
+
+func (e *Engine) startRequest(r *http.Request) *reqPhase {
+	meta, _ := r.Context().Value(metaKey{}).(*connMeta)
+	u := requestURL(r, meta)
+	return &reqPhase{st: e.state(), u: u, ent: e.Requests.Start(r, u, meta != nil && meta.tls)}
+}
+
+// releaseBody hands the request body's budget back (idempotent).
+func (p *reqPhase) releaseBody() {
+	if p.release != nil {
+		p.release()
+		p.release = nil
+	}
+}
+
+// requestPhase is the request half of the MitM handler, shared by the Go path (serveHTTP) and the native flow
+// API (flowRequestPhase): URL rewrites, Map Local, request header / body rewrites and scripts in rule order,
+// then the response-rule match against the final URL. A local answer (reject, redirect, Map Local, a script's
+// $done({response})) is written to w and nil is returned; reject-drop and a script abort panic with
+// http.ErrAbortHandler. Otherwise r is the request to send upstream and the returned flow carries the
+// response-phase rules. The caller releases p's body budget (p.releaseBody) when it no longer needs the body.
+func (e *Engine) requestPhase(p *reqPhase, w http.ResponseWriter, r *http.Request) *flow {
+	st, ent, u := p.st, p.ent, p.u
+	defer func() { p.u = u }()
 	capture := st.cfg.capture()
 
 	rules := st.rs.Rules
@@ -280,7 +352,7 @@ func (e *Engine) serveHTTP(w http.ResponseWriter, r *http.Request) {
 			}
 			writeLocal(w, status, http.Header{"Content-Type": {ctype}}, body)
 			ent.Local(status, w.Header(), body, capture)
-			return
+			return nil
 		case "302", "307":
 			loc, err := rule.re.Replace(u, rule.Target, -1, 1)
 			if err != nil {
@@ -293,7 +365,7 @@ func (e *Engine) serveHTTP(w http.ResponseWriter, r *http.Request) {
 			w.Header().Set("Location", loc)
 			w.WriteHeader(code)
 			ent.Local(code, w.Header(), nil, capture)
-			return
+			return nil
 		case "header":
 			nu, err := rule.re.Replace(u, rule.Target, -1, 1)
 			if err == nil {
@@ -315,7 +387,7 @@ func (e *Engine) serveHTTP(w http.ResponseWriter, r *http.Request) {
 		}
 		ent.Match(rule.label())
 		if e.serveLargeMapLocal(w, rule, ent, capture) {
-			return
+			return nil
 		}
 		body, ctype, err := e.mapLocalData(rule)
 		if err != nil {
@@ -334,18 +406,12 @@ func (e *Engine) serveHTTP(w http.ResponseWriter, r *http.Request) {
 		}
 		writeLocal(w, st, h, body)
 		ent.Local(st, h, body, capture)
-		return
+		return nil
 	}
 
 	// 3. Request phase: header rewrites, body rewrites and scripts in rule order.
 	var reqBody []byte
 	bodyLoaded, bodyOK := false, false
-	var releaseReq func()
-	defer func() {
-		if releaseReq != nil {
-			releaseReq()
-		}
-	}()
 	// review5 P0-1 / P2-2: the body is read once, with reqCap (MaxBody, or a max-size=-1 script's
 	// MaxScriptBody), after taking a share of the global body budget. Each caller's limit (MaxBody for
 	// rewrites, scriptBodyLimit for scripts) is compared against the loaded length.
@@ -396,7 +462,7 @@ func (e *Engine) serveHTTP(w http.ResponseWriter, r *http.Request) {
 			e.logf("warning", fmt.Sprintf("[MitM] 同时处理的请求/响应体过多，跳过：%s", clip(u, 100)))
 			return false
 		}
-		releaseReq = rel
+		p.release = rel
 		b, rest, ok := readCapped(r.Body, reqCap)
 		if !ok {
 			reqSkip = fmt.Sprintf("请求体超过上限 %d KB", reqCap>>10)
@@ -504,7 +570,7 @@ func (e *Engine) serveHTTP(w http.ResponseWriter, r *http.Request) {
 				}
 				writeLocal(w, code, h, res.Response.Body)
 				ent.Local(code, h, res.Response.Body, capture)
-				return
+				return nil
 			}
 			if res.URL != "" && res.URL != u {
 				if pu, err := url.Parse(res.URL); err == nil && pu.Host != "" {
@@ -569,43 +635,7 @@ func (e *Engine) serveHTTP(w http.ResponseWriter, r *http.Request) {
 		r.Header.Set("Accept-Encoding", "gzip, deflate, br")
 	}
 
-	f := &flow{st: st, ent: ent, url: u, rules: respRules}
-	defer func() {
-		if f.release != nil {
-			f.release()
-		}
-	}()
-	target, _ := url.Parse(u)
-	rp := &httputil.ReverseProxy{
-		Rewrite: func(pr *httputil.ProxyRequest) {
-			pr.Out.URL.Scheme = target.Scheme
-			pr.Out.URL.Host = target.Host
-			pr.Out.Host = r.Host
-			if pr.Out.Header.Get("User-Agent") == "" {
-				pr.Out.Header["User-Agent"] = nil
-			}
-		},
-		Transport:     e.upstream(),
-		FlushInterval: -1,
-		ErrorLog:      nil,
-		ModifyResponse: func(resp *http.Response) error {
-			return e.modifyResponse(f, resp)
-		},
-		ErrorHandler: func(w http.ResponseWriter, req *http.Request, err error) {
-			if err == context.Canceled {
-				ent.Finish(0, "客户端取消")
-				return
-			}
-			ent.Finish(502, "上游错误："+shortErr(err))
-			w.WriteHeader(http.StatusBadGateway)
-		},
-	}
-	// The rewrite / script work on the request body is done: hand its budget back before waiting on
-	// upstream (the bytes are only streamed from here on).
-	if releaseReq != nil {
-		releaseReq()
-	}
-	rp.ServeHTTP(w, r)
+	return &flow{st: st, ent: ent, url: u, rules: respRules}
 }
 
 const captureLimit = 32 * 1024
@@ -701,12 +731,33 @@ func (e *Engine) modifyResponse(f *flow, resp *http.Response) error {
 	// loadSlot: the HTTP script slot held by the script whose rule is loading the body (nil for body
 	// rewrites); parked while waiting for bigBodyLock.
 	var loadSlot *Slot
+	// feat/native-mitm stage 1 (nativelane.go): when only scripts (and header rewrites) need this body and the
+	// JavaScriptCore engine runs them, the body is streamed into the native lane instead of the Go heap.
+	// nativeH is the lane handle holding the current body (body stays nil), nativeLen its decoded length.
+	lane := laneForRules(f.rules)
+	var nativeH, nativeLen int64
+	laneHanded := false
+	defer func() {
+		if nativeH > 0 && !laneHanded {
+			laneFree(lane, nativeH)
+		}
+	}()
+	// laneSkipBody: a lane-backed pass-through body (handler_lane.go laneSkipped: the encoded bytes the lane
+	// received, then the upstream's rest). Whatever replaces resp.Body later must close it, or the lane
+	// handle stays allocated in native memory for the rest of the run.
+	var laneSkipBody io.Closer
+	blen := func() int {
+		if nativeH > 0 {
+			return int(nativeLen)
+		}
+		return len(body)
+	}
 	loadBody := func(limit int) bool {
 		if loaded {
-			if !tooBig && len(body) > limit {
-				respSkip = fmt.Sprintf("响应体 %d KB 超过上限 %d KB", len(body)>>10, limit>>10)
+			if !tooBig && blen() > limit {
+				respSkip = fmt.Sprintf("响应体 %d KB 超过上限 %d KB", blen()>>10, limit>>10)
 			}
-			return !tooBig && len(body) <= limit
+			return !tooBig && blen() <= limit
 		}
 		loaded = true
 		tooBig = true
@@ -792,6 +843,28 @@ func (e *Engine) modifyResponse(f *flow, resp *http.Response) error {
 			e.logf("warning", fmt.Sprintf("[MitM] %s，跳过：%s", respSkip, clip(f.url, 100)))
 			return false
 		}
+		if lane != nil {
+			h, n, outcome := e.loadBodyLane(f, resp, lane, enc, want, respCap, respCapScript, charge, takeBig, &respSkip)
+			switch outcome {
+			case laneLoaded:
+				nativeH, nativeLen = h, n
+				upstreamDone = true
+				tooBig = false
+				resp.Header.Del("Content-Encoding")
+				if nativeLen > int64(limit) {
+					respSkip = fmt.Sprintf("响应体 %d KB 超过上限 %d KB（Content-Encoding: %s）", nativeLen>>10, limit>>10, orNone(enc))
+				}
+				if nativeLen <= bigBodyThreshold && charge.big != nil {
+					charge.big()
+					charge.big = nil
+				}
+				return nativeLen <= int64(limit)
+			case laneSkipped:
+				laneSkipBody = resp.Body
+				return false // skipped (respSkip says why); resp.Body passes the original through
+			}
+			// the lane refused before reading anything: the Go path below
+		}
 		b, rest, ok := readCapped(resp.Body, respCap)
 		if !ok {
 			respSkip = fmt.Sprintf("响应体超过上限 %d KB（%s；Content-Encoding: %s）", respCap>>10, bodyLimitNote(respCapScript, respCap), orNone(enc))
@@ -854,6 +927,10 @@ func (e *Engine) modifyResponse(f *flow, resp *http.Response) error {
 			return
 		}
 		closeUpstream()
+		if laneSkipBody != nil {
+			_ = laneSkipBody.Close() // frees the lane handle behind the pass-through body it replaces
+			laneSkipBody = nil
+		}
 		resp.Body = io.NopCloser(bytes.NewReader(b))
 		resp.ContentLength = int64(len(b))
 		resp.Header.Set("Content-Length", strconv.Itoa(len(b)))
@@ -896,8 +973,8 @@ func (e *Engine) modifyResponse(f *flow, resp *http.Response) error {
 				if limit := scriptBodyLimit(rule.Script); !ok {
 					slot.Release()
 					why := respSkip
-					if loaded && !tooBig && len(body) > limit {
-						why = fmt.Sprintf("响应体 %d KB 超过上限 %d KB（%s）", len(body)>>10, limit>>10, bodyLimitNote(rule.Script, limit))
+					if loaded && !tooBig && blen() > limit {
+						why = fmt.Sprintf("响应体 %d KB 超过上限 %d KB（%s）", blen()>>10, limit>>10, bodyLimitNote(rule.Script, limit))
 					}
 					if why == "" {
 						why = "响应体超过上限或编码不支持"
@@ -907,6 +984,9 @@ func (e *Engine) modifyResponse(f *flow, resp *http.Response) error {
 					continue
 				}
 				sresp.Body, sresp.HasBody = body, true
+				if nativeH > 0 {
+					sresp.Body, sresp.NativeBody = nil, nativeH
+				}
 			}
 			// v0.19.22: a large decoded body is lent to the script without a copy (one multi-MB copy
 			// less at the peak); the compressed original is kept to restore it should the script change
@@ -949,12 +1029,57 @@ func (e *Engine) modifyResponse(f *flow, resp *http.Response) error {
 					resp.Header.Del("Content-Encoding")
 				}
 			}
-			if res.BodySet {
+			switch {
+			case res.BodySet && res.NativeBody > 0:
+				// the new body stays in the lane (or is the lane body handed back as is)
+				if nativeH > 0 && nativeH != res.NativeBody {
+					laneFree(lane, nativeH)
+				}
+				nativeH, nativeLen, body = res.NativeBody, -1, nil
+				if lane != nil { // always: a lane result needs a lane body first
+					nativeLen = lane.Len(res.NativeBody, false)
+				}
+				loaded, tooBig = true, false
+				if nativeLen < 0 {
+					// the lane lost the result: nothing sane to send (the deferred free still balances the
+					// handle count; Free of an unknown handle is a no-op in the store)
+					laneFailure(e.logf, "result handle gone")
+					return fmt.Errorf("脚本 %s 的结果丢失", rule.Script.Name)
+				}
+			case res.BodySet:
+				if nativeH > 0 {
+					laneFree(lane, nativeH)
+					nativeH, nativeLen = 0, 0
+				}
 				setBody(res.Body)
-			} else if loaded && !tooBig {
+			case loaded && !tooBig && nativeH == 0:
 				setBody(body)
 			}
 		}
+	}
+	if nativeH > 0 {
+		// stream the lane body to the client; the reader frees the handle when the client is done
+		closeUpstream()
+		if !noBody {
+			resp.ContentLength = nativeLen
+			resp.Header.Set("Content-Length", strconv.FormatInt(nativeLen, 10))
+			resp.Header.Del("Content-Encoding")
+			resp.Header.Del("Transfer-Encoding")
+			resp.TransferEncoding = nil
+		}
+		lr := newLaneReader(lane, nativeH, false, e.logf)
+		laneHanded = true
+		ent.Response(resp.StatusCode, resp.Header)
+		if capture {
+			ent.RespBody(lanePrefix(lane, nativeH, captureLimit), "")
+		}
+		if noBody {
+			_ = lr.Close()
+			resp.Body = &finishBody{rc: http.NoBody, ent: ent}
+			return nil
+		}
+		resp.Body = &finishBody{rc: lr, ent: ent}
+		return nil
 	}
 	if loaded && !tooBig {
 		setBody(body)

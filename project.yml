@@ -54,6 +54,9 @@ targets:
       - path: Shared
       # feat/jsc-engine: the JavaScriptCore script engine also runs 脚本调试 in the app (and the unit tests).
       - path: PacketTunnel/JSCScriptEngine.swift
+      # feat/native-mitm: the native body lane, built into the app only so the unit tests can drive it
+      # (UnitTests/NativeBodyStoreTests.swift); the app never registers it.
+      - path: PacketTunnel/NativeBodyStore.swift
     configFiles:
       Debug: Config/App.signing.xcconfig
       Release: Config/App.signing.xcconfig
@@ -80,7 +83,8 @@ targets:
     platform: iOS
     sources:
       - path: PacketTunnel
-        excludes: ["**/*.entitlements"]
+        # feat/native-mitm: NativeMitM/ is the stage-2 skeleton (native TLS front); not built until it compiles on CI.
+        excludes: ["**/*.entitlements", "NativeMitM/**"]
       # The Live Activity attributes are app + widget only (keeps ActivityKit out of the tunnel's memory).
       - path: Shared
         excludes: ["LiveActivityShared.swift", "LiveActivityViews.swift", "TunnelControl.swift"]

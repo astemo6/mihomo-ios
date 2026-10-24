@@ -30,12 +30,24 @@ func TestEngineConformance(t *testing.T) {
 			SetNativeEngine(nil)
 		}
 	}()
+	// corpus cases with "lane": true run the native side through a fake native body store (conformancelane.go)
+	lane := newFakeLane()
+	SetNativeBodies(lane)
+	activeFakeLane.Store(lane)
+	defer func() {
+		activeFakeLane.Store(nil)
+		SetNativeBodies(nil)
+		ResetLaneBreaker()
+	}()
 	home := t.TempDir()
 	repeats := 0
 	for _, c := range cases {
 		r := RunConformance(home, c, true)
 		if !r.OK {
 			t.Errorf("%s: missing %q\n%s\ngoja: %s", c.Name, r.Missing, r.Diff, r.Goja)
+		}
+		if c.Lane && (r.LaneLive != 0 || lane.live() != 0) {
+			t.Errorf("%s: lane handles left: go %d, store %d", c.Name, r.LaneLive, lane.live())
 		}
 		if c.Repeat > 1 {
 			repeats += c.Repeat - 1

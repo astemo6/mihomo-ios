@@ -1,0 +1,15 @@
+# Egern 模块语法样例 (synthetic test sample for the B4 conformance corpus)
+# 与 UnitTests/ScriptEngineConformance.json 中的 egern-* 用例对应：
+# 原生 ctx 风格脚本经 ctx.response.arrayBuffer() / text() 读取 body 通道。
+# Egern 模块的真实布局：mitm / scriptings 是顶层键，脚本项按类型分组（- http_response: {…}）。
+name: AppClean
+description: Egern YAML module layout sample (body-channel script)
+mitm:
+  hostnames:
+    - api.example.com
+scriptings:
+  - http_response:
+      name: appclean.feed
+      match: ^https:\/\/api\.example\.com\/v1\/feed
+      script_url: https://example.com/scripts/appclean/feed.js
+      body_required: true

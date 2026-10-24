@@ -1,0 +1,12 @@
+#!name=AppClean (synthetic test sample for the B4 conformance corpus)
+#!desc=Loon 插件语法样例，与 UnitTests/ScriptEngineConformance.json 中的 loon-* 用例对应：JSON argument、requires-body
+#!author=test
+
+[Argument]
+blockAd = switch,true,tag=过滤广告条目
+
+[Script]
+http-response ^https:\/\/api\.example\.com\/v1\/feed script-path=https://example.com/scripts/appclean/feed.js, requires-body=true, tag=信息流去广告, argument=[{blockAd}]
+
+[MitM]
+hostname = api.example.com
