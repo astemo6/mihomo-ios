@@ -23,7 +23,7 @@ final class NativeCoreQUICFIPTests: XCTestCase {
         // Packet rebuilt 2026-10-25 with a well-formed ClientHello (the
         // first hand-assembled one dropped a zero byte in the SNI name
         // length, making the extension internally inconsistent).
-        let packet = hex("c700000001088394c8f03e5157080000405f1446b451909b7ca361c0a5e53f6c22dd6988baba5401fabdb11bdc15c4308caa1ea6df4ec4eea1ddf3d6bd27fb13e5e574e90272d731e3aa76aaddd0805411755eda3c3ed69a6ce3bd45418e7ed938798d7f072663396da37126d24236c1c4")
+        let packet = hex("c700000001088394c8f03e5157080000405f1446b451909b7ca361c0a5e53f6c22dd6988baba5401fabdb11bdc15c4308caa1ea6df4ec4eea1ddf3d6bd27fb13e5e574e90273d731e3aa76aaddd0805411755eda3c3ed69a6ce3bd45418e7ed938798d7f072663396da37126d24236c1c4")
         // Stage 1: RFC 9001 key schedule via NCTLS13 primitives directly.
         let salt = hex("38762cf7f55934b34d179ae6a4c80cadccbb7f0a")
         let initial = NCTLS13.hkdfExtract(.sha256, salt: salt, ikm: hex("8394c8f03e515708"))
