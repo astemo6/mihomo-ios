@@ -107,6 +107,14 @@ final class JSCScriptEngine: NSObject, LibmihomoScriptEngineProtocol {
     private var gcContext: JSContext?
     private var timeLimit = false
     private var contextsMade = 0
+    /// fix/xmly-memory: garbage collections asked for (0 none, 1 eden, 2 full) and run on `gcQueue`; the JSC heap
+    /// as last measured after one (stats()). `JSGarbageCollect` only *hints* (`reportAbandonedObjectGraph`): after
+    /// Go dropped a context or the tunnel was short of memory, nothing was collected until JSC's own timer.
+    private let gcQueue = DispatchQueue(label: "tern.jsc.gc", qos: .utility)
+    private var gcPending = 0
+    private var gcRuns = 0
+    private var heapAfterGC = -1.0
+    private var capacityAfterGC = -1.0
 
     private override init() {
         vm = JSVirtualMachine()
@@ -234,10 +242,7 @@ final class JSCScriptEngine: NSObject, LibmihomoScriptEngineProtocol {
     }
 
     func collect() {
-        lock.lock()
-        let g = gcContext
-        lock.unlock()
-        if let g { JSGarbageCollect(g.jsGlobalContextRef) }
+        scheduleGC(full: true)
     }
 
     func begin(_ run: LibmihomoScriptRun?, key: String?, setup: String?) -> String {
@@ -312,14 +317,26 @@ final class JSCScriptEngine: NSObject, LibmihomoScriptEngineProtocol {
         c.busy = false
         if let e = c.exception { trash.append(e) }
         c.exception = nil
+        var discarded = false
         if slot.temp || c.poisoned || c.terminated || slot.entry.dropped {
             if slot.entry.primary === c { slot.entry.primary = nil }
             forget(c)
+            discarded = true
         }
         trash.append(c)
         trash.append(slot.entry)
         unlockAndEmpty()
+        // fix/xmly-memory: a run's garbage (the 喜马拉雅 script: JSC heap capacity +5 MB per burst in the Bun/LLInt
+        // rig, back to +0.4 MB after a collection) stays in the footprint until JSC's own heuristics collect.
+        // When the tunnel is short of memory it is collected right after the run.
+        let avail = ProcessMemory.availableBytes()
+        if avail >= 0 && avail < Self.collectBelowAvailable {
+            scheduleGC(full: discarded)
+        }
     }
+
+    /// Below this much available memory every finished run is followed by a collection.
+    private static let collectBelowAvailable = 14 << 20
 
     func stats() -> String {
         lock.lock()
@@ -329,7 +346,63 @@ final class JSCScriptEngine: NSObject, LibmihomoScriptEngineProtocol {
         refLock.lock()
         let checks = limitChecks, stops = limitStops
         refLock.unlock()
-        return "jsc scripts \(entries.count) (contexts \(loaded), runs \(runs.count), sources \(String(format: "%.1f", Double(bytes) / 1_048_576)) MB, made \(contextsMade)), time limit \(timeLimit ? "on" : "off") (checks \(checks), stops \(stops))"
+        let heap = heapAfterGC < 0 ? "-" : String(format: "%.1f / %.1f MB", heapAfterGC / 1_048_576, capacityAfterGC / 1_048_576)
+        return "jsc scripts \(entries.count) (contexts \(loaded), runs \(runs.count), sources \(String(format: "%.1f", Double(bytes) / 1_048_576)) MB, made \(contextsMade)), time limit \(timeLimit ? "on" : "off") (checks \(checks), stops \(stops)), heap after gc \(heap) (gcs \(gcRuns))"
+    }
+
+    // MARK: garbage collection
+
+    private typealias GCFunction = @convention(c) (JSContextRef?) -> Void
+    private typealias StatsFunction = @convention(c) (JSContextRef?) -> JSObjectRef?
+
+    /// JavaScriptCore's exported synchronous collections (JSBasePrivate.h), looked up at runtime like the time limit.
+    private static let fullGC: GCFunction? = symbol("JSSynchronousGarbageCollectForDebugging")
+    private static let edenGC: GCFunction? = symbol("JSSynchronousEdenCollectForDebugging")
+    private static let memoryStats: StatsFunction? = {
+        guard let p = dlsym(UnsafeMutableRawPointer(bitPattern: -2), "JSGetMemoryUsageStatistics") else { return nil }
+        return unsafeBitCast(p, to: StatsFunction.self)
+    }()
+
+    private static func symbol(_ name: String) -> GCFunction? {
+        guard let p = dlsym(UnsafeMutableRawPointer(bitPattern: -2), name) else { return nil }
+        return unsafeBitCast(p, to: GCFunction.self)
+    }
+
+    /// Collects on `gcQueue` (coalesced; a running script holds the VM lock, so the collection waits for it there
+    /// instead of blocking the caller: Go's shed / reclaim path or the end of a run).
+    private func scheduleGC(full: Bool) {
+        lock.lock()
+        let was = gcPending
+        gcPending = max(gcPending, full ? 2 : 1)
+        let haveContext = gcContext != nil
+        lock.unlock()
+        guard was == 0, haveContext else { return }
+        gcQueue.async { [self] in
+            lock.lock()
+            let kind = gcPending
+            gcPending = 0
+            let g = gcContext
+            lock.unlock()
+            guard let g else { return }
+            let ref = g.jsGlobalContextRef
+            if kind >= 2, let f = Self.fullGC {
+                f(ref)
+            } else if let f = Self.edenGC {
+                f(ref)
+            } else {
+                JSGarbageCollect(ref)
+            }
+            var heap = -1.0, capacity = -1.0
+            if let st = Self.memoryStats, let obj = st(ref), let v = JSValue(jsValueRef: obj, in: g) {
+                heap = v.objectForKeyedSubscript("heapSize")?.toDouble() ?? -1
+                capacity = v.objectForKeyedSubscript("heapCapacity")?.toDouble() ?? -1
+            }
+            lock.lock()
+            gcRuns += 1
+            heapAfterGC = heap
+            capacityAfterGC = capacity
+            lock.unlock()
+        }
     }
 
     // MARK: contexts

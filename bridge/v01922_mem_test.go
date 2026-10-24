@@ -119,9 +119,23 @@ func TestV01922ShedCriticalClearsDNSAndLogs(t *testing.T) {
 	var cleared atomic.Bool
 	testHookShedDNS = func() { cleared.Store(true) }
 	defer func() { testHookShedDNS = nil }()
+	resetDNSClear()
+	defer resetDNSClear()
+	// fix/xmly-memory: a pressure event at 7 MB sheds at L2 but keeps the DNS caches (an app is opening
+	// its connections); the timer clears them, and not twice within dnsClearEvery
 	line := ShedMemory(1, "memory pressure warning")
+	if cleared.Load() || !strings.Contains(line, "memory shed L2") || strings.Contains(line, "DNS caches cleared") {
+		t.Fatalf("critical event shed: cleared=%v line %q", cleared.Load(), line)
+	}
+	resetShedState()
+	line = ShedMemory(2, "timer")
 	if !cleared.Load() || !strings.Contains(line, "memory shed L2") || !strings.Contains(line, "DNS caches cleared") {
-		t.Fatalf("critical shed: cleared=%v line %q", cleared.Load(), line)
+		t.Fatalf("critical timer shed: cleared=%v line %q", cleared.Load(), line)
+	}
+	resetShedState()
+	cleared.Store(false)
+	if line = ShedMemory(2, "timer"); cleared.Load() {
+		t.Fatalf("DNS caches cleared twice within %s: %q", dnsClearEvery, line)
 	}
 	if !stageLogHas(logPath, "footprint 40.0 MB") {
 		b, _ := os.ReadFile(logPath)
@@ -139,6 +153,9 @@ func TestV01922ShedCriticalClearsDNSAndLogs(t *testing.T) {
 // The governor lowers GOMEMLIMIT above the footprint target, never below live heap + headroom, leaves it
 // alone during a script loan, and restores the configured limit once the footprint is back down.
 func TestV01922GovernLimit(t *testing.T) {
+	oldNG := goNonGarbage
+	goNonGarbage = func() int64 { return 0 }
+	defer func() { goNonGarbage = oldNG }()
 	old := debug.SetMemoryLimit(-1)
 	defer func() { debug.SetMemoryLimit(old); setConfiguredLimit(old) }()
 	debug.SetMemoryLimit(26 << 20)
@@ -408,4 +425,39 @@ func TestV01922PeriodicMemoryLine(t *testing.T) {
 		t.Fatalf("%d lines after 5 min under pressure, want 2", c)
 	}
 	_ = mitm.ShedLight
+}
+
+func resetDNSClear() {
+	lastDNSClear.Lock()
+	lastDNSClear.at = time.Time{}
+	lastDNSClear.Unlock()
+}
+
+// fix/xmly-memory: when Go holds more than GOMEMLIMIT without any garbage (device: stacks 5 MB + 22 MB of
+// heap spans against 26 MB), the governor raises the limit to non-garbage + slack (the GC ran ~100×/s
+// there), bounded above the configured value, and gives the configured value back once it fits again.
+func TestXmlyGovernAntiThrash(t *testing.T) {
+	oldNG := goNonGarbage
+	defer func() { goNonGarbage = oldNG }()
+	old := debug.SetMemoryLimit(-1)
+	defer func() { debug.SetMemoryLimit(old); setConfiguredLimit(old) }()
+	debug.SetMemoryLimit(26 << 20)
+	setConfiguredLimit(26 << 20)
+	goNonGarbage = func() int64 { return 30 << 20 }
+	if v := governLimit(30<<20, 16<<20); v != 32<<20 {
+		t.Fatalf("anti-thrash limit %d MB, want 32", v>>20)
+	}
+	// above the footprint target the governor still never goes below the non-garbage floor
+	if v := governLimit(44<<20, 16<<20); v != 0 || debug.SetMemoryLimit(-1) != 32<<20 {
+		t.Fatalf("lowered below the floor: %d MB", debug.SetMemoryLimit(-1)>>20)
+	}
+	goNonGarbage = func() int64 { return 60 << 20 }
+	governLimit(30<<20, 16<<20)
+	if cur := debug.SetMemoryLimit(-1); cur != 26<<20+antiThrashMaxRaise {
+		t.Fatalf("raise not bounded: %d MB", cur>>20)
+	}
+	goNonGarbage = func() int64 { return 14 << 20 }
+	if v := governLimit(30<<20, 10<<20); v != 26<<20 {
+		t.Fatalf("configured limit not restored: %d MB", v>>20)
+	}
 }
