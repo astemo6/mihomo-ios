@@ -51,6 +51,12 @@ struct RWSnapRule: Decodable {
     var opsOK: Bool?
     var local: RWSnapLocal?
     var script: RWSnapScript?
+    // stage 3b body rules (bodysnap.go; NativeBodyRewrite.swift)
+    var body: [RWSnapBodyOp]?
+    var jsonOps: [RWSnapJSONOp]?
+    var jq: [RWSnapJQStep]?
+    var bodyOK: Bool?
+    var bodyWhy: String?
 }
 
 struct RWSnapHost: Decodable {
