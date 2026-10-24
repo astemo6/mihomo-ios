@@ -29,14 +29,16 @@ enum NCIP: Equatable, Hashable {
         var s = string
         // Embedded IPv4 tail (::ffff:1.2.3.4)
         var v4Tail: [UInt8] = []
-        if let dot = s.lastIndex(of: ".") {
-            // Walk back from the last dot to the first char of the v4 tail;
-            // the ':' separator sits right before it.
-            var tailStart = dot
-            while tailStart > s.startIndex, s[s.index(before: tailStart)] != ":" { tailStart = s.index(before: tailStart) }
-            guard tailStart > s.startIndex, let v4 = parseV4(String(s[tailStart...])) else { return nil }
+        if s.contains(".") {
+            // The v4 tail is everything after the LAST ':'; the text before
+            // it keeps its own group/compression semantics (substituting
+            // placeholder groups would change where "::" expansion lands).
+            guard let colon = s.lastIndex(of: ":") else { return nil }
+            guard let v4 = parseV4(String(s[s.index(after: colon)...])) else { return nil }
             v4Tail = [UInt8((v4 >> 24) & 0xff), UInt8((v4 >> 16) & 0xff), UInt8((v4 >> 8) & 0xff), UInt8(v4 & 0xff)]
-            s = String(s[..<tailStart]) + "0:0"
+            s = String(s[..<colon])
+            if s == ":" { s = "::" }                              // "::1.2.3.4"
+            else if s.hasSuffix(":"), !s.hasSuffix("::") { s += ":" } // "ffff::1.2.3.4"
         }
         let halves = s.components(separatedBy: "::")
         guard halves.count <= 2 else { return nil }
