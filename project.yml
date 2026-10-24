@@ -60,6 +60,8 @@ targets:
       # native MitM stage 2 (lane wire): the shared contract + session, in the app only for NativeMitmSessionTests.
       - path: PacketTunnel/NativeMitM/S2Contract.swift
       - path: PacketTunnel/NativeMitM/NativeMitmSession.swift
+      # feat/s2-tls: native MitM TLS front (B7), in the app only for UnitTests/NativeMitmTLSTests.swift; never registered there.
+      - path: PacketTunnel/NativeMitM/TLS
     configFiles:
       Debug: Config/App.signing.xcconfig
       Release: Config/App.signing.xcconfig
