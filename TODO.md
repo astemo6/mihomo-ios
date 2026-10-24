@@ -19,9 +19,8 @@
 | D | 界面与文案小修 | 待认领 | `App/Views/**`、`App/Localizable.xcstrings`（文案只此一线改） | 0.19.22 发版后的 `main` | 0.19.22 发版后 |
 | E | 隧道性能优化 | 待认领 | `PacketTunnel/**`（B 线文件除外）、Sub-Store 相关 | 0.19.22 发版后的 `main` | 0.19.22 发版后 |
 | F | CI 与自动化 | 待认领 | `.github/workflows/**`、`scripts/**` | `main` | 现在可开始 |
-| G | Android | 待认领 | 只推 `android/**`，需求见 `android/main` 分支的 `HANDOFF.md` A0–A3 | `android/main` | 现在可开始 |
 
-说明：0.19.22 正在集成，`App/`、`PacketTunnel/`、`bridge/` 冲突风险很高，所以 B / D / E 等发版后再动；F、G 和 A 不重叠，现在就能做。
+说明：0.19.22 正在集成，`App/`、`PacketTunnel/`、`bridge/` 冲突风险很高，所以 B / D / E 等发版后再动；F 和 A 不重叠，现在就能做。
 
 ## A 线：v0.19.22（维护者，进行中，别人勿动）
 
@@ -106,10 +105,6 @@
 | 1 | `core-update.yml` 开出的内核升级分支，CI 全绿后自动打包；发版仍需人工点头 | 待办 |
 | 2 | macOS runner 排队：同一提交去重、失败只重跑失败 job | 待办 |
 | 3 | 推 `feat/**` 不触发 `checks.yml`（目前任何推送都跑，影响占位分支） | 待办 |
-
-## G 线：Android（待认领，现在可开始）
-
-只推 `android/**`，需求见 `android/main` 分支的 `HANDOFF.md` A0–A3。固定签名 keystore 存入 Secrets 需仓库所有者确认。
 
 ## 通用约定
 
