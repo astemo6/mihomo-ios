@@ -58,3 +58,34 @@ the later patch overwrote a live instruction at that pc with a jump: "Compiler b
 instruction for binding: goja.jump", or silently wrong code. The whole block chain is now copied (with
 `breaking` links remapped). File: compiler.go (search "Patch 4"); test:
 bridge/mitm/goja_deadbreak_test.go. Hit by obfuscated scripts (a Loon 喜马拉雅 plugin's xmly.js).
+
+## Patch 5: compile-time memory (mihomo-ios v0.19.23, E 线 #5)
+
+- `binding.accessPoints` was `map[*scope]*[]int`: one map plus one boxed slice per binding (~250
+  bytes), and a Sub-Store bundle keeps tens of thousands of bindings alive until its outer function is
+  finalised. Now a small slice of `{scope, []int32}` (the last entry is checked first; a map index is
+  built only past 8 scopes). The finalisation loops iterate the slice instead of the map (each writes
+  its own instructions, so the order does not matter). File: compiler.go.
+- `parser.ParseFile` with a string source used it as `[]byte` and back as `string` (two transient
+  copies of the whole source); a string is now used as is. File: parser/parser.go.
+
+Checked: the compiled programs (instruction dump + source map) are byte-identical to unpatched goja's
+for 184 real-world scripts (work/qx-audit corpus, Sub-Store 0/1/cron bundles).
+
+## Patch 6: `CompileReleasing` (mihomo-ios v0.19.23, E 线 #5)
+
+`goja.Compile` keeps the whole syntax tree until the end of compilation; for a bundle (one outer
+function holding every module) that is ~16 MB of AST for a 1.3 MB Sub-Store bundle on top of the
+program being built. `CompileReleasing` (runtime.go) compiles with `compiler.releaseBodies`: once a
+function / arrow literal is compiled, its AST body and declaration list are replaced by an empty block
+(compiler_expr.go, `compiledFunctionLiteral.release`). The literal is recorded; should the compiler
+ever compile the same literal again (none known — every path compiles a literal once, dead code
+included), it raises `errBodyReleased` and `CompileReleasing` compiles the source again with plain
+`Compile`, so the result is never a function with a missing body. `eval` / `new Function` and the
+prelude keep using the normal path.
+
+Measured (sub-store-1.min.js, GOGC=10 live peak): goja.Compile ~35 MB → CompileReleasing ~22 MB;
+the ScriptRunner compile path ~42 MB → ~30 MB (bridge/mitm TestSubStoreCompilePeakReleasing).
+Equivalence: third_party/goja/mihomo_release_test.go compares Compile and CompileReleasing instruction
+by instruction (`TERN_JS_CORPUS=<dir of .js> go test -run CompileReleasing` inside third_party/goja;
+189 sources identical). Drop / re-apply together with the copy.
