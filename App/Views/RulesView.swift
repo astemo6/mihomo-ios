@@ -6,25 +6,6 @@ import Libmihomo
 
 // MARK: - Custom rules store
 
-struct CustomRule: Codable, Identifiable, Hashable {
-    var id: String = UUID().uuidString
-    var line: String
-    var enabled: Bool = true
-    var interval: Int? = nil
-}
-
-/// Result of LibmihomoCheckRuleLine / CheckCustomRules (bridge/customrules.go ruleCheck).
-struct RuleCheck: Decodable, Hashable {
-    var id: String?
-    var line: String?
-    var enabled: Bool?
-    var rule: String?
-    var policy: String?
-    var error: String?
-    var note: String?
-    var unresolved: String?
-}
-
 @MainActor
 final class CustomRulesStore: ObservableObject {
     static let shared = CustomRulesStore()
@@ -131,8 +112,9 @@ final class CustomRulesStore: ObservableObject {
     func recheck() async {
         guard let path = AppShared.activeProfileURL?.path else { checks = [:]; return }
         let home = AppShared.homeURL.path
-        let json = await Task.detached(priority: .utility) { LibmihomoCheckCustomRules(home, path) }.value
-        let list = (try? JSONDecoder().decode([RuleCheck].self, from: Data(json.utf8))) ?? []
+        let list = await Task.detached(priority: .utility) {
+            NCRuleValidator.checkCustomRules(homeDir: home, profilePath: path)
+        }.value
         var out: [String: RuleCheck] = [:]
         for c in list { if let id = c.id { out[id] = c } }
         checks = out
@@ -141,8 +123,9 @@ final class CustomRulesStore: ObservableObject {
     nonisolated static func check(line: String) async -> RuleCheck? {
         guard let path = AppShared.activeProfileURL?.path else { return nil }
         let home = AppShared.homeURL.path
-        let json = await Task.detached(priority: .userInitiated) { LibmihomoCheckRuleLine(home, path, line) }.value
-        return try? JSONDecoder().decode(RuleCheck.self, from: Data(json.utf8))
+        return await Task.detached(priority: .userInitiated) {
+            NCRuleValidator.checkRuleLine(homeDir: home, profilePath: path, line: line)
+        }.value
     }
 }
 
