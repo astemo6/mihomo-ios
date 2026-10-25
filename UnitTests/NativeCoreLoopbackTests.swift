@@ -269,20 +269,30 @@ final class NativeCoreLoopbackTests: XCTestCase {
                                     using: .tcp)
             let exp = self.expectation(description: "port \(port)")
             let box = LockedBox(false)
+            // Exactly-once is load-bearing here (this helper is what tripped
+            // "NCCallOnce fired twice" in run 40171239186): a probe connection that
+            // reaches .ready fulfills, and the cancel() below then delivers .cancelled
+            // to the same handler, which used to call the once a second time and crash
+            // the test host. The `fired` flag (handler invocations are serialized on
+            // the connection's serial queue) plus clearing the handler before cancel
+            // close both paths. (udpConnection below never had the bug: its switch
+            // ignores .cancelled.)
+            let fired = LockedBox(false)
             let once = NCCallOnce { exp.fulfill() }
             conn.stateUpdateHandler = { state in
                 switch state {
                 case .ready:
                     box.set(true)
-                    once.call()
+                    if !fired.get() { fired.set(true); once.call() }
                 case .failed, .cancelled:
-                    once.call()
+                    if !fired.get() { fired.set(true); once.call() }
                 default:
                     break
                 }
             }
             conn.start(queue: DispatchQueue(label: "nc.loopback.ports"))
             self.wait(for: [exp], timeout: 5)
+            conn.stateUpdateHandler = nil
             conn.cancel()
             XCTAssertTrue(box.get(), "127.0.0.1:\(port) not accepting (servers up?)")
         }
