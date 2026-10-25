@@ -104,12 +104,15 @@ final class NativeCoreProfileCommaGroupTests: XCTestCase {
     /// Renaming a comma-named member writes it back quoted, leaves the
     /// other members' raw text (including their quote style) untouched,
     /// and the result re-parses to exactly the renamed member list.
+    /// formatYAMLString mirrors yaml.v3: "X,Y" is printable and resolves
+    /// to !!str, plain is not allowed in flow (comma), so it is emitted
+    /// single-quoted ('X,Y'), not double-quoted.
     func testRenameCommaMemberRoundTrips() {
         let doc = NCProfileYAML(text: self.doc)
         let stats = doc.renameRefs(oldName: "A,B", newName: "X,Y")
         XCTAssertEqual(stats.groups, ["G"])
         let text = doc.text()
-        XCTAssertTrue(text.contains("\"X,Y\""), text)
+        XCTAssertTrue(text.contains("proxies: ['X,Y', C, 'D,E']"), text)
         XCTAssertTrue(text.contains("'D,E'"), text) // untouched member kept verbatim
         let reparsed = NCProfileYAML(text: text).listGroups()
         XCTAssertEqual(reparsed.first?.proxies, ["X,Y", "C", "D,E"])
