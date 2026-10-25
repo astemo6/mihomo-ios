@@ -101,6 +101,7 @@ final class NativeTunnelCore {
         e?.stop()
         NativeCoreEngine.active = nil
         NativeTaskRunner.shared.stop()
+        logRewriteSkips()
         NCPersistentStore.shared.flush() // $persistentStore writes still waiting for their coalesced flush
     }
 
@@ -136,7 +137,15 @@ final class NativeTunnelCore {
     }
 
     /// The app's rewrite / MitM snapshot (bridge/mitm ExportRewriteSnapshot); .conf profiles carry their own.
+    /// gap C5: rules the native rewrite engine skipped (Go-free: they used to make the whole request pass through)
+    private func logRewriteSkips() {
+        let sk = NativeRewriteEngine.skipStats()
+        guard !sk.isEmpty else { return }
+        StartupLog.write("rewrite rules skipped natively: " + sk.sorted { $0.value > $1.value }.prefix(12).map { "\($0.key) ×\($0.value)" }.joined(separator: ", "))
+    }
+
     private func loadRewriteSnapshot(home: String, engine: NativeCoreEngine) {
+        logRewriteSkips()
         // Scripts: the prelude once per process, the app's script manifest (code files + run setup) every load.
         StartupLog.write("native scripts: " + NativeScriptHost.shared.load(home: home))
         // gap C3: cron / event / generic tasks and panels from the same manifest

@@ -162,6 +162,24 @@ struct RewriteResponse {
 }
 
 final class NativeRewriteEngine {
+    // Gap C5 (astemo6/Muse NativeCore): in the Go-free tunnel nothing stands behind a `.go(why)` — a deferred
+    // request used to pass through with NONE of its rules applied. There, a rule the native engine cannot run is
+    // skipped on its own (counted in skipStats, noted in the request log) and every other rule still applies;
+    // regexes run on non-ASCII input (RWRegex.lenient), header ops apply best effort, and when scripts and body
+    // rules meet on one flow the scripts run and the body rules are skipped. The Go-backed app build keeps deferring.
+    #if TERN_NO_GO
+    static let goFree = true
+    #else
+    static let goFree = false
+    #endif
+    private static let skipLock = NSLock()
+    private static var skips: [String: Int] = [:]
+    static func noteSkip(_ why: String) {
+        skipLock.lock(); skips[why, default: 0] += 1; skipLock.unlock()
+    }
+    /// Rule-level skips since the tunnel started (诊断: NativeRewriteDriver.stats has the request-level defers).
+    static func skipStats() -> [String: Int] { skipLock.lock(); defer { skipLock.unlock() }; return skips }
+
     private static var _shared: NativeRewriteEngine?
     private static let _sharedLock = NSLock()
 
@@ -349,6 +367,11 @@ final class NativeRewriteEngine {
         var r = Req(method: method, header: h, host: host, contentLength: cl, path: t.path, query: t.query, forceQuery: t.forceQuery,
                     scheme: scheme)
         var log = RewriteLog(rules: [], url: "", host: host, method: method, tls: q.tls, headers: [])
+        /// gap C5: a rule skipped in the Go-free tunnel (see goFree)
+        func skipRule(_ why: String, _ rule: Rule) {
+            NativeRewriteEngine.noteSkip(why)
+            if log.notes.count < 8 { log.notes.append("跳过规则（原生引擎不支持：\(why)）：\(rule.snap.kind) #\(rule.snap.i)") }
+        }
         var urlHost = host
         if let (hh, port) = GoURL.splitHostPort(host), (scheme == "https" && port == "443") || (scheme == "http" && port == "80") { urlHost = hh }
         var u = scheme + "://" + urlHost + r.requestURI
@@ -360,7 +383,7 @@ final class NativeRewriteEngine {
         // ---- 1. URL rewrite: first match wins ----
         for rule in active where rule.kind == "url" {
             switch matches(rule, u, r) {
-            case .unknown(let why): return .go(why)
+            case .unknown(let why): if Self.goFree { skipRule(why, rule); continue }; return .go(why)
             case .no: continue
             case .yes: break
             }
@@ -387,10 +410,16 @@ final class NativeRewriteEngine {
                 log.headers = wh.sortedPairs
                 return NativeRewriteEngine.logged(NativeRewriteEngine.writeLocal(status: status, header: lh, body: body), log, body)
             case "302", "307":
-                guard rule.snap.targetOK == true, let re = rule.re else { return .go("redirect template") }
+                guard rule.snap.targetOK == true, let re = rule.re else {
+                    if Self.goFree { log.rules.removeLast(); skipRule("redirect template", rule); continue }
+                    return .go("redirect template")
+                }
                 var loc = rule.snap.target ?? ""
                 if rule.snap.tperr != true {
-                    guard let tp = rule.snap.tp, let l = re.replaceFirst(u, tp) else { return .go("redirect template") }
+                    guard let tp = rule.snap.tp, let l = re.replaceFirst(u, tp) else {
+                        if Self.goFree { log.rules.removeLast(); skipRule("redirect template", rule); continue }
+                        return .go("redirect template")
+                    }
                     loc = l
                 }
                 var lh = GoHeader()
@@ -398,14 +427,24 @@ final class NativeRewriteEngine {
                 log.headers = lh.sortedPairs
                 return NativeRewriteEngine.logged(NativeRewriteEngine.commitLocal(status: action == "307" ? 307 : 302, header: lh, first: nil), log, Data())
             case "header":
-                guard rule.snap.targetOK == true, let re = rule.re else { return .go("rewrite template") }
+                guard rule.snap.targetOK == true, let re = rule.re else {
+                    if Self.goFree { log.rules.removeLast(); skipRule("rewrite template", rule); continue }
+                    return .go("rewrite template")
+                }
                 if rule.snap.tperr == true { break } // Replace fails: Go keeps the URL
-                guard let tp = rule.snap.tp, let nu = re.replaceFirst(u, tp) else { return .go("rewrite template") }
-                guard let p = GoURL.parseAbsolute(nu) else { return .go("rewritten url") }
+                guard let tp = rule.snap.tp, let nu = re.replaceFirst(u, tp) else {
+                    if Self.goFree { log.rules.removeLast(); skipRule("rewrite template", rule); continue }
+                    return .go("rewrite template")
+                }
+                guard let p = GoURL.parseAbsolute(nu) else {
+                    if Self.goFree { log.rules.removeLast(); skipRule("rewritten url", rule); continue }
+                    return .go("rewritten url")
+                }
                 u = nu
                 log.url = u
                 r.host = p.host; r.path = p.path; r.query = p.query; r.forceQuery = p.forceQuery
             default:
+                if Self.goFree { log.rules.removeLast(); skipRule("url action \(action)", rule); continue }
                 return .go("url action \(action)")
             }
             break
@@ -415,11 +454,14 @@ final class NativeRewriteEngine {
         // ---- 2. Map Local: first match wins ----
         for rule in active where rule.kind == "maplocal" {
             switch matches(rule, u, r) {
-            case .unknown(let why): return .go(why)
+            case .unknown(let why): if Self.goFree { skipRule(why, rule); continue }; return .go(why)
             case .no: continue
             case .yes: break
             }
-            guard let l = rule.snap.local else { return .go("map local") }
+            guard let l = rule.snap.local else {
+                if Self.goFree { skipRule("map local", rule); continue }
+                return .go("map local")
+            }
             log.rules.append(rule.snap.i)
             log.url = u
             if let f = l.file { return mapLocalFile(l, f, log) }
@@ -437,21 +479,28 @@ final class NativeRewriteEngine {
             switch rule.kind {
             case "header":
                 switch matches(rule, u, r) {
-                case .unknown(let why): return .go(why)
+                case .unknown(let why): if Self.goFree { skipRule(why, rule); continue }; return .go(why)
                 case .no: continue
                 case .yes: break
                 }
-                guard rule.snap.opsOK == true else { return .go("header ops") }
+                if rule.snap.opsOK != true {
+                    // Go-free: the portable ops apply, the others are skipped (apply's best-effort mode)
+                    if !Self.goFree { return .go("header ops") }
+                    skipRule("header ops", rule)
+                }
                 log.rules.append(rule.snap.i)
                 if r.header.get("Host").isEmpty { r.header.set("Host", r.host) }
                 let firstLine = r.method + " " + r.requestURI + " HTTP/1.1"
-                guard NativeRewriteEngine.apply(rule.snap.headers ?? [], to: &r.header, firstLine: firstLine) else { return .go("header op input") }
+                if !NativeRewriteEngine.apply(rule.snap.headers ?? [], to: &r.header, firstLine: firstLine) {
+                    if !Self.goFree { return .go("header op input") }
+                    skipRule("header op input", rule)
+                }
                 let nh = r.header.get("Host")
                 if !nh.isEmpty { r.host = nh }
                 r.header.del("Host")
             case "body", "jq", "json", "script":
                 switch matches(rule, u, r) {
-                case .unknown(let why): return .go(why)
+                case .unknown(let why): if Self.goFree { skipRule(why, rule); continue }; return .go(why)
                 case .no: continue
                 case .yes: break
                 }
@@ -512,7 +561,10 @@ final class NativeRewriteEngine {
                     }
                     continue
                 }
-                guard bodies, rule.kind != "script", let br = bodyRule(rule) else { return .go(rule.kind) }
+                guard bodies, rule.kind != "script", let br = bodyRule(rule) else {
+                    if Self.goFree { skipRule(rule.kind, rule); continue }
+                    return .go(rule.kind)
+                }
                 reqBodyRules.append(br)
                 log.rules.append(rule.snap.i)
             default:
@@ -523,19 +575,29 @@ final class NativeRewriteEngine {
         if scriptsRan {
             if u.utf8.count > 8192 || !RWAscii.isVisible(u) { return .go("url") }
             // request scripts next to request body rules: one body owner (Go) — hand the request over
-            if !reqBodyRules.isEmpty { return .go("request script with body rules") }
+            if !reqBodyRules.isEmpty {
+                if !Self.goFree { return .go("request script with body rules") }
+                for _ in reqBodyRules { NativeRewriteEngine.noteSkip("request body rule next to a request script") }
+                log.notes.append("跳过请求体规则（与请求脚本同时命中，原生引擎先运行脚本）")
+                reqBodyRules.removeAll()
+            }
         }
         // the request body rules (Go: loadBody once, setBody after each rule that succeeded)
         var reqPlan: NativeRequestBodyPlan?
         if !reqBodyRules.isEmpty {
-            if r.contentLength < 0 || r.contentLength > Int64(NativeBodyRuntime.maxBody) { return .go("request body length") }
-            if r.contentLength == 0 {
-                // no body (http.NoBody): a regex leaves it empty, a json / jq rule fails on it (Go skips the rule)
-                if reqBodyRules.contains(where: { $0.kind != "body" }) { return .go("empty request body") }
+            if r.contentLength < 0 || r.contentLength > Int64(NativeBodyRuntime.maxBody) {
+                if !Self.goFree { return .go("request body length") }
+                NativeRewriteEngine.noteSkip("request body length")
+                log.notes.append(r.contentLength < 0 ? "跳过请求体规则（分块请求体）" : "跳过请求体规则（请求体 \(r.contentLength >> 10) KB 超过上限）")
+                reqBodyRules.removeAll()
+            } else if r.contentLength == 0 {
+                // no body (http.NoBody): a regex leaves it empty, a json / jq rule fails on it (Go skips the rule) —
+                // Go-free: the json / jq rules are skipped the same way, the regex rules leave it empty
+                if reqBodyRules.contains(where: { $0.kind != "body" }) && !Self.goFree { return .go("empty request body") }
             } else {
                 reqPlan = NativeRequestBodyPlan(rules: reqBodyRules, length: r.contentLength)
             }
-            r.header.set("Content-Length", String(r.contentLength)) // setBody; the final length is patched in later
+            if !reqBodyRules.isEmpty { r.header.set("Content-Length", String(r.contentLength)) } // setBody; the final length is patched in later
         }
 
         // ---- 4. response rules against the final URL ----
@@ -544,13 +606,17 @@ final class NativeRewriteEngine {
         var hasScript = false, needRespBody = false
         for rule in active where rule.phase == "response" && rule.kind != "url" && rule.kind != "maplocal" {
             switch matches(rule, u, r) {
-            case .unknown(let why): return .go(why)
+            case .unknown(let why): if Self.goFree { skipRule(why, rule); continue }; return .go(why)
             case .no: continue
             case .yes: break
             }
             if rule.kind == "script" && scripts {
-                guard let sc = rule.snap.script else { return .go("response script") }
-                if capture { return .go("capture") } // Go records the script's body; the native side does not
+                guard let sc = rule.snap.script else {
+                    if Self.goFree { skipRule("response script", rule); continue }
+                    return .go("response script")
+                }
+                // Go records the script's body; the native side does not (Go-free: the request log keeps the head)
+                if capture && !Self.goFree { return .go("capture") }
                 hasScript = true
                 if sc.requiresBody == true { needRespBody = true }
                 steps.append(ScriptPlanStep(rule: rule.snap.i, kind: .script(requiresBody: sc.requiresBody == true)))
@@ -561,12 +627,27 @@ final class NativeRewriteEngine {
                 plan.hasBody = true
                 continue
             }
-            guard rule.kind == "header", rule.snap.opsOK == true else { return .go("response \(rule.kind)") }
-            let ops = rule.snap.headers ?? []
+            guard rule.kind == "header" else {
+                if Self.goFree { skipRule("response \(rule.kind)", rule); continue }
+                return .go("response \(rule.kind)")
+            }
+            if rule.snap.opsOK != true {
+                if !Self.goFree { return .go("response \(rule.kind)") }
+                skipRule("response header ops", rule)
+            }
+            var ops = rule.snap.headers ?? []
             // regex ops read the upstream's values, unknown until the response: the patterns must compile now
             // (an input Swift cannot run them on is then handled by Go's header-op helper, see respond()).
-            for op in ops where op.op == "replace-regex" || op.op == "raw" {
-                guard let src = op.re, RWRegexCache.shared.regex(src).compiles || op.tperr == true else { return .go("response regex") }
+            // Go-free: an op whose pattern ICU cannot compile is dropped, the rule's other ops stay.
+            let compiles: (RWSnapHeaderOp) -> Bool = { op in
+                guard op.op == "replace-regex" || op.op == "raw" else { return true }
+                guard let src = op.re else { return false }
+                return RWRegexCache.shared.regex(src).compiles || op.tperr == true
+            }
+            if !ops.allSatisfy(compiles) {
+                if !Self.goFree { return .go("response regex") }
+                skipRule("response regex", rule)
+                ops = ops.filter(compiles)
             }
             plan.ops.append(ops)
             plan.rules.append(rule.snap.i)
@@ -574,12 +655,28 @@ final class NativeRewriteEngine {
             steps.append(ScriptPlanStep(rule: rule.snap.i, kind: .header(ops)))
         }
         // native-final: request scripts that ran and a response body flow → Go takes the request (one body owner)
-        if scriptsRan && plan.hasBody { return .go("request script with body rules") }
+        // Go-free: scripts and body rules on one flow — the scripts run, the body rules are skipped (one body owner)
+        func dropBodySteps(_ why: String) {
+            let n = plan.steps.filter { if case .body = $0 { return true }; return false }.count
+            for _ in 0..<max(n, reqPlan == nil ? 0 : 1) { NativeRewriteEngine.noteSkip(why) }
+            plan.steps.removeAll { if case .body = $0 { return true }; return false }
+            plan.hasBody = false
+            reqPlan = nil
+            log.notes.append("跳过响应体 / 请求体规则（与脚本同时命中，原生引擎先运行脚本）")
+        }
+        if scriptsRan && plan.hasBody {
+            if !Self.goFree { return .go("request script with body rules") }
+            dropBodySteps("body rule next to a request script")
+        }
         if hasScript {
             // the native script dispatcher applies header ops without a Go fallback, and a script flow is not a body
             // flow: a regex header op, a body rule or a request body rule next to a script → Go
-            if plan.hasBody || reqPlan != nil { return .go("script with body rules") }
-            if plan.ops.contains(where: { $0.contains(where: { $0.op == "replace-regex" || $0.op == "raw" }) }) { return .go("script with regex header op") }
+            if plan.hasBody || reqPlan != nil {
+                if !Self.goFree { return .go("script with body rules") }
+                dropBodySteps("body rule next to a response script")
+            }
+            // Go-free: the dispatcher's native header ops are all there is (lenient regex) — no hand-over
+            if !Self.goFree, plan.ops.contains(where: { $0.contains(where: { $0.op == "replace-regex" || $0.op == "raw" }) }) { return .go("script with regex header op") }
             plan.scripts = steps
         }
 
@@ -753,20 +850,22 @@ final class NativeRewriteEngine {
                 if v.isEmpty { continue }
                 guard let src = op.re else { continue }      // Go: no compiled regex → skipped
                 if op.tperr == true { continue }             // Go: Replace fails → unchanged
-                guard let tp = op.tp, RWRegex.isASCII(v), v.utf8.count <= 65536 else { return false }
-                guard let nv = RWRegexCache.shared.regex(src).replaceAll(v, tp) else { return false }
+                guard let tp = op.tp, RWRegex.inputOK(v), v.utf8.count <= 65536 else { if goFree { continue }; return false }
+                guard let nv = RWRegexCache.shared.regex(src).replaceAll(v, tp) else { if goFree { continue }; return false }
                 h.set(name, nv)
             case "raw":
                 guard let src = op.re else { continue }
                 if op.tperr == true { continue }
-                guard let tp = op.tp else { return false }
+                guard let tp = op.tp else { if goFree { continue }; return false }
                 let re = RWRegexCache.shared.regex(src)
-                guard let a = raw(h, re, tp, firstLine, reversed: false) else { return false }
-                if h.map.count > 1 {
+                guard let a = raw(h, re, tp, firstLine, reversed: false) else { if goFree { continue }; return false }
+                // Go walks its header map in random order; Go-free takes the sorted order when the two disagree
+                if h.map.count > 1 && !goFree {
                     guard let b = raw(h, re, tp, firstLine, reversed: true), a == b else { return false }
                 }
                 h = a
             default:
+                if goFree { continue }
                 return false
             }
         }
@@ -781,7 +880,7 @@ final class NativeRewriteEngine {
         if reversed { keys.reverse() }
         for k in keys { for v in h.values(k) { s += k + ": " + v + "\r\n" } }
         s += "\r\n"
-        guard RWRegex.isASCII(s), s.utf8.count <= 65536, let out = re.replaceAll(s, tp) else { return nil }
+        guard RWRegex.inputOK(s), s.utf8.count <= 65536, let out = re.replaceAll(s, tp) else { return nil }
         var nh = GoHeader()
         let b = Array(out.utf8)
         var lines: [ArraySlice<UInt8>] = []

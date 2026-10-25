@@ -53,6 +53,16 @@ final class RWRegex {
 
     static func isASCII(_ s: String) -> Bool { s.utf8.allSatisfy { $0 < 0x80 } }
 
+    /// Gap C5 (astemo6/Muse NativeCore): the Go-free tunnel has no Go to decide for non-ASCII input, so the ICU
+    /// translation runs on it too (regexp2 also matches runes; differences are limited to classes Go spelled out
+    /// as ASCII sets meeting non-ASCII text). The Go-backed app build keeps answering unknown.
+    #if TERN_NO_GO
+    static let lenient = true
+    #else
+    static let lenient = false
+    #endif
+    static func inputOK(_ s: String) -> Bool { lenient || isASCII(s) }
+
     /// Could the URL contain a match at all? false is exact (every match contains the literal).
     func literalAllows(_ s: String) -> Bool {
         if lit.isEmpty { return true }
@@ -62,7 +72,7 @@ final class RWRegex {
     /// Whether the pattern matches s. unknown: only Go can tell (not translatable, ICU refused, non-ASCII input).
     func match(_ s: String) -> Match {
         if !literalAllows(s) { return .no }
-        guard src.ok, RWRegex.isASCII(s), let re = regex else { return .unknown }
+        guard src.ok, RWRegex.inputOK(s), let re = regex else { return .unknown }
         switch RWRegex.first(re, s) {
         case .timeout: return .unknown
         case .none: return .no
@@ -114,7 +124,7 @@ final class RWRegex {
 
     /// regexp2 Replace(s, template, -1, 1): the first match replaced. nil: cannot do it like Go.
     func replaceFirst(_ s: String, _ tp: RWSnapTemplate) -> String? {
-        guard src.ok, RWRegex.isASCII(s), let re = regex else { return nil }
+        guard src.ok, RWRegex.inputOK(s), let re = regex else { return nil }
         let ns = s as NSString
         let m: NSTextCheckingResult
         switch RWRegex.first(re, s) {
@@ -130,7 +140,7 @@ final class RWRegex {
     /// regexp2 Replace(s, template, -1, -1): every match replaced (ICU walks matches, empty ones included, the way
     /// regexp2 does — held to it by NativeMitmRegexFixtures).
     func replaceAll(_ s: String, _ tp: RWSnapTemplate) -> String? {
-        guard src.ok, RWRegex.isASCII(s), let re = regex else { return nil }
+        guard src.ok, RWRegex.inputOK(s), let re = regex else { return nil }
         let ns = s as NSString
         var out = ""
         var at = 0
