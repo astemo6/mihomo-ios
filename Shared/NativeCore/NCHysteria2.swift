@@ -523,14 +523,32 @@ final class NCHysteria2Connection {
     private var udpRxCount = 0
     private var udpRxMaxSize = 0
 
-    /// Test seam: override the per-datagram budget (session queue hop).
+    /// Test seam: override the per-datagram budget (session queue hop); <= 0 restores the default.
     func setUDPDatagramLimitForTesting(_ limit: Int) {
-        ncOnSessionQueue(queue) { self.datagramLimit = limit }
+        ncOnSessionQueue(queue) { self.datagramLimit = limit > 0 ? limit : self.defaultDatagramLimit() }
+    }
+
+    /// Current per-datagram budget (diagnostics / tests).
+    var udpDatagramLimit: Int {
+        if NCSessionQueues.isCurrent(queue) { return datagramLimit }
+        return queue.sync { datagramLimit }
+    }
+
+    /// Network.framework's own datagram size for the flow (NWConnection.maximumDatagramSize), read
+    /// when the flow is ready; 0 until then.
+    private var flowMaxDatagramSize = 0
+
+    /// The budget we start from: NCHy2UDP.maxDatagramSize, lowered to what the flow reports it can
+    /// carry when that is a sane datagram size.
+    private func defaultDatagramLimit() -> Int {
+        let flowMax = flowMaxDatagramSize
+        if flowMax >= 512 { return min(NCHy2UDP.maxDatagramSize, flowMax) }
+        return NCHy2UDP.maxDatagramSize
     }
 
     /// Snapshot of the UDP datagram path for diagnostics/tests.
     var udpDiagnostics: String {
-        let read = { "limit=\(self.datagramLimit) flow=\(self.datagramFlow != nil) peerFlow=\(self.peerDatagramFlow != nil) rx=\(self.udpRxCount) rxMax=\(self.udpRxMaxSize) sendErrors=\(self.udpSendErrors) last=\(self.lastUDPSendError ?? "-")" }
+        let read = { "limit=\(self.datagramLimit) flowMax=\(self.flowMaxDatagramSize) flow=\(self.datagramFlow != nil) peerFlow=\(self.peerDatagramFlow != nil) rx=\(self.udpRxCount) rxMax=\(self.udpRxMaxSize) sendErrors=\(self.udpSendErrors) last=\(self.lastUDPSendError ?? "-")" }
         if NCSessionQueues.isCurrent(queue) { return read() }
         return queue.sync(execute: read)
     }
@@ -917,6 +935,11 @@ final class NCHysteria2Connection {
             guard let self, let flow else { return }
             switch st {
             case .ready:
+                if self.datagramFlow === flow {
+                    let wasDefault = self.datagramLimit == self.defaultDatagramLimit()
+                    self.flowMaxDatagramSize = flow.maximumDatagramSize
+                    if wasDefault { self.datagramLimit = self.defaultDatagramLimit() }
+                }
                 self.readDatagrams(flow)
             case .failed, .cancelled:
                 // A dead flow is re-extracted on the next send / registration.

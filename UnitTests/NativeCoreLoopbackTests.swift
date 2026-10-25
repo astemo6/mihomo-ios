@@ -490,37 +490,48 @@ final class NativeCoreLoopbackTests: XCTestCase {
         }
         XCTAssertEqual(first, Self.dnsQuery, "no hysteria2 UDP echo over QUIC datagrams (\(conn.udpDiagnostics))")
 
-        // Size ladder (diagnostics): unfragmented single datagrams up to the client budget, then the
-        // fragmented 3000-byte packet at the default budget and at a small one. Each rung reports
-        // whether its echo came back, so a failure pinpoints the direction / size that is lost.
-        func roundTrip(_ payload: Data, tries: Int = 3) -> Bool {
-            for _ in 0..<tries {
+        // Size ladder (diagnostics, always printed as one "HY2LADDER" line — proto-loopback.yml greps it):
+        //  - "u<N>": one unfragmented datagram of N wire bytes (budget raised to 1197 so it is not split);
+        //  - "f<B>": the 3000-byte packet fragmented at a B-byte budget.
+        // Each rung records the pieces we sent, the raw datagrams / fragments / packets that came back and
+        // the largest raw datagram received, so a lost rung tells the direction: rx=0 ⇒ our datagrams never
+        // reached sing-box (or its reply never left); rx>0 with pk=0 ⇒ reply fragments lost / not reassembled.
+        let addrHeader = NCHy2UDP.headerSize(address: NCHysteria2Connection.udpAddress(target))
+        func roundTrip(_ payload: Data, budget: Int, tries: Int = 2) -> String {
+            conn.setUDPDatagramLimitForTesting(budget)
+            let pieces = NCHy2UDP.fragment(sessionID: sessionID, packetID: 0, address: NCHysteria2Connection.udpAddress(target),
+                                           payload: payload, maxDatagramSize: budget > 0 ? budget : conn.udpDatagramLimit)
+            let before = replies.counters()
+            var ok = false
+            for _ in 0..<tries where !ok {
                 conn.sendUDP(sessionID: sessionID, target: target, payload: payload)
                 let until = Date().addingTimeInterval(1.5)
                 while Date() < until, let got = replies.wait(timeout: until.timeIntervalSinceNow) {
-                    if got == payload { return true }
+                    if got == payload { ok = true; break }
                 }
             }
-            return false
+            let after = replies.counters()
+            return "\(ok ? "ok" : "LOST")(tx=\(pieces.count)x\(pieces.map(\.count).max() ?? 0) rx=\(after.raw - before.raw) frag=\(after.frags - before.frags) pk=\(after.packets - before.packets) rxMax=\(after.maxRaw))"
         }
         var ladder: [String] = []
-        for size in [512, 900, 1050] {
-            let p = Data((0..<size).map { UInt8(($0 * 11 + 1) & 0xff) })
-            ladder.append("\(size):\(roundTrip(p) ? "ok" : "lost")")
+        for wire in [600, 900, 1000, 1050, 1080, 1100, 1120, 1150, 1197] {
+            let n = wire - addrHeader
+            let p = Data((0..<n).map { UInt8(($0 * 11 + wire) & 0xff) })
+            ladder.append("u\(wire):" + roundTrip(p, budget: 1197))
         }
-        let big = Data((0..<3000).map { UInt8(($0 * 13 + 5) & 0xff) })
-        var bigOK = roundTrip(big)
-        ladder.append("3000@\(NCHy2UDP.maxDatagramSize):\(bigOK ? "ok" : "lost")")
-        if !bigOK {
-            conn.setUDPDatagramLimitForTesting(600)
-            bigOK = roundTrip(big)
-            ladder.append("3000@600:\(bigOK ? "ok" : "lost")")
-            conn.setUDPDatagramLimitForTesting(NCHy2UDP.maxDatagramSize)
+        // Distinct bytes per rung, so a late echo of a lost rung can never pass a later one.
+        func big(_ seed: Int) -> Data { Data((0..<3000).map { UInt8(($0 * 13 + seed) & 0xff) }) }
+        for budget in [1197, 1150, 1100, 1050, 1000, 900, 800, 600] {
+            ladder.append("f\(budget):" + roundTrip(big(budget), budget: budget))
         }
-        let echoed: Data? = bigOK ? big : nil
-        XCTAssertEqual(echoed?.count, big.count,
-                       "fragmented 3000-byte UDP packet did not round-trip [\(ladder.joined(separator: " "))] (\(conn.udpDiagnostics))")
-        XCTAssertEqual(echoed, big)
+        // The shipped default (budget 0 = no test override: the connection's own limit).
+        let r = roundTrip(big(7), budget: 0)
+        let defaultOK = r.hasPrefix("ok")
+        ladder.append("fDEFAULT(\(conn.udpDatagramLimit)):" + r)
+        let line = "HY2LADDER " + ladder.joined(separator: " ") + " | " + conn.udpDiagnostics
+        print(line)
+        XCTContext.runActivity(named: line) { _ in }
+        XCTAssertTrue(defaultOK, "fragmented 3000-byte UDP packet did not round-trip at the default budget [\(line)]")
     }
 }
 
@@ -615,12 +626,23 @@ private final class UDPReplies {
     private var ready: [Data] = []
     var sessionID: UInt32 = 0
 
-    func feed(_ raw: Data) {
+    private var raw = 0, frags = 0, packets = 0, maxRaw = 0
+
+    func feed(_ data: Data) {
         cond.lock(); defer { cond.unlock() }
-        guard let frame = NCHy2UDP.decodeFrame(raw), frame.sessionID == sessionID,
-              let payload = reassembler.feed(frame) else { return }
+        raw += 1
+        maxRaw = max(maxRaw, data.count)
+        guard let frame = NCHy2UDP.decodeFrame(data), frame.sessionID == sessionID else { return }
+        if frame.fragCount > 1 { frags += 1 }
+        guard let payload = reassembler.feed(frame) else { return }
+        packets += 1
         ready.append(payload)
         cond.signal()
+    }
+
+    func counters() -> (raw: Int, frags: Int, packets: Int, maxRaw: Int) {
+        cond.lock(); defer { cond.unlock() }
+        return (raw, frags, packets, maxRaw)
     }
 
     func wait(timeout: TimeInterval) -> Data? {
