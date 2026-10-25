@@ -272,6 +272,16 @@ enum NCSubscriptionParser {
                 // Libmihome on the same link.
                 if plugin.contains("tls") { opts["tls"] = .bool(true) }
                 f["plugin-opts"] = .object(opts)
+            } else if binary.contains("cloak") || binary.contains("ck-client") {
+                f["plugin"] = .string("cloak")
+                if !args.isEmpty {
+                    f["plugin-opts"] = .object(args.mapValues { .string($0) })
+                }
+            } else if binary.contains("kcptun") {
+                f["plugin"] = .string("kcptun")
+                if !args.isEmpty {
+                    f["plugin-opts"] = .object(args.mapValues { .string($0) })
+                }
             } else {
                 // Unknown binary: keep it verbatim with its parsed args
                 // instead of dropping the plugin on the floor.
@@ -580,7 +590,8 @@ enum NCSubscriptionParser {
                 case "path": opts["path"] = .string(v)
                 case "tls": opts["tls"] = .bool(true)
                 case "mode": opts["mode"] = .string(v)
-                default: break
+                default:
+                    if !k.isEmpty { opts[k] = .string(v) }
                 }
             }
             if plugin.contains("obfs") {
@@ -588,6 +599,10 @@ enum NCSubscriptionParser {
             } else if plugin.contains("v2ray") {
                 f["plugin"] = .string("v2ray-plugin")
                 if opts["mode"] == nil { opts["mode"] = .string("websocket") }
+            } else if plugin.contains("cloak") || plugin.contains("ck-client") {
+                f["plugin"] = .string("cloak")
+            } else if plugin.contains("kcptun") {
+                f["plugin"] = .string("kcptun")
             } else {
                 f["plugin"] = .string(plugin)
             }
