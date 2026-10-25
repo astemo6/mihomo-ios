@@ -347,40 +347,54 @@ enum NCConnector {
                 completion(NCSSRelayStream(raw: raw, encoder: enc, decoder: dec, target: target), nil)
             }
         case "ssr":
-            guard let password = proxy.password, let cipher = proxy.cipher?.lowercased(),
-                  NCSSStreamCipher.isStreamMethod(cipher) else {
-                queue.async { completion(nil, Failure.unsupported("ssr needs a stream cipher (aes-*/chacha20/rc4-md5)")) }
+            // feat/nc-proto A5: every protocol / obfs mihomo registers (NCSSRProtocols); cipher none = dummy.
+            guard let password = proxy.password, let cipher0 = proxy.cipher?.lowercased(),
+                  NCSupport.ssrUnsupported(proxy) == nil else {
+                queue.async { completion(nil, Failure.unsupported(NCSupport.ssrUnsupported(proxy) ?? "ssr missing password/cipher")) }
                 return
             }
+            let dummy = cipher0 == "none" || cipher0 == "dummy"
             let protoName = (proxy.fields["protocol"]?.string ?? "origin").lowercased()
             let obfsName = (proxy.fields["obfs"]?.string ?? "plain").lowercased()
-            guard protoName == "origin" || protoName == "auth_sha1_v4" else {
-                queue.async { completion(nil, Failure.unsupported("ssr protocol \(protoName) not yet implemented (origin/auth_sha1_v4 only)")) }
-                return
-            }
-            guard obfsName == "plain" || obfsName == "http_simple" else {
-                queue.async { completion(nil, Failure.unsupported("ssr obfs \(obfsName) not yet implemented (plain/http_simple only)")) }
-                return
-            }
             let key = NCShadowsocks.masterKey(password: password,
-                                              keyLen: NCSSStreamCipher.keyLength(for: cipher))
-            let ivSize = NCSSStreamCipher(method: cipher, key: key)?.ivSize ?? 16
-            let clientIV = Data((0..<ivSize).map { _ in UInt8.random(in: 0...255) })
-            var proto: NCSSRAuthSHA1V4?
-            if protoName == "auth_sha1_v4" {
-                let state = ssrAuthState(for: proxy.name)
-                proto = NCSSRAuthSHA1V4(key: key, iv: clientIV, auth: state.next())
+                                              keyLen: dummy ? 16 : NCSSStreamCipher.keyLength(for: cipher0))
+            let ivSize = dummy ? 0 : (NCSSStreamCipher(method: cipher0, key: key)?.ivSize ?? 16)
+            let clientIV = ivSize > 0 ? randomData(ivSize) : Data()
+            let obfsParam = proxy.fields["obfs-param"]?.string
+            var obfs: NCSSRObfsCodec?
+            var obfsOverhead = 0
+            switch obfsName {
+            case "http_simple", "http_post":
+                obfs = NCSSRHTTPObfs(post: obfsName == "http_post", host: server, port: port, ivSize: ivSize, param: obfsParam)
+            case "random_head":
+                obfs = NCSSRRandomHead()
+            case "tls1.2_ticket_auth", "tls1.2_ticket_fastauth":
+                obfs = NCSSRTLSTicketAuth(key: key, clientID: ssrTicketClientID(proxy: proxy), server: server, param: obfsParam)
+                obfsOverhead = 5
+            default:
+                break
             }
-            var obfs: NCSSRHTTPSimple?
-            if obfsName == "http_simple" {
-                obfs = NCSSRHTTPSimple(server: server, port: port,
-                                       param: proxy.fields["obfs-param"]?.string, ivSize: ivSize)
+            var proto: NCSSRProtocolCodec?
+            switch protoName {
+            case "auth_sha1_v4":
+                proto = NCSSRAuthSHA1V4(key: key, iv: clientIV, auth: ssrAuthState(for: proxy.name).next())
+            case "auth_aes128_md5", "auth_aes128_sha1":
+                let sha1 = protoName == "auth_aes128_sha1"
+                proto = NCSSRAuthAES128(sha1: sha1, key: key, iv: clientIV, overhead: obfsOverhead + 9,
+                                        user: ssrUserData(proxy: proxy, key: key, sha1: sha1),
+                                        auth: ssrAuthState(for: proxy.name).next())
+            case "auth_chain_a", "auth_chain_b":
+                proto = NCSSRAuthChain(variantB: protoName == "auth_chain_b", key: key, iv: clientIV,
+                                       overhead: obfsOverhead + 4,
+                                       user: ssrUserData(proxy: proxy, key: key, sha1: nil),
+                                       auth: ssrAuthState(for: proxy.name).next())
+            default:
+                break
             }
             obtainStream(transport: transport, make: { NCStream(to: server, port: port, queue: queue) }) { raw, err in
                 guard let raw else { completion(nil, err); return }
-                let relay = NCSSRRelayStream(raw: raw, method: cipher, key: key, clientIV: clientIV,
-                                             proto: proto, obfs: obfs, target: target)
-                completion(relay, nil)
+                completion(NCSSRCodecRelayStream(raw: raw, method: dummy ? nil : cipher0, key: key, clientIV: clientIV,
+                                                 proto: proto, obfs: obfs, target: target), nil)
             }
         case "snell":
             guard let password = proxy.password else {

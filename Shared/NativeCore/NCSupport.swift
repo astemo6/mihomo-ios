@@ -35,12 +35,7 @@ enum NCSupport {
                 return "Shadowsocks 插件 \(why) 尚未接入"
             }
         case "ssr":
-            let cipher = p.cipher?.lowercased()
-            if !NCSSStreamCipher.isStreamMethod(cipher) { return "SSR 加密 \(cipher ?? "-") 尚未接入" }
-            let proto = (p.fields["protocol"]?.string ?? "origin").lowercased()
-            if proto != "origin" && proto != "auth_sha1_v4" { return "SSR 协议 \(proto) 尚未接入" }
-            let obfs = (p.fields["obfs"]?.string ?? "plain").lowercased()
-            if obfs != "plain" && obfs != "http_simple" { return "SSR 混淆 \(obfs) 尚未接入" }
+            if let why = ssrUnsupported(p) { return why }
         case "vless":
             if let enc = p.fields["encryption"]?.string?.lowercased(), !enc.isEmpty, enc != "none" {
                 return "VLESS encryption 尚未接入"
@@ -70,6 +65,24 @@ enum NCSupport {
         default:
             return plugin
         }
+    }
+
+    /// SSR: stream ciphers + none/dummy; every protocol and obfs mihomo v1.19.33 registers (feat/nc-proto A5).
+    static let ssrProtocols: Set<String> = ["origin", "auth_sha1_v4", "auth_aes128_md5", "auth_aes128_sha1",
+                                            "auth_chain_a", "auth_chain_b"]
+    static let ssrObfs: Set<String> = ["plain", "http_simple", "http_post", "random_head", "tls1.2_ticket_auth",
+                                       "tls1.2_ticket_fastauth"]
+
+    static func ssrUnsupported(_ p: NCProxy) -> String? {
+        let cipher = p.cipher?.lowercased()
+        if cipher != "none" && cipher != "dummy" && !NCSSStreamCipher.isStreamMethod(cipher) {
+            return "SSR 加密 \(cipher ?? "-") 尚未接入"
+        }
+        let proto = (p.fields["protocol"]?.string ?? "origin").lowercased()
+        if !ssrProtocols.contains(proto) { return "SSR 协议 \(proto) 尚未接入" }
+        let obfs = (p.fields["obfs"]?.string ?? "plain").lowercased()
+        if !ssrObfs.contains(obfs) { return "SSR 混淆 \(obfs) 尚未接入" }
+        return nil
     }
 
     /// Group types the group engine evaluates as written; anything else (smart, …) is evaluated like select.
