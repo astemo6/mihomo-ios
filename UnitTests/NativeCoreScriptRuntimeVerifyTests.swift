@@ -101,6 +101,16 @@ final class NativeCoreScriptRuntimeVerifyTests: XCTestCase {
         return list.map { $0["type"] as? String ?? "?" }
     }
 
+    /// The `timeoutMs` of every entry in the written manifest, in
+    /// order — pins the config → manifest timeout plumbing (a script's
+    /// own `timeout=` seconds × 1000; the builder default is 10 s).
+    private func manifestTimeouts(_ dir: String) throws -> [Int64] {
+        let data = try Data(contentsOf: URL(fileURLWithPath: dir + "/nativecore-scripts.json"))
+        let obj = try XCTUnwrap(JSONSerialization.jsonObject(with: data) as? [String: Any])
+        let list = obj["scripts"] as? [[String: Any]] ?? []
+        return list.map { ($0["timeoutMs"] as? NSNumber)?.int64Value ?? -1 }
+    }
+
     // MARK: - DNS / rule hook helpers
 
     private func dnsQuery(name: String, type: UInt16 = NCDNSMessage.typeA) -> Data {
@@ -291,19 +301,67 @@ final class NativeCoreScriptRuntimeVerifyTests: XCTestCase {
                      "a throwing rule script must be no-match")
     }
 
+    /// Timeout, asserted as a pair (rework: the original version of
+    /// this test only bounded the wall clock at 20 s, which a run
+    /// aborted by the 10 s builder DEFAULT would also satisfy, and an
+    /// instantly-failing script would satisfy too — it proved neither
+    /// that the script's own timeoutMs fired nor when):
+    ///   1. the configured `timeout=1` must reach the manifest as
+    ///      timeoutMs == 1000 (config → manifest plumbing);
+    ///   2. the run must actually burn until the limiter cuts it —
+    ///      elapsed ≥ 0.9 s rules out an instant fail-open for an
+    ///      unrelated reason, and elapsed < 6 s rules out the 10 s
+    ///      default having been used instead (the JSC limiter polls
+    ///      the stop flag every 100 ms of uninterrupted JS, so a
+    ///      genuine 1 s abort lands at ≈1.0–1.3 s; 6 s leaves CI
+    ///      scheduling ample room while staying decisively below 10);
+    ///   3. fail-open: the hook returns the original reply bytes.
+    /// Chain under test: Surge type=dns (NCScriptHookRunner.applyDNS).
     func testDNSScriptTimeoutFailsOpen() throws {
         let dir = try makeHome(modules: [(id: "surge-slow", text: """
         [Script]
         dns-slow = type=dns, script-path=dns-slow.js, timeout=1
         """)], files: ["dns-slow.js": "while (true) {}"])
         _ = try buildAndLoad(dir)
+        XCTAssertEqual(try manifestTypes(dir), ["dns"])
+        XCTAssertEqual(try manifestTimeouts(dir), [1000],
+                       "the script's own timeout=1 must land in the manifest as 1000 ms")
 
         let reply = dnsReply(name: "example.com", ips: ["192.0.2.1"])
         let start = Date()
-        let out = runDNS(query: dnsQuery(name: "example.com"), reply: reply, timeout: 30)
+        let out = runDNS(query: dnsQuery(name: "example.com"), reply: reply, timeout: 15)
         let elapsed = Date().timeIntervalSince(start)
         XCTAssertEqual(out, reply, "a timed-out dns script must pass the reply through untouched")
-        XCTAssertLessThan(elapsed, 20, "the 1 s manifest timeout must bound the run (took \(elapsed)s)")
+        XCTAssertGreaterThanOrEqual(elapsed, 0.9,
+                                    "the loop must burn until the 1 s limiter cuts it, not fail instantly (took \(elapsed)s)")
+        XCTAssertLessThan(elapsed, 6,
+                          "the configured 1 s timeout must bound the run, not the 10 s default (took \(elapsed)s)")
+    }
+
+    /// A timed-out script must not poison the chain: the hook queue
+    /// and the shared host stay healthy, and the NEXT dns script in
+    /// declaration order still runs and rewrites the answer.
+    func testDNSScriptTimeoutDoesNotPoisonChain() throws {
+        let dir = try makeHome(modules: [(id: "surge-slow-chain", text: """
+        [Script]
+        dns-slow = type=dns, script-path=dns-slow.js, timeout=1
+        dns-fix = type=dns, script-path=dns-fix.js
+        """)], files: [
+            "dns-slow.js": "while (true) {}",
+            "dns-fix.js": #"$done(["203.0.113.7"]);"#,
+        ])
+        _ = try buildAndLoad(dir)
+        XCTAssertEqual(try manifestTimeouts(dir), [1000, 10000])
+
+        let start = Date()
+        let out = runDNS(query: dnsQuery(name: "example.com"),
+                         reply: dnsReply(name: "example.com", ips: ["192.0.2.1"]), timeout: 15)
+        let elapsed = Date().timeIntervalSince(start)
+        let msg = try XCTUnwrap(NCDNSMessage.parse(out))
+        XCTAssertEqual(msg.addressAnswers.map { $0.0.string }, ["203.0.113.7"],
+                       "after the first script times out (fail-open), the second must still rewrite")
+        XCTAssertGreaterThanOrEqual(elapsed, 0.9, "the slow script must burn to its 1 s limit first (took \(elapsed)s)")
+        XCTAssertLessThan(elapsed, 6, "the whole chain must stay bounded by the 1 s timeout (took \(elapsed)s)")
     }
 
     // MARK: - MitM driver harness
@@ -442,6 +500,101 @@ final class NativeCoreScriptRuntimeVerifyTests: XCTestCase {
         XCTAssertEqual(dec.action, .forward)
         XCTAssertEqual(headerValue(dec.headers, "X-Added"), "yes")
         d.end(dec.id, sent: 0, error: "")
+    }
+
+    // MARK: - ⑥ Egern http_request / http_response (native ctx style)
+
+    /// One Egern YAML module carrying both http triggers plus the
+    /// MitM hostnames — the same shape the dns ctx test uses, with
+    /// `mitm:` / `http_request:` / `http_response:` keys.
+    private static let egernHttpModule = """
+    name: EgernHttpVerify
+    mitm:
+      hostnames:
+        - api.example.com
+    scriptings:
+      - name: egern-http-req
+        url: egern-req.js
+        timeout: 5
+        http_request:
+          patterns:
+            - ^https://api\\.example\\.com/
+      - name: egern-http-resp
+        url: egern-resp.js
+        timeout: 5
+        http_response:
+          requires_body: true
+          patterns:
+            - ^https://api\\.example\\.com/
+    """
+
+    /// The scripts are written in Egern's native ctx style (export
+    /// default, ctx.request / ctx.response with Fetch-style Headers),
+    /// NOT the Surge $ style: the request script reads the UA out of
+    /// ctx.request.headers, sets two headers through the Headers API
+    /// and returns the headers object (the adapter's result channel);
+    /// the response script reads the body via ctx.response.text(),
+    /// sets a header and returns the rewritten body.
+    private static let egernHttpFiles: [String: String] = [
+        "egern-req.js": """
+        export default async function (ctx) {
+          var ua = ctx.request.headers.get("User-Agent");
+          ctx.request.headers.set("X-Egern-UA", ua || "missing");
+          ctx.request.headers.set("X-Egern-Req", "on");
+          return { headers: ctx.request.headers };
+        }
+        """,
+        "egern-resp.js": """
+        export default async function (ctx) {
+          var t = await ctx.response.text();
+          ctx.response.headers.set("X-Egern-Resp", "on");
+          return { headers: ctx.response.headers, body: t.replace("hello", "HELLO") };
+        }
+        """,
+    ]
+
+    func testEgernHttpRequestScriptRewritesHeader() throws {
+        let dir = try makeHome(modules: [(id: "egern-http", text: Self.egernHttpModule)],
+                               files: Self.egernHttpFiles)
+        _ = try buildAndLoad(dir)
+        XCTAssertEqual(try manifestTypes(dir), ["http-request", "http-response"],
+                       "Egern http_request/http_response scriptings must enter the manifest as MitM script entries")
+
+        let d = try makeDriver(dir)
+        let dec = d.requestPhase(head: apiHead(), conn: apiConn())
+        XCTAssertEqual(dec.action, .forward)
+        XCTAssertEqual(headerValue(dec.headers, "X-Egern-Req"), "on",
+                       "the Egern http-request script's header change must reach the forward decision")
+        XCTAssertEqual(headerValue(dec.headers, "X-Egern-UA"), "sverify",
+                       "ctx.request.headers must be populated from the real request (read path)")
+        XCTAssertEqual(headerValue(dec.headers, "User-Agent"), "sverify")
+        d.end(dec.id, sent: 0, error: "")
+    }
+
+    func testEgernHttpResponseScriptRewritesBody() throws {
+        let dir = try makeHome(modules: [(id: "egern-http", text: Self.egernHttpModule)],
+                               files: Self.egernHttpFiles)
+        _ = try buildAndLoad(dir)
+        XCTAssertEqual(try manifestTypes(dir), ["http-request", "http-response"])
+
+        let d = try makeDriver(dir)
+        let dec = d.requestPhase(head: apiHead(), conn: apiConn())
+        XCTAssertEqual(dec.action, .forward)
+        let head = HTTPResponseHead(status: 200, reason: "OK",
+                                    headers: [("Content-Type", "text/plain"), ("Content-Length", "11")])
+        let rdec = d.responsePhase(dec.id, head: head, length: 11)
+        XCTAssertEqual(rdec.action, .needBody)
+        XCTAssertEqual(rdec.which, FlowBodyWhich.response.rawValue)
+        XCTAssertEqual(d.write(dec.id, .response, Data("hello world".utf8)), .taken)
+        d.closeBody(dec.id, .response, error: "")
+        let fin = d.await(dec.id)
+        XCTAssertEqual(fin.action, .respond)
+        XCTAssertEqual(fin.body, .read)
+        XCTAssertEqual(readAll(d, dec.id, .response), Data("HELLO world".utf8),
+                       "the Egern http-response script's body rewrite (via ctx.response.text()) must be what the client is served")
+        XCTAssertEqual(headerValue(fin.headers, "X-Egern-Resp"), "on",
+                       "the Egern http-response script's header change must reach the final response head")
+        d.end(dec.id, sent: 11, error: "")
     }
 
     // MARK: - MitM failure mode: over-limit response body skips the body script
