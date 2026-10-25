@@ -67,8 +67,8 @@ final class EngineStore: ObservableObject {
                 for h in hosts where !config.hostnames.contains(h) { config.hostnames.append(h) }
                 continue
             }
-            let p = ParsedEngineText.parse(LibmihomoEngineParseLine(line, toScripts ? "script" : ""))
-            let isScript = p?.rules.first?.kind == "script"
+            let p = NCEngineParser.parseLine(line, section: toScripts ? "script" : "")
+            let isScript = p.rules.first?.kind == "script"
             if isScript { config.scripts.append(EngineItem(line: line)) } else { config.rules.append(EngineItem(line: line)) }
             n += 1
         }
@@ -77,7 +77,7 @@ final class EngineStore: ObservableObject {
     }
 
     static func describe(_ line: String, section: String = "") -> (desc: String, kind: String, error: String?) {
-        guard let p = ParsedEngineText.parse(LibmihomoEngineParseLine(line, section)) else { return ("无法解析", "", "无法解析") }
+        let p = NCEngineParser.parseLine(line, section: section)
         if let r = p.rules.first { return (r.desc, r.kind, nil) }
         if let t = p.tasks?.first { return (t.desc, t.kind, nil) }
         if let e = p.errors.first { return ("无效", "", e) }
@@ -94,7 +94,7 @@ final class EngineStore: ObservableObject {
         for m in config.modules {
             if let text = try? String(contentsOf: EnginePaths.moduleURL(m.id), encoding: .utf8) {
                 let args = (try? JSONEncoder().encode(m.args ?? [:])).flatMap { String(data: $0, encoding: .utf8) } ?? "{}"
-                if let p = ParsedEngineText.parse(LibmihomoEngineParseText(text, args)) { out[m.id] = p }
+                out[m.id] = NCEngineParser.parseText(text, argsJSON: args)
             }
         }
         moduleInfo = out
@@ -112,7 +112,7 @@ final class EngineStore: ObservableObject {
             for m in mods {
                 if let text = try? String(contentsOf: EnginePaths.moduleURL(m.id), encoding: .utf8) {
                     let args = (try? JSONEncoder().encode(m.args ?? [:])).flatMap { String(data: $0, encoding: .utf8) } ?? "{}"
-                    if let p = ParsedEngineText.parse(LibmihomoEngineParseText(text, args)) { out[m.id] = p }
+                    out[m.id] = NCEngineParser.parseText(text, argsJSON: args)
                 }
             }
             return out
@@ -147,8 +147,8 @@ final class EngineStore: ObservableObject {
         defer { busy.remove("add") }
         do {
             let text = try await Self.download(wanted)
-            let p = ParsedEngineText.parse(LibmihomoEngineParseText(text, "{}"))
-            guard let p, !(p.rules.isEmpty && p.hostnames.isEmpty && p.coreRules.isEmpty && (p.tasks ?? []).isEmpty && (p.panels ?? []).isEmpty) else {
+            let p = NCEngineParser.parseText(text, argsJSON: "{}")
+            guard !(p.rules.isEmpty && p.hostnames.isEmpty && p.coreRules.isEmpty && (p.tasks ?? []).isEmpty && (p.panels ?? []).isEmpty) else {
                 message = String(localized: "未识别到可用的重写、脚本或 MitM 内容")
                 return
             }
@@ -256,8 +256,8 @@ final class EngineStore: ObservableObject {
 
     func addModule(text: String, name: String) {
         SnapshotStore.shared.capture(String(localized: "添加模块前"))
-        let p = ParsedEngineText.parse(LibmihomoEngineParseText(text, "{}"))
-        let m = EngineModule(name: (p?.name.isEmpty == false ? p!.name : name), url: "", enabled: true, args: nil, updatedAt: Date().timeIntervalSince1970)
+        let p = NCEngineParser.parseText(text, argsJSON: "{}")
+        let m = EngineModule(name: (!p.name.isEmpty ? p.name : name), url: "", enabled: true, args: nil, updatedAt: Date().timeIntervalSince1970)
         try? text.write(to: EnginePaths.moduleURL(m.id), atomically: true, encoding: .utf8)
         config.modules.append(m)
         enableForModules()

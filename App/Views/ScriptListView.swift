@@ -198,7 +198,7 @@ enum ScriptListData {
         var out: [ScriptListData.ScriptGroup] = []
         var local: [ScriptEntry] = []
         for it in config.scripts where it.enabled {
-            guard let p = ParsedEngineText.parse(LibmihomoEngineParseLine(it.line, "script")) else { continue }
+            let p = NCEngineParser.parseLine(it.line, section: "script")
             local += entries(p, prefix: "local:" + it.id)
         }
         if !local.isEmpty { out.append(ScriptGroup(id: "local", title: localTitle, entries: local)) }
