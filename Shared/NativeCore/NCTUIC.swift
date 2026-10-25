@@ -234,6 +234,8 @@ final class NCTUICTCPStream: NCRelayStream {
     private var inbox: [Data] = []
     private var respBuf = Data()
     private var pending: ((Data?, Error?) -> Void)?
+    /// Completions of sends buffered in `outbox` until the channel is up; fired on flush/fail/cancel.
+    private var outboxWaiters: [NCCallOnce] = []
 
     init(channel: NCHy2StreamChannel, head: Data, expectResponse: Bool, queue: DispatchQueue) {
         self.channel = channel
@@ -247,15 +249,24 @@ final class NCTUICTCPStream: NCRelayStream {
             guard let self else { return }
             if let err { self.fail(err); return }
             self.open = true
-            self.channel.send(self.head + self.outbox)
+            let waiters = self.outboxWaiters; self.outboxWaiters = []
+            self.channel.send(self.head + self.outbox) { waiters.forEach { $0.call() } }
             self.outbox = Data()
             self.loop()
         }
     }
 
-    func send(_ data: Data) {
-        guard !closed, failure == nil else { return }
-        if open { channel.send(data) } else { outbox.append(data) }
+    func send(_ data: Data) { send(data, completion: {}) }
+
+    func send(_ data: Data, completion: @escaping () -> Void) {
+        let once = NCCallOnce(completion)
+        guard !closed, failure == nil else { once.call(); return }
+        if open { channel.send(data, completion: once.call) } else { outbox.append(data); outboxWaiters.append(once) }
+    }
+
+    private func drainOutboxWaiters() {
+        let w = outboxWaiters; outboxWaiters = []
+        w.forEach { $0.call() }
     }
 
     func receive(_ handler: @escaping (Data?, Error?) -> Void) {
@@ -267,6 +278,7 @@ final class NCTUICTCPStream: NCRelayStream {
 
     func cancel() {
         closed = true
+        drainOutboxWaiters()
         channel.cancel()
     }
 
@@ -299,6 +311,7 @@ final class NCTUICTCPStream: NCRelayStream {
     private func fail(_ e: Error) {
         failure = e
         closed = true
+        drainOutboxWaiters()
         channel.cancel()
         if let h = pending { pending = nil; h(nil, e) }
     }
