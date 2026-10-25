@@ -600,6 +600,10 @@ enum NCConnector {
                 queue.async { completion(nil, Failure.unsupported("vless reality over a chain transport")) }
                 return
             }
+            if isECHEnabled(proxy) && realityParams(proxy) != nil {
+                queue.async { completion(nil, Failure.handshake("REALITY 与 ECH 互斥，不能同时启用")) }
+                return
+            }
             if realityParams(proxy) != nil {
                 guard let head = NCVLESS.requestHead(uuid: uuid, target: target,
                                                      flow: proxy.fields["flow"]?.string ?? "") else {
@@ -647,6 +651,25 @@ enum NCConnector {
                         guard let base else { completion(nil, eerr); return }
                         base.send(head)
                         completion(NCVLESSRelayStream(raw: base), nil)
+                    }
+                }
+                return
+            }
+            if useTLS, !isVision, !encVision, needsNativeTLS(proxy) {
+                guard let head = NCVLESS.requestHead(uuid: uuid, target: target,
+                                                     flow: proxy.fields["flow"]?.string ?? "") else {
+                    queue.async { completion(nil, Failure.handshake("vless bad uuid")) }
+                    return
+                }
+                dialNativeTLS(proxy: proxy, server: server, port: port, queue: queue) { base0, err in
+                    guard let base0 else { completion(nil, err); return }
+                    transportStream(raw: base0, proxy: proxy, server: server, queue: queue) { base, terr in
+                        guard let tbase = base else { completion(nil, terr); return }
+                        vlessEncrypt(tbase, proxy: proxy, queue: queue) { base, eerr in
+                            guard let base else { completion(nil, eerr); return }
+                            base.send(head)
+                            completion(NCVLESSRelayStream(raw: base), nil)
+                        }
                     }
                 }
                 return
@@ -1290,6 +1313,10 @@ enum NCConnector {
             queue.async { completion(nil, Failure.unsupported("vmess cipher \(proxy.fields["cipher"]?.string ?? "?")")) }
             return
         }
+        if isECHEnabled(proxy) && realityParams(proxy) != nil {
+            queue.async { completion(nil, Failure.handshake("REALITY 与 ECH 互斥，不能同时启用")) }
+            return
+        }
         if realityParams(proxy) != nil {
             guard transport == nil else {
                 queue.async { completion(nil, Failure.unsupported("vmess reality over a chain transport")) }
@@ -1315,8 +1342,19 @@ enum NCConnector {
             }
             return
         }
+        let useTLS = proxy.fields["tls"]?.bool ?? false
+        if useTLS && needsNativeTLS(proxy) {
+            dialNativeTLS(proxy: proxy, server: server, port: port, queue: queue) { base0, err in
+                guard let base0 else { completion(nil, err); return }
+                transportStream(raw: base0, proxy: proxy, server: server, queue: queue) { base, terr in
+                    guard let base else { completion(nil, terr); return }
+                    finishVMess(base: base, target: target, uuidBytes: uuidBytes, security: security, completion: completion)
+                }
+            }
+            return
+        }
         let raw: NCStream
-        if proxy.fields["tls"]?.bool ?? false {
+        if useTLS {
             raw = NCStream(to: server, port: port,
                            tlsServerName: proxy.fields["servername"]?.string ?? proxy.fields["sni"]?.string ?? server,
                            allowInsecure: proxy.fields["skip-cert-verify"]?.bool ?? false,
