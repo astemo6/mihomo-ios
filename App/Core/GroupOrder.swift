@@ -127,7 +127,9 @@ enum GroupOrder {
             c.lastUpdated = p.lastUpdated
         }
         let src = p.fileURL.path, dst = c.fileURL.path
-        let r = decode(await Task.detached(priority: .userInitiated) { LibmihomoGroupOrderCopy(home, src, dst, json) }.value)
+        let r = await Task.detached(priority: .userInitiated) {
+            NCGroupOrder.copy(home: AppShared.homeURL, sourcePath: src, copyPath: dst, want: order)
+        }.value
         if let e = r.error, !e.isEmpty { return SaveResult(saved: false, message: GoText.localize(e)) }
         // Same order as the source: no copy needed. An edited existing copy (reordered in place) is switched to
         // even when it already had this order.
