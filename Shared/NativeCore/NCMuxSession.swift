@@ -95,6 +95,18 @@ final class NCMuxSession {
         }
     }
 
+    /// nc-lifecycle: deliberate close (the tunnel-stop registry drain in
+    /// NCConnector.closeAllSharedSessions): fail every stream and drop the
+    /// base connection — teardown() alone leaves the base socket open.
+    /// Idempotent: teardown() guards on tornDown and a nil base is fine.
+    func close() {
+        ncOnSessionQueue(queue) {
+            self.teardown()
+            self.base?.cancel()
+            self.base = nil
+        }
+    }
+
     /// Opens a stream for a caller living on `callerQueue`: deliveries (data / EOF / error) are handed back
     /// on that queue, so caller code does not change. The stream object returns at once; the HEADERS frame
     /// goes out on the session queue.

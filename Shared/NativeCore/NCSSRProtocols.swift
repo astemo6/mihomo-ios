@@ -1063,4 +1063,15 @@ extension NCConnector {
         ssrTicketIDs[proxy.name] = d
         return d
     }
+
+    /// nc-lifecycle: tunnel stop — the per-user auth state and ticket client
+    /// IDs are derived from the running config's credentials; nothing may
+    /// carry them into the next core (a changed password must not meet a
+    /// stale ticket). Rebuilt lazily on first use after a restart.
+    static func clearSharedSSRState() {
+        ssrExtraLock.lock()
+        ssrUserRegistry.removeAll()
+        ssrTicketIDs.removeAll()
+        ssrExtraLock.unlock()
+    }
 }
