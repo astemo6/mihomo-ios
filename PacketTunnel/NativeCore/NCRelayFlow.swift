@@ -6,13 +6,7 @@ import os
 /// for an NWConnection, encoded and accepted by the layer below for a protocol wrapper), so a pump can
 /// wait for it before reading more from the other side — the back-pressure that keeps a fast sender
 /// from piling megabytes into NWConnection's send queue.
-extension NCStream {
-    func send(_ data: Data, completion: @escaping () -> Void) {
-        guard !data.isEmpty else { queue.async(execute: completion); return }
-        // After cancel() NWConnection completes the send with an error at once: the caller still gets its callback.
-        conn.send(content: data, completion: .contentProcessed { _ in completion() })
-    }
-}
+// NCStream.send(_:completion:) lives in Shared/NativeCore/NCStream.swift (the App target compiles NCConnector too).
 
 enum NCRelayFlow {
     /// Sends `data` on `relay`; `done` runs on `queue` once the relay's send completion fires

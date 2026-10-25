@@ -140,3 +140,12 @@ final class NCHandshakeDeadline {
         c(stream, error)
     }
 }
+
+/// Send-side flow control (see NCRelayStream.send(_:completion:)): completes once NWConnection processed the bytes.
+extension NCStream {
+    func send(_ data: Data, completion: @escaping () -> Void) {
+        guard !data.isEmpty else { queue.async(execute: completion); return }
+        // After cancel() NWConnection completes the send with an error at once: the caller still gets its callback.
+        conn.send(content: data, completion: .contentProcessed { _ in completion() })
+    }
+}
