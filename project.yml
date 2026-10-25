@@ -53,6 +53,10 @@ targets:
       - path: Shared
       # feat/jsc-engine: the JavaScriptCore script engine also runs 脚本调试 in the app (and the unit tests).
       - path: PacketTunnel/JSCScriptEngine.swift
+      # nc-script-runtime-verify: the tunnel's Surge type=dns / type=rule hook runner, in the app only so
+      # UnitTests/NativeCoreScriptRuntimeVerifyTests.swift can drive it against the real script host (its
+      # NativeCoreEngine glue is behind TERN_TUNNEL, like NativeScriptHost's tunnel-only calls).
+      - path: PacketTunnel/NativeCore/NCScriptHookRunner.swift
       # feat/native-mitm: the native body lane, built into the app only so the unit tests can drive it
       # (UnitTests/NativeBodyStoreTests.swift); the app never registers it.
       - path: PacketTunnel/NativeBodyStore.swift

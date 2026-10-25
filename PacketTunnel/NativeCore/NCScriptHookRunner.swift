@@ -371,6 +371,12 @@ final class NCScriptHookRunner {
 
 // MARK: - Engine glue
 
+// The runner itself also compiles into the app target (project.yml)
+// so UnitTests/NativeCoreScriptRuntimeVerifyTests.swift can drive it
+// against the real script host; NativeCoreEngine exists only in the
+// tunnel, hence the guard (the same TERN_TUNNEL split NativeScriptHost
+// uses for its tunnel-only calls).
+#if TERN_TUNNEL
 extension NativeCoreEngine {
     /// Whether any Surge type=dns script is registered (checked by
     /// the data plane once per query; with none registered the DNS
@@ -389,3 +395,4 @@ extension NativeCoreEngine {
         NCScriptHookRunner.shared.applyDNS(query: query, reply: reply, on: queue, completion: completion)
     }
 }
+#endif

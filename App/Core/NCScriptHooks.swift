@@ -48,11 +48,20 @@ import Foundation
 /// NCScriptManifest.adaptEgern when it is in export-default form, and
 /// the ctx fields they read (ctx.request / ctx.env / …) are the ones
 /// documented at parseEgernScripting in EngineParser.swift.
+///
+/// Naming (nc-script-runtime-verify): the value types and the protocol
+/// in this file are a spec only — nothing in the App target conforms
+/// to or constructs them. They carry the `Hook` infix so they do not
+/// collide with the tunnel runner's operational mirrors
+/// (NCScriptDNSQuery / NCScriptRuleContext / NCScriptHookRunner in
+/// PacketTunnel/NativeCore/NCScriptHookRunner.swift) now that the
+/// runner also compiles into the app target for the integration tests
+/// (UnitTests/NativeCoreScriptRuntimeVerifyTests.swift).
 
 // MARK: - DNS hook values
 
 /// One DNS query, as handed to a type=dns script.
-struct NCScriptDNSQuery {
+struct NCScriptHookDNSQuery {
     /// Query name, lowercased, no trailing dot.
     var domain: String
     /// DNS record type code (1 = A, 28 = AAAA, 65 = HTTPS, …).
@@ -74,7 +83,7 @@ enum NCScriptDNSAnswer {
 /// with IPs as literals so this App-side contract does not depend on
 /// kernel types; the kernel adapter fills what it has and leaves the
 /// rest nil — scripts must treat every field as optional.
-struct NCScriptRuleContext {
+struct NCScriptHookRuleContext {
     var domain: String? = nil
     var ip: String? = nil
     var srcIP: String? = nil
@@ -98,13 +107,13 @@ enum NCScriptRuleVerdict {
 
 // MARK: - Runner (implemented tunnel-side by NCScriptHookRunner.swift)
 
-protocol NCScriptHookRunner: AnyObject {
+protocol NCScriptHookExecuting: AnyObject {
     /// Runs one registered type=dns script for a query. Must be
     /// fail-open: any script error or timeout returns .passThrough.
-    func runDNSScript(_ script: NCEngineScript, query: NCScriptDNSQuery) -> NCScriptDNSAnswer
+    func runDNSScript(_ script: NCEngineScript, query: NCScriptHookDNSQuery) -> NCScriptDNSAnswer
     /// Runs one registered type=rule script for a connection. Must be
     /// fail-open: any script error or timeout returns .noMatch.
-    func runRuleScript(_ script: NCEngineScript, context: NCScriptRuleContext) -> NCScriptRuleVerdict
+    func runRuleScript(_ script: NCEngineScript, context: NCScriptHookRuleContext) -> NCScriptRuleVerdict
 }
 
 // MARK: - Registration view over a parsed ruleset
