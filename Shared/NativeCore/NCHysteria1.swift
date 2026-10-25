@@ -274,10 +274,14 @@ final class NCHysteria1TCPStream: NCRelayStream {
     private var head = Data()
     private var outbox = Data()
     private var inbox: [Data] = []
+    private var inboxBytes = 0
     private var pending: ((Data?, Error?) -> Void)?
     private var failure: Error?
     /// Completions of sends buffered in `outbox` until the server accepts; fired on flush/fail/cancel.
     private var outboxWaiters: [NCCallOnce] = []
+
+    /// nc-memory: handshake outbox / reader-ahead inbox caps (see NCHysteria2TCPStream.maxQueuedBytes).
+    static let maxQueuedBytes = 256 * 1024
 
     init(channel: NCHy2StreamChannel, target: NCTarget, queue: DispatchQueue) {
         self.channel = channel
@@ -299,7 +303,14 @@ final class NCHysteria1TCPStream: NCRelayStream {
     func send(_ data: Data, completion: @escaping () -> Void) {
         let once = NCCallOnce(completion)
         switch phase {
-        case .handshaking: outbox.append(data); outboxWaiters.append(once)
+        case .handshaking:
+            guard outbox.count + data.count <= Self.maxQueuedBytes else {
+                once.call()
+                fail(NSError(domain: "NativeCore", code: 4,
+                             userInfo: [NSLocalizedDescriptionKey: "hysteria1 tcp send buffer overflow"]))
+                return
+            }
+            outbox.append(data); outboxWaiters.append(once)
         case .open: channel.send(data, completion: once.call)
         default: once.call()
         }
@@ -311,7 +322,12 @@ final class NCHysteria1TCPStream: NCRelayStream {
     }
 
     func receive(_ handler: @escaping (Data?, Error?) -> Void) {
-        if !inbox.isEmpty { handler(inbox.removeFirst(), nil); return }
+        if !inbox.isEmpty {
+            let data = inbox.removeFirst()
+            inboxBytes -= data.count
+            handler(data, nil)
+            return
+        }
         if phase == .failed { handler(nil, failure); return }
         if phase == .closed { handler(nil, nil); return }
         pending = handler
@@ -360,7 +376,14 @@ final class NCHysteria1TCPStream: NCRelayStream {
     }
 
     private func deliver(_ d: Data) {
-        if let h = pending { pending = nil; h(d, nil) } else { inbox.append(d) }
+        if let h = pending { pending = nil; h(d, nil) }
+        else if inboxBytes + d.count <= Self.maxQueuedBytes {
+            inboxBytes += d.count
+            inbox.append(d)
+        } else {
+            fail(NSError(domain: "NativeCore", code: 4,
+                         userInfo: [NSLocalizedDescriptionKey: "hysteria1 tcp receive buffer overflow"]))
+        }
     }
 
     private func fail(_ e: Error) {

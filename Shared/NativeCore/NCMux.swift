@@ -93,6 +93,8 @@ final class NCH2MuxCore {
     private var peerInitialWindow = 65535
     private var streamWindows: [Int: Int] = [:]
     private var headerBlocks: [Int: Data] = [:]
+    /// nc-memory: cap on streams with an unfinished header block (see the HEADERS branch).
+    static let maxHeaderBlockStreams = 128
 
     func start() -> Data {
         var out = NCH2ClientCore.preface
@@ -211,6 +213,14 @@ final class NCH2MuxCore {
                     return
                 }
                 frag = f
+            }
+            // nc-memory: the per-stream block is capped (maxHeaderBlock) but the number of
+            // streams with a block in flight was not; a peer opening endless HEADERS without
+            // END_HEADERS pins one block per stream id.
+            if headerBlocks[streamID] == nil, headerBlocks.count >= Self.maxHeaderBlockStreams {
+                result.outbound.append(rstStream(streamID))
+                result.events.append(.reset(streamID: streamID))
+                return
             }
             guard block.count + frag.count <= NCH2ClientCore.maxHeaderBlock else {
                 headerBlocks[streamID] = nil

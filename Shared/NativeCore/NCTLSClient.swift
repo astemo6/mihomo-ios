@@ -64,7 +64,15 @@ final class NCTLSClientStream: NCRelayStream {
     private var certVerify: (scheme: UInt16, signature: Data)?
     private var handshakeHandler: ((Error?) -> Void)?
     private var plaintextOut: [Data] = []
+    private var plaintextBytes = 0
     private var pendingReceive: ((Data?, Error?) -> Void)?
+
+    /// nc-memory: cap on decrypted plaintext queued ahead of the reader (and on the
+    /// post-splice overflow queue below). The record pump is decoupled from receive(),
+    /// so without this a fast peer pins unbounded plaintext while the reader is stalled;
+    /// overflow fails the stream, the mux failLocal shape. 256 KB aligns with the mux
+    /// stream inbound cap.
+    static let maxQueuedPlaintext = 256 * 1024
 
     // TLS 1.3 handshake state machine (rv2-proto): ServerHello → EncryptedExtensions → Certificate →
     // CertificateVerify (signature + chain/REALITY check) → Finished. No PSK/resumption is offered, so a server
@@ -86,6 +94,7 @@ final class NCTLSClientStream: NCRelayStream {
     private var spliced = false
     private var splicePending: ((Data?, Error?) -> Void)?
     private var spliceOverflow: [Data] = []
+    private var spliceBytes = 0
 
     /// ALPN the server selected (EncryptedExtensions in 1.3, ServerHello in 1.2); nil when it sent none.
     /// Valid once the handshake completion fired (feat/nc-proto2, based on astemo6/Muse NativeCore).
@@ -200,7 +209,15 @@ final class NCTLSClientStream: NCRelayStream {
                 // Vision direct splice: socket bytes are inner plaintext now.
                 if let data {
                     if let h = self.splicePending { self.splicePending = nil; h(data, nil) }
-                    else { self.spliceOverflow.append(data) }
+                    else if self.spliceBytes + data.count <= Self.maxQueuedPlaintext {
+                        self.spliceBytes += data.count
+                        self.spliceOverflow.append(data)
+                    } else {
+                        // nc-memory: splice overflow cap (see maxQueuedPlaintext).
+                        self.closed = true
+                        self.raw.cancel()
+                        return
+                    }
                     self.pumpRaw()
                 } else {
                     self.closed = true
@@ -672,7 +689,14 @@ final class NCTLSClientStream: NCRelayStream {
             return
         }
         if let restls = config.restls, restls.authed {
-            raw.ncSendSequentially(restls.records(for: data), completion: once.call)
+            let recs = restls.records(for: data)
+            if restls.sendOverflowed {
+                // nc-memory: restls sendBuf cap hit (see NCRestlsSession.maxSendBuf).
+                fail(TLSError.handshake("restls send buffer overflow"))
+                once.call()
+                return
+            }
+            raw.ncSendSequentially(recs, completion: once.call)
             return
         }
         if let suite12 = tls12 {
@@ -715,7 +739,9 @@ final class NCTLSClientStream: NCRelayStream {
 
     func receive(_ handler: @escaping (Data?, Error?) -> Void) {
         if !plaintextOut.isEmpty {
-            handler(plaintextOut.removeFirst(), nil)
+            let data = plaintextOut.removeFirst()
+            plaintextBytes -= data.count
+            handler(data, nil)
             return
         }
         if let failed {
@@ -731,11 +757,17 @@ final class NCTLSClientStream: NCRelayStream {
 
     private func deliverAppData(_ data: Data) {
         if data.isEmpty { return }
+        if failed != nil { return }
         if let handler = pendingReceive {
             pendingReceive = nil
             handler(data, nil)
-        } else {
+        } else if plaintextBytes + data.count <= Self.maxQueuedPlaintext {
+            plaintextBytes += data.count
             plaintextOut.append(data)
+        } else {
+            // nc-memory: queued-plaintext cap (see maxQueuedPlaintext).
+            fail(TLSError.handshake("plaintext queue overflow"))
+            raw.cancel()
         }
     }
 
@@ -791,6 +823,7 @@ final class NCTLSClientStream: NCRelayStream {
         spliced = true
         let plain = plaintextOut
         plaintextOut = []
+        plaintextBytes = 0
         let tail = readOffset >= readBuffer.count ? Data() : Data(readBuffer[(readBuffer.startIndex + readOffset)...])
         readBuffer = Data()
         readOffset = 0
@@ -800,7 +833,9 @@ final class NCTLSClientStream: NCRelayStream {
     /// One-shot verbatim receive for post-splice raw bytes.
     func receiveSpliced(_ handler: @escaping (Data?, Error?) -> Void) {
         if !spliceOverflow.isEmpty {
-            handler(spliceOverflow.removeFirst(), nil)
+            let data = spliceOverflow.removeFirst()
+            spliceBytes -= data.count
+            handler(data, nil)
             return
         }
         if closed {

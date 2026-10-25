@@ -438,6 +438,13 @@ final class NCDNSDoTPool {
         queue.async {
             let c: Conn
             if let existing = self.conns[key] { c = existing } else { c = Conn(); self.conns[key] = c }
+            // nc-memory: per-connection pending cap. The 5 s timeout applies to the in-flight
+            // query only; with a hung upstream the queue behind it grew at query arrival rate.
+            // Past the cap the query fails as nil at once (the callers' existing failure shape).
+            guard c.pending.count < 64 else {
+                callerQueue.async { completion(nil) }
+                return
+            }
             c.pending.append((query, callerQueue, completion))
             self.pump(key: key, conn: c, host: host, port: port)
         }
@@ -542,6 +549,11 @@ final class NCDNSDoHPool {
         queue.async {
             let c: Conn
             if let existing = self.conns[urlString] { c = existing } else { c = Conn(); self.conns[urlString] = c }
+            // nc-memory: per-connection pending cap (see NCDNSDoTPool.forward).
+            guard c.pending.count < 64 else {
+                callerQueue.async { completion(nil) }
+                return
+            }
             c.pending.append((query, callerQueue, completion))
             self.pump(key: urlString, conn: c, host: host, port: port, path: path)
         }
@@ -590,6 +602,12 @@ final class NCDNSDoHPool {
             guard let self, let c, var cur = c.current else { return }
             guard let data else { self.failCurrent(key: key, conn: c, host: host, port: port, path: path); return }
             cur.buffer.append(data)
+            // nc-memory: a declared Content-Length / chunked body is only bounded by the 6 s
+            // timeout; a DNS response never approaches 256 KB, so past it the stream is junk.
+            guard cur.buffer.count <= 256 * 1024 else {
+                self.failCurrent(key: key, conn: c, host: host, port: port, path: path)
+                return
+            }
             if let (body, consumed, keepAlive) = Self.parseResponse(cur.buffer) {
                 cur.timeout.cancel()
                 c.current = nil
@@ -786,6 +804,9 @@ final class NCUDPMuxSession: NCUDPSession {
             guard let data else { return }
             self.buffer.append(data)
             self.drain()
+            // nc-memory: an unparseable first frame never drains this buffer; a legal
+            // frame is <= 64 KB, so past 128 KB of residue the session is dead weight.
+            if self.buffered > 128 * 1024 { self.cancel(); return }
             self.receiveLoop()
         }
     }
@@ -873,6 +894,9 @@ final class NCUDPAnyTLSSession: NCUDPSession {
                 self.onReply(payload)
             }
             self.compactBuffer()
+            // nc-memory: an unparseable first frame never drains this buffer; a legal
+            // frame is <= 64 KB, so past 128 KB of residue the session is dead weight.
+            if self.buffered > 128 * 1024 { self.cancel(); return }
             self.receiveLoop()
         }
     }
@@ -1053,6 +1077,9 @@ final class NCUDPTrojanSession: NCUDPSession {
             guard let data else { return }
             self.buffer.append(data)
             self.parseFrames()
+            // nc-memory: an unparseable first frame never drains this buffer; a legal
+            // frame is <= 64 KB, so past 128 KB of residue the session is dead weight.
+            if self.buffered > 128 * 1024 { self.cancel(); return }
             if error == nil { self.receiveLoop() }
         }
     }
@@ -1407,6 +1434,9 @@ final class NCUDPVLESSSession: NCUDPSession {
             guard let data else { return }
             self.buffer.append(data)
             self.parseFrames()
+            // nc-memory: an unparseable first frame never drains this buffer; a legal
+            // frame is <= 64 KB, so past 128 KB of residue the session is dead weight.
+            if self.buffered > 128 * 1024 { self.cancel(); return }
             if error == nil { self.receiveLoop() }
         }
     }

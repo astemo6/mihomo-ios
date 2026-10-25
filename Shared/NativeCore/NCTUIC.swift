@@ -232,10 +232,14 @@ final class NCTUICTCPStream: NCRelayStream {
     private var failure: Error?
     private var outbox = Data()
     private var inbox: [Data] = []
+    private var inboxBytes = 0
     private var respBuf = Data()
     private var pending: ((Data?, Error?) -> Void)?
     /// Completions of sends buffered in `outbox` until the channel is up; fired on flush/fail/cancel.
     private var outboxWaiters: [NCCallOnce] = []
+
+    /// nc-memory: pre-open outbox / reader-ahead inbox caps (see NCHysteria2TCPStream.maxQueuedBytes).
+    static let maxQueuedBytes = 256 * 1024
 
     init(channel: NCHy2StreamChannel, head: Data, expectResponse: Bool, queue: DispatchQueue) {
         self.channel = channel
@@ -261,7 +265,12 @@ final class NCTUICTCPStream: NCRelayStream {
     func send(_ data: Data, completion: @escaping () -> Void) {
         let once = NCCallOnce(completion)
         guard !closed, failure == nil else { once.call(); return }
-        if open { channel.send(data, completion: once.call) } else { outbox.append(data); outboxWaiters.append(once) }
+        if open { channel.send(data, completion: once.call) }
+        else if outbox.count + data.count <= Self.maxQueuedBytes { outbox.append(data); outboxWaiters.append(once) }
+        else {
+            once.call()
+            fail(NCConnector.Failure.handshake("tuic tcp send buffer overflow"))
+        }
     }
 
     private func drainOutboxWaiters() {
@@ -270,7 +279,12 @@ final class NCTUICTCPStream: NCRelayStream {
     }
 
     func receive(_ handler: @escaping (Data?, Error?) -> Void) {
-        if !inbox.isEmpty { handler(inbox.removeFirst(), nil); return }
+        if !inbox.isEmpty {
+            let data = inbox.removeFirst()
+            inboxBytes -= data.count
+            handler(data, nil)
+            return
+        }
         if let failure { handler(nil, failure); return }
         if closed { handler(nil, nil); return }
         pending = handler
@@ -303,7 +317,14 @@ final class NCTUICTCPStream: NCRelayStream {
                 self.waitingResponse = false
                 if data.isEmpty { self.loop(); return }
             }
-            if let h = self.pending { self.pending = nil; h(data, nil) } else { self.inbox.append(data) }
+            if let h = self.pending { self.pending = nil; h(data, nil) }
+            else if self.inboxBytes + data.count <= Self.maxQueuedBytes {
+                self.inboxBytes += data.count
+                self.inbox.append(data)
+            } else {
+                self.fail(NCConnector.Failure.handshake("tuic tcp receive buffer overflow"))
+                return
+            }
             self.loop()
         }
     }

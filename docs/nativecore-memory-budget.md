@@ -45,7 +45,16 @@
 | 协议流待发（SS/VMess/VLESS 等纯编码器） | 由 #116 send completion 背压，单块 ≤ 64 KB 级 | NCRelayFlow |
 | Mux 流：待发 / 入站排队 | 64 KB / 256 KB | NCMuxStream.maxPendingSend / maxQueuedInbound（既有） |
 | AnyTLS 流：待发 / 入站排队 | 64 KB / 512 KB | NCAnyTLSStream（既有；无协议流控，入站上限为刻意取舍，不下调） |
-| **Mux/AnyTLS 会话流表** | **256 流/会话（本 PR 新增）** | 此前无上限：流数 × 单流上限即会话最坏占用 |
+| **Mux/AnyTLS 会话流表** | **128 流/会话（本 PR 新增）** | 此前无上限：流数 × 单流上限即会话最坏占用（理论值 ~40 MB / ~72 MB，读者全停滞时） |
+| **TLS 客户端流明文队列（含 Vision splice 溢出队列）** | **256 KB（本 PR 新增）** | 此前无上限：记录泵与 receive 解耦，对端快、读者停时线性增长（Trojan/VLESS/VMess 主路径） |
+| **QUIC 三件套 TCP 流（Hy2/Hy1/TUIC）握手 outbox / 入站 inbox** | **各 256 KB（本 PR 新增）** | 此前均无上限；超限走各流既有 fail |
+| **Vision 流 outQueue** | **256 KB（本 PR 新增）** | 泵自链式、与消费者解耦，此前无上限 |
+| **WebSocket 帧长 / 分片消息** | **各 1 MB（本 PR 新增）** | 此前 127 形长度（可声明 2^63）与分片累积均无校验 |
+| **Hy2 控制流缓冲** | **64 KB（本 PR 新增）** | 控制帧只有 SETTINGS/鉴权 HEADERS 等小帧；声明长度为对端 varint |
+| **UDP 帧流残留缓冲（Mux/AnyTLS/Trojan/VLESS 会话）** | **128 KB（本 PR 新增）** | 合法帧 ≤ 64 KB；首帧畸形时解析不消费、残留只进不出，超限 cancel 会话 |
+| **SSH 通道 outbox / inbox、kex 暂存** | **256 KB / 512 KB / 256 KB（本 PR 新增）** | inbox 上限 = 对外宣称的 windowSize；超限走 connectionLost |
+| **Restls sendBuf（writePending 暂存）** | **256 KB（本 PR 新增）** | 超限置 sendOverflowed，TLS 流随即失败 |
+| **H2Mux 头块在飞流数** | **128 流（本 PR 新增）** | 单流头块已有 64 KB 上限，流数此前无上限 |
 | **H2 隧道流：待发 / 入站排队 / 单条 gRPC 消息** | **256 KB / 256 KB / 1 MB（本 PR 新增）** | 此前三处均无上限（核心对 DATA 立即回窗口，协议层不限） |
 | H2 核心帧 / 头块 | 16 KB / 64 KB | NCH2ClientCore.maxFrameSize / maxHeaderBlock（既有） |
 | SOCKS5 回复 / HTTP CONNECT 头 | 512 B / 16 KB | NCConnector.maxSOCKSReply 等（既有），握手另有 12 s 截止 |
@@ -63,20 +72,21 @@ Mux 连接读者全停滞 ≈ 100 × (48 + 256 + 64) KB ≈ 37 MB——上限防
 
 | 项 | 上限 | 说明 |
 |---|---|---|
-| 应答缓存 NCDNSCache | 4096 条 | 满时整表按 60 s 间隔淘汰；每条约 0.3–1 KB（估算）→ ≤ ~2–4 MB |
+| NCRealIPMap（仅 redir-host 模式） | 4096 条 | 每条约 80–150 B（估算）→ ≤ ~0.6 MB；满时整表清空（既有） |
+| 引擎规则解析缓存 resolveCache | 512 名 | ≈ 50 KB（估算），reload 时清空（既有） |
 | 上行协调器 | 在途 32 + **待启动条目 512（本 PR 新增）** | 合并等待者不占条目；超限的新查询立即按 nil 失败（调用方既有语义） |
-| DoT/DoH 连接池 | 每上游 1 条连接 | #117 既有 |
-| fake-IP 池 | 8192 条/族（常量） | 每条约 200 B（估算）→ v4+v6 各 ≤ ~1.6 MB；落盘恢复两侧均按 capacity 截断（既有，#117 v2 格式） |
+| DoT/DoH 连接池 | 每上游 1 条连接；**每连接待发 64 条、DoH 应答缓冲 256 KB（本 PR 新增）** | 此前待发队列无条数上限（超时只作用于在飞的那一条） |
+| fake-IP 池 | 8192 条/族（常量） | 每条 v4 约 80–140 B、v6 约 120–200 B（估算）→ 双池满载合计 ≈ 1.7–2.7 MB；落盘恢复两侧均按 capacity 截断（既有，#117 v2 格式） |
 
 ### 5. 规则 / GeoSite / GEOIP 常驻
 
 | 项 | 形态与量级 |
 |---|---|
-| 规则数组 + DOMAIN-SUFFIX trie | 引擎按 snapshot 整体替换，reload 时旧集随旧状态释放（无累积）。常驻 ≈ 每条规则 50–80 B（估算）：5 万条 ≈ 3–4 MB，20 万条 ≈ 12–16 MB——**大订阅下第一大常驻项** |
-| rule-provider / DOMAIN-SET | 载入即驻留数组/集合（每条约 100–150 B，估算），无条数上限——集合大小由订阅本身决定；DOMAIN-SET 匹配为原地 trie/集合查询、不复制（已核对） |
-| GeoSite.dat | 全文以 `mappedIfSafe` 打开，常驻 = 被触页；文件本身 5–15 MB（视发行版） |
-| **GeoSite 已解析分类缓存** | **本 PR 新增字节上限：LRU 8 类 且 ≤ 8 MB（每条 ~72 B 估算）**；此前只有类数上限，8 个大分类（各 5–10 万条）理论可钉住数十 MB |
-| GEOIP / ASN mmdb | mmap 零拷贝懒查（NCMMDB 映射文件、按需二分），常驻仅触页；文件 60–100 MB 只占虚拟地址 |
+| 规则数组 + DOMAIN-SUFFIX trie | 引擎按 snapshot 整体替换，reload 时旧集随旧状态释放（无累积）。rule-set 索引每条约 50–180 B（精确集 ~50–90 B、trie 节点 ~100–180 B，估算）；顶层规则 NCRule 含 raw 整行重复存一份，约 150–350 B/条（估算） |
+| rule-provider / DOMAIN-SET | 载入即驻留索引，**下载字节与条数均无上限**（NCRuleProviderStore）——异常/恶意远端列表是最大的无界常驻风险，治理方案见「建议未落地」第 1 条；DOMAIN-SET 匹配为原地 trie/集合查询、不复制（已核对）。量级：5 万条 ≈ 2.5–9 MB，20 万条 ≈ 10–36 MB |
+| GeoSite.dat | 全文以 `mappedIfSafe` 打开，常驻 = 被触页；仓库内文件 4 272 778 B（实测） |
+| **GeoSite 已解析分类缓存** | **本 PR 新增字节上限：LRU 8 类 且 ≤ 8 MB（每条 ~72 B 估算）**；此前只有类数上限，8 个大分类（geosite:cn 一类约 10 万条 ≈ 5–9 MB）理论可钉住数十 MB |
+| GEOIP / ASN mmdb | mmap 零拷贝懒查（NCMMDB 映射文件、按需二分、逐 bit 走树、命中才解码），常驻仅触页；仓库内 geoip.metadb 8 423 059 B、ASN.mmdb 8 974 108 B（实测）只占虚拟地址。脚本侧另开一份 alwaysMapped 句柄，页由 OS 共享、增量很小 |
 | NCGeoStore | 仅 App 进程（下载/安装/诊断），不进扩展常驻 |
 
 ### 6. JSC 脚本上下文（本 PR 收紧）
@@ -108,23 +118,39 @@ Mux 连接读者全停滞 ≈ 100 × (48 + 256 + 64) KB ≈ 37 MB——上限防
 ## 已落地（本 PR）
 
 1. lwipopts：MEM_SIZE 384→320 KB、PBUF_POOL_SIZE 96→80、TCP_PCB_LISTEN 48→24。
-2. Mux/AnyTLS 会话流表上限 256（超限返回预失败流，不上线路）。
-3. H2 隧道流待发/入站 256 KB、gRPC 单消息 1 MB，超限失败流且 send completion 恰好一次。
-4. TUIC 重组 64 KB/包、Hy2 重组 16 条 × 64 KB。
-5. UDP Mux/AnyTLS 会话预连接队列 64 包（与 Hy2 对齐）。
-6. DNS 协调器待启动条目上限 512。
-7. GeoSite 分类缓存增加 8 MB 估算字节上限（与 8 类 LRU 并行）。
-8. JSC 脚本上下文缓存 LRU 上限 32 + 逐出路径接回 drop 的 trash/forget 机制。
+2. Mux/AnyTLS 会话流表上限 128（超限返回预失败流，不上线路）。
+3. TLS 客户端明文/splice 队列 256 KB；QUIC 三件套（Hy2/Hy1/TUIC）outbox/inbox 各
+   256 KB；Vision outQueue 256 KB；WebSocket 帧/消息各 1 MB；Hy2 控制流 64 KB；
+   UDP 帧流残留 128 KB；SSH 通道 256/512 KB 与 kex 暂存 256 KB；Restls sendBuf
+   256 KB；H2Mux 头块在飞流 128。超限均走各模块既有失败/关闭语义。
+4. H2 隧道流待发/入站 256 KB、gRPC 单消息 1 MB，超限失败流且 send completion 恰好一次。
+5. TUIC 重组 64 KB/包、Hy2 重组 16 条 × 64 KB。
+6. UDP Mux/AnyTLS 会话预连接队列 64 包（与 Hy2 对齐）；DNS 池每连接待发 64 条、
+   DoH 应答缓冲 256 KB。
+7. DNS 协调器待启动条目上限 512。
+8. GeoSite 分类缓存增加 8 MB 估算字节上限（与 8 类 LRU 并行）。
+9. JSC 脚本上下文缓存 LRU 上限 32 + 逐出路径接回 drop 的 trash/forget 机制。
+
+已知残留：SSR obfs 的 held（random_head / tls1.2_ticket_auth）——codec 协议无失败
+通道、held 是 obfs 时序语义的一部分，硬改会破坏协议；其量级 = 服务器首包到达前
+应用的上行量，实践中受首包时延约束，未在本 PR 处理。
 
 ## 建议未落地（按收益排序）
 
-1. **规则紧凑表示**：20 万条级订阅的规则常驻（12–16 MB）可经后缀 trie 共享尾串 /
-   字符串驻留再压 30–50%（估算）。属加载器结构改造，建议独立一路，先做内存遥测再定。
-2. **Mux 入站上限 256 KB → 128 KB 复核**：待背压遥测（overflow 触发次数）证明读者
-   停滞尾部后下调；AnyTLS 512 KB 因无协议流控保持不动。
-3. **DNS 缓存 minTTL 钳制**：上游给极大 TTL 时条目久驻（内存影响小于其行为影响，
+1. **rule-provider 双闸**：NCRuleProviderStore 下载与解析全无上限——给 refresh /
+   loadCached 加「下载 > 32 MB 抛错、entryCount > 300 000 视为失败保留旧表」两道闸
+   （阈值高于现网 5 万条量级列表留足余量）。这是当前最大的无界常驻风险，建议独立
+   一笔落地（涉及 provider 失败语义，超出本路「只加预算」的范围）。
+2. **规则紧凑表示**：20 万条级订阅的规则常驻（10–36 MB）可经后缀 trie 共享尾串 /
+   字符串驻留再压 30–50%（估算）；rule-set 的 others 条目不存 raw 整行也可省每条
+   一行长度。属加载器结构改造，建议先做内存遥测再定。
+3. **Mux/AnyTLS 单流上限复核**：Mux 入站 256 KB、AnyTLS 入站 512 KB 为既有值；
+   与 128 流表相乘的理论最坏仍高（~40 / ~72 MB）。实际占用受读者消费速度决定，
+   待背压遥测（overflow 触发次数）后再议下调；AnyTLS 因无协议流控更需谨慎。
+4. **JSC 临时上下文与 run 数换新**：同脚本并发的临时 context 无计数上限（用完即弃，
+   风险低于常驻池）；prelude reset() 不恢复被改写的基线全局值/原型污染，可给 Ctx 加
+   run 计数、满 ~200 次整 context 换新兜底。均建议随脚本路后续处理。
+5. **DNS 缓存 minTTL 钳制**：上游给极大 TTL 时条目久驻（内存影响小于其行为影响，
    属 DNS 语义，归 DNS 路）。
-4. **NCDNSCache 满表淘汰为 O(cap) 扫描**：4096 条下每 60 s 至多一次，可接受；
-   若条目上限上调需先改近似 LRU（性能路）。
-5. **GeoSite.dat 改 mmap 直读**：现为 mappedIfSafe Data（已是映射优先），若发行版
-   文件继续变大，可评估完全不驻留的按需页入——收益取决于真机触页数据。
+6. **fake-IP maxEntries 8192 → 4096 复核**：双池满载可省约 1 MB，代价是高域名量
+   场景映射回收变早（应答 TTL 仅 1 s，风险低）；与 DNS 路口径对齐后再定。

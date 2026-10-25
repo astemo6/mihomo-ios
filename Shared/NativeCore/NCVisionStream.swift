@@ -44,13 +44,26 @@ final class NCVisionStream: NCRelayStream {
     /// nc-perf: head offset for outQueue — pop by advancing instead of removeFirst per piece
     /// (compacted past the halfway point, same read-offset pattern as NCVisionReader).
     private var outHead = 0
+    private var outBytes = 0
     private var outIsEmpty: Bool { outHead >= outQueue.count }
     private func popOut() -> Data {
         let d = outQueue[outHead]
+        outBytes -= d.count
         outHead += 1
         if outHead == outQueue.count { outQueue.removeAll(); outHead = 0 }
         else if outHead > outQueue.count / 2 { outQueue.removeFirst(outHead); outHead = 0 }
         return d
+    }
+
+    /// nc-memory: the pump runs free of the reader, so the queue was unbounded. Cap aligns
+    /// with the mux stream inbound cap; false = overflow (caller fails the stream).
+    static let maxQueuedOut = 256 * 1024
+    private func offer(_ pieces: [Data]) -> Bool {
+        let total = pieces.reduce(0) { $0 + $1.count }
+        guard outBytes + total <= Self.maxQueuedOut else { return false }
+        outBytes += total
+        outQueue.append(contentsOf: pieces)
+        return true
     }
     private var readEOF = false
     private var pending: ((Data?, Error?) -> Void)?
@@ -99,7 +112,14 @@ final class NCVisionStream: NCRelayStream {
     }
 
     private func deliver(_ data: Data) {
-        guard let h = pending else { outQueue.append(data); return }
+        guard let h = pending else {
+            if !offer([data]) {
+                deliverEOF(NSError(domain: "NativeCore", code: 4,
+                                   userInfo: [NSLocalizedDescriptionKey: "vision receive buffer overflow"]))
+                tls.cancel()
+            }
+            return
+        }
         pending = nil
         h(data, nil)
     }
@@ -139,7 +159,12 @@ final class NCVisionStream: NCRelayStream {
             }
             do {
                 let outs = try self.reader.feed([UInt8](data))
-                self.outQueue.append(contentsOf: outs.map { Data($0) })
+                guard self.offer(outs.map { Data($0) }) else {
+                    self.deliverEOF(NSError(domain: "NativeCore", code: 4,
+                                            userInfo: [NSLocalizedDescriptionKey: "vision receive buffer overflow"]))
+                    self.tls.cancel()
+                    return
+                }
             } catch {
                 self.deliverEOF(error)
                 return
@@ -160,7 +185,7 @@ final class NCVisionStream: NCRelayStream {
         rawTail = tail
         for chunk in plain {
             if let outs = try? reader.feed([UInt8](chunk)) {
-                outQueue.append(contentsOf: outs.map { Data($0) })
+                _ = offer(outs.map { Data($0) })
             }
         }
     }

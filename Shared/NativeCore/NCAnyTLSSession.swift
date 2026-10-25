@@ -97,8 +97,9 @@ final class NCAnyTLSSession {
     }
 
     /// nc-memory: cap on concurrently registered streams per session (see NCMuxSession.maxStreams —
-    /// each stream can hold maxQueuedInbound + maxPendingSend, so the table size is a memory bound).
-    static let maxStreams = 256
+    /// each stream can hold maxQueuedInbound + maxPendingSend, so the table size is a memory bound;
+    /// here the product is 128 × ~576 KB ≈ 72 MB theoretical, all-readers-stalled).
+    static let maxStreams = 128
 
     private func openStreamOnQueue(target: NCTarget?, callerQueue: DispatchQueue) -> NCAnyTLSStream {
         guard streams.count < Self.maxStreams else {

@@ -207,6 +207,13 @@ final class NCRestlsSession {
     var clientFinished: [UInt8]?
     var writePending = false
     var sendBuf: [UInt8] = []
+    /// nc-memory: set when the writePending hold (below) hit its cap and data was dropped;
+    /// the owning stream checks it after records(for:) and fails the connection.
+    private(set) var sendOverflowed = false
+
+    /// nc-memory: cap on data held in sendBuf while writePending (server has not answered
+    /// yet); without it the hold grows with everything the app sends in that window.
+    static let maxSendBuf = 256 * 1024
 
     init(secret: [UInt8], hint: NCRestls.VersionHint, script: [NCRestls.Line]) {
         self.secret = secret
@@ -332,6 +339,10 @@ final class NCRestlsSession {
         var fakeResponse = fake
         if fakeResponse { writePending = false }
         if writePending {
+            guard sendBuf.count + dataNew.count <= Self.maxSendBuf else {
+                sendOverflowed = true
+                return []
+            }
             sendBuf.append(contentsOf: dataNew)
             return []
         }
