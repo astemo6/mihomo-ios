@@ -10,9 +10,13 @@ final class NativeTunnelCore {
     static let version = "native-core 0.1 (Swift/lwIP)"
 
     private let lock = NSLock()
-    private(set) var engine: NativeCoreEngine?
-    private(set) var plane: NCDataPlane?
-    private(set) var controller: NCController?
+    // Gap D3: read from the provider, the message handler, the stats samplers and the controller — under `lock`.
+    private var _engine: NativeCoreEngine?
+    private var _plane: NCDataPlane?
+    private var _controller: NCController?
+    var engine: NativeCoreEngine? { lock.lock(); defer { lock.unlock() }; return _engine }
+    var plane: NCDataPlane? { lock.lock(); defer { lock.unlock() }; return _plane }
+    var controller: NCController? { lock.lock(); defer { lock.unlock() }; return _controller }
     private var home = ""
 
     // reload status (bridge/reloadstatus.go shape: running, seq, done, kind, lastError, lastMs, lastDoneAgoMs, runningMs)
@@ -54,9 +58,9 @@ final class NativeTunnelCore {
         }
         lock.lock()
         self.home = home
-        self.engine = engine
-        self.plane = plane
-        self.controller = controller
+        _engine = engine
+        _plane = plane
+        _controller = controller
         lock.unlock()
         NativeCoreEngine.active = engine
         loadRewriteSnapshot(home: home, engine: engine)
@@ -66,8 +70,8 @@ final class NativeTunnelCore {
 
     func stop() {
         lock.lock()
-        let (c, p, e) = (controller, plane, engine)
-        controller = nil; plane = nil; engine = nil
+        let (c, p, e) = (_controller, _plane, _engine)
+        _controller = nil; _plane = nil; _engine = nil
         lock.unlock()
         c?.stop()
         p?.stop()
@@ -83,7 +87,7 @@ final class NativeTunnelCore {
         reloadSeq += 1
         reloadKind = hot ? "hot" : "full"
         reloadStarted = Date()
-        let (engine, plane, home) = (self.engine, self.plane, self.home)
+        let (engine, plane, home) = (_engine, _plane, self.home)
         lock.unlock()
         var err: String?
         if let engine, let plane {
@@ -177,7 +181,11 @@ final class NativeTunnelCore {
 
     /// The node the first group routes to now (the Live Activity's "main node").
     private func mainNode() -> String {
-        guard let engine, let cfg = engine.effectiveConfig, let g = engine.groupEngine else { return "" }
+        guard let engine else { return "" }
+        return engine.withGroups { cfg, g in Self.mainNode(cfg: cfg, g: g) } ?? ""
+    }
+
+    private static func mainNode(cfg: NCConfig, g: NCGroupEngine) -> String {
         let group = cfg.groupMap["GLOBAL"].flatMap { _ in cfg.groups.first { $0.name != "GLOBAL" } } ?? cfg.groups.first
         guard var cur = group else { return "" }
         for _ in 0..<8 {
