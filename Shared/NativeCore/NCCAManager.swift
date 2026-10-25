@@ -268,8 +268,10 @@ public final class NCCAManager {
         return try NCPKCS12Exporter.shared.export(leafDER: caDER, leafKey: caKey, caDER: Data(), password: password)
     }
 
-    /// Imports CA cert + private key from PKCS#12, replacing current CA files.
-    public static func importP12(home: String, data: Data, password: String) throws {
+    /// feat/nc-full-export: decodes + validates a PKCS#12 CA (cert + private key) without touching the CA files.
+    /// Returns the PEM bytes `importP12` writes (ca.pem, ca.key). The full export (.conf) validates its p12 with this
+    /// before anything is written, then writes the files in one staged step.
+    public static func pemPair(fromP12 data: Data, password: String) throws -> (pemCert: Data, pemKey: Data) {
         var rawItems: CFArray?
         let options: [String: Any] = [kSecImportExportPassphrase as String: password]
         let status = SecPKCS12Import(data as CFData, options as CFDictionary, &rawItems)
@@ -296,8 +298,12 @@ public final class NCCAManager {
         try validateCAPair(cert: cert, certDER: certDER, key: key)
 
         let pkcs8 = try exportPKCS8(from: key)
-        let pemKey = formatPEM(pkcs8, label: "PRIVATE KEY")
-        let pemCert = formatPEM(certDER, label: "CERTIFICATE")
+        return (formatPEM(certDER, label: "CERTIFICATE"), formatPEM(pkcs8, label: "PRIVATE KEY"))
+    }
+
+    /// Imports CA cert + private key from PKCS#12, replacing current CA files.
+    public static func importP12(home: String, data: Data, password: String) throws {
+        let (pemCert, pemKey) = try pemPair(fromP12: data, password: password)
 
         let dir = caDir(home: home)
         try FileManager.default.createDirectory(at: dir, withIntermediateDirectories: true, attributes: [.posixPermissions: 0o700])

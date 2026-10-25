@@ -109,7 +109,12 @@ struct ProfilesView: View {
                                 }
                                 Button { scriptsFor = p } label: { Label("覆写脚本", systemImage: "curlybraces") } // v0.19
                                 Divider()
-                                Button { export(p) } label: { Label("导出", systemImage: "square.and.arrow.up") }
+                                // feat/nc-full-export (user 2026-10-25): 导出 = 完整导出（.conf，QX 式，含全部重写 / 模块 /
+                                // 脚本 / MitM 证书和私钥）or the profile's YAML only (the old path).
+                                Menu {
+                                    Button { exportFull(p) } label: { Label("完整导出（.conf）", systemImage: "shippingbox") }
+                                    Button { export(p) } label: { Label("仅配置文件", systemImage: "doc.text") }
+                                } label: { Label("导出", systemImage: "square.and.arrow.up") }
                                 Button { exportFinal(p) } label: { Label("导出最终配置（含覆写）", systemImage: "doc.badge.gearshape") }
                                 Divider()
                                 Button(role: .destructive) { requestDelete(p) } label: { Label("删除", systemImage: "trash") }
@@ -183,7 +188,20 @@ struct ProfilesView: View {
         }
     }
 
-    /// 导出: the profile's YAML file (`<name>.yaml`, the profile exactly as stored) through the share sheet.
+    /// 完整导出（.conf）: TernFullExport — built off the main thread, shared, deleted when the share sheet closes.
+    func exportFull(_ p: Profile) {
+        busy = true
+        Task {
+            let r = await TernFullExport.exportFile(profile: p)
+            busy = false
+            switch r {
+            case .success(let u): share = ShareItem(url: u, temporary: true)
+            case .failure(let e): message = String(localized: "导出失败：") + e.localizedDescription
+            }
+        }
+    }
+
+    /// 仅配置文件: the profile's YAML file (`<name>.yaml`, the profile exactly as stored) through the share sheet.
     func export(_ p: Profile) {
         if let u = store.exportFile(of: p) { share = ShareItem(url: u, temporary: true) }
         else { message = String(localized: "导出失败：") + String(localized: "配置文件为空或无法读取") }
@@ -221,6 +239,7 @@ struct ProfilesView: View {
         guard let s = UIPasteboard.general.string, !s.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else { // clipboard-read: explicit 粘贴 tap only (see ClipboardRuleTests)
             message = String(localized: "剪贴板为空"); return
         }
+        if TernFullExport.isFullExport(s) { ImportRouter.shared.present(.fullExport(name: String(localized: "导入的配置"), text: s)); return }
         ImportRouter.shared.present(.confText(name: String(localized: "导入的配置"), text: s))
     }
 
@@ -236,6 +255,10 @@ struct ProfilesView: View {
         // Links of our own scheme or of other clients (loon:// stash:// surge:/// quantumult-x:///).
         if !s.contains("\n"), let a = ImportRouter.parse(s) {
             ImportRouter.shared.run(a)
+            return
+        }
+        if TernFullExport.isFullExport(s) {
+            ImportRouter.shared.present(.fullExport(name: String(localized: "导入的配置"), text: s))
             return
         }
         if Self.looksLikeConf(s) {
