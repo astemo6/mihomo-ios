@@ -57,6 +57,12 @@ struct RWSnapBodyOp: Decodable {
     var icu: String?
     var parts: [RWSnapReplPart]?
     var skip: Bool?
+    /// Go-zero (lane regexp2): an op the snapshot could not spell as explicit ICU is exported as its source — the
+    /// pattern `p` and the raw replacement `repl` (regexp2's path: Replace(body, repl, -1, -1)), or with `re2` the
+    /// RE2 pattern of Go's fast path and its parsed `parts`. RX2ICU translates it when the rule is built.
+    var p: String?
+    var repl: String?
+    var re2: Bool?
 }
 
 struct RWSnapJSONOp: Decodable {
@@ -87,7 +93,7 @@ final class RWSnapJQCond: Decodable {
 
 final class NativeBodyRule {
     enum Part { case lit(String), group(Int) }
-    enum RegexOp { case skip, replace(NSRegularExpression, [Part]) }
+    enum RegexOp { case skip, replace(NSRegularExpression, [Part]), rx2(RWRegex, RWSnapTemplate) }
     enum JQStep { case set([BodyJSONKey], BodyJSON), del([[BodyJSONKey]]), filter([BodyJSONKey], BodyJQ.Cond) }
 
     let index: Int
@@ -105,6 +111,11 @@ final class NativeBodyRule {
         case "body":
             for op in r.body ?? [] {
                 if op.skip == true { regexOps.append(.skip); continue }
+                if (op.icu ?? "").isEmpty, let src = op.p, !src.isEmpty {
+                    guard let built = NativeBodyRule.sourceOp(src, op) else { return nil }
+                    regexOps.append(built)
+                    continue
+                }
                 guard let icu = op.icu, !icu.isEmpty, let re = try? NSRegularExpression(pattern: icu, options: []) else { return nil }
                 var parts: [Part] = []
                 for p in op.parts ?? [] {
@@ -138,6 +149,31 @@ final class NativeBodyRule {
         default:
             return nil
         }
+    }
+
+    /// A source-exported op (see RWSnapBodyOp.p): regexp2 → RWRegex + regexp2's replacement program; RE2 → an
+    /// ICU expression with Go's parsed parts. nil: RX2ICU / ICU refuse it (the rule stays skipped).
+    static func sourceOp(_ p: String, _ op: RWSnapBodyOp) -> RegexOp? {
+        if op.re2 == true {
+            guard let t = RX2ICU.translate(p, dialect: .re2).0,
+                  let re = try? NSRegularExpression(pattern: t.icu, options: []), re.numberOfCaptureGroups == t.groups else { return nil }
+            var parts: [Part] = []
+            for x in op.parts ?? [] {
+                if x.g < 0 { parts.append(.lit(x.l ?? "")) } else {
+                    guard x.g <= t.groups else { return nil }
+                    parts.append(.group(x.g))
+                }
+            }
+            return .replace(re, parts)
+        }
+        guard let t = RX2ICU.translate(p).0 else { return nil }
+        let src = RWSnapRegex(p: p, ok: true, icu: t.icu, slots: t.identity ? nil : t.slots, lit: nil, fold: nil,
+                              groups: t.groups, named: t.names.isEmpty ? nil : true, empty: nil)
+        let rx = RWRegex(src)
+        guard rx.compiles else { return nil }
+        // a replacement regexp2 rejects makes Go's rule fail (skipped): the same here
+        guard case (let tp?, false) = RX2ICU.template(op.repl ?? "", t) else { return nil }
+        return .rx2(rx, tp)
     }
 
     enum Applied { case body(Data), handBack(String) }
@@ -180,6 +216,27 @@ final class NativeBodyRule {
         var s = String(decoding: bytes, as: UTF8.self)
         let deadline = Date().addingTimeInterval(NativeBodyRuntime.regexBudget)
         for op in regexOps {
+            if case .rx2(let rx, let tp) = op {
+                // regexp2 Replace(s, repl, -1, -1): every match, empty ones included, walked like regexp2 does
+                guard let re = rx.regex else { return .handBack("regex") }
+                let ns = s as NSString
+                var out = ""
+                var last = 0
+                var slow = false, bad = false
+                re.enumerateMatches(in: s, options: [.reportProgress], range: NSRange(location: 0, length: ns.length)) { m, _, stop in
+                    if Date() > deadline { slow = true; stop.pointee = true; return }
+                    guard let m = m else { return }
+                    guard let rep = rx.run(tp, m, ns) else { bad = true; stop.pointee = true; return }
+                    out += ns.substring(with: NSRange(location: last, length: m.range.location - last))
+                    out += rep
+                    last = m.range.location + m.range.length
+                }
+                if slow { return .handBack("regex time") }
+                if bad { return .handBack("replacement") }
+                out += ns.substring(from: last)
+                s = out
+                continue
+            }
             guard case .replace(let re, let parts) = op else { continue }
             let ns = s as NSString
             var out = ""

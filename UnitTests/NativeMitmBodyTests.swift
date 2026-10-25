@@ -62,11 +62,13 @@ enum NativeBodyConformance {
     struct Report {
         var total = 0, native = 0, handedBack = 0, mismatch = 0, goFreeSkipped = 0
         var reasons: [String: Int] = [:]
+        var skipReasons: [String: Int] = [:]
         var failures: [String] = []
         var perSuite: [String] = []
         var summary: String {
             let top = reasons.sorted { $0.value > $1.value }.prefix(12).map { "\($0.key) \($0.value)" }.joined(separator: ", ")
-            return "body exchanges \(total): native & identical \(native), handed back to Go \(handedBack), mismatches \(mismatch), Go-free rule skips \(goFreeSkipped); hand-back reasons: \(top)"
+            let skips = skipReasons.sorted { $0.value > $1.value }.prefix(8).map { "\($0.key) \($0.value)" }.joined(separator: ", ")
+            return "body exchanges \(total): native & identical \(native), handed back to Go \(handedBack), mismatches \(mismatch), Go-free rule skips \(goFreeSkipped) (\(skips)); hand-back reasons: \(top)"
         }
     }
 
@@ -192,8 +194,9 @@ enum NativeBodyConformance {
                     rep.handedBack += 1; h += 1
                     let key = why.split(separator: ":").prefix(2).joined(separator: ":")
                     rep.reasons[key, default: 0] += 1
-                case .goFreeSkip:
+                case .goFreeSkip(let why):
                     rep.goFreeSkipped += 1; k += 1
+                    rep.skipReasons[String(why.split(separator: ":").first ?? "").prefix(60).description, default: 0] += 1
                 case .mismatch(let why):
                     rep.mismatch += 1; m += 1
                     if rep.failures.count < 40 { rep.failures.append("\(s.name) / \(c.name): \(why)") }
@@ -392,6 +395,9 @@ final class NativeMitmBodyTests: XCTestCase {
         for f in rep.failures { print("NativeMitmBodyTests MISMATCH (passed filter): " + f) }
         XCTAssertEqual(rep.mismatch, 0, rep.failures.prefix(5).joined(separator: "\n"))
         XCTAssertGreaterThan(rep.native, 0)
+        // lane regexp2: body ops on regexp2's path (look-around, \b, $) and Go's RE2 nested repeats run natively —
+        // before it 297 exchanges skipped such a rule (the rest are jq forms and scripts next to body rules)
+        XCTAssertLessThan(rep.goFreeSkipped, 297)
     }
 
     /// Go's encoding/json output for the corner cases the corpus may not hold.

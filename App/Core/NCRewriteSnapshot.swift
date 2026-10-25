@@ -207,15 +207,23 @@ struct NCSnapBodyOp: Codable, Equatable {
     var icu: String?
     var parts: [NCSnapReplPart]?
     var skip: Bool?
+    /// lane regexp2 (Go-zero): the source of an op not spelled as explicit ICU — regexp2's path (p + raw repl) or,
+    /// with re2, Go's RE2 fast path (p + parts). The tunnel translates it with RX2ICU (RWSnapBodyOp).
+    var p: String?
+    var repl: String?
+    var re2: Bool?
 
     enum CodingKeys: String, CodingKey {
-        case icu, parts, skip
+        case icu, parts, skip, p, repl, re2
     }
 
-    init(icu: String? = nil, parts: [NCSnapReplPart]? = nil, skip: Bool? = nil) {
+    init(icu: String? = nil, parts: [NCSnapReplPart]? = nil, skip: Bool? = nil, p: String? = nil, repl: String? = nil, re2: Bool? = nil) {
         self.icu = icu
         self.parts = parts
         self.skip = skip
+        self.p = p
+        self.repl = repl
+        self.re2 = re2
     }
 }
 
@@ -1835,22 +1843,40 @@ private func parseRepl(_ rePattern: String, _ repl: String) -> (parts: [NCSnapRe
 }
 
 private func snapBodyOp(regex: String, repl: String) -> (NCSnapBodyOp, String) {
+    // lane regexp2 (Go-zero): an op on regexp2's path (Go: op.fast == nil — \b, $, look-around, back-references, a
+    // pattern that matches empty, a replacement Go's template parser refuses) is exported as its source when RX2ICU
+    // translates it and regexp2 accepts the replacement; the tunnel runs regexp2.Replace's semantics on it.
+    func regexp2Path() -> (NCSnapBodyOp, String) {
+        guard let t = RX2ICU.translate(regex).0 else { return (NCSnapBodyOp(), "regexp2") }
+        guard (try? NSRegularExpression(pattern: t.icu, options: [])) != nil else { return (NCSnapBodyOp(), "regexp2") }
+        let (tp, tperr) = RX2ICU.template(repl, t)
+        if tp == nil || tperr { return (NCSnapBodyOp(), "regexp2 replacement") }
+        return (NCSnapBodyOp(p: regex, repl: repl), "")
+    }
     if !compileFastRe(regex) {
         if (try? NSRegularExpression(pattern: regex, options: [])) == nil {
             return (NCSnapBodyOp(skip: true), "")
         }
-        return (NCSnapBodyOp(), "regexp2")
+        return regexp2Path()
     }
     guard regex.utf8.allSatisfy({ _ in true }), repl.utf8.allSatisfy({ _ in true }) else {
         return (NCSnapBodyOp(), "not utf-8")
     }
     let (icu, why) = icuFromRE2(regex)
-    if !why.isEmpty {
-        return (NCSnapBodyOp(), why)
+    if why == "nullable" {
+        return regexp2Path() // Go's fastBodyRe refuses a pattern that matches "" → regexp2's path
     }
     let (parts, ok) = parseRepl(regex, repl)
     if !ok {
-        return (NCSnapBodyOp(), "replacement")
+        return regexp2Path() // fastBodyRe refuses the replacement → regexp2's path
+    }
+    if !why.isEmpty {
+        // still Go's RE2 path (nested repeats, …): RE2 semantics re-stated by RX2ICU's RE2 dialect; leftmost-first
+        // matches are the same in a backtracking engine (the tunnel's time budget hands a runaway back)
+        guard let t = RX2ICU.translate(regex, dialect: .re2).0, (try? NSRegularExpression(pattern: t.icu, options: [])) != nil else {
+            return (NCSnapBodyOp(), why)
+        }
+        return (NCSnapBodyOp(parts: parts.isEmpty ? nil : parts, p: regex, re2: true), "")
     }
     return (NCSnapBodyOp(icu: icu, parts: parts.isEmpty ? nil : parts), "")
 }
