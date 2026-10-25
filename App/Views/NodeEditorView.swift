@@ -44,6 +44,7 @@ enum NodeProtocols {
         case "openvpn": return "OpenVPN：由内核在用户态完成连接，不会创建系统 VPN。CA 证书必填；把 .ovpn 中 <ca> 等段的 PEM 内容粘贴进来。"
         case "gost-relay": return "GOST Relay：GOST v3 的 relay 协议，可选 TLS 与多路复用。"
         case "tailscale": return "Tailscale：原生内核尚未接入，节点会保留在配置中，但不会被连接。"
+        case "ssh": return "私钥可直接粘贴 PEM 全文，也可填文件路径（绝对路径、~/ 开头，或相对配置目录）；加密的 OpenSSH 私钥请在「私钥口令」填写口令。"
         default: return nil
         }
     }
@@ -316,7 +317,10 @@ enum NodeProtocols {
             return [
                 FieldSpec(key: "username", label: "用户名"),
                 FieldSpec(key: "password", label: "密码", kind: .secure),
-                FieldSpec(key: "private-key", label: "私钥（可选）", kind: .secure),
+                // The kernel (NCSSH) reads `private-key` as inline PEM *or* a file path and
+                // `private-key-passphrase` for encrypted OpenSSH keys — keys must match exactly.
+                FieldSpec(key: "private-key", label: "私钥（PEM 或文件路径）", kind: .pem),
+                FieldSpec(key: "private-key-passphrase", label: "私钥口令", kind: .secure),
             ]
         case "socks5":
             return [

@@ -11112,6 +11112,74 @@
         }
       }
     },
+    "私钥可直接粘贴 PEM 全文，也可填文件路径（绝对路径、~/ 开头，或相对配置目录）；加密的 OpenSSH 私钥请在「私钥口令」填写口令。": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Paste the full PEM text, or enter a file path (absolute, starting with ~/, or relative to the profile folder). For an encrypted OpenSSH key, fill in Key Passphrase."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "秘密鍵は PEM 全文を貼り付けるか、ファイルパス（絶対パス、~/ で始まるパス、設定フォルダからの相対パス）を入力できます。暗号化された OpenSSH 秘密鍵は「秘密鍵のパスフレーズ」を入力してください。"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "개인 키는 PEM 전체를 붙여 넣거나 파일 경로(절대 경로, ~/로 시작, 구성 폴더 기준 상대 경로)를 입력할 수 있습니다. 암호화된 OpenSSH 개인 키는 '개인 키 암호'를 입력하세요."
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Вставьте полный текст PEM или укажите путь к файлу (абсолютный, с ~/ или относительно папки профиля). Для зашифрованного ключа OpenSSH заполните «Пароль ключа»."
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "私鑰可直接貼上 PEM 全文，也可填檔案路徑（絕對路徑、~/ 開頭，或相對設定目錄）；加密的 OpenSSH 私鑰請在「私鑰口令」填寫口令。"
+          }
+        }
+      }
+    },
+    "私钥（PEM 或文件路径）": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Private Key (PEM or File Path)"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "秘密鍵（PEM またはファイルパス）"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "개인 키(PEM 또는 파일 경로)"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Приватный ключ (PEM или путь к файлу)"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "私鑰（PEM 或檔案路徑）"
+          }
+        }
+      }
+    },
     "脚本保存的数据（如 BoxJS 设置、登录信息）都会被删除，无法恢复。": {
       "extractionState": "manual",
       "localizations": {
