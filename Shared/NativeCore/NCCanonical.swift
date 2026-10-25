@@ -388,11 +388,23 @@ extension NCCanonicalConfig {
 
         // proxy-providers → node subscriptions
         if let providers = cfg.raw["proxy-providers"]?.object {
+            // fix/nc-ruleset-convert: `type: file` providers (the App's 节点订阅 → ./nodesubs/<id>.yaml) have a
+            // path and no url; they used to be dropped here, so every group fed only by them was empty in the
+            // tunnel. http providers keep their url (a Go-era loopback /nodes/convert URL is unwrapped at fetch
+            // time) and their path (the App downloads them there too). The provider's own filter /
+            // exclude-filter apply to its nodes (mihomo semantics); exclude-type / override in the store.
             out.subscriptions = providers.keys.sorted().compactMap { name in
-                guard let o = providers[name]?.object, let url = o["url"]?.string else { return nil }
+                guard let o = providers[name]?.object else { return nil }
+                let vehicle = o["type"]?.string?.lowercased() ?? ""
+                let url = o["url"]?.string ?? ""
+                let path = o["path"]?.string ?? ""
+                if url.isEmpty && path.isEmpty && vehicle != "inline" { return nil }
+                let inc = o["filter"]?.string, exc = o["exclude-filter"]?.string
                 return NCNodeSubscription(
                     name: name, url: url,
                     interval: o["interval"]?.int ?? 86400,
+                    includeRegex: (inc?.isEmpty ?? true) ? nil : inc,
+                    excludeRegex: (exc?.isEmpty ?? true) ? nil : exc,
                     fields: o)
             }
         }

@@ -245,8 +245,15 @@ final class NCController {
             return
         }
         switch (req.method, path) {
-        case ("GET", "/providers/proxies"), ("GET", "/providers/rules"):
-            // Providers are folded into the config by the app / the rule-provider store; nothing to list yet.
+        case ("GET", "/providers/proxies"):
+            // fix/nc-ruleset-convert: the tunnel's proxy providers (nodes after filter / override), mihomo shape.
+            let snap = engine.groupEngine?.statusSnapshot()
+            let delays = snap?.delays ?? [:], alive = snap?.alive ?? [:]
+            let now = ISO8601DateFormatter().string(from: Date())
+            let providers = engine.proxyProvidersJSON { p in Self.proxyItem(p, delays: delays, alive: alive, now: now) }
+            respond(conn, status: 200, json: ["providers": providers])
+        case ("GET", "/providers/rules"):
+            // Rule providers are folded into the rule-provider store; nothing to list yet.
             respond(conn, status: 200, json: ["providers": [String: Any]()])
         case ("GET", "/version"):
             respond(conn, status: 200, json: ["version": "native-1.0.0", "meta": true])
@@ -328,6 +335,21 @@ final class NCController {
 
     private func routeParameterized(_ conn: NCLoopbackConn, _ req: Request) {
         let comps = req.path.split(separator: "/").map(String.init)
+        // /providers/proxies/{name} PUT (update now) | /providers/proxies/{name}/healthcheck GET
+        if comps.count >= 3, comps[0] == "providers", comps[1] == "proxies" {
+            let name = comps[2]
+            if comps.count == 3, req.method == "PUT" {
+                let ok = engine.refreshProxyProvider(name) { [weak self] in
+                    self?.respond(conn, status: 204, json: nil)
+                }
+                if !ok { respond(conn, status: 404, json: ["message": "resource not found"]) }
+                return
+            }
+            if comps.count == 4, comps[3] == "healthcheck", req.method == "GET" {
+                respond(conn, status: 204, json: nil)
+                return
+            }
+        }
         // /proxies/{name} PUT|DELETE, /proxies/{name}/delay GET
         if comps.count >= 2, comps[0] == "proxies" {
             let name = comps[1]
@@ -437,18 +459,7 @@ final class NCController {
         var out: [String: Any] = [:]
         let now = ISO8601DateFormatter().string(from: Date())
         for p in cfg.proxies {
-            var item: [String: Any] = [
-                "name": p.name,
-                "type": Self.displayType(p.type),
-                "udp": p.udp,
-                "alive": snapshot.alive[p.name] ?? true,
-            ]
-            if let d = snapshot.delays[p.name] {
-                item["history"] = [["time": now, "delay": d]]
-            } else {
-                item["history"] = [Any]()
-            }
-            out[p.name] = item
+            out[p.name] = Self.proxyItem(p, delays: snapshot.delays, alive: snapshot.alive, now: now)
         }
         for g in cfg.groups {
             out[g.name] = [
@@ -465,6 +476,23 @@ final class NCController {
         out["DIRECT"] = ["name": "DIRECT", "type": "Direct", "udp": true, "alive": true, "history": [Any]()]
         out["REJECT"] = ["name": "REJECT", "type": "Reject", "udp": true, "alive": true, "history": [Any]()]
         return out
+    }
+
+    private static func proxyItem(_ p: NCProxy, delays: [String: Int], alive: [String: Bool], now: String) -> [String: Any] {
+        var item: [String: Any] = [
+            "name": p.name,
+            "type": Self.displayType(p.type),
+            "udp": p.udp,
+            "alive": alive[p.name] ?? true,
+        ]
+        if let d = delays[p.name] {
+            item["history"] = [["time": now, "delay": d]]
+        } else {
+            item["history"] = [Any]()
+        }
+        if let s = p.server { item["server"] = s }
+        if let port = p.port { item["port"] = port }
+        return item
     }
 
     private func rulesJSON() -> [[String: Any]] {

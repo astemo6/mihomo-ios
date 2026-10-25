@@ -295,4 +295,89 @@ final class NativeCoreRuleProviderStoreTests: XCTestCase {
         XCTAssertEqual(p?["behavior"]?.string, "classical")
         XCTAssertNil(p?["header"])
     }
+
+    /// Build 401: the tunnel had only the profile's own proxies — `type: file` providers (节点订阅) were dropped and
+    /// http providers pointed at the dead loopback /nodes/convert. Now: file / inline / http providers all load,
+    /// provider filter + override apply, groups get their `use` / include-all-providers nodes.
+    func testProxyProvidersLoadIntoGroups() throws {
+        let home = dir!
+        try FileManager.default.createDirectory(at: home.appendingPathComponent("nodesubs"), withIntermediateDirectories: true)
+        try FileManager.default.createDirectory(at: home.appendingPathComponent("proxies"), withIntermediateDirectories: true)
+        // 节点订阅 file (Clash YAML, as the App writes it)
+        try """
+        proxies:
+          - name: 台湾 WAP 家宽
+            type: ss
+            server: 1.1.1.1
+            port: 1001
+            cipher: aes-128-gcm
+            password: a
+          - name: 东京 ORA JP01
+            type: trojan
+            server: jp.example.com
+            port: 443
+            password: b
+        """.write(to: home.appendingPathComponent("nodesubs/s1.yaml"), atomically: true, encoding: .utf8)
+        // App download of the http provider (raw share links)
+        try "trojan://pw@hk.example.com:443#HK%20CF%20CDN\ntrojan://pw@sz.example.com:443#SZ%20CN\ntrojan://pw@us.example.com:443#US%20Expire\n"
+            .write(to: home.appendingPathComponent("proxies/air.yaml"), atomically: true, encoding: .utf8)
+        let src = "https://sub.example.com/link?token=t"
+        var comps = URLComponents(string: "http://127.0.0.1:9090/nodes/convert")!
+        comps.queryItems = [URLQueryItem(name: "url", value: src)]
+        let cfg = NCConfig.decode(root: [
+            "proxies": .array([.object(["name": .string("Local"), "type": .string("ss"), "server": .string("9.9.9.9"),
+                                        "port": .number(1), "cipher": .string("aes-128-gcm"), "password": .string("x")])]),
+            "proxy-providers": .object([
+                "订阅": .object(["type": .string("file"), "path": .string("./nodesubs/s1.yaml")]),
+                "Air": .object(["type": .string("http"), "url": .string(comps.string!), "path": .string("./proxies/air.yaml"),
+                                "interval": .number(86400), "exclude-filter": .string("Expire"),
+                                "override": .object(["additional-prefix": .string("✈ "), "udp": .bool(true)])]),
+                "Inl": .object(["type": .string("inline"), "payload": .array([
+                    .object(["name": .string("Inline-1"), "type": .string("socks5"), "server": .string("2.2.2.2"), "port": .number(1080)])])]),
+            ]),
+            "proxy-groups": .array([
+                .object(["name": .string("回国"), "type": .string("select"), "proxies": .array([]),
+                         "use": .array([.string("Air")]), "filter": .string("SZ")]),
+                .object(["name": .string("全部"), "type": .string("select"), "proxies": .array([.string("Local")]),
+                         "include-all-providers": .bool(true)]),
+                .object(["name": .string("台湾"), "type": .string("select"), "use": .array([.string("订阅")])]),
+            ]),
+            "rules": .array([.string("MATCH,全部")]),
+        ])
+        let canonical = NCCanonicalConfig.from(mihomo: cfg)
+        XCTAssertEqual(Set(canonical.subscriptions.map { $0.name }), ["订阅", "Air", "Inl"])
+
+        let store = NCNodeSubscriptionStore(dir: home.appendingPathComponent("nativecore-nodesubs"), home: home)
+        var logs: [String] = []
+        store.log = { logs.append($0) }
+        let stale = store.loadCached(canonical.subscriptions)
+        XCTAssertEqual(stale.map { $0.name }, ["Air"], "only the http provider refreshes")
+        let air = canonical.subscriptions.first { $0.name == "Air" }!
+        XCTAssertEqual(store.nodes(for: air).map { $0.name }, ["✈ HK CF CDN", "✈ SZ CN"])
+        XCTAssertEqual(store.nodes(for: air).first?.udp, true)
+        XCTAssertTrue(logs.contains("proxy provider 订阅: 2 nodes (file)"), "\(logs)")
+        XCTAssertTrue(logs.contains("proxy provider Air: 3 nodes (app download)"), "\(logs)")
+        XCTAssertTrue(logs.contains("proxy provider Inl: 1 nodes (inline)"), "\(logs)")
+
+        var fetched: [String] = []
+        store.fetcher = { url, done in
+            fetched.append(url)
+            done(Data("trojan://pw@hk.example.com:443#HK%20CF%20CDN\ntrojan://pw@sz.example.com:443#SZ%20CN\ntrojan://pw@tw.example.com:443#TW%20New\n".utf8))
+        }
+        let done = expectation(description: "refresh")
+        store.refresh(air) { done.fulfill() }
+        wait(for: [done], timeout: 5)
+        XCTAssertEqual(fetched, [src], "loopback /nodes/convert unwrapped to the source subscription")
+        XCTAssertEqual(store.nodes(for: air).map { $0.name }, ["✈ HK CF CDN", "✈ SZ CN", "✈ TW New"])
+        XCTAssertTrue(logs.contains("proxy provider Air: 3 nodes (fetched)"), "\(logs)")
+
+        let merged = NativeCoreEngine.merge(base: cfg, subs: canonical.subscriptions,
+                                            canonicalGroups: canonical.groupMap) { store.nodes(for: $0) }
+        XCTAssertEqual(merged.proxies.count, 1 + 2 + 3 + 1)
+        let g = Dictionary(uniqueKeysWithValues: merged.groups.map { ($0.name, $0.proxies) })
+        XCTAssertEqual(g["回国"], ["✈ SZ CN"])
+        XCTAssertEqual(g["台湾"], ["台湾 WAP 家宽", "东京 ORA JP01"])
+        XCTAssertEqual(Set(g["全部"] ?? []), Set(["Local", "台湾 WAP 家宽", "东京 ORA JP01", "✈ HK CF CDN", "✈ SZ CN", "✈ TW New", "Inline-1"]))
+        XCTAssertEqual(g["全部"]?.first, "Local")
+    }
 }

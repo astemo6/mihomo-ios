@@ -43,6 +43,9 @@ final class NativeCoreEngine {
     private var dnsPolicy: NCDNSPolicy?
     private var nodeSubStore: NCNodeSubscriptionStore?
     private var nodeSubs: [NCNodeSubscription] = []
+    /// Base config merged with provider nodes, rebuilt with the group engine (was recomputed — every provider
+    /// node through every group's regex — on each effectiveConfig read: /proxies, health checks, delay tests).
+    private var _merged: NCConfig?
     /// 智能选择 scorer (bridge/smart.go port); armed from groups.json on load.
     private var smart: NCSmartSelector?
     private var smartTimer: DispatchSourceTimer?
@@ -155,7 +158,7 @@ final class NativeCoreEngine {
         let preProviders = NCRuleProviderStore.providers(from: cfg)
         let preStale = preStore.loadCached(providers: preProviders, home: home)
         let preSubStore = NCNodeSubscriptionStore(dir: URL(fileURLWithPath: home)
-            .appendingPathComponent("nativecore-nodesubs"))
+            .appendingPathComponent("nativecore-nodesubs"), home: URL(fileURLWithPath: home))
         let preStaleSubs = preSubStore.loadCached(canonical.subscriptions)
         let homeURL = URL(fileURLWithPath: home)
         let oldSigs = locked { geoFileSigs }
@@ -269,6 +272,7 @@ final class NativeCoreEngine {
         stateLock.lock(); defer { stateLock.unlock() } // also runs from subscription refresh completions
         guard let cfg = _config else { return }
         let merged = mergedConfig(base: cfg)
+        _merged = merged
         let engine = NCGroupEngine(config: merged)
         if let old = groups {
             // Snapshot under the old engine's lock: the health-check scheduler
@@ -302,29 +306,56 @@ final class NativeCoreEngine {
 
     private func mergedConfig(base cfg: NCConfig) -> NCConfig {
         guard let store = nodeSubStore, !nodeSubs.isEmpty else { return cfg }
+        return Self.merge(base: cfg, subs: nodeSubs, canonicalGroups: canonicalGroupMap) { store.nodes(for: $0) }
+    }
+
+    /// Provider nodes join the config's proxies (a name already taken by a proxy or group is skipped), and each
+    /// group gains the nodes of the providers it `use`s — or of every provider with include-all /
+    /// include-all-providers (include-all / include-all-proxies also add the config's own proxies) — through its
+    /// filter / exclude-filter (several patterns may be joined with "`", as in mihomo). Static so unit tests
+    /// can drive it.
+    static func merge(base cfg: NCConfig, subs: [NCNodeSubscription], canonicalGroups: [String: NCGroupModel],
+                      nodes: (NCNodeSubscription) -> [NCProxy]) -> NCConfig {
         var names = Set(cfg.proxies.map { $0.name })
         let groupNames = Set(cfg.groups.map { $0.name })
         var subNodesBySub: [String: [NCProxy]] = [:]
         var proxies = cfg.proxies
-        for sub in nodeSubs {
-            let nodes = store.nodes(for: sub).filter {
+        for sub in subs {
+            let ns = nodes(sub).filter {
                 !names.contains($0.name) && !groupNames.contains($0.name)
             }
-            for n in nodes { names.insert(n.name) }
-            subNodesBySub[sub.name] = nodes
-            proxies.append(contentsOf: nodes)
+            for n in ns { names.insert(n.name) }
+            subNodesBySub[sub.name] = ns
+            proxies.append(contentsOf: ns)
         }
+        func regexes(_ s: String?) -> [NSRegularExpression] {
+            guard let s, !s.isEmpty else { return [] }
+            return s.split(separator: "`").compactMap { try? NSRegularExpression(pattern: String($0)) }
+        }
+        func hit(_ res: [NSRegularExpression], _ name: String) -> Bool {
+            let r = NSRange(name.startIndex..., in: name)
+            return res.contains { $0.firstMatch(in: name, range: r) != nil }
+        }
+        func truthy(_ v: NCJSONValue?) -> Bool { v?.bool ?? (v?.string?.lowercased() == "true") }
         let groups = cfg.groups.map { g -> NCProxyGroup in
-            let cg = canonicalGroupMap[g.name]
-            let use = cg?.use ?? g.use
-            guard !use.isEmpty else { return g }
-            let include = cg?.includeRegex ?? g.fields["filter"]?.string
-            let exclude = cg?.excludeRegex ?? g.fields["exclude-filter"]?.string
+            let cg = canonicalGroups[g.name]
+            var use = cg?.use ?? g.use
+            let includeAll = truthy(g.fields["include-all"])
+            if includeAll || truthy(g.fields["include-all-providers"]) {
+                for sub in subs where !use.contains(sub.name) { use.append(sub.name) }
+            }
+            let withProxies = includeAll || truthy(g.fields["include-all-proxies"])
+            guard !use.isEmpty || withProxies else { return g }
+            let inc = regexes(cg?.includeRegex ?? g.fields["filter"]?.string)
+            let exc = regexes(cg?.excludeRegex ?? g.fields["exclude-filter"]?.string)
+            func keep(_ n: String) -> Bool { (inc.isEmpty || hit(inc, n)) && (exc.isEmpty || !hit(exc, n)) }
             var members = g.proxies
+            var seen = Set(members)
+            if withProxies {
+                for p in cfg.proxies where keep(p.name) && seen.insert(p.name).inserted { members.append(p.name) }
+            }
             for subName in use {
-                for node in subNodesBySub[subName] ?? [] where
-                    NCNodeFilter.matches(node.name, include: include, exclude: exclude)
-                    && !members.contains(node.name) {
+                for node in subNodesBySub[subName] ?? [] where keep(node.name) && seen.insert(node.name).inserted {
                     members.append(node.name)
                 }
             }
@@ -333,6 +364,40 @@ final class NativeCoreEngine {
         return NCConfig(mode: cfg.mode, logLevel: cfg.logLevel, ipv6: cfg.ipv6,
                         proxies: proxies, groups: groups, rules: cfg.rules,
                         dns: cfg.dns, sniffer: cfg.sniffer, raw: cfg.raw, subRules: cfg.subRules)
+    }
+
+    /// GET /providers/proxies (mihomo shape): one entry per proxy provider with its (filtered / overridden) nodes.
+    func proxyProvidersJSON(item: (NCProxy) -> [String: Any]) -> [String: Any] {
+        stateLock.lock(); defer { stateLock.unlock() }
+        guard let store = nodeSubStore else { return [:] }
+        let iso = ISO8601DateFormatter()
+        var out: [String: Any] = [:]
+        for sub in nodeSubs {
+            var p: [String: Any] = [
+                "name": sub.name, "type": "Proxy", "vehicleType": store.vehicleType(of: sub.name),
+                "proxies": store.nodes(for: sub).map(item),
+            ]
+            if let at = store.updatedAt(of: sub.name) { p["updatedAt"] = iso.string(from: Date(timeIntervalSince1970: at)) }
+            if let hc = sub.fields["health-check"]?.object, let u = hc["url"]?.string { p["testUrl"] = u }
+            out[sub.name] = p
+        }
+        return out
+    }
+
+    /// PUT /providers/proxies/{name}: refetch one http provider now (false = no such provider).
+    func refreshProxyProvider(_ name: String, completion: @escaping () -> Void) -> Bool {
+        let found: (NCNodeSubscriptionStore, NCNodeSubscription)? = locked {
+            guard let store = nodeSubStore, let sub = nodeSubs.first(where: { $0.name == name }) else { return nil }
+            return (store, sub)
+        }
+        guard let found else { return false }
+        let store = found.0, sub = found.1
+        if sub.url.isEmpty {
+            _ = store.loadCached([sub]); rebuildGroupEngine(); completion()
+        } else {
+            store.refresh(sub) { [weak self] in self?.rebuildGroupEngine(); completion() }
+        }
+        return true
     }
 
     /// Build a match context with this engine's GeoIP/ASN lookups injected.
@@ -392,6 +457,7 @@ final class NativeCoreEngine {
         dnsPolicy = nil
         nodeSubStore = nil
         nodeSubs = []
+        _merged = nil
         canonicalGroupMap = [:]
     }
 
@@ -425,7 +491,7 @@ final class NativeCoreEngine {
     var effectiveConfig: NCConfig? {
         stateLock.lock(); defer { stateLock.unlock() }
         guard let cfg = _config else { return nil }
-        return groups != nil ? mergedConfig(base: cfg) : cfg
+        return groups != nil ? (_merged ?? mergedConfig(base: cfg)) : cfg
     }
 
     /// The loaded config's sniffer settings (disabled when no config).
@@ -861,7 +927,8 @@ final class NativeCoreEngine {
     var statsLine: String {
         stateLock.lock(); defer { stateLock.unlock() }
         guard let cfg = _config else { return "native core: not loaded" }
-        return "native core (\(configSource)): \(cfg.proxies.count) proxies, \(cfg.groups.count) groups, \(rules.count) rules (\(unparsedRules.count) ignored), unsupported \(groups?.unsupported.count ?? 0), fake-ip \(fakeIP?.size ?? 0) entries"
+        let fromProviders = (_merged?.proxies.count ?? cfg.proxies.count) - cfg.proxies.count
+        return "native core (\(configSource)): \(cfg.proxies.count) proxies + \(fromProviders) from \(nodeSubs.count) provider(s), \(cfg.groups.count) groups, \(rules.count) rules (\(unparsedRules.count) ignored), unsupported \(groups?.unsupported.count ?? 0), fake-ip \(fakeIP?.size ?? 0) entries"
     }
 
     /// Whether ICMP echo requests to this address should be answered
