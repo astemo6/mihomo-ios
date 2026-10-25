@@ -17,9 +17,14 @@ final class NativeCoreQUICFIPTests: XCTestCase {
     }
 
     func testQUICSniff() {
-        // Keys for DCID 8394c8f03e515708 (RFC 9001 App. A values, generated
-        // with Go): key 1f369613…, iv fa044b2f…, hp 9f50449e….
-        let packet = hex("c600000001088394c8f03e5157080000405ef046b451939b7ca362c0a5e53f6c22dd6988baba5401fabdb11bdc15c4308caa1ea6df4ec4eea1ddf3d6bd27fb13e5e574e90272d731e3b576aadddbee49087943c635759b966e8e966e428f7fde7e84aa4bd6c26c790c451d0215f69394")
+        // Keys for DCID 8394c8f03e515708 (RFC 9001 App. A values): key
+        // 1f369613…, iv fa044b2f…, hp 9f50449e…. The ClientHello carries a
+        // well-formed server_name (list len, name_type 0, name len — the old
+        // vector omitted name_type, so no RFC 6066 parser could read it),
+        // ALPN "h3" and supported_versions; sealed with the header as AEAD
+        // associated data and header-protected (RFC 9001 §5.3/§5.4), built
+        // with Python `cryptography` and decrypted back independently.
+        let packet = hex("cc00000001088394c8f03e515708000040689646b451899b7ca368c0a5e53f6c22dd6988baba5401fabdb11bdc15c4308caa1ea6df4ec4eea1ddf3d6bd27fb13e5e574e9024cd731e3aa76aaddd0805411755eda3c3ed69a6ce3bd7e41887cd93ed672ac9f32ed9fff8ca4902fc64da6587b47453fbde6158c78")
         XCTAssertEqual(NCQUICSniffer.sni(from: packet), "example.com")
         if case .tls(let sni, let alpn) = NCSniffer.detect(packet) {
             XCTAssertEqual(sni, "example.com")
