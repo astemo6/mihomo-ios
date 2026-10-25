@@ -195,9 +195,10 @@ final class NCV2RayWSStream: NCRelayStream {
         let early = NCWSTransportOptions.base64URLRaw(Data(data.prefix(n)))
         let rest = Data(data.dropFirst(n))
         if !rest.isEmpty { queuedSends.insert((rest, once), at: 0) }
-        dial(earlyData: early) { err in
-            // On success the rest (if any) went out first in drain() and carries `once`; on failure fail() fired it.
-            if err == nil && rest.isEmpty { once.call() }
+        dial(earlyData: early) { _ in
+            // A non-empty rest carries `once` through the queue (sent by drain(), or fired by fail() / cancel());
+            // otherwise the whole write rode in the upgrade request and is done either way.
+            if rest.isEmpty { once.call() }
         }
     }
 

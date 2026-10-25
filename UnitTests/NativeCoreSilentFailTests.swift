@@ -367,8 +367,10 @@ final class NativeCoreSilentFailTests: XCTestCase {
 
     func testHTTPObfsHeadStripAcrossChunks() {
         var head = Data()
-        XCTAssertEqual(NCHTTPObfsStream.stripResponseHead(&head, appending: Data("HTTP/1.1 200 OK\r\n".utf8)), .needMore)
-        XCTAssertEqual(NCHTTPObfsStream.stripResponseHead(&head, appending: Data("\r\n".utf8)), .done(Data()))
+        let r1 = NCHTTPObfsStream.stripResponseHead(&head, appending: Data("HTTP/1.1 200 OK\r\n".utf8))
+        XCTAssertEqual(r1, .needMore)
+        let r2 = NCHTTPObfsStream.stripResponseHead(&head, appending: Data("\r\nrest".utf8))
+        XCTAssertEqual(r2, .done(Data("rest".utf8)))
         XCTAssertTrue(head.isEmpty)
     }
 
