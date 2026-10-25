@@ -505,7 +505,8 @@ enum NCRuntimeSteps {
     /// bridge mergeManualNodes.
     static func mergeManualNodes(_ raw: inout [String: NCJSONValue], manualPath: String) {
         guard let data = try? Data(contentsOf: URL(fileURLWithPath: manualPath)),
-              let root = try? NCYAML.parse(data),
+              let text = String(data: data, encoding: .utf8),
+              let root = NCYAML.parse(text),
               case .object(let man) = root else { return }
         let nodes = man.list("proxies").compactMap { v -> [String: NCJSONValue]? in
             if case .object(let m) = v { return m }

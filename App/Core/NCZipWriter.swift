@@ -114,8 +114,15 @@ struct NCZipWriter {
     static func dosDateTime(_ date: Date) -> (UInt16, UInt16) {
         let comps = Calendar(identifier: .gregorian).dateComponents(in: .current, from: date)
         let y = max((comps.year ?? 1980) - 1980, 0)
-        let time = UInt16(((comps.hour ?? 0) << 11) | ((comps.minute ?? 0) << 5) | ((comps.second ?? 0) / 2))
-        let day = UInt16((y << 9) | ((comps.month ?? 1) << 5) | (comps.day ?? 1))
+        let hour: Int = comps.hour ?? 0
+        let minute: Int = comps.minute ?? 0
+        let second: Int = comps.second ?? 0
+        let month: Int = comps.month ?? 1
+        let dayOfMonth: Int = comps.day ?? 1
+        let timeBits: Int = (hour << 11) | (minute << 5) | (second / 2)
+        let dayBits: Int = (y << 9) | (month << 5) | dayOfMonth
+        let time = UInt16(truncatingIfNeeded: timeBits)
+        let day = UInt16(truncatingIfNeeded: dayBits)
         return (time, day)
     }
 }

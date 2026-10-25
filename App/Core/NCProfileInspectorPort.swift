@@ -220,7 +220,8 @@ enum NCProfileInspectorPort {
             let prefix = (kind == "rule") ? "rules" : "proxies"
             let digest = Insecure.SHA1.hash(data: Data(u.utf8))
             let hex = digest.map { String(format: "%02x", $0) }.joined()
-            return (homeDir as NSString).appendingPathComponent(prefix).appendingPathComponent(hex)
+            let dir = (homeDir as NSString).appendingPathComponent(prefix)
+            return (dir as NSString).appendingPathComponent(hex)
         }
         return ""
     }

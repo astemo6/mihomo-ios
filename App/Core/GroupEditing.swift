@@ -428,19 +428,19 @@ enum NCGroupEditing {
     }
 
     /// Builds a MemberPool from ProfileInspector cached results and profile/node subscription files.
-    static func buildMemberPool(home: URL, path: String, inspector: ProfileInspector? = nil) -> MemberPool {
+    static func buildMemberPool(home: URL, path: String, inspected: InspectResult? = nil) -> MemberPool {
         var pool = MemberPool()
 
         // 1. Seed from ProfileInspector result if available
-        if let ins = inspector {
-            for p in ins.result.proxies {
+        if let res = inspected {
+            for p in res.proxies {
                 pool.proxies.append(p.name)
                 pool.types[p.name] = p.type
             }
-            for g in ins.result.groups {
+            for g in res.groups {
                 pool.types[g.name] = g.type
             }
-            for pv in ins.result.proxyProviders {
+            for pv in res.proxyProviders {
                 let names = pv.proxies?.map(\.name) ?? []
                 pool.providers[pv.name] = names
                 for p in pv.proxies ?? [] {

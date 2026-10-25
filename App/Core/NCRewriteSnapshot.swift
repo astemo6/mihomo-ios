@@ -1532,7 +1532,7 @@ private final class RE2Parser {
                 if let val = UInt32(hexStr, radix: 16), let u = UnicodeScalar(val) {
                     return (.literal([u], foldCase), "")
                 }
-                return (.literal([UnicodeScalar(ascii: "x")], foldCase), "")
+                return (.literal([UnicodeScalar(UInt8(ascii: "x"))], foldCase), "")
             case "u":
                 var hexStr = ""
                 for _ in 0..<4 {
@@ -1541,7 +1541,7 @@ private final class RE2Parser {
                 if let val = UInt32(hexStr, radix: 16), let u = UnicodeScalar(val) {
                     return (.literal([u], foldCase), "")
                 }
-                return (.literal([UnicodeScalar(ascii: "u")], foldCase), "")
+                return (.literal([UnicodeScalar(UInt8(ascii: "u"))], foldCase), "")
             default:
                 return (.literal([esc], foldCase), "")
             }
@@ -2269,9 +2269,9 @@ private func snapRule(i: Int, r: NCEngineRule, home: String, res: NCResources) -
         i: i,
         kind: r.kind,
         phase: r.phase,
+        hgate: !r.headerPattern.isEmpty ? true : nil,
         action: r.action.isEmpty ? nil : r.action,
-        target: r.target.isEmpty ? nil : r.target,
-        hgate: !r.headerPattern.isEmpty ? true : nil
+        target: r.target.isEmpty ? nil : r.target
     )
     let redirect = r.kind == "url" && (r.action == "302" || r.action == "307" || r.action == "header")
     if !r.pattern.isEmpty {

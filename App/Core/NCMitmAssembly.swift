@@ -26,6 +26,8 @@ struct NCEngineItem: Decodable {
     var line: String = ""
     var note: String? = nil
 
+    enum CodingKeys: String, CodingKey { case id, enabled, line, note }
+
     init() {}
     init(from decoder: Decoder) throws {
         let c = try decoder.container(keyedBy: CodingKeys.self)
@@ -46,6 +48,8 @@ struct NCEngineModule: Decodable {
     var updatedAt: Double? = nil
     var interval: Int? = nil
 
+    enum CodingKeys: String, CodingKey { case id, name, url, enabled, args, policies, updatedAt, interval }
+
     init() {}
     init(from decoder: Decoder) throws {
         let c = try decoder.container(keyedBy: CodingKeys.self)
@@ -63,6 +67,8 @@ struct NCEngineModule: Decodable {
 struct NCScriptResource: Decodable {
     var disabled: Bool = false
     var interval: Int = 0
+
+    enum CodingKeys: String, CodingKey { case disabled, interval }
 
     init() {}
     init(from decoder: Decoder) throws {
@@ -87,6 +93,8 @@ struct NCEngineConfig: Decodable {
     var quic: String = ""
     var quicAllow: [String] = []
     var language: String = ""
+
+    enum CodingKeys: String, CodingKey { case enabled, scriptsEnabled, mitm, skipCertVerify, h2, captureBodies, hostnames, rules, scripts, modules, scriptResources, quic, quicAllow, language }
 
     init() {}
     init(from decoder: Decoder) throws {

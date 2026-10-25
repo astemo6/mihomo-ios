@@ -187,7 +187,7 @@ final class ProfileInspector: ObservableObject {
         guard let url = AppShared.activeProfileURL else { return nil }
         let home = AppShared.homeURL
         let path = url.path
-        let pool = NCGroupEditing.buildMemberPool(home: home, path: path, inspector: self)
+        let pool = NCGroupEditing.buildMemberPool(home: home, path: path, inspected: result)
         let items = await Task.detached(priority: .userInitiated) {
             NCGroupEditing.preview(specs: specs, pool: pool)
         }.value
