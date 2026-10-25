@@ -7,7 +7,7 @@ enum NCSupport {
     /// Proxy types the connector (PacketTunnel/NativeCore/NCConnector.swift) implements.
     static let types: Set<String> = [
         "direct", "reject", "socks5", "http", "https", "ss", "ssr", "snell", "trojan", "vless", "vmess",
-        "hysteria2", "hy2", "anytls",
+        "hysteria2", "hy2", "anytls", "hysteria", "ssh", "tuic",
     ]
     /// Stream transports (`network:`) the connector implements.
     static let transports: Set<String> = ["tcp", "ws", "grpc", "h2", "http"]
@@ -17,12 +17,9 @@ enum NCSupport {
         let t = p.type.lowercased()
         guard types.contains(t) else {
             switch t {
-            case "tuic": return "TUIC 尚未接入（需要 QUIC 单向流与 TLS exporter）"
             case "wireguard": return "WireGuard 尚未接入"
             case "tailscale": return "Tailscale 尚未接入"
             case "mieru": return "Mieru 尚未接入"
-            case "hysteria": return "Hysteria v1 尚未接入"
-            case "ssh": return "SSH 尚未接入"
             default: return "类型 \(t) 尚未接入"
             }
         }
@@ -31,23 +28,89 @@ enum NCSupport {
         }
         switch t {
         case "ss":
-            if let plugin = p.fields["plugin"]?.string, !plugin.isEmpty {
-                return "Shadowsocks 插件 \(plugin) 尚未接入"
+            if let why = ssPluginUnsupported(p) {
+                return "Shadowsocks 插件 \(why) 尚未接入"
             }
         case "ssr":
-            let cipher = p.cipher?.lowercased()
-            if !NCSSStreamCipher.isStreamMethod(cipher) { return "SSR 加密 \(cipher ?? "-") 尚未接入" }
-            let proto = (p.fields["protocol"]?.string ?? "origin").lowercased()
-            if proto != "origin" && proto != "auth_sha1_v4" { return "SSR 协议 \(proto) 尚未接入" }
-            let obfs = (p.fields["obfs"]?.string ?? "plain").lowercased()
-            if obfs != "plain" && obfs != "http_simple" { return "SSR 混淆 \(obfs) 尚未接入" }
+            if let why = ssrUnsupported(p) { return why }
+        case "hysteria":
+            if let why = hysteriaUnsupported(p) { return why + " 尚未接入" }
+        case "ssh":
+            if let why = sshUnsupported(p) { return why }
+        case "tuic":
+            let hasToken = !(p.fields["token"]?.string ?? "").isEmpty
+            if !hasToken && (p.uuid ?? "").isEmpty { return "TUIC 缺少 uuid / token" }
         case "vless":
-            if let enc = p.fields["encryption"]?.string?.lowercased(), !enc.isEmpty, enc != "none" {
-                return "VLESS encryption 尚未接入"
+            if let enc = p.fields["encryption"]?.string, !enc.isEmpty, enc != "none" {
+                // feat/nc-proto A6: mlkem768x25519plus.<native|xorpub|random>.<1rtt|0rtt>.<keys> (NCVLESSEncryption).
+                let parts = enc.split(separator: ".").map(String.init)
+                guard parts.count >= 4, parts[0] == "mlkem768x25519plus",
+                      ["native", "xorpub", "random"].contains(parts[1]), ["1rtt", "0rtt"].contains(parts[2]) else {
+                    return "VLESS encryption \(enc.prefix(24)) 不是有效的 mlkem768x25519plus 值"
+                }
+                if p.fields["flow"]?.string == "xtls-rprx-vision" { return "VLESS encryption + Vision 尚未接入" }
             }
         default:
             break
         }
+        return nil
+    }
+
+    /// nil = plugin supported; else the reason (mirrors mihomo NewShadowSocks' option checks;
+    /// obfs http/tls, v2ray-plugin websocket (+tls, mux), shadow-tls v2/v3 are implemented in NCSSPlugins).
+    static func ssPluginUnsupported(_ proxy: NCProxy) -> String? {
+        guard let plugin = proxy.fields["plugin"]?.string, !plugin.isEmpty else { return nil }
+        let opts = proxy.fields["plugin-opts"]?.object ?? [:]
+        switch plugin {
+        case "obfs":
+            let mode = opts["mode"]?.string ?? ""
+            return mode == "http" || mode == "tls" ? nil : "obfs mode \(mode)"
+        case "v2ray-plugin":
+            if (opts["mode"]?.string ?? "") != "websocket" { return "v2ray-plugin mode \(opts["mode"]?.string ?? "")" }
+            if opts["v2ray-http-upgrade"]?.bool == true { return "v2ray-plugin http-upgrade" }
+            return nil
+        case "shadow-tls":
+            let v = opts["version"]?.int ?? 2
+            return v == 2 || v == 3 ? nil : "shadow-tls v\(v)"
+        default:
+            return plugin
+        }
+    }
+
+    /// SSR: stream ciphers + none/dummy; every protocol and obfs mihomo v1.19.33 registers (feat/nc-proto A5).
+    static let ssrProtocols: Set<String> = ["origin", "auth_sha1_v4", "auth_aes128_md5", "auth_aes128_sha1",
+                                            "auth_chain_a", "auth_chain_b"]
+    static let ssrObfs: Set<String> = ["plain", "http_simple", "http_post", "random_head", "tls1.2_ticket_auth",
+                                       "tls1.2_ticket_fastauth"]
+
+    static func ssrUnsupported(_ p: NCProxy) -> String? {
+        let cipher = p.cipher?.lowercased()
+        if cipher != "none" && cipher != "dummy" && !NCSSStreamCipher.isStreamMethod(cipher) {
+            return "SSR 加密 \(cipher ?? "-") 尚未接入"
+        }
+        let proto = (p.fields["protocol"]?.string ?? "origin").lowercased()
+        if !ssrProtocols.contains(proto) { return "SSR 协议 \(proto) 尚未接入" }
+        let obfs = (p.fields["obfs"]?.string ?? "plain").lowercased()
+        if !ssrObfs.contains(obfs) { return "SSR 混淆 \(obfs) 尚未接入" }
+        return nil
+    }
+
+    /// Hysteria v1 (NCHysteria1, feat/nc-proto A3): nil = supported; else why not.
+    static func hysteriaUnsupported(_ p: NCProxy) -> String? {
+        if let o = p.fields["obfs"]?.string, !o.isEmpty { return "Hysteria v1 obfs" }
+        let proto = (p.fields["obfs-protocol"]?.string ?? p.fields["protocol"]?.string ?? "udp").lowercased()
+        if !proto.isEmpty && proto != "udp" { return "Hysteria v1 protocol \(proto)" }
+        if p.port == nil { return "Hysteria v1 port hopping (ports)" }
+        return nil
+    }
+
+    /// SSH (NCSSH, feat/nc-proto A3): private keys must be inline PEM (a file path cannot be read in the tunnel)
+    /// and unencrypted.
+    static func sshUnsupported(_ p: NCProxy) -> String? {
+        if let pk = p.fields["private-key"]?.string, !pk.isEmpty, !pk.contains("PRIVATE KEY") {
+            return "SSH 私钥文件路径尚未接入（请内联 PEM）"
+        }
+        if let pp = p.fields["private-key-passphrase"]?.string, !pp.isEmpty { return "SSH 加密私钥尚未接入" }
         return nil
     }
 

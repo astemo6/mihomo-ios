@@ -4,7 +4,9 @@ import Security
 
 /// A hand-rolled TLS 1.3 client over an NCStream, built for REALITY (which
 /// needs byte-exact control of the ClientHello) and usable as plain TLS too.
-/// Scope: TLS 1.3 only, X25519 key share, suites 1301/1302/1303, no client
+/// Plain (non-REALITY) mode falls back to TLS 1.2 when the server picks it
+/// (ECDHE + AES-GCM / ChaCha20-Poly1305, see NCTLS12; feat/nc-proto A8).
+/// Scope: X25519 key share, suites 1301/1302/1303, no client
 /// certs, no resumption. Certificate policy: REALITY mode verifies the leaf
 /// by its HMAC proof (falling back to "not verified" → handshake failure,
 /// exactly like the Go client); plain mode uses SecTrust against the system
@@ -17,6 +19,8 @@ final class NCTLSClientStream: NCRelayStream {
         var allowInsecure: Bool = false // plain mode only: skip SecTrust result
         /// ClientHello shape from the proxy's `fingerprint` field.
         var profile: NCClientHelloProfile = .chrome
+        /// Plain mode only: session ID computed from the marshaled hello (zero ID in place) — shadow-tls v3.
+        var sessionIDGenerator: ((Data) -> Data?)? = nil
     }
 
     enum TLSError: Error {
@@ -107,12 +111,25 @@ final class NCTLSClientStream: NCRelayStream {
             wireHello.replaceSubrange(39..<(39 + 32), with: sealed)
             self.realityAuthKey = authKey
             _ = reality
+        } else if let gen = config.sessionIDGenerator {
+            guard let sid = gen(hello), sid.count == 32 else { throw TLSError.handshake("session ID generator") }
+            wireHello.replaceSubrange(39..<(39 + 32), with: sid)
         }
         transcript.append(wireHello)
         sendRecord(type: 22, payload: wireHello)
     }
 
     private var realityAuthKey: Data?
+
+    // TLS 1.2 fallback state (nil suite = TLS 1.3).
+    private var tls12: NCTLS12.Suite?
+    private var serverRandom = Data()
+    private var tls12EMS = false
+    private var tls12SKE: NCTLS12.ServerKeyExchange?
+    private var tls12Master = Data()
+    private var tls12NeedClientCert = false
+    private var tls12ReadOn = false
+    private var tls12ServerKey = Data(), tls12ServerIV = Data()
 
     // MARK: Record pump
 
@@ -156,6 +173,10 @@ final class NCTLSClientStream: NCRelayStream {
     }
 
     private func handleRecord(type: UInt8, header: Data, payload: Data) {
+        if let suite12 = tls12 {
+            handleRecord12(suite: suite12, type: type, payload: payload)
+            return
+        }
         switch type {
         case 20: // ChangeCipherSpec: ignore
             return
@@ -208,6 +229,10 @@ final class NCTLSClientStream: NCRelayStream {
     }
 
     private func processHandshakeMessage(type: UInt8, message: Data) {
+        if tls12 != nil {
+            processHandshake12(type: type, message: message)
+            return
+        }
         switch type {
         case 2: // ServerHello
             handleServerHello(message)
@@ -235,12 +260,17 @@ final class NCTLSClientStream: NCRelayStream {
     private func handleServerHello(_ message: Data) {
         let body = Data(message.dropFirst(4))
         guard body.count >= 34 else { fail(TLSError.handshake("short ServerHello")); return }
+        serverRandom = Data(body[body.startIndex + 2..<body.startIndex + 34])
         // version(2) random(32) session_id(1+..) cipher(2) compression(1) exts(2..)
         var idx = 34
         guard body.count > idx else { fail(TLSError.handshake("bad ServerHello")); return }
         let sidLen = Int(body[idx]); idx += 1 + sidLen
         guard body.count >= idx + 3 else { fail(TLSError.handshake("bad ServerHello")); return }
         let suiteValue = UInt16(body[idx]) << 8 | UInt16(body[idx + 1]); idx += 2
+        if config.reality == nil, NCTLS13.Suite(rawValue: suiteValue) == nil {
+            handleServerHello12(message: message, body: body, suiteValue: suiteValue, extStart: idx + 1)
+            return
+        }
         guard let chosen = NCTLS13.Suite(rawValue: suiteValue) else {
             fail(TLSError.handshake("suite \(String(suiteValue, radix: 16)) not offered"))
             return
@@ -458,6 +488,15 @@ final class NCTLSClientStream: NCRelayStream {
             writeBuffer.append(data)
             return
         }
+        if let suite12 = tls12 {
+            var rest = data[...]
+            while !rest.isEmpty {
+                let chunk = Data(rest.prefix(16384))
+                rest = rest.dropFirst(chunk.count)
+                sendRecord12(suite: suite12, type: 23, plaintext: chunk)
+            }
+            return
+        }
         // Split into <=16K records.
         var rest = data
         while !rest.isEmpty {
@@ -564,5 +603,185 @@ final class NCTLSClientStream: NCRelayStream {
             return
         }
         splicePending = handler
+    }
+}
+
+// MARK: - TLS 1.2 fallback (feat/nc-proto A8, based on astemo6/Muse NativeCore)
+
+extension NCTLSClientStream {
+    fileprivate static let downgradeTLS12 = Data("DOWNGRD".utf8) + Data([0x01])
+
+    fileprivate func handleServerHello12(message: Data, body: Data, suiteValue: UInt16, extStart: Int) {
+        guard let suite = NCTLS12.Suite(rawValue: suiteValue) else {
+            fail(TLSError.handshake("suite \(String(suiteValue, radix: 16)) not offered"))
+            return
+        }
+        let b = [UInt8](body)
+        guard b.count >= 2, b[0] == 3, b[1] == 3 else { fail(TLSError.handshake("server version not TLS 1.2")); return }
+        // We offered 1.3: a 1.2 answer carrying the RFC 8446 §4.1.3 sentinel means an active downgrade.
+        if serverRandom.suffix(8) == Self.downgradeTLS12 { fail(TLSError.handshake("TLS downgrade detected")); return }
+        var idx = extStart
+        if idx + 2 <= b.count {
+            let extLen = Int(b[idx]) << 8 | Int(b[idx + 1]); idx += 2
+            let end = min(b.count, idx + extLen)
+            while idx + 4 <= end {
+                let t = UInt16(b[idx]) << 8 | UInt16(b[idx + 1])
+                let n = Int(b[idx + 2]) << 8 | Int(b[idx + 3])
+                if t == 23 { tls12EMS = true }
+                if t == 43 { fail(TLSError.handshake("TLS 1.2 suite with supported_versions")); return }
+                idx += 4 + n
+            }
+        }
+        tls12 = suite
+        kind = suite.hashKind
+        transcript.append(message)
+    }
+
+    fileprivate func processHandshake12(type: UInt8, message: Data) {
+        let body = Data(message.dropFirst(4))
+        switch type {
+        case 11: // Certificate
+            certsDER = NCTLS12.parseCertificates(body)
+            transcript.append(message)
+        case 12: // ServerKeyExchange
+            guard let ske = NCTLS12.parseServerKeyExchange(body),
+                  let leaf = certsDER.first, let cert = NCX509Certificate(der: leaf) else {
+                fail(TLSError.handshake("bad ServerKeyExchange"))
+                return
+            }
+            let signed = clientRandom + serverRandom + ske.params
+            guard NCTLS12.verifySignature(scheme: ske.scheme, cert: cert, content: signed, signature: ske.signature) else {
+                fail(TLSError.handshake("ServerKeyExchange signature invalid"))
+                return
+            }
+            if !config.allowInsecure, !secTrustValid12() {
+                fail(TLSError.handshake("certificate not trusted"))
+                return
+            }
+            tls12SKE = ske
+            transcript.append(message)
+        case 13: // CertificateRequest: answered with an empty Certificate
+            tls12NeedClientCert = true
+            transcript.append(message)
+        case 14: // ServerHelloDone
+            transcript.append(message)
+            sendClientFlight12()
+        case 4: // NewSessionTicket (before the server's CCS): part of the Finished transcript
+            if !handshakeDone { transcript.append(message) }
+        case 20: // server Finished
+            guard tls12ReadOn else { fail(TLSError.handshake("Finished before ChangeCipherSpec")); return }
+            let expected = NCTLS12.prf(kind, secret: tls12Master, label: "server finished",
+                                       seed: kind.hash(transcript), length: 12)
+            guard body == expected else { fail(TLSError.handshake("server Finished verify failed")); return }
+            transcript = Data() // not needed any more
+            handshakeDone = true
+            let handler = handshakeHandler
+            handshakeHandler = nil
+            handler?(nil)
+            let queued = writeBuffer
+            writeBuffer = Data()
+            if !queued.isEmpty { send(queued) }
+        case 0: // HelloRequest: renegotiation is not supported, ignore (RFC 5246 allows it)
+            return
+        default:
+            if !handshakeDone { transcript.append(message) } // CertificateStatus etc.
+        }
+    }
+
+    private func secTrustValid12() -> Bool {
+        let certs = certsDER.compactMap { SecCertificateCreateWithData(nil, $0 as CFData) }
+        guard certs.count == certsDER.count, !certs.isEmpty else { return false }
+        let policy = SecPolicyCreateSSL(true, config.serverName as CFString)
+        var trust: SecTrust?
+        guard SecTrustCreateWithCertificates(certs as CFArray, policy, &trust) == errSecSuccess,
+              let trust else { return false }
+        var error: CFError?
+        return SecTrustEvaluateWithError(trust, &error)
+    }
+
+    private func sendClientFlight12() {
+        guard let suite = tls12, let ske = tls12SKE,
+              let (pub, pms) = NCTLS12.ecdhe(group: ske.group, serverPublic: ske.publicKey) else {
+            fail(TLSError.handshake("ECDHE failed (curve not supported)"))
+            return
+        }
+        if tls12NeedClientCert {
+            let empty = Data([0x0b, 0x00, 0x00, 0x03, 0x00, 0x00, 0x00])
+            transcript.append(empty)
+            sendRecord(type: 22, payload: empty)
+        }
+        var cke = Data([0x10, 0x00])
+        cke.appendBE16(UInt16(pub.count + 1))
+        cke.append(UInt8(pub.count))
+        cke.append(pub)
+        transcript.append(cke)
+        sendRecord(type: 22, payload: cke)
+        if tls12EMS {
+            tls12Master = NCTLS12.prf(kind, secret: pms, label: "extended master secret",
+                                      seed: kind.hash(transcript), length: 48)
+        } else {
+            tls12Master = NCTLS12.prf(kind, secret: pms, label: "master secret",
+                                      seed: clientRandom + serverRandom, length: 48)
+        }
+        let keys = NCTLS12.keyBlock(suite: suite, master: tls12Master, clientRandom: clientRandom,
+                                    serverRandom: serverRandom)
+        writeKey = keys.clientKey; writeIV = keys.clientIV; writeSeq = 0
+        tls12ServerKey = keys.serverKey; tls12ServerIV = keys.serverIV
+        sendRecord(type: 20, payload: Data([0x01]))
+        let verify = NCTLS12.prf(kind, secret: tls12Master, label: "client finished",
+                                 seed: kind.hash(transcript), length: 12)
+        var fin = Data([0x14, 0x00, 0x00, 0x0c])
+        fin.append(verify)
+        transcript.append(fin)
+        sendRecord12(suite: suite, type: 22, plaintext: fin)
+    }
+
+    fileprivate func sendRecord12(suite: NCTLS12.Suite, type: UInt8, plaintext: Data) {
+        guard let writeKey, let writeIV,
+              let sealed = NCTLS12.seal(suite: suite, key: writeKey, iv: writeIV, seq: writeSeq,
+                                        type: type, plaintext: plaintext) else { return }
+        writeSeq += 1
+        var record = Data(capacity: 5 + sealed.count)
+        record.append(type)
+        record.appendBE16(0x0303)
+        record.appendBE16(UInt16(sealed.count))
+        record.append(sealed)
+        raw.send(record)
+    }
+
+    fileprivate func handleRecord12(suite: NCTLS12.Suite, type: UInt8, payload: Data) {
+        if type == 20 { // ChangeCipherSpec: server switches to the negotiated keys
+            tls12ReadOn = true
+            readSeq = 0
+            return
+        }
+        var content = payload
+        if tls12ReadOn {
+            guard let plain = NCTLS12.open(suite: suite, key: tls12ServerKey, iv: tls12ServerIV, seq: readSeq,
+                                           type: type, payload: payload) else {
+                fail(TLSError.handshake("record decrypt failed"))
+                return
+            }
+            readSeq += 1
+            content = plain
+        }
+        switch type {
+        case 21:
+            if content.count >= 2, content[content.startIndex] == 2 {
+                fail(TLSError.handshake("fatal alert \(content[content.startIndex + 1])"))
+                return
+            }
+            if content.count >= 2, content[content.startIndex + 1] == 0 { // close_notify
+                closed = true
+                deliverEOFOrError(nil)
+            }
+        case 22:
+            handleHandshakeBytes(content)
+        case 23:
+            guard handshakeDone else { fail(TLSError.handshake("application data before Finished")); return }
+            deliverAppData(content)
+        default:
+            return
+        }
     }
 }
