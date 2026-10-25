@@ -443,6 +443,9 @@ struct NodeEditorView: View {
     @State private var busy = false
     @State private var dialer: String
     @State private var showAdvanced = false
+    /// SSH TOFU (engine/ssh_known_hosts.json): the fingerprint stored for this server, loaded off-main.
+    @State private var knownHostFP: String?
+    @State private var knownHostLoaded = false
 
     /// v0.16 添加节点: a new node of a given protocol with optional preset fields (same as the QX preview's).
     init(newType t: String, preset: [String: String] = [:]) {
@@ -515,6 +518,37 @@ struct NodeEditorView: View {
                     if let n = NodeProtocols.note(for: type) { Text(n) }
                 }
                 .listRowBackground(Theme.card)
+                if type == "ssh" {
+                    Section {
+                        HStack {
+                            Text("主机密钥")
+                            Spacer()
+                            if !knownHostLoaded {
+                                Text("未知").foregroundStyle(.secondary)
+                            } else if knownHostFP != nil {
+                                Text("已信任").foregroundStyle(Theme.good)
+                            } else {
+                                Text("尚未信任").foregroundStyle(.secondary)
+                            }
+                        }
+                        if let fp = knownHostFP {
+                            VStack(alignment: .leading, spacing: 2) {
+                                Text("主机密钥指纹").font(.caption).foregroundStyle(.secondary)
+                                Text(verbatim: fp).font(.footnote.monospaced()).textSelection(.enabled)
+                            }
+                            Button("忘记主机密钥", role: .destructive) { forgetKnownHost() }
+                        }
+                        if !(values["host-key"] ?? "").isEmpty {
+                            Text("已设置 host-key 固定指纹，首次信任记录不生效。")
+                                .font(.caption).foregroundStyle(.secondary)
+                        }
+                    } header: {
+                        Text("主机密钥")
+                    } footer: {
+                        Text("首次连接时自动信任并记录主机密钥（TOFU）。服务器更换密钥后，先忘记旧记录才能重新信任。")
+                    }
+                    .listRowBackground(Theme.card)
+                }
                 Section {
                     DisclosureGroup("高级", isExpanded: $showAdvanced) {
                         ForEach(NodeProtocols.advanced(for: type)) { f in field(f) }
@@ -563,6 +597,40 @@ struct NodeEditorView: View {
             }
             .onAppear {
                 showAdvanced = NodeProtocols.advanced(for: type).contains { !(values[$0.key] ?? "").isEmpty && values[$0.key] != "false" }
+                loadKnownHost()
+            }
+            .onChange(of: server) { _ in loadKnownHost() }
+            .onChange(of: port) { _ in loadKnownHost() }
+        }
+    }
+
+    /// Reads the TOFU record for the current server/port off the main thread (file IO).
+    private func loadKnownHost() {
+        guard type == "ssh", !server.isEmpty, !port.isEmpty else {
+            knownHostFP = nil
+            knownHostLoaded = false
+            return
+        }
+        let s = server, p = port
+        Task.detached(priority: .utility) {
+            let fp = NCKnownHostsStore.fingerprint(server: s, port: p)
+            await MainActor.run {
+                guard server == s, port == p else { return }
+                knownHostFP = fp
+                knownHostLoaded = true
+            }
+        }
+    }
+
+    /// Drops this host's TOFU record (background, path-locked, atomic — see NCKnownHostsStore).
+    private func forgetKnownHost() {
+        let s = server, p = port
+        Task.detached(priority: .userInitiated) {
+            _ = NCKnownHostsStore.forget(server: s, port: p)
+            await MainActor.run {
+                guard server == s, port == p else { return }
+                knownHostFP = nil
+                knownHostLoaded = true
             }
         }
     }

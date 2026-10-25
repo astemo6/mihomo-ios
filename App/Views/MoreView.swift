@@ -522,6 +522,9 @@ struct SettingsView: View {
     @State private var portText = ""
     @State private var status: String?
     @StateObject private var debounce = Debouncer()
+    /// From nativecore-controller.json (written by the tunnel's controller on start / failure / stop);
+    /// nil = no status file, shown as 未知 rather than guessed.
+    @State private var controllerStatus: NCControllerStatus?
 
     private var portInvalid: Bool { Int(portText).map { !(1024...65535).contains($0) } ?? true }
 
@@ -585,6 +588,25 @@ struct SettingsView: View {
                 }
                 Button("重新生成密钥") { o.secret = CoreOverrides.randomSecret() }
                 Text("仅监听 127.0.0.1。").font(.caption).foregroundStyle(.secondary)
+                HStack {
+                    Text("控制器地址")
+                    Spacer()
+                    Text(verbatim: "127.0.0.1:\(controllerStatus?.port ?? o.controllerPort)")
+                        .font(.system(.body, design: .monospaced)).foregroundStyle(.secondary)
+                }
+                HStack {
+                    Text("控制器状态")
+                    Spacer()
+                    if let cs = controllerStatus {
+                        Text(cs.listening ? "监听中" : "未监听")
+                            .foregroundStyle(cs.listening ? Theme.good : Theme.bad)
+                    } else {
+                        Text("未知").foregroundStyle(.secondary)
+                    }
+                }
+                if let cs = controllerStatus, !cs.listening, let err = cs.error, !err.isEmpty {
+                    Text(verbatim: err).font(.footnote).foregroundStyle(Theme.bad)
+                }
             }
             .listRowBackground(Theme.card)
 
@@ -601,6 +623,10 @@ struct SettingsView: View {
             o = CoreOverrides.load()
             // Review 6: a port that is not valid yet is never saved; keep what the user typed instead of resetting it.
             if portText.isEmpty || !portInvalid { portText = String(o.controllerPort) }
+            Task.detached(priority: .utility) {
+                let cs = NCControllerStatus.load()
+                await MainActor.run { controllerStatus = cs }
+            }
         }
         // v0.15.4: applied on change (debounced), no 保存 button.
         .onChange(of: o) { _ in debounce.schedule { apply() } }

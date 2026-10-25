@@ -160,7 +160,7 @@ enum NCGroupOrder {
     static func reorderGroupsText(_ srcText: String, want: [String]) -> ReorderTextResult {
         guard let docVal = NCYAML.parse(srcText),
               case .object(let raw) = docVal else {
-            return ReorderTextResult(text: srcText, changed: false, method: nil, order: [], error: "YAML 解析失败")
+            return ReorderTextResult(text: srcText, changed: false, method: nil, order: [], error: NCProfileCheck.withLine("YAML 解析失败", srcText))
         }
 
         guard let pgArray = raw["proxy-groups"]?.array, !pgArray.isEmpty else {

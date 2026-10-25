@@ -789,6 +789,47 @@ final class NCProfileYAML {
         return t
     }
 
+    /// Splits the inside of a flow sequence on top-level commas, honoring quoted scalars
+    /// (`''` doubling, `\"` escapes) and nested `[]` / `{}`. A member whose name contains a
+    /// comma (`"a,b"`) stays one item; returns the raw item texts (quotes preserved, trimmed) —
+    /// compare/write them through unquoteScalar / formatYAMLString(flow: true). The naive
+    /// components(separatedBy: ",") split this replaces broke such names in listGroups/renameRefs.
+    static func splitFlowItems(_ inner: String) -> [String] {
+        var items: [String] = []
+        var cur = ""
+        var depth = 0
+        var inSingle = false
+        var inDouble = false
+        let chars = Array(inner)
+        var i = 0
+        func flush() {
+            let t = cur.trimmingCharacters(in: .whitespaces)
+            if !t.isEmpty { items.append(t) }
+            cur = ""
+        }
+        while i < chars.count {
+            let c = chars[i]
+            if inSingle {
+                cur.append(c)
+                if c == "'" {
+                    if i + 1 < chars.count, chars[i + 1] == "'" { cur.append("'"); i += 1 } else { inSingle = false }
+                }
+            } else if inDouble {
+                cur.append(c)
+                if c == "\\", i + 1 < chars.count { cur.append(chars[i + 1]); i += 1 }
+                else if c == "\"" { inDouble = false }
+            } else if c == "'" { inSingle = true; cur.append(c) }
+            else if c == "\"" { inDouble = true; cur.append(c) }
+            else if c == "[" || c == "{" { depth += 1; cur.append(c) }
+            else if c == "]" || c == "}" { depth -= 1; cur.append(c) }
+            else if c == ",", depth == 0 { flush() }
+            else { cur.append(c) }
+            i += 1
+        }
+        flush()
+        return items
+    }
+
     /// Splits a line into its content and an inline comment. A comment starts at a `#` that follows whitespace
     /// (or starts the line) and is outside a quoted scalar; quotes only open at the start of a value (after
     /// whitespace, `:`, `-`, `[`, `{`, `,`), so `it's` does not open one. `comment` keeps the whitespace that
@@ -874,7 +915,7 @@ final class NCProfileYAML {
                 // Group name
                 if trimmed.hasPrefix("- name:") || trimmed.hasPrefix("name:") {
                     let clean = trimmed.hasPrefix("- name:") ? String(trimmed.dropFirst(7)) : String(trimmed.dropFirst(5))
-                    name = clean.trimmingCharacters(in: .whitespaces).trimmingCharacters(in: CharacterSet(charactersIn: "\"'"))
+                    name = Self.unquoteScalar(clean)
                 }
 
                 // Check use / include-all
@@ -895,11 +936,9 @@ final class NCProfileYAML {
                     let rest = trimmed.dropFirst(8).trimmingCharacters(in: .whitespaces)
                     if rest.hasPrefix("[") && rest.hasSuffix("]") {
                         isFlow = true
-                        let inner = rest.dropFirst().dropLast().trimmingCharacters(in: .whitespaces)
+                        let inner = String(rest.dropFirst().dropLast())
                         if !inner.isEmpty {
-                            proxies = inner.components(separatedBy: ",").map {
-                                $0.trimmingCharacters(in: .whitespaces).trimmingCharacters(in: CharacterSet(charactersIn: "\"'"))
-                            }
+                            proxies = Self.splitFlowItems(inner).map { Self.unquoteScalar($0) }
                         }
                         inProxiesBlock = false
                     } else {
@@ -914,7 +953,7 @@ final class NCProfileYAML {
                     if trimmed.hasPrefix("- ") {
                         if proxiesIndent == 0 { proxiesIndent = indent }
                         if indent == proxiesIndent {
-                            let member = trimmed.dropFirst(2).trimmingCharacters(in: .whitespaces).trimmingCharacters(in: CharacterSet(charactersIn: "\"'"))
+                            let member = Self.unquoteScalar(String(trimmed.dropFirst(2)))
                             proxies.append(member)
                         } else {
                             inProxiesBlock = false
@@ -981,7 +1020,7 @@ final class NCProfileYAML {
 
                 if trimmed.hasPrefix("- name:") || trimmed.hasPrefix("name:") {
                     let clean = trimmed.hasPrefix("- name:") ? String(trimmed.dropFirst(7)) : String(trimmed.dropFirst(5))
-                    currentGroup = clean.trimmingCharacters(in: .whitespaces).trimmingCharacters(in: CharacterSet(charactersIn: "\"'"))
+                    currentGroup = Self.unquoteScalar(clean)
                 }
 
                 // Group dialer-proxy
@@ -1006,12 +1045,11 @@ final class NCProfileYAML {
                     let prefix = String(line.prefix(while: { $0 == " " })) + "proxies: "
                     if let leftBracket = trimmed.firstIndex(of: "["), let rightBracket = trimmed.lastIndex(of: "]") {
                         let inner = String(trimmed[trimmed.index(after: leftBracket)..<rightBracket])
-                        var members = inner.components(separatedBy: ",").map { $0.trimmingCharacters(in: .whitespaces) }
+                        let members = Self.splitFlowItems(inner)
                         var hit = false
                         var newMembers: [String] = []
                         for m in members {
-                            let raw = m.trimmingCharacters(in: CharacterSet(charactersIn: "\"'"))
-                            if raw == oldName {
+                            if Self.unquoteScalar(m) == oldName {
                                 hit = true
                                 if !newName.isEmpty {
                                     newMembers.append(Self.formatYAMLString(newName, flow: true))
@@ -1061,7 +1099,7 @@ final class NCProfileYAML {
 
                 if trimmed.hasPrefix("- name:") || trimmed.hasPrefix("name:") {
                     let clean = trimmed.hasPrefix("- name:") ? String(trimmed.dropFirst(7)) : String(trimmed.dropFirst(5))
-                    currentProxy = clean.trimmingCharacters(in: .whitespaces).trimmingCharacters(in: CharacterSet(charactersIn: "\"'"))
+                    currentProxy = Self.unquoteScalar(clean)
                 }
 
                 if trimmed.hasPrefix("dialer-proxy:") {
@@ -1129,7 +1167,7 @@ final class NCProfileYAML {
             let trimmed = line.trimmingCharacters(in: .whitespaces)
             if trimmed.hasPrefix("- name:") || trimmed.hasPrefix("name:") {
                 let clean = trimmed.hasPrefix("- name:") ? String(trimmed.dropFirst(7)) : String(trimmed.dropFirst(5))
-                currentGroup = clean.trimmingCharacters(in: .whitespaces).trimmingCharacters(in: CharacterSet(charactersIn: "\"'"))
+                currentGroup = Self.unquoteScalar(clean)
             }
 
             if currentGroup == name && trimmed.hasPrefix("proxies:") {

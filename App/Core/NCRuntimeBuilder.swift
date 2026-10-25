@@ -90,7 +90,7 @@ enum NCRuntimeBuilder {
             // nil map, which the builder replaces with an empty one.
             raw = [:]
         } else {
-            throw BuildError.yaml("YAML 解析失败: 无法解析")
+            throw BuildError.yaml(NCProfileCheck.withLine("YAML 解析失败: 无法解析", text))
         }
         // Plain share-link / base64 subscription => convert.
         if raw["proxies"] == nil && raw["proxy-providers"] == nil {

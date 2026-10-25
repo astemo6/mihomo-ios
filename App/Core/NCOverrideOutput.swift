@@ -66,7 +66,7 @@ enum NCOverrideOutput {
             let t = $0.trimmingCharacters(in: .whitespaces)
             return t.isEmpty || t.hasPrefix("#") || t == "---"
         }) {
-            throw InputError(message: "YAML 解析失败: 无法解析")
+            throw InputError(message: NCProfileCheck.withLine("YAML 解析失败: 无法解析", text))
         }
         if raw["proxies"] == nil && raw["proxy-providers"] == nil {
             let conv = NCShareLink.convertShareLinks(text)
