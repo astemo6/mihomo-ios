@@ -294,6 +294,8 @@ final class NCEngineRuleset {
         case "maplocal":
             return "本地映射（" + r.dataType + "）"
         case "script":
+            if r.phase == "dns" { return "DNS 脚本 · " + (r.script?.name ?? "") }
+            if r.phase == "rule" { return "规则脚本 · " + (r.script?.name ?? "") }
             var t = r.phase == "response" ? "响应脚本" : "请求脚本"
             if r.script?.requiresBody == true { t += " · 含 body" }
             return t + " · " + (r.script?.name ?? "")
@@ -735,6 +737,8 @@ extension NCEngineRuleset {
         switch typ {
         case "http-request": r.phase = "request"
         case "http-response": r.phase = "response"
+        case "dns": r.phase = "dns" // Surge type=dns (nc-compat; NCScriptHooks.swift)
+        case "rule": r.phase = "rule" // Surge type=rule (nc-compat; NCScriptHooks.swift)
         default: return (r, .unsupported)
         }
         return (r, nil)
@@ -1171,7 +1175,14 @@ extension NCEngineRuleset {
             case "cron", "event", "generic":
                 break
             case "dns", "rule":
-                unsupported.append(line)
+                // nc-compat: Surge DNS / rule scripts register as script
+                // rules (phase "dns" / "rule") so they flow into the
+                // script manifest like every other script instead of
+                // being dropped here. How the kernel must invoke them is
+                // defined in NCScriptHooks.swift — interface only: the
+                // DNS and rule engines do not call them yet.
+                let (r, e) = Self.newScriptRule(name: m[1], type: typ, pattern: p["pattern"] ?? "", p: p)
+                addRule(line: line, r, e)
                 return true
             default:
                 return false
