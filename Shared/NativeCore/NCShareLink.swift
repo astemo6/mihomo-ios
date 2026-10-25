@@ -57,6 +57,17 @@ enum NCShareLink {
                 let em = !sStr(o, "EncryptionMethod").isEmpty ? sStr(o, "EncryptionMethod") : sStr(o, "encryption-method")
                 if !em.isEmpty { p += ";EncryptionMethod=\(em)" }
                 q.add("plugin", p)
+            case "kcptun":
+                let o = sMap(m, "plugin-opts")
+                var p = "kcptun"
+                let k = !sStr(o, "key").isEmpty ? sStr(o, "key") : "it's a secrect"
+                p += ";key=\(k)"
+                let crypt = !sStr(o, "crypt").isEmpty ? sStr(o, "crypt") : "aes"
+                p += ";crypt=\(crypt)"
+                let mode = !sStr(o, "mode").isEmpty ? sStr(o, "mode") : "fast"
+                p += ";mode=\(mode)"
+                if !sStr(o, "mtu").isEmpty { p += ";mtu=\(sStr(o, "mtu"))" }
+                q.add("plugin", p)
             case "":
                 break
             default:

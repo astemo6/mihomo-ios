@@ -733,6 +733,22 @@ extension NCConnector {
                 guard let raw else { completion(nil, err); return }
                 overStream(raw)
             }
+        case "kcptun":
+            guard let kopts = NCKcptunOptions.parse(opts).0 else {
+                queue.async { completion(nil, Failure.unsupported("ss plugin kcptun shape unsupported")) }
+                return
+            }
+            NCKcptunSessionPool.shared.getOrCreate(server: server, port: port, options: kopts, queue: queue) { session, err in
+                guard let session, err == nil else {
+                    completion(nil, err ?? Failure.unsupported("kcptun session dial failed"))
+                    return
+                }
+                guard let stream = session.smux?.openStream() else {
+                    completion(nil, Failure.unsupported("kcptun failed to open smux stream"))
+                    return
+                }
+                completion(stream, nil)
+            }
         case "shadow-tls":
             let version = opts["version"]?.int ?? 2
             let password = opts["password"]?.string ?? ""
