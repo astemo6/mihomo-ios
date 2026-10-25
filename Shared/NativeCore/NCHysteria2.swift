@@ -1,5 +1,6 @@
 import Foundation
 import Network
+import os
 
 /// Hysteria2 client (protocol v2, apernet/hysteria), built on the Network
 /// framework's QUIC support.
@@ -353,13 +354,72 @@ final class NCHysteria2Connection {
     private let password: String
     private let sni: String?
     private let allowInsecure: Bool
-    private let queue: DispatchQueue
+    /// nc-races: the connection's own session queue (the #116 pattern, as in NCMuxSession): every piece of
+    /// connection and stream state — the NW group, the streams registry, the control-stream parser, the
+    /// datagram channel — is touched only here, no matter which caller (connector, data plane, local proxy)
+    /// drives the connection. The queue passed to init is kept as `callbackQueue`: the start completion is
+    /// delivered on it, exactly where callers used to get it when the NW group ran on their queue.
+    let queue: DispatchQueue
+    private let callbackQueue: DispatchQueue
 
-    private(set) var state: State = .idle
-    /// Set from the auth response's Hysteria-UDP header.
-    private(set) var udpEnabled = false
-    /// Server-declared TX cap from the auth response (bytes/s, 0 = none).
-    private(set) var serverTX: Int?
+    /// Lock-protected snapshot for cross-thread readers (the connector registry, UDP sessions): the state,
+    /// the auth verdict's UDP flag / TX cap, and the readiness waiters. State changes are made from the
+    /// session queue (close() also writes the snapshot directly, so registry readers see .closed at once);
+    /// waiters are drained under the lock and fired outside it, each on its own caller queue — no polling.
+    private struct Snapshot {
+        var state: State = .idle
+        /// Set from the auth response's Hysteria-UDP header.
+        var udpEnabled = false
+        /// Server-declared TX cap from the auth response (bytes/s, 0 = none).
+        var serverTX: Int? = nil
+        var waiters: [(queue: DispatchQueue, completion: (Error?) -> Void)] = []
+    }
+    private let snapshot = OSAllocatedUnfairLock(initialState: Snapshot())
+    var state: State { snapshot.withLock { $0.state } }
+    var isAlive: Bool { snapshot.withLock { $0.state == .ready } }
+    var udpEnabled: Bool { snapshot.withLock { $0.udpEnabled } }
+    var serverTX: Int? { snapshot.withLock { $0.serverTX } }
+
+    private func setSnapshot(state: State? = nil, udpEnabled: Bool? = nil, serverTX: Int?? = nil) {
+        snapshot.withLock {
+            if let state { $0.state = state }
+            if let udpEnabled { $0.udpEnabled = udpEnabled }
+            if let serverTX { $0.serverTX = serverTX }
+        }
+    }
+
+    /// Registers interest in readiness (the connector registry): ready → nil at once on `callerQueue`,
+    /// failed/closed → the failure, connecting → queued until start resolves either way. Replaces the
+    /// registry's old 0.25 s × 60 poll of `state` (nc-races, mirroring NCMuxSession.whenReady).
+    func whenReady(callerQueue: DispatchQueue, completion: @escaping (Error?) -> Void) {
+        enum Action { case now(Error?), wait }
+        let action: Action = snapshot.withLock { snap in
+            switch snap.state {
+            case .ready:
+                return .now(nil)
+            case .failed, .closed:
+                return .now(NCConnector.Failure.handshake("hysteria2 connection failed"))
+            case .idle, .connecting, .authenticating:
+                snap.waiters.append((callerQueue, completion))
+                return .wait
+            }
+        }
+        if case .now(let error) = action {
+            callerQueue.async { completion(error) }
+        }
+    }
+
+    /// Fires every queued readiness waiter exactly once, each on its own caller queue.
+    private func notifyWaiters(_ error: Error?) {
+        let waiters: [(queue: DispatchQueue, completion: (Error?) -> Void)] = snapshot.withLock { snap in
+            let drained = snap.waiters
+            snap.waiters = []
+            return drained
+        }
+        for waiter in waiters {
+            waiter.queue.async { waiter.completion(error) }
+        }
+    }
 
     private var group: NWConnectionGroup?
     private var control: NCHy2StreamChannel?
@@ -370,7 +430,11 @@ final class NCHysteria2Connection {
 
     // Datagram binding (unverified point 4, see file header).
     private var datagramChannel: NCHy2StreamChannel?
-    var onDatagram: (Data) -> Void = { _ in }
+    /// Datagram sinks by hysteria session ID (session queue only). Was a single `onDatagram` slot: on a
+    /// shared connection every new UDP session overwrote the previous session's handler, so only the
+    /// last-registered session ever received replies. Each session now registers its own sink and keeps
+    /// filtering by session ID, exactly as it did with the slot.
+    private var datagramSinks: [UInt64: (Data) -> Void] = [:]
 
     init(server: String, port: Int, password: String, sni: String? = nil,
          allowInsecure: Bool = false, queue: DispatchQueue) {
@@ -379,7 +443,8 @@ final class NCHysteria2Connection {
         self.password = password
         self.sni = sni
         self.allowInsecure = allowInsecure
-        self.queue = queue
+        self.callbackQueue = queue
+        self.queue = NCSessionQueues.make("nc.hy2.\(server):\(port)")
     }
 
     convenience init?(proxy: NCProxy, queue: DispatchQueue) {
@@ -398,16 +463,26 @@ final class NCHysteria2Connection {
 
     // MARK: Lifecycle
 
-    /// Connect QUIC and run the auth handshake; completion fires once, with
-    /// nil error on :status 233.
+    /// Connect QUIC and run the auth handshake; completion fires once on the init (callback) queue,
+    /// with nil error on :status 233.
     func start(completion: @escaping (Error?) -> Void) {
-        guard state == .idle else {
-            queue.async { completion(NCConnector.Failure.handshake("hysteria2 already started")) }
+        // Check-and-set under the snapshot lock: two concurrent starts must not both pass and
+        // overwrite each other's completion.
+        let first: Bool = snapshot.withLock { snap in
+            guard snap.state == .idle else { return false }
+            snap.state = .connecting
+            return true
+        }
+        guard first else {
+            callbackQueue.async { completion(NCConnector.Failure.handshake("hysteria2 already started")) }
             return
         }
-        state = .connecting
         startCompletion = completion
+        ncOnSessionQueue(queue) { self.startOnQueue() }
+    }
 
+    /// Session queue only: build the QUIC group and run the auth exchange on its first stream.
+    private func startOnQueue() {
         let quicOptions = NWProtocolQUIC.Options(alpn: ["h2"])
         let tlsOptions = quicOptions.securityProtocolOptions
         sec_protocol_options_set_tls_min_version(tlsOptions, .tlsProtocol13)
@@ -446,7 +521,7 @@ final class NCHysteria2Connection {
         }
         let channel = NCHy2StreamChannel(conn: controlConn)
         control = channel
-        state = .authenticating
+        setSnapshot(state: .authenticating)
         channel.start(queue: queue) { [weak self] error in
             guard let self else { return }
             guard error == nil else { self.finishStart(error); return }
@@ -460,15 +535,21 @@ final class NCHysteria2Connection {
     }
 
     func close() {
-        state = .closed
-        for stream in streams.values { stream.cancelFromConnection() }
-        streams.removeAll()
-        control?.cancel()
-        control = nil
-        datagramChannel?.cancel()
-        datagramChannel = nil
-        group?.cancel()
-        group = nil
+        // The snapshot flips synchronously so registry readers stop vending this connection at once;
+        // the NW teardown itself is confined to the session queue like all other state.
+        setSnapshot(state: .closed)
+        notifyWaiters(NCConnector.Failure.handshake("hysteria2 connection closed"))
+        ncOnSessionQueue(queue) {
+            for stream in self.streams.values { stream.cancelFromConnection() }
+            self.streams.removeAll()
+            self.control?.cancel()
+            self.control = nil
+            self.datagramChannel?.cancel()
+            self.datagramChannel = nil
+            self.datagramSinks.removeAll()
+            self.group?.cancel()
+            self.group = nil
+        }
     }
 
     // MARK: Streams
@@ -481,14 +562,23 @@ final class NCHysteria2Connection {
     /// Open a proxied TCP flow. Returns nil unless the connection is
     /// authenticated; the returned stream performs the hysteria TCP
     /// request/response handshake internally and buffers sends until the
-    /// server accepts.
-    func openTCP(target: NCTarget) -> NCRelayStream? {
+    /// server accepts. `callerQueue` is where the stream delivers receive
+    /// handlers (the mux-session pattern: the caller's state stays on its
+    /// own queue). Synchronous return via the session queue, like
+    /// NCMuxSession.openStream.
+    func openTCP(target: NCTarget, callerQueue: DispatchQueue) -> NCRelayStream? {
+        if NCSessionQueues.isCurrent(queue) { return openTCPOnQueue(target: target, callerQueue: callerQueue) }
+        return queue.sync { openTCPOnQueue(target: target, callerQueue: callerQueue) }
+    }
+
+    private func openTCPOnQueue(target: NCTarget, callerQueue: DispatchQueue) -> NCRelayStream? {
         guard state == .ready, let conn = newStreamConnection() else { return nil }
         let stream = NCHysteria2TCPStream(channel: NCHy2StreamChannel(conn: conn),
-                                          target: target, queue: queue)
+                                          target: target, queue: queue, callerQueue: callerQueue)
         streams[ObjectIdentifier(stream)] = stream
         stream.onFinished = { [weak self] in
-            self?.streams.removeValue(forKey: ObjectIdentifier(stream))
+            guard let self else { return }
+            ncOnSessionQueue(self.queue) { self.streams.removeValue(forKey: ObjectIdentifier(stream)) }
         }
         stream.begin()
         return stream
@@ -496,11 +586,26 @@ final class NCHysteria2Connection {
 
     // MARK: Datagrams (unverified binding — see file header, point 4)
 
+    /// Register (or, with nil, unregister) the datagram sink for one hysteria UDP session ID.
+    /// The sink is invoked on the session queue with every raw datagram the connection receives;
+    /// sessions filter by their session ID, as they did with the old single slot.
+    func setDatagramSink(sessionID: UInt64, _ handler: ((Data) -> Void)?) {
+        ncOnSessionQueue(queue) {
+            if let handler {
+                self.datagramSinks[sessionID] = handler
+            } else {
+                self.datagramSinks.removeValue(forKey: sessionID)
+            }
+        }
+    }
+
     /// Send one raw QUIC datagram payload (already hy2-framed by the codec
     /// in NCHysteria2UDP.swift).
     func sendDatagram(_ payload: Data) {
-        guard state == .ready, udpEnabled else { return }
-        ensureDatagramChannel()?.send(payload)
+        ncOnSessionQueue(queue) {
+            guard self.state == .ready, self.udpEnabled else { return }
+            self.ensureDatagramChannel()?.send(payload)
+        }
     }
 
     private func ensureDatagramChannel() -> NCHy2StreamChannel? {
@@ -518,7 +623,9 @@ final class NCHysteria2Connection {
     private func datagramReceiveLoop() {
         datagramChannel?.receiveMessage { [weak self] data, error in
             guard let self, self.state != .closed else { return }
-            if let data, !data.isEmpty { self.onDatagram(data) }
+            if let data, !data.isEmpty {
+                for sink in self.datagramSinks.values { sink(data) }
+            }
             if error == nil { self.datagramReceiveLoop() }
         }
     }
@@ -592,29 +699,35 @@ final class NCHysteria2Connection {
             return
         }
         var status: String?
+        var udp = false
+        var tx: Int?
         for (name, value) in fields {
             switch name.lowercased() {
             case ":status": status = value
-            case "hysteria-udp": udpEnabled = (value.lowercased() == "true")
-            case "hysteria-cc-tx": serverTX = Int(value)
+            case "hysteria-udp": udp = (value.lowercased() == "true")
+            case "hysteria-cc-tx": tx = Int(value)
             default: break
             }
         }
+        setSnapshot(udpEnabled: udp, serverTX: tx)
         guard status == "233" else {
             finishStart(NCConnector.Failure.handshake("hysteria2 auth rejected (status \(status ?? "?"))"))
             return
         }
-        state = .ready
+        setSnapshot(state: .ready)
         finishStart(nil)
     }
 
     private func finishStart(_ error: Error?) {
         if let error {
-            state = .failed
+            setSnapshot(state: .failed)
         }
         let completion = startCompletion
         startCompletion = nil
-        completion?(error)
+        if let completion {
+            callbackQueue.async { completion(error) }
+        }
+        notifyWaiters(error)
     }
 }
 
@@ -627,7 +740,10 @@ final class NCHysteria2Connection {
 final class NCHysteria2TCPStream: NCRelayStream {
     private let channel: NCHy2StreamChannel
     private let target: NCTarget
+    /// The owning connection's session queue: all stream state lives here (nc-races, the #116 pattern).
     private let queue: DispatchQueue
+    /// Where the registered receive handler is delivered (recorded at openTCP, as in NCMuxStream).
+    private let callerQueue: DispatchQueue
     var onFinished: () -> Void = {}
 
     private enum Phase { case handshaking, open, failed, closed }
@@ -646,10 +762,11 @@ final class NCHysteria2TCPStream: NCRelayStream {
     /// 256 KB aligns with the mux stream inbound cap (a single channel chunk can reach 64 KB).
     static let maxQueuedBytes = 256 * 1024
 
-    init(channel: NCHy2StreamChannel, target: NCTarget, queue: DispatchQueue) {
+    init(channel: NCHy2StreamChannel, target: NCTarget, queue: DispatchQueue, callerQueue: DispatchQueue) {
         self.channel = channel
         self.target = target
         self.queue = queue
+        self.callerQueue = callerQueue
     }
 
     func begin() {
@@ -666,18 +783,20 @@ final class NCHysteria2TCPStream: NCRelayStream {
 
     func send(_ data: Data, completion: @escaping () -> Void) {
         let once = NCCallOnce(completion)
-        switch phase {
-        case .handshaking:
-            guard outbox.count + data.count <= Self.maxQueuedBytes else {
+        ncOnSessionQueue(queue) {
+            switch self.phase {
+            case .handshaking:
+                guard self.outbox.count + data.count <= Self.maxQueuedBytes else {
+                    once.call()
+                    self.fail(NCConnector.Failure.handshake("hysteria2 tcp send buffer overflow"))
+                    return
+                }
+                self.outbox.append(data); self.outboxWaiters.append(once)
+            case .open:
+                self.channel.send(data, completion: once.call)
+            case .failed, .closed:
                 once.call()
-                fail(NCConnector.Failure.handshake("hysteria2 tcp send buffer overflow"))
-                return
             }
-            outbox.append(data); outboxWaiters.append(once)
-        case .open:
-            channel.send(data, completion: once.call)
-        case .failed, .closed:
-            once.call()
         }
     }
 
@@ -687,39 +806,46 @@ final class NCHysteria2TCPStream: NCRelayStream {
     }
 
     func receive(_ handler: @escaping (Data?, Error?) -> Void) {
-        if !inbox.isEmpty {
-            let data = inbox.removeFirst()
-            inboxBytes -= data.count
-            handler(data, nil)
-            return
+        ncOnSessionQueue(queue) {
+            if !self.inbox.isEmpty {
+                let data = self.inbox.removeFirst()
+                self.inboxBytes -= data.count
+                self.callerQueue.async { handler(data, nil) }
+                return
+            }
+            if self.phase == .failed {
+                let failure = self.failure
+                self.callerQueue.async { handler(nil, failure) }
+                return
+            }
+            if self.phase == .closed {
+                self.callerQueue.async { handler(nil, nil) }
+                return
+            }
+            self.pendingReceive = handler
         }
-        if phase == .failed {
-            handler(nil, failure)
-            return
-        }
-        if phase == .closed {
-            handler(nil, nil)
-            return
-        }
-        pendingReceive = handler
     }
 
     func cancel() {
-        phase = .closed
-        drainOutboxWaiters()
-        channel.cancel()
-        onFinished()
+        ncOnSessionQueue(queue) {
+            self.phase = .closed
+            self.drainOutboxWaiters()
+            self.channel.cancel()
+            self.onFinished()
+        }
     }
 
     /// Connection is going away: tear down without the onFinished callback
     /// (the connection clears its own registry).
     func cancelFromConnection() {
-        phase = .closed
-        drainOutboxWaiters()
-        channel.cancel()
-        if let handler = pendingReceive {
-            pendingReceive = nil
-            handler(nil, nil)
+        ncOnSessionQueue(queue) {
+            self.phase = .closed
+            self.drainOutboxWaiters()
+            self.channel.cancel()
+            if let handler = self.pendingReceive {
+                self.pendingReceive = nil
+                self.callerQueue.async { handler(nil, nil) }
+            }
         }
     }
 
@@ -731,7 +857,7 @@ final class NCHysteria2TCPStream: NCRelayStream {
                     self.phase = .closed
                     if let handler = self.pendingReceive {
                         self.pendingReceive = nil
-                        handler(nil, error)
+                        self.callerQueue.async { handler(nil, error) }
                     }
                     self.onFinished()
                 }
@@ -773,7 +899,7 @@ final class NCHysteria2TCPStream: NCRelayStream {
     private func deliver(_ data: Data) {
         if let handler = pendingReceive {
             pendingReceive = nil
-            handler(data, nil)
+            callerQueue.async { handler(data, nil) }
         } else if inboxBytes + data.count <= Self.maxQueuedBytes {
             inboxBytes += data.count
             inbox.append(data)
@@ -790,7 +916,7 @@ final class NCHysteria2TCPStream: NCRelayStream {
         channel.cancel()
         if let handler = pendingReceive {
             pendingReceive = nil
-            handler(nil, error)
+            callerQueue.async { handler(nil, error) }
         }
         onFinished()
     }

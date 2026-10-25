@@ -52,6 +52,13 @@ final class NCDataPlane {
     static let outboxCap = 48 << 10
     static let outboxResume = 16 << 10
     static let pendingCap = 48 << 10
+    /// nc-races: hard cap on live UDP relays, aligned with the C stack's NC_MAX_UDP_SESSIONS (64,
+    /// nc_stack.c). The C side is the real bound — it LRU-evicts (idle DNS first) and reports the
+    /// eviction via onUDPClosed, which removes the Swift entry on this same queue, so the two tables
+    /// stay in step and this guard should never fire; it exists so a lost notification degrades to
+    /// "new flow dropped" (the data plane's existing failure shape for unroutable UDP) instead of an
+    /// unbounded Swift-side table outliving its C sessions.
+    static let maxUDPSessions = 64
     private var bufferedTotal = 0
     private var budget = NCBufferBudget.normal
 
@@ -723,6 +730,13 @@ final class NCDataPlane {
 
     private func openUDP(_ info: NCTunStack.UDPSessionInfo, target: NCTarget,
                          resolution: NCGroupEngine.Resolution, packets: [Data]) {
+        // nc-races: aligned with NC_MAX_UDP_SESSIONS — see maxUDPSessions. A dropped first packet is
+        // consistent with the other unroutable paths below (udpDropped, no ICMP unreachable anywhere
+        // in the UDP path); the flow's next datagram retries once a slot frees.
+        guard udpSessions.count < Self.maxUDPSessions else {
+            udpDropped += 1
+            return
+        }
         let session: NCUDPSession
         switch resolution {
         case .direct:

@@ -14,7 +14,7 @@ import Foundation
 /// sliced in order, and frag count is the total number of fragments.
 ///
 /// Binding caveat: the actual QUIC datagram transport goes through
-/// NCHysteria2Connection.sendDatagram / onDatagram, whose NW binding is the
+/// NCHysteria2Connection.sendDatagram / setDatagramSink, whose NW binding is the
 /// unverified point 4 documented in NCHysteria2.swift. The codec below is
 /// pure and fully testable regardless.
 
@@ -156,6 +156,9 @@ final class NCUDPHysteria2Session: NCUDPSession {
 
     private let connection: NCHysteria2Connection
     private let ownsConnection: Bool
+    /// The queue this session's state lives on (the caller's queue, as with its sibling UDP sessions):
+    /// sends/cancels arrive here, and datagram deliveries hop back here from the connection's session queue.
+    private let queue: DispatchQueue
     private let sessionID: UInt64
     private var nextMessageID: UInt64 = 0
     private var reassembler = NCHy2UDP.Reassembler()
@@ -168,6 +171,7 @@ final class NCUDPHysteria2Session: NCUDPSession {
     init(connection: NCHysteria2Connection) {
         self.connection = connection
         self.ownsConnection = false
+        self.queue = connection.queue
         self.ready = true
         var id: UInt64 = 0
         while id == 0 {
@@ -183,6 +187,7 @@ final class NCUDPHysteria2Session: NCUDPSession {
         guard let connection = NCHysteria2Connection(proxy: proxy, queue: queue) else { return nil }
         self.connection = connection
         self.ownsConnection = true
+        self.queue = queue
         var id: UInt64 = 0
         while id == 0 {
             id = NCConnector.randomData(4).reduce(0) { ($0 << 8) | UInt64($1) }
@@ -199,9 +204,15 @@ final class NCUDPHysteria2Session: NCUDPSession {
     }
 
     private func wireDatagrams() {
-        connection.onDatagram = { [weak self] raw in
-            guard let self, !self.cancelled else { return }
-            self.handleDatagram(raw)
+        // nc-races: register a per-session sink on the connection (the old single `onDatagram` slot was
+        // overwritten by every session sharing the connection). The sink runs on the connection's session
+        // queue; the session's own state is confined to `queue`, so deliveries hop back.
+        connection.setDatagramSink(sessionID: sessionID) { [weak self] raw in
+            guard let self else { return }
+            self.queue.async {
+                guard !self.cancelled else { return }
+                self.handleDatagram(raw)
+            }
         }
     }
 
@@ -235,8 +246,9 @@ final class NCUDPHysteria2Session: NCUDPSession {
         queued = []
         reassembler.reset()
         if ownsConnection {
-            connection.onDatagram = { _ in }
             connection.close()
+        } else {
+            connection.setDatagramSink(sessionID: sessionID, nil)
         }
     }
 }

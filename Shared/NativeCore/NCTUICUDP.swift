@@ -175,7 +175,8 @@ enum NCTUICUDP {
     }
 }
 
-// MARK: - Connection side (runs on the connection's queue)
+// MARK: - Connection side (runs on the connection's own session queue, nc-races: callers —
+// the UDP session — hop onto `conn.queue` before calling register/unregister/sendUDP)
 
 extension NCTUICConnection {
     /// Registers a UDP association; the handler gets every Packet for it (raw, undecoded fragments included).
