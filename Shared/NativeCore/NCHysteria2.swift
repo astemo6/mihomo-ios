@@ -882,21 +882,48 @@ final class NCHysteria2Connection {
             let frames = NCHy2UDP.fragment(sessionID: sessionID, packetID: packetID,
                                            address: Self.udpAddress(target), payload: payload,
                                            maxDatagramSize: self.datagramLimit)
-            for frame in frames {
-                flow.send(content: frame, completion: .contentProcessed { [weak self] error in
-                    guard let self, let error else { return }
-                    ncOnSessionQueue(self.queue) {
-                        self.udpSendErrors += 1
-                        self.lastUDPSendError = "\(error) (\(frame.count) B)"
-                        // Datagram larger than the path allows right now: shrink for the next packets
-                        // (this one is lost — UDP semantics; sing-quic re-fragments on the same signal).
-                        if case .posix(let code) = error, code == .EMSGSIZE {
-                            self.datagramLimit = max(512, min(self.datagramLimit, frame.count) - 64)
-                        }
-                    }
-                })
-            }
+            self.sendFrames(frames[...], on: flow)
         }
+    }
+
+    /// How the fragments of one packet go out (see sendFrames). 0 = back-to-back burst (the first cut),
+    /// 1 = each fragment after the previous one's send completion, 2 = as 1 plus a 1 ms gap.
+    private var fragmentPacing = 2
+
+    /// Test seam: pick the fragment pacing mode (session queue hop).
+    func setUDPFragmentPacingForTesting(_ mode: Int) {
+        ncOnSessionQueue(queue) { self.fragmentPacing = mode }
+    }
+
+    /// Session queue only. One packet's datagrams in order; a lone datagram is a single send either way.
+    private func sendFrames(_ frames: ArraySlice<Data>, on flow: NWConnection) {
+        guard let frame = frames.first else { return }
+        let rest = frames.dropFirst()
+        let pacing = rest.isEmpty ? 0 : fragmentPacing
+        flow.send(content: frame, completion: .contentProcessed { [weak self, weak flow] error in
+            guard let self else { return }
+            ncOnSessionQueue(self.queue) {
+                if let error {
+                    self.udpSendErrors += 1
+                    self.lastUDPSendError = "\(error) (\(frame.count) B)"
+                    // Datagram larger than the path allows right now: shrink for the next packets
+                    // (this one is lost — UDP semantics; sing-quic re-fragments on the same signal).
+                    if case .posix(let code) = error, code == .EMSGSIZE {
+                        self.datagramLimit = max(512, min(self.datagramLimit, frame.count) - 64)
+                    }
+                }
+                guard pacing != 0, let flow, self.datagramFlow === flow else { return }
+                if pacing == 2 {
+                    self.queue.asyncAfter(deadline: .now() + .milliseconds(1)) { [weak self, weak flow] in
+                        guard let self, let flow, self.datagramFlow === flow else { return }
+                        self.sendFrames(rest, on: flow)
+                    }
+                } else {
+                    self.sendFrames(rest, on: flow)
+                }
+            }
+        })
+        if pacing == 0 { sendFrames(rest, on: flow) }
     }
 
     /// "host:port", IPv6 literals bracketed (sing-quic parses the address with M.ParseSocksaddr).

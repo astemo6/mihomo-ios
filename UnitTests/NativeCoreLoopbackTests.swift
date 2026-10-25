@@ -513,18 +513,45 @@ final class NativeCoreLoopbackTests: XCTestCase {
             let after = replies.counters()
             return "\(ok ? "ok" : "LOST")(tx=\(pieces.count)x\(pieces.map(\.count).max() ?? 0) rx=\(after.raw - before.raw) frag=\(after.frags - before.frags) pk=\(after.packets - before.packets) rxMax=\(after.maxRaw))"
         }
+        // Burst of n separate, unfragmented packets (n sendUDP calls in a row, optionally `gapMs` apart):
+        // separates "Network.framework drops back-to-back datagrams" from "fragments are not reassembled".
+        func burst(_ n: Int, wire: Int, gapMs: Int) -> String {
+            conn.setUDPDatagramLimitForTesting(1197)
+            let before = replies.counters()
+            var want = Set<Data>()
+            for i in 0..<n {
+                let p = Data((0..<(wire - addrHeader)).map { UInt8(($0 * 7 + i * 31 + wire + gapMs) & 0xff) })
+                want.insert(p)
+                conn.sendUDP(sessionID: sessionID, target: target, payload: p)
+                if gapMs > 0 { Thread.sleep(forTimeInterval: Double(gapMs) / 1000) }
+            }
+            var got = 0
+            let until = Date().addingTimeInterval(1.5)
+            while Date() < until, got < n, let r = replies.wait(timeout: until.timeIntervalSinceNow) {
+                if want.remove(r) != nil { got += 1 }
+            }
+            let after = replies.counters()
+            return "\(got)/\(n)(rx=\(after.raw - before.raw))"
+        }
         var ladder: [String] = []
-        for wire in [600, 900, 1000, 1050, 1080, 1100, 1120, 1150, 1197] {
+        for wire in [600, 1197] {
             let n = wire - addrHeader
             let p = Data((0..<n).map { UInt8(($0 * 11 + wire) & 0xff) })
             ladder.append("u\(wire):" + roundTrip(p, budget: 1197))
         }
+        ladder.append("b3x1000:" + burst(3, wire: 1000, gapMs: 0))
+        ladder.append("b6x600:" + burst(6, wire: 600, gapMs: 0))
+        ladder.append("b3x1000gap5:" + burst(3, wire: 1000, gapMs: 5))
         // Distinct bytes per rung, so a late echo of a lost rung can never pass a later one.
         func big(_ seed: Int) -> Data { Data((0..<3000).map { UInt8(($0 * 13 + seed) & 0xff) }) }
-        for budget in [1197, 1150, 1100, 1050, 1000, 900, 800, 600] {
-            ladder.append("f\(budget):" + roundTrip(big(budget), budget: budget))
+        for mode in [0, 1, 2] {
+            conn.setUDPFragmentPacingForTesting(mode)
+            for budget in [1197, 1100, 600] {
+                ladder.append("f\(budget)p\(mode):" + roundTrip(big(budget + mode), budget: budget))
+            }
         }
-        // The shipped default (budget 0 = no test override: the connection's own limit).
+        // The shipped default (budget 0 = no test override: the connection's own limit and pacing).
+        conn.setUDPFragmentPacingForTesting(2)
         let r = roundTrip(big(7), budget: 0)
         let defaultOK = r.hasPrefix("ok")
         ladder.append("fDEFAULT(\(conn.udpDatagramLimit)):" + r)
