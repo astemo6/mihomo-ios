@@ -11,21 +11,86 @@ import Foundation
 /// (B5) already builds group edits against.
 
 // MARK: - Tree accessors (bridge str / strList / boolOf / intOf)
+//
+// Review R-4: these follow Go's inspect.go semantics on the go.yaml.in/yaml/v3
+// tree exactly. yaml v3 keeps `yes` / `on` / `no` / `off` as STRINGS (only
+// true/false are bools), so the Go helpers coerce:
+//   str(v)     string as-is; nil -> ""; anything else fmt.Sprint(v)
+//              (so `name: 123` reads "123", `name: true` reads "true")
+//   boolOf(v)  bool as-is; string -> truthy (1/true/yes/on, trimmed, any case)
+//   intOf(v)   int/float truncated; string -> strconv.Atoi(trimmed) else 0
+//   strList(v) str() of every element of a list, empty results dropped
+
+enum NCGoValue {
+    /// Go fmt.Sprint of a yaml-decoded value (NCYAML numbers are Doubles; Go
+    /// decodes integral scalars to int, and %v prints float64 without an
+    /// exponent below 1e21, so integral values print as integers).
+    static func sprint(_ v: NCJSONValue) -> String {
+        switch v {
+        case .null: return "<nil>"
+        case .bool(let b): return b ? "true" : "false"
+        case .string(let s): return s
+        case .number(let d):
+            if d.isFinite, d == d.rounded(.towardZero), abs(d) < 9.0e18 {
+                return String(Int64(d))
+            }
+            if d.isNaN { return "NaN" }
+            if d.isInfinite { return d < 0 ? "-Inf" : "+Inf" }
+            return "\(d)"
+        case .array(let a): return "[" + a.map { sprint($0) }.joined(separator: " ") + "]"
+        case .object(let o):
+            return "map[" + o.keys.sorted().map { "\($0):\(sprint(o[$0]!))" }.joined(separator: " ") + "]"
+        }
+    }
+
+    /// bridge str(v any): nil (absent or YAML null) -> "".
+    static func str(_ v: NCJSONValue?) -> String {
+        guard let v else { return "" }
+        if case .null = v { return "" }
+        return sprint(v)
+    }
+
+    /// bridge truthy (nodes.go).
+    static func truthy(_ s: String) -> Bool {
+        switch s.trimmingCharacters(in: .whitespacesAndNewlines).lowercased() {
+        case "1", "true", "yes", "on": return true
+        default: return false
+        }
+    }
+
+    /// bridge boolOf.
+    static func boolOf(_ v: NCJSONValue?) -> Bool {
+        switch v {
+        case .bool(let b)?: return b
+        case .string(let s)?: return truthy(s)
+        default: return false
+        }
+    }
+
+    /// bridge intOf (int(float64) truncates; out-of-range / NaN -> 0 instead of trapping).
+    static func intOf(_ v: NCJSONValue?) -> Int {
+        switch v {
+        case .number(let n)?:
+            guard n.isFinite, n > -9.0e18, n < 9.0e18 else { return 0 }
+            return Int(n)
+        case .string(let s)?:
+            return Int(s.trimmingCharacters(in: .whitespacesAndNewlines)) ?? 0
+        default:
+            return 0
+        }
+    }
+
+    /// bridge strList.
+    static func strList(_ v: NCJSONValue?) -> [String] {
+        guard case .array(let a)? = v else { return [] }
+        return a.map { str($0) }.filter { !$0.isEmpty }
+    }
+}
 
 extension Dictionary where Key == String, Value == NCJSONValue {
-    func str(_ key: String) -> String {
-        if case .string(let s)? = self[key] { return s }
-        return ""
-    }
-    func boolOf(_ key: String) -> Bool {
-        if case .bool(let b)? = self[key] { return b }
-        return false
-    }
-    func intOf(_ key: String) -> Int {
-        if case .number(let n)? = self[key] { return Int(n) }
-        if case .string(let s)? = self[key] { return Int(s) ?? 0 }
-        return 0
-    }
+    func str(_ key: String) -> String { NCGoValue.str(self[key]) }
+    func boolOf(_ key: String) -> Bool { NCGoValue.boolOf(self[key]) }
+    func intOf(_ key: String) -> Int { NCGoValue.intOf(self[key]) }
     func list(_ key: String) -> [NCJSONValue] {
         if case .array(let a)? = self[key] { return a }
         return []
@@ -34,20 +99,14 @@ extension Dictionary where Key == String, Value == NCJSONValue {
         if case .object(let o)? = self[key] { return o }
         return [:]
     }
-    func strList(_ key: String) -> [String] {
-        list(key).compactMap { if case .string(let s) = $0 { return s }; return nil }
-    }
+    func strList(_ key: String) -> [String] { NCGoValue.strList(self[key]) }
 }
 
 extension NCJSONValue {
-    var strValue: String {
-        if case .string(let s) = self { return s }
-        return ""
-    }
-    var boolValue: Bool {
-        if case .bool(let b) = self { return b }
-        return false
-    }
+    /// bridge str(x) on one element.
+    var strValue: String { NCGoValue.str(self) }
+    /// bridge boolOf(x) on one element.
+    var boolValue: Bool { NCGoValue.boolOf(self) }
     /// JSON-shaped Any tree (for JSONSerialization / NCYAMLEmitter).
     var anyTree: Any {
         switch self {
@@ -206,13 +265,50 @@ enum NCRuntimeFiles {
         SHA256.hash(data: data).map { String(format: "%02x", $0) }.joined()
     }
 
-    /// Atomic write (write to <path>.tmp, then rename), the bridge's
-    /// writeAtomicFile.
+    /// The bridge's writeAtomic (grouporder.go), review R-2: write to a UNIQUE
+    /// temp file in the same directory (".<base>.tmp<uuid>", O_EXCL), fsync,
+    /// chmod 0644, then rename(2) over the target. rename is atomic on the same
+    /// volume, so a reader (the tunnel) sees either the old or the new file —
+    /// never a missing or half-written one — and two concurrent writers never
+    /// share a temp path. The previous version removed the target first and
+    /// used a fixed "<path>.tmp".
     static func writeAtomic(_ data: Data, to path: String) throws {
-        let tmp = path + ".tmp"
-        try data.write(to: URL(fileURLWithPath: tmp))
-        let fm = FileManager.default
-        if fm.fileExists(atPath: path) { try fm.removeItem(atPath: path) }
-        try fm.moveItem(atPath: tmp, toPath: path)
+        let ns = path as NSString
+        let dir = ns.deletingLastPathComponent
+        let tmp = ((dir.isEmpty ? "." : dir) as NSString)
+            .appendingPathComponent("." + ns.lastPathComponent + ".tmp" + UUID().uuidString)
+        func posixError(_ code: Int32, _ p: String) -> NSError {
+            NSError(domain: NSPOSIXErrorDomain, code: Int(code),
+                    userInfo: [NSFilePathErrorKey: p,
+                               NSLocalizedDescriptionKey: p + ": " + String(cString: strerror(code))])
+        }
+        let fd = open(tmp, O_WRONLY | O_CREAT | O_EXCL | O_CLOEXEC, 0o644)
+        if fd < 0 { throw posixError(errno, tmp) }
+        var werr: Int32 = 0
+        data.withUnsafeBytes { (buf: UnsafeRawBufferPointer) in
+            guard let base = buf.baseAddress else { return }
+            var off = 0
+            while off < buf.count {
+                let n = Darwin.write(fd, base + off, buf.count - off)
+                if n < 0 {
+                    if errno == EINTR { continue }
+                    werr = errno
+                    return
+                }
+                off += n
+            }
+        }
+        if werr == 0 && fsync(fd) != 0 { werr = errno }
+        if close(fd) != 0 && werr == 0 { werr = errno }
+        if werr != 0 {
+            unlink(tmp)
+            throw posixError(werr, tmp)
+        }
+        _ = chmod(tmp, 0o644)
+        if rename(tmp, path) != 0 {
+            let e = errno
+            unlink(tmp)
+            throw posixError(e, path)
+        }
     }
 }

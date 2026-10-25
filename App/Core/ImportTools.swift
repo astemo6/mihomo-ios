@@ -47,12 +47,8 @@ enum ImportTools {
     }
 
     private static func writeAtomic(_ data: Data, to path: String) throws {
-        let tmp = path + ".tmp"
-        try data.write(to: URL(fileURLWithPath: tmp))
-        if FileManager.default.fileExists(atPath: path) {
-            try FileManager.default.removeItem(atPath: path)
-        }
-        try FileManager.default.moveItem(atPath: tmp, toPath: path)
+        // Review R-2: unique temp + rename(2), never delete-then-move.
+        try NCRuntimeFiles.writeAtomic(data, to: path)
     }
 
     // MARK: - DetectNodeFormat

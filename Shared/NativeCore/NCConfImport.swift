@@ -560,7 +560,7 @@ enum NCConfImport {
         if let lines = map["general"] { applyGeneral(lines: lines, formatLabel: "loon", cfg: &cfg, report: &report) }
         if let lines = map["mitm"] { applyMitm(lines: lines, cfg: &cfg) }
         if let lines = map["url rewrite"] { applyURLRewrite(lines: lines, cfg: &cfg) }
-        if let lines = map["rewrite"] { applyURLRewrite(lines: lines, cfg: &cfg) }
+        if let lines = map["rewrite"] { applyURLRewrite(lines: lines, cfg: &cfg, typeOmittedIsHeader: false) }
         if let lines = map["header rewrite"] { applyHeaderRewrite(lines: lines, cfg: &cfg) }
         if let lines = map["script"] { applyScript(lines: lines, cfg: &cfg) }
         if let lines = map["proxy"] {
@@ -691,21 +691,56 @@ enum NCConfImport {
         }
     }
 
-    static func applyURLRewrite(lines: [String], cfg: inout NCCanonicalConfig) {
+    /// URL actions, normalized the way the App parser does (EngineParser
+    /// NCEngineRuleset.urlActions / normURLAction), so the tunnel's .conf path and
+    /// the App's module path read the same line the same way (review M1).
+    static let urlRewriteActions: Set<String> = ["reject", "reject-200", "reject-img", "reject-dict", "reject-array",
+                                                 "reject-drop", "reject-no-drop", "reject-tinygif", "reject-video",
+                                                 "302", "307", "301", "header"]
+
+    static func normURLRewriteAction(_ a0: String) -> String {
+        switch a0.lowercased() {
+        case "reject-tinygif": return "reject-img"
+        case "reject-no-drop": return "reject"
+        case "reject-video": return "reject-200"
+        case "301": return "302"
+        default: return a0.lowercased()
+        }
+    }
+
+    /// [URL Rewrite] / Loon [Rewrite] lines, in the App parser's order:
+    ///   Loon   <regex> <action> [target]          (action in the middle)
+    ///   Surge  <regex> <replacement> <type>       (type last)
+    ///   Surge  <regex> <replacement>              type omitted -> `header`, a transparent
+    ///          rewrite of the upstream request (manual.nssurge.com/http/url-rewrite.html:
+    ///          "If the type is omitted, header is used") — only in a [URL Rewrite] section
+    ///          (`typeOmittedIsHeader`); it used to be read as a 302 to the client.
+    /// Anything else is not a URL rewrite and is skipped.
+    static func applyURLRewrite(lines: [String], cfg: inout NCCanonicalConfig, typeOmittedIsHeader: Bool = true) {
         for line in lines {
             let trimmed = line.trimmingCharacters(in: .whitespaces)
             if trimmed.isEmpty || trimmed.hasPrefix("#") || trimmed.hasPrefix("//") || trimmed.hasPrefix(";") { continue }
             let parts = trimmed.components(separatedBy: .whitespaces).filter { !$0.isEmpty }
             guard parts.count >= 2 else { continue }
             let pattern = parts[0]
-            let second = parts[1]
-            if second.hasPrefix("reject") {
-                cfg.rewrites.append(NCRewriteRule(kind: "url", phase: "request", pattern: pattern, action: second, target: nil))
-            } else if parts.count >= 3 {
-                let action = parts[2]
-                cfg.rewrites.append(NCRewriteRule(kind: "url", phase: "request", pattern: pattern, action: action, target: second))
-            } else {
-                cfg.rewrites.append(NCRewriteRule(kind: "url", phase: "request", pattern: pattern, action: "302", target: second))
+            let second = parts[1].lowercased()
+            if urlRewriteActions.contains(second) {
+                let action = normURLRewriteAction(second)
+                let target: String? = parts.count >= 3 ? parts[2] : nil
+                if (action == "302" || action == "307" || action == "header") && (target ?? "").isEmpty { continue }
+                cfg.rewrites.append(NCRewriteRule(kind: "url", phase: "request", pattern: pattern, action: action, target: target))
+                continue
+            }
+            if parts.count >= 3 {
+                let last = parts[parts.count - 1].lowercased()
+                if urlRewriteActions.contains(last) {
+                    cfg.rewrites.append(NCRewriteRule(kind: "url", phase: "request", pattern: pattern,
+                                                      action: normURLRewriteAction(last), target: parts[1]))
+                }
+                continue
+            }
+            if typeOmittedIsHeader {
+                cfg.rewrites.append(NCRewriteRule(kind: "url", phase: "request", pattern: pattern, action: "header", target: parts[1]))
             }
         }
     }

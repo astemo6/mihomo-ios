@@ -569,12 +569,14 @@ extension NCRuntimeSteps {
     /// bridge rewriteProviderURLs.
     static func rewriteProviderURLs(_ raw: inout [String: NCJSONValue]) {
         for key in ["rule-providers", "proxy-providers"] {
-            var pv = raw.map(key)
-            if pv.isEmpty && raw[key] == nil { continue }
+            // Review R-6: Go `pv, ok := raw[key].(map[string]any); if !ok { continue }` —
+            // an absent key stays absent, a wrongly-typed one is left for the core to reject.
+            guard case .object(var pv)? = raw[key] else { continue }
             for name in pv.keys {
                 guard case .object(var m) = pv[name] ?? .null else { continue }
-                let proxy = m.str("proxy")
-                if !proxy.isEmpty && proxy.lowercased() != "direct" { continue }
+                // Go: `p, _ := m["proxy"].(string)` — only a string proxy counts.
+                if case .string(let proxy)? = m["proxy"], !proxy.isEmpty,
+                   proxy.lowercased() != "direct" { continue }
                 if case .string(let s) = m["url"] ?? .null {
                     let (n, ok) = githubToMirror(s)
                     if ok {
@@ -607,8 +609,8 @@ extension NCRuntimeSteps {
         _ o: NCRuntimeSettings
     ) {
         for key in ["proxy-providers", "rule-providers"] {
-            var pv = raw.map(key)
-            if pv.isEmpty && raw[key] == nil { continue }
+            // Review R-6: Go type-asserts the providers map and skips anything else.
+            guard case .object(var pv)? = raw[key] else { continue }
             for name in pv.keys {
                 guard case .object(var m) = pv[name] ?? .null else { continue }
                 let (kind, src) = providerConvert(m)
@@ -644,53 +646,62 @@ extension NCRuntimeSteps {
         _ raw: inout [String: NCJSONValue],
         testURL: String
     ) {
-        var groups = raw.list("proxy-groups")
-        for gi in groups.indices {
-            guard case .object(var m) = groups[gi] else { continue }
-            switch m.str("type").lowercased() {
-            case "url-test", "fallback", "load-balance", "smart":
-                m["url"] = .string(testURL)
-            default:
-                if m["url"] != nil { m["url"] = .string(testURL) }
+        // Review R-6: Go mutates in place through asList / asMap, so an absent or
+        // wrongly-typed proxy-groups / proxy-providers is never written back.
+        if case .array(var groups)? = raw["proxy-groups"] {
+            for gi in groups.indices {
+                guard case .object(var m) = groups[gi] else { continue }
+                switch m.str("type").lowercased() {
+                case "url-test", "fallback", "load-balance", "smart":
+                    m["url"] = .string(testURL)
+                default:
+                    if m["url"] != nil { m["url"] = .string(testURL) }
+                }
+                groups[gi] = .object(m)
             }
-            groups[gi] = .object(m)
+            raw["proxy-groups"] = .array(groups)
         }
-        raw["proxy-groups"] = .array(groups)
-        var pp = raw.map("proxy-providers")
-        for name in pp.keys {
-            if case .object(var m) = pp[name] ?? .null,
-               case .object(var hc) = m["health-check"] ?? .null {
-                hc["url"] = .string(testURL)
-                m["health-check"] = .object(hc)
-                pp[name] = .object(m)
+        if case .object(var pp)? = raw["proxy-providers"] {
+            for name in pp.keys {
+                if case .object(var m) = pp[name] ?? .null,
+                   case .object(var hc) = m["health-check"] ?? .null {
+                    hc["url"] = .string(testURL)
+                    m["health-check"] = .object(hc)
+                    pp[name] = .object(m)
+                }
             }
+            raw["proxy-providers"] = .object(pp)
         }
-        raw["proxy-providers"] = .object(pp)
     }
 
     /// bridge applyIPPreference.
     static func applyIPPreference(_ raw: inout [String: NCJSONValue], pref: String) {
         if pref.isEmpty { return }
-        var proxies = raw.list("proxies")
-        for i in proxies.indices {
-            if case .object(var m) = proxies[i], m["ip-version"] == nil {
-                m["ip-version"] = .string(pref)
-                proxies[i] = .object(m)
-            }
-        }
-        raw["proxies"] = .array(proxies)
-        var pp = raw.map("proxy-providers")
-        for name in pp.keys {
-            if case .object(var pm) = pp[name] ?? .null {
-                var ov = pm.map("override")
-                if ov["ip-version"] == nil {
-                    ov["ip-version"] = .string(pref)
+        // Review R-6: only write back containers that exist with the right type
+        // (Go ranges over asList / asMap results and mutates the elements in place).
+        if case .array(var proxies)? = raw["proxies"] {
+            for i in proxies.indices {
+                if case .object(var m) = proxies[i], m["ip-version"] == nil {
+                    m["ip-version"] = .string(pref)
+                    proxies[i] = .object(m)
                 }
-                pm["override"] = .object(ov)
-                pp[name] = .object(pm)
             }
+            raw["proxies"] = .array(proxies)
         }
-        raw["proxy-providers"] = .object(pp)
+        if case .object(var pp)? = raw["proxy-providers"] {
+            for name in pp.keys {
+                if case .object(var pm) = pp[name] ?? .null {
+                    // Go: ov := asMap(pm["override"]); ...; pm["override"] = ov
+                    var ov = pm.map("override")
+                    if ov["ip-version"] == nil {
+                        ov["ip-version"] = .string(pref)
+                    }
+                    pm["override"] = .object(ov)
+                    pp[name] = .object(pm)
+                }
+            }
+            raw["proxy-providers"] = .object(pp)
+        }
     }
 
     static let udpFallbackRule = "AND,((NETWORK,UDP),(DST-PORT,443)),REJECT"

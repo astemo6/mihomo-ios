@@ -127,8 +127,29 @@ struct NCRuntimeSettings {
             dns: readDNSOverride(home: home),
             local: readLocalDNS(home: home),
             home: home,
-            manualPath: home.isEmpty ? "" : URL(fileURLWithPath: home)
-                .appendingPathComponent("profiles/manual-nodes.yaml").path)
+            manualPath: manualNodesPath(home: home))
+    }
+
+    /// bridge runtimeinputs.go manualNodesPath:
+    /// filepath.Join(filepath.Dir(home), "profiles", "manual-nodes.yaml").
+    /// home is <container>/mihomo; the App writes the manual profile to
+    /// AppShared.profileURL(id: "manual-nodes") = <container>/profiles/manual-nodes.yaml,
+    /// so the store lives beside home, not under it (review R-1).
+    static func manualNodesPath(home: String) -> String {
+        if home.isEmpty { return "" }
+        // Go filepath.Dir: drop everything after the last separator
+        // (a trailing "/" leaves the path itself: Dir("/a/b/") == "/a/b").
+        // No standardizingPath: it may strip the container's /private prefix.
+        let dir: String
+        if let r = home.range(of: "/", options: .backwards) {
+            let head = String(home[home.startIndex..<r.lowerBound])
+            dir = head.isEmpty ? "/" : head
+        } else {
+            dir = "."
+        }
+        if dir == "." { return "profiles/manual-nodes.yaml" }
+        return ((dir as NSString).appendingPathComponent("profiles") as NSString)
+            .appendingPathComponent("manual-nodes.yaml")
     }
 
     static func validTestURL(_ s: String) -> Bool {
@@ -145,35 +166,66 @@ struct NCRuntimeSettings {
         return try? JSONDecoder().decode(NCCoreSecrets.self, from: data)
     }
 
-    /// bridge ensureControllerSecret: without an overrides.json nothing
-    /// is persisted and a per-process secret is used; otherwise a new
-    /// random secret is written back into secrets.json (other keys
-    /// kept, file 0600).
+    /// bridge ensureControllerSecret (secretguard.go): without an overrides.json
+    /// nothing is persisted and a per-process secret is used; otherwise a new
+    /// random secret is written back into secrets.json (other keys kept, file
+    /// 0600). Review R-5: the read-modify-write holds secrets.json's NCPathLock
+    /// (Go `defer lockPath(sp)()`), and the branches follow Go exactly:
+    ///   - read OK but not a JSON object      -> process secret
+    ///   - read failed, file does not exist   -> start from {} and write back
+    ///   - read failed for any other reason   -> process secret (never clobber
+    ///     a file we could not read)
+    ///   - write-back failed                  -> process secret
     static func ensureControllerSecret(home: String) -> String {
         if home.isEmpty { return processSecretValue() }
         let homeURL = URL(fileURLWithPath: home)
         if !FileManager.default.fileExists(atPath: homeURL.appendingPathComponent("overrides.json").path) {
+            NSLog("[Mihomo] 控制器密钥为空且 overrides.json 不存在，本次使用随机密钥")
             return processSecretValue()
         }
         let secretsURL = homeURL.appendingPathComponent("secrets.json")
-        var raw: [String: Any] = [:]
-        if let data = try? Data(contentsOf: secretsURL) {
-            guard let obj = try? JSONSerialization.jsonObject(with: data) as? [String: Any] else {
+        return NCPathLock.shared.withLock(for: secretsURL.path) { () -> String in
+            var raw: [String: Any] = [:]
+            do {
+                let data = try Data(contentsOf: secretsURL)
+                guard let obj = (try? JSONSerialization.jsonObject(with: data)) as? [String: Any] else {
+                    NSLog("[Mihomo] 控制器密钥为空且 secrets.json 无法解析，本次使用随机密钥")
+                    return processSecretValue()
+                }
+                raw = obj
+            } catch {
+                if !isNotExist(error) {
+                    NSLog("[Mihomo] 控制器密钥为空且无法读取 secrets.json，本次使用随机密钥")
+                    return processSecretValue()
+                }
+            }
+            if let s = raw["secret"] as? String, !s.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
+                return s // another writer filled it meanwhile
+            }
+            let s = randomSecret()
+            raw["secret"] = s
+            do {
+                let data = try JSONSerialization.data(withJSONObject: raw)
+                try NCRuntimeFiles.writeAtomic(data, to: secretsURL.path)
+            } catch {
+                NSLog("[Mihomo] 控制器密钥为空，写回 secrets.json 失败（%@），本次使用随机密钥", error.localizedDescription)
                 return processSecretValue()
             }
-            raw = obj
-        }
-        if let s = raw["secret"] as? String, !s.trimmingCharacters(in: .whitespaces).isEmpty {
+            _ = chmod(secretsURL.path, 0o600)
+            NSLog("[Mihomo] 控制器密钥为空，已生成随机密钥并写回 secrets.json")
             return s
         }
-        let s = randomSecret()
-        raw["secret"] = s
-        if let data = try? JSONSerialization.data(withJSONObject: raw),
-           (try? data.write(to: secretsURL, options: [.atomic])) != nil {
-            try? FileManager.default.setAttributes([.posixPermissions: 0o600], ofItemAtPath: secretsURL.path)
-            return s
-        }
-        return processSecretValue()
+    }
+
+    /// Go os.IsNotExist for a Data(contentsOf:) failure.
+    private static func isNotExist(_ error: Error) -> Bool {
+        let ns = error as NSError
+        if ns.domain == NSCocoaErrorDomain
+            && (ns.code == NSFileReadNoSuchFileError || ns.code == NSFileNoSuchFileError) { return true }
+        if ns.domain == NSPOSIXErrorDomain && ns.code == Int(ENOENT) { return true }
+        if let under = ns.userInfo[NSUnderlyingErrorKey] as? NSError,
+           under.domain == NSPOSIXErrorDomain, under.code == Int(ENOENT) { return true }
+        return false
     }
 
     /// bridge randomSecret: 16 random bytes, hex.
@@ -186,7 +238,12 @@ struct NCRuntimeSettings {
         return bytes.map { String(format: "%02x", $0) }.joined()
     }
 
+    private static let processSecretLock = NSLock()
+
+    /// bridge processSecret (sync.Once).
     static func processSecretValue() -> String {
+        processSecretLock.lock()
+        defer { processSecretLock.unlock() }
         if let s = processSecret { return s }
         let s = randomSecret()
         processSecret = s
