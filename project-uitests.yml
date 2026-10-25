@@ -31,6 +31,9 @@ targets:
     deploymentTarget: "16.0"
     sources:
       - path: UnitTests
+      # nc-integrate: astemo6/Muse's NativeCore kernel tests (Shared/NativeCore: Snell, SS2022, SSR, AnyTLS, mux, H2/HPACK,
+      # QUIC, Argon2, chains, legacy canonical) were in AppTests/ but in no target; they run in this bundle now.
+      - path: AppTests
     dependencies:
       - target: Mihomo
     settings:
