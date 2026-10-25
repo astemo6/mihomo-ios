@@ -11,7 +11,8 @@ import Network
 //
 // Covered: several peers (allowed-ips, longest prefix), pre-shared keys, `reserved` (WARP), mtu,
 // persistent-keepalive, cookie replies (mac2), rekey / expiry / retry timers, replay window, AmneziaWG 1.0
-// (jc / jmin / jmax junk, s1 / s2 padding, h1–h4 headers), remote-dns-resolve over the tunnel.
+// (jc / jmin / jmax junk, s1 / s2 padding, h1–h4 headers) and 2.0 (h1–h4 header ranges, s3 / s4 padding;
+// i1–i5 signature packets are not implemented), remote-dns-resolve over the tunnel.
 //
 // Threading: everything here (and every nc_wg_* call) runs on NCLwIP.queue, the queue the TUN data plane also
 // uses — lwIP is single-threaded. Callers on other queues get their completions on their own queue.
@@ -34,9 +35,18 @@ struct NCWGConfig {
     }
 
     struct Amnezia {
+        /// AmneziaWG magic header (h1–h4): a single value, or — AWG 2.0 — an inclusive range the
+        /// sender picks a fresh value from for every packet; the receiver accepts any value in range.
+        struct Header {
+            let lo: UInt32, hi: UInt32
+            func pick() -> UInt32 { lo == hi ? lo : UInt32.random(in: lo...hi) }
+            func contains(_ v: UInt32) -> Bool { v >= lo && v <= hi }
+            func isSingle(_ v: UInt32) -> Bool { lo == hi && lo == v }
+        }
         let jc: Int, jmin: Int, jmax: Int
-        let s1: Int, s2: Int
-        let h1: UInt32, h2: UInt32, h3: UInt32, h4: UInt32
+        /// Random-prefix lengths: s1 initiation, s2 response, s3 cookie reply, s4 transport (AWG 2.0).
+        let s1: Int, s2: Int, s3: Int, s4: Int
+        let h1: Header, h2: Header, h3: Header, h4: Header
     }
 
     let privateKey: [UInt8]
@@ -121,22 +131,34 @@ struct NCWGConfig {
         }
         var awg: Amnezia?
         if let o = f["amnezia-wg-option"]?.object {
-            for k in ["h1", "h2", "h3", "h4"] {
-                if let s = o[k]?.string, s.contains("-") { return (nil, "AmneziaWG 2.0 头部范围 \(k) 尚未接入") }
-            }
-            if (o["s3"]?.int ?? 0) != 0 || (o["s4"]?.int ?? 0) != 0 { return (nil, "AmneziaWG 2.0 s3 / s4 尚未接入") }
             let jc = max(0, min(o["jc"]?.int ?? 0, 128))
             let jmin = max(0, min(o["jmin"]?.int ?? 0, 1280))
             let jmax = max(jmin, min(o["jmax"]?.int ?? 0, 1280))
             let s1 = max(0, min(o["s1"]?.int ?? 0, 1132))
             let s2 = max(0, min(o["s2"]?.int ?? 0, 1188))
-            func h(_ k: String, _ d: UInt32) -> UInt32 {
-                let v = uint32(o[k]) ?? 0
-                return v == 0 ? d : v
+            let s3 = max(0, min(o["s3"]?.int ?? 0, 1216))
+            let s4 = max(0, min(o["s4"]?.int ?? 0, 32))
+            // h1–h4: a number / numeric string is a single value; "lo-hi" is an AWG 2.0 range.
+            // 0 (or an unparseable value) keeps the standard WireGuard header, as before.
+            func h(_ k: String, _ d: UInt32) -> Amnezia.Header {
+                let single = Amnezia.Header(lo: d, hi: d)
+                guard let v = o[k] else { return single }
+                if let n = v.number, n > 0, n <= Double(UInt32.max) {
+                    let x = UInt32(n); return Amnezia.Header(lo: x, hi: x)
+                }
+                guard let s = v.string?.trimmingCharacters(in: .whitespaces), !s.isEmpty else { return single }
+                if let x = UInt32(s) { return x == 0 ? single : Amnezia.Header(lo: x, hi: x) }
+                let parts = s.split(separator: "-", omittingEmptySubsequences: false)
+                    .map { $0.trimmingCharacters(in: .whitespaces) }
+                if parts.count == 2, let lo = UInt32(parts[0]), let hi = UInt32(parts[1]), lo > 0, lo <= hi {
+                    return Amnezia.Header(lo: lo, hi: hi)
+                }
+                return single
             }
-            let a = Amnezia(jc: jc, jmin: jmin, jmax: jmax, s1: s1, s2: s2,
+            let a = Amnezia(jc: jc, jmin: jmin, jmax: jmax, s1: s1, s2: s2, s3: s3, s4: s4,
                             h1: h("h1", 1), h2: h("h2", 2), h3: h("h3", 3), h4: h("h4", 4))
-            let standard = a.jc == 0 && a.s1 == 0 && a.s2 == 0 && a.h1 == 1 && a.h2 == 2 && a.h3 == 3 && a.h4 == 4
+            let standard = a.jc == 0 && a.s1 == 0 && a.s2 == 0 && a.s3 == 0 && a.s4 == 0
+                && a.h1.isSingle(1) && a.h2.isSingle(2) && a.h3.isSingle(3) && a.h4.isSingle(4)
             awg = standard ? nil : a
         }
         let mtu = f["mtu"]?.int ?? 1408
@@ -664,11 +686,12 @@ final class NCWGPeer {
         k.sendCounter += 1
         guard let sealed = NCWGCrypto.seal(key: k.send, counter: counter, plain, aad: []) else { return }
         var msg = [UInt8](repeating: 0, count: 16)
-        if let a = amnezia { putLE32(&msg, 0, a.h4) } else { msg[0] = 4 }
+        if let a = amnezia { putLE32(&msg, 0, a.h4.pick()) } else { msg[0] = 4 }
         putLE32(&msg, 4, k.remoteIndex)
         putLE64(&msg, 8, counter)
         msg += sealed
         applyReserved(&msg)
+        if let a = amnezia, a.s4 > 0 { msg = randomBytes(a.s4) + msg } // AWG 2.0 transport prefix
         sendRaw(msg)
         lastSentAny = Date()
     }
@@ -707,7 +730,7 @@ final class NCWGPeer {
         var local = UInt32.random(in: 1...UInt32.max)
         while local == current?.localIndex || local == previous?.localIndex { local = UInt32.random(in: 1...UInt32.max) }
         var msg = [UInt8](repeating: 0, count: 148)
-        if let a = amnezia { putLE32(&msg, 0, a.h1) } else { msg[0] = 1 }
+        if let a = amnezia { putLE32(&msg, 0, a.h1.pick()) } else { msg[0] = 1 }
         putLE32(&msg, 4, local)
         msg.replaceSubrange(8..<40, with: ephPub)
         msg.replaceSubrange(40..<88, with: encStatic)
@@ -736,12 +759,14 @@ final class NCWGPeer {
     private func received(_ d0: [UInt8]) {
         var d = d0
         if let a = amnezia {
-            if d.count == 92 + a.s2, le32(d, a.s2) == a.h2 {
+            // AWG 2.0: the header value only has to fall inside the configured range, and the
+            // cookie / transport messages carry their own s3 / s4 random prefixes.
+            if d.count == 92 + a.s2, a.h2.contains(le32(d, a.s2)) {
                 handleResponse(Array(d[a.s2...]))
-            } else if d.count == 64, le32(d, 0) == a.h3 {
-                handleCookie(d)
-            } else if d.count >= 32, le32(d, 0) == a.h4 {
-                handleTransport(d)
+            } else if d.count == 64 + a.s3, a.h3.contains(le32(d, a.s3)) {
+                handleCookie(Array(d[a.s3...]))
+            } else if d.count >= 32 + a.s4, a.h4.contains(le32(d, a.s4)) {
+                handleTransport(Array(d[a.s4...]))
             }
             return
         }

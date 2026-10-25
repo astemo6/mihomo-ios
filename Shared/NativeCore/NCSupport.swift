@@ -151,7 +151,8 @@ enum NCSupport {
     }
 
     /// WireGuard (NCWireGuard, feat/nc-wg): same checks as NCWGConfig.parse in the tunnel. AmneziaWG 1.0
-    /// (jc/jmin/jmax/s1/s2/h1–h4) is supported; AWG 2.0 header ranges and s3/s4 are not (i1–i5 are ignored).
+    /// (jc/jmin/jmax/s1/s2/h1–h4) and 2.0 (h1–h4 header ranges, s3/s4 padding) are supported;
+    /// i1–i5 signature packets are ignored (standard packets are sent instead).
     static func wireguardUnsupported(_ p: NCProxy) -> String? {
         let f = p.fields
         if (f["private-key"]?.string ?? "").isEmpty { return "WireGuard 缺少 private-key" }
@@ -165,12 +166,6 @@ enum NCSupport {
             }
         } else if p.server == nil || p.port == nil || (f["public-key"]?.string ?? "").isEmpty {
             return "WireGuard 缺少 server / port / public-key"
-        }
-        if let o = f["amnezia-wg-option"]?.object {
-            for k in ["h1", "h2", "h3", "h4"] where (o[k]?.string ?? "").contains("-") {
-                return "AmneziaWG 2.0 头部范围 \(k) 尚未接入"
-            }
-            if (o["s3"]?.int ?? 0) != 0 || (o["s4"]?.int ?? 0) != 0 { return "AmneziaWG 2.0 s3 / s4 尚未接入" }
         }
         return nil
     }
