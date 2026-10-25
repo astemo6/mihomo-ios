@@ -296,7 +296,7 @@ struct ScriptWorkbenchView: View {
                 let home = AppShared.homeURL.path
                 code = String(localized: "// 正在读取…")
                 loadTask = Task {
-                    let src = await Task.detached { (LibmihomoScriptSource(home, p), LibmihomoLastError()) }.value
+                    let src = await Task.detached { NCScriptSource.codeAndError(home: home, path: p) }.value
                     // The user switched to another script while this downloaded.
                     guard !Task.isCancelled, gen == loadGen else { return }
                     loadTask = nil
