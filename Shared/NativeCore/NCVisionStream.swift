@@ -16,9 +16,11 @@ import Foundation
 /// bytes then go to CommonConn.Conn, i.e. through the XorConn layer when xorpub is on). feat/nc-proto3.
 protocol NCVisionCarrier: AnyObject {
     func send(_ data: Data)
+    func send(_ data: Data, completion: @escaping () -> Void)
     func receive(_ handler: @escaping (Data?, Error?) -> Void)
     /// Write below the record layer (after Vision switched to direct).
     func sendDirect(_ data: Data)
+    func sendDirect(_ data: Data, completion: @escaping () -> Void)
     /// Detach the record layer: decrypted leftovers + raw bytes already read past the last record.
     func spliceOut() -> (plaintext: [Data], rawTail: Data)
     func receiveSpliced(_ handler: @escaping (Data?, Error?) -> Void)
@@ -27,6 +29,7 @@ protocol NCVisionCarrier: AnyObject {
 
 extension NCTLSClientStream: NCVisionCarrier {
     func sendDirect(_ data: Data) { rawStream.send(data) }
+    func sendDirect(_ data: Data, completion: @escaping () -> Void) { rawStream.send(data, completion: completion) }
 }
 
 final class NCVisionStream: NCRelayStream {
@@ -49,15 +52,24 @@ final class NCVisionStream: NCRelayStream {
 
     // MARK: send
 
-    func send(_ data: Data) {
+    func send(_ data: Data) { send(data, completion: {}) }
+
+    func send(_ data: Data, completion: @escaping () -> Void) {
+        let once = NCCallOnce(completion)
         if writeDirect {
-            tls.sendDirect(data)
+            tls.sendDirect(data, completion: once.call)
             return
         }
-        for frame in writer.process([UInt8](data)) {
-            tls.send(Data(frame))
-        }
+        let frames = writer.process([UInt8](data)).map { Data($0) }
         if writer.isDirect { writeDirect = true }
+        sendFrames(frames, once: once)
+    }
+
+    /// Vision frames go to the carrier one by one; the completion fires after the last frame's.
+    private func sendFrames(_ frames: [Data], once: NCCallOnce) {
+        guard let first = frames.first else { once.call(); return }
+        if frames.count == 1 { tls.send(first, completion: once.call); return }
+        tls.send(first) { [self] in sendFrames(Array(frames.dropFirst()), once: once) }
     }
 
     // MARK: receive

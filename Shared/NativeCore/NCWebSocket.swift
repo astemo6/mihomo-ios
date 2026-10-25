@@ -61,9 +61,11 @@ final class NCWebSocketStream: NCRelayStream {
         pump()
     }
 
-    func send(_ data: Data) {
-        guard handshakeDone, !closed else { return }
-        raw.send(Self.frame(opcode: 0x2, payload: data))
+    func send(_ data: Data) { send(data, completion: {}) }
+
+    func send(_ data: Data, completion: @escaping () -> Void) {
+        guard handshakeDone, !closed else { completion(); return }
+        raw.send(Self.frame(opcode: 0x2, payload: data), completion: completion)
     }
 
     private static func frame(opcode: UInt8, payload: Data) -> Data {
@@ -192,6 +194,8 @@ final class NCVLESSRelayStream: NCRelayStream {
     }
 
     func send(_ data: Data) { raw.send(data) }
+
+    func send(_ data: Data, completion: @escaping () -> Void) { raw.send(data, completion: completion) }
 
     func receive(_ handler: @escaping (Data?, Error?) -> Void) {
         raw.receive { [weak self] data, error in

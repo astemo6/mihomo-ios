@@ -41,6 +41,9 @@ final class NCTLSClientStream: NCRelayStream {
     /// Bytes of `readBuffer` already parsed into records (compacted once per batch, not per record).
     private var readOffset = 0
     private var writeBuffer = Data() // plaintext queued before handshake completes
+    /// Completions of sends queued in `writeBuffer`: fired when the buffer is flushed after the
+    /// handshake (or drained by fail()/cancel(), so no sender ever waits forever).
+    private var bufferedCompletions: [NCCallOnce] = []
     private var handshakeDone = false
     private var failed: Error?
     private var closed = false
@@ -588,7 +591,13 @@ final class NCTLSClientStream: NCRelayStream {
         // Flush queued plaintext.
         let queued = writeBuffer
         writeBuffer = Data()
-        if !queued.isEmpty { send(queued) }
+        let queuedCompletions = bufferedCompletions
+        bufferedCompletions = []
+        if !queued.isEmpty {
+            send(queued) { queuedCompletions.forEach { $0.call() } }
+        } else {
+            queuedCompletions.forEach { $0.call() }
+        }
     }
 
     private func handleKeyUpdate(_ message: Data) {
@@ -647,35 +656,46 @@ final class NCTLSClientStream: NCRelayStream {
     /// Plaintext queued before the handshake completes is capped (memory first); past it the stream fails.
     static let maxQueuedBeforeHandshake = 256 * 1024
 
-    func send(_ data: Data) {
-        if failed != nil { return }
+    func send(_ data: Data) { send(data, completion: {}) }
+
+    func send(_ data: Data, completion: @escaping () -> Void) {
+        let once = NCCallOnce(completion)
+        if failed != nil { once.call(); return }
         guard handshakeDone else {
             guard writeBuffer.count + data.count <= Self.maxQueuedBeforeHandshake else {
                 fail(TLSError.handshake("too much data queued before the handshake completed"))
+                once.call()
                 return
             }
             writeBuffer.append(data)
+            bufferedCompletions.append(once)
             return
         }
         if let restls = config.restls, restls.authed {
-            for record in restls.records(for: data) { raw.send(record) }
+            raw.ncSendSequentially(restls.records(for: data), completion: once.call)
             return
         }
         if let suite12 = tls12 {
+            var wires: [Data] = []
             var rest = data[...]
             while !rest.isEmpty {
                 let chunk = Data(rest.prefix(16384))
                 rest = rest.dropFirst(chunk.count)
-                sendRecord12(suite: suite12, type: 23, plaintext: chunk)
+                guard let rec = record12(suite: suite12, type: 23, plaintext: chunk) else {
+                    raw.cancel(); once.call(); return
+                }
+                wires.append(rec)
             }
+            raw.ncSendSequentially(wires, completion: once.call)
             return
         }
         // Split into <=16K records (slice walk, no tail copy per record).
+        var wires: [Data] = []
         var rest = data[...]
         while !rest.isEmpty {
             let chunk = Data(rest.prefix(16384))
             rest = rest.dropFirst(chunk.count)
-            guard let writeKey, let writeIV else { return }
+            guard let writeKey, let writeIV else { raw.cancel(); once.call(); return }
             var plain = chunk
             plain.append(0x17) // inner content type: application data
             var header = Data()
@@ -683,11 +703,14 @@ final class NCTLSClientStream: NCRelayStream {
             header.appendBE16(0x0303)
             header.appendBE16(UInt16(plain.count + 16))
             guard let sealed = NCTLS13.sealRecord(suite: suite, key: writeKey, iv: writeIV, seq: writeSeq,
-                                                  header: header, plaintext: plain) else { return }
+                                                  header: header, plaintext: plain) else {
+                raw.cancel(); once.call(); return
+            }
             writeSeq += 1
             header.append(sealed)
-            raw.send(header)
+            wires.append(header)
         }
+        raw.ncSendSequentially(wires, completion: once.call)
     }
 
     func receive(_ handler: @escaping (Data?, Error?) -> Void) {
@@ -733,6 +756,7 @@ final class NCTLSClientStream: NCRelayStream {
         handshakeTimer?.cancel()
         handshakeTimer = nil
         writeBuffer = Data()
+        let bc = bufferedCompletions; bufferedCompletions = []; bc.forEach { $0.call() }
         if let handler = handshakeHandler {
             handshakeHandler = nil
             handler(error)
@@ -749,6 +773,7 @@ final class NCTLSClientStream: NCRelayStream {
         handshakeTimer?.cancel()
         handshakeTimer = nil
         writeBuffer = Data()
+        let bc = bufferedCompletions; bufferedCompletions = []; bc.forEach { $0.call() }
         raw.cancel()
     }
 
@@ -883,7 +908,13 @@ extension NCTLSClientStream {
             completeHandshake()
             let queued = writeBuffer
             writeBuffer = Data()
-            if !queued.isEmpty { send(queued) }
+            let queuedCompletions = bufferedCompletions
+            bufferedCompletions = []
+            if !queued.isEmpty {
+                send(queued) { queuedCompletions.forEach { $0.call() } }
+            } else {
+                queuedCompletions.forEach { $0.call() }
+            }
         case 0: // HelloRequest: renegotiation is not supported, ignore (RFC 5246 allows it)
             return
         default:
@@ -940,6 +971,20 @@ extension NCTLSClientStream {
         transcript.append(fin)
         sendRecord12(suite: suite, type: 22, plaintext: fin)
         tls12FlightSent = true
+    }
+
+    /// One sealed TLS 1.2 record as wire bytes (sendRecord12 without the send), for completion sends.
+    fileprivate func record12(suite: NCTLS12.Suite, type: UInt8, plaintext: Data) -> Data? {
+        guard let writeKey, let writeIV,
+              let sealed = NCTLS12.seal(suite: suite, key: writeKey, iv: writeIV, seq: writeSeq,
+                                        type: type, plaintext: plaintext) else { return nil }
+        writeSeq += 1
+        var record = Data(capacity: 5 + sealed.count)
+        record.append(type)
+        record.appendBE16(0x0303)
+        record.appendBE16(UInt16(sealed.count))
+        record.append(sealed)
+        return record
     }
 
     fileprivate func sendRecord12(suite: NCTLS12.Suite, type: UInt8, plaintext: Data) {

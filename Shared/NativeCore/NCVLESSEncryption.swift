@@ -470,21 +470,26 @@ final class NCVLESSEncStream: NCRelayStream {
 
     // MARK: NCRelayStream
 
-    func send(_ data: Data) {
-        guard aead != nil, failure == nil else { return }
+    func send(_ data: Data) { send(data, completion: {}) }
+
+    func send(_ data: Data, completion: @escaping () -> Void) {
+        let once = NCCallOnce(completion)
+        guard aead != nil, failure == nil else { once.call(); return }
+        var wires: [Data] = []
         var rest = data[...]
         while !rest.isEmpty {
             let chunk = Data(rest.prefix(8192))
             rest = rest.dropFirst(chunk.count)
             var header = Data([23, 3, 3])
             header += Self.len2(chunk.count + 16)
-            guard let aead = self.aead else { return }
+            guard let aead = self.aead else { raw.cancel(); once.call(); return }
             let rollover = aead.nonce == NCVLESSAEAD.maxNonce
             var record = header + aead.seal(chunk, aad: header)
             if rollover { self.aead = NCVLESSAEAD(ctx: record, key: united) }
             if let pre = preWrite { record = pre + record; preWrite = nil }
-            raw.send(xorOut(record))
+            wires.append(xorOut(record))
         }
+        raw.ncSendSequentially(wires, completion: once.call)
     }
 
     func receive(_ handler: @escaping (Data?, Error?) -> Void) {
@@ -557,6 +562,13 @@ extension NCVLESSEncStream: NCVisionCarrier {
         var out = data
         if let pre = takePreWrite() { out = pre + out }
         raw.send(inst.xorMode == 2 ? xorOutPublic(out) : out)
+    }
+
+    func sendDirect(_ data: Data, completion: @escaping () -> Void) {
+        guard failureState == nil, !data.isEmpty else { completion(); return }
+        var out = data
+        if let pre = takePreWrite() { out = pre + out }
+        raw.send(inst.xorMode == 2 ? xorOutPublic(out) : out, completion: completion)
     }
 
     /// Records are decrypted lazily, so everything still buffered is raw (already xor-filtered) direct traffic.
