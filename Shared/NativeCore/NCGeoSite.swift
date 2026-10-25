@@ -83,6 +83,23 @@ final class NCGeoSiteDB {
         return false
     }
 
+    /// E-B1: the category's domains as classical rule lines, for the
+    /// native runtime lowering (bridge lowerForNative writes these
+    /// to nativecore-geosite/<code>.list via the geodata loader):
+    /// Plain -> DOMAIN-KEYWORD, Regex -> DOMAIN-REGEX, Domain ->
+    /// DOMAIN-SUFFIX, Full -> DOMAIN. nil when absent.
+    func classicalLines(for category: String) -> [String]? {
+        guard let entries = entries(for: category.uppercased()) else { return nil }
+        return entries.map { e in
+            switch e.kind {
+            case .plain: return "DOMAIN-KEYWORD," + e.value
+            case .regex: return "DOMAIN-REGEX," + e.value
+            case .rootDomain: return "DOMAIN-SUFFIX," + e.value
+            case .full: return "DOMAIN," + e.value
+            }
+        }
+    }
+
     private func regex(for pattern: String) -> NSRegularExpression? {
         lock.lock(); defer { lock.unlock() }
         if let re = regexCache[pattern] { return re }
