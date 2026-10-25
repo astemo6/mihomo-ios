@@ -1,5 +1,4 @@
 import SwiftUI
-import Libmihomo
 
 // MARK: - Model
 
@@ -57,18 +56,6 @@ struct DebugHTTPPayload: Codable, Hashable {
     var bodyBase64: Bool?
 }
 
-private struct DebugInputPayload: Encodable {
-    var code: String
-    var path: String?
-    var name: String?
-    var type: String
-    var argument: String?
-    var timeout: Int
-    var binary: Bool
-    var request: DebugHTTPPayload?
-    var response: DebugHTTPPayload?
-}
-
 struct DebugOutput: Decodable {
     struct Log: Decodable, Hashable { var t: Int64; var level: String; var msg: String }
     var ok: Bool
@@ -84,25 +71,20 @@ struct DebugOutput: Decodable {
 }
 
 enum ScriptDebugger {
-    /// Runs in the app process through the Go bridge (no tunnel needed).
+    /// Runs in the app process (no tunnel needed): NCScriptDebug on the tunnel's JavaScriptCore engine + prelude.
     static func run(code: String, path: String?, name: String, sample s: ScriptDebugSample) async -> DebugOutput? {
-        var input = DebugInputPayload(code: code, path: path, name: name, type: s.type,
-                                      argument: s.useArgument ? s.argument : nil, timeout: s.timeout, binary: s.binary)
+        var input = NCScriptDebug.Input(code: code, path: path, name: name, type: s.type,
+                                        argument: s.useArgument ? s.argument : nil, timeout: s.timeout, binary: s.binary)
         if s.type == "http-request" || s.type == "http-response" {
-            input.request = DebugHTTPPayload(url: s.url, method: s.method, headers: ScriptDebugSample.headers(s.requestHeaders), body: s.requestBody)
+            input.request = NCScriptDebug.HTTP(url: s.url, method: s.method, headers: ScriptDebugSample.headers(s.requestHeaders), body: s.requestBody)
         }
         if s.type == "http-response" {
-            input.response = DebugHTTPPayload(status: Int(s.status) ?? 200, headers: ScriptDebugSample.headers(s.responseHeaders), body: s.responseBody)
+            input.response = NCScriptDebug.HTTP(status: Int(s.status) ?? 200, headers: ScriptDebugSample.headers(s.responseHeaders), body: s.responseBody)
         }
-        guard let data = try? JSONEncoder().encode(input), let json = String(data: data, encoding: .utf8) else { return nil }
         let home = AppShared.homeURL.path
-        // Same engine as the tunnel (feat/jsc-engine), so a script behaves here as it does on live traffic.
-        let out = await BlockingWork.run { () -> String in
-            JSCScriptEngine.register()
-            return LibmihomoScriptDebugRun(home, json)
-        }
-        guard let d = out.data(using: .utf8) else { return nil }
-        return try? JSONDecoder().decode(DebugOutput.self, from: d)
+        let inp = input
+        // Same engine and prelude as the tunnel, so a script behaves here as it does on live traffic.
+        return await BlockingWork.run { NCScriptDebug.run(home: home, input: inp) }
     }
 }
 
