@@ -43,6 +43,7 @@ final class NativeCoreEngine {
     private var nodeSubStore: NCNodeSubscriptionStore?
     private var nodeSubs: [NCNodeSubscription] = []
     private var canonicalGroupMap: [String: NCGroupModel] = [:]
+    private var healthCheck: NCHealthCheckScheduler?
     private var home = ""
 
     private var fakeIPFile: URL {
@@ -176,6 +177,10 @@ final class NativeCoreEngine {
             asnDB = NCMMDB(data: data)
         }
         isRunning = true
+        healthCheck?.stop()
+        let hc = NCHealthCheckScheduler(engine: self)
+        hc.start()
+        healthCheck = hc
         Self.active = self
         return nil
     }
@@ -190,9 +195,12 @@ final class NativeCoreEngine {
         let merged = mergedConfig(base: cfg)
         let engine = NCGroupEngine(config: merged)
         if let old = groups {
-            engine.selections = old.selections
-            engine.delays = old.delays
-            engine.alive = old.alive
+            // Snapshot under the old engine's lock: the health-check scheduler
+            // may be writing delays/alive from its own queue right now.
+            let snap = old.statusSnapshot()
+            engine.selections = snap.selections
+            engine.delays = snap.delays
+            engine.alive = snap.alive
         } else if let data = try? Data(contentsOf: selectionsFile),
                   let saved = try? JSONDecoder().decode([String: String].self, from: data) {
             // Selections survive a reconnect (mihomo keeps them in cache.db, store-selected).
@@ -208,7 +216,11 @@ final class NativeCoreEngine {
         engine.ssidProvider = {
             UserDefaults(suiteName: AppShared.appGroup)?.string(forKey: "nativeCoreSSID")
         }
+        engine.onGroupTouched = { [weak self] groupName in
+            self?.healthCheck?.notifyTouch(group: groupName)
+        }
         groups = engine
+        healthCheck?.updateConfig()
     }
 
     private func mergedConfig(base cfg: NCConfig) -> NCConfig {
@@ -264,6 +276,8 @@ final class NativeCoreEngine {
 
     func stop() {
         stateLock.lock(); defer { stateLock.unlock() }
+        healthCheck?.stop()
+        healthCheck = nil
         persistFakeIP()
         isRunning = false
         _config = nil
@@ -294,6 +308,11 @@ final class NativeCoreEngine {
         return body(cfg, g)
     }
 
+    /// The live group engine for the health-check scheduler / delay tester (nc-healthcheck, astemo6). Since that
+    /// change NCGroupEngine guards its own delays / alive / selections with its own lock (snapshot reads), so handing
+    /// the reference out is safe; lock order is always engine → group engine.
+    var groupEngine: NCGroupEngine? { locked { groups } }
+
     /// Resolves a policy / proxy / group name (controller delay tests) under the lock.
     func resolve(policyName: String) -> NCGroupEngine.Resolution? {
         locked { groups?.resolve(policyName) }
@@ -318,20 +337,20 @@ final class NativeCoreEngine {
 
     func setSelection(group: String, member: String?) {
         stateLock.lock(); defer { stateLock.unlock() }
-        if let member {
-            groups?.selections[group] = member
-        } else {
-            groups?.selections.removeValue(forKey: group)
-        }
-        if let sel = groups?.selections, let data = try? JSONEncoder().encode(sel) {
+        guard let sel = groups?.setSelection(group: group, member: member) else { return }
+        if let data = try? JSONEncoder().encode(sel) {
             try? data.write(to: selectionsFile, options: .atomic)
         }
     }
 
     func recordDelay(name: String, ms: Int) {
         stateLock.lock(); defer { stateLock.unlock() }
-        groups?.delays[name] = ms
-        groups?.alive[name] = ms > 0
+        groups?.recordDelay(name: name, ms: ms)
+    }
+
+    func recordFailure(name: String) {
+        stateLock.lock(); defer { stateLock.unlock() }
+        groups?.recordFailure(name: name)
     }
 
     /// Policy name for a connection, following the config mode:
