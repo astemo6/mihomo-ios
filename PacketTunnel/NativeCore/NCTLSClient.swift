@@ -63,6 +63,19 @@ final class NCTLSClientStream: NCRelayStream {
     private var splicePending: ((Data?, Error?) -> Void)?
     private var spliceOverflow: [Data] = []
 
+    /// ALPN the server selected (EncryptedExtensions in 1.3, ServerHello in 1.2); nil when it sent none.
+    /// Valid once the handshake completion fired (feat/nc-proto2, based on astemo6/Muse NativeCore).
+    private(set) var negotiatedALPN: String?
+
+    /// application_layer_protocol_negotiation extension body: u16 list length, u8 name length, name.
+    fileprivate static func parseALPN(_ ext: ArraySlice<UInt8>) -> String? {
+        let e = Array(ext)
+        guard e.count >= 3 else { return nil }
+        let n = Int(e[2])
+        guard n > 0, 3 + n <= e.count else { return nil }
+        return String(bytes: e[3..<(3 + n)], encoding: .utf8)
+    }
+
     init(raw: NCRelayStream, config: Config, queue: DispatchQueue) {
         self.raw = raw
         self.config = config
@@ -238,6 +251,7 @@ final class NCTLSClientStream: NCRelayStream {
             handleServerHello(message)
         case 8: // EncryptedExtensions
             transcript.append(message)
+            parseEncryptedExtensions(message)
         case 11: // Certificate
             transcript.append(message)
             parseCertificates(message)
@@ -254,6 +268,21 @@ final class NCTLSClientStream: NCRelayStream {
         default:
             if handshakeDone { return }
             transcript.append(message)
+        }
+    }
+
+    /// EncryptedExtensions: u16 length, then type/len/body entries; we only read ALPN (16).
+    private func parseEncryptedExtensions(_ message: Data) {
+        let b = [UInt8](message)
+        guard b.count >= 6 else { return }
+        var idx = 6
+        let end = min(b.count, 6 + (Int(b[4]) << 8 | Int(b[5])))
+        while idx + 4 <= end {
+            let t = UInt16(b[idx]) << 8 | UInt16(b[idx + 1])
+            let n = Int(b[idx + 2]) << 8 | Int(b[idx + 3])
+            guard idx + 4 + n <= end else { break }
+            if t == 16 { negotiatedALPN = Self.parseALPN(b[(idx + 4)..<(idx + 4 + n)]) }
+            idx += 4 + n
         }
     }
 
@@ -628,6 +657,7 @@ extension NCTLSClientStream {
                 let t = UInt16(b[idx]) << 8 | UInt16(b[idx + 1])
                 let n = Int(b[idx + 2]) << 8 | Int(b[idx + 3])
                 if t == 23 { tls12EMS = true }
+                if t == 16, idx + 4 + n <= end { negotiatedALPN = Self.parseALPN(b[(idx + 4)..<(idx + 4 + n)]) }
                 if t == 43 { fail(TLSError.handshake("TLS 1.2 suite with supported_versions")); return }
                 idx += 4 + n
             }
