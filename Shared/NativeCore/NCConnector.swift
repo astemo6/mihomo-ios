@@ -702,6 +702,13 @@ enum NCConnector {
                 return
             }
             tuicStream(proxy: proxy, target: target, queue: queue, completion: completion)
+        case "juicity":
+            // Juicity TCP over Network.framework QUIC (uni-stream auth + TLS exporter).
+            if transport != nil {
+                queue.async { completion(nil, Failure.unsupported("juicity over a chain transport")) }
+                return
+            }
+            juicityStream(proxy: proxy, target: target, queue: queue, completion: completion)
         default:
             queue.async { completion(nil, Failure.unsupported(proxy.type)) }
         }
@@ -1027,7 +1034,7 @@ enum NCConnector {
         anytlsLock.lock(); let anytls = anytlsRegistry.count; anytlsLock.unlock()
         hy2Lock.lock(); let hy2 = hy2Registry.count; hy2Lock.unlock()
         return ["mux": mux, "anytls": anytls, "hy2": hy2,
-                "hy1": hy1SessionCount, "tuic": tuicSessionCount, "ssh": sshSessionCount]
+                "hy1": hy1SessionCount, "tuic": tuicSessionCount, "juicity": juicitySessionCount, "ssh": sshSessionCount]
     }
 
     /// Tunnel stop: drain every shared-session registry and close what it
@@ -1054,6 +1061,7 @@ enum NCConnector {
         for c in hy2 { c.close() }
         let closed = ["mux": mux.count, "anytls": anytls.count, "hy2": hy2.count,
                       "hy1": closeAllHy1Sessions(), "tuic": closeAllTUICSessions(),
+                      "juicity": closeAllJuicitySessions(),
                       "ssh": closeAllSSHSessions()]
         clearSharedSSRState()
         return closed
