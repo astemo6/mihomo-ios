@@ -21,7 +21,7 @@ enum GroupRename {
         }
         guard !inFile else { return nil }
         let path = p.fileURL.path, home = AppShared.homeURL.path
-        let err = await Task.detached(priority: .userInitiated) { LibmihomoProfileRenameRefs(home, path, old, new) }.value
+        let err = await Task.detached(priority: .userInitiated) { NCProfileNodes.renameRefs(homeDir: home, path: path, oldName: old, newName: new) }.value
         return err.isEmpty ? nil : err
     }
 }
