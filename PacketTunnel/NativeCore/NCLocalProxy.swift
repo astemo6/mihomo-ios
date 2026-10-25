@@ -12,14 +12,24 @@ import Network
 /// SOCKS (the ClientHello is sniffed for ALPN first, as NCDataPlane does). Connections show in the controller's
 /// /connections (ids "lp<N>") and count in the traffic totals.
 ///
-/// Not done yet: LAN sharing (allow-lan / lanAuth / lanUsers — the listener is loopback-only, so the 局域网共享
-/// switch has no effect on NativeCore), SOCKS5 UDP, SOCKS4, HTTP proxy authentication, keep-alive across requests of a
-/// plain-HTTP proxy connection.
+/// feat/nc-lan-share (需同步 feat/nc-kernel): 局域网共享. The listener follows NCLanShare (mihomo allow-lan /
+/// bind-address / authentication / skip-auth-prefixes / lan-allowed-ips / lan-disallowed-ips, from the runtime config
+/// the app builds out of 更多 → 连接方式 → 局域网共享): allow-lan off → loopback only (as before); on → every interface
+/// (bind-address "*") or the one address given. Clients outside lan-allowed-ips are dropped at accept; with
+/// `authentication` set, a client outside skip-auth-prefixes (the app always skips 127.0.0.0/8 and ::1, so the
+/// device's own system proxy never prompts) must send `Proxy-Authorization: Basic …` (else 407) or use SOCKS5
+/// username/password (RFC 1929; a client offering only no-auth gets 0xFF). `reconfigure` re-applies a reloaded
+/// config: same port + bind → only the policy changes (open connections stay); otherwise the listener is re-bound.
+///
+/// Not done yet: SOCKS5 UDP, SOCKS4, keep-alive across requests of a plain-HTTP proxy connection.
 final class NCLocalProxy {
     static let idPrefix = "lp"
     static func ownsConnectionID(_ id: String) -> Bool { id.hasPrefix(idPrefix) }
 
-    let port: UInt16
+    /// Owned by `queue` once started (reconfigure may re-bind it).
+    private(set) var port: UInt16
+    private var lan: NCLanShare
+    private var bind: NCLanShare.Bind
     private let engine: NativeCoreEngine
     private let stats: NCDataPlaneStats
     let queue = DispatchQueue(label: "nc.localproxy", qos: .userInitiated)
@@ -36,10 +46,22 @@ final class NCLocalProxy {
         return f
     }()
 
-    init(engine: NativeCoreEngine, port: Int, stats: NCDataPlaneStats) {
+    init(engine: NativeCoreEngine, port: Int, stats: NCDataPlaneStats, lan: NCLanShare? = nil) {
         self.engine = engine
         self.port = UInt16(clamping: port)
         self.stats = stats
+        let l = lan ?? NCLanShare(skipAuth: NCLanShare.loopbackPrefixes.compactMap { NCCIDR($0) })
+        self.lan = l
+        bind = l.bind
+    }
+
+    /// "127.0.0.1:7890" / "0.0.0.0:7890" / "192.168.1.2:7890" for logs.
+    static func describe(_ bind: NCLanShare.Bind, _ port: UInt16) -> String {
+        switch bind {
+        case .loopback: return "127.0.0.1:\(port)"
+        case .any: return "0.0.0.0:\(port)"
+        case .address(let a): return a.contains(":") ? "[\(a)]:\(port)" : "\(a):\(port)"
+        }
     }
 
     final class Conn {
@@ -57,28 +79,89 @@ final class NCLocalProxy {
         var down: Int64 = 0
         let start = Date()
         var sourcePort = ""
+        var sourceIP = "127.0.0.1"
+        var needsAuth = false
         init(id: Int, client: NWConnection) { self.id = id; self.client = client }
     }
 
     // MARK: lifecycle
 
-    /// Starts listening on the loopback interface; waits up to `timeout` for the listener. nil = listening, else the
-    /// reason (port in use, …).
+    /// Starts listening (loopback, or the LAN bind NCLanShare asks for); waits up to `timeout` for the listener.
+    /// nil = listening, else the reason (port in use, …).
     func start(timeout: TimeInterval = 3) -> String? {
-        guard port > 0, let nwPort = NWEndpoint.Port(rawValue: port) else { return "端口无效（\(port)）" }
+        let (p, b) = queue.sync { (port, bind) }
+        let made = Self.makeListener(port: p, bind: b, queue: queue, timeout: timeout) { [weak self] nw in self?.accept(nw) }
+        guard let listener = made.listener else { return made.error }
+        let t = DispatchSource.makeTimerSource(queue: queue)
+        t.schedule(deadline: .now() + 1, repeating: 1)
+        t.setEventHandler { [weak self] in self?.refreshStats() }
+        t.resume()
+        queue.sync {
+            self.listener = listener
+            timer = t
+        }
+        return nil
+    }
+
+    /// Applies a reloaded LAN policy / port. Same port and bind: the policy is swapped in place (new connections use
+    /// it; open ones stay). Otherwise the listener is re-bound; if the new one cannot listen the previous one is
+    /// restored and the reason returned.
+    func reconfigure(port newPort: Int, lan newLan: NCLanShare, timeout: TimeInterval = 3) -> String? {
+        let p = UInt16(clamping: newPort)
+        let newBind = newLan.bind
+        let (oldPort, oldBind) = queue.sync { (port, bind) }
+        if p == oldPort && newBind == oldBind {
+            queue.sync { lan = newLan }
+            return nil
+        }
+        queue.sync {
+            listener?.newConnectionHandler = nil
+            listener?.cancel()
+            listener = nil
+        }
+        let accept: (NWConnection) -> Void = { [weak self] nw in self?.accept(nw) }
+        let made = Self.makeListener(port: p, bind: newBind, queue: queue, timeout: timeout, onConnection: accept)
+        if let l = made.listener {
+            queue.sync {
+                listener = l
+                port = p
+                bind = newBind
+                lan = newLan
+            }
+            return nil
+        }
+        let back = Self.makeListener(port: oldPort, bind: oldBind, queue: queue, timeout: timeout, onConnection: accept)
+        queue.sync { listener = back.listener }
+        if back.listener == nil { StartupLog.write("local proxy: could not restore \(Self.describe(oldBind, oldPort)): \(back.error ?? "?")") }
+        return made.error
+    }
+
+    /// One NWListener for `bind`:`port`, started on `queue`; waits until it is ready or failed.
+    private static func makeListener(port: UInt16, bind: NCLanShare.Bind, queue: DispatchQueue, timeout: TimeInterval,
+                                     onConnection: @escaping (NWConnection) -> Void) -> (listener: NWListener?, error: String?) {
+        guard port > 0, let nwPort = NWEndpoint.Port(rawValue: port) else { return (nil, "端口无效（\(port)）") }
         let params = NWParameters.tcp
-        params.requiredInterfaceType = .loopback
         params.allowLocalEndpointReuse = true
         let listener: NWListener
         do {
-            listener = try NWListener(using: params, on: nwPort)
+            switch bind {
+            case .loopback:
+                params.requiredInterfaceType = .loopback
+                listener = try NWListener(using: params, on: nwPort)
+            case .any:
+                // Every interface (Wi-Fi, 个人热点 bridge, …), IPv4 + IPv6.
+                listener = try NWListener(using: params, on: nwPort)
+            case .address(let a):
+                params.requiredLocalEndpoint = .hostPort(host: NWEndpoint.Host(a), port: nwPort)
+                listener = try NWListener(using: params)
+            }
         } catch {
-            return error.localizedDescription
+            return (nil, error.localizedDescription)
         }
         let sem = DispatchSemaphore(value: 0)
         let lock = NSLock()
         var result: String?? // nil = no answer yet
-        listener.stateUpdateHandler = { [weak self] state in
+        listener.stateUpdateHandler = { state in
             var answer: String??
             switch state {
             case .ready: answer = .some(nil)
@@ -93,9 +176,8 @@ final class NCLocalProxy {
             lock.unlock()
             if first { sem.signal() }
             else if case .failed(let e) = state { StartupLog.write("local proxy: listener failed: \(e.localizedDescription)") }
-            _ = self
         }
-        listener.newConnectionHandler = { [weak self] nw in self?.accept(nw) }
+        listener.newConnectionHandler = onConnection
         listener.start(queue: queue)
         _ = sem.wait(timeout: .now() + timeout)
         lock.lock()
@@ -103,21 +185,13 @@ final class NCLocalProxy {
         lock.unlock()
         switch outcome {
         case .some(.none):
-            let t = DispatchSource.makeTimerSource(queue: queue)
-            t.schedule(deadline: .now() + 1, repeating: 1)
-            t.setEventHandler { [weak self] in self?.refreshStats() }
-            t.resume()
-            queue.sync {
-                self.listener = listener
-                timer = t
-            }
-            return nil
+            return (listener, nil)
         case .some(.some(let why)):
             listener.cancel()
-            return why
+            return (nil, why)
         case .none:
             listener.cancel()
-            return "监听超时"
+            return (nil, "监听超时")
         }
     }
 
@@ -157,9 +231,27 @@ final class NCLocalProxy {
             nw.cancel()
             return
         }
+        var source: NCIP?
+        var sourceText = ""
+        if case .hostPort(let h, _) = nw.endpoint {
+            switch h {
+            case .ipv4(let a): sourceText = "\(a)"
+            case .ipv6(let a): sourceText = "\(a)"
+            case .name(let n, _): sourceText = n
+            @unknown default: break
+            }
+            source = NCLanShare.sourceIP(sourceText)
+        }
+        // 局域网共享: lan-allowed-ips / lan-disallowed-ips (loopback always in).
+        guard lan.admits(source) else {
+            nw.cancel()
+            return
+        }
         let c = Conn(id: nextID, client: nw)
         nextID &+= 1
         if case .hostPort(_, let p) = nw.endpoint { c.sourcePort = String(p.rawValue) }
+        if let source { c.sourceIP = source.string } else if !sourceText.isEmpty { c.sourceIP = sourceText }
+        c.needsAuth = lan.needsAuth(source)
         conns[c.id] = c
         nw.stateUpdateHandler = { [weak self, weak c] state in
             guard let self, let c else { return }
@@ -205,7 +297,7 @@ final class NCLocalProxy {
 
     // MARK: SOCKS5
 
-    private enum SocksStage { case greeting, request }
+    private enum SocksStage { case greeting, auth, request }
     private var socksStage: [Int: SocksStage] = [:]
 
     private func socks(_ c: Conn) {
@@ -217,13 +309,35 @@ final class NCLocalProxy {
             guard b.count >= 2 + n else { return readHead(c) }
             let methods = b[2..<(2 + n)]
             c.buf = Data(b[(2 + n)...])
-            guard methods.contains(0x00) else {
-                c.client.send(content: Data([0x05, 0xff]), completion: .contentProcessed { [weak self] _ in self?.close(c) })
+            // 局域网共享 authentication: username/password (0x02) is the only method accepted then.
+            let method: UInt8 = c.needsAuth ? 0x02 : 0x00
+            guard methods.contains(method) else {
+                c.client.send(content: Data([0x05, 0xff]), completion: .contentProcessed { [weak self] _ in
+                    self?.queue.async { self?.close(c) }
+                })
                 return
             }
-            c.client.send(content: Data([0x05, 0x00]), completion: .idempotent)
-            socksStage[c.id] = .request
+            c.client.send(content: Data([0x05, method]), completion: .idempotent)
+            socksStage[c.id] = c.needsAuth ? .auth : .request
             if c.buf.isEmpty { readHead(c) } else { socks(c) }
+        case .auth:
+            switch NCLanShare.parseSocksUserPass(b) {
+            case .needMore:
+                return readHead(c)
+            case .invalid:
+                return close(c)
+            case .ok(let consumed, let user, let password):
+                c.buf = Data(b[consumed...])
+                guard lan.verify(user: user, password: password) else {
+                    c.client.send(content: Data([0x01, 0x01]), completion: .contentProcessed { [weak self] _ in
+                        self?.queue.async { self?.close(c) }
+                    })
+                    return
+                }
+                c.client.send(content: Data([0x01, 0x00]), completion: .idempotent)
+                socksStage[c.id] = .request
+                if c.buf.isEmpty { readHead(c) } else { socks(c) }
+            }
         case .request:
             guard b.count >= 5 else { return readHead(c) }
             guard b[0] == 0x05 else { return close(c) }
@@ -277,6 +391,10 @@ final class NCLocalProxy {
         let parts = lines.removeFirst().split(separator: " ", omittingEmptySubsequences: true).map(String.init)
         guard parts.count == 3 else { return httpError(c, 400, "Bad Request") }
         let (method, uri, version) = (parts[0], parts[1], parts[2])
+        // 局域网共享 authentication (Proxy-Authorization: Basic); mihomo answers 407 + Proxy-Authenticate.
+        if c.needsAuth && !lan.verifyHTTP(headerLines: lines) {
+            return httpError(c, 407, "Proxy Authentication Required", extra: "Proxy-Authenticate: Basic realm=\"Tern\"\r\n")
+        }
         if method.uppercased() == "CONNECT" {
             c.kind = "HTTPS"
             guard let hp = Self.splitAuthority(uri, defaultPort: 443) else { return httpError(c, 400, "Bad Request") }
@@ -316,9 +434,9 @@ final class NCLocalProxy {
         }
     }
 
-    private func httpError(_ c: Conn, _ code: Int, _ text: String) {
+    private func httpError(_ c: Conn, _ code: Int, _ text: String, extra: String = "") {
         let body = "\(code) \(text)\n"
-        let resp = "HTTP/1.1 \(code) \(text)\r\nContent-Type: text/plain\r\nContent-Length: \(body.utf8.count)\r\nConnection: close\r\n\r\n\(body)"
+        let resp = "HTTP/1.1 \(code) \(text)\r\n\(extra)Content-Type: text/plain\r\nContent-Length: \(body.utf8.count)\r\nConnection: close\r\n\r\n\(body)"
         c.client.send(content: Data(resp.utf8), completion: .contentProcessed { [weak self] _ in
             self?.queue.async { self?.close(c) }
         })
@@ -535,7 +653,7 @@ final class NCLocalProxy {
                 "metadata": [
                     "network": "tcp",
                     "type": c.kind,
-                    "sourceIP": "127.0.0.1",
+                    "sourceIP": c.sourceIP,
                     "sourcePort": c.sourcePort,
                     "destinationIP": c.target.ip != nil ? c.target.host : "",
                     "destinationPort": String(c.target.port),

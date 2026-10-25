@@ -167,7 +167,10 @@ final class PacketTunnelProvider: NEPacketTunnelProvider {
         // feat/nc-modes (gap D1): 仅代理 = NEProxySettings → NCLocalProxy on 127.0.0.1:mixedPort (no routes, no DNS; the
         // data plane idles); VPN 混合 = TUN + the same system proxy and listener.
         let proxyOnly = overrides.isProxyOnly
-        let mixedPort = (proxyOnly || overrides.isMixed) ? overrides.mixedPort : 0
+        // feat/nc-lan-share: 局域网共享 (allow-lan) also opens the mixed port, in TUN mode too — on every interface
+        // per the runtime config (NativeTunnelCore.localProxySetup); without it the port stays on 127.0.0.1.
+        let mixedPort = overrides.mixedPort
+        let localProxyNeeded = proxyOnly || overrides.isMixed
         // 接管所有网络流量: with includeAllNetworks iOS scopes this extension's own unbound sockets into the tunnel
         // too, so the core's proxy / DIRECT / DNS sockets must be bound to the physical interface (Go side,
         // physiface.go). The VPN configuration's value is the one iOS enforces (overrides.json is logged next to it).
@@ -200,7 +203,8 @@ final class PacketTunnelProvider: NEPacketTunnelProvider {
                 do {
                     try self.core.start(home: AppShared.homeURL.path, flow: self.packetFlow, mtu: overrides.tunMTU,
                                         controllerPort: overrides.controllerPort, secret: overrides.secret,
-                                        mixedPort: mixedPort, requireMixedPort: proxyOnly)
+                                        mixedPort: mixedPort, localProxyNeeded: localProxyNeeded,
+                                        requireMixedPort: proxyOnly, lanFallback: NCLanShare.from(overrides: overrides))
                 } catch {
                     completionHandler(error)
                     return
