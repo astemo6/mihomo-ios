@@ -412,7 +412,7 @@ public struct NCTailscalePeerChange: Codable, Equatable {
     }
 }
 
-public struct NCTailscaleDERPNode: Codable, Equatable {
+public struct NCTailscaleDERPNode: Codable, Equatable, Sendable {
     public var Name: String
     public var RegionID: Int
     public var HostName: String
@@ -423,6 +423,19 @@ public struct NCTailscaleDERPNode: Codable, Equatable {
     public var STUNOnly: Bool?
     public var DERPPort: Int?
     public var InsecureForTests: Bool?
+
+    enum CodingKeys: String, CodingKey {
+        case Name
+        case RegionID
+        case HostName
+        case CertName
+        case IPv4
+        case IPv6
+        case STUNPort
+        case STUNOnly
+        case DERPPort
+        case InsecureForTests
+    }
 
     public init(
         Name: String,
@@ -447,20 +460,95 @@ public struct NCTailscaleDERPNode: Codable, Equatable {
         self.DERPPort = DERPPort
         self.InsecureForTests = InsecureForTests
     }
+
+    public init(
+        name: String,
+        regionID: Int,
+        hostName: String,
+        ipv4: String? = nil,
+        ipv6: String? = nil,
+        stunPort: Int? = nil,
+        stunOnly: Bool? = nil,
+        derpPort: Int? = nil,
+        certName: String? = nil,
+        insecureForTests: Bool? = nil
+    ) {
+        self.Name = name
+        self.RegionID = regionID
+        self.HostName = hostName
+        self.CertName = certName
+        self.IPv4 = ipv4
+        self.IPv6 = ipv6
+        self.STUNPort = stunPort
+        self.STUNOnly = stunOnly
+        self.DERPPort = derpPort
+        self.InsecureForTests = insecureForTests
+    }
+
+    // Lowercase property accessors for DERP client compatibility
+    public var name: String { Name }
+    public var regionID: Int { RegionID }
+    public var hostName: String { HostName }
+    public var certName: String? { CertName }
+    public var ipv4: String? { IPv4 }
+    public var ipv6: String? { IPv6 }
+    public var stunPort: Int? { STUNPort }
+    public var stunOnly: Bool? { STUNOnly }
+    public var derpPort: Int? { DERPPort }
+    public var insecureForTests: Bool? { InsecureForTests }
+
+    /// Effective TCP/TLS port for connecting to this DERP node (default 443).
+    public var effectiveDERPPort: Int {
+        if let p = DERPPort, p > 0 { return p }
+        return 443
+    }
+
+    /// Effective STUN UDP port (default 3478).
+    public var effectiveSTUNPort: Int {
+        if let p = STUNPort, p > 0 { return p }
+        return 3478
+    }
+
+    /// Server name used for TLS ClientHello SNI and certificate validation.
+    /// Prefers `CertName` if set, otherwise falls back to `HostName`.
+    public var effectiveServerName: String {
+        if let cert = CertName, !cert.isEmpty { return cert }
+        return HostName
+    }
+
+    /// Destination host used when establishing TCP connection (prefers IPv4 if available).
+    public var dialHost: String {
+        if let v4 = IPv4, !v4.isEmpty { return v4 }
+        return HostName
+    }
+
+    /// Whether this node can be used as a DERP packet relay (not STUN-only).
+    public var isRelayUsable: Bool {
+        !(STUNOnly ?? false)
+    }
 }
 
-public struct NCTailscaleDERPRegion: Codable, Equatable {
+public struct NCTailscaleDERPRegion: Codable, Equatable, Sendable {
     public var RegionID: Int
     public var RegionCode: String
-    public var RegionName: String
+    public var RegionName: String?
     public var Avoid: Bool?
     public var NoMeasureNoHome: Bool?
     public var Nodes: [NCTailscaleDERPNode]?
 
+    enum CodingKeys: String, CodingKey {
+        case RegionID
+        case RegionCode
+        case RegionName
+        case Avoid
+        case NoMeasureNoHome
+        case Nodes
+    }
+
     public init(
         RegionID: Int,
         RegionCode: String,
-        RegionName: String,
+        RegionName: String? = nil,
         Avoid: Bool? = nil,
         NoMeasureNoHome: Bool? = nil,
         Nodes: [NCTailscaleDERPNode]? = nil
@@ -472,16 +560,45 @@ public struct NCTailscaleDERPRegion: Codable, Equatable {
         self.NoMeasureNoHome = NoMeasureNoHome
         self.Nodes = Nodes
     }
+
+    public init(
+        regionID: Int,
+        regionCode: String,
+        regionName: String? = nil,
+        avoid: Bool? = nil,
+        nodes: [NCTailscaleDERPNode] = []
+    ) {
+        self.RegionID = regionID
+        self.RegionCode = regionCode
+        self.RegionName = regionName
+        self.Avoid = avoid
+        self.NoMeasureNoHome = nil
+        self.Nodes = nodes
+    }
+
+    // Lowercase property accessors for DERP client compatibility
+    public var regionID: Int { RegionID }
+    public var regionCode: String { RegionCode }
+    public var regionName: String? { RegionName }
+    public var avoid: Bool? { Avoid }
+    public var noMeasureNoHome: Bool? { NoMeasureNoHome }
+    public var nodes: [NCTailscaleDERPNode] { Nodes ?? [] }
+
+    /// All nodes in this region capable of DERP packet relaying.
+    public var usableNodes: [NCTailscaleDERPNode] {
+        nodes.filter { $0.isRelayUsable }
+    }
 }
 
-public struct NCTailscaleDERPMap: Codable, Equatable {
+public struct NCTailscaleDERPMap: Codable, Equatable, Sendable {
     /// Regions indexed by integer RegionID.
     public var Regions: [Int: NCTailscaleDERPRegion]
     public var OmitDefaultRegions: Bool?
 
     enum CodingKeys: String, CodingKey {
         case Regions
-        case OmitDefaultRegions = "omitDefaultRegions"
+        case OmitDefaultRegions
+        case omitDefaultRegions = "omitDefaultRegions"
     }
 
     public init(Regions: [Int: NCTailscaleDERPRegion] = [:], OmitDefaultRegions: Bool? = nil) {
@@ -489,9 +606,15 @@ public struct NCTailscaleDERPMap: Codable, Equatable {
         self.OmitDefaultRegions = OmitDefaultRegions
     }
 
+    public init(regions: [Int: NCTailscaleDERPRegion] = [:], omitDefaultRegions: Bool? = nil) {
+        self.Regions = regions
+        self.OmitDefaultRegions = omitDefaultRegions
+    }
+
     public init(from decoder: Decoder) throws {
         let container = try decoder.container(keyedBy: CodingKeys.self)
-        self.OmitDefaultRegions = try container.decodeIfPresent(Bool.self, forKey: .OmitDefaultRegions)
+        self.OmitDefaultRegions = (try? container.decodeIfPresent(Bool.self, forKey: .OmitDefaultRegions))
+            ?? (try? container.decodeIfPresent(Bool.self, forKey: .omitDefaultRegions))
 
         if let stringKeyedRegions = try? container.decode([String: NCTailscaleDERPRegion].self, forKey: .Regions) {
             var map: [Int: NCTailscaleDERPRegion] = [:]
@@ -517,6 +640,107 @@ public struct NCTailscaleDERPMap: Codable, Equatable {
             stringKeyed[String(k)] = v
         }
         try container.encode(stringKeyed, forKey: .Regions)
+    }
+
+    // Lowercase property accessors for DERP client compatibility
+    public var regions: [Int: NCTailscaleDERPRegion] { Regions }
+    public var omitDefaultRegions: Bool? { OmitDefaultRegions }
+
+    /// Looks up a region by its unique RegionID.
+    public func region(id: Int) -> NCTailscaleDERPRegion? {
+        Regions[id]
+    }
+
+    /// List of regions sorted in ascending order of RegionID.
+    public var sortedRegions: [NCTailscaleDERPRegion] {
+        Regions.values.sorted { $0.RegionID < $1.RegionID }
+    }
+
+    /// The first available region suitable for default home selection.
+    /// Prefers non-avoid regions with at least one usable relay node.
+    public var firstAvailableRegion: NCTailscaleDERPRegion? {
+        let sorted = sortedRegions
+        if let nonAvoid = sorted.first(where: { !($0.Avoid ?? false) && !$0.usableNodes.isEmpty }) {
+            return nonAvoid
+        }
+        return sorted.first(where: { !$0.usableNodes.isEmpty })
+    }
+
+    // MARK: - Debug Self-Test Verification
+
+    /// Verifies JSON round-trip decoding against official tailcfg DERPMap format.
+    @discardableResult
+    public static func selfTest() -> Bool {
+        let json = """
+        {
+          "Regions": {
+            "1": {
+              "RegionID": 1,
+              "RegionCode": "nyc",
+              "RegionName": "New York City",
+              "Nodes": [
+                {
+                  "Name": "1a",
+                  "RegionID": 1,
+                  "HostName": "derp1a.tailscale.com",
+                  "CertName": "derp1a.tailscale.com",
+                  "IPv4": "198.51.100.1",
+                  "DERPPort": 443,
+                  "STUNPort": 3478
+                }
+              ]
+            },
+            "2": {
+              "RegionID": 2,
+              "RegionCode": "lon",
+              "RegionName": "London",
+              "Avoid": true,
+              "Nodes": [
+                {
+                  "Name": "2a",
+                  "RegionID": 2,
+                  "HostName": "derp2a.tailscale.com",
+                  "STUNOnly": true
+                }
+              ]
+            }
+          },
+          "OmitDefaultRegions": false
+        }
+        """
+
+        guard let data = json.data(using: .utf8),
+              let map = try? JSONDecoder().decode(NCTailscaleDERPMap.self, from: data) else {
+            return false
+        }
+
+        guard map.regions.count == 2,
+              let r1 = map.region(id: 1),
+              r1.regionCode == "nyc",
+              r1.usableNodes.count == 1,
+              r1.usableNodes[0].effectiveDERPPort == 443,
+              r1.usableNodes[0].effectiveServerName == "derp1a.tailscale.com",
+              r1.usableNodes[0].dialHost == "198.51.100.1" else {
+            return false
+        }
+
+        guard let r2 = map.region(id: 2),
+              r2.avoid == true,
+              r2.usableNodes.isEmpty else {
+            return false
+        }
+
+        guard map.firstAvailableRegion?.regionID == 1 else {
+            return false
+        }
+
+        guard let reencoded = try? JSONEncoder().encode(map),
+              let roundtrip = try? JSONDecoder().decode(NCTailscaleDERPMap.self, from: reencoded),
+              roundtrip == map else {
+            return false
+        }
+
+        return true
     }
 }
 
