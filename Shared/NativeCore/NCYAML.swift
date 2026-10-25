@@ -300,13 +300,35 @@ enum NCYAML {
                     }
                     if quote == "\"", c == "\\", let esc = s.first {
                         s = s.dropFirst()
+                        // YAML 1.2 §5.7 double-quoted escapes (rv2: the profile editor's yaml.v3-style quoting
+                        // emits \a \b \e \f \v \N \L \P \xXX \uXXXX \UXXXXXXXX for control / break chars).
                         switch esc {
                         case "n": out.append("\n")
-                        case "t": out.append("\t")
+                        case "t", "\t": out.append("\t")
                         case "r": out.append("\r")
                         case "\"": out.append("\"")
                         case "\\": out.append("\\")
+                        case "/": out.append("/")
+                        case " ": out.append(" ")
                         case "0": out.append("\0")
+                        case "a": out.append("\u{07}")
+                        case "b": out.append("\u{08}")
+                        case "e": out.append("\u{1B}")
+                        case "f": out.append("\u{0C}")
+                        case "v": out.append("\u{0B}")
+                        case "N": out.append("\u{85}")
+                        case "_": out.append("\u{A0}")
+                        case "L": out.append("\u{2028}")
+                        case "P": out.append("\u{2029}")
+                        case "x", "u", "U":
+                            let n = esc == "x" ? 2 : (esc == "u" ? 4 : 8)
+                            let hex = String(s.prefix(n))
+                            if hex.count == n, let v = UInt32(hex, radix: 16), let u = Unicode.Scalar(v) {
+                                out.unicodeScalars.append(u)
+                                s = s.dropFirst(n)
+                            } else {
+                                out.append(esc)
+                            }
                         default: out.append(esc)
                         }
                         continue

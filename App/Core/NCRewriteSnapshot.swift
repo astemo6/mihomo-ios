@@ -2447,16 +2447,22 @@ enum NCRewriteSnapshotBuilder {
     /// Aligns with bridge/mitm/exportsnap.go: ExportRewriteSnapshot(home, cfg, rs).
     /// When cfg.mitm is false, hostnames are treated as nil and hostCount returns 0; snapshot gen is 1.
     static func export(home: String, cfg: NCEngineConfig, rs: NCEngineRuleset) -> (json: String, hostCount: Int) {
+        guard let r = try? exportData(home: home, cfg: cfg, rs: rs),
+              let jsonStr = String(data: r.data, encoding: .utf8) else {
+            return ("", 0)
+        }
+        return (jsonStr, r.hostCount)
+    }
+
+    /// rv2: like `export`, but an encode failure is thrown instead of collapsing into "" (NativeRuntimePrep used
+    /// to write the empty snapshot and still report rewrite=true).
+    static func exportData(home: String, cfg: NCEngineConfig, rs: NCEngineRuleset) throws -> (data: Data, hostCount: Int) {
         let res = NCResources(home: home)
         let hostnames: [String] = cfg.mitm ? rs.hostnames : []
         let hostCount = cfg.mitm ? rs.hostnames.count : 0
         let matcher = NCHostMatcher.build(hostnames)
         let snap = buildRewriteSnapshot(home: home, cfg: cfg, rs: rs, matcher: matcher, res: res)
-        let encoder = JSONEncoder()
-        guard let data = try? encoder.encode(snap),
-              let jsonStr = String(data: data, encoding: .utf8) else {
-            return ("", 0)
-        }
-        return (jsonStr, hostCount)
+        let data = try JSONEncoder().encode(snap)
+        return (data, hostCount)
     }
 }
