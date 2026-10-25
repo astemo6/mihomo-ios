@@ -292,6 +292,30 @@ enum NCShareLink {
             if !hk.isEmpty { q.add("host-key", hk.joined(separator: "|")) }
             return "ssh://\(user)@\(hostPort(m))\(q.queryString)#\(frag(name))"
 
+        case "gost-relay":
+            // feat/nc-gost-relay: Shadowrocket-flavoured Relay link (tls=1 / peer / obfs=websocket + obfsParam /
+            // allowInsecure); NCSubscriptionParser.parseGostRelay reads it back, and gost-style relay+wss:// too.
+            let u = sStr(m, "username")
+            let pw = sStr(m, "password")
+            let user = (u.isEmpty && pw.isEmpty) ? "" : userPassword(u, pw) + "@"
+            var q = KVList()
+            if sBool(m, "tls") { q.add("tls", "1") }
+            q.add("peer", sStr(m, "sni"))
+            if sBool(m, "skip-cert-verify") { q.add("allowInsecure", "1") }
+            if sStr(m, "network").lowercased() == "ws" {
+                q.add("obfs", "websocket")
+                let o = sMap(m, "ws-opts")
+                q.add("path", sStr(o, "path"))
+                let h = sMap(o, "headers")
+                q.add("obfsParam", sStr(h, "Host").isEmpty ? sStr(h, "host") : sStr(h, "Host"))
+            }
+            if sBool(m, "mux") { q.add("mux", "1") }
+            if sBool(m, "udp") { q.add("udp", "1") }
+            if sBool(m, "forward") { q.add("forward", "1") }
+            q.add("client-fingerprint", sStr(m, "client-fingerprint"))
+            q.add("fingerprint", sStr(m, "fingerprint"))
+            return "relay://\(user)\(hostPort(m))\(q.queryString)#\(frag(name))"
+
         default:
             throw ShareLinkError.message("\(typ) 类型没有通用的分享链接格式")
         }
