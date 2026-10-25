@@ -322,6 +322,12 @@ final class NCDNSUpstreamCoordinator {
     static let shared = NCDNSUpstreamCoordinator()
     static let maxInFlight = 32
     static let maxQueueWait: TimeInterval = 6
+    /// nc-memory: cap on distinct queries waiting for a slot. Each pending entry lives at most
+    /// maxQueueWait, but a burst of distinct names could otherwise pin thousands of entries
+    /// (key + closures each) for those 6 s; past the cap a new distinct query fails as nil at
+    /// once — the failure shape callers already handle. Coalesced waiters on an existing entry
+    /// are not capped (they add one closure to an entry that already exists).
+    static let maxPendingEntries = 512
 
     private final class Entry {
         let key: String
@@ -345,6 +351,10 @@ final class NCDNSUpstreamCoordinator {
         queue.async {
             if let e = self.entries[key] {
                 e.waiters.append((id, callerQueue, completion))
+                return
+            }
+            if self.active >= Self.maxInFlight, self.pending.count >= Self.maxPendingEntries {
+                callerQueue.async { completion(nil) }
                 return
             }
             let e = Entry(key: key, execute: execute)
@@ -793,7 +803,10 @@ final class NCUDPMuxSession: NCUDPSession {
 
     func send(_ data: Data, to target: NCTarget) {
         if stream == nil {
-            pending.append((data, target))
+            // nc-memory: pre-connect queue cap, same shape as the Hy2 (64) / Mieru (32) UDP
+            // sessions — packets arriving while the session dials are dropped past the cap
+            // instead of accumulating for the whole handshake.
+            if pending.count < 64 { pending.append((data, target)) }
             return
         }
         sendNow(data, to: target)
@@ -901,7 +914,8 @@ final class NCUDPAnyTLSSession: NCUDPSession {
 
     func send(_ data: Data, to target: NCTarget) {
         if stream == nil {
-            pending.append((data, target))
+            // nc-memory: pre-connect queue cap (see NCUDPMuxSession.send).
+            if pending.count < 64 { pending.append((data, target)) }
             return
         }
         sendNow(data, to: target)

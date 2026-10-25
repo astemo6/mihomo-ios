@@ -96,7 +96,18 @@ final class NCAnyTLSSession {
         openStream(target: target, callerQueue: queue)
     }
 
+    /// nc-memory: cap on concurrently registered streams per session (see NCMuxSession.maxStreams —
+    /// each stream can hold maxQueuedInbound + maxPendingSend, so the table size is a memory bound).
+    static let maxStreams = 256
+
     private func openStreamOnQueue(target: NCTarget?, callerQueue: DispatchQueue) -> NCAnyTLSStream {
+        guard streams.count < Self.maxStreams else {
+            // Refuse without a SYN or an ID allocation: a pre-failed stream (streamID 0 is never issued,
+            // so its close is a no-op against the table) whose sends drop and receives surface the error.
+            let stream = NCAnyTLSStream(session: self, streamID: 0, target: target, callerQueue: callerQueue)
+            stream.failFromSession(message: "anytls session stream limit")
+            return stream
+        }
         let sid = nextStreamID
         nextStreamID += 1
         let stream = NCAnyTLSStream(session: self, streamID: sid, target: target, callerQueue: callerQueue)
