@@ -15,6 +15,7 @@ enum NodeProtocols {
         ("ss", "Shadowsocks"), ("ssr", "ShadowsocksR"), ("vmess", "VMess"), ("vless", "VLESS"),
         ("trojan", "Trojan"), ("hysteria2", "Hysteria2"), ("hysteria", "Hysteria"), ("tuic", "TUIC v5"),
         ("wireguard", "WireGuard"), ("snell", "Snell"), ("anytls", "AnyTLS"), ("mieru", "Mieru"),
+        ("brook", "Brook"),
         ("ssh", "SSH"), ("socks5", "SOCKS5"), ("http", "HTTP(S)"),
         // v0.13: protocols added to mihomo after v1.19.0 (all in v1.19.33).
         ("sudoku", "Sudoku"), ("masque", "MASQUE"), ("trusttunnel", "TrustTunnel"), ("shadowquic", "ShadowQUIC"),
@@ -313,6 +314,20 @@ enum NodeProtocols {
                 FieldSpec(key: "port-range", label: "端口范围", placeholder: "2090-2099"),
                 FieldSpec(key: "multiplexing", label: "多路复用", kind: .choice(["", "MULTIPLEXING_OFF", "MULTIPLEXING_LOW", "MULTIPLEXING_MIDDLE", "MULTIPLEXING_HIGH"])),
             ]
+        case "brook":
+            // feat/nc-brook: NCBrookOptions reads exactly these keys.
+            return [
+                FieldSpec(key: "password", label: "密码", kind: .secure),
+                FieldSpec(key: "transport", label: "类型", kind: .choice(["server", "wsserver", "wssserver", "quicserver"])),
+                FieldSpec(key: "host", label: "Host / SNI（ws/wss/quic）", placeholder: "留空为服务器地址"),
+                FieldSpec(key: "path", label: "路径（ws/wss）", placeholder: "/ws"),
+                FieldSpec(key: "udp-over-tcp", label: "UDP over TCP（server）", kind: .bool),
+                FieldSpec(key: "udp-over-stream", label: "UDP over Stream（quic）", kind: .bool),
+                FieldSpec(key: "without-brook-protocol", label: "不使用 Brook 协议加密", kind: .bool),
+                FieldSpec(key: "skip-cert-verify", label: "跳过证书验证", kind: .bool),
+                FieldSpec(key: "client-fingerprint", label: "TLS 指纹（wss）", kind: .choice(["", "chrome"])),
+                FieldSpec(key: "udp", label: "UDP", kind: .bool),
+            ]
         case "ssh":
             return [
                 FieldSpec(key: "username", label: "用户名"),
@@ -387,6 +402,7 @@ enum NodeProtocols {
         case "wireguard": return ["udp": "true", "ip": "172.16.0.2"]
         case "snell": return ["version": "4", "udp": "true"]
         case "mieru": return ["transport": "TCP"]
+        case "brook": return ["transport": "server", "udp": "true"]
         case "socks5": return ["udp": "true"]
         case "sudoku": return ["aead-method": "chacha20-poly1305", "table-type": "prefer_ascii"]
         case "masque": return ["udp": "true", "ip": "172.16.0.2", "mtu": "1280"]

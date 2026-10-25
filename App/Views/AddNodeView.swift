@@ -63,6 +63,7 @@ struct AddNodeView: View {
               preset: ["plugin": "shadow-tls", "plugin-opts.version": "3", "cipher": "2022-blake3-aes-128-gcm"]),
         Proto(title: "WireGuard", subtitle: "UDP", type: "wireguard"),
         Proto(title: "Mieru", subtitle: "TCP / UDP", type: "mieru"),
+        Proto(title: "Brook", subtitle: "server · ws · wss · quic", type: "brook"),
         Proto(title: "Snell", subtitle: "v4 / v5", type: "snell"),
         Proto(title: "SSH", subtitle: String(localized: "密码 / 私钥"), type: "ssh"),
         Proto(title: "Shadowsocks", subtitle: "AEAD · 2022", type: "ss"),

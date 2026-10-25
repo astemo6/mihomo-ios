@@ -280,6 +280,13 @@ enum NCShareLink {
             q.add("handshake-mode", sStr(m, "handshake-mode"))
             return "mierus://\(user)@\(sStr(m, "server"))\(q.queryString)#\(frag(name))"
 
+        case "brook":
+            // feat/nc-brook: brook's own link format (brook link / Shadowrocket import).
+            guard let link = NCBrookLink.encode(name: name, fields: m) else {
+                throw ShareLinkError.message("Brook 节点缺少 server / port 或 transport 无效")
+            }
+            return link
+
         case "ssh":
             // Go: url.User(u) when no password (no colon), else UserPassword.
             let u = sStr(m, "username")

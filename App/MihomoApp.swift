@@ -239,7 +239,7 @@ enum Theme {
         case "trojan": return tone(1.0, 0.45, 0.45)
         case "hysteria", "hysteria2", "tuic": return tone(1.0, 0.62, 0.2)
         case "wireguard": return tone(0.35, 0.85, 0.45)
-        case "snell", "anytls", "mieru": return tone(1.0, 0.4, 0.75)
+        case "snell", "anytls", "mieru", "brook": return tone(1.0, 0.4, 0.75)
         case "socks5", "http", "ssh": return neutral
         case "tailscale", "zerotier", "easytier": return accent
         case "direct": return good

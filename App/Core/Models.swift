@@ -67,6 +67,7 @@ struct ProxyItem: Decodable, Identifiable, Hashable {
         case "snell": return "Snell"
         case "anytls": return "AnyTLS"
         case "mieru": return "Mieru"
+        case "brook": return "Brook"
         case "ssh": return "SSH"
         case "socks5": return "SOCKS5"
         case "http": return "HTTP"

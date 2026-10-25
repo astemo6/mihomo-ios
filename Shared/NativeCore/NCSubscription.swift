@@ -133,6 +133,7 @@ enum NCSubscriptionParser {
         case "socks", "socks5", "socks5h", "http", "https": return parseSocksHTTP(rest, scheme: scheme)
         case "anytls": return parseAnyTLS(rest)
         case "mieru", "mierus": return parseMieru(rest)
+        case "brook": return NCBrookLink.parse(rest) // feat/nc-brook
         default: return nil
         }
     }

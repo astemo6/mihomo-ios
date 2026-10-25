@@ -35,6 +35,14 @@ final class NCStream {
         conn = NWConnection(to: Self.endpoint(host, port: port), using: params)
     }
 
+    /// Caller-built parameters (feat/nc-brook: wss with ALPN http/1.1 + a custom CA anchor). The physical-interface
+    /// binding is applied here like every other init.
+    init(to host: String, port: Int, parameters: NWParameters, queue: DispatchQueue) {
+        self.queue = queue
+        NCOutboundBinding.apply(parameters, host: host)
+        conn = NWConnection(to: Self.endpoint(host, port: port), using: parameters)
+    }
+
     static func endpoint(_ host: String, port: Int) -> NWEndpoint {
         let p = NWEndpoint.Port(rawValue: UInt16(clamping: port)) ?? .any
         if let v4 = IPv4Address(host) {
