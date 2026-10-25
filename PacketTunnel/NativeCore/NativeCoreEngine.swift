@@ -22,6 +22,10 @@ final class NativeCoreEngine {
     private var dnsPolicy: NCDNSPolicy?
     private var nodeSubStore: NCNodeSubscriptionStore?
     private var nodeSubs: [NCNodeSubscription] = []
+    /// 智能选择 scorer (bridge/smart.go port); armed from groups.json on load.
+    private var smart: NCSmartSelector?
+    private var smartTimer: DispatchSourceTimer?
+    private let smartQueue = DispatchQueue(label: "nc.smart")
     private var canonicalGroupMap: [String: NCGroupModel] = [:]
     private var home = ""
 
@@ -145,6 +149,7 @@ final class NativeCoreEngine {
         for sub in staleSubs {
             subStore.refresh(sub) { [weak self] in self?.rebuildGroupEngine() }
         }
+        configureSmart()
         let homeURL = URL(fileURLWithPath: home)
         if let data = try? Data(contentsOf: homeURL.appendingPathComponent("geoip.metadb")) {
             geoIPDB = NCMMDB(data: data)
@@ -170,6 +175,7 @@ final class NativeCoreEngine {
             engine.selections = old.selections
             engine.delays = old.delays
             engine.alive = old.alive
+            engine.smartPins = old.smartPins
         } else if let data = try? Data(contentsOf: selectionsFile),
                   let saved = try? JSONDecoder().decode([String: String].self, from: data) {
             // Selections survive a reconnect (mihomo keeps them in cache.db, store-selected).
@@ -239,6 +245,9 @@ final class NativeCoreEngine {
     }
 
     func stop() {
+        smartTimer?.cancel()
+        smartTimer = nil
+        smart = nil
         persistFakeIP()
         isRunning = false
         config = nil
@@ -288,6 +297,40 @@ final class NativeCoreEngine {
     func recordDelay(name: String, ms: Int) {
         groups?.delays[name] = ms
         groups?.alive[name] = ms > 0
+        smart?.recordCheck(name: name, ms: ms)
+    }
+
+    /// 智能选择 (bridge/smart.go): read this profile's smart group list from
+    /// <home>/groups.json ({"<profile id>": {"smart": [names]}} — the same
+    /// store the app edits via SmartGroups) and run the scorer: first pass
+    /// 20 s after load, then every 30 s, publishing pins to the resolver.
+    private func configureSmart() {
+        smartTimer?.cancel()
+        smartTimer = nil
+        smart = nil
+        groups?.smartPins = [:]
+        guard let profileID = AppShared.activeProfileURL?.deletingPathExtension().lastPathComponent,
+              let data = try? Data(contentsOf: URL(fileURLWithPath: home).appendingPathComponent("groups.json")),
+              let root = (try? JSONSerialization.jsonObject(with: data)) as? [String: Any],
+              let entry = root[profileID] as? [String: Any],
+              let names = entry["smart"] as? [String], !names.isEmpty else { return }
+        let selector = NCSmartSelector(enabledGroups: names)
+        smart = selector
+        let timer = DispatchSource.makeTimerSource(queue: smartQueue)
+        timer.schedule(deadline: .now() + 20, repeating: 30)
+        timer.setEventHandler { [weak self] in
+            guard let self, let selector = self.smart else { return }
+            let pins = selector.tick(groups: self.effectiveConfig?.groups ?? [],
+                                     currentMember: { [weak self] g in self?.groups?.currentMember(of: g) })
+            self.groups?.smartPins = pins
+        }
+        timer.resume()
+        smartTimer = timer
+    }
+
+    /// GET /smart body for the controller (Go smartRoutes shape).
+    func smartStatusJSON() -> [String: Any] {
+        smart?.statusJSON() ?? ["groups": [Any]()]
     }
 
     /// Policy name for a connection, following the config mode:

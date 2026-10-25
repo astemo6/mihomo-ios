@@ -102,6 +102,20 @@ final class NCGroupEngine {
     /// QX ssid policies carried in group fields["subnet"]). The engine
     /// owner supplies it; nil = network unknown.
     var ssidProvider: () -> String? = { nil }
+    /// 智能选择 pins (group name -> member), maintained by NCSmartSelector.
+    /// For url-test / fallback groups a pin wins over the automatic pick
+    /// (and over a stored manual selection, which the scorer would
+    /// overwrite on its next pass anyway — bridge/smart.go pins through
+    /// the group's own Set). A pin whose member is known dead is ignored,
+    /// mirroring mihomo dropping a fixed node on health-check failure.
+    var smartPins: [String: String] = [:]
+
+    private func smartPinnedMember(_ g: NCProxyGroup, members: [String]) -> String? {
+        guard g.type == "url-test" || g.type == "fallback",
+              let pin = smartPins[g.name], members.contains(pin),
+              alive[pin] ?? true else { return nil }
+        return pin
+    }
     private var rrCounters: [String: Int] = [:]
 
     /// The member a SUBNET condition forces for this group right now:
@@ -166,6 +180,8 @@ final class NCGroupEngine {
         let chosen: String
         if let forced = subnetForcedMember(g) {
             chosen = forced
+        } else if let pin = smartPinnedMember(g, members: members) {
+            chosen = pin
         } else if let sel = selections[g.name], members.contains(sel) {
             chosen = sel // explicit choice / pin (controller PUT) wins for every type
         } else {
@@ -210,6 +226,7 @@ final class NCGroupEngine {
         let usable = all.filter { !unsupported.contains($0) }
         let members = usable.isEmpty ? all : usable
         if let forced = subnetForcedMember(group) { return forced }
+        if let pin = smartPinnedMember(group, members: members) { return pin }
         if let sel = selections[group.name], members.contains(sel) { return sel }
         switch group.type {
         case "url-test":
