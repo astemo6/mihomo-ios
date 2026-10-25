@@ -398,13 +398,3 @@ struct ParsedEngineText: Decodable {
         return try? JSONDecoder().decode(ParsedEngineText.self, from: d)
     }
 }
-
-struct CAInfoModel: Decodable, Equatable {
-    var exists: Bool
-    var subject: String?
-    var fingerprint: String?
-    var sha1: String?
-    var notBefore: String?
-    var notAfter: String?
-    var algorithm: String?
-}
