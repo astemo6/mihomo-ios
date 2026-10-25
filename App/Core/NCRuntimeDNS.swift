@@ -627,6 +627,9 @@ extension NCRuntimeSteps {
                 }
                 if m.str("x-source").isEmpty { m["x-source"] = .string(src) }
                 m["url"] = .string(src)
+                // Kept (private key, stripped from the readable export; the tunnel ignores it) so the App's provider
+                // download (providerPlan) still converts / splits the list as before — x-own-policy lists need it.
+                m["x-convert"] = .string(kind)
                 if kind != "nodes" {
                     m["behavior"] = .string(kind == "domainset" ? "domain" : "classical")
                     m["format"] = .string("text")

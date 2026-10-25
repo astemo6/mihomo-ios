@@ -280,7 +280,7 @@ final class NativeCoreRuleProviderStoreTests: XCTestCase {
         XCTAssertEqual(ads?["behavior"]?.string, "domain")
         XCTAssertEqual(ads?["format"]?.string, "text")
         XCTAssertNil(ads?["header"])
-        XCTAssertNil(ads?["x-convert"])
+        XCTAssertEqual(ads?["x-convert"]?.string, "domainset", "kept for the App's provider download")
         XCTAssertEqual(raw["rule-providers"]?.object?["Plain"]?.object?["url"]?.string, "https://example.com/plain.yaml")
         let sub = raw["proxy-providers"]?.object?["Sub"]?.object
         XCTAssertEqual(sub?["url"]?.string, "https://sub.example.com/s")
