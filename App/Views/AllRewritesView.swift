@@ -20,7 +20,7 @@ struct AllRewritesView: View {
         let phase: String
         let pattern: String
         let desc: String
-        /// GoText.localize(desc), computed once.
+        /// CoreText.localize(desc), computed once.
         var shownDesc: String = ""
         let source: String
         let moduleID: String?   // nil = 本地模块
@@ -65,7 +65,7 @@ struct AllRewritesView: View {
     }
 
     private func rebuild() {
-        allRows = (localRows + moduleRows).map { var r = $0; r.shownDesc = GoText.localize(r.desc); return r }
+        allRows = (localRows + moduleRows).map { var r = $0; r.shownDesc = CoreText.localize(r.desc); return r }
         shown = filtered()
     }
 

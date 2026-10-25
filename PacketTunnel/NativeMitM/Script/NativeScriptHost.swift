@@ -7,7 +7,7 @@
 // Go's ($persistentStore shared with the app, notifications, $httpAPI, geo, $httpClient through mihomo routing), and
 // every log line / request-log note, formatted by the Go path's own code.
 //
-// ScriptGoHost is a protocol so the unit tests can count calls; production is GoScriptHost.
+// ScriptGoHost is a protocol so the unit tests can count calls; production is NativeScriptHost.
 
 import Foundation
 import os
@@ -735,5 +735,4 @@ final class NativeScriptHost: ScriptGoHost {
     }
 }
 
-/// Backwards compatibility alias for GoScriptHost
-typealias GoScriptHost = NativeScriptHost
+

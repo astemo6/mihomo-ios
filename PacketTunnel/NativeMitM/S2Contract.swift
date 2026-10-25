@@ -215,7 +215,7 @@ struct MitmConnInfo {
 }
 
 /// Wraps the B6 MitmFlow* gomobile API. All calls may block (never on the main thread); the session calls them
-/// on its own serial queue. Production: GoMitmFlowDriver (NativeMitmSession.swift); tests: a fake.
+/// on its own serial queue. Production: MitmFlowDriverAdapter (NativeMitmSession.swift); tests: a fake.
 protocol MitmFlowDriving: AnyObject {
     /// Request phase (MitmFlowBegin): need-body | forward | local | drop | busy | error.
     func requestPhase(head: HTTPRequestHead, conn: MitmConnInfo) -> FlowDecision

@@ -15,7 +15,7 @@
 //
 // Stage 3a (Rewrite/NativeRewriteDriver.swift): the default driver asks the native rewrite engine first when the
 // separate switch `nativeMitmRewrite` is on (default OFF); a native decision never reaches Go, a deferral or the
-// switch off goes to GoMitmFlowDriver exactly as before.
+// switch off goes to MitmFlowDriverAdapter exactly as before.
 //
 // Fallback: the session only exists after Go handed the connection over (first byte from the TLS lane). Before
 // that every failure is Go's first-byte fallback (nativeterm.go). The runtime switch (NativeMitmRuntime, default
@@ -301,7 +301,7 @@ extension NativeBodyStore: NativeBodyReading {}
 
 // MARK: - Flow driver adapter (forwards to NativeMitmFlowDriver)
 
-final class GoMitmFlowDriver: MitmFlowDriving {
+final class MitmFlowDriverAdapter: MitmFlowDriving {
     private let inner = NativeMitmFlowDriver.shared
 
     func requestPhase(head: HTTPRequestHead, conn: MitmConnInfo) -> FlowDecision {
@@ -326,7 +326,7 @@ final class GoMitmFlowDriver: MitmFlowDriving {
     }
 }
 
-extension GoMitmFlowDriver: MitmScriptedFlowStarting {
+extension MitmFlowDriverAdapter: MitmScriptedFlowStarting {
     func requestPhase(head: HTTPRequestHead, conn: MitmConnInfo, gen: Int64, scripted: [[String: Any]]) -> FlowDecision {
         inner.requestPhase(head: head, conn: conn, gen: gen, scripted: scripted)
     }

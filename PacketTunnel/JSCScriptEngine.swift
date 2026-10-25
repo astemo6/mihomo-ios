@@ -55,8 +55,8 @@ protocol JSCRun: AnyObject {
 }
 
 
-/// The Go-free tunnel (TERN_NO_GO): nobody calls the engine through gomobile.
-protocol JSCEngineGoBinding {}
+/// Marker protocol for the script engine's binding surface in the native tunnel.
+protocol JSCEngineBinding {}
 
 /// The one thread JSCScriptEngine runs JavaScriptCore on (CI 40079040185 light:1: the unit-test host died in
 /// `MachineThreads::gatherConservativeRoots` → `pas_panic_on_out_of_memory_error` during a collection).
@@ -160,7 +160,7 @@ final class JSCThread {
     }
 }
 
-final class JSCScriptEngine: NSObject, JSCEngineGoBinding {
+final class JSCScriptEngine: NSObject, JSCEngineBinding {
     static let shared = JSCScriptEngine()
 
     /// Where every JavaScriptCore call of the engine runs (see JSCThread).

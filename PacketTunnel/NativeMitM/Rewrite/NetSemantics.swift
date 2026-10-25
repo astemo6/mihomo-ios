@@ -1,5 +1,5 @@
-// Native MitM stage 3 (lane s3-full) — small pieces of Go's net/url and net/http the native rewrite engine has to
-// reproduce byte for byte: request-target parsing (url.ParseRequestURI + URL.EscapedPath / RequestURI), absolute
+// Native MitM stage 3 (lane s3-full) — small pieces of net/url and net/http semantics the native rewrite engine
+// reproduces byte for byte: request-target parsing (url.ParseRequestURI + URL.EscapedPath / RequestURI), absolute
 // URL parsing for plain http(s) URLs (url.Parse), net.SplitHostPort, httputil's query cleaning (url.ParseQuery +
 // Values.Encode), http.StatusText and http.DetectContentType.
 //
@@ -8,7 +8,7 @@
 
 import Foundation
 
-enum GoURL {
+enum NetURL {
     // net/url shouldEscape tables (bit set: the byte is escaped), generated from Go 1.26:
     // pathEsc = (&url.URL{Path: "/"+b}).EscapedPath() != "/"+b, queryEsc = url.QueryEscape(b) != b.
     static let pathEsc: [UInt32] = [4294967295, 3489662895, 2013265920, 3087007745, 4294967295, 4294967295, 4294967295, 4294967295]
@@ -215,7 +215,7 @@ enum GoURL {
     }
 }
 
-enum GoStatus {
+enum NetStatus {
     /// http.StatusText (Go 1.26).
     static let text: [Int: String] = [
         100: "Continue", 101: "Switching Protocols", 102: "Processing", 103: "Early Hints",
@@ -239,7 +239,7 @@ enum GoStatus {
     static func status(_ code: Int) -> String { "\(code) \(text[code] ?? "")" }
 }
 
-enum GoSniff {
+enum NetSniff {
     private static func isWS(_ b: UInt8) -> Bool { b == 0x09 || b == 0x0A || b == 0x0C || b == 0x0D || b == 0x20 }
 
     private enum Sig {

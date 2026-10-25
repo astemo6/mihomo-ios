@@ -21,10 +21,10 @@ import Foundation
 //   intOf(v)   int/float truncated; string -> strconv.Atoi(trimmed) else 0
 //   strList(v) str() of every element of a list, empty results dropped
 
-enum NCGoValue {
-    /// Go fmt.Sprint of a yaml-decoded value (NCYAML numbers are Doubles; Go
-    /// decodes integral scalars to int, and %v prints float64 without an
-    /// exponent below 1e21, so integral values print as integers).
+enum NCValueCoercion {
+    /// fmt.Sprint-style rendering of a yaml-decoded value (NCYAML numbers are
+    /// Doubles; integral scalars print as integers, and float64 prints without
+    /// an exponent below 1e21).
     static func sprint(_ v: NCJSONValue) -> String {
         switch v {
         case .null: return "<nil>"
@@ -88,9 +88,9 @@ enum NCGoValue {
 }
 
 extension Dictionary where Key == String, Value == NCJSONValue {
-    func str(_ key: String) -> String { NCGoValue.str(self[key]) }
-    func boolOf(_ key: String) -> Bool { NCGoValue.boolOf(self[key]) }
-    func intOf(_ key: String) -> Int { NCGoValue.intOf(self[key]) }
+    func str(_ key: String) -> String { NCValueCoercion.str(self[key]) }
+    func boolOf(_ key: String) -> Bool { NCValueCoercion.boolOf(self[key]) }
+    func intOf(_ key: String) -> Int { NCValueCoercion.intOf(self[key]) }
     func list(_ key: String) -> [NCJSONValue] {
         if case .array(let a)? = self[key] { return a }
         return []
@@ -99,14 +99,14 @@ extension Dictionary where Key == String, Value == NCJSONValue {
         if case .object(let o)? = self[key] { return o }
         return [:]
     }
-    func strList(_ key: String) -> [String] { NCGoValue.strList(self[key]) }
+    func strList(_ key: String) -> [String] { NCValueCoercion.strList(self[key]) }
 }
 
 extension NCJSONValue {
     /// bridge str(x) on one element.
-    var strValue: String { NCGoValue.str(self) }
+    var strValue: String { NCValueCoercion.str(self) }
     /// bridge boolOf(x) on one element.
-    var boolValue: Bool { NCGoValue.boolOf(self) }
+    var boolValue: Bool { NCValueCoercion.boolOf(self) }
     /// JSON-shaped Any tree (for JSONSerialization / NCYAMLEmitter).
     var anyTree: Any {
         switch self {

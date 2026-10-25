@@ -83,7 +83,7 @@ struct RequestScriptPause {
     var requiresBody: Bool
     var url: String
     var method: String
-    var header: GoHeader          // r.Header (Host taken out)
+    var header: CanonicalHeader          // r.Header (Host taken out)
     var host: String              // r.Host
     var contentLength: Int64      // r.ContentLength (-1 chunked)
 }
@@ -131,7 +131,7 @@ enum RewriteDecision {
         var scripts: [ScriptPlanStep]?
         /// The outbound request as the response scripts see it ($request): out.Header before Content-Length is
         /// taken out of the decision, Accept-Encoding as sent.
-        var requestHeader = GoHeader()
+        var requestHeader = CanonicalHeader()
         var requestHost = ""
         var url = ""
         var method = ""
@@ -280,7 +280,7 @@ final class NativeRewriteEngine {
 
     private struct Req {
         var method: String
-        var header: GoHeader
+        var header: CanonicalHeader
         var host: String          // r.Host
         var contentLength: Int64
         var path: String          // r.URL.EscapedPath()
@@ -331,11 +331,11 @@ final class NativeRewriteEngine {
         let method = q.method.isEmpty ? "GET" : q.method
         if !method.utf8.allSatisfy(RWAscii.isTokenByte) { return .go("method") }
         let target = q.target.isEmpty ? "/" : q.target
-        guard let t = GoURL.parseRequestURI(target) else { return .go("target") }
+        guard let t = NetURL.parseRequestURI(target) else { return .go("target") }
         for kv in q.headers where kv.count == 2 {
             if !RWAscii.isPrintable(kv[0]) || kv[1].utf8.contains(where: { $0 == 0x0D || $0 == 0x0A || $0 == 0 }) { return .go("header bytes") }
         }
-        var h = GoHeader(pairs: q.headers)
+        var h = CanonicalHeader(pairs: q.headers)
         var host = q.host
         let hv = h.get("Host")
         if !hv.isEmpty { host = hv }
@@ -369,7 +369,7 @@ final class NativeRewriteEngine {
             if log.notes.count < 8 { log.notes.append("跳过规则（原生引擎不支持：\(why)）：\(rule.snap.kind) #\(rule.snap.i)") }
         }
         var urlHost = host
-        if let (hh, port) = GoURL.splitHostPort(host), (scheme == "https" && port == "443") || (scheme == "http" && port == "80") { urlHost = hh }
+        if let (hh, port) = NetURL.splitHostPort(host), (scheme == "https" && port == "443") || (scheme == "http" && port == "80") { urlHost = hh }
         var u = scheme + "://" + urlHost + r.requestURI
         if u.utf8.count > 8192 || !RWAscii.isVisible(u) { return .go("url") }
         let clientBody = cl != 0     // the client sends a body (Go: r.Body is not http.NoBody)
@@ -398,7 +398,7 @@ final class NativeRewriteEngine {
                 case "reject-array": status = 200; ctype = "application/json"; body = Data("[]".utf8)
                 default: break
                 }
-                var lh = GoHeader()
+                var lh = CanonicalHeader()
                 lh.set("Content-Type", ctype)
                 // ent.Local(status, w.Header(), …): the writer's header after writeLocal
                 var wh = lh
@@ -418,7 +418,7 @@ final class NativeRewriteEngine {
                     }
                     loc = l
                 }
-                var lh = GoHeader()
+                var lh = CanonicalHeader()
                 lh.set("Location", loc)
                 log.headers = lh.sortedPairs
                 return NativeRewriteEngine.logged(NativeRewriteEngine.commitLocal(status: action == "307" ? 307 : 302, header: lh, first: nil), log, Data())
@@ -432,7 +432,7 @@ final class NativeRewriteEngine {
                     if Self.goFree { log.rules.removeLast(); skipRule("rewrite template", rule); continue }
                     return .go("rewrite template")
                 }
-                guard let p = GoURL.parseAbsolute(nu) else {
+                guard let p = NetURL.parseAbsolute(nu) else {
                     if Self.goFree { log.rules.removeLast(); skipRule("rewritten url", rule); continue }
                     return .go("rewritten url")
                 }
@@ -462,8 +462,8 @@ final class NativeRewriteEngine {
             log.url = u
             if let f = l.file { return mapLocalFile(l, f, log) }
             // ent.Local(st, h, body, …): the rule's header map, before writeLocal touched the writer's copy
-            log.headers = GoHeader(pairs: l.headers ?? []).sortedPairs
-            return NativeRewriteEngine.logged(NativeRewriteEngine.writeLocal(status: l.status, header: GoHeader(pairs: l.headers ?? []), body: l.body ?? Data()),
+            log.headers = CanonicalHeader(pairs: l.headers ?? []).sortedPairs
+            return NativeRewriteEngine.logged(NativeRewriteEngine.writeLocal(status: l.status, header: CanonicalHeader(pairs: l.headers ?? []), body: l.body ?? Data()),
                                               log, l.body ?? Data())
         }
 
@@ -522,14 +522,14 @@ final class NativeRewriteEngine {
                     if let m = o.mock {
                         guard NativeRewriteEngine.scriptHeadersOK(m.headers ?? []) else { return .go("script response headers") }
                         let status = (200...999).contains(m.status) ? m.status : 200
-                        let h = GoHeader(pairs: m.headers ?? [])
+                        let h = CanonicalHeader(pairs: m.headers ?? [])
                         log.url = u
                         log.headers = h.sortedPairs // ent.Local(code, h, …): the script's map, not the writer's
                         return NativeRewriteEngine.logged(NativeRewriteEngine.writeLocal(status: status, header: h, body: m.body), log, m.body)
                     }
                     if let nu = o.url, !nu.isEmpty, nu != u {
                         // url.Parse(res.URL) with a host: Swift takes only what it parses exactly like Go
-                        guard let p = GoURL.parseAbsolute(nu) else { return .go("script url") }
+                        guard let p = NetURL.parseAbsolute(nu) else { return .go("script url") }
                         u = nu
                         log.url = u
                         r.host = p.host; r.path = p.path; r.query = p.query; r.forceQuery = p.forceQuery; r.scheme = p.scheme
@@ -542,7 +542,7 @@ final class NativeRewriteEngine {
                     }
                     if let hs = o.headers {
                         guard NativeRewriteEngine.scriptHeadersOK(hs) else { return .go("script headers") }
-                        var nh = GoHeader(pairs: hs)
+                        var nh = CanonicalHeader(pairs: hs)
                         let hv = nh.get("Host")
                         if !hv.isEmpty { r.host = hv }
                         nh.del("Host")
@@ -678,7 +678,7 @@ final class NativeRewriteEngine {
 
         // ---- 5. the outbound request (flowOutbound + forward) ----
         guard r.host.isEmpty || NativeRewriteEngine.plainHost(r.host) else { return .go("host after rules") }
-        guard let target = GoURL.parseAbsolute(u) else { return .go("target url") } // url.Parse(f.url)
+        guard let target = NetURL.parseAbsolute(u) else { return .go("target url") } // url.Parse(f.url)
         log.url = u
         log.headers = r.header.sortedPairs   // ent.ReqHeaders(r.Method, r.Header)
         if r.method != method { log.reqMethod = r.method }
@@ -693,7 +693,7 @@ final class NativeRewriteEngine {
         for k in ["Forwarded", "X-Forwarded-For", "X-Forwarded-Host", "X-Forwarded-Proto"] { out.del(k) }
         // requestPhase: a response body rule makes Go ask only for encodings it can decode (after ent.ReqHeaders)
         if plan.hasBody { out.set("Accept-Encoding", "gzip, deflate, br") }
-        guard let cleaned = GoURL.cleanQuery(r.query) else { return .go("query") }
+        guard let cleaned = NetURL.cleanQuery(r.query) else { return .go("query") }
         // out.URL.String(): r.URL with the target's scheme and host, the cleaned query
         var outURL = target.scheme + "://" + target.host
         if !r.path.isEmpty && !r.path.hasPrefix("/") { outURL += "/" }
@@ -731,13 +731,13 @@ final class NativeRewriteEngine {
         }
         let size = (attrs?[.size] as? NSNumber)?.int64Value ?? 0
         let status = l.status
-        var h = GoHeader(pairs: l.headers ?? [])
+        var h = CanonicalHeader(pairs: l.headers ?? [])
         if regular && size >= Int64(f.large) {
             // serveLargeMapLocal: streamed from disk, Content-Length = size, no body captured in the log
             guard let data = try? Data(contentsOf: URL(fileURLWithPath: f.path), options: .alwaysMapped), Int64(data.count) == size else {
                 return .go("map local read")
             }
-            if h.get("Content-Type").isEmpty { h.set("Content-Type", f.ctype ?? GoSniff.detect(data.prefix(512))) }
+            if h.get("Content-Type").isEmpty { h.set("Content-Type", f.ctype ?? NetSniff.detect(data.prefix(512))) }
             h.del("Content-Encoding"); h.del("Transfer-Encoding"); h.set("Content-Length", String(size))
             log.headers = h.sortedPairs
             guard case .local(var dl) = NativeRewriteEngine.commitLocal(status: status, header: h, first: data.isEmpty ? nil : data) else {
@@ -757,7 +757,7 @@ final class NativeRewriteEngine {
         } else if f.remote == true {
             return .go("map local download")
         }
-        if h.get("Content-Type").isEmpty { h.set("Content-Type", f.ctype ?? GoSniff.detect(body.prefix(512))) }
+        if h.get("Content-Type").isEmpty { h.set("Content-Type", f.ctype ?? NetSniff.detect(body.prefix(512))) }
         log.headers = h.sortedPairs
         return NativeRewriteEngine.logged(NativeRewriteEngine.writeLocal(status: status, header: h, body: body), log, body)
     }
@@ -766,7 +766,7 @@ final class NativeRewriteEngine {
 
     /// runResponse + modifyResponse for header-only rules: status / headers / length of the upstream's head.
     func respond(_ plan: RewriteDecision.ResponsePlan, status: Int, headers: [[String]], length: Int64, method: String) -> RewriteResponse? {
-        var h = GoHeader(pairs: headers)
+        var h = CanonicalHeader(pairs: headers)
         var contentLength = length
         if !h.values("Transfer-Encoding").isEmpty {
             h.del("Transfer-Encoding")
@@ -782,13 +782,13 @@ final class NativeRewriteEngine {
         }
         h.removeHopByHop()
         let before = h
-        let firstLine = "HTTP/1.1 " + GoStatus.status(status)
+        let firstLine = "HTTP/1.1 " + NetStatus.status(status)
         for ops in plan.ops {
             if NativeRewriteEngine.apply(ops, to: &h, firstLine: firstLine) { continue }
             // an upstream value Swift cannot run the regex on (non-ASCII, a QX raw rewrite whose result would
             // depend on Go's map order…): Go applies the rules' ops (no flow — bridge MitmRewriteHeaderOps)
             guard let fb = headerOpsFallback, let pairs = fb(generation, plan.rules, status, before.sortedPairs) else { return nil }
-            h = GoHeader(raw: pairs)
+            h = CanonicalHeader(raw: pairs)
             break
         }
         var outLen: Int64 = -1
@@ -834,7 +834,7 @@ final class NativeRewriteEngine {
     }
 
     /// handler.go applyHeaderOps for the ops Go marked portable. false: an input Swift will not run a regex on.
-    static func apply(_ ops: [RWSnapHeaderOp], to h: inout GoHeader, firstLine: String) -> Bool {
+    static func apply(_ ops: [RWSnapHeaderOp], to h: inout CanonicalHeader, firstLine: String) -> Bool {
         for op in ops {
             let name = op.name ?? "", value = op.value ?? ""
             switch op.op {
@@ -870,14 +870,14 @@ final class NativeRewriteEngine {
 
     /// The QX raw header-block rewrite (applyHeaderOps "raw"): first line, headers in map order (sorted or
     /// reversed here), blank line; every match replaced; headers rebuilt from the lines after the first.
-    static func raw(_ h: GoHeader, _ re: RWRegex, _ tp: RWSnapTemplate, _ firstLine: String, reversed: Bool) -> GoHeader? {
+    static func raw(_ h: CanonicalHeader, _ re: RWRegex, _ tp: RWSnapTemplate, _ firstLine: String, reversed: Bool) -> CanonicalHeader? {
         var s = firstLine + "\r\n"
         var keys = h.map.keys.sorted(by: RWAscii.less)
         if reversed { keys.reverse() }
         for k in keys { for v in h.values(k) { s += k + ": " + v + "\r\n" } }
         s += "\r\n"
         guard RWRegex.inputOK(s), s.utf8.count <= 65536, let out = re.replaceAll(s, tp) else { return nil }
-        var nh = GoHeader()
+        var nh = CanonicalHeader()
         let b = Array(out.utf8)
         var lines: [ArraySlice<UInt8>] = []
         var start = 0, i = 0
@@ -903,7 +903,7 @@ final class NativeRewriteEngine {
     }
 
     /// handler.go writeLocal followed by flowWriter.commit.
-    static func writeLocal(status: Int, header: GoHeader, body: Data) -> RewriteDecision {
+    static func writeLocal(status: Int, header: CanonicalHeader, body: Data) -> RewriteDecision {
         var h = header
         h.del("Content-Encoding")
         h.del("Transfer-Encoding")
@@ -912,7 +912,7 @@ final class NativeRewriteEngine {
     }
 
     /// flow_request.go flowWriter.commit on the header snapshot taken at WriteHeader.
-    static func commitLocal(status: Int, header: GoHeader, first: Data?) -> RewriteDecision {
+    static func commitLocal(status: Int, header: CanonicalHeader, first: Data?) -> RewriteDecision {
         var h = header
         let bodyOK = status >= 200 && status != 204 && status != 304
         if !h.has("Content-Type") && h.get("Content-Encoding").isEmpty && bodyOK && first != nil {

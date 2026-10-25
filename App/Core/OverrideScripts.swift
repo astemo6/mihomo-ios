@@ -627,7 +627,7 @@ final class OverrideScriptStore: ObservableObject {
                                             scripts: scripts.map { $0.0.name }, sourceSHA: sourceSHA)
         let ms = Int(Date().timeIntervalSince(started) * 1000)
         if !msg.isEmpty {
-            return (OverrideChainResult(ok: false, message: String(localized: "覆写脚本的结果无法使用：\(GoText.localize(msg))"), millis: ms), stats,
+            return (OverrideChainResult(ok: false, message: String(localized: "覆写脚本的结果无法使用：\(CoreText.localize(msg))"), millis: ms), stats,
                     msg == NCOverrideOutput.errSourceChanged)
         }
         var res = OverrideChainResult(ok: true, message: "", millis: ms)

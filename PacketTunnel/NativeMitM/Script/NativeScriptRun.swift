@@ -29,7 +29,7 @@ extension JSCScriptEngine: NativeJSEngine {}
 /// What `$done` asked for in the response phase (Go's ScriptResult; parseDone).
 struct NativeScriptResult {
     var status = 0
-    var headers: GoHeader?
+    var headers: CanonicalHeader?
     var body: Data?
     var bodySet = false
     /// With bodySet: the new body is this store handle (body nil); ownership passes to the caller.
@@ -532,7 +532,7 @@ final class NativeScriptRun: JSCRun {
             res.method = d.method
             if let hs = d.headers {
                 let pairs = hs.filter { $0.count == 2 }
-                var h = GoHeader()
+                var h = CanonicalHeader()
                 for kv in pairs { h.add(kv[0], kv[1]) }
                 res.headers = h
                 res.headerPairs = pairs
@@ -546,7 +546,7 @@ final class NativeScriptRun: JSCRun {
         res.status = Self.parseStatus(d.status)
         if res.status == 0 { res.status = Self.parseStatus(d.statusCode) }
         if let hs = d.headers {
-            var h = GoHeader()
+            var h = CanonicalHeader()
             for kv in hs where kv.count == 2 { h.add(kv[0], kv[1]) } // pairsHeader: Add, no trimming
             Self.fixSetCookie(&h, origSetCookie)
             res.headers = h
@@ -590,7 +590,7 @@ final class NativeScriptRun: JSCRun {
 
     /// fixSetCookie: an unchanged joined value gets the original lines back, a changed one is split before each
     /// "name=" that starts a new cookie.
-    static func fixSetCookie(_ h: inout GoHeader, _ orig: [String]) {
+    static func fixSetCookie(_ h: inout CanonicalHeader, _ orig: [String]) {
         let vs = h.values("Set-Cookie")
         guard vs.count == 1 else { return }
         if orig.count > 1 && vs[0] == orig.joined(separator: ", ") {
@@ -634,7 +634,7 @@ final class NativeScriptRun: JSCRun {
     }
 }
 
-extension GoHeader {
+extension CanonicalHeader {
     /// h[key] = values (canonical key).
     mutating func setValues(_ k: String, _ vs: [String]) {
         del(k)

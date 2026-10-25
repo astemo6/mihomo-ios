@@ -302,7 +302,7 @@ final class ProfileStore: ObservableObject {
         case invalid(String), badURL, http(Int), empty
         var errorDescription: String? {
             switch self {
-            case .invalid(let s): return String(localized: "配置校验失败：\(GoText.localize(s))")
+            case .invalid(let s): return String(localized: "配置校验失败：\(CoreText.localize(s))")
             case .badURL: return String(localized: "订阅链接无效")
             case .http(let c): return String(localized: "下载失败：HTTP \(c)")
             case .empty: return String(localized: "订阅内容为空")

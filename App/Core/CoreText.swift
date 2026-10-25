@@ -1,9 +1,9 @@
 import Foundation
 
-/// test/selftest: the Go side (bridge/mitm describe(), bridge/resources.go details, provider summaries) builds
-/// its short descriptions in Chinese. This maps those fixed shapes to the UI language; anything unknown is
+/// test/selftest: the core's own text builders (MitM describe(), resource details, provider summaries) compose
+/// their short descriptions in Chinese. This maps those fixed shapes to the UI language; anything unknown is
 /// shown as it came (user-written names, rule text).
-enum GoText {
+enum CoreText {
     private static func re(_ p: String) -> NSRegularExpression { try! NSRegularExpression(pattern: "^" + p + "$") }
     private static func groups(_ r: NSRegularExpression, _ s: String) -> [String]? {
         let ns = s as NSString

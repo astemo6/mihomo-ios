@@ -103,7 +103,7 @@ enum GroupOrder {
             let r = await Task.detached(priority: .userInitiated) {
                 NCGroupOrder.reorderFile(path: path, want: order)
             }.value
-            if let e = r.error, !e.isEmpty { return SaveResult(saved: false, message: GoText.localize(e)) }
+            if let e = r.error, !e.isEmpty { return SaveResult(saved: false, message: CoreText.localize(e)) }
             storeOrder(r.order ?? order, for: p.id)
             if r.changed == true {
                 store.objectWillChange.send()
@@ -130,7 +130,7 @@ enum GroupOrder {
         let r = await Task.detached(priority: .userInitiated) {
             NCGroupOrder.copy(home: AppShared.homeURL, sourcePath: src, copyPath: dst, want: order)
         }.value
-        if let e = r.error, !e.isEmpty { return SaveResult(saved: false, message: GoText.localize(e)) }
+        if let e = r.error, !e.isEmpty { return SaveResult(saved: false, message: CoreText.localize(e)) }
         // Same order as the source: no copy needed. An edited existing copy (reordered in place) is switched to
         // even when it already had this order.
         guard r.changed == true || (existing != nil && r.modified == true) else { return SaveResult(saved: true) }
@@ -181,6 +181,6 @@ enum GroupOrder {
         if r.modified == true { return RegenerateResult(changed: false, modified: true) }
         if let e = r.error, !e.isEmpty { StartupLog.write("group order regenerate: \(e)", tag: "app") }
         return RegenerateResult(changed: r.changed == true, modified: false,
-                                error: (r.error ?? "").isEmpty ? nil : GoText.localize(r.error!))
+                                error: (r.error ?? "").isEmpty ? nil : CoreText.localize(r.error!))
     }
 }

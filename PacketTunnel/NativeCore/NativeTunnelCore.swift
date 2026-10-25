@@ -2,7 +2,7 @@ import Foundation
 import NetworkExtension
 
 /// feat/native-core-eval: everything the tunnel used to ask the Go core for (Libmihomo*), served by NativeCore.
-/// The PacketTunnel target does not link Libmihomo any more (TERN_NO_GO); the app writes the runtime config
+/// The PacketTunnel target does not link Libmihomo any more; the app writes the runtime config
 /// (bridge/nativeprep.go PrepareNativeRuntime) and the tunnel only reads it.
 final class NativeTunnelCore {
     static let shared = NativeTunnelCore()
