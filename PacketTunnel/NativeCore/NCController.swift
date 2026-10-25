@@ -159,6 +159,34 @@ final class NCController {
             streamTraffic(conn)
         case ("GET", "/app/traffic"):
             respond(conn, status: 200, json: appTrafficJSON())
+        // gap C4 (astemo6/Muse NativeCore): MitM request log + log history from NativeCore's own stores
+        case ("GET", "/mitm/requests"):
+            respondEncodable(conn, NativeRequestLogStore.shared.summaries(since: Int64(req.query["since"] ?? "") ?? 0))
+        case ("DELETE", "/mitm/requests"):
+            NativeRequestLogStore.shared.clear()
+            respond(conn, status: 204, json: nil)
+        case ("GET", "/mitm/hosts"):
+            respond(conn, status: 200, json: NativeRequestLogStore.shared.hosts())
+        case ("GET", "/mitm/logs"):
+            let since = Int64(req.query["since"] ?? "") ?? 0
+            let lines: [[String: Any]] = NativeLogRing.shared.scriptLines(since: since).map {
+                ["id": $0.id, "time": $0.time, "script": $0.script, "level": $0.level, "msg": $0.msg]
+            }
+            respond(conn, status: 200, json: lines)
+        case ("DELETE", "/mitm/logs"):
+            NativeLogRing.shared.clearScripts()
+            respond(conn, status: 204, json: nil)
+        case ("GET", "/hark/logs"):
+            let (seq, lines) = NativeLogRing.shared.since(UInt64(req.query["since"] ?? "") ?? 0)
+            let kind = req.query["kind"] ?? "general"
+            let picked = kind == "dns" ? lines.filter { $0.payload.hasPrefix("[DNS]") } : lines
+            let logs: [[String: Any]] = picked.map {
+                ["seq": $0.seq, "time": $0.time, "type": $0.type, "payload": $0.payload]
+            }
+            respond(conn, status: 200, json: ["seq": seq, "logs": logs] as [String: Any])
+        case ("DELETE", "/hark/logs"):
+            NativeLogRing.shared.clearGeneral()
+            respond(conn, status: 204, json: nil)
         default:
             routeParameterized(conn, req)
         }
@@ -214,6 +242,15 @@ final class NCController {
                 } else {
                     self.respond(conn, status: 200, json: results)
                 }
+            }
+            return
+        }
+        // /mitm/requests/{id} GET (gap C4)
+        if comps.count == 3, comps[0] == "mitm", comps[1] == "requests", req.method == "GET", let id = Int64(comps[2]) {
+            if let e = NativeRequestLogStore.shared.detail(id: id) {
+                respondEncodable(conn, e)
+            } else {
+                respond(conn, status: 404, json: ["message": "request not found"])
             }
             return
         }
@@ -333,10 +370,22 @@ final class NCController {
         let head = "HTTP/1.1 101 Switching Protocols\r\nUpgrade: websocket\r\nConnection: Upgrade\r\nSec-WebSocket-Accept: \(accept)\r\n\r\n"
         conn.send(content: Data(head.utf8), completion: .idempotent)
         var last = plane.stats.snapshot()
+        // gap C4: /logs streams NativeLogRing lines (from the moment of attaching; history is /hark/logs)
+        var logSeq = NativeLogRing.shared.since(UInt64.max).seq
         let timer = DispatchSource.makeTimerSource(queue: queue)
-        timer.schedule(deadline: .now() + 1, repeating: 1)
+        timer.schedule(deadline: .now() + 1, repeating: path == "/logs" ? 0.5 : 1)
         timer.setEventHandler { [weak self] in
             guard let self else { return }
+            if path == "/logs" {
+                let (seq, lines) = NativeLogRing.shared.since(logSeq)
+                logSeq = seq
+                for l in lines.suffix(200) {
+                    if let d = try? JSONSerialization.data(withJSONObject: ["type": l.type, "payload": l.payload]) {
+                        conn.send(content: Self.wsTextFrame(d), completion: .idempotent)
+                    }
+                }
+                return
+            }
             let snap = self.plane.stats.snapshot()
             var obj: Any?
             switch path {
@@ -348,7 +397,7 @@ final class NCController {
                 obj = ["downloadTotal": snap.down, "uploadTotal": snap.up, "connections": snap.connections,
                        "memory": Int64(ProcessMemory.footprintBytes())]
             default:
-                obj = nil // /logs: the native core has no log stream yet; keep the socket open
+                obj = nil
             }
             last = snap
             if let obj, let data = try? JSONSerialization.data(withJSONObject: obj) {
@@ -511,6 +560,13 @@ final class NCController {
     }
 
     // MARK: Responses
+
+    private func respondEncodable<T: Encodable>(_ conn: NWConnection, _ value: T) {
+        let body = (try? JSONEncoder().encode(value)) ?? Data("null".utf8)
+        var out = Data("HTTP/1.1 200 OK\r\nContent-Type: application/json\r\nContent-Length: \(body.count)\r\nConnection: close\r\n\r\n".utf8)
+        out.append(body)
+        conn.send(content: out, completion: .contentProcessed { _ in conn.cancel() })
+    }
 
     private func respond(_ conn: NWConnection, status: Int, json: Any?) {
         var head = "HTTP/1.1 \(status) \(Self.statusText(status))\r\n"

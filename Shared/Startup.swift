@@ -30,7 +30,12 @@ enum StartupLog {
     /// Review 5 P1-2: unified-log copy is private (redacted in Console / sysdiagnose unless a profile unlocks it).
     private static let logger = Logger(subsystem: "mihomo", category: "startup")
 
-    static func write(_ msg: String, tag: String = "ext") {
+    /// NativeCore (gap C4, astemo6/Muse NativeCore): the Go-free tunnel mirrors every line into its in-memory log
+    /// ring (NativeLogRing) for the controller's /logs stream and /hark/logs. Called outside the file lock.
+    static var tap: ((_ tag: String, _ msg: String) -> Void)?
+
+    static func write(_ msg: String, tag: String = "ext", mirror: Bool = true) {
+        if mirror { tap?(tag, msg) }
         lock.lock(); defer { lock.unlock() }
         let line = "\(fmt.string(from: Date())) [\(tag)] \(msg)\n"
         logger.log("[\(tag, privacy: .public)] \(msg, privacy: .private)")

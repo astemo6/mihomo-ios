@@ -164,11 +164,36 @@ final class ControllerClient {
     // MARK: MitM engine (/mitm on the same controller)
 
     func mitmStatus() async throws -> MitMStatus { try await get(MitMStatus.self, "/mitm/status") }
+    // NativeCore gap C4 (astemo6/Muse NativeCore): the tunnel also keeps finished MitM requests in the App Group ring
+    // (NativeRequestLogFile); read it when the controller is not reachable (tunnel off / restarting).
     func mitmRequests(since: Int64 = 0) async throws -> [HTTPRequestSummary] {
-        try await get([HTTPRequestSummary].self, "/mitm/requests", query: [URLQueryItem(name: "since", value: String(since))])
+        do {
+            return try await get([HTTPRequestSummary].self, "/mitm/requests", query: [URLQueryItem(name: "since", value: String(since))])
+        } catch {
+            let local: [HTTPRequestSummary] = Self.fileRecords(since: since)
+            if local.isEmpty { throw error }
+            return local
+        }
     }
-    func mitmRequest(_ id: Int64) async throws -> HTTPRequestDetail { try await get(HTTPRequestDetail.self, "/mitm/requests/\(id)") }
-    func mitmClearRequests() async throws { try await send("/mitm/requests", method: "DELETE") }
+    func mitmRequest(_ id: Int64) async throws -> HTTPRequestDetail {
+        do {
+            return try await get(HTTPRequestDetail.self, "/mitm/requests/\(id)")
+        } catch {
+            guard let e = NativeRequestLogFile.entry(id: id), let d = try? JSONEncoder().encode(e),
+                  let detail = try? JSONDecoder().decode(HTTPRequestDetail.self, from: d) else { throw error }
+            return detail
+        }
+    }
+    func mitmClearRequests() async throws {
+        NativeRequestLogFile.clear()
+        try await send("/mitm/requests", method: "DELETE")
+    }
+    private static func fileRecords<T: Decodable>(since: Int64) -> [T] {
+        let dec = JSONDecoder()
+        return NativeRequestLogFile.entries(since: since).compactMap { e in
+            (try? JSONEncoder().encode(e)).flatMap { try? dec.decode(T.self, from: $0) }
+        }
+    }
     func mitmHosts() async throws -> [String: [String]] { try await get([String: [String]].self, "/mitm/hosts") }
     func mitmLogs(since: Int64 = 0) async throws -> [ScriptLogLine] {
         try await get([ScriptLogLine].self, "/mitm/logs", query: [URLQueryItem(name: "since", value: String(since))])

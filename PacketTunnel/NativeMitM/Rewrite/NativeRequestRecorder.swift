@@ -59,7 +59,8 @@ struct NativeRequestEvent: Encodable, Equatable {
 }
 
 final class NativeRequestRecorder {
-    static let shared = NativeRequestRecorder(sink: InMemoryNativeRequestLogSink.shared)
+    // gap C4: the request log the app reads (NativeRequestLogStore → controller /mitm/requests + App Group ring file)
+    static let shared = NativeRequestRecorder(sink: NativeRequestLogStore.shared)
 
     struct Stats: Equatable { var queued = 0, sent = 0, dropped = 0, batches = 0, shed = 0 }
 

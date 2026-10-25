@@ -554,8 +554,14 @@ final class NativeScriptHost: ScriptGoHost {
             return NCPersistentStore.shared.clear() ? "true" : "false"
         case "log":
             // console.log & co (Go's log ring is gone): the startup log, bounded per line.
+            // gap C4: script log page (/mitm/logs) + live /logs stream through NativeLogRing; the startup log keeps
+            // the first 500 lines per process as before.
+            let nl = arg.firstIndex(of: "\n")
+            let level = nl.map { String(arg[..<$0]) } ?? "log"
+            let msg = nl.map { String(arg[arg.index(after: $0)...]) } ?? arg
+            NativeLogRing.shared.addScript(script: entry(rule)?.name ?? "script #\(rule)", level: level, msg: msg)
             lock.lock(); logLines += 1; let n = logLines; lock.unlock()
-            if n <= 500 { StartupLog.write("script #\(rule): " + String(arg.prefix(300))) }
+            if n <= 500 { StartupLog.write("script #\(rule): " + String(arg.prefix(300)), mirror: false) }
             return ""
         case "btoa":
             return Data(arg.utf8).base64EncodedString()
