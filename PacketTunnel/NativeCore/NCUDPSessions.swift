@@ -620,7 +620,7 @@ final class NCDNSDoHPool {
             var out = Data()
             var pos = bodyStart
             while true {
-                guard let lineEnd = buffer.range(of: Data("\r\n".utf8), range: pos..<buffer.endIndex) else { return nil }
+                guard let lineEnd = buffer.range(of: Data("\r\n".utf8), options: [], in: pos..<buffer.endIndex) else { return nil }
                 let sizeText = String(decoding: buffer[pos..<lineEnd.lowerBound], as: UTF8.self)
                 guard let size = Int(sizeText.trimmingCharacters(in: .whitespaces), radix: 16) else { return nil }
                 let chunkStart = lineEnd.upperBound
@@ -630,7 +630,7 @@ final class NCDNSDoHPool {
                        buffer[chunkStart] == 0x0d, buffer[chunkStart + 1] == 0x0a {
                         return (out, buffer.distance(from: buffer.startIndex, to: chunkStart) + 2, keepAlive)
                     }
-                    guard let tailEnd = buffer.range(of: Data("\r\n\r\n".utf8), range: chunkStart..<buffer.endIndex) else { return nil }
+                    guard let tailEnd = buffer.range(of: Data("\r\n\r\n".utf8), options: [], in: chunkStart..<buffer.endIndex) else { return nil }
                     return (out, buffer.distance(from: buffer.startIndex, to: tailEnd.upperBound), keepAlive)
                 }
                 guard buffer.distance(from: chunkStart, to: buffer.endIndex) >= size + 2 else { return nil }

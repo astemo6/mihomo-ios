@@ -186,7 +186,7 @@ final class NCStreamByteStream: ByteStream {
     func write(_ data: Data, completion: @escaping (Error?) -> Void) {
         // The completion form (Shared since build fix #366): write completion now means the
         // socket took the bytes — the same back-pressure the relay variant below gets.
-        stream.send(data) { queue.async { completion(nil) } }
+        stream.send(data) { self.queue.async { completion(nil) } }
     }
 
     func closeWrite() {}
@@ -249,7 +249,7 @@ final class NCRelayByteStream: ByteStream {
     }
 
     func write(_ data: Data, completion: @escaping (Error?) -> Void) {
-        relay.send(data, completion: { queue.async { completion(nil) } })
+        relay.send(data, completion: { self.queue.async { completion(nil) } })
     }
 
     func closeWrite() {}
