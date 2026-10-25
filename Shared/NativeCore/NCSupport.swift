@@ -31,8 +31,8 @@ enum NCSupport {
         }
         switch t {
         case "ss":
-            if let plugin = p.fields["plugin"]?.string, !plugin.isEmpty {
-                return "Shadowsocks 插件 \(plugin) 尚未接入"
+            if let why = ssPluginUnsupported(p) {
+                return "Shadowsocks 插件 \(why) 尚未接入"
             }
         case "ssr":
             let cipher = p.cipher?.lowercased()
@@ -49,6 +49,27 @@ enum NCSupport {
             break
         }
         return nil
+    }
+
+    /// nil = plugin supported; else the reason (mirrors mihomo NewShadowSocks' option checks;
+    /// obfs http/tls, v2ray-plugin websocket (+tls, mux), shadow-tls v2/v3 are implemented in NCSSPlugins).
+    static func ssPluginUnsupported(_ proxy: NCProxy) -> String? {
+        guard let plugin = proxy.fields["plugin"]?.string, !plugin.isEmpty else { return nil }
+        let opts = proxy.fields["plugin-opts"]?.object ?? [:]
+        switch plugin {
+        case "obfs":
+            let mode = opts["mode"]?.string ?? ""
+            return mode == "http" || mode == "tls" ? nil : "obfs mode \(mode)"
+        case "v2ray-plugin":
+            if (opts["mode"]?.string ?? "") != "websocket" { return "v2ray-plugin mode \(opts["mode"]?.string ?? "")" }
+            if opts["v2ray-http-upgrade"]?.bool == true { return "v2ray-plugin http-upgrade" }
+            return nil
+        case "shadow-tls":
+            let v = opts["version"]?.int ?? 2
+            return v == 2 || v == 3 ? nil : "shadow-tls v\(v)"
+        default:
+            return plugin
+        }
     }
 
     /// Group types the group engine evaluates as written; anything else (smart, …) is evaluated like select.

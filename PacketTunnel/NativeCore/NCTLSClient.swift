@@ -19,6 +19,8 @@ final class NCTLSClientStream: NCRelayStream {
         var allowInsecure: Bool = false // plain mode only: skip SecTrust result
         /// ClientHello shape from the proxy's `fingerprint` field.
         var profile: NCClientHelloProfile = .chrome
+        /// Plain mode only: session ID computed from the marshaled hello (zero ID in place) — shadow-tls v3.
+        var sessionIDGenerator: ((Data) -> Data?)? = nil
     }
 
     enum TLSError: Error {
@@ -109,6 +111,9 @@ final class NCTLSClientStream: NCRelayStream {
             wireHello.replaceSubrange(39..<(39 + 32), with: sealed)
             self.realityAuthKey = authKey
             _ = reality
+        } else if let gen = config.sessionIDGenerator {
+            guard let sid = gen(hello), sid.count == 32 else { throw TLSError.handshake("session ID generator") }
+            wireHello.replaceSubrange(39..<(39 + 32), with: sid)
         }
         transcript.append(wireHello)
         sendRecord(type: 22, payload: wireHello)

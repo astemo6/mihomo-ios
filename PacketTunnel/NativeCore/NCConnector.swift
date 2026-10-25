@@ -331,7 +331,7 @@ enum NCConnector {
                     queue.async { completion(nil, Failure.handshake("bad shadowsocks 2022 password")) }
                     return
                 }
-                obtainStream(transport: transport, make: { NCStream(to: server, port: port, queue: queue) }) { raw, err in
+                ssPluginStream(proxy: proxy, server: server, port: port, queue: queue, transport: transport) { raw, err in
                     guard let raw else { completion(nil, err); return }
                     completion(NCSS2022RelayStream(raw: raw, encoder: enc, decoder: dec, target: target), nil)
                 }
@@ -342,7 +342,7 @@ enum NCConnector {
                 queue.async { completion(nil, Failure.handshake("bad shadowsocks cipher/password")) }
                 return
             }
-            obtainStream(transport: transport, make: { NCStream(to: server, port: port, queue: queue) }) { raw, err in
+            ssPluginStream(proxy: proxy, server: server, port: port, queue: queue, transport: transport) { raw, err in
                 guard let raw else { completion(nil, err); return }
                 completion(NCSSRelayStream(raw: raw, encoder: enc, decoder: dec, target: target), nil)
             }
