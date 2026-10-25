@@ -248,9 +248,13 @@ private func ncDedupeKey(_ p: [String: NCJSONValue]) -> String {
         let v = p.str(k)
         if !v.isEmpty { cred += k + "=" + v + ";" }
     }
+    // Go fmt.Sprint(p["port"]). NCValueCoercion.sprint renders integral
+    // values as integers only inside Int64 range: the old
+    // `n == floor(n) ? String(Int64(n))` trapped on a subscription node
+    // with `port: 1e30` or `.inf` (floor(inf) == inf).
     var port = ""
-    if case .number(let n)? = p["port"] {
-        port = n == floor(n) ? String(Int64(n)) : String(n)
+    if let v = p["port"], case .number = v {
+        port = NCValueCoercion.sprint(v)
     } else if case .string(let s)? = p["port"] {
         port = s
     }
@@ -431,7 +435,7 @@ extension NCRuntimeSteps {
                 let s: String
                 switch p {
                 case .string(let v): s = v
-                case .number(let n): s = n == floor(n) ? String(Int64(n)) : String(n)
+                case .number: s = NCValueCoercion.sprint(p) // was String(Int64(n)): traps on 1e30 / inf
                 default: s = p.strValue
                 }
                 if groupNames.contains(s) {

@@ -23,8 +23,14 @@ enum NCGroupEditing {
             return GroupSpecsResult(groups: [], providers: [], proxies: [], chains: chains)
         }
 
-        // Merge enabled node subscriptions as proxy-providers and into default/chosen group `use:`
-        mergeNodeSubs(raw: &raw, home: home)
+        // Merge enabled node subscriptions as proxy-providers and into default/chosen group `use:`.
+        // bridge GroupSpecs calls the runtime's own mergeNodeSubs (with the 节点处理 rules), so the
+        // editor sees the same provider names the runtime builds — a second node sub with the same
+        // name is "<name>-2" there (uniqueProviderName); the private copy here used "<name> 2", so a
+        // `use:` saved from the editor named a provider the runtime never had (pruneDanglingUse
+        // then dropped it). It also skipped the merge when the profile had no groups.
+        let subRules = NCRuntimeFiles.readAllSubRules(home: home.path)
+        NCRuntimeSteps.mergeNodeSubs(&raw, home: home.path, subForKey: { subRules[$0] })
 
         // Groups
         var gs: [GroupSpec] = []
@@ -328,97 +334,6 @@ enum NCGroupEditing {
         "DIRECT", "REJECT", "REJECT-DROP", "PASS", "PASS-RULE", "COMPATIBLE"
     ]
 
-    /// Default policy groups that accept node subscriptions (select with real nodes, and url-test).
-    private static func isDefaultSubGroup(_ g: [String: NCJSONValue]) -> Bool {
-        if g["hidden"]?.bool == true { return false }
-        let name = g["name"]?.string ?? ""
-        if name == "MIHOMO-PROBE" { return false }
-        let type = g["type"]?.string?.lowercased() ?? ""
-        switch type {
-        case "url-test":
-            return true
-        case "select":
-            if let use = g["use"]?.array, !use.isEmpty { return true }
-            if g["include-all"]?.bool == true || g["include-all-proxies"]?.bool == true || g["include-all-providers"]?.bool == true {
-                return true
-            }
-            if let px = g["proxies"]?.array {
-                for p in px {
-                    if let s = p.string, !builtinMembers.contains(s.uppercased()) {
-                        return true
-                    }
-                }
-            }
-            return false
-        default:
-            return false
-        }
-    }
-
-    /// Merges enabled node subscriptions into raw config proxy-providers and group `use:`.
-    private static func mergeNodeSubs(raw: inout [String: NCJSONValue], home: URL) {
-        let subsURL = home.appendingPathComponent("node-subscriptions.json")
-        guard let data = try? Data(contentsOf: subsURL),
-              let subs = try? JSONDecoder().decode([NodeSubscription].self, from: data),
-              !subs.isEmpty else {
-            return
-        }
-
-        var pp = raw["proxy-providers"]?.object ?? [:]
-        var groups = raw["proxy-groups"]?.array?.compactMap { $0.object } ?? []
-        guard !groups.isEmpty else { return }
-
-        var added = false
-        for s in subs {
-            guard s.enabled && !s.id.isEmpty else { continue }
-            let cachePath = home.appendingPathComponent("nodesubs/\(s.id).yaml").path
-            guard let attrs = try? FileManager.default.attributesOfItem(atPath: cachePath),
-                  let size = attrs[.size] as? NSNumber, size.int64Value > 0 else {
-                continue
-            }
-
-            let baseName = s.name.trimmingCharacters(in: .whitespaces).isEmpty ? "订阅" : s.name.trimmingCharacters(in: .whitespaces)
-            var provName = baseName
-            var idx = 2
-            while pp[provName] != nil {
-                provName = "\(baseName) \(idx)"
-                idx += 1
-            }
-
-            pp[provName] = .object([
-                "type": .string("file"),
-                "path": .string("./nodesubs/\(s.id).yaml")
-            ])
-            added = true
-
-            let want = Set(s.groups ?? [])
-            var hit = false
-            for i in 0..<groups.count {
-                let gName = groups[i]["name"]?.string ?? ""
-                if (!want.isEmpty && want.contains(gName)) || (want.isEmpty && isDefaultSubGroup(groups[i])) {
-                    var currentUse = groups[i]["use"]?.array?.compactMap { $0.string } ?? []
-                    currentUse.append(provName)
-                    groups[i]["use"] = .array(currentUse.map { .string($0) })
-                    hit = true
-                }
-            }
-            if !hit {
-                for i in 0..<groups.count {
-                    if isDefaultSubGroup(groups[i]) {
-                        var currentUse = groups[i]["use"]?.array?.compactMap { $0.string } ?? []
-                        currentUse.append(provName)
-                        groups[i]["use"] = .array(currentUse.map { .string($0) })
-                    }
-                }
-            }
-        }
-
-        if added {
-            raw["proxy-providers"] = .object(pp)
-            raw["proxy-groups"] = .array(groups.map { .object($0) })
-        }
-    }
-
     // MARK: - GroupPreview
 
     struct MemberPool {
@@ -526,12 +441,8 @@ enum NCGroupEditing {
                         }
                     }
                     let baseName = s.name.trimmingCharacters(in: .whitespaces).isEmpty ? "订阅" : s.name.trimmingCharacters(in: .whitespaces)
-                    var provName = baseName
-                    var idx = 2
-                    while pool.providers[provName] != nil {
-                        provName = "\(baseName) \(idx)"
-                        idx += 1
-                    }
+                    // Same naming as the runtime merge (bridge uniqueProviderName, "<name>-2").
+                    let provName = NCRuntimeSteps.uniqueProviderName(baseName) { pool.providers[$0] != nil }
                     pool.providers[provName] = names
                 }
             }

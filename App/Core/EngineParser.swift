@@ -2201,7 +2201,14 @@ extension NCEngineRuleset {
     static func isEgern(_ text: String) -> Bool {
         var hasRulesKey = false
         for raw in text.split(separator: "\n", omittingEmptySubsequences: false) {
-            let t = String(raw).trimmingCharacters(in: CharacterSet(charactersIn: " \t\r"))
+            // Go strings.TrimRight(l, " \t\r"): leading indentation is
+            // KEPT — the top-level test below and the "  hostnames:" /
+            // "    includes:" markers depend on it. Trimming both sides made
+            // nested keys look top-level and a mitm-only Egern module
+            // (mitm: / hostnames: / includes:) never matched.
+            var tail = Substring(raw)
+            while let c = tail.last, c == " " || c == "\t" || c == "\r" { tail = tail.dropLast() }
+            let t = String(tail)
             if t.isEmpty || t.hasPrefix("#") { continue }
             if t == "http:" || t.hasPrefix("script-providers:") || t == "tiles:" { return false } // Stash
             if !t.hasPrefix(" ") && !t.hasPrefix("-") {
