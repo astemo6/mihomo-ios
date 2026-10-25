@@ -277,7 +277,8 @@ enum NCProfileInspectorPort {
                 continue
             }
 
-            let cp = providerCache(homeDir: homeDir, kind: kind, pathVal: pathVal, urlVal: urlVal)
+            // nc-integrate: Go providerCache hashes the runtime `url` with MD5 (mihomo GetPathByHash), not x-source/SHA1.
+            let cp = ncProviderCachePath(home: homeDir, kind: kind, m)
             p.cachePath = cp
             if !cp.isEmpty,
                let attr = try? FileManager.default.attributesOfItem(atPath: cp),

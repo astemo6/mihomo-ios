@@ -373,11 +373,11 @@ final class NodeManagerModel: ObservableObject {
     func summary(of n: ManagedNode) async -> NodeSummaryInfo? {
         let json: String
         if !n.inRuntime, let m = manualNode(n), let d = try? JSONSerialization.data(withJSONObject: m), let s = String(data: d, encoding: .utf8) {
-            json = await Task.detached(priority: .userInitiated) { LibmihomoNodeSummaryJSON(s) }.value
+            json = await Task.detached(priority: .userInitiated) { NCNodeManager.nodeSummaryJSON(s) }.value
         } else if let path = AppShared.activeProfileURL?.path {
             let home = AppShared.homeURL.path
             let name = n.name, provider = n.source.runtimeProvider
-            json = await Task.detached(priority: .userInitiated) { LibmihomoNodeSummaryIn(home, path, provider, name) }.value
+            json = await Task.detached(priority: .userInitiated) { NCNodeManager.nodeSummaryIn(home: home, profilePath: path, provider: provider, name: name) }.value
         } else {
             return nil
         }
@@ -500,7 +500,7 @@ final class NodeManagerModel: ObservableObject {
         if let m = manualNode(n) { return m }
         guard let path = AppShared.activeProfileURL?.path else { return nil }
         let home = AppShared.homeURL.path, name = n.name, provider = n.source.runtimeProvider
-        let json = await Task.detached(priority: .userInitiated) { LibmihomoNodeConfigIn(home, path, provider, name) }.value
+        let json = await Task.detached(priority: .userInitiated) { NCNodeManager.nodeConfigIn(home: home, profilePath: path, provider: provider, name: name) }.value
         guard !json.isEmpty, let o = try? JSONSerialization.jsonObject(with: Data(json.utf8)) as? [String: Any] else { return nil }
         return o
     }
