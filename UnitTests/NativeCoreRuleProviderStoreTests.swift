@@ -211,4 +211,17 @@ final class NativeCoreRuleProviderStoreTests: XCTestCase {
             }
         }
     }
+
+    /// Go-era configs carry http://127.0.0.1:9090/rules/convert?url=<src>&kind=<kind>; NativeCore has no
+    /// converter (27 × 401 on device, build 401), so the store fetches <src> directly.
+    func testLoopbackConvertUnwrapped() {
+        let src = "https://example.com/QX/Filter/Ads.list"
+        var comps = URLComponents(string: "http://127.0.0.1:9090/rules/convert")!
+        comps.queryItems = [URLQueryItem(name: "url", value: src), URLQueryItem(name: "kind", value: "domainset")]
+        let wrapped = comps.string!
+        XCTAssertEqual(NCRuleProviderStore.unwrapLoopbackConvert(wrapped), src)
+        XCTAssertEqual(NCRuleProviderStore.unwrapLoopbackConvert(src), src)
+        XCTAssertEqual(NCRuleProviderStore.unwrapLoopbackConvert("http://127.0.0.1:9090/version"), "http://127.0.0.1:9090/version")
+        XCTAssertEqual(NCRuleProviderStore.loopbackConvertKind(wrapped), "domainset")
+    }
 }
