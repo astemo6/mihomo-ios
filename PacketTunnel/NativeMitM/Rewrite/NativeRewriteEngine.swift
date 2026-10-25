@@ -590,6 +590,12 @@ final class NativeRewriteEngine {
                 // no body (http.NoBody): a regex leaves it empty, a json / jq rule fails on it (Go skips the rule) —
                 // Go-free: the json / jq rules are skipped the same way, the regex rules leave it empty
                 if reqBodyRules.contains(where: { $0.kind != "body" }) && !Self.goFree { return .go("empty request body") }
+                // Go's json / jq rule errors on the empty body before ent.Match, so the request log does not list it
+                let failed = Set(reqBodyRules.filter { $0.kind != "body" }.map(\.index))
+                if !failed.isEmpty {
+                    log.rules.removeAll { failed.contains($0) }
+                    reqBodyRules.removeAll { failed.contains($0.index) }
+                }
             } else {
                 reqPlan = NativeRequestBodyPlan(rules: reqBodyRules, length: r.contentLength)
             }
