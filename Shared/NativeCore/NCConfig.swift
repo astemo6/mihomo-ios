@@ -89,6 +89,7 @@ struct NCConfig: Equatable {
     var groups: [NCProxyGroup]
     var rules: [String]
     var dns: NCDNSConfig
+    var sniffer: NCSnifferConfig = NCSnifferConfig(fields: [:])
     var raw: [String: NCJSONValue]
     /// Named sub-rule sets (`sub-rules:` in the source config), parsed.
     /// Only the mihomo-YAML path carries them; other construction sites
@@ -134,6 +135,7 @@ struct NCConfig: Equatable {
             groups: groups,
             rules: rules,
             dns: dns,
+            sniffer: NCSnifferConfig(fields: root["sniffer"]?.object ?? [:]),
             raw: root,
             subRules: subRules)
     }

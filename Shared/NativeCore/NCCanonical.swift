@@ -305,7 +305,8 @@ struct NCCanonicalConfig: Equatable {
         }
         return NCConfig(mode: mode, logLevel: logLevel, ipv6: ipv6,
                         proxies: nodes, groups: groups.map { $0.legacy() }, rules: rules,
-                        dns: NCDNSConfig(fields: dnsFields), raw: raw)
+                        dns: NCDNSConfig(fields: dnsFields),
+                        sniffer: NCSnifferConfig(fields: [:]), raw: raw)
     }
 }
 
