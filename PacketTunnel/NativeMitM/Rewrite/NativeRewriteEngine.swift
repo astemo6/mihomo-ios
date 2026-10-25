@@ -321,7 +321,10 @@ final class NativeRewriteEngine {
     func decide(_ q: RewriteRequest, bodies: Bool, scripts: Bool, requestScripts state: RequestScriptState,
                 pause: inout RequestScriptPause?) -> RewriteDecision {
         pause = nil
-        return decideCore(q, bodies: bodies, scripts: scripts, requestScripts: capture ? nil : state, pause: &pause)
+        // Go recorded a request script's body for capture, so with capture on the request used to be left to Go.
+        // Go-free there is no Go to take it: capture (captureBodies, default ON) must not switch request scripts
+        // off — the response side already reads `capture && !goFree` the same way.
+        return decideCore(q, bodies: bodies, scripts: scripts, requestScripts: (capture && !Self.goFree) ? nil : state, pause: &pause)
     }
 
     private func decideCore(_ q: RewriteRequest, bodies: Bool, scripts: Bool, requestScripts: RequestScriptState?,

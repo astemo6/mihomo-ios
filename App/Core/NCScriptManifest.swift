@@ -568,6 +568,14 @@ enum NCScriptManifest {
   if (hasResp) {
     ctx.response = withBody({ status: $response.status, headers: makeHeaders($response.headers) }, $response.body);
   }
+  // nc-script-runtime: the dns / rule hook phases have no $request; TernPrelude.js installs the phase's native
+  // ctx as a global (ctx.request = the dns query + answers / the rule connection context). This adapter's local
+  // ctx shadows it, so take its request (and env, should the setup's be absent) — otherwise ctx.request is
+  // undefined there and every Egern dns / rule script throws and fails open.
+  if (!hasReq && !hasResp && typeof globalThis.ctx === 'object' && globalThis.ctx && globalThis.ctx.request) {
+    ctx.request = globalThis.ctx.request;
+    if (!ctx.env) ctx.env = globalThis.ctx.env || {};
+  }
   function texts(node, out) {
     if (!node || typeof node !== 'object') return out;
     if (typeof node.text === 'string' && node.text !== '') out.push(node.text);
