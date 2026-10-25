@@ -848,7 +848,18 @@ enum NCConnector {
             if existing.isAlive {
                 completion(existing, nil)
             } else if existing.state == .connecting {
-                waitMuxReady(existing, key: key, queue: queue, attempts: 60, completion: completion)
+                // nc-sessions: readiness is a one-shot waiter on the session (no 0.25 s polling); the
+                // registry cleanup on failure stays here, in the waiter's callback.
+                existing.whenReady(callerQueue: queue) { err in
+                    if let err {
+                        muxLock.lock()
+                        if muxRegistry[key] === existing { muxRegistry.removeValue(forKey: key) }
+                        muxLock.unlock()
+                        completion(nil, err)
+                    } else {
+                        completion(existing, nil)
+                    }
+                }
             } else {
                 muxLock.lock()
                 muxRegistry.removeValue(forKey: key)
@@ -857,40 +868,21 @@ enum NCConnector {
             }
             return
         }
-        let session = NCMuxSession()
+        let session = NCMuxSession(key: key)
         muxRegistry[key] = session
         muxLock.unlock()
-        connectViaProxy(target: NCMux.destination, proxy: proxy, queue: queue, allowMux: false) { base, err in
+        // nc-sessions: the base connection is dialed on the session's own queue, so its callbacks (and with
+        // them all session state) live there; the registry completion is handed back on the caller's queue.
+        connectViaProxy(target: NCMux.destination, proxy: proxy, queue: session.queue, allowMux: false) { base, err in
             if let base {
                 session.attach(base: base)
-                completion(session, nil)
+                queue.async { completion(session, nil) }
             } else {
                 muxLock.lock()
                 muxRegistry.removeValue(forKey: key)
                 muxLock.unlock()
                 session.attachFailed()
-                completion(nil, err ?? Failure.handshake("mux dial failed"))
-            }
-        }
-    }
-
-    private static func waitMuxReady(_ session: NCMuxSession, key: String, queue: DispatchQueue, attempts: Int,
-                                     completion: @escaping (NCMuxSession?, Error?) -> Void) {
-        switch session.state {
-        case .ready:
-            completion(session, nil)
-        case .failed:
-            muxLock.lock()
-            if muxRegistry[key] === session { muxRegistry.removeValue(forKey: key) }
-            muxLock.unlock()
-            completion(nil, Failure.handshake("mux session failed"))
-        case .connecting:
-            guard attempts > 0 else {
-                completion(nil, Failure.handshake("mux connect timeout"))
-                return
-            }
-            queue.asyncAfter(deadline: .now() + 0.25) {
-                waitMuxReady(session, key: key, queue: queue, attempts: attempts - 1, completion: completion)
+                queue.async { completion(nil, err ?? Failure.handshake("mux dial failed")) }
             }
         }
     }
@@ -909,7 +901,16 @@ enum NCConnector {
             if existing.isAlive {
                 completion(existing, nil)
             } else if existing.state == .connecting {
-                waitAnyTLSReady(existing, key: key, queue: queue, attempts: 60, completion: completion)
+                existing.whenReady(callerQueue: queue) { err in
+                    if let err {
+                        anytlsLock.lock()
+                        if anytlsRegistry[key] === existing { anytlsRegistry.removeValue(forKey: key) }
+                        anytlsLock.unlock()
+                        completion(nil, err)
+                    } else {
+                        completion(existing, nil)
+                    }
+                }
             } else {
                 anytlsLock.lock()
                 anytlsRegistry.removeValue(forKey: key)
@@ -923,45 +924,25 @@ enum NCConnector {
             queue.async { completion(nil, Failure.handshake("anytls missing password")) }
             return
         }
-        let session = NCAnyTLSSession()
+        let session = NCAnyTLSSession(key: key)
         anytlsRegistry[key] = session
         anytlsLock.unlock()
+        // nc-sessions: the base TLS connection runs on the session's own queue (see muxSession).
         let tls = NCStream(to: server, port: port,
                            tlsServerName: proxy.fields["sni"]?.string ?? proxy.fields["servername"]?.string ?? server,
                            allowInsecure: proxy.fields["skip-cert-verify"]?.bool ?? false,
-                           queue: queue)
+                           queue: session.queue)
         tls.start { err in
             if err == nil {
                 session.attach(tls: tls, password: password,
                                clientMetadata: proxy.fields["client-metadata"]?.string ?? "")
-                completion(session, nil)
+                queue.async { completion(session, nil) }
             } else {
                 anytlsLock.lock()
                 anytlsRegistry.removeValue(forKey: key)
                 anytlsLock.unlock()
                 session.attachFailed()
-                completion(nil, err)
-            }
-        }
-    }
-
-    private static func waitAnyTLSReady(_ session: NCAnyTLSSession, key: String, queue: DispatchQueue, attempts: Int,
-                                        completion: @escaping (NCAnyTLSSession?, Error?) -> Void) {
-        switch session.state {
-        case .ready:
-            completion(session, nil)
-        case .failed:
-            anytlsLock.lock()
-            if anytlsRegistry[key] === session { anytlsRegistry.removeValue(forKey: key) }
-            anytlsLock.unlock()
-            completion(nil, Failure.handshake("anytls session failed"))
-        case .connecting:
-            guard attempts > 0 else {
-                completion(nil, Failure.handshake("anytls connect timeout"))
-                return
-            }
-            queue.asyncAfter(deadline: .now() + 0.25) {
-                waitAnyTLSReady(session, key: key, queue: queue, attempts: attempts - 1, completion: completion)
+                queue.async { completion(nil, err) }
             }
         }
     }
