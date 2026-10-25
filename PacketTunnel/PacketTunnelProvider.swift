@@ -377,6 +377,7 @@ final class PacketTunnelProvider: NEPacketTunnelProvider {
         // and this diagnostic needs no app-side change — any existing
         // sendProviderMessage path can send the string. Runs off the NE
         // callback thread; the reply is the full report.
+        #if DEBUG
         if cmd == "lifecycleTest" {
             DispatchQueue.global(qos: .utility).async {
                 let report = self.core.runLifecycleSelfTest()
@@ -384,6 +385,7 @@ final class PacketTunnelProvider: NEPacketTunnelProvider {
             }
             return
         }
+        #endif
         switch TunnelMessage(rawValue: cmd) {
         case .reload, .reloadHot:
             let hot = TunnelMessage(rawValue: cmd) == .reloadHot
