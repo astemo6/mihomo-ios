@@ -261,10 +261,11 @@ enum NCChaCha {
         }
         var state = constants + words(key) + words(nonce)
         func qr(_ a: Int, _ b: Int, _ c: Int, _ d: Int) {
+            // ChaCha quarter round rotates LEFT by 16, 12, 8, 7 (= right by 16, 20, 24, 25).
             state[a] = state[a] &+ state[b]; state[d] = (state[d] ^ state[a]).rotated(right: 16)
-            state[c] = state[c] &+ state[d]; state[b] = (state[b] ^ state[c]).rotated(right: 12)
-            state[a] = state[a] &+ state[b]; state[d] = (state[d] ^ state[a]).rotated(right: 8)
-            state[c] = state[c] &+ state[d]; state[b] = (state[b] ^ state[c]).rotated(right: 7)
+            state[c] = state[c] &+ state[d]; state[b] = (state[b] ^ state[c]).rotated(right: 20)
+            state[a] = state[a] &+ state[b]; state[d] = (state[d] ^ state[a]).rotated(right: 24)
+            state[c] = state[c] &+ state[d]; state[b] = (state[b] ^ state[c]).rotated(right: 25)
         }
         for _ in 0..<10 {
             qr(0, 4, 8, 12); qr(1, 5, 9, 13); qr(2, 6, 10, 14); qr(3, 7, 11, 15)

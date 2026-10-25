@@ -214,9 +214,14 @@ enum NCYAML {
             if t == "|" || t == ">" || t.hasPrefix("|-") || t.hasPrefix(">-") || t.hasPrefix("|+") || t.hasPrefix(">+") {
                 return .string(parseBlockScalar(folded: t.hasPrefix(">"), parentIndent: blockIndent, i: &i))
             }
-            var rest = Substring(t)
-            if let value = parseFlow(&rest) {
-                return value
+            // Flow collections only: a block-context plain scalar may contain ',' / ']' / '}' (rules such as
+            // "DOMAIN-SUFFIX,google.com,Proxy"), which the flow scalar reader would cut at the first comma.
+            // Quoted scalars go through scalar(), which reuses the flow string reader.
+            if t.hasPrefix("[") || t.hasPrefix("{") {
+                var rest = Substring(t)
+                if let value = parseFlow(&rest) {
+                    return value
+                }
             }
             return Self.scalar(t)
         }

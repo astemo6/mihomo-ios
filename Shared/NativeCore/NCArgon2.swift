@@ -60,8 +60,10 @@ enum NCBlake2b {
             m[i] = w
         }
         var v = h + iv
-        v[4] ^= count
-        if last { v[5] = ~v[5] }
+        // RFC 7693 §3.2: the offset counter goes into v[12] (low word; v[13] high word is 0 for < 2^64 bytes)
+        // and the final-block flag inverts v[14].
+        v[12] ^= count
+        if last { v[14] = ~v[14] }
         func g(_ a: Int, _ b: Int, _ c: Int, _ d: Int, _ x: UInt64, _ y: UInt64) {
             v[a] = v[a] &+ v[b] &+ x
             v[d] = (v[d] ^ v[a]).rotated(right: 32)
