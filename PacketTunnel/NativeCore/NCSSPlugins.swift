@@ -801,6 +801,12 @@ extension NCConnector {
                                  fingerprint: proxy.fields["client-fingerprint"]?.string,
                                  queue: queue, completion: completion)
             }
+        case "restls":
+            // feat/native-core-eval: restls over the hand-rolled TLS client (NCRestls.swift).
+            plainRaw { raw, err in
+                guard let raw else { completion(nil, err); return }
+                restlsStream(raw: raw, proxy: proxy, queue: queue, completion: completion)
+            }
         default:
             plainRaw(completion)
         }

@@ -23,6 +23,8 @@ final class NCTLSClientStream: NCRelayStream {
         var sessionIDGenerator: ((Data) -> Data?)? = nil
         /// Offer TLS 1.2 only (no supported_versions) — shadow-tls v1 (feat/nc-proto3).
         var maxTLS12: Bool = false
+        /// SS restls plugin (NCRestls.swift): session ID, server auth, restls application records.
+        var restls: NCRestlsSession? = nil
     }
 
     enum TLSError: Error {
@@ -130,6 +132,8 @@ final class NCTLSClientStream: NCRelayStream {
         } else if let gen = config.sessionIDGenerator {
             guard let sid = gen(hello), sid.count == 32 else { throw TLSError.handshake("session ID generator") }
             wireHello.replaceSubrange(39..<(39 + 32), with: sid)
+        } else if let restls = config.restls {
+            wireHello.replaceSubrange(39..<(39 + 32), with: restls.sessionID(hello: hello))
         }
         transcript.append(wireHello)
         sendRecord(type: 22, payload: wireHello)
@@ -190,7 +194,11 @@ final class NCTLSClientStream: NCRelayStream {
 
     private func handleRecord(type: UInt8, header: Data, payload: Data) {
         if let suite12 = tls12 {
-            handleRecord12(suite: suite12, type: type, payload: payload)
+            handleRecord12(suite: suite12, type: type, header: header, payload: payload)
+            return
+        }
+        if let restls = config.restls, handshakeDone, restls.authed {
+            handleRestlsRecord13(restls, type: type, header: header, payload: payload)
             return
         }
         switch type {
@@ -204,8 +212,22 @@ final class NCTLSClientStream: NCRelayStream {
             return
         case 22, 23:
             if readKey != nil {
-                guard let plain = NCTLS13.openRecord(suite: suite, key: readKey!, iv: readIV!, seq: readSeq,
-                                                     header: header, sealed: payload) else {
+                var opened: Data?
+                if let restls = config.restls, restls.authPending {
+                    // restls server auth: the first encrypted server record is masked (NCRestls.swift).
+                    restls.authPending = false
+                    opened = NCTLS13.openRecord(suite: suite, key: readKey!, iv: readIV!, seq: readSeq,
+                                                header: header, sealed: restls.maskedAuthPayload(payload))
+                    guard opened != nil else {
+                        fail(TLSError.handshake("restls: server authentication failed (not a restls server or wrong password)"))
+                        return
+                    }
+                    restls.authed = true
+                } else {
+                    opened = NCTLS13.openRecord(suite: suite, key: readKey!, iv: readIV!, seq: readSeq,
+                                                header: header, sealed: payload)
+                }
+                guard let plain = opened else {
                     fail(TLSError.handshake("record decrypt failed"))
                     return
                 }
@@ -351,6 +373,10 @@ final class NCTLSClientStream: NCRelayStream {
         let sk = NCTLS13.trafficKeyIV(kind, suite: suite, secret: sHS)
         writeKey = ck.key; writeIV = ck.iv; writeSeq = 0; writeSecret = cHS
         readKey = sk.key; readIV = sk.iv; readSeq = 0; readSecret = sHS
+        if let restls = config.restls {
+            restls.serverRandom = [UInt8](serverRandom)
+            restls.authPending = true
+        }
     }
 
     private var handshakeSecretStored: Data?
@@ -448,7 +474,8 @@ final class NCTLSClientStream: NCRelayStream {
         finished.append(0x00)
         finished.appendBE16(UInt16(verifyData.count))
         finished.append(verifyData)
-        sendEncryptedHandshake(finished)
+        let finishedRecord = sendEncryptedHandshake(finished)
+        if let restls = config.restls, restls.authed { restls.clientFinished = finishedRecord.map { [UInt8]($0) } }
         // Switch to application keys.
         let ck = NCTLS13.trafficKeyIV(kind, suite: suite, secret: cAP)
         let sk = NCTLS13.trafficKeyIV(kind, suite: suite, secret: sAP)
@@ -498,8 +525,9 @@ final class NCTLSClientStream: NCRelayStream {
         raw.send(record)
     }
 
-    private func sendEncryptedHandshake(_ message: Data) {
-        guard let writeKey, let writeIV else { return }
+    @discardableResult
+    private func sendEncryptedHandshake(_ message: Data) -> Data? {
+        guard let writeKey, let writeIV else { return nil }
         var plain = message
         plain.append(0x16) // inner content type: handshake
         var header = Data()
@@ -507,10 +535,11 @@ final class NCTLSClientStream: NCRelayStream {
         header.appendBE16(0x0303)
         header.appendBE16(UInt16(plain.count + 16))
         guard let sealed = NCTLS13.sealRecord(suite: suite, key: writeKey, iv: writeIV, seq: writeSeq,
-                                              header: header, plaintext: plain) else { return }
+                                              header: header, plaintext: plain) else { return nil }
         writeSeq += 1
         header.append(sealed)
         raw.send(header)
+        return header
     }
 
     // MARK: NCRelayStream
@@ -518,6 +547,10 @@ final class NCTLSClientStream: NCRelayStream {
     func send(_ data: Data) {
         guard handshakeDone, failed == nil else {
             writeBuffer.append(data)
+            return
+        }
+        if let restls = config.restls, restls.authed {
+            for record in restls.records(for: data) { raw.send(record) }
             return
         }
         if let suite12 = tls12 {
@@ -668,6 +701,10 @@ extension NCTLSClientStream {
         tls12 = suite
         kind = suite.hashKind
         transcript.append(message)
+        if let restls = config.restls {
+            restls.serverRandom = [UInt8](serverRandom)
+            restls.gcm12 = !suite.isChaCha // restls tls12GCMCiphers = c02f c02b c030 c02c
+        }
     }
 
     fileprivate func processHandshake12(type: UInt8, message: Data) {
@@ -733,8 +770,10 @@ extension NCTLSClientStream {
     }
 
     private func sendClientFlight12() {
+        // restls (tls12 hint): the eager key whose public half the session ID committed to.
+        let eager = config.restls.flatMap { r in tls12SKE.flatMap { r.eagerECDHE(group: $0.group, serverPublic: $0.publicKey) } }
         guard let suite = tls12, let ske = tls12SKE,
-              let (pub, pms) = NCTLS12.ecdhe(group: ske.group, serverPublic: ske.publicKey) else {
+              let (pub, pms) = eager ?? NCTLS12.ecdhe(group: ske.group, serverPublic: ske.publicKey) else {
             fail(TLSError.handshake("ECDHE failed (curve not supported)"))
             return
         }
@@ -782,16 +821,35 @@ extension NCTLSClientStream {
         raw.send(record)
     }
 
-    fileprivate func handleRecord12(suite: NCTLS12.Suite, type: UInt8, payload: Data) {
+    fileprivate func handleRecord12(suite: NCTLS12.Suite, type: UInt8, header: Data, payload: Data) {
         if type == 20 { // ChangeCipherSpec: server switches to the negotiated keys
             tls12ReadOn = true
             readSeq = 0
+            if let restls = config.restls, !restls.authed { restls.authPending = true }
+            return
+        }
+        if let restls = config.restls, handshakeDone, restls.authed {
+            handleRestlsRecord12(restls, suite: suite, type: type, header: header, payload: payload)
             return
         }
         var content = payload
         if tls12ReadOn {
-            guard let plain = NCTLS12.open(suite: suite, key: tls12ServerKey, iv: tls12ServerIV, seq: readSeq,
-                                           type: type, payload: payload) else {
+            var opened: Data?
+            if let restls = config.restls, restls.authPending {
+                // restls server auth: the server Finished record is masked (NCRestls.swift).
+                restls.authPending = false
+                opened = NCTLS12.open(suite: suite, key: tls12ServerKey, iv: tls12ServerIV, seq: readSeq,
+                                      type: type, payload: restls.maskedAuthPayload(payload))
+                guard opened != nil else {
+                    fail(TLSError.handshake("restls: server authentication failed (not a restls server or wrong password)"))
+                    return
+                }
+                restls.authed = true
+            } else {
+                opened = NCTLS12.open(suite: suite, key: tls12ServerKey, iv: tls12ServerIV, seq: readSeq,
+                                      type: type, payload: payload)
+            }
+            guard let plain = opened else {
                 fail(TLSError.handshake("record decrypt failed"))
                 return
             }
@@ -815,6 +873,83 @@ extension NCTLSClientStream {
             deliverAppData(content)
         default:
             return
+        }
+    }
+}
+
+// MARK: - restls application records (NCRestls.swift)
+
+extension NCTLSClientStream {
+    /// After a restls handshake: a server record is either a restls record (data + command) or a real TLS record
+    /// relayed from the camouflage server (decrypted with the real keys, application data dropped).
+    fileprivate func restlsAccept(_ restls: NCRestlsSession, header: Data, payload: Data, realOpen: () -> Bool) {
+        if header.first == 21 { // Go: an outer alert after auth is treated as fatal bad_record_mac
+            fail(TLSError.handshake("restls: alert from server"))
+            return
+        }
+        guard let (data, command) = restls.extract(header: header, payload: payload) else {
+            let ok = realOpen()
+            restls.toClientCounter &+= 1
+            if !ok { fail(TLSError.handshake("restls: record authentication failed")) }
+            return
+        }
+        if restls.writePending {
+            restls.writePending = false
+            for record in restls.records(for: Data()) { raw.send(record) }
+        }
+        restls.toClientCounter &+= 1
+        if case .response(let k) = command {
+            for _ in 0..<Int(k) {
+                for record in restls.records(for: Data(), fakeResponse: true) { raw.send(record) }
+            }
+        }
+        deliverAppData(data)
+    }
+
+    fileprivate func handleRestlsRecord13(_ restls: NCRestlsSession, type: UInt8, header: Data, payload: Data) {
+        if type == 20 { return }
+        restlsAccept(restls, header: header, payload: payload) {
+            guard let readKey, let readIV,
+                  let plain = NCTLS13.openRecord(suite: suite, key: readKey, iv: readIV, seq: readSeq,
+                                                 header: header, sealed: payload) else { return false }
+            readSeq += 1
+            guard let innerType = plain.last else { return true }
+            let content = Data(plain.dropLast())
+            switch innerType {
+            case 22: handleHandshakeBytes(content) // NewSessionTicket / KeyUpdate
+            case 21: closed = true; deliverEOFOrError(nil)
+            default: break                         // camouflage application data: dropped
+            }
+            return true
+        }
+    }
+
+    fileprivate func handleRestlsRecord12(_ restls: NCRestlsSession, suite: NCTLS12.Suite, type: UInt8,
+                                          header: Data, payload: Data) {
+        if type == 20 { return }
+        restlsAccept(restls, header: header, payload: payload) {
+            var p = payload
+            if restls.gcm12 && !restls.gcmServerDisableCtr && p.count >= 8 {
+                // The real records' explicit nonces were rewritten by the restls server: restore the real sequence.
+                restls.toClientRealRecordCounter &+= 1
+                let c = NCRestls.be64(restls.toClientRealRecordCounter)
+                var b = [UInt8](p)
+                for i in 0..<8 { b[i] = c[i] }
+                p = Data(b)
+            }
+            guard let plain = NCTLS12.open(suite: suite, key: tls12ServerKey, iv: tls12ServerIV, seq: readSeq,
+                                           type: type, payload: p) else { return false }
+            readSeq += 1
+            switch type {
+            case 22: handleHandshakeBytes(plain)
+            case 21:
+                if plain.count >= 2, plain[plain.startIndex] == 2 || plain[plain.startIndex + 1] == 0 {
+                    closed = true
+                    deliverEOFOrError(nil)
+                }
+            default: break
+            }
+            return true
         }
     }
 }

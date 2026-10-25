@@ -58,7 +58,7 @@ enum NCSupport {
     }
 
     /// nil = plugin supported; else the reason (mirrors mihomo NewShadowSocks' option checks;
-    /// obfs http/tls, v2ray-plugin websocket (+tls, mux), shadow-tls v1/v2/v3, gost-plugin websocket (+tls, smux) are implemented in NCSSPlugins).
+    /// obfs http/tls, v2ray-plugin websocket (+tls, mux), shadow-tls v1/v2/v3, gost-plugin websocket (+tls, smux) are implemented in NCSSPlugins; restls in NCRestls).
     static func ssPluginUnsupported(_ proxy: NCProxy) -> String? {
         guard let plugin = proxy.fields["plugin"]?.string, !plugin.isEmpty else { return nil }
         let opts = proxy.fields["plugin-opts"]?.object ?? [:]
@@ -76,6 +76,13 @@ enum NCSupport {
         case "shadow-tls":
             let v = opts["version"]?.int ?? 2
             return (1...3).contains(v) ? nil : "shadow-tls v\(v)"
+        case "restls":
+            // NCRestls (PacketTunnel): version-hint tls12 / tls13, restls-script, client-fingerprint, skip-cert-verify.
+            let hint = (opts["version-hint"]?.string ?? "").lowercased()
+            if hint != "tls12" && hint != "tls13" { return "restls version-hint \(hint)" }
+            if !(opts["fingerprint"]?.string ?? "").isEmpty { return "restls fingerprint (证书指纹固定)" }
+            if !(opts["name-cert-verify"]?.string ?? "").isEmpty { return "restls name-cert-verify" }
+            return nil
         default:
             return plugin
         }
