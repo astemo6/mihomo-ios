@@ -54,8 +54,16 @@ enum NativeRequestLogFile {
     private static let lock = NSLock()
 
     /// Appends one finished entry (tunnel).
+    /// fix/nc-storage-other: one line never exceeds this; a bigger record is stored as its summary (no headers /
+    /// body), so the ring stays at ~2 × segmentMax however large a single record is.
+    static let lineMax = 64 * 1024
+
     static func append(_ e: NativeRequestLogEntry) {
         guard var line = try? JSONEncoder().encode(e) else { return }
+        if line.count > lineMax {
+            guard let small = try? JSONEncoder().encode(e.summary), small.count <= lineMax else { return }
+            line = small
+        }
         line.append(0x0A)
         lock.lock(); defer { lock.unlock() }
         let path = url.path
