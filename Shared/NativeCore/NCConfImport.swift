@@ -159,6 +159,22 @@ enum NCConfImport {
         fields["plugin-opts"] = .object(opts)
     }
 
+    /// Apply Surge/Loon `ech=...` / `ech-opts=...` / `ech-config=...` options into `fields["ech-opts"]`.
+    static func applyECH(kv: [String: String], consumed: inout Set<String>,
+                         fields: inout [String: NCJSONValue]) {
+        guard kv["ech"] != nil || kv["ech-opts"] != nil || kv["ech-config"] != nil else { return }
+        var q: [String: String] = [:]
+        if let v = kv["ech"] { consumed.insert("ech"); q["ech"] = v }
+        if let v = kv["ech-opts"] { consumed.insert("ech-opts"); q["ech"] = v }
+        if let v = kv["ech-config"] { consumed.insert("ech-config"); q["ech-config"] = v }
+        if let v = kv["ech-qsn"] { consumed.insert("ech-qsn"); q["ech-qsn"] = v }
+        if let v = kv["ech-query-server-name"] { consumed.insert("ech-query-server-name"); q["ech-qsn"] = v }
+        if let v = kv["query-server-name"] { consumed.insert("query-server-name"); q["ech-qsn"] = v }
+        if let opts = NCECHOpts.parse(query: q) {
+            fields["ech-opts"] = .object(opts.toObject())
+        }
+    }
+
     /// Parse a Surge `ws-headers` value ("Host:cdn.example.com", several
     /// headers separated by '|') into a header map.
     static func parseWSHeaders(_ value: String) -> [String: String] {
@@ -285,6 +301,7 @@ enum NCConfImport {
         if let v = take("udp-relay") ?? take("udp"), let b = boolValue(v) { fields["udp"] = .bool(b) }
         if let v = take("tfo") ?? take("fast-open"), let b = boolValue(v) { fields["tfo"] = .bool(b) }
         if let v = take("skip-cert-verify"), let b = boolValue(v) { fields["skip-cert-verify"] = .bool(b) }
+        applyECH(kv: kv, consumed: &consumed, fields: &fields)
 
         switch type {
         case "ss":
