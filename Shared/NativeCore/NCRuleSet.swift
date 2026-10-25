@@ -35,6 +35,7 @@ struct NCRuleSetIndex {
     private(set) var exactDomains: Set<String> = []
     private var suffixRoot = NCSuffixTrieNode()
     private(set) var mrsDomainSet: NCMRSDomainSet? = nil
+    private(set) var mrsIPCIDRSet: NCMRSIPCIDRSet? = nil
     private(set) var others: [NCRule] = [] // keywords, wildcards, regex, CIDRs, GEOIP, ASN, ports…
     private(set) var entryCount = 0
 
@@ -129,6 +130,21 @@ struct NCRuleSetIndex {
         entryCount += domainSet.ruleCount
     }
 
+    mutating func addMRSIPCIDR(_ ipcidrSet: NCMRSIPCIDRSet) {
+        mrsIPCIDRSet = ipcidrSet
+        entryCount += ipcidrSet.ruleCount
+    }
+
+    mutating func addMRS(data: Data, behavior: String? = nil) throws {
+        let payload = try NCMRS.decode(data: data, expectedBehavior: behavior)
+        switch payload {
+        case .domain(let d):
+            addMRSDomain(d)
+        case .ipcidr(let i):
+            addMRSIPCIDR(i)
+        }
+    }
+
     // MARK: matching
 
     func contains(_ ctx: NCMatchContext) -> Bool {
@@ -136,6 +152,9 @@ struct NCRuleSetIndex {
             if exactDomains.contains(d) { return true }
             if suffixRoot.matches(host: d) { return true }
             if let ds = mrsDomainSet, ds.has(d) { return true }
+        }
+        if let ip = ctx.ip {
+            if let iset = mrsIPCIDRSet, iset.contains(ip) { return true }
         }
         if others.isEmpty { return false }
         // Rule-set entries must not recurse into other rule sets.

@@ -397,11 +397,170 @@ struct NCMRSDomainSet: Equatable {
     }
 }
 
-// Placeholder for IPCIDR set (completed in next step)
+// MARK: - IPCIDR Set (Behavior: ipcidr)
+
+/// IPv4 range [from, to] inclusive.
+struct NCV4Range: Equatable {
+    let from: UInt32
+    let to: UInt32
+}
+
+/// 128-bit IPv6 address represented as two UInt64 words for fast arithmetic and register comparison.
+struct NCV6Addr: Comparable, Equatable {
+    let hi: UInt64
+    let lo: UInt64
+
+    init(bytes: [UInt8]) {
+        var h: UInt64 = 0
+        var l: UInt64 = 0
+        for i in 0..<min(8, bytes.count) {
+            h = (h << 8) | UInt64(bytes[i])
+        }
+        for i in 8..<min(16, bytes.count) {
+            l = (l << 8) | UInt64(bytes[i])
+        }
+        self.hi = h
+        self.lo = l
+    }
+
+    init(hi: UInt64, lo: UInt64) {
+        self.hi = hi
+        self.lo = lo
+    }
+
+    static func < (lhs: NCV6Addr, rhs: NCV6Addr) -> Bool {
+        if lhs.hi != rhs.hi {
+            return lhs.hi < rhs.hi
+        }
+        return lhs.lo < rhs.lo
+    }
+}
+
+/// IPv6 range [from, to] inclusive.
+struct NCV6Range: Equatable {
+    let from: NCV6Addr
+    let to: NCV6Addr
+}
+
+/// Range-set representation of IP-CIDR rules decoded from MRS ipcidr behavior.
+/// Matches Mihomo's `component/cidr/ipcidr_set.go` and `ipcidr_set_bin.go`.
 struct NCMRSIPCIDRSet: Equatable {
+    let v4Ranges: [NCV4Range]
+    let v6Ranges: [NCV6Range]
     let ruleCount: Int
+
     static func decode(reader: inout NCMRSByteReader, ruleCount: Int) throws -> NCMRSIPCIDRSet {
-        return NCMRSIPCIDRSet(ruleCount: ruleCount)
+        let version = try reader.readByte()
+        guard version == 1 else {
+            throw NCMRSError.invalidVersion(version)
+        }
+
+        let length = try reader.readInt64BE()
+        guard length >= 0 else {
+            throw NCMRSError.corrupted("IPCIDR ranges length must be >= 0, got \(length)")
+        }
+
+        var v4 = [NCV4Range]()
+        var v6 = [NCV6Range]()
+        v4.reserveCapacity(Int(min(length, 10000)))
+        v6.reserveCapacity(Int(min(length, 10000)))
+
+        for _ in 0..<length {
+            let fromData = try reader.readBytes(16)
+            let toData = try reader.readBytes(16)
+
+            let fromBytes = [UInt8](fromData)
+            let toBytes = [UInt8](toData)
+
+            let fromIsV4Mapped = isV4Mapped(fromBytes)
+            let toIsV4Mapped = isV4Mapped(toBytes)
+
+            if fromIsV4Mapped && toIsV4Mapped {
+                let fromVal = parseV4UInt32(fromBytes, offset: 12)
+                let toVal = parseV4UInt32(toBytes, offset: 12)
+                v4.append(NCV4Range(from: min(fromVal, toVal), to: max(fromVal, toVal)))
+            } else {
+                let fromAddr = NCV6Addr(bytes: fromBytes)
+                let toAddr = NCV6Addr(bytes: toBytes)
+                if fromAddr < toAddr {
+                    v6.append(NCV6Range(from: fromAddr, to: toAddr))
+                } else {
+                    v6.append(NCV6Range(from: toAddr, to: fromAddr))
+                }
+            }
+        }
+
+        v4.sort { $0.from < $1.from }
+        v6.sort { $0.from < $1.from }
+
+        return NCMRSIPCIDRSet(
+            v4Ranges: v4,
+            v6Ranges: v6,
+            ruleCount: ruleCount > 0 ? ruleCount : (v4.count + v6.count)
+        )
+    }
+
+    private static func isV4Mapped(_ b: [UInt8]) -> Bool {
+        guard b.count == 16 else { return false }
+        for i in 0..<10 {
+            if b[i] != 0 { return false }
+        }
+        return b[10] == 0xff && b[11] == 0xff
+    }
+
+    private static func parseV4UInt32(_ b: [UInt8], offset: Int) -> UInt32 {
+        guard offset + 4 <= b.count else { return 0 }
+        return (UInt32(b[offset]) << 24) |
+               (UInt32(b[offset + 1]) << 16) |
+               (UInt32(b[offset + 2]) << 8) |
+               UInt32(b[offset + 3])
+    }
+
+    func contains(_ ip: NCIP) -> Bool {
+        switch ip {
+        case .v4(let v):
+            return containsV4(v)
+        case .v6(let b):
+            if Self.isV4Mapped(b) {
+                let v = Self.parseV4UInt32(b, offset: 12)
+                return containsV4(v)
+            }
+            return containsV6(NCV6Addr(bytes: b))
+        }
+    }
+
+    func containsV4(_ val: UInt32) -> Bool {
+        var low = 0
+        var high = v4Ranges.count - 1
+        while low <= high {
+            let mid = (low + high) / 2
+            let r = v4Ranges[mid]
+            if val < r.from {
+                high = mid - 1
+            } else if val > r.to {
+                low = mid + 1
+            } else {
+                return true
+            }
+        }
+        return false
+    }
+
+    func containsV6(_ addr: NCV6Addr) -> Bool {
+        var low = 0
+        var high = v6Ranges.count - 1
+        while low <= high {
+            let mid = (low + high) / 2
+            let r = v6Ranges[mid]
+            if addr < r.from {
+                high = mid - 1
+            } else if r.to < addr {
+                low = mid + 1
+            } else {
+                return true
+            }
+        }
+        return false
     }
 }
 
