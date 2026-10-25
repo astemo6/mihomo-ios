@@ -307,14 +307,18 @@ final class NCDNSForwarder {
 }
 
 /// Shadowsocks UDP: every datagram is an independent SIP022 AEAD packet
-/// (fresh salt, target header inside), so the stream encoder/decoder are
-/// re-created per packet.
+/// (fresh salt, single zero-nonce seal, target header inside) — see
+/// NCShadowsocks.udpPacketEncode / udpPacketDecode. The TCP stream codec
+/// does NOT apply here: its length-chunk framing fails AEAD verification
+/// at the server and is dropped silently (fix/nc-ss-udp).
 final class NCUDPSSSession: NCUDPSession {
     var onReply: (Data) -> Void = { _ in }
     private let conn: NWConnection
     private let cipher: String
     private let password: String
     private var cancelled = false
+    /// First undecodable reply per session is logged; the rest stay silent.
+    private var dropLogged = false
     /// Set for 2022-blake3-* ciphers: per-session packet crypto (one UDP
     /// session per app flow, matching the session model of the spec).
     private let ss2022: NCSS2022UDPCrypto?
@@ -347,9 +351,12 @@ final class NCUDPSSSession: NCUDPSession {
             if let data {
                 if let ss2022 {
                     if let decoded = ss2022.decodePacket(data) { self.onReply(decoded.1) }
-                } else if let dec = NCSSDecoder(cipher: cipher, password: password),
-                          let plain = dec.feed(data), let payload = Self.stripTargetHeader(plain) {
+                } else if let plain = NCShadowsocks.udpPacketDecode(cipher: cipher, password: password, packet: data),
+                          let payload = Self.stripTargetHeader(plain) {
                     self.onReply(payload)
+                } else if !self.dropLogged {
+                    self.dropLogged = true
+                    NSLog("[NCUDPSSSession] dropped undecodable SS UDP reply (%d bytes); further drops silent", data.count)
                 }
             }
             if error == nil { self.receiveLoop() }
@@ -380,10 +387,10 @@ final class NCUDPSSSession: NCUDPSession {
             conn.send(content: packet, completion: .idempotent)
             return
         }
-        guard let enc = NCSSEncoder(cipher: cipher, password: password) else { return }
         var plain = target.atypEncoded
         plain.append(data)
-        guard plain.count <= 0x3fff, let packet = enc.encode(plain) else { return }
+        guard let packet = NCShadowsocks.udpPacketEncode(cipher: cipher, password: password, plain: plain)
+        else { return }
         conn.send(content: packet, completion: .idempotent)
     }
 
