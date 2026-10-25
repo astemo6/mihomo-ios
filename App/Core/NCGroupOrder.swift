@@ -89,7 +89,12 @@ enum NCGroupOrder {
         guard let data = try? Data(contentsOf: URL(fileURLWithPath: path)) else {
             return GroupOrder.Result(error: "无法读取配置文件")
         }
-        return reorderInto(src: data, dest: path, want: want, always: false)
+        let generated = copyGenerated(path)
+        let r = reorderInto(src: data, dest: path, want: want, always: false)
+        if (r.error ?? "").isEmpty && r.changed == true && generated {
+            markGenerated(path)
+        }
+        return r
     }
 
     static func reorderInto(src: Data, dest: String, want: [String], always: Bool) -> GroupOrder.Result {

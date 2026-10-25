@@ -31,8 +31,7 @@ enum GroupOrder {
 
     /// Group names written in the profile file (the ones that can move).
     nonisolated static func fileNames(_ p: Profile) -> [String] {
-        let json = LibmihomoProfileGroupNames(p.fileURL.path)
-        return (try? JSONDecoder().decode([String].self, from: Data(json.utf8))) ?? []
+        NCGroupOrder.fileGroupNames(path: p.fileURL.path)
     }
 
     /// Display name → name in the file, for groups renamed in 策略组编辑.
@@ -102,7 +101,9 @@ enum GroupOrder {
             // Already a copy: reorder it in place. 手动节点 too: it is the app's own profile (node adds go to it),
             // so a copy would leave later manual nodes behind.
             let path = p.fileURL.path
-            let r = decode(await Task.detached(priority: .userInitiated) { LibmihomoReorderGroups(home, path, json) }.value)
+            let r = await Task.detached(priority: .userInitiated) {
+                NCGroupOrder.reorderFile(path: path, want: order)
+            }.value
             if let e = r.error, !e.isEmpty { return SaveResult(saved: false, message: GoText.localize(e)) }
             storeOrder(r.order ?? order, for: p.id)
             if r.changed == true {
