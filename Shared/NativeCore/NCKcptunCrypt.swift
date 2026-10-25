@@ -61,6 +61,19 @@ struct NCKcptunOptions: Equatable {
             return nil
         }
 
+        // SIP002 / conf plugin args arrive as strings, and kcptun flags may be bare ("nocomp" -> "").
+        // A string "true" read as `.bool` is nil, which silently left compression on against a nocomp server.
+        func flag(_ key: String) -> Bool? {
+            guard let v = lookup(key) else { return nil }
+            if let b = v.bool { return b }
+            if let i = v.int { return i != 0 }
+            switch (v.string ?? "").lowercased() {
+            case "", "true", "yes", "on": return true
+            case "false", "no", "off": return false
+            default: return nil
+            }
+        }
+
         let key = lookup("key")?.string ?? "it's a secrect"
         let crypt = (lookup("crypt")?.string ?? "aes").lowercased()
         if unportedCrypts.contains(crypt) { return (nil, "kcptun crypt \(crypt)") }
@@ -77,8 +90,8 @@ struct NCKcptunOptions: Equatable {
         let dataShard = lookup("datashard")?.int ?? defaultDataShard
         let parityShard = lookup("parityshard")?.int ?? defaultParityShard
         let dscp = lookup("dscp")?.int ?? 0
-        let noComp = lookup("nocomp")?.bool ?? false
-        let ackNoDelay = lookup("acknodelay")?.bool ?? false
+        let noComp = flag("nocomp") ?? false
+        let ackNoDelay = flag("acknodelay") ?? false
 
         var noDelay = 0
         var interval = 30

@@ -50,6 +50,11 @@ final class NativeCoreKcptunTests: XCTestCase {
         XCTAssertNil(opts)
         XCTAssertNotNil(err)
         XCTAssertNotNil(NCKcptunOptions.parse(["crypt": .string("salsa20")]).0)
+        // String-typed flags from SIP002 / conf plugin args.
+        XCTAssertEqual(NCKcptunOptions.parse(["nocomp": .string("true")]).0?.noComp, true)
+        XCTAssertEqual(NCKcptunOptions.parse(["nocomp": .string("")]).0?.noComp, true)
+        XCTAssertEqual(NCKcptunOptions.parse(["nocomp": .bool(false)]).0?.noComp, false)
+        XCTAssertEqual(NCKcptunOptions.parse(["mtu": .string("1200")]).0?.mtu, 1200)
     }
 
     func testFECHeaderAndRecovery() {
