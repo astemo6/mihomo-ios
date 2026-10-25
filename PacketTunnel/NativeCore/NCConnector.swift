@@ -295,7 +295,9 @@ enum NCConnector {
             wireguardStream(proxy: proxy, target: target, queue: queue, completion: completion)
             return
         }
-        guard let server = proxy.server, let port = proxy.port else {
+        // Hysteria v1 may give only `ports` (port hopping, feat/nc-proto2): the first one stands in for `port`.
+        let hy1Port = proxy.type == "hysteria" ? NCHy1Obfs.parsePorts(proxy.fields["ports"]?.string)?.first.map(Int.init) : nil
+        guard let server = proxy.server, let port = proxy.port ?? hy1Port else {
             queue.async { completion(nil, Failure.handshake("proxy \(proxy.name) missing server/port")) }
             return
         }

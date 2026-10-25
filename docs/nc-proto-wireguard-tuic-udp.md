@@ -6,6 +6,11 @@ the plan.
 
 ## 1. TUIC UDP
 
+**Update 2026-10-25 (feat/nc-proto2):** both modes are implemented in PacketTunnel/NativeCore/NCTUICUDP.swift (native =
+datagram flow via `NWProtocolQUIC.Options.isDatagram` + `maxDatagramFrameSize = 1400` on the group; quic = uni
+streams). Hysteria v1 UDP / obfs / wechat-video / port hopping: NCHysteria1UDP.swift (loopback packet shim). All
+compile-unverified at push time; the datagram binding still needs a device check (see the table below).
+
 | relay mode | transport | Network.framework support | plan |
 |---|---|---|---|
 | `quic` | client→server Packet commands on unidirectional streams, server→client on server-opened uni streams | uni streams: yes (`NWProtocolQUIC.Options.direction = .unidirectional`, `group.newConnectionHandler` for incoming) | implement first: `Packet{ver,type=2,assoc_id u16,pkt_id u16,frag_total u8,frag_id u8,size u16,addr}` + payload per uni stream; reassembly per (assoc_id,pkt_id) with a 16-entry cap; Dissociate on session close |

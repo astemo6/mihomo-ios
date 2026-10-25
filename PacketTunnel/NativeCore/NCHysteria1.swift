@@ -3,9 +3,9 @@ import Network
 
 /// Hysteria v1 client (protocol version 3, mihomo v1.19.33 transport/hysteria/core) over Network.framework QUIC
 /// (feat/nc-proto A3, based on astemo6/Muse NativeCore). Same QUIC group model as NCHysteria2Connection.
-/// Scope: TCP over QUIC streams, protocol "udp", no obfs (XPlus works on raw UDP packets, which
-/// Network.framework's QUIC does not expose), no port hopping (the `port` field is dialed). Brutal congestion
-/// control is not available either — the system QUIC congestion controller is used. UDP relay: not yet.
+/// Scope: TCP over QUIC streams; UDP relay over QUIC datagrams; obfs (XPlus), protocol wechat-video and port hopping
+/// (`ports`, `hop-interval`) through the loopback packet shim (NCHysteria1UDP.swift, feat/nc-proto2). Not available:
+/// protocol faketcp (raw sockets) and Brutal congestion control (the system QUIC congestion controller is used).
 enum NCHy1 {
     /// utils.StringToBps: "100" = 100 Mbps; "<n> [KMGT]?[Bb]ps".
     static func bps(_ s: String?) -> UInt64 {
@@ -77,17 +77,34 @@ final class NCHysteria1Connection {
     private let auth: Data
     private let sendBPS: UInt64, recvBPS: UInt64
     private let sni: String, alpn: [String], allowInsecure: Bool
-    private let queue: DispatchQueue
+    let queue: DispatchQueue
     private(set) var state: State = .idle
-    private var group: NWConnectionGroup?
+    private(set) var group: NWConnectionGroup?
+    // Packet layer (feat/nc-proto2): obfs / wechat-video / port hopping run in a loopback shim.
+    private let ports: [UInt16]
+    private let hopInterval: TimeInterval
+    private let obfsKey: Data?
+    private let wechat: Bool
+    private var shim: NCHy1PacketShim?
+    // UDP relay state (NCHysteria1UDP.swift).
+    var udpSessions: [UInt32: (handler: (Data) -> Void, stream: NCHy2StreamChannel)] = [:]
+    var datagramFlow: NWConnection?
+    private var defragger = NCHy1UDP.Defragger()
+    func defragFeed(_ m: NCHy1UDP.Message) -> NCHy1UDP.Message? { defragger.feed(m) }
     private var control: NCHy2StreamChannel?
     private var controlBuffer = Data()
     private var startCompletion: ((Error?) -> Void)?
 
     init?(proxy: NCProxy, queue: DispatchQueue) {
-        guard let server = proxy.server, let port = proxy.port else { return nil }
+        let portList = NCHy1Obfs.parsePorts(proxy.fields["ports"]?.string)
+        guard let server = proxy.server, let port = proxy.port ?? portList?.first.map(Int.init) else { return nil }
         self.server = server
         self.port = port
+        ports = portList ?? []
+        hopInterval = TimeInterval(proxy.fields["hop-interval"]?.int ?? 10)
+        if let o = proxy.fields["obfs"]?.string, !o.isEmpty { obfsKey = Data(o.utf8) } else { obfsKey = nil }
+        let proto = (proxy.fields["obfs-protocol"]?.string ?? proxy.fields["protocol"]?.string ?? "udp").lowercased()
+        wechat = proto == "wechat-video"
         if let a = proxy.fields["auth"]?.string, !a.isEmpty {
             guard let d = Data(base64Encoded: a) else { return nil }
             auth = d
@@ -119,9 +136,25 @@ final class NCHysteria1Connection {
         if !sni.isEmpty { sec_protocol_options_set_tls_server_name(tls, sni) }
         if allowInsecure { sec_protocol_options_set_verify_block(tls, { _, _, complete in complete(true) }, queue) }
         quic.idleTimeout = 30_000
+        quic.maxDatagramFrameSize = 1400 // EnableDatagrams (UDP relay)
+        let shimmed = obfsKey != nil || wechat || ports.count > 1
+        if shimmed { quic.maxUDPPayloadSize = 1200 } // room for the XPlus salt + wechat header on the wire
         let params = NWParameters(quic: quic)
-        let endpoint = NWEndpoint.hostPort(host: NWEndpoint.Host(server),
+        var endpoint = NWEndpoint.hostPort(host: NWEndpoint.Host(server),
                                            port: NWEndpoint.Port(rawValue: UInt16(clamping: port)) ?? .any)
+        if shimmed {
+            // QUIC → 127.0.0.1:<shim> → obfuscated / hopping UDP → server. Leave room for salt + wechat header.
+            guard let sh = NCHy1PacketShim(server: server, ports: ports.isEmpty ? [UInt16(clamping: port)] : ports,
+                                           hopInterval: hopInterval, xplusKey: obfsKey, wechat: wechat, queue: queue),
+                  let lp = NWEndpoint.Port(rawValue: sh.localPort) else {
+                finish(NCConnector.Failure.handshake("hysteria: packet shim failed"))
+                return
+            }
+            shim = sh
+            endpoint = .hostPort(host: "127.0.0.1", port: lp)
+        } else {
+            NCOutboundBinding.apply(params, host: server)
+        }
         let group = NWConnectionGroup(with: NWMultiplexGroup(to: endpoint), using: params)
         self.group = group
         group.stateUpdateHandler = { [weak self] (st: NWConnectionGroup.State) in
@@ -133,7 +166,16 @@ final class NCHysteria1Connection {
                 }
             }
         }
-        group.newConnectionHandler = { incoming in incoming.cancel() }
+        group.newConnectionHandler = { [weak self] incoming in
+            // A server-side flow can only be the datagram flow (v1 servers open no streams).
+            guard let self else { incoming.cancel(); return }
+            incoming.stateUpdateHandler = { [weak self] st in
+                if case .ready = st { self?.readDatagrams(incoming) }
+                if case .failed = st { incoming.cancel() }
+                if case .cancelled = st { incoming.stateUpdateHandler = nil }
+            }
+            incoming.start(queue: self.queue)
+        }
         group.start(queue: queue)
         guard let conn = group.extract(connectionTo: nil, using: nil) else {
             finish(NCConnector.Failure.handshake("hysteria: cannot open control stream"))
@@ -198,6 +240,10 @@ final class NCHysteria1Connection {
 
     func close(keepState: Bool = false) {
         if !keepState { state = .closed }
+        for (_, s) in udpSessions { s.stream.cancel() }
+        udpSessions.removeAll()
+        datagramFlow?.cancel(); datagramFlow = nil
+        shim?.close(); shim = nil
         control?.cancel(); control = nil
         group?.cancel(); group = nil
     }
@@ -338,6 +384,47 @@ extension NCConnector {
             }
             if let s = c.openTCP(target: target) { completion(s, nil) }
             else { completion(nil, Failure.handshake("hysteria open stream failed")) }
+        }
+    }
+
+    /// The shared, authenticated session for a proxy (UDP sessions; feat/nc-proto2). nil on failure.
+    static func hysteria1Shared(proxy: NCProxy, queue: DispatchQueue, completion: @escaping (NCHysteria1Connection?) -> Void) {
+        if NCSupport.hysteriaUnsupported(proxy) != nil { queue.async { completion(nil) }; return }
+        let key = "\(proxy.name)|\(proxy.server ?? "")|\(proxy.port ?? 0)"
+        hy1Lock.lock()
+        if let c = hy1Registry[key], c.state == .ready || c.state == .connecting {
+            hy1Lock.unlock()
+            waitHy1Ready(c, queue: queue, attempts: 60, completion: completion)
+            return
+        }
+        guard let c = NCHysteria1Connection(proxy: proxy, queue: queue) else {
+            hy1Lock.unlock()
+            queue.async { completion(nil) }
+            return
+        }
+        hy1Registry[key] = c
+        hy1Lock.unlock()
+        c.start { err in
+            if err != nil {
+                hy1Lock.lock()
+                if hy1Registry[key] === c { hy1Registry.removeValue(forKey: key) }
+                hy1Lock.unlock()
+                completion(nil)
+                return
+            }
+            completion(c)
+        }
+    }
+
+    private static func waitHy1Ready(_ c: NCHysteria1Connection, queue: DispatchQueue, attempts: Int,
+                                     completion: @escaping (NCHysteria1Connection?) -> Void) {
+        switch c.state {
+        case .ready: completion(c)
+        case .connecting where attempts > 0:
+            queue.asyncAfter(deadline: .now() + 0.25) {
+                waitHy1Ready(c, queue: queue, attempts: attempts - 1, completion: completion)
+            }
+        default: completion(nil)
         }
     }
 

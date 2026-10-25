@@ -60,14 +60,20 @@ final class H2RelayUpstreamOpener: H2UpstreamOpening {
         #if TERN_NO_GO
         // Gap C6 (astemo6/Muse NativeCore): the dedicated h2 dial below has no relay in the Go-free tunnel and went
         // straight to the origin whatever the rules said. Only a DIRECT route keeps it; a proxied (or rejected)
-        // origin goes through NCUpstreamConnector — rules, groups, the proxy, origin TLS over the relay — speaking
-        // HTTP/1.1 upstream (the h2 session runs one pooled connection per stream, as for an origin without h2):
-        // the proxied TLS client does not report the negotiated ALPN yet.
+        // origin goes through NCUpstreamConnector — rules, groups, the proxy, origin TLS over the relay — offering
+        // "h2, http/1.1"; NCTLSClientStream reports the origin's ALPN, so an h2 origin gets the multiplexed h2
+        // connection here too (feat/nc-proto2) and an h1 origin the per-stream HTTP/1.1 path.
         if let engine = NativeCoreEngine.active {
             let ctx = engine.matchContext(domain: NCIP(host) == nil ? host : nil, ip: NCIP(host), dstPort: port, network: "tcp")
             if case .direct = engine.resolve(ctx) {} else {
-                h1.open(host: host, port: port, tls: true) { r in
-                    completion(r.map { lease in H2UpstreamTransport(stream: lease.stream, alpn: nil) { lease.release(reusable: $0) } })
+                NCUpstreamConnector.shared.open(host: host, port: port, tls: true, policy: nil, insecure: false,
+                                                alpn: ["h2", "http/1.1"]) { r in
+                    completion(r.map { lease in
+                        let alpn = (lease as? NCRelayUpstreamLease)?.negotiatedALPN
+                        return H2UpstreamTransport(stream: lease.stream, alpn: alpn == "h2" ? "h2" : nil) {
+                            lease.release(reusable: $0)
+                        }
+                    })
                 }
                 return
             }

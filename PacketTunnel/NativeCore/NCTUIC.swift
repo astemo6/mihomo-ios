@@ -8,8 +8,11 @@ import Security
 ///  - the v5 token is the TLS 1.3 keying-material exporter (label = UUID bytes, context = password, 32 bytes) via
 ///    sec_protocol_metadata_create_secret_with_context on the QUIC stream's security metadata;
 ///  - v4 authenticates with BLAKE3(token).
-/// Not yet: UDP relay (native / quic modes), heartbeat datagrams (the QUIC idle timeout closes an idle session
-/// and the next flow reconnects), custom congestion control (system QUIC CC is used).
+/// UDP relay (feat/nc-proto2): `udp-relay-mode: native` (default) sends Packet commands as QUIC DATAGRAM frames on a
+/// datagram flow (NWProtocolQUIC.Options.isDatagram, the group advertises max_datagram_frame_size); `quic` sends each
+/// packet on its own unidirectional stream and reads the server's uni streams (NCTUICUDP.swift).
+/// Not yet: heartbeat datagrams (the QUIC idle timeout closes an idle session and the next flow reconnects), custom
+/// congestion control (system QUIC CC is used).
 enum NCTUICWire {
     static func address(_ t: NCTarget) -> Data {
         var d = Data()
@@ -47,9 +50,15 @@ final class NCTUICConnection {
     private let version: Int
     private let uuid: Data, password: Data, token: Data
     private let sni: String?, alpn: [String], allowInsecure: Bool
-    private let queue: DispatchQueue
+    let queue: DispatchQueue
     private(set) var state: State = .idle
-    private var group: NWConnectionGroup?
+    private(set) var group: NWConnectionGroup?
+    /// UDP relay state (NCTUICUDP.swift).
+    var udpNative = true
+    var udpMaxPacket = 1252
+    var udpHandlers: [UInt16: (Data) -> Void] = [:]
+    var datagramFlow: NWConnection?
+    var tuicVersion: Int { version }
     private var authStream: NWConnection?
     private var startCompletion: ((Error?) -> Void)?
 
@@ -73,6 +82,11 @@ final class NCTUICConnection {
         alpn = proxy.fields["alpn"]?.array?.compactMap { $0.string } ?? ["h3"]
         allowInsecure = proxy.fields["skip-cert-verify"]?.bool ?? false
         self.queue = queue
+        udpNative = (proxy.fields["udp-relay-mode"]?.string ?? "native").lowercased() != "quic"
+        let overhead = version == 4 ? NCTUICUDP.overheadV4 : NCTUICUDP.overheadV5
+        var frame = proxy.fields["max-datagram-frame-size"]?.int ?? 0
+        if frame == 0 { frame = (proxy.fields["max-udp-relay-packet-size"]?.int ?? 1252) + overhead }
+        udpMaxPacket = min(frame, 1400) - overhead
     }
 
     func start(completion: @escaping (Error?) -> Void) {
@@ -88,7 +102,10 @@ final class NCTUICConnection {
         if let sni, !sni.isEmpty { sec_protocol_options_set_tls_server_name(tls, sni) }
         if allowInsecure { sec_protocol_options_set_verify_block(tls, { _, _, complete in complete(true) }, queue) }
         quic.idleTimeout = 30_000
+        // RFC 9221: advertise DATAGRAM support so native-mode UDP (and server heartbeats) can flow.
+        quic.maxDatagramFrameSize = 1400
         let params = NWParameters(quic: quic)
+        NCOutboundBinding.apply(params, host: server)
         let endpoint = NWEndpoint.hostPort(host: NWEndpoint.Host(server),
                                            port: NWEndpoint.Port(rawValue: UInt16(clamping: port)) ?? .any)
         let group = NWConnectionGroup(with: NWMultiplexGroup(to: endpoint), using: params)
@@ -102,7 +119,11 @@ final class NCTUICConnection {
                 }
             }
         }
-        group.newConnectionHandler = { incoming in incoming.cancel() } // server uni streams (UDP packets): not used
+        // Server-opened flows: uni streams carrying quic-mode UDP packets, or the datagram flow.
+        group.newConnectionHandler = { [weak self] incoming in
+            guard let self else { incoming.cancel(); return }
+            self.acceptIncoming(incoming)
+        }
         group.start(queue: queue)
 
         let uniOptions = NWProtocolQUIC.Options()
@@ -184,6 +205,8 @@ final class NCTUICConnection {
 
     func close(keepState: Bool = false) {
         if !keepState { state = .closed }
+        datagramFlow?.cancel(); datagramFlow = nil
+        udpHandlers.removeAll()
         authStream?.cancel(); authStream = nil
         group?.cancel(); group = nil
     }
@@ -311,6 +334,46 @@ extension NCConnector {
             }
             if let s = c.openTCP(target: target) { completion(s, nil) }
             else { completion(nil, Failure.handshake("tuic open stream failed")) }
+        }
+    }
+
+    /// The shared, authenticated TUIC connection for a proxy (UDP sessions; feat/nc-proto2). nil on failure.
+    static func tuicShared(proxy: NCProxy, queue: DispatchQueue, completion: @escaping (NCTUICConnection?) -> Void) {
+        let key = "\(proxy.name)|\(proxy.server ?? "")|\(proxy.port ?? 0)"
+        tuicLock.lock()
+        if let c = tuicRegistry[key], c.state == .ready || c.state == .connecting {
+            tuicLock.unlock()
+            waitTUICReady(c, queue: queue, attempts: 60, completion: completion)
+            return
+        }
+        guard let c = NCTUICConnection(proxy: proxy, queue: queue) else {
+            tuicLock.unlock()
+            queue.async { completion(nil) }
+            return
+        }
+        tuicRegistry[key] = c
+        tuicLock.unlock()
+        c.start { err in
+            if err != nil {
+                tuicLock.lock()
+                if tuicRegistry[key] === c { tuicRegistry.removeValue(forKey: key) }
+                tuicLock.unlock()
+                completion(nil)
+                return
+            }
+            completion(c)
+        }
+    }
+
+    private static func waitTUICReady(_ c: NCTUICConnection, queue: DispatchQueue, attempts: Int,
+                                      completion: @escaping (NCTUICConnection?) -> Void) {
+        switch c.state {
+        case .ready: completion(c)
+        case .connecting where attempts > 0:
+            queue.asyncAfter(deadline: .now() + 0.25) {
+                waitTUICReady(c, queue: queue, attempts: attempts - 1, completion: completion)
+            }
+        default: completion(nil)
         }
     }
 
