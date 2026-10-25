@@ -32,7 +32,13 @@ enum NativeRuntimePrep {
             let safeMode = req.settings.core.safeMode
 
             guard let profileData = NCRuntimeFiles.readRuntimeProfile(home: home, path: profile.path, safe: safeMode) else {
-                return fail("读取配置失败: 配置文件不可读")
+                // Go surfaces the raw os.ReadFile error after the
+                // prefix; mirror that with the real read error.
+                var detail = "配置文件不可读"
+                do { _ = try Data(contentsOf: profile) } catch {
+                    detail = error.localizedDescription
+                }
+                return fail("读取配置失败: " + detail)
             }
 
             var rep = NCRuntimeBuilder.PrepReport()
