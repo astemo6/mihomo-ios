@@ -46,7 +46,7 @@ final class TernBackupTests: XCTestCase {
             port: 8388
             cipher: chacha20-ietf-poly1305
             password: "secret-密码"
-        """
+        """ + "\n"
 
         let subProfileText = """
         port: 7891
@@ -56,14 +56,14 @@ final class TernBackupTests: XCTestCase {
             type: ss
             server: 5.6.7.8
             port: 8388
-        """
+        """ + "\n"
 
         let profilesJson = """
         [
           {"id": "main-profile", "name": "主配置 🚀", "kind": "local"},
           {"id": "sub-profile", "name": "备用配置 🎯", "kind": "local"}
         ]
-        """
+        """ + "\n"
 
         let engineJson = """
         {
@@ -75,14 +75,14 @@ final class TernBackupTests: XCTestCase {
             {"line": "DOMAIN-SUFFIX,google.com,PROXY", "enabled": true, "note": "谷歌规则 🔍"}
           ]
         }
-        """
+        """ + "\n"
 
         let caPem = "-----BEGIN CERTIFICATE-----\nTEST_CERT_DATA\n-----END CERTIFICATE-----\n"
         let caKey = "-----BEGIN EC PRIVATE KEY-----\nTEST_KEY_DATA\n-----END EC PRIVATE KEY-----\n"
         let moduleContent = "# 广告拦截模块 🛡️\n[Rule]\nDOMAIN,ad.example.com,REJECT\n"
         let scriptContent = "// 脚本内容 📝\nconsole.log('测试');\n"
-        let subsJson = "{\"subscriptions\": [\"https://example.com/sub.yaml\"]}"
-        let overridesJson = "{\"overrides\": {\"port\": 9090}}"
+        let subsJson = "{\"subscriptions\": [\"https://example.com/sub.yaml\"]}\n"
+        let overridesJson = "{\"overrides\": {\"port\": 9090}}\n"
 
         // Write files to root1
         try AppShared.ensureDir(root1.appendingPathComponent("profiles")).path.write("", atomically: true, encoding: .utf8)
@@ -370,7 +370,7 @@ final class TernBackupTests: XCTestCase {
 
         # Blank lines and indentation
           custom-key: "value with \n newline and emoji 🌟"
-        """
+        """ + "\n"
 
         let backupWithComplexProfile = """
         ; Tern 完整备份
@@ -383,12 +383,34 @@ final class TernBackupTests: XCTestCase {
 
         [profile]
         \(complexYAML)
-
         [end]
         """
 
         let parsed = try TernBackup.parse(backupWithComplexProfile)
         XCTAssertEqual(parsed.profileText, complexYAML, "[profile] 节内容与原配置逐字节完全一致")
+
+        // 断言：内容不以 "\n" 结尾的文本节往返后等于原文 + "\n"（已声明的结尾换行规范化）
+        let yamlWithoutTrailingNewline = "port: 7890\nname: test-no-newline"
+        let backupWithoutTrailingNewline = """
+        ; Tern 完整备份
+        [general]
+        tern_backup = 1
+        format = 1
+        created = 2026-10-25T12:00:00Z
+        app_version = 1.0.0
+        profile = 无换行配置
+
+        [profile]
+        \(yamlWithoutTrailingNewline)
+
+        [end]
+        """
+        let parsedWithoutTrailingNewline = try TernBackup.parse(backupWithoutTrailingNewline)
+        XCTAssertEqual(
+            parsedWithoutTrailingNewline.profileText,
+            yamlWithoutTrailingNewline + "\n",
+            "内容不以 \\n 结尾的文本节往返后等于原文 + \\n（规范化保真）"
+        )
     }
 
     // MARK: - Test 6: ca.key roundtrip and 0600 POSIX permissions
@@ -405,7 +427,7 @@ final class TernBackupTests: XCTestCase {
         MHcCAQEEIBA/3q7vX0T2+testKeyBytesForUnitTestingTernBackup12345678
         AoGCCqGSM49AwEHoUQDQgAE8Z7x...fakeKeyContentForTest==
         -----END EC PRIVATE KEY-----
-        """
+        """ + "\n"
 
         let caKeyURL1 = root1.appendingPathComponent("mihomo/engine/ca/ca.key")
         AppShared.ensureDir(caKeyURL1.deletingLastPathComponent())
@@ -435,5 +457,44 @@ final class TernBackupTests: XCTestCase {
         let attrs = try fm.attributesOfItem(atPath: caKeyURL2.path)
         let perms = attrs[.posixPermissions] as? NSNumber
         XCTAssertEqual(perms?.intValue, 0o600, "ca.key 写入后的 POSIX 文件权限必须为 0600")
+    }
+
+    // MARK: - Test 7: Normalization of text files without trailing newline
+
+    func testTextWithoutTrailingNewlineNormalizedWithNewline() throws {
+        let root1 = makeScratchDirectory()
+        let root2 = makeScratchDirectory()
+        let defaults1 = makeScratchDefaults()
+        let defaults2 = makeScratchDefaults()
+
+        // 文本文件原文末尾不带 \n
+        let rawContentNoNewline = "# 规则列表无换行\nDOMAIN,raw.example.com,DIRECT"
+        let fileRel = "mihomo/engine/modules/raw-rule.txt"
+        let fileURL1 = root1.appendingPathComponent(fileRel)
+        AppShared.ensureDir(fileURL1.deletingLastPathComponent())
+        try rawContentNoNewline.write(to: fileURL1, atomically: true, encoding: .utf8)
+
+        let backupText = try TernBackup.build(
+            profileText: nil,
+            profileName: nil,
+            otherProfiles: [],
+            includeResourceCache: true,
+            root: root1,
+            defaults: defaults1
+        )
+
+        let parsed = try TernBackup.parse(backupText)
+        guard let data = parsed.files[fileRel], let parsedStr = String(data: data, encoding: .utf8) else {
+            XCTFail("未能在 parsed.files 中找到 \(fileRel)")
+            return
+        }
+        XCTAssertEqual(parsedStr, rawContentNoNewline + "\n", "parse 解析后应规范化补齐单个结尾换行")
+
+        try TernBackup.apply(parsed, selection: ["resources": .overwrite], root: root2, defaults: defaults2)
+
+        let fileURL2 = root2.appendingPathComponent(fileRel)
+        let restoredData = try Data(contentsOf: fileURL2)
+        let restoredStr = String(data: restoredData, encoding: .utf8)
+        XCTAssertEqual(restoredStr, rawContentNoNewline + "\n", "内容不以 \\n 结尾的文本文件往返后等于原文 + \\n")
     }
 }

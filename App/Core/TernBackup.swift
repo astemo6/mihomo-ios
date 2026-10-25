@@ -624,10 +624,19 @@ public enum TernBackup {
             let header = sec.header
             // Strip at most one trailing blank line separating sections
             var bodyLines = sec.lines
+            var strippedTrailingEmpty = false
             if bodyLines.last?.isEmpty == true {
                 bodyLines.removeLast()
+                strippedTrailingEmpty = true
             }
-            let body = bodyLines.joined(separator: "\n")
+            var body = bodyLines.joined(separator: "\n")
+            let isByteSection = header == "[profile]" ||
+                header.hasPrefix("[profile ") ||
+                header.hasPrefix("[json ") ||
+                header.hasPrefix("[text ")
+            if isByteSection && strippedTrailingEmpty && !body.isEmpty {
+                body += "\n"
+            }
 
             if header == "[profile]" {
                 foundProfileSection = true
@@ -697,13 +706,12 @@ public enum TernBackup {
             var activeFileName: String?
             if let pData = files["profiles.json"],
                let pList = try? JSONDecoder().decode([Profile].self, from: pData) {
-                let targetID = defaultsKV["activeProfileID"] ?? pList.first?.id
-                if let found = pList.first(where: { $0.id == targetID }) {
+                let targetID = defaultsKV["activeProfileID"]
+                if let targetID = targetID, let found = pList.first(where: { $0.id == targetID }) {
                     activeFileName = found.fileURL.lastPathComponent
+                } else if let first = pList.first {
+                    activeFileName = first.fileURL.lastPathComponent
                 }
-            }
-            if activeFileName == nil, let aid = defaultsKV["activeProfileID"] {
-                activeFileName = "\(aid).yaml"
             }
             if let afn = activeFileName {
                 categoryFiles["profiles"]?.append("profiles/\(afn)")
@@ -840,8 +848,10 @@ public enum TernBackup {
                 if let pData = parsed.files["profiles.json"],
                    let pList = try? JSONDecoder().decode([Profile].self, from: pData) {
                     let targetID = parsed.defaults["activeProfileID"] ?? defaults.string(forKey: "activeProfileID")
-                    if let found = pList.first(where: { $0.id == targetID }) {
+                    if let targetID = targetID, let found = pList.first(where: { $0.id == targetID }) {
                         activeFileName = found.fileURL.lastPathComponent
+                    } else if let first = pList.first {
+                        activeFileName = first.fileURL.lastPathComponent
                     }
                 }
                 if let fileName = activeFileName {
