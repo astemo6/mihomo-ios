@@ -613,7 +613,7 @@ public final class NCTailscaleControl {
                         prologue: Array(prologueStr.utf8)
                     )
 
-                    let noiseMsg1 = try initiator.writeMessage1()
+                    let noiseMsg1 = try initiator.writeMessage1(payload: Data())
                     let initFrame = NCTailscaleControlFraming.makeInitiationFrame(
                         protocolVersion: UInt16(NCTailscaleConsts.capabilityVersion),
                         noiseMsg1: noiseMsg1
