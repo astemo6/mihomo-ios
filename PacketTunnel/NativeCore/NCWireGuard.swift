@@ -231,6 +231,18 @@ final class NCWGStack {
         installed = true
     }
 
+    /// nc-lifecycle: tear down every device (tunnel stop / plane teardown).
+    /// Caller holds NCLwIP.queue, like device(for:). Each device's timers,
+    /// peer connections and lwIP-side registration live until teardown()
+    /// runs; the udp handler map is dropped with them.
+    func teardownAll() {
+        dispatchPrecondition(condition: .onQueue(NCLwIP.queue))
+        let all = Array(devices.values)
+        devices.removeAll()
+        udp.removeAll()
+        for d in all { d.teardown() }
+    }
+
     /// The shared device for a node (created on first use). NCLwIP.queue.
     func device(for proxy: NCProxy) -> (NCWGDevice?, String?) {
         dispatchPrecondition(condition: .onQueue(NCLwIP.queue))

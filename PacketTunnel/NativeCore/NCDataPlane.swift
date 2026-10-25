@@ -159,7 +159,13 @@ final class NCDataPlane {
             sessions.removeAll()
             for e in udpSessions.values { e.session.cancel() }
             udpSessions.removeAll()
+            udpPending.removeAll()
             bufferedTotal = 0
+            // nc-lifecycle: WireGuard devices hold their own timers and peer
+            // connections into the lwIP stack — tear them down (this queue
+            // IS NCLwIP.queue) before the stack itself stops, or they keep
+            // believing `alive` with device ids the next stack never had.
+            NCWGStack.shared.teardownAll()
             stack.stop()
             isRunning = false
         }
