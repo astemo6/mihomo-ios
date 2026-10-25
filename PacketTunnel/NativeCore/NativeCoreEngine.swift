@@ -499,7 +499,14 @@ final class NativeCoreEngine {
 
     /// Policy, matching rule and outbound for one connection in a single locked step (the rule is matched once and a
     /// load-balance group advances once). Used by the local mixed proxy (gap D1).
+    /// nc-script-runtime: with type=rule scripts registered, they are consulted first; the wait is bounded by
+    /// the scripts' own timeouts (NCScriptHookRunner.ruleVerdict) and any timeout / error falls through to
+    /// normal rule matching (fail-open). Without rule scripts this is the pre-hook path, untouched.
     func route(_ ctx: NCMatchContext) -> (policy: String, rule: String?, resolution: NCGroupEngine.Resolution) {
+        if hasRuleScripts, let verdict = NCScriptHookRunner.shared.ruleVerdict(ctx: ctx) {
+            stateLock.lock(); defer { stateLock.unlock() }
+            return (verdict.policy, "script:\(verdict.script)", groups?.resolve(verdict.policy) ?? .direct)
+        }
         stateLock.lock(); defer { stateLock.unlock() }
         let (policy, rule) = policyWithRule(for: ctx)
         guard let groups else { return (policy, rule, .direct) }
@@ -620,6 +627,27 @@ final class NativeCoreEngine {
     func routeAsync(_ ctx0: NCMatchContext, queue: DispatchQueue,
                     completion: @escaping (_ policy: String, _ rule: String?,
                                            _ resolution: NCGroupEngine.Resolution) -> Void) {
+        // nc-script-runtime: registered type=rule scripts run first, on the hook runner's serial queue
+        // (never blocking this caller); a policy verdict short-circuits rule matching, no-match / error /
+        // timeout falls through to it (fail-open). Without rule scripts this is the pre-hook path.
+        if hasRuleScripts {
+            NCScriptHookRunner.shared.applyRule(ctx: ctx0, on: queue) { [weak self] policy, script in
+                guard let self else { return }
+                if let policy {
+                    let resolution = self.locked { self.groups?.resolve(policy) ?? .direct }
+                    completion(policy, script.map { "script:\($0)" }, resolution)
+                    return
+                }
+                self.routeAsyncImpl(ctx0, queue: queue, completion: completion)
+            }
+            return
+        }
+        routeAsyncImpl(ctx0, queue: queue, completion: completion)
+    }
+
+    private func routeAsyncImpl(_ ctx0: NCMatchContext, queue: DispatchQueue,
+                                completion: @escaping (_ policy: String, _ rule: String?,
+                                                       _ resolution: NCGroupEngine.Resolution) -> Void) {
         stateLock.lock()
         guard _config != nil, effectiveMode == "rule" else {
             let (p, r) = policyWithRule(for: ctx0)

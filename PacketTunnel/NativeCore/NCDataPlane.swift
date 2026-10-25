@@ -602,8 +602,18 @@ final class NCDataPlane {
     private func udp(_ info: NCTunStack.UDPSessionInfo, _ data: Data) {
         if info.dst.port == 53 {
             if let reply = engine.dnsHostsReply(data) ?? engine.handleDNSQuery(data) {
-                dnsReplies += 1
-                stack.udpSend(session: info.id, reply)
+                // nc-script-runtime: registered type=dns scripts may rewrite the finished reply before
+                // it is written back (async, on the hook queue; fail-open). No dns scripts: direct send.
+                if engine.hasDNSScripts {
+                    engine.applyDNSScripts(query: data, reply: reply, queue: queue) { [weak self] final in
+                        guard let self else { return }
+                        self.dnsReplies += 1
+                        self.stack.udpSend(session: info.id, final)
+                    }
+                } else {
+                    dnsReplies += 1
+                    stack.udpSend(session: info.id, reply)
+                }
                 return
             }
             // Not fake-IP business (filter host, other record types): forward
@@ -629,8 +639,17 @@ final class NCDataPlane {
     private func forwardDNS(_ query: Data, session: UInt32, primary: NCDNSUpstream,
                             fallback: NCDNSUpstream?, fallbackFirst: Bool) {
         let deliver: (Data) -> Void = { [weak self] resp in
-            self?.engine.recordDNSResponse(query: query, response: resp)
-            self?.stack.udpSend(session: session, resp)
+            guard let self else { return }
+            self.engine.recordDNSResponse(query: query, response: resp)
+            // nc-script-runtime: type=dns scripts see the upstream reply (recorded above, pre-hook, so
+            // redir-host learning keeps the resolver's real answer) and may rewrite what the client gets.
+            if self.engine.hasDNSScripts {
+                self.engine.applyDNSScripts(query: query, reply: resp, queue: self.queue) { [weak self] final in
+                    self?.stack.udpSend(session: session, final)
+                }
+            } else {
+                self.stack.udpSend(session: session, resp)
+            }
         }
         if fallbackFirst, let fallback {
             dnsForwarder.forward(query, upstream: fallback) { [weak self] resp in
