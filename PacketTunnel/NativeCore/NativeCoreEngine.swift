@@ -762,11 +762,18 @@ final class NativeCoreEngine {
             finishResolve(host, ip: nil, ttl: 30, gen: gen)
             return
         }
-        resolveForwarder.forward(query, upstream: upstream) { [weak self] resp in
+        #if TERN_TUNNEL
+        resolveForwarder.forward(query, upstream: upstream) { [weak self] (resp: Data?) in
             let answers = resp.flatMap { NCDNSMessage.parse($0) }?.addressAnswers ?? []
             let hit = answers.first(where: { $0.0.isV4 }) ?? answers.first
             self?.finishResolve(host, ip: hit?.0, ttl: hit.map { min(max(Double($0.1), 60), 600) } ?? 30, gen: gen)
         }
+        #else
+        // App target (unit-test evidence only): NCDNSForwarder.forward(_:upstream:) lives in the
+        // tunnel-only NCUDPSessions.swift. The app never starts the engine, so resolve misses here.
+        _ = upstream
+        finishResolve(host, ip: nil, ttl: 30, gen: gen)
+        #endif
     }
 
     private func finishResolve(_ host: String, ip: NCIP?, ttl: Double, gen: Int) {
