@@ -62,21 +62,18 @@ final class NativeCoreEngine {
     /// bridge's JSON export as a transitional fallback for YAML shapes
     /// the subset parser cannot handle (anchors at scale, merge keys in
     /// odd spots, …). Which source won is kept in `configSource`.
-    private func loadConfig(home: String) -> (NCConfig?, String?) {
+    /// rv2-life: pure (no engine state touched) so load() can run it before taking the engine lock.
+    private static func loadConfig(home: String) -> (cfg: NCConfig?, error: String?, source: String, canonical: NCCanonicalConfig?) {
         let homeURL = URL(fileURLWithPath: home)
         // (1) the app's JSON re-encode of runtime.yaml (PrepareNativeRuntime) — Foundation's JSON decoder.
         if let data = try? Data(contentsOf: homeURL.appendingPathComponent("nativecore-runtime.json")),
            let cfg = try? NCConfig.decode(jsonData: data) {
-            configSource = "json"
-            loadedCanonical = nil
-            return (cfg, nil)
+            return (cfg, nil, "json", nil)
         }
         // (2) runtime.yaml through the YAML subset parser.
         if let text = try? String(contentsOf: homeURL.appendingPathComponent("runtime.yaml"), encoding: .utf8),
            let root = NCYAML.parse(text)?.object {
-            configSource = "yaml"
-            loadedCanonical = nil
-            return (NCConfig.decode(root: root), nil)
+            return (NCConfig.decode(root: root), nil, "yaml", nil)
         }
         // (3) runtime.conf (Surge / Loon / Quantumult X) via the canonical importers.
         if let text = try? String(contentsOf: homeURL.appendingPathComponent("runtime.conf"), encoding: .utf8) {
@@ -88,12 +85,24 @@ final class NativeCoreEngine {
             } else {
                 canonical = NCConfImport.surge(text)
             }
-            configSource = "conf:\(canonical.sourceFormat)"
-            loadedCanonical = canonical
-            return (canonical.legacyConfig(), nil)
+            return (canonical.legacyConfig(), nil, "conf:\(canonical.sourceFormat)", canonical)
         }
-        return (nil, "没有找到运行配置（nativecore-runtime.json / runtime.yaml）：请打开 App 重新连接一次")
+        return (nil, "没有找到运行配置（nativecore-runtime.json / runtime.yaml）：请打开 App 重新连接一次", "", nil)
     }
+
+    /// rv2-life: size + mtime of each geo database last loaded; an unchanged file is not read again on reload
+    /// (GeoSite.dat / geoip.metadb are several MB each — re-reading them held two copies at the reload peak).
+    private var geoFileSigs: [String: String] = [:]
+
+    private static func fileSig(_ url: URL) -> String? {
+        guard let a = try? FileManager.default.attributesOfItem(atPath: url.path),
+              let size = a[.size] as? NSNumber else { return nil }
+        let mtime = (a[.modificationDate] as? Date)?.timeIntervalSince1970 ?? 0
+        return "\(size.int64Value)@\(mtime)"
+    }
+
+    /// Returned by load(home:isCurrent:) when the caller's generation went stale (stop / newer start) before commit.
+    static let supersededMessage = "内核已停止或已重启，本次重载已取消"
 
     private(set) var configSource = ""
     private var loadedCanonical: NCCanonicalConfig?
@@ -127,21 +136,58 @@ final class NativeCoreEngine {
     }
 
     @discardableResult
-    func load(home: String) -> String? {
-        stateLock.lock(); defer { stateLock.unlock() }
-        self.home = home
-        let (loadedCfg, loadError) = loadConfig(home: home)
-        if let loadError { return loadError }
-        guard let cfg = loadedCfg else { return "native core: config decode failed" }
-        _config = cfg
+    func load(home: String, isCurrent: () -> Bool = { true }) -> String? {
+        // rv2-life (#8 / M reload): everything slow and state-free runs BEFORE the engine lock — config parse, rule
+        // parse, canonical view, rule-set cache, node-subscription cache, geo databases — so routing (which takes the
+        // lock) and the lwIP queue are only blocked for the short swap below. A stale caller (stop / newer start
+        // meanwhile) is refused inside the lock, before any state changes.
+        let loaded = Self.loadConfig(home: home)
+        if let loadError = loaded.error { return loadError }
+        guard let cfg = loaded.cfg else { return "native core: config decode failed" }
         var parsed: [NCRule] = []
         var unparsed: [String] = []
         for line in cfg.rules {
             if let rule = NCRule.parse(line) { parsed.append(rule) } else { unparsed.append(line) }
         }
+        let canonical = loaded.canonical ?? NCCanonicalConfig.from(mihomo: cfg)
+        let preStore = NCRuleProviderStore(dir: URL(fileURLWithPath: home)
+            .appendingPathComponent("nativecore-rulesets"))
+        let preProviders = NCRuleProviderStore.providers(from: cfg)
+        let preStale = preStore.loadCached(providers: preProviders, home: home)
+        let preSubStore = NCNodeSubscriptionStore(dir: URL(fileURLWithPath: home)
+            .appendingPathComponent("nativecore-nodesubs"))
+        let preStaleSubs = preSubStore.loadCached(canonical.subscriptions)
+        let homeURL = URL(fileURLWithPath: home)
+        let oldSigs = locked { geoFileSigs }
+        var newSigs: [String: String] = [:]
+        var geoIP: NCMMDB??, asn: NCMMDB??, geoSite: NCGeoSiteDB?? // nil = unchanged, keep the loaded one
+        let geoIPURL = homeURL.appendingPathComponent("geoip.metadb")
+        newSigs["geoip"] = Self.fileSig(geoIPURL)
+        if newSigs["geoip"] == nil || newSigs["geoip"] != oldSigs["geoip"] {
+            geoIP = .some((try? Data(contentsOf: geoIPURL, options: .mappedIfSafe)).flatMap { NCMMDB(data: $0) })
+        }
+        let asnURL = homeURL.appendingPathComponent("ASN.mmdb")
+        newSigs["asn"] = Self.fileSig(asnURL)
+        if newSigs["asn"] == nil || newSigs["asn"] != oldSigs["asn"] {
+            asn = .some((try? Data(contentsOf: asnURL, options: .mappedIfSafe)).flatMap { $0.count > 1024 ? NCMMDB(data: $0) : nil })
+        }
+        var siteURL = homeURL.appendingPathComponent("GeoSite.dat")
+        if !FileManager.default.fileExists(atPath: siteURL.path) { siteURL = homeURL.appendingPathComponent("geosite.dat") }
+        newSigs["geosite"] = Self.fileSig(siteURL).map { siteURL.lastPathComponent + ":" + $0 }
+        if newSigs["geosite"] == nil || newSigs["geosite"] != oldSigs["geosite"] {
+            // mapped (clean file-backed pages stay out of the footprint); the app installs these files by rename, so
+            // a mapping never sees them truncated in place
+            geoSite = .some((try? Data(contentsOf: siteURL, options: .mappedIfSafe)).flatMap { NCGeoSiteDB(data: $0) })
+        }
+
+        stateLock.lock(); defer { stateLock.unlock() }
+        guard isCurrent() else { return Self.supersededMessage }
+        self.home = home
+        configSource = loaded.source
+        loadedCanonical = loaded.canonical
+        _config = cfg
         rules = parsed
         unparsedRules = unparsed
-        let canonical = loadedCanonical ?? NCCanonicalConfig.from(mihomo: cfg)
         canonicalGroupMap = canonical.groupMap
         let pool = NCFakeIPPool(range: cfg.dns.fakeIPRange, range6: cfg.dns.fakeIPRange6,
                                 filter: cfg.dns.fakeIPFilter)
@@ -152,11 +198,9 @@ final class NativeCoreEngine {
         }
         fakeIP = pool
         dnsResponder = nil
-        // Rule providers: cache-first load, then refresh whatever is stale.
-        let store = NCRuleProviderStore(dir: URL(fileURLWithPath: home)
-            .appendingPathComponent("nativecore-rulesets"))
-        let providers = NCRuleProviderStore.providers(from: cfg)
-        let stale = store.loadCached(providers: providers, home: home)
+        // Rule providers: cache-first load (done above, off the lock), then refresh whatever is stale.
+        let store = preStore
+        let stale = preStale
         ruleProviders = store
         if !stale.isEmpty { store.refreshAll(stale) }
         // DNS policy (hosts answers + per-domain upstreams) from the
@@ -165,27 +209,19 @@ final class NativeCoreEngine {
         // Node subscriptions: cached nodes merge into the effective config;
         // stale ones refresh in the background and rebuild the group engine.
         nodeSubs = canonical.subscriptions
-        let subStore = NCNodeSubscriptionStore(dir: URL(fileURLWithPath: home)
-            .appendingPathComponent("nativecore-nodesubs"))
+        let subStore = preSubStore
         nodeSubStore = subStore
-        let staleSubs = subStore.loadCached(canonical.subscriptions)
+        let staleSubs = preStaleSubs
         rebuildGroupEngine()
         for sub in staleSubs {
             subStore.refresh(sub) { [weak self] in self?.rebuildGroupEngine() }
         }
         configureSmart()
-        let homeURL = URL(fileURLWithPath: home)
-        if let data = try? Data(contentsOf: homeURL.appendingPathComponent("geoip.metadb")) {
-            geoIPDB = NCMMDB(data: data)
-            NativeScriptHost.geoLookup = { [weak self] ip in self?.lookupCountry(ip) }
-        }
-        if let data = try? Data(contentsOf: homeURL.appendingPathComponent("ASN.mmdb")), data.count > 1024 {
-            asnDB = NCMMDB(data: data)
-        }
-        if let data = (try? Data(contentsOf: homeURL.appendingPathComponent("GeoSite.dat")))
-            ?? (try? Data(contentsOf: homeURL.appendingPathComponent("geosite.dat"))) {
-            geoSiteDB = NCGeoSiteDB(data: data)
-        }
+        if let geoIP { geoIPDB = geoIP }
+        if geoIPDB != nil { NativeScriptHost.geoLookup = { [weak self] ip in self?.lookupCountry(ip) } }
+        if let asn { asnDB = asn }
+        if let geoSite { geoSiteDB = geoSite }
+        geoFileSigs = newSigs
         isRunning = true
         healthCheck?.stop()
         let hc = NCHealthCheckScheduler(engine: self)

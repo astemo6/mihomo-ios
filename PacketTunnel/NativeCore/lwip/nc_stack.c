@@ -174,9 +174,10 @@ static void nc_tcp_err_cb(void *arg, err_t err) {
 }
 
 static err_t nc_tcp_sent_cb(void *arg, struct tcp_pcb *pcb, u16_t len) {
-  (void)arg;
   (void)pcb;
-  (void)len;
+  nc_conn *c = (nc_conn *)arg;
+  /* rv2-life: send window opened — the engine drains its outbox and resumes the relay read (back-pressure). */
+  if (c && c->used && c->pcb && g_cbs.tcp_sent) g_cbs.tcp_sent(g_ctx, c, (uint32_t)len);
   return ERR_OK;
 }
 
@@ -199,8 +200,10 @@ static err_t nc_tcp_recv_cb(void *arg, struct tcp_pcb *pcb, struct pbuf *p, err_
   if (total <= sizeof(g_scratch)) {
     u16_t n = pbuf_copy_partial(p, g_scratch, total, 0);
     if (g_cbs.tcp_recv) g_cbs.tcp_recv(g_ctx, c, g_scratch, n);
+  } else {
+    tcp_recved(pcb, total); /* cannot happen (tot_len is u16); never leave the window shut */
   }
-  tcp_recved(pcb, total);
+  /* rv2-life: no tcp_recved here — the engine acknowledges with nc_tcp_recved once the relay took the bytes. */
   pbuf_free(p);
   return ERR_OK;
 }
@@ -318,10 +321,18 @@ static void nc_udp_recv_cb(void *arg, struct udp_pcb *pcb, struct pbuf *p,
   pbuf_free(p);
 }
 
+/* rv2-life: tell the engine a session it may hold a relay for is gone (expiry / eviction). */
+static void nc_udp_notify_closed(nc_udp_session *s) {
+  if (s->used && g_cbs.udp_closed) g_cbs.udp_closed(g_ctx, s->id);
+}
+
+#define NC_UDP_DNS_IDLE_MS (10 * 1000)
+
 static nc_udp_session *nc_ensure_udp_session(const ip_addr_t *src, u16_t src_port,
                                              const ip_addr_t *dst, u16_t dst_port) {
-  int free_idx = -1, lru_idx = -1;
-  u32_t lru_time = 0xffffffffu;
+  int free_idx = -1, lru_idx = -1, dns_idx = -1;
+  u32_t lru_age = 0, dns_age = 0;
+  u32_t now = sys_now();
   for (int i = 0; i < NC_MAX_UDP_SESSIONS; i++) {
     nc_udp_session *s = &g_udp[i];
     if (!s->used) {
@@ -332,15 +343,27 @@ static nc_udp_session *nc_ensure_udp_session(const ip_addr_t *src, u16_t src_por
         nc_ip_equal(&s->src, src) && nc_ip_equal(&s->dst, dst)) {
       return s;
     }
-    if (s->last_used < lru_time) {
-      lru_time = s->last_used;
+    /* ages, not raw timestamps: sys_now() wraps after ~49 days */
+    u32_t age = now - s->last_used;
+    if (lru_idx < 0 || age > lru_age) {
+      lru_age = age;
       lru_idx = i;
     }
+    /* rv2-life: idle DNS sessions (one query, one answer) go first, before any live flow */
+    if (s->dst_port == 53 && age >= NC_UDP_DNS_IDLE_MS && (dns_idx < 0 || age > dns_age)) {
+      dns_age = age;
+      dns_idx = i;
+    }
   }
-  int idx = free_idx >= 0 ? free_idx : lru_idx;
+  int idx = free_idx >= 0 ? free_idx : (dns_idx >= 0 ? dns_idx : lru_idx);
   if (idx < 0) return NULL;
   nc_udp_session *s = &g_udp[idx];
-  if (s->used && s->pcb) udp_remove(s->pcb);
+  if (s->used) {
+    /* rv2-life: evicting a live session — the engine drops its relay too (it used to keep it and silently lose
+       every reply, since nc_udp_send no longer finds the id) */
+    nc_udp_notify_closed(s);
+    if (s->pcb) udp_remove(s->pcb);
+  }
   memset(s, 0, sizeof(*s));
   struct udp_pcb *pcb = udp_new_ip_type(dst->type);
   if (!pcb) return NULL;
@@ -487,6 +510,7 @@ void nc_poll(void) {
   for (int i = 0; i < NC_MAX_UDP_SESSIONS; i++) {
     nc_udp_session *s = &g_udp[i];
     if (s->used && now - s->last_used > NC_UDP_IDLE_MS) {
+      nc_udp_notify_closed(s); /* rv2-life: keep the engine's session table in step */
       udp_remove(s->pcb);
       memset(s, 0, sizeof(*s));
     }
@@ -512,6 +536,16 @@ int nc_tcp_write(void *conn, const uint8_t *data, uint32_t len) {
   }
   if (off > 0) tcp_output(c->pcb);
   return (int)off;
+}
+
+void nc_tcp_recved(void *conn, uint32_t len) {
+  nc_conn *c = (nc_conn *)conn;
+  if (!c || !c->used || !c->pcb) return;
+  while (len > 0) {
+    u16_t chunk = (u16_t)(len > 0xffff ? 0xffff : len);
+    tcp_recved(c->pcb, chunk); /* lwIP clamps the window at TCP_WND */
+    len -= chunk;
+  }
 }
 
 void nc_tcp_output(void *conn) {

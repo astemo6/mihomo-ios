@@ -14,8 +14,15 @@ final class NCController {
     private let port: UInt16
     private let secret: String
     private let queue = DispatchQueue(label: "nc.controller", qos: .userInitiated)
+    // rv2-life: all mutable state below lives on `queue` (start / stop / handlers hop there; stop used to mutate
+    // the dictionaries from the provider's thread while handlers ran on `queue`).
     private var listener: NWListener?
     private var streamTimers: [ObjectIdentifier: DispatchSourceTimer] = [:]
+    /// Every accepted connection until it is cancelled / failed, so stop() can end in-flight requests and streams.
+    private var conns: [ObjectIdentifier: NWConnection] = [:]
+    private var stopped = false
+    private static let queueKey = DispatchSpecificKey<UInt8>()
+    private var statusURL: URL?
 
     init(engine: NativeCoreEngine, plane: NCDataPlane, port: Int, secret: String) {
         self.engine = engine
@@ -24,22 +31,106 @@ final class NCController {
         self.secret = secret
     }
 
-    func start() {
+    /// Starts the loopback listener and waits (≤ `timeout`) for it to come up. false = not listening: the reason
+    /// is in the startup log and in `<home>/nativecore-controller.json` ({"listening": false, "port", "error"}),
+    /// which the App can read instead of finding a dead API (the failure used to be swallowed by `try?`).
+    @discardableResult
+    func start(home: String? = nil, timeout: TimeInterval = 3) -> Bool {
+        queue.setSpecific(key: Self.queueKey, value: 1)
+        statusURL = home.map { URL(fileURLWithPath: $0).appendingPathComponent("nativecore-controller.json") }
         let params = NWParameters.tcp
         params.requiredInterfaceType = .loopback
-        guard let listener = try? NWListener(using: params, on: NWEndpoint.Port(rawValue: port) ?? .any) else { return }
+        params.allowLocalEndpointReuse = true
+        guard let nwPort = NWEndpoint.Port(rawValue: port), port > 0 else {
+            reportStatus(listening: false, error: "端口无效（\(port)）")
+            return false
+        }
+        let listener: NWListener
+        do {
+            listener = try NWListener(using: params, on: nwPort)
+        } catch {
+            reportStatus(listening: false, error: error.localizedDescription)
+            return false
+        }
+        let sem = DispatchSemaphore(value: 0)
+        let lock = NSLock()
+        var first: String?? // nil = no answer yet; .some(nil) = ready; .some(msg) = failed
+        listener.stateUpdateHandler = { [weak self] state in
+            var answer: String??
+            switch state {
+            case .ready: answer = .some(nil)
+            case .failed(let e), .waiting(let e): answer = .some(e.localizedDescription)
+            default: break
+            }
+            guard let answer else { return }
+            lock.lock()
+            let isFirst = first == nil
+            if isFirst { first = answer }
+            lock.unlock()
+            if isFirst {
+                sem.signal()
+            } else if case .failed(let e) = state {
+                // died after it was up: say so (the App sees the status file flip), do not pretend it is alive
+                self?.reportStatus(listening: false, error: "listener failed: \(e.localizedDescription)")
+            }
+        }
         listener.newConnectionHandler = { [weak self] conn in
             self?.handle(conn)
         }
         listener.start(queue: queue)
-        self.listener = listener
+        _ = sem.wait(timeout: .now() + timeout)
+        lock.lock()
+        let outcome = first
+        lock.unlock()
+        switch outcome {
+        case .some(.none):
+            onQueue { self.listener = listener }
+            reportStatus(listening: true, error: nil)
+            return true
+        case .some(.some(let why)):
+            listener.cancel()
+            reportStatus(listening: false, error: why)
+            return false
+        case .none:
+            listener.cancel()
+            reportStatus(listening: false, error: "监听超时")
+            return false
+        }
     }
 
+    /// Cancels the listener, every stream timer and every open connection (in-flight requests included), on `queue`.
     func stop() {
-        listener?.cancel()
-        listener = nil
-        for t in streamTimers.values { t.cancel() }
-        streamTimers.removeAll()
+        onQueue {
+            self.stopped = true
+            self.listener?.stateUpdateHandler = nil
+            self.listener?.newConnectionHandler = nil
+            self.listener?.cancel()
+            self.listener = nil
+            for t in self.streamTimers.values { t.cancel() }
+            self.streamTimers.removeAll()
+            let open = Array(self.conns.values)
+            self.conns.removeAll()
+            for c in open {
+                c.stateUpdateHandler = nil
+                c.cancel()
+            }
+        }
+    }
+
+    private func onQueue(_ body: () -> Void) {
+        if DispatchQueue.getSpecific(key: Self.queueKey) != nil { body() } else { queue.sync(execute: body) }
+    }
+
+    private func reportStatus(listening: Bool, error: String?) {
+        if listening {
+            StartupLog.write("controller: listening on 127.0.0.1:\(port)")
+        } else {
+            StartupLog.write("controller: 127.0.0.1:\(port) NOT listening: \(error ?? "?") — Dashboard / 策略组 / 连接 pages have no API")
+        }
+        guard let url = statusURL else { return }
+        var obj: [String: Any] = ["listening": listening, "port": Int(port), "at": Int64(Date().timeIntervalSince1970)]
+        if let error { obj["error"] = error }
+        if let data = try? JSONSerialization.data(withJSONObject: obj) { try? data.write(to: url, options: .atomic) }
     }
 
     // MARK: Connection handling
@@ -53,6 +144,22 @@ final class NCController {
     }
 
     private func handle(_ conn: NWConnection) {
+        guard !stopped else { conn.cancel(); return }
+        let id = ObjectIdentifier(conn)
+        conns[id] = conn
+        // rv2-life: one handler for every connection: forget it and stop its stream timer when it ends (.failed
+        // too — the /traffic stream used to keep its timer, and with it the plane, after a failed connection).
+        conn.stateUpdateHandler = { [weak self, weak conn] state in
+            switch state {
+            case .failed, .cancelled:
+                guard let self else { return }
+                self.conns.removeValue(forKey: id)
+                self.streamTimers.removeValue(forKey: id)?.cancel()
+                if case .failed = state { conn?.cancel() }
+            default:
+                break
+            }
+        }
         conn.start(queue: queue)
         receiveRequest(conn, buffer: Data())
     }
@@ -418,18 +525,24 @@ final class NCController {
         var last = plane.stats.snapshot()
         // gap C4: /logs streams NativeLogRing lines (from the moment of attaching; history is /hark/logs)
         var logSeq = NativeLogRing.shared.since(UInt64.max).seq
+        var inFlight = false // touched on `queue` only (the timer and the send completions run there)
         let timer = DispatchSource.makeTimerSource(queue: queue)
         timer.schedule(deadline: .now() + 1, repeating: path == "/logs" ? 0.5 : 1)
         timer.setEventHandler { [weak self] in
             guard let self else { return }
             if path == "/logs" {
+                guard !inFlight else { return } // the App is behind: lines stay in the ring, picked up next turn
                 let (seq, lines) = NativeLogRing.shared.since(logSeq)
                 logSeq = seq
+                var batch = Data()
                 for l in lines.suffix(200) {
                     if let d = try? JSONSerialization.data(withJSONObject: ["type": l.type, "payload": l.payload]) {
-                        conn.send(content: Self.wsTextFrame(d), completion: .idempotent)
+                        batch.append(Self.wsTextFrame(d))
                     }
                 }
+                guard !batch.isEmpty else { return }
+                inFlight = true
+                conn.send(content: batch, completion: .contentProcessed { _ in inFlight = false })
                 return
             }
             let snap = self.plane.stats.snapshot()
@@ -446,20 +559,14 @@ final class NCController {
                 obj = nil
             }
             last = snap
-            if let obj, let data = try? JSONSerialization.data(withJSONObject: obj) {
-                conn.send(content: Self.wsTextFrame(data), completion: .idempotent)
-            }
+            // rv2-life: one frame in flight at most — a suspended App that stops reading used to have a frame (a
+            // full /connections list) queued in NWConnection every second, without bound.
+            guard !inFlight, let obj, let data = try? JSONSerialization.data(withJSONObject: obj) else { return }
+            inFlight = true
+            conn.send(content: Self.wsTextFrame(data), completion: .contentProcessed { _ in inFlight = false })
         }
         timer.resume()
         streamTimers[ObjectIdentifier(conn)] = timer
-        conn.stateUpdateHandler = { [weak self] state in
-            switch state {
-            case .cancelled, .failed:
-                self?.streamTimers.removeValue(forKey: ObjectIdentifier(conn))?.cancel()
-            default:
-                break
-            }
-        }
         // Client frames (close / ping) are read and dropped; EOF ends the stream.
         func drain() {
             conn.receive(minimumIncompleteLength: 1, maximumLength: 4096) { _, _, done, err in
@@ -491,22 +598,21 @@ final class NCController {
         var lastDown: Int64 = plane.stats.snapshot().down
         let timer = DispatchSource.makeTimerSource(queue: queue)
         timer.schedule(deadline: .now() + 1, repeating: 1)
-        timer.setEventHandler { [weak self] in
-            guard let self else { return }
+        var inFlight = false
+        // rv2-life: weak conn / plane — the timer must not keep either alive once the connection is gone; the
+        // connection's handler (handle()) cancels it on .failed as well as .cancelled.
+        timer.setEventHandler { [weak self, weak conn] in
+            guard let self, let conn, !inFlight else { return }
             let snap = self.plane.stats.snapshot()
             let line = "{\"up\":\(snap.up - lastUp),\"down\":\(snap.down - lastDown)}\n"
             lastUp = snap.up
             lastDown = snap.down
-            let chunk = "\(String(line.count, radix: 16))\r\n\(line)\r\n"
-            conn.send(content: Data(chunk.utf8), completion: .idempotent)
+            let chunk = "\(String(line.utf8.count, radix: 16))\r\n\(line)\r\n"
+            inFlight = true
+            conn.send(content: Data(chunk.utf8), completion: .contentProcessed { _ in inFlight = false })
         }
         timer.resume()
         streamTimers[ObjectIdentifier(conn)] = timer
-        conn.stateUpdateHandler = { [weak self] state in
-            if case .cancelled = state {
-                self?.streamTimers.removeValue(forKey: ObjectIdentifier(conn))?.cancel()
-            }
-        }
     }
 
     // MARK: Delay measurement

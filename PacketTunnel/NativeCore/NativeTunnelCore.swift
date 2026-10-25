@@ -39,13 +39,38 @@ final class NativeTunnelCore {
 
     // MARK: lifecycle
 
+    // rv2-life (#8 / #9): start / stop / reload are serialized by `lifecycle` (held for the whole step, never while
+    // `lock` is held). `generation` is bumped by every start and stop under its own tiny lock, so a reload that
+    // began before a stop (or a newer start) sees it changed and aborts instead of reviving a stopped core
+    // (engine.isRunning, health check, NativeTaskRunner). `genLock` is never held while taking another lock: the
+    // engine checks the token while holding its state lock, and stop() bumps it before waiting for `lifecycle`.
+    private let lifecycle = NSLock()
+    private let genLock = NSLock()
+    private var generation: UInt64 = 0
+    private func bumpGeneration() -> UInt64 { genLock.lock(); defer { genLock.unlock() }; generation &+= 1; return generation }
+    private func isCurrent(_ g: UInt64) -> Bool { genLock.lock(); defer { genLock.unlock() }; return generation == g }
+
     /// Loads the config and brings the data plane (and controller) up. Throws a user-facing error.
     /// `mixedPort` > 0 also starts the local mixed proxy (gap D1: 仅代理 / VPN 混合) on 127.0.0.1:mixedPort;
     /// `requireMixedPort` (仅代理, where it is the only way in) turns a listener failure into a start failure.
+    /// rv2-life #9: idempotent — a core that is already up is stopped completely first (lwIP timers, listeners,
+    /// health check, task runner), so two data planes / controllers never coexist.
     func start(home: String, flow: NEPacketTunnelFlow, mtu: Int, controllerPort: Int, secret: String,
                mixedPort: Int = 0, requireMixedPort: Bool = false) throws {
+        _ = bumpGeneration() // an in-flight reload of the old core aborts
+        lifecycle.lock()
+        defer { lifecycle.unlock() }
+        lock.lock()
+        let alreadyUp = _plane != nil || _engine != nil
+        lock.unlock()
+        if alreadyUp {
+            StartupLog.write("native core start: a previous core is still up, stopping it first")
+            stopLocked()
+        }
+        let gen = bumpGeneration()
         let engine = NativeCoreEngine()
         if let msg = engine.load(home: home) {
+            engine.stop()
             throw PacketTunnelProvider.error("内核配置加载失败：\(msg)")
         }
         let plane = NCDataPlane(engine: engine, flow: flow, mtu: UInt16(clamping: mtu))
@@ -74,8 +99,13 @@ final class NativeTunnelCore {
         var controller: NCController?
         if controllerPort > 0 {
             let c = NCController(engine: engine, plane: plane, port: controllerPort, secret: secret)
-            c.start()
-            controller = c
+            // rv2-life: a listen failure is logged + written to nativecore-controller.json (NCController.start);
+            // the tunnel keeps running (the data plane does not need it) but no longer pretends the API is up.
+            if c.start(home: home) {
+                controller = c
+            } else {
+                c.stop()
+            }
         }
         lock.lock()
         self.home = home
@@ -86,14 +116,23 @@ final class NativeTunnelCore {
         lock.unlock()
         NativeCoreEngine.active = engine
         loadRewriteSnapshot(home: home, engine: engine)
-        StartupLog.write("native core up: \(engine.statsLine)")
+        StartupLog.write("native core up (gen \(gen)): \(engine.statsLine)")
         logSupport(engine)
     }
 
     func stop() {
+        _ = bumpGeneration() // cancels an in-flight reload (it re-checks before committing anything)
+        lifecycle.lock()
+        defer { lifecycle.unlock() }
+        stopLocked()
+    }
+
+    /// Caller holds `lifecycle`.
+    private func stopLocked() {
         lock.lock()
         let (c, lp, p, e) = (_controller, _localProxy, _plane, _engine)
         _controller = nil; _localProxy = nil; _plane = nil; _engine = nil
+        lastSample = nil
         lock.unlock()
         c?.stop()
         lp?.stop()
@@ -106,7 +145,12 @@ final class NativeTunnelCore {
     }
 
     /// Re-reads the config the app just prepared (TunnelMessage.reload / .reloadHot). nil = applied.
+    /// rv2-life #8 / M: the slow part (config parse, rule-set cache, geo databases) runs off the lwIP queue and off
+    /// the engine lock (NativeCoreEngine.load prepares first, then swaps the parsed state in one short locked step),
+    /// so established flows keep moving and new flows wait only for the swap. A stop() or a newer start() during
+    /// the reload bumps the generation: the engine refuses to commit, and the rewrite / task reload is skipped.
     func reload(hot: Bool) -> String? {
+        genLock.lock(); let gen = generation; genLock.unlock()
         lock.lock()
         reloadRunning += 1
         reloadSeq += 1
@@ -115,13 +159,21 @@ final class NativeTunnelCore {
         let (engine, plane, home) = (_engine, _plane, self.home)
         lock.unlock()
         var err: String?
-        if let engine, let plane {
-            // On the data plane's queue: the plane reads the engine's rules / groups there.
-            err = plane.queue.sync { engine.load(home: home) }
+        if let engine, plane != nil {
+            err = engine.load(home: home, isCurrent: { [weak self] in self?.isCurrent(gen) ?? false })
             if err == nil {
-                loadRewriteSnapshot(home: home, engine: engine)
-                StartupLog.write("native core reloaded (\(hot ? "hot" : "full")): \(engine.statsLine)")
-                logSupport(engine)
+                // Commit the side effects (scripts, tasks, rewrite) only while this core is still the live one;
+                // `lifecycle` keeps a concurrent stop() from interleaving with them.
+                lifecycle.lock()
+                lock.lock(); let live = _engine === engine; lock.unlock()
+                if live && isCurrent(gen) {
+                    loadRewriteSnapshot(home: home, engine: engine)
+                    StartupLog.write("native core reloaded (\(hot ? "hot" : "full")): \(engine.statsLine)")
+                    logSupport(engine)
+                } else {
+                    err = "内核已停止或已重启，本次重载已取消"
+                }
+                lifecycle.unlock()
             }
         } else {
             err = "内核未运行"
