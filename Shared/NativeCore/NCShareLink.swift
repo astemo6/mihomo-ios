@@ -302,6 +302,62 @@ enum NCShareLink {
         try encode(proxy.dictionary)
     }
 
+    /// Encode one node given as a JSON string.
+    /// Matches bridge/share.go NodeShareLink semantics.
+    static func encode(jsonString: String) throws -> String {
+        guard let data = jsonString.data(using: .utf8),
+              let dict = (try? JSONSerialization.jsonObject(with: data)) as? [String: Any] else {
+            throw ShareLinkError.message("节点数据无效")
+        }
+        return try encode(dict)
+    }
+
+    /// Encode a node of a profile by name (after script overrides if present).
+    /// Matches bridge/share.go NodeShareLinkByName semantics.
+    static func encodeByName(homeDir: String, profilePath: String, name: String) throws -> String {
+        let profileURL = URL(fileURLWithPath: profilePath)
+        var data: Data?
+        if !homeDir.isEmpty {
+            let id = profileURL.deletingPathExtension().lastPathComponent
+            let scriptedDir = URL(fileURLWithPath: homeDir).appendingPathComponent("scripted")
+            let metaURL = scriptedDir.appendingPathComponent("\(id).json")
+            let yamlURL = scriptedDir.appendingPathComponent("\(id).yaml")
+            if let srcData = try? Data(contentsOf: profileURL),
+               let metaData = try? Data(contentsOf: metaURL),
+               let meta = try? JSONSerialization.jsonObject(with: metaData) as? [String: Any],
+               let srcHash = meta["source"] as? String {
+                let actualHash = NCSHA256.hash(srcData).map { String(format: "%02x", $0) }.joined()
+                if !srcHash.isEmpty && srcHash == actualHash,
+                   let out = try? Data(contentsOf: yamlURL), !out.isEmpty {
+                    data = out
+                } else {
+                    data = srcData
+                }
+            } else {
+                data = try? Data(contentsOf: profileURL)
+            }
+        } else {
+            data = try? Data(contentsOf: profileURL)
+        }
+
+        guard let rawData = data, let text = String(data: rawData, encoding: .utf8) else {
+            throw ShareLinkError.message("在配置里找不到这个节点（节点集里的节点请到提供者页查看）")
+        }
+
+        guard let root = NCYAML.parse(text), let proxies = root.object?["proxies"]?.array else {
+            throw ShareLinkError.message("在配置里找不到这个节点（节点集里的节点请到提供者页查看）")
+        }
+
+        for item in proxies {
+            guard let p = item.object?.mapValues({ $0.rawAny }) else { continue }
+            if sStr(p, "name") == name {
+                return try encode(p)
+            }
+        }
+
+        throw ShareLinkError.message("在配置里找不到这个节点（节点集里的节点请到提供者页查看）")
+    }
+
     // MARK: - Manual Subscription Export
 
     /// Export manual nodes as a base64 subscription (one link per line, v2rayN style).
