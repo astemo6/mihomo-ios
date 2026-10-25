@@ -462,7 +462,7 @@ final class NativeCoreLoopbackTests: XCTestCase {
     private static let naiveUser = "nc-loop"
     private static let naivePassword = "nc-loop-naive-pw"
 
-    private static func naiveProxy(name: String, quic: Bool, password: String = naivePassword) -> NCProxy {
+    private static func naiveProxy(name: String, quic: Bool, password: String = NativeCoreLoopbackTests.naivePassword) -> NCProxy {
         Self.proxy(name: name, type: "naive", port: quic ? Self.naiveH3Port : Self.naiveH2Port, extra: [
             "username": .string(Self.naiveUser), "password": .string(password),
             "sni": .string("localhost"), "skip-cert-verify": .bool(true), "quic": .bool(quic),

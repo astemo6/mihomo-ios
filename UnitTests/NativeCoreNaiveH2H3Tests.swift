@@ -463,3 +463,34 @@ private final class NaiveLocked<T> {
     func set(_ v: T) { lock.lock(); value = v; lock.unlock() }
     func get() -> T { lock.lock(); defer { lock.unlock() }; return value }
 }
+
+/// The hand-rolled ClientHello (NCTLSClientStream, naive h2's TLS) must parse under Go's strict rules:
+/// supported_versions is a u8-length list of u16 versions with nothing left over.
+final class NativeCoreClientHelloSupportedVersionsTests: XCTestCase {
+    func testSupportedVersionsExtensionIsWellFormed() throws {
+        for profile in [NCClientHelloProfile.chrome, .firefox, .safari, .ios] {
+            let hello = [UInt8](NCTLS13.buildClientHello(random: Data(count: 32), sessionID: Data(count: 32),
+                                                         serverName: "localhost", alpn: ["h2", "http/1.1"],
+                                                         keyShare: Data(count: 32), profile: profile))
+            // handshake header 4, version 2, random 32, session id 1+32, suites 2+n, compression 2, ext len 2.
+            var i = 4 + 2 + 32
+            i += 1 + Int(hello[i])
+            i += 2 + (Int(hello[i]) << 8 | Int(hello[i + 1]))
+            i += 1 + Int(hello[i])
+            let extEnd = i + 2 + (Int(hello[i]) << 8 | Int(hello[i + 1]))
+            i += 2
+            var found: [UInt8]?
+            while i + 4 <= extEnd {
+                let type = Int(hello[i]) << 8 | Int(hello[i + 1])
+                let len = Int(hello[i + 2]) << 8 | Int(hello[i + 3])
+                if type == 43 { found = Array(hello[(i + 4)..<(i + 4 + len)]) }
+                i += 4 + len
+            }
+            XCTAssertEqual(i, extEnd)
+            let sv = try XCTUnwrap(found)
+            XCTAssertEqual(Int(sv[0]), sv.count - 1)
+            XCTAssertEqual(sv.count % 2, 1)
+            XCTAssertEqual(Array(sv.dropFirst()), [0x03, 0x04, 0x03, 0x03])
+        }
+    }
+}
