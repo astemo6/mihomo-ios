@@ -18,28 +18,14 @@ import Foundation
 //    - Impact: Thread-safe error storage for functions returning "" on failure.
 
 /// In-process path mutex to serialize read-modify-write cycles for each profile file.
-/// Maps bridge/filelock.go 1:1 using standardized paths.
+/// nc-integrate: delegates to NCPathLock (Shared), the lock NCManualNodes / NCProfileCopy / NCChainCandidates /
+/// NCOverrideOutput / NCProviderPorts take for the same files — Go had one lock map (bridge/filelock.go); two
+/// separate maps let a node edit and e.g. a selection or override-output write interleave on one profile.
 final class NCFileLock {
     static let shared = NCFileLock()
-    private let mutex = NSLock()
-    private var locks: [String: NSLock] = [:]
 
     func withLock<T>(for path: String, _ body: () throws -> T) rethrows -> T {
-        let cleanPath = (path as NSString).standardizingPath
-        mutex.lock()
-        let lock: NSLock
-        if let existing = locks[cleanPath] {
-            lock = existing
-        } else {
-            let newLock = NSLock()
-            locks[cleanPath] = newLock
-            lock = newLock
-        }
-        mutex.unlock()
-
-        lock.lock()
-        defer { lock.unlock() }
-        return try body()
+        try NCPathLock.shared.withLock(for: path, body)
     }
 }
 

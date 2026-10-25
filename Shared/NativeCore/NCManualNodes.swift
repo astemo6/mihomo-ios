@@ -6,7 +6,9 @@ final class NCPathLock {
     private let mutex = NSLock()
     private var locks: [String: NSLock] = [:]
 
-    func withLock<T>(for path: String, _ body: () throws -> T) rethrows -> T {
+    func withLock<T>(for path0: String, _ body: () throws -> T) rethrows -> T {
+        // bridge filelock.go keys by filepath.Clean(path): one lock per file however the path is spelled.
+        let path = (path0 as NSString).standardizingPath
         mutex.lock()
         let lock: NSLock
         if let existing = locks[path] {
