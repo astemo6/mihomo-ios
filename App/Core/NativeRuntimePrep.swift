@@ -160,17 +160,32 @@ enum NativeRuntimePrep {
                 rep.warnings = (rep.warnings ?? []) + ["脚本清单写入失败：" + errStr]
             }
 
-            // Rewrite / MitM snapshot. bridge nativeprep.go: a snapshot
-            // write failure aborts the whole prepare (the runtime files
-            // written before it stay, the old snapshot stays) — it is
-            // NOT downgraded to a warning with the old snapshot deleted.
+            // Rewrite / MitM snapshot. bridge nativeprep.go calls
+            // mitm.ExportRewriteSnapshot(home, cfg, rs), which returns
+            // (string, int) — it has NO error path: a bad rewrite entry
+            // is collected in rs.errors while parsing and simply never
+            // reaches the snapshot, so content problems can never abort
+            // the prepare. Only the file WRITE is fatal in Go
+            // (writeAtomicFile's error returns) — that is the
+            // transaction's TxError here, and it still propagates. A
+            // snapshot EXPORT failure is therefore a warning with the
+            // staged snapshot removed, exactly as before nc-callsite-
+            // audit briefly made it fatal (one bad rewrite could then
+            // abort the whole start / reload).
             rep.rewrite = false
             rep.mitmHosts = 0
             if let cfg = cfg, let rs = rs, (cfg.anyOn || (cfg.mitm && !rs.hostnames.isEmpty)) {
-                let (snap, hosts) = try NCRewriteSnapshotBuilder.exportData(home: home, cfg: cfg, rs: rs)
-                try tx.put(snap, "nativecore-rewrite.json")
-                rep.rewrite = true
-                rep.mitmHosts = hosts
+                do {
+                    let (snap, hosts) = try NCRewriteSnapshotBuilder.exportData(home: home, cfg: cfg, rs: rs)
+                    try tx.put(snap, "nativecore-rewrite.json")
+                    rep.rewrite = true
+                    rep.mitmHosts = hosts
+                } catch let e as PrepTransaction.TxError {
+                    throw e
+                } catch {
+                    rep.warnings = (rep.warnings ?? []) + ["重写 / MitM 快照生成失败，本次未启用：" + error.localizedDescription]
+                    tx.remove("nativecore-rewrite.json")
+                }
             } else {
                 tx.remove("nativecore-rewrite.json")
             }
