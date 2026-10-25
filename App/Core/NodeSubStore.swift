@@ -163,7 +163,7 @@ final class NodeSubStore: ObservableObject {
         if let c = http?.statusCode, !(200..<300).contains(c) { throw ProfileStore.StoreError.http(c) }
         let path = s.cacheURL.path
         let out = await Task.detached(priority: .userInitiated) {
-            LibmihomoProviderStore(AppShared.homeURL.path, "proxy", path, "nodes", data)
+            NCProviderPorts.providerStore(home: AppShared.homeURL.path, kind: "proxy", cachePath: path, convert: "nodes", data: data)
         }.value
         struct R: Decodable { var count: Int; var error: String }
         guard let r = try? JSONDecoder().decode(R.self, from: Data(out.utf8)) else { throw ProfileStore.StoreError.empty }

@@ -65,8 +65,8 @@ func ncJSONString(_ any: Any) -> String {
 func ncProviderCachePath(home: String, kind: String, _ m: [String: NCJSONValue]) -> String {
     let p = ncStr(m["path"])
     if !p.isEmpty {
-        if p.hasPrefix("/") { return (p as NSString).standardizingPath }
-        return ((home as NSString).appendingPathComponent(p) as NSString).standardizingPath
+        if p.hasPrefix("/") { return p }
+        return (home as NSString).appendingPathComponent(p)
     }
     let u = ncStr(m["url"])
     if !u.isEmpty {
