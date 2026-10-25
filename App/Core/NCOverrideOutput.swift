@@ -115,7 +115,7 @@ enum NCOverrideOutput {
             if !sourceSHA.isEmpty && sourceSHA != srcSHA { return fail(errSourceChanged) }
             let y: String
             do { y = try outputYAML(outputJSON) } catch { return fail(error.localizedDescription) }
-            if let msg = NCProfileRefRename.buildError(home: home, path: profilePath, bytes: Data(y.utf8)) {
+            if let msg = NCConfigValidator.validate(home: home, path: profilePath, profile: Data(y.utf8)) {
                 return fail("脚本输出的配置校验失败: " + msg)
             }
             do {

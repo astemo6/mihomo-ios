@@ -36,14 +36,6 @@ public final class NCPinningMemory {
         pinnedUntil[h] = Date().addingTimeInterval(duration)
     }
 
-    public func pinnedHosts() -> [String] {
-        let now = Date()
-        lock.lock()
-        defer { lock.unlock() }
-        pinnedUntil = pinnedUntil.filter { $0.value > now }
-        return pinnedUntil.keys.sorted()
-    }
-
     public func reset() {
         lock.lock()
         defer { lock.unlock() }

@@ -220,7 +220,6 @@ enum NativeMitmRuntime {
     private static var running: [Int64: NativeMitmSession] = [:]
     static func retain(_ s: NativeMitmSession) { lock.lock(); running[s.id] = s; lock.unlock() }
     static func drop(_ id: Int64) { lock.lock(); running[id] = nil; lock.unlock() }
-    static var runningSessions: Int { lock.lock(); defer { lock.unlock() }; return running.count }
     /// Cancels every started session (uninstall: tunnel stop / switch off).
     static func cancelAll(_ why: String) {
         lock.lock(); let all = Array(running.values); lock.unlock()

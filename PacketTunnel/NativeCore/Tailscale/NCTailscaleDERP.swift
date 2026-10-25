@@ -204,18 +204,6 @@ final class NCTailscaleDERPClient {
         onQueue { self.homeSession?.state.isReady ?? false }
     }
 
-    /// List of all region IDs currently holding an active session.
-    var activeRegionIDs: [Int] {
-        onQueue { () -> [Int] in
-            var ids = [Int]()
-            if self.homeSession != nil {
-                ids.append(self.effectiveHomeRegionID)
-            }
-            ids.append(contentsOf: self.otherSessions.keys)
-            return ids
-        }
-    }
-
     // MARK: - Home Region Management & Reconnection
 
     private func resolveEffectiveHomeRegion() {

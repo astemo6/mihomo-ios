@@ -303,38 +303,6 @@ enum NCProfileNodes {
 
     // MARK: - Bridge Compatibility Aliases
 
-    static func ProfileNodeGet(_ path: String, _ name: String) -> String {
-        get(path: path, name: name)
-    }
-
-    static func ProfileNodeUpsert(_ homeDir: String, _ path: String, _ nodeJSON: String, _ oldName: String) -> String {
-        upsert(homeDir: homeDir, path: path, nodeJSON: nodeJSON, oldName: oldName)
-    }
-
-    static func ProfileNodeDuplicate(_ homeDir: String, _ path: String, _ name: String, _ suffix: String) -> String {
-        duplicate(homeDir: homeDir, path: path, name: name, suffix: suffix)
-    }
-
-    static func ProfileNodeDeleteCheck(_ path: String, _ name: String) -> String {
-        deleteCheck(path: path, name: name)
-    }
-
-    static func ProfileNodeDelete(_ homeDir: String, _ path: String, _ name: String) -> String {
-        delete(homeDir: homeDir, path: path, name: name)
-    }
-
-    static func ProfileNodeUndo(_ path: String) -> String {
-        undo(path: path)
-    }
-
-    static func ProfileRenameRefs(_ homeDir: String, _ path: String, _ oldName: String, _ newName: String) -> String {
-        renameRefs(homeDir: homeDir, path: path, oldName: oldName, newName: newName)
-    }
-
-    static func ProfileHasNode(_ path: String, _ name: String) -> Bool {
-        hasNode(path: path, name: name)
-    }
-
     // MARK: - Internal Helpers
 
     private static func loadDoc(_ path: String) -> NCProfileYAML? {

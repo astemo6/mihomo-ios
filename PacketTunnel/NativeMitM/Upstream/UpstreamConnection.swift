@@ -179,10 +179,6 @@ final class UpstreamConnection: UpstreamByteStream, CustomStringConvertible {
     private static let ctxLock = NSLock()
     private static var sharedContext: (port: UInt16, ctx: AnyObject)?
 
-    /// Memory bench only (UnitTests/NativeMitmMemoryTests): the bench origin's certificate is signed by a throwaway
-    /// CA the system does not trust. Never set by the app or the tunnel.
-    static var trustAnyOriginForTesting = false
-
     /// Opens a connection to `target` through the relay on 127.0.0.1:`relayPort`. The returned object can be
     /// `close()`d to abort the open (completion then reports `.cancelled`). Completion runs once, on `queue`.
     @discardableResult
@@ -218,7 +214,7 @@ final class UpstreamConnection: UpstreamByteStream, CustomStringConvertible {
                 let sec = tls.securityProtocolOptions
                 if !target.isIPLiteral { sec_protocol_options_set_tls_server_name(sec, target.host) }
                 for p in alpn { sec_protocol_options_add_tls_application_protocol(sec, p) }
-                if trustAnyOriginForTesting || target.skipVerify {
+                if target.skipVerify {
                     sec_protocol_options_set_verify_block(sec, { _, _, complete in complete(true) }, queue)
                 }
                 let params = NWParameters(tls: tls, tcp: tcp)
@@ -234,7 +230,7 @@ final class UpstreamConnection: UpstreamByteStream, CustomStringConvertible {
                 let sec = tls.securityProtocolOptions
                 if !target.isIPLiteral { sec_protocol_options_set_tls_server_name(sec, target.host) }
                 for p in alpn { sec_protocol_options_add_tls_application_protocol(sec, p) }
-                if trustAnyOriginForTesting || target.skipVerify {
+                if target.skipVerify {
                     sec_protocol_options_set_verify_block(sec, { _, _, complete in complete(true) }, queue)
                 }
                 nw = NWConnection(host: NWEndpoint.Host(target.host), port: oport, using: NWParameters(tls: tls, tcp: tcp))

@@ -189,10 +189,6 @@ struct NCEngineConfig: Decodable {
         return cfg
     }
 
-    static func engineDir(_ home: String) -> String {
-        URL(fileURLWithPath: home).appendingPathComponent("engine").path
-    }
-
     static func modulePath(home: String, id: String) -> String {
         URL(fileURLWithPath: home)
             .appendingPathComponent("engine/modules/\(safeName(id)).txt").path

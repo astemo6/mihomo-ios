@@ -19,15 +19,6 @@ enum NCModulePolicies {
         NCRuntimeSteps.profileNames(profileRaw(home: home, profilePath: profilePath)).groups
     }
 
-    /// bridge ModuleUnresolved (unordered like Go's map walk; the caller sorts).
-    static func moduleUnresolved(home: String, profilePath: String, moduleText: String, args: [String: String]) -> [String] {
-        let rs = NCEngineRuleset()
-        rs.parseText(moduleText, source: "模块", args: args)
-        var un: Set<String>? = []
-        _ = NCRuntimeSteps.resolveCoreRules(profileRaw(home: home, profilePath: profilePath), rules: rs.coreRules, unresolved: &un)
-        return Array(un ?? [])
-    }
-
     /// Both for one view load, sharing one runtime build (Go built the tree twice).
     static func load(home: String, profilePath: String, moduleText: String, args: [String: String]) -> (unresolved: [String], groups: [String]) {
         let raw = profileRaw(home: home, profilePath: profilePath)

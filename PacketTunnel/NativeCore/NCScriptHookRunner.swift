@@ -1,10 +1,8 @@
 import Foundation
 
 /// Tunnel-side execution of the two hook script kinds registered by
-/// #120 (App/Core/NCScriptHooks.swift is the App-target contract; this
-/// file is the PacketTunnel target's own implementation of the same
-/// semantics — the two targets share no code, so the value types below
-/// deliberately mirror the contract's).
+/// #120. This file is the contract and its implementation (the App-side
+/// spec-only copy, App/Core/NCScriptHooks.swift, was removed as dead code).
 ///
 ///   - Surge `type=dns` scripts run AFTER an answer exists (hosts /
 ///     fake-IP locally, or the assigned upstream's reply) and BEFORE it
@@ -39,7 +37,7 @@ import Foundation
 ///   build) use the same $done channel; TernPrelude.js additionally
 ///   installs a native `ctx` global for these two phases.
 
-// MARK: - Values (mirror App/Core/NCScriptHooks.swift)
+// MARK: - Values
 
 /// One DNS query, as handed to a type=dns script.
 struct NCScriptDNSQuery {

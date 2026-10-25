@@ -241,19 +241,3 @@ extension NativeMitmRuntime {
 }
 
 // MARK: - memory bench (UnitTests/NativeMitmMemoryTests only)
-
-/// Thin wrapper over the Go bench (bridge/s2bench.go) so the unit tests reach it through `@testable import`.
-/// Never called by the app or the tunnel.
-enum NativeMitmBench {
-    /// JSON {enginePort, ca} or {error}.
-    static func start() -> String { "{}" }
-    static func start(rules: String) -> String { "{}" }
-    static func comboRules() -> String { "{}" }
-    static func goMemory() -> String { "{}" }
-    static func stop() {}
-    static func goLog() -> String { "" }
-    static func relayPort() -> Int { 0 }
-    static func freeGoMemory() {}
-    static func setPageReturn(_ on: Bool) {}
-    static func pageReturnStats() -> String { "{}" }
-}

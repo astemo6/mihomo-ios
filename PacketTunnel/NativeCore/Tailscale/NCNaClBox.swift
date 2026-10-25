@@ -138,16 +138,6 @@ enum NCNaClBox {
 
     // MARK: - 3. XSalsa20
 
-    struct XSalsa20 {
-        /// XOR-encrypts/decrypts `message` with a 32-byte key and 24-byte nonce.
-        static func xor(message: [UInt8], key: [UInt8], nonce24: [UInt8]) -> [UInt8]? {
-            guard key.count == 32, nonce24.count == 24 else { return nil }
-            guard let subkey = HSalsa20.hash(key: key, input: Array(nonce24.prefix(16))) else { return nil }
-            let subnonce = Array(nonce24.suffix(8))
-            return Salsa20.xor(message: message, key: subkey, nonce8: subnonce, counter: 0)
-        }
-    }
-
     // MARK: - 4. Poly1305 MAC
 
     /// Pure Swift constant-time Poly1305 one-time authenticator (Bernstein 2005 / RFC 7539 / RFC 8439).

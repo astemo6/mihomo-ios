@@ -18,7 +18,7 @@ import CommonCrypto
 /// loonObjectEnvelope), [Plugin] reference lines split into url +
 /// parameters, the full `#!` metadata set (not just the five classic
 /// keys), Surge type=dns / type=rule script registration (execution
-/// contract: NCScriptHooks.swift), and Egern `scriptings:` import.
+/// contract: PacketTunnel/NativeCore/NCScriptHookRunner.swift), and Egern `scriptings:` import.
 /// Not covered (recorded in `unsupported` or noted where they land):
 /// Loon *rewrite* expression actions (response.json.replace …),
 /// Egern's rewrite families (url_rewrites / header_rewrites /
@@ -752,8 +752,8 @@ extension NCEngineRuleset {
         switch typ {
         case "http-request": r.phase = "request"
         case "http-response": r.phase = "response"
-        case "dns": r.phase = "dns" // Surge type=dns (nc-compat; NCScriptHooks.swift)
-        case "rule": r.phase = "rule" // Surge type=rule (nc-compat; NCScriptHooks.swift)
+        case "dns": r.phase = "dns" // Surge type=dns (nc-compat; NCScriptHookRunner.swift)
+        case "rule": r.phase = "rule" // Surge type=rule (nc-compat; NCScriptHookRunner.swift)
         default: return (r, .unsupported)
         }
         return (r, nil)
@@ -1193,8 +1193,7 @@ extension NCEngineRuleset {
                 // rules (phase "dns" / "rule") so they flow into the
                 // script manifest like every other script instead of
                 // being dropped here. How the kernel must invoke them is
-                // defined in NCScriptHooks.swift — interface only: the
-                // DNS and rule engines do not call them yet.
+                // defined in PacketTunnel/NativeCore/NCScriptHookRunner.swift.
                 let (r, e) = Self.newScriptRule(name: m[1], type: typ, pattern: p["pattern"] ?? "", p: p)
                 addRule(line: line, r, e)
                 return true
@@ -2574,7 +2573,7 @@ extension NCEngineRuleset {
     ///   network_changed -> event task
     ///   widget          -> generic task (the panel / widget channel)
     ///   dns / rule      -> script rule phase "dns" / "rule": the
-    ///                      NCScriptHooks.swift contract applies
+    ///                      NCScriptHookRunner.swift contract applies
     /// The ctx object itself is built at run time by the existing
     /// Egern adapter (NCScriptManifest.egernPrelude) from the host
     /// globals: ctx.request <- $request (method / url / headers /

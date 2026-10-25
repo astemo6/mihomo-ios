@@ -29,7 +29,6 @@ final class VPNManager: ObservableObject {
     private var configObserver: NSObjectProtocol?
 
     var isConnected: Bool { status == .connected }
-    var isTransitioning: Bool { [.connecting, .disconnecting, .reasserting].contains(status) }
 
     var statusText: String {
         switch status {

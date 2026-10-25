@@ -134,10 +134,6 @@ protocol ScriptHostAPI: AnyObject {
     func held() -> Int64
 }
 
-private func decodeJSON<T: Decodable>(_ s: String, _ fallback: T) -> T {
-    (try? JSONDecoder().decode(T.self, from: Data(s.utf8))) ?? fallback
-}
-
 final class NativeScriptFetch: ScriptFetch {
     let meta: String
     let body: Data

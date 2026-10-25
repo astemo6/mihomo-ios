@@ -29,10 +29,6 @@ struct MoreView: View {
     /// False until the stack first appeared (a new MoreView, e.g. iPad's per-tab rebuild, starts with an empty stack).
     @State private var appeared = false
 
-    /// Every node 节点与订阅 lists (全部节点); nil before the list loaded. (Kept for callers; feat/surge-ui
-    /// no longer shows the count on the 更多 row.)
-    static func nodeTotal(_ nodes: [ManagedNode]) -> Int? { nodes.isEmpty ? nil : nodes.count }
-
     /// feat/surge-ui (user 「现在的感觉有点专业工具风」): calmer 更多 — short section headers, one tile per row,
     /// plain-language titles with the technical term as a small subtitle, no counters on the top level,
     /// expert pages under 高级设置. Row ids stay `more.<old zh-Hans key>` so UI tests and muscle memory hold.

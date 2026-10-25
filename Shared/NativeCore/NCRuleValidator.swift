@@ -591,16 +591,6 @@ enum NCRuleValidator {
         return checks.first ?? RuleCheck(id: "1", line: line, enabled: true)
     }
 
-    /// JSON string result of checkRuleLine, matching the bridge format.
-    static func checkRuleLineJSON(homeDir: String, profilePath: String, line: String) -> String {
-        let check = checkRuleLine(homeDir: homeDir, profilePath: profilePath, line: line)
-        let enc = JSONEncoder()
-        guard let data = try? enc.encode(check), let str = String(data: data, encoding: .utf8) else {
-            return "{}"
-        }
-        return str
-    }
-
     /// Check all rules in <home>/rules.json against the profile.
     static func checkCustomRules(homeDir: String, profilePath: String) -> [RuleCheck] {
         var context = loadProfileContext(homeDir: homeDir, profilePath: profilePath)
@@ -608,13 +598,4 @@ enum NCRuleValidator {
         return convertCustom(rules: rules, context: &context)
     }
 
-    /// JSON string result of checkCustomRules, matching the bridge format.
-    static func checkCustomRulesJSON(homeDir: String, profilePath: String) -> String {
-        let checks = checkCustomRules(homeDir: homeDir, profilePath: profilePath)
-        let enc = JSONEncoder()
-        guard let data = try? enc.encode(checks), let str = String(data: data, encoding: .utf8) else {
-            return "[]"
-        }
-        return str
-    }
 }

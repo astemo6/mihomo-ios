@@ -82,12 +82,6 @@ enum NCDelayTester {
         }
     }
 
-    static func nodeTestDelayInAsync(homeDir: String, profilePath: String, provider: String, name: String, url: String, timeoutMs: Int, tcp: Bool) async -> Int {
-        await withCheckedContinuation { cont in
-            nodeDelayInAsync(homeDir: homeDir, profilePath: profilePath, provider: provider, name: name, url: url, timeoutMs: timeoutMs, tcp: tcp) { cont.resume(returning: $0) }
-        }
-    }
-
     static func delayByNameAsync(homeDir: String, profilePath: String, name: String, url: String, timeoutMs: Int, tcp: Bool) async -> Int {
         await withCheckedContinuation { cont in
             delayByNameAsync(homeDir: homeDir, profilePath: profilePath, name: name, url: url, timeoutMs: timeoutMs, tcp: tcp) { cont.resume(returning: $0) }

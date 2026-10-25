@@ -92,12 +92,6 @@ enum NCDERPFrameCodec {
     /// 32-byte Curve25519 key length.
     static let keyLength: Int = 32
 
-    /// 24-byte NaCl box nonce length.
-    static let nonceLength: Int = 24
-
-    /// 8-byte Ping/Pong payload length.
-    static let pingPongLength: Int = 8
-
     // MARK: - Frame Encoders
 
     /// Encoders wrap payload with a 5-byte header: `1 byte type + 4 bytes big-endian length`.
@@ -308,11 +302,6 @@ final class NCDERPFrameDecoder {
 
     init(maxFrameSize: Int = NCDERPFrameCodec.maxFramePayloadSize) {
         self.maxFrameSize = maxFrameSize
-    }
-
-    /// Number of incomplete bytes currently sitting in the receive buffer.
-    var bufferedBytesCount: Int {
-        buffer.count
     }
 
     /// Clears any buffered state.

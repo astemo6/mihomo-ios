@@ -1155,8 +1155,4 @@ final class NCNodeSubscriptionStore {
         return NCNodeFilter.apply(raw, include: sub.includeRegex, exclude: sub.excludeRegex)
     }
 
-    func allNodes() -> [String: [NCProxy]] {
-        lock.lock(); defer { lock.unlock() }
-        return nodesBySub
-    }
 }

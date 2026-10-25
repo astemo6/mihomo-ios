@@ -50,11 +50,6 @@ struct NCTailscaleNetmapSnapshot: Equatable {
         peers.count
     }
 
-    /// Number of peers reporting `Online == true`.
-    var onlinePeerCount: Int {
-        peers.values.filter { $0.Online == true }.count
-    }
-
     /// Home DERP region ID selected for the self node.
     var derpHomeRegion: Int? {
         selfNode?.derpRegionID

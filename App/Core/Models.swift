@@ -191,7 +191,6 @@ struct SubscriptionInfoAPI: Decodable, Hashable {
 
 struct ProvidersResponse: Decodable { var providers: [String: ProviderItem] }
 
-struct TrafficSample: Decodable { var up: Int64; var down: Int64 }
 struct MemorySample: Decodable { var inuse: Int64; var oslimit: Int64? }
 
 struct LogLine: Identifiable, Hashable {

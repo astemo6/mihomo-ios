@@ -78,8 +78,6 @@ final class H2InboundBody: H2BodySource {
     }
 
     var isEnded: Bool { ended || failure != nil }
-    var bufferedBytes: Int { buffered }
-    var endTrailers: HTTPHeaderList? { trailers }
 
     func push(_ d: Data) {
         guard !ended, failure == nil else { onConsumed(d.count); return }
@@ -229,18 +227,5 @@ final class H2StreamSink: H2BodySink {
     func kill() {
         dead = true
         if let cb = waiting { waiting = nil; conn.queue.async { cb(false) } }
-    }
-}
-
-/// Collects a body in memory (tests, small diagnostics).
-final class H2CollectSink: H2BodySink {
-    private let queue: DispatchQueue
-    private(set) var data = Data()
-    private(set) var trailers: HTTPHeaderList?
-    private(set) var finished = false
-    init(queue: DispatchQueue) { self.queue = queue }
-    func write(_ d: Data, _ cb: @escaping (Bool) -> Void) { data.append(d); queue.async { cb(true) } }
-    func finish(trailers: HTTPHeaderList?, _ cb: @escaping (Bool) -> Void) {
-        self.trailers = trailers; finished = true; queue.async { cb(true) }
     }
 }

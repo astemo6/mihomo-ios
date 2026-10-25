@@ -614,15 +614,6 @@ final class NCHostMatcher {
         return ["DOMAIN,\(p.pat)"]
     }
 
-    static func appendPayload(_ out: inout [String], _ seen: inout Set<String>, _ p: NCHostPat) {
-        for l in payloadFor(p) {
-            if !seen.contains(l) {
-                seen.insert(l)
-                out.append(l)
-            }
-        }
-    }
-
     // MARK: - IPv4 Glob Prefix Expansion (bridge/mitm/ipglob.go)
 
     static let ipGlobMaxPrefixes = 1024

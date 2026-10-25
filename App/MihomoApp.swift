@@ -220,8 +220,6 @@ enum Theme {
     static let neutral = dyn(UIColor(white: 0.60, alpha: 1), UIColor(white: 0.45, alpha: 1))
     /// Text on a filled accent / status capsule.
     static let onAccent = dyn(.white, .black)
-    static let connectedGradient = LinearGradient(colors: [Color(red: 0.16, green: 0.52, blue: 0.98), Color(red: 0.36, green: 0.86, blue: 0.95)], startPoint: .topLeading, endPoint: .bottomTrailing)
-    static let idleGradient = LinearGradient(colors: [cardHi, card], startPoint: .topLeading, endPoint: .bottomTrailing)
 
     static func delayColor(_ d: Int?) -> Color {
         guard let d, d > 0 else { return .secondary }

@@ -114,11 +114,6 @@ struct NCTailscaleKeys {
         self.discoKey = discoKey
     }
 
-    /// Hex-encoded public key representations for logging and inspection.
-    var machinePublicKeyHex: String {
-        [UInt8](machineKey.publicKey.rawRepresentation).map { String(format: "%02x", $0) }.joined()
-    }
-
     var nodePublicKeyHex: String {
         [UInt8](nodeKey.publicKey.rawRepresentation).map { String(format: "%02x", $0) }.joined()
     }

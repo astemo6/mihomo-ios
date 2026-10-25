@@ -579,42 +579,6 @@ enum NCRewriteICU {
         return parseReplacementTemplate(repl: repl, unnamedCount: unnamedCount, capnames: capnames)
     }
 
-    /// portableRepl: the replacement only uses forms Swift expands exactly like regexp2 (non-ECMAScript):
-    /// literals, $$, $&, $n / ${n} (greedy digits, literal when no such group), "$" + anything else literal.
-    /// Named groups, $` $' $+ $_ and ${name} are left to Go.
-    static func portableRepl(_ repl: String, _ sr: NCSnapRegex) -> Bool {
-        if !sr.ok {
-            return false
-        }
-        let bytes = Array(repl.utf8)
-        for i in 0..<bytes.count {
-            if bytes[i] != UInt8(ascii: "$") || i + 1 >= bytes.count {
-                continue
-            }
-            if sr.named == true {
-                return false
-            }
-            let d = bytes[i + 1]
-            if d == UInt8(ascii: "`") || d == UInt8(ascii: "'") || d == UInt8(ascii: "+") || d == UInt8(ascii: "_") {
-                return false
-            }
-            if d == UInt8(ascii: "{") && i + 2 < bytes.count && isWordByte(bytes[i + 2]) &&
-               !(bytes[i + 2] >= UInt8(ascii: "0") && bytes[i + 2] <= UInt8(ascii: "9")) {
-                return false
-            }
-        }
-        return true
-    }
-
-    /// hasNamedGroup: checks if any group name cannot be parsed as an integer.
-    static func hasNamedGroup(_ groupNames: [String]) -> Bool {
-        for n in groupNames {
-            if Int(n) == nil {
-                return true
-            }
-        }
-        return false
-    }
 }
 
 // MARK: - Parser & Translation Internal Types

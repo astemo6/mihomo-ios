@@ -211,21 +211,6 @@ enum NCProfileInspectorPort {
 
     // MARK: - Provider Helpers
 
-    static func providerCache(homeDir: String, kind: String, pathVal: String?, urlVal: String?) -> String {
-        if let p = pathVal, !p.isEmpty {
-            if p.hasPrefix("/") { return p }
-            return (homeDir as NSString).appendingPathComponent(p)
-        }
-        if let u = urlVal, !u.isEmpty {
-            let prefix = (kind == "rule") ? "rules" : "proxies"
-            let digest = Insecure.SHA1.hash(data: Data(u.utf8))
-            let hex = digest.map { String(format: "%02x", $0) }.joined()
-            let dir = (homeDir as NSString).appendingPathComponent(prefix)
-            return (dir as NSString).appendingPathComponent(hex)
-        }
-        return ""
-    }
-
     static func inspectProviders(homeDir: String, kind: String, raw: NCJSONValue?) -> [InspectProvider] {
         var out: [InspectProvider] = []
         guard let obj = raw?.object else { return out }

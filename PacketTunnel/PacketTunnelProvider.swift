@@ -77,10 +77,6 @@ enum TunnelNotice {
 }
 
 final class PacketTunnelProvider: NEPacketTunnelProvider {
-    /// feat/go-pagereturn switch (app-group bool) and its default (decided by NativeMitmMemoryTests' post-burst idle
-    /// footprint, see CHANGELOG).
-    static let goPageReturnKey = "goPageReturn.enabled"
-    static let goPageReturnDefault = true
 
     private let notifier = ScriptNotifier()
     /// feat/native-core-eval: the tunnel kernel (NativeCore, Swift + lwIP). The extension does not link Go.

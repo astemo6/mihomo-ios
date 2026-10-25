@@ -15,13 +15,6 @@ struct GroupOrderRow: Identifiable, Equatable {
     /// false = not in the profile file (added at runtime), keeps its place.
     let movable: Bool
 
-    /// Display names of the active profile's file groups (after 策略组编辑 renames).
-    @MainActor static func movableNames(_ p: Profile?) -> Set<String> {
-        guard let p else { return [] }
-        let edits = GroupEditStore.get(p.id)
-        return Set(GroupOrder.fileNames(p).map { GroupOrder.displayName(of: $0, edits: edits) })
-    }
-
     /// Puts the non-movable rows back at their original indexes; the movable ones fill the rest in moved order.
     static func pinFixed(original: [GroupOrderRow], moved: [GroupOrderRow]) -> [GroupOrderRow] {
         var mov = moved.filter(\.movable).makeIterator()

@@ -320,8 +320,4 @@ final class NCRuleProviderStore {
         return indexes[aliasMap[name] ?? name] != nil
     }
 
-    func loadedNames() -> [String] {
-        lock.lock(); defer { lock.unlock() }
-        return Array(indexes.keys)
-    }
 }

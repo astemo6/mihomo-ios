@@ -225,9 +225,6 @@ private final class NCSSHCipher {
     var blockSize: Int {
         switch mode { case .none: return 8; default: return 16 }
     }
-    var macLength: Int {
-        switch mode { case .none: return 0; case .gcm: return 16; case .ctr: return 32 }
-    }
 
     private func nextNonce() -> AES.GCM.Nonce? {
         guard case .gcm(let k, var iv) = mode else { return nil }

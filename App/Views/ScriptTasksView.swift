@@ -159,7 +159,6 @@ extension ControllerClient {
         let d = try await send("/mitm/panels/\(ControllerClient.enc(id))/refresh", method: "POST", timeout: 70)
         return try JSONDecoder().decode(PanelItem.self, from: d)
     }
-    func mitmNotifications() async throws -> [ScriptNotice] { try await get([ScriptNotice].self, "/mitm/notifications") }
     func mitmReplay(_ id: Int64, edit: [String: Any]?) async throws -> ReplayResult {
         let d = try await send("/mitm/requests/\(id)/replay", method: "POST", body: edit, timeout: 40)
         return try JSONDecoder().decode(ReplayResult.self, from: d)
