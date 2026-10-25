@@ -140,13 +140,20 @@ enum NCTunnelDelayTester {
     /// successes (ms) and failures (nil). A per-member timeout plus an overall round
     /// timeout (scaled to the member count) keep hung probes from stalling the caller;
     /// members that miss the round are absent from the result, not marked dead.
+    ///
+    /// rv2-life: fully asynchronous — at most `maxConcurrency` probes are in flight and each finished probe starts
+    /// the next one. It used to park one global-queue thread per member on a semaphore (a 200-node group = ~64
+    /// blocked GCD worker threads, 512 KB stack reservation each, starving every other global-queue user).
+    /// 6 in flight: the leanest of the reference clients' group tests, and each probe costs a socket + TLS state.
+    static let defaultGroupConcurrency = 6
+
     static func measureGroup(
         groupEngine: NCGroupEngine?,
         members: [String],
         url: String,
         timeoutMs: Int,
         overallTimeoutMs: Int? = nil,
-        maxConcurrency: Int = 10,
+        maxConcurrency: Int = defaultGroupConcurrency,
         queue: DispatchQueue = .global(qos: .userInitiated),
         isCancelled: @escaping () -> Bool = { false },
         completion: @escaping ([String: Int?]) -> Void
@@ -155,62 +162,72 @@ enum NCTunnelDelayTester {
             queue.async { completion([:]) }
             return
         }
-        let group = DispatchGroup()
-        let lock = NSLock()
-        var results: [String: Int?] = [:]
-        var finished = false
-        let semaphore = DispatchSemaphore(value: max(1, maxConcurrency))
-
-        let finishOnce: ([String: Int?]) -> Void = { res in
-            lock.lock()
-            guard !finished else {
-                lock.unlock()
-                return
-            }
-            finished = true
-            lock.unlock()
-            queue.async { completion(res) }
-        }
-
+        let run = GroupRun(groupEngine: groupEngine, members: members, url: url, timeoutMs: timeoutMs,
+                           queue: queue, isCancelled: isCancelled, completion: completion)
+        let limit = max(1, min(maxConcurrency, members.count))
         // Bound the round so hung members can never stall the caller: every member
         // gets its own timeout, plus slack for queueing behind the concurrency cap.
-        let rounds = (members.count + maxConcurrency - 1) / maxConcurrency
+        let rounds = (members.count + limit - 1) / limit
         let roundTimeout = overallTimeoutMs ?? (timeoutMs * rounds + 5000)
-        DispatchQueue.global(qos: .userInitiated).asyncAfter(deadline: .now() + .milliseconds(roundTimeout)) {
-            lock.lock()
-            let current = results
-            lock.unlock()
-            finishOnce(current)
+        DispatchQueue.global(qos: .utility).asyncAfter(deadline: .now() + .milliseconds(roundTimeout)) { run.finish() }
+        for _ in 0..<limit { run.launchNext() }
+    }
+
+    /// One group round: a cursor over the members, a running count, the results (all under `lock`).
+    private final class GroupRun {
+        let groupEngine: NCGroupEngine?
+        let members: [String]
+        let url: String
+        let timeoutMs: Int
+        let queue: DispatchQueue
+        let isCancelled: () -> Bool
+        var completion: (([String: Int?]) -> Void)?
+        let lock = NSLock()
+        var next = 0
+        var running = 0
+        var results: [String: Int?] = [:]
+
+        init(groupEngine: NCGroupEngine?, members: [String], url: String, timeoutMs: Int, queue: DispatchQueue,
+             isCancelled: @escaping () -> Bool, completion: @escaping ([String: Int?]) -> Void) {
+            self.groupEngine = groupEngine
+            self.members = members
+            self.url = url
+            self.timeoutMs = timeoutMs
+            self.queue = queue
+            self.isCancelled = isCancelled
+            self.completion = completion
         }
 
-        for member in members {
-            group.enter()
-            DispatchQueue.global(qos: .userInitiated).async {
-                if isCancelled() {
-                    group.leave()
-                    return
-                }
-                semaphore.wait()
-                if isCancelled() {
-                    semaphore.signal()
-                    group.leave()
-                    return
-                }
-                measureDelay(groupEngine: groupEngine, name: member, url: url, timeoutMs: timeoutMs) { ms in
-                    lock.lock()
-                    results[member] = ms
-                    lock.unlock()
-                    semaphore.signal()
-                    group.leave()
-                }
+        func launchNext() {
+            let cancelled = isCancelled() // outside our lock: it takes the scheduler's
+            lock.lock()
+            guard completion != nil, !cancelled, next < members.count else {
+                let idle = running == 0
+                lock.unlock()
+                if idle { finish() }
+                return
+            }
+            let member = members[next]
+            next += 1
+            running += 1
+            lock.unlock()
+            NCTunnelDelayTester.measureDelay(groupEngine: groupEngine, name: member, url: url, timeoutMs: timeoutMs) { ms in
+                self.lock.lock()
+                if self.completion != nil { self.results[member] = ms }
+                self.running -= 1
+                self.lock.unlock()
+                self.launchNext()
             }
         }
 
-        group.notify(queue: DispatchQueue.global(qos: .userInitiated)) {
+        /// Delivers the results so far, once (round timeout, all done, or cancelled with nothing running).
+        func finish() {
             lock.lock()
+            guard let done = completion else { lock.unlock(); return }
+            completion = nil
             let res = results
             lock.unlock()
-            finishOnce(res)
+            queue.async { done(res) }
         }
     }
 }

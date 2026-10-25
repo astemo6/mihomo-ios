@@ -154,6 +154,8 @@ final class NativeMemoryGovernor {
 
     private let lock = NSLock()
     private(set) var level: MemoryLevel = .normal
+    /// rv2-life: `level` read under the lock, for callers on other queues (the data plane's buffer budget).
+    var currentLevel: MemoryLevel { lock.lock(); defer { lock.unlock() }; return level }
     private var levelSince: TimeInterval
     private var criticalSince: TimeInterval?
     private var lastEvent: TimeInterval = -.infinity

@@ -21,9 +21,15 @@ final class NCDataPlane {
     private var udpSessions: [UInt32: UDPSessionEntry] = [:]
     private lazy var dnsForwarder = NCDNSForwarder(queue: queue)
 
-    private struct UDPSessionEntry {
+    /// rv2-life: a class so a reply can refresh `lastUsed` without a dictionary write (the C side counts both
+    /// directions as activity; this side used to count only app → relay and expired busy download flows).
+    private final class UDPSessionEntry {
         let session: NCUDPSession
         var lastUsed: Date
+        init(session: NCUDPSession, lastUsed: Date) {
+            self.session = session
+            self.lastUsed = lastUsed
+        }
     }
     private var dnsReplies = 0
     private var udpDropped = 0
@@ -35,12 +41,35 @@ final class NCDataPlane {
     let stats = NCDataPlaneStats()
     private(set) var isRunning = false
 
+    // rv2-life (#10) back-pressure / memory caps. lwIP's own send buffer per connection is TCP_SND_BUF (16 × 1460 =
+    // 23 360 B, lwipopts.h); the outbox in front of it is capped at about twice that: once a connection holds
+    // `outboxCap` the relay is not read again until the app ACKed enough (tcp_sent callback / tick) to bring it
+    // under `outboxResume`. One relay read is ≤ 64 KB (NCStream), so a connection holds ≤ ~112 KB worst case.
+    // Pre-connect bytes are bounded by the TUN receive window (nothing is acknowledged to lwIP until the relay took
+    // the bytes, nc_tcp_recved), `pendingCap` (2 × TCP_WND) is the hard stop (RST). `bufferedTotal` (all outboxes +
+    // pending) is held under NCBufferBudget (4 MB normal … 256 KB critical, memory-governor tied): over budget,
+    // every connection that has anything queued pauses its relay read until it drained.
+    static let outboxCap = 48 << 10
+    static let outboxResume = 16 << 10
+    static let pendingCap = 48 << 10
+    private var bufferedTotal = 0
+    private var budget = NCBufferBudget.normal
+
     final class TCPSession {
         let conn: NCTunStack.TCPConn
         var target: NCTarget        // dial target (domain after deref/sniff, else the IP)
         var ruleDomain: String?     // domain fed to rule matching, when known
         var pending = Data()        // client bytes buffered before the relay is up
-        var outbox = Data()         // relay bytes waiting for stack send window
+        // rv2-life: relay bytes waiting for the stack's send window, as received chunks + a read offset into the
+        // first one (was one Data with removeFirst per write: a memmove of the whole outbox every time).
+        var outQ: [Data] = []
+        var outHead = 0
+        var outBytes = 0
+        var pendingCounted = 0      // pending bytes counted in bufferedTotal
+        var unacked = 0             // bytes received from lwIP not yet acknowledged (nc_tcp_recved)
+        var started = false         // receiveLoop ran once (pending was handed to the relay)
+        var readPaused = false      // relay read stopped by back-pressure
+        var closeAfterDrain: Date?  // relay EOF: close once the outbox reached the app
         var relay: NCRelayStream?
         var state: State = .deciding
         let acceptedAt = Date()
@@ -74,6 +103,8 @@ final class NCDataPlane {
         stack.onTCPData = { [weak self] conn, data in self?.tcpData(conn, data) }
         stack.onTCPError = { [weak self] conn in self?.tcpError(conn) }
         stack.onUDP = { [weak self] info, data in self?.udp(info, data) }
+        stack.onTCPSent = { [weak self] conn in self?.tcpSent(conn) }
+        stack.onUDPClosed = { [weak self] id in self?.udpGone(id) }
         // The v6 address mirrors PacketTunnelProvider's NEIPv6Settings so
         // fake-IP v6 destinations terminate in the stack like v4 ones.
         guard stack.start(ip4: "198.18.0.1", ip6: "fdfe:dcba:9876::1", mtu: mtu) else {
@@ -119,6 +150,7 @@ final class NCDataPlane {
             sessions.removeAll()
             for e in udpSessions.values { e.session.cancel() }
             udpSessions.removeAll()
+            bufferedTotal = 0
             stack.stop()
             isRunning = false
         }
@@ -134,6 +166,8 @@ final class NCDataPlane {
         flow?.readPackets { [weak self] packets, _ in
             guard let self else { return }
             self.queue.async {
+                // rv2-life: a stopped plane stops reading (a restarted core's new plane owns the flow now)
+                guard self.isRunning else { return }
                 if !self.tickFast { self.setTickFast(true) }
                 for p in packets {
                     // ICMP echo to fake-IP / tunnel addresses: answer in
@@ -159,18 +193,26 @@ final class NCDataPlane {
         // The controller mirror is rebuilt once a second (was every 250 ms tick: a dictionary per connection +
         // a new date formatter each time).
         tickCount &+= 1
-        if tickCount % 4 == 0 { refreshStats() }
+        if tickCount % 4 == 0 {
+            refreshStats()
+            budget = NCBufferBudget.current()
+        }
         let now = Date()
         for s in sessions.values {
             if s.state == .deciding, now.timeIntervalSince(s.acceptedAt) > 1.5 {
                 connect(s) // server-first protocol or silent client: go by IP
             }
-            if s.state == .open { drain(s) }
+            if s.state == .open {
+                // rv2-life: an app that stopped reading never lets a finished relay's tail drain: give up after 30 s
+                if let eof = s.closeAfterDrain, now.timeIntervalSince(eof) > 30 { close(s) } else { drain(s) }
+            }
         }
-        // Mirror the C stack's 120 s UDP idle expiry on our side.
-        for (id, entry) in udpSessions where now.timeIntervalSince(entry.lastUsed) > 120 {
+        // The C stack expires idle UDP sessions (120 s, both directions) and tells us (onUDPClosed); this sweep is
+        // only a safety net, and closes the C side too so both tables stay in step.
+        for (id, entry) in udpSessions where now.timeIntervalSince(entry.lastUsed) > 130 {
             entry.session.cancel()
             udpSessions.removeValue(forKey: id)
+            stack.udpClose(session: id)
         }
         if sessions.isEmpty && udpSessions.isEmpty {
             idleTicks += 1
@@ -210,15 +252,30 @@ final class NCDataPlane {
             close(s) // client FIN
             return
         }
+        // rv2-life: received bytes are acknowledged to lwIP (window reopened toward the app) only once the relay
+        // took them — the upstream back-pressure. Until then they count in `unacked`.
+        s.unacked += data.count
         switch s.state {
-        case .deciding:
+        case .deciding, .connecting:
+            // Bounded by the receive window already (nothing is acknowledged before the relay is up); the cap is the
+            // hard stop for anything beyond it.
+            guard s.pending.count + data.count <= Self.pendingCap else {
+                reset(s)
+                return
+            }
             s.pending.append(data)
-            decide(s)
-        case .connecting:
-            s.pending.append(data)
+            s.pendingCounted += data.count
+            bufferedTotal += data.count
+            if s.state == .deciding { decide(s) }
         case .open:
             countUp(s, data.count)
-            s.relay?.send(data)
+            guard let relay = s.relay else { return }
+            let n = data.count
+            NCRelayFlow.send(relay, data, queue: queue) { [weak self, weak s] in
+                guard let self, let s, s.state != .closed else { return }
+                s.unacked -= n
+                self.stack.tcpRecved(s.conn, n)
+            }
         case .closed:
             break
         }
@@ -227,7 +284,14 @@ final class NCDataPlane {
     private func tcpError(_ conn: NCTunStack.TCPConn) {
         guard let s = sessions.removeValue(forKey: UInt(bitPattern: conn.handle)) else { return }
         s.state = .closed
+        releaseBuffers(s)
         s.relay?.cancel()
+    }
+
+    /// rv2-life: the app ACKed data (lwIP send window opened): push more of the outbox, maybe resume the relay read.
+    private func tcpSent(_ conn: NCTunStack.TCPConn) {
+        guard let s = sessions[UInt(bitPattern: conn.handle)], s.state == .open else { return }
+        drain(s)
     }
 
     /// Learn the real domain from the first bytes (TLS SNI / HTTP Host) when the
@@ -333,17 +397,37 @@ final class NCDataPlane {
     }
 
     private func receiveLoop(_ s: TCPSession) {
+        if !s.started {
+            // First call, right after connect / the MitM front handed the pre-connect bytes to the relay: they no
+            // longer count against the budget, and the app's window reopens for them.
+            s.started = true
+            bufferedTotal -= s.pendingCounted
+            s.pendingCounted = 0
+            if s.unacked > 0 {
+                stack.tcpRecved(s.conn, s.unacked)
+                s.unacked = 0
+            }
+        }
         s.relay?.receive { [weak self, weak s] data, error in
             guard let self, let s, s.state == .open else { return }
             if let data, !data.isEmpty {
                 countDown(s, data.count)
-                s.outbox.append(data)
+                s.outQ.append(data)
+                s.outBytes += data.count
+                self.bufferedTotal += data.count
                 self.drain(s)
-                self.receiveLoop(s)
-            } else if error == nil {
-                self.close(s) // clean EOF
+                guard s.state == .open, s.closeAfterDrain == nil else { return }
+                // rv2-life (#10): stop reading the relay while the app is not taking what we have; drain() resumes.
+                if s.outBytes >= Self.outboxCap || (self.bufferedTotal >= self.budget && s.outBytes > 0) {
+                    s.readPaused = true
+                } else {
+                    self.receiveLoop(s)
+                }
+            } else if error == nil, s.outBytes > 0 {
+                // clean EOF: deliver the queued tail first (it used to be dropped by an immediate close)
+                s.closeAfterDrain = Date()
             } else {
-                self.close(s)
+                self.close(s) // clean EOF with nothing queued, or a relay error
             }
         }
     }
@@ -417,23 +501,68 @@ final class NCDataPlane {
     }
 
     private func drain(_ s: TCPSession) {
-        guard !s.outbox.isEmpty else { return }
-        let written = stack.tcpWrite(s.conn, s.outbox)
-        if written < 0 {
-            close(s)
+        while let head = s.outQ.first {
+            let chunk = s.outHead == 0 ? head : head[(head.startIndex + s.outHead)...]
+            let written = stack.tcpWrite(s.conn, chunk)
+            if written < 0 {
+                close(s)
+                return
+            }
+            if written == 0 { break } // send window / lwIP heap full: tcp_sent or the tick retries
+            s.outBytes -= written
+            bufferedTotal -= written
+            if written >= chunk.count {
+                s.outQ.removeFirst()
+                s.outHead = 0
+            } else {
+                s.outHead += written
+                break
+            }
+        }
+        guard s.state == .open else { return }
+        if s.closeAfterDrain != nil {
+            if s.outBytes == 0 { close(s) }
             return
         }
-        if written > 0 {
-            s.outbox.removeFirst(written)
+        if s.readPaused, s.outBytes <= Self.outboxResume, bufferedTotal < budget || s.outBytes == 0 {
+            s.readPaused = false
+            receiveLoop(s)
         }
+    }
+
+    /// rv2-life: drops what a closing session still buffers from the budget.
+    private func releaseBuffers(_ s: TCPSession) {
+        bufferedTotal -= s.outBytes + s.pendingCounted
+        s.outQ = []
+        s.outHead = 0
+        s.outBytes = 0
+        s.pendingCounted = 0
+        s.pending = Data()
     }
 
     private func close(_ s: TCPSession) {
         guard s.state != .closed else { return }
         s.state = .closed
         sessions.removeValue(forKey: s.key)
+        releaseBuffers(s)
         s.relay?.cancel()
+        // rv2-life: lwIP answers tcp_close with a RST while received data is unacknowledged (which would also drop
+        // what is still queued toward the app): acknowledge it all first so a normal close stays a FIN.
+        if s.unacked > 0 {
+            stack.tcpRecved(s.conn, s.unacked)
+            s.unacked = 0
+        }
         stack.tcpClose(s.conn)
+    }
+
+    /// rv2-life: overflow (pre-connect cap): RST toward the app and drop the relay.
+    private func reset(_ s: TCPSession) {
+        guard s.state != .closed else { return }
+        s.state = .closed
+        sessions.removeValue(forKey: s.key)
+        releaseBuffers(s)
+        s.relay?.cancel()
+        stack.tcpAbort(s.conn)
     }
 
     // MARK: UDP
@@ -495,10 +624,15 @@ final class NCDataPlane {
         }
     }
 
+    /// rv2-life: the C side ended this session (idle / evicted) or a reply found it gone: drop the relay.
+    private func udpGone(_ id: UInt32) {
+        guard let e = udpSessions.removeValue(forKey: id) else { return }
+        e.session.cancel()
+    }
+
     private func udpForward(_ info: NCTunStack.UDPSessionInfo, _ data: Data) {
-        if var entry = udpSessions[info.id] {
+        if let entry = udpSessions[info.id] {
             entry.lastUsed = Date()
-            udpSessions[info.id] = entry
             entry.session.send(data, to: engine.derefFakeIP(info.dst))
             return
         }
@@ -579,10 +713,15 @@ final class NCDataPlane {
             return
         }
         let sid = info.id
-        session.onReply = { [weak self] payload in
-            self?.stack.udpSend(session: sid, payload)
+        let entry = UDPSessionEntry(session: session, lastUsed: Date())
+        session.onReply = { [weak self, weak entry] payload in
+            guard let self else { return }
+            entry?.lastUsed = Date()
+            // rv2-life: the C session is gone (evicted / expired before we heard): stop the relay instead of
+            // silently dropping every further reply
+            if !self.stack.udpSend(session: sid, payload) { self.udpGone(sid) }
         }
-        udpSessions[info.id] = UDPSessionEntry(session: session, lastUsed: Date())
+        udpSessions[info.id] = entry
         session.send(data, to: target)
     }
 }
