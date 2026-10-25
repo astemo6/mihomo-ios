@@ -164,18 +164,30 @@ final class NCTUICConnection {
         ncOnSessionQueue(queue) { self.startOnQueue() }
     }
 
-    /// Session queue only: build the QUIC group; the auth stream opens when the group
-    /// reports .ready (openAuthStream), not before.
-    private func startOnQueue() {
-        let quic = NWProtocolQUIC.Options(alpn: alpn)
-        let tls = quic.securityProtocolOptions
+    /// QUIC options for the group parameters AND for every stream extracted from
+    /// the group: the two must agree on ALPN and TLS settings. The auth stream used
+    /// to be extracted with a bare `NWProtocolQUIC.Options()` — direction only, no
+    /// ALPN, no SNI, default TLS — and the server refused the negotiation, so the
+    /// auth stream never opened ("cannot open auth stream"; review rework). Fresh
+    /// instance per call: the options object is a mutable class, and sharing one
+    /// instance between the group parameters and the extracted streams invites
+    /// drift (e.g. setting .direction on the group's own copy).
+    func quicStreamOptions() -> NWProtocolQUIC.Options {
+        let options = NWProtocolQUIC.Options(alpn: alpn)
+        let tls = options.securityProtocolOptions
         sec_protocol_options_set_tls_min_version(tls, .tlsProtocol13)
         if let sni, !sni.isEmpty { sec_protocol_options_set_tls_server_name(tls, sni) }
         if allowInsecure { sec_protocol_options_set_verify_block(tls, { _, _, complete in complete(true) }, queue) }
-        quic.idleTimeout = 30_000
+        options.idleTimeout = 30_000
         // RFC 9221: advertise DATAGRAM support so native-mode UDP (and server heartbeats) can flow.
-        quic.maxDatagramFrameSize = 1400
-        let params = NWParameters(quic: quic)
+        options.maxDatagramFrameSize = 1400
+        return options
+    }
+
+    /// Session queue only: build the QUIC group; the auth stream opens when the group
+    /// reports .ready (openAuthStream), not before.
+    private func startOnQueue() {
+        let params = NWParameters(quic: quicStreamOptions())
         NCOutboundBinding.apply(params, host: server)
         let endpoint = NWEndpoint.hostPort(host: NWEndpoint.Host(server),
                                            port: NWEndpoint.Port(rawValue: UInt16(clamping: port)) ?? .any)
@@ -213,7 +225,9 @@ final class NCTUICConnection {
     private func openAuthStream() {
         guard !authOpened, state == .connecting, let group else { return }
         authOpened = true
-        let uniOptions = NWProtocolQUIC.Options()
+        // Same ALPN/TLS as the group parameters (quicStreamOptions) — a bare
+        // options object here negotiates without ALPN and sing-box refuses it.
+        let uniOptions = quicStreamOptions()
         uniOptions.direction = .unidirectional
         guard let auth = group.extract(connectionTo: nil, using: uniOptions) else {
             finish(NCConnector.Failure.handshake("tuic: cannot open auth stream"))
