@@ -10,8 +10,9 @@ import os
 ///    subset the auth exchange needs (literal/static only, no dynamic table,
 ///    no Huffman), HTTP/3 framing, and the hysteria TCP request/response
 ///    headers.
-///  - `NCHysteria2Connection` — one QUIC connection + the HTTP/3-style auth
-///    handshake on the first stream; vends TCP proxy streams.
+///  - `NCHysteria2Connection` — one QUIC connection + the HTTP/3 handshake
+///    (a unidirectional control stream for SETTINGS, a bidirectional stream
+///    for the auth exchange); vends TCP proxy streams.
 ///  - `NCHysteria2TCPStream` — one proxied TCP flow (NCRelayStream).
 /// UDP lives in NCHysteria2UDP.swift.
 ///
@@ -38,6 +39,19 @@ import os
 ///     send(content:)/receiveMessage (the same calls UDP connections use).
 ///     If a given iOS version does not treat that connection as a datagram
 ///     context, UDP sessions will simply never answer — TCP is unaffected.
+///  5. HTTP/3 stream discipline (RFC 9114): the client SETTINGS frame goes
+///     ONLY on a dedicated client-initiated unidirectional control stream,
+///     prefixed with stream type 0x00; the auth HEADERS exchange rides its
+///     own bidirectional stream. (Review rework: the first cut sent SETTINGS
+///     and the auth HEADERS together on the first extracted bidi stream with
+///     no stream-type byte — a conforming H3 peer errors the connection on a
+///     SETTINGS frame arriving on a request stream, and the auth is never
+///     answered.) The server's control stream arrives via
+///     newConnectionHandler and is drained, not cancelled. A stream extracted
+///     with per-stream QUIC options must carry the same ALPN/TLS settings as
+///     the group parameters (see NCTUICConnection.quicStreamOptions for the
+///     same rule): bare options negotiate without ALPN and the server
+///     refuses the stream.
 
 // MARK: - Pure wire functions
 
@@ -428,11 +442,20 @@ final class NCHysteria2Connection {
     }
 
     private var group: NWConnectionGroup?
-    /// Session queue only: the control stream is extracted exactly once, when the group
-    /// first reports .ready (see the file header, point 3).
-    private var controlOpened = false
+    /// Session queue only: the handshake streams are extracted exactly once, when the
+    /// group first reports .ready (see the file header, point 3).
+    private var handshakeOpened = false
+    /// The HTTP/3 control stream (client-initiated unidirectional): carries only the
+    /// stream-type byte 0x00 and the client SETTINGS frame, sent once (RFC 9114 §6.2).
     private var control: NCHy2StreamChannel?
-    private var controlBuffer = Data()
+    /// The bidirectional auth stream: carries only the auth HEADERS request/response.
+    private var auth: NCHy2StreamChannel?
+    private var authBuffer = Data()
+    /// The server's control stream (server-initiated unidirectional, adopted via
+    /// newConnectionHandler): drained so its SETTINGS can be observed; never answered.
+    private var serverControl: NCHy2StreamChannel?
+    private var serverControlBuffer = Data()
+    private var serverControlTypeSeen = false
     private var serverSettingsSeen = false
     private var startCompletion: ((Error?) -> Void)?
     private var streams: [ObjectIdentifier: NCHysteria2TCPStream] = [:]
@@ -490,9 +513,13 @@ final class NCHysteria2Connection {
         ncOnSessionQueue(queue) { self.startOnQueue() }
     }
 
-    /// Session queue only: build the QUIC group; the auth exchange starts when the group
-    /// reports .ready (openControlStream), not before.
-    private func startOnQueue() {
+    /// The QUIC options for this connection: the group parameters and every stream
+    /// extracted with per-stream options must agree on ALPN and TLS settings — a
+    /// stream extracted with bare options negotiates without ALPN and the server
+    /// refuses it (the TUIC auth-stream defect, same shape). Fresh instance per
+    /// call: NWProtocolQUIC.Options is a mutable class, and sharing one instance
+    /// between the group parameters and extracted streams invites drift.
+    private func makeQUICOptions() -> NWProtocolQUIC.Options {
         // Hysteria2 is HTTP/3: the QUIC ALPN must be "h3" (the sing-box / hysteria server
         // side negotiates h3 only). This used to read "h2", which no hysteria2 server accepts.
         let quicOptions = NWProtocolQUIC.Options(alpn: ["h3"])
@@ -504,7 +531,13 @@ final class NCHysteria2Connection {
         if allowInsecure {
             sec_protocol_options_set_verify_block(tlsOptions, { _, _, complete in complete(true) }, queue)
         }
-        let parameters = NWParameters(quic: quicOptions)
+        return quicOptions
+    }
+
+    /// Session queue only: build the QUIC group; the handshake streams open when the
+    /// group reports .ready (openHandshakeStreams), not before.
+    private func startOnQueue() {
+        let parameters = NWParameters(quic: makeQUICOptions())
         parameters.allowLocalEndpointReuse = true
         NCOutboundBinding.apply(parameters, host: server)
 
@@ -516,7 +549,7 @@ final class NCHysteria2Connection {
             guard let self else { return }
             switch groupState {
             case .ready:
-                self.openControlStream()
+                self.openHandshakeStreams()
             case .failed(let error):
                 if self.state == .connecting || self.state == .authenticating {
                     self.finishStart(error)
@@ -526,10 +559,12 @@ final class NCHysteria2Connection {
             }
         }
         group.newConnectionHandler = { [weak self] (incoming: NWConnection) in
-            // Server-initiated stream: hysteria2 servers do not open streams
-            // to clients in v2; cancel anything unexpected.
-            _ = self
-            incoming.cancel()
+            // Server-initiated stream: for hysteria2 this is the server's HTTP/3
+            // control stream (unidirectional, carries its SETTINGS). Adopt and
+            // drain it — cancelling would reset the peer's control stream, and
+            // receiving its SETTINGS is part of a conforming H3 handshake.
+            guard let self else { incoming.cancel(); return }
+            self.acceptServerControlStream(incoming)
         }
         group.start(queue: queue)
 
@@ -539,24 +574,114 @@ final class NCHysteria2Connection {
         }
     }
 
-    /// Session queue only, one-shot: the auth exchange rides the first client-initiated
-    /// stream, extracted once the group is .ready (extracting earlier returns nil).
-    private func openControlStream() {
-        guard !controlOpened, state == .connecting else { return }
-        controlOpened = true
-        guard let controlConn = newStreamConnection() else {
+    /// Session queue only, one-shot: the HTTP/3 handshake streams, extracted once the
+    /// group is .ready (extracting earlier returns nil). Two separate streams, per
+    /// RFC 9114 and the hysteria2 spec:
+    ///  - a client-initiated UNIDIRECTIONAL control stream carrying the stream-type
+    ///    byte 0x00 followed by the client SETTINGS frame — the only stream SETTINGS
+    ///    may ever appear on;
+    ///  - a BIDIRECTIONAL auth stream carrying only the auth HEADERS exchange.
+    /// (The first cut sent SETTINGS and the auth HEADERS together on the first
+    /// extracted bidi stream, with no stream-type byte: a conforming H3 server
+    /// treats a SETTINGS frame on a request stream as a connection error, so the
+    /// auth was never answered.)
+    private func openHandshakeStreams() {
+        guard !handshakeOpened, state == .connecting else { return }
+        handshakeOpened = true
+
+        let controlOptions = makeQUICOptions()
+        controlOptions.direction = .unidirectional
+        guard let controlConn = group?.extract(connectionTo: nil, using: controlOptions) else {
             finishStart(NCConnector.Failure.handshake("hysteria2: cannot open control stream"))
             return
         }
-        let channel = NCHy2StreamChannel(conn: controlConn)
-        control = channel
+        let controlChannel = NCHy2StreamChannel(conn: controlConn)
+        control = controlChannel
+
+        guard let authConn = newStreamConnection() else {
+            finishStart(NCConnector.Failure.handshake("hysteria2: cannot open auth stream"))
+            return
+        }
+        let authChannel = NCHy2StreamChannel(conn: authConn)
+        auth = authChannel
+
         setSnapshot(state: .authenticating)
-        channel.start(queue: queue) { [weak self] error in
+        controlChannel.start(queue: queue) { [weak self] error in
+            guard let self else { return }
+            guard error == nil else { self.finishStart(error); return }
+            // RFC 9114 §6.2: a control stream opens with its stream type (0x00
+            // = control stream), followed by SETTINGS. Sent exactly once, on
+            // this stream only — never on the auth stream or a proxy stream.
+            var flight = NCHy2.varintEncode(0x00)
+            flight.append(NCHy2.http3SettingsFrame())
+            self.control?.send(flight)
+        }
+        authChannel.start(queue: queue) { [weak self] error in
             guard let self else { return }
             guard error == nil else { self.finishStart(error); return }
             self.sendAuth()
-            self.receiveControlLoop()
+            self.receiveAuthLoop()
         }
+    }
+
+    /// Session queue only (the group runs on it): adopt a server-initiated stream
+    /// as the server's control stream and drain it. Only the first such stream is
+    /// kept — a hysteria2 server opens exactly one control stream and no
+    /// client-bound bidi streams.
+    private func acceptServerControlStream(_ conn: NWConnection) {
+        guard serverControl == nil else { conn.cancel(); return }
+        let channel = NCHy2StreamChannel(conn: conn)
+        serverControl = channel
+        channel.start(queue: queue) { [weak self] error in
+            guard let self, error == nil else { return }
+            self.receiveServerControlLoop()
+        }
+    }
+
+    private func receiveServerControlLoop() {
+        serverControl?.receive { [weak self] data, _ in
+            guard let self else { return }
+            guard let data else { return } // EOF or error: nothing more to drain.
+            self.serverControlBuffer.append(data)
+            // Same cap as the auth stream: a peer varint declares the frame
+            // length, so an unbounded buffer could grow for the connection's life.
+            guard self.serverControlBuffer.count <= 64 * 1024 else {
+                self.serverControl?.cancel()
+                self.serverControl = nil
+                return
+            }
+            self.parseServerControlFrames()
+            if self.serverControl != nil {
+                self.receiveServerControlLoop()
+            }
+        }
+    }
+
+    /// Frame walk over the server's control stream: the stream opens with a
+    /// stream-type varint (0x00 = control stream), then HTTP/3 frames; only the
+    /// SETTINGS frame is recorded, everything else is skipped.
+    private func parseServerControlFrames() {
+        if !serverControlTypeSeen {
+            guard let (type, len) = NCHy2.varintDecode(serverControlBuffer, at: 0) else { return }
+            guard type == 0x00 else {
+                // Not a control stream — not something a hysteria2 server
+                // should be opening; stop draining it.
+                serverControl?.cancel()
+                serverControl = nil
+                return
+            }
+            serverControlTypeSeen = true
+            serverControlBuffer = Data(serverControlBuffer.dropFirst(len))
+        }
+        while true {
+            guard let (type, l1) = NCHy2.varintDecode(serverControlBuffer, at: 0),
+                  let (length, l2) = NCHy2.varintDecode(serverControlBuffer, at: l1) else { return }
+            let headerLen = l1 + l2
+            guard serverControlBuffer.count - headerLen >= Int(length) else { return }
+            serverControlBuffer = Data(serverControlBuffer.dropFirst(headerLen + Int(length)))
+            if type == 0x04 { serverSettingsSeen = true } // SETTINGS
+        }
+        _ = serverSettingsSeen // handshake diagnostics state (was the peer's SETTINGS seen)
     }
 
     func close() {
@@ -575,6 +700,10 @@ final class NCHysteria2Connection {
     private func teardownNW() {
         control?.cancel()
         control = nil
+        auth?.cancel()
+        auth = nil
+        serverControl?.cancel()
+        serverControl = nil
         datagramChannel?.cancel()
         datagramChannel = nil
         datagramSinks.removeAll()
@@ -662,56 +791,56 @@ final class NCHysteria2Connection {
 
     // MARK: Auth handshake
 
+    /// The auth request HEADERS — the only frame ever sent on the auth stream.
+    /// (SETTINGS lives on the control stream; see openHandshakeStreams.)
     private func sendAuth() {
         var padding = ""
         let alphabet = Array("abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789")
         let random = NCConnector.randomData(64)
         for byte in random { padding.append(alphabet[Int(byte) % alphabet.count]) }
-        var flight = NCHy2.http3SettingsFrame()
-        flight.append(NCHy2.http3HeadersFrame(fieldSection:
-            NCHy2.qpackEncodeAuthRequest(authority: authority, password: password, padding: padding)))
-        control?.send(flight)
+        let flight = NCHy2.http3HeadersFrame(fieldSection:
+            NCHy2.qpackEncodeAuthRequest(authority: authority, password: password, padding: padding))
+        auth?.send(flight)
     }
 
-    private func receiveControlLoop() {
-        control?.receive { [weak self] data, error in
+    private func receiveAuthLoop() {
+        auth?.receive { [weak self] data, error in
             guard let self else { return }
             guard let data else {
                 if self.state == .authenticating {
-                    self.finishStart(error ?? NCConnector.Failure.handshake("hysteria2 control stream closed"))
+                    self.finishStart(error ?? NCConnector.Failure.handshake("hysteria2 auth stream closed"))
                 }
                 return
             }
-            self.controlBuffer.append(data)
-            // nc-memory: the control stream carries only small frames (SETTINGS, one auth
-            // HEADERS); a declared frame length is a peer varint, so without a cap the buffer
+            self.authBuffer.append(data)
+            // nc-memory: the auth stream carries only small frames (one auth HEADERS
+            // response); a declared frame length is a peer varint, so without a cap the buffer
             // grows for the connection's life waiting for a frame that never completes.
-            guard self.controlBuffer.count <= 64 * 1024 else {
-                self.finishStart(NCConnector.Failure.handshake("hysteria2 control frame too large"))
+            guard self.authBuffer.count <= 64 * 1024 else {
+                self.finishStart(NCConnector.Failure.handshake("hysteria2 auth frame too large"))
                 self.close()
                 return
             }
-            self.parseControlFrames()
+            self.parseAuthFrames()
             if self.state == .authenticating || self.state == .ready {
-                self.receiveControlLoop()
+                self.receiveAuthLoop()
             }
         }
     }
 
-    /// Incremental HTTP/3 frame walk over the control stream: SETTINGS and
-    /// other frame types are skipped; the first HEADERS frame carries the
-    /// auth verdict.
-    private func parseControlFrames() {
+    /// Incremental HTTP/3 frame walk over the auth stream: the first HEADERS
+    /// frame carries the auth verdict; other frame types are skipped. (The
+    /// server's SETTINGS arrives on its own control stream — see
+    /// parseServerControlFrames — never here.)
+    private func parseAuthFrames() {
         while state == .authenticating || state == .ready {
-            guard let (type, l1) = NCHy2.varintDecode(controlBuffer, at: 0),
-                  let (length, l2) = NCHy2.varintDecode(controlBuffer, at: l1) else { return }
+            guard let (type, l1) = NCHy2.varintDecode(authBuffer, at: 0),
+                  let (length, l2) = NCHy2.varintDecode(authBuffer, at: l1) else { return }
             let headerLen = l1 + l2
-            guard controlBuffer.count - headerLen >= Int(length) else { return }
-            let payload = Data(controlBuffer[headerLen..<(headerLen + Int(length))])
-            controlBuffer = Data(controlBuffer.dropFirst(headerLen + Int(length)))
+            guard authBuffer.count - headerLen >= Int(length) else { return }
+            let payload = Data(authBuffer[headerLen..<(headerLen + Int(length))])
+            authBuffer = Data(authBuffer.dropFirst(headerLen + Int(length)))
             switch type {
-            case 0x04: // SETTINGS
-                serverSettingsSeen = true
             case 0x01: // HEADERS
                 if state == .authenticating { handleAuthResponse(payload) }
             case 0x07, 0x03: // GOAWAY / CANCEL_PUSH after auth: ignore content
@@ -719,7 +848,6 @@ final class NCHysteria2Connection {
             default:
                 break
             }
-            _ = serverSettingsSeen
         }
     }
 

@@ -219,7 +219,9 @@ extension NCTUICConnection {
 
     /// One command on a fresh client-initiated unidirectional stream (FIN after it).
     private func sendUni(_ cmd: Data) {
-        let opts = NWProtocolQUIC.Options()
+        // Same ALPN/TLS as the group parameters — bare options negotiate without
+        // ALPN and the server refuses the stream (the auth-stream defect).
+        let opts = quicStreamOptions()
         opts.direction = .unidirectional
         guard let g = group, let c = g.extract(connectionTo: nil, using: opts) else { return }
         c.stateUpdateHandler = { st in
@@ -242,9 +244,9 @@ extension NCTUICConnection {
     /// The QUIC datagram flow (RFC 9221) of this connection, created on first use.
     private func ensureDatagramFlow() -> NWConnection? {
         if let datagramFlow { return datagramFlow }
-        let opts = NWProtocolQUIC.Options()
+        // quicStreamOptions already carries ALPN/TLS and maxDatagramFrameSize = 1400.
+        let opts = quicStreamOptions()
         opts.isDatagram = true
-        opts.maxDatagramFrameSize = 1400
         guard let g = group, let c = g.extract(connectionTo: nil, using: opts) else { return nil }
         datagramFlow = c
         c.stateUpdateHandler = { [weak self] st in
