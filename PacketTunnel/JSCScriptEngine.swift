@@ -429,9 +429,18 @@ final class JSCScriptEngine: NSObject, JSCEngineGoBinding {
         // feat/s3-mem: the native memory governor (when on) admits the run by its setup size (small work allowed
         // down to ~4.5 MB, reclaim — JSC garbage included, asynchronously — before refusing). Go reports the refusal
         // as a script error and passes the message through unchanged. Checked before the JSC thread hop (never on it).
+        #if TERN_NO_GO
+        // NativeCore (astemo6/Muse NativeCore, 2026-10-25): the run is admitted against the same live budget as
+        // large script bodies (NativeScriptBodyBudget: setup + slack above the 1.5 MB reserve), not the governor's
+        // 4.5 MB small-work floor — that floor refused YouTube / xmly runs at 3–4 MB although their body fit.
+        if NativeMemoryGovernor.active != nil, !NativeScriptBodyBudget.shared.roomForRun(bytes: Int64(setup.utf8.count)) {
+            return Self.err("memory", "内存紧张，已跳过脚本（原生内存调度）")
+        }
+        #else
         if let g = NativeMemoryGovernor.active, !g.admit(.script, bytes: setup.utf8.count) {
             return Self.err("memory", "内存紧张，已跳过脚本（原生内存调度）")
         }
+        #endif
         return js.sync { [self] in beginOnJS(run: run, key: key, setup: setup) }
     }
 

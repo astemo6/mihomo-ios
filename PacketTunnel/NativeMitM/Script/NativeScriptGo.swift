@@ -634,6 +634,8 @@ final class NativeScriptHost: ScriptGoHost {
         // Go's fetchReq: 15 s unless the script asks (ms)
         r.timeout = (req.timeout ?? 0) > 0 ? req.timeout! / 1000.0 : 15
         r.noRedirect = req.noRedirect ?? false
+        r.policy = req.policy
+        r.insecure = req.insecure ?? false
         switch NCScriptHTTPClient.fetch(r) {
         case .failure(let f):
             lock.lock(); logLines += 1; let n = logLines; lock.unlock()

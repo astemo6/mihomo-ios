@@ -13,8 +13,10 @@
 // → GET without body, 307/308 keep method and body; at most 10) unless noRedirect. One deadline for the whole
 // exchange: the script's timeout, else 15 s (Go's fetchReq).
 //
-// Not honoured yet: `policy` (the connector routes by rules), `insecure` (the direct path always verifies; the
-// proxied path uses NCTLSClientStream's own verification).
+// `policy` (a proxy / group / DIRECT / REJECT name) replaces the rule match for this request; an unknown name fails
+// the request ("unknown policy"), like Surge. `insecure` skips certificate verification on both the direct
+// (NCStream allowInsecure) and the proxied (NCTLSClientStream allowInsecure) path. A connect that completes after
+// the deadline is closed at once (it leaked until the peer closed).
 
 import Foundation
 
@@ -26,6 +28,10 @@ enum NCScriptHTTPClient {
         var body = Data()
         var timeout: TimeInterval = 15
         var noRedirect = false
+        /// explicit policy name (script option `policy`); nil / empty = the tunnel's rules
+        var policy: String?
+        /// script option `insecure`: do not verify the origin certificate
+        var insecure = false
     }
 
     struct Response {
@@ -107,9 +113,17 @@ enum NCScriptHTTPClient {
         let port = req.url.port ?? (tls ? 443 : 80)
 
         // connect
-        let opened: Result<MitmUpstreamLease, Error>? = wait(deadline) { done in
-            connector.open(host: host, port: port, tls: tls) { done($0) }
+        let sem = DispatchSemaphore(value: 0)
+        let box = LateLeaseBox()
+        let start: (@escaping (Result<MitmUpstreamLease, Error>) -> Void) -> Void = { done in
+            if let nc = connector as? NCUpstreamConnector {
+                nc.open(host: host, port: port, tls: tls, policy: req.policy, insecure: req.insecure, completion: done)
+            } else {
+                connector.open(host: host, port: port, tls: tls, completion: done)
+            }
         }
+        start { r in if box.deliver(r) { sem.signal() } }
+        let opened: Result<MitmUpstreamLease, Error>? = sem.wait(timeout: deadline) == .timedOut ? box.abandon() : box.take()
         let lease: MitmUpstreamLease
         switch opened {
         case nil: return .failure(.timeout)
@@ -220,6 +234,39 @@ enum NCScriptHTTPClient {
         start { v in box.set(v); sem.signal() }
         _ = sem.wait(timeout: deadline)
         return box.get()
+    }
+}
+
+/// Hands a connect result over once; a lease that arrives after the caller gave up is released right away.
+private final class LateLeaseBox {
+    private let lock = NSLock()
+    private var value: Result<MitmUpstreamLease, Error>?
+    private var abandoned = false
+
+    /// false: the caller already gave up (the lease was released here)
+    func deliver(_ r: Result<MitmUpstreamLease, Error>) -> Bool {
+        lock.lock()
+        if abandoned {
+            lock.unlock()
+            if case .success(let l) = r { l.release(reusable: false) }
+            return false
+        }
+        value = r
+        lock.unlock()
+        return true
+    }
+
+    func take() -> Result<MitmUpstreamLease, Error>? {
+        lock.lock(); defer { lock.unlock() }
+        return value
+    }
+
+    /// Called on timeout: a result that raced in is still used; otherwise a later one is released by deliver.
+    func abandon() -> Result<MitmUpstreamLease, Error>? {
+        lock.lock(); defer { lock.unlock() }
+        if let v = value { return v }
+        abandoned = true
+        return nil
     }
 }
 

@@ -64,6 +64,14 @@ final class NativeScriptBodyBudget {
         return avail - need >= config.reserve
     }
 
+    /// Whether a script run (its setup JSON of `bytes`) may start: setup + slack above the reserve. The shared body
+    /// budget is not consulted (the body was admitted / charged on its own); used instead of the governor's 4.5 MB
+    /// small-work floor in the Go-free tunnel.
+    func roomForRun(bytes: Int64) -> Bool {
+        guard let avail = available() else { return true }
+        return avail - max(bytes, 0) - config.admitSlack >= config.reserve
+    }
+
     /// Opens a charge for one body, capped at limit (the script's max-size or hardMax). nil: no room to start.
     func admit(rawLength: Int64, limit: Int64) -> NativeBodyCharge? {
         if rawLength > limit { return nil }

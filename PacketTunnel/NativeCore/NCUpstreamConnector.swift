@@ -11,16 +11,40 @@ final class NCUpstreamConnector: MitmUpstreamConnecting {
     }()
 
     func open(host: String, port: Int, tls: Bool, completion: @escaping (Result<MitmUpstreamLease, Error>) -> Void) {
+        open(host: host, port: port, tls: tls, policy: nil, insecure: false, completion: completion)
+    }
+
+    /// policy: an explicit proxy / group / DIRECT / REJECT name instead of the rule match ($httpClient `policy`);
+    /// unknown names fail. insecure: skip origin certificate verification ($httpClient `insecure`).
+    /// (astemo6/Muse NativeCore, 2026-10-25)
+    func open(host: String, port: Int, tls: Bool, policy: String?, insecure: Bool,
+              completion: @escaping (Result<MitmUpstreamLease, Error>) -> Void) {
         let queue = DispatchQueue(label: "nc.upstream.dial", qos: .userInitiated)
         let target = NCTarget(host: host, port: port)
 
-        let resolution: NCGroupEngine.Resolution = {
+        let explicit = policy?.trimmingCharacters(in: .whitespaces) ?? ""
+        if !explicit.isEmpty {
+            let up = explicit.uppercased()
+            if up == "REJECT" || up == "REJECT-DROP" || up == "REJECT-TINYGIF" || up == "REJECT-NO-DROP" {
+                completion(.failure(UpstreamError.proxyRefused(status: 403, reason: "rejected by policy \(explicit)")))
+                return
+            }
+        }
+        let resolution: NCGroupEngine.Resolution? = {
+            if !explicit.isEmpty {
+                if explicit.uppercased() == "DIRECT" { return .direct }
+                return NativeCoreEngine.active?.resolve(policyName: explicit)
+            }
             if let engine = NativeCoreEngine.active {
                 let ctx = engine.matchContext(domain: host, ip: NCIP(host), dstPort: port, network: "tcp")
                 return engine.resolve(ctx)
             }
             return .direct
         }()
+        guard let resolution else {
+            completion(.failure(UpstreamError.connectFailed("unknown policy: \(explicit)")))
+            return
+        }
 
         if case .reject = resolution {
             completion(.failure(UpstreamError.proxyRefused(status: 403, reason: "rejected by rule")))
@@ -30,7 +54,7 @@ final class NCUpstreamConnector: MitmUpstreamConnecting {
         // Direct connection path:
         if case .direct = resolution {
             let stream = tls
-                ? NCStream(to: host, port: port, tlsServerName: host, allowInsecure: false, queue: queue)
+                ? NCStream(to: host, port: port, tlsServerName: host, allowInsecure: insecure, queue: queue)
                 : NCStream(to: host, port: port, queue: queue)
             stream.start { err in
                 if let err {
@@ -56,7 +80,7 @@ final class NCUpstreamConnector: MitmUpstreamConnecting {
             // The proxy relays raw bytes: the origin TLS session runs on top of it
             // (the direct path gets TLS from NCStream/Network.framework).
             let tlsStream = NCTLSClientStream(raw: relayStream,
-                                              config: .init(serverName: host, alpn: ["http/1.1"]),
+                                              config: .init(serverName: host, alpn: ["http/1.1"], allowInsecure: insecure),
                                               queue: queue)
             tlsStream.startHandshake { err in
                 if let err {
