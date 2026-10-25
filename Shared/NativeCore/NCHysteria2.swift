@@ -27,6 +27,12 @@ import os
 ///     + `NWConnection(from: group)` + `group.newConnectionHandler` — the
 ///     WWDC21 QUIC group model. If the descriptor case name differs, this is
 ///     the first place to fix.
+///     Connections are extracted ONLY after the group reports `.ready` via
+///     its stateUpdateHandler: extracting from a just-started group logs
+///     `nw_connection_group_create_connection_for_endpoint_and_parameters …
+///     failed to create connection` and returns nil (proto-loopback run
+///     40171239186, iOS 18.5 simulator — both this and NCTUIC failed there
+///     with "cannot open control/auth stream" before any packet was sent).
 ///  4. QUIC datagrams: there is no clearly documented Swift-overlay datagram
 ///     surface. Datagrams are attempted on a dedicated group connection with
 ///     send(content:)/receiveMessage (the same calls UDP connections use).
@@ -422,6 +428,9 @@ final class NCHysteria2Connection {
     }
 
     private var group: NWConnectionGroup?
+    /// Session queue only: the control stream is extracted exactly once, when the group
+    /// first reports .ready (see the file header, point 3).
+    private var controlOpened = false
     private var control: NCHy2StreamChannel?
     private var controlBuffer = Data()
     private var serverSettingsSeen = false
@@ -481,9 +490,12 @@ final class NCHysteria2Connection {
         ncOnSessionQueue(queue) { self.startOnQueue() }
     }
 
-    /// Session queue only: build the QUIC group and run the auth exchange on its first stream.
+    /// Session queue only: build the QUIC group; the auth exchange starts when the group
+    /// reports .ready (openControlStream), not before.
     private func startOnQueue() {
-        let quicOptions = NWProtocolQUIC.Options(alpn: ["h2"])
+        // Hysteria2 is HTTP/3: the QUIC ALPN must be "h3" (the sing-box / hysteria server
+        // side negotiates h3 only). This used to read "h2", which no hysteria2 server accepts.
+        let quicOptions = NWProtocolQUIC.Options(alpn: ["h3"])
         let tlsOptions = quicOptions.securityProtocolOptions
         sec_protocol_options_set_tls_min_version(tlsOptions, .tlsProtocol13)
         if let sni, !sni.isEmpty {
@@ -502,8 +514,15 @@ final class NCHysteria2Connection {
         self.group = group
         group.stateUpdateHandler = { [weak self] (groupState: NWConnectionGroup.State) in
             guard let self else { return }
-            if case .failed(let error) = groupState, self.state == .connecting || self.state == .authenticating {
-                self.finishStart(error)
+            switch groupState {
+            case .ready:
+                self.openControlStream()
+            case .failed(let error):
+                if self.state == .connecting || self.state == .authenticating {
+                    self.finishStart(error)
+                }
+            default:
+                break
             }
         }
         group.newConnectionHandler = { [weak self] (incoming: NWConnection) in
@@ -514,7 +533,17 @@ final class NCHysteria2Connection {
         }
         group.start(queue: queue)
 
-        // The auth exchange rides the first client-initiated stream.
+        queue.asyncAfter(deadline: .now() + 15) { [weak self] in
+            guard let self, self.state == .connecting || self.state == .authenticating else { return }
+            self.finishStart(NCConnector.Failure.handshake("hysteria2 auth timeout"))
+        }
+    }
+
+    /// Session queue only, one-shot: the auth exchange rides the first client-initiated
+    /// stream, extracted once the group is .ready (extracting earlier returns nil).
+    private func openControlStream() {
+        guard !controlOpened, state == .connecting else { return }
+        controlOpened = true
         guard let controlConn = newStreamConnection() else {
             finishStart(NCConnector.Failure.handshake("hysteria2: cannot open control stream"))
             return
@@ -528,10 +557,6 @@ final class NCHysteria2Connection {
             self.sendAuth()
             self.receiveControlLoop()
         }
-        queue.asyncAfter(deadline: .now() + 15) { [weak self] in
-            guard let self, self.state == .connecting || self.state == .authenticating else { return }
-            self.finishStart(NCConnector.Failure.handshake("hysteria2 auth timeout"))
-        }
     }
 
     func close() {
@@ -542,14 +567,19 @@ final class NCHysteria2Connection {
         ncOnSessionQueue(queue) {
             for stream in self.streams.values { stream.cancelFromConnection() }
             self.streams.removeAll()
-            self.control?.cancel()
-            self.control = nil
-            self.datagramChannel?.cancel()
-            self.datagramChannel = nil
-            self.datagramSinks.removeAll()
-            self.group?.cancel()
-            self.group = nil
+            self.teardownNW()
         }
+    }
+
+    /// Session queue only: cancel and drop every NW object this connection owns.
+    private func teardownNW() {
+        control?.cancel()
+        control = nil
+        datagramChannel?.cancel()
+        datagramChannel = nil
+        datagramSinks.removeAll()
+        group?.cancel()
+        group = nil
     }
 
     // MARK: Streams
@@ -718,6 +748,11 @@ final class NCHysteria2Connection {
         finishStart(nil)
     }
 
+    /// Session queue only (every caller — group/channel handlers, the watchdog, the auth
+    /// parser — runs there). Exactly-once: the start completion is consumed before firing,
+    /// and the waiter list is drained under the snapshot lock before firing, so a second
+    /// finishStart (e.g. the group reporting .failed after the extract already failed)
+    /// fires nothing.
     private func finishStart(_ error: Error?) {
         if let error {
             setSnapshot(state: .failed)
@@ -728,6 +763,12 @@ final class NCHysteria2Connection {
             callbackQueue.async { completion(error) }
         }
         notifyWaiters(error)
+        if error != nil {
+            // Mirror NCTUICConnection.finish: a failed start tears the group down now
+            // instead of leaving a started NWConnectionGroup (and its QUIC machinery)
+            // alive until deallocation — one leak per failed dial otherwise.
+            teardownNW()
+        }
     }
 }
 
@@ -855,6 +896,10 @@ final class NCHysteria2TCPStream: NCRelayStream {
             guard let data else {
                 if self.phase == .open || self.phase == .handshaking {
                     self.phase = .closed
+                    // EOF mid-handshake must still release the sends buffered in the
+                    // outbox: their completions fire on every path per the NCRelayStream
+                    // contract (previously they hung forever — the pump stalled).
+                    self.drainOutboxWaiters()
                     if let handler = self.pendingReceive {
                         self.pendingReceive = nil
                         self.callerQueue.async { handler(nil, error) }

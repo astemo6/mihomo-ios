@@ -104,6 +104,13 @@ final class NCTUICConnection {
         }
     }
     private(set) var group: NWConnectionGroup?
+    /// Session queue only: the auth stream is extracted exactly once, when the group first
+    /// reports .ready. Extracting from a just-started group logs
+    /// `nw_connection_group_create_connection_for_endpoint_and_parameters … failed to
+    /// create connection` and returns nil (proto-loopback run 40171239186, iOS 18.5
+    /// simulator — this failed there with "cannot open auth stream" before any packet
+    /// was sent; same failure shape as NCHysteria2Connection, fixed the same way).
+    private var authOpened = false
     /// UDP relay state (NCTUICUDP.swift).
     var udpNative = true
     var udpMaxPacket = 1252
@@ -157,7 +164,8 @@ final class NCTUICConnection {
         ncOnSessionQueue(queue) { self.startOnQueue() }
     }
 
-    /// Session queue only: build the QUIC group and open the auth stream.
+    /// Session queue only: build the QUIC group; the auth stream opens when the group
+    /// reports .ready (openAuthStream), not before.
     private func startOnQueue() {
         let quic = NWProtocolQUIC.Options(alpn: alpn)
         let tls = quic.securityProtocolOptions
@@ -175,11 +183,16 @@ final class NCTUICConnection {
         self.group = group
         group.stateUpdateHandler = { [weak self] (st: NWConnectionGroup.State) in
             guard let self else { return }
-            if case .failed(let e) = st {
+            switch st {
+            case .ready:
+                self.openAuthStream()
+            case .failed(let e):
                 if self.state == .connecting { self.finish(e) } else if self.state == .ready {
                     self.setState(.failed)
                     self.close(keepState: true)
                 }
+            default:
+                break
             }
         }
         // Server-opened flows: uni streams carrying quic-mode UDP packets, or the datagram flow.
@@ -189,6 +202,17 @@ final class NCTUICConnection {
         }
         group.start(queue: queue)
 
+        queue.asyncAfter(deadline: .now() + 10) { [weak self] in
+            guard let self, self.state == .connecting else { return }
+            self.finish(NCConnector.Failure.handshake("tuic handshake timeout"))
+        }
+    }
+
+    /// Session queue only, one-shot: open the unidirectional auth stream once the group
+    /// is .ready (extracting earlier returns nil — see `authOpened`).
+    private func openAuthStream() {
+        guard !authOpened, state == .connecting, let group else { return }
+        authOpened = true
         let uniOptions = NWProtocolQUIC.Options()
         uniOptions.direction = .unidirectional
         guard let auth = group.extract(connectionTo: nil, using: uniOptions) else {
@@ -214,10 +238,6 @@ final class NCTUICConnection {
             }
         }
         auth.start(queue: queue)
-        queue.asyncAfter(deadline: .now() + 10) { [weak self] in
-            guard let self, self.state == .connecting else { return }
-            self.finish(NCConnector.Failure.handshake("tuic handshake timeout"))
-        }
     }
 
     private func sendAuth(on conn: NWConnection) {
@@ -397,6 +417,10 @@ final class NCTUICTCPStream: NCRelayStream {
             guard let self, !self.closed || self.pending != nil else { return }
             guard var data else {
                 self.closed = true
+                // EOF before begin() flushed the outbox must still release the buffered
+                // sends: their completions fire on every path per the NCRelayStream
+                // contract (previously they hung forever — the pump stalled).
+                self.drainOutboxWaiters()
                 if let h = self.pending {
                     self.pending = nil
                     self.callerQueue.async { h(nil, error) }

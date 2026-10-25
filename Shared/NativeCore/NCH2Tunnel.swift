@@ -118,6 +118,21 @@ final class NCH2TunnelStream: NCRelayStream {
 
     func cancel() {
         ncOnSessionQueue(queue) {
+            // Mark dead first (fail() alone used to set it): a send/receive issued after
+            // cancel must resolve through the dead checks instead of appending to a
+            // cancelled raw stream, where its waiter could hang forever — and the pending
+            // receive handler must be delivered here, because fail() can no longer run
+            // once dead is set. drainSendWaiters extracts before firing, so the later
+            // raw-EOF fail() (guarded on dead == nil) cannot fire anything twice.
+            if self.dead == nil {
+                let error = NSError(domain: "NativeCore", code: 5,
+                                    userInfo: [NSLocalizedDescriptionKey: "h2 stream cancelled"])
+                self.dead = error
+                if let handler = self.pendingHandler {
+                    self.pendingHandler = nil
+                    self.callerQueue.async { handler(nil, error) }
+                }
+            }
             self.drainSendWaiters()
             self.raw.send(self.core.rstStream())
             self.raw.cancel()
