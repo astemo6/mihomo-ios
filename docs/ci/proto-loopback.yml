@@ -1,0 +1,109 @@
+# Protocol loopback tests (fix/nc-proto-loopback): NativeCore's outbound stacks (NCConnector) against a local
+# sing-box server — byte-exact echo per protocol, #116 send-completion back-pressure on a real socket, and
+# SS / SS2022 UDP round trips. Independent of unit-tests.yml / ui-tests.yml on purpose: this run needs a
+# server fleet up before xcodebuild, and it only runs the loopback test class.
+#
+# Servers: tools/loopback/start-servers.sh (sing-box 1.12.24 pinned, one inbound per protocol on 127.0.0.1,
+# plus a python echo/blackhole backend). Constants are mirrored in tools/loopback/sing-box-config.json,
+# tools/loopback/README.md and UnitTests/NativeCoreLoopbackTests.swift.
+#
+# Not covered, by design (see tools/loopback/README.md): WireGuard client (its NativeCore dialer exists only
+# inside the packet tunnel) and Mieru (sing-box has no mieru inbound to test against).
+name: Proto loopback
+
+on:
+  workflow_dispatch:
+  push:
+    paths:
+      - "Shared/NativeCore/**"
+      - "UnitTests/NativeCoreLoopbackTests.swift"
+      - "tools/loopback/**"
+      - ".github/workflows/proto-loopback.yml"
+
+permissions:
+  contents: read
+
+concurrency:
+  group: proto-loopback-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  loopback:
+    if: github.repository == 'astemo6/mihomo-ios'
+    runs-on: macos-15
+    timeout-minutes: 45
+    steps:
+      - uses: actions/checkout@v5
+      - name: Select latest Xcode
+        run: |
+          XC=$(ls -d /Applications/Xcode_*.app | sed -E 's/.*Xcode_([0-9.]+)\.app/\1 &/' | grep -v -i beta | sort -V | tail -n1 | cut -d' ' -f2)
+          sudo xcode-select -s "$XC/Contents/Developer"
+          xcodebuild -version
+      - name: Start loopback servers
+        run: |
+          tools/loopback/start-servers.sh start
+          tools/loopback/start-servers.sh status
+      - name: Generate project (with test targets)
+        run: |
+          brew install xcodegen
+          xcodegen generate --spec project-uitests.yml
+      - name: Pick simulator
+        run: |
+          DEV=$(xcrun simctl list devices available -j | python3 -c "
+          import json,sys
+          d=json.load(sys.stdin)['devices']
+          devs=[(r,x) for r,l in d.items() if 'iOS' in r for x in l]
+          devs.sort(key=lambda rx: (0 if 'iOS-18' in rx[0] else 1, rx[0]))
+          for want in ['iPhone 16 Pro','iPhone 17 Pro','iPhone 15 Pro','iPhone 16']:
+              m=[(r,x) for r,x in devs if x['name']==want]
+              if m: print(m[0][1]['udid']); sys.stderr.write('using %s on %s\\n' % (want, m[0][0])); break
+          ")
+          test -n "$DEV"
+          echo "DEV=$DEV" >> "$GITHUB_ENV"
+          xcrun simctl boot "$DEV" || true
+      - name: Build for testing
+        run: |
+          set -o pipefail
+          xcodebuild -project Mihomo.xcodeproj -scheme MihomoUITests -configuration Debug -sdk iphonesimulator \
+            -destination "id=$DEV" -derivedDataPath build/loop \
+            ARCHS=arm64 ONLY_ACTIVE_ARCH=YES CODE_SIGNING_ALLOWED=NO CODE_SIGNING_REQUIRED=NO CODE_SIGN_IDENTITY="" CODE_SIGN_ENTITLEMENTS="" \
+            build-for-testing 2>&1 | tee build-loop.log | grep -E "error:|\*\* (TEST BUILD|BUILD)" || true
+          grep -q "TEST BUILD SUCCEEDED" build-loop.log || { tail -n 150 build-loop.log; exit 1; }
+      - name: Run loopback tests
+        run: |
+          set +e
+          xcrun simctl bootstatus "$DEV" -b
+          mkdir -p results
+          # NC_LOOPBACK=1: the tests must fail loudly here, not skip, if the servers died.
+          TEST_RUNNER_JSC_useJIT=false TEST_RUNNER_NC_LOOPBACK=1 \
+          xcodebuild -project Mihomo.xcodeproj -scheme MihomoUITests -configuration Debug -sdk iphonesimulator \
+            -destination "id=$DEV" -derivedDataPath build/loop -resultBundlePath results/loopback.xcresult \
+            -only-testing:MihomoUnitTests/NativeCoreLoopbackTests test-without-building 2>&1 | tee results/loopback.log \
+            | grep -E "Test Case .*(failed|passed)|error:|XCTAssert|Executed"
+          RC=${PIPESTATUS[0]}
+          [ "$RC" = 0 ] || tail -n 150 results/loopback.log
+          {
+            echo "### Proto loopback"
+            grep -E "Executed [0-9]+ tests?" results/loopback.log | tail -n 1 | sed 's/^/- /'
+            echo "- exit $RC"
+          } >> "$GITHUB_STEP_SUMMARY"
+          exit "$RC"
+      - name: Stop loopback servers
+        if: always()
+        run: tools/loopback/start-servers.sh stop || true
+      - uses: actions/upload-artifact@v6
+        if: always()
+        with:
+          name: loopback-results
+          path: |
+            results/loopback.log
+            build-loop.log
+          if-no-files-found: warn
+          retention-days: 14
+      - uses: actions/upload-artifact@v6
+        if: failure()
+        with:
+          name: loopback-xcresult
+          path: results/loopback.xcresult
+          if-no-files-found: ignore
+          retention-days: 7
