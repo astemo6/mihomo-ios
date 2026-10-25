@@ -372,6 +372,10 @@ final class NCSSHClient {
     private var sessionID: Data?
     private var pendingKeys: (cipherIn: NCSSHCipher.Mode, cipherOut: NCSSHCipher.Mode)?
     private var heldDuringKex: [(payload: Data, completion: (() -> Void)?)] = []
+    private var heldDuringKexBytes = 0
+    /// nc-memory: cap on packets held during a (re-)key exchange; a peer that stalls kex
+    /// would otherwise pin everything sent for its whole duration.
+    static let maxHeldDuringKex = 256 * 1024
     private var authTried: [String] = []
 
     // Channels
@@ -468,6 +472,12 @@ final class NCSSHClient {
     /// the channel's back-pressure signal; packets held during a re-key carry theirs along.
     private func sendPacket(_ payload: Data, kex: Bool = false, completion: (() -> Void)? = nil) {
         if kexInProgress && !kex {
+            guard heldDuringKexBytes + payload.count <= Self.maxHeldDuringKex else {
+                completion?()
+                fail(Self.err("ssh kex hold buffer overflow"))
+                return
+            }
+            heldDuringKexBytes += payload.count
             heldDuringKex.append((payload, completion))
             return
         }
@@ -532,6 +542,7 @@ final class NCSSHClient {
             kexInProgress = false
             let held = heldDuringKex
             heldDuringKex = []
+            heldDuringKexBytes = 0
             if state == .connecting && authTried.isEmpty {
                 sendPacket(Data([5]) + NCSSHWire.string("ssh-userauth"))
             }
@@ -821,14 +832,21 @@ final class NCSSHChannel: NCRelayStream {
     /// nc-perf: head offset for inbox — receive() pops by advancing instead of removeFirst per
     /// piece (compacted past the halfway point, same pattern as NCVisionStream's outQueue).
     private var inboxHead = 0
+    private var inboxBytes = 0
     private var inboxIsEmpty: Bool { inboxHead >= inbox.count }
     private func popInbox() -> Data {
         let d = inbox[inboxHead]
+        inboxBytes -= d.count
         inboxHead += 1
         if inboxHead == inbox.count { inbox.removeAll(); inboxHead = 0 }
         else if inboxHead > inbox.count / 2 { inbox.removeFirst(inboxHead); inboxHead = 0 }
         return d
     }
+
+    /// nc-memory: channel queue caps. Inbox is window-paced (we only ack on consumption),
+    /// but a peer ignoring the window could still pin it — cap at the advertised window.
+    static let maxOutbox = 256 * 1024
+    static let maxInbox = 512 * 1024
     private var pending: ((Data?, Error?) -> Void)?
     private var consumed: UInt32 = 0
     var onOpen: ((Error?) -> Void)?
@@ -887,7 +905,12 @@ final class NCSSHChannel: NCRelayStream {
 
     private func deliver(_ d: Data) {
         if let h = pending { pending = nil; ack(UInt32(d.count)); callerQueue.async { h(d, nil) } }
-        else { inbox.append(d) }
+        else if inboxBytes + d.count <= Self.maxInbox {
+            inboxBytes += d.count
+            inbox.append(d)
+        } else {
+            connectionLost(NCSSHClient.err("ssh channel receive buffer overflow"))
+        }
     }
 
     private func ack(_ n: UInt32) {
@@ -934,6 +957,14 @@ final class NCSSHChannel: NCRelayStream {
         let once = NCOnceCompletion(completion)
         ncOnSessionQueue(clientQueue) {
             guard !self.closed, self.failure == nil else { once.call(); return }
+            // nc-memory: the outbox is window-paced, but a peer that never opens its window
+            // would pin everything the app sends; cap it (mux pending-send shape, larger
+            // because SSH packets in flight are already window-accounted once flushed).
+            guard self.outboxRemaining + data.count <= Self.maxOutbox else {
+                once.call()
+                self.connectionLost(NCSSHClient.err("ssh channel send buffer overflow"))
+                return
+            }
             self.outbox.append(data)
             self.outboxEntries.append(NCPendingSendEntry(count: data.count, once: once))
             self.flush()

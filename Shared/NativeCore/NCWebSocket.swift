@@ -14,6 +14,12 @@ final class NCWebSocketStream: NCRelayStream {
     private var fragmentBuffer = Data()
     private var closed = false
 
+    /// nc-memory: wire-declared frame lengths and fragmented messages are peer-controlled;
+    /// without caps a peer can declare a 2^63 frame or fragment forever and pin the receive
+    /// buffer for the connection's life. 1 MB is far above any ws-transport chunk in practice.
+    static let maxFrameLength = 1024 * 1024
+    static let maxMessageLength = 1024 * 1024
+
     init(raw: NCRelayStream, hostHeader: String, path: String, headers: [String: String]) {
         self.raw = raw
         self.hostHeader = hostHeader
@@ -140,6 +146,12 @@ final class NCWebSocketStream: NCRelayStream {
                 for k in 0..<8 { len = len << 8 | Int(buffer[2 + k]) }
                 offset = 10
             }
+            guard len <= Self.maxFrameLength else {
+                // nc-memory: declared frame length over the cap — never satisfiable, close.
+                closed = true
+                raw.cancel()
+                return nil
+            }
             var maskKey: Data?
             if masked {
                 guard buffer.count >= offset + 4 else { return nil }
@@ -162,6 +174,12 @@ final class NCWebSocketStream: NCRelayStream {
                 closed = true
                 return fragmentBuffer.isEmpty ? nil : fragmentBuffer
             case 0x0, 0x1, 0x2: // continuation / text / binary
+                guard fragmentBuffer.count + payload.count <= Self.maxMessageLength else {
+                    // nc-memory: fragmented message over the cap — close.
+                    closed = true
+                    raw.cancel()
+                    return nil
+                }
                 fragmentBuffer.append(payload)
                 if fin {
                     let message = fragmentBuffer

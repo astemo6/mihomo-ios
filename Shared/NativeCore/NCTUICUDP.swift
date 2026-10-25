@@ -126,6 +126,12 @@ enum NCTUICUDP {
     struct Defragger {
         private var bags: [UInt16: [Data?]] = [:]
         private var order: [UInt16] = []
+        private var bagBytes: [UInt16: Int] = [:]
+
+        /// nc-memory: one reassembled packet can never exceed a UDP payload; a peer dripping
+        /// maximal fragments for many packet ids must not pin more than this per open packet
+        /// (× the 16-packet cap ≈ 1 MB per association worst case).
+        static let maxPacketBytes = 64 * 1024
 
         mutating func feed(_ p: Packet) -> Data? {
             if p.fragTotal <= 1 { return p.data }
@@ -133,25 +139,39 @@ enum NCTUICUDP {
             var bag = bags[p.pktID] ?? []
             if bag.count != Int(p.fragTotal) {
                 bag = Array(repeating: nil, count: Int(p.fragTotal))
+                bagBytes[p.pktID] = 0
                 if bags[p.pktID] == nil {
                     order.append(p.pktID)
-                    if order.count > 16 { bags.removeValue(forKey: order.removeFirst()) }
+                    if order.count > 16 {
+                        let evicted = order.removeFirst()
+                        bags.removeValue(forKey: evicted)
+                        bagBytes.removeValue(forKey: evicted)
+                    }
                 }
             }
             if bag[Int(p.fragID)] != nil { return nil }
+            let bytes = (bagBytes[p.pktID] ?? 0) + p.data.count
+            guard bytes <= Self.maxPacketBytes else {
+                bags.removeValue(forKey: p.pktID)
+                bagBytes.removeValue(forKey: p.pktID)
+                order.removeAll { $0 == p.pktID }
+                return nil
+            }
+            bagBytes[p.pktID] = bytes
             bag[Int(p.fragID)] = p.data
             if bag.contains(where: { $0 == nil }) {
                 bags[p.pktID] = bag
                 return nil
             }
             bags.removeValue(forKey: p.pktID)
+            bagBytes.removeValue(forKey: p.pktID)
             order.removeAll { $0 == p.pktID }
             var out = Data()
             for part in bag { if let part { out.append(part) } }
             return out
         }
 
-        mutating func reset() { bags.removeAll(); order.removeAll() }
+        mutating func reset() { bags.removeAll(); order.removeAll(); bagBytes.removeAll() }
     }
 }
 

@@ -14,10 +14,19 @@ final class NCH2TunnelStream: NCRelayStream {
     private var sendAppended = 0
     private var sendConsumed = 0
     private var payloadQueue: [Data] = []
+    private var queuedBytes = 0
     private var pendingHandler: ((Data?, Error?) -> Void)?
     private var grpcBuffer = Data()
     private var dead: Error?
     private var receiveStarted = false
+
+    /// nc-memory: per-stream byte caps. The core returns DATA windows immediately (see NCH2ClientCore),
+    /// so neither the send side (peer window shut) nor the receive side (reader stalled) is flow-control
+    /// bounded on its own. Overflow fails the stream instead of buffering without bound.
+    static let maxPendingSend = 256 * 1024
+    static let maxQueuedInbound = 256 * 1024
+    /// A single gRPC message larger than this is not a tunnel chunk; the length prefix is wire data.
+    static let maxGRPCMessage = 1024 * 1024
 
     init(raw: NCRelayStream, grpc: Bool) {
         self.raw = raw
@@ -38,6 +47,14 @@ final class NCH2TunnelStream: NCRelayStream {
     func send(_ data: Data, completion: @escaping () -> Void) {
         let once = NCCallOnce(completion)
         guard dead == nil else { once.call(); return }
+        guard pendingSend.count + data.count + (grpc ? 5 : 0) <= Self.maxPendingSend else {
+            once.call()
+            fail(NSError(domain: "NativeCore", code: 5,
+                         userInfo: [NSLocalizedDescriptionKey: "h2 stream send buffer overflow"]))
+            raw.send(core.rstStream())
+            raw.cancel()
+            return
+        }
         if grpc {
             var msg = Data()
             msg.append(0)
@@ -68,7 +85,9 @@ final class NCH2TunnelStream: NCRelayStream {
 
     func receive(_ handler: @escaping (Data?, Error?) -> Void) {
         if !payloadQueue.isEmpty {
-            handler(payloadQueue.removeFirst(), nil)
+            let data = payloadQueue.removeFirst()
+            queuedBytes -= data.count
+            handler(data, nil)
             return
         }
         if let dead {
@@ -133,6 +152,12 @@ final class NCH2TunnelStream: NCRelayStream {
             grpcBuffer.append(payload)
             while grpcBuffer.count >= 5 {
                 let len = Int(grpcBuffer[1]) << 24 | Int(grpcBuffer[2]) << 16 | Int(grpcBuffer[3]) << 8 | Int(grpcBuffer[4])
+                guard len <= Self.maxGRPCMessage else {
+                    fail(NSError(domain: "NativeCore", code: 5,
+                                 userInfo: [NSLocalizedDescriptionKey: "grpc message too large"]))
+                    raw.cancel()
+                    return
+                }
                 guard grpcBuffer.count >= 5 + len else { break }
                 let msg = Data(grpcBuffer[5..<(5 + len)])
                 grpcBuffer = Data(grpcBuffer.dropFirst(5 + len))
@@ -148,6 +173,13 @@ final class NCH2TunnelStream: NCRelayStream {
             pendingHandler = nil
             handler(data, nil)
         } else {
+            guard queuedBytes + data.count <= Self.maxQueuedInbound else {
+                fail(NSError(domain: "NativeCore", code: 5,
+                             userInfo: [NSLocalizedDescriptionKey: "h2 stream receive buffer overflow"]))
+                raw.cancel()
+                return
+            }
+            queuedBytes += data.count
             payloadQueue.append(data)
         }
     }

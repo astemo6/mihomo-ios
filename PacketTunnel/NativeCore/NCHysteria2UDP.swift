@@ -102,15 +102,35 @@ enum NCHy2UDP {
     /// final missing fragment arrives (single-fragment messages complete
     /// immediately).
     struct Reassembler {
-        private var pending: [UInt64: (count: Int, parts: [Int: Data])] = [:]
+        private var pending: [UInt64: (count: Int, parts: [Int: Data], bytes: Int)] = [:]
+        private var order: [UInt64] = []
+
+        /// nc-memory: open-message and per-message byte caps (mirrors the TUIC defragger's
+        /// 16 open packets × 64 KB). Message IDs are peer-chosen, so without these a peer can
+        /// pin one partial message per ID indefinitely.
+        static let maxOpenMessages = 16
+        static let maxMessageBytes = 64 * 1024
 
         mutating func feed(_ frame: Frame) -> Data? {
             if frame.fragCount == 1 { return frame.payload }
-            var entry = pending[frame.messageID] ?? (count: Int(frame.fragCount), parts: [:])
+            var entry = pending[frame.messageID] ?? (count: Int(frame.fragCount), parts: [:], bytes: 0)
+            if pending[frame.messageID] == nil {
+                order.append(frame.messageID)
+                if order.count > Self.maxOpenMessages {
+                    pending.removeValue(forKey: order.removeFirst())
+                }
+            }
             entry.count = Int(frame.fragCount)
+            entry.bytes += frame.payload.count - (entry.parts[Int(frame.fragID)]?.count ?? 0)
+            guard entry.bytes <= Self.maxMessageBytes else {
+                pending.removeValue(forKey: frame.messageID)
+                order.removeAll { $0 == frame.messageID }
+                return nil
+            }
             entry.parts[Int(frame.fragID)] = frame.payload
             if entry.parts.count == entry.count {
                 pending.removeValue(forKey: frame.messageID)
+                order.removeAll { $0 == frame.messageID }
                 var out = Data()
                 for i in 0..<entry.count {
                     guard let part = entry.parts[i] else { return nil }
@@ -122,7 +142,7 @@ enum NCHy2UDP {
             return nil
         }
 
-        mutating func reset() { pending.removeAll() }
+        mutating func reset() { pending.removeAll(); order.removeAll() }
     }
 }
 

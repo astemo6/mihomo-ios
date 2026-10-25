@@ -546,6 +546,14 @@ final class NCHysteria2Connection {
                 return
             }
             self.controlBuffer.append(data)
+            // nc-memory: the control stream carries only small frames (SETTINGS, one auth
+            // HEADERS); a declared frame length is a peer varint, so without a cap the buffer
+            // grows for the connection's life waiting for a frame that never completes.
+            guard self.controlBuffer.count <= 64 * 1024 else {
+                self.finishStart(NCConnector.Failure.handshake("hysteria2 control frame too large"))
+                self.close()
+                return
+            }
             self.parseControlFrames()
             if self.state == .authenticating || self.state == .ready {
                 self.receiveControlLoop()
@@ -627,10 +635,16 @@ final class NCHysteria2TCPStream: NCRelayStream {
     private var responseBuffer = Data()
     private var outbox = Data()
     private var inbox: [Data] = []
+    private var inboxBytes = 0
     private var pendingReceive: ((Data?, Error?) -> Void)?
     private var failure: Error?
     /// Completions of sends buffered in `outbox` until the server accepts; fired on flush/fail/cancel.
     private var outboxWaiters: [NCCallOnce] = []
+
+    /// nc-memory: caps for the handshake-phase outbox and the reader-ahead inbox. The channel
+    /// receive loop runs free of the reader, so both were unbounded; overflow fails the stream.
+    /// 256 KB aligns with the mux stream inbound cap (a single channel chunk can reach 64 KB).
+    static let maxQueuedBytes = 256 * 1024
 
     init(channel: NCHy2StreamChannel, target: NCTarget, queue: DispatchQueue) {
         self.channel = channel
@@ -654,6 +668,11 @@ final class NCHysteria2TCPStream: NCRelayStream {
         let once = NCCallOnce(completion)
         switch phase {
         case .handshaking:
+            guard outbox.count + data.count <= Self.maxQueuedBytes else {
+                once.call()
+                fail(NCConnector.Failure.handshake("hysteria2 tcp send buffer overflow"))
+                return
+            }
             outbox.append(data); outboxWaiters.append(once)
         case .open:
             channel.send(data, completion: once.call)
@@ -669,7 +688,9 @@ final class NCHysteria2TCPStream: NCRelayStream {
 
     func receive(_ handler: @escaping (Data?, Error?) -> Void) {
         if !inbox.isEmpty {
-            handler(inbox.removeFirst(), nil)
+            let data = inbox.removeFirst()
+            inboxBytes -= data.count
+            handler(data, nil)
             return
         }
         if phase == .failed {
@@ -753,8 +774,11 @@ final class NCHysteria2TCPStream: NCRelayStream {
         if let handler = pendingReceive {
             pendingReceive = nil
             handler(data, nil)
-        } else {
+        } else if inboxBytes + data.count <= Self.maxQueuedBytes {
+            inboxBytes += data.count
             inbox.append(data)
+        } else {
+            fail(NCConnector.Failure.handshake("hysteria2 tcp receive buffer overflow"))
         }
     }
 

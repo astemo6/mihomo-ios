@@ -109,7 +109,22 @@ final class NCMuxSession {
         openStream(target: target, callerQueue: queue, rawMode: rawMode)
     }
 
+    /// nc-memory: cap on concurrently registered streams per session. Each registered stream can hold up
+    /// to maxQueuedInbound + maxPendingSend (~320 KB), so the table size is a memory bound, not just a
+    /// protocol one; 128 streams is far above what one pooled session carries in practice, and bounds
+    /// the (theoretical, all-readers-stalled) per-session product to ~40 MB.
+    static let maxStreams = 128
+
     private func openStreamOnQueue(target: NCTarget, callerQueue: DispatchQueue, rawMode: Bool) -> NCMuxStream {
+        guard streams.count < Self.maxStreams else {
+            // Refuse without touching the wire or the core's ID space: a pre-failed stream whose sends
+            // drop and whose receives surface the error (streamID -1 never enters the table, so its
+            // cancel/close are no-ops against the session).
+            let stream = NCMuxStream(session: self, streamID: -1, target: target, callerQueue: callerQueue)
+            stream.rawMode = rawMode
+            stream.failFromSession()
+            return stream
+        }
         let (id, headersFrame) = core.openStream()
         let stream = NCMuxStream(session: self, streamID: id, target: target, callerQueue: callerQueue)
         stream.rawMode = rawMode
