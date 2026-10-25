@@ -15,6 +15,11 @@ enum NCYAML {
         return parser.parseDocument()
     }
 
+    /// Emit an arbitrary object (dictionary, array, primitive, or NCJSONValue) as a YAML string.
+    static func emit(_ value: Any) -> String {
+        NCYAMLEmitter.emit(value)
+    }
+
     private struct Line {
         var indent: Int
         var content: String // trailing spaces trimmed, comment-stripped
