@@ -1407,7 +1407,7 @@ private func rx2AtomSet(_ atom: String, _ atomRE2: String, _ f: rx2Flags, _ re2:
     if icuAtom.hasPrefix("[]") {
         icuAtom = "[\\]" + icuAtom.dropFirst(2)
     } else if icuAtom.hasPrefix("[^]") {
-        icuAtom = "[^\\\]" + icuAtom.dropFirst(3)
+        icuAtom = "[^\\]" + icuAtom.dropFirst(3)
     }
 
     var options: NSRegularExpression.Options = []
