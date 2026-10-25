@@ -4,7 +4,7 @@ import Security
 
 /// TUIC v5 / v4 client, TCP relay (feat/nc-proto A1, based on astemo6/Muse NativeCore), protocol from mihomo
 /// v1.19.33 transport/tuic. Built on Network.framework QUIC like NCHysteria2Connection:
-///  - authentication rides a client-initiated unidirectional stream (NWProtocolQUIC.Options.isUnidirectional);
+///  - authentication rides a client-initiated unidirectional stream (NWProtocolQUIC.Options.direction = .unidirectional);
 ///  - the v5 token is the TLS 1.3 keying-material exporter (label = UUID bytes, context = password, 32 bytes) via
 ///    sec_protocol_metadata_create_secret_with_context on the QUIC stream's security metadata;
 ///  - v4 authenticates with BLAKE3(token).
@@ -106,7 +106,7 @@ final class NCTUICConnection {
         group.start(queue: queue)
 
         let uniOptions = NWProtocolQUIC.Options()
-        uniOptions.isUnidirectional = true
+        uniOptions.direction = .unidirectional
         guard let auth = group.extract(connectionTo: nil, using: uniOptions) else {
             finish(NCConnector.Failure.handshake("tuic: cannot open auth stream"))
             return

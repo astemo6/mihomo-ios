@@ -8,7 +8,7 @@ the plan.
 
 | relay mode | transport | Network.framework support | plan |
 |---|---|---|---|
-| `quic` | client→server Packet commands on unidirectional streams, server→client on server-opened uni streams | uni streams: yes (`NWProtocolQUIC.Options.isUnidirectional`, `group.newConnectionHandler` for incoming) | implement first: `Packet{ver,type=2,assoc_id u16,pkt_id u16,frag_total u8,frag_id u8,size u16,addr}` + payload per uni stream; reassembly per (assoc_id,pkt_id) with a 16-entry cap; Dissociate on session close |
+| `quic` | client→server Packet commands on unidirectional streams, server→client on server-opened uni streams | uni streams: yes (`NWProtocolQUIC.Options.direction = .unidirectional`, `group.newConnectionHandler` for incoming) | implement first: `Packet{ver,type=2,assoc_id u16,pkt_id u16,frag_total u8,frag_id u8,size u16,addr}` + payload per uni stream; reassembly per (assoc_id,pkt_id) with a 16-entry cap; Dissociate on session close |
 | `native` (default) | QUIC DATAGRAM frames (RFC 9221) | datagram flows exist (`NWProtocolQUIC.Options.isDatagram`, `maxDatagramFrameSize`, iOS 16+) but are undocumented for NWConnectionGroup; NCHysteria2 already tries the same binding | reuse NCHysteria2's datagram channel once it is device-verified; fall back to `quic` mode when no datagram arrives within 3 s |
 
 Heartbeat (v5 `Heartbeat` datagram every 10 s) needs the same datagram channel; until then an idle session is
