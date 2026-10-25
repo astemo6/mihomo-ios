@@ -90,6 +90,10 @@ struct NCConfig: Equatable {
     var rules: [String]
     var dns: NCDNSConfig
     var raw: [String: NCJSONValue]
+    /// Named sub-rule sets (`sub-rules:` in the source config), parsed.
+    /// Only the mihomo-YAML path carries them; other construction sites
+    /// leave this empty.
+    var subRules: [String: [NCRule]] = [:]
 
     var proxyMap: [String: NCProxy] { Dictionary(proxies.map { ($0.name, $0) }, uniquingKeysWith: { a, _ in a }) }
     var groupMap: [String: NCProxyGroup] { Dictionary(groups.map { ($0.name, $0) }, uniquingKeysWith: { a, _ in a }) }
@@ -117,6 +121,11 @@ struct NCConfig: Equatable {
         }
         let rules = root["rules"]?.array?.compactMap { $0.string } ?? []
         let dns = NCDNSConfig(fields: root["dns"]?.object ?? [:])
+        var subRules: [String: [NCRule]] = [:]
+        for (name, value) in root["sub-rules"]?.object ?? [:] {
+            let lines = value.array?.compactMap { $0.string } ?? []
+            subRules[name] = lines.compactMap(NCRule.parse)
+        }
         return NCConfig(
             mode: (root["mode"]?.string ?? "rule").lowercased(),
             logLevel: root["log-level"]?.string ?? "info",
@@ -125,6 +134,7 @@ struct NCConfig: Equatable {
             groups: groups,
             rules: rules,
             dns: dns,
-            raw: root)
+            raw: root,
+            subRules: subRules)
     }
 }

@@ -38,6 +38,7 @@ final class NativeCoreEngine {
     private var redirHostMode = false
     private var geoIPDB: NCMMDB?
     private var asnDB: NCMMDB?
+    private var geoSiteDB: NCGeoSiteDB?
     private var ruleProviders: NCRuleProviderStore?
     private var dnsPolicy: NCDNSPolicy?
     private var nodeSubStore: NCNodeSubscriptionStore?
@@ -176,6 +177,10 @@ final class NativeCoreEngine {
         if let data = try? Data(contentsOf: homeURL.appendingPathComponent("ASN.mmdb")), data.count > 1024 {
             asnDB = NCMMDB(data: data)
         }
+        if let data = (try? Data(contentsOf: homeURL.appendingPathComponent("GeoSite.dat")))
+            ?? (try? Data(contentsOf: homeURL.appendingPathComponent("geosite.dat"))) {
+            geoSiteDB = NCGeoSiteDB(data: data)
+        }
         isRunning = true
         healthCheck?.stop()
         let hc = NCHealthCheckScheduler(engine: self)
@@ -262,11 +267,18 @@ final class NativeCoreEngine {
     func matchContext(domain: String?, ip: NCIP?, srcIP: NCIP? = nil, dstPort: Int?, network: String) -> NCMatchContext {
         stateLock.lock(); defer { stateLock.unlock() }
         var ctx = NCMatchContext(domain: domain, ip: ip, srcIP: srcIP, dstPort: dstPort, network: network)
+        // Every flow here arrived through the TUN inbound; there is no
+        // listener port, so inPort stays nil and IN-PORT cannot match.
+        ctx.inType = "TUN"
+        ctx.subRules = config?.subRules ?? [:]
         if let geoIPDB {
             ctx.countryOf = { geoIPDB.countryCode(for: $0) }
         }
         if let asnDB {
             ctx.asnOf = { asnDB.asn(for: $0) }
+        }
+        if let geoSiteDB {
+            ctx.geositeMatches = { payload, domain in geoSiteDB.matches(payload: payload, domain: domain) }
         }
         if let ruleProviders {
             ctx.ruleSetContains = { name, c in ruleProviders.contains(name: name, ctx: c) }
@@ -368,8 +380,8 @@ final class NativeCoreEngine {
         case "global":
             return (cfg.groupMap["GLOBAL"] != nil ? "GLOBAL" : (cfg.groups.first?.name ?? "DIRECT"), nil)
         default:
-            if let hit = NCRuleMatcher.firstMatch(rules, ctx) {
-                return (hit.policy, hit.raw)
+            if let hit = NCRuleMatcher.firstMatchWithPolicy(rules, ctx) {
+                return (hit.policy, hit.rule.raw)
             }
             return ("DIRECT", nil)
         }
