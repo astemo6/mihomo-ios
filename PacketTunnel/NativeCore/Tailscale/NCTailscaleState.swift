@@ -96,15 +96,15 @@ enum NCTailscalePath {
 // MARK: - Tailscale Key Material
 
 /// Holds the three long-term Curve25519 private keys required for a Tailscale node.
-public struct NCTailscaleKeys {
+struct NCTailscaleKeys {
     /// Long-term machine private key (used to authenticate the device to the control plane).
-    public let machineKey: Curve25519.KeyAgreement.PrivateKey
+    let machineKey: Curve25519.KeyAgreement.PrivateKey
     /// Node private key (used for node-to-node WireGuard peer traffic).
-    public let nodeKey: Curve25519.KeyAgreement.PrivateKey
+    let nodeKey: Curve25519.KeyAgreement.PrivateKey
     /// Discovery private key (used for peer discovery and STUN probing).
-    public let discoKey: Curve25519.KeyAgreement.PrivateKey
+    let discoKey: Curve25519.KeyAgreement.PrivateKey
 
-    public init(
+    init(
         machineKey: Curve25519.KeyAgreement.PrivateKey,
         nodeKey: Curve25519.KeyAgreement.PrivateKey,
         discoKey: Curve25519.KeyAgreement.PrivateKey
@@ -115,15 +115,15 @@ public struct NCTailscaleKeys {
     }
 
     /// Hex-encoded public key representations for logging and inspection.
-    public var machinePublicKeyHex: String {
+    var machinePublicKeyHex: String {
         [UInt8](machineKey.publicKey.rawRepresentation).map { String(format: "%02x", $0) }.joined()
     }
 
-    public var nodePublicKeyHex: String {
+    var nodePublicKeyHex: String {
         [UInt8](nodeKey.publicKey.rawRepresentation).map { String(format: "%02x", $0) }.joined()
     }
 
-    public var discoPublicKeyHex: String {
+    var discoPublicKeyHex: String {
         [UInt8](discoKey.publicKey.rawRepresentation).map { String(format: "%02x", $0) }.joined()
     }
 }

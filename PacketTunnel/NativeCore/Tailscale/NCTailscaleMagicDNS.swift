@@ -15,15 +15,15 @@ import Foundation
 // Split DNS (DNSConfig.Routes custom resolvers) is intentionally not
 // implemented here; only locally-known names are answered.
 
-public final class NCTailscaleMagicDNS {
+final class NCTailscaleMagicDNS {
     private let lock = NSLock()
     private var byFQDN: [String: [NCIP]] = [:]
     private var byShort: [String: [NCIP]] = [:]
-    public private(set) var suffixes: [String] = []
+    private(set) var suffixes: [String] = []
 
-    public init() {}
+    init() {}
 
-    public func rebuild(snapshot: NCTailscaleNetmapSnapshot) {
+    func rebuild(snapshot: NCTailscaleNetmapSnapshot) {
         var fqdn: [String: [NCIP]] = [:]
         var short: [String: [NCIP]] = [:]
 
@@ -66,7 +66,7 @@ public final class NCTailscaleMagicDNS {
     }
 
     /// Tailnet IPs for a name (FQDN or short hostname), [] when unknown.
-    public func lookup(_ host: String) -> [NCIP] {
+    func lookup(_ host: String) -> [NCIP] {
         let name = Self.normalize(host)
         lock.lock()
         defer { lock.unlock() }
@@ -76,7 +76,7 @@ public final class NCTailscaleMagicDNS {
     }
 
     /// Whether the name belongs to the tailnet (known suffix or known node).
-    public func isTailnetName(_ host: String) -> Bool {
+    func isTailnetName(_ host: String) -> Bool {
         let name = Self.normalize(host)
         lock.lock()
         defer { lock.unlock() }
@@ -84,7 +84,7 @@ public final class NCTailscaleMagicDNS {
         return suffixes.contains { name == $0 || name.hasSuffix("." + $0) }
     }
 
-    public static func normalize(_ name: String) -> String {
+    static func normalize(_ name: String) -> String {
         var n = name.lowercased().trimmingCharacters(in: .whitespaces)
         if n.hasSuffix(".") { n = String(n.dropLast()) }
         return n

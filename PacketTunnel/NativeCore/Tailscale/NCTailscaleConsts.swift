@@ -104,7 +104,7 @@ enum NCTailscaleConsts {
         /// Restarting: 4-byte reconnect duration (ms) + 4-byte try-for duration (ms).
         case restarting = 0x15
 
-        public var name: String {
+        var name: String {
             switch self {
             case .serverKey: return "ServerKey"
             case .clientInfo: return "ClientInfo"

@@ -7,19 +7,19 @@ import Foundation
 // (41641) when free, else an ephemeral port. Receives via a dispatch read
 // source; the owner demultiplexes by content.
 
-public final class NCTailscaleUDPSocket {
-    public private(set) var localPort: UInt16 = 0
+final class NCTailscaleUDPSocket {
+    private(set) var localPort: UInt16 = 0
     private var fd: Int32 = -1
     private var readSource: DispatchSourceRead?
     private var recvBuffer = [UInt8](repeating: 0, count: 65535)
 
     /// (packet, sourceEndpoint "ip:port") — delivered on the socket queue.
-    public var onPacket: ((Data, String) -> Void)?
+    var onPacket: ((Data, String) -> Void)?
 
-    public var isOpen: Bool { fd >= 0 }
+    var isOpen: Bool { fd >= 0 }
 
     @discardableResult
-    public func start(preferredPort: UInt16 = 41641, queue: DispatchQueue) -> Bool {
+    func start(preferredPort: UInt16 = 41641, queue: DispatchQueue) -> Bool {
         stop()
         let s = socket(AF_INET6, SOCK_DGRAM, 0)
         guard s >= 0 else { return false }
@@ -67,7 +67,7 @@ public final class NCTailscaleUDPSocket {
         return true
     }
 
-    public func stop() {
+    func stop() {
         readSource?.cancel()
         readSource = nil
         fd = -1
@@ -95,8 +95,8 @@ public final class NCTailscaleUDPSocket {
         }
     }
 
-    public func send(_ data: Data, to endpoint: String) {
-        guard fd >= 0, let (sa, saLen) = Self.sockaddr(for: endpoint) else { return }
+    func send(_ data: Data, to endpoint: String) {
+        guard fd >= 0, let (sa, saLen) = Self.makeSockaddr(for: endpoint) else { return }
         data.withUnsafeBytes { raw in
             guard let base = raw.baseAddress else { return }
             var addr = sa
@@ -109,7 +109,7 @@ public final class NCTailscaleUDPSocket {
     }
 
     /// Non-loopback interface addresses with our port, as endpoint strings.
-    public func localEndpoints() -> [String] {
+    func localEndpoints() -> [String] {
         guard localPort > 0 else { return [] }
         var out: [String] = []
         var ifaddr: UnsafeMutablePointer<ifaddrs>?
@@ -153,7 +153,7 @@ public final class NCTailscaleUDPSocket {
 
     // MARK: sockaddr helpers
 
-    public static func endpointString(from storage: sockaddr_storage) -> String? {
+    static func endpointString(from storage: sockaddr_storage) -> String? {
         var copy = storage
         return withUnsafePointer(to: &copy) { ptr in
             ptr.withMemoryRebound(to: sockaddr.self, capacity: 1) { sa in
@@ -185,7 +185,7 @@ public final class NCTailscaleUDPSocket {
         }
     }
 
-    public static func sockaddr(for endpoint: String) -> (sockaddr_storage, socklen_t)? {
+    static func makeSockaddr(for endpoint: String) -> (sockaddr_storage, socklen_t)? {
         guard let (ip, port) = NCTailscaleDisco.parseEndpoint(endpoint) else { return nil }
         var storage = sockaddr_storage()
         switch ip {
@@ -193,16 +193,14 @@ public final class NCTailscaleUDPSocket {
             var addr = sockaddr_in()
             addr.sin_family = sa_family_t(AF_INET)
             addr.sin_port = port.bigEndian
-            var ipStr = ip.string
-            guard inet_pton(AF_INET, &ipStr, &addr.sin_addr) == 1 else { return nil }
+            guard inet_pton(AF_INET, ip.string, &addr.sin_addr) == 1 else { return nil }
             memcpy(&storage, &addr, MemoryLayout<sockaddr_in>.size)
             return (storage, socklen_t(MemoryLayout<sockaddr_in>.size))
         case .v6:
             var addr = sockaddr_in6()
             addr.sin6_family = sa_family_t(AF_INET6)
             addr.sin6_port = port.bigEndian
-            var ipStr = ip.string
-            guard inet_pton(AF_INET6, &ipStr, &addr.sin6_addr) == 1 else { return nil }
+            guard inet_pton(AF_INET6, ip.string, &addr.sin6_addr) == 1 else { return nil }
             memcpy(&storage, &addr, MemoryLayout<sockaddr_in6>.size)
             return (storage, socklen_t(MemoryLayout<sockaddr_in6>.size))
         }

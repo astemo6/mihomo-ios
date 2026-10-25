@@ -15,14 +15,14 @@ import Foundation
 //   Targets process resident memory < 8MB; rejects oversized frames to defend
 //   against memory exhaustion attacks or corrupted stream framing.
 
-public enum NCDERPFrameError: Error, LocalizedError, Equatable {
+enum NCDERPFrameError: Error, LocalizedError, Equatable {
     case frameTooLarge(length: Int, limit: Int)
     case payloadTooShort(frame: String, expected: Int, actual: Int)
     case invalidKeyLength(expected: Int, actual: Int)
     case invalidPingPongLength(expected: Int, actual: Int)
     case invalidMagic(Data)
 
-    public var errorDescription: String? {
+    var errorDescription: String? {
         switch self {
         case .frameTooLarge(let len, let limit):
             return "DERP frame length \(len) exceeds maximum allowed size of \(limit) bytes"
@@ -40,7 +40,7 @@ public enum NCDERPFrameError: Error, LocalizedError, Equatable {
 
 // MARK: - DERP Parsed Frame Representation
 
-public enum NCDERPFrame: Equatable {
+enum NCDERPFrame: Equatable {
     /// ServerKey (0x01): 8-byte magic + 32-byte server public key (+ optional future bytes).
     case serverKey(magic: Data, serverKey: Data)
     /// ClientInfo (0x02): 32-byte client public key + 24-byte nonce + NaCl box ciphertext.
@@ -75,37 +75,37 @@ public enum NCDERPFrame: Equatable {
 
 // MARK: - DERP Frame Codec
 
-public enum NCDERPFrameCodec {
+enum NCDERPFrameCodec {
     /// Standard 5-byte DERP frame header length.
-    public static let headerLength: Int = 5
+    static let headerLength: Int = 5
 
     /// Hard upper limit on a single DERP frame payload (128 KB).
     /// Prevents unbounded memory allocation in the Network Extension (< 8 MB resident target).
-    public static let maxFramePayloadSize: Int = 128 * 1024
+    static let maxFramePayloadSize: Int = 128 * 1024
 
     /// Maximum packet payload size (64 KB).
-    public static let maxPacketSize: Int = 64 * 1024
+    static let maxPacketSize: Int = 64 * 1024
 
     /// Standard 8-byte DERP ServerKey magic (`DERP🔑` = `0x44 0x45 0x52 0x50 0xf0 0x9f 0x94 0x91`).
-    public static let serverKeyMagic: Data = Data([0x44, 0x45, 0x52, 0x50, 0xf0, 0x9f, 0x94, 0x91])
+    static let serverKeyMagic: Data = Data([0x44, 0x45, 0x52, 0x50, 0xf0, 0x9f, 0x94, 0x91])
 
     /// 32-byte Curve25519 key length.
-    public static let keyLength: Int = 32
+    static let keyLength: Int = 32
 
     /// 24-byte NaCl box nonce length.
-    public static let nonceLength: Int = 24
+    static let nonceLength: Int = 24
 
     /// 8-byte Ping/Pong payload length.
-    public static let pingPongLength: Int = 8
+    static let pingPongLength: Int = 8
 
     // MARK: - Frame Encoders
 
     /// Encoders wrap payload with a 5-byte header: `1 byte type + 4 bytes big-endian length`.
-    public static func encode(type: NCTailscaleConsts.DERPFrameType, payload: Data = Data()) -> Data {
+    static func encode(type: NCTailscaleConsts.DERPFrameType, payload: Data = Data()) -> Data {
         encode(typeByte: type.rawValue, payload: payload)
     }
 
-    public static func encode(typeByte: UInt8, payload: Data = Data()) -> Data {
+    static func encode(typeByte: UInt8, payload: Data = Data()) -> Data {
         var header = Data(capacity: headerLength + payload.count)
         header.append(typeByte)
         let len = UInt32(payload.count)
@@ -118,7 +118,7 @@ public enum NCDERPFrameCodec {
     }
 
     /// Encodes a ServerKey frame (8B magic + 32B public key).
-    public static func encodeServerKey(magic: Data = serverKeyMagic, serverKey: Data) -> Data {
+    static func encodeServerKey(magic: Data = serverKeyMagic, serverKey: Data) -> Data {
         var payload = Data(capacity: magic.count + serverKey.count)
         payload.append(magic)
         payload.append(serverKey)
@@ -126,7 +126,7 @@ public enum NCDERPFrameCodec {
     }
 
     /// Encodes a ClientInfo frame (32B client key + 24B nonce + boxed JSON).
-    public static func encodeClientInfo(clientKey: Data, nonce: Data, boxedData: Data) -> Data {
+    static func encodeClientInfo(clientKey: Data, nonce: Data, boxedData: Data) -> Data {
         var payload = Data(capacity: clientKey.count + nonce.count + boxedData.count)
         payload.append(clientKey)
         payload.append(nonce)
@@ -135,7 +135,7 @@ public enum NCDERPFrameCodec {
     }
 
     /// Encodes a ServerInfo frame (24B nonce + boxed JSON).
-    public static func encodeServerInfo(nonce: Data, boxedData: Data) -> Data {
+    static func encodeServerInfo(nonce: Data, boxedData: Data) -> Data {
         var payload = Data(capacity: nonce.count + boxedData.count)
         payload.append(nonce)
         payload.append(boxedData)
@@ -143,7 +143,7 @@ public enum NCDERPFrameCodec {
     }
 
     /// Encodes a SendPacket frame (32B destination public key + raw packet).
-    public static func encodeSendPacket(destKey: Data, data: Data) -> Data {
+    static func encodeSendPacket(destKey: Data, data: Data) -> Data {
         var payload = Data(capacity: keyLength + data.count)
         payload.append(destKey)
         payload.append(data)
@@ -151,7 +151,7 @@ public enum NCDERPFrameCodec {
     }
 
     /// Encodes a RecvPacket frame (32B source public key + raw packet).
-    public static func encodeRecvPacket(srcKey: Data, data: Data) -> Data {
+    static func encodeRecvPacket(srcKey: Data, data: Data) -> Data {
         var payload = Data(capacity: keyLength + data.count)
         payload.append(srcKey)
         payload.append(data)
@@ -159,17 +159,17 @@ public enum NCDERPFrameCodec {
     }
 
     /// Encodes a KeepAlive frame (0-byte payload).
-    public static func encodeKeepAlive() -> Data {
+    static func encodeKeepAlive() -> Data {
         encode(type: .keepAlive, payload: Data())
     }
 
     /// Encodes a NotePreferred frame (1-byte: 0x01 for preferred home, 0x00 otherwise).
-    public static func encodeNotePreferred(preferred: Bool) -> Data {
+    static func encodeNotePreferred(preferred: Bool) -> Data {
         encode(type: .notePreferred, payload: Data([preferred ? 0x01 : 0x00]))
     }
 
     /// Encodes a PeerGone frame (32B peer key + 1-byte reason).
-    public static func encodePeerGone(peerKey: Data, reason: UInt8 = 0x00) -> Data {
+    static func encodePeerGone(peerKey: Data, reason: UInt8 = 0x00) -> Data {
         var payload = Data(capacity: keyLength + 1)
         payload.append(peerKey)
         payload.append(reason)
@@ -177,20 +177,22 @@ public enum NCDERPFrameCodec {
     }
 
     /// Encodes a Ping frame (8-byte opaque payload).
-    public static func encodePing(data: Data) -> Data {
+    static func encodePing(data: Data) -> Data {
         encode(type: .ping, payload: data)
     }
 
     /// Encodes a Pong frame (8-byte opaque payload echoing ping).
-    public static func encodePong(data: Data) -> Data {
+    static func encodePong(data: Data) -> Data {
         encode(type: .pong, payload: data)
     }
 
     // MARK: - Frame Parser
 
     /// Parses a raw payload given its 1-byte frame type.
-    /// Supports official wire values as primary and Stage 1 sequential mapping as fallback.
-    public static func parseFrame(typeByte: UInt8, payload: Data) throws -> NCDERPFrame {
+    /// Supports official wire values as primary and Stage 1 sequential mapping as fallback only where
+    /// the old value does not collide with an official type (0x06-0x09 fallbacks were shadowing
+    /// KeepAlive/NotePreferred/PeerGone/PeerPresent and are removed).
+    static func parseFrame(typeByte: UInt8, payload: Data) throws -> NCDERPFrame {
         switch typeByte {
         case NCTailscaleConsts.DERPFrameType.serverKey.rawValue: // 0x01
             guard payload.count >= 40 else {
@@ -225,7 +227,7 @@ public enum NCDERPFrameCodec {
             let packet = payload.subdata(in: 32..<payload.count)
             return .sendPacket(destKey: destKey, data: packet)
 
-        case NCTailscaleConsts.DERPFrameType.recvPacket.rawValue, 0x06: // 0x05 (official) or 0x06 (Stage 1 fallback)
+        case NCTailscaleConsts.DERPFrameType.recvPacket.rawValue: // 0x05
             guard payload.count >= 32 else {
                 throw NCDERPFrameError.payloadTooShort(frame: "RecvPacket", expected: 32, actual: payload.count)
             }
@@ -233,14 +235,14 @@ public enum NCDERPFrameCodec {
             let packet = payload.subdata(in: 32..<payload.count)
             return .recvPacket(srcKey: srcKey, data: packet)
 
-        case NCTailscaleConsts.DERPFrameType.keepAlive.rawValue, 0x07: // 0x06 (official) or 0x07 (Stage 1 fallback)
+        case NCTailscaleConsts.DERPFrameType.keepAlive.rawValue: // 0x06
             return .keepAlive
 
-        case NCTailscaleConsts.DERPFrameType.notePreferred.rawValue, 0x08: // 0x07 (official) or 0x08 (Stage 1 fallback)
+        case NCTailscaleConsts.DERPFrameType.notePreferred.rawValue: // 0x07
             let pref = (payload.first ?? 0) != 0
             return .notePreferred(preferred: pref)
 
-        case NCTailscaleConsts.DERPFrameType.peerGone.rawValue, 0x09: // 0x08 (official) or 0x09 (Stage 1 fallback)
+        case NCTailscaleConsts.DERPFrameType.peerGone.rawValue: // 0x08
             guard payload.count >= 32 else {
                 throw NCDERPFrameError.payloadTooShort(frame: "PeerGone", expected: 32, actual: payload.count)
             }
@@ -300,28 +302,28 @@ public enum NCDERPFrameCodec {
 /// Stream-oriented incremental decoder for DERP frames.
 /// Ingests arbitrary chunk sizes (partial headers, partial payloads, multiple frames per chunk)
 /// and emits complete parsed `NCDERPFrame` instances.
-public final class NCDERPFrameDecoder {
+final class NCDERPFrameDecoder {
     private var buffer = Data()
     private let maxFrameSize: Int
 
-    public init(maxFrameSize: Int = NCDERPFrameCodec.maxFramePayloadSize) {
+    init(maxFrameSize: Int = NCDERPFrameCodec.maxFramePayloadSize) {
         self.maxFrameSize = maxFrameSize
     }
 
     /// Number of incomplete bytes currently sitting in the receive buffer.
-    public var bufferedBytesCount: Int {
+    var bufferedBytesCount: Int {
         buffer.count
     }
 
     /// Clears any buffered state.
-    public func reset() {
+    func reset() {
         buffer.removeAll(keepingCapacity: false)
     }
 
     /// Ingests a slice of raw bytes received from the TLS stream and returns all completed frames.
     ///
     /// Throws `NCDERPFrameError.frameTooLarge` if a frame length exceeds `maxFrameSize`.
-    public func feed(_ chunk: Data) throws -> [NCDERPFrame] {
+    func feed(_ chunk: Data) throws -> [NCDERPFrame] {
         guard !chunk.isEmpty else { return [] }
         buffer.append(chunk)
 
@@ -374,7 +376,7 @@ public final class NCDERPFrameDecoder {
 
     /// Verifies codec round-trip and chunked incremental decoding against test vectors.
     @discardableResult
-    public static func selfTest() -> Bool {
+    static func selfTest() -> Bool {
         let dummyKey1 = Data(repeating: 0xaa, count: 32)
         let dummyKey2 = Data(repeating: 0xbb, count: 32)
         let dummyNonce = Data(repeating: 0xcc, count: 24)

@@ -18,22 +18,22 @@ import Foundation
 // the byte layout is implemented from the spec and flagged in the phase
 // report as not interop-verified.
 
-public enum NCTailscaleDisco {
-    public static let magic: [UInt8] = [0x54, 0x53, 0xF0, 0x9F, 0x92, 0x9D] // "TS💝"
+enum NCTailscaleDisco {
+    static let magic: [UInt8] = [0x54, 0x53, 0xF0, 0x9F, 0x92, 0x9D] // "TS💝"
 
-    public enum Message: Equatable {
+    enum Message: Equatable {
         case ping(txid: Data, nodeKey: Data?)
         case pong(txid: Data, src: String)
         case callMeMaybe(endpoints: [String])
     }
 
-    public static func isDisco(_ data: Data) -> Bool {
+    static func isDisco(_ data: Data) -> Bool {
         data.count > magic.count && Array(data.prefix(magic.count)) == magic
     }
 
     // MARK: Seal / open
 
-    public static func seal(
+    static func seal(
         _ message: Message,
         senderPrivate: Curve25519.KeyAgreement.PrivateKey,
         senderPublic: Data,
@@ -55,7 +55,7 @@ public enum NCTailscaleDisco {
     }
 
     /// Returns (senderDiscoPub, message) or nil for non-disco/undecryptable input.
-    public static func open(
+    static func open(
         _ packet: Data,
         recipientPrivate: Curve25519.KeyAgreement.PrivateKey
     ) -> (senderPublic: Data, message: Message)? {
@@ -125,7 +125,7 @@ public enum NCTailscaleDisco {
 
     // MARK: AddrPort codec ("ip:port" / "[v6]:port" strings)
 
-    public static func encodeAddrPort(_ endpoint: String) -> [UInt8]? {
+    static func encodeAddrPort(_ endpoint: String) -> [UInt8]? {
         guard let (ip, port) = parseEndpoint(endpoint) else { return nil }
         switch ip {
         case .v4(let v):
@@ -138,7 +138,7 @@ public enum NCTailscaleDisco {
         }
     }
 
-    public static func decodeAddrPort(_ bytes: [UInt8], at offset: Int) -> (String, Int)? {
+    static func decodeAddrPort(_ bytes: [UInt8], at offset: Int) -> (String, Int)? {
         guard offset < bytes.count else { return nil }
         switch bytes[offset] {
         case 4:
@@ -159,7 +159,7 @@ public enum NCTailscaleDisco {
     }
 
     /// Splits "1.2.3.4:41641" / "[fd7a::1]:41641" into (IP, port).
-    public static func parseEndpoint(_ endpoint: String) -> (NCIP, UInt16)? {
+    static func parseEndpoint(_ endpoint: String) -> (NCIP, UInt16)? {
         let t = endpoint.trimmingCharacters(in: .whitespaces)
         if t.hasPrefix("[") {
             guard let close = t.firstIndex(of: "]"), t.index(after: close) < t.endIndex,

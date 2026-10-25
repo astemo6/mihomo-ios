@@ -17,21 +17,21 @@ import Foundation
 // - Methods: `start(derpMap:homeRegionID:nodeKey:)`, `stop()`, `sendPacket(to:regionID:data:)`
 // - Callbacks: `onPacket`, `onPeerGone`, `onHomeStateChange`
 
-public final class NCTailscaleDERPClient {
+final class NCTailscaleDERPClient {
 
     // MARK: - Callbacks (Pinned Interface)
 
     /// Inbound WireGuard packet received over DERP.
     /// Parameters: (sourceNodePublicKey: 32 bytes, rawWireGuardPacket: Data)
-    public var onPacket: ((Data, Data) -> Void)?
+    var onPacket: ((Data, Data) -> Void)?
 
     /// Peer departure notification from DERP server.
     /// Parameters: (peerNodePublicKey: 32 bytes)
-    public var onPeerGone: ((Data) -> Void)?
+    var onPeerGone: ((Data) -> Void)?
 
     /// Home DERP region connection state change notification.
     /// Parameters: (isConnected: Bool, regionID: Int)
-    public var onHomeStateChange: ((Bool, Int) -> Void)?
+    var onHomeStateChange: ((Bool, Int) -> Void)?
 
     // MARK: - Configuration & Key Material
 
@@ -68,8 +68,22 @@ public final class NCTailscaleDERPClient {
 
     // MARK: - Initialization
 
-    public init(queue: DispatchQueue = DispatchQueue(label: "nc.tailscale.derp")) {
+    /// Marks `queue` so status getters can tell when they already run on it.
+    /// The client shares one serial queue between control and DERP, and the
+    /// netmap callback reads these getters on that queue: a plain `queue.sync`
+    /// there would trap (dispatch_sync on the current queue).
+    private let queueKey = DispatchSpecificKey<UInt8>()
+
+    init(queue: DispatchQueue = DispatchQueue(label: "nc.tailscale.derp")) {
         self.queue = queue
+        queue.setSpecific(key: queueKey, value: 1)
+    }
+
+    private func onQueue<T>(_ body: () -> T) -> T {
+        if DispatchQueue.getSpecific(key: queueKey) != nil {
+            return body()
+        }
+        return queue.sync(execute: body)
     }
 
     deinit {
@@ -84,7 +98,7 @@ public final class NCTailscaleDERPClient {
     ///   - derpMap: Complete geographic DERP map.
     ///   - homeRegionID: Desired home region (0 = automatically select first available region).
     ///   - nodeKey: Curve25519 node private key used as the DERP authentication identity.
-    public func start(
+    func start(
         derpMap: NCTailscaleDERPMap,
         homeRegionID: Int,
         nodeKey: Curve25519.KeyAgreement.PrivateKey
@@ -105,7 +119,7 @@ public final class NCTailscaleDERPClient {
     }
 
     /// Stops all active DERP connections, cancels reconnection timers, and releases resources.
-    public func stop() {
+    func stop() {
         queue.async { [weak self] in
             guard let self = self, !self.isStopped else { return }
             self.isStopped = true
@@ -135,7 +149,7 @@ public final class NCTailscaleDERPClient {
     }
 
     /// Dynamically updates the DERPMap (e.g. from incremental netmap updates).
-    public func updateDERPMap(_ newMap: NCTailscaleDERPMap) {
+    func updateDERPMap(_ newMap: NCTailscaleDERPMap) {
         queue.async { [weak self] in
             guard let self = self, !self.isStopped else { return }
             self.derpMap = newMap
@@ -156,7 +170,7 @@ public final class NCTailscaleDERPClient {
     ///   - peerKey: 32-byte Curve25519 node public key of the destination peer.
     ///   - regionID: DERP region ID where the peer is currently located (0 = send to home region).
     ///   - data: Raw WireGuard packet payload.
-    public func sendPacket(to peerKey: Data, regionID: Int, data: Data) {
+    func sendPacket(to peerKey: Data, regionID: Int, data: Data) {
         queue.async { [weak self] in
             guard let self = self, !self.isStopped else { return }
 
@@ -181,29 +195,25 @@ public final class NCTailscaleDERPClient {
     // MARK: - Status Queries
 
     /// Current effective home region ID.
-    public var currentHomeRegionID: Int {
-        var result = 0
-        queue.sync { result = self.effectiveHomeRegionID }
-        return result
+    var currentHomeRegionID: Int {
+        onQueue { self.effectiveHomeRegionID }
     }
 
     /// Whether the home DERP region connection is currently established and ready.
-    public var isHomeConnected: Bool {
-        var result = false
-        queue.sync { result = self.homeSession?.state.isReady ?? false }
-        return result
+    var isHomeConnected: Bool {
+        onQueue { self.homeSession?.state.isReady ?? false }
     }
 
     /// List of all region IDs currently holding an active session.
-    public var activeRegionIDs: [Int] {
-        var ids = [Int]()
-        queue.sync {
+    var activeRegionIDs: [Int] {
+        onQueue { () -> [Int] in
+            var ids = [Int]()
             if self.homeSession != nil {
                 ids.append(self.effectiveHomeRegionID)
             }
             ids.append(contentsOf: self.otherSessions.keys)
+            return ids
         }
-        return ids
     }
 
     // MARK: - Home Region Management & Reconnection

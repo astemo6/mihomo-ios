@@ -303,7 +303,7 @@ enum NCNaClBox {
             let w0 = f0 | (f1 << 26) | ((f2 & 0x0fff) << 52)
             let w1 = (f2 >> 12) | (f3 << 14) | (f4 << 40)
 
-            let s0 = UInt64(key32[16]) |
+            let k0 = UInt64(key32[16]) |
                 (UInt64(key32[17]) << 8) |
                 (UInt64(key32[18]) << 16) |
                 (UInt64(key32[19]) << 24) |
@@ -311,7 +311,7 @@ enum NCNaClBox {
                 (UInt64(key32[21]) << 40) |
                 (UInt64(key32[22]) << 48) |
                 (UInt64(key32[23]) << 56)
-            let s1 = UInt64(key32[24]) |
+            let k1 = UInt64(key32[24]) |
                 (UInt64(key32[25]) << 8) |
                 (UInt64(key32[26]) << 16) |
                 (UInt64(key32[27]) << 24) |
@@ -320,8 +320,8 @@ enum NCNaClBox {
                 (UInt64(key32[30]) << 48) |
                 (UInt64(key32[31]) << 56)
 
-            let (out0, carry0) = w0.addingReportingOverflow(s0)
-            let out1 = w1 &+ s1 &+ (carry0 ? 1 : 0)
+            let (out0, carry0) = w0.addingReportingOverflow(k0)
+            let out1 = w1 &+ k1 &+ (carry0 ? 1 : 0)
 
             var out = [UInt8](repeating: 0, count: 16)
             for i in 0..<8 {

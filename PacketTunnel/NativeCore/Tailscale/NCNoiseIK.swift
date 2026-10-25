@@ -73,7 +73,7 @@ final class NCTransportCipher {
         let nonce = Self.makeNonce(txNonce)
         txNonce &+= 1
 
-        guard let box = try? ChaChaPoly.seal(plaintext, using: txKey, nonce: nonce, authenticating: []) else {
+        guard let box = try? ChaChaPoly.seal(plaintext, using: txKey, nonce: nonce, authenticating: [UInt8]()) else {
             throw NCNoiseError.decryptionFailed
         }
         return [UInt8](box.ciphertext) + [UInt8](box.tag)
@@ -95,7 +95,7 @@ final class NCTransportCipher {
         let ct = ciphertextAndTag.prefix(ciphertextAndTag.count - 16)
         let tag = ciphertextAndTag.suffix(16)
         guard let box = try? ChaChaPoly.SealedBox(nonce: nonce, ciphertext: ct, tag: tag),
-              let plain = try? ChaChaPoly.open(box, using: rxKey, authenticating: []) else {
+              let plain = try? ChaChaPoly.open(box, using: rxKey, authenticating: [UInt8]()) else {
             throw NCNoiseError.decryptionFailed
         }
         return [UInt8](plain)

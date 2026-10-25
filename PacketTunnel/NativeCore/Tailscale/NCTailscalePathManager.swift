@@ -22,7 +22,7 @@ import Network
 //   request with MapRequest.Endpoints. NWPathMonitor path changes force
 //   a full re-probe (new STUN round, all peers back to DERP).
 
-public final class NCTailscalePathManager {
+final class NCTailscalePathManager {
     private static let pingInterval: TimeInterval = 25
     private static let directExpiry: TimeInterval = 45
     private static let callMeMaybeThrottle: TimeInterval = 10
@@ -63,21 +63,21 @@ public final class NCTailscalePathManager {
     // MARK: Callbacks into the client
 
     /// Attributed inbound WireGuard packet received on the direct path.
-    public var onWGDirectPacket: ((Data, Data) -> Void)?
+    var onWGDirectPacket: ((Data, Data) -> Void)?
     /// Relay send (DERP) for WG payloads and disco-over-DERP messages.
-    public var sendViaDERP: ((Data, Data) -> Void)?
+    var sendViaDERP: ((Data, Data) -> Void)?
     /// Our advertised endpoint set changed; re-issue the map request.
-    public var onEndpointsChanged: (() -> Void)?
+    var onEndpointsChanged: (() -> Void)?
     /// A peer's direct/relay classification changed (status counts).
-    public var onPathChanged: (() -> Void)?
+    var onPathChanged: (() -> Void)?
 
-    public init(queue: DispatchQueue) {
+    init(queue: DispatchQueue) {
         self.queue = queue
     }
 
     // MARK: Lifecycle
 
-    public func start(discoPrivate: Curve25519.KeyAgreement.PrivateKey, nodeKey: Data, derpMap: NCTailscaleDERPMap?) {
+    func start(discoPrivate: Curve25519.KeyAgreement.PrivateKey, nodeKey: Data, derpMap: NCTailscaleDERPMap?) {
         self.discoPrivate = discoPrivate
         self.discoPublic = discoPrivate.publicKey.rawRepresentation
         self.myNodeKey = nodeKey
@@ -93,7 +93,7 @@ public final class NCTailscalePathManager {
         startPathMonitor()
     }
 
-    public func stop() {
+    func stop() {
         heartbeat?.cancel()
         heartbeat = nil
         pathMonitor?.cancel()
@@ -106,7 +106,7 @@ public final class NCTailscalePathManager {
 
     // MARK: Netmap-driven peer table
 
-    public func updatePeers(nodes: [NCTailscaleNode]) {
+    func updatePeers(nodes: [NCTailscaleNode]) {
         var seen = Set<Data>()
         for node in nodes {
             guard let nodeKeyBytes = NCTailscaleKeyEncoding.decodeKey(node.Key), nodeKeyBytes.count == 32,
@@ -129,13 +129,13 @@ public final class NCTailscalePathManager {
         }
     }
 
-    public func updateDERPMap(_ derpMap: NCTailscaleDERPMap?) {
+    func updateDERPMap(_ derpMap: NCTailscaleDERPMap?) {
         updateSTUNServers(derpMap: derpMap)
     }
 
     // MARK: Advertised endpoints
 
-    public func currentEndpoints() -> [String] {
+    func currentEndpoints() -> [String] {
         var out = reflexiveEndpoints
         for ep in socket.localEndpoints() where !out.contains(ep) {
             out.append(ep)
@@ -143,13 +143,13 @@ public final class NCTailscalePathManager {
         return out
     }
 
-    public var directPeerCount: Int {
+    var directPeerCount: Int {
         peers.values.filter { $0.usingDirect }.count
     }
 
     // MARK: Sending WG packets
 
-    public func send(nodeKey: Data, packet: Data) {
+    func send(nodeKey: Data, packet: Data) {
         guard var path = peers[nodeKey] else {
             sendViaDERP?(nodeKey, packet)
             return
@@ -191,7 +191,7 @@ public final class NCTailscalePathManager {
 
     /// Demultiplexes a packet that arrived over DERP. Returns true when it
     /// was a disco message (consumed); false means it is a WG packet.
-    public func handleDERPPacket(_ data: Data, fromNodeKey: Data) -> Bool {
+    func handleDERPPacket(_ data: Data, fromNodeKey: Data) -> Bool {
         guard NCTailscaleDisco.isDisco(data) else { return false }
         handleDisco(data, fromNodeKey: fromNodeKey, sourceEndpoint: nil)
         return true
