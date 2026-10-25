@@ -81,13 +81,13 @@ enum NCScriptDebug {
         s.count <= n ? s : String(s.prefix(n)) + "…"
     }
 
-    static func header(from m: [String: String]?) -> GoHeader {
-        var h = GoHeader()
+    static func header(from m: [String: String]?) -> CanonicalHeader {
+        var h = CanonicalHeader()
         for (k, v) in m ?? [:] { h.set(k, v) }
         return h
     }
 
-    static func headerMap(_ h: GoHeader?) -> [String: String]? {
+    static func headerMap(_ h: CanonicalHeader?) -> [String: String]? {
         guard let h, !h.map.isEmpty else { return nil }
         var m: [String: String] = [:]
         for (k, v) in h.map { m[k] = v.joined(separator: ", ") }
@@ -161,10 +161,10 @@ enum NCScriptDebug {
             "egernEnv": [String: String](), "egernCron": "", "hasParams": false,
         ]
         var reqURL = "", reqMethod = "GET"
-        var reqHeader = GoHeader()
+        var reqHeader = CanonicalHeader()
         var reqBody = Data()
         var respStatus = 200
-        var respHeader = GoHeader()
+        var respHeader = CanonicalHeader()
         var respBody = Data()
         if isHTTP {
             let r = inp.request ?? HTTP()
@@ -225,7 +225,7 @@ enum NCScriptDebug {
         }
         if typ == "http-request" {
             if let m = res.mock {
-                var mh = GoHeader()
+                var mh = CanonicalHeader()
                 for kv in m.headers ?? [] where kv.count == 2 { mh.add(kv[0], kv[1]) }
                 let (b, b64) = bodyOut(m.body)
                 let st = m.status == 0 ? 200 : m.status

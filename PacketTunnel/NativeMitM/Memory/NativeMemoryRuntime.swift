@@ -14,12 +14,12 @@ struct ProcessMemorySampler: NativeMemorySampling {
 }
 
 /// Pure Swift memory control (no-op stand-in when Go is not running).
-final class NativeNoopMemoryControl: GoMemoryControlling {
+final class NativeNoopMemoryControl: RuntimeMemoryControlling {
     func setActive(_ on: Bool) {}
-    func info() -> GoMemoryInfo? { GoMemoryInfo() }
+    func info() -> RuntimeMemoryInfo? { RuntimeMemoryInfo() }
     func setLimit(_ bytes: Int64) -> Int64 { bytes }
     func freeOSMemory() -> Bool { true }
-    func shed(level: Int, flags: GoShedFlags, reason: String) -> String { "" }
+    func shed(level: Int, flags: MemoryShedFlags, reason: String) -> String { "" }
     func shedConnections(percent: Int) -> Int { 0 }
 }
 
@@ -87,7 +87,7 @@ extension BoundedLRU {
 /// snapshot. All on one serial queue.
 final class NativeMemoryGovernorSampler {
     let governor: NativeMemoryGovernor
-    private let go: GoMemoryControlling
+    private let go: RuntimeMemoryControlling
     private let queue = DispatchQueue(label: "mihomo.nativememgovernor", qos: .utility)
     private var timer: DispatchSourceTimer?
     private var pressure: DispatchSourceMemoryPressure?
@@ -98,7 +98,7 @@ final class NativeMemoryGovernorSampler {
     /// Called on every tick with footprint / available (the tunnel writes the 隧道内存 snapshot here).
     private let onSample: (UInt64, Int) -> Void
 
-    init(governor: NativeMemoryGovernor, go: GoMemoryControlling, onSample: @escaping (UInt64, Int) -> Void = { _, _ in }) {
+    init(governor: NativeMemoryGovernor, go: RuntimeMemoryControlling, onSample: @escaping (UInt64, Int) -> Void = { _, _ in }) {
         self.governor = governor
         self.go = go
         self.onSample = onSample

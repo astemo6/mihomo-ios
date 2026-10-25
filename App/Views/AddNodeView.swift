@@ -94,7 +94,7 @@ struct AddNodeView: View {
                 .onChange(of: paste) { t in detect(t) }
                 HStack(spacing: 8) {
                     if let d = detected {
-                        Text(verbatim: GoText.localize(d.format))
+                        Text(verbatim: CoreText.localize(d.format))
                             .scaledFont(10, weight: .bold)
                             .padding(.horizontal, 6).padding(.vertical, 2)
                             .lineLimit(1) // v0.19.8: a capsule tag never wraps (tall grey box with large text)

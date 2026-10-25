@@ -4,7 +4,7 @@ import Foundation
 ///
 /// NativeRewriteDriver (main's stage 3a, s3-full, s3-script) already decides every rewrite / reject / redirect /
 /// map local / header / body / script rule natively. What it defers used to go to Go's flow API
-/// (bridge/mitm/flow.go via GoMitmFlowDriver). With no Go in the extension, a deferred flow is forwarded unchanged:
+/// (bridge/mitm/flow.go via MitmFlowDriverAdapter). With no Go in the extension, a deferred flow is forwarded unchanged:
 /// the request goes to its origin as the client sent it (body streamed from the client) and the response comes back
 /// as the origin sent it (body streamed from upstream). Nothing is buffered here; the driver only remembers each
 /// flow's head to build the forward URL. Flows the native engine cannot handle are therefore not rewritten — that is

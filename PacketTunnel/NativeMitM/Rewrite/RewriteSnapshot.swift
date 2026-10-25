@@ -173,9 +173,9 @@ enum RWAscii {
     }
 }
 
-/// Go's http.Header: canonical keys (textproto.CanonicalMIMEHeaderKey), values in order, iteration sorted when
-/// flattened (flow.go flowHeaderPairs).
-struct GoHeader: Equatable {
+/// Canonical MIME header map (http.Header semantics): canonical keys (textproto.CanonicalMIMEHeaderKey),
+/// values in order, iteration sorted when flattened.
+struct CanonicalHeader: Equatable {
     private(set) var map: [String: [String]] = [:]
 
     init() {}
@@ -208,12 +208,12 @@ struct GoHeader: Equatable {
         return String(decoding: out, as: UTF8.self)
     }
 
-    mutating func add(_ k: String, _ v: String) { map[GoHeader.canonical(k), default: []].append(v) }
-    mutating func set(_ k: String, _ v: String) { map[GoHeader.canonical(k)] = [v] }
-    mutating func del(_ k: String) { map.removeValue(forKey: GoHeader.canonical(k)) }
-    func get(_ k: String) -> String { map[GoHeader.canonical(k)]?.first ?? "" }
-    func values(_ k: String) -> [String] { map[GoHeader.canonical(k)] ?? [] }
-    func has(_ k: String) -> Bool { map[GoHeader.canonical(k)] != nil }
+    mutating func add(_ k: String, _ v: String) { map[CanonicalHeader.canonical(k), default: []].append(v) }
+    mutating func set(_ k: String, _ v: String) { map[CanonicalHeader.canonical(k)] = [v] }
+    mutating func del(_ k: String) { map.removeValue(forKey: CanonicalHeader.canonical(k)) }
+    func get(_ k: String) -> String { map[CanonicalHeader.canonical(k)]?.first ?? "" }
+    func values(_ k: String) -> [String] { map[CanonicalHeader.canonical(k)] ?? [] }
+    func has(_ k: String) -> Bool { map[CanonicalHeader.canonical(k)] != nil }
 
     /// flowHeaderPairs: keys sorted (byte order), values in order.
     var sortedPairs: [[String]] {

@@ -14,7 +14,7 @@
 // own allocations between two 64 KB decoder steps plus JavaScriptCore's next block. The decode is checked live per
 // chunk, so no copy factor is applied up front; the script run itself is bounded by the governor / memLow.
 //
-// Pure Foundation, no #if: built into the tunnel (TERN_NO_GO NativeScriptHost / NativeBodyStore) and the app target
+// Pure Foundation, no #if: built into the tunnel (NativeScriptHost / NativeBodyStore) and the app target
 // (UnitTests/NativeScriptBodyBudgetTests.swift).
 
 import Foundation
@@ -178,7 +178,7 @@ extension NativeScriptBodyBudget {
     }
 }
 
-// Defaults so the Go-backed app build (GoScriptHost, the Go NativeBodyStore) and the unit-test fakes need nothing new.
+// Defaults so the Go-backed app build (NativeScriptHost, the Go NativeBodyStore) and the unit-test fakes need nothing new.
 extension ScriptGoHost {
     /// The streaming charge bodyAdmit opened for ticket (NativeCore only).
     func bodyCharge(ticket: Int64) -> NativeBodyCharge? { nil }

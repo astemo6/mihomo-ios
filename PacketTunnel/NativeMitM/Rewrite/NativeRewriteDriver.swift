@@ -270,7 +270,7 @@ final class NativeRewriteDriver: MitmFlowDriving {
     let provider: NativeRewriteProvider
     let recorder: NativeRequestRecorder?
     /// Lane s3-script: what the native script dispatcher uses (production: Go bridge, JavaScriptCore, NativeBodyStore).
-    var scriptGo: ScriptGoHost = GoScriptHost.shared
+    var scriptGo: ScriptGoHost = NativeScriptHost.shared
     var scriptJS: () -> NativeJSEngine? = {
         JSCScriptEngine.nativeBlobs != nil && JSCScriptEngine.shared.canInterrupt ? JSCScriptEngine.shared : nil
     }
@@ -312,7 +312,7 @@ final class NativeRewriteDriver: MitmFlowDriving {
     }
 
     static func request(_ head: HTTPRequestHead, _ conn: MitmConnInfo) -> RewriteRequest {
-        // the same head GoMitmFlowDriver.requestPhase sends to MitmFlowBegin
+        // the same head MitmFlowDriverAdapter.requestPhase sends to MitmFlowBegin
         let length: Int64 = head.isChunked ? -1 : (head.contentLength ?? 0)
         return RewriteRequest(method: head.method, target: head.target, host: head.host ?? "", headers: headerPairs(head.headers),
                               length: length, connHost: conn.host, connPort: conn.port, tls: conn.tls)

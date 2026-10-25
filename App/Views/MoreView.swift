@@ -740,7 +740,7 @@ struct DiagnosticsView: View {
                 LabeledContent("主程序 ID", value: AppShared.mainAppBundleID)
                 LabeledContent("隧道扩展 ID", value: AppShared.tunnelBundleID)
                 LabeledContent("App Group", value: group)
-                LabeledContent("来源", value: GoText.localize(AppShared.appGroupSource))
+                LabeledContent("来源", value: CoreText.localize(AppShared.appGroupSource))
                 LabeledContent("共享容器") {
                     Text(AppShared.containerOK ? "正常" : "不可用").foregroundStyle(AppShared.containerOK ? Theme.good : Theme.bad)
                 }

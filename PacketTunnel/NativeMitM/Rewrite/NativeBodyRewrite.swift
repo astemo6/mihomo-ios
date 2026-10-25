@@ -251,7 +251,7 @@ enum NativeBodyExec {
 
     /// Whether the response head lets Swift take the body (else the exchange is handed to Go before any byte).
     static func responseHeadOK(status: Int, headers: [[String]], length: Int64, method: String) -> String? {
-        let h = GoHeader(pairs: headers)
+        let h = CanonicalHeader(pairs: headers)
         if status == 101 { return "upgrade" }
         if method == "HEAD" || status == 204 || status == 304 || (100..<200).contains(status) { return "no body" }
         if !h.values("Transfer-Encoding").isEmpty { return "chunked" }
@@ -269,7 +269,7 @@ enum NativeBodyExec {
     /// runResponse + modifyResponse for a plan of header and body rules, on the whole raw (still encoded) body.
     static func response(_ steps: [RewriteDecision.ResponseStep], status: Int, headers: [[String]], length: Int64,
                          raw: Data) -> ResponseResult {
-        var h = GoHeader(pairs: headers)
+        var h = CanonicalHeader(pairs: headers)
         var contentLength = length
         if !h.values("Transfer-Encoding").isEmpty { return .handBack("chunked") }
         let clh = h.get("Content-Length")
@@ -289,7 +289,7 @@ enum NativeBodyExec {
             switch step {
             case .header(let ops, let i):
                 rules.append(i)
-                guard NativeRewriteEngine.apply(ops, to: &h, firstLine: "HTTP/1.1 " + GoStatus.status(status)) else { return .handBack("header op input") }
+                guard NativeRewriteEngine.apply(ops, to: &h, firstLine: "HTTP/1.1 " + NetStatus.status(status)) else { return .handBack("header op input") }
             case .body(let rule):
                 if !loaded {
                     loaded = true

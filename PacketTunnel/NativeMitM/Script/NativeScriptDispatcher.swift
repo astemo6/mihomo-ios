@@ -51,7 +51,7 @@ struct ScriptPlanStep {
 struct ScriptRequestView {
     var url: String          // f.url
     var method: String
-    var header: GoHeader     // out.Header (Content-Length kept, Accept-Encoding as sent)
+    var header: CanonicalHeader     // out.Header (Content-Length kept, Accept-Encoding as sent)
     var host: String         // out.Host
 }
 
@@ -91,7 +91,7 @@ final class NativeScriptResponse {
 
     // modifyResponse's state
     private var status = 0
-    private var header = GoHeader()
+    private var header = CanonicalHeader()
     private var contentLength: Int64 = -1   // resp.ContentLength
     private var upstreamLength: Int64 = -1  // the head's length (framing)
     private var mrNoBody = false            // HEAD / 204 / 304
@@ -167,7 +167,7 @@ final class NativeScriptResponse {
 
     /// FlowResponse for the upstream's head: runs the rules up to the first body load (then .needBody), or to the end.
     func head(status st: Int, headers: [[String]], length: Int64) -> HeadOutcome {
-        var h = GoHeader(pairs: headers)
+        var h = CanonicalHeader(pairs: headers)
         var cl = length
         if !h.values("Transfer-Encoding").isEmpty {
             h.del("Transfer-Encoding")
@@ -204,7 +204,7 @@ final class NativeScriptResponse {
             switch step.kind {
             case .header(let ops):
                 rules.append(step.rule)
-                _ = NativeRewriteEngine.apply(ops, to: &header, firstLine: "HTTP/1.1 " + GoStatus.status(status)) // add / del / replace only (regex ops → Go at decide)
+                _ = NativeRewriteEngine.apply(ops, to: &header, firstLine: "HTTP/1.1 " + NetStatus.status(status)) // add / del / replace only (regex ops → Go at decide)
                 pos += 1
             case .script(let requiresBody):
                 let ans = go.reserve(gen: gen, rule: step.rule, token: token)
@@ -443,7 +443,7 @@ final class NativeScriptResponse {
     }
 
     /// headerPairs: names sorted, several values joined with ", ".
-    static func headerPairs(_ h: GoHeader) -> [[String]] {
+    static func headerPairs(_ h: CanonicalHeader) -> [[String]] {
         h.map.keys.sorted(by: RWAscii.less).map { [$0, (h.map[$0] ?? []).joined(separator: ", ")] }
     }
 

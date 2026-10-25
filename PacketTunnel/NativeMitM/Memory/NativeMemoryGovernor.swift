@@ -18,7 +18,7 @@
 //   - GOMEMLIMIT never goes below Go's non-garbage memory + 2 MB (Go clamps it; gc ran ~100×/s below it).
 //   - One stop per shed: no runtime.GC() + FreeOSMemory pair, FreeOSMemory itself rate-limited in Go.
 //
-// Everything that reads memory or touches the world is injected (NativeMemorySampling / GoMemoryControlling /
+// Everything that reads memory or touches the world is injected (NativeMemorySampling / RuntimeMemoryControlling /
 // NativeReclaimer), so UnitTests/NativeMitmMemoryGovernorTests.swift drives it with fixed readings.
 
 import Foundation
@@ -36,8 +36,8 @@ protocol NativeMemorySampling {
     func sample() -> NativeMemorySample
 }
 
-/// Go's numbers (LibmihomoNativeGoMemory JSON, bytes).
-struct GoMemoryInfo: Decodable, Equatable {
+/// The runtime's memory numbers (JSON, bytes).
+struct RuntimeMemoryInfo: Decodable, Equatable {
     var heap: Int64 = 0
     var nonGarbage: Int64 = 0
     var floor: Int64 = 0
@@ -48,25 +48,25 @@ struct GoMemoryInfo: Decodable, Equatable {
     var loan: Bool = false
 }
 
-/// The bridge calls the governor drives (production: LibmihomoGoMemoryControl).
-protocol GoMemoryControlling: AnyObject {
+/// The memory-control calls the governor drives.
+protocol RuntimeMemoryControlling: AnyObject {
     func setActive(_ on: Bool)
-    func info() -> GoMemoryInfo?
+    func info() -> RuntimeMemoryInfo?
     /// GOMEMLIMIT; 0 = the configured limit. Returns the limit in effect (Go clamps to its anti-thrash floor).
     func setLimit(_ bytes: Int64) -> Int64
     func freeOSMemory() -> Bool
-    func shed(level: Int, flags: GoShedFlags, reason: String) -> String
+    func shed(level: Int, flags: MemoryShedFlags, reason: String) -> String
     /// Oldest connections, percent (emergency only).
     func shedConnections(percent: Int) -> Int
 }
 
-/// = bridge/nativegov.go NativeShed* flags.
-struct GoShedFlags: OptionSet, Equatable {
+/// Shed flag bits (engine-critical / DNS / idle connections / free OS memory).
+struct MemoryShedFlags: OptionSet, Equatable {
     let rawValue: Int
-    static let engineCritical = GoShedFlags(rawValue: 1 << 0)
-    static let dns = GoShedFlags(rawValue: 1 << 1)
-    static let idleConns = GoShedFlags(rawValue: 1 << 2)
-    static let freeOS = GoShedFlags(rawValue: 1 << 3)
+    static let engineCritical = MemoryShedFlags(rawValue: 1 << 0)
+    static let dns = MemoryShedFlags(rawValue: 1 << 1)
+    static let idleConns = MemoryShedFlags(rawValue: 1 << 2)
+    static let freeOS = MemoryShedFlags(rawValue: 1 << 3)
 }
 
 /// Something native that can give memory back (JSC garbage, failed native bodies, idle upstream connections, TLS
@@ -147,7 +147,7 @@ final class NativeMemoryGovernor {
 
     let config: Config
     private let memory: NativeMemorySampling
-    private let go: GoMemoryControlling
+    private let go: RuntimeMemoryControlling
     private let reclaimers: [NativeReclaimer]
     private let now: () -> TimeInterval
     private let log: (String) -> Void
@@ -170,10 +170,10 @@ final class NativeMemoryGovernor {
     private var limitAsked: Int64 = -1
     private(set) var limitInEffect: Int64 = 0
     private(set) var lastSample = NativeMemorySample(footprint: 0, available: 0)
-    private(set) var lastGo: GoMemoryInfo?
+    private(set) var lastGo: RuntimeMemoryInfo?
     private(set) var counters = Counters()
 
-    init(config: Config = Config(), memory: NativeMemorySampling, go: GoMemoryControlling, reclaimers: [NativeReclaimer] = [],
+    init(config: Config = Config(), memory: NativeMemorySampling, go: RuntimeMemoryControlling, reclaimers: [NativeReclaimer] = [],
          now: @escaping () -> TimeInterval = { ProcessInfo.processInfo.systemUptime },
          log: @escaping (String) -> Void = { _ in }) {
         self.config = config
@@ -366,7 +366,7 @@ final class NativeMemoryGovernor {
 
         // shed: on rising level at once, else rate-limited with backoff while sheds free nothing
         var shedLevel: Int?
-        var flags: GoShedFlags = []
+        var flags: MemoryShedFlags = []
         let rose = lvl > lastShedLevel
         // DNS caches: not in a burst — only from the timer once critical lasted dnsAfterCritical (or before a
         // reload), at most every dnsEvery; a due clear is a new lever, so it sheds through the backoff
@@ -472,7 +472,7 @@ final class NativeMemoryGovernor {
 
     static func mb<T: BinaryInteger>(_ v: T) -> String { String(format: "%.1f MB", Double(v) / 1_048_576) }
     static func kb(_ v: Int) -> String { v >= 1 << 20 ? mb(v) : "\(v >> 10) KB" }
-    static func flagText(_ f: GoShedFlags) -> String {
+    static func flagText(_ f: MemoryShedFlags) -> String {
         var p: [String] = []
         if f.contains(.engineCritical) { p.append("engine critical") }
         if f.contains(.dns) { p.append("dns") }

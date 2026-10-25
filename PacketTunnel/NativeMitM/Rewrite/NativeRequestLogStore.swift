@@ -1,7 +1,7 @@
 // NativeCore (feat/native-core-eval, gap C4) — the Go-free tunnel's request log and log stream
 // (astemo6/Muse NativeCore, 2026-10-25).
 //
-// NativeRequestLogStore is the NativeRequestRecorder's sink in TERN_NO_GO: it folds the recorder's events into entries
+// NativeRequestLogStore is the NativeRequestRecorder's sink in the native tunnel: it folds the recorder's events into entries
 // with the semantics of bridge/mitm/nativerecord.go applyNative (drop / local / forward open an entry; response /
 // end / cancel / upstream / error / abort finish it), keeps the OPEN entries (≤ 256, with headers) and the last 200
 // summaries (no headers) in memory, and appends every finished entry to the App Group ring

@@ -341,7 +341,7 @@ struct RuleRow: View {
             VStack(alignment: .leading, spacing: 4) {
                 HStack(spacing: 6) {
                     KindBadge(kind: d.kind, phase: item.line.lowercased().contains("response") ? "response" : "request")
-                    Text(verbatim: GoText.localize(d.desc)).font(.caption.weight(.semibold)).foregroundStyle(d.error == nil ? Color.primary : Theme.bad).lineLimit(1)
+                    Text(verbatim: CoreText.localize(d.desc)).font(.caption.weight(.semibold)).foregroundStyle(d.error == nil ? Color.primary : Theme.bad).lineLimit(1)
                 }
                 Text(item.line).scaledFont(11, design: .monospaced).foregroundStyle(.secondary).lineLimit(3)
                 if let e = d.error { Text(e).font(.caption2).foregroundStyle(Theme.bad) }
@@ -413,7 +413,7 @@ struct LineEditorSheet: View {
                         ForEach(Array(preview.enumerated()), id: \.offset) { e in
                             let p = e.element
                             VStack(alignment: .leading, spacing: 2) {
-                                HStack { KindBadge(kind: p.1.kind); Text(verbatim: GoText.localize(p.1.desc)).font(.caption.weight(.semibold)) }
+                                HStack { KindBadge(kind: p.1.kind); Text(verbatim: CoreText.localize(p.1.desc)).font(.caption.weight(.semibold)) }
                                 if let e = p.1.error { Text(e).font(.caption2).foregroundStyle(Theme.bad) }
                             }
                         }
@@ -498,7 +498,7 @@ struct ScriptFormSheet: View {
                         TextEditor(text: $rawLine).scaledFont(12, design: .monospaced).frame(minHeight: 120)
                             .textInputAutocapitalization(.never).autocorrectionDisabled()
                         let d = EngineStore.describe(rawLine, section: "script")
-                        Text(verbatim: d.error ?? GoText.localize(d.desc)).font(.caption).foregroundStyle(d.error == nil ? Color.secondary : Theme.bad)
+                        Text(verbatim: d.error ?? CoreText.localize(d.desc)).font(.caption).foregroundStyle(d.error == nil ? Color.secondary : Theme.bad)
                     }
                 } else {
                     Section("基本") {
@@ -989,7 +989,7 @@ struct ModuleDetailView: View {
                         ForEach(Array(info.rules.enumerated()), id: \.offset) { e in
                             let r = e.element
                             VStack(alignment: .leading, spacing: 3) {
-                                HStack { KindBadge(kind: r.kind, phase: r.phase); Text(verbatim: GoText.localize(r.desc)).font(.caption.weight(.semibold)).lineLimit(1) }
+                                HStack { KindBadge(kind: r.kind, phase: r.phase); Text(verbatim: CoreText.localize(r.desc)).font(.caption.weight(.semibold)).lineLimit(1) }
                                 Text(r.pattern).scaledFont(10, design: .monospaced).foregroundStyle(.secondary).lineLimit(2)
                             }
                         }

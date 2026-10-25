@@ -422,7 +422,7 @@ struct ScriptDebugForm: View {
                 Spacer()
                 Text("\(o.durationMs) ms").font(.caption.monospacedDigit()).foregroundStyle(.secondary)
             }
-            if let e = o.error { Text(verbatim: GoText.localize(e)).font(.caption.monospaced()).foregroundStyle(Theme.bad).textSelection(.enabled) }
+            if let e = o.error { Text(verbatim: CoreText.localize(e)).font(.caption.monospaced()).foregroundStyle(Theme.bad).textSelection(.enabled) }
             ForEach(o.summary, id: \.self) { Text($0).font(.caption) }
         } header: { Text("结果") }
         .listRowBackground(Theme.card)
