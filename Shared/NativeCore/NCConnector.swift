@@ -38,6 +38,10 @@ final class NCCallOnce {
 // conformer implements real send completion, so the compiler flags any stream that was missed.
 extension NCRelayStream {
 
+    /// Fire-and-forget send for call sites that don't pump (handshake heads, control frames): the wrappers only
+    /// implement send(_:completion:), so the plain form forwards to it.
+    func send(_ data: Data) { send(data, completion: {}) }
+
     /// Sends wire segments in order, firing `completion` after the last segment's own completion
     /// (earlier segments get none). For encoders that turn one chunk into several records.
     func ncSendSequentially(_ wires: [Data], completion: @escaping () -> Void) {
@@ -47,7 +51,7 @@ extension NCRelayStream {
         if wires.count == 1 { send(first, completion: once.call); return }
         // Strong self capture is deliberate: the chain must not lose the completion if the caller
         // drops the stream mid-send; it ends when the last segment completes.
-        send(first) { ncSendSequentially(Array(wires.dropFirst()), completion: once.call) }
+        send(first) { self.ncSendSequentially(Array(wires.dropFirst()), completion: once.call) }
     }
 }
 
