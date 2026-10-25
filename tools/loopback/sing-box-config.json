@@ -124,6 +124,86 @@
           "uuid": "b831381d-6324-4d53-ad4f-8cda48b30811"
         }
       ]
+    },
+    {
+      "listen": "127.0.0.1",
+      "listen_port": 18060,
+      "tag": "trojan-ws-in",
+      "tls": {
+        "certificate_path": "__LOOPBACK_DIR__/cert.pem",
+        "enabled": true,
+        "key_path": "__LOOPBACK_DIR__/key.pem",
+        "server_name": "localhost"
+      },
+      "transport": {
+        "path": "/tj",
+        "type": "ws"
+      },
+      "type": "trojan",
+      "users": [
+        {
+          "name": "nc-loop",
+          "password": "nc-loop-trojan-pw"
+        }
+      ]
+    },
+    {
+      "listen": "127.0.0.1",
+      "listen_port": 18061,
+      "tag": "vless-httpupgrade-in",
+      "transport": {
+        "path": "/up",
+        "type": "httpupgrade"
+      },
+      "type": "vless",
+      "users": [
+        {
+          "flow": "",
+          "name": "nc-loop",
+          "uuid": "b831381d-6324-4d53-ad4f-8cda48b30811"
+        }
+      ]
+    },
+    {
+      "listen": "127.0.0.1",
+      "listen_port": 18062,
+      "tag": "vless-ws-ed-in",
+      "transport": {
+        "early_data_header_name": "Sec-WebSocket-Protocol",
+        "max_early_data": 2048,
+        "path": "/ed",
+        "type": "ws"
+      },
+      "type": "vless",
+      "users": [
+        {
+          "flow": "",
+          "name": "nc-loop",
+          "uuid": "b831381d-6324-4d53-ad4f-8cda48b30811"
+        }
+      ]
+    },
+    {
+      "listen": "127.0.0.1",
+      "listen_port": 18063,
+      "tag": "trojan-grpc-in",
+      "tls": {
+        "certificate_path": "__LOOPBACK_DIR__/cert.pem",
+        "enabled": true,
+        "key_path": "__LOOPBACK_DIR__/key.pem",
+        "server_name": "localhost"
+      },
+      "transport": {
+        "service_name": "TunSvc",
+        "type": "grpc"
+      },
+      "type": "trojan",
+      "users": [
+        {
+          "name": "nc-loop",
+          "password": "nc-loop-trojan-pw"
+        }
+      ]
     }
   ],
   "log": {
