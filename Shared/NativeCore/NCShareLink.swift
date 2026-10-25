@@ -219,8 +219,8 @@ enum NCShareLink {
             var user = ""
             let u = sStr(m, "username")
             if !u.isEmpty {
-                let pw = sStr(m, "password")
-                user = pw.isEmpty ? "\(escapePath(u))@" : "\(escapePath(u)):\(escapePath(pw))@"
+                // Go: url.UserPassword(u, pw).String() — colon even when pw == "".
+                user = userPassword(u, sStr(m, "password")) + "@"
             }
             var q = KVList()
             if scheme == "https" {
@@ -268,9 +268,8 @@ enum NCShareLink {
             return "snell://\(escapePath(sStr(m, "psk")))@\(hostPort(m))\(q.queryString)#\(frag(name))"
 
         case "mieru":
-            let u = sStr(m, "username")
-            let pw = sStr(m, "password")
-            let user = pw.isEmpty ? escapePath(u) : "\(escapePath(u)):\(escapePath(pw))"
+            // Go: url.UserPassword(username, password) unconditionally.
+            let user = userPassword(sStr(m, "username"), sStr(m, "password"))
             var q = KVList()
             q.add("profile", name)
             let pr = sStr(m, "port-range")
@@ -282,9 +281,10 @@ enum NCShareLink {
             return "mierus://\(user)@\(sStr(m, "server"))\(q.queryString)#\(frag(name))"
 
         case "ssh":
+            // Go: url.User(u) when no password (no colon), else UserPassword.
             let u = sStr(m, "username")
             let pw = sStr(m, "password")
-            let user = pw.isEmpty ? escapePath(u) : "\(escapePath(u)):\(escapePath(pw))"
+            let user = pw.isEmpty ? goEscape(u, mode: .userPassword) : userPassword(u, pw)
             var q = KVList()
             q.add("private-key", sStr(m, "private-key"))
             q.add("private-key-passphrase", sStr(m, "private-key-passphrase"))
@@ -493,7 +493,22 @@ enum NCShareLink {
         if !cfg.dns.fields.isEmpty { root["dns"] = cfg.dns.fields.mapValues { $0.rawAny } }
         let yaml = NCYAMLEmitter.emit(root)
         let formatName = hasQx ? "Quantumult X" : (isLoon ? "Loon" : "Surge")
-        let head = "# Tern: converted from a \(formatName) config (\(formatName) 配置转换)\n"
+        // bridge confsource.go confAsProfile: the import report rides as
+        // leading comments — what conversion left out is listed, never
+        // dropped silently. (Go also prints a skipped-rules count; Swift's
+        // NCImportReport has no such field, sections/warnings are carried.)
+        var head = "# Tern: converted from a \(formatName) config (\(formatName) 配置转换)\n"
+        func reportLine(_ s: String) {
+            let clean = s.replacingOccurrences(of: "\r", with: " ")
+                .replacingOccurrences(of: "\n", with: " ")
+            head += "#   \(clean)\n"
+        }
+        if !canonical.rewrites.isEmpty || !canonical.scripts.isEmpty
+            || canonical.mitm.enabled || !canonical.mitm.hostnames.isEmpty {
+            reportLine("重写 / MitM / 脚本段不随配置订阅导入；需要时请用「导入配置」导入该文件")
+        }
+        for n in canonical.report.warnings { reportLine("说明：" + n) }
+        for s in canonical.report.skippedSections { reportLine("未转换：" + s) }
         return head + yaml
     }
 
@@ -578,16 +593,24 @@ enum NCShareLink {
     }
 
     private static func sBool(_ m: [String: Any], _ k: String) -> Bool {
+        // bridge share.go sBool: bool → itself; string → only exactly "true"/"1"
+        // (case-sensitive); int → != 0. JSON/YAML floating numbers hit no case
+        // in Go (float64 is not in the switch) and are false — gate NSNumber to
+        // integer-typed values so 1.0 does not silently become true.
         guard let v = m[k] else { return false }
         switch v {
         case let b as Bool: return b
+        case let s as String:
+            return s == "true" || s == "1"
+        case let i as Int: return i != 0
+        case is Double, is Float: return false
         case let num as NSNumber:
             if CFGetTypeID(num) == CFBooleanGetTypeID() { return num.boolValue }
-            return num.intValue != 0
-        case let s as String:
-            let lower = s.lowercased()
-            return lower == "true" || lower == "1"
-        case let i as Int: return i != 0
+            switch String(cString: num.objCType) {
+            case "c", "s", "i", "l", "q", "C", "S", "I", "L", "Q":
+                return num.intValue != 0
+            default: return false
+            }
         default: return false
         }
     }
@@ -598,7 +621,8 @@ enum NCShareLink {
             return list.map { String(describing: $0) }
         }
         if let s = v as? String, !s.isEmpty {
-            return s.components(separatedBy: ",").map { $0.trimmingCharacters(in: .whitespaces) }
+            // bridge share.go sList: strings.Split(t, ",") — no trimming.
+            return s.components(separatedBy: ",")
         }
         return []
     }
@@ -623,16 +647,49 @@ enum NCShareLink {
         "#" + escapePath(name)
     }
 
-    private static func escapePath(_ s: String) -> String {
-        var allowed = CharacterSet.urlPathAllowed
-        allowed.remove(charactersIn: "/?#[]@:")
-        return s.addingPercentEncoding(withAllowedCharacters: allowed) ?? s
+    /// Go net/url shouldEscape byte table: unreserved [A-Za-z0-9-_.~] plus the
+    /// reserved set each mode leaves alone; everything else is %XX (uppercase
+    /// hex, over the UTF-8 bytes).
+    private static func goEscape(_ s: String, mode: GoEscapeMode) -> String {
+        var out = ""
+        out.reserveCapacity(s.utf8.count)
+        for b in s.utf8 {
+            let unreserved = (b >= 0x41 && b <= 0x5A) || (b >= 0x61 && b <= 0x7A)
+                || (b >= 0x30 && b <= 0x39) || b == 0x2D || b == 0x5F || b == 0x2E || b == 0x7E
+            var keep = unreserved
+            if !keep {
+                switch mode {
+                case .pathSegment: // url.PathEscape: $ & + : = @ stay; / ; , ? escape
+                    keep = b == 0x24 || b == 0x26 || b == 0x2B || b == 0x3A || b == 0x3D || b == 0x40
+                case .userPassword: // url.UserPassword: $ & + , ; = stay; @ / ? : escape
+                    keep = b == 0x24 || b == 0x26 || b == 0x2B || b == 0x2C || b == 0x3B || b == 0x3D
+                case .query: // url.QueryEscape: nothing else stays, space → +
+                    keep = false
+                }
+            }
+            if keep {
+                out.append(Character(UnicodeScalar(b)))
+            } else if mode == .query && b == 0x20 {
+                out.append("+")
+            } else {
+                out += String(format: "%%%02X", b)
+            }
+        }
+        return out
     }
 
-    private static func escapeQuery(_ s: String) -> String {
-        var allowed = CharacterSet.urlQueryAllowed
-        allowed.remove(charactersIn: "&=+?#")
-        return s.addingPercentEncoding(withAllowedCharacters: allowed) ?? s
+    private enum GoEscapeMode { case pathSegment, userPassword, query }
+
+    /// bridge share.go: url.PathEscape (fragment names, uuid, passwords, keys).
+    private static func escapePath(_ s: String) -> String { goEscape(s, mode: .pathSegment) }
+
+    /// bridge share.go: url.QueryEscape (kvList keys and values).
+    private static func escapeQuery(_ s: String) -> String { goEscape(s, mode: .query) }
+
+    /// bridge share.go: url.UserPassword(u, pw).String() — always carries the
+    /// colon, even with an empty password.
+    private static func userPassword(_ u: String, _ pw: String) -> String {
+        goEscape(u, mode: .userPassword) + ":" + goEscape(pw, mode: .userPassword)
     }
 
     private static func base64URLNoPadding(_ data: Data) -> String {
