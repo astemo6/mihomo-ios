@@ -580,7 +580,8 @@ enum NCShareLink {
                 case let num as Int:
                     return String(num)
                 case let num as Double:
-                    if num.isFinite && num == floor(num) {
+                    // Double(Int64.max) is 2^63, which Int64() traps on: keep it strictly below.
+                    if num.isFinite && num == floor(num) && num >= Double(Int64.min) && num < Double(Int64.max) {
                         return String(Int64(num))
                     }
                     return String(num)

@@ -67,7 +67,7 @@ enum NCYAMLEmitter {
     }
 
     private static func emitNumber(_ d: Double, out: inout String) {
-        if d.isFinite && d == floor(d) && d >= Double(Int64.min) && d <= Double(Int64.max) {
+        if d.isFinite && d == floor(d) && d >= Double(Int64.min) && d < Double(Int64.max) {
             out.append(String(Int64(d)))
         } else {
             out.append(String(d))
