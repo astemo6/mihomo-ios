@@ -926,14 +926,12 @@ struct ModuleDetailView: View {
         guard let m = module, let profile = AppShared.activeProfileURL?.path else { unresolved = []; groups = []; return }
         let home = AppShared.homeURL.path
         let text = store.moduleText(m)
-        let argsJSON = (try? JSONEncoder().encode(m.args ?? [:])).flatMap { String(data: $0, encoding: .utf8) } ?? "{}"
+        let args = m.args ?? [:]
         Task {
             let (u, g) = await Task.detached(priority: .userInitiated) { () -> ([String], [String]) in
-                let uj = LibmihomoModuleUnresolved(home, profile, text, argsJSON)
-                let gj = LibmihomoProfileGroups(home, profile)
-                let u = (try? JSONDecoder().decode([String].self, from: Data(uj.utf8))) ?? []
-                let g = (try? JSONDecoder().decode([String].self, from: Data(gj.utf8))) ?? []
-                return (u.sorted(), g)
+                // One runtime build for both (bridge ModuleUnresolved + ProfileGroups each built it).
+                let r = NCModulePolicies.load(home: home, profilePath: profile, moduleText: text, args: args)
+                return (r.unresolved.sorted(), r.groups)
             }.value
             unresolved = u
             groups = g
