@@ -125,35 +125,73 @@ enum NCHy2 {
         return nil
     }
 
-    /// String literal: H bit (0 = raw, Huffman never emitted) + 7-bit prefix
-    /// length + bytes.
-    static func qpackEncodeString(_ string: String) -> Data {
+    /// String literal, raw on the way out (H = 0): `prefixBits`-bit length
+    /// prefix (the H bit sits right above it) + bytes. `flags` carries the
+    /// field-line pattern bits that share the first byte.
+    static func qpackEncodeString(_ string: String, prefixBits: Int = 7, flags: UInt8 = 0) -> Data {
         let bytes = Data(string.utf8)
-        var out = qpackEncodeInteger(bytes.count, prefixBits: 7, flags: 0)
+        var out = qpackEncodeInteger(bytes.count, prefixBits: prefixBits, flags: flags)
         out.append(bytes)
         return out
     }
 
-    /// Decodes a value string literal at `offset`: H bit (bit 7, Huffman —
-    /// rejected) + 7-bit prefix length + raw bytes.
+    /// Decodes a string literal at `offset`: H bit (the bit right above the
+    /// `prefixBits`-bit length) + length + bytes. Huffman strings are decoded
+    /// with the HPACK code (RFC 9204 §4.1.2 reuses RFC 7541 Appendix B) —
+    /// quic-go's QPACK encoder (sing-box / hysteria servers) Huffman-encodes
+    /// every literal name and value, so an H=1 string is the normal case.
     static func qpackDecodeString(_ data: Data, at offset: Int, prefixBits: Int = 7) -> (value: String, length: Int)? {
-        guard offset < data.count, data[offset] & 0x80 == 0 else { return nil }
+        guard offset < data.count else { return nil }
+        let huffman = data[offset] & UInt8(1 << prefixBits) != 0
         guard let (len, intLen) = qpackDecodeInteger(data, at: offset, prefixBits: prefixBits) else { return nil }
         let start = offset + intLen
         guard data.count - start >= len else { return nil }
-        return (String(decoding: data[start..<(start + len)], as: UTF8.self), intLen + len)
+        var raw = Data(data[start..<(start + len)])
+        if huffman {
+            guard let decoded = NCHPACK.huffmanDecode(raw) else { return nil }
+            raw = decoded
+        }
+        return (String(decoding: raw, as: UTF8.self), intLen + len)
     }
 
-    // QPACK static table (RFC 9204 Appendix A) — entries the decoder is
-    // likely to meet in an auth response. Unknown indices decode as a
-    // synthetic name so a missing entry never loses the :status line (which
-    // real servers send as a literal, since 233 is not in the table).
+    /// QPACK static table, complete (RFC 9204 Appendix A, indices 0...98 —
+    /// generated from quic-go/qpack static_table.go). The table used to be a
+    /// partial list with entries 2-14 missing, so every index past 1 was off
+    /// (":method POST" was sent as 7 = "etag", ":scheme https" as 10).
     static let qpackStaticTable: [(name: String, value: String)] = [
-        (":authority", ""), (":path", "/"), (":method", "CONNECT"), (":method", "DELETE"),
-        (":method", "GET"), (":method", "HEAD"), (":method", "OPTIONS"), (":method", "POST"),
-        (":method", "PUT"), (":scheme", "http"), (":scheme", "https"), (":status", "103"),
-        (":status", "200"), (":status", "304"), (":status", "404"), (":status", "503"),
-        ("accept", "*/*"), ("accept", "application/dns-message"),
+        (":authority", ""), (":path", "/"), ("age", "0"),
+        ("content-disposition", ""), ("content-length", "0"), ("cookie", ""),
+        ("date", ""), ("etag", ""), ("if-modified-since", ""),
+        ("if-none-match", ""), ("last-modified", ""), ("link", ""),
+        ("location", ""), ("referer", ""), ("set-cookie", ""),
+        (":method", "CONNECT"), (":method", "DELETE"), (":method", "GET"),
+        (":method", "HEAD"), (":method", "OPTIONS"), (":method", "POST"),
+        (":method", "PUT"), (":scheme", "http"), (":scheme", "https"),
+        (":status", "103"), (":status", "200"), (":status", "304"),
+        (":status", "404"), (":status", "503"), ("accept", "*/*"),
+        ("accept", "application/dns-message"), ("accept-encoding", "gzip, deflate, br"), ("accept-ranges", "bytes"),
+        ("access-control-allow-headers", "cache-control"), ("access-control-allow-headers", "content-type"), ("access-control-allow-origin", "*"),
+        ("cache-control", "max-age=0"), ("cache-control", "max-age=2592000"), ("cache-control", "max-age=604800"),
+        ("cache-control", "no-cache"), ("cache-control", "no-store"), ("cache-control", "public, max-age=31536000"),
+        ("content-encoding", "br"), ("content-encoding", "gzip"), ("content-type", "application/dns-message"),
+        ("content-type", "application/javascript"), ("content-type", "application/json"), ("content-type", "application/x-www-form-urlencoded"),
+        ("content-type", "image/gif"), ("content-type", "image/jpeg"), ("content-type", "image/png"),
+        ("content-type", "text/css"), ("content-type", "text/html; charset=utf-8"), ("content-type", "text/plain"),
+        ("content-type", "text/plain;charset=utf-8"), ("range", "bytes=0-"), ("strict-transport-security", "max-age=31536000"),
+        ("strict-transport-security", "max-age=31536000; includesubdomains"), ("strict-transport-security", "max-age=31536000; includesubdomains; preload"), ("vary", "accept-encoding"),
+        ("vary", "origin"), ("x-content-type-options", "nosniff"), ("x-xss-protection", "1; mode=block"),
+        (":status", "100"), (":status", "204"), (":status", "206"),
+        (":status", "302"), (":status", "400"), (":status", "403"),
+        (":status", "421"), (":status", "425"), (":status", "500"),
+        ("accept-language", ""), ("access-control-allow-credentials", "FALSE"), ("access-control-allow-credentials", "TRUE"),
+        ("access-control-allow-headers", "*"), ("access-control-allow-methods", "get"), ("access-control-allow-methods", "get, post, options"),
+        ("access-control-allow-methods", "options"), ("access-control-expose-headers", "content-length"), ("access-control-request-headers", "content-type"),
+        ("access-control-request-method", "get"), ("access-control-request-method", "post"), ("alt-svc", "clear"),
+        ("authorization", ""), ("content-security-policy", "script-src 'none'; object-src 'none'; base-uri 'none'"), ("early-data", "1"),
+        ("expect-ct", ""), ("forwarded", ""), ("if-range", ""),
+        ("origin", ""), ("purpose", "prefetch"), ("server", ""),
+        ("timing-allow-origin", "*"), ("upgrade-insecure-requests", "1"), ("user-agent", ""),
+        ("x-forwarded-for", ""), ("x-frame-options", "deny"), ("x-frame-options", "sameorigin"),
     ]
 
     static func qpackStaticName(_ index: Int) -> String? {
@@ -161,29 +199,36 @@ enum NCHy2 {
         return qpackStaticTable[index].name
     }
 
-    /// Encode the hysteria2 auth request as a QPACK field section:
-    /// :method POST, :scheme https, :path /_hysteria/, :authority, then the
-    /// Hysteria-* headers as literal field lines. No dynamic table (the
-    /// section prefix is two zero bytes: RIC=0, base=0).
-    static func qpackEncodeAuthRequest(authority: String, password: String, padding: String) -> Data {
-        var out = Data([0x00, 0x00]) // required insert count 0, delta base 0
-        // Indexed field lines (pattern 1 + 7-bit index): :method POST = 7,
-        // :scheme https = 10.
-        out.append(qpackEncodeInteger(7, prefixBits: 7, flags: 0x80))
-        out.append(qpackEncodeInteger(10, prefixBits: 7, flags: 0x80))
-        // Literal with static name reference (pattern 01, T=1, 6-bit index):
-        // :path = 1, :authority = 0.
-        out.append(qpackEncodeInteger(1, prefixBits: 6, flags: 0x40 | 0x20))
-        out.append(qpackEncodeString("/_hysteria/"))
-        out.append(qpackEncodeInteger(0, prefixBits: 6, flags: 0x40 | 0x20))
+    /// HTTP/3 request target of the hysteria2 auth exchange (apernet/hysteria
+    /// protocol URLHost / URLPath; sing-quic hysteria2 ServeHTTP requires
+    /// `r.Method == POST && r.Host == "hysteria" && r.URL.Path == "/auth"` and
+    /// hands anything else to the masquerade handler).
+    static let authAuthority = "hysteria"
+    static let authPath = "/auth"
+
+    /// Encode the hysteria2 auth request as a QPACK field section (RFC 9204
+    /// §4.5): :method POST, :scheme https, :path /auth, :authority hysteria,
+    /// then the Hysteria-* headers as literal field lines. No dynamic table
+    /// (section prefix 0x00 0x00: required insert count 0, base 0).
+    ///  - Indexed field line, static:        1 T=1 index(6)
+    ///  - Literal with static name ref:      0 1 N=0 T=1 index(4) + value
+    ///  - Literal with literal name:         0 0 1 N=0 H=0 nameLen(3) + name + value
+    /// (The previous encoder used 7/6/5-bit prefixes with the wrong pattern
+    /// bits, so the server decoded dynamic-table references and garbage
+    /// lengths and closed the stream — "hysteria2 auth stream closed".)
+    static func qpackEncodeAuthRequest(authority: String = NCHy2.authAuthority, path: String = NCHy2.authPath,
+                                       password: String, padding: String) -> Data {
+        var out = Data([0x00, 0x00])
+        out.append(qpackEncodeInteger(20, prefixBits: 6, flags: 0xC0)) // :method POST
+        out.append(qpackEncodeInteger(23, prefixBits: 6, flags: 0xC0)) // :scheme https
+        out.append(qpackEncodeInteger(1, prefixBits: 4, flags: 0x50))  // :path
+        out.append(qpackEncodeString(path))
+        out.append(qpackEncodeInteger(0, prefixBits: 4, flags: 0x50))  // :authority
         out.append(qpackEncodeString(authority))
-        // Literal with literal name (pattern 001, H=0, 5-bit name length).
         for (name, value) in [("hysteria-auth", password),
                               ("hysteria-cc-rx", "0"),
                               ("hysteria-padding", padding)] {
-            let nameBytes = Data(name.utf8)
-            out.append(qpackEncodeInteger(nameBytes.count, prefixBits: 5, flags: 0x20))
-            out.append(nameBytes)
+            out.append(qpackEncodeString(name, prefixBits: 3, flags: 0x20))
             out.append(qpackEncodeString(value))
         }
         return out
@@ -201,33 +246,25 @@ enum NCHy2 {
         while idx < data.count {
             let byte = data[idx]
             if byte & 0x80 != 0 {
-                // Indexed field line: 1 T iiiiiii (7-bit prefix index).
+                // Indexed field line: 1 T iiiiii (6-bit prefix index).
                 guard byte & 0x40 != 0 else { return nil } // dynamic table: unsupported
-                guard let (index, len) = qpackDecodeInteger(data, at: idx, prefixBits: 7) else { return nil }
+                guard let (index, len) = qpackDecodeInteger(data, at: idx, prefixBits: 6) else { return nil }
                 idx += len
-                guard index < qpackStaticTable.count else {
-                    fields.append(("qpack-index-\(index)", ""))
-                    continue
-                }
+                guard index < qpackStaticTable.count else { return nil }
                 fields.append(qpackStaticTable[index])
             } else if byte & 0xc0 == 0x40 {
-                // Literal, name reference: 0 1 T iiiiii (6-bit prefix).
-                let isStatic = byte & 0x20 != 0
-                guard isStatic else { return nil }
-                guard let (index, len) = qpackDecodeInteger(data, at: idx, prefixBits: 6) else { return nil }
+                // Literal, name reference: 0 1 N T iiii (4-bit prefix).
+                guard byte & 0x10 != 0 else { return nil } // dynamic name ref: unsupported
+                guard let (index, len) = qpackDecodeInteger(data, at: idx, prefixBits: 4) else { return nil }
                 idx += len
                 guard let name = qpackStaticName(index),
                       let (value, vlen) = qpackDecodeString(data, at: idx, prefixBits: 7) else { return nil }
                 idx += vlen
                 fields.append((name, value))
             } else if byte & 0xe0 == 0x20 {
-                // Literal, literal name: 0 0 1 H lllll (5-bit prefix name len, H must be 0).
-                guard byte & 0x10 == 0 else { return nil }
-                guard let (nameLen, len) = qpackDecodeInteger(data, at: idx, prefixBits: 5) else { return nil }
-                idx += len
-                guard data.count - idx >= nameLen else { return nil }
-                let name = String(decoding: data[idx..<(idx + nameLen)], as: UTF8.self)
-                idx += nameLen
+                // Literal, literal name: 0 0 1 N H lll (3-bit prefix name length).
+                guard let (name, nlen) = qpackDecodeString(data, at: idx, prefixBits: 3) else { return nil }
+                idx += nlen
                 guard let (value, vlen) = qpackDecodeString(data, at: idx, prefixBits: 7) else { return nil }
                 idx += vlen
                 fields.append((name, value))
@@ -268,11 +305,18 @@ enum NCHy2 {
 
     // MARK: Hysteria TCP stream header
 
-    /// Request: varint(len) + "host:port" + varint(len) + padding bytes.
+    static let tcpRequestFrameType: UInt64 = 0x401
+
+    /// Request: varint(0x401) + varint(len) + "host:port" + varint(len) + padding bytes.
     /// Padding is a parameter (not generated inside) so tests are exact.
     static func tcpRequestHeader(target: NCTarget, padding: Data) -> Data {
         let address = "\(target.host):\(target.port)"
-        var out = varintEncode(UInt64(address.utf8.count))
+        // Every proxied TCP stream opens with the TCPRequest frame type 0x401
+        // (hysteria2 protocol; sing-quic ReadTCPRequest runs after its stream
+        // hijacker consumed it). Without it the server reads the address
+        // length as an HTTP/3 frame type.
+        var out = varintEncode(tcpRequestFrameType)
+        out.append(varintEncode(UInt64(address.utf8.count)))
         out.append(Data(address.utf8))
         out.append(varintEncode(UInt64(padding.count)))
         out.append(padding)
@@ -488,10 +532,6 @@ final class NCHysteria2Connection {
                   queue: queue)
     }
 
-    private var authority: String {
-        if let sni, !sni.isEmpty { return sni }
-        return port == 443 ? server : "\(server):\(port)"
-    }
 
     // MARK: Lifecycle
 
@@ -531,6 +571,11 @@ final class NCHysteria2Connection {
         if allowInsecure {
             sec_protocol_options_set_verify_block(tlsOptions, { _, _, complete in complete(true) }, queue)
         }
+        // RFC 9221 max_datagram_frame_size: our SETTINGS announce H3_DATAGRAM=1, and a
+        // quic-go HTTP/3 peer with datagrams enabled closes the connection
+        // (H3_SETTINGS_ERROR "missing QUIC Datagram support") when the transport did not
+        // negotiate datagrams. hysteria2 UDP rides QUIC datagrams too.
+        quicOptions.maxDatagramFrameSize = 1400
         return quicOptions
     }
 
@@ -801,7 +846,7 @@ final class NCHysteria2Connection {
         let random = NCConnector.randomData(64)
         for byte in random { padding.append(alphabet[Int(byte) % alphabet.count]) }
         let flight = NCHy2.http3HeadersFrame(fieldSection:
-            NCHy2.qpackEncodeAuthRequest(authority: authority, password: password, padding: padding))
+            NCHy2.qpackEncodeAuthRequest(password: password, padding: padding))
         auth?.send(flight)
     }
 
