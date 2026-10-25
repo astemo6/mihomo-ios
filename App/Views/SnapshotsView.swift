@@ -246,7 +246,7 @@ struct SnapshotDetailView: View {
 // MARK: - 存储空间
 
 struct StorageCategory: Identifiable {
-    enum Action { case none, clear, unusedProviders, oldSnapshots }
+    enum Action { case none, clear, unusedProviders, oldSnapshots, leftovers }
     var id: String
     var title: String
     var icon: String
@@ -262,25 +262,15 @@ final class StorageModel: ObservableObject {
     @Published var categories: [StorageCategory] = []
     @Published var total: Int64 = 0
     @Published var unusedProviders: [URL] = []
+    /// fix/nc-storage-other: the largest subpaths inside 其他 (container-relative), for the expandable row.
+    @Published var otherTop: [StorageScan.PathUsage] = []
     @Published var loading = false
 
-    nonisolated static func size(_ url: URL) -> Int64 {
-        let fm = FileManager.default
-        var isDir: ObjCBool = false
-        guard fm.fileExists(atPath: url.path, isDirectory: &isDir) else { return 0 }
-        if !isDir.boolValue { return Int64((try? fm.attributesOfItem(atPath: url.path)[.size] as? NSNumber)?.int64Value ?? 0) }
-        var total: Int64 = 0
-        if let e = fm.enumerator(at: url, includingPropertiesForKeys: [.fileSizeKey, .isRegularFileKey]) {
-            for case let f as URL in e {
-                let v = try? f.resourceValues(forKeys: [.fileSizeKey, .isRegularFileKey])
-                if v?.isRegularFile == true { total += Int64(v?.fileSize ?? 0) }
-            }
-        }
-        return total
-    }
+    /// Allocated bytes under `url` (symlinks skipped, hard links once). Kept for callers that size one path.
+    nonisolated static func size(_ url: URL) -> Int64 { StorageScan.Walker().size(url) }
 
-    nonisolated static let providerDirs = ["rules", "ruleset", "proxies", "providers", "rule-providers", "proxy-providers"]
-    nonisolated static let geoExt: Set<String> = ["metadb", "dat", "mmdb"]
+    nonisolated static var providerDirs: [String] { StorageScan.providerDirs }
+    nonisolated static var geoExt: Set<String> { StorageScan.geoExt }
     nonisolated static var logFiles: [URL] {
         let c = AppShared.containerURL
         return [c.appendingPathComponent("startup-log.txt"), c.appendingPathComponent("startup-log.prev.txt"),
@@ -297,7 +287,7 @@ final class StorageModel: ObservableObject {
         loading = true
         defer { loading = false }
         let profiles = ProfileStore.shared.profiles.map { $0.fileURL.path }
-        let r = await Task.detached(priority: .userInitiated) { () -> ([StorageCategory], Int64, [URL]) in
+        let r = await Task.detached(priority: .userInitiated) { () -> ([StorageCategory], Int64, [URL], [StorageScan.PathUsage]) in
             let fm = FileManager.default
             let c = AppShared.containerURL, home = AppShared.homeURL
             // Provider files referenced by any profile (as the core would resolve them).
@@ -308,47 +298,37 @@ final class StorageModel: ObservableObject {
                     for t in arr { if let path = t["path"] as? String { used.insert(URL(fileURLWithPath: path).standardizedFileURL.path) } }
                 }
             }
-            var provTotal: Int64 = 0
-            var unused: [URL] = []
-            for d in Self.providerDirs {
-                let dir = home.appendingPathComponent(d)
-                guard let e = fm.enumerator(at: dir, includingPropertiesForKeys: [.isRegularFileKey]) else { continue }
-                for case let f as URL in e where (try? f.resourceValues(forKeys: [.isRegularFileKey]))?.isRegularFile == true {
-                    provTotal += Self.size(f)
-                    if !used.contains(f.standardizedFileURL.path) { unused.append(f) }
-                }
-            }
+            // fix/nc-storage-other: one walk, allocated bytes, symlinks skipped, hard links once; every file lands in
+            // exactly one category, so 其他 is an exact sum (it was size(container) + size(tmp) − Σ categories of
+            // logical sizes).
+            let s = StorageScan.scan(container: c, tmp: fm.temporaryDirectory)
+            let unused = s.providerFiles.filter { !used.contains($0.standardizedFileURL.path) }
             let unusedBytes = unused.reduce(Int64(0)) { $0 + Self.size($1) }
-            var geo: Int64 = 0
-            for n in (try? fm.contentsOfDirectory(atPath: home.path)) ?? [] where Self.geoExt.contains((n as NSString).pathExtension.lowercased()) {
-                geo += Self.size(home.appendingPathComponent(n))
-            }
-            let profilesB = Self.size(AppShared.profilesURL) + Self.size(c.appendingPathComponent("nodesubs")) + Self.size(home.appendingPathComponent("nodesubs"))
-            let logs = Self.logFiles.reduce(Int64(0)) { $0 + Self.size($1) }
-            let stats = Self.statsFiles.reduce(Int64(0)) { $0 + Self.size($1) }
-            let snaps = Self.size(c.appendingPathComponent("snapshots"))
-            let icons = Self.size(c.appendingPathComponent("icon-cache"))
-            let tmp = Self.size(fm.temporaryDirectory)
-            let all = Self.size(c) + tmp
+            func b(_ k: StorageScan.Kind) -> Int64 { s.bytes[k] ?? 0 }
+            let leftover = s.leftoverBytes
             var cats: [StorageCategory] = [
-                .init(id: "profiles", title: String(localized: "配置与节点订阅"), icon: "doc.text", bytes: profilesB, note: String(localized: "你的配置文件，不能在这里清理。"), action: .none),
-                .init(id: "providers", title: String(localized: "规则集 / 节点集缓存"), icon: "shippingbox", bytes: provTotal,
+                .init(id: "profiles", title: String(localized: "配置与节点订阅"), icon: "doc.text", bytes: b(.profiles), note: String(localized: "你的配置文件，不能在这里清理。"), action: .none),
+                .init(id: "providers", title: String(localized: "规则集 / 节点集缓存"), icon: "shippingbox", bytes: b(.providers),
                       note: unused.isEmpty ? String(localized: "都被配置引用。") : String(localized: "\(unused.count) 个文件（\(Fmt.bytes(unusedBytes))）不再被任何配置引用。"),
                       action: unused.isEmpty ? .none : .unusedProviders, actionTitle: String(localized: "清除未引用的缓存")),
-                .init(id: "geo", title: String(localized: "地理数据库"), icon: "globe.asia.australia", bytes: geo, note: String(localized: "在 更多 → 高级设置 → 地理数据库 中管理。"), action: .none),
-                .init(id: "snapshots", title: String(localized: "配置快照"), icon: "clock.arrow.circlepath", bytes: snaps, note: String(localized: "保留最近 3 个和已固定的。"), action: .oldSnapshots, actionTitle: String(localized: "删除旧快照")),
-                .init(id: "logs", title: String(localized: "日志与诊断"), icon: "text.alignleft", bytes: logs, note: String(localized: "启动日志、最近错误、内核诊断文件。"), action: .clear, actionTitle: String(localized: "清除日志")),
-                .init(id: "icons", title: String(localized: "图标缓存"), icon: "photo.on.rectangle", bytes: icons, note: String(localized: "策略组图标，需要时重新下载。"), action: .clear, actionTitle: String(localized: "清除图标缓存")),
-                .init(id: "tmp", title: String(localized: "临时文件"), icon: "tray", bytes: tmp, note: String(localized: "导出的备份、诊断包、HAR 等。"), action: .clear, actionTitle: String(localized: "清除临时文件")),
-                .init(id: "stats", title: String(localized: "流量与分析记录"), icon: "chart.bar.xaxis", bytes: stats, note: String(localized: "每日流量、连接分析历史、节点探测结果。"), action: .clear, actionTitle: String(localized: "清除记录"), destructive: true),
+                .init(id: "geo", title: String(localized: "地理数据库"), icon: "globe.asia.australia", bytes: b(.geo), note: String(localized: "在 更多 → 高级设置 → 地理数据库 中管理。"), action: .none),
+                .init(id: "snapshots", title: String(localized: "配置快照"), icon: "clock.arrow.circlepath", bytes: b(.snapshots), note: String(localized: "保留最近 3 个和已固定的。"), action: .oldSnapshots, actionTitle: String(localized: "删除旧快照")),
+                .init(id: "logs", title: String(localized: "日志与诊断"), icon: "text.alignleft", bytes: b(.logs), note: String(localized: "启动日志、最近错误、内核诊断文件。"), action: .clear, actionTitle: String(localized: "清除日志")),
+                .init(id: "icons", title: String(localized: "图标缓存"), icon: "photo.on.rectangle", bytes: b(.icons), note: String(localized: "策略组图标，需要时重新下载。"), action: .clear, actionTitle: String(localized: "清除图标缓存")),
+                .init(id: "tmp", title: String(localized: "临时文件"), icon: "tray", bytes: s.tmpBytes, note: String(localized: "导出的备份、诊断包、HAR 等。"), action: .clear, actionTitle: String(localized: "清除临时文件")),
+                .init(id: "stats", title: String(localized: "流量与分析记录"), icon: "chart.bar.xaxis", bytes: b(.stats), note: String(localized: "每日流量、连接分析历史、节点探测结果。"), action: .clear, actionTitle: String(localized: "清除记录"), destructive: true),
             ]
-            let known = cats.reduce(Int64(0)) { $0 + $1.bytes }
-            cats.append(.init(id: "other", title: String(localized: "其他"), icon: "ellipsis.circle", bytes: max(all - known, 0), note: String(localized: "内核运行文件、设置、MitM 证书等。"), action: .none))
-            return (cats, all, unused)
+            let otherNote = leftover > 0
+                ? String(localized: "内核运行文件、设置、MitM 证书等。其中 \(Fmt.bytes(leftover)) 是可安全删除的残留文件。")
+                : String(localized: "内核运行文件、设置、MitM 证书等。")
+            cats.append(.init(id: "other", title: String(localized: "其他"), icon: "ellipsis.circle", bytes: b(.other), note: otherNote,
+                              action: leftover > 0 ? .leftovers : .none, actionTitle: String(localized: "清除残留文件")))
+            return (cats, s.total, unused, StorageScan.topPaths(s.other))
         }.value
         categories = r.0
         total = r.1
         unusedProviders = r.2
+        otherTop = r.3
     }
 
     /// Runs a category's cleanup; returns a message.
@@ -370,17 +350,39 @@ final class StorageModel: ObservableObject {
             }
         case "stats":
             for f in Self.statsFiles { try? fm.removeItem(at: f) }
+        case "other":
+            await Self.removeLeftovers(under: "")
         default: break
         }
         await reload()
         let after = categories.first { $0.id == c.id }?.bytes ?? 0
         return String(localized: "已释放 \(Fmt.bytes(max(before - after, 0)))")
     }
+
+    /// Clears the leftovers of one 其他 subpath (rows marked clearable); returns a message.
+    func clean(path: StorageScan.PathUsage) async -> String {
+        let before = categories.first { $0.id == "other" }?.bytes ?? 0
+        await Self.removeLeftovers(under: path.path)
+        await reload()
+        let after = categories.first { $0.id == "other" }?.bytes ?? 0
+        return String(localized: "已释放 \(Fmt.bytes(max(before - after, 0)))")
+    }
+
+    /// Off the main thread, under the runtime prep's lock (never races a prepare deleting its own staging).
+    nonisolated static func removeLeftovers(under prefix: String) async {
+        await Task.detached(priority: .userInitiated) {
+            let key = (AppShared.homeURL.path as NSString).appendingPathComponent(".nativecore-prepare.lock")
+            NCPathLock.shared.withLock(for: key) {
+                _ = StorageScan.removeLeftovers(container: AppShared.containerURL, under: prefix)
+            }
+        }.value
+    }
 }
 
 struct StorageView: View {
     @StateObject private var model = StorageModel()
     @State private var pending: StorageCategory?
+    @State private var pendingPath: StorageScan.PathUsage?
     @State private var message: String?
 
     var body: some View {
@@ -409,6 +411,27 @@ struct StorageView: View {
                             Button(role: c.destructive ? .destructive : nil) { pending = c } label: { Text(c.actionTitle).font(.caption.weight(.semibold)) }
                                 .buttonStyle(.borderless)
                         }
+                        // fix/nc-storage-other: what 其他 is made of (largest subpaths, container-relative).
+                        if c.id == "other" && !model.otherTop.isEmpty {
+                            DisclosureGroup {
+                                ForEach(model.otherTop) { p in
+                                    VStack(alignment: .leading, spacing: 2) {
+                                        HStack(alignment: .firstTextBaseline) {
+                                            Image(systemName: p.isDirectory ? "folder" : "doc").font(.caption2).foregroundStyle(.secondary)
+                                            Text(p.path).font(.caption.monospaced()).lineLimit(2).truncationMode(.middle)
+                                            Spacer(minLength: 8)
+                                            Text(Fmt.bytes(p.bytes)).font(.caption.monospacedDigit()).foregroundStyle(.secondary)
+                                        }
+                                        if p.clearable {
+                                            Button { pendingPath = p } label: { Text("清除").font(.caption2.weight(.semibold)) }
+                                                .buttonStyle(.borderless)
+                                        }
+                                    }
+                                }
+                            } label: {
+                                Text("占用最多的位置").font(.caption.weight(.semibold))
+                            }
+                        }
                     }
                     .padding(.vertical, 2)
                 }
@@ -429,6 +452,15 @@ struct StorageView: View {
         } message: {
             if pending?.id == "providers" { Text("下次连接或更新资源时会重新下载仍需要的文件。") }
             if pending?.id == "stats" { Text("每日流量和连接分析的历史会被删除，无法恢复。") }
+            if pending?.id == "other" { Text("只删除中断后留下的临时文件、旧 Go 内核的缓存和系统缓存，不影响配置与设置。") }
+        }
+        .confirmationDialog(pendingPath.map { String(localized: "清除 \($0.path)？") } ?? "", isPresented: Binding(get: { pendingPath != nil }, set: { if !$0 { pendingPath = nil } }), titleVisibility: .visible) {
+            Button("清除", role: .destructive) {
+                if let p = pendingPath { Task { message = await model.clean(path: p) } }
+                pendingPath = nil
+            }
+        } message: {
+            Text("只删除中断后留下的临时文件、旧 Go 内核的缓存和系统缓存，不影响配置与设置。")
         }
         .alert("存储空间", isPresented: Binding(get: { message != nil }, set: { if !$0 { message = nil } })) {
             Button("好") { message = nil }

@@ -10315,6 +10315,40 @@
         }
       }
     },
+    "内核运行文件、设置、MitM 证书等。其中 %@ 是可安全删除的残留文件。": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Core runtime files, settings, MitM certificate, etc. %@ of it is leftover files that are safe to delete."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "コアの実行ファイル、設定、MitM 証明書など。うち %@ は安全に削除できる残りファイルです。"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "코어 실행 파일, 설정, MitM 인증서 등. 이 중 %@는 안전하게 삭제할 수 있는 잔여 파일입니다."
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Рабочие файлы ядра, настройки, сертификат MitM и т. п. Из них %@ — остаточные файлы, которые можно безопасно удалить."
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "核心執行檔案、設定、MitM 憑證等。其中 %@ 是可安全刪除的殘留檔案。"
+          }
+        }
+      }
+    },
     "包含系统 DNS": {
       "extractionState": "manual",
       "localizations": {
@@ -10346,6 +10380,74 @@
           "stringUnit": {
             "state": "translated",
             "value": "Включить системный DNS"
+          }
+        }
+      }
+    },
+    "占用最多的位置": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Largest Items"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "容量の大きい項目"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "가장 큰 항목"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Самые крупные элементы"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "佔用最多的位置"
+          }
+        }
+      }
+    },
+    "只删除中断后留下的临时文件、旧 Go 内核的缓存和系统缓存，不影响配置与设置。": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Only removes temporary files left by interrupted operations, caches of the old Go core and system caches. Profiles and settings are not affected."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "中断で残った一時ファイル、旧 Go コアのキャッシュ、システムキャッシュだけを削除します。プロファイルと設定には影響しません。"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "중단 후 남은 임시 파일, 이전 Go 코어의 캐시와 시스템 캐시만 삭제합니다. 프로파일과 설정에는 영향이 없습니다."
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Удаляются только временные файлы прерванных операций, кэш старого ядра Go и системный кэш. Профили и настройки не затрагиваются."
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "只刪除中斷後留下的暫存檔案、舊 Go 核心的快取和系統快取，不影響配置與設定。"
           }
         }
       }
@@ -11074,6 +11176,74 @@
           "stringUnit": {
             "state": "translated",
             "value": "Не удалось очистить"
+          }
+        }
+      }
+    },
+    "清除 %@？": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Clear %@?"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%@ を消去しますか？"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%@을(를) 지울까요?"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Удалить %@?"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "清除 %@？"
+          }
+        }
+      }
+    },
+    "清除残留文件": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Clear Leftover Files"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "残りファイルを消去"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "잔여 파일 지우기"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Удалить остаточные файлы"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "清除殘留檔案"
           }
         }
       }

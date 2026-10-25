@@ -20,6 +20,8 @@ struct MihomoApp: App {
         UITestSeed.resetIfNeeded()
         // Bundled geo databases → core home, so profile validation in the app never downloads them either.
         DispatchQueue.global(qos: .utility).async { GeoBootstrap.install() }
+        // fix/nc-storage-other: crashed-prepare staging dirs and orphaned atomic-write temp files (older than 10 min).
+        DispatchQueue.global(qos: .background).async { StorageScan.sweepOnLaunch() }
         // r7 B28: scripts' $environment.language follows the UI language (read by the engine on its next load).
         DispatchQueue.global(qos: .utility).async { EngineConfig.stampLanguage() }
         // feat/jsc-engine: `-TernJSCSelfTest` runs one goja-vs-JavaScriptCore conformance case and logs it.
