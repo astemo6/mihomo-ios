@@ -83,7 +83,7 @@ Mux 连接读者全停滞 ≈ 100 × (48 + 256 + 64) KB ≈ 37 MB——上限防
 | 项 | 形态与量级 |
 |---|---|
 | 规则数组 + DOMAIN-SUFFIX trie | 引擎按 snapshot 整体替换，reload 时旧集随旧状态释放（无累积）。rule-set 索引每条约 50–180 B（精确集 ~50–90 B、trie 节点 ~100–180 B，估算）；顶层规则 NCRule 含 raw 整行重复存一份，约 150–350 B/条（估算） |
-| rule-provider / DOMAIN-SET | 载入即驻留索引，**下载字节与条数均无上限**（NCRuleProviderStore）——异常/恶意远端列表是最大的无界常驻风险，治理方案见「建议未落地」第 1 条；DOMAIN-SET 匹配为原地 trie/集合查询、不复制（已核对）。量级：5 万条 ≈ 2.5–9 MB，20 万条 ≈ 10–36 MB |
+| rule-provider / DOMAIN-SET | 载入即驻留索引；**双闸已封顶**（NCRuleProviderStore：下载 > 32 MB 或解析条数 > 300 000 视为失败保留旧表，见「已落地」第 10 条）；DOMAIN-SET 匹配为原地 trie/集合查询、不复制（已核对）。量级：5 万条 ≈ 2.5–9 MB，20 万条 ≈ 10–36 MB |
 | GeoSite.dat | 全文以 `mappedIfSafe` 打开，常驻 = 被触页；仓库内文件 4 272 778 B（实测） |
 | **GeoSite 已解析分类缓存** | **本 PR 新增字节上限：LRU 8 类 且 ≤ 8 MB（每条 ~72 B 估算）**；此前只有类数上限，8 个大分类（geosite:cn 一类约 10 万条 ≈ 5–9 MB）理论可钉住数十 MB |
 | GEOIP / ASN mmdb | mmap 零拷贝懒查（NCMMDB 映射文件、按需二分、逐 bit 走树、命中才解码），常驻仅触页；仓库内 geoip.metadb 8 423 059 B、ASN.mmdb 8 974 108 B（实测）只占虚拟地址。脚本侧另开一份 alwaysMapped 句柄，页由 OS 共享、增量很小 |
@@ -130,6 +130,11 @@ Mux 连接读者全停滞 ≈ 100 × (48 + 256 + 64) KB ≈ 37 MB——上限防
 7. DNS 协调器待启动条目上限 512。
 8. GeoSite 分类缓存增加 8 MB 估算字节上限（与 8 类 LRU 并行）。
 9. JSC 脚本上下文缓存 LRU 上限 32 + 逐出路径接回 drop 的 trash/forget 机制。
+10. rule-provider 双闸（后续 fix/nc-provider-gate 落地）：NCRuleProviderStore 的
+    `maxPayloadBytes = 32 * 1024 * 1024`、`maxEntries = 300_000`，加在 refresh 与
+    loadCached 的共同必经点 `populateIndex`（inline payload 在 loadCached 内直接
+    查条数闸）。超限抛 `NCRuleProviderGateError`、按刷新失败处理：不换内存表、
+    不覆盖磁盘缓存、不更新时间戳，日志写明是 size/count 超限（与网络失败区分）。
 
 已知残留：SSR obfs 的 held（random_head / tls1.2_ticket_auth）——codec 协议无失败
 通道、held 是 obfs 时序语义的一部分，硬改会破坏协议；其量级 = 服务器首包到达前
@@ -137,20 +142,16 @@ Mux 连接读者全停滞 ≈ 100 × (48 + 256 + 64) KB ≈ 37 MB——上限防
 
 ## 建议未落地（按收益排序）
 
-1. **rule-provider 双闸**：NCRuleProviderStore 下载与解析全无上限——给 refresh /
-   loadCached 加「下载 > 32 MB 抛错、entryCount > 300 000 视为失败保留旧表」两道闸
-   （阈值高于现网 5 万条量级列表留足余量）。这是当前最大的无界常驻风险，建议独立
-   一笔落地（涉及 provider 失败语义，超出本路「只加预算」的范围）。
-2. **规则紧凑表示**：20 万条级订阅的规则常驻（10–36 MB）可经后缀 trie 共享尾串 /
+1. **规则紧凑表示**：20 万条级订阅的规则常驻（10–36 MB）可经后缀 trie 共享尾串 /
    字符串驻留再压 30–50%（估算）；rule-set 的 others 条目不存 raw 整行也可省每条
    一行长度。属加载器结构改造，建议先做内存遥测再定。
-3. **Mux/AnyTLS 单流上限复核**：Mux 入站 256 KB、AnyTLS 入站 512 KB 为既有值；
+2. **Mux/AnyTLS 单流上限复核**：Mux 入站 256 KB、AnyTLS 入站 512 KB 为既有值；
    与 128 流表相乘的理论最坏仍高（~40 / ~72 MB）。实际占用受读者消费速度决定，
    待背压遥测（overflow 触发次数）后再议下调；AnyTLS 因无协议流控更需谨慎。
-4. **JSC 临时上下文与 run 数换新**：同脚本并发的临时 context 无计数上限（用完即弃，
+3. **JSC 临时上下文与 run 数换新**：同脚本并发的临时 context 无计数上限（用完即弃，
    风险低于常驻池）；prelude reset() 不恢复被改写的基线全局值/原型污染，可给 Ctx 加
    run 计数、满 ~200 次整 context 换新兜底。均建议随脚本路后续处理。
-5. **DNS 缓存 minTTL 钳制**：上游给极大 TTL 时条目久驻（内存影响小于其行为影响，
+4. **DNS 缓存 minTTL 钳制**：上游给极大 TTL 时条目久驻（内存影响小于其行为影响，
    属 DNS 语义，归 DNS 路）。
-6. **fake-IP maxEntries 8192 → 4096 复核**：双池满载可省约 1 MB，代价是高域名量
+5. **fake-IP maxEntries 8192 → 4096 复核**：双池满载可省约 1 MB，代价是高域名量
    场景映射回收变早（应答 TTL 仅 1 s，风险低）；与 DNS 路口径对齐后再定。
