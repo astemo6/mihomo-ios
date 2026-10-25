@@ -42,9 +42,10 @@ enum NCMux {
         guard status == 1 else { return (false, "bad stream response status \(status)", 1) }
         // Error: [1][len u16][message] (rw.ReadVString = u16 BE length).
         guard data.count >= 3 else { return nil }
-        let len = Int(data[1]) << 8 | Int(data[2])
+        let s = data.startIndex
+        let len = Int(data[s + 1]) << 8 | Int(data[s + 2])
         guard data.count >= 3 + len else { return nil }
-        let msg = String(decoding: data[3..<(3 + len)], as: UTF8.self)
+        let msg = String(decoding: data[(s + 3)..<(s + 3 + len)], as: UTF8.self)
         return (false, msg, 3 + len)
     }
 
@@ -60,9 +61,10 @@ enum NCMux {
     static func parseUDPPacketFrame(_ data: Data) -> (NCTarget, Data, Int)? {
         guard let (target, used) = NCSS2022.parseTarget(data) else { return nil }
         guard data.count >= used + 2 else { return nil }
-        let len = Int(data[used]) << 8 | Int(data[used + 1])
+        let s = data.startIndex
+        let len = Int(data[s + used]) << 8 | Int(data[s + used + 1])
         guard data.count >= used + 2 + len else { return nil }
-        return (target, Data(data[(used + 2)..<(used + 2 + len)]), used + 2 + len)
+        return (target, Data(data[(s + used + 2)..<(s + used + 2 + len)]), used + 2 + len)
     }
 }
 
@@ -128,6 +130,19 @@ final class NCH2MuxCore {
         return (out, offset)
     }
 
+    /// Stream-level WINDOW_UPDATE for bytes the stream's consumer has taken (rv2-proto: receive windows are
+    /// returned on consumption, so a slow reader caps its own buffer at the stream window instead of growing).
+    func windowUpdate(streamID: Int, _ n: Int) -> Data {
+        guard n > 0 else { return Data() }
+        return NCH2ClientCore.frame(type: 0x8, flags: 0, streamID: streamID, payload: be32(n))
+    }
+
+    /// Forget a closed stream's send window.
+    func forgetStream(_ id: Int) {
+        streamWindows[id] = nil
+        headerBlocks[id] = nil
+    }
+
     func endStream(_ id: Int) -> Data {
         NCH2ClientCore.frame(type: 0x0, flags: 0x1, streamID: id, payload: Data())
     }
@@ -140,14 +155,25 @@ final class NCH2MuxCore {
     func feed(_ data: Data) -> FeedResult {
         var result = FeedResult()
         buffer.append(data)
-        while buffer.count >= 9 {
-            let len = Int(buffer[0]) << 16 | Int(buffer[1]) << 8 | Int(buffer[2])
-            guard buffer.count >= 9 + len else { break }
-            let type = buffer[3]
-            let flags = buffer[4]
-            let streamID = Int(buffer[5] & 0x7f) << 24 | Int(buffer[6]) << 16 | Int(buffer[7]) << 8 | Int(buffer[8])
-            let payload = Data(buffer[9..<(9 + len)])
-            buffer = Data(buffer.dropFirst(9 + len))
+        var off = 0
+        defer {
+            if off >= buffer.count { buffer = Data() }
+            else if off > 0 { buffer = Data(buffer[(buffer.startIndex + off)...]) }
+        }
+        while buffer.count - off >= 9 {
+            let b = buffer.startIndex + off
+            let len = Int(buffer[b]) << 16 | Int(buffer[b + 1]) << 8 | Int(buffer[b + 2])
+            guard len <= NCH2ClientCore.maxFrameSize else { // we never raise SETTINGS_MAX_FRAME_SIZE
+                result.events.append(.goaway)
+                off = buffer.count
+                return result
+            }
+            guard buffer.count - off >= 9 + len else { break }
+            let type = buffer[b + 3]
+            let flags = buffer[b + 4]
+            let streamID = Int(buffer[b + 5] & 0x7f) << 24 | Int(buffer[b + 6]) << 16 | Int(buffer[b + 7]) << 8 | Int(buffer[b + 8])
+            let payload = Data(buffer[(b + 9)..<(b + 9 + len)])
+            off += 9 + len
             handle(type: type, flags: flags, streamID: streamID, payload: payload, into: &result)
         }
         return result
@@ -156,15 +182,21 @@ final class NCH2MuxCore {
     private func handle(type: UInt8, flags: UInt8, streamID: Int, payload: Data, into result: inout FeedResult) {
         switch type {
         case 0x0: // DATA
-            var body = payload
-            if flags & 0x8 != 0, let pad = body.first {
-                body = Data(body.dropFirst(1 + Int(pad)))
+            guard let body = NCH2ClientCore.unpad(payload, padded: flags & 0x8 != 0, priority: false) else {
+                result.outbound.append(rstStream(streamID))
+                result.events.append(.reset(streamID: streamID))
+                return
             }
             if !payload.isEmpty {
+                // Connection window: returned at once. Stream window: only the padding now; the body's share comes
+                // back through windowUpdate(streamID:) when the stream's reader consumes it.
                 result.outbound.append(NCH2ClientCore.frame(type: 0x8, flags: 0, streamID: 0,
                                                             payload: be32(payload.count)))
-                result.outbound.append(NCH2ClientCore.frame(type: 0x8, flags: 0, streamID: streamID,
-                                                            payload: be32(payload.count)))
+                let padding = payload.count - body.count
+                if padding > 0 {
+                    result.outbound.append(NCH2ClientCore.frame(type: 0x8, flags: 0, streamID: streamID,
+                                                                payload: be32(padding)))
+                }
             }
             if !body.isEmpty { result.events.append(.payload(streamID: streamID, body)) }
             if flags & 0x1 != 0 { result.events.append(.ended(streamID: streamID)) }
@@ -172,8 +204,19 @@ final class NCH2MuxCore {
             var block = headerBlocks[streamID] ?? Data()
             var frag = payload
             if type == 0x1 {
-                if flags & 0x8 != 0, let pad = frag.first { frag = Data(frag.dropFirst(1 + Int(pad))) }
-                if flags & 0x20 != 0 { frag = Data(frag.dropFirst(5)) }
+                guard let f = NCH2ClientCore.unpad(payload, padded: flags & 0x8 != 0, priority: flags & 0x20 != 0) else {
+                    headerBlocks[streamID] = nil
+                    result.outbound.append(rstStream(streamID))
+                    result.events.append(.reset(streamID: streamID))
+                    return
+                }
+                frag = f
+            }
+            guard block.count + frag.count <= NCH2ClientCore.maxHeaderBlock else {
+                headerBlocks[streamID] = nil
+                result.outbound.append(rstStream(streamID))
+                result.events.append(.reset(streamID: streamID))
+                return
             }
             block.append(frag)
             if flags & 0x4 != 0 {

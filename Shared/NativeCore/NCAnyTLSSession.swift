@@ -39,9 +39,13 @@ final class NCAnyTLSSession {
         return stream
     }
 
-    func sendFrame(_ frame: Data) { tls?.send(frame) }
+    func sendFrame(_ frame: Data) {
+        guard !tornDown else { return }
+        tls?.send(frame)
+    }
 
     func streamClosed(_ stream: NCAnyTLSStream) {
+        guard streams[stream.streamID] === stream else { return } // already closed / failed
         streams[stream.streamID] = nil
         if !tornDown {
             tls?.send(NCAnyTLS.frame(cmd: NCAnyTLS.cmdFIN, streamID: stream.streamID))
@@ -99,9 +103,15 @@ final class NCAnyTLSStream: NCRelayStream {
     private let target: NCTarget?
     private var targetWritten = false
     private var payloadQueue: [Data] = []
+    private var queuedBytes = 0
     private var pendingHandler: ((Data?, Error?) -> Void)?
     private var failure: Error?
     private var ended = false
+    private var cancelled = false
+
+    /// AnyTLS has no per-stream flow control: inbound bytes the reader has not taken yet are capped and the stream
+    /// is closed past it, so one stalled flow cannot grow the shared session's memory without bound (rv2-proto).
+    static let maxQueuedInbound = 512 * 1024
 
     init(session: NCAnyTLSSession, streamID: UInt32, target: NCTarget? = nil) {
         self.session = session
@@ -110,6 +120,7 @@ final class NCAnyTLSStream: NCRelayStream {
     }
 
     func send(_ data: Data) {
+        if failure != nil || cancelled { return } // dead stream: drop instead of writing into a torn-down session
         var payload = data
         if let target, !targetWritten {
             targetWritten = true
@@ -118,17 +129,17 @@ final class NCAnyTLSStream: NCRelayStream {
             payload = first
         }
         let chunkSize = 0xffff
-        var rest = payload
+        var rest = payload[...]
         while !rest.isEmpty {
             let chunk = Data(rest.prefix(chunkSize))
-            rest = Data(rest.dropFirst(chunk.count))
+            rest = rest.dropFirst(chunk.count)
             session.sendFrame(NCAnyTLS.frame(cmd: NCAnyTLS.cmdPSH, streamID: streamID, data: chunk))
         }
     }
 
     func receive(_ handler: @escaping (Data?, Error?) -> Void) {
         if !payloadQueue.isEmpty {
-            handler(payloadQueue.removeFirst(), nil)
+            handler(dequeue(), nil)
             return
         }
         if let failure {
@@ -143,16 +154,34 @@ final class NCAnyTLSStream: NCRelayStream {
     }
 
     func cancel() {
+        cancelled = true
         session.streamClosed(self)
+    }
+
+    private func dequeue() -> Data {
+        let d = payloadQueue.removeFirst()
+        queuedBytes -= d.count
+        return d
     }
 
     // MARK: session-facing
 
     func deliverFromSession(_ data: Data) {
+        if failure != nil || cancelled { return }
         if let handler = pendingHandler {
             pendingHandler = nil
             handler(data, nil)
         } else {
+            guard queuedBytes + data.count <= Self.maxQueuedInbound else {
+                failure = NSError(domain: "NativeCore", code: 7,
+                                  userInfo: [NSLocalizedDescriptionKey: "anytls stream receive buffer overflow"])
+                payloadQueue.removeAll()
+                queuedBytes = 0
+                session.streamClosed(self)
+                settle()
+                return
+            }
+            queuedBytes += data.count
             payloadQueue.append(data)
         }
     }
@@ -174,7 +203,7 @@ final class NCAnyTLSStream: NCRelayStream {
         guard let handler = pendingHandler else { return }
         pendingHandler = nil
         if !payloadQueue.isEmpty {
-            handler(payloadQueue.removeFirst(), nil)
+            handler(dequeue(), nil)
         } else {
             handler(nil, failure)
         }

@@ -7,6 +7,8 @@ import Foundation
 enum NCVLESS {
     static func requestHead(uuid: String, target: NCTarget, flow: String = "", command: UInt8 = 0x01) -> Data? {
         guard let id = uuidBytes(uuid) else { return nil }
+        // rv2-proto: domain length is a u8 on the wire (UInt8(count) trapped past 255), port a u16.
+        guard target.isWireEncodable else { return nil }
         var out = Data()
         out.append(0x00) // version
         out.append(contentsOf: id)
@@ -15,13 +17,14 @@ enum NCVLESS {
         } else {
             var addons = Data()
             addons.append(0x0a) // protobuf field 1, length-delimited
-            addons.append(UInt8(flow.utf8.count))
-            addons.append(contentsOf: flow.utf8)
+            let flowBytes = Array(flow.utf8.prefix(127)) // single-byte varint length
+            addons.append(UInt8(flowBytes.count))
+            addons.append(contentsOf: flowBytes)
             out.append(UInt8(addons.count))
             out.append(addons)
         }
         out.append(command) // 0x01 TCP, 0x02 UDP
-        out.append(UInt8(target.port >> 8))
+        out.append(UInt8((target.port >> 8) & 0xff))
         out.append(UInt8(target.port & 0xff))
         out.append(addressEncoded(target)) // VLESS address types differ from SOCKS
         return out
@@ -41,9 +44,11 @@ enum NCVLESS {
                 out.append(contentsOf: ip.bytes)
             }
         } else {
+            // Never traps: callers validate `isWireEncodable` first (connectViaProxy / requestHead); clamp anyway.
+            let host = Array(target.host.utf8.prefix(255))
             out.append(0x02)
-            out.append(UInt8(target.host.utf8.count))
-            out.append(contentsOf: target.host.utf8)
+            out.append(UInt8(host.count))
+            out.append(contentsOf: host)
         }
         return out
     }
