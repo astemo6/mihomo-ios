@@ -117,12 +117,12 @@ do_start() {
     # (hysteria2 / tuic / wireguard) cannot; sing-box is a single process, so
     # TCP readiness + process liveness covers them.
     local p
-    for p in 18001 18002 18003 18004 18005 18080 18082; do
+    for p in 18001 18002 18003 18004 18005 18040 18080 18082; do
         wait_tcp "$p"
     done
     kill -0 "$(cat "$RUN/sing-box.pid")"
     kill -0 "$(cat "$RUN/echo.pid")"
-    log "ready: ss :18001 ss2022 :18002 vmess :18003 vless :18004 trojan :18005 hy2 :18006 tuic :18007 wg :18008 echo :18080/:18081 blackhole :18082"
+    log "ready: ss :18001 ss2022 :18002 vmess :18003 vless :18004 trojan :18005 hy2 :18006 tuic :18007 wg :18008 naive-h2 :18040 naive-h3 :18041 echo :18080/:18081 blackhole :18082"
 }
 
 do_stop() {

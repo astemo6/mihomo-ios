@@ -14,7 +14,7 @@ final class NativeCoreLifecycleTests: XCTestCase {
     func testCloseAllSharedSessionsLeavesEveryRegistryEmpty() {
         NCConnector.closeAllSharedSessions()
         let counts = NCConnector.sharedSessionCounts()
-        XCTAssertEqual(Set(counts.keys), ["mux", "anytls", "hy2", "hy1", "tuic", "ssh"])
+        XCTAssertEqual(Set(counts.keys), ["mux", "anytls", "hy2", "hy1", "tuic", "ssh", "naive"])
         for (kind, n) in counts {
             XCTAssertEqual(n, 0, "registry \(kind) not empty after closeAllSharedSessions")
         }
