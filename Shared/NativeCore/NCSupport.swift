@@ -105,13 +105,12 @@ enum NCSupport {
         return nil
     }
 
-    /// SSH (NCSSH, feat/nc-proto A3): private keys must be inline PEM (a file path cannot be read in the tunnel)
-    /// and unencrypted.
+    /// SSH (NCSSH, feat/nc-proto A3): private keys must be inline PEM (a file path cannot be read in the tunnel);
+    /// passphrase-protected OpenSSH keys (bcrypt + aes256-ctr/cbc) are decrypted natively (feat/nc-proto3).
     static func sshUnsupported(_ p: NCProxy) -> String? {
         if let pk = p.fields["private-key"]?.string, !pk.isEmpty, !pk.contains("PRIVATE KEY") {
             return "SSH 私钥文件路径尚未接入（请内联 PEM）"
         }
-        if let pp = p.fields["private-key-passphrase"]?.string, !pp.isEmpty { return "SSH 加密私钥尚未接入" }
         return nil
     }
 
