@@ -229,7 +229,7 @@ final class NCLocalProxy {
             switch atyp {
             case 0x01:
                 guard b.count >= off + 4 + 2 else { return readHead(c) }
-                host = b[off..<(off + 4)].map(String.init).joined(separator: ".")
+                host = b[off..<(off + 4)].map { String($0) }.joined(separator: ".")
                 off += 4
             case 0x03:
                 let len = Int(b[4])
