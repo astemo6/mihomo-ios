@@ -2,12 +2,14 @@ import Foundation
 
 /// Tern complete backup (.conf QuanX-style sectioned format) engine.
 ///
-/// Format v1:
+/// Format v3-final:
 /// - Comment header
 /// - [general] metadata
-/// - [profile] current profile YAML verbatim
-/// - [file <relPath>] repeating file sections with sha256, size, folded base64
-/// - [prefs] optional group/standard user defaults base64 plists
+/// - [profile] active profile YAML verbatim
+/// - [profile <fileName>] remaining profiles YAML verbatim
+/// - [json <relPath>] JSON files verbatim
+/// - [text <relPath>] text / script / PEM files verbatim
+/// - [prefs] optional group/standard user defaults JSON object
 /// - [defaults] optional activeProfileID etc.
 /// - [end] mandatory terminating marker
 public enum Mode: String, CaseIterable, Codable {
@@ -88,7 +90,7 @@ public enum TernBackup {
             name: String(localized: "App 设置"),
             detail: String(localized: "偏好设置与当前选中配置 ID"),
             isVirtual: true
-        ),
+        )
     ]
 
     // MARK: - Paths constants
@@ -151,10 +153,11 @@ public enum TernBackup {
         public let created: String
         public let appVersion: String
         public let profileName: String?
+        public let profileText: String?
+        public let otherProfiles: [(fileName: String, text: String)]
         public let files: [String: Data]
-        public let prefs: [String: String]
+        public let prefs: [String: Any]?
         public let defaults: [String: String]
-        public let profileText: String
         public let categoryFiles: [String: [String]]
 
         public init(
@@ -162,21 +165,53 @@ public enum TernBackup {
             created: String,
             appVersion: String,
             profileName: String?,
+            profileText: String?,
+            otherProfiles: [(fileName: String, text: String)],
             files: [String: Data],
-            prefs: [String: String],
+            prefs: [String: Any]?,
             defaults: [String: String],
-            profileText: String,
             categoryFiles: [String: [String]]
         ) {
             self.format = format
             self.created = created
             self.appVersion = appVersion
             self.profileName = profileName
+            self.profileText = profileText
+            self.otherProfiles = otherProfiles
             self.files = files
             self.prefs = prefs
             self.defaults = defaults
-            self.profileText = profileText
             self.categoryFiles = categoryFiles
+        }
+
+        public static func == (lhs: Parsed, rhs: Parsed) -> Bool {
+            if lhs.format != rhs.format ||
+                lhs.created != rhs.created ||
+                lhs.appVersion != rhs.appVersion ||
+                lhs.profileName != rhs.profileName ||
+                lhs.profileText != rhs.profileText ||
+                lhs.files != rhs.files ||
+                lhs.defaults != rhs.defaults ||
+                lhs.categoryFiles != rhs.categoryFiles {
+                return false
+            }
+            if lhs.otherProfiles.count != rhs.otherProfiles.count {
+                return false
+            }
+            for i in 0..<lhs.otherProfiles.count {
+                if lhs.otherProfiles[i].fileName != rhs.otherProfiles[i].fileName ||
+                    lhs.otherProfiles[i].text != rhs.otherProfiles[i].text {
+                    return false
+                }
+            }
+            switch (lhs.prefs, rhs.prefs) {
+            case (nil, nil):
+                return true
+            case (let p1?, let p2?):
+                return NSDictionary(dictionary: p1).isEqual(to: p2)
+            default:
+                return false
+            }
         }
     }
 
@@ -188,24 +223,50 @@ public enum TernBackup {
         return f
     }()
 
-    // MARK: - Helpers
+    // MARK: - Prefs Value Wrapping / Unwrapping
 
-    public static func hexSHA256(_ data: Data) -> String {
-        NCSHA256.hash(data).map { String(format: "%02x", $0) }.joined()
+    /// Wraps plist property values into JSON-compatible values ($data and $date wrappers).
+    public static func wrapToJSONValue(_ val: Any) -> Any? {
+        if let str = val as? String {
+            return str
+        } else if let num = val as? NSNumber {
+            return num
+        } else if let data = val as? Data {
+            return ["$data": data.base64EncodedString()]
+        } else if let date = val as? Date {
+            return ["$date": isoFormatter.string(from: date)]
+        } else if let arr = val as? [Any] {
+            return arr.compactMap { wrapToJSONValue($0) }
+        } else if let dict = val as? [String: Any] {
+            var out: [String: Any] = [:]
+            for (k, v) in dict {
+                if let wv = wrapToJSONValue(v) {
+                    out[k] = wv
+                }
+            }
+            return out
+        }
+        return nil
     }
 
-    private static func foldBase64(_ b64: String, length: Int = 76) -> String {
-        guard !b64.isEmpty else { return "" }
-        var result = ""
-        result.reserveCapacity(b64.count + (b64.count / length) + 2)
-        var index = b64.startIndex
-        while index < b64.endIndex {
-            let nextIndex = b64.index(index, offsetBy: length, limitedBy: b64.endIndex) ?? b64.endIndex
-            result.append(contentsOf: b64[index..<nextIndex])
-            result.append("\n")
-            index = nextIndex
+    /// Unwraps JSON values back into plist property values ($data and $date unwrapping).
+    public static func unwrapJSONValue(_ val: Any) -> Any {
+        if let dict = val as? [String: Any] {
+            if dict.count == 1, let b64 = dict["$data"] as? String, let d = Data(base64Encoded: b64) {
+                return d
+            }
+            if dict.count == 1, let dateStr = dict["$date"] as? String, let d = isoFormatter.date(from: dateStr) {
+                return d
+            }
+            var unwrappedDict: [String: Any] = [:]
+            for (k, v) in dict {
+                unwrappedDict[k] = unwrapJSONValue(v)
+            }
+            return unwrappedDict
+        } else if let arr = val as? [Any] {
+            return arr.map { unwrapJSONValue($0) }
         }
-        return result
+        return val
     }
 
     // MARK: - containsBackup
@@ -237,23 +298,29 @@ public enum TernBackup {
     public static func build(
         profileText: String?,
         profileName: String?,
+        otherProfiles: [(fileName: String, text: String)] = [],
         includeResourceCache: Bool = true,
         root: URL,
-        prefs: [String: String],
-        defaults: [String: String]
+        defaults: UserDefaults,
+        prefs: [String: Any]? = nil
     ) throws -> String {
         let fm = FileManager.default
-        var collectedFiles: [String: Data] = [:]
+        var collectedFiles: [String: String] = [:]
 
-        func addFileIfPresent(_ rel: String) {
+        func readFileAsUTF8(_ rel: String) throws {
             let u = root.appendingPathComponent(rel)
             var isDir: ObjCBool = false
-            if fm.fileExists(atPath: u.path, isDirectory: &isDir), !isDir.boolValue, let d = try? Data(contentsOf: u) {
-                collectedFiles[rel] = d
+            guard fm.fileExists(atPath: u.path, isDirectory: &isDir), !isDir.boolValue else { return }
+            guard let data = try? Data(contentsOf: u) else {
+                throw TernBackupError.readFailed(String(localized: "无法读取文件：\(rel)"))
             }
+            guard let str = String(data: data, encoding: .utf8) else {
+                throw TernBackupError.readFailed(String(localized: "文件不是有效 UTF-8 文本：\(rel)"))
+            }
+            collectedFiles[rel] = str
         }
 
-        func addDirContentsIfPresent(_ rel: String) {
+        func readDirContentsAsUTF8(_ rel: String) throws {
             let u = root.appendingPathComponent(rel)
             var isDir: ObjCBool = false
             guard fm.fileExists(atPath: u.path, isDirectory: &isDir), isDir.boolValue else { return }
@@ -261,40 +328,78 @@ public enum TernBackup {
             for n in names where !n.hasPrefix(".") {
                 let f = u.appendingPathComponent(n)
                 var sub: ObjCBool = false
-                if fm.fileExists(atPath: f.path, isDirectory: &sub), !sub.boolValue, let d = try? Data(contentsOf: f) {
-                    collectedFiles[rel + "/" + n] = d
+                if fm.fileExists(atPath: f.path, isDirectory: &sub), !sub.boolValue {
+                    let childRel = rel + "/" + n
+                    guard let data = try? Data(contentsOf: f) else {
+                        throw TernBackupError.readFailed(String(localized: "无法读取文件：\(childRel)"))
+                    }
+                    guard let str = String(data: data, encoding: .utf8) else {
+                        throw TernBackupError.readFailed(String(localized: "文件不是有效 UTF-8 文本：\(childRel)"))
+                    }
+                    collectedFiles[childRel] = str
                 }
             }
         }
 
-        // 1. Profiles
-        addFileIfPresent("profiles.json")
-        addDirContentsIfPresent("profiles")
+        // 1. Profiles json
+        try readFileAsUTF8("profiles.json")
 
         // 2. Subscriptions
         for path in subscriptionsPaths {
-            addFileIfPresent(path)
+            try readFileAsUTF8(path)
         }
 
         // 3. Overrides
         for path in overridesPaths {
-            addFileIfPresent(path)
+            try readFileAsUTF8(path)
         }
 
-        // 4. Engine
-        addFileIfPresent(engineConfigPath)
+        // 4. Engine config
+        try readFileAsUTF8(engineConfigPath)
 
         // 5. Resources (conditional)
         if includeResourceCache {
-            addDirContentsIfPresent("mihomo/engine/modules")
-            addDirContentsIfPresent("mihomo/engine/scripts")
-            addDirContentsIfPresent("mihomo/override-scripts")
+            for dirPrefix in ["mihomo/engine/modules", "mihomo/engine/scripts", "mihomo/override-scripts"] {
+                try readDirContentsAsUTF8(dirPrefix)
+            }
         }
 
-        // 6. CA
-        addDirContentsIfPresent("mihomo/engine/ca")
+        // 6. CA (ca.pem, ca.key)
+        try readDirContentsAsUTF8("mihomo/engine/ca")
 
-        let sortedFiles = collectedFiles.sorted { $0.key < $1.key }
+        // Defaults
+        var collectedDefaults: [String: String] = [:]
+        for k in BackupManager.defaultsKeys {
+            if let v = defaults.string(forKey: k) {
+                collectedDefaults[k] = v
+            }
+        }
+
+        // Prefs
+        var effectivePrefs: [String: Any]? = prefs
+        if effectivePrefs == nil {
+            var extracted: [String: Any] = [:]
+            if defaults == AppShared.defaults {
+                let rawPrefs = BackupManager.collectPrefs(group: AppShared.defaults)
+                for (tagKey, b64) in rawPrefs {
+                    if let d = Data(base64Encoded: b64),
+                       let arr = try? PropertyListSerialization.propertyList(from: d, format: nil) as? [Any],
+                       let first = arr.first,
+                       let wrapped = wrapToJSONValue(first) {
+                        extracted[tagKey] = wrapped
+                    }
+                }
+            } else {
+                for (k, v) in defaults.dictionaryRepresentation() where BackupManager.isBackedUpPref(k) {
+                    if let wrapped = wrapToJSONValue(v) {
+                        extracted["g:" + k] = wrapped
+                    }
+                }
+            }
+            if !extracted.isEmpty {
+                effectivePrefs = extracted
+            }
+        }
 
         let appVersion = Bundle.main.object(forInfoDictionaryKey: "CFBundleShortVersionString") as? String ?? "1.0.0"
         let createdStr = isoFormatter.string(from: Date())
@@ -302,6 +407,7 @@ public enum TernBackup {
         var out = ""
         // Header
         out.append("; Tern 完整备份\n")
+        out.append("; 格式版本：v3-final。已知约束：节体中若有独占一行形如 [section]，会被误判为节头。\n")
         out.append("#!name = Tern 完整备份\n")
         out.append("#!created = \(createdStr)\n\n")
 
@@ -314,40 +420,59 @@ public enum TernBackup {
         if let name = profileName?.trimmingCharacters(in: .whitespacesAndNewlines), !name.isEmpty {
             out.append("profile = \(name)\n")
         }
-        out.append("files = \(sortedFiles.count)\n\n")
+        out.append("\n")
 
         // [profile]
-        out.append("[profile]\n")
         if let text = profileText, !text.isEmpty {
+            out.append("[profile]\n")
             out.append(text)
             if !text.hasSuffix("\n") {
                 out.append("\n")
             }
-        }
-
-        // [file <relPath>]
-        for (rel, data) in sortedFiles {
-            out.append("[file \(rel)]\n")
-            out.append("sha256 = \(hexSHA256(data))\n")
-            out.append("size = \(data.count)\n")
-            let b64 = data.base64EncodedString()
-            out.append(foldBase64(b64))
             out.append("\n")
         }
 
-        // [prefs]
-        if !prefs.isEmpty {
-            out.append("[prefs]\n")
-            for (k, v) in prefs.sorted(by: { $0.key < $1.key }) {
-                out.append("\(k) = \(v)\n")
+        // [profile <fileName>]
+        for item in otherProfiles {
+            let fileName = item.fileName.trimmingCharacters(in: .whitespacesAndNewlines)
+            guard !fileName.isEmpty else { continue }
+            out.append("[profile \(fileName)]\n")
+            out.append(item.text)
+            if !item.text.hasSuffix("\n") {
+                out.append("\n")
             }
             out.append("\n")
         }
 
+        // [json <relPath>] and [text <relPath>] sorted
+        for (relPath, content) in collectedFiles.sorted(by: { $0.key < $1.key }) {
+            let isJSON = relPath.hasSuffix(".json")
+            let header = isJSON ? "[json \(relPath)]" : "[text \(relPath)]"
+            out.append("\(header)\n")
+            out.append(content)
+            if !content.hasSuffix("\n") {
+                out.append("\n")
+            }
+            out.append("\n")
+        }
+
+        // [prefs]
+        if let prefs = effectivePrefs, !prefs.isEmpty {
+            let jsonData = try JSONSerialization.data(withJSONObject: prefs, options: [.prettyPrinted, .sortedKeys])
+            if let jsonStr = String(data: jsonData, encoding: .utf8) {
+                out.append("[prefs]\n")
+                out.append(jsonStr)
+                if !jsonStr.hasSuffix("\n") {
+                    out.append("\n")
+                }
+                out.append("\n")
+            }
+        }
+
         // [defaults]
-        if !defaults.isEmpty {
+        if !collectedDefaults.isEmpty {
             out.append("[defaults]\n")
-            for (k, v) in defaults.sorted(by: { $0.key < $1.key }) {
+            for (k, v) in collectedDefaults.sorted(by: { $0.key < $1.key }) {
                 out.append("\(k) = \(v)\n")
             }
             out.append("\n")
@@ -363,23 +488,38 @@ public enum TernBackup {
     @MainActor
     public static func makeText(includeResourceCache: Bool = true) throws -> String {
         let root = AppShared.containerURL
-        let prefs = BackupManager.collectPrefs()
-        var defaults: [String: String] = [:]
-        for k in BackupManager.defaultsKeys {
-            if let v = AppShared.defaults.string(forKey: k) {
-                defaults[k] = v
-            }
-        }
         let activeProfile = ProfileStore.shared.active
         let profileText = activeProfile.map { ProfileStore.shared.content(of: $0) }
         let profileName = activeProfile?.name
+
+        var otherProfiles: [(fileName: String, text: String)] = []
+        for p in ProfileStore.shared.profiles where p.id != activeProfile?.id {
+            let fileName = p.fileURL.lastPathComponent
+            let text = ProfileStore.shared.content(of: p)
+            if !text.isEmpty {
+                otherProfiles.append((fileName: fileName, text: text))
+            }
+        }
+
+        let rawPrefs = BackupManager.collectPrefs(group: AppShared.defaults)
+        var jsonPrefs: [String: Any] = [:]
+        for (tagKey, b64) in rawPrefs {
+            if let d = Data(base64Encoded: b64),
+               let arr = try? PropertyListSerialization.propertyList(from: d, format: nil) as? [Any],
+               let first = arr.first,
+               let wrapped = wrapToJSONValue(first) {
+                jsonPrefs[tagKey] = wrapped
+            }
+        }
+
         return try build(
             profileText: profileText,
             profileName: profileName,
+            otherProfiles: otherProfiles,
             includeResourceCache: includeResourceCache,
             root: root,
-            prefs: prefs,
-            defaults: defaults
+            defaults: AppShared.defaults,
+            prefs: jsonPrefs.isEmpty ? nil : jsonPrefs
         )
     }
 
@@ -390,112 +530,78 @@ public enum TernBackup {
             throw TernBackupError.notABackup
         }
 
-        enum SectionState {
-            case none
-            case general
-            case profile
-            case file(String)
-            case prefs
-            case defaults
-            case end
+        struct SectionRecord {
+            let header: String
+            var lines: [String]
         }
 
-        var state: SectionState = .none
+        var sections: [SectionRecord] = []
+        var currentSection: SectionRecord?
         var hasSeenEnd = false
 
-        var generalKV: [String: String] = [:]
-        var profileLines: [String] = []
-        var fileSections: [(path: String, lines: [String])] = []
-        var prefsKV: [String: String] = [:]
-        var defaultsKV: [String: String] = [:]
-
-        let lines = text.components(separatedBy: .newlines)
-        var i = 0
-
-        while i < lines.count {
-            let line = lines[i]
-            let trimmed = line.trimmingCharacters(in: .whitespaces)
-
-            // Section header check
+        for rawLine in text.components(separatedBy: .newlines) {
+            let trimmed = rawLine.trimmingCharacters(in: .whitespaces)
             if trimmed.hasPrefix("[") && trimmed.hasSuffix("]") {
-                if trimmed == "[general]" {
-                    state = .general
-                    i += 1
-                    continue
-                } else if trimmed == "[profile]" {
-                    state = .profile
-                    i += 1
-                    continue
-                } else if trimmed.hasPrefix("[file ") {
-                    let rel = String(trimmed.dropFirst(6).dropLast(1)).trimmingCharacters(in: .whitespaces)
-                    guard !rel.isEmpty, !rel.contains(".."), !rel.hasPrefix("/") else {
-                        throw TernBackupError.corrupt("非法文件路径：\(rel)")
+                let isKnownHeader = trimmed == "[general]" ||
+                    trimmed == "[profile]" ||
+                    trimmed.hasPrefix("[profile ") ||
+                    trimmed.hasPrefix("[json ") ||
+                    trimmed.hasPrefix("[text ") ||
+                    trimmed == "[prefs]" ||
+                    trimmed == "[defaults]" ||
+                    trimmed == "[end]"
+
+                if isKnownHeader {
+                    if let cur = currentSection {
+                        sections.append(cur)
                     }
-                    state = .file(rel)
-                    fileSections.append((path: rel, lines: []))
-                    i += 1
-                    continue
-                } else if trimmed == "[prefs]" {
-                    state = .prefs
-                    i += 1
-                    continue
-                } else if trimmed == "[defaults]" {
-                    state = .defaults
-                    i += 1
-                    continue
-                } else if trimmed == "[end]" {
-                    state = .end
-                    hasSeenEnd = true
-                    i += 1
+                    if trimmed == "[end]" {
+                        hasSeenEnd = true
+                        currentSection = SectionRecord(header: trimmed, lines: [])
+                    } else {
+                        currentSection = SectionRecord(header: trimmed, lines: [])
+                    }
                     continue
                 }
             }
 
-            switch state {
-            case .none:
-                break
-            case .general:
-                if !trimmed.isEmpty && !trimmed.hasPrefix(";") && !trimmed.hasPrefix("#") {
-                    let parts = trimmed.split(separator: "=", maxSplits: 1).map { $0.trimmingCharacters(in: .whitespaces) }
-                    if parts.count == 2 {
-                        generalKV[parts[0]] = parts[1]
-                    }
-                }
-            case .profile:
-                profileLines.append(line)
-            case .file:
-                if let lastIdx = fileSections.indices.last {
-                    fileSections[lastIdx].lines.append(trimmed)
-                }
-            case .prefs:
-                if !trimmed.isEmpty && !trimmed.hasPrefix(";") && !trimmed.hasPrefix("#") {
-                    let parts = trimmed.split(separator: "=", maxSplits: 1).map { $0.trimmingCharacters(in: .whitespaces) }
-                    if parts.count == 2 {
-                        prefsKV[parts[0]] = parts[1]
-                    }
-                }
-            case .defaults:
-                if !trimmed.isEmpty && !trimmed.hasPrefix(";") && !trimmed.hasPrefix("#") {
-                    let parts = trimmed.split(separator: "=", maxSplits: 1).map { $0.trimmingCharacters(in: .whitespaces) }
-                    if parts.count == 2 {
-                        defaultsKV[parts[0]] = parts[1]
-                    }
-                }
-            case .end:
-                break
+            if currentSection != nil {
+                currentSection?.lines.append(rawLine)
             }
-            i += 1
+        }
+
+        if let cur = currentSection {
+            sections.append(cur)
         }
 
         // 1. Mandatory [end] marker
         guard hasSeenEnd else {
-            throw TernBackupError.corrupt("缺少 [end] 结束标记")
+            throw TernBackupError.corrupt(String(localized: "缺少 [end] 结束标记"))
         }
 
-        // 2. Format version check
+        // 2. [general] section
+        guard let generalSec = sections.first(where: { $0.header == "[general]" }) else {
+            throw TernBackupError.notABackup
+        }
+
+        var generalKV: [String: String] = [:]
+        for line in generalSec.lines {
+            let trimmed = line.trimmingCharacters(in: .whitespaces)
+            if trimmed.isEmpty || trimmed.hasPrefix(";") || trimmed.hasPrefix("#") { continue }
+            let parts = trimmed.split(separator: "=", maxSplits: 1).map { $0.trimmingCharacters(in: .whitespaces) }
+            if parts.count == 2 {
+                generalKV[parts[0]] = parts[1]
+            }
+        }
+
+        guard generalKV["tern_backup"] == "1" else {
+            throw TernBackupError.notABackup
+        }
+
         guard let formatStr = generalKV["format"], let format = Int(formatStr) else {
             throw TernBackupError.notABackup
         }
+
         guard format == currentFormat else {
             throw TernBackupError.unsupportedVersion(format)
         }
@@ -504,74 +610,75 @@ public enum TernBackup {
         let appVersion = generalKV["app_version"] ?? "?"
         let profileName = generalKV["profile"]
 
-        guard let filesCountStr = generalKV["files"], let expectedFilesCount = Int(filesCountStr) else {
-            throw TernBackupError.corrupt("缺少 files 计数")
-        }
+        var profileText: String?
+        var otherProfiles: [(fileName: String, text: String)] = []
+        var files: [String: Data] = [:]
+        var parsedPrefs: [String: Any]?
+        var defaultsKV: [String: String] = [:]
 
-        guard fileSections.count == expectedFilesCount else {
-            throw TernBackupError.corrupt("文件数量不匹配：声明 \(expectedFilesCount) 节，实际 \(fileSections.count) 节")
-        }
+        // Check if [general] declared profile name, then [profile] must exist
+        let hasDeclaredProfile = profileName != nil && !profileName!.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
+        var foundProfileSection = false
 
-        // 3. Decode each file section and verify size and sha256
-        var parsedFiles: [String: Data] = [:]
-        for section in fileSections {
-            let path = section.path
-            var declaredSHA256: String?
-            var declaredSize: Int?
-            var b64Parts: [String] = []
+        for sec in sections {
+            let header = sec.header
+            // Strip at most one trailing blank line separating sections
+            var bodyLines = sec.lines
+            if bodyLines.last?.isEmpty == true {
+                bodyLines.removeLast()
+            }
+            let body = bodyLines.joined(separator: "\n")
 
-            for line in section.lines where !line.isEmpty {
-                if declaredSHA256 == nil && line.hasPrefix("sha256") {
-                    let parts = line.split(separator: "=", maxSplits: 1).map { $0.trimmingCharacters(in: .whitespaces) }
-                    if parts.count == 2 && parts[0] == "sha256" {
-                        declaredSHA256 = parts[1]
-                        continue
+            if header == "[profile]" {
+                foundProfileSection = true
+                profileText = body
+            } else if header.hasPrefix("[profile ") {
+                let fileName = String(header.dropFirst(9).dropLast(1)).trimmingCharacters(in: .whitespaces)
+                guard !fileName.isEmpty, !fileName.contains(".."), !fileName.hasPrefix("/") else {
+                    throw TernBackupError.corrupt(String(localized: "非法配置路径：\(fileName)"))
+                }
+                otherProfiles.append((fileName: fileName, text: body))
+            } else if header.hasPrefix("[json ") {
+                let rel = String(header.dropFirst(6).dropLast(1)).trimmingCharacters(in: .whitespaces)
+                guard !rel.isEmpty, !rel.contains(".."), !rel.hasPrefix("/") else {
+                    throw TernBackupError.corrupt(String(localized: "非法文件路径：\(rel)"))
+                }
+                guard let data = body.data(using: .utf8), (try? JSONSerialization.jsonObject(with: data)) != nil else {
+                    throw TernBackupError.corrupt(String(localized: "JSON 解析失败：\(rel)"))
+                }
+                files[rel] = data
+            } else if header.hasPrefix("[text ") {
+                let rel = String(header.dropFirst(6).dropLast(1)).trimmingCharacters(in: .whitespaces)
+                guard !rel.isEmpty, !rel.contains(".."), !rel.hasPrefix("/") else {
+                    throw TernBackupError.corrupt(String(localized: "非法文件路径：\(rel)"))
+                }
+                guard let data = body.data(using: .utf8) else {
+                    throw TernBackupError.corrupt(String(localized: "文本编码失败：\(rel)"))
+                }
+                files[rel] = data
+            } else if header == "[prefs]" {
+                guard let data = body.data(using: .utf8),
+                      let json = try? JSONSerialization.jsonObject(with: data) as? [String: Any] else {
+                    throw TernBackupError.corrupt(String(localized: "prefs 节不是有效的 JSON 对象"))
+                }
+                parsedPrefs = json
+            } else if header == "[defaults]" {
+                for line in bodyLines {
+                    let trimmed = line.trimmingCharacters(in: .whitespaces)
+                    if trimmed.isEmpty || trimmed.hasPrefix(";") || trimmed.hasPrefix("#") { continue }
+                    let parts = trimmed.split(separator: "=", maxSplits: 1).map { $0.trimmingCharacters(in: .whitespaces) }
+                    if parts.count == 2 {
+                        defaultsKV[parts[0]] = parts[1]
                     }
                 }
-                if declaredSize == nil && line.hasPrefix("size") {
-                    let parts = line.split(separator: "=", maxSplits: 1).map { $0.trimmingCharacters(in: .whitespaces) }
-                    if parts.count == 2 && parts[0] == "size", let sz = Int(parts[1]) {
-                        declaredSize = sz
-                        continue
-                    }
-                }
-                b64Parts.append(line)
             }
-
-            guard let expectedHash = declaredSHA256, let expectedSize = declaredSize else {
-                throw TernBackupError.corrupt("缺少文件元数据：\(path)")
-            }
-
-            let fullB64 = b64Parts.joined()
-            guard let data = Data(base64Encoded: fullB64) else {
-                throw TernBackupError.corrupt("Base64 解码失败：\(path)")
-            }
-
-            guard data.count == expectedSize else {
-                throw TernBackupError.corrupt("文件大小不匹配：\(path)，预期 \(expectedSize)，实际 \(data.count)")
-            }
-
-            let actualHash = hexSHA256(data)
-            guard actualHash.lowercased() == expectedHash.lowercased() else {
-                throw TernBackupError.corrupt("文件哈希不匹配：\(path)，预期 \(expectedHash)，实际 \(actualHash)")
-            }
-
-            parsedFiles[path] = data
         }
 
-        // 4. Compute profileText
-        let profileText: String
-        if profileLines.isEmpty {
-            profileText = ""
-        } else {
-            var joined = profileLines.joined(separator: "\n")
-            if !joined.hasSuffix("\n") {
-                joined.append("\n")
-            }
-            profileText = joined
+        if hasDeclaredProfile && !foundProfileSection {
+            throw TernBackupError.corrupt(String(localized: "声明了活动配置但缺少 [profile] 节"))
         }
 
-        // 5. Category classification
+        // Category classification
         var categoryFiles: [String: [String]] = [
             "profiles": [],
             "subscriptions": [],
@@ -582,11 +689,38 @@ public enum TernBackup {
             "settings": []
         ]
 
-        for path in parsedFiles.keys.sorted() {
-            guard let cat = category(forPath: path) else {
-                throw TernBackupError.corrupt("未知文件分类：\(path)")
+        if files["profiles.json"] != nil {
+            categoryFiles["profiles"]?.append("profiles.json")
+        }
+
+        if profileText != nil {
+            var activeFileName: String?
+            if let pData = files["profiles.json"],
+               let pList = try? JSONDecoder().decode([Profile].self, from: pData) {
+                let targetID = defaultsKV["activeProfileID"] ?? pList.first?.id
+                if let found = pList.first(where: { $0.id == targetID }) {
+                    activeFileName = found.fileURL.lastPathComponent
+                }
             }
-            categoryFiles[cat, default: []].append(path)
+            if activeFileName == nil, let aid = defaultsKV["activeProfileID"] {
+                activeFileName = "\(aid).yaml"
+            }
+            if let afn = activeFileName {
+                categoryFiles["profiles"]?.append("profiles/\(afn)")
+            }
+        }
+
+        for (fn, _) in otherProfiles {
+            categoryFiles["profiles"]?.append("profiles/\(fn)")
+        }
+
+        for path in files.keys.sorted() {
+            guard let cat = category(forPath: path) else {
+                throw TernBackupError.corrupt(String(localized: "未知文件分类：\(path)"))
+            }
+            if cat != "profiles" {
+                categoryFiles[cat, default: []].append(path)
+            }
         }
 
         return Parsed(
@@ -594,11 +728,25 @@ public enum TernBackup {
             created: created,
             appVersion: appVersion,
             profileName: profileName,
-            files: parsedFiles,
-            prefs: prefsKV,
-            defaults: defaultsKV,
             profileText: profileText,
+            otherProfiles: otherProfiles,
+            files: files,
+            prefs: parsedPrefs,
+            defaults: defaultsKV,
             categoryFiles: categoryFiles
         )
+    }
+
+    // MARK: - apply (stub for build/parse commit)
+
+    @discardableResult
+    public static func apply(
+        _ parsed: Parsed,
+        selection: [String: Mode],
+        root: URL,
+        defaults: UserDefaults
+    ) throws -> Int {
+        // Will be implemented in the next commit
+        return 0
     }
 }
