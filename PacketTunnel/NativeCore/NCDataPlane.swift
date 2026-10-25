@@ -201,6 +201,7 @@ final class NCDataPlane {
     }
 
     private var tickCount = 0
+    private var memSampleTick = 0
     private static let isoFormatter = ISO8601DateFormatter()
 
     private func tick() {
@@ -211,6 +212,11 @@ final class NCDataPlane {
         if tickCount % 4 == 0 {
             refreshStats()
             budget = NCBufferBudget.current()
+            // nc-lifecycle: footprint on the stats cadence, thinned to every
+            // 60th refresh (~60 s on the fast tick, ~20 min idle) — a trend
+            // line for jetsam headroom, never per packet.
+            memSampleTick &+= 1
+            if memSampleTick % 60 == 0 { NCMemorySampler.sample("tick") }
         }
         let now = Date()
         for s in sessions.values {

@@ -117,6 +117,7 @@ final class NativeTunnelCore {
         NativeCoreEngine.active = engine
         loadRewriteSnapshot(home: home, engine: engine)
         StartupLog.write("native core up (gen \(gen)): \(engine.statsLine)")
+        NCMemorySampler.sample("start")
         logSupport(engine)
     }
 
@@ -158,6 +159,7 @@ final class NativeTunnelCore {
         reloadStarted = Date()
         let (engine, plane, home) = (_engine, _plane, self.home)
         lock.unlock()
+        if engine != nil { NCMemorySampler.sample("reload-pre") }
         var err: String?
         if let engine, plane != nil {
             err = engine.load(home: home, isCurrent: { [weak self] in self?.isCurrent(gen) ?? false })
@@ -170,6 +172,7 @@ final class NativeTunnelCore {
                     loadRewriteSnapshot(home: home, engine: engine)
                     StartupLog.write("native core reloaded (\(hot ? "hot" : "full")): \(engine.statsLine)")
                     logSupport(engine)
+                    NCMemorySampler.sample("reload-post")
                 } else {
                     err = "内核已停止或已重启，本次重载已取消"
                 }
