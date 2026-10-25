@@ -1663,18 +1663,86 @@ private func countSubexp(_ pattern: String) -> Int {
     (try? NSRegularExpression(pattern: pattern, options: []))?.numberOfCaptureGroups ?? 0
 }
 
+/// Absolute capture-group number of the named group `name` (review H1):
+/// groups are numbered by the position of their opening '(' among ALL
+/// capturing groups, named or not, exactly as Go regexp / ICU number them
+/// (so `(a)(?P<x>b)` gives x == 2, not 1). Skipped while scanning: escaped
+/// characters (`\(`), `\Q...\E` quoted runs, anything inside a character
+/// class (nesting-aware, leading `]` literal), and every `(?` construct
+/// that does not capture: `(?:`, flag groups `(?i)` / `(?i:`, lookarounds
+/// `(?=` `(?!` `(?<=` `(?<!`, atomic `(?>`, comments `(?#...)`.
+/// Named groups `(?<n>...)` and `(?P<n>...)` count as capturing.
 private func namedGroupIndex(pattern: String, name: String) -> Int? {
-    let re = try? NSRegularExpression(pattern: "\\((?:\\?P<([^>]+)>|\\?<([^>]+)>)", options: [])
-    guard let matches = re?.matches(in: pattern, options: [], range: NSRange(location: 0, length: pattern.utf16.count)) else {
-        return nil
-    }
-    for (idx, m) in matches.enumerated() {
-        let ns = pattern as NSString
-        let n1 = m.range(at: 1).location != NSNotFound ? ns.substring(with: m.range(at: 1)) : ""
-        let n2 = m.range(at: 2).location != NSNotFound ? ns.substring(with: m.range(at: 2)) : ""
-        if n1 == name || n2 == name {
-            return idx + 1
+    let c = Array(pattern.unicodeScalars)
+    let n = c.count
+    var i = 0
+    var group = 0
+    var classDepth = 0
+    while i < n {
+        let ch = c[i]
+        if ch == "\\" {
+            if i + 1 < n && c[i + 1] == "Q" {
+                // \Q ... \E: literal run.
+                var j = i + 2
+                while j < n && !(c[j] == "\\" && j + 1 < n && c[j + 1] == "E") { j += 1 }
+                i = j + 2
+            } else {
+                i += 2
+            }
+            continue
         }
+        if classDepth > 0 {
+            if ch == "[" {
+                classDepth += 1
+                i += 1
+                if i < n && c[i] == "^" { i += 1 }
+                if i < n && c[i] == "]" { i += 1 }
+                continue
+            }
+            if ch == "]" { classDepth -= 1 }
+            i += 1
+            continue
+        }
+        if ch == "[" {
+            classDepth = 1
+            i += 1
+            if i < n && c[i] == "^" { i += 1 }
+            if i < n && c[i] == "]" { i += 1 } // leading ']' is a literal
+            continue
+        }
+        if ch == "(" {
+            if i + 1 < n && c[i + 1] == "?" {
+                // (?P<name>  or  (?<name>  (but not the lookbehinds (?<= / (?<!)
+                var nameStart = -1
+                if i + 3 < n && c[i + 2] == "P" && c[i + 3] == "<" {
+                    nameStart = i + 4
+                } else if i + 3 < n && c[i + 2] == "<" && c[i + 3] != "=" && c[i + 3] != "!" {
+                    nameStart = i + 3
+                }
+                if nameStart >= 0 {
+                    group += 1
+                    var j = nameStart
+                    var gname = ""
+                    while j < n && c[j] != ">" { gname.unicodeScalars.append(c[j]); j += 1 }
+                    if gname == name { return group }
+                    i = j + 1
+                    continue
+                }
+                if i + 2 < n && c[i + 2] == "#" {
+                    // (?# comment ) — no nesting, ends at the first ')'.
+                    var j = i + 3
+                    while j < n && c[j] != ")" { j += 1 }
+                    i = j + 1
+                    continue
+                }
+                i += 2 // non-capturing / flags / lookaround / atomic
+                continue
+            }
+            group += 1
+            i += 1
+            continue
+        }
+        i += 1
     }
     return nil
 }

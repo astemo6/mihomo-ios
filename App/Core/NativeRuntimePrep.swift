@@ -38,7 +38,20 @@ enum NativeRuntimePrep {
         init(rep: NCRuntimeBuilder.PrepReport) { self.rep = rep }
     }
 
+    /// Review R-3: prepares are serialized. Two concurrent prepare() calls (a
+    /// start racing a reload, two quick toggles) used to interleave their writes
+    /// of runtime.yaml / nativecore-runtime.json / nativecore-rewrite.json, so the
+    /// tunnel could load one prepare's runtime with the other's rewrite snapshot.
+    /// The whole build+write runs under one per-home NCPathLock key (a sync
+    /// context: the lock is never held across a suspension point).
     private static func prepareSync(home: String, profile: URL) -> String? {
+        let key = (home as NSString).appendingPathComponent(".nativecore-prepare.lock")
+        return NCPathLock.shared.withLock(for: key) { () -> String? in
+            prepareSyncLocked(home: home, profile: profile)
+        }
+    }
+
+    private static func prepareSyncLocked(home: String, profile: URL) -> String? {
         let req = NCRuntimeBuilder.Request.load(home: home, profilePath: profile.path)
         let safeMode = req.settings.core.safeMode
 

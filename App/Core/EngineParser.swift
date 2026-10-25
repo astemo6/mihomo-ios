@@ -1425,6 +1425,16 @@ extension NCEngineRuleset {
                              action: Self.normURLAction(toks[1])), nil)
             return
         }
+        // Surge [URL Rewrite] with the type omitted: <regex> <replacement>. Surge uses
+        // `header` then — a transparent rewrite of the upstream request, not a redirect
+        // (manual.nssurge.com/http/url-rewrite.html). Review M1: the tunnel's .conf path
+        // (NCConfImport.applyURLRewrite) reads the same line the same way. Other
+        // sections (Loon [Rewrite], QX, Egern) keep the generic behaviour above.
+        if toks.count == 2 && section == "url rewrite" {
+            add(NCEngineRule(kind: "url", phase: "request", pattern: pattern,
+                             action: "header", target: toks[1]), nil)
+            return
+        }
         unsupported.append(line)
     }
 }
