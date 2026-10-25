@@ -109,7 +109,7 @@ final class NativeCoreLoonPluginTests: XCTestCase {
     /// so the line is retained verbatim upstream instead of half-imported.
     func testOrConditionIsUnparseable() {
         let rs = NCEngineRuleset()
-        rs.loonArgContext = ["flag": (value: "true", valueType: "boolean")]
+        rs.loonArgContext = ["flag": (value: "true", valueType: "boolean", type: nil)]
         switch rs.evalLoonIfExpression("${url} ~= /x/ || ${flag}") {
         case .unparseable: break
         default: XCTFail("expected .unparseable")

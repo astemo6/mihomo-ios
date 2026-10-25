@@ -67,14 +67,14 @@ final class NativeCoreCaseIndexAuditTests: XCTestCase {
         XCTAssertEqual(SettingsSearchIndex.textRange(of: "🎉", in: "ab🎉cd"), 2..<3)
     }
 
-    // IPInfo.splitASOrg: the AS number is uppercased as a copy and cut by
+    // IPInfoFetcher.splitASOrg: the AS number is uppercased as a copy and cut by
     // constant count within itself; the org part is cut from the original
     // by the original's own space index.
     func testSplitASOrgMixedCaseAndNonASCII() {
-        let (asn, org) = IPInfo.splitASOrg("as13335 例子🎉, Inc.")
+        let (asn, org) = IPInfoFetcher.splitASOrg("as13335 例子🎉, Inc.")
         XCTAssertEqual(asn, "AS13335")
         XCTAssertEqual(org, "例子🎉, Inc.")
-        let (asn2, org2) = IPInfo.splitASOrg("AS64500 İstanbul Telekom")
+        let (asn2, org2) = IPInfoFetcher.splitASOrg("AS64500 İstanbul Telekom")
         XCTAssertEqual(asn2, "AS64500")
         XCTAssertEqual(org2, "İstanbul Telekom")
     }
