@@ -174,12 +174,10 @@ enum GroupOrder {
     /// saved order. force: also when the user edited the copy.
     @discardableResult
     nonisolated static func regenerate(_ c: Profile, from src: Profile, force: Bool = false) async -> RegenerateResult {
-        let home = AppShared.homeURL.path, s = src.fileURL.path, d = c.fileURL.path
-        let out = await Task.detached(priority: .utility) {
-            force ? LibmihomoGroupOrderRegenerateForced(home, s, d) : LibmihomoGroupOrderRegenerate(home, s, d)
+        let home = AppShared.homeURL, s = src.fileURL.path, d = c.fileURL.path
+        let r = await Task.detached(priority: .utility) {
+            NCGroupOrder.regenerate(home: home, sourcePath: s, copyPath: d, force: force)
         }.value
-        struct R: Decodable { var changed: Bool?; var modified: Bool?; var error: String? }
-        let r = (try? JSONDecoder().decode(R.self, from: Data(out.utf8))) ?? R(error: out)
         if r.modified == true { return RegenerateResult(changed: false, modified: true) }
         if let e = r.error, !e.isEmpty { StartupLog.write("group order regenerate: \(e)", tag: "app") }
         return RegenerateResult(changed: r.changed == true, modified: false,
