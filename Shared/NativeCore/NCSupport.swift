@@ -21,7 +21,20 @@ enum NCSupport {
         if t != "wireguard", let n = p.fields["network"]?.string?.lowercased(), !n.isEmpty, !transports.contains(n) {
             return "传输 \(n) 尚未接入"
         }
+        // fix/nc-silent-fail: ECH is not implemented on any path yet; dialing without it would send the real SNI
+        // in the clear (or fail against an ECH-only front), so the node is marked instead of silently degraded.
+        if p.fields["ech-opts"]?.object?["enable"]?.bool == true {
+            return "ECH（ech-opts）尚未接入"
+        }
         switch t {
+        case "snell":
+            if let why = snellUnsupported(p) { return why }
+        case "vmess":
+            // fix/nc-silent-fail: alterId > 0 is the legacy MD5 header auth (mihomo IsAead = alterId == 0); only
+            // AEAD is implemented, so these nodes are marked here rather than failing every dial.
+            if let aid = p.fields["alterId"]?.int, aid > 0 {
+                return "VMess alterId \(aid)（旧版 MD5 认证）尚未接入，请改为 alterId: 0"
+            }
         case "ss":
             // One gate for every SS plugin (ssPluginUnsupported): simple-obfs / v2ray-plugin use #101's
             // NCSSPluginOptions parse (same as the connector), gost-plugin / shadow-tls / restls the nc-proto rules.
@@ -87,6 +100,14 @@ enum NCSupport {
         default:
             return plugin
         }
+    }
+
+    /// Snell obfs-opts (fix/nc-silent-fail): simple-obfs http / tls are implemented (NCConnector.snellObfsOptions →
+    /// NCSSPluginStream, TCP and UDP); mihomo's other modes (shadow-tls / restls / jls) are not yet.
+    static func snellUnsupported(_ p: NCProxy) -> String? {
+        let mode = p.fields["obfs-opts"]?.object?["mode"]?.string ?? ""
+        if mode.isEmpty || mode == "http" || mode == "tls" { return nil }
+        return "Snell obfs-opts mode \(mode) 尚未接入（支持 http / tls）"
     }
 
     /// SSR: stream ciphers + none/dummy; every protocol and obfs mihomo v1.19.33 registers (feat/nc-proto A5).

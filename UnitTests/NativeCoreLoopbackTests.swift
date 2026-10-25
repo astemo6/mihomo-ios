@@ -539,3 +539,80 @@ private final class CompletionTracker {
         return self.indices
     }
 }
+
+// MARK: - fix/nc-silent-fail: stream transports (tools/loopback/sing-box-config.json 18060–18063)
+
+extension NativeCoreLoopbackTests {
+    private static func silentFailProxy(_ name: String, _ type: String, _ port: Int,
+                                        _ extra: [String: NCJSONValue]) -> NCProxy {
+        var fields: [String: NCJSONValue] = ["server": .string("127.0.0.1"), "port": .number(Double(port))]
+        for (k, v) in extra { fields[k] = v }
+        return NCProxy(name: name, type: type, fields: fields)
+    }
+
+    private static let sfUUID = "b831381d-6324-4d53-ad4f-8cda48b30811"
+    private static var sfEcho: NCTarget { NCTarget(host: "127.0.0.1", port: 18080) }
+    private static let sfPayload = Data((0..<8192).map { UInt8(($0 * 7 + 3) & 0xff) })
+
+    func testTrojanWebSocketEcho() throws {
+        let p = Self.silentFailProxy("loop-trojan-ws", "trojan", 18060, [
+            "password": .string("nc-loop-trojan-pw"), "sni": .string("localhost"), "skip-cert-verify": .bool(true),
+            "network": .string("ws"), "ws-opts": .object(["path": .string("/tj")]),
+        ])
+        let stream = try self.connect(proxy: p, target: Self.sfEcho)
+        defer { stream.cancel() }
+        try self.assertEcho(stream, payload: Self.sfPayload)
+    }
+
+    func testTrojanGRPCEcho() throws {
+        let p = Self.silentFailProxy("loop-trojan-grpc", "trojan", 18063, [
+            "password": .string("nc-loop-trojan-pw"), "sni": .string("localhost"), "skip-cert-verify": .bool(true),
+            "network": .string("grpc"), "grpc-opts": .object(["grpc-service-name": .string("TunSvc")]),
+        ])
+        let stream = try self.connect(proxy: p, target: Self.sfEcho)
+        defer { stream.cancel() }
+        try self.assertEcho(stream, payload: Self.sfPayload)
+    }
+
+    func testVLESSHTTPUpgradeEcho() throws {
+        let p = Self.silentFailProxy("loop-vless-hu", "vless", 18061, [
+            "uuid": .string(Self.sfUUID), "network": .string("ws"),
+            "ws-opts": .object(["path": .string("/up"), "v2ray-http-upgrade": .bool(true)]),
+        ])
+        let stream = try self.connect(proxy: p, target: Self.sfEcho)
+        defer { stream.cancel() }
+        try self.assertEcho(stream, payload: Self.sfPayload)
+    }
+
+    func testVLESSHTTPUpgradeFastOpenEcho() throws {
+        let p = Self.silentFailProxy("loop-vless-hu-fo", "vless", 18061, [
+            "uuid": .string(Self.sfUUID), "network": .string("ws"),
+            "ws-opts": .object(["path": .string("/up"), "v2ray-http-upgrade": .bool(true),
+                                "v2ray-http-upgrade-fast-open": .bool(true)]),
+        ])
+        let stream = try self.connect(proxy: p, target: Self.sfEcho)
+        defer { stream.cancel() }
+        try self.assertEcho(stream, payload: Self.sfPayload)
+    }
+
+    func testVLESSWebSocketEarlyDataEcho() throws {
+        let p = Self.silentFailProxy("loop-vless-ws-ed", "vless", 18062, [
+            "uuid": .string(Self.sfUUID), "network": .string("ws"),
+            "ws-opts": .object(["path": .string("/ed"), "max-early-data": .number(2048),
+                                "early-data-header-name": .string("Sec-WebSocket-Protocol")]),
+        ])
+        let stream = try self.connect(proxy: p, target: Self.sfEcho)
+        defer { stream.cancel() }
+        try self.assertEcho(stream, payload: Self.sfPayload)
+    }
+
+    func testVLESSWebSocketEDQueryEcho() throws {
+        let p = Self.silentFailProxy("loop-vless-ws-edq", "vless", 18062, [
+            "uuid": .string(Self.sfUUID), "network": .string("ws"),
+            "ws-opts": .object(["path": .string("/ed?ed=2048")]),
+        ])
+        let stream = try self.connect(proxy: p, target: Self.sfEcho)
+        defer { stream.cancel() }
+        try self.assertEcho(stream, payload: Self.sfPayload)
+    }
+}

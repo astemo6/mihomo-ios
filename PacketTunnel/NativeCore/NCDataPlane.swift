@@ -768,7 +768,7 @@ final class NCDataPlane {
             }
             session = hy2
         case .proxy(let proxy) where (proxy.type == "vmess" || proxy.type == "vless")
-            && NCConnector.smuxEnabled(proxy)
+            && NCConnector.smuxUsable(proxy) // fix/nc-silent-fail: smux / yamux run unmultiplexed
             && !(proxy.fields["smux"]?.object?["only-tcp"]?.bool ?? false):
             session = NCUDPMuxSession(proxy: proxy, queue: queue)
         case .proxy(let proxy) where proxy.type == "vmess":
