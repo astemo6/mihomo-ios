@@ -123,8 +123,9 @@ final class CustomRulesStore: ObservableObject {
     nonisolated static func check(line: String) async -> RuleCheck? {
         guard let path = AppShared.activeProfileURL?.path else { return nil }
         let home = AppShared.homeURL.path
-        let json = await Task.detached(priority: .userInitiated) { LibmihomoCheckRuleLine(home, path, line) }.value
-        return try? JSONDecoder().decode(RuleCheck.self, from: Data(json.utf8))
+        return await Task.detached(priority: .userInitiated) {
+            NCRuleValidator.checkRuleLine(homeDir: home, profilePath: path, line: line)
+        }.value
     }
 }
 
