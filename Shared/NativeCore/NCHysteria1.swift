@@ -276,6 +276,8 @@ final class NCHysteria1TCPStream: NCRelayStream {
     private var inbox: [Data] = []
     private var pending: ((Data?, Error?) -> Void)?
     private var failure: Error?
+    /// Completions of sends buffered in `outbox` until the server accepts; fired on flush/fail/cancel.
+    private var outboxWaiters: [NCCallOnce] = []
 
     init(channel: NCHy2StreamChannel, target: NCTarget, queue: DispatchQueue) {
         self.channel = channel
@@ -292,12 +294,20 @@ final class NCHysteria1TCPStream: NCRelayStream {
         }
     }
 
-    func send(_ data: Data) {
+    func send(_ data: Data) { send(data, completion: {}) }
+
+    func send(_ data: Data, completion: @escaping () -> Void) {
+        let once = NCCallOnce(completion)
         switch phase {
-        case .handshaking: outbox.append(data)
-        case .open: channel.send(data)
-        default: break
+        case .handshaking: outbox.append(data); outboxWaiters.append(once)
+        case .open: channel.send(data, completion: once.call)
+        default: once.call()
         }
+    }
+
+    private func drainOutboxWaiters() {
+        let w = outboxWaiters; outboxWaiters = []
+        w.forEach { $0.call() }
     }
 
     func receive(_ handler: @escaping (Data?, Error?) -> Void) {
@@ -309,6 +319,7 @@ final class NCHysteria1TCPStream: NCRelayStream {
 
     func cancel() {
         phase = .closed
+        drainOutboxWaiters()
         channel.cancel()
     }
 
@@ -333,7 +344,11 @@ final class NCHysteria1TCPStream: NCRelayStream {
                 let rest = Data(self.head.dropFirst(used))
                 self.head = Data()
                 self.phase = .open
-                if !self.outbox.isEmpty { self.channel.send(self.outbox); self.outbox = Data() }
+                if !self.outbox.isEmpty {
+                    let waiters = self.outboxWaiters; self.outboxWaiters = []
+                    self.channel.send(self.outbox) { waiters.forEach { $0.call() } }
+                    self.outbox = Data()
+                }
                 if !rest.isEmpty { self.deliver(rest) }
             } else if self.phase == .open {
                 self.deliver(data)
@@ -351,6 +366,7 @@ final class NCHysteria1TCPStream: NCRelayStream {
     private func fail(_ e: Error) {
         phase = .failed
         failure = e
+        drainOutboxWaiters()
         channel.cancel()
         if let h = pending { pending = nil; h(nil, e) }
     }

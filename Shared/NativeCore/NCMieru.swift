@@ -198,27 +198,42 @@ final class NCMieruStream: NCRelayStream {
         sendData(data)
     }
 
+    func send(_ data: Data, completion: @escaping () -> Void) {
+        let once = NCCallOnce(completion)
+        guard !closed else { once.call(); return }
+        if !openSent { flushOpen(with: data, completion: once.call); return }
+        sendData(data, completion: once.call)
+    }
+
     /// The first write: openSessionRequest carrying (request ‖ data) when it fits 1024 bytes, else the request
     /// alone (or nothing) and the rest as data segments — Session.Write's rule.
-    private func flushOpen(with data: Data) {
+    private func flushOpen(with data: Data, completion: @escaping () -> Void = {}) {
         openSent = true
         var first = request ?? Data()
         request = nil
         first.append(data)
         if first.count <= Self.maxSessionOpenPayload {
-            writeSession(Self.openSessionRequest, payload: first)
+            writeSession(Self.openSessionRequest, payload: first, completion: completion)
         } else {
             writeSession(Self.openSessionRequest, payload: Data())
-            sendData(first)
+            sendData(first, completion: completion)
         }
     }
 
-    private func sendData(_ data: Data) {
+    private func sendData(_ data: Data) { sendData(data, completion: {}) }
+
+    private func sendData(_ data: Data, completion: @escaping () -> Void) {
+        let once = NCCallOnce(completion)
+        guard !data.isEmpty else { once.call(); return }
         var rest = data[...]
         while !rest.isEmpty {
             let chunk = Data(rest.prefix(Self.maxPDU))
             rest = rest.dropFirst(chunk.count)
-            writeData(chunk)
+            if rest.isEmpty {
+                writeData(chunk, completion: once.call)
+            } else {
+                writeData(chunk)
+            }
         }
     }
 
@@ -250,7 +265,7 @@ final class NCMieruStream: NCRelayStream {
         return Data(p)
     }
 
-    private func writeSession(_ proto: UInt8, payload: Data, status: UInt8 = 0) {
+    private func writeSession(_ proto: UInt8, payload: Data, status: UInt8 = 0, completion: @escaping () -> Void = {}) {
         // Recommended padding (session segments): 24–40 printable bytes within ≤ 255.
         let pad = Self.padding(max: 255, minASCII: 24 + Int.random(in: 0..<17))
         var m = [UInt8](repeating: 0, count: Self.metadataLength)
@@ -265,10 +280,10 @@ final class NCMieruStream: NCRelayStream {
         var wire = sendCipher.seal(Data(m))
         if !payload.isEmpty { wire.append(sendCipher.seal(payload)) }
         wire.append(pad)
-        raw.send(wire)
+        raw.send(wire, completion: completion)
     }
 
-    private func writeData(_ payload: Data) {
+    private func writeData(_ payload: Data, completion: @escaping () -> Void = {}) {
         let pad1 = Self.padding(max: 255, minASCII: 0)
         let pad2 = Self.padding(max: 255, minASCII: 0) // stream: maxPaddingSize is 255 for both
         var m = [UInt8](repeating: 0, count: Self.metadataLength)
@@ -287,7 +302,7 @@ final class NCMieruStream: NCRelayStream {
         wire.append(pad1)
         wire.append(sendCipher.seal(payload))
         wire.append(pad2)
-        raw.send(wire)
+        raw.send(wire, completion: completion)
     }
 
     func cancel() {

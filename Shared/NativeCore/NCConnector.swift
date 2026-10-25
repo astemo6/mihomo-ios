@@ -5,8 +5,50 @@ import Network
 /// transform happens inside; callers never see wire bytes.
 protocol NCRelayStream: AnyObject {
     func send(_ data: Data)
+    /// nc-sessions-flow: send with a completion that fires exactly once, when this chunk has been handed
+    /// on (encoded and accepted by the layer below / the peer's window) — the uplink back-pressure signal
+    /// the relay pumps wait on before reading more. Must fire on every path: success, failure, cancel,
+    /// teardown; never twice (wrap it in NCCallOnce).
+    func send(_ data: Data, completion: @escaping () -> Void)
     func receive(_ handler: @escaping (Data?, Error?) -> Void)
     func cancel()
+}
+
+/// Exactly-once wrapper for relay send completions: a second call is a programming error (asserted in
+/// DEBUG) and is ignored in release, so a buggy path can stall a pump but never double-fire it.
+final class NCCallOnce {
+    private let lock = NSLock()
+    private var fired = false
+    private let body: () -> Void
+    init(_ body: @escaping () -> Void) { self.body = body }
+    func call() {
+        lock.lock()
+        if fired {
+            lock.unlock()
+            assertionFailure("NCCallOnce fired twice")
+            return
+        }
+        fired = true
+        lock.unlock()
+        body()
+    }
+}
+
+// No default send(_:completion:) implementation on purpose (nc-sessions-flow): every NCRelayStream
+// conformer implements real send completion, so the compiler flags any stream that was missed.
+extension NCRelayStream {
+
+    /// Sends wire segments in order, firing `completion` after the last segment's own completion
+    /// (earlier segments get none). For encoders that turn one chunk into several records.
+    func ncSendSequentially(_ wires: [Data], completion: @escaping () -> Void) {
+        let once = NCCallOnce(completion)
+        let wires = wires.filter { !$0.isEmpty }
+        guard let first = wires.first else { once.call(); return }
+        if wires.count == 1 { send(first, completion: once.call); return }
+        // Strong self capture is deliberate: the chain must not lose the completion if the caller
+        // drops the stream mid-send; it ends when the last segment completes.
+        send(first) { ncSendSequentially(Array(wires.dropFirst()), completion: once.call) }
+    }
 }
 
 extension NCStream: NCRelayStream {}
@@ -28,9 +70,11 @@ final class NCSSRelayStream: NCRelayStream {
         }
     }
 
-    func send(_ data: Data) {
-        if let wire = encoder.encode(data) { raw.send(wire) }
-        else { raw.cancel() }
+    func send(_ data: Data, completion: @escaping () -> Void) {
+        let once = NCCallOnce(completion)
+        guard !data.isEmpty else { once.call(); return }
+        if let wire = encoder.encode(data) { raw.send(wire, completion: once.call) }
+        else { raw.cancel(); once.call() }
     }
 
     func receive(_ handler: @escaping (Data?, Error?) -> Void) {
@@ -69,9 +113,11 @@ final class NCSS2022RelayStream: NCRelayStream {
         }
     }
 
-    func send(_ data: Data) {
-        if let wire = encoder.encode(data) { raw.send(wire) }
-        else { raw.cancel() }
+    func send(_ data: Data, completion: @escaping () -> Void) {
+        let once = NCCallOnce(completion)
+        guard !data.isEmpty else { once.call(); return }
+        if let wire = encoder.encode(data) { raw.send(wire, completion: once.call) }
+        else { raw.cancel(); once.call() }
     }
 
     func receive(_ handler: @escaping (Data?, Error?) -> Void) {
@@ -137,9 +183,11 @@ final class NCSnellStreamRelay: NCRelayStream {
         }
     }
 
-    func send(_ data: Data) {
-        if let wire = encoder.encode(data) { raw.send(wire) }
-        else { raw.cancel() }
+    func send(_ data: Data, completion: @escaping () -> Void) {
+        let once = NCCallOnce(completion)
+        guard !data.isEmpty else { once.call(); return }
+        if let wire = encoder.encode(data) { raw.send(wire, completion: once.call) }
+        else { raw.cancel(); once.call() }
     }
 
     func receive(_ handler: @escaping (Data?, Error?) -> Void) {
@@ -183,9 +231,11 @@ final class NCSnellV4Relay: NCRelayStream {
         }
     }
 
-    func send(_ data: Data) {
-        if let wire = writer.write(data) { raw.send(wire) }
-        else { raw.cancel() }
+    func send(_ data: Data, completion: @escaping () -> Void) {
+        let once = NCCallOnce(completion)
+        guard !data.isEmpty else { once.call(); return }
+        if let wire = writer.write(data) { raw.send(wire, completion: once.call) }
+        else { raw.cancel(); once.call() }
     }
 
     func receive(_ handler: @escaping (Data?, Error?) -> Void) {
@@ -343,7 +393,7 @@ enum NCConnector {
             }
             muxSession(proxy: proxy, server: server, port: port, queue: queue) { session, err in
                 guard let session else { completion(nil, err); return }
-                completion(session.openStream(target: target), nil)
+                completion(session.openStream(target: target, callerQueue: queue), nil)
             }
             return
         }
@@ -619,7 +669,7 @@ enum NCConnector {
             }
             anytlsSession(proxy: proxy, server: server, port: port, queue: queue) { session, err in
                 guard let session else { completion(nil, err); return }
-                completion(session.openStream(target: target), nil)
+                completion(session.openStream(target: target, callerQueue: queue), nil)
             }
         case "vmess":
             connectVMess(target: target, proxy: proxy, server: server, port: port, queue: queue,
@@ -793,7 +843,18 @@ enum NCConnector {
             if existing.isAlive {
                 completion(existing, nil)
             } else if existing.state == .connecting {
-                waitMuxReady(existing, key: key, queue: queue, attempts: 60, completion: completion)
+                // nc-sessions: readiness is a one-shot waiter on the session (no 0.25 s polling); the
+                // registry cleanup on failure stays here, in the waiter's callback.
+                existing.whenReady(callerQueue: queue) { err in
+                    if let err {
+                        muxLock.lock()
+                        if muxRegistry[key] === existing { muxRegistry.removeValue(forKey: key) }
+                        muxLock.unlock()
+                        completion(nil, err)
+                    } else {
+                        completion(existing, nil)
+                    }
+                }
             } else {
                 muxLock.lock()
                 muxRegistry.removeValue(forKey: key)
@@ -802,40 +863,21 @@ enum NCConnector {
             }
             return
         }
-        let session = NCMuxSession()
+        let session = NCMuxSession(key: key)
         muxRegistry[key] = session
         muxLock.unlock()
-        connectViaProxy(target: NCMux.destination, proxy: proxy, queue: queue, allowMux: false) { base, err in
+        // nc-sessions: the base connection is dialed on the session's own queue, so its callbacks (and with
+        // them all session state) live there; the registry completion is handed back on the caller's queue.
+        connectViaProxy(target: NCMux.destination, proxy: proxy, queue: session.queue, allowMux: false) { base, err in
             if let base {
                 session.attach(base: base)
-                completion(session, nil)
+                queue.async { completion(session, nil) }
             } else {
                 muxLock.lock()
                 muxRegistry.removeValue(forKey: key)
                 muxLock.unlock()
                 session.attachFailed()
-                completion(nil, err ?? Failure.handshake("mux dial failed"))
-            }
-        }
-    }
-
-    private static func waitMuxReady(_ session: NCMuxSession, key: String, queue: DispatchQueue, attempts: Int,
-                                     completion: @escaping (NCMuxSession?, Error?) -> Void) {
-        switch session.state {
-        case .ready:
-            completion(session, nil)
-        case .failed:
-            muxLock.lock()
-            if muxRegistry[key] === session { muxRegistry.removeValue(forKey: key) }
-            muxLock.unlock()
-            completion(nil, Failure.handshake("mux session failed"))
-        case .connecting:
-            guard attempts > 0 else {
-                completion(nil, Failure.handshake("mux connect timeout"))
-                return
-            }
-            queue.asyncAfter(deadline: .now() + 0.25) {
-                waitMuxReady(session, key: key, queue: queue, attempts: attempts - 1, completion: completion)
+                queue.async { completion(nil, err ?? Failure.handshake("mux dial failed")) }
             }
         }
     }
@@ -854,7 +896,16 @@ enum NCConnector {
             if existing.isAlive {
                 completion(existing, nil)
             } else if existing.state == .connecting {
-                waitAnyTLSReady(existing, key: key, queue: queue, attempts: 60, completion: completion)
+                existing.whenReady(callerQueue: queue) { err in
+                    if let err {
+                        anytlsLock.lock()
+                        if anytlsRegistry[key] === existing { anytlsRegistry.removeValue(forKey: key) }
+                        anytlsLock.unlock()
+                        completion(nil, err)
+                    } else {
+                        completion(existing, nil)
+                    }
+                }
             } else {
                 anytlsLock.lock()
                 anytlsRegistry.removeValue(forKey: key)
@@ -868,45 +919,25 @@ enum NCConnector {
             queue.async { completion(nil, Failure.handshake("anytls missing password")) }
             return
         }
-        let session = NCAnyTLSSession()
+        let session = NCAnyTLSSession(key: key)
         anytlsRegistry[key] = session
         anytlsLock.unlock()
+        // nc-sessions: the base TLS connection runs on the session's own queue (see muxSession).
         let tls = NCStream(to: server, port: port,
                            tlsServerName: proxy.fields["sni"]?.string ?? proxy.fields["servername"]?.string ?? server,
                            allowInsecure: proxy.fields["skip-cert-verify"]?.bool ?? false,
-                           queue: queue)
+                           queue: session.queue)
         tls.start { err in
             if err == nil {
                 session.attach(tls: tls, password: password,
                                clientMetadata: proxy.fields["client-metadata"]?.string ?? "")
-                completion(session, nil)
+                queue.async { completion(session, nil) }
             } else {
                 anytlsLock.lock()
                 anytlsRegistry.removeValue(forKey: key)
                 anytlsLock.unlock()
                 session.attachFailed()
-                completion(nil, err)
-            }
-        }
-    }
-
-    private static func waitAnyTLSReady(_ session: NCAnyTLSSession, key: String, queue: DispatchQueue, attempts: Int,
-                                        completion: @escaping (NCAnyTLSSession?, Error?) -> Void) {
-        switch session.state {
-        case .ready:
-            completion(session, nil)
-        case .failed:
-            anytlsLock.lock()
-            if anytlsRegistry[key] === session { anytlsRegistry.removeValue(forKey: key) }
-            anytlsLock.unlock()
-            completion(nil, Failure.handshake("anytls session failed"))
-        case .connecting:
-            guard attempts > 0 else {
-                completion(nil, Failure.handshake("anytls connect timeout"))
-                return
-            }
-            queue.asyncAfter(deadline: .now() + 0.25) {
-                waitAnyTLSReady(session, key: key, queue: queue, attempts: attempts - 1, completion: completion)
+                queue.async { completion(nil, err) }
             }
         }
     }
@@ -1188,7 +1219,7 @@ final class NCBufferedStream: NCRelayStream {
         self.prefix = prefix
     }
 
-    func send(_ data: Data) { inner.send(data) }
+    func send(_ data: Data, completion: @escaping () -> Void) { inner.send(data, completion: completion) }
 
     func receive(_ handler: @escaping (Data?, Error?) -> Void) {
         if !prefix.isEmpty {
@@ -1225,11 +1256,13 @@ final class NCVMessRelayStream: NCRelayStream {
         raw.send(sealedHeader)
     }
 
-    func send(_ data: Data) {
+    func send(_ data: Data, completion: @escaping () -> Void) {
+        let once = NCCallOnce(completion)
+        guard !data.isEmpty else { once.call(); return }
         if let encoder {
-            raw.send(encoder.encode(data))
+            raw.send(encoder.encode(data), completion: once.call)
         } else {
-            raw.send(data) // security none over TCP is a plain stream
+            raw.send(data, completion: once.call) // security none over TCP is a plain stream
         }
     }
 

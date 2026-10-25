@@ -8,6 +8,11 @@ final class NCH2TunnelStream: NCRelayStream {
     private let core = NCH2ClientCore()
     private let grpc: Bool
     private var pendingSend = Data()
+    /// nc-sessions-flow: send completions indexed by cumulative pendingSend offset; a completion fires
+    /// once its bytes were window-accepted by the core and the resulting frames were handed to raw.
+    private var sendWaiters: [(end: Int, once: NCCallOnce)] = []
+    private var sendAppended = 0
+    private var sendConsumed = 0
     private var payloadQueue: [Data] = []
     private var pendingHandler: ((Data?, Error?) -> Void)?
     private var grpcBuffer = Data()
@@ -28,18 +33,37 @@ final class NCH2TunnelStream: NCRelayStream {
 
     // MARK: NCRelayStream
 
-    func send(_ data: Data) {
-        guard dead == nil else { return }
+    func send(_ data: Data) { send(data, completion: {}) }
+
+    func send(_ data: Data, completion: @escaping () -> Void) {
+        let once = NCCallOnce(completion)
+        guard dead == nil else { once.call(); return }
         if grpc {
             var msg = Data()
             msg.append(0)
             msg.appendBE32(UInt32(data.count))
             msg.append(data)
             pendingSend.append(msg)
+            sendAppended += msg.count
         } else {
             pendingSend.append(data)
+            sendAppended += data.count
         }
+        sendWaiters.append((sendAppended, once))
         flushSend()
+    }
+
+    private func noteConsumed(_ n: Int) {
+        sendConsumed += n
+        let due = sendWaiters.filter { $0.end <= sendConsumed }
+        sendWaiters.removeAll { $0.end <= sendConsumed }
+        due.forEach { $0.once.call() }
+    }
+
+    private func drainSendWaiters() {
+        let all = sendWaiters
+        sendWaiters = []
+        all.forEach { $0.once.call() }
     }
 
     func receive(_ handler: @escaping (Data?, Error?) -> Void) {
@@ -55,6 +79,7 @@ final class NCH2TunnelStream: NCRelayStream {
     }
 
     func cancel() {
+        drainSendWaiters()
         raw.send(core.rstStream())
         raw.cancel()
     }
@@ -66,7 +91,7 @@ final class NCH2TunnelStream: NCRelayStream {
         let (frames, consumed) = core.makeData(pendingSend)
         if consumed > 0 {
             pendingSend = Data(pendingSend.dropFirst(consumed))
-            raw.send(frames)
+            raw.send(frames) { [weak self] in self?.noteConsumed(consumed) }
         }
     }
 
@@ -130,6 +155,7 @@ final class NCH2TunnelStream: NCRelayStream {
     private func fail(_ error: Error) {
         guard dead == nil else { return }
         dead = error
+        drainSendWaiters()
         if let handler = pendingHandler {
             pendingHandler = nil
             handler(nil, error)

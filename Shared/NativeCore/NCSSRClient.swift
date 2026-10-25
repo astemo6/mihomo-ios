@@ -32,7 +32,10 @@ final class NCSSRRelayStream: NCRelayStream {
         send(target.atypEncoded)
     }
 
-    func send(_ data: Data) {
+    func send(_ data: Data) { send(data, completion: {}) }
+
+    func send(_ data: Data, completion: @escaping () -> Void) {
+        let once = NCCallOnce(completion)
         let framed = proto?.encode(data) ?? data
         var out = Data()
         if !ivSent {
@@ -40,7 +43,8 @@ final class NCSSRRelayStream: NCRelayStream {
             ivSent = true
         }
         out.append(encryptor.process(framed))
-        raw.send(obfs?.encode(out) ?? out)
+        let wire = obfs?.encode(out) ?? out
+        if wire.isEmpty { once.call() } else { raw.send(wire, completion: once.call) }
     }
 
     func receive(_ handler: @escaping (Data?, Error?) -> Void) {

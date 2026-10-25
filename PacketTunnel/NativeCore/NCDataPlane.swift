@@ -67,6 +67,7 @@ final class NCDataPlane {
         var outHead = 0
         var outBytes = 0
         var pendingCounted = 0      // pending bytes counted in bufferedTotal
+        var pendingAck = 0          // pending bytes handed to the relay, tcp_recved only on its send completion
         var unacked = 0             // bytes received from lwIP not yet acknowledged (nc_tcp_recved)
         var started = false         // receiveLoop ran once (pending was handed to the relay)
         var readPaused = false      // relay read stopped by back-pressure
@@ -407,8 +408,18 @@ final class NCDataPlane {
             s.state = .open
             if !s.pending.isEmpty {
                 countUp(s, s.pending.count)
-                relay.send(s.pending)
+                let p = s.pending
                 s.pending = Data()
+                s.pendingAck = p.count
+                // nc-sessions-flow: pre-connect bytes get the same treatment as the open path — they are
+                // tcp_recved only once the relay's send completion fires for them.
+                NCRelayFlow.send(relay, p, queue: queue) { [weak self, weak s] in
+                    guard let self, let s, s.state != .closed, s.pendingAck > 0 else { return }
+                    let n = s.pendingAck
+                    s.pendingAck = 0
+                    s.unacked -= n
+                    self.stack.tcpRecved(s.conn, n)
+                }
             }
             self.receiveLoop(s)
         }
@@ -421,9 +432,12 @@ final class NCDataPlane {
             s.started = true
             bufferedTotal -= s.pendingCounted
             s.pendingCounted = 0
-            if s.unacked > 0 {
-                stack.tcpRecved(s.conn, s.unacked)
-                s.unacked = 0
+            // Bytes still waiting on a relay send completion (pendingAck) stay unacked here; the
+            // completion path in the connect callback recved's them when it fires.
+            let ackable = s.unacked - s.pendingAck
+            if ackable > 0 {
+                stack.tcpRecved(s.conn, ackable)
+                s.unacked -= ackable
             }
         }
         s.relay?.receive { [weak self, weak s] data, error in

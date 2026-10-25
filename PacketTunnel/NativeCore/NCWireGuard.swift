@@ -252,7 +252,7 @@ func ncwgOnRecv(_ ctx: UnsafeMutableRawPointer?, _ conn: UInt32, _ data: UnsafeP
 
 @_cdecl("ncwgOnSent")
 func ncwgOnSent(_ ctx: UnsafeMutableRawPointer?, _ conn: UInt32, _ len: UInt32) {
-    NCWGStack.shared.tcp[conn]?.flush()
+    NCWGStack.shared.tcp[conn]?.lwipSent(Int(len))
 }
 
 @_cdecl("ncwgOnErr")
@@ -918,6 +918,14 @@ final class NCWGTCPStream: NCRelayStream {
     private var failure: Error?
     private var inbox = Data()
     private var outbox = Data()
+    /// nc-sessions-flow (approximation): send completions by cumulative offset. WireGuard gives no
+    /// per-send completion signal, so a completion fires once its bytes were written into the lwIP
+    /// send buffer AND the in-flight (written, not yet tcp_sent-acked) total is below 64 KB; above
+    /// that it waits for acks to drain. Fired on callerQueue like this stream's other completions.
+    private var sendWaiters: [(end: Int, once: NCCallOnce)] = []
+    private var appendedTotal = 0
+    private var writtenTotal = 0
+    private var ackedTotal = 0
     private var handler: ((Data?, Error?) -> Void)?
     private var onConnect: ((Error?) -> Void)?
 
@@ -987,6 +995,7 @@ final class NCWGTCPStream: NCRelayStream {
 
     fileprivate func lwipError(_ err: Int32) {
         connID = 0
+        drainSendWaiters()
         let e = NCConnector.Failure.handshake("wireguard: connection reset (lwIP \(err))")
         if !connected {
             closed = true
@@ -1003,6 +1012,11 @@ final class NCWGTCPStream: NCRelayStream {
 
     fileprivate func flush() {
         guard connected, connID != 0, !outbox.isEmpty else { return }
+        let before = outbox.count
+        defer {
+            writtenTotal += before - outbox.count
+            checkSendWaiters()
+        }
         while !outbox.isEmpty {
             let n = outbox.withUnsafeBytes { raw -> Int32 in
                 nc_wg_tcp_write(connID, raw.bindMemory(to: UInt8.self).baseAddress, UInt32(raw.count))
@@ -1028,12 +1042,51 @@ final class NCWGTCPStream: NCRelayStream {
         }
     }
 
+    /// NCLwIP.queue: the peer acked `len` more bytes (the C tcp_sent callback).
+    fileprivate func lwipSent(_ len: Int) {
+        ackedTotal += len
+        flush()
+        checkSendWaiters()
+    }
+
+    /// NCLwIP.queue.
+    private func checkSendWaiters() {
+        let inflight = writtenTotal - ackedTotal
+        let due = sendWaiters.filter { $0.end <= writtenTotal && (inflight < 65536 || $0.end <= ackedTotal) }
+        guard !due.isEmpty else { return }
+        sendWaiters.removeAll { w in due.contains { $0.end == w.end && $0.once === w.once } }
+        callerQueue.async { due.forEach { $0.once.call() } }
+    }
+
+    /// NCLwIP.queue: fire every pending send completion (teardown: the bytes will never be acked,
+    /// but no sender may be left waiting).
+    private func drainSendWaiters() {
+        let all = sendWaiters
+        sendWaiters = []
+        if !all.isEmpty { callerQueue.async { all.forEach { $0.once.call() } } }
+    }
+
     // NCRelayStream
 
     func send(_ data: Data) {
         NCLwIP.queue.async { [self] in
             guard !closed, !data.isEmpty else { return }
             device.lastUse = Date()
+            outbox.append(data)
+            flush()
+        }
+    }
+
+    func send(_ data: Data, completion: @escaping () -> Void) {
+        let once = NCCallOnce(completion)
+        NCLwIP.queue.async { [self] in
+            guard !closed, !data.isEmpty else {
+                callerQueue.async { once.call() }
+                return
+            }
+            device.lastUse = Date()
+            appendedTotal += data.count
+            sendWaiters.append((appendedTotal, once))
             outbox.append(data)
             flush()
         }
@@ -1047,6 +1100,7 @@ final class NCWGTCPStream: NCRelayStream {
         NCLwIP.queue.async { [self] in
             guard !closed else { return }
             closed = true
+            drainSendWaiters()
             if connID != 0 {
                 NCWGStack.shared.tcp.removeValue(forKey: connID)
                 nc_wg_tcp_close(connID)

@@ -311,6 +311,11 @@ final class NCHy2StreamChannel {
         conn.send(content: data, completion: .idempotent)
     }
 
+    func send(_ data: Data, completion: @escaping () -> Void) {
+        guard !cancelled, !data.isEmpty else { completion(); return }
+        conn.send(content: data, completion: .contentProcessed { _ in completion() })
+    }
+
     func receive(_ handler: @escaping (Data?, Error?) -> Void) {
         conn.receive(minimumIncompleteLength: 1, maximumLength: 65536) { data, _, isComplete, error in
             if let data, !data.isEmpty {
@@ -624,6 +629,8 @@ final class NCHysteria2TCPStream: NCRelayStream {
     private var inbox: [Data] = []
     private var pendingReceive: ((Data?, Error?) -> Void)?
     private var failure: Error?
+    /// Completions of sends buffered in `outbox` until the server accepts; fired on flush/fail/cancel.
+    private var outboxWaiters: [NCCallOnce] = []
 
     init(channel: NCHy2StreamChannel, target: NCTarget, queue: DispatchQueue) {
         self.channel = channel
@@ -641,15 +648,23 @@ final class NCHysteria2TCPStream: NCRelayStream {
         }
     }
 
-    func send(_ data: Data) {
+    func send(_ data: Data) { send(data, completion: {}) }
+
+    func send(_ data: Data, completion: @escaping () -> Void) {
+        let once = NCCallOnce(completion)
         switch phase {
         case .handshaking:
-            outbox.append(data)
+            outbox.append(data); outboxWaiters.append(once)
         case .open:
-            channel.send(data)
+            channel.send(data, completion: once.call)
         case .failed, .closed:
-            break
+            once.call()
         }
+    }
+
+    private func drainOutboxWaiters() {
+        let w = outboxWaiters; outboxWaiters = []
+        w.forEach { $0.call() }
     }
 
     func receive(_ handler: @escaping (Data?, Error?) -> Void) {
@@ -670,6 +685,7 @@ final class NCHysteria2TCPStream: NCRelayStream {
 
     func cancel() {
         phase = .closed
+        drainOutboxWaiters()
         channel.cancel()
         onFinished()
     }
@@ -678,6 +694,7 @@ final class NCHysteria2TCPStream: NCRelayStream {
     /// (the connection clears its own registry).
     func cancelFromConnection() {
         phase = .closed
+        drainOutboxWaiters()
         channel.cancel()
         if let handler = pendingReceive {
             pendingReceive = nil
@@ -712,7 +729,8 @@ final class NCHysteria2TCPStream: NCRelayStream {
                     }
                     self.phase = .open
                     if !self.outbox.isEmpty {
-                        self.channel.send(self.outbox)
+                        let waiters = self.outboxWaiters; self.outboxWaiters = []
+                        self.channel.send(self.outbox) { waiters.forEach { $0.call() } }
                         self.outbox = Data()
                     }
                     if !rest.isEmpty { self.deliver(rest) }
@@ -744,6 +762,7 @@ final class NCHysteria2TCPStream: NCRelayStream {
         let error = error ?? NCConnector.Failure.handshake("hysteria2 tcp failed")
         phase = .failed
         failure = error
+        drainOutboxWaiters()
         channel.cancel()
         if let handler = pendingReceive {
             pendingReceive = nil

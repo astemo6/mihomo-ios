@@ -50,38 +50,39 @@ final class NCSSPluginStream: NCRelayStream {
         }
     }
 
-    func send(_ data: Data) {
+    func send(_ data: Data) { send(data, completion: {}) }
+
+    func send(_ data: Data, completion: @escaping () -> Void) {
+        let once = NCCallOnce(completion)
         let first = !started
         started = true
         switch opts.kind {
         case .obfs:
             if opts.mode == "http" {
                 if first {
-                    raw.send(NCSSPlugin.obfsHTTPRequest(host: opts.host, port: serverPort, payload: data))
+                    raw.send(NCSSPlugin.obfsHTTPRequest(host: opts.host, port: serverPort, payload: data), completion: once.call)
                 } else {
-                    raw.send(data)
+                    raw.send(data, completion: once.call)
                 }
             } else {
                 if first {
-                    raw.send(NCSSPlugin.obfsTLSClientHello(host: opts.host, payload: data))
+                    raw.send(NCSSPlugin.obfsTLSClientHello(host: opts.host, payload: data), completion: once.call)
                 } else {
-                    for record in NCSSPlugin.obfsTLSAppDataRecords(data) {
-                        raw.send(record)
-                    }
+                    raw.ncSendSequentially(NCSSPlugin.obfsTLSAppDataRecords(data), completion: once.call)
                 }
             }
         case .v2rayPlugin:
-            guard let ws else { return }
+            guard let ws else { once.call(); return }
             if opts.mux {
                 // mihomo mux.go NewMux pre-fills the create frame; the first
                 // Write flushes create + data together.
                 if first {
-                    ws.send(NCSSPlugin.V2RayMux.createFrame() + NCSSPlugin.V2RayMux.dataFrame(payload: data))
+                    ws.send(NCSSPlugin.V2RayMux.createFrame() + NCSSPlugin.V2RayMux.dataFrame(payload: data), completion: once.call)
                 } else {
-                    ws.send(NCSSPlugin.V2RayMux.dataFrame(payload: data))
+                    ws.send(NCSSPlugin.V2RayMux.dataFrame(payload: data), completion: once.call)
                 }
             } else {
-                ws.send(data)
+                ws.send(data, completion: once.call)
             }
         }
     }

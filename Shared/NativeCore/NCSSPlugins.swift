@@ -17,6 +17,7 @@ class NCFramedRelay: NCRelayStream {
     init(raw: NCRelayStream) { self.raw = raw }
 
     func send(_ data: Data) { raw.send(data) }
+    func send(_ data: Data, completion: @escaping () -> Void) { raw.send(data, completion: completion) }
     func cancel() { raw.cancel() }
 
     /// Parse as much of `inbuf` as possible; return plaintext pieces (may be empty) or throw on a protocol error.
@@ -85,6 +86,9 @@ final class NCShadowTLSWire: NCRelayStream {
     }
 
     func send(_ data: Data) { if !detached { raw.send(data) } }
+    func send(_ data: Data, completion: @escaping () -> Void) {
+        if detached { completion() } else { raw.send(data, completion: completion) }
+    }
     func cancel() { if !detached { raw.cancel() } }
 
     func receive(_ handler: @escaping (Data?, Error?) -> Void) {
@@ -292,8 +296,17 @@ final class NCShadowTLSV2Conn: NCFramedRelay {
     }
 
     override func send(_ data: Data) {
+        for rec in records(for: data) { raw.send(rec) }
+    }
+
+    override func send(_ data: Data, completion: @escaping () -> Void) {
+        raw.ncSendSequentially(records(for: data), completion: completion)
+    }
+
+    private func records(for data: Data) -> [Data] {
         var payload = data
         if let p = prefix { payload = p + data; prefix = nil }
+        var out: [Data] = []
         var rest = payload[...]
         repeat {
             let chunk = rest.prefix(16384)
@@ -301,8 +314,9 @@ final class NCShadowTLSV2Conn: NCFramedRelay {
             var rec = Data([0x17, 0x03, 0x03])
             rec.appendBE16(UInt16(chunk.count))
             rec.append(contentsOf: chunk)
-            raw.send(rec)
+            out.append(rec)
         } while !rest.isEmpty
+        return out
     }
 
     override func consume() throws -> [Data] {
@@ -342,6 +356,15 @@ final class NCShadowTLSV3Conn: NCFramedRelay {
     }
 
     override func send(_ data: Data) {
+        for rec in records(for: data) { raw.send(rec) }
+    }
+
+    override func send(_ data: Data, completion: @escaping () -> Void) {
+        raw.ncSendSequentially(records(for: data), completion: completion)
+    }
+
+    private func records(for data: Data) -> [Data] {
+        var out: [Data] = []
         var rest = data[...]
         repeat {
             let chunk = Data(rest.prefix(16384))
@@ -353,8 +376,9 @@ final class NCShadowTLSV3Conn: NCFramedRelay {
             rec.appendBE16(UInt16(4 + chunk.count))
             rec.append(mac)
             rec.append(chunk)
-            raw.send(rec)
+            out.append(rec)
         } while !rest.isEmpty
+        return out
     }
 
     override func consume() throws -> [Data] {
@@ -428,6 +452,20 @@ final class NCGostSmuxStream: NCFramedRelay {
             wire.append(Self.frame(2, chunk))
         }
         if !wire.isEmpty { raw.send(wire) }
+    }
+
+    override func send(_ data: Data, completion: @escaping () -> Void) {
+        // The SYN from open() is fire-and-forget; NWConnection ordering keeps it ahead of this wire,
+        // whose completion is the one the caller waits on.
+        open()
+        var rest = data[...]
+        var wire = Data()
+        while !rest.isEmpty {
+            let chunk = Data(rest.prefix(Self.maxFrame))
+            rest = rest.dropFirst(chunk.count)
+            wire.append(Self.frame(2, chunk))
+        }
+        if wire.isEmpty { completion() } else { raw.send(wire, completion: completion) }
     }
 
     override func cancel() {
