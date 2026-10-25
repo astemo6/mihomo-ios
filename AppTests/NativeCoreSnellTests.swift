@@ -11,7 +11,7 @@ final class NativeCoreSnellTests: XCTestCase {
         // Full 32-byte Argon2id for "my-snell-psk" (Go vector); the AES
         // session key is its first 16 bytes.
         let key = NCSnell.sessionKey(psk: Data("my-snell-psk".utf8), salt: salt, keySize: 16)
-        XCTAssertEqual(hex(key), "8eb893d1afc12e85718ec026071d1043771ed164")
+        XCTAssertEqual(hex(key), "8eb893d1afc12e85718ec026071d1043")
         let key32 = NCSnell.sessionKey(psk: Data("my-snell-psk".utf8), salt: salt, keySize: 32)
         XCTAssertEqual(hex(key32), "8eb893d1afc12e85718ec026071d1043771ed164c8720d2a0b9fb9165b4d150a")
     }
