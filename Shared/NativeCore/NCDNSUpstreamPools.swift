@@ -499,9 +499,20 @@ final class NCDNSDoHPool {
     static func parseResponse(_ buffer: Data) -> ResponseParse {
         guard let headEnd = buffer.range(of: Data("\r\n\r\n".utf8)) else { return .incomplete }
         let head = String(decoding: buffer[buffer.startIndex..<headEnd.lowerBound], as: UTF8.self).lowercased()
-        let keepAlive = !head.contains("connection: close")
+        // Header fields, one per line. The head slice stops before the blank line, so the LAST
+        // header has no trailing CRLF — searching "content-length:" … "\r\n" missed it whenever
+        // Content-Length was the final header (the common server layout), and the response sat
+        // as `.incomplete` until the 6 s timeout.
+        var fields: [String: String] = [:]
+        for line in head.components(separatedBy: "\r\n").dropFirst() {
+            guard let colon = line.firstIndex(of: ":") else { continue }
+            let name = line[line.startIndex..<colon].trimmingCharacters(in: .whitespaces)
+            let value = line[line.index(after: colon)...].trimmingCharacters(in: .whitespaces)
+            if fields[name] == nil { fields[name] = value }
+        }
+        let keepAlive = !(fields["connection"]?.contains("close") ?? false)
         let bodyStart = headEnd.upperBound
-        if head.contains("transfer-encoding: chunked") {
+        if fields["transfer-encoding"]?.contains("chunked") == true {
             var out = Data()
             var pos = bodyStart
             while true {
@@ -526,9 +537,7 @@ final class NCDNSDoHPool {
                 pos = chunkStart + size + 2
             }
         }
-        if let match = head.range(of: "content-length:"),
-           let end = head[match.upperBound...].range(of: "\r\n") {
-            let lenText = head[match.upperBound..<end.lowerBound].trimmingCharacters(in: .whitespaces)
+        if let lenText = fields["content-length"] {
             if let len = Int(lenText) {
                 // Same as the chunk size: negative or past the 256 KB stream cap → junk (no `bodyOff + len` trap).
                 guard len >= 0, len <= 256 * 1024 else { return .malformed }

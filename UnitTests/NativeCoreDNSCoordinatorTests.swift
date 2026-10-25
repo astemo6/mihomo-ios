@@ -694,6 +694,7 @@ private final class FakePoolStream: NCDNSPoolStream {
     private var sentChunks: [Data] = []
     private var receiveHandler: ((Data?, Error?) -> Void)?
     private var didCancel = false
+    private var parked: [Data?] = []
     var startError: Error?
 
     init(queue: DispatchQueue) {
@@ -725,6 +726,12 @@ private final class FakePoolStream: NCDNSPoolStream {
 
     func receive(_ handler: @escaping (Data?, Error?) -> Void) {
         lock.lock()
+        if !parked.isEmpty {
+            let data = parked.removeFirst()
+            lock.unlock()
+            queue.async { handler(data, nil) }
+            return
+        }
         receiveHandler = handler
         lock.unlock()
     }
@@ -741,7 +748,14 @@ private final class FakePoolStream: NCDNSPoolStream {
         let handler = receiveHandler
         receiveHandler = nil
         lock.unlock()
-        guard let handler else { return }
+        guard let handler else {
+            // The pool registers receive() just after send(); a test can see `sent` before
+            // that. Park the delivery until receive() is called instead of dropping it.
+            lock.lock()
+            parked.append(data)
+            lock.unlock()
+            return
+        }
         queue.async { handler(data, nil) }
     }
 }
