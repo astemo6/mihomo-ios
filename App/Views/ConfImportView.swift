@@ -119,7 +119,7 @@ enum ConfImport {
         // P0-1: keep the original .conf next to the profile so rules the conversion (or a later edit) lost can be
         // restored from it (bridge RestoreConfRules); removed with the profile (ForgetProfile).
         let sourcePath = p.fileURL.path
-        let saveErr = await Task.detached(priority: .utility) { LibmihomoSaveConfSource(sourcePath, text) }.value
+        let saveErr = await Task.detached(priority: .utility) { NCAppFilePorts.saveConfSource(profilePath: sourcePath, text: text) }.value
         if !saveErr.isEmpty { StartupLog.write("conf import: source not saved: \(saveErr)", tag: "app") }
         var msg = String(localized: "已导入配置「\(p.name)」")
         if let m = r.module, !m.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {

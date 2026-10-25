@@ -995,7 +995,7 @@ final class RuleHitsStore: ObservableObject {
 
     /// key nil = all rules.
     func reset(_ key: String?) {
-        let err = LibmihomoResetRuleHits(AppShared.homeURL.path, key ?? "")
+        let err = NCAppFilePorts.resetRuleHits(home: AppShared.homeURL.path, key: key ?? "")
         if !err.isEmpty { return }
         load()
     }

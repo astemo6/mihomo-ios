@@ -451,7 +451,7 @@ struct DNSView: View {
     func addHost() {
         let d = newHost.trimmingCharacters(in: .whitespaces)
         let v = newHostValue.trimmingCharacters(in: .whitespaces)
-        let err = LibmihomoValidateHostEntry(d, v)
+        let err = NCAppFilePorts.validateHostEntry(domain: d, value: v)
         guard err.isEmpty else { hostError = err; return }
         hostError = nil
         if let i = local.hosts.firstIndex(where: { $0.domain.lowercased() == d.lowercased() }) {
