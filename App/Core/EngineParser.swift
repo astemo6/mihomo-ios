@@ -849,11 +849,12 @@ extension NCEngineRuleset {
     /// mitm qxRawPair: split `… url ACT REGEX ACT REPLACEMENT` on the
     /// repeated keyword, keeping spaces inside the pair.
     static func qxRawPair(line: String, act: String) -> (String, String)? {
-        let lower = line.lowercased()
+        // Search the original string case-insensitively: indices from a lowercased copy (or from
+        // `rest.lowercased()`, which restarts at offset 0) are not valid in `line` / `rest` and trapped on launch.
         let key = " " + act + " "
-        guard let first = lower.range(of: " url" + key) else { return nil }
+        guard let first = line.range(of: " url" + key, options: .caseInsensitive) else { return nil }
         let rest = line[first.upperBound...]
-        guard let second = rest.lowercased().range(of: key) else { return nil }
+        guard let second = rest.range(of: key, options: .caseInsensitive) else { return nil }
         let re = String(rest[..<second.lowerBound]).trimmingCharacters(in: .whitespaces)
         var repl = String(rest[second.upperBound...])
         repl = String(repl.drop(while: { $0 == " " }))
@@ -948,7 +949,7 @@ extension NCEngineRuleset {
         case "jsonjq-response-body", "jsonjq-request-body":
             let phase = act.replacingOccurrences(of: "jsonjq-", with: "").replacingOccurrences(of: "-body", with: "")
             var rest = ""
-            if let range = line.lowercased().range(of: act) {
+            if let range = line.range(of: act, options: .caseInsensitive) {
                 rest = String(line[range.upperBound...]).trimmingCharacters(in: .whitespaces)
             }
             if rest.isEmpty { return (nil, .message("\(act) 缺少 jq 表达式")) }

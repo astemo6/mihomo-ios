@@ -847,7 +847,7 @@ enum NCConfImportPort {
                 continue
             }
             var val = v
-            if let i = val.lowercased().range(of: "cluded_ssids") {
+            if let i = val.range(of: "cluded_ssids", options: .caseInsensitive) {
                 let sub = String(val[..<i.lowerBound])
                 if let c = sub.lastIndex(of: ",") {
                     val = String(sub[..<c]).trimmingCharacters(in: .whitespaces)
