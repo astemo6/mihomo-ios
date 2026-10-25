@@ -1090,7 +1090,29 @@ final class NCNodeSubscriptionStore {
         guard let url = URL(string: urlString) else { done(nil); return }
         var req = URLRequest(url: url)
         req.setValue("clash-verge/v2.0", forHTTPHeaderField: "User-Agent")
-        URLSession.shared.dataTask(with: req) { data, _, _ in done(data) }.resume()
+        URLSession.shared.dataTask(with: req) { data, resp, err in
+            let code = (resp as? HTTPURLResponse)?.statusCode ?? 0
+            guard err == nil, (200..<300).contains(code), let data, !data.isEmpty else {
+                StartupLog.write("node subscription: fetch failed \(NCRuleProviderStore.logName(urlString)) — " +
+                                 (err.map { $0.localizedDescription } ?? "HTTP \(code)"))
+                done(nil)
+                return
+            }
+            done(data)
+        }.resume()
+    }
+
+    /// Go-era configs point proxy-providers at the bridge's own converter
+    /// (http://127.0.0.1:<port>/nodes/convert?url=<src>). NativeCore has no converter: NCSubscriptionParser
+    /// reads raw subscription bodies (Clash YAML, base64 / plain share-link lists, QX/Surge node lines,
+    /// SIP008 / sing-box JSON) itself, so fetch the source subscription directly.
+    static func unwrapLoopbackConvert(_ urlString: String) -> String {
+        guard let c = URLComponents(string: urlString),
+              let host = c.host, host == "127.0.0.1" || host == "localhost" || host == "::1",
+              c.path.hasSuffix("/nodes/convert"),
+              let src = c.queryItems?.first(where: { $0.name == "url" })?.value,
+              src.hasPrefix("http://") || src.hasPrefix("https://") else { return urlString }
+        return src
     }
 
     init(dir: URL) {
@@ -1129,7 +1151,7 @@ final class NCNodeSubscriptionStore {
     }
 
     func refresh(_ sub: NCNodeSubscription, completion: (() -> Void)? = nil) {
-        fetcher(sub.url) { [weak self] data in
+        fetcher(Self.unwrapLoopbackConvert(sub.url)) { [weak self] data in
             guard let self, let data, let text = String(data: data, encoding: .utf8) else {
                 completion?()
                 return
