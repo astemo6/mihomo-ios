@@ -324,7 +324,9 @@ public final class NCTailscalePathManager {
         var servers: [String] = []
         for region in derpMap.sortedRegions {
             for node in region.nodes where node.stunPort != nil || node.stunOnly == true {
-                let host = node.hostName
+                // Prefer the node's advertised IPv4 (no DNS needed); fall
+                // back to its hostname, resolved at probe time.
+                let host = node.ipv4 ?? node.hostName
                 let port = node.stunPort ?? NCTailscaleSTUN.defaultPort
                 if !host.isEmpty { servers.append("\(host):\(port)") }
             }
@@ -337,15 +339,56 @@ public final class NCTailscalePathManager {
         for server in stunServers {
             let (packet, txid) = NCTailscaleSTUN.makeBindingRequest()
             pendingSTUN[Data(txid)] = true
-            // Hostnames need resolving; the socket layer only sends to IP
-            // endpoints, so resolve via the DERP node's advertised IPs is
-            // not available here — system resolution happens in the client
-            // for WG peers; for STUN we send to the host string only when
-            // it already is an IP endpoint, else skip this round's server.
             if NCTailscaleDisco.parseEndpoint(server) != nil {
                 socket.send(Data(packet), to: server)
+                continue
+            }
+            // Hostname server (the common case for official DERP): resolve
+            // off-queue, then send from the manager queue.
+            guard let (host, port) = Self.splitHostPort(server) else { continue }
+            DispatchQueue.global(qos: .utility).async { [weak self] in
+                guard let self, let ip = Self.resolveFirstIP(host) else { return }
+                self.queue.async {
+                    let endpoint = ip.contains(":") ? "[\(ip)]:\(port)" : "\(ip):\(port)"
+                    self.socket.send(Data(packet), to: endpoint)
+                }
             }
         }
+    }
+
+    private static func splitHostPort(_ s: String) -> (String, UInt16)? {
+        if let parsed = NCTailscaleDisco.parseEndpoint(s) {
+            return (parsed.0.string, parsed.1)
+        }
+        guard let colon = s.lastIndex(of: ":") else { return nil }
+        let host = String(s[..<colon])
+        guard let port = UInt16(s[s.index(after: colon)...]) else { return nil }
+        return (host, port)
+    }
+
+    private static func resolveFirstIP(_ host: String) -> String? {
+        var hints = addrinfo()
+        hints.ai_family = AF_UNSPEC
+        hints.ai_socktype = SOCK_DGRAM
+        var res: UnsafeMutablePointer<addrinfo>?
+        guard getaddrinfo(host, nil, &hints, &res) == 0, let first = res else { return nil }
+        defer { freeaddrinfo(first) }
+        var node: UnsafeMutablePointer<addrinfo>? = first
+        while let cur = node {
+            if let sa = cur.pointee.ai_addr {
+                var storage = sockaddr_storage()
+                memcpy(&storage, sa, Int(cur.pointee.ai_addrlen))
+                if let ep = NCTailscaleUDPSocket.endpointString(from: storage) {
+                    // strip the :0 port suffix endpointString adds
+                    if let parsed = NCTailscaleDisco.parseEndpoint(ep) {
+                        return parsed.0.string
+                    }
+                    return ep
+                }
+            }
+            node = cur.pointee.ai_next
+        }
+        return nil
     }
 
     // MARK: Heartbeat & network changes
