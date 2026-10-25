@@ -13,7 +13,7 @@ import Network
 /// One-shot upstream DNS forwarding over UDP, with TCP retry on truncation.
 /// Used for queries the fake-IP responder declines (filter hosts, non-A types).
 final class NCDNSForwarder {
-    private let queue: DispatchQueue
+    let queue: DispatchQueue
 
     init(queue: DispatchQueue) {
         self.queue = queue
@@ -42,7 +42,7 @@ final class NCDNSForwarder {
         Data(query.dropFirst(min(2, query.count))).base64EncodedString()
     }
 
-    private func forwardUDPOnce(_ query: Data, server: String, port: Int = 53, completion: @escaping (Data?) -> Void) {
+    func forwardUDPOnce(_ query: Data, server: String, port: Int = 53, completion: @escaping (Data?) -> Void) {
         let nwPort = NWEndpoint.Port(rawValue: UInt16(clamping: port)) ?? .any
         let conn = NWConnection(host: NWEndpoint.Host(server), port: nwPort, using: NCOutboundBinding.params(.udp, host: server))
         var done = false
