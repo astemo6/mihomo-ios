@@ -1006,7 +1006,24 @@ extension NCConnector {
         sshLock.unlock()
         var signer: NCSSHKey?
         if let pk = proxy.fields["private-key"]?.string, !pk.isEmpty {
-            let (k, why) = sshKeyCached(pk, passphrase: proxy.fields["private-key-passphrase"]?.string)
+            // nc-perf: `private-key` is either inline PEM or a file path — absolute, ~, or
+            // relative to the profile home (AppShared.homeURL, the same base the known-hosts
+            // file uses). An encrypted OpenSSH key in the file is decrypted via
+            // private-key-passphrase (bcrypt + aes256-ctr/cbc, NCSSHKey.parseOpenSSH).
+            let pemText: String
+            if pk.contains("PRIVATE KEY") {
+                pemText = pk
+            } else {
+                let expanded = (pk as NSString).expandingTildeInPath
+                let url = expanded.hasPrefix("/") ? URL(fileURLWithPath: expanded)
+                                                  : AppShared.homeURL.appendingPathComponent(pk)
+                guard let text = try? String(contentsOf: url, encoding: .utf8) else {
+                    queue.async { completion(nil, Failure.unsupported("SSH 私钥文件读取失败（\(pk)）")) }
+                    return
+                }
+                pemText = text
+            }
+            let (k, why) = sshKeyCached(pemText, passphrase: proxy.fields["private-key-passphrase"]?.string)
             guard let k else {
                 queue.async { completion(nil, Failure.unsupported(why ?? "ssh private-key")) }
                 return
