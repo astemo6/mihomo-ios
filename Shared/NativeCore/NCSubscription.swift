@@ -900,7 +900,7 @@ enum NCSubscriptionParser {
         }
         let alg = firstQ(["host-key-algorithms", "hostKeyAlgorithms"])
         if !alg.isEmpty {
-            f["host-key-algorithms"] = .array(alg.components(separatedBy: ",").map { .string($0.trimmingCharacters(in: .whitespaces)) }.filter { !$0.isEmpty })
+            f["host-key-algorithms"] = .array(alg.components(separatedBy: ",").map { $0.trimmingCharacters(in: .whitespaces) }.filter { !$0.isEmpty }.map { .string($0) })
         }
         // Go: an ssh node with neither password nor private key is an error.
         guard !password.isEmpty || f["private-key"] != nil else { return nil }
