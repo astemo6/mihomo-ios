@@ -82,4 +82,9 @@ enum TailscaleText {
     static func derpRegionText(_ region: Int) -> String {
         return "Region \(region)"
     }
+
+    // MARK: - Status File Diagnostics Texts
+
+    static let statusFileNotFound = String(localized: "状态文件不存在")
+    static let statusFileCorrupted = String(localized: "状态文件损坏或无法读取")
 }
