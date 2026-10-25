@@ -42,7 +42,7 @@ enum NodeProtocols {
         case "trusttunnel": return "TrustTunnel：AdGuard 的 HTTP/2 · HTTP/3 隧道协议，用户名与密码由服务端分配。"
         case "shadowquic": return "ShadowQUIC：伪装成普通 QUIC（TLS 1.3）的代理协议，SNI 填被伪装的网站。"
         case "openvpn": return "OpenVPN：由内核在用户态完成连接，不会创建系统 VPN。CA 证书必填；把 .ovpn 中 <ca> 等段的 PEM 内容粘贴进来。"
-        case "gost-relay": return "GOST Relay：GOST v3 的 relay 协议，可选 TLS 与多路复用。"
+        case "gost-relay": return "GOST Relay：GOST v3 的 relay 协议（不是 relay 链式策略组），支持 TCP / UDP，可叠加 TLS、WebSocket（ws / wss）与多路复用。"
         case "tailscale": return "Tailscale：原生内核尚未接入，节点会保留在配置中，但不会被连接。"
         case "ssh": return "私钥可直接粘贴 PEM 全文，也可填文件路径（绝对路径、~/ 开头，或相对配置目录）；加密的 OpenSSH 私钥请在「私钥口令」填写口令。"
         default: return nil
@@ -292,6 +292,12 @@ enum NodeProtocols {
                 FieldSpec(key: "mux", label: "多路复用", kind: .bool),
                 FieldSpec(key: "udp", label: "UDP", kind: .bool),
                 FieldSpec(key: "skip-cert-verify", label: "跳过证书验证", kind: .bool),
+                FieldSpec(key: "forward", label: "转发模式（不发送目标地址）", kind: .bool),
+                FieldSpec(key: "network", label: "传输", kind: .choice(["tcp", "ws"])),
+                FieldSpec(key: "ws-opts.path", label: "WS 路径", placeholder: "/"),
+                FieldSpec(key: "ws-opts.headers.Host", label: "WS Host"),
+                FieldSpec(key: "client-fingerprint", label: "TLS 指纹", kind: .choice(["", "chrome", "firefox", "safari", "ios", "random"])),
+                FieldSpec(key: "fingerprint", label: "证书 SHA-256 指纹"),
             ]
         case "tailscale":
             return [

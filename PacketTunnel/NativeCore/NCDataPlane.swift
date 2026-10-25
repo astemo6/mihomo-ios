@@ -801,6 +801,9 @@ final class NCDataPlane {
             session = NCUDPMieruSession(proxy: proxy, target: target, queue: queue)
         case .proxy(let proxy) where proxy.type == "anytls":
             session = NCUDPAnyTLSSession(proxy: proxy, target: target, queue: queue)
+        case .proxy(let proxy) where proxy.type == "gost-relay":
+            // feat/nc-gost-relay: CONNECT|UDP relay connection bound to this flow's target (NCGostRelayUDP.swift).
+            session = NCUDPGostRelaySession(proxy: proxy, target: target, queue: queue)
         case .proxy(let proxy) where proxy.type == "wireguard":
             // feat/nc-wg: UDP from the node's lwIP netif (NCUDPWireGuardSession).
             session = NCUDPWireGuardSession(proxy: proxy, queue: queue)

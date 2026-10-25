@@ -133,8 +133,60 @@ enum NCSubscriptionParser {
         case "socks", "socks5", "socks5h", "http", "https": return parseSocksHTTP(rest, scheme: scheme)
         case "anytls": return parseAnyTLS(rest)
         case "mieru", "mierus": return parseMieru(rest)
-        default: return nil
+        default:
+            // feat/nc-gost-relay: GOST relay (mihomo `gost-relay`) — gost-style relay[+tls|mtls|ws|mws|wss|mwss]://
+            // and Shadowrocket's Relay links (relay://BASE64(user:pass@host:port)?tls=1&peer=…#name).
+            if scheme == "relay" || scheme.hasPrefix("relay+") || scheme == "gost-relay" || scheme == "gostrelay" {
+                return parseGostRelay(rest, scheme: scheme)
+            }
+            return nil
         }
+    }
+
+    private static func parseGostRelay(_ rest: String, scheme: String) -> NCProxy? {
+        let normalized = scheme.hasPrefix("gost") ? "relay" : scheme
+        guard let tr = NCGostRelay.schemeTransport(normalized) else { return nil }
+        var body = rest
+        let cut = body.firstIndex(where: { $0 == "?" || $0 == "#" }) ?? body.endIndex
+        let authority = String(body[..<cut])
+        if !authority.isEmpty, !authority.contains(":") {
+            // Shadowrocket: the whole user:pass@host:port is one base64 blob (a real authority always has ":").
+            let blob = authority.hasSuffix("/") ? String(authority.dropLast()) : authority
+            if let d = base64Decode(blob.removingPercentEncoding ?? blob), let text = String(data: d, encoding: .utf8),
+               text.contains(":") {
+                body = text.trimmingCharacters(in: .whitespacesAndNewlines) + String(body[cut...])
+            }
+        }
+        let p = splitParts(body)
+        guard !p.host.isEmpty, p.port > 0, p.port <= 65535 else { return nil }
+        var f: [String: NCJSONValue] = [
+            "server": .string(p.host),
+            "port": .number(Double(p.port)),
+            "udp": .bool(true),
+        ]
+        if tr.tls { f["tls"] = .bool(true) }
+        if tr.ws { f["network"] = .string("ws") }
+        if tr.mux { f["mux"] = .bool(true) }
+        if !p.userinfo.isEmpty {
+            var ui = p.userinfo
+            if !ui.contains(":"), let decoded = base64Decode(ui),
+               let s = String(data: decoded, encoding: .utf8), s.contains(":") {
+                ui = s
+            }
+            let creds = ui.split(separator: ":", maxSplits: 1, omittingEmptySubsequences: false)
+            let user = String(creds[0]).removingPercentEncoding ?? String(creds[0])
+            if !user.isEmpty { f["username"] = .string(user) }
+            if creds.count > 1 {
+                let pass = String(creds[1]).removingPercentEncoding ?? String(creds[1])
+                if !pass.isEmpty { f["password"] = .string(pass) }
+            }
+        }
+        var q: [String: String] = [:]
+        for (k, v) in p.query { q[k.lowercased()] = v }
+        NCGostRelay.applyParams(q, into: &f)
+        let remarks = q["remarks"] ?? ""
+        let name = !p.name.isEmpty ? p.name : (!remarks.isEmpty ? remarks : "relay \(p.host)")
+        return NCProxy(name: name, type: "gost-relay", fields: f)
     }
 
     /// Split `userinfo@host:port?query#name` (query/name optional).
