@@ -286,6 +286,13 @@ enum NCConnector {
                                         allowMux: Bool = true,
                                         transport: NCRelayStream? = nil,
                                         completion: @escaping (NCRelayStream?, Error?) -> Void) {
+        if proxy.type == "mieru" {
+            // feat/nc-proto3: pure-Swift mieru TCP underlay (NCMieru); port may come from port-range.
+            mieruStream(proxy: proxy, target: target, udp: false, queue: queue, transport: transport) { s, err in
+                completion(s, err)
+            }
+            return
+        }
         guard let server = proxy.server, let port = proxy.port else {
             queue.async { completion(nil, Failure.handshake("proxy \(proxy.name) missing server/port")) }
             return

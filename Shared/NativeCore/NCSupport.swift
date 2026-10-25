@@ -7,7 +7,7 @@ enum NCSupport {
     /// Proxy types the connector (PacketTunnel/NativeCore/NCConnector.swift) implements.
     static let types: Set<String> = [
         "direct", "reject", "socks5", "http", "https", "ss", "ssr", "snell", "trojan", "vless", "vmess",
-        "hysteria2", "hy2", "anytls", "hysteria", "ssh", "tuic",
+        "hysteria2", "hy2", "anytls", "hysteria", "ssh", "tuic", "mieru",
     ]
     /// Stream transports (`network:`) the connector implements.
     static let transports: Set<String> = ["tcp", "ws", "grpc", "h2", "http"]
@@ -19,7 +19,6 @@ enum NCSupport {
             switch t {
             case "wireguard": return "WireGuard 尚未接入"
             case "tailscale": return "Tailscale 尚未接入"
-            case "mieru": return "Mieru 尚未接入"
             default: return "类型 \(t) 尚未接入"
             }
         }
@@ -37,6 +36,8 @@ enum NCSupport {
             if let why = hysteriaUnsupported(p) { return why + " 尚未接入" }
         case "ssh":
             if let why = sshUnsupported(p) { return why }
+        case "mieru":
+            if let why = mieruUnsupported(p) { return why }
         case "tuic":
             let hasToken = !(p.fields["token"]?.string ?? "").isEmpty
             if !hasToken && (p.uuid ?? "").isEmpty { return "TUIC 缺少 uuid / token" }
@@ -111,6 +112,17 @@ enum NCSupport {
             return "SSH 私钥文件路径尚未接入（请内联 PEM）"
         }
         if let pp = p.fields["private-key-passphrase"]?.string, !pp.isEmpty { return "SSH 加密私钥尚未接入" }
+        return nil
+    }
+
+    /// Mieru (NCMieru, feat/nc-proto3): transport TCP (stream underlay), TCP + UDP-over-session traffic.
+    static func mieruUnsupported(_ p: NCProxy) -> String? {
+        let transport = (p.fields["transport"]?.string ?? "").uppercased()
+        if transport == "UDP" { return "Mieru transport UDP 尚未接入（仅 TCP）" }
+        if transport != "TCP" { return "Mieru transport 必须为 TCP 或 UDP" }
+        if (p.fields["username"]?.string ?? "").isEmpty || (p.password ?? "").isEmpty { return "Mieru 缺少 username / password" }
+        if (p.port ?? 0) == 0 && (p.fields["port-range"]?.string ?? "").isEmpty { return "Mieru 缺少 port / port-range" }
+        if let tp = p.fields["traffic-pattern"]?.string, !tp.isEmpty { return "Mieru traffic-pattern 尚未接入" }
         return nil
     }
 

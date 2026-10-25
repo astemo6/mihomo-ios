@@ -455,6 +455,8 @@ final class NCDataPlane {
                 return
             }
             session = ssr
+        case .proxy(let proxy) where proxy.type == "mieru":
+            session = NCUDPMieruSession(proxy: proxy, target: target, queue: queue)
         case .proxy(let proxy) where proxy.type == "anytls":
             session = NCUDPAnyTLSSession(proxy: proxy, target: target, queue: queue)
         case .proxy(let proxy) where proxy.type == "snell":
