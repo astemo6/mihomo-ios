@@ -114,6 +114,9 @@ public final class NCTailscaleClient {
     public let derp: NCTailscaleDERPClient
     public private(set) var device: NCWGDevice?
 
+    // Phase 2: disco direct-path manager (created on first netmap snapshot)
+    public private(set) var pathManager: NCTailscalePathManager?
+
     // Threading & State Locks
     private let clientLock = NSLock()
     private var peerRegionMap: [Data: Int] = [:]
@@ -252,6 +255,9 @@ public final class NCTailscaleClient {
         control.onStatusChanged = { [weak self] statusFile in
             self?.handleControlStatusChanged(statusFile)
         }
+        control.endpointsProvider = { [weak self] in
+            self?.pathManager?.currentEndpoints() ?? []
+        }
 
         control.start()
 
@@ -314,6 +320,8 @@ public final class NCTailscaleClient {
     private func stopInternal() {
         watchdogTimer?.cancel()
         watchdogTimer = nil
+        pathManager?.stop()
+        pathManager = nil
         control.stop()
         derp.stop()
         NCLwIP.queue.async { [weak self] in
@@ -380,7 +388,12 @@ public final class NCTailscaleClient {
         if let derpMap = snapshot.derpMap {
             if !derp.isHomeConnected && derp.currentHomeRegionID == 0 {
                 derp.onPacket = { [weak self] srcPubkey, wgPacket in
-                    self?.handleDERPPacket(srcPubkey: srcPubkey, packet: wgPacket)
+                    guard let self else { return }
+                    if let pm = self.pathManager,
+                       pm.handleDERPPacket(wgPacket, fromNodeKey: srcPubkey) {
+                        return // disco message consumed by the path manager
+                    }
+                    self.handleDERPPacket(srcPubkey: srcPubkey, packet: wgPacket)
                 }
                 derp.onHomeStateChange = { [weak self] connected, region in
                     self?.handleDERPHomeChange(connected: connected, region: region)
@@ -389,6 +402,34 @@ public final class NCTailscaleClient {
             } else {
                 derp.updateDERPMap(derpMap)
             }
+        }
+
+        // Phase 2: disco path manager (direct paths with DERP fallback)
+        if let keys = control.keys {
+            let pm: NCTailscalePathManager
+            if let existing = pathManager {
+                pm = existing
+                pm.updateDERPMap(snapshot.derpMap)
+            } else {
+                pm = NCTailscalePathManager(queue: queue)
+                pm.sendViaDERP = { [weak self] nodeKey, data in
+                    self?.sendPacketViaDERP(peerKey: [UInt8](nodeKey), data: [UInt8](data))
+                }
+                pm.onWGDirectPacket = { [weak self] nodeKey, data in
+                    self?.handleDERPPacket(srcPubkey: nodeKey, packet: data)
+                }
+                pm.onEndpointsChanged = { [weak self] in
+                    self?.control.refreshEndpoints()
+                }
+                pm.onPathChanged = { [weak self] in
+                    self?.writeStatusFile()
+                }
+                pathManager = pm
+                pm.start(discoPrivate: keys.discoKey,
+                         nodeKey: Data(keys.nodeKey.publicKey.rawRepresentation),
+                         derpMap: snapshot.derpMap)
+            }
+            pm.updatePeers(nodes: Array(snapshot.peers.values))
         }
 
         // Build peer list from netmap
@@ -422,7 +463,7 @@ public final class NCTailscaleClient {
             guard let self else { return }
             if let dev = self.device, dev.alive {
                 dev.updatePeers(newPeers) { [weak self] peer, rawBytes in
-                    self?.sendPacketViaDERP(peerKey: peer.cfg.publicKey, data: rawBytes)
+                    self?.sendPacketViaPath(peerKey: peer.cfg.publicKey, data: rawBytes)
                 }
             } else {
                 let wgCfg = NCWGConfig(
@@ -452,7 +493,7 @@ public final class NCTailscaleClient {
                 for p in dev.peers {
                     p.customSender = { [weak self, weak p] bytes in
                         guard let self, let p else { return }
-                        self.sendPacketViaDERP(peerKey: p.cfg.publicKey, data: bytes)
+                        self.sendPacketViaPath(peerKey: p.cfg.publicKey, data: bytes)
                     }
                 }
                 self.device = dev
@@ -471,6 +512,15 @@ public final class NCTailscaleClient {
     }
 
     // MARK: - Packet Routing (WG <-> DERP)
+
+    /// WG device output: direct disco path when one is live, else DERP relay.
+    private func sendPacketViaPath(peerKey: [UInt8], data: [UInt8]) {
+        if let pm = pathManager {
+            pm.send(nodeKey: Data(peerKey), packet: Data(data))
+        } else {
+            sendPacketViaDERP(peerKey: peerKey, data: data)
+        }
+    }
 
     /// WG device output -> DERP sendPacket.
     private func sendPacketViaDERP(peerKey: [UInt8], data: [UInt8]) {
@@ -581,8 +631,10 @@ public final class NCTailscaleClient {
         let totalPeers = control.currentSnapshot.peers.count
         clientLock.unlock()
 
-        let relayPeers = device?.activeRelayCount ?? 0
-        let counts = NCTailscalePeerCounts(total: totalPeers, direct: 0, relay: relayPeers)
+        let sessions = device?.activeRelayCount ?? 0
+        let directPeers = pathManager?.directPeerCount ?? 0
+        let counts = NCTailscalePeerCounts(total: totalPeers, direct: directPeers,
+                                           relay: max(0, sessions - directPeers))
 
         let selfSummary = NCTailscaleSelfNodeSummary(
             id: control.currentSnapshot.selfNode?.ID,
