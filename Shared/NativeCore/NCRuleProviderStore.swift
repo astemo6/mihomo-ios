@@ -18,10 +18,35 @@ final class NCRuleProviderStore {
     struct Provider: Equatable {
         var name: String // lookup key: provider name, or the URL itself
         var behavior: String = "classical" // classical | domain | ipcidr
+        var format: String = "yaml" // yaml | text | mrs
         var url: String? = nil
         var filePath: String? = nil // local file (type=file), absolute or home-relative
         var inlinePayload: [String] = []
         var interval: Int = 86400
+
+        init(
+            name: String,
+            behavior: String = "classical",
+            format: String = "yaml",
+            url: String? = nil,
+            filePath: String? = nil,
+            inlinePayload: [String] = [],
+            interval: Int = 86400
+        ) {
+            self.name = name
+            self.behavior = behavior
+            self.format = format
+            self.url = url
+            self.filePath = filePath
+            self.inlinePayload = inlinePayload
+            self.interval = interval
+        }
+
+        var isMRS: Bool {
+            format.lowercased() == "mrs" ||
+            (filePath?.hasSuffix(".mrs") == true) ||
+            (url?.hasSuffix(".mrs") == true)
+        }
 
         var flavor: NCRuleSetFlavor {
             switch behavior {
@@ -65,6 +90,9 @@ final class NCRuleProviderStore {
                 p.behavior = o["behavior"]?.string ?? "classical"
                 p.url = o["url"]?.string
                 p.filePath = o["path"]?.string
+                p.format = o["format"]?.string ?? (
+                    (p.filePath?.hasSuffix(".mrs") == true || p.url?.hasSuffix(".mrs") == true) ? "mrs" : "yaml"
+                )
                 p.interval = o["interval"]?.int ?? 86400
                 if (o["type"]?.string ?? "") == "inline" {
                     p.inlinePayload = o["payload"]?.array?.compactMap { $0.string } ?? []
@@ -78,7 +106,8 @@ final class NCRuleProviderStore {
             guard fields.count >= 2, fields[0].uppercased() == "RULE-SET" else { continue }
             let payload = fields[1]
             if payload.hasPrefix("http://") || payload.hasPrefix("https://"), !declared.contains(payload) {
-                out.append(Provider(name: payload, behavior: "auto", url: payload))
+                let fmt = payload.hasSuffix(".mrs") ? "mrs" : "auto"
+                out.append(Provider(name: payload, behavior: "auto", format: fmt, url: payload))
             }
         }
         return out
@@ -91,6 +120,17 @@ final class NCRuleProviderStore {
         var hash: UInt64 = 0xcbf29ce484222325
         for b in name.utf8 { hash = (hash ^ UInt64(b)) &* 0x100000001b3 }
         return dir.appendingPathComponent(String(format: "set-%016llx.txt", hash))
+    }
+
+    /// Populate an in-memory index from raw data (either text/yaml or binary .mrs).
+    static func populateIndex(idx: inout NCRuleSetIndex, data: Data, provider: Provider) throws {
+        if provider.isMRS || NCMRS.isMRS(data: data) {
+            try idx.addMRS(data: data, behavior: provider.behavior)
+        } else if let text = String(data: data, encoding: .utf8) {
+            idx.addText(text, flavor: provider.flavor)
+        } else {
+            throw NCMRSError.corrupted("rule provider '\(provider.name)' payload is neither UTF-8 text nor recognized MRS binary format")
+        }
     }
 
     /// Build indexes from inline payloads, local files and the disk cache.
@@ -107,14 +147,22 @@ final class NCRuleProviderStore {
             } else if let path = p.filePath {
                 let url = path.hasPrefix("/") ? URL(fileURLWithPath: path)
                     : URL(fileURLWithPath: home).appendingPathComponent(path)
-                if let text = try? String(contentsOf: url, encoding: .utf8) {
-                    idx.addText(text, flavor: p.flavor)
-                    loaded = idx.entryCount > 0
+                if let data = try? Data(contentsOf: url) {
+                    do {
+                        try Self.populateIndex(idx: &idx, data: data, provider: p)
+                        loaded = idx.entryCount > 0
+                    } catch {
+                        NSLog("[NCRuleProviderStore] failed loading local file %@ for %@: %@", path, p.name, String(describing: error))
+                    }
                 }
             }
-            if !loaded, let text = try? String(contentsOf: cacheFile(for: p.name), encoding: .utf8) {
-                idx.addText(text, flavor: p.flavor)
-                loaded = idx.entryCount > 0
+            if !loaded, let data = try? Data(contentsOf: cacheFile(for: p.name)) {
+                do {
+                    try Self.populateIndex(idx: &idx, data: data, provider: p)
+                    loaded = idx.entryCount > 0
+                } catch {
+                    NSLog("[NCRuleProviderStore] failed loading cache for %@: %@", p.name, String(describing: error))
+                }
             }
             if loaded {
                 lock.lock(); indexes[p.name] = idx; lock.unlock()
@@ -135,12 +183,18 @@ final class NCRuleProviderStore {
     func refresh(_ p: Provider, completion: (() -> Void)? = nil) {
         guard let url = p.url else { completion?(); return }
         fetcher(url) { [weak self] data in
-            guard let self, let data, let text = String(data: data, encoding: .utf8) else {
+            guard let self, let data else {
                 completion?()
                 return
             }
             var idx = NCRuleSetIndex()
-            idx.addText(text, flavor: p.flavor)
+            do {
+                try Self.populateIndex(idx: &idx, data: data, provider: p)
+            } catch {
+                NSLog("[NCRuleProviderStore] refresh failed for %@: %@", p.name, String(describing: error))
+                completion?()
+                return
+            }
             guard idx.entryCount > 0 else { completion?(); return }
             try? data.write(to: self.cacheFile(for: p.name), options: .atomic)
             self.lock.lock()

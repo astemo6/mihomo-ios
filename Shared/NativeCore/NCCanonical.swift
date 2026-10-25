@@ -106,6 +106,10 @@ struct NCRuleSetRef: Equatable {
     var interval: Int = 86400
     var forcedPolicy: String? = nil // QX force-policy / the RULE-SET line's policy column
     var fields: [String: NCJSONValue] = [:]
+
+    var format: String? { fields["format"]?.string }
+    var behavior: String? { fields["behavior"]?.string }
+    var path: String? { fields["path"]?.string }
 }
 
 enum NCGroupKind: Equatable {
@@ -286,9 +290,20 @@ struct NCCanonicalConfig: Equatable {
         }
         let servers = (dns.defaultServers + dns.encryptedServers).map { NCJSONValue.string($0.raw) }
         if !servers.isEmpty { dnsFields["nameserver"] = .array(servers) }
+        var raw: [String: NCJSONValue] = [:]
+        if !ruleSets.isEmpty {
+            var provs: [String: NCJSONValue] = [:]
+            for r in ruleSets {
+                var f = r.fields
+                if f["url"] == nil, let url = r.url { f["url"] = .string(url) }
+                if f["interval"] == nil { f["interval"] = .int(r.interval) }
+                provs[r.name] = .object(f)
+            }
+            raw["rule-providers"] = .object(provs)
+        }
         return NCConfig(mode: mode, logLevel: logLevel, ipv6: ipv6,
                         proxies: nodes, groups: groups.map { $0.legacy() }, rules: rules,
-                        dns: NCDNSConfig(fields: dnsFields), raw: [:])
+                        dns: NCDNSConfig(fields: dnsFields), raw: raw)
     }
 }
 
