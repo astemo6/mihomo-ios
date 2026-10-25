@@ -12,6 +12,9 @@ import os
 /// UDP relay (feat/nc-proto2): `udp-relay-mode: native` (default) sends Packet commands as QUIC DATAGRAM frames on a
 /// datagram flow (NWProtocolQUIC.Options.isDatagram, the group advertises max_datagram_frame_size); `quic` sends each
 /// packet on its own unidirectional stream and reads the server's uni streams (NCTUICUDP.swift).
+///  - ECH: experimental system ECH enabled via sec_protocol_options_set_enable_encrypted_client_hello.
+///    System QUIC discovers ECHConfig via system DNS HTTPS records (best-effort "系统 ECH（尽力而为）").
+///    Static ECH configs cannot be injected and are warned in logs and NCSupport.report.
 /// Not yet: heartbeat datagrams (the QUIC idle timeout closes an idle session and the next flow reconnects), custom
 /// congestion control (system QUIC CC is used).
 enum NCTUICWire {
@@ -50,7 +53,7 @@ final class NCTUICConnection {
     private let server: String, port: Int
     private let version: Int
     private let uuid: Data, password: Data, token: Data
-    private let sni: String?, alpn: [String], allowInsecure: Bool
+    private let sni: String?, alpn: [String], allowInsecure: Bool, echEnabled: Bool
     /// nc-races: the connection's own session queue (the #116 pattern, as in NCMuxSession): the NW group,
     /// the auth flow, the UDP association registry (NCTUICUDP.swift) and every TCP stream's state are
     /// touched only here. Callers hop in via `queue.async` (the UDP session already does) or the
@@ -139,6 +142,10 @@ final class NCTUICConnection {
         sni = disableSNI ? nil : (proxy.fields["sni"]?.string ?? server)
         alpn = proxy.fields["alpn"]?.array?.compactMap { $0.string } ?? ["h3"]
         allowInsecure = proxy.fields["skip-cert-verify"]?.bool ?? false
+        echEnabled = proxy.fields["ech-opts"]?.object?["enable"]?.bool ?? true
+        if NCSupport.hasStaticECHConfig(proxy) {
+            StartupLog.write("tuic「\(proxy.name)」: 节点配置了静态 ech-opts.config，但系统 QUIC 无法注入静态 ECH 配置（系统 ECH 仅依赖系统 DNS 获取，静态配置不生效）")
+        }
         self.callbackQueue = queue
         self.queue = NCSessionQueues.make("nc.tuic.\(server):\(port)")
         udpNative = (proxy.fields["udp-relay-mode"]?.string ?? "native").lowercased() != "quic"
@@ -180,6 +187,15 @@ final class NCTUICConnection {
         sec_protocol_options_set_tls_min_version(tls, .tlsProtocol13)
         if let sni, !sni.isEmpty { sec_protocol_options_set_tls_server_name(tls, sni) }
         if allowInsecure { sec_protocol_options_set_verify_block(tls, { _, _, complete in complete(true) }, queue) }
+        // ECH（lane E6）：打开系统 QUIC 的实验性 ECH 开关（Security 框架 C API）。
+        // 生效前提与限制：
+        // 1. 系统 QUIC 的 ECH 只能由系统在 DNS 解析时自动从 HTTPS/SVCB 记录中获取 ECHConfig；
+        // 2. 应用层无法向系统 QUIC 注入外部或静态（E1/E2 / ech-opts.config）获取的 ECHConfig；
+        // 3. 需系统 DNS 解析具备 DoH/HTTPS 记录支持；若无法从 DNS 获取则自动回退为普通 ClientHello。
+        // 因此此处为「系统 ECH（尽力而为）」。
+        if echEnabled {
+            sec_protocol_options_set_enable_encrypted_client_hello(tls, true)
+        }
         options.idleTimeout = 30_000
         // RFC 9221: advertise DATAGRAM support so native-mode UDP (and server heartbeats) can flow.
         options.maxDatagramFrameSize = 1400
