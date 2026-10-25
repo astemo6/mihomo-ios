@@ -135,6 +135,9 @@ final class NCController {
             respond(conn, status: 200, json: ["version": "native-1.0.0", "meta": true])
         case ("GET", "/proxies"):
             respond(conn, status: 200, json: ["proxies": proxiesJSON()])
+        case ("GET", "/smart"):
+            // 智能选择 status, same shape as the Go core's route (bridge/smart.go).
+            respond(conn, status: 200, json: engine.smartStatusJSON())
         case ("GET", "/connections"):
             let snap = plane.stats.snapshot()
             respond(conn, status: 200, json: [

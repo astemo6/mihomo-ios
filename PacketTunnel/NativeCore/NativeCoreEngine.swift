@@ -43,6 +43,10 @@ final class NativeCoreEngine {
     private var dnsPolicy: NCDNSPolicy?
     private var nodeSubStore: NCNodeSubscriptionStore?
     private var nodeSubs: [NCNodeSubscription] = []
+    /// 智能选择 scorer (bridge/smart.go port); armed from groups.json on load.
+    private var smart: NCSmartSelector?
+    private var smartTimer: DispatchSourceTimer?
+    private let smartQueue = DispatchQueue(label: "nc.smart")
     private var canonicalGroupMap: [String: NCGroupModel] = [:]
     private var healthCheck: NCHealthCheckScheduler?
     private var home = ""
@@ -169,6 +173,7 @@ final class NativeCoreEngine {
         for sub in staleSubs {
             subStore.refresh(sub) { [weak self] in self?.rebuildGroupEngine() }
         }
+        configureSmart()
         let homeURL = URL(fileURLWithPath: home)
         if let data = try? Data(contentsOf: homeURL.appendingPathComponent("geoip.metadb")) {
             geoIPDB = NCMMDB(data: data)
@@ -206,6 +211,7 @@ final class NativeCoreEngine {
             engine.selections = snap.selections
             engine.delays = snap.delays
             engine.alive = snap.alive
+            engine.smartPins = old.smartPins
         } else if let data = try? Data(contentsOf: selectionsFile),
                   let saved = try? JSONDecoder().decode([String: String].self, from: data) {
             // Selections survive a reconnect (mihomo keeps them in cache.db, store-selected).
@@ -290,6 +296,9 @@ final class NativeCoreEngine {
         stateLock.lock(); defer { stateLock.unlock() }
         healthCheck?.stop()
         healthCheck = nil
+        smartTimer?.cancel()
+        smartTimer = nil
+        smart = nil
         persistFakeIP()
         isRunning = false
         _config = nil
@@ -358,11 +367,48 @@ final class NativeCoreEngine {
     func recordDelay(name: String, ms: Int) {
         stateLock.lock(); defer { stateLock.unlock() }
         groups?.recordDelay(name: name, ms: ms)
+        smart?.recordCheck(name: name, ms: ms)
     }
 
     func recordFailure(name: String) {
         stateLock.lock(); defer { stateLock.unlock() }
         groups?.recordFailure(name: name)
+        smart?.recordCheck(name: name, ms: 0)
+    }
+
+    /// 智能选择 (bridge/smart.go): read this profile's smart group list from
+    /// <home>/groups.json ({"<profile id>": {"smart": [names]}} — the same
+    /// store the app edits via SmartGroups) and run the scorer: first pass
+    /// 20 s after load, then every 30 s, publishing pins to the resolver.
+    private func configureSmart() {
+        smartTimer?.cancel()
+        smartTimer = nil
+        smart = nil
+        groups?.smartPins = [:]
+        guard let profileID = AppShared.activeProfileURL?.deletingPathExtension().lastPathComponent,
+              let data = try? Data(contentsOf: URL(fileURLWithPath: home).appendingPathComponent("groups.json")),
+              let root = (try? JSONSerialization.jsonObject(with: data)) as? [String: Any],
+              let entry = root[profileID] as? [String: Any],
+              let names = entry["smart"] as? [String], !names.isEmpty else { return }
+        let selector = NCSmartSelector(enabledGroups: names)
+        smart = selector
+        let timer = DispatchSource.makeTimerSource(queue: smartQueue)
+        timer.schedule(deadline: .now() + 20, repeating: 30)
+        timer.setEventHandler { [weak self] in
+            // Engine state read / written under the engine lock (gap D3); the scorer itself runs unlocked.
+            guard let self, let selector = self.locked({ self.smart }) else { return }
+            let cfgGroups = self.effectiveConfig?.groups ?? []
+            let groupEngine = self.groupEngine
+            let pins = selector.tick(groups: cfgGroups, currentMember: { g in groupEngine?.currentMember(of: g) })
+            self.locked { if self.smart === selector { self.groups?.smartPins = pins } }
+        }
+        timer.resume()
+        smartTimer = timer
+    }
+
+    /// GET /smart body for the controller (Go smartRoutes shape).
+    func smartStatusJSON() -> [String: Any] {
+        locked { smart }?.statusJSON() ?? ["groups": [Any]()]
     }
 
     /// Policy name for a connection, following the config mode:
