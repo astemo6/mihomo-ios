@@ -365,7 +365,15 @@ final class NCLocalProxy {
 
     private func open(_ c: Conn, done: @escaping (Bool, UInt8) -> Void) {
         let ctx = engine.matchContext(domain: c.ruleDomain, ip: c.target.ip, dstPort: c.target.port, network: "tcp")
-        let (_, rule, resolution) = engine.route(ctx)
+        // rv2-rules: IP rules on a domain target resolve it first (no-resolve skips), same as the TUN data plane.
+        engine.routeAsync(ctx, queue: queue) { [weak self, weak c] _, rule, resolution in
+            guard let self, let c, !c.closed else { return }
+            self.dial(c, rule: rule, resolution: resolution, done: done)
+        }
+    }
+
+    private func dial(_ c: Conn, rule: String?, resolution: NCGroupEngine.Resolution,
+                      done: @escaping (Bool, UInt8) -> Void) {
         c.rule = rule ?? ""
         c.chain = switch resolution {
         case .direct: "DIRECT"
