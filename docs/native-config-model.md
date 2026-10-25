@@ -1,6 +1,8 @@
 # 原生内核规范配置模型（canonical model）
 
-状态：设计稿（2026-10-24）。用户拍板：原生内核**不受限于 mihomo**——
+状态：已落地（2026-10-24 设计，2026-10-25 按代码核对）。规范模型见
+`Shared/NativeCore/NCCanonical.swift`，四个导入器均已接通，隧道加载配置全程 Swift。
+用户拍板：原生内核**不受限于 mihomo**——
 内部模型按 Quantumult X / Loon / Surge 三家语义的并集自有设计，
 mihomo YAML 降为导入格式之一，与 Surge / Loon / QX 的 .conf 平级。
 
@@ -102,5 +104,5 @@ options：`no-resolve`、规则集引用时的 `extended` 标记等。
 - `NCConfig`（mihomo JSON 形）保留为 **mihomo 导入器的中间产物**，随后映射到规范模型；
   `NativeCoreEngine` 改为消费规范模型。现有 `NCGroupEngine` / `NCRuleMatcher` /
   `NCFakeIPPool` / DNS 转发等按解析后结构工作的代码基本保留，改造集中在配置层。
-- Go 侧 `LibmihomoNativeConfigJSON` 导出在规范模型落地后仅服务旧路径，
-  YAML 导入器（NCYAML 已就绪）接通后，隧道加载配置不再依赖 Go。
+- Go 侧 `LibmihomoNativeConfigJSON` 已随 `bridge/` 一并删除（Go-zero）；
+  YAML 导入器（NCYAML）与 Surge / Loon / QX 导入器均已接通，隧道加载配置不再依赖 Go。

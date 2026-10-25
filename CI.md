@@ -37,7 +37,7 @@ Go 内核已移除（NativeCore 纯 Swift）：原来的 `core-update.yml`（每
   build_only 按 ref。`main` 上的 Checks 和发版构建不会被取消。
   所以：一轮 UI 还没跑完时别往同一个 `test/**` 分支推；要并行验证另一个修复，推到另一个 `test/**` 分支（各自一组）。
 - **同一提交只测一次**：Self-test 开头的 `dedupe` 作业（几秒，ubuntu）查同一 SHA 在**别的分支**上是否已有
-  排队中 / 运行中 / 成功的 Self-test；有就跳过 go 和 ui，摘要里给出那次运行的链接。
+  排队中 / 运行中 / 成功的 Self-test；有就跳过 ui，摘要里给出那次运行的链接。
   - 只对 push 生效；手动派发（workflow_dispatch）和对被跳过运行的「Re-run」一定会真跑。
   - 若被参照的那次后来被取消或失败了，对被跳过的这次点 Re-run all jobs 即可。
 - **PR 不重复（Checks）**：PR 的 head 是本仓库的 `test/**` 或 `core/**` 分支时，push 已经跑过 Checks，PR 那次的作业直接跳过

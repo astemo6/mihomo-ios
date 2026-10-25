@@ -1,16 +1,16 @@
-# Tern（mihomo 内核的 iOS 客户端，原名 Mihomo iOS）
+# Tern（NativeCore 原生内核的 iOS 客户端，原名 Mihomo iOS）
 
-基于开源 [mihomo](https://github.com/MetaCubeX/mihomo)（Clash Meta）内核的个人 iOS 代理客户端：卡片界面（深色 / 浅色），五个标签页——首页、策略、请求、工具、更多；首页只放最常用的东西，功能页在「工具」，设置在「更多」，进阶选项收在「更多 → 高级设置」。
+内核为自研 **NativeCore**（纯 Swift，协议 / 规则 / DNS 语义对标 [mihomo](https://github.com/MetaCubeX/mihomo) 与 Surge / Loon / Quantumult X）的个人 iOS 代理客户端：卡片界面（深色 / 浅色），五个标签页——首页、策略、请求、工具、更多；首页只放最常用的东西，功能页在「工具」，设置在「更多」，进阶选项收在「更多 → 高级设置」。
 
-> 本项目以 **GPL-3.0** 发布（见 `LICENSE` 与 `NOTICE`），与 mihomo 内核许可一致。仓库里没有任何节点、证书或密钥。
+> 本项目以 **GPL-3.0** 发布（见 `LICENSE` 与 `NOTICE`）。仓库里没有任何节点、证书或密钥。
 
 ## 设计原则
 
-1. **一个内部模型**：所有东西最终都是「mihomo 配置 + 我们自己的覆写 / 模块存储」。Surge、Quantumult X、Loon、Stash、Egern 的格式只在导入边缘做一次翻译（每种格式一个解析器），之后就是普通的 mihomo 配置或模块，不存在第二套运行逻辑。
+1. **一个内部模型**：任何来源格式（mihomo YAML、Surge / Quantumult X / Loon / Stash / Egern 的 .conf 与模块）只在导入边缘翻译一次为规范模型（见 `docs/native-config-model.md`），引擎只消费规范模型，不存在第二套运行逻辑；覆写 / 模块存储是我们自己的。
 2. **一种设计语言**：项目自己的深色卡片（`Theme` / `Card`），新页面不照搬其他客户端的布局。
 3. **首页极简**：连接开关、出站模式、IP 卡片、流量和可选的首页面板。功能页是「工具」里的卡片（节点与订阅、规则、模块、重写、脚本、任务、HTTPS 解密、DNS、日志、网络工具）；「更多」放配置、统计、备份和 App 设置，连接方式 / 内核 / 测速等进阶项在「更多 → 高级设置」。
 4. **模块只有一个入口**：所有格式的模块和远程资源（规则集、脚本）都在「工具 → 模块」，用角标标出来源格式。
-5. **宁缺毋滥**：做不精的功能先不做（共享动态内核库只作为单独的 `-sharedcore` 测试 IPA 提供；资源解析器只保存地址、不运行；小组件、控制中心开关和实时活动作为单独的 `-widget` IPA 提供）。
+5. **宁缺毋滥**：做不精的功能先不做（资源解析器只保存地址、不运行；小组件、控制中心开关和实时活动作为单独的 `-widget` IPA 提供）。
 6. **规则、重写、脚本都接受 Surge 与 Quantumult X 写法**（以及 Loon、Stash、Egern），只在边缘翻译一次。
 
 ## 功能
@@ -43,47 +43,42 @@
 │ ControllerClient ──HTTP/WebSocket──► 127.0.0.1:9090     │
 │ ProfileStore / ProfileInspector（离线解析配置）         │
 │ ImportRouter（mihomo:// + 外部链接 + 文档）、App Intents │
-│ Libmihomo（校验、转换、离线解析、地理库安装）           │
+│ Shared/NativeCore（校验、转换、离线解析、地理库）       │
 └──────────────────────────────┬─────────────────────────┘
                                │ App Group（运行时从描述文件解析）
 ┌──────────── PacketTunnel 扩展（NEPacketTunnelProvider）┐
 │ 全局隧道：198.18.0.1/16、默认路由、DNS 198.18.0.2、MTU  │
 │ 仅代理：NEProxySettings → 127.0.0.1:<mixed-port>        │
-│ PacketFlowBridge：packetFlow ⇄ socketpair ⇄ 内核 tun fd │
+│ 数据面：packetFlow ⇄ lwIP（NCDataPlane）⇄ Swift 出站   │
 │ MemoryGuard、TrafficRecorder、30 s 看门狗、启动日志     │
-│ LibmihomoStart(home, profile, fd)                       │
+│ NativeTunnelCore / NativeCoreEngine（Swift）            │
 └────────────────────────────────────────────────────────┘
 ```
 
-- `bridge/`：Go 包 `libmihomo`（gomobile）。启动时把配置与 `overrides.json`、`dns.json`、`rules.json`、模块合并为 `runtime.yaml`。
+- 内核 **NativeCore**（纯 Swift，无 Go / gomobile；`bridge/` 已在 Go-zero 迁移中删除）：共享层 `Shared/NativeCore/` 放配置规范模型、导入器、规则、DNS、协议与控制器协议，App 与隧道共用；`PacketTunnel/NativeCore/` 放数据面（lwIP）、拨号与引擎生命周期。隧道启动时由 `NativeCoreEngine` 加载经导入器归一的配置。
 - 设置文件（App Group 容器 `mihomo/`）：`subscriptions.json`（每个订阅的节点处理规则）、`overrides.json`（内核覆写，含 `tunnelMode` `mixedPort` `tunMTU` `geoMirror` `geoURLs` `mergeManual`，解码容错；不含任何密钥）、`secrets.json`（控制器密钥与局域网共享密码，0600，只进加密备份）、`dns.json`、`rules.json`、`engine/`（MitM / 重写 / 脚本 / 模块）；每个配置旁的 `<id>.selected.json` 保存离线选择的节点。
 - 工程由 XcodeGen 从 `project.yml` 生成；**Bundle ID 与 App Group 只在 `project.yml` 顶部改一处**。
 
-### 编程语言分工（2026-10-24 实测后）
+### 编程语言分工（现状）
 
-| 部分 | 现行 v0.19.24 | 下一版默认 | 原生 Swift 版（随版带上） |
-|---|---|---|---|
-| 界面、VPN、配置/订阅管理 | Swift | Swift | — |
-| packetFlow 桥接、MemoryGuard、流量记录 | Swift | Swift | — |
-| 出站协议、分流规则、策略组、DNS、TUN | Go（mihomo） | Go（必须） | — |
-| `$httpClient`、远程下载、MitM 上游出口 | Go | Go（必须经分流） | — |
-| MitM TLS 终止 / CONNECT / HTTP/1.1 | Go | **按主机**：有改 body / jq / 脚本规则的主机 Swift，其余 Go（`nativeMitmSelective` 默认开） | `nativeMitmStage2`（全部连接，默认关） |
-| MitM HTTP/2 | Go | Go | `nativeMitmH2`（默认关） |
-| 重写匹配 | Go | 上述主机 Swift，其余 Go | `nativeMitmRewrite`（1769/1779 原生，0 差异） |
-| 改 body / jq | Go | 上述主机 Swift（≤256 KB，更大交回 Go），其余 Go | `nativeMitmBody` |
-| 脚本调度（响应 + 请求阶段） | Go | 上述主机 Swift，其余 Go | `nativeMitmScript`（请求 22/22、响应 41/41 一致） |
-| 脚本执行 | JavaScriptCore | JavaScriptCore（独占专用线程） | — |
-| Body 缓存 | Go | 有 JavaScriptCore 时原生（按主机模式需要） | `nativeBodyLane.enabled` |
-| 内存调度 | Go | Go | `nativeMemGovernor`（默认关） |
-| 证书签发、请求日志/抓包、定时任务触发 | Go | Go | — |
+全部 Swift（数据面含 lwIP 的 C 代码），无 Go：
 
-为什么按主机：100 个普通解密连接全 Go +5.70 MB，全部原生最好 +6.24 MB（iOS TLS 连接每条约 44 KB，Go 约 24 KB），普通转发 Go 更省；但有大响应体的脚本 / jq 时原生省得多（模拟：16 个 2 MB 脚本峰值 −18～−20 MB；90 普通 + 10 个 2 MB 脚本 −20～−26 MB；100 普通连接按主机模式与全 Go 相同，+0.3 / −0.8 MB 属误差）。所以只把有这类规则的主机交给原生。
+| 部分 | 实现 |
+|---|---|
+| 界面、VPN、配置/订阅管理 | Swift（App） |
+| 数据面（packetFlow ⇄ lwIP）、MemoryGuard、流量记录 | Swift + C（lwIP） |
+| 出站协议、分流规则、策略组、DNS、TUN | Swift（NativeCore） |
+| MitM TLS 终止 / HTTP/1.1 / HTTP/2、重写、改 body / jq | Swift（隧道内） |
+| 脚本调度与执行 | Swift 调度 + JavaScriptCore 执行 |
+| 证书签发、请求日志/抓包、定时任务触发 | Swift |
+
+> 历史：2026-10-24 曾有 Go（mihomo）/ Swift 按主机分工的过渡方案与内存实测，Go-zero 后不再适用；当时的设计与数据见 `docs/native-core-design.md` 及 git 历史。
 
 ## 协议支持
 
-内核按 mihomo 默认构建（只加 `with_gvisor`，不使用任何 `no_*` 裁剪标签），包含 mihomo 支持的全部出站协议：Shadowsocks（含 2022、obfs / v2ray-plugin / shadow-tls 插件）、ShadowsocksR、VMess、VLESS（含 Reality、XTLS-Vision）、Trojan、Hysteria、Hysteria2、TUIC v5、WireGuard、Snell、AnyTLS、Mieru、SSH、SOCKS5、HTTP/HTTPS 等。
+NativeCore（纯 Swift）实现的出站协议：Shadowsocks（含 2022，以及 obfs / v2ray-plugin / shadow-tls / gost-plugin / restls 插件）、ShadowsocksR、VMess、VLESS（含 Reality、XTLS-Vision、mlkem768x25519plus encryption）、Trojan、Hysteria、Hysteria2、TUIC v5、WireGuard（含 AmneziaWG 1.0）、Snell、AnyTLS、Mieru、SSH、SOCKS5、HTTP/HTTPS 等。尚未接入的节点保留在配置中并在「诊断」里标注原因（清单以 `Shared/NativeCore/NCSupport.swift` 为准）；已知缺口：Tailscale、Mieru 的 UDP transport 与 traffic-pattern、AmneziaWG 2.0 头部范围与 s3/s4、restls 的 fingerprint / name-cert-verify、v2ray-plugin 的 http-upgrade 模式。
 
-导入解析（`bridge/nodes.go`，带单元测试覆盖每种格式并经内核校验）：
+导入解析（App 侧 Swift 导入器，带单元测试覆盖主要格式并经内核校验）：
 
 | 格式 | 示例 |
 | --- | --- |
@@ -94,29 +89,24 @@
 
 策略页每个节点都有协议角标。
 
-## 内核自动升级
+## 内核
 
-`.github/workflows/core-update.yml` 每天 02:00 UTC（也可手动运行，可指定版本）：
-
-1. 通过 GitHub API 取 MetaCubeX/mihomo 最新**正式版**（`/releases/latest`，跳过 Prerelease-Alpha 等预发布）；
-2. 与 `bridge/go.mod` 中的版本比较，较新时在分支 `core/mihomo-<tag>` 上执行 `go get github.com/metacubex/mihomo@<tag> && go mod tidy`，`go vet` + `go test`，提交 `core: mihomo <tag>`；
-3. 通过 `workflow_call` 调用 `ios.yml` 在该分支完整构建一次（不发布）；
-4. 成功 → 合并到默认分支，并用 `workflow_dispatch` 触发 `ios.yml` 发布新 IPA Release；失败 → 开 issue（或在已有 issue 下评论），默认分支不受影响。
-
-内核版本**只记录在 `bridge/go.mod`**，`ios.yml` 构建时从中读取，所以自动升级不需要修改 workflow 文件（`GITHUB_TOKEN` 无权推送 `.github/workflows` 下的改动）。
+NativeCore 是仓库内的 Swift 代码（`Shared/NativeCore/` + `PacketTunnel/NativeCore/`），随 App 一起构建发布，没有上游内核版本与自动升级流程——原 mihomo 内核与 `core-update.yml` 已随 Go-zero 一并移除。协议 / 规则 / DNS 语义对标 mihomo 与 Surge / Loon / QX，差异以仓库测试为准。
 
 ## CI
 
-`.github/workflows/ios.yml`（push 到 main 或手动运行）：setup-go → gomobile 构建 xcframework（按 bridge 源码与内核版本缓存）→ XcodeGen → `xcodebuild archive` → IPA → 上传 Artifact，并发布 GitHub Release（tag `v<版本>-build<N>`）。手动运行时可勾选 `build_only` 只编译不发布。
+`.github/workflows/ios.yml`（push 到 main 或手动运行）：XcodeGen 生成工程（纯 Swift）→ `xcodebuild archive` → IPA → 上传 Artifact，并发布 GitHub Release（tag `v<版本>-build<N>`）。手动运行时可勾选 `build_only` 只编译不发布。打包后跑 `scripts/ipa_size.py`（IPA 夹带任何内嵌 framework / dSYM / 头文件即判失败）与 `scripts/icon_check.py`。
 
 - **没有签名 secrets**：`CODE_SIGNING_ALLOWED=NO` 构建，然后用 `codesign -s -`（伪签名）把 entitlements 写进 App 和扩展，打包为 `Mihomo-<版本>-build<N>-widget-unsigned.ipa`（v0.19 前另有不含小组件的 `-unsigned.ipa`）。Release 中同时附带 `app.entitlements` / `tunnel.entitlements`，方便重签工具使用。
 - **有签名 secrets**：导入证书和两个描述文件，导出 `Mihomo-<版本>-build<N>-signed.ipa`。
 
-`.github/workflows/ui-tests.yml`（Self-test，push 到 `test/**` 或手动运行）：Go 测试（含 `-race`）+ 模拟器 UI / 单元测试，不发布。UI 部分先由 `plan` job 选路径：
+`.github/workflows/ui-tests.yml`（Self-test，push 到 `test/**` 或手动运行）：模拟器 UI / 单元测试，不发布。UI 部分先由 `plan` job 选路径：
 
 - **冒烟（smoke）**：分支相对 `origin/main` 的 merge-base（分支就在 main 上时，相对最近的发布标签 `v*-build*`）没有改动任何影响界面或文案的文件时，只跑一个组合（zh-Hans 浅色）：`test01_TabsAndHome`、`test03_MoreEveryPage`、`test04_NodeManager` + 全部 `MihomoUnitTests`；App 与测试包照常完整编译。
 - **完整（full）**：改到 `App/**`、`Shared/**`、`Widget/**`、`UITests/**`、`project-uitests.yml`、任意 `*.xcstrings` / `*.strings` / `*.lproj` / `*.xcassets`，或 `project.yml` 里涉及 App/Shared/Widget 路径、字符串目录、资源、Info.plist、产品名、图标的行时，按原来的矩阵跑。
-- 提交信息标记：`[shard:all]` 本仓库跑全部 8 个组合；`[shard:smoke]` 强制冒烟；`[shard:full]` 强制完整矩阵；`[only:<测试>]` / `[unit:<类>]` 只跑指定测试；`[skip-go]` / `[skip-ui]` 跳过 Go / UI。手动运行的 `shard` 输入对应 auto / full / smoke / all。完整规则见该 workflow 文件头部注释。
+- 提交信息标记：`[shard:all]` 本仓库跑全部 8 个组合；`[shard:smoke]` 强制冒烟；`[shard:full]` 强制完整矩阵；`[only:<测试>]` / `[unit:<类>]` 只跑指定测试；`[skip-ui]` 跳过 UI。手动运行的 `shard` 输入对应 auto / full / smoke / all。完整规则见该 workflow 文件头部注释。
+
+另外：`checks.yml`（Checks）在 main / `test/**` / `core/**` 推送与 PR 上跑术语审计（`scripts/term_audit.py`）；`unit-tests.yml`（Unit tests）在目标为 `main` 的 PR 上跑整个 `MihomoUnitTests` 包。触发与去重的现行规则见 `CI.md`。
 
 ## 获取可安装的签名版本
 
@@ -165,7 +155,7 @@
 
 ### 工作方式
 
-扩展内的 Go 桥接里运行一个本地 HTTP 引擎（127.0.0.1 随机端口）。开启后，启动内核前会向配置注入：
+扩展内（Swift）运行一个本地 HTTP 引擎（127.0.0.1 随机端口）。开启后，启动内核前会向配置注入：
 
 - 出站 `__MITM__`（`type: http` 指向本地引擎，策略页已隐藏）；
 - 内联规则集 `__mitm_hosts` / `__mitm_skip`（由 MitM 主机名生成）；
@@ -190,7 +180,7 @@
 | MitM 主机名 | `hostname = %APPEND% a.com, *.b.com, -c.b.com, d.com:8443`（`*`/`?` 通配、`-` 排除、`:端口`），Surge `skip-server-cert-verify`、`h2` |
 | Surge [URL Rewrite] | `正则 替换 302/307/header`，`正则 - reject / reject-200 / reject-img / reject-dict / reject-array / reject-drop`（`reject-tinygif`、`reject-no-drop`、`reject-video` 视为等价项） |
 | Surge [Header Rewrite] | `正则 header-add/header-del/header-replace/header-replace-regex …`，以及 `http-request` / `http-response` 前缀的新写法 |
-| Surge [Body Rewrite] | `http-request\|http-response 正则 查找1 替换1 查找2 替换2 …`、`http-response-jq 正则 'jq 表达式'`（gojq，支持 `jq-path=`） |
+| Surge [Body Rewrite] | `http-request\|http-response 正则 查找1 替换1 查找2 替换2 …`、`http-response-jq 正则 'jq 表达式'`（Swift 实现的 jq 子集，支持 `jq-path=`） |
 | Surge [Map Local] | `正则 data="…" data-type=text\|base64\|tiny-gif\|json\|file header="A:b\|C:d" status-code=200`（data 可为 URL / 本地文件 / 内联文本） |
 | Surge [Script] | `名称 = type=http-request\|http-response,pattern=…,requires-body=1,max-size=…,binary-body-mode=1,script-path=URL或本地文件,argument=…,timeout=…,script-update-interval=…` |
 | Surge [Rule]（模块） | `DOMAIN / DOMAIN-SUFFIX / DOMAIN-KEYWORD / DOMAIN-WILDCARD / IP-CIDR(6) / GEOIP / IP-ASN / DST-PORT`，仅 REJECT* / DIRECT 策略；`URL-REGEX,…,REJECT*` 转为 URL 重写 |
@@ -199,20 +189,20 @@
 | Loon 插件 | `[Rewrite]` 的 `正则 reject*/302/307 目标`、`header-*`、`response-body-json-del/replace/add`、`response-body-replace-regex`、`mock-response-body`；`[Script]` 的 `http-request\|http-response 正则 script-path=…, requires-body=true, tag=…, argument=…` |
 | Stash 覆写 | `http.mitm`、`http.rewrite` / `url-rewrite` / `header-rewrite` / `body-rewrite`、`http.script` + `script-providers` |
 
-正则使用 regexp2（兼容 JavaScript 写法，支持前后向断言），匹配完整 URL。URL 重写与本地映射首条命中生效；头部、内容和脚本按顺序全部执行。需要处理内容时会把上游编码限制为 gzip/deflate/br 并自动解压。
+正则使用 ICU 引擎（兼容 JavaScript 写法，支持前后向断言），匹配完整 URL。URL 重写与本地映射首条命中生效；头部、内容和脚本按顺序全部执行。需要处理内容时会把上游编码限制为 gzip/deflate/br 并自动解压。
 
-### 脚本 API（goja 纯 Go 引擎，ES2015+，支持 async/await）
+### 脚本 API（JavaScriptCore 引擎，支持 async/await）
 
 - Surge：`$request`（url、method、headers 大小写不敏感、body）、`$response`（status、headers、body）、`$done()`（请求阶段可改 url/method/headers/body，或 `{response:{status,headers,body}}` 直接返回；响应阶段可改 status/headers/body）、`$httpClient.get/post/put/delete/head/options/patch`（经内核发出，支持 `policy`、`binary-mode`、`insecure`、`auto-redirect`、`timeout`）、`$persistentStore.read/write`（存于 App Group，可在 脚本 → 持久化存储 查看编辑）、`$notification.post`（由扩展发本地通知，需在脚本页允许通知）、`$script`、`$environment`（声明为 Surge）、`$argument`、`console.*`、`setTimeout/setInterval`。
 - Quantumult X：`$task.fetch`（Promise，支持 `opts.policy`）、`$prefs.valueForKey/setValueForKey/removeValueForKey/removeAllValues`、`$notify`，`$done({status:"HTTP/1.1 200 OK", …})`、`bodyBytes`。
 - 二进制：`binary-body-mode` 时 body 为 `Uint8Array`（并提供 `bodyBytes`），`$done` 接受字符串 / Uint8Array / ArrayBuffer；另有 `TextEncoder`/`TextDecoder`、`atob`/`btoa`。
 - 资源限制：每次执行使用独立运行时（编译结果缓存 16 个），同时最多 2 个脚本，默认超时 10 秒（超时则保持原样），需要 body 的规则缓冲上限 2 MB（`max-size` 可更小）。远程脚本经内核下载并缓存，按 `script-update-interval`（默认 1 天）后台更新。
-- 定时 / 事件 / 通用脚本、`$utils`、面板见「v0.4 要点」；Egern 模块与 `$httpAPI` 见「v0.5 要点」。暂不支持：Surge `type=dns` / `type=rule` 脚本。Egern 原生 `ctx` 脚本见「v0.6 要点」。
+- 定时 / 事件 / 通用脚本、`$utils`、面板见「v0.4 要点」；Egern 模块与 `$httpAPI` 见「v0.5 要点」。Surge `type=dns` / `type=rule` 脚本：导入已注册（钩子契约见 `App/Core/NCScriptHooks.swift`），隧道内执行接入中。Egern 原生 `ctx` 脚本见「v0.6 要点」。
 
 ## 已知限制
 
 - 网络扩展内存上限约 50 MB。大型 `GEOSITE` 规则、超大订阅或大量规则集会增加内存，建议优先使用 `.mrs` 规则集。
-- 二进制体积：内核是一个 Go 静态库（构建已用 `-s -w -trimpath`，Release 再 strip），扩展可执行文件约 73 MB。磁盘体积不等于内存占用（代码页按需映射），但主 App 也链接了同一个库（用于校验 / 离线解析），所以 IPA 较大。
+- 二进制体积：内核为 Swift，编译进 App 与隧道扩展，不再链接 Go 静态库；IPA 内容由 CI 的 `scripts/ipa_size.py` 把关（夹带内嵌 framework / dSYM / 头文件即判失败）。
 - 仅代理模式：不遵守系统代理的 App 与所有 UDP / QUIC 会直连；按 IP 的规则与 Fake-IP 不生效。
 - iCloud 备份需要签名里有 iCloud 容器权限；没有时可在「保存到文件」时选 iCloud 云盘。
 - MitM：HTTP/3（QUIC）无法解密，默认对 MitM 主机阻断 UDP 443（可按主机放行，或选择全部阻断）；证书固定的 App 会握手失败并被自动放行。
