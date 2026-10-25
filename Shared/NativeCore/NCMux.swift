@@ -154,13 +154,25 @@ final class NCH2MuxCore {
         NCH2ClientCore.frame(type: 0x0, flags: 0x1, streamID: id, payload: Data())
     }
 
-    func rstStream(_ id: Int) -> Data {
-        NCH2ClientCore.frame(type: 0x3, flags: 0, streamID: id,
-                             payload: Data([0, 0, 0, 8]))
+    func rstStream(_ id: Int, code: Int = 8) -> Data { // default CANCEL
+        NCH2ClientCore.frame(type: 0x3, flags: 0, streamID: id, payload: be32(code))
+    }
+
+    /// A connection error was sent (GOAWAY); nothing more is parsed.
+    private(set) var connectionFailed = false
+
+    /// Connection error (RFC 9113 §5.4.1): GOAWAY with the code, `.goaway` tears the session down.
+    private func connectionError(_ code: Int, into result: inout FeedResult) {
+        guard !connectionFailed else { return }
+        connectionFailed = true
+        result.outbound.append(NCH2ClientCore.goaway(lastStreamID: 0, code: code))
+        result.events.append(.goaway)
+        headerBlocks = [:]
     }
 
     func feed(_ data: Data) -> FeedResult {
         var result = FeedResult()
+        if connectionFailed { return result }
         buffer.append(data)
         var off = 0
         defer {
@@ -168,6 +180,7 @@ final class NCH2MuxCore {
             else if off > 0 { buffer = Data(buffer[(buffer.startIndex + off)...]) }
         }
         while buffer.count - off >= 9 {
+            if connectionFailed { off = buffer.count; break }
             let b = buffer.startIndex + off
             let len = Int(buffer[b]) << 16 | Int(buffer[b + 1]) << 8 | Int(buffer[b + 2])
             guard len <= NCH2ClientCore.maxFrameSize else { // we never raise SETTINGS_MAX_FRAME_SIZE
@@ -246,19 +259,28 @@ final class NCH2MuxCore {
         case 0x3:
             result.events.append(.reset(streamID: streamID))
         case 0x4:
+            // fix/nc-h2-cidr: INITIAL_WINDOW_SIZE is id 0x4 (was 0x3 = MAX_CONCURRENT_STREAMS); validation and the
+            // §6.9.2 per-stream delta are shared with NCH2ClientCore.applyPeerSettings. 需同步 feat/nc-kernel.
+            if let code = NCH2ClientCore.settingsFrameError(flags: flags, streamID: streamID, payload: payload) {
+                connectionError(code, into: &result)
+                return
+            }
             if flags & 0x1 == 0 {
-                var i = 0
-                while i + 6 <= payload.count {
-                    let id = Int(payload[i]) << 8 | Int(payload[i + 1])
-                    let value = Int(payload[i + 2]) << 24 | Int(payload[i + 3]) << 16 | Int(payload[i + 4]) << 8 | Int(payload[i + 5])
-                    if id == 0x3 {
-                        let delta = value - peerInitialWindow
-                        peerInitialWindow = value
-                        for k in streamWindows.keys { streamWindows[k, default: 0] += delta }
+                var windows = streamWindows
+                let error = NCH2ClientCore.applyPeerSettings(payload, initialWindow: &peerInitialWindow,
+                                                             maxFrame: &peerMaxFrame) { delta in
+                    for k in windows.keys {
+                        let w = windows[k, default: 0] + delta
+                        guard w <= NCH2ClientCore.maxWindow else { return false }
+                        windows[k] = w
                     }
-                    if id == 0x5 && value > 0 { peerMaxFrame = min(value, (1 << 24) - 1) }
-                    i += 6
+                    return true
                 }
+                if let error {
+                    connectionError(error, into: &result)
+                    return
+                }
+                streamWindows = windows
                 result.outbound.append(NCH2ClientCore.frame(type: 0x4, flags: 0x1, streamID: 0, payload: Data()))
                 result.events.append(.windowIncreased)
             }
@@ -271,8 +293,22 @@ final class NCH2MuxCore {
         case 0x8:
             guard payload.count == 4 else { return }
             let inc = Int(payload[0] & 0x7f) << 24 | Int(payload[1]) << 16 | Int(payload[2]) << 8 | Int(payload[3])
-            if streamID == 0 { connSendWindow += inc }
-            else { streamWindows[streamID, default: 0] += inc }
+            // RFC 9113 §6.9.1 overflow → FLOW_CONTROL_ERROR. A WINDOW_UPDATE for a stream we already forgot no
+            // longer re-creates its window entry (fix/nc-h2-cidr).
+            if streamID == 0 {
+                guard connSendWindow + inc <= NCH2ClientCore.maxWindow else {
+                    connectionError(NCH2ClientCore.errFlowControl, into: &result)
+                    return
+                }
+                connSendWindow += inc
+            } else if let w = streamWindows[streamID] {
+                guard w + inc <= NCH2ClientCore.maxWindow else {
+                    result.outbound.append(rstStream(streamID, code: NCH2ClientCore.errFlowControl))
+                    result.events.append(.reset(streamID: streamID))
+                    return
+                }
+                streamWindows[streamID] = w + inc
+            }
             result.events.append(.windowIncreased)
         default:
             return
