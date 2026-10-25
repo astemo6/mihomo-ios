@@ -332,8 +332,16 @@ final class NCDataPlane {
                      proxyUp: totalProxyUp, proxyDown: totalProxyDown)
     }
 
+    /// The local mixed proxy (gap D1), whose connections the controller lists and closes next to the TUN ones.
+    /// Set once before the controller starts.
+    weak var localProxy: NCLocalProxy?
+
     /// Controller entry points (safe from any queue).
     func requestCloseConnection(id: String) {
+        if NCLocalProxy.ownsConnectionID(id) {
+            localProxy?.closeConnection(id: id)
+            return
+        }
         queue.async { [weak self] in
             guard let self, let key = UInt(id),
                   let s = sessions[key] else { return }
@@ -342,6 +350,7 @@ final class NCDataPlane {
     }
 
     func requestCloseAllConnections() {
+        localProxy?.closeAllConnections()
         queue.async { [weak self] in
             guard let self else { return }
             for s in Array(sessions.values) { close(s) }
@@ -496,9 +505,22 @@ final class NCDataPlaneStats {
         lock.unlock()
     }
 
+    /// Gap D1: the local mixed proxy's mirror (its own queue writes it); snapshot() reports TUN + proxy.
+    private var local: (connections: [[String: Any]], up: Int64, down: Int64, proxyUp: Int64, proxyDown: Int64) = ([], 0, 0, 0, 0)
+
+    func updateLocal(connections: [[String: Any]], up: Int64, down: Int64, proxyUp: Int64, proxyDown: Int64) {
+        lock.lock()
+        local = (connections, up, down, proxyUp, proxyDown)
+        lock.unlock()
+    }
+
     func snapshot() -> (connections: [[String: Any]], up: Int64, down: Int64, proxyUp: Int64, proxyDown: Int64) {
         lock.lock()
         defer { lock.unlock() }
-        return (connections, up, down, proxyUp, proxyDown)
+        if local.connections.isEmpty && local.up == 0 && local.down == 0 {
+            return (connections, up, down, proxyUp, proxyDown)
+        }
+        return (connections + local.connections, up + local.up, down + local.down,
+                proxyUp + local.proxyUp, proxyDown + local.proxyDown)
     }
 }

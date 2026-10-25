@@ -14,9 +14,11 @@ final class NativeTunnelCore {
     private var _engine: NativeCoreEngine?
     private var _plane: NCDataPlane?
     private var _controller: NCController?
+    private var _localProxy: NCLocalProxy?
     var engine: NativeCoreEngine? { lock.lock(); defer { lock.unlock() }; return _engine }
     var plane: NCDataPlane? { lock.lock(); defer { lock.unlock() }; return _plane }
     var controller: NCController? { lock.lock(); defer { lock.unlock() }; return _controller }
+    var localProxy: NCLocalProxy? { lock.lock(); defer { lock.unlock() }; return _localProxy }
     private var home = ""
 
     // reload status (bridge/reloadstatus.go shape: running, seq, done, kind, lastError, lastMs, lastDoneAgoMs, runningMs)
@@ -38,7 +40,10 @@ final class NativeTunnelCore {
     // MARK: lifecycle
 
     /// Loads the config and brings the data plane (and controller) up. Throws a user-facing error.
-    func start(home: String, flow: NEPacketTunnelFlow, mtu: Int, controllerPort: Int, secret: String) throws {
+    /// `mixedPort` > 0 also starts the local mixed proxy (gap D1: 仅代理 / VPN 混合) on 127.0.0.1:mixedPort;
+    /// `requireMixedPort` (仅代理, where it is the only way in) turns a listener failure into a start failure.
+    func start(home: String, flow: NEPacketTunnelFlow, mtu: Int, controllerPort: Int, secret: String,
+               mixedPort: Int = 0, requireMixedPort: Bool = false) throws {
         let engine = NativeCoreEngine()
         if let msg = engine.load(home: home) {
             throw PacketTunnelProvider.error("内核配置加载失败：\(msg)")
@@ -49,6 +54,22 @@ final class NativeTunnelCore {
         } catch {
             engine.stop()
             throw PacketTunnelProvider.error("内核数据面启动失败：\(error.localizedDescription)")
+        }
+        var localProxy: NCLocalProxy?
+        if mixedPort > 0 {
+            let lp = NCLocalProxy(engine: engine, port: mixedPort, stats: plane.stats)
+            if let why = lp.start() {
+                StartupLog.write("local proxy: 127.0.0.1:\(mixedPort) not listening: \(why)")
+                if requireMixedPort {
+                    plane.stop()
+                    engine.stop()
+                    throw PacketTunnelProvider.error("本地代理端口 \(mixedPort) 无法监听：\(why)。请在 更多 → 连接方式 换一个端口")
+                }
+            } else {
+                StartupLog.write("local proxy: HTTP / HTTPS CONNECT / SOCKS5 on 127.0.0.1:\(mixedPort)")
+                plane.localProxy = lp
+                localProxy = lp
+            }
         }
         var controller: NCController?
         if controllerPort > 0 {
@@ -61,6 +82,7 @@ final class NativeTunnelCore {
         _engine = engine
         _plane = plane
         _controller = controller
+        _localProxy = localProxy
         lock.unlock()
         NativeCoreEngine.active = engine
         loadRewriteSnapshot(home: home, engine: engine)
@@ -70,10 +92,11 @@ final class NativeTunnelCore {
 
     func stop() {
         lock.lock()
-        let (c, p, e) = (_controller, _plane, _engine)
-        _controller = nil; _plane = nil; _engine = nil
+        let (c, lp, p, e) = (_controller, _localProxy, _plane, _engine)
+        _controller = nil; _localProxy = nil; _plane = nil; _engine = nil
         lock.unlock()
         c?.stop()
+        lp?.stop()
         p?.stop()
         e?.stop()
         NativeCoreEngine.active = nil

@@ -162,18 +162,16 @@ final class PacketTunnelProvider: NEPacketTunnelProvider {
         } else {
             StartupLog.write("native MitM: off (needs iOS 17)")
         }
-        if overrides.isProxyOnly {
-            completionHandler(Self.error("原生内核暂不支持「仅代理」连接方式，请在 更多 → 连接方式 选择 TUN"))
-            return
-        }
-        if overrides.isMixed {
-            StartupLog.write("mix mode: the native core has no local proxy listener yet — running as tun only (no system proxy)")
-        }
-        let proxyOnly = false
+        // feat/nc-modes (gap D1): 仅代理 = NEProxySettings → NCLocalProxy on 127.0.0.1:mixedPort (no routes, no DNS; the
+        // data plane idles); VPN 混合 = TUN + the same system proxy and listener.
+        let proxyOnly = overrides.isProxyOnly
+        let mixedPort = (proxyOnly || overrides.isMixed) ? overrides.mixedPort : 0
         // 接管所有网络流量: with includeAllNetworks iOS scopes this extension's own unbound sockets into the tunnel
         // too, so the core's proxy / DIRECT / DNS sockets must be bound to the physical interface (Go side,
         // physiface.go). The VPN configuration's value is the one iOS enforces (overrides.json is logged next to it).
         let includeAll = protocolConfiguration.includeAllNetworks
+        // Gap D2: with includeAllNetworks the core's own sockets are bound to the physical interface (NCOutboundBinding).
+        NCOutboundBinding.start(includeAllNetworks: includeAll && !proxyOnly)
         StartupLog.write("tunnel scope: includeAllNetworks \(includeAll ? "on" : "off") (setting \(overrides.includeAllNetworks ? "on" : "off")), enforceRoutes \(protocolConfiguration.enforceRoutes), excludeLocalNetworks \(protocolConfiguration.excludeLocalNetworks)")
         StartupLog.write("mode \(proxyOnly ? "proxy-only (NEProxySettings)" : overrides.isMixed ? "mix (tun + system proxy)" : "tun (NEPacketTunnelFlow bridge)"), quic \(overrides.blockQUIC), routes +\(overrides.includedRoutes.count)/-\(overrides.excludedRoutes.count)\(overrides.notDefaultRoute ? " (not default route)" : "")\(overrides.hideVPNIcon ? " (hide icon)" : ""), mtu \(overrides.tunMTU), kernel NativeCore\(overrides.safeMode ? ", SAFE MODE" : "")")
         if let v = Bundle.main.object(forInfoDictionaryKey: "CFBundleShortVersionString") as? String {
@@ -186,21 +184,19 @@ final class PacketTunnelProvider: NEPacketTunnelProvider {
         }
 
         StartupLog.write("applying tunnel network settings")
-        var netOverrides = overrides
-        if netOverrides.isMixed { netOverrides.tunnelMode = "tun" }
-        setTunnelNetworkSettings(Self.networkSettings(netOverrides)) { [weak self] error in
+        setTunnelNetworkSettings(Self.networkSettings(overrides)) { [weak self] error in
             guard let self else { return }
             if let error {
                 completionHandler(Self.error("设置隧道网络失败：\(error.localizedDescription)"))
                 return
             }
-            StartupLog.write("settings applied")
-            _ = proxyOnly
+            StartupLog.write("settings applied, outbound binding \(NCOutboundBinding.describe)")
             DispatchQueue.global(qos: .userInitiated).async {
                 StartupLog.write("core start begin")
                 do {
                     try self.core.start(home: AppShared.homeURL.path, flow: self.packetFlow, mtu: overrides.tunMTU,
-                                        controllerPort: overrides.controllerPort, secret: overrides.secret)
+                                        controllerPort: overrides.controllerPort, secret: overrides.secret,
+                                        mixedPort: mixedPort, requireMixedPort: proxyOnly)
                 } catch {
                     completionHandler(error)
                     return
@@ -332,6 +328,7 @@ final class PacketTunnelProvider: NEPacketTunnelProvider {
         nativeMemGovernor?.stop()
         TunnelStopReason.clearAlive() // fix/vpn-stays-on: a clean stop (after the traffic timer can no longer re-mark)
         core.stop()
+        NCOutboundBinding.stop()
         if #available(iOS 17, *) { NativeMitmRuntime.uninstall() }
         UpstreamPool.shared.closeIdle()
         StartupLog.write("native body lane after stop: \(NativeBodyStore.shared.stats())")
