@@ -517,6 +517,16 @@ final class NCHysteria2Connection {
     /// Per-connection packet ID counter (UInt16, wraps). Only fragmented packets need distinct IDs, and
     /// the server keys reassembly per session, so one counter for all sessions is enough.
     private var nextPacketID: UInt16 = 0
+    /// Diagnostics (session queue): failed datagram sends and the last error, read by the loopback test.
+    private var udpSendErrors = 0
+    private var lastUDPSendError: String?
+
+    /// Snapshot of the UDP datagram path for diagnostics/tests.
+    var udpDiagnostics: String {
+        let read = { "limit=\(self.datagramLimit) flow=\(self.datagramFlow != nil) sendErrors=\(self.udpSendErrors) last=\(self.lastUDPSendError ?? "-")" }
+        if NCSessionQueues.isCurrent(queue) { return read() }
+        return queue.sync(execute: read)
+    }
 
     init(server: String, port: Int, password: String, sni: String? = nil,
          allowInsecure: Bool = false, queue: DispatchQueue) {
@@ -849,11 +859,15 @@ final class NCHysteria2Connection {
                                            maxDatagramSize: self.datagramLimit)
             for frame in frames {
                 flow.send(content: frame, completion: .contentProcessed { [weak self] error in
-                    // Datagram larger than the path allows right now: shrink for the next packets
-                    // (this one is lost — UDP semantics; sing-quic re-fragments on the same signal).
-                    guard let self, case .posix(let code)? = error, code == .EMSGSIZE else { return }
+                    guard let self, let error else { return }
                     ncOnSessionQueue(self.queue) {
-                        self.datagramLimit = max(512, min(self.datagramLimit, frame.count) - 64)
+                        self.udpSendErrors += 1
+                        self.lastUDPSendError = "\(error) (\(frame.count) B)"
+                        // Datagram larger than the path allows right now: shrink for the next packets
+                        // (this one is lost — UDP semantics; sing-quic re-fragments on the same signal).
+                        if case .posix(let code) = error, code == .EMSGSIZE {
+                            self.datagramLimit = max(512, min(self.datagramLimit, frame.count) - 64)
+                        }
                     }
                 })
             }

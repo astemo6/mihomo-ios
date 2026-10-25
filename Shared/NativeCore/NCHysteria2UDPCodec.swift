@@ -21,9 +21,15 @@ import Foundation
 /// accept an empty address on fragments > 0 — sing-quic keeps it on all of them for that reason).
 /// Unfragmented messages carry Fragment count 1; Packet ID / Fragment ID are then irrelevant.
 enum NCHy2UDP {
-    /// Largest UDPMessage (header included) sent in one QUIC datagram: sing-quic's udpMTU
-    /// (1200 - 3). The connection lowers it when a send fails with EMSGSIZE.
-    static let maxDatagramSize = 1200 - 3
+    /// Largest UDPMessage (header included) sent in one QUIC datagram. sing-quic uses 1200 - 3, but
+    /// it sits on quic-go, which re-fragments on DatagramTooLargeError; Network.framework gives no
+    /// such size (NWProtocolQUIC.Metadata has no max datagram size) and its QUIC packets start at
+    /// the 1200-byte minimum, so a 1197-byte DATAGRAM frame (+ short header, DATAGRAM frame
+    /// header and the 16-byte AEAD tag) does not fit and is lost (proto-loopback run 40195786967:
+    /// DNS-sized packets echoed, 3000-byte fragmented ones never did). 1100 leaves room for the
+    /// worst-case short header (20-byte CID + 4-byte PN) and the frame overhead. The connection
+    /// still lowers it if a send fails with EMSGSIZE.
+    static let maxDatagramSize = 1100
 
     /// Fixed part of the header: session ID (4) + packet ID (2) + frag ID (1) + frag count (1).
     static let fixedHeaderSize = 8

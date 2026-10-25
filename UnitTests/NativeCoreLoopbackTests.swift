@@ -488,7 +488,7 @@ final class NativeCoreLoopbackTests: XCTestCase {
             conn.sendUDP(sessionID: sessionID, target: target, payload: Self.dnsQuery)
             first = replies.wait(timeout: 1.0)
         }
-        XCTAssertEqual(first, Self.dnsQuery, "no hysteria2 UDP echo over QUIC datagrams")
+        XCTAssertEqual(first, Self.dnsQuery, "no hysteria2 UDP echo over QUIC datagrams (\(conn.udpDiagnostics))")
 
         let big = Data((0..<3000).map { UInt8(($0 * 13 + 5) & 0xff) })
         var echoed: Data?
@@ -499,7 +499,8 @@ final class NativeCoreLoopbackTests: XCTestCase {
                 if got == big { echoed = got }
             }
         }
-        XCTAssertEqual(echoed?.count, big.count, "fragmented 3000-byte UDP packet did not round-trip")
+        XCTAssertEqual(echoed?.count, big.count,
+                       "fragmented 3000-byte UDP packet did not round-trip (\(conn.udpDiagnostics))")
         XCTAssertEqual(echoed, big)
     }
 }
