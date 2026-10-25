@@ -1,6 +1,5 @@
 import CryptoKit
 import Foundation
-import Network
 
 /// A mihomo external-controller lookalike served by the native core, so the
 /// App's Dashboard / groups / connections pages keep working while the Go core
@@ -16,10 +15,10 @@ final class NCController {
     private let queue = DispatchQueue(label: "nc.controller", qos: .userInitiated)
     // rv2-life: all mutable state below lives on `queue` (start / stop / handlers hop there; stop used to mutate
     // the dictionaries from the provider's thread while handlers ran on `queue`).
-    private var listener: NWListener?
+    private var listener: NCLoopbackListener?
     private var streamTimers: [ObjectIdentifier: DispatchSourceTimer] = [:]
     /// Every accepted connection until it is cancelled / failed, so stop() can end in-flight requests and streams.
-    private var conns: [ObjectIdentifier: NWConnection] = [:]
+    private var conns: [ObjectIdentifier: NCLoopbackConn] = [:]
     private var stopped = false
     private static let queueKey = DispatchSpecificKey<UInt8>()
     private var statusURL: URL?
@@ -70,87 +69,48 @@ final class NCController {
         self.secret = secret
     }
 
-    /// Starts the loopback listener and waits (≤ `timeout`) for it to come up. false = not listening: the reason
-    /// is in the startup log and in `<home>/nativecore-controller.json` ({"listening": false, "port", "error"}),
-    /// which the App can read instead of finding a dead API (the failure used to be swallowed by `try?`).
+    /// Starts the loopback listener (BSD socket bound to 127.0.0.1:port). false = not listening: the reason
+    /// (with errno) is in the startup log and in `<home>/nativecore-controller.json` ({"listening": false, "port",
+    /// "error"}), which the App can read instead of finding a dead API.
+    /// fix/nc-ctrl-bsd: was NWListener(requiredInterfaceType: .loopback), which on iOS 18.7 reported .ready inside
+    /// the tunnel but never delivered a connection (accepted 0, the self-probe timed out).
     @discardableResult
     func start(home: String? = nil, timeout: TimeInterval = 3) -> Bool {
         queue.setSpecific(key: Self.queueKey, value: 1)
         statusURL = home.map { URL(fileURLWithPath: $0).appendingPathComponent("nativecore-controller.json") }
-        let params = NWParameters.tcp
-        params.requiredInterfaceType = .loopback
-        params.allowLocalEndpointReuse = true
-        guard let nwPort = NWEndpoint.Port(rawValue: port), port > 0 else {
+        guard port > 0 else {
             reportStatus(listening: false, error: "端口无效（\(port)）")
             return false
         }
-        let listener: NWListener
-        do {
-            listener = try NWListener(using: params, on: nwPort)
-        } catch {
-            reportStatus(listening: false, error: error.localizedDescription)
+        let l = NCLoopbackListener(queue: queue)
+        l.onAccept = { [weak self] conn in self?.handle(conn) }
+        l.onAcceptError = { why in StartupLog.write("controller: \(why)") }
+        var failure: String?
+        onQueue {
+            self.stopped = false
+            failure = l.start(port: self.port)
+            if failure == nil { self.listener = l }
+        }
+        if let failure {
+            reportStatus(listening: false, error: failure)
             return false
         }
-        let sem = DispatchSemaphore(value: 0)
-        let lock = NSLock()
-        var first: String?? // nil = no answer yet; .some(nil) = ready; .some(msg) = failed
-        listener.stateUpdateHandler = { [weak self] state in
-            var answer: String??
-            switch state {
-            case .ready: answer = .some(nil)
-            case .failed(let e), .waiting(let e): answer = .some(e.localizedDescription)
-            default: break
-            }
-            guard let answer else { return }
-            lock.lock()
-            let isFirst = first == nil
-            if isFirst { first = answer }
-            lock.unlock()
-            if isFirst {
-                sem.signal()
-            } else if case .failed(let e) = state {
-                // died after it was up: say so (the App sees the status file flip), do not pretend it is alive
-                self?.reportStatus(listening: false, error: "listener failed: \(e.localizedDescription)")
-            }
-        }
-        listener.newConnectionHandler = { [weak self] conn in
-            self?.handle(conn)
-        }
-        listener.start(queue: queue)
-        _ = sem.wait(timeout: .now() + timeout)
-        lock.lock()
-        let outcome = first
-        lock.unlock()
-        switch outcome {
-        case .some(.none):
-            onQueue { self.listener = listener }
-            reportStatus(listening: true, error: nil)
-            return true
-        case .some(.some(let why)):
-            listener.cancel()
-            reportStatus(listening: false, error: why)
-            return false
-        case .none:
-            listener.cancel()
-            reportStatus(listening: false, error: "监听超时")
-            return false
-        }
+        reportStatus(listening: true, error: nil)
+        return true
     }
 
-    /// Cancels the listener, every stream timer and every open connection (in-flight requests included), on `queue`.
+    /// Closes the listener, every stream timer and every open connection (in-flight requests included), on `queue`.
     func stop() {
         onQueue {
             self.stopped = true
-            self.listener?.stateUpdateHandler = nil
-            self.listener?.newConnectionHandler = nil
-            self.listener?.cancel()
+            self.listener?.stop()
             self.listener = nil
             for t in self.streamTimers.values { t.cancel() }
             self.streamTimers.removeAll()
             let open = Array(self.conns.values)
             self.conns.removeAll()
             for c in open {
-                c.stateUpdateHandler = nil
+                c.onClose = nil
                 c.cancel()
             }
         }
@@ -182,29 +142,22 @@ final class NCController {
         var body = Data()
     }
 
-    private func handle(_ conn: NWConnection) {
+    private func handle(_ conn: NCLoopbackConn) {
         guard !stopped else { conn.cancel(); return }
         accepted &+= 1
+        if accepted == 1 { StartupLog.write("controller: first connection accepted") }
         let id = ObjectIdentifier(conn)
         conns[id] = conn
-        // rv2-life: one handler for every connection: forget it and stop its stream timer when it ends (.failed
-        // too — the /traffic stream used to keep its timer, and with it the plane, after a failed connection).
-        conn.stateUpdateHandler = { [weak self, weak conn] state in
-            switch state {
-            case .failed, .cancelled:
-                guard let self else { return }
-                self.conns.removeValue(forKey: id)
-                self.streamTimers.removeValue(forKey: id)?.cancel()
-                if case .failed = state { conn?.cancel() }
-            default:
-                break
-            }
+        // rv2-life: forget it and stop its stream timer when it ends (cancel, failed write to a gone App, error).
+        conn.onClose = { [weak self] in
+            guard let self else { return }
+            self.conns.removeValue(forKey: id)
+            self.streamTimers.removeValue(forKey: id)?.cancel()
         }
-        conn.start(queue: queue)
         receiveRequest(conn, buffer: Data())
     }
 
-    private func receiveRequest(_ conn: NWConnection, buffer: Data) {
+    private func receiveRequest(_ conn: NCLoopbackConn, buffer: Data) {
         var buffer = buffer
         conn.receive(minimumIncompleteLength: 1, maximumLength: 65536) { [weak self] data, _, isComplete, error in
             guard let self else { return }
@@ -260,7 +213,7 @@ final class NCController {
 
     // MARK: Routing
 
-    private func route(_ conn: NWConnection, _ req: Request) {
+    private func route(_ conn: NCLoopbackConn, _ req: Request) {
         routed &+= 1
         if !loggedFirst {
             loggedFirst = true
@@ -373,7 +326,7 @@ final class NCController {
         }
     }
 
-    private func routeParameterized(_ conn: NWConnection, _ req: Request) {
+    private func routeParameterized(_ conn: NCLoopbackConn, _ req: Request) {
         let comps = req.path.split(separator: "/").map(String.init)
         // /proxies/{name} PUT|DELETE, /proxies/{name}/delay GET
         if comps.count >= 2, comps[0] == "proxies" {
@@ -575,7 +528,7 @@ final class NCController {
     }
 
     /// RFC 6455 server side, text frames only (the app's ControllerClient.stream): one frame a second.
-    private func streamWebSocket(_ conn: NWConnection, key: String, path: String) {
+    private func streamWebSocket(_ conn: NCLoopbackConn, key: String, path: String) {
         let accept = Data(Insecure.SHA1.hash(data: Data((key + "258EAFA5-E914-47DA-95CA-C5AB0DC85B11").utf8))).base64EncodedString()
         let head = "HTTP/1.1 101 Switching Protocols\r\nUpgrade: websocket\r\nConnection: Upgrade\r\nSec-WebSocket-Accept: \(accept)\r\n\r\n"
         conn.send(content: Data(head.utf8), completion: .idempotent)
@@ -617,7 +570,7 @@ final class NCController {
             }
             last = snap
             // rv2-life: one frame in flight at most — a suspended App that stops reading used to have a frame (a
-            // full /connections list) queued in NWConnection every second, without bound.
+            // full /connections list) queued in the connection every second, without bound.
             guard !inFlight, let obj, let data = try? JSONSerialization.data(withJSONObject: obj) else { return }
             inFlight = true
             conn.send(content: Self.wsTextFrame(data), completion: .contentProcessed { _ in inFlight = false })
@@ -648,7 +601,7 @@ final class NCController {
         return f
     }
 
-    private func streamTraffic(_ conn: NWConnection) {
+    private func streamTraffic(_ conn: NCLoopbackConn) {
         let head = "HTTP/1.1 200 OK\r\nContent-Type: application/json\r\nTransfer-Encoding: chunked\r\nConnection: keep-alive\r\n\r\n"
         conn.send(content: Data(head.utf8), completion: .idempotent)
         var lastUp: Int64 = plane.stats.snapshot().up
@@ -690,17 +643,17 @@ final class NCController {
 
     // MARK: Responses
 
-    private func respondEncodable<T: Encodable>(_ conn: NWConnection, _ value: T) {
+    private func respondEncodable<T: Encodable>(_ conn: NCLoopbackConn, _ value: T) {
         respondRaw(conn, (try? JSONEncoder().encode(value)) ?? Data("null".utf8))
     }
 
-    private func respondRaw(_ conn: NWConnection, _ body: Data) {
+    private func respondRaw(_ conn: NCLoopbackConn, _ body: Data) {
         var out = Data("HTTP/1.1 200 OK\r\nContent-Type: application/json\r\nContent-Length: \(body.count)\r\nConnection: close\r\n\r\n".utf8)
         out.append(body)
         conn.send(content: out, completion: .contentProcessed { _ in conn.cancel() })
     }
 
-    private func respond(_ conn: NWConnection, status: Int, json: Any?) {
+    private func respond(_ conn: NCLoopbackConn, status: Int, json: Any?) {
         var head = "HTTP/1.1 \(status) \(Self.statusText(status))\r\n"
         var bodyData = Data()
         if let json {

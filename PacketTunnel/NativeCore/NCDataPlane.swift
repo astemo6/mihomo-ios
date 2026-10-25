@@ -45,6 +45,47 @@ final class NCDataPlane {
     private var loggedFirstPacket = false
     private var loggedReadArmed = false
     private var loggedFirstPacketCallback = false
+    // fix/nc-ctrl-bsd: per-connection outcome counters (+15 / +60 s statsLine) and the rate-limited
+    // per-connection lines in NativeLogRing (→ /logs, 诊断包 core-log.txt). On `queue`; read racily for the log line.
+    private var relayOK = 0
+    private var relayDirect = 0
+    private var relayFailed = 0
+    private var relayRejected = 0
+    private var udpOpened = 0
+    private var connLogWindow: UInt64 = 0
+    private var connLogCount = 0
+    private var connLogSuppressed = 0
+    static let connLogPerSecond = 20
+
+    /// One line per session outcome into the log ring, at most `connLogPerSecond` a second (the rest are counted
+    /// and reported as one "suppressed" line) — the ring keeps 400 lines, so memory stays flat.
+    private func connLog(_ line: String, level: String = "info") {
+        let now = DispatchTime.now().uptimeNanoseconds
+        if now &- connLogWindow >= 1_000_000_000 {
+            if connLogSuppressed > 0 {
+                NativeLogRing.shared.add(type: "warning", payload: "[conn] \(connLogSuppressed) connection line(s) suppressed (limit \(Self.connLogPerSecond)/s)")
+            }
+            connLogWindow = now
+            connLogCount = 0
+            connLogSuppressed = 0
+        }
+        guard connLogCount < Self.connLogPerSecond else { connLogSuppressed += 1; return }
+        connLogCount += 1
+        NativeLogRing.shared.add(type: level, payload: line)
+    }
+
+    private static func short(_ e: Error?) -> String {
+        guard let e else { return "no relay" }
+        let ns = e as NSError
+        let text = "\(ns.localizedDescription) (\(ns.domain) \(ns.code))"
+        return text.count > 160 ? String(text.prefix(160)) + "…" : text
+    }
+
+    private static func outcomeHead(_ s: TCPSession) -> String {
+        let rule = s.ruleText.isEmpty ? "-" : s.ruleText
+        let via = s.chainName == s.policyName || s.policyName.isEmpty ? s.chainName : "\(s.policyName) (\(s.chainName))"
+        return "[TCP] \(s.target.host):\(s.target.port) rule \(rule) → \(via)"
+    }
 
     /// "v4 tcp 198.18.0.1 → 17.x.x.x" for the first-packet log line (addresses are the device's own flows).
     static func describe(_ p: Data) -> String {
@@ -117,6 +158,7 @@ final class NCDataPlane {
         var chainName = ""
         var ruleText = ""
         var policyName = ""
+        var dialAt: DispatchTime?   // fix/nc-ctrl-bsd: connect latency for the outcome line
         enum State { case deciding, connecting, open, closed }
         init(conn: NCTunStack.TCPConn, target: NCTarget, ruleDomain: String?) {
             self.conn = conn
@@ -203,7 +245,7 @@ final class NCDataPlane {
     }
 
     var statsLine: String {
-        "native: packets in \(packetsIn), tcp accepted \(tcpAccepted), sessions \(sessions.count), dns queries \(dnsQueries), dns replies \(dnsReplies), dns no-upstream \(dnsNoUpstream), dns failed \(dnsForwardFailed), udp dropped \(udpDropped)"
+        "native: packets in \(packetsIn), tcp accepted \(tcpAccepted), sessions \(sessions.count), dns queries \(dnsQueries), dns replies \(dnsReplies), dns no-upstream \(dnsNoUpstream), dns failed \(dnsForwardFailed), udp dropped \(udpDropped), relay ok \(relayOK), direct \(relayDirect), relay failed \(relayFailed), rejected \(relayRejected), udp opened \(udpOpened)"
     }
 
     // MARK: Packet flow
@@ -360,6 +402,7 @@ final class NCDataPlane {
 
     private func tcpError(_ conn: NCTunStack.TCPConn) {
         guard let s = sessions.removeValue(forKey: UInt(bitPattern: conn.handle)) else { return }
+        logClose(s, "reset by the app side")
         s.state = .closed
         releaseBuffers(s)
         s.relay?.cancel()
@@ -444,7 +487,11 @@ final class NCDataPlane {
         // IP. Unmapped (pool lost) → the sniffed domain if any, else drop
         // (mihomo rejects "fake DNS record missing").
         if let ip = s.target.ip, engine.isFakeAddress(ip) {
-            guard let d = s.ruleDomain else { close(s); return }
+            guard let d = s.ruleDomain else {
+                connLog("[TCP] \(s.target.host):\(s.target.port) dropped: fake-ip without a domain mapping", level: "warning")
+                close(s)
+                return
+            }
             s.target = NCTarget(host: d, port: s.target.port)
         }
         var ctx = engine.matchContext(domain: s.ruleDomain,
@@ -470,15 +517,27 @@ final class NCDataPlane {
         case .chain(let ps): ps.map { $0.name }.joined(separator: " -> ")
         case .unknown(let n): n
         }
-        NCConnector.connect(target: s.target, resolution: resolution, queue: queue) { [weak self, weak s] relay, _ in
+        s.dialAt = .now()
+        let isReject: Bool = { if case .reject = resolution { return true }; return false }()
+        NCConnector.connect(target: s.target, resolution: resolution, queue: queue) { [weak self, weak s] relay, error in
             guard let self, let s, s.state == .connecting else {
                 relay?.cancel()
                 return
             }
+            let ms = s.dialAt.map { Int((DispatchTime.now().uptimeNanoseconds &- $0.uptimeNanoseconds) / 1_000_000) } ?? -1
             guard let relay else {
+                if isReject {
+                    self.relayRejected &+= 1
+                    self.connLog("\(Self.outcomeHead(s)) rejected")
+                } else {
+                    self.relayFailed &+= 1
+                    self.connLog("\(Self.outcomeHead(s)) failed after \(ms) ms: \(Self.short(error))", level: "warning")
+                }
                 self.close(s)
                 return
             }
+            if s.chainName == "DIRECT" { self.relayDirect &+= 1 } else { self.relayOK &+= 1 }
+            self.connLog("\(Self.outcomeHead(s)) connected in \(ms) ms")
             s.relay = relay
             s.state = .open
             if !s.pending.isEmpty {
@@ -647,8 +706,15 @@ final class NCDataPlane {
         s.pending = Data()
     }
 
+    private func logClose(_ s: TCPSession, _ how: String) {
+        guard s.state == .open else { return }
+        let secs = Int(Date().timeIntervalSince(s.acceptedAt))
+        connLog("[TCP] \(s.target.host):\(s.target.port) \(how) after \(secs) s, up \(s.upBytes) B, down \(s.downBytes) B")
+    }
+
     private func close(_ s: TCPSession) {
         guard s.state != .closed else { return }
+        logClose(s, "closed")
         s.state = .closed
         sessions.removeValue(forKey: s.key)
         releaseBuffers(s)
@@ -665,6 +731,7 @@ final class NCDataPlane {
     /// rv2-life: overflow (pre-connect cap): RST toward the app and drop the relay.
     private func reset(_ s: TCPSession) {
         guard s.state != .closed else { return }
+        logClose(s, "aborted (buffer cap)")
         s.state = .closed
         sessions.removeValue(forKey: s.key)
         releaseBuffers(s)
@@ -802,9 +869,20 @@ final class NCDataPlane {
                                       network: "udp")
         if info.dst.port == 443 { ctx.protocolHint = "quic" }
         udpPending[info.id] = [data]
-        engine.routeAsync(ctx, queue: queue) { [weak self] _, _, resolution in
+        engine.routeAsync(ctx, queue: queue) { [weak self] policyName, ruleText, resolution in
             guard let self, let queued = self.udpPending.removeValue(forKey: info.id), self.isRunning else { return }
             self.openUDP(info, target: target, resolution: resolution, packets: queued)
+            let via: String = switch resolution {
+            case .direct: "DIRECT"
+            case .reject: "REJECT"
+            case .proxy(let p): "\(policyName) (\(p.name) \(p.type))"
+            case .chain(let ps): "\(policyName) (\(ps.map { $0.name }.joined(separator: " -> ")))"
+            case .unknown(let n): "\(policyName) (unknown \(n))"
+            }
+            let opened = self.udpSessions[info.id] != nil
+            if opened { self.udpOpened &+= 1 }
+            self.connLog("[UDP] \(target.host):\(target.port) rule \(ruleText ?? "-") → \(via) \(opened ? "opened" : "dropped (no UDP relay for this policy)")",
+                         level: opened ? "info" : "warning")
         }
     }
 
