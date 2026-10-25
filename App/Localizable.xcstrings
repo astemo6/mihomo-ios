@@ -10007,6 +10007,40 @@
         }
       }
     },
+    "不可用节点": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Unavailable Nodes"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "利用できないノード"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "사용할 수 없는 노드"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Недоступные узлы"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "不可用節點"
+          }
+        }
+      }
+    },
     "不含证书时，在新设备上需要重新生成并信任证书。": {
       "localizations": {
         "en": {
@@ -10246,6 +10280,40 @@
         }
       },
       "extractionState": "manual"
+    },
+    "全部节点可用": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "All Nodes Available"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "すべてのノードが利用できます"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "모든 노드를 사용할 수 있습니다"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Все узлы доступны"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "全部節點可用"
+          }
+        }
+      }
     },
     "包含系统 DNS": {
       "extractionState": "manual",
@@ -10629,6 +10697,40 @@
         }
       }
     },
+    "按原生内核的支持范围核对当前配置的全部节点；不可用的节点连接时会被跳过，原因与启动日志一致。": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Every node in the current config is checked against what the native core supports. Unavailable nodes are skipped when connecting; the reasons match the startup log."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "現在の設定の全ノードを、ネイティブコアの対応範囲と照合します。利用できないノードは接続時にスキップされ、理由は起動ログと同じです。"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "현재 구성의 모든 노드를 네이티브 코어의 지원 범위와 대조합니다. 사용할 수 없는 노드는 연결 시 건너뛰며, 이유는 시작 로그와 같습니다."
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Все узлы текущей конфигурации сверяются с возможностями нативного ядра. Недоступные узлы пропускаются при подключении; причины совпадают с журналом запуска."
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "按原生內核的支援範圍核對目前設定的全部節點；不可用的節點連接時會被跳過，原因與啟動日誌一致。"
+          }
+        }
+      }
+    },
     "文件不是有效的 JSON 对象": {
       "extractionState": "manual",
       "localizations": {
@@ -10699,6 +10801,40 @@
         }
       }
     },
+    "无法核对（配置读取或构建失败）": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Could not check (the profile could not be read or built)"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "確認できませんでした（設定の読み込みまたは構築に失敗）"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "확인할 수 없습니다(구성을 읽거나 빌드하지 못했습니다)"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Не удалось проверить (не удалось прочитать или собрать конфигурацию)"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "無法核對（設定讀取或建構失敗）"
+          }
+        }
+      }
+    },
     "查询回落": {
       "extractionState": "manual",
       "localizations": {
@@ -10734,6 +10870,40 @@
         }
       }
     },
+    "正在核对节点…": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Checking Nodes…"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ノードを確認中…"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "노드 확인 중…"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Проверка узлов…"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "正在核對節點…"
+          }
+        }
+      }
+    },
     "每 %lld 天": {
       "extractionState": "manual",
       "localizations": {
@@ -10765,6 +10935,40 @@
           "stringUnit": {
             "state": "translated",
             "value": "Каждые %lld дн."
+          }
+        }
+      }
+    },
+    "没有启用的配置，无法核对": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "No active profile to check"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "有効な設定がないため確認できません"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "활성화된 구성이 없어 확인할 수 없습니다"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Нет активной конфигурации для проверки"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "沒有啟用的設定，無法核對"
           }
         }
       }

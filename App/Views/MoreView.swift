@@ -665,7 +665,11 @@ struct SettingsView: View {
 
 struct DiagnosticsView: View {
     @EnvironmentObject var vpn: VPNManager
+    @EnvironmentObject var store: ProfileStore
     @State private var startupLog = StartupLog.read()
+    /// 不可用节点 (NCSupport against the active profile, built off-main on appear).
+    private enum NodeSupportState { case loading, done([NCUnsupportedNode]), noProfile, failed }
+    @State private var nodeSupport: NodeSupportState = .loading
     @State private var exporting = false
     @State private var share: ShareItem?
     @State private var exportError: String?
@@ -701,6 +705,32 @@ struct DiagnosticsView: View {
                 if let exportError { ErrorRow(message: exportError) }
             } header: { Text("反馈") } footer: {
                 Text("一个 zip：App / 扩展 / 内核版本、App Group 状态、启动日志、内核最近日志、内存采样、实际生效的配置和启用的模块。服务器地址、密码、UUID、密钥、订阅链接和令牌都已替换，可以放心发送。")
+            }
+            .listRowBackground(Theme.card)
+
+            Section {
+                switch nodeSupport {
+                case .loading:
+                    HStack(spacing: 10) {
+                        ProgressView()
+                        Text("正在核对节点…").foregroundStyle(.secondary)
+                    }
+                case .noProfile:
+                    Text("没有启用的配置，无法核对").foregroundStyle(.secondary)
+                case .failed:
+                    Text("无法核对（配置读取或构建失败）").foregroundStyle(.secondary)
+                case .done(let nodes) where nodes.isEmpty:
+                    Label("全部节点可用", systemImage: "checkmark.circle.fill").foregroundStyle(Theme.good)
+                case .done(let nodes):
+                    ForEach(nodes) { n in
+                        VStack(alignment: .leading, spacing: 2) {
+                            Text(verbatim: n.name).font(.subheadline.weight(.semibold)).lineLimit(1)
+                            Text(verbatim: n.reason).font(.caption).foregroundStyle(.secondary)
+                        }
+                    }
+                }
+            } header: { Text("不可用节点") } footer: {
+                Text("按原生内核的支持范围核对当前配置的全部节点；不可用的节点连接时会被跳过，原因与启动日志一致。")
             }
             .listRowBackground(Theme.card)
 
@@ -763,7 +793,21 @@ struct DiagnosticsView: View {
             let s = await Task.detached(priority: .utility) { StartupLog.read() }.value
             if s != startupLog { startupLog = s }
         }
+        .task { await loadNodeSupport() }
         .sheet(item: $share) { ActivityView(items: [$0.url]) }
+    }
+
+    /// Builds the active profile's runtime config off-main and classifies every node with
+    /// NCSupport (NCNodeSupportCheck) — the same verdicts the tunnel logs at startup.
+    private func loadNodeSupport() async {
+        guard let profile = store.active else { nodeSupport = .noProfile; return }
+        let home = AppShared.homeURL.path
+        let path = profile.fileURL.path
+        let result = await Task.detached(priority: .utility) { () -> [NCUnsupportedNode]? in
+            guard let text = try? String(contentsOfFile: path, encoding: .utf8), !text.isEmpty else { return nil }
+            return NCNodeSupportCheck.unsupportedNodes(home: home, profilePath: path, text: text)
+        }.value
+        nodeSupport = result.map { .done($0) } ?? .failed
     }
 
     private func exportBundle() async {
