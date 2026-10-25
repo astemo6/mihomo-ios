@@ -67,3 +67,98 @@ final class NativeCoreMuxTests: XCTestCase {
         })
     }
 }
+
+/// Fake base relay for session-level tests: records sends, never delivers inbound data.
+private final class NCSessionStressBase: NCRelayStream {
+    private let lock = NSLock()
+    private(set) var sentBytes = 0
+    private var handler: ((Data?, Error?) -> Void)?
+
+    func send(_ data: Data) {
+        lock.lock(); sentBytes += data.count; lock.unlock()
+    }
+
+    func receive(_ handler: @escaping (Data?, Error?) -> Void) {
+        lock.lock(); self.handler = handler; lock.unlock()
+    }
+
+    func cancel() {}
+}
+
+extension NativeCoreMuxTests {
+    /// nc-sessions: one shared session driven from 4 caller queues at once — 200 streams opened, written
+    /// and (half of them) cancelled concurrently. Asserts the session-queue confinement holds: no crash,
+    /// every send completion fires exactly once, and the stream table drains to the uncancelled half, then
+    /// to zero. Run under Thread Sanitizer in CI (unit-tests.yml).
+    func testSessionConcurrentStreamsFromManyQueues() {
+        let session = NCMuxSession(key: "stress")
+        let base = NCSessionStressBase()
+        session.attach(base: base)
+        XCTAssertEqual(session.activeStreamCount, 0) // syncs with the session queue: attach has run by now
+        XCTAssertTrue(session.isAlive)
+
+        let callerQueues = (0..<4).map { DispatchQueue(label: "test.caller.\($0)", attributes: .concurrent) }
+        let total = 200
+        let lock = NSLock()
+        var completions = 0
+        var streams: [NCMuxStream] = []
+        let group = DispatchGroup()
+        for i in 0..<total {
+            let q = callerQueues[i % callerQueues.count]
+            group.enter()
+            q.async {
+                let stream = session.openStream(target: NCTarget(host: "example.com", port: 443), callerQueue: q)
+                lock.lock(); streams.append(stream); lock.unlock()
+                stream.send(Data("hello".utf8)) {
+                    lock.lock(); completions += 1; lock.unlock()
+                    group.leave()
+                }
+                if i % 2 == 0 { stream.cancel() }
+            }
+        }
+        XCTAssertEqual(group.wait(timeout: .now() + 20), .success, "every send completion must fire exactly once")
+        lock.lock()
+        let fired = completions
+        let opened = streams
+        lock.unlock()
+        XCTAssertEqual(fired, total)
+        XCTAssertEqual(opened.count, total)
+        XCTAssertEqual(session.activeStreamCount, total / 2)
+
+        for stream in opened { stream.cancel() }
+        let deadline = Date().addingTimeInterval(10)
+        while session.activeStreamCount != 0, Date() < deadline {
+            Thread.sleep(forTimeInterval: 0.01)
+        }
+        XCTAssertEqual(session.activeStreamCount, 0)
+        XCTAssertGreaterThan(base.sentBytes, 0)
+    }
+
+    /// Readiness without polling: a waiter registered while connecting is notified once on attach, and a
+    /// waiter registered after readiness fires immediately on its own queue.
+    func testSessionWhenReadyWaiters() {
+        let session = NCMuxSession(key: "ready")
+        let caller = DispatchQueue(label: "test.ready.caller")
+        let lock = NSLock()
+        var results: [Bool] = []
+        let group = DispatchGroup()
+        for _ in 0..<3 {
+            group.enter()
+            session.whenReady(callerQueue: caller) { err in
+                lock.lock(); results.append(err == nil); lock.unlock()
+                group.leave()
+            }
+        }
+        session.attach(base: NCSessionStressBase())
+        XCTAssertEqual(group.wait(timeout: .now() + 10), .success)
+        lock.lock(); let rs = results; lock.unlock()
+        XCTAssertEqual(rs, [true, true, true])
+
+        let late = expectation(description: "late waiter")
+        session.whenReady(callerQueue: caller) { err in
+            XCTAssertNil(err)
+            late.fulfill()
+        }
+        wait(for: [late], timeout: 10)
+    }
+}
