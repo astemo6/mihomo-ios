@@ -33,12 +33,12 @@ public final class NCCAManager {
             return loaded
         }
         // Never replace a CA that exists but could not be read: the user trusts that certificate (installed profile).
-        // feat/native-core-eval: Go's CA (bridge/mitm/ca.go) is PKCS#8 — read by loadCA below; an imported RSA CA is
-        // not supported by the native issuer yet, so MitM stays off with a log line instead of a new CA.
+        // feat/native-core-eval: Go's CA (bridge/mitm/ca.go) is PKCS#8 — read by loadCA below, EC P-256 or (gap C7)
+        // RSA, e.g. a p12 exported by another app and imported; anything else keeps MitM off with a log line.
         let dir = Self.caDir(home: home)
         if FileManager.default.fileExists(atPath: dir.appendingPathComponent("ca.pem").path)
             || FileManager.default.fileExists(atPath: dir.appendingPathComponent("ca.key").path) {
-            StartupLog.write("native MitM: CA in engine/ca could not be read (not a P-256 key?) — MitM off, CA left untouched")
+            StartupLog.write("native MitM: CA in engine/ca could not be read (neither EC P-256 nor RSA?) — MitM off, CA left untouched")
             return nil
         }
         do {
@@ -93,8 +93,22 @@ public final class NCCAManager {
         guard let pemData = try? Data(contentsOf: pemURL),
               let keyData = try? Data(contentsOf: keyURL),
               let certDER = extractPEMContent(pemData, label: "CERTIFICATE"),
-              let keyDER = extractPEMContent(keyData, label: "PRIVATE KEY"),
               let cert = SecCertificateCreateWithData(nil, certDER as CFData) else {
+            return nil
+        }
+        // gap C7 (astemo6/Muse NativeCore): an RSA CA — PKCS#8 with rsaEncryption (Go's ImportP12 writes that for a
+        // p12 from another app) or a PKCS#1 "RSA PRIVATE KEY" block. Security takes the PKCS#1 RSAPrivateKey DER.
+        if let pkcs1 = extractPEMContent(keyData, label: "RSA PRIVATE KEY")
+            ?? extractPEMContent(keyData, label: "PRIVATE KEY").flatMap({ Self.rsaPKCS1(fromPKCS8: $0) }) {
+            let rsaAttrs: [String: Any] = [
+                kSecAttrKeyType as String: kSecAttrKeyTypeRSA,
+                kSecAttrKeyClass as String: kSecAttrKeyClassPrivate,
+            ]
+            var rerr: Unmanaged<CFError>?
+            guard let key = SecKeyCreateWithData(pkcs1 as CFData, rsaAttrs as CFDictionary, &rerr) else { return nil }
+            return (cert, key)
+        }
+        guard let keyDER = extractPEMContent(keyData, label: "PRIVATE KEY") ?? extractPEMContent(keyData, label: "EC PRIVATE KEY") else {
             return nil
         }
 
@@ -128,6 +142,24 @@ public final class NCCAManager {
         guard len >= 0, i + len <= d.count else { return nil }
         defer { i += len }
         return (tag, d[i..<(i + len)])
+    }
+
+    /// The PKCS#1 RSAPrivateKey inside a PKCS#8 PrivateKeyInfo whose algorithm is rsaEncryption (1.2.840.113549.1.1.1);
+    /// nil for any other key (gap C7).
+    static func rsaPKCS1(fromPKCS8 der: Data) -> Data? {
+        let d = [UInt8](der)
+        var i = 0
+        guard let (t0, outer) = derTLV(d, &i), t0 == 0x30 else { return nil }
+        let o = Array(outer)
+        var j = 0
+        guard let (tv, _) = derTLV(o, &j), tv == 0x02,
+              let (ta, alg) = derTLV(o, &j), ta == 0x30 else { return nil }
+        let a = Array(alg)
+        var k = 0
+        guard let (toid, oid) = derTLV(a, &k), toid == 0x06,
+              Array(oid) == [0x2A, 0x86, 0x48, 0x86, 0xF7, 0x0D, 0x01, 0x01, 0x01] else { return nil }
+        guard let (tk, inner) = derTLV(o, &j), tk == 0x04 else { return nil }
+        return Data(inner)
     }
 
     /// X9.63 private key from PKCS#8 or a bare SEC 1 ECPrivateKey (P-256). The public point comes from the key

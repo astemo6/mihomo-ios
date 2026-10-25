@@ -16,7 +16,10 @@ import Security
 ///     digitalSignature (critical), ExtKeyUsage serverAuth, SAN with the
 ///     host (DNS or IP), a wildcard for sibling subdomains when the host
 ///     has >= 2 dots, plus extra names (dedup, cap 64).
-///   - Signature algorithm: ecdsa-with-SHA256 (OID 1.2.840.10045.4.3.2).
+///   - Signature algorithm: ecdsa-with-SHA256 (OID 1.2.840.10045.4.3.2) for an EC P-256 CA; for an RSA CA
+///     (gap C7, a p12 imported from another app — astemo6/Muse NativeCore) sha256WithRSAEncryption
+///     (1.2.840.113549.1.1.11, PKCS#1 v1.5). The leaf's own key stays EC P-256 either way (a valid chain; ECDHE-ECDSA
+///     handshakes stay cheap), like Go's shared leaf key.
 
 public enum LeafCertError: Error, LocalizedError {
     case invalidCAPrivateKey
@@ -28,7 +31,7 @@ public enum LeafCertError: Error, LocalizedError {
 
     public var errorDescription: String? {
         switch self {
-        case .invalidCAPrivateKey: return "CA private key is not an EC P-256 key"
+        case .invalidCAPrivateKey: return "CA private key is neither EC P-256 nor RSA (≥ 2048 bits)"
         case .invalidCACertificate: return "CA certificate cannot sign certificates"
         case .keyGenerationFailed: return "Failed to generate the shared leaf key"
         case .signingFailed(let e): return "SecKeyCreateSignature failed: \(e?.localizedDescription ?? "unknown")"
@@ -63,6 +66,8 @@ public struct LeafCertConfig {
 public final class LeafCertIssuer {
     private let caCertificateDER: Data
     private let caPrivateKey: SecKey
+    /// gap C7: the CA key is RSA (sha256WithRSAEncryption signatures)
+    private let caIsRSA: Bool
     private let issuerNameDER: Data             // CA subject, raw TLV from the CA cert
     private let leafPrivateKey: SecKey          // shared across all hosts (Go semantics)
     private let leafPublicKeyDER: Data          // SubjectPublicKeyInfo, prebuilt once
@@ -79,9 +84,13 @@ public final class LeafCertIssuer {
         guard let issuerName = try? Self.extractSubjectName(fromCertificateDER: caDER) else {
             throw LeafCertError.malformedCACertificate
         }
-        guard let attrs = SecKeyCopyAttributes(caPrivateKey) as? [CFString: Any],
-              (attrs[kSecAttrKeyType] as? String) == (kSecAttrKeyTypeECSECPrimeRandom as String),
-              (attrs[kSecAttrKeySizeInBits] as? Int) == 256 else {
+        guard let attrs = SecKeyCopyAttributes(caPrivateKey) as? [CFString: Any] else { throw LeafCertError.invalidCAPrivateKey }
+        let keyType = attrs[kSecAttrKeyType] as? String
+        let bits = (attrs[kSecAttrKeySizeInBits] as? Int) ?? (attrs[kSecAttrKeySizeInBits] as? NSNumber)?.intValue ?? 0
+        let isEC = keyType == (kSecAttrKeyTypeECSECPrimeRandom as String) && bits == 256
+        let isRSA = keyType == (kSecAttrKeyTypeRSA as String) && bits >= 2048
+        guard isEC || isRSA,
+              SecKeyIsAlgorithmSupported(caPrivateKey, .sign, isRSA ? .rsaSignatureMessagePKCS1v15SHA256 : .ecdsaSignatureMessageX962SHA256) else {
             throw LeafCertError.invalidCAPrivateKey
         }
         // One shared leaf keypair, generated once (Go: ca.leafKey).
@@ -96,6 +105,7 @@ public final class LeafCertIssuer {
         }
         self.caCertificateDER = caDER
         self.caPrivateKey = caPrivateKey
+        self.caIsRSA = isRSA
         self.issuerNameDER = issuerName
         self.leafPrivateKey = leafKey
         self.leafPublicKeyDER = DER.spkiECP256(point: point)
@@ -140,14 +150,15 @@ public final class LeafCertIssuer {
             subjectCN: host,
             notBefore: notBefore, notAfter: notAfter,
             spkiDER: leafPublicKeyDER,
-            dnsNames: dnsNames, ips: ips)
+            dnsNames: dnsNames, ips: ips,
+            signatureAlgorithm: caIsRSA ? DER.algIdRSASHA256() : DER.algIdECDSA())
 
         var err: Unmanaged<CFError>?
-        guard let x962 = SecKeyCreateSignature(
-            caPrivateKey, .ecdsaSignatureMessageX962SHA256, tbs as CFData, &err) as Data? else {
+        guard let sig = SecKeyCreateSignature(
+            caPrivateKey, caIsRSA ? .rsaSignatureMessagePKCS1v15SHA256 : .ecdsaSignatureMessageX962SHA256, tbs as CFData, &err) as Data? else {
             throw LeafCertError.signingFailed(err?.takeRetainedValue())
         }
-        let certDER = DER.certificate(tbs: tbs, signatureX962: x962)
+        let certDER = caIsRSA ? DER.certificate(tbs: tbs, rsaSignature: sig) : DER.certificate(tbs: tbs, signatureX962: sig)
 
         var p12: Data? = nil
         if let exporter = pkcs12Exporter, let pw = pkcs12Password {
@@ -269,6 +280,9 @@ public enum DER {
     public static let oidServerAuth: [Int] = [1, 3, 6, 1, 5, 5, 7, 3, 1]
 
     public static func algIdECDSA() -> Data { seq(oid(oidECDSAWithSHA256)) }
+    /// sha256WithRSAEncryption with its NULL parameters (RFC 4055)
+    public static let oidSHA256WithRSA: [Int] = [1, 2, 840, 113549, 1, 1, 11]
+    public static func algIdRSASHA256() -> Data { seq(oid(oidSHA256WithRSA), Data([0x05, 0x00])) }
 
     public static func spkiECP256(point: Data) -> Data {
         seq(seq(oid(oidECPublicKey), oid(oidPrime256v1)), bitString(point))
@@ -286,7 +300,7 @@ public enum DER {
 
     public static func tbsCertificate(serial: Data, issuerNameDER: Data, subjectCN: String,
                                       notBefore: Date, notAfter: Date, spkiDER: Data,
-                                      dnsNames: [String], ips: [Data]) -> Data {
+                                      dnsNames: [String], ips: [Data], signatureAlgorithm: Data = algIdECDSA()) -> Data {
         var exts: [Data] = []
         exts.append(extn(oidBasicConstraints, critical: true, valueDER: seq()))
         // KeyUsage digitalSignature: bit 0 set → first byte 0x80, 7 unused bits.
@@ -302,7 +316,7 @@ public enum DER {
         return seq(
             explicit(0, integer(bigEndian: Data([2]))),                        // version v3
             integer(bigEndian: serial),
-            algIdECDSA(),
+            signatureAlgorithm,
             issuerNameDER,
             seq(utcTime(notBefore), utcTime(notAfter)),
             name(cn: subjectCN),
@@ -315,6 +329,11 @@ public enum DER {
         let sig = seq(integer(bigEndian: Data(x962.prefix(half))),
                       integer(bigEndian: Data(x962.suffix(half))))
         return seq(tbs, algIdECDSA(), bitString(sig))
+    }
+
+    /// gap C7: a certificate signed by an RSA CA (PKCS#1 v1.5 signature bytes as SecKeyCreateSignature returns them).
+    public static func certificate(tbs: Data, rsaSignature: Data) -> Data {
+        seq(tbs, algIdRSASHA256(), bitString(rsaSignature))
     }
 }
 
