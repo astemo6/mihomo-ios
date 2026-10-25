@@ -133,7 +133,7 @@ final class NodeSubStore: ObservableObject {
         var changed = false
         var out: [SubUpdateResult] = []
         for s in subs where s.enabled && s.updateIntervalHours > 0 {
-            let due = (s.lastUpdated ?? .distantPast).addingTimeInterval(TimeInterval(s.updateIntervalHours * 3600))
+            let due = (s.lastUpdated ?? .distantPast).addingTimeInterval(TimeInterval(s.updateIntervalHours) * 3600)
             guard due < Date() else { continue }
             let e = await refresh(s, reload: false)
             if e == nil { changed = true }

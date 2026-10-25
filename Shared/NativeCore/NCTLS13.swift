@@ -505,7 +505,9 @@ extension NCTLS13 {
             exts.append(payload)
         }
         var sni = Data()
-        let name = Data(serverName.utf8)
+        // u16 lengths on the wire: NCTLSClient rejects a server name past 255 bytes (DNS max 253) before building;
+        // the prefix only keeps this builder trap-free for any caller.
+        let name = Data(serverName.utf8.prefix(255))
         sni.appendBE16(UInt16(name.count + 3))
         sni.append(0x00)
         sni.appendBE16(UInt16(name.count))
@@ -525,6 +527,10 @@ extension NCTLS13 {
         for p in alpn {
             let name = Array(p.utf8.prefix(255)) // u8 length on the wire (config value; never trap)
             guard !name.isEmpty else { continue }
+            // The ALPN list has a u16 length and the whole hello must stay well under 64 KB: a config with
+            // hundreds of long entries would trap in UInt16(protocols.count) / UInt16(body.count). Extra
+            // entries past 1 KB are dropped (real lists are a few bytes).
+            guard protocols.count + 1 + name.count <= 1024 else { break }
             protocols.append(UInt8(name.count))
             protocols.append(contentsOf: name)
         }

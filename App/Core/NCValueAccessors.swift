@@ -34,7 +34,8 @@ func ncBool(_ v: NCJSONValue?) -> Bool {
 
 func ncInt(_ v: NCJSONValue?) -> Int {
     switch v {
-    case .number(let d)?: return d.isFinite ? Int(d) : 0
+    // Go's int(float64) never traps; Swift's Int(Double) does at |d| ≥ 2^63 (Double(Int.max) is 2^63, so `<`).
+    case .number(let d)?: return d.isFinite && d >= Double(Int.min) && d < Double(Int.max) ? Int(d) : 0
     case .string(let s)?: return Int(s.trimmingCharacters(in: .whitespaces)) ?? 0
     default: return 0
     }

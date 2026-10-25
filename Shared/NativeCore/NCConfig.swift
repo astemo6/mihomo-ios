@@ -32,7 +32,9 @@ enum NCJSONValue: Equatable {
     var bool: Bool? { if case .bool(let b) = self { return b }; return nil }
     var int: Int? {
         switch self {
-        case .number(let n): return Int(n)
+        // Int(Double) traps on NaN / ±inf / |n| ≥ 2^63 (a config or subscription "port: 1e30"): such a value
+        // reads as absent. In range it still truncates toward zero, as before. Double(Int.max) is 2^63, so `<`.
+        case .number(let n): return n.isFinite && n >= Double(Int.min) && n < Double(Int.max) ? Int(n) : nil
         case .string(let s): return Int(s)
         default: return nil
         }
@@ -49,7 +51,9 @@ struct NCProxy: Equatable {
     let fields: [String: NCJSONValue]
 
     var server: String? { fields["server"]?.string }
-    var port: Int? { fields["port"]?.int }
+    /// A port outside 0...65535 (a share link / subscription "port=70000") reads as absent, so the dial fails
+    /// cleanly ("missing server/port") instead of being clamped to 65535 by the socket layer.
+    var port: Int? { fields["port"]?.int.flatMap { (0...65535).contains($0) ? $0 : nil } }
     var password: String? { fields["password"]?.string }
     var cipher: String? { fields["cipher"]?.string }
     var uuid: String? { fields["uuid"]?.string }

@@ -866,7 +866,7 @@ final class NCSSRTLSTicketAuth: NCSSRObfsCodec {
                               0xc0, 0x14, 0xc0, 0x09, 0xc0, 0x13, 0x00, 0x9c, 0x00, 0x35, 0x00, 0x2f, 0x00, 0x0a] as [UInt8])
         d.append(contentsOf: [0x1, 0x0] as [UInt8])
         var ext = Data([0xff, 0x01, 0x00, 0x01, 0x00])
-        let sn = Data(host.utf8)
+        let sn = Data(host.utf8.prefix(255)) // obfs-param host from the config; u16 lengths below never trap
         ext.append(contentsOf: [0, 0] as [UInt8])
         ext.appendBE16(UInt16(sn.count + 5))
         ext.appendBE16(UInt16(sn.count + 3))

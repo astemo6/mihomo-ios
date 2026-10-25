@@ -261,11 +261,11 @@ enum ScheduledUpdates {
         var next: Date?
         // r7 R7A-6: a disabled profile is never updated, so it stayed "due" and re-armed the task every hour.
         for p in ProfileStore.shared.profiles where p.kind == .remote && p.enabled && p.updateIntervalHours > 0 {
-            let d = (p.lastUpdated ?? .distantPast).addingTimeInterval(TimeInterval(p.updateIntervalHours * 3600))
+            let d = (p.lastUpdated ?? .distantPast).addingTimeInterval(TimeInterval(p.updateIntervalHours) * 3600)
             next = min(next ?? d, d)
         }
         for s in NodeSubStore.shared.subs where s.enabled && s.updateIntervalHours > 0 {
-            let d = (s.lastUpdated ?? .distantPast).addingTimeInterval(TimeInterval(s.updateIntervalHours * 3600))
+            let d = (s.lastUpdated ?? .distantPast).addingTimeInterval(TimeInterval(s.updateIntervalHours) * 3600)
             next = min(next ?? d, d)
         }
         if let g = GeoAutoUpdate.nextDue() { next = min(next ?? g, g) }

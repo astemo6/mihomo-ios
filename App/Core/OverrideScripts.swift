@@ -478,7 +478,7 @@ final class OverrideScriptStore: ObservableObject {
         var changed: Set<String> = []
         for (pid, list) in byProfile {
             for s in list where s.isRemote && s.updateIntervalHours > 0 {
-                let due = (s.lastUpdated ?? .distantPast).addingTimeInterval(TimeInterval(s.updateIntervalHours * 3600))
+                let due = (s.lastUpdated ?? .distantPast).addingTimeInterval(TimeInterval(s.updateIntervalHours) * 3600)
                 if due < Date(), await refresh(pid, s.id) == nil { changed.insert(pid) }
             }
         }

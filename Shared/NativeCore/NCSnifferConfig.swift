@@ -57,7 +57,8 @@ struct NCSnifferConfig: Equatable {
         var out: [ClosedRange<Int>] = []
         for item in arr {
             if let n = item.number {
-                out.append(Int(n)...Int(n))
+                // A non-port number (NaN, 1e30, -1, 70000) is skipped: Int(Double) would trap past 2^63.
+                if n.isFinite, n >= 0, n <= 65535 { out.append(Int(n)...Int(n)) }
             } else if let s = item.string?.trimmingCharacters(in: .whitespaces) {
                 if let dash = s.firstIndex(of: "-"),
                    let lo = Int(s[..<dash]), let hi = Int(s[s.index(after: dash)...]), lo <= hi {

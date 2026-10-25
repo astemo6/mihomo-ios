@@ -214,6 +214,11 @@ struct NCMRSDomainSet: Equatable {
         guard leavesLen >= 1 else {
             throw NCMRSError.corrupted("leaves length must be >= 1, got \(leavesLen)")
         }
+        // Each entry is 8 bytes: a length the file cannot hold is corrupt. Checked before reserveCapacity, which
+        // aborted the process on a hostile 2^60 length (allocation failure) from a downloaded rule set.
+        guard leavesLen <= Int64(reader.remaining / 8) else {
+            throw NCMRSError.truncated("leaves length \(leavesLen) exceeds the remaining data")
+        }
         var leaves = [UInt64]()
         leaves.reserveCapacity(Int(leavesLen))
         for _ in 0..<leavesLen {
@@ -224,6 +229,9 @@ struct NCMRSDomainSet: Equatable {
         let bmLen = try reader.readInt64BE()
         guard bmLen >= 1 else {
             throw NCMRSError.corrupted("labelBitmap length must be >= 1, got \(bmLen)")
+        }
+        guard bmLen <= Int64(reader.remaining / 8) else {
+            throw NCMRSError.truncated("labelBitmap length \(bmLen) exceeds the remaining data")
         }
         var labelBitmap = [UInt64]()
         labelBitmap.reserveCapacity(Int(bmLen))
@@ -585,7 +593,8 @@ struct NCMRSByteReader {
     }
 
     mutating func readBytes(_ count: Int) throws -> Data {
-        guard count >= 0, offset + count <= data.count else {
+        // `count <= remaining`, not `offset + count <= data.count`: a hostile Int64.max length overflowed the sum (trap).
+        guard count >= 0, count <= data.count - offset else {
             throw NCMRSError.truncated("unexpected EOF reading \(count) bytes at offset \(offset)")
         }
         let slice = data.subdata(in: (data.startIndex + offset)..<(data.startIndex + offset + count))
