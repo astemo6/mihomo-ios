@@ -14,7 +14,33 @@ import Foundation
 /// production default is a plain URLSession data task (the extension's own
 /// traffic does not loop through its tunnel). A failed refresh keeps the
 /// previous index — a stale list beats an empty one (QX/Surge behavior).
+///
+/// Payload caps (memory budget, docs/nativecore-memory-budget.md): a
+/// provider body over `maxPayloadBytes`, or a parsed list over
+/// `maxEntries`, is a refresh/load failure — the previous index and the
+/// on-disk cache are kept, exactly like a network failure, with the gate
+/// named in the log line so the two are distinguishable.
+enum NCRuleProviderGateError: Error, CustomStringConvertible {
+    case payloadTooLarge(name: String, bytes: Int, limit: Int)
+    case tooManyEntries(name: String, count: Int, limit: Int)
+
+    var description: String {
+        switch self {
+        case .payloadTooLarge(let name, let bytes, let limit):
+            return "rule provider '\(name)' payload is \(bytes) bytes, over the \(limit)-byte cap"
+        case .tooManyEntries(let name, let count, let limit):
+            return "rule provider '\(name)' parsed to \(count) entries, over the \(limit)-entry cap"
+        }
+    }
+}
+
 final class NCRuleProviderStore {
+    /// Hard caps on one provider payload / parsed list. Well above the
+    /// ~50k-entry lists seen in the wild, low enough that a hostile or
+    /// broken provider cannot blow the extension's memory budget.
+    static let maxPayloadBytes = 32 * 1024 * 1024
+    static let maxEntries = 300_000
+
     struct Provider: Equatable {
         var name: String // lookup key: provider name, or the URL itself
         var behavior: String = "classical" // classical | domain | ipcidr
@@ -146,13 +172,25 @@ final class NCRuleProviderStore {
     }
 
     /// Populate an in-memory index from raw data (either text/yaml or binary .mrs).
+    /// Both payload gates live here because every load path funnels through
+    /// this one function: network refresh, cold-start disk cache and local
+    /// `type=file` payloads (the last two never pass the refresh path, and a
+    /// cache file may predate the gates — so they are checked again here).
     static func populateIndex(idx: inout NCRuleSetIndex, data: Data, provider: Provider) throws {
+        guard data.count <= maxPayloadBytes else {
+            throw NCRuleProviderGateError.payloadTooLarge(
+                name: provider.name, bytes: data.count, limit: maxPayloadBytes)
+        }
         if provider.isMRS || NCMRS.isMRS(data: data) {
             try idx.addMRS(data: data, behavior: provider.behavior)
         } else if let text = String(data: data, encoding: .utf8) {
             idx.addText(text, flavor: provider.flavor)
         } else {
             throw NCMRSError.corrupted("rule provider '\(provider.name)' payload is neither UTF-8 text nor recognized MRS binary format")
+        }
+        guard idx.entryCount <= maxEntries else {
+            throw NCRuleProviderGateError.tooManyEntries(
+                name: provider.name, count: idx.entryCount, limit: maxEntries)
         }
     }
 
@@ -170,7 +208,13 @@ final class NCRuleProviderStore {
             var loaded = false
             if !p.inlinePayload.isEmpty {
                 for line in p.inlinePayload { idx.addLine(line, flavor: p.flavor) }
-                loaded = idx.entryCount > 0
+                // Inline payloads bypass populateIndex (no Data body), so
+                // the entry-count gate is applied here directly.
+                if idx.entryCount > Self.maxEntries {
+                    NSLog("%@", "[NCRuleProviderStore] \(NCRuleProviderGateError.tooManyEntries(name: p.name, count: idx.entryCount, limit: Self.maxEntries))")
+                } else {
+                    loaded = idx.entryCount > 0
+                }
             } else if let path = p.filePath {
                 let url = path.hasPrefix("/") ? URL(fileURLWithPath: path)
                     : URL(fileURLWithPath: home).appendingPathComponent(path)

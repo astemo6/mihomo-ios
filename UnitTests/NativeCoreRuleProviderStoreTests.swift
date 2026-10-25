@@ -88,4 +88,65 @@ final class NativeCoreRuleProviderStoreTests: XCTestCase {
         wait(for: [e2], timeout: 5)
         XCTAssertTrue(store.contains(name: "S", ctx: NCMatchContext(domain: "a.keep.com")))
     }
+
+    func testOversizedPayloadRefreshKeepsOldIndexAndCache() {
+        let store = NCRuleProviderStore(dir: dir)
+        let p = NCRuleProviderStore.Provider(name: "S", behavior: "classical",
+                                             url: "https://x.example.com/s.txt")
+        store.fetcher = { _, done in done(Data("DOMAIN-SUFFIX,keep.com\n".utf8)) }
+        let e1 = expectation(description: "first")
+        store.refresh(p) { e1.fulfill() }
+        wait(for: [e1], timeout: 5)
+        XCTAssertTrue(store.contains(name: "S", ctx: NCMatchContext(domain: "a.keep.com")))
+
+        // Over the 32 MB payload cap: a refresh failure — old index stays,
+        // and the disk cache must not be overwritten with the bad body.
+        store.fetcher = { _, done in done(Data(count: NCRuleProviderStore.maxPayloadBytes + 1)) }
+        let e2 = expectation(description: "oversized")
+        store.refresh(p) { e2.fulfill() }
+        wait(for: [e2], timeout: 5)
+        XCTAssertTrue(store.contains(name: "S", ctx: NCMatchContext(domain: "a.keep.com")))
+        let store2 = NCRuleProviderStore(dir: dir)
+        store2.loadCached(providers: [p], home: dir.path)
+        XCTAssertTrue(store2.contains(name: "S", ctx: NCMatchContext(domain: "a.keep.com")))
+    }
+
+    func testTooManyEntriesRefreshKeepsOldIndex() {
+        // Domain behavior (plain host per line) keeps the generated list on
+        // the line-by-line path — no YAML `payload:` document probe.
+        let store = NCRuleProviderStore(dir: dir)
+        let p = NCRuleProviderStore.Provider(name: "S", behavior: "domain",
+                                             url: "https://x.example.com/s.txt")
+        store.fetcher = { _, done in done(Data("keep.com\n".utf8)) }
+        let e1 = expectation(description: "first")
+        store.refresh(p) { e1.fulfill() }
+        wait(for: [e1], timeout: 5)
+        XCTAssertTrue(store.contains(name: "S", ctx: NCMatchContext(domain: "keep.com")))
+
+        // One entry over the cap: rejected as a whole, old index kept.
+        var big = ""
+        big.reserveCapacity(9_000_000)
+        for i in 0...NCRuleProviderStore.maxEntries { big += "d\(i).example.com\n" }
+        store.fetcher = { _, done in done(Data(big.utf8)) }
+        let e2 = expectation(description: "too many")
+        store.refresh(p) { e2.fulfill() }
+        wait(for: [e2], timeout: 5)
+        XCTAssertTrue(store.contains(name: "S", ctx: NCMatchContext(domain: "keep.com")))
+        XCTAssertFalse(store.contains(name: "S", ctx: NCMatchContext(domain: "d0.example.com")))
+    }
+
+    func testTooManyEntriesLocalFileIsRejected() {
+        var big = ""
+        big.reserveCapacity(9_000_000)
+        for i in 0...NCRuleProviderStore.maxEntries { big += "d\(i).example.com\n" }
+        let file = dir.appendingPathComponent("big.txt")
+        try! FileManager.default.createDirectory(at: dir, withIntermediateDirectories: true)
+        try! big.write(to: file, atomically: true, encoding: .utf8)
+        let store = NCRuleProviderStore(dir: dir)
+        let p = NCRuleProviderStore.Provider(name: "F", behavior: "domain",
+                                             filePath: file.path)
+        store.loadCached(providers: [p], home: dir.path)
+        XCTAssertFalse(store.isLoaded(name: "F"))
+        XCTAssertFalse(store.contains(name: "F", ctx: NCMatchContext(domain: "d0.example.com")))
+    }
 }
