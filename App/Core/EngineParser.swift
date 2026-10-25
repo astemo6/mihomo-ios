@@ -2150,10 +2150,11 @@ extension NCEngineRuleset {
         return re.stringByReplacingMatches(in: text, range: NSRange(text.startIndex..., in: text), withTemplate: "$1:")
     }
 
-    /// Egern YAML extraction: metadata, MITM hostnames, and the
-    /// domain/IP-family rules (as core rules). Scriptings and the
-    /// rewrite families need Egern's per-entry object mapping; their
-    /// entries are surfaced in `unsupported` rather than dropped.
+    /// Egern YAML extraction: metadata, MITM hostnames, the
+    /// domain/IP-family rules (as core rules), and `scriptings:`
+    /// entries (parseEgernScripting, nc-compat). The rewrite families
+    /// still need Egern's per-entry object mapping; their entries are
+    /// surfaced in `unsupported` rather than dropped.
     func parseEgern(_ text: String) {
         format = "egern"
         guard let root = NCYAML.parse(text)?.object else { return }
@@ -2186,9 +2187,196 @@ extension NCEngineRuleset {
                 parseCoreRule("\(mt),\(value),\(policy)")
             }
         }
-        for key in ["scriptings", "url_rewrites", "header_rewrites", "body_rewrites", "map_locals"] {
+        if let arr = root["scriptings"]?.array {
+            for item in arr { parseEgernScripting(item) }
+        }
+        for key in ["url_rewrites", "header_rewrites", "body_rewrites", "map_locals"] {
             if let arr = root[key]?.array {
                 for item in arr { unsupported.append("egern \(key): \(item)") }
+            }
+        }
+    }
+
+    static func egernPatterns(_ v: NCJSONValue) -> [String] {
+        if let s = v.string { return [s] }
+        if let arr = v.array { return arr.compactMap { $0.string } }
+        if let o = v.object {
+            if let arr = o["patterns"]?.array { return arr.compactMap { $0.string } }
+            if let s = o["pattern"]?.string { return [s] }
+            if let arr = o["match"]?.array { return arr.compactMap { $0.string } }
+        }
+        return []
+    }
+
+    static func egernCrons(_ v: NCJSONValue) -> [String] {
+        if let s = v.string { return [s] }
+        if let arr = v.array { return arr.compactMap { $0.string } }
+        if let o = v.object {
+            if let arr = o["crons"]?.array { return arr.compactMap { $0.string } }
+            if let s = o["cron"]?.string ?? o["crons"]?.string { return [s] }
+        }
+        return []
+    }
+
+    static func jsonAny(_ v: NCJSONValue) -> Any {
+        switch v {
+        case .null: return NSNull()
+        case .bool(let b): return b
+        case .number(let n): return n
+        case .string(let s): return s
+        case .array(let a): return a.map { jsonAny($0) }
+        case .object(let o): return o.mapValues { jsonAny($0) }
+        }
+    }
+
+    /// JSON text for an Egern `argument` object / array value.
+    static func jsonString(of v: NCJSONValue) -> String? {
+        let any = jsonAny(v)
+        guard JSONSerialization.isValidJSONObject(any),
+              let d = try? JSONSerialization.data(withJSONObject: any, options: [.sortedKeys]) else { return nil }
+        return String(data: d, encoding: .utf8)
+    }
+
+    /// One Egern `scriptings:` entry (nc-compat). Config-level fields
+    /// map onto the internal script model as follows:
+    ///   name            -> NCEngineScript.name (ctx.script.name)
+    ///   url (path/script accepted too)
+    ///                   -> NCEngineScript.path; the script source is
+    ///                      fetched / cached by NCResources at manifest
+    ///                      build, like every other script
+    ///   env (map)       -> NCEngineScript.env, exported as the setup's
+    ///                      egernEnv (ctx.env inside the script)
+    ///   argument        -> NCEngineScript.argument; an object / array
+    ///                      becomes a JSON object argument (argObject)
+    ///   timeout         -> NCEngineScript.timeout (seconds)
+    ///   http_request    -> script rule, phase "request", one rule per
+    ///                      pattern (requires_body -> requiresBody)
+    ///   http_response   -> script rule, phase "response", likewise
+    ///   schedule / cron -> cron task(s), one per cron expression
+    ///                      (ctx.cron inside the script)
+    ///   network_changed -> event task
+    ///   widget          -> generic task (the panel / widget channel)
+    ///   dns / rule      -> script rule phase "dns" / "rule": the
+    ///                      NCScriptHooks.swift contract applies
+    /// The ctx object itself is built at run time by the existing
+    /// Egern adapter (NCScriptManifest.egernPrelude) from the host
+    /// globals: ctx.request <- $request (method / url / headers /
+    /// body + text() / json() / arrayBuffer() / bytes()),
+    /// ctx.response <- $response, ctx.http <- $httpClient,
+    /// ctx.storage <- $persistentStore, ctx.notify <- $notification,
+    /// ctx.lookupIP <- $utils, ctx.device <- $network; the script's
+    /// return value / ctx.respond() / ctx.abort() is its result
+    /// channel, and export-default (ctx) scripts are adapted by
+    /// NCScriptManifest.scriptCode at export. ctx.ssh.connect is the
+    /// one ctx member the existing adapter explicitly does not
+    /// support (it rejects); there is no config-level equivalent.
+    /// Fields of an entry that have no equivalent above are NOT
+    /// dropped: each is surfaced in `unsupported` with its original
+    /// value, and an entry with no mappable trigger at all stays in
+    /// `unsupported` whole, as before.
+    func parseEgernScripting(_ item: NCJSONValue) {
+        guard let obj = item.object else {
+            unsupported.append("egern scripting: \(item)")
+            return
+        }
+        let name = obj["name"]?.string ?? ""
+        let path = obj["url"]?.string ?? obj["path"]?.string ?? obj["script"]?.string ?? ""
+        guard !path.isEmpty else {
+            unsupported.append("egern scripting: \(item)")
+            return
+        }
+        var sc = NCEngineScript()
+        sc.name = name
+        sc.path = path
+        if let t = obj["timeout"]?.int { sc.timeout = t }
+        if let envObj = obj["env"]?.object {
+            for (k, v) in envObj {
+                if let s = v.string { sc.env[k] = s }
+                else if let n = v.number { sc.env[k] = n == n.rounded() && abs(n) < 1e15 ? String(Int(n)) : String(n) }
+                else if let b = v.bool { sc.env[k] = b ? "true" : "false" }
+            }
+        }
+        if let a = obj["argument"] {
+            switch a {
+            case .string(let s):
+                Self.setScriptArgument(&sc, s)
+            case .object, .array:
+                if let json = Self.jsonString(of: a) {
+                    sc.argument = json
+                    sc.hasArgument = true
+                    sc.argObject = true
+                }
+            default:
+                break
+            }
+        }
+        var consumed: Set<String> = ["name", "url", "path", "script", "timeout", "env", "argument"]
+        var imported = false
+        let line = "egern scripting: \(name)"
+        for (key, phase, type) in [("http_request", "request", "http-request"),
+                                   ("http-request", "request", "http-request"),
+                                   ("http_response", "response", "http-response"),
+                                   ("http-response", "response", "http-response")] {
+            guard let trig = obj[key] else { continue }
+            consumed.insert(key)
+            var s2 = sc
+            s2.type = type
+            if let rb = trig.object?["requires_body"]?.bool ?? trig.object?["requires-body"]?.bool {
+                s2.requiresBody = rb
+            }
+            let patterns = Self.egernPatterns(trig)
+            if patterns.isEmpty {
+                unsupported.append("egern scripting \(name): \(key) without patterns: \(trig)")
+                continue
+            }
+            for pat in patterns {
+                addRule(line: line, NCEngineRule(kind: "script", phase: phase, pattern: pat, script: s2), nil)
+            }
+            imported = true
+        }
+        for key in ["schedule", "cron"] {
+            guard let trig = obj[key] else { continue }
+            consumed.insert(key)
+            let crons = Self.egernCrons(trig)
+            if crons.isEmpty {
+                unsupported.append("egern scripting \(name): \(key) without crons: \(trig)")
+                continue
+            }
+            for c in crons {
+                addTask(kind: "cron", cron: c, event: "", sc: sc, source: "", line: line, format: "egern", params: nil)
+            }
+            imported = true
+        }
+        for key in ["network_changed", "network-changed"] {
+            guard let trig = obj[key] else { continue }
+            consumed.insert(key)
+            if trig.bool == false { continue }
+            addTask(kind: "event", cron: "", event: "network-changed", sc: sc, source: "", line: line, format: "egern", params: nil)
+            imported = true
+        }
+        if let trig = obj["widget"] {
+            consumed.insert("widget")
+            if trig.bool != false {
+                addTask(kind: "generic", cron: "", event: "", sc: sc, source: "", line: line, format: "egern", params: nil)
+                imported = true
+            }
+        }
+        for (key, phase) in [("dns", "dns"), ("rule", "rule")] {
+            guard obj[key] != nil else { continue }
+            consumed.insert(key)
+            var s2 = sc
+            s2.type = phase
+            let pat = Self.egernPatterns(obj[key]!).first ?? ""
+            addRule(line: line, NCEngineRule(kind: "script", phase: phase, pattern: pat, script: s2), nil)
+            imported = true
+        }
+        if !imported {
+            unsupported.append("egern scripting: \(item)")
+            return
+        }
+        for k in obj.keys.sorted() where !consumed.contains(k) {
+            if let v = obj[k] {
+                unsupported.append("egern scripting \(name): unparsed \(k): \(v)")
             }
         }
     }
