@@ -2,6 +2,12 @@
 
 按时间倒序。安装包见 [GitHub Releases](https://github.com/astemo6/mihomo-ios/releases)。v0.19.21 及之前的版本内核均为 mihomo v1.19.32，之后的版本见各版本说明；中间未单独发包的版本（如 0.18.1、0.19.1–0.19.5、0.19.9–0.19.10）并入其后第一个发布版本。
 
+## v0.20.0（NativeCore 预览版，预发布）
+
+- **内核换成 NativeCore**：隧道和 App 不再包含 Go/mihomo，协议、规则、DNS、MitM 重写与脚本全部由纯 Swift（加 lwIP 与 WireGuard 的少量 C、脚本运行时 TernPrelude.js）实现，继续兼容 mihomo 配置与 Surge / Loon / Quantumult X / Egern 的重写和脚本。
+- 不支持的节点（Tailscale、Hysteria v1 faketcp）在节点列表和诊断里显示为不可用并说明原因，不会回退到 Go。Tailscale 原生支持后续版本加入。
+- 这是给真机试跑的预发布版本，正式版仍为 v0.19.26。
+
 ## v0.19.26（build 341，2026-10-25）
 
 - **喜马拉雅和 YouTube 同时打开时，YouTube 去广告脚本不再因内存预算被跳过**（v0.19.25 真机：脚本日志「跳过脚本：响应体解压后超过 970 KB（当前内存预算 970 KB，隧道可用 6.7 MB；Content-Encoding: br，已收 140 KB）」×2，广告回来了）：以前大响应体的预算在响应到达的那一刻读一次剩余内存，按（剩余 − 4 MB）÷ 3 计算，6.7 MB 时不到 1 MB，而 YouTube 的 protobuf 响应解压后通常 1–3 MB。现在：
