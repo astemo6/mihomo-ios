@@ -101,6 +101,8 @@ final class NCScriptHookRunner {
     /// Every hook run serializes here: scripts never execute on the
     /// DNS forwarding queue, the data-plane queue or a routing caller.
     private let queue = DispatchQueue(label: "nc.script-hooks")
+    /// fix/nc-start-empty: for the tunnel's stall watchdog (rule scripts gate routing of new flows).
+    var watchQueue: DispatchQueue { queue }
     private let host = NativeScriptHost.shared
 
     /// Fallback when a manifest entry carries no timeout at all (the

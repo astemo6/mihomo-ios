@@ -31,6 +31,9 @@ final class NCController {
     private var slowest: (path: String, ms: Int) = ("-", 0)
     private var loggedFirst = false
 
+    /// fix/nc-start-empty: the controller's serial queue, for the stall watchdog (NativeTunnelCore).
+    var watchQueue: DispatchQueue { queue }
+
     /// Racy read (log line only).
     var statsLine: String {
         "controller: accepted \(accepted), routed \(routed), 401 \(unauthorized), slowest \(slowest.path) \(slowest.ms) ms"
