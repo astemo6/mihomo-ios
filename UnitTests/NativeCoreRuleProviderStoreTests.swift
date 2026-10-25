@@ -224,4 +224,75 @@ final class NativeCoreRuleProviderStoreTests: XCTestCase {
         XCTAssertEqual(NCRuleProviderStore.unwrapLoopbackConvert("http://127.0.0.1:9090/version"), "http://127.0.0.1:9090/version")
         XCTAssertEqual(NCRuleProviderStore.loopbackConvertKind(wrapped), "domainset")
     }
+
+    /// Same for proxy-providers: http://127.0.0.1:<port>/nodes/convert?url=<sub> → the store fetches <sub> and
+    /// NCSubscriptionParser reads the raw subscription body itself.
+    func testLoopbackNodesConvertUnwrapped() {
+        let src = "https://sub.example.com/api/v1/client/subscribe?token=abc&flag=clash"
+        var comps = URLComponents(string: "http://127.0.0.1:9090/nodes/convert")!
+        comps.queryItems = [URLQueryItem(name: "url", value: src)]
+        let wrapped = comps.string!
+        XCTAssertEqual(NCNodeSubscriptionStore.unwrapLoopbackConvert(wrapped), src)
+        XCTAssertEqual(NCNodeSubscriptionStore.unwrapLoopbackConvert(src), src)
+        XCTAssertEqual(NCNodeSubscriptionStore.unwrapLoopbackConvert("http://127.0.0.1:9090/rules/convert?url=https%3A%2F%2Fa.b%2Fc"),
+                       "http://127.0.0.1:9090/rules/convert?url=https%3A%2F%2Fa.b%2Fc")
+
+        let store = NCNodeSubscriptionStore(dir: dir)
+        var fetched: [String] = []
+        store.fetcher = { url, done in
+            fetched.append(url)
+            done(Data("""
+            proxies:
+              - name: HK-01
+                type: ss
+                server: 1.2.3.4
+                port: 8388
+                cipher: aes-256-gcm
+                password: pass
+            """.utf8))
+        }
+        let sub = NCNodeSubscription(name: "Airport", url: wrapped)
+        let done = expectation(description: "refresh")
+        store.refresh(sub) { done.fulfill() }
+        wait(for: [done], timeout: 5)
+        XCTAssertEqual(fetched, [src])
+        XCTAssertEqual(store.nodes(for: sub).map { $0.name }, ["HK-01"])
+    }
+
+    /// New runtime configs no longer emit the loopback converter URL (nor the Bearer header) for convert providers.
+    func testRuntimeConvertProvidersKeepSourceURL() {
+        let o = NCRuntimeSettings(core: CoreOverrides(), dns: nil, local: nil, home: "", manualPath: "")
+        var raw: [String: NCJSONValue] = [
+            "rule-providers": .object([
+                "Ads": .object(["type": .string("http"), "behavior": .string("classical"), "format": .string("text"),
+                                "url": .string("https://example.com/Ads.list"), "x-convert": .string("domainset")]),
+                "Plain": .object(["type": .string("http"), "behavior": .string("classical"),
+                                  "url": .string("https://example.com/plain.yaml")]),
+            ]),
+            "proxy-providers": .object([
+                "Sub": .object(["type": .string("http"), "url": .string("https://sub.example.com/s"),
+                                "x-convert": .string("nodes")]),
+            ]),
+        ]
+        NCRuntimeSteps.rewriteConvertProviders(&raw, o)
+        let ads = raw["rule-providers"]?.object?["Ads"]?.object
+        XCTAssertEqual(ads?["url"]?.string, "https://example.com/Ads.list")
+        XCTAssertEqual(ads?["behavior"]?.string, "domain")
+        XCTAssertEqual(ads?["format"]?.string, "text")
+        XCTAssertNil(ads?["header"])
+        XCTAssertNil(ads?["x-convert"])
+        XCTAssertEqual(raw["rule-providers"]?.object?["Plain"]?.object?["url"]?.string, "https://example.com/plain.yaml")
+        let sub = raw["proxy-providers"]?.object?["Sub"]?.object
+        XCTAssertEqual(sub?["url"]?.string, "https://sub.example.com/s")
+        XCTAssertNil(sub?["header"])
+
+        var raw2: [String: NCJSONValue] = [:]
+        let rule = NCRuntimeSteps.addRemoteProvider(
+            &raw2, o, sp: NCRuleValidator.RemoteSpec(url: "https://example.com/Video.list", kind: "list"), interval: 0)
+        XCTAssertTrue(rule.hasPrefix("RULE-SET,"))
+        let p = raw2["rule-providers"]?.object?.values.first?.object
+        XCTAssertEqual(p?["url"]?.string, "https://example.com/Video.list")
+        XCTAssertEqual(p?["behavior"]?.string, "classical")
+        XCTAssertNil(p?["header"])
+    }
 }
