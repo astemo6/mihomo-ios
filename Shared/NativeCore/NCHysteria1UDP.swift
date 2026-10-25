@@ -306,47 +306,58 @@ enum NCHy1UDP {
 extension NCHysteria1Connection {
     /// DialUDP: a stream with ClientRequest{UDP: true}; the ServerResponse carries the UDP session id. The stream is
     /// held open for the session's lifetime (closing it ends the session server-side).
+    /// nc-hy1-queue: entry points hop onto the connection's session queue — `udpSessions`, the datagram
+    /// flow and the defragger are touched only there. The completion fires on the session queue;
+    /// callers hop to their own queue (NCUDPHysteria1Session already does).
     func openUDP(handler: @escaping (Data) -> Void, completion: @escaping (UInt32?) -> Void) {
-        guard state == .ready, let conn = group?.extract(connectionTo: nil, using: nil) else { completion(nil); return }
-        let ch = NCHy2StreamChannel(conn: conn)
-        var buf = Data()
-        var done = false
-        func finish(_ id: UInt32?) {
-            guard !done else { return }
-            done = true
-            if let id { udpSessions[id] = (handler, ch); _ = ensureDatagramFlow() } else { ch.cancel() }
-            completion(id)
-        }
-        func read() {
-            ch.receive { data, _ in
+        ncOnSessionQueue(queue) {
+            guard self.state == .ready, let conn = self.group?.extract(connectionTo: nil, using: nil) else { completion(nil); return }
+            let ch = NCHy2StreamChannel(conn: conn)
+            var buf = Data()
+            var done = false
+            func finish(_ id: UInt32?) {
                 guard !done else { return }
-                guard let data else { finish(nil); return }
-                buf.append(data)
-                guard let (ok, _, _) = NCHy1.tcpResponse(buf) else { read(); return }
-                guard ok, buf.count >= 5 else { finish(nil); return }
-                let s = buf.startIndex
-                finish(UInt32(buf[s + 1]) << 24 | UInt32(buf[s + 2]) << 16 | UInt32(buf[s + 3]) << 8 | UInt32(buf[s + 4]))
+                done = true
+                if let id { self.udpSessions[id] = (handler, ch); _ = self.ensureDatagramFlow() } else { ch.cancel() }
+                completion(id)
             }
+            func read() {
+                ch.receive { data, _ in
+                    guard !done else { return }
+                    guard let data else { finish(nil); return }
+                    buf.append(data)
+                    guard let (ok, _, _) = NCHy1.tcpResponse(buf) else { read(); return }
+                    guard ok, buf.count >= 5 else { finish(nil); return }
+                    let s = buf.startIndex
+                    finish(UInt32(buf[s + 1]) << 24 | UInt32(buf[s + 2]) << 16 | UInt32(buf[s + 3]) << 8 | UInt32(buf[s + 4]))
+                }
+            }
+            ch.start(queue: self.queue) { err in
+                if err != nil { finish(nil); return }
+                ch.send(Data([1, 0, 0, 0, 0])) // UDP, empty host, port 0
+                read()
+            }
+            self.queue.asyncAfter(deadline: .now() + 10) { finish(nil) }
         }
-        ch.start(queue: queue) { err in
-            if err != nil { finish(nil); return }
-            ch.send(Data([1, 0, 0, 0, 0])) // UDP, empty host, port 0
-            read()
-        }
-        queue.asyncAfter(deadline: .now() + 10) { finish(nil) }
     }
 
     func closeUDP(_ id: UInt32) {
-        udpSessions.removeValue(forKey: id)?.stream.cancel()
-    }
-
-    func sendUDP(_ id: UInt32, target: NCTarget, payload: Data) {
-        guard state == .ready, udpSessions[id] != nil, let flow = ensureDatagramFlow() else { return }
-        for f in NCHy1UDP.frames(session: id, host: target.host, port: UInt16(clamping: target.port), data: payload) {
-            flow.send(content: f, completion: .idempotent)
+        ncOnSessionQueue(queue) {
+            self.udpSessions.removeValue(forKey: id)?.stream.cancel()
         }
     }
 
+    func sendUDP(_ id: UInt32, target: NCTarget, payload: Data) {
+        ncOnSessionQueue(queue) {
+            guard self.state == .ready, self.udpSessions[id] != nil, let flow = self.ensureDatagramFlow() else { return }
+            for f in NCHy1UDP.frames(session: id, host: target.host, port: UInt16(clamping: target.port), data: payload) {
+                flow.send(content: f, completion: .idempotent)
+            }
+        }
+    }
+
+    /// Session queue only (called from openUDP/sendUDP, which hop first); the flow's own callbacks are
+    /// started on the session queue too, so `datagramFlow` never leaves it.
     private func ensureDatagramFlow() -> NWConnection? {
         if let datagramFlow { return datagramFlow }
         let opts = NWProtocolQUIC.Options()
@@ -369,6 +380,8 @@ extension NCHysteria1Connection {
     }
 
     /// Also used for flows the server opens (its datagram flow, if Network.framework surfaces it that way).
+    /// Session queue only: flows are started on the session queue, and delivery dispatches by UDP
+    /// session ID out of the per-session table (no shared single-slot handler).
     func readDatagrams(_ c: NWConnection) {
         c.receiveMessage { [weak self] data, _, _, error in
             guard let self else { c.cancel(); return }
