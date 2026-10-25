@@ -272,7 +272,7 @@ struct SubscriptionRulesView: View {
             if Task.isCancelled { return }
             let json = String(decoding: (try? JSONEncoder().encode(r)) ?? Data("{}".utf8), as: UTF8.self)
             let out = await Task.detached(priority: .userInitiated) {
-                LibmihomoSubPreview(AppShared.homeURL.path, path, json)
+                NCSubPreview.preview(home: AppShared.homeURL.path, profilePath: path, rulesJSON: json)
             }.value
             if Task.isCancelled { return }
             preview = try? JSONDecoder().decode(SubPreviewResult.self, from: Data(out.utf8))

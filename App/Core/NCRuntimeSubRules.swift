@@ -321,13 +321,20 @@ extension NCRuntimeSteps {
                 let (_, regionIdx) = ncDetectRegion(orig + " " + newName)
                 items.append(Item(nodeIdx: idx, name: newName, region: regionIdx))
             }
+            // Go sort.SliceStable: Swift's sort is not stable, so ties keep input order via nodeIdx.
             switch r.sort ?? "" {
             case "name":
-                items.sort { ncNaturalLess($0.name, $1.name) }
+                items.sort {
+                    if ncNaturalLess($0.name, $1.name) { return true }
+                    if ncNaturalLess($1.name, $0.name) { return false }
+                    return $0.nodeIdx < $1.nodeIdx
+                }
             case "region":
                 items.sort {
                     if $0.region != $1.region { return $0.region < $1.region }
-                    return ncNaturalLess($0.name, $1.name)
+                    if ncNaturalLess($0.name, $1.name) { return true }
+                    if ncNaturalLess($1.name, $0.name) { return false }
+                    return $0.nodeIdx < $1.nodeIdx
                 }
             default: break
             }
@@ -477,5 +484,143 @@ extension NCRuntimeSteps {
             }
         }
         raw["rules"] = .array(rules)
+    }
+}
+
+// MARK: - SubPreview (bridge subrules.go SubPreview + processNodes rows)
+
+/// nc-integrate B3: bridge SubPreview — runs a 节点处理 rule set against the profile without saving. Inline nodes
+/// get the full pipeline (filter → dedupe → rename → sort → unique suffix); cached provider nodes get filter +
+/// rename only, as the core applies to providers. Returns the previewResult JSON the view decodes.
+enum NCSubPreview {
+
+    private struct Row {
+        var original: String
+        var name: String
+        var type: String
+        var region = ""
+        var kept = false
+        var reason = ""
+        var source = ""
+        var json: [String: Any] {
+            var d: [String: Any] = ["original": original, "name": name, "type": type, "kept": kept]
+            if !region.isEmpty { d["region"] = region }
+            if !reason.isEmpty { d["reason"] = reason }
+            if !source.isEmpty { d["source"] = source }
+            return d
+        }
+    }
+
+    /// bridge compiledSub.processNodes, rows only (the preview never writes the nodes back).
+    private static func rows(_ c: NCCompiledSub, _ nodes: [[String: NCJSONValue]]) -> [Row] {
+        var rows: [Row] = []
+        var seenKey = Set<String>()
+        struct Item { var row: Int; var region: Int }
+        var items: [Item] = []
+        for p in nodes {
+            let orig = ncStr(p["name"])
+            var row = Row(original: orig, name: orig, type: ncStr(p["type"]).lowercased())
+            if let inc = c.inc, !inc.isEmpty, !inc.match(orig) {
+                row.reason = "未匹配保留规则"
+            } else if let exc = c.exc, !exc.isEmpty, exc.match(orig) {
+                row.reason = "匹配排除规则"
+            }
+            if row.reason.isEmpty && c.r.dedupe == true {
+                let k = ncDedupeKey(p)
+                if seenKey.contains(k) { row.reason = "重复节点" }
+                seenKey.insert(k)
+            }
+            if !row.reason.isEmpty { rows.append(row); continue }
+            row.kept = true
+            row.name = c.rename(orig)
+            let (code, idx) = ncDetectRegion(orig + " " + row.name)
+            row.region = code
+            rows.append(row)
+            items.append(Item(row: rows.count - 1, region: idx))
+        }
+        func less(_ a: Item, _ b: Item) -> Bool {
+            if ncNaturalLess(rows[a.row].name, rows[b.row].name) { return true }
+            if ncNaturalLess(rows[b.row].name, rows[a.row].name) { return false }
+            return a.row < b.row
+        }
+        switch c.r.sort ?? "" {
+        case "name": items.sort(by: less)
+        case "region": items.sort { $0.region != $1.region ? $0.region < $1.region : less($0, $1) }
+        default: break
+        }
+        var used: [String: Int] = [:]
+        for it in items {
+            let base = rows[it.row].name
+            var n = base
+            var k = 1
+            while (used[n] ?? 0) > 0 { n = "\(base) \(k + 1)"; k += 1 }
+            used[n, default: 0] += 1
+            rows[it.row].name = n
+        }
+        return rows
+    }
+
+    static func preview(home: String, profilePath: String, rulesJSON: String) -> String {
+        var nodesOut: [[String: Any]] = []
+        var providers: [String] = []
+        var errors: [String] = []
+        func result() -> String {
+            let kept = nodesOut.filter { ($0["kept"] as? Bool) == true }.count
+            return ncJSONString(["nodes": nodesOut, "total": nodesOut.count, "kept": kept,
+                                 "providers": providers, "errors": errors] as [String: Any])
+        }
+        var r: NCSubRules
+        do {
+            var obj = (try JSONSerialization.jsonObject(with: Data(rulesJSON.utf8)) as? [String: Any]) ?? [:]
+            obj["enabled"] = true
+            r = try JSONDecoder().decode(NCSubRules.self, from: JSONSerialization.data(withJSONObject: obj))
+        } catch {
+            errors.append(error.localizedDescription)
+            return result()
+        }
+        r.enabled = true
+        var raw: [String: NCJSONValue] = [:]
+        if let b = FileManager.default.contents(atPath: profilePath) {
+            // Go: readOverrides(home) with o.home = "" and MergeManual off — no profile attachments
+            // (sub rules, chains, overrides), no manual nodes.
+            var settings = NCRuntimeSettings.load(home: home)
+            settings.home = ""
+            settings.core.mergeManual = false
+            let req = NCRuntimeBuilder.Request(settings: settings, profileID: "", sub: nil, chains: [:])
+            do {
+                raw = try NCRuntimeBuilder.build(profile: b, req: req, fd: 0).raw
+            } catch let e as NCRuntimeBuilder.BuildError {
+                errors.append(e.message)
+            } catch {
+                errors.append(error.localizedDescription)
+            }
+        } else {
+            errors.append("无法读取配置文件: " + (profilePath as NSString).lastPathComponent)
+        }
+        let c = NCCompiledSub(r)
+        errors += c.errs
+        nodesOut += rows(c, ncProxiesOf(raw)).map(\.json)
+        var pr = NCSubRules()
+        pr.enabled = true
+        pr.include = r.include; pr.exclude = r.exclude; pr.regex = r.regex
+        pr.stripPrefixes = r.stripPrefixes
+        pr.stripFlags = (r.stripFlags == true) || (r.addFlag == true)
+        pr.renames = r.renames; pr.prefix = r.prefix
+        let cc = NCCompiledSub(pr)
+        for pv in NCProfileInspectorPort.inspectProviders(homeDir: home, kind: "proxy", raw: raw["proxy-providers"]) {
+            providers.append(pv.name)
+            let pn: [[String: NCJSONValue]] = (pv.proxies ?? []).map { (p: InspectProxy) -> [String: NCJSONValue] in
+                var m: [String: NCJSONValue] = ["name": .string(p.name), "type": .string(p.type),
+                                                "server": .string(p.server ?? "")]
+                m["port"] = .number(Double(p.port ?? 0))
+                return m
+            }
+            nodesOut += rows(cc, pn).map { (row0: Row) -> [String: Any] in
+                var row = row0
+                row.source = pv.name
+                return row.json
+            }
+        }
+        return result()
     }
 }

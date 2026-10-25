@@ -165,7 +165,7 @@ final class ProviderOverrideStore: ObservableObject {
         guard let profile else { declared = []; declaredFor = nil; return }
         let path = profile.fileURL.path
         if !force && declaredFor == path { return }
-        let json = await Task.detached(priority: .userInitiated) { LibmihomoProfileProviders(AppShared.homeURL.path, path) }.value
+        let json = await Task.detached(priority: .userInitiated) { NCProfileRulesPort.profileProviders(home: AppShared.homeURL.path, profilePath: path) }.value
         declared = (try? JSONDecoder().decode([ProfileProviderInfo].self, from: Data(json.utf8))) ?? []
         declaredFor = path
     }

@@ -69,7 +69,7 @@ final class ProfileRulesStore: ObservableObject {
             return
         }
         let home = AppShared.homeURL.path
-        let json = await Task.detached(priority: .userInitiated) { LibmihomoProfileRules(home, path) }.value
+        let json = await Task.detached(priority: .userInitiated) { NCProfileRulesPort.profileRules(home: home, profilePath: path) }.value
         guard mine == seq else { return }
         let r = (try? JSONDecoder().decode(ProfileRulesResult.self, from: Data(json.utf8))) ?? ProfileRulesResult()
         items = r.rules

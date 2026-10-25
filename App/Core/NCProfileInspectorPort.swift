@@ -200,10 +200,11 @@ enum NCProfileInspectorPort {
         case "MATCH", "FINAL":
             return InspectRule(type: "MATCH", payload: "", proxy: rest.trimmingCharacters(in: .whitespaces), options: nil)
         default:
-            let parts = rest.split(separator: ",").map { String($0) }
+            // Go strings.Split keeps empty fields; options = TrimSpace(Join(parts[2:], ",")).
+            let parts = rest.split(separator: ",", omittingEmptySubsequences: false).map { String($0) }
             let payload = parts.first?.trimmingCharacters(in: .whitespaces) ?? ""
             let proxy = parts.count > 1 ? parts[1].trimmingCharacters(in: .whitespaces) : ""
-            let options = parts.count > 2 ? parts.dropFirst(2).map { $0.trimmingCharacters(in: .whitespaces) }.joined(separator: ",") : nil
+            let options = parts.count > 2 ? parts.dropFirst(2).joined(separator: ",").trimmingCharacters(in: .whitespaces) : nil
             return InspectRule(type: typ, payload: payload, proxy: proxy, options: options?.isEmpty == true ? nil : options)
         }
     }
