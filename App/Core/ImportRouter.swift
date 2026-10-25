@@ -654,7 +654,7 @@ struct ImportSheet: View {
                 LoadingRow(text: "正在校验导出文件…")
             }
         } footer: {
-            Text("导入会替换当前的重写、模块、脚本与 MitM 设置和证书，并把这个配置设为当前配置；导入前会自动保存一个配置快照。")
+            Text("导入会用文件里的重写、模块与 MitM 设置替换当前设置，并新增或覆盖其中的脚本、配置与证书；文件里没有的本地脚本和证书会保留。导入的配置会设为当前配置，导入前会自动保存一个配置快照。")
         }
         .listRowBackground(Theme.card)
         if result != nil, !failed, full?.caPEM != nil {

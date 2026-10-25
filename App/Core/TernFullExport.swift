@@ -94,7 +94,8 @@ enum TernFullExport {
         var id: String
         /// One element of override-scripts/index.json (JSON object, kept byte-for-byte as exported).
         var meta: Data
-        var content: Data
+        /// nil = the exported device had no .js for it; the import leaves the target's file alone.
+        var content: Data?
     }
 
     struct MitMSettings: Equatable {
@@ -259,16 +260,23 @@ enum TernFullExport {
 
         line("[rewrite_remote]")
         var cache: [(String, Data)] = []
+        var usedIDs = Set<String>()
         for m in engine.modules {
             let text = try readIfPresent(moduleRel(m.id))
-            if let text { cache.append((m.id, text)) }
+            // The import only takes ids that are their own cache file name; an older id is written as that file name
+            // (EnginePaths.safe — the file it already uses), made unique.
+            var xid = isModuleID(m.id) ? m.id : EnginePaths.safe(m.id)
+            if !isModuleID(xid) { xid = UUID().uuidString }
+            if usedIDs.contains(xid) { var n = 2; while usedIDs.contains("\(xid)-\(n)") { n += 1 }; xid = "\(xid)-\(n)" }
+            usedIDs.insert(xid)
+            if let text { cache.append((xid, text)) }
             var f = [m.url.isEmpty ? localModuleURL : urlField(m.url)]
             f.append("tag=" + esc(m.name))
             if let i = m.interval { f.append("update-interval=\(i)") }
             f.append("opt-parser=false")
             f.append("enabled=\(m.enabled)")
             f.append("type=" + moduleType(url: m.url, text: text))
-            f.append("id=" + esc(m.id))
+            f.append("id=" + esc(xid))
             if let u = m.updatedAt { f.append("updated=\(u)") }
             if let a = m.args, let d = try? enc.encode(a) { f.append("argument=" + d.base64EncodedString()) }
             if let p = m.policies, let d = try? enc.encode(p) { f.append("policy=" + d.base64EncodedString()) }
@@ -312,11 +320,11 @@ enum TernFullExport {
             for s in list {
                 guard let id = s["id"] as? String, isSafeName(id),
                       let m = try? JSONSerialization.data(withJSONObject: s, options: [.sortedKeys]) else { continue }
-                let content = try readIfPresent(overrideContentRel(id)) ?? Data()
+                let content = try readIfPresent(overrideContentRel(id))
                 var f = [esc(s["name"] as? String ?? id), "id=" + esc(id), "enabled=\((s["enabled"] as? Bool) ?? true)"]
                 if let u = s["url"] as? String, !u.isEmpty { f.append("url=" + urlField(u)) }
                 f.append("meta=" + m.base64EncodedString())
-                f.append("content=" + content.base64EncodedString())
+                if let content { f.append("content=" + content.base64EncodedString()) }
                 line(f.joined(separator: ", "))
             }
         }
@@ -433,8 +441,13 @@ enum TernFullExport {
 
     static func unesc(_ s: String) -> String { s.removingPercentEncoding ?? s }
 
-    /// URLs keep their own %-escapes (readable, QX-compatible); only a literal comma is written as %2C.
-    static func urlField(_ s: String) -> String { oneLine(s).replacingOccurrences(of: ",", with: "%2C") }
+    /// URL fields: '%' → %25 and ',' → %2C so urlUnesc gives the URL back byte for byte (review 10-25 #5).
+    static func urlField(_ s: String) -> String {
+        oneLine(s).replacingOccurrences(of: "%", with: "%25").replacingOccurrences(of: ",", with: "%2C")
+    }
+    static func urlUnesc(_ s: String) -> String {
+        s.replacingOccurrences(of: "%2C", with: ",").replacingOccurrences(of: "%25", with: "%")
+    }
 
     static func oneLine(_ s: String) -> String {
         s.replacingOccurrences(of: "\r", with: " ").replacingOccurrences(of: "\n", with: " ")
@@ -444,6 +457,9 @@ enum TernFullExport {
     static func isSafeName(_ s: String) -> Bool {
         !s.isEmpty && s != "." && s != ".." && !s.contains("/") && !s.contains("\\") && !s.contains("\u{0}") && s.utf8.count <= 255
     }
+
+    /// A module id is its cache file name as is (EnginePaths.safe(id) == id), so no two ids share one file.
+    static func isModuleID(_ s: String) -> Bool { isSafeName(s) && EnginePaths.safe(s) == s }
 
     // MARK: - Parse
 
@@ -551,6 +567,7 @@ enum TernFullExport {
                 } else {
                     // A hand-written QX line: URL + tag only.
                     guard !u.isEmpty else { continue }
+                    let u = urlUnesc(u)
                     var obj: [String: Any] = ["id": UUID().uuidString, "url": u, "name": unesc(o["tag"] ?? ""), "enabled": bool(o["enabled"]) ?? true,
                                               "userAgent": "clash.meta", "updateIntervalHours": max(1, (Int(o["update-interval"] ?? "") ?? 86400) / 3600)]
                     if (obj["name"] as? String)?.isEmpty == true { obj["name"] = URL(string: u)?.host ?? u }
@@ -563,9 +580,10 @@ enum TernFullExport {
         // [rewrite_remote]
         for l in sections["rewrite_remote"] ?? [] where !l.hasPrefix("#") && !l.hasPrefix(";") {
             let (u, o) = fields(l)
-            let url = u == localModuleURL ? "" : u
+            let url = u == localModuleURL ? "" : urlUnesc(u)
             let id = o["id"].map(unesc) ?? UUID().uuidString
-            guard !id.isEmpty else { throw ExportError.corrupt("[rewrite_remote] id") } // file name = EnginePaths.safe(id)
+            // review 10-25 #4: same rule as profile / script ids, so two ids can't collapse onto one cache file.
+            guard isModuleID(id), !p.modules.contains(where: { $0.id == id }) else { throw ExportError.corrupt("[rewrite_remote] id") }
             let name = unesc(o["tag"] ?? "")
             var m = EngineModule(name: name.isEmpty ? (URL(string: url)?.deletingPathExtension().lastPathComponent ?? id) : name, url: url)
             m.id = id
@@ -597,9 +615,11 @@ enum TernFullExport {
         // [module_cache]
         for (k, v) in keyValues("module_cache") {
             let id = unesc(k)
-            guard !id.isEmpty else { throw ExportError.corrupt("[module_cache] \(k)") }
+            guard isModuleID(id) else { throw ExportError.corrupt("[module_cache] \(k)") }
             p.moduleCache[id] = try b64(v, "[module_cache] \(id)")
         }
+        // review 10-25 #3: no cache in the file → no cache written, so let the runtime refresh it.
+        for i in p.modules.indices where p.moduleCache[p.modules[i].id] == nil { p.modules[i].updatedAt = nil }
 
         // [rewrite_local] / [script_rewrite_local]
         p.rules = try items(sections["rewrite_local"] ?? [], "rewrite_local")
@@ -631,7 +651,7 @@ enum TernFullExport {
             guard let obj = (try? JSONSerialization.jsonObject(with: meta)) as? [String: Any], let id = obj["id"] as? String, isSafeName(id) else {
                 throw ExportError.corrupt("[override_script] \(unesc(n))")
             }
-            p.overrideScripts.append(OverrideScriptEntry(id: id, meta: meta, content: try b64(o["content"] ?? "", "[override_script] \(unesc(n))")))
+            p.overrideScripts.append(OverrideScriptEntry(id: id, meta: meta, content: try o["content"].map { try b64($0, "[override_script] \(unesc(n))") }))
         }
 
         // [mitm]
@@ -766,9 +786,9 @@ enum TernFullExport {
             if let d = try? JSONSerialization.data(withJSONObject: obj, options: [.prettyPrinted, .sortedKeys]) { ej = d }
         }
         w.append(Write(rel: engineRel, data: ej))
-        for m in p.modules {
-            w.append(Write(rel: moduleRel(m.id), data: p.moduleCache[m.id] ?? Data()))
-        }
+        // review 10-25 #3: a module the export has no cache for keeps the target's file (or downloads on next use);
+        // an empty file would truncate a good cache. Its updatedAt was cleared in parse so it refreshes.
+        for m in p.modules { if let d = p.moduleCache[m.id] { w.append(Write(rel: moduleRel(m.id), data: d)) } }
 
         for s in p.scripts { w.append(Write(rel: scriptsRel + "/" + s.name, data: s.content)) }
 
@@ -789,7 +809,7 @@ enum TernFullExport {
             }
             w.append(Write(rel: overrideIndexRel, data: d))
         }
-        for s in p.overrideScripts { w.append(Write(rel: overrideContentRel(s.id), data: s.content)) }
+        for s in p.overrideScripts { if let c = s.content { w.append(Write(rel: overrideContentRel(s.id), data: c)) } }
 
         if let subs = p.nodeSubscriptions {
             let arr = subs.compactMap { try? JSONSerialization.jsonObject(with: $0) }
@@ -821,7 +841,10 @@ enum TernFullExport {
         do {
             try fm.createDirectory(at: staging, withIntermediateDirectories: true)
             for (i, wr) in writes.enumerated() {
-                try wr.data.write(to: staging.appendingPathComponent("new-\(i)"), options: .atomic)
+                let u = staging.appendingPathComponent("new-\(i)")
+                try wr.data.write(to: u, options: .atomic)
+                // review 10-25 #7: owner-only before the file ever reaches its place; a failure aborts the import.
+                if let perm = wr.permissions { try fm.setAttributes([.posixPermissions: perm], ofItemAtPath: u.path) }
             }
         } catch {
             throw ExportError.writeFailed(error.localizedDescription)
@@ -862,7 +885,6 @@ enum TernFullExport {
                     throw error
                 }
                 done.append((dst, backup))
-                if let perm = wr.permissions { try? fm.setAttributes([.posixPermissions: perm], ofItemAtPath: dst.path) }
             }
         } catch {
             rollback()

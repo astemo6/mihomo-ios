@@ -239,6 +239,37 @@ final class TernFullExportTests: XCTestCase {
         XCTAssertEqual((attrs[.posixPermissions] as? NSNumber)?.intValue, 0o600)
     }
 
+    /// Review 10-25 #3/#5: a module with no cache leaves the target's cache alone and refreshes; URLs round-trip exactly.
+    func testUncachedModuleAndURLEscaping() throws {
+        let src = try makeSource()
+        let engineURL = src.root.appendingPathComponent("mihomo/engine/engine.json")
+        var c = try JSONDecoder().decode(EngineConfig.self, from: Data(contentsOf: engineURL))
+        let odd = "https://example.com/a,b%2Cc%20d.sgmodule?x=1,2"
+        var m3 = EngineModule(name: "无缓存", url: odd, enabled: true, updatedAt: 1_700_000_000)
+        m3.id = "mod-3"
+        c.modules.append(m3)
+        try JSONEncoder().encode(c).write(to: engineURL)
+        let text = try export(src)
+
+        let dst = fxScratch()
+        fxWrite(dst, TernFullExport.moduleRel("mod-3"), Data("good cache".utf8))
+        let p = try TernFullExport.importText(text, root: dst, defaults: fxSuite())
+        let m = try XCTUnwrap(p.modules.first { $0.id == "mod-3" })
+        XCTAssertEqual(m.url, odd)
+        XCTAssertNil(m.updatedAt, "no cache in the file → refresh")
+        XCTAssertEqual(fxRead(dst, TernFullExport.moduleRel("mod-3")), Data("good cache".utf8))
+        XCTAssertNotNil(p.modules.first { $0.id == "mod-1" }?.updatedAt)
+    }
+
+    /// Review 10-25 #4: a module id that isn't its own cache file name is refused before anything is written.
+    func testUnsafeModuleIDRejected() throws {
+        let src = try makeSource()
+        let text = try export(src).replacingOccurrences(of: "id=mod-1", with: "id=a%3Ab")
+        let dst = fxScratch()
+        XCTAssertThrowsError(try TernFullExport.importText(text, root: dst, defaults: fxSuite()))
+        XCTAssertEqual(fxFiles(dst), [])
+    }
+
     func testExportTwiceIsStableAndReimportable() throws {
         let src = try makeSource()
         let dst = fxScratch()

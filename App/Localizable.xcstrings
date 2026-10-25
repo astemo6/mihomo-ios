@@ -103158,40 +103158,6 @@
         }
       }
     },
-    "导入会替换当前的重写、模块、脚本与 MitM 设置和证书，并把这个配置设为当前配置；导入前会自动保存一个配置快照。": {
-      "localizations": {
-        "zh-Hant": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "匯入會取代目前的重寫、模組、腳本與 MitM 設定和憑證，並把這個配置設為目前配置；匯入前會自動儲存一個配置快照。"
-          }
-        },
-        "en": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Importing replaces the current rewrites, modules, scripts, MitM settings and certificate, and makes this profile the current profile. A profile snapshot is saved automatically first."
-          }
-        },
-        "ja": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "読み込むと現在の書き換え、モジュール、スクリプト、MitM 設定と証明書が置き換えられ、このプロファイルが現在のプロファイルになります。読み込み前にプロファイルのスナップショットが自動保存されます。"
-          }
-        },
-        "ko": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "가져오면 현재 재작성, 모듈, 스크립트, MitM 설정과 인증서가 교체되고 이 프로파일이 현재 프로파일이 됩니다. 가져오기 전에 프로파일 스냅샷이 자동으로 저장됩니다."
-          }
-        },
-        "ru": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Импорт заменит текущие перезаписи, модули, скрипты, настройки MitM и сертификат и сделает этот профиль текущим. Перед импортом автоматически сохраняется снимок профиля."
-          }
-        }
-      }
-    },
     "安装并信任 MitM 证书": {
       "localizations": {
         "zh-Hant": {
@@ -103358,6 +103324,40 @@
           "stringUnit": {
             "state": "translated",
             "value": "Полный экспорт (с данными скриптов и паролями)"
+          }
+        }
+      }
+    },
+    "导入会用文件里的重写、模块与 MitM 设置替换当前设置，并新增或覆盖其中的脚本、配置与证书；文件里没有的本地脚本和证书会保留。导入的配置会设为当前配置，导入前会自动保存一个配置快照。": {
+      "localizations": {
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "匯入會用檔案裡的重寫、模組與 MitM 設定取代目前設定，並新增或覆蓋其中的腳本、配置與憑證；檔案裡沒有的本機腳本和憑證會保留。匯入的配置會設為目前配置，匯入前會自動儲存一個配置快照。"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Importing replaces your rewrites, modules and MitM settings with the file's, and adds or overwrites the scripts, profile and certificate it contains; local scripts and a certificate not in the file are kept. The imported profile becomes the current one, and a profile snapshot is saved first."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "インポートすると、書き換え・モジュール・MitM 設定はファイルの内容に置き換わり、含まれるスクリプト・プロファイル・証明書は追加または上書きされます。ファイルにないローカルスクリプトと証明書は残ります。インポートしたプロファイルが現在のプロファイルになり、事前にスナップショットが自動保存されます。"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "가져오면 재작성, 모듈, MitM 설정이 파일 내용으로 바뀌고, 파일에 포함된 스크립트·프로파일·인증서는 추가되거나 덮어씁니다. 파일에 없는 로컬 스크립트와 인증서는 유지됩니다. 가져온 프로파일이 현재 프로파일이 되며, 가져오기 전에 프로파일 스냅샷이 자동 저장됩니다."
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Импорт заменяет перезаписи, модули и настройки MitM данными из файла и добавляет или перезаписывает содержащиеся в нём скрипты, профиль и сертификат; локальные скрипты и сертификат, которых нет в файле, сохраняются. Импортированный профиль станет текущим, перед импортом автоматически сохраняется снимок."
           }
         }
       }
