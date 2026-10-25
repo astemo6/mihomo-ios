@@ -11,13 +11,20 @@ final class NCMMDB {
     private let ipVersion: Int
     private let treeSize: Int
     private let dataStart: Int
+    public let buildEpoch: Double?
+    public let databaseType: String?
+
+    convenience init?(contentsOfFile path: String) {
+        guard let data = try? Data(contentsOf: URL(fileURLWithPath: path), options: .mappedIfSafe) else { return nil }
+        self.init(data: data)
+    }
 
     init?(data: Data) {
         self.data = data
         // Metadata follows the marker "\xab\xcd\xefMaxMind.com".
         let marker = Data([0xab, 0xcd, 0xef]) + Data("MaxMind.com".utf8)
         guard let markerRange = data.range(of: marker, options: .backwards) else { return nil }
-        var decoder = NCMMDBDecoder(data: data, offset: markerRange.upperBound)
+        var decoder = NCMMDBDecoder(data: data, offset: markerRange.upperBound, dataStart: markerRange.upperBound)
         guard let meta = decoder.decode(), case .object(let m) = meta,
               let nodes = m["node_count"]?.int, let recSize = m["record_size"]?.int else { return nil }
         nodeCount = nodes
@@ -25,6 +32,8 @@ final class NCMMDB {
         ipVersion = m["ip_version"]?.int ?? 6
         treeSize = nodeCount * recordSize * 2 / 8
         dataStart = treeSize + 16 // separator
+        buildEpoch = m["build_epoch"]?.number ?? m["build_epoch"]?.int.map(Double.init)
+        databaseType = m["database_type"]?.string
     }
 
     /// Raw record for an IP, if any network covers it.
@@ -117,12 +126,12 @@ private struct NCMMDBDecoder {
         offset += 1
         var type = Int(ctrl >> 5)
         let sizeBits = Int(ctrl & 0x1f)
-        if type == 1 { // extended type follows
+        if type == 0 { // extended type follows
             guard offset < data.count else { return nil }
             type = Int(data[offset]) + 7
             offset += 1
         }
-        if type == 2 { // pointer: size bits encode the pointer width/value
+        if type == 1 { // pointer: size bits encode the pointer width/value
             let pointerSize = (sizeBits >> 3) & 0x3
             let base = sizeBits & 0x7
             let pointer: Int
@@ -165,19 +174,27 @@ private struct NCMMDBDecoder {
             size = sizeBits
         }
         switch type {
-        case 3: // utf8 string
+        case 2: // utf8 string
             guard offset + size <= data.count else { return nil }
             let s = String(decoding: data[offset..<(offset + size)], as: UTF8.self)
             offset += size
             return .string(s)
-        case 5, 6, 9: // bytes / uint16 / uint64: big-endian unsigned
+        case 3: // double
+            guard offset + 8 <= data.count else { return nil }
+            let bytes = [UInt8](data[offset..<(offset + 8)])
+            offset += 8
+            let bits = bytes.reduce(UInt64(0)) { $0 << 8 | UInt64($1) }
+            return .number(Double(bitPattern: bits))
+        case 4: // bytes
+            offset += size
+            return .string("bytes(\(size))")
+        case 5, 6, 9: // uint16 / uint32 / uint64: big-endian unsigned
             var value: UInt64 = 0
             for k in 0..<size {
                 guard offset + k < data.count else { return nil }
                 value = value << 8 | UInt64(data[offset + k])
             }
             offset += size
-            if type == 5 { return .string("bytes(\(size))") }
             return .number(Double(value))
         case 10: // uint128 -> approximate
             var value: Double = 0
@@ -212,19 +229,12 @@ private struct NCMMDBDecoder {
             return .array(arr)
         case 14: // boolean: the size bits ARE the value
             return .bool(sizeBits != 0)
-        case 4, 15: // double / float
-            guard offset + size <= data.count else { return nil }
-            let bytes = [UInt8](data[offset..<(offset + size)])
-            offset += size
-            if type == 4, size == 8 {
-                let bits = bytes.reduce(UInt64(0)) { $0 << 8 | UInt64($1) }
-                return .number(Double(bitPattern: bits))
-            }
-            if type == 15, size == 4 {
-                let bits = bytes.reduce(UInt32(0)) { $0 << 8 | UInt32($1) }
-                return .number(Double(Float(bitPattern: bits)))
-            }
-            return .number(0)
+        case 15: // float
+            guard offset + 4 <= data.count else { return nil }
+            let bytes = [UInt8](data[offset..<(offset + 4)])
+            offset += 4
+            let bits = bytes.reduce(UInt32(0)) { $0 << 8 | UInt32($1) }
+            return .number(Double(Float(bitPattern: bits)))
         default:
             return nil
         }

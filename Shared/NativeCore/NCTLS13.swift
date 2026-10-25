@@ -307,13 +307,13 @@ enum NCTLSVerify {
                   let pub = try? P256.Signing.PublicKey(x963Representation: cert.publicKeyBytes),
                   let raw = derToRaw(signature, partLength: 32),
                   let sig = try? P256.Signing.ECDSASignature(rawRepresentation: raw) else { return false }
-            return pub.isValidSignature(sig, for: SHA256.hash(data: signedContent)) // digest overload (Data would hash again)
+            return pub.isValidSignature(sig, for: Data(SHA256.hash(data: signedContent)))
         case 0x0503: // ecdsa_secp384r1_sha384
             guard cert.publicKeyAlgorithm == .ecP384,
                   let pub = try? P384.Signing.PublicKey(x963Representation: cert.publicKeyBytes),
                   let raw = derToRaw(signature, partLength: 48),
                   let sig = try? P384.Signing.ECDSASignature(rawRepresentation: raw) else { return false }
-            return pub.isValidSignature(sig, for: SHA384.hash(data: signedContent))
+            return pub.isValidSignature(sig, for: Data(SHA384.hash(data: signedContent)))
         case 0x0804, 0x0805, 0x0806: // rsa_pss_rsae_sha256/384/512
             guard cert.publicKeyAlgorithm == .rsa else { return false }
             let kind: NCTLS13.HashKind = scheme == 0x0804 ? .sha256 : .sha384

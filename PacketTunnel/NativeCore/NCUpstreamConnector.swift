@@ -19,13 +19,6 @@ final class NCUpstreamConnector: MitmUpstreamConnecting {
     /// (astemo6/Muse NativeCore, 2026-10-25)
     func open(host: String, port: Int, tls: Bool, policy: String?, insecure: Bool,
               completion: @escaping (Result<MitmUpstreamLease, Error>) -> Void) {
-        open(host: host, port: port, tls: tls, policy: policy, insecure: insecure, alpn: ["http/1.1"], completion: completion)
-    }
-
-    /// alpn: offered to the origin on the proxied TLS path (the h2 MitM upstream offers "h2", "http/1.1"); the
-    /// lease's `negotiatedALPN` says what the origin picked (feat/nc-proto2, based on astemo6/Muse NativeCore).
-    func open(host: String, port: Int, tls: Bool, policy: String?, insecure: Bool, alpn: [String],
-              completion: @escaping (Result<MitmUpstreamLease, Error>) -> Void) {
         let queue = DispatchQueue(label: "nc.upstream.dial", qos: .userInitiated)
         let target = NCTarget(host: host, port: port)
 
@@ -87,16 +80,14 @@ final class NCUpstreamConnector: MitmUpstreamConnecting {
             // The proxy relays raw bytes: the origin TLS session runs on top of it
             // (the direct path gets TLS from NCStream/Network.framework).
             let tlsStream = NCTLSClientStream(raw: relayStream,
-                                              config: .init(serverName: host, alpn: alpn, allowInsecure: insecure),
+                                              config: .init(serverName: host, alpn: ["http/1.1"], allowInsecure: insecure),
                                               queue: queue)
             tlsStream.startHandshake { err in
                 if let err {
                     tlsStream.cancel()
                     completion(.failure(UpstreamError.connectFailed("upstream TLS: \(err)")))
                 } else {
-                    let lease = NCRelayUpstreamLease(relay: tlsStream, queue: queue)
-                    lease.negotiatedALPN = tlsStream.negotiatedALPN
-                    completion(.success(lease))
+                    completion(.success(NCRelayUpstreamLease(relay: tlsStream, queue: queue)))
                 }
             }
         }
@@ -105,8 +96,6 @@ final class NCUpstreamConnector: MitmUpstreamConnecting {
 
 final class NCRelayUpstreamLease: MitmUpstreamLease {
     let stream: ByteStream
-    /// Origin ALPN on the proxied TLS path (nil: plain, direct, or the origin sent none).
-    var negotiatedALPN: String?
 
     init(stream: NCStream, queue: DispatchQueue) {
         self.stream = NCStreamByteStream(stream: stream, queue: queue)
@@ -116,10 +105,10 @@ final class NCRelayUpstreamLease: MitmUpstreamLease {
         self.stream = NCRelayByteStream(relay: relay, queue: queue)
     }
 
-    /// There is no native pool behind this lease: a "reusable" connection was never reused and stayed open until
-    /// the origin closed it. Close it either way (memory first).
     func release(reusable: Bool) {
-        stream.close()
+        if !reusable {
+            stream.close()
+        }
     }
 }
 

@@ -102,7 +102,84 @@ final class NCGroupEngine {
     /// QX ssid policies carried in group fields["subnet"]). The engine
     /// owner supplies it; nil = network unknown.
     var ssidProvider: () -> String? = { nil }
+    /// 智能选择 pins (group name -> member), maintained by NCSmartSelector.
+    /// For url-test / fallback groups a pin wins over the automatic pick
+    /// (and over a stored manual selection, which the scorer would
+    /// overwrite on its next pass anyway — bridge/smart.go pins through
+    /// the group's own Set). A pin whose member is known dead is ignored,
+    /// mirroring mihomo dropping a fixed node on health-check failure.
+    var smartPins: [String: String] {
+        get { lock.lock(); defer { lock.unlock() }; return _smartPins }
+        set { lock.lock(); defer { lock.unlock() }; _smartPins = newValue }
+    }
+    private var _smartPins: [String: String] = [:]
+
+    private func smartPinnedMember(_ g: NCProxyGroup, members: [String]) -> String? {
+        guard g.type == "url-test" || g.type == "fallback",
+              let pin = smartPins[g.name], members.contains(pin),
+              alive[pin] ?? true else { return nil }
+        return pin
+    }
     private var rrCounters: [String: Int] = [:]
+    private var lastTouched: [String: Date] = [:]
+    var onGroupTouched: ((String) -> Void)?
+    private let lock = NSRecursiveLock()
+
+    func lastTouch(for groupName: String) -> Date? {
+        lock.lock()
+        defer { lock.unlock() }
+        return lastTouched[groupName]
+    }
+
+    /// Throttle bookkeeping for the touch notification; caller holds the lock.
+    private func noteTouchLocked(_ groupName: String) -> Bool {
+        let now = Date()
+        if let last = lastTouched[groupName], now.timeIntervalSince(last) < 1.0 {
+            return false
+        }
+        lastTouched[groupName] = now
+        return true
+    }
+
+    func recordDelay(name: String, ms: Int) {
+        lock.lock()
+        defer { lock.unlock() }
+        if ms > 0 {
+            delays[name] = ms
+            alive[name] = true
+        } else {
+            delays[name] = 0
+            alive[name] = false
+        }
+    }
+
+    func recordFailure(name: String) {
+        lock.lock()
+        defer { lock.unlock() }
+        delays[name] = 0
+        alive[name] = false
+    }
+
+    @discardableResult
+    func setSelection(group: String, member: String?) -> [String: String] {
+        lock.lock()
+        defer { lock.unlock() }
+        if let member {
+            selections[group] = member
+        } else {
+            selections.removeValue(forKey: group)
+        }
+        return selections
+    }
+
+    /// Locked point-in-time copies for status endpoints and state handoff:
+    /// the health-check scheduler writes delays/alive from its own queue, so
+    /// readers must not touch the dictionaries directly.
+    func statusSnapshot() -> (selections: [String: String], delays: [String: Int], alive: [String: Bool]) {
+        lock.lock()
+        defer { lock.unlock() }
+        return (selections, delays, alive)
+    }
 
     /// The member a SUBNET condition forces for this group right now:
     /// an exact SSID hit beats DEFAULT, which beats manual selection —
@@ -131,7 +208,9 @@ final class NCGroupEngine {
     }
 
     func resolve(_ policy: String) -> Resolution {
-        resolve(policy, visited: [])
+        lock.lock()
+        defer { lock.unlock() }
+        return resolve(policy, visited: [])
     }
 
     private func resolve(_ policy: String, visited: Set<String>) -> Resolution {
@@ -145,6 +224,9 @@ final class NCGroupEngine {
         guard !visited.contains(g.name) else { return .unknown(policy) }
         var visited = visited
         visited.insert(g.name)
+        if noteTouchLocked(g.name) {
+            onGroupTouched?(g.name)
+        }
         if g.type == "relay" {
             // Every member must itself resolve to proxy material; the
             // concatenation is the chain, in group order.
@@ -166,6 +248,8 @@ final class NCGroupEngine {
         let chosen: String
         if let forced = subnetForcedMember(g) {
             chosen = forced
+        } else if let pin = smartPinnedMember(g, members: members) {
+            chosen = pin
         } else if let sel = selections[g.name], members.contains(sel) {
             chosen = sel // explicit choice / pin (controller PUT) wins for every type
         } else {
@@ -205,11 +289,14 @@ final class NCGroupEngine {
 
     /// The member a group would route to right now (one level, no recursion).
     func currentMember(of group: NCProxyGroup) -> String? {
+        lock.lock()
+        defer { lock.unlock() }
         let all = group.proxies
         guard !all.isEmpty else { return nil }
         let usable = all.filter { !unsupported.contains($0) }
         let members = usable.isEmpty ? all : usable
         if let forced = subnetForcedMember(group) { return forced }
+        if let pin = smartPinnedMember(group, members: members) { return pin }
         if let sel = selections[group.name], members.contains(sel) { return sel }
         switch group.type {
         case "url-test":
@@ -224,6 +311,9 @@ final class NCGroupEngine {
     }
 
     private func delayOf(_ name: String) -> Int {
-        delays[name] ?? Int.max
+        lock.lock()
+        defer { lock.unlock() }
+        guard let d = delays[name], d > 0, alive[name] ?? true else { return Int.max }
+        return d
     }
 }

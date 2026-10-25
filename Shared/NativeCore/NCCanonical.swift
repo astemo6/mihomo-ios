@@ -106,6 +106,10 @@ struct NCRuleSetRef: Equatable {
     var interval: Int = 86400
     var forcedPolicy: String? = nil // QX force-policy / the RULE-SET line's policy column
     var fields: [String: NCJSONValue] = [:]
+
+    var format: String? { fields["format"]?.string }
+    var behavior: String? { fields["behavior"]?.string }
+    var path: String? { fields["path"]?.string }
 }
 
 enum NCGroupKind: Equatable {
@@ -119,6 +123,7 @@ struct NCGroupModel: Equatable {
     var url: String? = nil
     var interval: Int = 300
     var tolerance: Int = 0
+    var lazy: Bool = true
     var strategy: String? = nil // load-balance: round-robin | consistent-hashing
     var includeRegex: String? = nil
     var excludeRegex: String? = nil
@@ -143,6 +148,7 @@ struct NCGroupModel: Equatable {
         if let url { fields["url"] = .string(url) }
         fields["interval"] = .number(Double(interval))
         fields["tolerance"] = .number(Double(tolerance))
+        fields["lazy"] = .bool(lazy)
         if let strategy { fields["strategy"] = .string(strategy) }
         if !use.isEmpty { fields["use"] = .array(use.map { .string($0) }) }
         if !subnetConditions.isEmpty {
@@ -286,9 +292,21 @@ struct NCCanonicalConfig: Equatable {
         }
         let servers = (dns.defaultServers + dns.encryptedServers).map { NCJSONValue.string($0.raw) }
         if !servers.isEmpty { dnsFields["nameserver"] = .array(servers) }
+        var raw: [String: NCJSONValue] = [:]
+        if !ruleSets.isEmpty {
+            var provs: [String: NCJSONValue] = [:]
+            for r in ruleSets {
+                var f = r.fields
+                if f["url"] == nil, let url = r.url { f["url"] = .string(url) }
+                if f["interval"] == nil { f["interval"] = .number(Double(r.interval)) }
+                provs[r.name] = .object(f)
+            }
+            raw["rule-providers"] = .object(provs)
+        }
         return NCConfig(mode: mode, logLevel: logLevel, ipv6: ipv6,
                         proxies: nodes, groups: groups.map { $0.legacy() }, rules: rules,
-                        dns: NCDNSConfig(fields: dnsFields), raw: [:])
+                        dns: NCDNSConfig(fields: dnsFields),
+                        sniffer: NCSnifferConfig(fields: [:]), raw: raw)
     }
 }
 
@@ -313,6 +331,7 @@ extension NCCanonicalConfig {
             }
             return NCGroupModel(name: g.name, kind: kind, members: g.proxies,
                                 url: g.url, interval: g.interval, tolerance: g.tolerance,
+                                lazy: g.lazy,
                                 strategy: g.fields["strategy"]?.string, use: g.use)
         }
 

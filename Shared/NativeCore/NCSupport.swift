@@ -7,7 +7,7 @@ enum NCSupport {
     /// Proxy types the connector (PacketTunnel/NativeCore/NCConnector.swift) implements.
     static let types: Set<String> = [
         "direct", "reject", "socks5", "http", "https", "ss", "ssr", "snell", "trojan", "vless", "vmess",
-        "hysteria2", "hy2", "anytls", "hysteria", "ssh", "tuic", "wireguard", "mieru",
+        "hysteria2", "hy2", "anytls",
     ]
     /// Stream transports (`network:`) the connector implements.
     static let transports: Set<String> = ["tcp", "ws", "grpc", "h2", "http"]
@@ -17,159 +17,46 @@ enum NCSupport {
         let t = p.type.lowercased()
         guard types.contains(t) else {
             switch t {
+            case "tuic": return "TUIC 尚未接入（需要 QUIC 单向流与 TLS exporter）"
+            case "wireguard": return "WireGuard 尚未接入"
             case "tailscale": return "Tailscale 尚未接入"
+            case "mieru": return "Mieru 尚未接入"
+            case "hysteria": return "Hysteria v1 尚未接入"
+            case "ssh": return "SSH 尚未接入"
             default: return "类型 \(t) 尚未接入"
             }
         }
-        if t != "wireguard", let n = p.fields["network"]?.string?.lowercased(), !n.isEmpty, !transports.contains(n) {
+        if let n = p.fields["network"]?.string?.lowercased(), !n.isEmpty, !transports.contains(n) {
             return "传输 \(n) 尚未接入"
         }
         switch t {
         case "ss":
-            if let why = ssPluginUnsupported(p) {
-                return "Shadowsocks 插件 \(why) 尚未接入"
+            // Stream plugins the connector wraps via NCSSPluginStream:
+            // simple-obfs (http/tls) and v2ray-plugin (websocket). Same parse
+            // as the connector, so the gate and the dial never disagree.
+            let plugin = p.fields["plugin"]?.string ?? ""
+            if !plugin.isEmpty {
+                if plugin != "obfs", plugin != "v2ray-plugin" {
+                    return "Shadowsocks 插件 \(plugin) 尚未接入"
+                }
+                if NCSSPluginOptions(pluginName: plugin,
+                                     opts: p.fields["plugin-opts"]?.object ?? [:]) == nil {
+                    return "Shadowsocks 插件 \(plugin) 的 plugin-opts 不受支持（obfs: mode=http/tls；v2ray-plugin: mode=websocket）"
+                }
             }
         case "ssr":
-            if let why = ssrUnsupported(p) { return why }
-        case "hysteria":
-            if let why = hysteriaUnsupported(p) { return why + " 尚未接入" }
-        case "ssh":
-            if let why = sshUnsupported(p) { return why }
-        case "wireguard":
-            if let why = wireguardUnsupported(p) { return why }
-        case "mieru":
-            if let why = mieruUnsupported(p) { return why }
-        case "tuic":
-            let hasToken = !(p.fields["token"]?.string ?? "").isEmpty
-            if !hasToken && (p.uuid ?? "").isEmpty { return "TUIC 缺少 uuid / token" }
+            let cipher = p.cipher?.lowercased()
+            if !NCSSStreamCipher.isStreamMethod(cipher) { return "SSR 加密 \(cipher ?? "-") 尚未接入" }
+            let proto = (p.fields["protocol"]?.string ?? "origin").lowercased()
+            if proto != "origin" && proto != "auth_sha1_v4" { return "SSR 协议 \(proto) 尚未接入" }
+            let obfs = (p.fields["obfs"]?.string ?? "plain").lowercased()
+            if obfs != "plain" && obfs != "http_simple" { return "SSR 混淆 \(obfs) 尚未接入" }
         case "vless":
-            if let enc = p.fields["encryption"]?.string, !enc.isEmpty, enc != "none" {
-                // feat/nc-proto A6: mlkem768x25519plus.<native|xorpub|random>.<1rtt|0rtt>.<keys> (NCVLESSEncryption).
-                let parts = enc.split(separator: ".").map(String.init)
-                guard parts.count >= 4, parts[0] == "mlkem768x25519plus",
-                      ["native", "xorpub", "random"].contains(parts[1]), ["1rtt", "0rtt"].contains(parts[2]) else {
-                    return "VLESS encryption \(enc.prefix(24)) 不是有效的 mlkem768x25519plus 值"
-                }
+            if let enc = p.fields["encryption"]?.string?.lowercased(), !enc.isEmpty, enc != "none" {
+                return "VLESS encryption 尚未接入"
             }
         default:
             break
-        }
-        return nil
-    }
-
-    /// nil = plugin supported; else the reason (mirrors mihomo NewShadowSocks' option checks;
-    /// obfs http/tls, v2ray-plugin websocket (+tls, mux), shadow-tls v1/v2/v3, gost-plugin websocket (+tls, smux) are implemented in NCSSPlugins; restls in NCRestls).
-    static func ssPluginUnsupported(_ proxy: NCProxy) -> String? {
-        guard let plugin = proxy.fields["plugin"]?.string, !plugin.isEmpty else { return nil }
-        let opts = proxy.fields["plugin-opts"]?.object ?? [:]
-        switch plugin {
-        case "obfs":
-            let mode = opts["mode"]?.string ?? ""
-            return mode == "http" || mode == "tls" ? nil : "obfs mode \(mode)"
-        case "v2ray-plugin":
-            if (opts["mode"]?.string ?? "") != "websocket" { return "v2ray-plugin mode \(opts["mode"]?.string ?? "")" }
-            if opts["v2ray-http-upgrade"]?.bool == true { return "v2ray-plugin http-upgrade" }
-            return nil
-        case "gost-plugin":
-            let mode = opts["mode"]?.string ?? ""
-            return mode == "websocket" ? nil : "gost-plugin mode \(mode)"
-        case "shadow-tls":
-            let v = opts["version"]?.int ?? 2
-            return (1...3).contains(v) ? nil : "shadow-tls v\(v)"
-        case "restls":
-            // NCRestls (PacketTunnel): version-hint tls12 / tls13, restls-script, client-fingerprint, skip-cert-verify.
-            let hint = (opts["version-hint"]?.string ?? "").lowercased()
-            if hint != "tls12" && hint != "tls13" { return "restls version-hint \(hint)" }
-            if !(opts["fingerprint"]?.string ?? "").isEmpty { return "restls fingerprint (证书指纹固定)" }
-            if !(opts["name-cert-verify"]?.string ?? "").isEmpty { return "restls name-cert-verify" }
-            return nil
-        default:
-            return plugin
-        }
-    }
-
-    /// SSR: stream ciphers + none/dummy; every protocol and obfs mihomo v1.19.33 registers (feat/nc-proto A5).
-    static let ssrProtocols: Set<String> = ["origin", "auth_sha1_v4", "auth_aes128_md5", "auth_aes128_sha1",
-                                            "auth_chain_a", "auth_chain_b"]
-    static let ssrObfs: Set<String> = ["plain", "http_simple", "http_post", "random_head", "tls1.2_ticket_auth",
-                                       "tls1.2_ticket_fastauth"]
-
-    static func ssrUnsupported(_ p: NCProxy) -> String? {
-        let cipher = p.cipher?.lowercased()
-        if cipher != "none" && cipher != "dummy" && !NCSSStreamCipher.isStreamMethod(cipher) {
-            return "SSR 加密 \(cipher ?? "-") 尚未接入"
-        }
-        let proto = (p.fields["protocol"]?.string ?? "origin").lowercased()
-        if !ssrProtocols.contains(proto) { return "SSR 协议 \(proto) 尚未接入" }
-        let obfs = (p.fields["obfs"]?.string ?? "plain").lowercased()
-        if !ssrObfs.contains(obfs) { return "SSR 混淆 \(obfs) 尚未接入" }
-        return nil
-    }
-
-    /// Hysteria v1 (NCHysteria1 + NCHysteria1UDP, feat/nc-proto A3 / feat/nc-proto2): TCP, UDP, obfs (XPlus),
-    /// protocol udp / wechat-video, port hopping (`ports`). nil = supported; else why not.
-    static func hysteriaUnsupported(_ p: NCProxy) -> String? {
-        let proto = (p.fields["obfs-protocol"]?.string ?? p.fields["protocol"]?.string ?? "udp").lowercased()
-        if !proto.isEmpty && proto != "udp" && proto != "wechat-video" { return "Hysteria v1 protocol \(proto)" }
-        if p.port == nil && !hysteriaPortsValid(p.fields["ports"]?.string) { return "Hysteria v1 缺少 port / ports" }
-        if let ports = p.fields["ports"]?.string, !ports.isEmpty, !hysteriaPortsValid(ports) {
-            return "Hysteria v1 ports \(ports.prefix(24)) 无效"
-        }
-        return nil
-    }
-
-    /// mihomo parsePorts syntax: "443,1000-2000".
-    static func hysteriaPortsValid(_ s: String?) -> Bool {
-        guard let s, !s.trimmingCharacters(in: .whitespaces).isEmpty else { return false }
-        for part in s.split(separator: ",") {
-            let r = part.split(separator: "-", omittingEmptySubsequences: false)
-                .map { $0.trimmingCharacters(in: .whitespaces) }
-            guard (1...2).contains(r.count), r.allSatisfy({ UInt16($0) != nil }) else { return false }
-        }
-        return true
-    }
-
-    /// SSH (NCSSH, feat/nc-proto A3): private keys must be inline PEM (a file path cannot be read in the tunnel);
-    /// passphrase-protected OpenSSH keys (bcrypt + aes256-ctr/cbc) are decrypted natively (feat/nc-proto3).
-    static func sshUnsupported(_ p: NCProxy) -> String? {
-        if let pk = p.fields["private-key"]?.string, !pk.isEmpty, !pk.contains("PRIVATE KEY") {
-            return "SSH 私钥文件路径尚未接入（请内联 PEM）"
-        }
-        return nil
-    }
-
-    /// Mieru (NCMieru, feat/nc-proto3): transport TCP (stream underlay), TCP + UDP-over-session traffic.
-    static func mieruUnsupported(_ p: NCProxy) -> String? {
-        let transport = (p.fields["transport"]?.string ?? "").uppercased()
-        if transport == "UDP" { return "Mieru transport UDP 尚未接入（仅 TCP）" }
-        if transport != "TCP" { return "Mieru transport 必须为 TCP 或 UDP" }
-        if (p.fields["username"]?.string ?? "").isEmpty || (p.password ?? "").isEmpty { return "Mieru 缺少 username / password" }
-        if (p.port ?? 0) == 0 && (p.fields["port-range"]?.string ?? "").isEmpty { return "Mieru 缺少 port / port-range" }
-        if let tp = p.fields["traffic-pattern"]?.string, !tp.isEmpty { return "Mieru traffic-pattern 尚未接入" }
-        return nil
-    }
-
-    /// WireGuard (NCWireGuard, feat/nc-wg): same checks as NCWGConfig.parse in the tunnel. AmneziaWG 1.0
-    /// (jc/jmin/jmax/s1/s2/h1–h4) is supported; AWG 2.0 header ranges and s3/s4 are not (i1–i5 are ignored).
-    static func wireguardUnsupported(_ p: NCProxy) -> String? {
-        let f = p.fields
-        if (f["private-key"]?.string ?? "").isEmpty { return "WireGuard 缺少 private-key" }
-        if (f["ip"]?.string ?? "").isEmpty && (f["ipv6"]?.string ?? "").isEmpty { return "WireGuard 缺少 ip / ipv6" }
-        if let peers = f["peers"]?.array, !peers.isEmpty {
-            for (i, pv) in peers.enumerated() {
-                let o = pv.object ?? [:]
-                if (o["server"]?.string ?? "").isEmpty || o["port"]?.int == nil || (o["public-key"]?.string ?? "").isEmpty {
-                    return "WireGuard peers[\(i)] 缺少 server / port / public-key"
-                }
-            }
-        } else if p.server == nil || p.port == nil || (f["public-key"]?.string ?? "").isEmpty {
-            return "WireGuard 缺少 server / port / public-key"
-        }
-        if let o = f["amnezia-wg-option"]?.object {
-            for k in ["h1", "h2", "h3", "h4"] where (o[k]?.string ?? "").contains("-") {
-                return "AmneziaWG 2.0 头部范围 \(k) 尚未接入"
-            }
-            if (o["s3"]?.int ?? 0) != 0 || (o["s4"]?.int ?? 0) != 0 { return "AmneziaWG 2.0 s3 / s4 尚未接入" }
         }
         return nil
     }

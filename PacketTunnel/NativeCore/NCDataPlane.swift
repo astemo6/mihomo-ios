@@ -13,8 +13,7 @@ final class NCDataPlane {
     private let stack = NCTunStack()
     private weak var flow: NEPacketTunnelFlow?
     private let mtu: UInt16
-    /// feat/nc-wg: the shared lwIP queue — WireGuard netifs (NCWireGuard.swift) live in the same lwIP instance.
-    let queue = NCLwIP.queue
+    let queue = DispatchQueue(label: "nc.dataplane", qos: .userInitiated)
 
     private var timer: DispatchSourceTimer?
     private var sessions: [UInt: TCPSession] = [:]
@@ -82,30 +81,10 @@ final class NCDataPlane {
         isRunning = true
         readLoop()
         let t = DispatchSource.makeTimerSource(queue: queue)
-        t.schedule(deadline: .now() + Self.fastTick, repeating: Self.fastTick, leeway: .milliseconds(25))
+        t.schedule(deadline: .now() + 0.25, repeating: 0.25)
         t.setEventHandler { [weak self] in self?.tick() }
         t.resume()
         timer = t
-        tickFast = true
-        idleTicks = 0
-    }
-
-    // Power (feat/native-core-eval merge, 2026-10-25): the 250 ms lwIP tick only matters while relays exist. With no
-    // TCP / UDP session for 2 s it drops to one wake every 5 s (lwIP timers tolerate late ticks: TIME-WAIT / UDP idle
-    // just expire later); any packet from the TUN or a new session restores 250 ms at once. Proxy-only mode (data
-    // plane idle) and an idle tunnel no longer wake the extension 4×/s.
-    private static let fastTick: DispatchTimeInterval = .milliseconds(250)
-    private static let slowTick: DispatchTimeInterval = .seconds(5)
-    private var tickFast = true
-    private var idleTicks = 0
-
-    private func setTickFast(_ fast: Bool) {
-        guard fast != tickFast, let timer else { return }
-        tickFast = fast
-        idleTicks = 0
-        let interval = fast ? Self.fastTick : Self.slowTick
-        timer.schedule(deadline: .now() + interval, repeating: interval,
-                       leeway: fast ? .milliseconds(25) : .seconds(1))
     }
 
     func stop() {
@@ -134,7 +113,6 @@ final class NCDataPlane {
         flow?.readPackets { [weak self] packets, _ in
             guard let self else { return }
             self.queue.async {
-                if !self.tickFast { self.setTickFast(true) }
                 for p in packets {
                     // ICMP echo to fake-IP / tunnel addresses: answer in
                     // place (those destinations aren't stack addresses).
@@ -172,13 +150,6 @@ final class NCDataPlane {
             entry.session.cancel()
             udpSessions.removeValue(forKey: id)
         }
-        if sessions.isEmpty && udpSessions.isEmpty {
-            idleTicks += 1
-            if tickFast && idleTicks >= 8 { setTickFast(false) }
-        } else {
-            idleTicks = 0
-            if !tickFast { setTickFast(true) }
-        }
     }
 
     // MARK: TCP
@@ -188,8 +159,18 @@ final class NCDataPlane {
         let fakeDomain = derefed.host != conn.dst.host ? derefed.host : nil
         let s = TCPSession(conn: conn, target: derefed, ruleDomain: fakeDomain)
         sessions[s.key] = s
-        if fakeDomain != nil {
-            connect(s) // destination known from DNS: no sniffing needed
+        let sniff = engine.snifferConfig
+        if !sniff.enable {
+            connect(s) // sniffer off (config / user toggle): no first-packet inspection
+        } else if let fakeDomain {
+            // Destination known from DNS: no sniffing needed — unless a
+            // force-domain entry demands a look at the real SNI anyway and
+            // skip-domain doesn't veto it (mihomo force-domain / skip-domain).
+            if !(sniff.matchesForceDomain(fakeDomain) && !sniff.matchesSkipDomain(fakeDomain)) {
+                connect(s)
+            }
+        } else if !sniff.parsePureIP {
+            connect(s) // pure-IP destination and parse-pure-ip off: mihomo doesn't sniff
         }
         return true
     }
@@ -223,9 +204,23 @@ final class NCDataPlane {
     /// Learn the real domain from the first bytes (TLS SNI / HTTP Host) when the
     /// app dialed a bare IP; otherwise keep the IP as the target.
     private func decide(_ s: TCPSession) {
+        let sniff = engine.snifferConfig
+        guard sniff.enable, !sniff.matchesSkipDomain(s.ruleDomain) else { connect(s); return }
         switch NCSniffer.detect(s.pending) {
         case .tls(let sni, let alpn):
-            if let sni { s.ruleDomain = sni; s.target = NCTarget(host: sni, port: s.target.port) }
+            // The QUIC branch of NCSniffer.detect reports alpn ["h3"]; its
+            // port gate is the QUIC table, plain TLS uses the TLS table.
+            let isQUIC = alpn == ["h3"]
+            guard isQUIC ? sniff.sniffQUIC(port: s.target.port) : sniff.sniffTLS(port: s.target.port) else {
+                connect(s)
+                return
+            }
+            if let sni {
+                s.ruleDomain = sni
+                if sniff.overridesDestination(proto: isQUIC ? "quic" : "tls") {
+                    s.target = NCTarget(host: sni, port: s.target.port)
+                }
+            }
             if let sni, engine.isMitm(host: sni, port: s.target.port) {
                 let alpnStr = alpn.joined(separator: ",")
                 let mitmPort = MitmTLSFront.shared.listen(host: sni, alpn: alpnStr)
@@ -257,7 +252,13 @@ final class NCDataPlane {
             }
             connect(s)
         case .http(let host, _):
-            if let host { s.ruleDomain = host; s.target = NCTarget(host: host, port: s.target.port) }
+            guard sniff.sniffHTTP(port: s.target.port) else { connect(s); return }
+            if let host {
+                s.ruleDomain = host
+                if sniff.overridesDestination(proto: "http") {
+                    s.target = NCTarget(host: host, port: s.target.port)
+                }
+            }
             connect(s)
         case .unknown:
             connect(s)
@@ -416,21 +417,53 @@ final class NCDataPlane {
                 return
             }
             // Not fake-IP business (filter host, other record types): forward
-            // the query to its assigned upstream (per-domain policy first).
-            if let upstream = engine.dnsUpstream(for: data) {
-                let sid = info.id
-                dnsForwarder.forward(data, upstream: upstream) { [weak self] resp in
-                    if let resp {
-                        self?.engine.recordDNSResponse(query: data, response: resp)
-                        self?.stack.udpSend(session: sid, resp)
-                    }
-                }
-            } else {
+            // the query to its assigned upstream (per-domain policy first),
+            // with mihomo's fallback / fallback-filter detour when configured.
+            let route = engine.dnsRoute(for: data)
+            guard let primary = route.primary else {
                 udpDropped += 1
+                return
             }
+            forwardDNS(data, session: info.id, primary: primary,
+                       fallback: route.fallback, fallbackFirst: route.fallbackFirst)
             return
         }
         udpForward(info, data)
+    }
+
+    /// Forward one DNS query honoring the fallback route: fallback-first
+    /// names go straight to the fallback server; otherwise the primary
+    /// answers unless it fails or its answer trips fallback-filter, in
+    /// which case the fallback is asked (if the fallback also fails, the
+    /// primary's answer is delivered rather than failing the query).
+    private func forwardDNS(_ query: Data, session: UInt32, primary: NCDNSUpstream,
+                            fallback: NCDNSUpstream?, fallbackFirst: Bool) {
+        let deliver: (Data) -> Void = { [weak self] resp in
+            self?.engine.recordDNSResponse(query: query, response: resp)
+            self?.stack.udpSend(session: session, resp)
+        }
+        if fallbackFirst, let fallback {
+            dnsForwarder.forward(query, upstream: fallback) { [weak self] resp in
+                guard let self else { return }
+                if let resp { deliver(resp); return }
+                self.dnsForwarder.forward(query, upstream: primary) { resp2 in
+                    if let resp2 { deliver(resp2) }
+                }
+            }
+            return
+        }
+        dnsForwarder.forward(query, upstream: primary) { [weak self] resp in
+            guard let self else { return }
+            if let resp, !self.engine.dnsAnswerTriggersFallback(resp) { deliver(resp); return }
+            guard let fallback else {
+                if let resp { deliver(resp) }
+                return
+            }
+            self.dnsForwarder.forward(query, upstream: fallback) { resp2 in
+                if let resp2 { deliver(resp2) }
+                else if let resp { deliver(resp) }
+            }
+        }
     }
 
     private func udpForward(_ info: NCTunStack.UDPSessionInfo, _ data: Data) {
@@ -493,19 +526,8 @@ final class NCDataPlane {
                 return
             }
             session = ssr
-        case .proxy(let proxy) where proxy.type == "tuic":
-            // feat/nc-proto2: native (QUIC datagram) / quic (uni stream) relay over the shared TUIC connection.
-            session = NCUDPTUICSession(proxy: proxy, queue: queue)
-        case .proxy(let proxy) where proxy.type == "hysteria":
-            // feat/nc-proto2: Hysteria v1 UDP over the shared session (datagrams, obfs / port hopping honoured).
-            session = NCUDPHysteria1Session(proxy: proxy, queue: queue)
-        case .proxy(let proxy) where proxy.type == "mieru":
-            session = NCUDPMieruSession(proxy: proxy, target: target, queue: queue)
         case .proxy(let proxy) where proxy.type == "anytls":
             session = NCUDPAnyTLSSession(proxy: proxy, target: target, queue: queue)
-        case .proxy(let proxy) where proxy.type == "wireguard":
-            // feat/nc-wg: UDP from the node's lwIP netif (NCUDPWireGuardSession).
-            session = NCUDPWireGuardSession(proxy: proxy, queue: queue)
         case .proxy(let proxy) where proxy.type == "snell":
             guard let sn = NCUDPSnellSession(proxy: proxy, queue: queue) else {
                 udpDropped += 1
