@@ -1,5 +1,4 @@
 import SwiftUI
-import Libmihomo
 
 /// 节点管理 → 筛选节点 (v0.16): region filters from node names (the same patterns as 节点处理's region
 /// sort, bridge/subrules.go regionDefs). Each region opens its node list and can be added to the active

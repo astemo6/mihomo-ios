@@ -436,7 +436,6 @@ final class NodeManagerModel: ObservableObject {
         let task = Task {
             let iface = await PhysicalInterface.current() ?? ""
             NCDelayTester.setOfflineInterface(iface)
-            LibmihomoSetOfflineTestInterface(iface)
         }
         ifaceLookup = task
         await task.value

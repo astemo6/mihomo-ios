@@ -1,5 +1,4 @@
 import SwiftUI
-import Libmihomo
 
 /// v0.16 全部重写规则: every rewrite / script rule from 本地模块 and each imported module in one searchable
 /// list (type, phase, description, source module). Disabled ones (switch off, module off, engine off) are dimmed.

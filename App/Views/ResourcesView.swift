@@ -1,6 +1,5 @@
 import SwiftUI
 import UIKit
-import Libmihomo
 
 // Shared pieces of the 重写 page's subscriptions (RewriteView): the format badge, the update section of the module
 // page, and the 从 URL 添加订阅 sheet. (fix/modules-only: the old 模块 page with its 全部 / 模块 / 规则集 / 脚本 filter

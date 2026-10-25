@@ -2,7 +2,6 @@ import Foundation
 import Security
 import UIKit
 import UserNotifications
-import Libmihomo
 
 /// App-side owner of engine.json, modules, local scripts and the MitM CA.
 @MainActor

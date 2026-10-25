@@ -1,7 +1,4 @@
 import Foundation
-#if canImport(Libmihomo)
-import Libmihomo
-#endif
 
 /// Pure Swift diagnostic summary generator (replacing Go bridge LibmihomoDiagnosticSummary).
 /// Generates the six standard diagnostic sections in fixed order:
@@ -36,13 +33,7 @@ public enum DiagnosticSummary {
         var files: [String: String] = [:]
 
         // 1. info.txt
-        let coreVer: String
-        #if canImport(Libmihomo)
-        let v = LibmihomoVersion()
-        coreVer = v.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty ? "native-1.0.0" : v
-        #else
-        coreVer = "native-1.0.0"
-        #endif
+        let coreVer = CoreVersion.label
 
         #if arch(arm64)
         let arch = "arm64"

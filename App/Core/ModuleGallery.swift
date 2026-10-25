@@ -1,5 +1,4 @@
 import Foundation
-import Libmihomo
 
 // v0.15 模块库: browse / search modules from configurable index URLs, preview before adding.
 //

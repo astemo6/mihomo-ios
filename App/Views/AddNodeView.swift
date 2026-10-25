@@ -1,7 +1,6 @@
 import SwiftUI
 import PhotosUI
 import UniformTypeIdentifiers
-import Libmihomo
 
 /// 节点管理 → + (v0.16): the add flow of the QX preview (QXAddNode) in the main style. Paste box with format
 /// detection, 剪贴板 / 扫描二维码 / 相册 / 从文件, then a protocol picker (新协议 first) that opens the
@@ -147,7 +146,7 @@ struct AddNodeView: View {
             Section {
                 ForEach(Self.protocols) { p in protoRow(p, new: false) }
             } header: { Text("常用协议") } footer: {
-                Text("协议由 mihomo 内核 \(LibmihomoVersion()) 提供。节点保存在「本地节点」中；在 工具 → 节点与订阅 → 本地 打开「把本地节点加入每个配置」后，可在任何订阅的策略里选择。")
+                Text("协议由 mihomo 内核 \(CoreVersion.label) 提供。节点保存在「本地节点」中；在 工具 → 节点与订阅 → 本地 打开「把本地节点加入每个配置」后，可在任何订阅的策略里选择。")
             }
             .listRowBackground(Theme.card)
         }

@@ -1,5 +1,4 @@
 import Foundation
-import Libmihomo
 
 /// feat/group-order: the user's 策略组 order. A reorder never rewrites the profile the user imported or subscribed
 /// to (user 2026-10-18: 「应该是自动复制一个配置文件出来，在复制的配置文件上更新」): the first reorder of a profile

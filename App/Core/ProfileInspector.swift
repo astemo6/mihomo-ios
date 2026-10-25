@@ -286,7 +286,6 @@ final class ProfileInspector: ObservableObject {
         // normal routing when the bind fails.
         let iface = await PhysicalInterface.current() ?? ""
         NCDelayTester.setOfflineInterface(iface)
-        LibmihomoSetOfflineTestInterface(iface)
         let tcp = ControllerClient.tcpHandshake
         var idx = 0
         while idx < names.count {
