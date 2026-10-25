@@ -21,6 +21,8 @@ final class NCTLSClientStream: NCRelayStream {
         var profile: NCClientHelloProfile = .chrome
         /// Plain mode only: session ID computed from the marshaled hello (zero ID in place) — shadow-tls v3.
         var sessionIDGenerator: ((Data) -> Data?)? = nil
+        /// Offer TLS 1.2 only (no supported_versions) — shadow-tls v1 (feat/nc-proto3).
+        var maxTLS12: Bool = false
     }
 
     enum TLSError: Error {
@@ -98,9 +100,10 @@ final class NCTLSClientStream: NCRelayStream {
             sidPlain = NCTLS13.realitySessionIDPlain(shortID: reality.shortID,
                                                      unixTime: UInt32(Date().timeIntervalSince1970))
         }
-        let hello = NCTLS13.buildClientHello(random: clientRandom, sessionID: Data(repeating: 0, count: 32),
+        var hello = NCTLS13.buildClientHello(random: clientRandom, sessionID: Data(repeating: 0, count: 32),
                                           serverName: config.serverName, alpn: config.alpn,
                                           keyShare: clientShare, profile: config.profile)
+        if config.maxTLS12, let h12 = NCShadowTLS.removingExtension(43, from: hello) { hello = h12 }
         var wireHello = hello
         if let reality = config.reality, let authKey, let sidPlain {
             guard let sealed = NCTLS13.realitySealSessionID(authKey: authKey, plain: sidPlain,

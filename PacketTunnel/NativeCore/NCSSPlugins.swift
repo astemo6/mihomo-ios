@@ -309,6 +309,7 @@ final class NCShadowTLSWire: NCRelayStream {
             guard let self else { return }
             guard let data else { if !self.detached { handler(nil, error) }; return }
             if self.detached { self.spill.append(data); return }
+            if self.version == 1 { handler(data, nil); return } // v1: the handshake passes through untouched
             if self.version == 2 {
                 self.readHash.update(data: data)
                 handler(data, nil)
@@ -401,6 +402,58 @@ enum NCShadowTLS {
         let mac = Data(h.finalize())
         sid.replaceSubrange(28..<32, with: mac.prefix(4))
         return sid
+    }
+
+    /// The ClientHello handshake message without extension `type` (lengths fixed up); nil if it does not parse.
+    static func removingExtension(_ type: UInt16, from hello: Data) -> Data? {
+        let b = [UInt8](hello)
+        guard b.count > 4 + 2 + 32 + 1, b[0] == 1 else { return nil }
+        var off = 4 + 2 + 32
+        off += 1 + Int(b[off])                                   // session id
+        guard off + 2 <= b.count else { return nil }
+        off += 2 + (Int(b[off]) << 8 | Int(b[off + 1]))          // cipher suites
+        guard off + 1 <= b.count else { return nil }
+        off += 1 + Int(b[off])                                   // compression methods
+        guard off + 2 <= b.count else { return nil }
+        let extStart = off + 2
+        let extEnd = extStart + (Int(b[off]) << 8 | Int(b[off + 1]))
+        guard extEnd <= b.count else { return nil }
+        var exts = [UInt8]()
+        var p = extStart
+        while p + 4 <= extEnd {
+            let t = UInt16(b[p]) << 8 | UInt16(b[p + 1])
+            let n = Int(b[p + 2]) << 8 | Int(b[p + 3])
+            guard p + 4 + n <= extEnd else { return nil }
+            if t != type { exts.append(contentsOf: b[p..<(p + 4 + n)]) }
+            p += 4 + n
+        }
+        var body = Array(b[4..<off])
+        body.append(UInt8((exts.count >> 8) & 0xff)); body.append(UInt8(exts.count & 0xff))
+        body.append(contentsOf: exts)
+        body.append(contentsOf: b[extEnd...])
+        var out = [UInt8(1), UInt8((body.count >> 16) & 0xff), UInt8((body.count >> 8) & 0xff), UInt8(body.count & 0xff)]
+        out.append(contentsOf: body)
+        return Data(out)
+    }
+
+    /// shadow-tls v1: a plain TLS ≤ 1.2 handshake with the camouflage server through the shadow-tls server, then
+    /// the socket itself carries the SS stream (mihomo transport/shadowtls Client.DialContextConn case 1).
+    static func dialV1(raw: NCRelayStream, host: String, alpn: [String], allowInsecure: Bool, queue: DispatchQueue,
+                       completion: @escaping (NCRelayStream?, Error?) -> Void) {
+        let wire = NCShadowTLSWire(raw: raw, password: "", version: 1)
+        var cfg = NCTLSClientStream.Config(serverName: host)
+        cfg.alpn = alpn
+        cfg.allowInsecure = allowInsecure
+        cfg.profile = NCClientHelloProfile.named(nil) // v1 uses the Go client hello (no uTLS fingerprint)
+        cfg.maxTLS12 = true
+        let tls = NCTLSClientStream(raw: wire, config: cfg, queue: queue)
+        tls.startHandshake { err in
+            if let err { completion(nil, err); return }
+            let tail = tls.spliceOut().rawTail
+            wire.detached = true
+            let rest = tail + wire.spill
+            completion(rest.isEmpty ? raw : NCBufferedStream(inner: raw, prefix: rest), nil)
+        }
     }
 
     /// Runs the camouflage TLS handshake over `raw` and returns the data conn the SS stream rides on.
@@ -628,6 +681,12 @@ extension NCConnector {
             let alpn = opts["alpn"]?.array?.compactMap { $0.string } ?? ["h2", "http/1.1"]
             plainRaw { raw, err in
                 guard let raw else { completion(nil, err); return }
+                if version == 1 {
+                    NCShadowTLS.dialV1(raw: raw, host: host, alpn: alpn,
+                                       allowInsecure: opts["skip-cert-verify"]?.bool ?? false,
+                                       queue: queue, completion: completion)
+                    return
+                }
                 NCShadowTLS.dial(raw: raw, version: version, password: password, host: host, alpn: alpn,
                                  allowInsecure: opts["skip-cert-verify"]?.bool ?? false,
                                  fingerprint: proxy.fields["client-fingerprint"]?.string,
