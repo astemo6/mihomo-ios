@@ -345,6 +345,19 @@ final class PacketTunnelProvider: NEPacketTunnelProvider {
 
     override func handleAppMessage(_ messageData: Data, completionHandler: ((Data?) -> Void)?) {
         let cmd = String(data: messageData, encoding: .utf8) ?? ""
+        // nc-lifecycle: the 20× reload pressure/regression run (see
+        // NativeTunnelCore.runLifecycleSelfTest). A literal command rather
+        // than a new TunnelMessage case: the enum is shared with the app,
+        // and this diagnostic needs no app-side change — any existing
+        // sendProviderMessage path can send the string. Runs off the NE
+        // callback thread; the reply is the full report.
+        if cmd == "lifecycleTest" {
+            DispatchQueue.global(qos: .utility).async {
+                let report = self.core.runLifecycleSelfTest()
+                completionHandler?(Data(report.utf8))
+            }
+            return
+        }
         switch TunnelMessage(rawValue: cmd) {
         case .reload, .reloadHot:
             let hot = TunnelMessage(rawValue: cmd) == .reloadHot

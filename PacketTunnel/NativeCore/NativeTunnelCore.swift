@@ -141,8 +141,27 @@ final class NativeTunnelCore {
         e?.stop()
         NativeCoreEngine.active = nil
         NativeTaskRunner.shared.stop()
+        // nc-lifecycle: drain the process-wide state no single core instance
+        // owns. The shared protocol-session registries, the DNS upstream
+        // coordinator, the DoT/DoH pools and the JSC script cache are all
+        // singletons that outlive the core — before this they kept live
+        // sessions, pooled TLS streams and compiled scripts past the stop
+        // for the extension's remaining life.
+        let closedSessions = NCConnector.closeAllSharedSessions()
+        NCDNSUpstreamCoordinator.shared.cancelAll()
+        NCDNSDoTPool.shared.reset()
+        NCDNSDoHPool.shared.reset()
+        JSCScriptEngine.shared.dropAll()
         logRewriteSkips()
         NCPersistentStore.shared.flush() // $persistentStore writes still waiting for their coalesced flush
+        NCMemorySampler.sample("stop")
+        // Read after the drains: the coordinator/pool counters queue behind
+        // the cancel/reset blocks, so zeros here are the drained state, not
+        // a race — a nonzero value in this line is a leak.
+        let sc = NCConnector.sharedSessionCounts()
+        let dc = NCDNSUpstreamCoordinator.shared.inFlightCounts()
+        let closedText = closedSessions.sorted { $0.key < $1.key }.map { "\($0.key)=\($0.value)" }.joined(separator: " ")
+        NSLog("[nc-lifecycle] after stop: closed sessions \(closedText); registries mux=\(sc["mux"] ?? 0) anytls=\(sc["anytls"] ?? 0) hy2=\(sc["hy2"] ?? 0) hy1=\(sc["hy1"] ?? 0) tuic=\(sc["tuic"] ?? 0) ssh=\(sc["ssh"] ?? 0); dns entries=\(dc.entries) active=\(dc.active) pending=\(dc.pending); dot pooled=\(NCDNSDoTPool.shared.pooledConnectionCount()) doh pooled=\(NCDNSDoHPool.shared.pooledConnectionCount())")
     }
 
     /// Re-reads the config the app just prepared (TunnelMessage.reload / .reloadHot). nil = applied.
@@ -189,6 +208,68 @@ final class NativeTunnelCore {
         reloadLastDone = Date()
         lock.unlock()
         return err
+    }
+
+    /// nc-lifecycle pressure/regression run, triggered by the provider's
+    /// "lifecycleTest" app message while the tunnel is up: reloads the
+    /// prepared config `rounds` times, sampling the footprint every round.
+    /// Rounds 7 and 14 are full (non-hot) reloads standing in for config
+    /// swaps — the rounds re-read whatever the app last prepared into home,
+    /// and this in-tunnel driver cannot ask the app to prepare a different
+    /// profile mid-run (a true A/B swap stays a device-checklist step).
+    /// Afterwards it exercises the exact teardown primitives stop() uses
+    /// (session drain, DNS cancel/reset) and asserts the registries are
+    /// empty, then checks the last footprint against the first plus the
+    /// allowance noted below. NOTE: the teardown step closes live shared
+    /// sessions — flows on them drop and re-dial; run it on a test setup,
+    /// not mid-traffic. Returns the report (also the app-message reply).
+    func runLifecycleSelfTest(rounds: Int = 20) -> String {
+        lock.lock(); let up = _engine != nil && _plane != nil; lock.unlock()
+        guard up else { return "lifecycle self-test: core is not running" }
+        var lines = ["lifecycle self-test: \(rounds) reloads"]
+        let first = NCMemorySampler.sample("lifecycle-r0")
+        lines.append("round 0: footprint \(String(format: "%.1f", first.footprintMB))MB")
+        var last = first
+        for r in 1...rounds {
+            let hot = !(r == 7 || r == 14)
+            if let err = reload(hot: hot) {
+                lines.append("round \(r): reload failed: \(err)")
+                lines.append("RESULT: FAIL (reload \(r))")
+                return lines.joined(separator: "\n")
+            }
+            last = NCMemorySampler.sample("lifecycle-r\(r)")
+            lines.append("round \(r) (\(hot ? "hot" : "full")): footprint \(String(format: "%.1f", last.footprintMB))MB")
+        }
+        let closed = NCConnector.closeAllSharedSessions()
+        NCDNSUpstreamCoordinator.shared.cancelAll()
+        NCDNSDoTPool.shared.reset()
+        NCDNSDoHPool.shared.reset()
+        Thread.sleep(forTimeInterval: 0.3)
+        let sc = NCConnector.sharedSessionCounts()
+        let dc = NCDNSUpstreamCoordinator.shared.inFlightCounts()
+        let dot = NCDNSDoTPool.shared.pooledConnectionCount()
+        let doh = NCDNSDoHPool.shared.pooledConnectionCount()
+        let closedText = closed.sorted { $0.key < $1.key }.map { "\($0.key)=\($0.value)" }.joined(separator: " ")
+        lines.append("teardown: closed sessions \(closedText)")
+        lines.append("registries after teardown: mux=\(sc["mux"] ?? 0) anytls=\(sc["anytls"] ?? 0) hy2=\(sc["hy2"] ?? 0) hy1=\(sc["hy1"] ?? 0) tuic=\(sc["tuic"] ?? 0) ssh=\(sc["ssh"] ?? 0); dns entries=\(dc.entries) active=\(dc.active) pending=\(dc.pending); dot=\(dot) doh=\(doh)")
+        var failures: [String] = []
+        if sc.values.contains(where: { $0 != 0 }) { failures.append("session registries not empty") }
+        if dc.entries != 0 || dc.active != 0 || dc.pending != 0 { failures.append("dns coordinator not drained") }
+        if dot != 0 || doh != 0 { failures.append("dns pools not drained") }
+        // Allowance: 3 MB over the first round. What legitimately persists
+        // across reloads: the mmap'd geo databases and the JSC prelude
+        // context (both cached process-wide by design), plus allocator
+        // arenas that are retained rather than returned to the OS. Growth
+        // beyond that, round over round, is a leak — and 3 MB sits far
+        // inside the 50 MB extension budget.
+        let allowanceMB = 3.0
+        let growth = last.footprintMB - first.footprintMB
+        lines.append("footprint growth first→last: \(String(format: "%+.1f", growth))MB (allowance \(String(format: "%.1f", allowanceMB))MB)")
+        if growth > allowanceMB { failures.append("footprint grew beyond allowance") }
+        lines.append(failures.isEmpty ? "RESULT: PASS" : "RESULT: FAIL (\(failures.joined(separator: "; ")))")
+        let report = lines.joined(separator: "\n")
+        NSLog("[nc-lifecycle] self-test:\n%@", report)
+        return report
     }
 
     /// The app's rewrite / MitM snapshot (bridge/mitm ExportRewriteSnapshot); .conf profiles carry their own.
