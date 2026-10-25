@@ -19,7 +19,7 @@ final class NCUDPDirectSession: NCUDPSession {
 
     init(target: NCTarget, queue: DispatchQueue) {
         let port = NWEndpoint.Port(rawValue: UInt16(clamping: target.port)) ?? .any
-        conn = NWConnection(host: NWEndpoint.Host(target.host), port: port, using: .udp)
+        conn = NWConnection(host: NWEndpoint.Host(target.host), port: port, using: NCOutboundBinding.params(.udp, host: target.host))
         conn.stateUpdateHandler = { [weak self] state in
             if case .ready = state { self?.receiveLoop() }
         }
@@ -136,7 +136,7 @@ final class NCUDPSocks5Session: NCUDPSession {
         let relayHost = host == "0.0.0.0" ? serverHost : host
         let ep = NWEndpoint.hostPort(host: NWEndpoint.Host(relayHost),
                                      port: NWEndpoint.Port(rawValue: UInt16(clamping: port)) ?? .any)
-        let conn = NWConnection(to: ep, using: .udp)
+        let conn = NWConnection(to: ep, using: NCOutboundBinding.params(.udp, host: relayHost))
         udp = conn
         conn.stateUpdateHandler = { [weak self] state in
             guard let self else { return }
@@ -216,7 +216,7 @@ final class NCDNSForwarder {
 
     func forward(_ query: Data, server: String, port: Int = 53, completion: @escaping (Data?) -> Void) {
         let nwPort = NWEndpoint.Port(rawValue: UInt16(clamping: port)) ?? .any
-        let conn = NWConnection(host: NWEndpoint.Host(server), port: nwPort, using: .udp)
+        let conn = NWConnection(host: NWEndpoint.Host(server), port: nwPort, using: NCOutboundBinding.params(.udp, host: server))
         var done = false
         func finish(_ data: Data?) {
             guard !done else { return }
@@ -252,7 +252,7 @@ final class NCDNSForwarder {
     }
 
     static func forwardTCP(_ query: Data, server: String, port: Int = 53, queue: DispatchQueue, completion: @escaping (Data?) -> Void) {
-        let conn = NWConnection(host: NWEndpoint.Host(server), port: NWEndpoint.Port(rawValue: UInt16(clamping: port)) ?? .any, using: .tcp)
+        let conn = NWConnection(host: NWEndpoint.Host(server), port: NWEndpoint.Port(rawValue: UInt16(clamping: port)) ?? .any, using: NCOutboundBinding.params(.tcp, host: server))
         var done = false
         func finish(_ data: Data?) {
             guard !done else { return }
@@ -311,7 +311,7 @@ final class NCUDPSSSession: NCUDPSession {
         }
         conn = NWConnection(host: NWEndpoint.Host(server),
                             port: NWEndpoint.Port(rawValue: UInt16(clamping: port)) ?? .any,
-                            using: .udp)
+                            using: NCOutboundBinding.params(.udp, host: server))
         conn.stateUpdateHandler = { [weak self] state in
             if case .ready = state { self?.receiveLoop() }
         }
@@ -679,6 +679,7 @@ extension NCDNSForwarder {
         // QUIC is TLS 1.3-only by construction; no min-version pinning needed.
         let quicOptions = NWProtocolQUIC.Options(alpn: ["doq"])
         let params = NWParameters(quic: quicOptions)
+        NCOutboundBinding.apply(params, host: host)
         let group = NWConnectionGroup(with: NWMultiplexGroup(to: endpoint), using: params)
         var done = false
         func finish(_ data: Data?) {
@@ -1033,7 +1034,7 @@ final class NCUDPSSRSession: NCUDPSession {
         key = NCShadowsocks.masterKey(password: pw, keyLen: NCSSStreamCipher.keyLength(for: cipherName))
         conn = NWConnection(host: NWEndpoint.Host(server),
                             port: NWEndpoint.Port(rawValue: UInt16(clamping: port)) ?? .any,
-                            using: .udp)
+                            using: NCOutboundBinding.params(.udp, host: server))
         conn.stateUpdateHandler = { [weak self] state in
             if case .ready = state { self?.receiveLoop() }
         }

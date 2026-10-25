@@ -414,6 +414,7 @@ final class NCHysteria2Connection {
         }
         let parameters = NWParameters(quic: quicOptions)
         parameters.allowLocalEndpointReuse = true
+        NCOutboundBinding.apply(parameters, host: server)
 
         let endpoint = NWEndpoint.hostPort(host: NWEndpoint.Host(server),
                                            port: NWEndpoint.Port(rawValue: UInt16(clamping: port)) ?? .any)
