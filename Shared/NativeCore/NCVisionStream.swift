@@ -41,6 +41,17 @@ final class NCVisionStream: NCRelayStream {
     private var spliced = false
     private var rawTail = Data()
     private var outQueue: [Data] = []
+    /// nc-perf: head offset for outQueue — pop by advancing instead of removeFirst per piece
+    /// (compacted past the halfway point, same read-offset pattern as NCVisionReader).
+    private var outHead = 0
+    private var outIsEmpty: Bool { outHead >= outQueue.count }
+    private func popOut() -> Data {
+        let d = outQueue[outHead]
+        outHead += 1
+        if outHead == outQueue.count { outQueue.removeAll(); outHead = 0 }
+        else if outHead > outQueue.count / 2 { outQueue.removeFirst(outHead); outHead = 0 }
+        return d
+    }
     private var readEOF = false
     private var pending: ((Data?, Error?) -> Void)?
 
@@ -75,8 +86,8 @@ final class NCVisionStream: NCRelayStream {
     // MARK: receive
 
     func receive(_ handler: @escaping (Data?, Error?) -> Void) {
-        if !outQueue.isEmpty {
-            handler(outQueue.removeFirst(), nil)
+        if !outIsEmpty {
+            handler(popOut(), nil)
             return
         }
         if readEOF {
@@ -101,8 +112,8 @@ final class NCVisionStream: NCRelayStream {
     }
 
     private func pump() {
-        if !outQueue.isEmpty {
-            deliver(outQueue.removeFirst())
+        if !outIsEmpty {
+            deliver(popOut())
             return
         }
         guard pending != nil else { return }

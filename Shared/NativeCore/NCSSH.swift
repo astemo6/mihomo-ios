@@ -351,6 +351,15 @@ final class NCSSHClient {
     private let clientVersion = "SSH-2.0-Go"
     private var serverVersion: String?
     private var inbuf = Data()
+    /// nc-perf: read offset into `inbuf` — packets are consumed by advancing it instead of a
+    /// Data(dropFirst) copy of the remainder per packet (O(n^2)); rebased once past halfway.
+    /// `dec.open` reads startIndex-relative, so it takes the un-consumed slice as-is.
+    private var inbufOffset = 0
+    private func compactInbuf() {
+        if inbufOffset == 0 { return }
+        if inbufOffset >= inbuf.count { inbuf = Data(); inbufOffset = 0 }
+        else if inbufOffset > inbuf.count / 2 { inbuf = Data(inbuf.dropFirst(inbufOffset)); inbufOffset = 0 }
+    }
     private var sendSeq: UInt32 = 0, recvSeq: UInt32 = 0
     private let enc = NCSSHCipher(), dec = NCSSHCipher()
 
@@ -429,14 +438,15 @@ final class NCSSHClient {
     }
 
     private func process() throws {
+        defer { compactInbuf() }
         if serverVersion == nil {
             while serverVersion == nil {
-                guard let nl = inbuf.firstIndex(of: 0x0a) else {
-                    if inbuf.count > 8192 { throw Self.err("no version line") }
+                guard let nl = inbuf[inbufOffset...].firstIndex(of: 0x0a) else {
+                    if inbuf.count - inbufOffset > 8192 { throw Self.err("no version line") }
                     return
                 }
-                var line = String(decoding: inbuf[inbuf.startIndex..<nl], as: UTF8.self)
-                inbuf = Data(inbuf[(nl + 1)...])
+                var line = String(decoding: inbuf[inbufOffset..<nl], as: UTF8.self)
+                inbufOffset = nl + 1
                 if line.hasSuffix("\r") { line.removeLast() }
                 if line.hasPrefix("SSH-") {
                     guard line.hasPrefix("SSH-2.0-") || line.hasPrefix("SSH-1.99-") else { throw Self.err("unsupported version \(line)") }
@@ -445,8 +455,8 @@ final class NCSSHClient {
             }
         }
         while state == .connecting || state == .ready {
-            guard let (payload, used) = try dec.open(inbuf, seq: recvSeq) else { return }
-            inbuf = Data(inbuf.dropFirst(used))
+            guard let (payload, used) = try dec.open(inbuf[inbufOffset...], seq: recvSeq) else { return }
+            inbufOffset += used
             recvSeq &+= 1
             try handle(payload)
         }
@@ -797,8 +807,28 @@ final class NCSSHChannel: NCRelayStream {
     private var open = false, eof = false, closed = false
     private var failure: Error?
     private var outbox = Data()
+    /// nc-perf: read offset into `outbox` — flush() advances it per window chunk instead of a
+    /// Data(dropFirst) copy of the remainder per chunk; rebased once past halfway.
+    private var outboxOffset = 0
+    private var outboxRemaining: Int { outbox.count - outboxOffset }
+    private func compactOutbox() {
+        if outboxOffset == 0 { return }
+        if outboxOffset >= outbox.count { outbox = Data(); outboxOffset = 0 }
+        else if outboxOffset > outbox.count / 2 { outbox = Data(outbox.dropFirst(outboxOffset)); outboxOffset = 0 }
+    }
     private var outboxEntries: [NCPendingSendEntry] = []
     private var inbox: [Data] = []
+    /// nc-perf: head offset for inbox — receive() pops by advancing instead of removeFirst per
+    /// piece (compacted past the halfway point, same pattern as NCVisionStream's outQueue).
+    private var inboxHead = 0
+    private var inboxIsEmpty: Bool { inboxHead >= inbox.count }
+    private func popInbox() -> Data {
+        let d = inbox[inboxHead]
+        inboxHead += 1
+        if inboxHead == inbox.count { inbox.removeAll(); inboxHead = 0 }
+        else if inboxHead > inbox.count / 2 { inbox.removeFirst(inboxHead); inboxHead = 0 }
+        return d
+    }
     private var pending: ((Data?, Error?) -> Void)?
     private var consumed: UInt32 = 0
     var onOpen: ((Error?) -> Void)?
@@ -839,14 +869,14 @@ final class NCSSHChannel: NCRelayStream {
             if let d = r.bytes() { ack(UInt32(d.count)) }
         case 96: // EOF
             eof = true
-            if inbox.isEmpty, let h = pending { pending = nil; callerQueue.async { h(nil, nil) } }
+            if inboxIsEmpty, let h = pending { pending = nil; callerQueue.async { h(nil, nil) } }
         case 97: // CLOSE
             if !closed { client?.channelSend(Data([97]) + NCSSHWire.u32(remoteID)) }
             closed = true
             eof = true
             client?.channelGone(localID)
             fireOutboxCompletions()
-            if inbox.isEmpty, let h = pending { pending = nil; callerQueue.async { h(nil, nil) } }
+            if inboxIsEmpty, let h = pending { pending = nil; callerQueue.async { h(nil, nil) } }
         case 98: // CHANNEL_REQUEST
             _ = r.str()
             if r.bool() == true { client?.channelSend(Data([100]) + NCSSHWire.u32(remoteID)) }
@@ -870,10 +900,11 @@ final class NCSSHChannel: NCRelayStream {
 
     private func flush() {
         guard open, !closed else { return }
-        while !outbox.isEmpty && remoteWindow > 0 {
-            let n = min(outbox.count, remoteMaxPacket, Int(remoteWindow))
-            let chunk = Data(outbox.prefix(n))
-            outbox = Data(outbox.dropFirst(n))
+        defer { compactOutbox() }
+        while outboxRemaining > 0 && remoteWindow > 0 {
+            let n = min(outboxRemaining, remoteMaxPacket, Int(remoteWindow))
+            let chunk = Data(outbox[outboxOffset..<(outboxOffset + n)])
+            outboxOffset += n
             let (done, rest) = NCPendingSends.split(outboxEntries, consumed: n)
             outboxEntries = rest
             remoteWindow -= UInt32(n)
@@ -890,6 +921,7 @@ final class NCSSHChannel: NCRelayStream {
         NCPendingSends.fireAll(outboxEntries)
         outboxEntries = []
         outbox = Data()
+        outboxOffset = 0
     }
 
     func send(_ data: Data) {
@@ -910,8 +942,8 @@ final class NCSSHChannel: NCRelayStream {
 
     func receive(_ handler: @escaping (Data?, Error?) -> Void) {
         ncOnSessionQueue(clientQueue) {
-            if !self.inbox.isEmpty {
-                let d = self.inbox.removeFirst()
+            if !self.inboxIsEmpty {
+                let d = self.popInbox()
                 self.ack(UInt32(d.count))
                 self.callerQueue.async { handler(d, nil) }
                 return

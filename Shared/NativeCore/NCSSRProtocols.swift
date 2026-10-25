@@ -95,6 +95,17 @@ final class NCSSRAuthAES128: NCSSRProtocolCodec {
     private var rawTrans = false
     private var packID: UInt32 = 1, recvID: UInt32 = 1
     private var inbuf = Data()
+    // nc-perf: read-offset consumption of `inbuf` (was a Data(dropFirst) copy of the remainder
+    // per frame — O(n^2)). `inbuf` itself stays rebased, so reads keep using `s = inbufOffset`
+    // exactly where they used `inbuf.startIndex`; reset/compact keep the invariant.
+    private var inbufOffset = 0
+    private var inbufRemaining: Int { inbuf.count - inbufOffset }
+    private func resetInbuf() { inbuf = Data(); inbufOffset = 0 }
+    private func compactInbuf() {
+        if inbufOffset == 0 { return }
+        if inbufOffset >= inbuf.count { resetInbuf() }
+        else if inbufOffset > inbuf.count / 2 { inbuf = Data(inbuf.dropFirst(inbufOffset)); inbufOffset = 0 }
+    }
 
     init(sha1: Bool, key: Data, iv: Data, overhead: Int, user: NCSSRUserData,
          auth: (clientID: Data, connectionID: UInt32)) {
@@ -180,32 +191,33 @@ final class NCSSRAuthAES128: NCSSRProtocolCodec {
 
     func decode(_ data: Data) throws -> Data {
         if rawTrans { return data }
+        defer { compactInbuf() }
         inbuf.append(data)
         var out = Data()
-        while inbuf.count > 4 {
+        while inbufRemaining > 4 {
             let macKey = user.userKey + NCSSRKit.le32(recvID)
-            let s = inbuf.startIndex
+            let s = inbufOffset
             guard mac(macKey, Data(inbuf[s..<(s + 2)])).prefix(2) == inbuf[(s + 2)..<(s + 4)] else {
-                inbuf = Data()
+                resetInbuf()
                 throw NCSSR.error("auth_aes128 decode data wrong mac")
             }
-            let length = NCSSRKit.readLE16(inbuf, 0)
+            let length = NCSSRKit.readLE16(inbuf, inbufOffset)
             if length >= 8192 || length < 7 {
                 rawTrans = true
-                inbuf = Data()
+                resetInbuf()
                 throw NCSSR.error("auth_aes128 decode data wrong length")
             }
-            if length > inbuf.count { break }
+            if length > inbufRemaining { break }
             guard mac(macKey, Data(inbuf[s..<(s + length - 4)])).prefix(4) == inbuf[(s + length - 4)..<(s + length)] else {
                 rawTrans = true
-                inbuf = Data()
+                resetInbuf()
                 throw NCSSR.error("auth_aes128 decode data wrong checksum")
             }
             recvID &+= 1
             var pos = Int(inbuf[s + 4])
-            pos = pos < 255 ? pos + 4 : NCSSRKit.readLE16(inbuf, 5) + 4
+            pos = pos < 255 ? pos + 4 : NCSSRKit.readLE16(inbuf, inbufOffset + 5) + 4
             if pos < length - 4 { out.append(inbuf[(s + pos)..<(s + length - 4)]) }
-            inbuf = Data(inbuf.dropFirst(length))
+            inbufOffset += length
         }
         return out
     }
@@ -284,6 +296,17 @@ final class NCSSRAuthChain: NCSSRProtocolCodec {
     private var randomClient = NCXorShift128Plus(), randomServer = NCXorShift128Plus()
     private var packID: UInt32 = 1, recvID: UInt32 = 1
     private var inbuf = Data()
+    // nc-perf: read-offset consumption of `inbuf` (was a Data(dropFirst) copy of the remainder
+    // per frame — O(n^2)). `inbuf` itself stays rebased, so reads keep using `s = inbufOffset`
+    // exactly where they used `inbuf.startIndex`; reset/compact keep the invariant.
+    private var inbufOffset = 0
+    private var inbufRemaining: Int { inbuf.count - inbufOffset }
+    private func resetInbuf() { inbuf = Data(); inbufOffset = 0 }
+    private func compactInbuf() {
+        if inbufOffset == 0 { return }
+        if inbufOffset >= inbuf.count { resetInbuf() }
+        else if inbufOffset > inbuf.count / 2 { inbuf = Data(inbuf.dropFirst(inbufOffset)); inbufOffset = 0 }
+    }
     private var sizes1: [Int] = [], sizes2: [Int] = []
 
     init(variantB: Bool, key: Data, iv: Data, overhead: Int, user: NCSSRUserData,
@@ -397,24 +420,25 @@ final class NCSSRAuthChain: NCSSRProtocolCodec {
 
     func decode(_ data: Data) throws -> Data {
         if rawTrans { return data }
+        defer { compactInbuf() }
         inbuf.append(data)
         var out = Data()
-        while inbuf.count > 4 {
+        while inbufRemaining > 4 {
             let macKey = user.userKey + NCSSRKit.le32(recvID)
-            let dataLength = NCSSRKit.readLE16(inbuf, 0) ^ NCSSRKit.readLE16(lastServerHash, 14)
+            let dataLength = NCSSRKit.readLE16(inbuf, inbufOffset) ^ NCSSRKit.readLE16(lastServerHash, 14)
             let r = randLength(dataLength, lastServerHash, &randomServer)
             let length = dataLength + r
             if length >= 4096 {
                 rawTrans = true
-                inbuf = Data()
+                resetInbuf()
                 throw NCSSR.error("auth_chain decode data wrong length")
             }
-            if 4 + length > inbuf.count { break }
-            let s = inbuf.startIndex
+            if 4 + length > inbufRemaining { break }
+            let s = inbufOffset
             let serverHash = NCSSRKit.hmacMD5(macKey, Data(inbuf[s..<(s + length + 2)]))
             guard serverHash.prefix(2) == inbuf[(s + length + 2)..<(s + length + 4)] else {
                 rawTrans = true
-                inbuf = Data()
+                resetInbuf()
                 throw NCSSR.error("auth_chain decode data wrong checksum")
             }
             lastServerHash = serverHash
@@ -425,7 +449,7 @@ final class NCSSRAuthChain: NCSSRProtocolCodec {
             let plain = decrypter?.process(wanted) ?? wanted
             out.append(recvID == 1 ? Data(plain.dropFirst(2)) : plain)
             recvID &+= 1
-            inbuf = Data(inbuf.dropFirst(length + 4))
+            inbufOffset += length + 4
         }
         return out
     }
@@ -786,6 +810,17 @@ final class NCSSRTLSTicketAuth: NCSSRObfsCodec {
     private var status = 0
     private var held = Data()
     private var inbuf = Data()
+    // nc-perf: read-offset consumption of `inbuf` (was a Data(dropFirst) copy of the remainder
+    // per frame — O(n^2)). `inbuf` itself stays rebased, so reads keep using `s = inbufOffset`
+    // exactly where they used `inbuf.startIndex`; reset/compact keep the invariant.
+    private var inbufOffset = 0
+    private var inbufRemaining: Int { inbuf.count - inbufOffset }
+    private func resetInbuf() { inbuf = Data(); inbufOffset = 0 }
+    private func compactInbuf() {
+        if inbufOffset == 0 { return }
+        if inbufOffset >= inbuf.count { resetInbuf() }
+        else if inbufOffset > inbuf.count / 2 { inbuf = Data(inbuf.dropFirst(inbufOffset)); inbufOffset = 0 }
+    }
 
     init(key: Data, clientID: Data, server: String, param: String?) {
         self.key = key
@@ -861,6 +896,7 @@ final class NCSSRTLSTicketAuth: NCSSRObfsCodec {
     }
 
     func decode(_ data: Data) throws -> (payload: Data, reply: Data) {
+        defer { compactInbuf() }
         inbuf.append(data)
         var reply = Data()
         if status != 8 {
@@ -884,6 +920,7 @@ final class NCSSRTLSTicketAuth: NCSSRObfsCodec {
                 throw NCSSR.error("tls1.2_ticket_auth hmac verifying failed")
             }
             inbuf = Data(b[end...])
+            inbufOffset = 0 // rebased copy above: the frame loop below starts at its head
             var fin = Data([0x14, 3, 3, 0, 1, 1, 0x16, 3, 3, 0, 0x20])
             fin.append(NCSSRKit.randBytes(22))
             fin.append(mac(fin))
@@ -893,16 +930,16 @@ final class NCSSRTLSTicketAuth: NCSSRObfsCodec {
             reply = fin
         }
         var out = Data()
-        while inbuf.count > 5 {
-            let s = inbuf.startIndex
+        while inbufRemaining > 5 {
+            let s = inbufOffset
             guard inbuf[s] == 0x17, inbuf[s + 1] == 3, inbuf[s + 2] == 3 else {
-                inbuf = Data()
+                resetInbuf()
                 throw NCSSR.error("tls1.2_ticket_auth incorrect magic number")
             }
             let size = Int(inbuf[s + 3]) << 8 | Int(inbuf[s + 4])
-            guard inbuf.count >= 5 + size else { break }
+            guard inbufRemaining >= 5 + size else { break }
             out.append(inbuf[(s + 5)..<(s + 5 + size)])
-            inbuf = Data(inbuf.dropFirst(5 + size))
+            inbufOffset += 5 + size
         }
         return (out, reply)
     }
