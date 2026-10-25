@@ -1048,7 +1048,7 @@ final class NCWGTCPStream: NCRelayStream {
     }
 
     /// NCLwIP.queue. The device was retained by the caller; this stream releases it once.
-    fileprivate func start(ip: NCIP, port: Int, completion: @escaping (Error?) -> Void) {
+    func start(ip: NCIP, port: Int, completion: @escaping (Error?) -> Void) {
         onConnect = completion
         let b = ip.bytes
         connID = b.withUnsafeBufferPointer { nc_wg_tcp_connect(device.devID, $0.baseAddress, ip.isV4 ? 0 : 1, UInt16(clamping: port)) }

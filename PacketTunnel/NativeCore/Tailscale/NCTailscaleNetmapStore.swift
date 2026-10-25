@@ -5,21 +5,21 @@ import Foundation
 // Read-only snapshot of the active Tailscale network map.
 // Emitted whenever a full or delta MapResponse is processed by `NCTailscaleNetmapStore`.
 
-public struct NCTailscaleNetmapSnapshot: Equatable {
+struct NCTailscaleNetmapSnapshot: Equatable {
     /// Local node description (self).
-    public let selfNode: NCTailscaleNode?
+    let selfNode: NCTailscaleNode?
     /// Remote peer nodes currently active in the tailnet, keyed by NodeID.
-    public let peers: [Int64: NCTailscaleNode]
+    let peers: [Int64: NCTailscaleNode]
     /// Available DERP relay regions and nodes.
-    public let derpMap: NCTailscaleDERPMap?
+    let derpMap: NCTailscaleDERPMap?
     /// DNS configuration and MagicDNS routing overlays.
-    public let dnsConfig: NCTailscaleDNSConfig?
+    let dnsConfig: NCTailscaleDNSConfig?
     /// Firewall packet filter rules.
-    public let packetFilter: [NCTailscalePacketFilterRule]?
+    let packetFilter: [NCTailscalePacketFilterRule]?
     /// Last timestamp reported by the coordination server.
-    public let controlTime: String?
+    let controlTime: String?
 
-    public init(
+    init(
         selfNode: NCTailscaleNode? = nil,
         peers: [Int64: NCTailscaleNode] = [:],
         derpMap: NCTailscaleDERPMap? = nil,
@@ -36,37 +36,37 @@ public struct NCTailscaleNetmapSnapshot: Equatable {
     }
 
     /// The local node's assigned tailnet IPv4 address (e.g. "100.x.y.z"), or nil if not yet assigned.
-    public var tailnetIPv4: String? {
+    var tailnetIPv4: String? {
         selfNode?.ipv4Address
     }
 
     /// The local node's assigned tailnet IPv6 address, or nil if not yet assigned.
-    public var tailnetIPv6: String? {
+    var tailnetIPv6: String? {
         selfNode?.ipv6Address
     }
 
     /// Total count of peers present in the network map.
-    public var peerCount: Int {
+    var peerCount: Int {
         peers.count
     }
 
     /// Number of peers reporting `Online == true`.
-    public var onlinePeerCount: Int {
+    var onlinePeerCount: Int {
         peers.values.filter { $0.Online == true }.count
     }
 
     /// Home DERP region ID selected for the self node.
-    public var derpHomeRegion: Int? {
+    var derpHomeRegion: Int? {
         selfNode?.derpRegionID
     }
 
     /// Finds a peer by its unique Node ID.
-    public func peer(id: Int64) -> NCTailscaleNode? {
+    func peer(id: Int64) -> NCTailscaleNode? {
         peers[id]
     }
 
     /// Finds a peer by its WireGuard node key (with or without "nodekey:" prefix).
-    public func peer(matchingKey keyStr: String) -> NCTailscaleNode? {
+    func peer(matchingKey keyStr: String) -> NCTailscaleNode? {
         let clean = keyStr.hasPrefix(NCTailscaleKeyEncoding.nodekeyPrefix)
             ? String(keyStr.dropFirst(NCTailscaleKeyEncoding.nodekeyPrefix.count))
             : keyStr
@@ -90,7 +90,7 @@ public struct NCTailscaleNetmapSnapshot: Equatable {
 /// 4. `PeersRemoved`: Removes the specified NodeIDs.
 /// 5. `PeersChangedPatch`: Performs in-place field updates on existing peer entries.
 /// 6. `DERPMap`, `DNSConfig`, `PacketFilter`: Non-nil values replace previous state; nil means unchanged.
-public final class NCTailscaleNetmapStore {
+final class NCTailscaleNetmapStore {
     private var selfNode: NCTailscaleNode?
     private var peers: [Int64: NCTailscaleNode] = [:]
     private var derpMap: NCTailscaleDERPMap?
@@ -102,12 +102,12 @@ public final class NCTailscaleNetmapStore {
     private let lock = NSLock()
 
     /// Callback fired whenever the netmap snapshot changes.
-    public var onSnapshotChanged: ((NCTailscaleNetmapSnapshot) -> Void)?
+    var onSnapshotChanged: ((NCTailscaleNetmapSnapshot) -> Void)?
 
-    public init() {}
+    init() {}
 
     /// Retrieves the current immutable snapshot of the netmap.
-    public func currentSnapshot() -> NCTailscaleNetmapSnapshot {
+    func currentSnapshot() -> NCTailscaleNetmapSnapshot {
         lock.lock()
         defer { lock.unlock() }
 
@@ -128,7 +128,7 @@ public final class NCTailscaleNetmapStore {
     }
 
     /// Applies a newly received MapResponse (full or incremental) to the store.
-    public func apply(mapResponse: NCTailscaleMapResponse) {
+    func apply(mapResponse: NCTailscaleMapResponse) {
         var notifySnapshot: NCTailscaleNetmapSnapshot?
 
         lock.lock()
@@ -238,7 +238,7 @@ public final class NCTailscaleNetmapStore {
     }
 
     /// Resets the store to an initial empty state.
-    public func reset() {
+    func reset() {
         var notifySnapshot: NCTailscaleNetmapSnapshot?
 
         lock.lock()

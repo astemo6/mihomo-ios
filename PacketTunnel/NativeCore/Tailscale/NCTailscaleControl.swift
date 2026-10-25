@@ -8,25 +8,25 @@ import Network
 
 // MARK: - Control Plane Client Configuration
 
-public struct NCTailscaleControlConfig {
+struct NCTailscaleControlConfig {
     /// Proxy/node identifier in configuration (e.g. "tailscale-node").
-    public var name: String
+    var name: String
     /// Control plane URL (e.g. "https://controlplane.tailscale.com" or Headscale endpoint). Empty string falls back to official default.
-    public var controlURL: String
+    var controlURL: String
     /// Pre-authentication key (never logged).
-    public var authKey: String?
+    var authKey: String?
     /// Hostname advertised to the tailnet (defaults to "mihomo-ios").
-    public var hostname: String
+    var hostname: String
     /// Relative state directory under home container (e.g. "tailscale/node-sha1").
-    public var stateDir: String
+    var stateDir: String
     /// Path to App Group container home.
-    public var homePath: String
+    var homePath: String
     /// Whether this node should be treated as ephemeral.
-    public var ephemeral: Bool
+    var ephemeral: Bool
     /// Serial dispatch queue for network and state orchestration.
-    public var queue: DispatchQueue?
+    var queue: DispatchQueue?
 
-    public init(
+    init(
         name: String,
         controlURL: String = "",
         authKey: String? = nil,
@@ -58,16 +58,16 @@ public struct NCTailscaleControlConfig {
 /// 6. Registers the node via `POST /machine/register`. Handles pre-auth keys and interactive `AuthURL` login.
 /// 7. Maintains an incremental network map stream via `POST /machine/map` long-polling with exponential backoff.
 /// 8. Persists live state and coordinates cleanly with Stage 3 data plane & memory guards.
-public final class NCTailscaleControl {
-    public let config: NCTailscaleControlConfig
-    public let netmapStore: NCTailscaleNetmapStore
-    public let queue: DispatchQueue
+final class NCTailscaleControl {
+    let config: NCTailscaleControlConfig
+    let netmapStore: NCTailscaleNetmapStore
+    let queue: DispatchQueue
 
     // State & Keys
-    public private(set) var stateDirURL: URL?
-    public private(set) var keys: NCTailscaleKeys?
-    public private(set) var currentStatus: NCTailscaleStatusFile
-    public private(set) var isRunning: Bool = false
+    private(set) var stateDirURL: URL?
+    private(set) var keys: NCTailscaleKeys?
+    private(set) var currentStatus: NCTailscaleStatusFile
+    private(set) var isRunning: Bool = false
 
     // Cached Control Plane Machine Public Key (32 bytes)
     private var cachedServerControlKey: Data?
@@ -89,17 +89,17 @@ public final class NCTailscaleControl {
     private var watchdogItem: DispatchWorkItem?
 
     // Callbacks for Stage 3 & UI consumption
-    public var onSnapshotChanged: ((NCTailscaleNetmapSnapshot) -> Void)?
-    public var onStatusChanged: ((NCTailscaleStatusFile) -> Void)?
+    var onSnapshotChanged: ((NCTailscaleNetmapSnapshot) -> Void)?
+    var onStatusChanged: ((NCTailscaleStatusFile) -> Void)?
 
     /// Phase 2: supplies the MapRequest `Endpoints` (our advertised UDP
     /// endpoints from STUN + local interfaces) at request-build time.
-    public var endpointsProvider: (() -> [String])?
+    var endpointsProvider: (() -> [String])?
 
     /// Phase 2: re-runs the session so the next MapRequest carries fresh
     /// endpoints. Unlike scheduleReconnect this is not an error path: no
     /// backoff, and no error is written to the status file.
-    public func refreshEndpoints() {
+    func refreshEndpoints() {
         guard isRunning else { return }
         queue.async { [weak self] in
             guard let self, self.isRunning else { return }
@@ -111,7 +111,7 @@ public final class NCTailscaleControl {
 
     private let statusLock = NSLock()
 
-    public init(config: NCTailscaleControlConfig) {
+    init(config: NCTailscaleControlConfig) {
         self.config = config
         self.netmapStore = NCTailscaleNetmapStore()
         self.queue = config.queue ?? DispatchQueue(label: "com.tern.tailscale.control.\(config.name)")
@@ -128,14 +128,14 @@ public final class NCTailscaleControl {
     }
 
     /// Latest immutable snapshot of the netmap.
-    public var currentSnapshot: NCTailscaleNetmapSnapshot {
+    var currentSnapshot: NCTailscaleNetmapSnapshot {
         netmapStore.currentSnapshot()
     }
 
     // MARK: - Lifecycle
 
     /// Starts the Tailscale control client. Idempotent if already running.
-    public func start() {
+    func start() {
         queue.async { [weak self] in
             guard let self = self, !self.isRunning else { return }
             self.isRunning = true
@@ -159,7 +159,7 @@ public final class NCTailscaleControl {
     }
 
     /// Stops the Tailscale control client immediately, closing connections, cancelling timers, and resetting state.
-    public func stop() {
+    func stop() {
         queue.async { [weak self] in
             guard let self = self, self.isRunning else { return }
             self.isRunning = false
@@ -661,19 +661,20 @@ public final class NCTailscaleControl {
                             }
 
                             // 101 Switching Protocols confirmed; complete Noise handshake with Message 2
-                            var handshakeBuf = parser.trailingData
+                            let handshakeBuf = parser.trailingData
                             self.encryptedRecvBuf.removeAll(keepingCapacity: false)
                             self.earlyPayloadChecked = false
 
-                            self.readNoiseMessage2(stream: stream, buffer: &handshakeBuf) { msg2Result in
+                            self.readNoiseMessage2(stream: stream, buffer: handshakeBuf) { msg2Result in
                                 switch msg2Result {
                                 case .failure(let err):
                                     stream.cancel()
                                     completion(.failure(err))
-                                case .success(let msg2Bytes):
+                                case .success(let msg2):
                                     do {
-                                        let (_, transportCipher) = try initiator.readMessage2(msg2Bytes)
-                                        self.encryptedRecvBuf = handshakeBuf
+                                        let (_, transportCipher) = try initiator.readMessage2(msg2.message)
+                                        // Bytes after message 2 are the first transport records.
+                                        self.encryptedRecvBuf = msg2.remaining
                                         completion(.success((tlsStream: stream, cipher: transportCipher)))
                                     } catch {
                                         stream.cancel()
@@ -691,14 +692,18 @@ public final class NCTailscaleControl {
         }
     }
 
+    /// Reads the Noise message 2 frame. The buffer is passed by value (an escaping
+    /// receive callback cannot capture an `inout` parameter); the bytes left after
+    /// the frame are handed back as `remaining`.
     private func readNoiseMessage2(
         stream: NCTLSClientStream,
-        buffer: inout Data,
-        completion: @escaping (Result<Data, Error>) -> Void
+        buffer: Data,
+        completion: @escaping (Result<(message: Data, remaining: Data), Error>) -> Void
     ) {
+        var working = buffer
         do {
-            if let msg2 = try NCTailscaleControlFraming.parseResponseMessage(from: &buffer) {
-                completion(.success(msg2))
+            if let msg2 = try NCTailscaleControlFraming.parseResponseMessage(from: &working) {
+                completion(.success((message: msg2, remaining: working)))
                 return
             }
         } catch {
@@ -706,14 +711,16 @@ public final class NCTailscaleControl {
             return
         }
 
+        let pending = working
         stream.receive { [weak self] data, error in
             guard let self = self, self.isRunning else { return }
             guard let data = data else {
                 completion(.failure(error ?? NCTailscaleTransportError.streamClosed))
                 return
             }
-            buffer.append(data)
-            self.readNoiseMessage2(stream: stream, buffer: &buffer, completion: completion)
+            var next = pending
+            next.append(data)
+            self.readNoiseMessage2(stream: stream, buffer: next, completion: completion)
         }
     }
 
@@ -846,7 +853,7 @@ public final class NCTailscaleControl {
         modifier(&st)
         currentStatus = st
         if let dir = stateDirURL {
-            NCTailscaleStatusStore.save(status: st, stateDirURL: dir)
+            try? NCTailscaleStatusStore.save(status: st, stateDirURL: dir)
         }
         statusLock.unlock()
 

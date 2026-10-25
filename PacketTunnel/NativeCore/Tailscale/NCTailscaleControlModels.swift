@@ -9,43 +9,43 @@ import Foundation
 // - Disco public key:   "discokey:<64 hex digits>"
 // - Private key:        "privkey:<64 hex digits>"
 
-public enum NCTailscaleKeyEncoding {
-    public static let mkeyPrefix = "mkey:"
-    public static let nodekeyPrefix = "nodekey:"
-    public static let discokeyPrefix = "discokey:"
-    public static let privkeyPrefix = "privkey:"
+enum NCTailscaleKeyEncoding {
+    static let mkeyPrefix = "mkey:"
+    static let nodekeyPrefix = "nodekey:"
+    static let discokeyPrefix = "discokey:"
+    static let privkeyPrefix = "privkey:"
 
-    public static func encodeMachineKey(_ key: Curve25519.KeyAgreement.PublicKey) -> String {
+    static func encodeMachineKey(_ key: Curve25519.KeyAgreement.PublicKey) -> String {
         mkeyPrefix + hexString(Data(key.rawRepresentation))
     }
 
-    public static func encodeNodeKey(_ key: Curve25519.KeyAgreement.PublicKey) -> String {
+    static func encodeNodeKey(_ key: Curve25519.KeyAgreement.PublicKey) -> String {
         nodekeyPrefix + hexString(Data(key.rawRepresentation))
     }
 
-    public static func encodeDiscoKey(_ key: Curve25519.KeyAgreement.PublicKey) -> String {
+    static func encodeDiscoKey(_ key: Curve25519.KeyAgreement.PublicKey) -> String {
         discokeyPrefix + hexString(Data(key.rawRepresentation))
     }
 
-    public static func encodeMachineKey(raw32: Data) -> String {
+    static func encodeMachineKey(raw32: Data) -> String {
         mkeyPrefix + hexString(raw32)
     }
 
-    public static func encodeNodeKey(raw32: Data) -> String {
+    static func encodeNodeKey(raw32: Data) -> String {
         nodekeyPrefix + hexString(raw32)
     }
 
-    public static func encodeDiscoKey(raw32: Data) -> String {
+    static func encodeDiscoKey(raw32: Data) -> String {
         discokeyPrefix + hexString(raw32)
     }
 
-    public static func encodePrivateKey(_ key: Curve25519.KeyAgreement.PrivateKey) -> String {
+    static func encodePrivateKey(_ key: Curve25519.KeyAgreement.PrivateKey) -> String {
         privkeyPrefix + hexString(Data(key.rawRepresentation))
     }
 
     /// Strips any known prefix ("mkey:", "nodekey:", "discokey:", "privkey:") or custom prefix,
     /// and decodes the 64-character hexadecimal string into 32 raw bytes.
-    public static func decodeKeyHex(_ text: String, expectedPrefix: String? = nil) -> Data? {
+    static func decodeKeyHex(_ text: String, expectedPrefix: String? = nil) -> Data? {
         var str = text.trimmingCharacters(in: .whitespacesAndNewlines)
 
         if let expected = expectedPrefix {
@@ -76,26 +76,33 @@ public enum NCTailscaleKeyEncoding {
         return data
     }
 
-    public static func hexString(_ data: Data) -> String {
+    /// Decodes a netmap key string ("nodekey:<hex>", "discokey:<hex>", "mkey:<hex>", or bare hex)
+    /// into its 32 raw bytes. Returns nil when the text is not a 64-digit hex key.
+    static func decodeKey(_ text: String) -> [UInt8]? {
+        guard let data = decodeKeyHex(text) else { return nil }
+        return [UInt8](data)
+    }
+
+    static func hexString(_ data: Data) -> String {
         data.map { String(format: "%02x", $0) }.joined()
     }
 }
 
 // MARK: - Control Plane Server Key Response (GET /key?v=106)
 
-public struct NCTailscaleControlKeyResponse: Codable {
-    public var publicKey: String
+struct NCTailscaleControlKeyResponse: Codable {
+    var publicKey: String
 
     enum CodingKeys: String, CodingKey {
         case publicKey
         case altPublicKey = "PublicKey"
     }
 
-    public init(publicKey: String) {
+    init(publicKey: String) {
         self.publicKey = publicKey
     }
 
-    public init(from decoder: Decoder) throws {
+    init(from decoder: Decoder) throws {
         let container = try decoder.container(keyedBy: CodingKeys.self)
         if let key = try container.decodeIfPresent(String.self, forKey: .publicKey) {
             self.publicKey = key
@@ -109,28 +116,28 @@ public struct NCTailscaleControlKeyResponse: Codable {
         }
     }
 
-    public func encode(to encoder: Encoder) throws {
+    func encode(to encoder: Encoder) throws {
         var container = encoder.container(keyedBy: CodingKeys.self)
         try container.encode(publicKey, forKey: .publicKey)
     }
 
     /// Returns the 32 raw Curve25519 public key bytes, stripping "mkey:" if present.
-    public var rawKeyBytes: Data? {
+    var rawKeyBytes: Data? {
         NCTailscaleKeyEncoding.decodeKeyHex(publicKey, expectedPrefix: NCTailscaleKeyEncoding.mkeyPrefix)
     }
 }
 
 // MARK: - Hostinfo Model
 
-public struct NCTailscaleHostinfo: Codable, Equatable {
-    public var Hostname: String
-    public var OS: String?
-    public var OSVersion: String?
-    public var DeviceModel: String?
-    public var GoArch: String?
-    public var App: String?
+struct NCTailscaleHostinfo: Codable, Equatable {
+    var Hostname: String
+    var OS: String?
+    var OSVersion: String?
+    var DeviceModel: String?
+    var GoArch: String?
+    var App: String?
 
-    public init(
+    init(
         Hostname: String,
         OS: String? = "iOS",
         OSVersion: String? = nil,
@@ -149,25 +156,25 @@ public struct NCTailscaleHostinfo: Codable, Equatable {
 
 // MARK: - Register Models (POST /machine/register)
 
-public struct NCTailscaleRegisterAuth: Codable, Equatable {
-    public var AuthKey: String?
+struct NCTailscaleRegisterAuth: Codable, Equatable {
+    var AuthKey: String?
 
-    public init(AuthKey: String? = nil) {
+    init(AuthKey: String? = nil) {
         self.AuthKey = AuthKey
     }
 }
 
-public struct NCTailscaleRegisterRequest: Codable, Equatable {
-    public var Version: Int
-    public var NodeKey: String
-    public var OldNodeKey: String?
-    public var Auth: NCTailscaleRegisterAuth?
-    public var Expiry: String?
-    public var Followup: String?
-    public var Hostinfo: NCTailscaleHostinfo?
-    public var Ephemeral: Bool?
+struct NCTailscaleRegisterRequest: Codable, Equatable {
+    var Version: Int
+    var NodeKey: String
+    var OldNodeKey: String?
+    var Auth: NCTailscaleRegisterAuth?
+    var Expiry: String?
+    var Followup: String?
+    var Hostinfo: NCTailscaleHostinfo?
+    var Ephemeral: Bool?
 
-    public init(
+    init(
         Version: Int = NCTailscaleConsts.capabilityVersion,
         NodeKey: String,
         OldNodeKey: String? = nil,
@@ -188,13 +195,13 @@ public struct NCTailscaleRegisterRequest: Codable, Equatable {
     }
 }
 
-public struct NCTailscaleLoginInfo: Codable, Equatable {
-    public var ID: Int64?
-    public var Provider: String?
-    public var LoginName: String?
-    public var DisplayName: String?
+struct NCTailscaleLoginInfo: Codable, Equatable {
+    var ID: Int64?
+    var Provider: String?
+    var LoginName: String?
+    var DisplayName: String?
 
-    public init(ID: Int64? = nil, Provider: String? = nil, LoginName: String? = nil, DisplayName: String? = nil) {
+    init(ID: Int64? = nil, Provider: String? = nil, LoginName: String? = nil, DisplayName: String? = nil) {
         self.ID = ID
         self.Provider = Provider
         self.LoginName = LoginName
@@ -202,27 +209,27 @@ public struct NCTailscaleLoginInfo: Codable, Equatable {
     }
 }
 
-public struct NCTailscaleUserInfo: Codable, Equatable {
-    public var ID: Int64?
-    public var LoginName: String?
-    public var DisplayName: String?
+struct NCTailscaleUserInfo: Codable, Equatable {
+    var ID: Int64?
+    var LoginName: String?
+    var DisplayName: String?
 
-    public init(ID: Int64? = nil, LoginName: String? = nil, DisplayName: String? = nil) {
+    init(ID: Int64? = nil, LoginName: String? = nil, DisplayName: String? = nil) {
         self.ID = ID
         self.LoginName = LoginName
         self.DisplayName = DisplayName
     }
 }
 
-public struct NCTailscaleRegisterResponse: Codable, Equatable {
-    public var NodeKeyExpired: Bool?
-    public var MachineAuthorized: Bool?
-    public var AuthURL: String?
-    public var Error: String?
-    public var Login: NCTailscaleLoginInfo?
-    public var User: NCTailscaleUserInfo?
+struct NCTailscaleRegisterResponse: Codable, Equatable {
+    var NodeKeyExpired: Bool?
+    var MachineAuthorized: Bool?
+    var AuthURL: String?
+    var Error: String?
+    var Login: NCTailscaleLoginInfo?
+    var User: NCTailscaleUserInfo?
 
-    public init(
+    init(
         NodeKeyExpired: Bool? = nil,
         MachineAuthorized: Bool? = nil,
         AuthURL: String? = nil,
@@ -241,19 +248,19 @@ public struct NCTailscaleRegisterResponse: Codable, Equatable {
 
 // MARK: - Map Request Model (POST /machine/map)
 
-public struct NCTailscaleMapRequest: Codable, Equatable {
-    public var Version: Int
-    public var Compress: String
-    public var KeepAlive: Bool
-    public var NodeKey: String
-    public var DiscoKey: String
-    public var Stream: Bool
-    public var Endpoints: [String]
-    public var Hostinfo: NCTailscaleHostinfo?
-    public var IncludeIPv6: Bool
-    public var OmitCaps: Bool?
+struct NCTailscaleMapRequest: Codable, Equatable {
+    var Version: Int
+    var Compress: String
+    var KeepAlive: Bool
+    var NodeKey: String
+    var DiscoKey: String
+    var Stream: Bool
+    var Endpoints: [String]
+    var Hostinfo: NCTailscaleHostinfo?
+    var IncludeIPv6: Bool
+    var OmitCaps: Bool?
 
-    public init(
+    init(
         Version: Int = NCTailscaleConsts.capabilityVersion,
         Compress: String = "",
         KeepAlive: Bool = true,
@@ -280,35 +287,35 @@ public struct NCTailscaleMapRequest: Codable, Equatable {
 
 // MARK: - Map Response & Subordinate Models
 
-public struct NCTailscalePingRequest: Codable, Equatable {
-    public var URL: String?
-    public var Log: Bool?
+struct NCTailscalePingRequest: Codable, Equatable {
+    var URL: String?
+    var Log: Bool?
 
-    public init(URL: String? = nil, Log: Bool? = nil) {
+    init(URL: String? = nil, Log: Bool? = nil) {
         self.URL = URL
         self.Log = Log
     }
 }
 
-public struct NCTailscaleNode: Codable, Equatable {
-    public var ID: Int64
-    public var StableID: String?
-    public var Name: String?
-    public var Key: String
-    public var DiscoKey: String?
-    public var Addresses: [String]
-    public var AllowedIPs: [String]
-    public var Endpoints: [String]?
-    public var DERP: String?
-    public var HomeDERP: Int?
-    public var Hostinfo: NCTailscaleHostinfo?
-    public var Created: String?
-    public var KeyExpiry: String?
-    public var Online: Bool?
-    public var LastSeen: String?
-    public var MachineAuthorized: Bool?
+struct NCTailscaleNode: Codable, Equatable {
+    var ID: Int64
+    var StableID: String?
+    var Name: String?
+    var Key: String
+    var DiscoKey: String?
+    var Addresses: [String]
+    var AllowedIPs: [String]
+    var Endpoints: [String]?
+    var DERP: String?
+    var HomeDERP: Int?
+    var Hostinfo: NCTailscaleHostinfo?
+    var Created: String?
+    var KeyExpiry: String?
+    var Online: Bool?
+    var LastSeen: String?
+    var MachineAuthorized: Bool?
 
-    public init(
+    init(
         ID: Int64,
         StableID: String? = nil,
         Name: String? = nil,
@@ -345,7 +352,7 @@ public struct NCTailscaleNode: Codable, Equatable {
     }
 
     /// Derives the DERP home region ID from either `HomeDERP` (capver 111+) or `DERP` ("127.3.3.40:<port>").
-    public var derpRegionID: Int? {
+    var derpRegionID: Int? {
         if let home = HomeDERP, home > 0 {
             return home
         }
@@ -359,7 +366,7 @@ public struct NCTailscaleNode: Codable, Equatable {
     }
 
     /// Extracts the first IPv4 address from `Addresses`, stripping the CIDR `/mask` if present.
-    public var ipv4Address: String? {
+    var ipv4Address: String? {
         for addr in Addresses {
             let bare = addr.split(separator: "/").first.map(String.init) ?? addr
             if bare.contains(".") && !bare.contains(":") {
@@ -370,7 +377,7 @@ public struct NCTailscaleNode: Codable, Equatable {
     }
 
     /// Extracts the first IPv6 address from `Addresses`, stripping the CIDR `/mask` if present.
-    public var ipv6Address: String? {
+    var ipv6Address: String? {
         for addr in Addresses {
             let bare = addr.split(separator: "/").first.map(String.init) ?? addr
             if bare.contains(":") {
@@ -381,17 +388,17 @@ public struct NCTailscaleNode: Codable, Equatable {
     }
 }
 
-public struct NCTailscalePeerChange: Codable, Equatable {
-    public var NodeID: Int64
-    public var DERPRegion: Int?
-    public var Endpoints: [String]?
-    public var Key: String?
-    public var DiscoKey: String?
-    public var Online: Bool?
-    public var LastSeen: String?
-    public var KeyExpiry: String?
+struct NCTailscalePeerChange: Codable, Equatable {
+    var NodeID: Int64
+    var DERPRegion: Int?
+    var Endpoints: [String]?
+    var Key: String?
+    var DiscoKey: String?
+    var Online: Bool?
+    var LastSeen: String?
+    var KeyExpiry: String?
 
-    public init(
+    init(
         NodeID: Int64,
         DERPRegion: Int? = nil,
         Endpoints: [String]? = nil,
@@ -412,17 +419,17 @@ public struct NCTailscalePeerChange: Codable, Equatable {
     }
 }
 
-public struct NCTailscaleDERPNode: Codable, Equatable, Sendable {
-    public var Name: String
-    public var RegionID: Int
-    public var HostName: String
-    public var CertName: String?
-    public var IPv4: String?
-    public var IPv6: String?
-    public var STUNPort: Int?
-    public var STUNOnly: Bool?
-    public var DERPPort: Int?
-    public var InsecureForTests: Bool?
+struct NCTailscaleDERPNode: Codable, Equatable, Sendable {
+    var Name: String
+    var RegionID: Int
+    var HostName: String
+    var CertName: String?
+    var IPv4: String?
+    var IPv6: String?
+    var STUNPort: Int?
+    var STUNOnly: Bool?
+    var DERPPort: Int?
+    var InsecureForTests: Bool?
 
     enum CodingKeys: String, CodingKey {
         case Name
@@ -437,7 +444,7 @@ public struct NCTailscaleDERPNode: Codable, Equatable, Sendable {
         case InsecureForTests
     }
 
-    public init(
+    init(
         Name: String,
         RegionID: Int,
         HostName: String,
@@ -461,7 +468,7 @@ public struct NCTailscaleDERPNode: Codable, Equatable, Sendable {
         self.InsecureForTests = InsecureForTests
     }
 
-    public init(
+    init(
         name: String,
         regionID: Int,
         hostName: String,
@@ -486,55 +493,55 @@ public struct NCTailscaleDERPNode: Codable, Equatable, Sendable {
     }
 
     // Lowercase property accessors for DERP client compatibility
-    public var name: String { Name }
-    public var regionID: Int { RegionID }
-    public var hostName: String { HostName }
-    public var certName: String? { CertName }
-    public var ipv4: String? { IPv4 }
-    public var ipv6: String? { IPv6 }
-    public var stunPort: Int? { STUNPort }
-    public var stunOnly: Bool? { STUNOnly }
-    public var derpPort: Int? { DERPPort }
-    public var insecureForTests: Bool? { InsecureForTests }
+    var name: String { Name }
+    var regionID: Int { RegionID }
+    var hostName: String { HostName }
+    var certName: String? { CertName }
+    var ipv4: String? { IPv4 }
+    var ipv6: String? { IPv6 }
+    var stunPort: Int? { STUNPort }
+    var stunOnly: Bool? { STUNOnly }
+    var derpPort: Int? { DERPPort }
+    var insecureForTests: Bool? { InsecureForTests }
 
     /// Effective TCP/TLS port for connecting to this DERP node (default 443).
-    public var effectiveDERPPort: Int {
+    var effectiveDERPPort: Int {
         if let p = DERPPort, p > 0 { return p }
         return 443
     }
 
     /// Effective STUN UDP port (default 3478).
-    public var effectiveSTUNPort: Int {
+    var effectiveSTUNPort: Int {
         if let p = STUNPort, p > 0 { return p }
         return 3478
     }
 
     /// Server name used for TLS ClientHello SNI and certificate validation.
     /// Prefers `CertName` if set, otherwise falls back to `HostName`.
-    public var effectiveServerName: String {
+    var effectiveServerName: String {
         if let cert = CertName, !cert.isEmpty { return cert }
         return HostName
     }
 
     /// Destination host used when establishing TCP connection (prefers IPv4 if available).
-    public var dialHost: String {
+    var dialHost: String {
         if let v4 = IPv4, !v4.isEmpty { return v4 }
         return HostName
     }
 
     /// Whether this node can be used as a DERP packet relay (not STUN-only).
-    public var isRelayUsable: Bool {
+    var isRelayUsable: Bool {
         !(STUNOnly ?? false)
     }
 }
 
-public struct NCTailscaleDERPRegion: Codable, Equatable, Sendable {
-    public var RegionID: Int
-    public var RegionCode: String
-    public var RegionName: String?
-    public var Avoid: Bool?
-    public var NoMeasureNoHome: Bool?
-    public var Nodes: [NCTailscaleDERPNode]?
+struct NCTailscaleDERPRegion: Codable, Equatable, Sendable {
+    var RegionID: Int
+    var RegionCode: String
+    var RegionName: String?
+    var Avoid: Bool?
+    var NoMeasureNoHome: Bool?
+    var Nodes: [NCTailscaleDERPNode]?
 
     enum CodingKeys: String, CodingKey {
         case RegionID
@@ -545,7 +552,7 @@ public struct NCTailscaleDERPRegion: Codable, Equatable, Sendable {
         case Nodes
     }
 
-    public init(
+    init(
         RegionID: Int,
         RegionCode: String,
         RegionName: String? = nil,
@@ -561,7 +568,7 @@ public struct NCTailscaleDERPRegion: Codable, Equatable, Sendable {
         self.Nodes = Nodes
     }
 
-    public init(
+    init(
         regionID: Int,
         regionCode: String,
         regionName: String? = nil,
@@ -577,23 +584,23 @@ public struct NCTailscaleDERPRegion: Codable, Equatable, Sendable {
     }
 
     // Lowercase property accessors for DERP client compatibility
-    public var regionID: Int { RegionID }
-    public var regionCode: String { RegionCode }
-    public var regionName: String? { RegionName }
-    public var avoid: Bool? { Avoid }
-    public var noMeasureNoHome: Bool? { NoMeasureNoHome }
-    public var nodes: [NCTailscaleDERPNode] { Nodes ?? [] }
+    var regionID: Int { RegionID }
+    var regionCode: String { RegionCode }
+    var regionName: String? { RegionName }
+    var avoid: Bool? { Avoid }
+    var noMeasureNoHome: Bool? { NoMeasureNoHome }
+    var nodes: [NCTailscaleDERPNode] { Nodes ?? [] }
 
     /// All nodes in this region capable of DERP packet relaying.
-    public var usableNodes: [NCTailscaleDERPNode] {
+    var usableNodes: [NCTailscaleDERPNode] {
         nodes.filter { $0.isRelayUsable }
     }
 }
 
-public struct NCTailscaleDERPMap: Codable, Equatable, Sendable {
+struct NCTailscaleDERPMap: Codable, Equatable, Sendable {
     /// Regions indexed by integer RegionID.
-    public var Regions: [Int: NCTailscaleDERPRegion]
-    public var OmitDefaultRegions: Bool?
+    var Regions: [Int: NCTailscaleDERPRegion]
+    var OmitDefaultRegions: Bool?
 
     enum CodingKeys: String, CodingKey {
         case Regions
@@ -601,17 +608,17 @@ public struct NCTailscaleDERPMap: Codable, Equatable, Sendable {
         case omitDefaultRegions = "omitDefaultRegions"
     }
 
-    public init(Regions: [Int: NCTailscaleDERPRegion] = [:], OmitDefaultRegions: Bool? = nil) {
+    init(Regions: [Int: NCTailscaleDERPRegion] = [:], OmitDefaultRegions: Bool? = nil) {
         self.Regions = Regions
         self.OmitDefaultRegions = OmitDefaultRegions
     }
 
-    public init(regions: [Int: NCTailscaleDERPRegion] = [:], omitDefaultRegions: Bool? = nil) {
+    init(regions: [Int: NCTailscaleDERPRegion] = [:], omitDefaultRegions: Bool? = nil) {
         self.Regions = regions
         self.OmitDefaultRegions = omitDefaultRegions
     }
 
-    public init(from decoder: Decoder) throws {
+    init(from decoder: Decoder) throws {
         let container = try decoder.container(keyedBy: CodingKeys.self)
         self.OmitDefaultRegions = (try? container.decodeIfPresent(Bool.self, forKey: .OmitDefaultRegions))
             ?? (try? container.decodeIfPresent(Bool.self, forKey: .omitDefaultRegions))
@@ -631,7 +638,7 @@ public struct NCTailscaleDERPMap: Codable, Equatable, Sendable {
         }
     }
 
-    public func encode(to encoder: Encoder) throws {
+    func encode(to encoder: Encoder) throws {
         var container = encoder.container(keyedBy: CodingKeys.self)
         try container.encodeIfPresent(OmitDefaultRegions, forKey: .OmitDefaultRegions)
 
@@ -643,22 +650,22 @@ public struct NCTailscaleDERPMap: Codable, Equatable, Sendable {
     }
 
     // Lowercase property accessors for DERP client compatibility
-    public var regions: [Int: NCTailscaleDERPRegion] { Regions }
-    public var omitDefaultRegions: Bool? { OmitDefaultRegions }
+    var regions: [Int: NCTailscaleDERPRegion] { Regions }
+    var omitDefaultRegions: Bool? { OmitDefaultRegions }
 
     /// Looks up a region by its unique RegionID.
-    public func region(id: Int) -> NCTailscaleDERPRegion? {
+    func region(id: Int) -> NCTailscaleDERPRegion? {
         Regions[id]
     }
 
     /// List of regions sorted in ascending order of RegionID.
-    public var sortedRegions: [NCTailscaleDERPRegion] {
+    var sortedRegions: [NCTailscaleDERPRegion] {
         Regions.values.sorted { $0.RegionID < $1.RegionID }
     }
 
     /// The first available region suitable for default home selection.
     /// Prefers non-avoid regions with at least one usable relay node.
-    public var firstAvailableRegion: NCTailscaleDERPRegion? {
+    var firstAvailableRegion: NCTailscaleDERPRegion? {
         let sorted = sortedRegions
         if let nonAvoid = sorted.first(where: { !($0.Avoid ?? false) && !$0.usableNodes.isEmpty }) {
             return nonAvoid
@@ -670,7 +677,7 @@ public struct NCTailscaleDERPMap: Codable, Equatable, Sendable {
 
     /// Verifies JSON round-trip decoding against official tailcfg DERPMap format.
     @discardableResult
-    public static func selfTest() -> Bool {
+    static func selfTest() -> Bool {
         let json = """
         {
           "Regions": {
@@ -744,21 +751,21 @@ public struct NCTailscaleDERPMap: Codable, Equatable, Sendable {
     }
 }
 
-public struct NCTailscaleDNSResolver: Codable, Equatable {
-    public var Addr: String
+struct NCTailscaleDNSResolver: Codable, Equatable {
+    var Addr: String
 
-    public init(Addr: String) {
+    init(Addr: String) {
         self.Addr = Addr
     }
 }
 
-public struct NCTailscaleDNSConfig: Codable, Equatable {
-    public var Resolvers: [NCTailscaleDNSResolver]?
-    public var Routes: [String: [NCTailscaleDNSResolver]]?
-    public var Domains: [String]?
-    public var Proxied: Bool?
+struct NCTailscaleDNSConfig: Codable, Equatable {
+    var Resolvers: [NCTailscaleDNSResolver]?
+    var Routes: [String: [NCTailscaleDNSResolver]]?
+    var Domains: [String]?
+    var Proxied: Bool?
 
-    public init(
+    init(
         Resolvers: [NCTailscaleDNSResolver]? = nil,
         Routes: [String: [NCTailscaleDNSResolver]]? = nil,
         Domains: [String]? = nil,
@@ -771,11 +778,11 @@ public struct NCTailscaleDNSConfig: Codable, Equatable {
     }
 }
 
-public struct NCTailscalePortRange: Codable, Equatable {
-    public var First: UInt16
-    public var Last: UInt16
+struct NCTailscalePortRange: Codable, Equatable {
+    var First: UInt16
+    var Last: UInt16
 
-    public init(First: UInt16, Last: UInt16) {
+    init(First: UInt16, Last: UInt16) {
         self.First = First
         self.Last = Last
     }
@@ -784,12 +791,12 @@ public struct NCTailscalePortRange: Codable, Equatable {
 /// One destination matcher of a packet filter rule (tailcfg.NetPortRange):
 /// `IP` is "*" or an IP/CIDR string, `Bits` an optional prefix that takes
 /// precedence over `IP`, `Ports` the destination port range.
-public struct NCTailscaleNetPortRange: Codable, Equatable {
-    public var IP: String
-    public var Bits: String?
-    public var Ports: NCTailscalePortRange
+struct NCTailscaleNetPortRange: Codable, Equatable {
+    var IP: String
+    var Bits: String?
+    var Ports: NCTailscalePortRange
 
-    public init(IP: String, Bits: String? = nil, Ports: NCTailscalePortRange) {
+    init(IP: String, Bits: String? = nil, Ports: NCTailscalePortRange) {
         self.IP = IP
         self.Bits = Bits
         self.Ports = Ports
@@ -799,11 +806,11 @@ public struct NCTailscaleNetPortRange: Codable, Equatable {
 /// A capability grant attached to a filter rule (tailcfg.CapGrant).
 /// Phase 3 parses but does not enforce capability grants: rules carrying
 /// only grants never match as plain allows in the evaluator.
-public struct NCTailscaleCapGrant: Codable, Equatable {
-    public var Dsts: [String]?
-    public var Caps: [String]?
+struct NCTailscaleCapGrant: Codable, Equatable {
+    var Dsts: [String]?
+    var Caps: [String]?
 
-    public init(Dsts: [String]? = nil, Caps: [String]? = nil) {
+    init(Dsts: [String]? = nil, Caps: [String]? = nil) {
         self.Dsts = Dsts
         self.Caps = Caps
     }
@@ -813,14 +820,14 @@ public struct NCTailscaleCapGrant: Codable, Equatable {
 /// `DstPorts` as bare port ranges, which does not match the wire format
 /// (each element is a NetPortRange object) and would have failed decoding
 /// real MapResponses containing a PacketFilter; fixed in phase 3.
-public struct NCTailscalePacketFilterRule: Codable, Equatable {
-    public var SrcIPs: [String]?
-    public var SrcBits: [String]?
-    public var DstPorts: [NCTailscaleNetPortRange]?
-    public var IPProto: [Int]?
-    public var CapGrant: [NCTailscaleCapGrant]?
+struct NCTailscalePacketFilterRule: Codable, Equatable {
+    var SrcIPs: [String]?
+    var SrcBits: [String]?
+    var DstPorts: [NCTailscaleNetPortRange]?
+    var IPProto: [Int]?
+    var CapGrant: [NCTailscaleCapGrant]?
 
-    public init(
+    init(
         SrcIPs: [String]? = nil,
         SrcBits: [String]? = nil,
         DstPorts: [NCTailscaleNetPortRange]? = nil,
@@ -835,24 +842,24 @@ public struct NCTailscalePacketFilterRule: Codable, Equatable {
     }
 }
 
-public struct NCTailscaleMapResponse: Codable, Equatable {
-    public var MapSessionHandle: String?
-    public var Seq: Int64?
-    public var KeepAlive: Bool?
-    public var PingRequest: NCTailscalePingRequest?
-    public var PopBrowserURL: String?
-    public var Node: NCTailscaleNode?
-    public var DERPMap: NCTailscaleDERPMap?
-    public var Peers: [NCTailscaleNode]?
-    public var PeersChanged: [NCTailscaleNode]?
-    public var PeersRemoved: [Int64]?
-    public var PeersChangedPatch: [NCTailscalePeerChange]?
-    public var DNSConfig: NCTailscaleDNSConfig?
-    public var PacketFilter: [NCTailscalePacketFilterRule]?
-    public var ControlTime: String?
-    public var NodeKeyExpired: Bool?
+struct NCTailscaleMapResponse: Codable, Equatable {
+    var MapSessionHandle: String?
+    var Seq: Int64?
+    var KeepAlive: Bool?
+    var PingRequest: NCTailscalePingRequest?
+    var PopBrowserURL: String?
+    var Node: NCTailscaleNode?
+    var DERPMap: NCTailscaleDERPMap?
+    var Peers: [NCTailscaleNode]?
+    var PeersChanged: [NCTailscaleNode]?
+    var PeersRemoved: [Int64]?
+    var PeersChangedPatch: [NCTailscalePeerChange]?
+    var DNSConfig: NCTailscaleDNSConfig?
+    var PacketFilter: [NCTailscalePacketFilterRule]?
+    var ControlTime: String?
+    var NodeKeyExpired: Bool?
 
-    public init(
+    init(
         MapSessionHandle: String? = nil,
         Seq: Int64? = nil,
         KeepAlive: Bool? = nil,

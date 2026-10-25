@@ -3,7 +3,7 @@ import Foundation
 
 // MARK: - Tailscale Transport Errors
 
-public enum NCTailscaleTransportError: Error, LocalizedError {
+enum NCTailscaleTransportError: Error, LocalizedError {
     case invalidHTTPResponse(String)
     case unexpectedHTTPStatus(Int, String)
     case invalidHandshakeFrame(String)
@@ -13,7 +13,7 @@ public enum NCTailscaleTransportError: Error, LocalizedError {
     case decryptionFailed
     case streamClosed
 
-    public var errorDescription: String? {
+    var errorDescription: String? {
         switch self {
         case .invalidHTTPResponse(let msg):
             return "Invalid HTTP response: \(msg)"
@@ -42,23 +42,23 @@ public enum NCTailscaleTransportError: Error, LocalizedError {
 // 2. `POST /ts2021` Upgrade -> HTTP 101 Switching Protocols; immediately hands off
 //    any trailing bytes after `\r\n\r\n` to the ts2021 Noise framing layer.
 
-public final class NCHTTP1ResponseParser {
-    public private(set) var statusCode: Int = 0
-    public private(set) var statusText: String = ""
-    public private(set) var headers: [String: String] = [:]
-    public private(set) var body = Data()
-    public private(set) var trailingData = Data()
-    public private(set) var isComplete: Bool = false
+final class NCHTTP1ResponseParser {
+    private(set) var statusCode: Int = 0
+    private(set) var statusText: String = ""
+    private(set) var headers: [String: String] = [:]
+    private(set) var body = Data()
+    private(set) var trailingData = Data()
+    private(set) var isComplete: Bool = false
 
     private var buffer = Data()
     private var headersParsed = false
     private var isChunked = false
     private var contentLength: Int?
 
-    public init() {}
+    init() {}
 
     /// Feeds incoming raw bytes into the parser. Returns true once the response is fully parsed.
-    public func feed(_ data: Data) throws -> Bool {
+    func feed(_ data: Data) throws -> Bool {
         guard !isComplete else {
             trailingData.append(data)
             return true
@@ -221,20 +221,20 @@ public final class NCHTTP1ResponseParser {
 //   3-byte header: uint8 msgTypeRecord (4), uint16 length (ciphertext + 16-byte Poly1305 tag)
 //   followed by encrypted payload. Max record size: 4096 bytes.
 
-public enum NCTailscaleControlFraming {
-    public static let msgTypeInitiation: UInt8 = 1
-    public static let msgTypeResponse: UInt8 = 2
-    public static let msgTypeError: UInt8 = 3
-    public static let msgTypeRecord: UInt8 = 4
+enum NCTailscaleControlFraming {
+    static let msgTypeInitiation: UInt8 = 1
+    static let msgTypeResponse: UInt8 = 2
+    static let msgTypeError: UInt8 = 3
+    static let msgTypeRecord: UInt8 = 4
 
-    public static let headerLen: Int = 3
-    public static let initiationHeaderLen: Int = 5
-    public static let maxMessageSize: Int = 4096
-    public static let maxPlaintextSize: Int = 4077 // 4096 - 3 header - 16 chacha tag
+    static let headerLen: Int = 3
+    static let initiationHeaderLen: Int = 5
+    static let maxMessageSize: Int = 4096
+    static let maxPlaintextSize: Int = 4077 // 4096 - 3 header - 16 chacha tag
 
     /// Constructs the 101-byte handshake initiation frame to embed into `X-Tailscale-Handshake` (base64)
     /// or send directly on the wire.
-    public static func makeInitiationFrame(
+    static func makeInitiationFrame(
         protocolVersion: UInt16 = UInt16(NCTailscaleConsts.capabilityVersion),
         noiseMsg1: Data
     ) -> Data {
@@ -251,7 +251,7 @@ public enum NCTailscaleControlFraming {
 
     /// Parses a handshake response frame (Message 2 or Error) from the buffer.
     /// Returns the 48-byte Noise Message 2 payload when complete, or nil if more data is needed.
-    public static func parseResponseMessage(from buffer: inout Data) throws -> Data? {
+    static func parseResponseMessage(from buffer: inout Data) throws -> Data? {
         guard buffer.count >= headerLen else { return nil }
 
         let type = buffer[0]
@@ -281,7 +281,7 @@ public enum NCTailscaleControlFraming {
     }
 
     /// Wraps plaintext into one or more ts2021 `msgTypeRecord` frames (max 4077 bytes plaintext per frame).
-    public static func makeRecordFrames(plaintext: Data, cipher: NCTransportCipher) throws -> Data {
+    static func makeRecordFrames(plaintext: Data, cipher: NCTransportCipher) throws -> Data {
         var out = Data()
         var offset = 0
 
@@ -306,7 +306,7 @@ public enum NCTailscaleControlFraming {
     }
 
     /// Parses and decrypts all complete `msgTypeRecord` frames currently available in `buffer`.
-    public static func parseRecordFrames(from buffer: inout Data, cipher: NCTransportCipher) throws -> [Data] {
+    static func parseRecordFrames(from buffer: inout Data, cipher: NCTransportCipher) throws -> [Data] {
         var decryptedChunks: [Data] = []
 
         while buffer.count >= headerLen {
@@ -344,7 +344,7 @@ public enum NCTailscaleControlFraming {
     /// at the start of the decrypted stream before HTTP/2 framing begins.
     ///
     /// Reference: `tailscale.com/control/ts2021/conn.go` `EarlyPayloadMagic = "\xff\xff\xffTS"`.
-    public static func filterEarlyPayload(from streamData: inout Data, checked: inout Bool) -> Data? {
+    static func filterEarlyPayload(from streamData: inout Data, checked: inout Bool) -> Data? {
         if checked { return nil }
 
         // Needs at least 9 bytes (5 bytes magic + 4 bytes length)
@@ -383,21 +383,21 @@ public enum NCTailscaleControlFraming {
 // 4. Multiple JSON objects arriving in a single DATA frame.
 // 5. Intervening whitespace / keepalive newlines.
 
-public final class NCTailscaleMapResponseScanner {
+final class NCTailscaleMapResponseScanner {
     private var buffer = Data()
 
-    public init() {}
+    init() {}
 
-    public func append(_ data: Data) {
+    func append(_ data: Data) {
         buffer.append(data)
     }
 
     /// Extracts the next complete MapResponse JSON data if available.
-    public func nextResponseData() -> Data? {
+    func nextResponseData() -> Data? {
         while !buffer.isEmpty {
             // Trim leading whitespace
             while let first = buffer.first, first == 0x20 || first == 0x09 || first == 0x0a || first == 0x0d {
-                buffer.removeFirst()
+                buffer = Data(buffer.dropFirst()) // re-base: Data.removeFirst() shifts startIndex
             }
             guard !buffer.isEmpty else { return nil }
 
@@ -422,7 +422,7 @@ public final class NCTailscaleMapResponseScanner {
             // Fallback: incremental brace matching from the first '{'
             guard let first = buffer.first, first == UInt8(ascii: "{") else {
                 // Drop non-JSON byte to realign
-                buffer.removeFirst()
+                buffer = Data(buffer.dropFirst()) // re-base: Data.removeFirst() shifts startIndex
                 continue
             }
 
@@ -468,7 +468,7 @@ public final class NCTailscaleMapResponseScanner {
     }
 
     /// Resets the internal read buffer.
-    public func reset() {
+    func reset() {
         buffer.removeAll(keepingCapacity: false)
     }
 }

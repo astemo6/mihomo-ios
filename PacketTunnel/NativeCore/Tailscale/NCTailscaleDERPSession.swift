@@ -17,9 +17,9 @@ import Security
 // 8. Sends `NotePreferred` frame (0x01 for home region, 0x00 otherwise)
 // 9. Enters steady state: packet relaying, ping/pong echo, keepalive, and peer notifications.
 
-public final class NCDERPSession {
+final class NCDERPSession {
 
-    public enum State: Equatable {
+    enum State: Equatable {
         case idle
         case connectingTCP
         case tlsHandshake
@@ -29,7 +29,7 @@ public final class NCDERPSession {
         case ready
         case closed(String?)
 
-        public var isReady: Bool {
+        var isReady: Bool {
             if case .ready = self { return true }
             return false
         }
@@ -37,19 +37,19 @@ public final class NCDERPSession {
 
     // MARK: - Configuration
 
-    public let regionID: Int
-    public let isHome: Bool
-    public let node: NCTailscaleDERPNode
+    let regionID: Int
+    let isHome: Bool
+    let node: NCTailscaleDERPNode
     private let nodeKey: Curve25519.KeyAgreement.PrivateKey
     private let queue: DispatchQueue
 
     // MARK: - Callbacks
 
-    public var onConnected: (() -> Void)?
-    public var onClosed: ((Error?) -> Void)?
-    public var onPacket: ((Data, Data) -> Void)?
-    public var onPeerGone: ((Data, UInt8) -> Void)?
-    public var onPeerPresent: ((Data) -> Void)?
+    var onConnected: (() -> Void)?
+    var onClosed: ((Error?) -> Void)?
+    var onPacket: ((Data, Data) -> Void)?
+    var onPeerGone: ((Data, UInt8) -> Void)?
+    var onPeerPresent: ((Data) -> Void)?
 
     // MARK: - Connection & Framing State
 
@@ -64,17 +64,17 @@ public final class NCDERPSession {
 
     /// Outgoing packet queue buffered while connecting or under backpressure.
     private var sendQueue: [(destKey: Data, data: Data)] = []
-    public static let maxSendQueueSize: Int = 256
-    public private(set) var droppedPacketsCount: Int = 0
+    static let maxSendQueueSize: Int = 256
+    private(set) var droppedPacketsCount: Int = 0
 
     /// Liveness timestamp for idle tracking.
-    public private(set) var lastActivity: Date = Date()
+    private(set) var lastActivity: Date = Date()
 
     private var isCancelled = false
 
     // MARK: - Initialization
 
-    public init(
+    init(
         regionID: Int,
         isHome: Bool,
         node: NCTailscaleDERPNode,
@@ -91,7 +91,7 @@ public final class NCDERPSession {
     // MARK: - Connection Lifecycle
 
     /// Begins establishing connection and DERP handshake.
-    public func start() {
+    func start() {
         queue.async { [weak self] in
             guard let self = self, self.state == .idle, !self.isCancelled else { return }
             self.connectTCP()
@@ -99,7 +99,7 @@ public final class NCDERPSession {
     }
 
     /// Closes the session and tears down underlying network resources.
-    public func close(error: Error? = nil) {
+    func close(error: Error? = nil) {
         queue.async { [weak self] in
             guard let self = self, !self.isCancelled else { return }
             self.teardown(error: error)
@@ -461,7 +461,7 @@ public final class NCDERPSession {
     /// - Parameters:
     ///   - destKey: 32-byte Curve25519 public key of destination node.
     ///   - data: Raw WireGuard packet.
-    public func sendPacket(destKey: Data, data: Data) {
+    func sendPacket(destKey: Data, data: Data) {
         queue.async { [weak self] in
             guard let self = self, !self.isCancelled else { return }
 
@@ -484,7 +484,7 @@ public final class NCDERPSession {
     }
 
     /// Sends a ping probe frame to test latency or keep connection alive.
-    public func sendPing(opaque: Data = Data([0x01, 0x02, 0x03, 0x04, 0x05, 0x06, 0x07, 0x08])) {
+    func sendPing(opaque: Data = Data([0x01, 0x02, 0x03, 0x04, 0x05, 0x06, 0x07, 0x08])) {
         queue.async { [weak self] in
             guard let self = self, self.state == .ready, let tls = self.tlsStream else { return }
             let frame = NCDERPFrameCodec.encodePing(data: opaque)
@@ -493,7 +493,7 @@ public final class NCDERPSession {
     }
 
     /// Sends an explicit KeepAlive frame to the DERP server.
-    public func sendKeepAlive() {
+    func sendKeepAlive() {
         queue.async { [weak self] in
             guard let self = self, self.state == .ready, let tls = self.tlsStream else { return }
             let frame = NCDERPFrameCodec.encodeKeepAlive()

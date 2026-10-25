@@ -18,12 +18,12 @@ import Foundation
 //   the tailnet's own ranges are carved out of the default routes, so LAN
 //   traffic is not forced through the exit node.
 
-public struct NCTailscaleRouteConfig: Equatable {
-    public var acceptRoutes: Bool
-    public var exitNodeQuery: String?
-    public var allowLanAccess: Bool
+struct NCTailscaleRouteConfig: Equatable {
+    var acceptRoutes: Bool
+    var exitNodeQuery: String?
+    var allowLanAccess: Bool
 
-    public init(proxy: NCProxy) {
+    init(proxy: NCProxy) {
         acceptRoutes = proxy.fields["accept-routes"]?.bool ?? false
         let rawExit = proxy.fields["exit-node"]?.string?.trimmingCharacters(in: .whitespaces) ?? ""
         exitNodeQuery = rawExit.isEmpty ? nil : rawExit
@@ -31,14 +31,14 @@ public struct NCTailscaleRouteConfig: Equatable {
     }
 }
 
-public enum NCTailscaleRouting {
+enum NCTailscaleRouting {
     // MARK: Exit node resolution
 
     /// Resolves the configured exit-node value against the netmap peers.
     /// Accepts a tailnet IP, a node name (FQDN or short name), a Hostinfo
     /// hostname, or `auto` / `auto:any` (first peer advertising a default
     /// route, i.e. offering itself as an exit node).
-    public static func resolveExitNode(query: String, peers: [NCTailscaleNode]) -> NCTailscaleNode? {
+    static func resolveExitNode(query: String, peers: [NCTailscaleNode]) -> NCTailscaleNode? {
         let q = query.trimmingCharacters(in: .whitespaces).lowercased()
         if q == "auto" || q == "auto:any" {
             return peers.first { peer in
@@ -65,7 +65,7 @@ public enum NCTailscaleRouting {
 
     // MARK: Effective AllowedIPs
 
-    public static func effectiveAllowedIPs(
+    static func effectiveAllowedIPs(
         for peer: NCTailscaleNode,
         isExitNode: Bool,
         config: NCTailscaleRouteConfig
@@ -95,7 +95,7 @@ public enum NCTailscaleRouting {
     }
 
     /// Default routes granted to the exit peer, optionally with LAN carved out.
-    public static func exitDefaultRoutes(allowLanAccess: Bool) -> [String] {
+    static func exitDefaultRoutes(allowLanAccess: Bool) -> [String] {
         guard allowLanAccess else { return ["0.0.0.0/0", "::/0"] }
         var routes = complementV4(excluding: lanExclusionsV4)
         routes += complementV6(excluding: lanExclusionsV6)
@@ -104,18 +104,18 @@ public enum NCTailscaleRouting {
 
     // MARK: LAN classification (for dial errors and default-route carving)
 
-    public static let lanExclusionsV4: [String] = [
+    static let lanExclusionsV4: [String] = [
         "10.0.0.0/8", "172.16.0.0/12", "192.168.0.0/16",
         "169.254.0.0/16", "127.0.0.0/8",
         "100.64.0.0/10", // tailnet CGNAT range: never force via exit node
     ]
 
-    public static let lanExclusionsV6: [String] = [
+    static let lanExclusionsV6: [String] = [
         "::1/128", "fe80::/10",
         "fd7a:115c:a1e0::/48", // tailnet ULA range
     ]
 
-    public static func isLANOrTailnet(_ ip: NCIP) -> Bool {
+    static func isLANOrTailnet(_ ip: NCIP) -> Bool {
         switch ip {
         case .v4:
             return lanExclusionsV4.contains { NCCIDR($0)?.contains(ip) == true }
@@ -126,7 +126,7 @@ public enum NCTailscaleRouting {
 
     // MARK: Helpers
 
-    public static func isDefaultRoute(_ cidr: String) -> Bool {
+    static func isDefaultRoute(_ cidr: String) -> Bool {
         let t = cidr.trimmingCharacters(in: .whitespaces)
         return t == "0.0.0.0/0" || t == "::/0"
     }
@@ -143,7 +143,7 @@ public enum NCTailscaleRouting {
     // MARK: CIDR complement (0.0.0.0/0 or ::/0 minus exclusion intervals)
 
     /// IPv4 complement via interval subtraction + largest-block decomposition.
-    public static func complementV4(excluding: [String]) -> [String] {
+    static func complementV4(excluding: [String]) -> [String] {
         var intervals: [(UInt64, UInt64)] = []
         for s in excluding {
             guard let c = NCCIDR(s), case .v4(let base) = c.network else { continue }
@@ -160,7 +160,7 @@ public enum NCTailscaleRouting {
     }
 
     /// IPv6 complement; intervals are handled in 128-bit (hi, lo) space.
-    public static func complementV6(excluding: [String]) -> [String] {
+    static func complementV6(excluding: [String]) -> [String] {
         var intervals: [(U128, U128)] = []
         for s in excluding {
             guard let c = NCCIDR(s), case .v6(let bytes) = c.network, bytes.count == 16 else { continue }
@@ -245,13 +245,13 @@ public enum NCTailscaleRouting {
 
 // MARK: - Minimal 128-bit unsigned value for IPv6 interval math
 
-public struct U128: Comparable, Equatable {
-    public var hi: UInt64
-    public var lo: UInt64
+struct U128: Comparable, Equatable {
+    var hi: UInt64
+    var lo: UInt64
 
-    public init(_ v: UInt64) { hi = 0; lo = v }
+    init(_ v: UInt64) { hi = 0; lo = v }
 
-    public init(bytes: [UInt8]) {
+    init(bytes: [UInt8]) {
         var h: UInt64 = 0
         var l: UInt64 = 0
         for i in 0..<8 { h = h << 8 | UInt64(bytes[i]) }
@@ -260,43 +260,43 @@ public struct U128: Comparable, Equatable {
         lo = l
     }
 
-    public var bytes: [UInt8] {
+    var bytes: [UInt8] {
         var out: [UInt8] = []
         for shift in stride(from: 56, through: 0, by: -8) { out.append(UInt8((hi >> shift) & 0xff)) }
         for shift in stride(from: 56, through: 0, by: -8) { out.append(UInt8((lo >> shift) & 0xff)) }
         return out
     }
 
-    public static func < (a: U128, b: U128) -> Bool {
+    static func < (a: U128, b: U128) -> Bool {
         a.hi != b.hi ? a.hi < b.hi : a.lo < b.lo
     }
 
-    public func adding(_ o: U128) -> U128 {
+    func adding(_ o: U128) -> U128 {
         let (l, carry) = lo.addingReportingOverflow(o.lo)
         return U128(hi: hi &+ o.hi &+ (carry ? 1 : 0), lo: l)
     }
 
-    public func subtracting(_ o: U128) -> U128 {
+    func subtracting(_ o: U128) -> U128 {
         let (l, borrow) = lo.subtractingReportingOverflow(o.lo)
         return U128(hi: hi &- o.hi &- (borrow ? 1 : 0), lo: l)
     }
 
     private init(hi: UInt64, lo: UInt64) { self.hi = hi; self.lo = lo }
 
-    public var isZero: Bool { hi == 0 && lo == 0 }
+    var isZero: Bool { hi == 0 && lo == 0 }
 
     /// True when this value represents 2^128 (wrapped to zero by overflow).
     /// Only produced by `powerOfTwo(128)` / adding past the top; used as an
     /// exclusive-end sentinel in complement decomposition.
-    public var isOverflowSentinel: Bool { isZero }
+    var isOverflowSentinel: Bool { isZero }
 
-    public static func powerOfTwo(_ n: Int) -> U128 {
+    static func powerOfTwo(_ n: Int) -> U128 {
         if n >= 128 { return U128(hi: 0, lo: 0) } // sentinel for 2^128
         if n >= 64 { return U128(hi: UInt64(1) << (n - 64), lo: 0) }
         return U128(hi: 0, lo: UInt64(1) << n)
     }
 
-    public func masked(prefixBits: Int, totalBits: Int) -> U128 {
+    func masked(prefixBits: Int, totalBits: Int) -> U128 {
         if prefixBits <= 0 { return U128(0) }
         if prefixBits >= totalBits { return self }
         if prefixBits >= 64 {
@@ -311,12 +311,12 @@ public struct U128: Comparable, Equatable {
     }
 
     /// Value of the lowest set bit (as a power of two); zero when self is zero.
-    public var lowestSetBitValue: U128 {
+    var lowestSetBitValue: U128 {
         if lo != 0 { return U128(hi: 0, lo: lo & (~lo &+ 1)) }
         return U128(hi: hi & (~hi &+ 1), lo: 0)
     }
 
-    public func shiftedRight(_ n: Int) -> U128 {
+    func shiftedRight(_ n: Int) -> U128 {
         if n >= 128 { return U128(0) }
         if n >= 64 { return U128(hi: 0, lo: hi >> (n - 64)) }
         if n == 0 { return self }
@@ -324,7 +324,7 @@ public struct U128: Comparable, Equatable {
     }
 
     /// log2 for power-of-two values (used only on such values).
-    public var log2: Int {
+    var log2: Int {
         if hi != 0 { return 64 + (63 - hi.leadingZeroBitCount) }
         if lo != 0 { return 63 - lo.leadingZeroBitCount }
         return 128 // overflow sentinel (2^128)

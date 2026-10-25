@@ -20,17 +20,17 @@ import Foundation
 // IPv6 extension headers are not walked: the next-header byte is taken
 // at face value (noted limitation).
 
-public enum NCTailscalePacketFilter {
-    public struct PacketInfo {
-        public var src: NCIP
-        public var dst: NCIP
-        public var proto: Int
-        public var dstPort: UInt16?
+enum NCTailscalePacketFilter {
+    struct PacketInfo {
+        var src: NCIP
+        var dst: NCIP
+        var proto: Int
+        var dstPort: UInt16?
     }
 
     /// Parses the inner IP packet header. Returns nil for truncated or
     /// non-IP payloads (caller drops those when rules are enforced).
-    public static func parse(_ pkt: [UInt8]) -> PacketInfo? {
+    static func parse(_ pkt: [UInt8]) -> PacketInfo? {
         guard let first = pkt.first else { return nil }
         switch first >> 4 {
         case 4:
@@ -60,7 +60,7 @@ public enum NCTailscalePacketFilter {
         }
     }
 
-    public static func allows(packet pkt: [UInt8], rules: [NCTailscalePacketFilterRule]?) -> Bool {
+    static func allows(packet pkt: [UInt8], rules: [NCTailscalePacketFilterRule]?) -> Bool {
         guard let rules, !rules.isEmpty else { return true }
         guard let info = parse(pkt) else { return false }
         return rules.contains { ruleMatches($0, info) }

@@ -1,4 +1,5 @@
 import Foundation
+import Security
 
 // MARK: - STUN binding codec (RFC 5389, subset)
 //
@@ -6,17 +7,17 @@ import Foundation
 // DERP map's STUN servers: build a Binding Request, parse a Binding
 // Success Response's XOR-MAPPED-ADDRESS (falling back to MAPPED-ADDRESS).
 
-public enum NCTailscaleSTUN {
-    public static let magicCookie: [UInt8] = [0x21, 0x12, 0xA4, 0x42]
-    public static let defaultPort = 3478
+enum NCTailscaleSTUN {
+    static let magicCookie: [UInt8] = [0x21, 0x12, 0xA4, 0x42]
+    static let defaultPort = 3478
 
-    public static func isSTUNResponse(_ data: [UInt8]) -> Bool {
+    static func isSTUNResponse(_ data: [UInt8]) -> Bool {
         data.count >= 20 && data[0] == 0x01 && data[1] == 0x01
             && Array(data[4..<8]) == magicCookie
     }
 
     /// Builds a Binding Request; returns (packet, transactionID).
-    public static func makeBindingRequest() -> ([UInt8], [UInt8]) {
+    static func makeBindingRequest() -> ([UInt8], [UInt8]) {
         var txid = [UInt8](repeating: 0, count: 12)
         NCTailscaleDiscoRandom.fill(&txid)
         var pkt: [UInt8] = [0x00, 0x01, 0x00, 0x00]
@@ -27,7 +28,7 @@ public enum NCTailscaleSTUN {
 
     /// Extracts the reflexive endpoint "ip:port" from a success response
     /// whose transaction ID matches `txid`.
-    public static func parseBindingResponse(_ data: [UInt8], txid: [UInt8]) -> String? {
+    static func parseBindingResponse(_ data: [UInt8], txid: [UInt8]) -> String? {
         guard isSTUNResponse(data), data.count >= 20 else { return nil }
         guard Array(data[8..<20]) == txid else { return nil }
         var off = 20
@@ -79,8 +80,8 @@ public enum NCTailscaleSTUN {
 }
 
 /// Shared randomness helper (SecRandomCopyBytes with a stdlib fallback).
-public enum NCTailscaleDiscoRandom {
-    public static func fill(_ bytes: inout [UInt8]) {
+enum NCTailscaleDiscoRandom {
+    static func fill(_ bytes: inout [UInt8]) {
         let rc = SecRandomCopyBytes(kSecRandomDefault, bytes.count, &bytes)
         if rc != errSecSuccess {
             var rng = SystemRandomNumberGenerator()
@@ -88,7 +89,7 @@ public enum NCTailscaleDiscoRandom {
         }
     }
 
-    public static func data(count: Int) -> Data {
+    static func data(count: Int) -> Data {
         var b = [UInt8](repeating: 0, count: count)
         fill(&b)
         return Data(b)

@@ -16,14 +16,14 @@ import Network
 // 9. Dials TCP streams via userspace lwIP stack for destinations inside tailnet routes.
 // 10. Persists status.json and exports guard status snapshot for memoryStats & tailscaleInfo.
 
-public final class NCTailscaleClient {
+final class NCTailscaleClient {
     // MARK: - Instance Cache
 
     private static let cacheLock = NSLock()
     private static var cachedClients: [String: NCTailscaleClient] = [:]
 
     /// Returns the cached client for `proxy`, or initializes a new one.
-    public static func client(for proxy: NCProxy) -> NCTailscaleClient? {
+    static func client(for proxy: NCProxy) -> NCTailscaleClient? {
         cacheLock.lock()
         defer { cacheLock.unlock() }
         return clientUnlocked(for: proxy)
@@ -56,7 +56,7 @@ public final class NCTailscaleClient {
     }
 
     /// Returns all managed Tailscale clients, discovering any configured nodes from the loaded engine.
-    public static func allClients() -> [NCTailscaleClient] {
+    static func allClients() -> [NCTailscaleClient] {
         cacheLock.lock()
         defer { cacheLock.unlock() }
 
@@ -72,7 +72,7 @@ public final class NCTailscaleClient {
     }
 
     /// Stops all running Tailscale clients and cleans up resources.
-    public static func stopAll() {
+    static func stopAll() {
         let clients = allClients()
         for client in clients {
             client.stop()
@@ -102,22 +102,22 @@ public final class NCTailscaleClient {
 
     // MARK: - Properties
 
-    public let proxy: NCProxy
-    public let name: String
-    public let stateDir: String
-    public let stateDirURL: URL
-    public let homePath: String
-    public let queue: DispatchQueue
+    let proxy: NCProxy
+    let name: String
+    let stateDir: String
+    let stateDirURL: URL
+    let homePath: String
+    let queue: DispatchQueue
 
     // Subsystems
-    public let control: NCTailscaleControl
-    public let derp: NCTailscaleDERPClient
-    public private(set) var device: NCWGDevice?
+    let control: NCTailscaleControl
+    let derp: NCTailscaleDERPClient
+    private(set) var device: NCWGDevice?
 
     // Phase 3: routing policy, MagicDNS, PacketFilter state
-    public let routeConfig: NCTailscaleRouteConfig
-    public let magicDNS = NCTailscaleMagicDNS()
-    public private(set) var routingError: String?
+    let routeConfig: NCTailscaleRouteConfig
+    let magicDNS = NCTailscaleMagicDNS()
+    private(set) var routingError: String?
     private var packetFilterRules: [NCTailscalePacketFilterRule]?
     private var dnsProviderInstalled = false
 
@@ -127,7 +127,7 @@ public final class NCTailscaleClient {
         return packetFilterRules
     }
     // Phase 2: disco direct-path manager (created on first netmap snapshot)
-    public private(set) var pathManager: NCTailscalePathManager?
+    private(set) var pathManager: NCTailscalePathManager?
 
     // Threading & State Locks
     private let clientLock = NSLock()
@@ -137,23 +137,23 @@ public final class NCTailscaleClient {
     private var isStarting = false
 
     // Observability & Guard Metrics (TailscaleGuardStatus shape)
-    public private(set) var state: String = NCTailscaleLoginState.idle.rawValue
-    public private(set) var startedAt: Int64?
-    public private(set) var footprintBefore: Int64?
-    public private(set) var availableBefore: Int64?
-    public private(set) var footprintAfter: Int64?
-    public private(set) var startMillis: Int64?
-    public private(set) var peakSinceStart: Int64?
-    public private(set) var refusedAvailable: Int64?
-    public private(set) var refusedAt: Int64?
-    public private(set) var stoppedAvailable: Int64?
-    public private(set) var stoppedAt: Int64?
-    public private(set) var lastError: String?
-    public private(set) var authURL: String?
-    public private(set) var ipv4: String?
-    public private(set) var ipv6: String?
-    public private(set) var derpHomeRegion: Int?
-    public private(set) var peerCounts: NCTailscalePeerCounts = NCTailscalePeerCounts()
+    private(set) var state: String = NCTailscaleLoginState.idle.rawValue
+    private(set) var startedAt: Int64?
+    private(set) var footprintBefore: Int64?
+    private(set) var availableBefore: Int64?
+    private(set) var footprintAfter: Int64?
+    private(set) var startMillis: Int64?
+    private(set) var peakSinceStart: Int64?
+    private(set) var refusedAvailable: Int64?
+    private(set) var refusedAt: Int64?
+    private(set) var stoppedAvailable: Int64?
+    private(set) var stoppedAt: Int64?
+    private(set) var lastError: String?
+    private(set) var authURL: String?
+    private(set) var ipv4: String?
+    private(set) var ipv6: String?
+    private(set) var derpHomeRegion: Int?
+    private(set) var peerCounts: NCTailscalePeerCounts = NCTailscalePeerCounts()
 
     // MARK: - Initialization
 
@@ -198,7 +198,7 @@ public final class NCTailscaleClient {
     // MARK: - Lifecycle & Memory Guard
 
     /// Lazily starts the Tailscale client (called on first dial).
-    public func startIfNeeded(completion: @escaping (Error?) -> Void) {
+    func startIfNeeded(completion: @escaping (Error?) -> Void) {
         clientLock.lock()
         if state == NCTailscaleLoginState.started.rawValue && device?.alive == true {
             clientLock.unlock()
@@ -321,7 +321,7 @@ public final class NCTailscaleClient {
         writeStatusFile()
     }
 
-    public func stop() {
+    func stop() {
         clientLock.lock()
         state = NCTailscaleLoginState.stopped.rawValue
         clientLock.unlock()
@@ -609,7 +609,7 @@ public final class NCTailscaleClient {
     // MARK: - Dial (Connector Integration)
 
     /// Static entrypoint invoked by `NCConnector.tailscaleDialer`.
-    public static func dial(proxy: NCProxy, target: NCTarget, queue: DispatchQueue,
+    static func dial(proxy: NCProxy, target: NCTarget, queue: DispatchQueue,
                             completion: @escaping (NCRelayStream?, Error?) -> Void) {
         guard let client = client(for: proxy) else {
             queue.async {
@@ -621,7 +621,7 @@ public final class NCTailscaleClient {
     }
 
     /// Dials a destination target through the Tailscale node's userspace lwIP stack.
-    public func dial(target: NCTarget, queue: DispatchQueue,
+    func dial(target: NCTarget, queue: DispatchQueue,
                      completion: @escaping (NCRelayStream?, Error?) -> Void) {
         startIfNeeded { [weak self] err in
             if let err {
@@ -748,7 +748,7 @@ public final class NCTailscaleClient {
     // MARK: - Observability Snapshots (for Task 5)
 
     /// Builds a dictionary strictly aligned with App's `TailscaleGuardStatus` for `NativeTunnelCore.memorySnapshot`.
-    public static func guardStatusSnapshot() -> [String: Any]? {
+    static func guardStatusSnapshot() -> [String: Any]? {
         let clients = allClients()
         guard !clients.isEmpty else { return nil }
 
@@ -800,7 +800,7 @@ public final class NCTailscaleClient {
     }
 
     /// Builds the list of nodes for `.tailscaleInfo` App message (matches App's `TailnetNodeInfo`).
-    public static func tailscaleNodeInfos() -> [[String: Any]] {
+    static func tailscaleNodeInfos() -> [[String: Any]] {
         let clients = allClients()
         return clients.map { client in
             client.clientLock.lock()
