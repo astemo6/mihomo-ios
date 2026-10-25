@@ -95,13 +95,27 @@ enum NCSupport {
         return nil
     }
 
-    /// Hysteria v1 (NCHysteria1, feat/nc-proto A3): nil = supported; else why not.
+    /// Hysteria v1 (NCHysteria1 + NCHysteria1UDP, feat/nc-proto A3 / feat/nc-proto2): TCP, UDP, obfs (XPlus),
+    /// protocol udp / wechat-video, port hopping (`ports`). nil = supported; else why not.
     static func hysteriaUnsupported(_ p: NCProxy) -> String? {
-        if let o = p.fields["obfs"]?.string, !o.isEmpty { return "Hysteria v1 obfs" }
         let proto = (p.fields["obfs-protocol"]?.string ?? p.fields["protocol"]?.string ?? "udp").lowercased()
-        if !proto.isEmpty && proto != "udp" { return "Hysteria v1 protocol \(proto)" }
-        if p.port == nil { return "Hysteria v1 port hopping (ports)" }
+        if !proto.isEmpty && proto != "udp" && proto != "wechat-video" { return "Hysteria v1 protocol \(proto)" }
+        if p.port == nil && !hysteriaPortsValid(p.fields["ports"]?.string) { return "Hysteria v1 缺少 port / ports" }
+        if let ports = p.fields["ports"]?.string, !ports.isEmpty, !hysteriaPortsValid(ports) {
+            return "Hysteria v1 ports \(ports.prefix(24)) 无效"
+        }
         return nil
+    }
+
+    /// mihomo parsePorts syntax: "443,1000-2000".
+    static func hysteriaPortsValid(_ s: String?) -> Bool {
+        guard let s, !s.trimmingCharacters(in: .whitespaces).isEmpty else { return false }
+        for part in s.split(separator: ",") {
+            let r = part.split(separator: "-", omittingEmptySubsequences: false)
+                .map { $0.trimmingCharacters(in: .whitespaces) }
+            guard (1...2).contains(r.count), r.allSatisfy({ UInt16($0) != nil }) else { return false }
+        }
+        return true
     }
 
     /// SSH (NCSSH, feat/nc-proto A3): private keys must be inline PEM (a file path cannot be read in the tunnel)
