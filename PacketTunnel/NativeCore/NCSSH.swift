@@ -104,12 +104,12 @@ enum NCSSHKey {
     }
 
     /// nil with a reason when the key format is not supported.
-    static func parse(_ text: String) -> (NCSSHKey?, String?) {
+    static func parse(_ text: String, passphrase: String? = nil) -> (NCSSHKey?, String?) {
         let lines = text.split(whereSeparator: \.isNewline).map { $0.trimmingCharacters(in: .whitespaces) }
         guard let begin = lines.first(where: { $0.hasPrefix("-----BEGIN ") }) else { return (nil, "private-key 不是 PEM") }
         let body = lines.filter { !$0.hasPrefix("-----") && !$0.contains(":") }.joined()
         guard let der = Data(base64Encoded: body) else { return (nil, "private-key base64 无效") }
-        if begin.contains("OPENSSH PRIVATE KEY") { return parseOpenSSH(der) }
+        if begin.contains("OPENSSH PRIVATE KEY") { return parseOpenSSH(der, passphrase: passphrase) }
         if begin.contains("EC PRIVATE KEY") {
             if let k = try? P256.Signing.PrivateKey(derRepresentation: der) { return (.p256(k), nil) }
             return (nil, "仅支持 P-256 EC 私钥")
@@ -150,15 +150,48 @@ enum NCSSHKey {
         return (.rsa(key, pubBlob: blob), nil)
     }
 
-    private static func parseOpenSSH(_ der: Data) -> (NCSSHKey?, String?) {
+    private static func parseOpenSSH(_ der: Data, passphrase: String?) -> (NCSSHKey?, String?) {
         let magic = Data("openssh-key-v1".utf8) + Data([0])
         guard der.prefix(magic.count) == magic else { return (nil, "OpenSSH 私钥头无效") }
         var r = NCSSHWire.Reader(Data(der.dropFirst(magic.count)))
-        guard let cipher = r.str(), let _ = r.str(), let _ = r.bytes(), let n = r.u32(), n >= 1,
-              let _ = r.bytes(), let priv = r.bytes() else { return (nil, "OpenSSH 私钥无效") }
-        guard cipher == "none" else { return (nil, "加密的 OpenSSH 私钥尚未接入") }
+        guard let cipher = r.str(), let kdf = r.str(), let kdfOpts = r.bytes(), let n = r.u32(), n >= 1,
+              let _ = r.bytes(), var priv = r.bytes() else { return (nil, "OpenSSH 私钥无效") }
+        if cipher != "none" || kdf != "none" {
+            // feat/nc-proto3: passphrase-protected keys, as metacubex/ssh passphraseProtectedOpenSSHKey:
+            // bcrypt_pbkdf(passphrase, salt, rounds, 48) → AES-256 key ‖ IV; aes256-ctr or aes256-cbc.
+            guard let passphrase, !passphrase.isEmpty else { return (nil, "OpenSSH 私钥已加密，缺少 private-key-passphrase") }
+            guard kdf == "bcrypt" else { return (nil, "OpenSSH 私钥 KDF \(kdf) 不支持（仅 bcrypt）") }
+            var o = NCSSHWire.Reader(kdfOpts)
+            guard let salt = o.bytes(), let rounds = o.u32(),
+                  let k = NCBcryptPBKDF.key(password: [UInt8](passphrase.utf8), salt: [UInt8](salt),
+                                            rounds: Int(rounds), keyLen: 48) else { return (nil, "OpenSSH 私钥 KDF 参数无效") }
+            let key = Data(k.prefix(32)), iv = Data(k.suffix(16))
+            switch cipher {
+            case "aes256-ctr":
+                guard let c = NCSSStreamCipher(method: "aes-256-ctr", key: key) else { return (nil, "AES 初始化失败") }
+                c.setIV(iv)
+                priv = c.process(priv)
+            case "aes256-cbc":
+                guard priv.count % 16 == 0, let aes = NCAES(key: key) else { return (nil, "OpenSSH 私钥长度无效") }
+                var prev = [UInt8](iv)
+                var out = Data(capacity: priv.count)
+                let bytes = [UInt8](priv)
+                var i = 0
+                while i < bytes.count {
+                    let blk = Array(bytes[i..<(i + 16)])
+                    let dec = [UInt8](aes.decryptBlock(Data(blk)))
+                    out.append(contentsOf: (0..<16).map { dec[$0] ^ prev[$0] })
+                    prev = blk
+                    i += 16
+                }
+                priv = out
+            default:
+                return (nil, "OpenSSH 私钥加密 \(cipher) 不支持（仅 aes256-ctr / aes256-cbc，与 mihomo 一致）")
+            }
+        }
         var p = NCSSHWire.Reader(priv)
-        guard let c1 = p.u32(), let c2 = p.u32(), c1 == c2, let type = p.str() else { return (nil, "OpenSSH 私钥无效") }
+        guard let c1 = p.u32(), let c2 = p.u32(), let type = p.str() else { return (nil, "OpenSSH 私钥无效") }
+        guard c1 == c2 else { return (nil, cipher == "none" ? "OpenSSH 私钥无效" : "OpenSSH 私钥口令错误") }
         switch type {
         case "ssh-ed25519":
             guard let _ = p.bytes(), let sk = p.bytes(), sk.count == 64,
@@ -824,7 +857,7 @@ extension NCConnector {
         sshLock.unlock()
         var signer: NCSSHKey?
         if let pk = proxy.fields["private-key"]?.string, !pk.isEmpty {
-            let (k, why) = NCSSHKey.parse(pk)
+            let (k, why) = sshKeyCached(pk, passphrase: proxy.fields["private-key-passphrase"]?.string)
             guard let k else {
                 queue.async { completion(nil, Failure.unsupported(why ?? "ssh private-key")) }
                 return
@@ -855,6 +888,24 @@ extension NCConnector {
             }
             openOn(c)
         }
+    }
+
+    /// Parsed keys by (PEM, passphrase): bcrypt_pbkdf costs ~0.1–1 s, so an encrypted key is derived once.
+    private static var sshKeyCache: [String: NCSSHKey] = [:]
+
+    private static func sshKeyCached(_ pem: String, passphrase: String?) -> (NCSSHKey?, String?) {
+        let cacheKey = Data(SHA256.hash(data: Data((pem + "\u{0}" + (passphrase ?? "")).utf8))).base64EncodedString()
+        sshLock.lock()
+        if let k = sshKeyCache[cacheKey] { sshLock.unlock(); return (k, nil) }
+        sshLock.unlock()
+        let (k, why) = NCSSHKey.parse(pem, passphrase: passphrase)
+        if let k {
+            sshLock.lock()
+            if sshKeyCache.count > 16 { sshKeyCache.removeAll() }
+            sshKeyCache[cacheKey] = k
+            sshLock.unlock()
+        }
+        return (k, why)
     }
 
     private static func obtainSSHRaw(transport: NCRelayStream?, server: String, port: Int, queue: DispatchQueue,

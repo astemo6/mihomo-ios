@@ -7,7 +7,7 @@ enum NCSupport {
     /// Proxy types the connector (PacketTunnel/NativeCore/NCConnector.swift) implements.
     static let types: Set<String> = [
         "direct", "reject", "socks5", "http", "https", "ss", "ssr", "snell", "trojan", "vless", "vmess",
-        "hysteria2", "hy2", "anytls", "hysteria", "ssh", "tuic", "wireguard",
+        "hysteria2", "hy2", "anytls", "hysteria", "ssh", "tuic", "wireguard", "mieru",
     ]
     /// Stream transports (`network:`) the connector implements.
     static let transports: Set<String> = ["tcp", "ws", "grpc", "h2", "http"]
@@ -18,7 +18,6 @@ enum NCSupport {
         guard types.contains(t) else {
             switch t {
             case "tailscale": return "Tailscale 尚未接入"
-            case "mieru": return "Mieru 尚未接入"
             default: return "类型 \(t) 尚未接入"
             }
         }
@@ -38,6 +37,8 @@ enum NCSupport {
             if let why = sshUnsupported(p) { return why }
         case "wireguard":
             if let why = wireguardUnsupported(p) { return why }
+        case "mieru":
+            if let why = mieruUnsupported(p) { return why }
         case "tuic":
             let hasToken = !(p.fields["token"]?.string ?? "").isEmpty
             if !hasToken && (p.uuid ?? "").isEmpty { return "TUIC 缺少 uuid / token" }
@@ -49,7 +50,6 @@ enum NCSupport {
                       ["native", "xorpub", "random"].contains(parts[1]), ["1rtt", "0rtt"].contains(parts[2]) else {
                     return "VLESS encryption \(enc.prefix(24)) 不是有效的 mlkem768x25519plus 值"
                 }
-                if p.fields["flow"]?.string == "xtls-rprx-vision" { return "VLESS encryption + Vision 尚未接入" }
             }
         default:
             break
@@ -58,7 +58,7 @@ enum NCSupport {
     }
 
     /// nil = plugin supported; else the reason (mirrors mihomo NewShadowSocks' option checks;
-    /// obfs http/tls, v2ray-plugin websocket (+tls, mux), shadow-tls v2/v3 are implemented in NCSSPlugins).
+    /// obfs http/tls, v2ray-plugin websocket (+tls, mux), shadow-tls v1/v2/v3, gost-plugin websocket (+tls, smux) are implemented in NCSSPlugins).
     static func ssPluginUnsupported(_ proxy: NCProxy) -> String? {
         guard let plugin = proxy.fields["plugin"]?.string, !plugin.isEmpty else { return nil }
         let opts = proxy.fields["plugin-opts"]?.object ?? [:]
@@ -70,9 +70,12 @@ enum NCSupport {
             if (opts["mode"]?.string ?? "") != "websocket" { return "v2ray-plugin mode \(opts["mode"]?.string ?? "")" }
             if opts["v2ray-http-upgrade"]?.bool == true { return "v2ray-plugin http-upgrade" }
             return nil
+        case "gost-plugin":
+            let mode = opts["mode"]?.string ?? ""
+            return mode == "websocket" ? nil : "gost-plugin mode \(mode)"
         case "shadow-tls":
             let v = opts["version"]?.int ?? 2
-            return v == 2 || v == 3 ? nil : "shadow-tls v\(v)"
+            return (1...3).contains(v) ? nil : "shadow-tls v\(v)"
         default:
             return plugin
         }
@@ -119,13 +122,23 @@ enum NCSupport {
         return true
     }
 
-    /// SSH (NCSSH, feat/nc-proto A3): private keys must be inline PEM (a file path cannot be read in the tunnel)
-    /// and unencrypted.
+    /// SSH (NCSSH, feat/nc-proto A3): private keys must be inline PEM (a file path cannot be read in the tunnel);
+    /// passphrase-protected OpenSSH keys (bcrypt + aes256-ctr/cbc) are decrypted natively (feat/nc-proto3).
     static func sshUnsupported(_ p: NCProxy) -> String? {
         if let pk = p.fields["private-key"]?.string, !pk.isEmpty, !pk.contains("PRIVATE KEY") {
             return "SSH 私钥文件路径尚未接入（请内联 PEM）"
         }
-        if let pp = p.fields["private-key-passphrase"]?.string, !pp.isEmpty { return "SSH 加密私钥尚未接入" }
+        return nil
+    }
+
+    /// Mieru (NCMieru, feat/nc-proto3): transport TCP (stream underlay), TCP + UDP-over-session traffic.
+    static func mieruUnsupported(_ p: NCProxy) -> String? {
+        let transport = (p.fields["transport"]?.string ?? "").uppercased()
+        if transport == "UDP" { return "Mieru transport UDP 尚未接入（仅 TCP）" }
+        if transport != "TCP" { return "Mieru transport 必须为 TCP 或 UDP" }
+        if (p.fields["username"]?.string ?? "").isEmpty || (p.password ?? "").isEmpty { return "Mieru 缺少 username / password" }
+        if (p.port ?? 0) == 0 && (p.fields["port-range"]?.string ?? "").isEmpty { return "Mieru 缺少 port / port-range" }
+        if let tp = p.fields["traffic-pattern"]?.string, !tp.isEmpty { return "Mieru traffic-pattern 尚未接入" }
         return nil
     }
 

@@ -21,6 +21,8 @@ final class NCTLSClientStream: NCRelayStream {
         var profile: NCClientHelloProfile = .chrome
         /// Plain mode only: session ID computed from the marshaled hello (zero ID in place) — shadow-tls v3.
         var sessionIDGenerator: ((Data) -> Data?)? = nil
+        /// Offer TLS 1.2 only (no supported_versions) — shadow-tls v1 (feat/nc-proto3).
+        var maxTLS12: Bool = false
     }
 
     enum TLSError: Error {
@@ -111,9 +113,10 @@ final class NCTLSClientStream: NCRelayStream {
             sidPlain = NCTLS13.realitySessionIDPlain(shortID: reality.shortID,
                                                      unixTime: UInt32(Date().timeIntervalSince1970))
         }
-        let hello = NCTLS13.buildClientHello(random: clientRandom, sessionID: Data(repeating: 0, count: 32),
+        var hello = NCTLS13.buildClientHello(random: clientRandom, sessionID: Data(repeating: 0, count: 32),
                                           serverName: config.serverName, alpn: config.alpn,
                                           keyShare: clientShare, profile: config.profile)
+        if config.maxTLS12, let h12 = NCShadowTLS.removingExtension(43, from: hello) { hello = h12 }
         var wireHello = hello
         if let reality = config.reality, let authKey, let sidPlain {
             guard let sealed = NCTLS13.realitySealSessionID(authKey: authKey, plain: sidPlain,
@@ -648,7 +651,7 @@ extension NCTLSClientStream {
         let b = [UInt8](body)
         guard b.count >= 2, b[0] == 3, b[1] == 3 else { fail(TLSError.handshake("server version not TLS 1.2")); return }
         // We offered 1.3: a 1.2 answer carrying the RFC 8446 §4.1.3 sentinel means an active downgrade.
-        if serverRandom.suffix(8) == Self.downgradeTLS12 { fail(TLSError.handshake("TLS downgrade detected")); return }
+        if !config.maxTLS12, serverRandom.suffix(8) == Self.downgradeTLS12 { fail(TLSError.handshake("TLS downgrade detected")); return }
         var idx = extStart
         if idx + 2 <= b.count {
             let extLen = Int(b[idx]) << 8 | Int(b[idx + 1]); idx += 2

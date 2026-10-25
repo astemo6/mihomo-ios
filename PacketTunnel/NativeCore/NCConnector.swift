@@ -286,6 +286,13 @@ enum NCConnector {
                                         allowMux: Bool = true,
                                         transport: NCRelayStream? = nil,
                                         completion: @escaping (NCRelayStream?, Error?) -> Void) {
+        if proxy.type == "mieru" {
+            // feat/nc-proto3: pure-Swift mieru TCP underlay (NCMieru); port may come from port-range.
+            mieruStream(proxy: proxy, target: target, udp: false, queue: queue, transport: transport) { s, err in
+                completion(s, err)
+            }
+            return
+        }
         // feat/nc-wg: WireGuard (several peers may carry their own server/port, so before the guard below).
         if proxy.type == "wireguard" {
             if transport != nil {
@@ -449,10 +456,9 @@ enum NCConnector {
                 completion(raw, nil)
             }
         case "vless":
-            if vlessEncryption(proxy) != nil && visionFlow(proxy) {
-                queue.async { completion(nil, Failure.unsupported("vless encryption + xtls-rprx-vision")) }
-                return
-            }
+            // feat/nc-proto3: encryption + xtls-rprx-vision — Vision frames ride the encryption conn and splice
+            // below it (mihomo vision.NewConn over *encryption.CommonConn), whatever TLS / REALITY sits underneath.
+            let encVision = vlessEncryption(proxy) != nil && visionFlow(proxy)
             guard let uuid = proxy.uuid else {
                 queue.async { completion(nil, Failure.handshake("vless missing uuid")) }
                 return
@@ -469,6 +475,10 @@ enum NCConnector {
                 }
                 dialReality(proxy: proxy, server: server, port: port, queue: queue) { base0, err in
                     guard let base0 else { completion(nil, err); return }
+                    if encVision {
+                        vlessEncryptedVision(base0, proxy: proxy, uuid: uuid, head: head, queue: queue, completion: completion)
+                        return
+                    }
                     if visionFlow(proxy), let tlsClient = base0 as? NCTLSClientStream,
                        let uuidBytes = NCVLESS.uuidBytes(uuid) {
                         let vision = NCVisionStream(tls: tlsClient, uuid: uuidBytes)
@@ -509,7 +519,7 @@ enum NCConnector {
                 return
             }
             let raw: NCStream
-            if useTLS && !isVision {
+            if useTLS && (!isVision || encVision) {
                 raw = NCStream(to: server, port: port,
                                tlsServerName: proxy.fields["servername"]?.string ?? proxy.fields["sni"]?.string ?? server,
                                allowInsecure: proxy.fields["skip-cert-verify"]?.bool ?? false,
@@ -524,6 +534,10 @@ enum NCConnector {
                 guard let head = NCVLESS.requestHead(uuid: uuid, target: target,
                                                      flow: proxy.fields["flow"]?.string ?? "") else {
                     completion(nil, Failure.handshake("vless bad uuid"))
+                    return
+                }
+                if encVision {
+                    vlessEncryptedVision(raw, proxy: proxy, uuid: uuid, head: head, queue: queue, completion: completion)
                     return
                 }
                 if isVision, useTLS, let uuidBytes = NCVLESS.uuidBytes(uuid) {
@@ -590,6 +604,22 @@ enum NCConnector {
             tuicStream(proxy: proxy, target: target, queue: queue, completion: completion)
         default:
             queue.async { completion(nil, Failure.unsupported(proxy.type)) }
+        }
+    }
+
+    /// VLESS encryption handshake over `base`, then XTLS Vision on top of the encryption conn (feat/nc-proto3).
+    static func vlessEncryptedVision(_ base: NCRelayStream, proxy: NCProxy, uuid: String, head: Data,
+                                     queue: DispatchQueue, completion: @escaping (NCRelayStream?, Error?) -> Void) {
+        guard let inst = vlessEncryption(proxy), let uuidBytes = NCVLESS.uuidBytes(uuid) else {
+            completion(nil, Failure.handshake("vless encryption / uuid invalid"))
+            return
+        }
+        let enc = NCVLESSEncStream(raw: base, inst: inst, queue: queue)
+        enc.handshake { err in
+            if let err { completion(nil, err); return }
+            let vision = NCVisionStream(tls: enc, uuid: uuidBytes)
+            vision.send(head)
+            completion(NCVLESSRelayStream(raw: vision), nil)
         }
     }
 

@@ -11,9 +11,26 @@ import Foundation
 /// output, (b) TLS-decrypted leftovers fed through the reader, (c) the TLS
 /// layer's unparsed raw tail — inner plaintext that arrived past the last
 /// record — then live raw bytes via receiveSpliced.
+/// The record layer Vision frames ride on and splices out of: the hand-rolled TLS 1.3 client (REALITY / tls) or,
+/// with VLESS `encryption`, the encryption conn (mihomo vision.NewConn accepts *encryption.CommonConn; direct
+/// bytes then go to CommonConn.Conn, i.e. through the XorConn layer when xorpub is on). feat/nc-proto3.
+protocol NCVisionCarrier: AnyObject {
+    func send(_ data: Data)
+    func receive(_ handler: @escaping (Data?, Error?) -> Void)
+    /// Write below the record layer (after Vision switched to direct).
+    func sendDirect(_ data: Data)
+    /// Detach the record layer: decrypted leftovers + raw bytes already read past the last record.
+    func spliceOut() -> (plaintext: [Data], rawTail: Data)
+    func receiveSpliced(_ handler: @escaping (Data?, Error?) -> Void)
+    func cancel()
+}
+
+extension NCTLSClientStream: NCVisionCarrier {
+    func sendDirect(_ data: Data) { rawStream.send(data) }
+}
+
 final class NCVisionStream: NCRelayStream {
-    private let tls: NCTLSClientStream
-    private let raw: NCRelayStream
+    private let tls: NCVisionCarrier
     private let writer: NCVisionWriter
     private var reader: NCVisionReader
 
@@ -24,9 +41,8 @@ final class NCVisionStream: NCRelayStream {
     private var readEOF = false
     private var pending: ((Data?, Error?) -> Void)?
 
-    init(tls: NCTLSClientStream, uuid: [UInt8]) {
+    init(tls: NCVisionCarrier, uuid: [UInt8]) {
         self.tls = tls
-        self.raw = tls.rawStream
         self.writer = NCVisionWriter(userUUID: uuid)
         self.reader = NCVisionReader(userUUID: uuid)
     }
@@ -35,7 +51,7 @@ final class NCVisionStream: NCRelayStream {
 
     func send(_ data: Data) {
         if writeDirect {
-            raw.send(data)
+            tls.sendDirect(data)
             return
         }
         for frame in writer.process([UInt8](data)) {

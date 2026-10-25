@@ -460,6 +460,14 @@ final class NCVLESSEncStream: NCRelayStream {
         return l
     }
 
+    // Vision carrier accessors (the extension below cannot reach private state).
+    fileprivate func takePreWrite() -> Data? { let p = preWrite; preWrite = nil; return p }
+    fileprivate func xorOutPublic(_ b: Data) -> Data { xorOut(b) }
+    fileprivate func xorInPublic(_ b: Data) -> Data { xorIn(b) }
+    fileprivate func drainQueued() -> [Data] { let q = outQueue; outQueue = []; return q }
+    fileprivate func takeInbuf() -> Data { let d = inbuf; inbuf = Data(); return d }
+    fileprivate var failureState: Error? { failure }
+
     // MARK: NCRelayStream
 
     func send(_ data: Data) {
@@ -538,6 +546,31 @@ final class NCVLESSEncStream: NCRelayStream {
     }
 
     func cancel() { raw.cancel() }
+}
+
+// MARK: - Vision over encryption (feat/nc-proto3)
+
+extension NCVLESSEncStream: NCVisionCarrier {
+    /// CommonConn.Conn.Write: below the AEAD records, still through the XorConn header filter (xorpub).
+    func sendDirect(_ data: Data) {
+        guard failureState == nil, !data.isEmpty else { return }
+        var out = data
+        if let pre = takePreWrite() { out = pre + out }
+        raw.send(inst.xorMode == 2 ? xorOutPublic(out) : out)
+    }
+
+    /// Records are decrypted lazily, so everything still buffered is raw (already xor-filtered) direct traffic.
+    func spliceOut() -> (plaintext: [Data], rawTail: Data) {
+        let plain = drainQueued()
+        return (plain, takeInbuf())
+    }
+
+    func receiveSpliced(_ handler: @escaping (Data?, Error?) -> Void) {
+        raw.receive { [weak self] data, error in
+            guard let self, let data else { handler(nil, error); return }
+            handler(self.inst.xorMode == 2 ? self.xorInPublic(data) : data, nil)
+        }
+    }
 }
 
 extension NCConnector {

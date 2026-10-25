@@ -309,6 +309,7 @@ final class NCShadowTLSWire: NCRelayStream {
             guard let self else { return }
             guard let data else { if !self.detached { handler(nil, error) }; return }
             if self.detached { self.spill.append(data); return }
+            if self.version == 1 { handler(data, nil); return } // v1: the handshake passes through untouched
             if self.version == 2 {
                 self.readHash.update(data: data)
                 handler(data, nil)
@@ -401,6 +402,58 @@ enum NCShadowTLS {
         let mac = Data(h.finalize())
         sid.replaceSubrange(28..<32, with: mac.prefix(4))
         return sid
+    }
+
+    /// The ClientHello handshake message without extension `type` (lengths fixed up); nil if it does not parse.
+    static func removingExtension(_ type: UInt16, from hello: Data) -> Data? {
+        let b = [UInt8](hello)
+        guard b.count > 4 + 2 + 32 + 1, b[0] == 1 else { return nil }
+        var off = 4 + 2 + 32
+        off += 1 + Int(b[off])                                   // session id
+        guard off + 2 <= b.count else { return nil }
+        off += 2 + (Int(b[off]) << 8 | Int(b[off + 1]))          // cipher suites
+        guard off + 1 <= b.count else { return nil }
+        off += 1 + Int(b[off])                                   // compression methods
+        guard off + 2 <= b.count else { return nil }
+        let extStart = off + 2
+        let extEnd = extStart + (Int(b[off]) << 8 | Int(b[off + 1]))
+        guard extEnd <= b.count else { return nil }
+        var exts = [UInt8]()
+        var p = extStart
+        while p + 4 <= extEnd {
+            let t = UInt16(b[p]) << 8 | UInt16(b[p + 1])
+            let n = Int(b[p + 2]) << 8 | Int(b[p + 3])
+            guard p + 4 + n <= extEnd else { return nil }
+            if t != type { exts.append(contentsOf: b[p..<(p + 4 + n)]) }
+            p += 4 + n
+        }
+        var body = Array(b[4..<off])
+        body.append(UInt8((exts.count >> 8) & 0xff)); body.append(UInt8(exts.count & 0xff))
+        body.append(contentsOf: exts)
+        body.append(contentsOf: b[extEnd...])
+        var out = [UInt8(1), UInt8((body.count >> 16) & 0xff), UInt8((body.count >> 8) & 0xff), UInt8(body.count & 0xff)]
+        out.append(contentsOf: body)
+        return Data(out)
+    }
+
+    /// shadow-tls v1: a plain TLS ≤ 1.2 handshake with the camouflage server through the shadow-tls server, then
+    /// the socket itself carries the SS stream (mihomo transport/shadowtls Client.DialContextConn case 1).
+    static func dialV1(raw: NCRelayStream, host: String, alpn: [String], allowInsecure: Bool, queue: DispatchQueue,
+                       completion: @escaping (NCRelayStream?, Error?) -> Void) {
+        let wire = NCShadowTLSWire(raw: raw, password: "", version: 1)
+        var cfg = NCTLSClientStream.Config(serverName: host)
+        cfg.alpn = alpn
+        cfg.allowInsecure = allowInsecure
+        cfg.profile = NCClientHelloProfile.named(nil) // v1 uses the Go client hello (no uTLS fingerprint)
+        cfg.maxTLS12 = true
+        let tls = NCTLSClientStream(raw: wire, config: cfg, queue: queue)
+        tls.startHandshake { err in
+            if let err { completion(nil, err); return }
+            let tail = tls.spliceOut().rawTail
+            wire.detached = true
+            let rest = tail + wire.spill
+            completion(rest.isEmpty ? raw : NCBufferedStream(inner: raw, prefix: rest), nil)
+        }
     }
 
     /// Runs the camouflage TLS handshake over `raw` and returns the data conn the SS stream rides on.
@@ -556,6 +609,69 @@ final class NCShadowTLSV3Conn: NCFramedRelay {
     }
 }
 
+// MARK: - gost-plugin smux (feat/nc-proto3)
+
+/// gost-plugin's mux: one smux v1 stream over the websocket (mihomo transport/gost NewGostWebsocket with
+/// metacubex/smux DefaultConfig, keep-alive off). Frame: ver=1 ‖ cmd ‖ len (LE16) ‖ streamID (LE32) ‖ data;
+/// cmd SYN=0 FIN=1 PSH=2 NOP=3. v1 has no flow-control frames. The client's first stream ID is 1.
+final class NCGostSmuxStream: NCFramedRelay {
+    private static let sid: UInt32 = 1
+    private static let maxFrame = 32768
+    private var opened = false
+    private var finished = false
+
+    private static func frame(_ cmd: UInt8, _ payload: Data = Data()) -> Data {
+        var f = Data([1, cmd, UInt8(payload.count & 0xff), UInt8((payload.count >> 8) & 0xff)])
+        f.append(contentsOf: [UInt8(sid & 0xff), UInt8((sid >> 8) & 0xff), UInt8((sid >> 16) & 0xff), UInt8(sid >> 24)])
+        f.append(payload)
+        return f
+    }
+
+    func open() {
+        guard !opened else { return }
+        opened = true
+        raw.send(Self.frame(0))
+    }
+
+    override func send(_ data: Data) {
+        open()
+        var rest = data[...]
+        var wire = Data()
+        while !rest.isEmpty {
+            let chunk = Data(rest.prefix(Self.maxFrame))
+            rest = rest.dropFirst(chunk.count)
+            wire.append(Self.frame(2, chunk))
+        }
+        if !wire.isEmpty { raw.send(wire) }
+    }
+
+    override func cancel() {
+        if opened && !finished { finished = true; raw.send(Self.frame(1)) }
+        raw.cancel()
+    }
+
+    override func consume() throws -> [Data] {
+        var out: [Data] = []
+        while inbuf.count >= 8 {
+            let s = inbuf.startIndex
+            guard inbuf[s] == 1 else { throw Self.err("gost smux: bad version \(inbuf[s])") }
+            let cmd = inbuf[s + 1]
+            let len = Int(inbuf[s + 2]) | Int(inbuf[s + 3]) << 8
+            let sid = UInt32(inbuf[s + 4]) | UInt32(inbuf[s + 5]) << 8 | UInt32(inbuf[s + 6]) << 16 | UInt32(inbuf[s + 7]) << 24
+            guard inbuf.count >= 8 + len else { break }
+            let payload = Data(inbuf[(s + 8)..<(s + 8 + len)])
+            inbuf = Data(inbuf.dropFirst(8 + len))
+            guard sid == Self.sid else { continue }
+            switch cmd {
+            case 2: if !payload.isEmpty { out.append(payload) }
+            case 1: throw Self.err("gost smux: stream closed by peer")
+            default: break // SYN / NOP
+            }
+        }
+        return out
+    }
+}
+
 // MARK: - Connector glue
 
 extension NCConnector {
@@ -621,6 +737,52 @@ extension NCConnector {
                 guard let raw else { completion(nil, err); return }
                 overWS(raw)
             }
+        case "gost-plugin":
+            // mihomo gostObfsOption{Host: "bing.com", Mux: true}; mode must be websocket.
+            let host = opts["host"]?.string ?? "bing.com"
+            let path = opts["path"]?.string ?? ""
+            var headers: [String: String] = [:]
+            for (k, v) in opts["headers"]?.object ?? [:] { if let s = v.string { headers[k] = s } }
+            let mux = opts["mux"]?.bool ?? true
+            let tls = opts["tls"]?.bool ?? false
+            let insecure = opts["skip-cert-verify"]?.bool ?? false
+            let hostHeader = headers.first(where: { $0.key.lowercased() == "host" })?.value
+            let sni = hostHeader ?? host
+            func overWS(_ raw: NCRelayStream) {
+                let ws = NCWebSocketStream(raw: raw, hostHeader: hostHeader ?? host, path: path.isEmpty ? "/" : path,
+                                           headers: headers.filter { $0.key.lowercased() != "host" })
+                ws.startHandshake { err in
+                    guard err == nil else { completion(nil, err); return }
+                    if mux {
+                        let m = NCGostSmuxStream(raw: ws)
+                        m.open()
+                        completion(m, nil)
+                    } else {
+                        completion(ws, nil)
+                    }
+                }
+            }
+            if tls {
+                if let transport {
+                    var cfg = NCTLSClientStream.Config(serverName: sni)
+                    cfg.alpn = ["http/1.1"]
+                    cfg.allowInsecure = insecure
+                    let t = NCTLSClientStream(raw: transport, config: cfg, queue: queue)
+                    t.startHandshake { err in
+                        if let err { completion(nil, err) } else { overWS(t) }
+                    }
+                    return
+                }
+                let s = NCStream(to: server, port: port, tlsServerName: sni, allowInsecure: insecure, queue: queue)
+                s.start { err in
+                    if let err { completion(nil, err) } else { overWS(s) }
+                }
+                return
+            }
+            plainRaw { raw, err in
+                guard let raw else { completion(nil, err); return }
+                overWS(raw)
+            }
         case "shadow-tls":
             let version = opts["version"]?.int ?? 2
             let password = opts["password"]?.string ?? ""
@@ -628,6 +790,12 @@ extension NCConnector {
             let alpn = opts["alpn"]?.array?.compactMap { $0.string } ?? ["h2", "http/1.1"]
             plainRaw { raw, err in
                 guard let raw else { completion(nil, err); return }
+                if version == 1 {
+                    NCShadowTLS.dialV1(raw: raw, host: host, alpn: alpn,
+                                       allowInsecure: opts["skip-cert-verify"]?.bool ?? false,
+                                       queue: queue, completion: completion)
+                    return
+                }
                 NCShadowTLS.dial(raw: raw, version: version, password: password, host: host, alpn: alpn,
                                  allowInsecure: opts["skip-cert-verify"]?.bool ?? false,
                                  fingerprint: proxy.fields["client-fingerprint"]?.string,
