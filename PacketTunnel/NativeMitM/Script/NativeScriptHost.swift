@@ -209,13 +209,25 @@ final class NativeScriptHost: ScriptGoHost {
         var key: String?
         var name: String
         var type: String?
+        /// Domain regex filter for type=dns / type=rule entries (nc-script-runtime).
+        var pattern: String?
         var file: String?
         var timeoutMs: Int64?
         var maxSize: Int64?
         var err: String?
         /// The setup base as JSON text (decoded from the raw "setup" object).
         var setupJSON = "{}"
-        enum CodingKeys: String, CodingKey { case i, key, name, type, file, timeoutMs, maxSize, err }
+        enum CodingKeys: String, CodingKey { case i, key, name, type, pattern, file, timeoutMs, maxSize, err }
+    }
+
+    /// Registered hook scripts of one kind ("dns" / "rule", the
+    /// NCScriptHooks contract) in declaration order (manifest index =
+    /// rule index). Task entries (negative index) never carry these
+    /// types. Read fresh on every call: a manifest reload swaps the
+    /// whole table, so callers always see the live registration.
+    func hookEntries(type: String) -> [ManifestEntry] {
+        lock.lock(); defer { lock.unlock() }
+        return manifest.values.filter { $0.type == type && $0.i >= 0 }.sorted { $0.i < $1.i }
     }
 
     private var home = ""
