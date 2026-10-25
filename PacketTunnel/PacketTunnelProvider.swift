@@ -147,6 +147,7 @@ final class PacketTunnelProvider: NEPacketTunnelProvider {
             return
         }
         StartupLog.write("app group \(AppShared.appGroup) (\(AppShared.appGroupSource)), profile \(profile.lastPathComponent)")
+        Self.logRuntimeGeneration(home: AppShared.homeURL.path)
         GeoBootstrap.install { StartupLog.write($0) }
         var overrides = CoreOverrides.load()
         // v0.8 IPv6 自动: decided once per start from the physical network; Go gets the same answer.
@@ -241,6 +242,29 @@ final class PacketTunnelProvider: NEPacketTunnelProvider {
                     StartupLog.write("+15 s: \(ProcessMemory.summary()), \(self?.core.engine?.statsLine ?? "-")")
                 }
             }
+        }
+    }
+
+    /// fix/nc-vpn-start-crash: says which generation of the app-prepared runtime this start loads. The app writes
+    /// it transactionally (NativeRuntimePrep / PrepTransaction), so after an app crash mid-prepare the files are the
+    /// last COMPLETE generation, never a mix; this makes that visible in 诊断 (an on-demand start right after the
+    /// build #374 crash ran the previous generation and nobody could tell).
+    static func logRuntimeGeneration(home: String) {
+        if let m = NCPrepMarkers.readInflight(home: home) {
+            StartupLog.write("WARNING: the app's runtime preparation has not finished (stage \(m.stage), build \(m.build)) — either it is running right now or the app ended during it; loading the last complete runtime generation")
+        }
+        let url = URL(fileURLWithPath: home).appendingPathComponent("nativecore-prep.json")
+        guard let d = try? Data(contentsOf: url),
+              let o = (try? JSONSerialization.jsonObject(with: d)) as? [String: Any] else {
+            StartupLog.write("runtime generation: no nativecore-prep.json (runtime not prepared by this app version)")
+            return
+        }
+        let at = (o["at"] as? NSNumber).map { ISO8601DateFormatter().string(from: Date(timeIntervalSince1970: $0.doubleValue)) } ?? "?"
+        let built = o["build"] as? String
+        let warnings = (o["warnings"] as? [String])?.count ?? 0
+        StartupLog.write("runtime generation: prepared \(at) by \(built ?? "an older build"), rewrite \((o["rewrite"] as? Bool) == true), warnings \(warnings)")
+        if let built, built != NCPrepMarkers.currentBuild {
+            StartupLog.write("WARNING: runtime was prepared by app \(built), tunnel is \(NCPrepMarkers.currentBuild): open the app and connect once to regenerate it")
         }
     }
 
