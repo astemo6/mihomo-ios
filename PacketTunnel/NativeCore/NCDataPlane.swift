@@ -82,10 +82,30 @@ final class NCDataPlane {
         isRunning = true
         readLoop()
         let t = DispatchSource.makeTimerSource(queue: queue)
-        t.schedule(deadline: .now() + 0.25, repeating: 0.25)
+        t.schedule(deadline: .now() + Self.fastTick, repeating: Self.fastTick, leeway: .milliseconds(25))
         t.setEventHandler { [weak self] in self?.tick() }
         t.resume()
         timer = t
+        tickFast = true
+        idleTicks = 0
+    }
+
+    // Power (feat/native-core-eval merge, 2026-10-25): the 250 ms lwIP tick only matters while relays exist. With no
+    // TCP / UDP session for 2 s it drops to one wake every 5 s (lwIP timers tolerate late ticks: TIME-WAIT / UDP idle
+    // just expire later); any packet from the TUN or a new session restores 250 ms at once. Proxy-only mode (data
+    // plane idle) and an idle tunnel no longer wake the extension 4×/s.
+    private static let fastTick: DispatchTimeInterval = .milliseconds(250)
+    private static let slowTick: DispatchTimeInterval = .seconds(5)
+    private var tickFast = true
+    private var idleTicks = 0
+
+    private func setTickFast(_ fast: Bool) {
+        guard fast != tickFast, let timer else { return }
+        tickFast = fast
+        idleTicks = 0
+        let interval = fast ? Self.fastTick : Self.slowTick
+        timer.schedule(deadline: .now() + interval, repeating: interval,
+                       leeway: fast ? .milliseconds(25) : .seconds(1))
     }
 
     func stop() {
@@ -114,6 +134,7 @@ final class NCDataPlane {
         flow?.readPackets { [weak self] packets, _ in
             guard let self else { return }
             self.queue.async {
+                if !self.tickFast { self.setTickFast(true) }
                 for p in packets {
                     // ICMP echo to fake-IP / tunnel addresses: answer in
                     // place (those destinations aren't stack addresses).
@@ -150,6 +171,13 @@ final class NCDataPlane {
         for (id, entry) in udpSessions where now.timeIntervalSince(entry.lastUsed) > 120 {
             entry.session.cancel()
             udpSessions.removeValue(forKey: id)
+        }
+        if sessions.isEmpty && udpSessions.isEmpty {
+            idleTicks += 1
+            if tickFast && idleTicks >= 8 { setTickFast(false) }
+        } else {
+            idleTicks = 0
+            if !tickFast { setTickFast(true) }
         }
     }
 

@@ -321,6 +321,20 @@ final class NCWGDevice {
     func retain() {
         users += 1
         lastUse = Date()
+        setTickFast(true)
+    }
+
+    // Power (2026-10-25 merge review): 250 ms only while a stream / UDP session uses the device; an unused device
+    // (lingering up to 180 s before teardown) ticks once a second — rekey / keepalive / lwIP close timers are all
+    // second-scale, and the next flow restores 250 ms at once via retain().
+    private var tickFast = true
+
+    private func setTickFast(_ fast: Bool) {
+        guard fast != tickFast, let timer else { return }
+        tickFast = fast
+        let interval: DispatchTimeInterval = fast ? .milliseconds(250) : .seconds(1)
+        timer.schedule(deadline: .now() + interval, repeating: interval,
+                       leeway: fast ? .milliseconds(25) : .milliseconds(200))
     }
 
     func release() {
@@ -365,7 +379,8 @@ final class NCWGDevice {
         for p in peers { p.tick(now) }
         // Memory first: an unused device (no stream / UDP session for 3 min) is torn down; the next flow
         // re-creates it with a fresh handshake.
-        if users == 0, now.timeIntervalSince(lastUse) > 180 { teardown() }
+        if users == 0, now.timeIntervalSince(lastUse) > 180 { teardown(); return }
+        setTickFast(users > 0)
     }
 
     func teardown() {
