@@ -274,14 +274,16 @@ enum NCArgon2 {
     /// One BlaMka round over 16 words of `t` at the given indices.
     private static func blamkaRound(_ t: inout [UInt64], _ idx: [Int]) {
         var v = idx.map { t[$0] }
+        // fBlaMka: x + y + 2·lo32(x)·lo32(y) mod 2^64 — the doubled product can exceed 2^64, so wrapping ops
+        // (a checked `*` traps on every real Argon2 run).
         func g(_ a: Int, _ b: Int, _ c: Int, _ d: Int) {
-            v[a] = v[a] &+ v[b] &+ 2 * UInt64(UInt32(truncatingIfNeeded: v[a])) * UInt64(UInt32(truncatingIfNeeded: v[b]))
+            v[a] = v[a] &+ v[b] &+ 2 &* UInt64(UInt32(truncatingIfNeeded: v[a])) &* UInt64(UInt32(truncatingIfNeeded: v[b]))
             v[d] = (v[d] ^ v[a]).rotated(right: 32)
-            v[c] = v[c] &+ v[d] &+ 2 * UInt64(UInt32(truncatingIfNeeded: v[c])) * UInt64(UInt32(truncatingIfNeeded: v[d]))
+            v[c] = v[c] &+ v[d] &+ 2 &* UInt64(UInt32(truncatingIfNeeded: v[c])) &* UInt64(UInt32(truncatingIfNeeded: v[d]))
             v[b] = (v[b] ^ v[c]).rotated(right: 24)
-            v[a] = v[a] &+ v[b] &+ 2 * UInt64(UInt32(truncatingIfNeeded: v[a])) * UInt64(UInt32(truncatingIfNeeded: v[b]))
+            v[a] = v[a] &+ v[b] &+ 2 &* UInt64(UInt32(truncatingIfNeeded: v[a])) &* UInt64(UInt32(truncatingIfNeeded: v[b]))
             v[d] = (v[d] ^ v[a]).rotated(right: 16)
-            v[c] = v[c] &+ v[d] &+ 2 * UInt64(UInt32(truncatingIfNeeded: v[c])) * UInt64(UInt32(truncatingIfNeeded: v[d]))
+            v[c] = v[c] &+ v[d] &+ 2 &* UInt64(UInt32(truncatingIfNeeded: v[c])) &* UInt64(UInt32(truncatingIfNeeded: v[d]))
             v[b] = (v[b] ^ v[c]).rotated(right: 63)
         }
         g(0, 4, 8, 12); g(1, 5, 9, 13); g(2, 6, 10, 14); g(3, 7, 11, 15)
