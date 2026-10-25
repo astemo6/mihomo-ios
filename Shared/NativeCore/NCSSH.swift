@@ -1,6 +1,7 @@
 import Foundation
 import CryptoKit
 import Security
+import os
 
 /// SSH outbound (mihomo v1.19.33 adapter/outbound/ssh.go: one shared client per proxy, a direct-tcpip channel per
 /// flow) as a pure-Swift SSH-2 client (feat/nc-proto A3, based on astemo6/Muse NativeCore).
@@ -327,8 +328,12 @@ final class NCSSHClient {
     static let windowSize: UInt32 = 512 * 1024
     static let maxPacket: UInt32 = 32 * 1024
 
-    private let raw: NCRelayStream
-    private let queue: DispatchQueue
+    /// The transport; set at init for a chained transport, or right after via attachRaw when the raw stream
+    /// first had to be dialed on this client's own queue (which only exists once the client does).
+    private var raw: NCRelayStream?
+    /// The client's own serial queue (nc-sessions): every piece of client and channel state is touched only
+    /// here. Callers' queues are never used for the transport any more.
+    let queue: DispatchQueue
     private let user: String
     private let password: String?
     private let key: NCSSHKey?
@@ -336,8 +341,12 @@ final class NCSSHClient {
     private let hostKeyAlgs: [String]
     /// "server:port" for trust-on-first-use when no `host-key` pin is configured (nil = no TOFU, e.g. tests).
     private let knownHostID: String?
-    private(set) var state: State = .connecting
-    private var readyHandlers: [(Error?) -> Void] = []
+    /// Lock-protected snapshot for cross-thread readers (the registry in NCConnector); all other state is
+    /// confined to `queue`.
+    private let stateLock = OSAllocatedUnfairLock(initialState: State.connecting)
+    var state: State { stateLock.withLock { $0 } }
+    private func setState(_ newState: State) { stateLock.withLock { $0 = newState } }
+    private var readyHandlers: [(Error?) -> Void] = [] // queue-confined
 
     private let clientVersion = "SSH-2.0-Go"
     private var serverVersion: String?
@@ -353,15 +362,15 @@ final class NCSSHClient {
     private var p256: P256.KeyAgreement.PrivateKey?
     private var sessionID: Data?
     private var pendingKeys: (cipherIn: NCSSHCipher.Mode, cipherOut: NCSSHCipher.Mode)?
-    private var heldDuringKex: [Data] = []
+    private var heldDuringKex: [(payload: Data, completion: (() -> Void)?)] = []
     private var authTried: [String] = []
 
     // Channels
     private var nextChannel: UInt32 = 0
     private var channels: [UInt32: NCSSHChannel] = [:]
 
-    init(raw: NCRelayStream, user: String, password: String?, key: NCSSHKey?, hostKeys: [Data],
-         hostKeyAlgs: [String], queue: DispatchQueue, knownHostID: String? = nil) {
+    init(raw: NCRelayStream?, user: String, password: String?, key: NCSSHKey?, hostKeys: [Data],
+         hostKeyAlgs: [String], label: String, knownHostID: String? = nil) {
         self.raw = raw
         self.knownHostID = knownHostID
         self.user = user
@@ -369,35 +378,53 @@ final class NCSSHClient {
         self.key = key
         self.hostKeys = hostKeys
         self.hostKeyAlgs = hostKeyAlgs
-        self.queue = queue
+        self.queue = NCSessionQueues.make("nc.ssh.\(label)")
     }
 
+    /// Supplies the transport dialed on `queue` (NCConnector.obtainSSHRaw) when it could not exist before
+    /// the client. Called once, before start().
+    func attachRaw(_ raw: NCRelayStream) { self.raw = raw }
+
+    /// The transport could not be obtained at all: fail like a handshake error.
+    func transportFailed(_ e: Error) { fail(e) }
+
     func start(_ done: @escaping (Error?) -> Void) {
-        readyHandlers.append(done)
-        raw.send(Data((clientVersion + "\r\n").utf8))
-        sendKexInit()
-        pump()
-        queue.asyncAfter(deadline: .now() + 15) { [weak self] in
-            guard let self, self.state == .connecting else { return }
-            self.fail(Self.err("handshake timeout"))
+        ncOnSessionQueue(queue) {
+            self.readyHandlers.append(done)
+            self.raw?.send(Data((self.clientVersion + "\r\n").utf8))
+            self.sendKexInit()
+            self.pump()
+            self.queue.asyncAfter(deadline: .now() + 15) { [weak self] in
+                guard let self, self.state == .connecting else { return }
+                self.fail(Self.err("handshake timeout"))
+            }
         }
     }
 
+    /// Readiness is delivered on the client's queue; channel opens hand results back on the channel's
+    /// caller queue from there.
     func whenReady(_ h: @escaping (Error?) -> Void) {
-        switch state {
-        case .ready: h(nil)
-        case .connecting: readyHandlers.append(h)
-        default: h(Self.err("connection closed"))
+        ncOnSessionQueue(queue) {
+            switch self.state {
+            case .ready: h(nil)
+            case .connecting: self.readyHandlers.append(h)
+            default: h(Self.err("connection closed"))
+            }
         }
     }
 
     private func pump() {
-        raw.receive { [weak self] data, error in
-            guard let self, self.state == .connecting || self.state == .ready else { return }
-            guard let data else { self.fail(error ?? Self.err("connection closed")); return }
-            self.inbuf.append(data)
-            do { try self.process() } catch { self.fail(error); return }
-            if self.state == .connecting || self.state == .ready { self.pump() }
+        raw?.receive { [weak self] data, error in
+            guard let self else { return }
+            // The raw stream was dialed on this client's queue, so this normally runs inline; the hop also
+            // covers a chained transport whose callbacks live on its own session queue.
+            ncOnSessionQueue(self.queue) {
+                guard self.state == .connecting || self.state == .ready else { return }
+                guard let data else { self.fail(error ?? Self.err("connection closed")); return }
+                self.inbuf.append(data)
+                do { try self.process() } catch { self.fail(error); return }
+                if self.state == .connecting || self.state == .ready { self.pump() }
+            }
         }
     }
 
@@ -427,14 +454,24 @@ final class NCSSHClient {
 
     // MARK: Packets out
 
-    private func sendPacket(_ payload: Data, kex: Bool = false) {
+    /// Queue-confined. `completion` (channel data) fires once the transport has taken the sealed packet —
+    /// the channel's back-pressure signal; packets held during a re-key carry theirs along.
+    private func sendPacket(_ payload: Data, kex: Bool = false, completion: (() -> Void)? = nil) {
         if kexInProgress && !kex {
-            heldDuringKex.append(payload)
+            heldDuringKex.append((payload, completion))
             return
         }
-        guard let wire = enc.seal(payload: payload, seq: sendSeq) else { fail(Self.err("encrypt failed")); return }
+        guard let wire = enc.seal(payload: payload, seq: sendSeq) else {
+            completion?()
+            fail(Self.err("encrypt failed"))
+            return
+        }
         sendSeq &+= 1
-        raw.send(wire)
+        if let completion {
+            raw?.ncSend(wire, completion: completion)
+        } else {
+            raw?.send(wire)
+        }
     }
 
     private static let kexAlgs = ["curve25519-sha256", "curve25519-sha256@libssh.org", "ecdh-sha2-nistp256"]
@@ -488,13 +525,13 @@ final class NCSSHClient {
             if state == .connecting && authTried.isEmpty {
                 sendPacket(Data([5]) + NCSSHWire.string("ssh-userauth"))
             }
-            for h in held { sendPacket(h) }
+            for h in held { sendPacket(h.payload, completion: h.completion) }
         case 6: // SERVICE_ACCEPT
             tryNextAuth()
         case 51: // USERAUTH_FAILURE
             tryNextAuth()
         case 52: // USERAUTH_SUCCESS
-            state = .ready
+            setState(.ready)
             let hs = readyHandlers
             readyHandlers = []
             for h in hs { h(nil) }
@@ -693,10 +730,20 @@ final class NCSSHClient {
 
     // MARK: Channels
 
+    func openDirectTCPIP(target: NCTarget, callerQueue: DispatchQueue) -> NCSSHChannel {
+        if NCSessionQueues.isCurrent(queue) { return openChannelOnQueue(target: target, callerQueue: callerQueue) }
+        return queue.sync { openChannelOnQueue(target: target, callerQueue: callerQueue) }
+    }
+
+    /// Legacy entry point: results land on the client's queue (see NCMuxSession.openStream).
     func openDirectTCPIP(target: NCTarget) -> NCSSHChannel {
+        openDirectTCPIP(target: target, callerQueue: queue)
+    }
+
+    private func openChannelOnQueue(target: NCTarget, callerQueue: DispatchQueue) -> NCSSHChannel {
         let id = nextChannel
         nextChannel &+= 1
-        let ch = NCSSHChannel(client: self, localID: id)
+        let ch = NCSSHChannel(client: self, localID: id, callerQueue: callerQueue)
         channels[id] = ch
         var p = Data([90]) + NCSSHWire.string("direct-tcpip")
         p += NCSSHWire.u32(id) + NCSSHWire.u32(Self.windowSize) + NCSSHWire.u32(Self.maxPacket)
@@ -706,26 +753,33 @@ final class NCSSHClient {
         return ch
     }
 
-    fileprivate func channelSend(_ payload: Data) { sendPacket(payload) }
+    /// Queue-confined (channels hop onto the client queue before flushing).
+    fileprivate func channelSend(_ payload: Data, completion: (() -> Void)? = nil) {
+        sendPacket(payload, completion: completion)
+    }
     fileprivate func channelGone(_ id: UInt32) { channels.removeValue(forKey: id) }
 
     private func fail(_ e: Error) {
-        guard state == .connecting || state == .ready else { return }
-        state = .failed
-        let hs = readyHandlers
-        readyHandlers = []
-        for h in hs { h(e) }
-        for ch in channels.values { ch.connectionLost(e) }
-        channels.removeAll()
-        raw.cancel()
+        ncOnSessionQueue(queue) {
+            guard self.state == .connecting || self.state == .ready else { return }
+            self.setState(.failed)
+            let hs = self.readyHandlers
+            self.readyHandlers = []
+            for h in hs { h(e) }
+            for ch in self.channels.values { ch.connectionLost(e) }
+            self.channels.removeAll()
+            self.raw?.cancel()
+        }
     }
 
     func close() {
-        guard state != .closed else { return }
-        state = .closed
-        for ch in channels.values { ch.connectionLost(nil) }
-        channels.removeAll()
-        raw.cancel()
+        ncOnSessionQueue(queue) {
+            guard self.state != .closed else { return }
+            self.setState(.closed)
+            for ch in self.channels.values { ch.connectionLost(nil) }
+            self.channels.removeAll()
+            self.raw?.cancel()
+        }
     }
 }
 
@@ -733,6 +787,9 @@ final class NCSSHClient {
 /// is acknowledged with WINDOW_ADJUST as the consumer reads it, so at most one window is buffered per flow.
 final class NCSSHChannel: NCRelayStream {
     private var client: NCSSHClient? // strong: a chain-transport client lives as long as its channels
+    /// All channel state is confined to the client queue (nc-sessions): entry points hop onto it, and the
+    /// receive/open callbacks are handed back on `callerQueue`.
+    let callerQueue: DispatchQueue
     let localID: UInt32
     private var remoteID: UInt32 = 0
     private var remoteWindow: UInt32 = 0
@@ -740,15 +797,19 @@ final class NCSSHChannel: NCRelayStream {
     private var open = false, eof = false, closed = false
     private var failure: Error?
     private var outbox = Data()
+    private var outboxEntries: [NCPendingSendEntry] = []
     private var inbox: [Data] = []
     private var pending: ((Data?, Error?) -> Void)?
     private var consumed: UInt32 = 0
     var onOpen: ((Error?) -> Void)?
 
-    fileprivate init(client: NCSSHClient, localID: UInt32) {
+    fileprivate init(client: NCSSHClient, localID: UInt32, callerQueue: DispatchQueue) {
         self.client = client
         self.localID = localID
+        self.callerQueue = callerQueue
     }
+
+    private var clientQueue: DispatchQueue { client?.queue ?? callerQueue }
 
     fileprivate func handle(type: UInt8, reader r: inout NCSSHWire.Reader) {
         switch type {
@@ -756,7 +817,8 @@ final class NCSSHChannel: NCRelayStream {
             guard let rid = r.u32(), let win = r.u32(), let maxp = r.u32() else { return }
             remoteID = rid; remoteWindow = win; remoteMaxPacket = max(1024, min(Int(maxp), 32768))
             open = true
-            let cb = onOpen; onOpen = nil; cb?(nil)
+            let cb = onOpen; onOpen = nil
+            if let cb { callerQueue.async { cb(nil) } }
             flush()
         case 92: // OPEN_FAILURE
             _ = r.u32()
@@ -765,8 +827,9 @@ final class NCSSHChannel: NCRelayStream {
             failure = e
             closed = true
             client?.channelGone(localID)
-            let cb = onOpen; onOpen = nil; cb?(e)
-            if let h = pending { pending = nil; h(nil, e) }
+            let cb = onOpen; onOpen = nil
+            if let cb { callerQueue.async { cb(e) } }
+            if let h = pending { pending = nil; callerQueue.async { h(nil, e) } }
         case 93: // WINDOW_ADJUST
             if let add = r.u32() { remoteWindow &+= add; flush() }
         case 94: // DATA
@@ -776,13 +839,14 @@ final class NCSSHChannel: NCRelayStream {
             if let d = r.bytes() { ack(UInt32(d.count)) }
         case 96: // EOF
             eof = true
-            if inbox.isEmpty, let h = pending { pending = nil; h(nil, nil) }
+            if inbox.isEmpty, let h = pending { pending = nil; callerQueue.async { h(nil, nil) } }
         case 97: // CLOSE
             if !closed { client?.channelSend(Data([97]) + NCSSHWire.u32(remoteID)) }
             closed = true
             eof = true
             client?.channelGone(localID)
-            if inbox.isEmpty, let h = pending { pending = nil; h(nil, nil) }
+            fireOutboxCompletions()
+            if inbox.isEmpty, let h = pending { pending = nil; callerQueue.async { h(nil, nil) } }
         case 98: // CHANNEL_REQUEST
             _ = r.str()
             if r.bool() == true { client?.channelSend(Data([100]) + NCSSHWire.u32(remoteID)) }
@@ -792,7 +856,7 @@ final class NCSSHChannel: NCRelayStream {
     }
 
     private func deliver(_ d: Data) {
-        if let h = pending { pending = nil; ack(UInt32(d.count)); h(d, nil) }
+        if let h = pending { pending = nil; ack(UInt32(d.count)); callerQueue.async { h(d, nil) } }
         else { inbox.append(d) }
     }
 
@@ -810,44 +874,75 @@ final class NCSSHChannel: NCRelayStream {
             let n = min(outbox.count, remoteMaxPacket, Int(remoteWindow))
             let chunk = Data(outbox.prefix(n))
             outbox = Data(outbox.dropFirst(n))
+            let (done, rest) = NCPendingSends.split(outboxEntries, consumed: n)
+            outboxEntries = rest
             remoteWindow -= UInt32(n)
-            client?.channelSend(Data([94]) + NCSSHWire.u32(remoteID) + NCSSHWire.string(chunk))
+            let packet = Data([94]) + NCSSHWire.u32(remoteID) + NCSSHWire.string(chunk)
+            if let client {
+                client.channelSend(packet) { done.forEach { $0.call() } }
+            } else {
+                done.forEach { $0.call() }
+            }
         }
+    }
+
+    private func fireOutboxCompletions() {
+        NCPendingSends.fireAll(outboxEntries)
+        outboxEntries = []
+        outbox = Data()
     }
 
     func send(_ data: Data) {
-        guard !closed, failure == nil else { return }
-        outbox.append(data)
-        flush()
+        send(data, completion: {})
+    }
+
+    /// Send with back-pressure: `completion` fires exactly once — after these bytes were flushed within the
+    /// peer's window and the client's transport took the packet, or when the channel/connection dies trying.
+    func send(_ data: Data, completion: @escaping () -> Void) {
+        let once = NCOnceCompletion(completion)
+        ncOnSessionQueue(clientQueue) {
+            guard !self.closed, self.failure == nil else { once.call(); return }
+            self.outbox.append(data)
+            self.outboxEntries.append(NCPendingSendEntry(count: data.count, once: once))
+            self.flush()
+        }
     }
 
     func receive(_ handler: @escaping (Data?, Error?) -> Void) {
-        if !inbox.isEmpty {
-            let d = inbox.removeFirst()
-            ack(UInt32(d.count))
-            handler(d, nil)
-            return
+        ncOnSessionQueue(clientQueue) {
+            if !self.inbox.isEmpty {
+                let d = self.inbox.removeFirst()
+                self.ack(UInt32(d.count))
+                self.callerQueue.async { handler(d, nil) }
+                return
+            }
+            if let failure = self.failure { self.callerQueue.async { handler(nil, failure) }; return }
+            if self.eof || self.closed { self.callerQueue.async { handler(nil, nil) }; return }
+            self.pending = handler
         }
-        if let failure { handler(nil, failure); return }
-        if eof || closed { handler(nil, nil); return }
-        pending = handler
     }
 
     func cancel() {
-        guard !closed else { return }
-        closed = true
-        if open {
-            client?.channelSend(Data([96]) + NCSSHWire.u32(remoteID))
-            client?.channelSend(Data([97]) + NCSSHWire.u32(remoteID))
+        ncOnSessionQueue(clientQueue) {
+            guard !self.closed else { return }
+            self.closed = true
+            self.fireOutboxCompletions()
+            if self.open {
+                self.client?.channelSend(Data([96]) + NCSSHWire.u32(self.remoteID))
+                self.client?.channelSend(Data([97]) + NCSSHWire.u32(self.remoteID))
+            }
+            self.client?.channelGone(self.localID)
         }
-        client?.channelGone(localID)
     }
 
+    /// Client queue only (called from the client's fail/close).
     fileprivate func connectionLost(_ e: Error?) {
         closed = true
         failure = failure ?? e
-        let cb = onOpen; onOpen = nil; cb?(e ?? NCSSHClient.err("connection closed"))
-        if let h = pending { pending = nil; h(nil, e) }
+        fireOutboxCompletions()
+        let cb = onOpen; onOpen = nil
+        if let cb { callerQueue.async { cb(e ?? NCSSHClient.err("connection closed")) } }
+        if let h = pending { pending = nil; callerQueue.async { h(nil, e) } }
     }
 }
 
@@ -864,7 +959,8 @@ extension NCConnector {
         func openOn(_ c: NCSSHClient) {
             c.whenReady { err in
                 if let err { completion(nil, err); return }
-                let ch = c.openDirectTCPIP(target: target)
+                // The channel hands its open result back on the caller's queue (recorded here).
+                let ch = c.openDirectTCPIP(target: target, callerQueue: queue)
                 ch.onOpen = { e in completion(e == nil ? ch : nil, e) }
             }
         }
@@ -893,13 +989,15 @@ extension NCConnector {
         let algs = proxy.fields["host-key-algorithms"]?.array?.compactMap { $0.string } ?? []
         let user = proxy.fields["username"]?.string ?? ""
         let pw = proxy.fields["password"]?.string
-        obtainSSHRaw(transport: transport, server: server, port: port, queue: queue) { raw, err in
-            guard let raw else { completion(nil, err); return }
-            let c = NCSSHClient(raw: raw, user: user, password: (pw?.isEmpty ?? true) ? nil : pw, key: signer,
-                                hostKeys: pins, hostKeyAlgs: algs, queue: queue, knownHostID: "\(server):\(port)")
-            if transport == nil {
-                sshLock.lock(); sshRegistry[key] = c; sshLock.unlock()
-            }
+        // nc-sessions: the client owns its queue, so it is created first and the raw stream is dialed on
+        // *its* queue (obtainSSHRaw's queue argument), never on the caller's.
+        let c = NCSSHClient(raw: transport, user: user, password: (pw?.isEmpty ?? true) ? nil : pw, key: signer,
+                            hostKeys: pins, hostKeyAlgs: algs, label: "\(server):\(port)",
+                            knownHostID: "\(server):\(port)")
+        if transport == nil {
+            sshLock.lock(); sshRegistry[key] = c; sshLock.unlock()
+        }
+        func begin() {
             c.start { e in
                 if e != nil, transport == nil {
                     sshLock.lock()
@@ -908,6 +1006,22 @@ extension NCConnector {
                 }
             }
             openOn(c)
+        }
+        if transport != nil {
+            begin()
+        } else {
+            obtainSSHRaw(transport: nil, server: server, port: port, queue: c.queue) { raw, err in
+                guard let raw else {
+                    sshLock.lock()
+                    if sshRegistry[key] === c { sshRegistry.removeValue(forKey: key) }
+                    sshLock.unlock()
+                    c.transportFailed(err ?? Failure.handshake("ssh dial failed"))
+                    queue.async { completion(nil, err) }
+                    return
+                }
+                c.attachRaw(raw)
+                begin()
+            }
         }
     }
 
