@@ -445,6 +445,212 @@ final class NativeCoreDNSCoordinatorTests: XCTestCase {
         wait(for: [exp2], timeout: 3)
         XCTAssertEqual(resp2, r2)
     }
+
+    // MARK: - Coordinator: pending-entry cap (nc-memory, fix/nc-followup-a)
+
+    func testPendingCapFailsNewDistinctQueryAtOnceButNotCoalescedWaiters() {
+        // Small limits through the init seam: 1 slot, 2 pending entries, and a
+        // 30 s queue wait so a nil inside the test window can only come from
+        // the pending cap, never from the queue timeout.
+        let coord = NCDNSUpstreamCoordinator(maxInFlight: 1, maxQueueWait: 30, maxPendingEntries: 2)
+        let rec = ExecuteRecorder()
+        coord.submit(key: "a", id: 0x0A01, callerQueue: callerQueue, execute: rec.execute(tag: "a")) { _ in }
+        let expB1 = expectation(description: "first b waiter")
+        let expB2 = expectation(description: "coalesced b waiter past the cap")
+        var respB1: Data?
+        var respB2: Data?
+        coord.submit(key: "b", id: 0x0B01, callerQueue: callerQueue, execute: rec.execute(tag: "b")) { r in
+            respB1 = r
+            expB1.fulfill()
+        }
+        coord.submit(key: "c", id: 0x0C01, callerQueue: callerQueue, execute: rec.execute(tag: "c")) { _ in }
+        eventually {
+            let c = coord.inFlightCounts()
+            return c.entries == 3 && c.active == 1 && c.pending == 2
+        }
+
+        // Cap reached: a new distinct key fails nil at once, never runs upstream
+        // and never becomes an entry.
+        let expD = expectation(description: "over-cap d fails nil immediately")
+        var respD: Data? = Data([0xEE])
+        coord.submit(key: "d", id: 0x0D01, callerQueue: callerQueue, execute: rec.execute(tag: "d")) { r in
+            respD = r
+            expD.fulfill()
+        }
+        wait(for: [expD], timeout: 3)
+        XCTAssertNil(respD)
+        XCTAssertFalse(rec.tags.contains("d"))
+
+        // A waiter joining an existing pending entry is not capped.
+        coord.submit(key: "b", id: 0x0B02, callerQueue: callerQueue, execute: rec.execute(tag: "b2")) { r in
+            respB2 = r
+            expB2.fulfill()
+        }
+        let mid = coord.inFlightCounts() // queue.sync: the b2 submit has been processed
+        XCTAssertEqual(mid.entries, 3)
+        XCTAssertEqual(mid.pending, 2)
+
+        // Freeing the slot starts b (FIFO); its one upstream answer fans out to
+        // both waiters, each with its own transaction ID.
+        rec.complete(tag: "a", with: nil)
+        eventually { rec.tags == ["a", "b"] }
+        rec.complete(tag: "b", with: Data([0xFF, 0xFF, 0x81, 0x80, 0x01]))
+        wait(for: [expB1, expB2], timeout: 3)
+        XCTAssertEqual(respB1, Data([0x0B, 0x01, 0x81, 0x80, 0x01]))
+        XCTAssertEqual(respB2, Data([0x0B, 0x02, 0x81, 0x80, 0x01]))
+        XCTAssertFalse(rec.tags.contains("b2"))
+        coord.cancelAll()
+    }
+
+    func testProductionDefaultsCapPendingEntriesAt512() {
+        XCTAssertEqual(NCDNSUpstreamCoordinator.maxPendingEntries, 512)
+        XCTAssertEqual(NCDNSUpstreamCoordinator.maxInFlight, 32)
+        // Default init = the shared instance's limits (32 in flight, 512
+        // pending, 6 s wait). Fill every slot and the whole pending queue.
+        let coord = NCDNSUpstreamCoordinator()
+        let rec = ExecuteRecorder()
+        let total = NCDNSUpstreamCoordinator.maxInFlight + NCDNSUpstreamCoordinator.maxPendingEntries
+        for i in 0..<total {
+            coord.submit(key: "q\(i)", id: UInt16(i), callerQueue: callerQueue, execute: rec.execute(tag: "q\(i)")) { _ in }
+        }
+        let full = coord.inFlightCounts()
+        XCTAssertEqual(full.active, 32)
+        XCTAssertEqual(full.pending, 512)
+        XCTAssertEqual(full.entries, 544)
+        XCTAssertEqual(rec.tags.count, 32)
+
+        // The 513th pending query fails nil well inside the 6 s queue wait.
+        let started = Date()
+        let expOver = expectation(description: "query past the 512 cap fails nil")
+        var respOver: Data? = Data([0xEE])
+        coord.submit(key: "over", id: 0xFFFF, callerQueue: callerQueue, execute: rec.execute(tag: "over")) { r in
+            respOver = r
+            expOver.fulfill()
+        }
+        wait(for: [expOver], timeout: 3)
+        XCTAssertNil(respOver)
+        XCTAssertLessThan(Date().timeIntervalSince(started), NCDNSUpstreamCoordinator.maxQueueWait)
+        XCTAssertFalse(rec.tags.contains("over"))
+        XCTAssertEqual(coord.inFlightCounts().pending, 512)
+
+        // A duplicate of a queued key still coalesces at the cap.
+        let expDup = expectation(description: "coalesced waiter at the cap")
+        var respDup: Data? = Data([0xEE])
+        coord.submit(key: "q100", id: 0x4242, callerQueue: callerQueue, execute: rec.execute(tag: "dup")) { r in
+            respDup = r
+            expDup.fulfill()
+        }
+        XCTAssertEqual(coord.inFlightCounts().entries, 544)
+        coord.cancelAll() // fails every waiter (incl. the duplicate) with nil
+        wait(for: [expDup], timeout: 3)
+        XCTAssertNil(respDup)
+        XCTAssertFalse(rec.tags.contains("dup"))
+    }
+
+    // MARK: - Coordinator: fan-out ID rewrite edges
+
+    func testFanOutRewriteSkipsNilIDWaitersAndShortOrNilResponses() {
+        let coord = NCDNSUpstreamCoordinator()
+        let rec = ExecuteRecorder()
+        let expNoID = expectation(description: "waiter without an ID")
+        let expID = expectation(description: "waiter with an ID")
+        var respNoID: Data?
+        var respID: Data?
+        coord.submit(key: "k", id: nil, callerQueue: callerQueue, execute: rec.execute(tag: "k")) { r in
+            respNoID = r
+            expNoID.fulfill()
+        }
+        coord.submit(key: "k", id: 0x1234, callerQueue: callerQueue, execute: rec.execute(tag: "k2")) { r in
+            respID = r
+            expID.fulfill()
+        }
+        _ = coord.inFlightCounts() // both submits processed: the second coalesced
+        XCTAssertEqual(rec.tags, ["k"])
+        rec.complete(tag: "k", with: Data([0xAB, 0xCD, 0x01]))
+        wait(for: [expNoID, expID], timeout: 3)
+        XCTAssertEqual(respNoID, Data([0xAB, 0xCD, 0x01])) // untouched
+        XCTAssertEqual(respID, Data([0x12, 0x34, 0x01]))
+
+        // A response too short to carry an ID is passed through unchanged.
+        let expShort = expectation(description: "short response")
+        var respShort: Data?
+        coord.submit(key: "s", id: 0x5555, callerQueue: callerQueue, execute: rec.execute(tag: "s")) { r in
+            respShort = r
+            expShort.fulfill()
+        }
+        eventually { rec.tags.contains("s") }
+        rec.complete(tag: "s", with: Data([0x07]))
+        wait(for: [expShort], timeout: 3)
+        XCTAssertEqual(respShort, Data([0x07]))
+
+        // Upstream failure: every coalesced waiter gets nil, no rewrite.
+        let expN1 = expectation(description: "nil 1")
+        let expN2 = expectation(description: "nil 2")
+        var n1: Data? = Data([0xEE])
+        var n2: Data? = Data([0xEE])
+        coord.submit(key: "n", id: 0x0001, callerQueue: callerQueue, execute: rec.execute(tag: "n")) { r in
+            n1 = r
+            expN1.fulfill()
+        }
+        coord.submit(key: "n", id: 0x0002, callerQueue: callerQueue, execute: rec.execute(tag: "n2")) { r in
+            n2 = r
+            expN2.fulfill()
+        }
+        _ = coord.inFlightCounts()
+        rec.complete(tag: "n", with: nil)
+        wait(for: [expN1, expN2], timeout: 3)
+        XCTAssertNil(n1)
+        XCTAssertNil(n2)
+    }
+
+    func testForwarderMergeKeyAndIDHelpersDriveCoalescedFanOut() {
+        // The production key/ID helpers NCDNSForwarder feeds the coordinator:
+        // queries differing only in transaction ID share a key; each waiter
+        // gets the shared answer under its own ID.
+        // flags RD, QDCOUNT 1, then example.com IN A (split for the type checker).
+        var body: [UInt8] = [0x01, 0x00, 0x00, 0x01, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00]
+        body.append(0x07)
+        body.append(contentsOf: Array("example".utf8))
+        body.append(0x03)
+        body.append(contentsOf: Array("com".utf8))
+        body.append(contentsOf: [0x00, 0x00, 0x01, 0x00, 0x01] as [UInt8])
+        let q1 = Data([UInt8(0x12), 0x34] + body)
+        let q2 = Data([UInt8(0xAB), 0xCD] + body)
+        var otherBody = body
+        otherBody[otherBody.count - 3] = 0x1C // QTYPE A → AAAA
+        let q3 = Data([UInt8(0x12), 0x34] + otherBody)
+        XCTAssertEqual(NCDNSForwarder.transactionID(q1), 0x1234)
+        XCTAssertEqual(NCDNSForwarder.transactionID(q2), 0xABCD)
+        XCTAssertNil(NCDNSForwarder.transactionID(Data([0x01])))
+        XCTAssertEqual(NCDNSForwarder.mergeKeySuffix(q1), NCDNSForwarder.mergeKeySuffix(q2))
+        XCTAssertNotEqual(NCDNSForwarder.mergeKeySuffix(q1), NCDNSForwarder.mergeKeySuffix(q3))
+
+        let coord = NCDNSUpstreamCoordinator()
+        let rec = ExecuteRecorder()
+        let exp1 = expectation(description: "q1")
+        let exp2 = expectation(description: "q2")
+        var r1: Data?
+        var r2: Data?
+        for (q, tag) in [(q1, "q1"), (q2, "q2")] {
+            coord.submit(key: "udp://1.1.1.1:53|" + NCDNSForwarder.mergeKeySuffix(q),
+                         id: NCDNSForwarder.transactionID(q), callerQueue: callerQueue,
+                         execute: rec.execute(tag: tag)) { r in
+                if tag == "q1" { r1 = r; exp1.fulfill() } else { r2 = r; exp2.fulfill() }
+            }
+        }
+        _ = coord.inFlightCounts()
+        XCTAssertEqual(rec.tags, ["q1"])
+        var answer = q1
+        answer[2] = 0x81
+        answer[3] = 0x80
+        rec.complete(tag: "q1", with: answer)
+        wait(for: [exp1, exp2], timeout: 3)
+        XCTAssertEqual(r1, answer)
+        var expected2 = answer
+        expected2[0] = 0xAB
+        expected2[1] = 0xCD
+        XCTAssertEqual(r2, expected2)
+    }
 }
 
 // MARK: - Test doubles
