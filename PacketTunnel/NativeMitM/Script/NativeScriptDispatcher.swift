@@ -142,7 +142,14 @@ final class NativeScriptResponse {
     }
 
     /// Static checks on the plan (see the file comment); nil = supported.
-    static func unsupported(_ steps: [ScriptPlanStep]) -> String? {
+    static func unsupported(_ steps: [ScriptPlanStep]) -> String? { unsupported(steps, goFree: false) }
+
+    /// goFree: there is no Go flow to hand back to (a hand-back relays the response with NO script run), so the
+    /// "non-body script before a body script" shape runs natively: walk() already runs the steps in rule order,
+    /// a plain script's $done headers / body feed the later load exactly like modifyResponse (setBody → loaded,
+    /// Content-Encoding read at load time), and after a script ran a refused / over-limit load takes the
+    /// skip path instead of a hand-back.
+    static func unsupported(_ steps: [ScriptPlanStep], goFree: Bool) -> String? {
         var lastBody = -1
         var firstPlain = Int.max
         for (i, s) in steps.enumerated() {
@@ -150,7 +157,7 @@ final class NativeScriptResponse {
                 if rb { lastBody = i } else { firstPlain = min(firstPlain, i) }
             }
         }
-        if lastBody >= 0 && firstPlain < lastBody { return "script before body script" }
+        if !goFree && lastBody >= 0 && firstPlain < lastBody { return "script before body script" }
         for (i, s) in steps.enumerated() where i < lastBody {
             if case .header(let ops) = s.kind, ops.contains(where: { RWAscii.equalFold($0.name ?? "", "Content-Encoding") || $0.op == "raw" }) {
                 return "content-encoding rule"
@@ -188,7 +195,7 @@ final class NativeScriptResponse {
         }
         h.removeHopByHop()
         header = h
-        if let why = Self.unsupported(steps) { return .handBack(why) }
+        if let why = Self.unsupported(steps, goFree: NativeRewriteEngine.goFree) { return .handBack(why) }
         if needsBody {
             if !(flowNoBody || cl == 0) && cl < 0 { return .handBack("body length unknown") }
             if !Self.encodingOK(header.get("Content-Encoding")) { return .handBack("content-encoding") }
