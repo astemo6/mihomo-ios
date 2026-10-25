@@ -622,7 +622,7 @@ extension NCTLSClientStream {
         let b = [UInt8](body)
         guard b.count >= 2, b[0] == 3, b[1] == 3 else { fail(TLSError.handshake("server version not TLS 1.2")); return }
         // We offered 1.3: a 1.2 answer carrying the RFC 8446 §4.1.3 sentinel means an active downgrade.
-        if serverRandom.suffix(8) == Self.downgradeTLS12 { fail(TLSError.handshake("TLS downgrade detected")); return }
+        if !config.maxTLS12, serverRandom.suffix(8) == Self.downgradeTLS12 { fail(TLSError.handshake("TLS downgrade detected")); return }
         var idx = extStart
         if idx + 2 <= b.count {
             let extLen = Int(b[idx]) << 8 | Int(b[idx + 1]); idx += 2
