@@ -63,9 +63,8 @@ enum GoText {
         }
         if let g = groups(nodes, s), let n = Int(g[0]) { return String(localized: "\(n) 个节点") }
         if let g = groups(entries, s), let n = Int(g[0]) { return String(localized: "\(n) 条") }
-        // v0.18 Tailscale guard messages (numbers vary; the detailed readout is in 诊断 → 隧道内存).
-        if s.hasPrefix("Tailscale 未启动：") { return String(localized: "Tailscale 未启动：隧道扩展可用内存不足，继续启动可能让系统直接终止 VPN。详见 更多 → 诊断 → 隧道内存。") }
-        if s.hasPrefix("Tailscale 已停止：") { return String(localized: "Tailscale 已停止：隧道扩展可用内存过低，为避免 VPN 被系统终止已关闭 Tailscale。重新连接后可再次使用。") }
+        // Tailscale messages (delegated to TailscaleText).
+        if let ts = TailscaleText.localize(s) { return ts }
         // v0.19 覆写脚本: the core's prefix in Chinese, mihomo's own message (English) after it.
         if s.hasPrefix("脚本输出的配置校验失败: ") { return String(localized: "脚本输出的配置校验失败：\(String(s.dropFirst("脚本输出的配置校验失败: ".count)))") }
         if s.hasPrefix("脚本返回的不是配置对象: ") { return String(localized: "脚本返回的不是配置对象：\(String(s.dropFirst("脚本返回的不是配置对象: ".count)))") }
@@ -85,7 +84,6 @@ enum GoText {
         case "副本已手动修改": return String(localized: "副本已手动修改")
         case "配置在脚本运行期间已改变，请重新运行": return String(localized: "配置在脚本运行期间已改变，请重新运行")
         case "脚本返回了空配置": return String(localized: "脚本返回了空配置")
-        case "Tailscale 节点只能在连接后测速": return String(localized: "Tailscale 节点只能在连接后测速")
         case "拒绝（404）": return String(localized: "拒绝（404）")
         case "拒绝（空 200）": return String(localized: "拒绝（空 200）")
         case "拒绝（1×1 GIF）": return String(localized: "拒绝（1×1 GIF）")

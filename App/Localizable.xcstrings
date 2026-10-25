@@ -101727,6 +101727,42 @@
           }
         }
       }
+    },
+    "需要登录": {
+      "extractionState": "manual"
+    },
+    "内存不足已停用": {
+      "extractionState": "manual"
+    },
+    "重置 Tailscale 状态？": {
+      "extractionState": "manual"
+    },
+    "重置状态": {
+      "extractionState": "manual"
+    },
+    "重置 Tailscale 状态": {
+      "extractionState": "manual"
+    },
+    "将删除节点「%@」的状态目录并清除登录信息，下次连接需要重新登录。当前 VPN 正在运行，删除可能导致连接异常，请先断开 VPN。": {
+      "extractionState": "manual"
+    },
+    "将删除节点「%@」的状态目录并清除登录信息，下次连接需要重新登录。": {
+      "extractionState": "manual"
+    },
+    "直连 %lld / 中继 %lld": {
+      "extractionState": "manual"
+    },
+    "DERP 区域": {
+      "extractionState": "manual"
+    },
+    "Peer 节点": {
+      "extractionState": "manual"
+    },
+    "状态文件不存在": {
+      "extractionState": "manual"
+    },
+    "状态文件损坏或无法读取": {
+      "extractionState": "manual"
     }
   },
   "version": "1.0"
