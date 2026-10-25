@@ -65,6 +65,7 @@ struct NCEngineRule {
     var body: [(regex: String, repl: String)] = []
     var jq = ""
     var jsonCount = 0
+    var jsonOps: [(op: String, path: String, value: String)] = []
     var data = ""
     var dataType = ""
     var respHeaders: [String: String] = [:]
@@ -751,10 +752,17 @@ extension NCEngineRuleset {
         var r = NCEngineRule(kind: "json", phase: phase, pattern: pattern)
         var count = 0
         if verb == "del" {
+            for a in args {
+                r.jsonOps.append((op: "del", path: a, value: ""))
+            }
             count = args.count
         } else {
             var i = 0
-            while i + 1 < args.count { count += 1; i += 2 }
+            while i + 1 < args.count {
+                r.jsonOps.append((op: verb, path: args[i], value: args[i + 1]))
+                count += 1
+                i += 2
+            }
         }
         r.jsonCount = count
         if count == 0 { return (nil, .message("JSON 操作缺少参数")) }
