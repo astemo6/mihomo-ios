@@ -249,6 +249,15 @@ final class VPNManager: ObservableObject {
             o.safeMode = safeMode
             o.save()
             safeModeActive = safeMode
+            // fix/nc-vpn-start-crash: prepare the runtime BEFORE enabling the configuration / arming on-demand.
+            // Arming 保持连接 (connect on any network) first let iOS bring the tunnel up by itself while the app was
+            // still preparing — with the PREVIOUS generation of runtime files — and then `start` saw .connected and
+            // never started the new one. When the prepare crashed the app (build #374), that on-demand tunnel was
+            // left running on stale files: "connected, but no network at all".
+            if let err = await NativeRuntimePrep.prepare() {
+                lastError = err
+                return
+            }
             let m = try await ensureManager()
             // r7 (review7 R7A-2): the scope in overrides.json (restored backup / snapshot / sync, a page that
             // short-circuited) must be what iOS enforces — re-applied before every start when it differs.
@@ -275,11 +284,6 @@ final class VPNManager: ObservableObject {
             }
             userStopped = false
             TunnelErrorLog.clear()
-            // feat/native-core-eval: the Go-free tunnel reads the runtime config the app builds.
-            if let err = await NativeRuntimePrep.prepare() {
-                lastError = err
-                return
-            }
             // rv2-life: the user stopped while we were preparing, or iOS is already bringing it up (on-demand)
             guard seq == stopSeq else {
                 NSLog("[Mihomo] start abandoned: stop() arrived while preparing")

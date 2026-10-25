@@ -215,6 +215,13 @@ struct NCEngineConfig: Decodable {
 
 enum NCMitmBuild {
 
+    /// Module file bytes -> text. UTF-8 first (every real module: 中文 / emoji policy names, script names, arguments,
+    /// panel titles), Latin-1 only for a file that is not valid UTF-8 (#139 decoded Latin-1 first, which never fails,
+    /// so every UTF-8 module was mojibaked). Same order as EngineStore / ModuleGallery.
+    static func moduleText(_ data: Data) -> String {
+        String(data: data, encoding: .utf8) ?? String(data: data, encoding: .isoLatin1) ?? String(decoding: data, as: UTF8.self)
+    }
+
     static func build(home: String, cfg: NCEngineConfig?) -> NCEngineRuleset {
         let rs = NCEngineRuleset()
         guard let cfg else { return rs }
@@ -233,10 +240,7 @@ enum NCMitmBuild {
                     continue
                 }
                 let sub = NCEngineRuleset()
-                // Go keeps the module text as a byte string; decode
-                // Latin-1 so every byte maps 1:1 instead of letting
-                // lossy UTF-8 replacement mangle non-UTF-8 content.
-                sub.parseText(String(data: data, encoding: .isoLatin1) ?? String(decoding: data, as: UTF8.self), source: m.name, args: m.args ?? [:])
+                sub.parseText(moduleText(data), source: m.name, args: m.args ?? [:])
                 // mitm config.go Build: a module's skip-cert-verify=true
                 // propagates to the built ruleset (false never clears).
                 if sub.skipCertVerify == true { rs.skipCertVerify = true }

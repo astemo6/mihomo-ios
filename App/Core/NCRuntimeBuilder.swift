@@ -50,6 +50,8 @@ enum NCRuntimeBuilder {
         var scripts: Int = 0
         var lowered: [String]? = nil
         var warnings: [String]? = nil
+        /// fix/nc-vpn-start-crash: app build that produced this runtime ("0.20.0 (375)"); the tunnel logs a mismatch.
+        var build: String? = nil
     }
 
     enum BuildError: Error {

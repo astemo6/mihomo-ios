@@ -70,6 +70,19 @@ enum NativeRuntimePrep {
 
     private static func prepareSyncLocked(home: String, profile: URL) -> String? {
         PrepTransaction.removeStale(home: home)
+        // fix/nc-vpn-start-crash: a marker still here = the previous prepare died inside the app process (a trap
+        // cannot be caught). If it died building the rewrite snapshot, quarantine that exact rule set so the next
+        // connect runs without rewrite / MitM instead of crashing again.
+        let build = NCPrepMarkers.currentBuild
+        let crashed = NCPrepMarkers.readInflight(home: home)
+        if let crashed {
+            NSLog("[Mihomo] previous native runtime prepare did not finish (stage %@, build %@)", crashed.stage, crashed.build)
+            if crashed.stage == "rewrite", let fp = crashed.fp {
+                NCPrepMarkers.writeQuarantine(home: home, .init(fp: fp, build: crashed.build, at: Int64(Date().timeIntervalSince1970)))
+            }
+        }
+        NCPrepMarkers.writeInflight(home: home, .init(stage: "build", at: Int64(Date().timeIntervalSince1970), build: build, fp: nil))
+        defer { NCPrepMarkers.clearInflight(home: home) }
         // Non-throwing init: no deferred-initialized `let` in this body (build #359 SIL verifier crash shape).
         let tx = PrepTransaction(home: home)
         // Whatever happens below, the staging directory goes (after a commit it only holds the backups).
@@ -90,6 +103,7 @@ enum NativeRuntimePrep {
         var rep = NCRuntimeBuilder.PrepReport()
         rep.at = Int64(Date().timeIntervalSince1970)
         rep.profile = (profile.path as NSString).lastPathComponent
+        rep.build = build
 
         // Immutable cfg / rs and a reference box for the state the (escaping) inject
         // closure mutates: Swift 6.2's SIL verifier crashed (OwnershipModelEliminator,
@@ -151,26 +165,42 @@ enum NativeRuntimePrep {
                 try tx.put(man.data, NCScriptManifest.scriptManifestFile)
                 scriptKeep = man.keep
             } catch {
-                // bridge nativeprep.go: a manifest failure is a warning
-                // only — the OLD manifest stays in place (the code files
-                // buildManifest already wrote stay too, as in Go). Do not
-                // stage an empty replacement: that disabled every script.
+                // Restored after #139 (deliberate divergence from bridge nativeprep.go): the manifest indexes the
+                // rule set by position, so an OLD manifest next to the NEW rule set would run scripts on the wrong
+                // rules. Stage an empty one: this start runs without scripts, with a warning.
                 let errStr = (error as? LocalizedError)?.errorDescription ?? error.localizedDescription
                 rep.scripts = 0
-                rep.warnings = (rep.warnings ?? []) + ["脚本清单写入失败：" + errStr]
+                rep.warnings = (rep.warnings ?? []) + ["脚本清单生成失败，本次未启用脚本：" + errStr]
+                try tx.put(try JSONEncoder().encode(NCScriptManifestRoot()), NCScriptManifest.scriptManifestFile)
             }
 
-            // Rewrite / MitM snapshot. bridge nativeprep.go: a snapshot
-            // write failure aborts the whole prepare (the runtime files
-            // written before it stay, the old snapshot stays) — it is
-            // NOT downgraded to a warning with the old snapshot deleted.
+            // Rewrite / MitM snapshot. Restored after #139 (deliberate divergence from bridge nativeprep.go): a
+            // snapshot failure is a warning and this start runs without rewrite / MitM (the old snapshot is removed
+            // so it cannot be paired with the new rule set). Aborting the whole prepare meant one bad module blocked
+            // every connect / reload. Only a staging-write failure (TxError) stays fatal.
             rep.rewrite = false
             rep.mitmHosts = 0
             if let cfg = cfg, let rs = rs, (cfg.anyOn || (cfg.mitm && !rs.hostnames.isEmpty)) {
-                let (snap, hosts) = try NCRewriteSnapshotBuilder.exportData(home: home, cfg: cfg, rs: rs)
-                try tx.put(snap, "nativecore-rewrite.json")
-                rep.rewrite = true
-                rep.mitmHosts = hosts
+                let fp = rewriteFingerprint(cfg: cfg, rs: rs, build: build)
+                if let q = NCPrepMarkers.readQuarantine(home: home), q.fp == fp {
+                    rep.warnings = (rep.warnings ?? []) + ["上次生成重写 / MitM 快照时 App 异常退出，本次未启用重写 / MitM（修改模块 / 规则或更新 App 后会重试）"]
+                    tx.remove("nativecore-rewrite.json")
+                } else {
+                    if NCPrepMarkers.readQuarantine(home: home) != nil { NCPrepMarkers.clearQuarantine(home: home) }
+                    NCPrepMarkers.writeInflight(home: home, .init(stage: "rewrite", at: Int64(Date().timeIntervalSince1970), build: build, fp: fp))
+                    do {
+                        let (snap, hosts) = try NCRewriteSnapshotBuilder.exportData(home: home, cfg: cfg, rs: rs)
+                        try tx.put(snap, "nativecore-rewrite.json")
+                        rep.rewrite = true
+                        rep.mitmHosts = hosts
+                    } catch let e as PrepTransaction.TxError {
+                        throw e
+                    } catch {
+                        rep.warnings = (rep.warnings ?? []) + ["重写 / MitM 快照生成失败，本次未启用：" + error.localizedDescription]
+                        tx.remove("nativecore-rewrite.json")
+                    }
+                    NCPrepMarkers.writeInflight(home: home, .init(stage: "commit", at: Int64(Date().timeIntervalSince1970), build: build, fp: nil))
+                }
             } else {
                 tx.remove("nativecore-rewrite.json")
             }
@@ -205,6 +235,20 @@ enum NativeRuntimePrep {
         let summary = "runtime.yaml \(buildResult.data.count) B, \(rep.rules) rules, geosite \(rep.geosite?.count ?? 0), rewrite \(rep.rewrite ? "true" : "false"), mitm hosts \(rep.mitmHosts), scripts \(rep.scripts), warnings \(rep.warnings?.count ?? 0)"
         NSLog("[Mihomo] native runtime prepared: %@", summary)
         return nil
+    }
+
+    /// Identity of everything the rewrite snapshot is built from (app build + MitM switch + hostnames + every rule's
+    /// patterns / templates). Stable across processes (NCPrepMarkers.fingerprint).
+    static func rewriteFingerprint(cfg: NCEngineConfig, rs: NCEngineRuleset, build: String) -> String {
+        var parts: [String] = [build, cfg.mitm ? "mitm" : "-", cfg.anyOn ? "on" : "-"]
+        parts.append(contentsOf: rs.hostnames)
+        for r in rs.rules {
+            parts.append(contentsOf: [r.kind, r.phase, r.pattern, r.headerPattern, r.action, r.target, r.jq, r.line, r.data])
+            for h in r.headers { parts.append(contentsOf: [h.op, h.name, h.value, h.regex]) }
+            for b in r.body { parts.append(contentsOf: [b.regex, b.repl]) }
+            for j in r.jsonOps { parts.append(contentsOf: [j.op, j.path, j.value]) }
+        }
+        return NCPrepMarkers.fingerprint(parts)
     }
 
     private static func fail(_ message: String) -> String {
