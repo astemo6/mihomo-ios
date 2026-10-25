@@ -11,12 +11,7 @@ struct ChainCandidate: Decodable, Hashable {
     var group: Bool
 }
 
-private struct ChainCandidatesResponse: Decodable {
-    var current: String
-    var candidates: [ChainCandidate]
-}
-
-/// Picks the policy a node or group dials through (mihomo dialer-proxy). Candidates come from Go and
+/// Picks the policy a node or group dials through (mihomo dialer-proxy). Candidates come from NCChainCandidates and
 /// already exclude everything that would form a loop.
 struct ChainPickerView: View {
     @Environment(\.dismiss) var dismiss
@@ -92,10 +87,8 @@ struct ChainPickerView: View {
 
     func load() async {
         let home = AppShared.homeURL.path, path = profilePath, k = kind, n = name
-        let json = await Task.detached { LibmihomoChainCandidates(home, path, k, n) }.value
-        if let d = json.data(using: .utf8), let r = try? JSONDecoder().decode(ChainCandidatesResponse.self, from: d) {
-            items = r.candidates
-        }
+        let r = await Task.detached { NCChainCandidates.candidates(home: home, profilePath: path, kind: k, name: n) }.value
+        items = r.candidates.map { ChainCandidate(name: $0.name, type: $0.type, group: $0.group) }
         loading = false
     }
 }

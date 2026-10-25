@@ -1,6 +1,5 @@
 import Foundation
 import SwiftUI
-import Libmihomo
 
 /// 代理链 (Loon proxy chain): named chains of nodes / policy groups, entry first → exit last, kept app-wide in
 /// <home>/proxy-chains.json. The Go side (bridge/proxychains.go) turns each 启用 chain into a policy group named
@@ -103,14 +102,12 @@ final class ProxyChainStore: ObservableObject {
     }
 }
 
-/// A node or group a chain can use, from bridge ProxyChainCandidates (the current profile without chains).
+/// A node or group a chain can use (NCChainCandidates.proxyChainCandidates: the current profile without chains).
 enum ProxyChainCandidates {
-    private struct Response: Decodable { var candidates: [ChainCandidate] }
-
     static func load() async -> [ChainCandidate] {
         guard let path = AppShared.activeProfileURL?.path else { return [] }
         let home = AppShared.homeURL.path
-        let json = await Task.detached(priority: .userInitiated) { LibmihomoProxyChainCandidates(home, path) }.value
-        return (try? JSONDecoder().decode(Response.self, from: Data(json.utf8)))?.candidates ?? []
+        let list = await Task.detached(priority: .userInitiated) { NCChainCandidates.proxyChainCandidates(home: home, profilePath: path) }.value
+        return list.map { ChainCandidate(name: $0.name, type: $0.type, group: $0.group) }
     }
 }

@@ -13,6 +13,6 @@ enum TestBridge {
         LibmihomoProfileNodeUpsert(home, path, json, oldName)
     }
     static func hasNode(_ path: String, _ name: String) -> Bool { LibmihomoProfileHasNode(path, name) }
-    static func saveSelection(_ path: String, _ group: String, _ node: String) -> String { LibmihomoSaveSelection(path, group, node) }
+    static func saveSelection(_ path: String, _ group: String, _ node: String) -> String { NCProfileSelections.save(path, group: group, node: node) }
 }
 #endif

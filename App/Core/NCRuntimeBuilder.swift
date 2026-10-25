@@ -21,6 +21,9 @@ enum NCRuntimeBuilder {
         var profileID: String
         var sub: NCSubRules?
         var chains: [String: String]
+        /// bridge Overrides.noProxyChains: skip proxy-chains.json (ProxyChainCandidates lists the profile
+        /// without the chains it would build).
+        var noProxyChains = false
 
         static func load(home: String, profilePath: String) -> Request {
             let settings = NCRuntimeSettings.load(home: home)
@@ -131,7 +134,7 @@ enum NCRuntimeBuilder {
         } else {
             _ = NCRuntimeSteps.applyChains(&raw, chains: req.chains)
         }
-        if !o.home.isEmpty {
+        if !o.home.isEmpty && !req.noProxyChains {
             _ = NCRuntimeSteps.applyProxyChains(
                 &raw, chains: NCRuntimeFiles.readProxyChains(home: o.home), build: !core.safeMode)
         }

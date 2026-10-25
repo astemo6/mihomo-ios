@@ -143,7 +143,8 @@ struct NCMemberPool {
 
 // MARK: - Chain graph (chain.go)
 
-private final class NCChainGraph {
+/// Internal (not private) since nc-dego-rest: NCChainCandidates (bridge ChainCandidates) walks the same graph.
+final class NCChainGraph {
     var proxies: [String: [String: NCJSONValue]] = [:]
     var groups: [String: [String: NCJSONValue]] = [:]
     var providers: [String: [String: NCJSONValue]] = [:]

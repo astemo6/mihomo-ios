@@ -17,7 +17,7 @@ enum GroupRename {
         GroupIconStore.shared.rename(old, to: new)
         // Offline selection made for the old name (applied by the core on the next connect).
         if let sel = ProfileInspector.shared.result.selected[old] {
-            _ = LibmihomoSaveSelection(p.fileURL.path, new, sel)
+            NCProfileSelections.save(p.fileURL.path, group: new, node: sel)
         }
         guard !inFile else { return nil }
         let path = p.fileURL.path, home = AppShared.homeURL.path
