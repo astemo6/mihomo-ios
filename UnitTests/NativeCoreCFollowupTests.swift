@@ -166,6 +166,16 @@ final class NativeCoreLoonArgumentFixtureTests: XCTestCase {
                       "no line starting with \(prefix)")
     }
 
+    /// The cron task line. applyLoonArgs only rewrites lines in place and
+    /// keeps the [Argument] section, whose `cron = input,"*/5 * * * *",…`
+    /// declaration also starts with "cron" and precedes [Script]; match
+    /// the script line itself (it carries script-path=).
+    private func cronTaskLine(_ text: String) throws -> String {
+        try XCTUnwrap(text.split(separator: "\n").map(String.init).first {
+            $0.hasPrefix("cron") && $0.contains("script-path=")
+        }, "no cron task line")
+    }
+
     func testOfficialPluginArgumentsDeclared() {
         let args = NCEngineRuleset.parseLoonArguments(officialPlugin)
         XCTAssertEqual(args.map { $0.key }, ["appName", "appCategory", "isSupportChinese", "cron", "cookieScriptEnable"])
@@ -193,7 +203,7 @@ final class NativeCoreLoonArgumentFixtureTests: XCTestCase {
         XCTAssertEqual(obj["appCategory"] as? String, "Tool")
         XCTAssertEqual(obj["isSupportChinese"] as? Bool, true)
 
-        let cron = try line(out, prefix: "cron")
+        let cron = try cronTaskLine(out)
         XCTAssertTrue(cron.hasPrefix("cron */5 * * * * script-path="), cron)
         XCTAssertFalse(cron.lowercased().contains("enable"), cron)
         XCTAssertEqual(try envelope(cron)["appName"] as? String, "Loon")
@@ -206,7 +216,7 @@ final class NativeCoreLoonArgumentFixtureTests: XCTestCase {
         let user = ["appName": "Tern", "isSupportChinese": "false", "cron": "0 9 * * *", "cookieScriptEnable": "false"]
         let out = NCEngineRuleset.applyLoonArgs(officialPlugin, args: args, user: user)
         XCTAssertFalse(out.contains("plugin_arg_demo_request"), "enable=false line must be dropped")
-        let cron = try line(out, prefix: "cron")
+        let cron = try cronTaskLine(out)
         XCTAssertTrue(cron.hasPrefix("cron 0 9 * * * script-path="), cron)
         XCTAssertEqual(try envelope(cron)["appName"] as? String, "Tern")
     }
