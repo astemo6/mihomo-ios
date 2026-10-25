@@ -1,5 +1,4 @@
 import Foundation
-import Libmihomo
 
 /// v0.19.8: everything outside group-edits.json that names a policy group, moved in one place when a group is
 /// renamed — from 策略组编辑 (profile groups and added groups alike) and from 筛选节点 (a filter that is a 策略组).
@@ -21,7 +20,7 @@ enum GroupRename {
         }
         guard !inFile else { return nil }
         let path = p.fileURL.path, home = AppShared.homeURL.path
-        let err = await Task.detached(priority: .userInitiated) { LibmihomoProfileRenameRefs(home, path, old, new) }.value
+        let err = await Task.detached(priority: .userInitiated) { NCProfileRefRename.profileRenameRefs(home: home, path: path, old: old, new: new) }.value
         return err.isEmpty ? nil : err
     }
 }
