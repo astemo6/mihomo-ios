@@ -60,13 +60,13 @@ enum NativeBodyConformance {
     struct Fixtures: Decodable { var version: Int; var suites: [Suite] }
 
     struct Report {
-        var total = 0, native = 0, handedBack = 0, mismatch = 0
+        var total = 0, native = 0, handedBack = 0, mismatch = 0, goFreeSkipped = 0
         var reasons: [String: Int] = [:]
         var failures: [String] = []
         var perSuite: [String] = []
         var summary: String {
             let top = reasons.sorted { $0.value > $1.value }.prefix(12).map { "\($0.key) \($0.value)" }.joined(separator: ", ")
-            return "body exchanges \(total): native & identical \(native), handed back to Go \(handedBack), mismatches \(mismatch); hand-back reasons: \(top)"
+            return "body exchanges \(total): native & identical \(native), handed back to Go \(handedBack), mismatches \(mismatch), Go-free rule skips \(goFreeSkipped); hand-back reasons: \(top)"
         }
     }
 
@@ -75,11 +75,34 @@ enum NativeBodyConformance {
                        connHost: c.connHost, connPort: c.connPort, tls: true)
     }
 
-    enum Outcome { case native, handBack(String), mismatch(String) }
+    enum Outcome { case native, handBack(String), mismatch(String), goFreeSkip(String) }
+
+    /// The skip note of a decision that skipped a rule the native engine cannot run (NativeRewriteEngine.skipRule).
+    static func skipNote(_ d: RewriteDecision) -> String? {
+        let notes: [String]
+        switch d {
+        case .go: return nil
+        case .drop(let l): notes = l.notes
+        case .local(let l): notes = l.log.notes
+        case .forward(let f): notes = f.log.notes
+        }
+        return notes.first { $0.hasPrefix("跳过") }
+    }
 
     static func check(_ c: Case, _ engine: NativeRewriteEngine, labels: [String]) -> Outcome {
+        let d = engine.decide(request(c), bodies: true)
+        let out = check(d, c, engine, labels: labels)
+        // Go-zero (nc-integrate, NativeRewriteEngine.goFree): nothing stands behind .go any more — a rule the native
+        // engine cannot run (a regexp2-only body pattern, a response script next to body rules…) is skipped on its
+        // own and noted in the request log (gap C5). Go's answer in the fixture includes that rule's effect, so a
+        // difference is expected exactly when such a skip happened; any other difference stays a mismatch.
+        if case .mismatch(let why) = out, NativeRewriteEngine.goFree, let note = skipNote(d) { return .goFreeSkip("\(note): \(why)") }
+        return out
+    }
+
+    static func check(_ decision: RewriteDecision, _ c: Case, _ engine: NativeRewriteEngine, labels: [String]) -> Outcome {
         let e = c.expect
-        switch engine.decide(request(c), bodies: true) {
+        switch decision {
         case .go(let why):
             return .handBack("request: \(why)")
         case .drop:
@@ -159,7 +182,7 @@ enum NativeBodyConformance {
         var rep = Report()
         for s in fx.suites {
             let engine = NativeRewriteEngine(snapshot: s.snapshot)
-            var n = 0, h = 0, m = 0
+            var n = 0, h = 0, m = 0, k = 0
             for c in s.cases ?? [] {
                 rep.total += 1
                 switch check(c, engine, labels: s.labels ?? []) {
@@ -169,12 +192,14 @@ enum NativeBodyConformance {
                     rep.handedBack += 1; h += 1
                     let key = why.split(separator: ":").prefix(2).joined(separator: ":")
                     rep.reasons[key, default: 0] += 1
+                case .goFreeSkip:
+                    rep.goFreeSkipped += 1; k += 1
                 case .mismatch(let why):
                     rep.mismatch += 1; m += 1
                     if rep.failures.count < 40 { rep.failures.append("\(s.name) / \(c.name): \(why)") }
                 }
             }
-            rep.perSuite.append("\(s.name): \(n) native, \(h) handed back, \(m) mismatches")
+            rep.perSuite.append("\(s.name): \(n) native, \(h) handed back, \(m) mismatches, \(k) Go-free skips")
         }
         return rep
     }
@@ -364,7 +389,7 @@ final class NativeMitmBodyTests: XCTestCase {
         // "passed" keeps these lines in the CI job log (ui-tests.yml filters the xcodebuild output)
         print("NativeMitmBodyTests summary (passed filter): " + rep.summary)
         for line in rep.perSuite { print("NativeMitmBodyTests suite (passed filter): " + line) }
-        for f in rep.failures { print("NativeMitmBodyTests: MISMATCH " + f) }
+        for f in rep.failures { print("NativeMitmBodyTests MISMATCH (passed filter): " + f) }
         XCTAssertEqual(rep.mismatch, 0, rep.failures.prefix(5).joined(separator: "\n"))
         XCTAssertGreaterThan(rep.native, 0)
     }

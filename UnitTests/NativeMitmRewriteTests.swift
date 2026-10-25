@@ -124,11 +124,23 @@ final class NativeMitmRewriteTests: XCTestCase {
 
     // MARK: conformance
 
+    /// The decision skipped a rule the native engine cannot run (Go-free tunnel: NativeRewriteEngine.skipRule).
+    private static func skipNoted(_ d: RewriteDecision) -> Bool {
+        let notes: [String]
+        switch d {
+        case .go: return false
+        case .drop(let l): notes = l.notes
+        case .local(let l): notes = l.log.notes
+        case .forward(let f): notes = f.log.notes
+        }
+        return notes.contains { $0.hasPrefix("跳过") }
+    }
+
     func testConformanceWithGoDecisions() throws {
         let fx = try fixtures()
         XCTAssertEqual(fx.version, RWSnapshot.supportedVersion)
         XCTAssertGreaterThanOrEqual(fx.suites.count, 4)
-        var total = 0, native = 0, deferred = 0, mismatch = 0, mustDefer = 0, goNative = 0, hostsOK = 0
+        var total = 0, native = 0, deferred = 0, mismatch = 0, mustDefer = 0, goNative = 0, hostsOK = 0, goFreeSkipped = 0
         var reasons: [String: Int] = [:]
         var perSuite: [String] = []
         for s in fx.suites {
@@ -145,6 +157,11 @@ final class NativeMitmRewriteTests: XCTestCase {
                     continue
                 }
                 if c.needsGo == true || !expectNative {
+                    // Go-zero (nc-integrate, NativeRewriteEngine.goFree): nothing stands behind .go any more. A rule Go
+                    // ran as a script / body rule that the stage-3a engine cannot run is skipped on its own and noted
+                    // in the request log (gap C5); the fixture's Go answer includes that rule's effect, so the decision
+                    // is not compared. A native decision without such a skip note is still a violation.
+                    if NativeRewriteEngine.goFree && Self.skipNoted(d) { goFreeSkipped += 1; continue }
                     mustDefer += 1
                     XCTFail("[\(s.name)] \(c.name): Go \(c.expect.action)\(c.needsGo == true ? " (script/body)" : "") but native decided \(d)")
                     continue
@@ -164,7 +181,7 @@ final class NativeMitmRewriteTests: XCTestCase {
             perSuite.append("\(s.name) \(sn)/\(sn + sd)")
         }
         let top = reasons.sorted { $0.value > $1.value }.prefix(8).map { "\($0.key) \($0.value)" }.joined(separator: ", ")
-        print("NativeMitmRewrite conformance: \(fx.suites.count) suites, \(total) cases; native == Go \(native), deferred \(deferred) (\(top)), mismatches \(mismatch), must-defer violations \(mustDefer); Go-native cases \(goNative); hosts ok \(hostsOK)")
+        print("NativeMitmRewrite conformance: \(fx.suites.count) suites, \(total) cases; native == Go \(native), deferred \(deferred) (\(top)), mismatches \(mismatch), must-defer violations \(mustDefer), Go-free rule skips \(goFreeSkipped); Go-native cases \(goNative); hosts ok \(hostsOK)")
         print("NativeMitmRewrite per suite (native/total): " + perSuite.joined(separator: "; "))
         XCTAssertEqual(mismatch, 0)
         XCTAssertEqual(mustDefer, 0)
@@ -271,7 +288,12 @@ final class NativeMitmRewriteTests: XCTestCase {
         let tp = RWSnapTemplate(s: ["[", "|", "|", "|", "|", "|", "|$]"], r: [0, -6, 1, -7, 2, -8, 3, -2, 4, -4, 5, -3, 6])
         XCTAssertEqual(r.replaceFirst("xabcy", tp), "x[a|c|b|b|x|y|$]y")
         XCTAssertEqual(r.replaceAll("abcabc", RWSnapTemplate(s: ["-"], r: [0])), "--")
-        XCTAssertNil(r.replaceFirst("é abc", tp), "non-ASCII input: Go decides")
+        if RWRegex.lenient {
+            // Go-zero: no Go to hand non-ASCII input to — the ICU translation runs on it (RWRegex.lenient, gap C5)
+            XCTAssertEqual(r.replaceFirst("é abc", tp), "é [a|c|b|b|é ||$]", "non-ASCII input: native (Go-free)")
+        } else {
+            XCTAssertNil(r.replaceFirst("é abc", tp), "non-ASCII input: Go decides")
+        }
         // empty matches are walked like regexp2 does
         let e = rx("x*", icu: "x*", groups: 0)
         XCTAssertEqual(e.replaceAll("axb", RWSnapTemplate(s: ["-"], r: [0])), "-a--b-")
@@ -343,6 +365,15 @@ final class NativeMitmRewriteTests: XCTestCase {
         }
         let ascii = e.respond(f.response, status: 200, headers: [["X-A", "axa"], ["Content-Length", "0"]], length: 0, method: "GET")
         XCTAssertEqual(ascii?.headers, [["X-A", "aya"]])
+        if RWRegex.lenient {
+            // Go-zero: the regex runs natively on the non-ASCII value; Go's header-op helper is never consulted
+            var asked = false
+            e.headerOpsFallback = { _, _, _, _ in asked = true; return nil }
+            let native = e.respond(f.response, status: 200, headers: [["X-A", "éx"]], length: 0, method: "GET")
+            XCTAssertEqual(native?.headers, [["X-A", "éy"]])
+            XCTAssertFalse(asked)
+            return
+        }
         XCTAssertNil(e.respond(f.response, status: 200, headers: [["X-A", "éx"]], length: 0, method: "GET"))
         var asked: (Int64, [Int], Int, [[String]])?
         e.headerOpsFallback = { gen, rules, status, headers in asked = (gen, rules, status, headers); return [["X-A", "éy"]] }
@@ -404,7 +435,7 @@ final class NativeMitmRewriteTests: XCTestCase {
     }
     private let conn = MitmConnInfo(host: "a.com", port: 443, tls: true, connID: 1)
 
-    override func tearDown() { NativeRewriteRuntime.override = nil }
+    override func tearDown() { NativeRewriteRuntime.override = nil; NativeScriptRuntime.override = nil }
 
     // MARK: request log
 
@@ -576,7 +607,10 @@ final class NativeMitmRewriteTests: XCTestCase {
     }
 
     func testDriverOffPassesThrough() {
+        // Go-zero: NativeScriptRuntime is on by default (engineSwitch) and would fetch the snapshot for scripts alone;
+        // "off" here means both native switches off
         NativeRewriteRuntime.override = false
+        NativeScriptRuntime.override = false
         let inner = Inner(), src = FakeSource(Self.snapJSON)
         let d = NativeRewriteDriver(inner: inner, provider: NativeRewriteProvider(source: src), recorder: nil)
         XCTAssertEqual(d.requestPhase(head: head("/ad"), conn: conn).id, 9)
@@ -586,6 +620,7 @@ final class NativeMitmRewriteTests: XCTestCase {
 
     func testDriverNativeLocalForwardAndDefer() {
         NativeRewriteRuntime.override = true
+        NativeScriptRuntime.override = true   // Go-zero default (engineSwitch): response scripts run natively
         let inner = Inner(), src = FakeSource(Self.snapJSON)
         let sink = Sink()
         let rec = Self.recorder(sink)
@@ -613,19 +648,21 @@ final class NativeMitmRewriteTests: XCTestCase {
         XCTAssertEqual(r.headers ?? [], [["X-R", "1"]])
         d.end(fw.id, sent: 3, error: "")
 
-        let sc = d.requestPhase(head: head("/s"), conn: conn)   // response script → Go
-        XCTAssertEqual(sc.id, 9)
+        // Go-zero: a response script is no longer handed to Go — the native script dispatcher takes the flow
+        let sc = d.requestPhase(head: head("/s"), conn: conn)
+        XCTAssertEqual(sc.action, .forward); XCTAssertLessThan(sc.id, 0)
+        XCTAssertEqual(sc.url, "https://a.com/s")
         d.end(sc.id, sent: 0, error: "")
 
-        XCTAssertEqual(inner.calls, ["begin /s", "end 9"])
+        XCTAssertEqual(inner.calls, [])
         XCTAssertEqual(d.liveNativeFlows, 0)
-        XCTAssertEqual(d.stats.local, 2); XCTAssertEqual(d.stats.forward, 1); XCTAssertEqual(d.stats.deferred, 1)
+        XCTAssertEqual(d.stats.local, 2); XCTAssertEqual(d.stats.forward, 1); XCTAssertEqual(d.stats.deferred, 0)
         XCTAssertEqual(src.fetches, 1)
 
-        // request log: one event per native decision, the forward's response and end; nothing for the Go request
+        // request log: one event per native decision, the forward's response and end; the script flow's forward / end
         rec.flushNow()
         let evs = Self.events(sink.batches)
-        XCTAssertEqual(evs.map(\.ev), ["local", "local", "forward", "response", "end"])
+        XCTAssertEqual(evs.map(\.ev), ["local", "local", "forward", "response", "end", "forward", "end"])
         XCTAssertEqual(evs[0].rules, [0]); XCTAssertEqual(evs[0].url, "https://a.com/ad"); XCTAssertEqual(evs[0].status, 200)
         XCTAssertEqual(evs[0].len, 2); XCTAssertNil(evs[0].body) // capture off
         XCTAssertEqual(evs[0].headers ?? [], [["Content-Length", "2"], ["Content-Type", "application/json"]])
@@ -635,8 +672,9 @@ final class NativeMitmRewriteTests: XCTestCase {
         XCTAssertEqual(evs[3].rules, [2]); XCTAssertEqual(evs[3].status, 200)
         XCTAssertEqual(evs[3].headers ?? [], [["Content-Length", "3"], ["X-R", "1"]])
         XCTAssertEqual(evs[4].sent, 3); XCTAssertEqual(evs[4].resp, true); XCTAssertNil(evs[4].why)
-        XCTAssertEqual(Set(evs[2...].map(\.k)).count, 1)
-        XCTAssertEqual(Set(evs.map(\.k)).count, 3)
+        XCTAssertEqual(Set(evs[2...4].map(\.k)).count, 1)
+        XCTAssertEqual(Set(evs[5...].map(\.k)).count, 1)
+        XCTAssertEqual(Set(evs.map(\.k)).count, 4)
         XCTAssertTrue(evs.allSatisfy { $0.ms >= 0 })
         XCTAssertNotNil(evs[0].t); XCTAssertNil(evs[3].t)
         XCTAssertEqual(d.openLogEntries, 0)
