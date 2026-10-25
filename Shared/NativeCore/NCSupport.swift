@@ -31,8 +31,18 @@ enum NCSupport {
         }
         switch t {
         case "ss":
-            if let plugin = p.fields["plugin"]?.string, !plugin.isEmpty {
-                return "Shadowsocks 插件 \(plugin) 尚未接入"
+            // Stream plugins the connector wraps via NCSSPluginStream:
+            // simple-obfs (http/tls) and v2ray-plugin (websocket). Same parse
+            // as the connector, so the gate and the dial never disagree.
+            let plugin = p.fields["plugin"]?.string ?? ""
+            if !plugin.isEmpty {
+                if plugin != "obfs", plugin != "v2ray-plugin" {
+                    return "Shadowsocks 插件 \(plugin) 尚未接入"
+                }
+                if NCSSPluginOptions(pluginName: plugin,
+                                     opts: p.fields["plugin-opts"]?.object ?? [:]) == nil {
+                    return "Shadowsocks 插件 \(plugin) 的 plugin-opts 不受支持（obfs: mode=http/tls；v2ray-plugin: mode=websocket）"
+                }
             }
         case "ssr":
             let cipher = p.cipher?.lowercased()

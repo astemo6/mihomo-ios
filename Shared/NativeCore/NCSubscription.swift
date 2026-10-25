@@ -149,15 +149,42 @@ enum NCSubscriptionParser {
             ("cipher", str(String(kv[0]))), ("password", str(String(kv[1]))),
             ("udp", .bool(true)),
         ])
-        if let plugin = p.query["plugin"] {
+        // SIP002 plugin query: "<binary>[;arg=value…]" — the binary name
+        // picks the plugin, the rest re-parses as a query string. Mirrors
+        // mihomo common/convert/converter.go so links from any client land
+        // in the same canonical shape as a mihomo YAML node.
+        if let plugin = p.query["plugin"], plugin.contains(";") {
             let parts = plugin.split(separator: ";")
-            if let mode = parts.first {
-                f["plugin"] = .string(String(mode))
-                var opts: [String: NCJSONValue] = ["mode": .string(String(mode))]
-                for kvp in parts.dropFirst() {
-                    let e = kvp.split(separator: "=", maxSplits: 1)
-                    if e.count == 2 { opts[String(e[0])] = .string(String(e[1])) }
+            let binary = String(parts[0])
+            var args: [String: String] = [:]
+            for part in parts.dropFirst() {
+                let kv = part.split(separator: "=", maxSplits: 1).map(String.init)
+                if kv.count == 2 {
+                    args[kv[0]] = kv[1].removingPercentEncoding ?? kv[1]
+                } else if kv.count == 1, !kv[0].isEmpty {
+                    args[kv[0]] = "" // bare flag (v2ray-plugin's "tls")
                 }
+            }
+            func arg(_ k: String) -> String? {
+                guard let v = args[k], !v.isEmpty else { return nil }
+                return v
+            }
+            if binary.contains("obfs") {
+                f["plugin"] = .string("obfs")
+                var opts: [String: NCJSONValue] = [:]
+                if let m = arg("obfs") { opts["mode"] = .string(m) }
+                if let h = arg("obfs-host") { opts["host"] = .string(h) }
+                if !opts.isEmpty { f["plugin-opts"] = .object(opts) }
+            } else if binary.contains("v2ray-plugin") {
+                f["plugin"] = .string("v2ray-plugin")
+                var opts: [String: NCJSONValue] = [:]
+                opts["mode"] = .string(arg("mode") ?? arg("obfs") ?? "websocket")
+                if let h = arg("host") ?? arg("obfs-host") { opts["host"] = .string(h) }
+                if let pa = arg("path") { opts["path"] = .string(pa) }
+                // mihomo detects the TLS flag with strings.Contains over the
+                // whole plugin value — kept for byte-for-byte parity with
+                // Libmihome on the same link.
+                if plugin.contains("tls") { opts["tls"] = .bool(true) }
                 f["plugin-opts"] = .object(opts)
             }
         }

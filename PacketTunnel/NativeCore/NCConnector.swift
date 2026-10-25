@@ -282,6 +282,17 @@ enum NCConnector {
         raw.start { err in completion(err == nil ? raw : nil, err) }
     }
 
+    /// Wrap a connected SS server stream with the node's plugin transport
+    /// (NCSSPluginStream); a plain passthrough for plugin-less nodes, so
+    /// their behavior is unchanged.
+    private static func ssPluginWrap(raw: NCRelayStream, plugin: NCSSPluginOptions?,
+                                     serverPort: String,
+                                     completion: @escaping (NCRelayStream?, Error?) -> Void) {
+        guard let plugin else { completion(raw, nil); return }
+        let stream = NCSSPluginStream(raw: raw, options: plugin, serverPort: serverPort)
+        stream.start { err in completion(err == nil ? stream : nil, err) }
+    }
+
     private static func connectViaProxy(target: NCTarget, proxy: NCProxy, queue: DispatchQueue,
                                         allowMux: Bool = true,
                                         transport: NCRelayStream? = nil,
@@ -324,6 +335,35 @@ enum NCConnector {
                 queue.async { completion(nil, Failure.handshake("bad shadowsocks cipher/password")) }
                 return
             }
+            // SS stream plugins (simple-obfs http/tls, v2ray-plugin
+            // websocket) wrap the whole SS stream — request head included —
+            // and apply to TCP only (mihomo StreamConnContext parity; the
+            // UDP sessions never see a plugin).
+            let pluginName = proxy.fields["plugin"]?.string ?? ""
+            let plugin: NCSSPluginOptions?
+            if pluginName.isEmpty {
+                plugin = nil
+            } else if let opts = NCSSPluginOptions(pluginName: pluginName,
+                                                   opts: proxy.fields["plugin-opts"]?.object ?? [:]) {
+                plugin = opts
+            } else {
+                queue.async { completion(nil, Failure.unsupported("ss plugin \(pluginName) shape unsupported (obfs http/tls, v2ray-plugin websocket)")) }
+                return
+            }
+            // v2ray-plugin tls= terminates TLS at the SS server itself (SNI =
+            // the camouflage host); obfs and plain ws ride plain TCP.
+            if transport != nil, let opts = plugin, case .v2rayPlugin = opts.kind, opts.tls {
+                queue.async { completion(nil, Failure.unsupported("v2ray-plugin tls over a chain transport")) }
+                return
+            }
+            let makeStream: () -> NCStream = {
+                if let opts = plugin, case .v2rayPlugin = opts.kind, opts.tls {
+                    let sni = opts.headers["Host"] ?? opts.host
+                    return NCStream(to: server, port: port, tlsServerName: sni,
+                                    allowInsecure: opts.skipCertVerify, queue: queue)
+                }
+                return NCStream(to: server, port: port, queue: queue)
+            }
             if NCSS2022.isMethod2022(cipher) {
                 guard let enc = NCSS2022Encoder(method: cipher, password: password),
                       let dec = NCSS2022Decoder(method: cipher, password: password,
@@ -331,9 +371,12 @@ enum NCConnector {
                     queue.async { completion(nil, Failure.handshake("bad shadowsocks 2022 password")) }
                     return
                 }
-                obtainStream(transport: transport, make: { NCStream(to: server, port: port, queue: queue) }) { raw, err in
+                obtainStream(transport: transport, make: makeStream) { raw, err in
                     guard let raw else { completion(nil, err); return }
-                    completion(NCSS2022RelayStream(raw: raw, encoder: enc, decoder: dec, target: target), nil)
+                    ssPluginWrap(raw: raw, plugin: plugin, serverPort: String(port)) { stream, werr in
+                        guard let stream, werr == nil else { completion(nil, werr); return }
+                        completion(NCSS2022RelayStream(raw: stream, encoder: enc, decoder: dec, target: target), nil)
+                    }
                 }
                 return
             }
@@ -342,9 +385,12 @@ enum NCConnector {
                 queue.async { completion(nil, Failure.handshake("bad shadowsocks cipher/password")) }
                 return
             }
-            obtainStream(transport: transport, make: { NCStream(to: server, port: port, queue: queue) }) { raw, err in
+            obtainStream(transport: transport, make: makeStream) { raw, err in
                 guard let raw else { completion(nil, err); return }
-                completion(NCSSRelayStream(raw: raw, encoder: enc, decoder: dec, target: target), nil)
+                ssPluginWrap(raw: raw, plugin: plugin, serverPort: String(port)) { stream, werr in
+                    guard let stream, werr == nil else { completion(nil, werr); return }
+                    completion(NCSSRelayStream(raw: stream, encoder: enc, decoder: dec, target: target), nil)
+                }
             }
         case "ssr":
             guard let password = proxy.password, let cipher = proxy.cipher?.lowercased(),
