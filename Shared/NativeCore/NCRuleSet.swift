@@ -34,6 +34,7 @@ enum NCRuleSetFlavor {
 struct NCRuleSetIndex {
     private(set) var exactDomains: Set<String> = []
     private var suffixRoot = NCSuffixTrieNode()
+    private(set) var mrsDomainSet: NCMRSDomainSet? = nil
     private(set) var others: [NCRule] = [] // keywords, wildcards, regex, CIDRs, GEOIP, ASN, ports…
     private(set) var entryCount = 0
 
@@ -123,12 +124,18 @@ struct NCRuleSetIndex {
         entryCount += 1
     }
 
+    mutating func addMRSDomain(_ domainSet: NCMRSDomainSet) {
+        mrsDomainSet = domainSet
+        entryCount += domainSet.ruleCount
+    }
+
     // MARK: matching
 
     func contains(_ ctx: NCMatchContext) -> Bool {
         if let d = ctx.domain?.lowercased() {
             if exactDomains.contains(d) { return true }
             if suffixRoot.matches(host: d) { return true }
+            if let ds = mrsDomainSet, ds.has(d) { return true }
         }
         if others.isEmpty { return false }
         // Rule-set entries must not recurse into other rule sets.
