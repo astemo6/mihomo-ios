@@ -13,6 +13,8 @@ enum ImportAction: Identifiable, Equatable {
     case moduleURL(url: String, source: String)
     case moduleText(name: String, text: String, source: String)
     case confText(name: String, text: String)
+    /// feat/nc-full-export: a Tern 完整导出 .conf (QX-style, everything incl. the MitM CA).
+    case fullExport(name: String, text: String)
     case nodesText(text: String)
     case connect, disconnect, toggle
     case unsupported(String)
@@ -24,6 +26,7 @@ enum ImportAction: Identifiable, Equatable {
         case .moduleURL(let u, _): return "m:" + u
         case .moduleText(let n, _, _): return "mt:" + n
         case .confText(let n, _): return "c:" + n
+        case .fullExport(let n, _): return "fx:" + n
         case .nodesText(let t): return "n:" + String(t.prefix(64))
         case .connect: return "connect"
         case .disconnect: return "disconnect"
@@ -42,6 +45,7 @@ enum ImportAction: Identifiable, Equatable {
         case .moduleURL(let u, _): return "moduleURL bytes=\(u.utf8.count)" + host(u)
         case .moduleText(_, let t, _): return "moduleText bytes=\(t.utf8.count)"
         case .confText(_, let t): return "confText bytes=\(t.utf8.count)"
+        case .fullExport(_, let t): return "fullExport bytes=\(t.utf8.count)"
         case .nodesText(let t): return "nodesText bytes=\(t.utf8.count)"
         case .connect: return "connect"
         case .disconnect: return "disconnect"
@@ -279,6 +283,8 @@ final class ImportRouter: ObservableObject {
         StartupLog.write("open file: ext=\(ext.isEmpty ? "-" : ext) uti=\(r.uti) bytes=\(r.bytes)\(r.error.map { " error=" + $0 } ?? "")", tag: "app")
         guard let text = r.text else { return .unsupported(r.error ?? String(localized: "无法读取文件")) }
         let name = url.deletingPathExtension().lastPathComponent
+        // feat/nc-full-export: Tern's own full export (any extension; it is a .conf) before the content sniffing.
+        if TernFullExport.isFullExport(text) { return .fullExport(name: name, text: text) }
         switch ext {
         case "sgmodule": return .moduleText(name: name, text: text, source: "Surge")
         case "plugin", "lpx": return .moduleText(name: name, text: text, source: "Loon")
@@ -320,6 +326,7 @@ final class ImportRouter: ObservableObject {
     nonisolated static func route(text raw: String, name: String = "") -> ImportAction? {
         let text = raw.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !text.isEmpty else { return nil }
+        if TernFullExport.isFullExport(text) { return .fullExport(name: name, text: text) }
         if !text.contains("\n"), let a = parse(text) { return a }
         if !text.contains("\n"), !text.contains(" "), text.hasPrefix("http://") || text.hasPrefix("https://"), let u = URL(string: text) {
             let ext = u.pathExtension.lowercased()
@@ -470,6 +477,9 @@ struct ImportSheet: View {
     @State private var result: String?
     @State private var failed = false
     @State private var conf: ConfImportResult?
+    /// feat/nc-full-export: the validated full export (parsed off main when the sheet appears).
+    @State private var full: TernFullExport.Payload?
+    @State private var fullError: String?
     /// v0.13.1: what the import is doing right now, and an alert for every failure (never silent).
     @State private var stage: String?
     @State private var errorAlert: String?
@@ -504,6 +514,8 @@ struct ImportSheet: View {
                 case .confText(_, let text):
                     ConfReportSection(text: text, result: $conf)
                     TextField("配置名称", text: $name).listRowBackground(Theme.card)
+                case .fullExport:
+                    fullExportSection
                 case .unsupported(let s):
                     Section {
                         Label("无法导入", systemImage: "exclamationmark.triangle.fill").foregroundStyle(Theme.warn)
@@ -577,6 +589,7 @@ struct ImportSheet: View {
                 switch action {
                 case .profileURL(_, let n): name = n
                 case .profileText(let n, _), .moduleText(let n, _, _), .confText(let n, _): name = n
+                case .fullExport(_, let text): validateFullExport(text)
                 default: break
                 }
             }
@@ -588,6 +601,7 @@ struct ImportSheet: View {
     var canImport: Bool {
         switch action {
         case .unsupported, .connect, .disconnect, .toggle: return false
+        case .fullExport: return fullError == nil && (result == nil || failed)
         default: return result == nil || failed
         }
     }
@@ -627,6 +641,44 @@ struct ImportSheet: View {
         .listRowBackground(Theme.card)
     }
 
+    /// feat/nc-full-export: what the file restores (or why it cannot), before anything is written.
+    @ViewBuilder var fullExportSection: some View {
+        Section {
+            Label("Tern 完整导出", systemImage: "shippingbox").font(.headline)
+            if let full {
+                ForEach(full.summaryLines, id: \.self) { Text(verbatim: $0).font(.footnote) }
+            } else if let fullError {
+                Label("无法导入", systemImage: "exclamationmark.triangle.fill").foregroundStyle(Theme.warn)
+                Text(fullError).font(.footnote).textSelection(.enabled)
+            } else {
+                LoadingRow(text: "正在校验导出文件…")
+            }
+        } footer: {
+            Text("导入会替换当前的重写、模块、脚本与 MitM 设置和证书，并把这个配置设为当前配置；导入前会自动保存一个配置快照。")
+        }
+        .listRowBackground(Theme.card)
+        if result != nil, !failed, full?.caPEM != nil {
+            Section {
+                NavigationLink { MitMView() } label: { Label("安装并信任 MitM 证书", systemImage: "lock.shield") }
+            } footer: {
+                Text("在新设备上：先安装证书描述文件，再到 设置 → 通用 → 关于本机 → 证书信任设置 中开启完全信任。")
+            }
+            .listRowBackground(Theme.card)
+        }
+    }
+
+    /// Parses + validates (base64, names, the p12 with its passphrase) off the main thread.
+    func validateFullExport(_ text: String) {
+        guard full == nil, fullError == nil else { return }
+        Task { @MainActor in
+            do {
+                full = try await Task.detached(priority: .userInitiated) { try TernFullExport.parse(text) }.value
+            } catch {
+                fullError = error.localizedDescription
+            }
+        }
+    }
+
     func perform() async {
         busy = true
         failed = false
@@ -655,6 +707,15 @@ struct ImportSheet: View {
                 }
                 if let e = conf?.error, !e.isEmpty { fail(String(localized: "转换失败：\(e)")); return }
                 result = try await ConfImport.save(text: text, name: name, result: conf, store: store) { s in stage = s }
+            case .fullExport(_, let text):
+                let payload: TernFullExport.Payload
+                if let full { payload = full } else {
+                    stage = String(localized: "正在校验导出文件…")
+                    payload = try await Task.detached(priority: .userInitiated) { try TernFullExport.parse(text) }.value
+                    full = payload
+                }
+                stage = String(localized: "正在导入…")
+                result = try await TernFullExport.applyInApp(payload)
             case .nodesText(let text):
                 let n = try await store.addManualNodes(text: text)
                 result = String(localized: "已添加 \(n) 个节点到手动节点")

@@ -102375,6 +102375,958 @@
     },
     "状态文件损坏或无法读取": {
       "extractionState": "manual"
+    },
+    "不是 Tern 完整导出文件": {
+      "localizations": {
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "不是 Tern 完整匯出檔案"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Not a Tern full export file"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Tern のフルエクスポートファイルではありません"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Tern 전체 내보내기 파일이 아닙니다"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Это не файл полного экспорта Tern"
+          }
+        }
+      }
+    },
+    "导出文件版本 %lld 不受支持，请更新 Tern": {
+      "localizations": {
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "匯出檔案版本 %lld 不受支援，請更新 Tern"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Export file version %lld is not supported. Please update Tern."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "エクスポートファイルのバージョン %lld には対応していません。Tern をアップデートしてください"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "내보내기 파일 버전 %lld은(는) 지원되지 않습니다. Tern을 업데이트하세요"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Версия файла экспорта %lld не поддерживается. Обновите Tern"
+          }
+        }
+      }
+    },
+    "导出文件已损坏：%@": {
+      "localizations": {
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "匯出檔案已損壞：%@"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "The export file is damaged: %@"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "エクスポートファイルが破損しています：%@"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "내보내기 파일이 손상되었습니다: %@"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Файл экспорта повреждён: %@"
+          }
+        }
+      }
+    },
+    "MitM 证书无法解开（口令错误或 p12 已损坏）：%@": {
+      "localizations": {
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "MitM 憑證無法解開（口令錯誤或 p12 已損壞）：%@"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Cannot open the MitM certificate (wrong passphrase or damaged p12): %@"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "MitM 証明書を開けません（パスフレーズが違うか p12 が破損しています）：%@"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "MitM 인증서를 열 수 없습니다(암호가 틀렸거나 p12가 손상됨): %@"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Не удалось открыть сертификат MitM (неверная парольная фраза или повреждённый p12): %@"
+          }
+        }
+      }
+    },
+    "导出文件里没有配置": {
+      "localizations": {
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "匯出檔案裡沒有配置"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "The export file contains no profile"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "エクスポートファイルにプロファイルがありません"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "내보내기 파일에 프로파일이 없습니다"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "В файле экспорта нет профиля"
+          }
+        }
+      }
+    },
+    "无法读取：%@": {
+      "localizations": {
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "無法讀取：%@"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Cannot read: %@"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "読み込めません：%@"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "읽을 수 없음: %@"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Не удалось прочитать: %@"
+          }
+        }
+      }
+    },
+    "写入失败：%@": {
+      "localizations": {
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "寫入失敗：%@"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Write failed: %@"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "書き込みに失敗：%@"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "쓰기 실패: %@"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Ошибка записи: %@"
+          }
+        }
+      }
+    },
+    "配置：%@": {
+      "localizations": {
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "配置：%@"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Profile: %@"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "プロファイル：%@"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "프로파일: %@"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Профиль: %@"
+          }
+        }
+      }
+    },
+    "远程重写 / 模块 / 插件：%lld 个": {
+      "localizations": {
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "遠端重寫 / 模組 / 外掛：%lld 個"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Remote rewrites / modules / plugins: %lld"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "リモート書き換え / モジュール / プラグイン：%lld 件"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "원격 재작성 / 모듈 / 플러그인: %lld개"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Удалённые перезаписи / модули / плагины: %lld"
+          }
+        }
+      }
+    },
+    "本地重写：%lld 条 · 脚本规则：%lld 条": {
+      "localizations": {
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "本地重寫：%lld 條 · 腳本規則：%lld 條"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Local rewrites: %lld · Script rules: %lld"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ローカル書き換え：%lld 件 · スクリプトルール：%lld 件"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "로컬 재작성: %lld개 · 스크립트 규칙: %lld개"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Локальные перезаписи: %lld · Правила скриптов: %lld"
+          }
+        }
+      }
+    },
+    "本地脚本：%lld 个 · 覆写脚本：%lld 个": {
+      "localizations": {
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "本地腳本：%lld 個 · 覆寫腳本：%lld 個"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Local scripts: %lld · Override scripts: %lld"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ローカルスクリプト：%lld 件 · 上書きスクリプト：%lld 件"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "로컬 스크립트: %lld개 · 오버라이드 스크립트: %lld개"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Локальные скрипты: %lld · Скрипты переопределения: %lld"
+          }
+        }
+      }
+    },
+    "节点订阅：%lld 个": {
+      "localizations": {
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "節點訂閱：%lld 個"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Node subscriptions: %lld"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ノード購読：%lld 件"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "노드 구독: %lld개"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Подписки на узлы: %lld"
+          }
+        }
+      }
+    },
+    "MitM 主机名：%lld 个": {
+      "localizations": {
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "MitM 主機名：%lld 個"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "MitM host names: %lld"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "MitM ホスト名：%lld 件"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "MitM 호스트 이름: %lld개"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Хосты MitM: %lld"
+          }
+        }
+      }
+    },
+    "MitM 根证书和私钥：包含": {
+      "localizations": {
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "MitM 根憑證和私鑰：包含"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "MitM root certificate and private key: included"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "MitM ルート証明書と秘密鍵：含む"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "MitM 루트 인증서 및 개인 키: 포함"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Корневой сертификат MitM и закрытый ключ: включены"
+          }
+        }
+      }
+    },
+    "MitM 根证书和私钥：不包含": {
+      "localizations": {
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "MitM 根憑證和私鑰：不包含"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "MitM root certificate and private key: not included"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "MitM ルート証明書と秘密鍵：含まない"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "MitM 루트 인증서 및 개인 키: 포함 안 함"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Корневой сертификат MitM и закрытый ключ: не включены"
+          }
+        }
+      }
+    },
+    "DNS、自定义规则与其他设置：%lld 项": {
+      "localizations": {
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "DNS、自訂規則與其他設定：%lld 項"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "DNS, custom rules and other settings: %lld items"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "DNS、カスタムルールとその他の設定：%lld 項目"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "DNS, 사용자 규칙 및 기타 설정: %lld개 항목"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "DNS, свои правила и прочие настройки: %lld"
+          }
+        }
+      }
+    },
+    "导出于 %@ · Tern %@": {
+      "localizations": {
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "匯出於 %@ · Tern %@"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Exported %@ · Tern %@"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "エクスポート日時 %@ · Tern %@"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "내보낸 시각 %@ · Tern %@"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Экспортировано %@ · Tern %@"
+          }
+        }
+      }
+    },
+    "文件不完整（缺少 [end]）": {
+      "localizations": {
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "檔案不完整（缺少 [end]）"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "The file is incomplete (missing [end])"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ファイルが不完全です（[end] がありません）"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "파일이 불완전합니다([end] 없음)"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Файл неполный (нет [end])"
+          }
+        }
+      }
+    },
+    "导入完整导出前": {
+      "localizations": {
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "匯入完整匯出前"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Before importing a full export"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "フルエクスポートの読み込み前"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "전체 내보내기 가져오기 전"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Перед импортом полного экспорта"
+          }
+        }
+      }
+    },
+    "已导入完整配置「%@」并设为当前配置。": {
+      "localizations": {
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "已匯入完整配置「%@」並設為目前配置。"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Imported the full profile “%@” and made it the current profile."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "フルプロファイル「%@」を読み込み、現在のプロファイルにしました。"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "전체 프로파일 「%@」을(를) 가져와 현재 프로파일로 설정했습니다."
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Полный профиль «%@» импортирован и выбран текущим профилем."
+          }
+        }
+      }
+    },
+    "MitM 根证书和私钥已导入。在新设备上请到「HTTPS 解密」页安装证书描述文件，再到 设置 → 通用 → 关于本机 → 证书信任设置 中开启完全信任。": {
+      "localizations": {
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "MitM 根憑證和私鑰已匯入。在新裝置上請到「HTTPS 解密」頁安裝憑證描述檔，再到 設定 → 一般 → 關於本機 → 憑證信任設定 中開啟完全信任。"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "The MitM root certificate and private key were imported. On a new device, install the certificate profile on the HTTPS Decryption page, then turn on full trust in Settings → General → About → Certificate Trust Settings."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "MitM ルート証明書と秘密鍵を読み込みました。新しいデバイスでは「HTTPS 復号」ページで証明書プロファイルをインストールし、設定 → 一般 → 情報 → 証明書信頼設定 で完全な信頼をオンにしてください。"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "MitM 루트 인증서와 개인 키를 가져왔습니다. 새 기기에서는 「HTTPS 복호화」 페이지에서 인증서 프로파일을 설치한 다음 설정 → 일반 → 정보 → 인증서 신뢰 설정에서 전체 신뢰를 켜세요."
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Корневой сертификат MitM и закрытый ключ импортированы. На новом устройстве установите профиль сертификата на странице «Расшифровка HTTPS», затем включите полное доверие в Настройки → Основные → Об этом устройстве → Доверие сертификатам."
+          }
+        }
+      }
+    },
+    "正在校验导出文件…": {
+      "localizations": {
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "正在校驗匯出檔案…"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Checking the export file…"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "エクスポートファイルを確認中…"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "내보내기 파일 확인 중…"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Проверка файла экспорта…"
+          }
+        }
+      }
+    },
+    "Tern 完整导出": {
+      "localizations": {
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Tern 完整匯出"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Tern Full Export"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Tern フルエクスポート"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Tern 전체 내보내기"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Полный экспорт Tern"
+          }
+        }
+      }
+    },
+    "导入会替换当前的重写、模块、脚本与 MitM 设置和证书，并把这个配置设为当前配置；导入前会自动保存一个配置快照。": {
+      "localizations": {
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "匯入會取代目前的重寫、模組、腳本與 MitM 設定和憑證，並把這個配置設為目前配置；匯入前會自動儲存一個配置快照。"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Importing replaces the current rewrites, modules, scripts, MitM settings and certificate, and makes this profile the current profile. A profile snapshot is saved automatically first."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "読み込むと現在の書き換え、モジュール、スクリプト、MitM 設定と証明書が置き換えられ、このプロファイルが現在のプロファイルになります。読み込み前にプロファイルのスナップショットが自動保存されます。"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "가져오면 현재 재작성, 모듈, 스크립트, MitM 설정과 인증서가 교체되고 이 프로파일이 현재 프로파일이 됩니다. 가져오기 전에 프로파일 스냅샷이 자동으로 저장됩니다."
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Импорт заменит текущие перезаписи, модули, скрипты, настройки MitM и сертификат и сделает этот профиль текущим. Перед импортом автоматически сохраняется снимок профиля."
+          }
+        }
+      }
+    },
+    "安装并信任 MitM 证书": {
+      "localizations": {
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "安裝並信任 MitM 憑證"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Install and Trust the MitM Certificate"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "MitM 証明書をインストールして信頼"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "MitM 인증서 설치 및 신뢰"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Установить сертификат MitM и доверять ему"
+          }
+        }
+      }
+    },
+    "在新设备上：先安装证书描述文件，再到 设置 → 通用 → 关于本机 → 证书信任设置 中开启完全信任。": {
+      "localizations": {
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "在新裝置上：先安裝憑證描述檔，再到 設定 → 一般 → 關於本機 → 憑證信任設定 中開啟完全信任。"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "On a new device: install the certificate profile first, then turn on full trust in Settings → General → About → Certificate Trust Settings."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "新しいデバイスでは：まず証明書プロファイルをインストールし、設定 → 一般 → 情報 → 証明書信頼設定 で完全な信頼をオンにしてください。"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "새 기기에서는: 먼저 인증서 프로파일을 설치한 다음 설정 → 일반 → 정보 → 인증서 신뢰 설정에서 전체 신뢰를 켜세요."
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "На новом устройстве: сначала установите профиль сертификата, затем включите полное доверие в Настройки → Основные → Об этом устройстве → Доверие сертификатам."
+          }
+        }
+      }
+    },
+    "完整导出（.conf）": {
+      "localizations": {
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "完整匯出（.conf）"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Full Export (.conf)"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "フルエクスポート（.conf）"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "전체 내보내기(.conf)"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Полный экспорт (.conf)"
+          }
+        }
+      }
+    },
+    "仅配置文件": {
+      "localizations": {
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "僅配置檔案"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Profile File Only"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "プロファイルファイルのみ"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "프로파일 파일만"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Только файл профиля"
+          }
+        }
+      }
     }
   },
   "version": "1.0"
