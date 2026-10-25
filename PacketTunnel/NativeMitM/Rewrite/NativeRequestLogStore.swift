@@ -291,6 +291,29 @@ final class NativeLogRing {
         return scripts.filter { $0.id > s }
     }
 
+    /// fix/nc-ctrl-bsd: writes the ring (≤ generalMax lines, oldest first) to `<home>/diag/core-log.txt`, plus the
+    /// memory snapshot to `diag/memory.txt` when given — what 诊断包 reads. Nothing wrote these files in the native core
+    /// (the Go core's diag dump went away with it), so both sections were always empty. Returns the line count.
+    @discardableResult
+    func dumpDiagnostics(home: URL, memory: String? = nil) -> Int {
+        let dir = home.appendingPathComponent("diag", isDirectory: true)
+        try? FileManager.default.createDirectory(at: dir, withIntermediateDirectories: true)
+        lock.lock()
+        let lines = general
+        lock.unlock()
+        let f = DateFormatter()
+        f.locale = Locale(identifier: "en_US_POSIX")
+        f.dateFormat = "HH:mm:ss.SSS"
+        var text = ""
+        text.reserveCapacity(lines.count * 120)
+        for l in lines {
+            text += "\(f.string(from: Date(timeIntervalSince1970: Double(l.time) / 1000))) [\(l.type)] \(l.payload)\n"
+        }
+        try? Data(text.utf8).write(to: dir.appendingPathComponent("core-log.txt"), options: .atomic)
+        if let memory { try? Data(memory.utf8).write(to: dir.appendingPathComponent("memory.txt"), options: .atomic) }
+        return lines.count
+    }
+
     func clearGeneral() { lock.lock(); general.removeAll(); lock.unlock() }
     func clearScripts() { lock.lock(); scripts.removeAll(); lock.unlock() }
 }

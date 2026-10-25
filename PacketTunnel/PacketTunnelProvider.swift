@@ -362,6 +362,8 @@ final class PacketTunnelProvider: NEPacketTunnelProvider {
         NCTailscaleClient.stopAll()
         nativeMemGovernor?.stop()
         TunnelStopReason.clearAlive() // fix/vpn-stays-on: a clean stop (after the traffic timer can no longer re-mark)
+        // fix/nc-ctrl-bsd: keep the last session's connection lines for a 诊断包 exported after the disconnect.
+        NativeLogRing.shared.dumpDiagnostics(home: AppShared.homeURL, memory: MemorySnapshotWriter.snapshot())
         core.stop()
         NCOutboundBinding.stop()
         if #available(iOS 17, *) { NativeMitmRuntime.uninstall() }
@@ -431,7 +433,10 @@ final class PacketTunnelProvider: NEPacketTunnelProvider {
             completionHandler?(nil)
         case .dumpDiagnostics:
             let support = core.engine?.supportReport.joined(separator: "; ") ?? ""
-            StartupLog.write("diagnostics: \(ProcessMemory.summary()), \(core.engine?.statsLine ?? "-")\(support.isEmpty ? "" : ", unsupported: " + support)")
+            StartupLog.write("diagnostics: \(core.plane?.statsLine ?? "no plane"); \(core.controller?.statsLine ?? "no controller"); \(ProcessMemory.summary()), \(core.engine?.statsLine ?? "-")\(support.isEmpty ? "" : ", unsupported: " + support)")
+            // fix/nc-ctrl-bsd: core-log.txt / memory.txt were never written by the native core (always empty).
+            let n = NativeLogRing.shared.dumpDiagnostics(home: AppShared.homeURL, memory: MemorySnapshotWriter.snapshot())
+            StartupLog.write("diagnostics: core-log.txt \(n) line(s)", mirror: false)
             completionHandler?("\(ProcessMemory.summary()), \(core.engine?.statsLine ?? "-")".data(using: .utf8))
         case .memoryStats:
             completionHandler?(Data(MemorySnapshotWriter.snapshot().utf8))
