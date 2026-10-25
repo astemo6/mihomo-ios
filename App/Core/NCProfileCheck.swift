@@ -5,10 +5,12 @@ import Foundation
 /// connect does (YAML, the profile's overrides, NCRuntimeBuilder, then NCConfigValidator — mihomo's
 /// executor.ParseWithBytes in Go) and points at the line / column of the problem in the user's text.
 ///
-/// DIVERGENCES: yaml.v3 gave a node tree with positions and its own error text ("line N: …"); NCYAML has
-/// neither, so a YAML error reads 「YAML 格式错误：无法解析」 with the line from firstBadLine (the same binary
-/// search Go used to refine yaml.v3's line), and locate() finds the item in the text with a line scanner over the
-/// top-level block (column = the item's first key, as yaml.v3's mapping node reports it).
+/// DIVERGENCES: yaml.v3 gave a node tree with positions and its own error text ("line N: …"); NCYAML now
+/// records the line for the failures it can localize (unclosed flow / quote, see NCYAMLError) and otherwise
+/// firstBadLine (the same binary search Go used to refine yaml.v3's line) supplies it — either way the line
+/// is carried in the error message itself (「YAML 格式错误：第 N 行：无法解析」), not only in Result.line,
+/// and locate() finds the item in the text with a line scanner over the top-level block (column = the
+/// item's first key, as yaml.v3's mapping node reports it).
 enum NCProfileCheck {
 
     struct Result: Codable, Equatable {
@@ -24,10 +26,14 @@ enum NCProfileCheck {
 
     /// bridge ProfileCheck: JSON {ok, error, line, column, nodes, groups, rules, providers}.
     static func check(home: String, profilePath: String, text: String) -> Result {
-        guard NCYAML.parse(text) != nil || isBlank(text) else {
-            var r = Result(error: "YAML 格式错误：无法解析")
-            let l = firstBadLine(text)
-            if l > 0 { r.line = l }
+        let parsed = NCYAML.parseWithError(text)
+        guard parsed.value != nil || isBlank(text) else {
+            // Carry the line in the message itself, not only in Result.line: other surfaces
+            // (save / import errors) show the text without the editor's line chip.
+            let bad = firstBadLine(text)
+            let l = parsed.error?.line ?? (bad > 0 ? bad : nil)
+            var r = Result(error: l.map { "YAML 格式错误：第 \($0) 行：无法解析" } ?? "YAML 格式错误：无法解析")
+            if let l { r.line = l }
             return r
         }
         let req = NCRuntimeBuilder.Request.load(home: home, profilePath: profilePath)
@@ -50,6 +56,7 @@ enum NCProfileCheck {
             if let loc = locate(text: text, rt: built.raw, msg: msg) {
                 r.line = loc.0
                 r.column = loc.1
+                r.error = "第 \(loc.0) 行：\(friendlyError(msg))"
             }
             return r
         }
@@ -73,6 +80,21 @@ enum NCProfileCheck {
     }
 
     // MARK: - firstBadLine
+
+    /// The line a YAML failure message should carry: the parser's own recorded line when it has
+    /// one, else firstBadLine's. Shared by the other YAML error surfaces (builder / override /
+    /// group-order / profile-node validation) so every "YAML 解析失败" reads the same.
+    static func errorLine(_ text: String) -> Int? {
+        if let e = NCYAML.parseWithError(text).error { return e.line }
+        let l = firstBadLine(text)
+        return l > 0 ? l : nil
+    }
+
+    /// Prefixes a YAML error message with 「第 N 行：」 when a line can be determined.
+    static func withLine(_ base: String, _ text: String) -> String {
+        guard let l = errorLine(text) else { return base }
+        return "第 \(l) 行：\(base)"
+    }
 
     /// The first line whose prefix (lines 1…n) no longer parses: ~log2(lines) parses.
     static func firstBadLine(_ text: String) -> Int {

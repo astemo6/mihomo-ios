@@ -396,7 +396,7 @@ enum NCProfileNodes {
 
     private static func validateProfileBytes(home: String, path: String, data: Data) -> String? {
         guard let text = String(data: data, encoding: .utf8), NCYAML.parse(text) != nil else {
-            return "YAML 解析失败"
+            return NCProfileCheck.withLine("YAML 解析失败", String(data: data, encoding: .utf8) ?? "")
         }
         if !home.isEmpty && !path.isEmpty {
             // Full check (Go: buildRuntime + parseRuntimeCached) — NCConfigValidator.
