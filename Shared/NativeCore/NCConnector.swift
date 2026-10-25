@@ -1167,9 +1167,36 @@ enum NCConnector {
         let session = NCAnyTLSSession(key: key)
         anytlsRegistry[key] = session
         anytlsLock.unlock()
+
+        if isECHEnabled(proxy) && realityParams(proxy) != nil {
+            anytlsLock.lock()
+            if anytlsRegistry[key] === session { anytlsRegistry.removeValue(forKey: key) }
+            anytlsLock.unlock()
+            session.attachFailed()
+            queue.async { completion(nil, Failure.handshake("REALITY 与 ECH 互斥，不能同时启用")) }
+            return
+        }
+
+        if needsNativeTLS(proxy) {
+            dialNativeTLS(proxy: proxy, server: server, port: port, queue: session.queue) { tls, err in
+                if let tls {
+                    session.attach(tls: tls, password: password,
+                                   clientMetadata: proxy.fields["client-metadata"]?.string ?? "")
+                    queue.async { completion(session, nil) }
+                } else {
+                    anytlsLock.lock()
+                    if anytlsRegistry[key] === session { anytlsRegistry.removeValue(forKey: key) }
+                    anytlsLock.unlock()
+                    session.attachFailed()
+                    queue.async { completion(nil, err) }
+                }
+            }
+            return
+        }
+
         // nc-sessions: the base TLS connection runs on the session's own queue (see muxSession).
         let tls = NCStream(to: server, port: port,
-                           tlsServerName: proxy.fields["sni"]?.string ?? proxy.fields["servername"]?.string ?? server,
+                           tlsServerName: proxy.fields["servername"]?.string ?? proxy.fields["sni"]?.string ?? server,
                            allowInsecure: proxy.fields["skip-cert-verify"]?.bool ?? false,
                            queue: session.queue)
         tls.start { err in
@@ -1179,7 +1206,7 @@ enum NCConnector {
                 queue.async { completion(session, nil) }
             } else {
                 anytlsLock.lock()
-                anytlsRegistry.removeValue(forKey: key)
+                if anytlsRegistry[key] === session { anytlsRegistry.removeValue(forKey: key) }
                 anytlsLock.unlock()
                 session.attachFailed()
                 queue.async { completion(nil, err) }
