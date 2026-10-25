@@ -181,6 +181,8 @@ final class JSCScriptEngine: NSObject, JSCEngineGoBinding {
         let wrapped: Bool
         var primary: Ctx?
         var dropped = false
+        /// nc-memory: LRU clock for the cached-script cap (engine `tick`, under `lock`).
+        var usedTick: UInt64 = 0
         init(key: String, name: String, source: String, wrapped: Bool) {
             self.key = key
             self.name = name
@@ -221,6 +223,15 @@ final class JSCScriptEngine: NSObject, JSCEngineGoBinding {
     private var limitStops = 0
     private var prelude = ""
     private var entries: [String: Entry] = [:]
+    /// nc-memory: bound on cached per-script contexts. The pool itself is the design (one primary
+    /// context per loaded script, reused by every run; concurrent runs get a temporary context that
+    /// is discarded at end) — but nothing ever evicted: Go used to call drop() on cache eviction and
+    /// in the Go-zero tunnel nobody does, so every distinct script ever loaded (including superseded
+    /// versions after a config change) kept its context + prelude heap for the tunnel's life. Each
+    /// cached context costs roughly the prelude heap (~0.3 MB measured class; stats() has the live
+    /// numbers) plus its source. 32 scripts ≈ a realistic large config; LRU eviction past it.
+    static let maxCachedScripts = 32
+    private var tick: UInt64 = 0
     private var runs: [Int64: Slot] = [:]
     private var byRef: [OpaquePointer: Ctx] = [:]
     private var gcContext: JSContext?
@@ -315,9 +326,36 @@ final class JSCScriptEngine: NSObject, JSCEngineGoBinding {
         }
         entries[key] = entry
         entry.primary = c
+        tick += 1
+        entry.usedTick = tick
         setRef(c)
         unlockAndEmpty()
+        evictOverflow()
         return ""
+    }
+
+    /// nc-memory: drops least-recently-used cached scripts past maxCachedScripts, through the same
+    /// trash/forget path as drop(). Entries with a busy primary or an active run are skipped; if all
+    /// are busy the cache overflows until a later load can evict (never blocks, never kills a run).
+    /// Runs on the engine thread (called from loadOnJS).
+    private func evictOverflow() {
+        lock.lock()
+        while entries.count > Self.maxCachedScripts {
+            let busy = Set(runs.values.map { ObjectIdentifier($0.entry) })
+            let candidates = entries.values.filter { e in
+                !busy.contains(ObjectIdentifier(e)) && !(e.primary?.busy ?? false)
+            }
+            guard let victim = candidates.min(by: { $0.usedTick < $1.usedTick }) else { break }
+            entries.removeValue(forKey: victim.key)
+            victim.dropped = true
+            if let p = victim.primary {
+                forget(p)
+                trash.append(p)
+                victim.primary = nil
+            }
+            trash.append(victim)
+        }
+        unlockAndEmpty()
     }
 
     func drop(_ key: String?) {
@@ -367,6 +405,8 @@ final class JSCScriptEngine: NSObject, JSCEngineGoBinding {
             lock.unlock()
             return "missing"
         }
+        tick += 1
+        entry.usedTick = tick
         var ctx: Ctx?
         var temp = false
         if let p = entry.primary, !p.busy, !p.poisoned {
