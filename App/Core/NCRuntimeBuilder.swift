@@ -79,6 +79,13 @@ enum NCRuntimeBuilder {
             default:
                 throw BuildError.yaml("YAML 解析失败: 配置顶层不是映射")
             }
+        } else if text.split(separator: "\n").allSatisfy({
+            let t = $0.trimmingCharacters(in: .whitespaces)
+            return t.isEmpty || t.hasPrefix("#") || t == "---"
+        }) {
+            // Go: an empty / comment-only document unmarshals to a
+            // nil map, which the builder replaces with an empty one.
+            raw = [:]
         } else {
             throw BuildError.yaml("YAML 解析失败: 无法解析")
         }

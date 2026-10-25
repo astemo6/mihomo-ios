@@ -16,11 +16,24 @@ import Foundation
 
 // MARK: - Config (mitm.Config / Item / Module / ScriptResource)
 
+/// The Decodable conformances are hand-written with decodeIfPresent
+/// throughout: Go's json.Unmarshal tolerates missing keys (zero
+/// values), while Swift's synthesized conformance would reject a
+/// sparse engine.json outright.
 struct NCEngineItem: Decodable {
     var id: String = ""
     var enabled: Bool = false
     var line: String = ""
     var note: String? = nil
+
+    init() {}
+    init(from decoder: Decoder) throws {
+        let c = try decoder.container(keyedBy: CodingKeys.self)
+        id = try c.decodeIfPresent(String.self, forKey: .id) ?? ""
+        enabled = try c.decodeIfPresent(Bool.self, forKey: .enabled) ?? false
+        line = try c.decodeIfPresent(String.self, forKey: .line) ?? ""
+        note = try c.decodeIfPresent(String.self, forKey: .note)
+    }
 }
 
 struct NCEngineModule: Decodable {
@@ -32,11 +45,31 @@ struct NCEngineModule: Decodable {
     var policies: [String: String]? = nil
     var updatedAt: Double? = nil
     var interval: Int? = nil
+
+    init() {}
+    init(from decoder: Decoder) throws {
+        let c = try decoder.container(keyedBy: CodingKeys.self)
+        id = try c.decodeIfPresent(String.self, forKey: .id) ?? ""
+        name = try c.decodeIfPresent(String.self, forKey: .name) ?? ""
+        url = try c.decodeIfPresent(String.self, forKey: .url) ?? ""
+        enabled = try c.decodeIfPresent(Bool.self, forKey: .enabled) ?? false
+        args = try c.decodeIfPresent([String: String].self, forKey: .args)
+        policies = try c.decodeIfPresent([String: String].self, forKey: .policies)
+        updatedAt = try c.decodeIfPresent(Double.self, forKey: .updatedAt)
+        interval = try c.decodeIfPresent(Int.self, forKey: .interval)
+    }
 }
 
 struct NCScriptResource: Decodable {
     var disabled: Bool = false
     var interval: Int = 0
+
+    init() {}
+    init(from decoder: Decoder) throws {
+        let c = try decoder.container(keyedBy: CodingKeys.self)
+        disabled = try c.decodeIfPresent(Bool.self, forKey: .disabled) ?? false
+        interval = try c.decodeIfPresent(Int.self, forKey: .interval) ?? 0
+    }
 }
 
 struct NCEngineConfig: Decodable {
@@ -54,6 +87,25 @@ struct NCEngineConfig: Decodable {
     var quic: String = ""
     var quicAllow: [String] = []
     var language: String = ""
+
+    init() {}
+    init(from decoder: Decoder) throws {
+        let c = try decoder.container(keyedBy: CodingKeys.self)
+        enabled = try c.decodeIfPresent(Bool.self, forKey: .enabled) ?? false
+        scriptsEnabled = try c.decodeIfPresent(Bool.self, forKey: .scriptsEnabled)
+        mitm = try c.decodeIfPresent(Bool.self, forKey: .mitm) ?? false
+        skipCertVerify = try c.decodeIfPresent(Bool.self, forKey: .skipCertVerify) ?? false
+        h2 = try c.decodeIfPresent(Bool.self, forKey: .h2)
+        captureBodies = try c.decodeIfPresent(Bool.self, forKey: .captureBodies)
+        hostnames = try c.decodeIfPresent([String].self, forKey: .hostnames) ?? []
+        rules = try c.decodeIfPresent([NCEngineItem].self, forKey: .rules) ?? []
+        scripts = try c.decodeIfPresent([NCEngineItem].self, forKey: .scripts) ?? []
+        modules = try c.decodeIfPresent([NCEngineModule].self, forKey: .modules) ?? []
+        scriptResources = try c.decodeIfPresent([String: NCScriptResource].self, forKey: .scriptResources)
+        quic = try c.decodeIfPresent(String.self, forKey: .quic) ?? ""
+        quicAllow = try c.decodeIfPresent([String].self, forKey: .quicAllow) ?? []
+        language = try c.decodeIfPresent(String.self, forKey: .language) ?? ""
+    }
 
     var rewriteOn: Bool { enabled }
     var scriptsOn: Bool { scriptsEnabled ?? enabled }
