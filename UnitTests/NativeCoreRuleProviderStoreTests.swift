@@ -149,4 +149,66 @@ final class NativeCoreRuleProviderStoreTests: XCTestCase {
         XCTAssertFalse(store.isLoaded(name: "F"))
         XCTAssertFalse(store.contains(name: "F", ctx: NCMatchContext(domain: "d0.example.com")))
     }
+
+    // MARK: one entry gate for every load path (fix/nc-followup-a)
+
+    private func domainLines(_ n: Int) -> [String] {
+        var out: [String] = []
+        out.reserveCapacity(n)
+        for i in 0..<n { out.append("d\(i).example.com") }
+        return out
+    }
+
+    func testInlinePayloadOverCapIsRejectedBySharedGate() {
+        // Inline payloads never reach populateIndex; they must still hit the
+        // same gate (same limit, same comparison) as file / cache / refresh.
+        let store = NCRuleProviderStore(dir: dir)
+        let p = NCRuleProviderStore.Provider(name: "I", behavior: "domain",
+                                             inlinePayload: domainLines(NCRuleProviderStore.maxEntries + 1))
+        store.loadCached(providers: [p], home: dir.path)
+        XCTAssertFalse(store.isLoaded(name: "I"))
+        XCTAssertFalse(store.contains(name: "I", ctx: NCMatchContext(domain: "d0.example.com")))
+    }
+
+    func testInlinePayloadExactlyAtCapStillLoads() {
+        // Valid input at the boundary keeps loading (gate is inclusive).
+        let store = NCRuleProviderStore(dir: dir)
+        let n = NCRuleProviderStore.maxEntries
+        let p = NCRuleProviderStore.Provider(name: "I", behavior: "domain",
+                                             inlinePayload: domainLines(n))
+        store.loadCached(providers: [p], home: dir.path)
+        XCTAssertTrue(store.isLoaded(name: "I"))
+        XCTAssertTrue(store.contains(name: "I", ctx: NCMatchContext(domain: "d\(n - 1).example.com")))
+    }
+
+    func testPopulateIndexAndInlineGateAgreeAtBoundary() {
+        // Same list through both entry points: at the cap both accept, one
+        // over both reject with the same error — one gate, one limit.
+        let p = NCRuleProviderStore.Provider(name: "G", behavior: "domain")
+        let atCap = domainLines(NCRuleProviderStore.maxEntries)
+
+        var viaData = NCRuleSetIndex()
+        XCTAssertNoThrow(try NCRuleProviderStore.populateIndex(
+            idx: &viaData, data: Data(atCap.joined(separator: "\n").utf8), provider: p))
+        var viaLines = NCRuleSetIndex()
+        for l in atCap { viaLines.addLine(l, flavor: p.flavor) }
+        XCTAssertNoThrow(try NCRuleProviderStore.checkEntryGate(viaLines, provider: p))
+        XCTAssertEqual(viaData.entryCount, viaLines.entryCount)
+
+        viaLines.addLine("one-more.example.com", flavor: p.flavor)
+        XCTAssertThrowsError(try NCRuleProviderStore.checkEntryGate(viaLines, provider: p)) { err in
+            guard case NCRuleProviderGateError.tooManyEntries(_, let count, let limit)? = err as? NCRuleProviderGateError else {
+                return XCTFail("unexpected error \(err)")
+            }
+            XCTAssertEqual(count, NCRuleProviderStore.maxEntries + 1)
+            XCTAssertEqual(limit, NCRuleProviderStore.maxEntries)
+        }
+        var overData = NCRuleSetIndex()
+        XCTAssertThrowsError(try NCRuleProviderStore.populateIndex(
+            idx: &overData, data: Data((atCap + ["one-more.example.com"]).joined(separator: "\n").utf8), provider: p)) { err in
+            guard case NCRuleProviderGateError.tooManyEntries? = err as? NCRuleProviderGateError else {
+                return XCTFail("unexpected error \(err)")
+            }
+        }
+    }
 }

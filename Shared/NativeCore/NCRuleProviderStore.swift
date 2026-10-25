@@ -188,6 +188,15 @@ final class NCRuleProviderStore {
         } else {
             throw NCMRSError.corrupted("rule provider '\(provider.name)' payload is neither UTF-8 text nor recognized MRS binary format")
         }
+        try checkEntryGate(idx, provider: provider)
+    }
+
+    /// The single entry-count gate. Every load path — populateIndex (network
+    /// refresh, disk cache, local file) and the inline-payload branch of
+    /// loadCached, which has no Data body to hand populateIndex — calls this
+    /// one function, so the limit (`maxEntries`) and the comparison live in
+    /// exactly one place and the paths cannot drift apart.
+    static func checkEntryGate(_ idx: NCRuleSetIndex, provider: Provider) throws {
         guard idx.entryCount <= maxEntries else {
             throw NCRuleProviderGateError.tooManyEntries(
                 name: provider.name, count: idx.entryCount, limit: maxEntries)
@@ -208,12 +217,13 @@ final class NCRuleProviderStore {
             var loaded = false
             if !p.inlinePayload.isEmpty {
                 for line in p.inlinePayload { idx.addLine(line, flavor: p.flavor) }
-                // Inline payloads bypass populateIndex (no Data body), so
-                // the entry-count gate is applied here directly.
-                if idx.entryCount > Self.maxEntries {
-                    NSLog("%@", "[NCRuleProviderStore] \(NCRuleProviderGateError.tooManyEntries(name: p.name, count: idx.entryCount, limit: Self.maxEntries))")
-                } else {
+                // Inline payloads have no Data body for populateIndex; they
+                // go through the same entry gate function it uses.
+                do {
+                    try Self.checkEntryGate(idx, provider: p)
                     loaded = idx.entryCount > 0
+                } catch {
+                    NSLog("[NCRuleProviderStore] failed loading inline payload for %@: %@", p.name, String(describing: error))
                 }
             } else if let path = p.filePath {
                 let url = path.hasPrefix("/") ? URL(fileURLWithPath: path)
