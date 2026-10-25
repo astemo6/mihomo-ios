@@ -189,7 +189,8 @@ enum NCGroupOrder {
         let lines = splitLines(srcText)
         var keyLineIdx: Int?
         for (i, line) in lines.enumerated() {
-            let trimmed = line.trimmingCharacters(in: .whitespaces)
+            // lines keep their terminator (splitLines): trim it too, or "proxy-groups:\n" never matches
+            let trimmed = line.trimmingCharacters(in: .whitespacesAndNewlines)
             if trimmed == "proxy-groups:" || trimmed.hasPrefix("proxy-groups: ") || trimmed.hasPrefix("proxy-groups:#") {
                 keyLineIdx = i
                 break
@@ -207,7 +208,7 @@ enum NCGroupOrder {
         var seqEnd = lines.count
         for i in (keyIdx + 1)..<lines.count {
             let line = lines[i]
-            let trimmed = line.trimmingCharacters(in: .whitespaces)
+            let trimmed = line.trimmingCharacters(in: .whitespacesAndNewlines) // a blank "\n" line is empty, not the end
             if trimmed.isEmpty || trimmed.hasPrefix("#") { continue }
             let ind = indentOf(line)
             if dashCol == -1 {
@@ -379,7 +380,7 @@ enum NCGroupOrder {
         var current = ""
         for ch in text {
             current.append(ch)
-            if ch == "\n" {
+            if ch == "\n" || ch == "\r\n" { // "\r\n" is one Character in Swift
                 out.append(current)
                 current = ""
             }
