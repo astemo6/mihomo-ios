@@ -967,4 +967,7 @@ final class JSCScriptEngine: NSObject, JSCEngineBinding {
         return s
     }
 
+    private static func urlName(_ n: String) -> String {
+        n.addingPercentEncoding(withAllowedCharacters: .alphanumerics) ?? "script"
+    }
 }
