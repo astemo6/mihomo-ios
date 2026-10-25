@@ -1,5 +1,4 @@
 import XCTest
-import Libmihomo
 @testable import Mihomo
 
 // NativeCore batch 1 (docs/native-core-design.md): config decode, rule engine,
@@ -211,10 +210,11 @@ final class NativeCoreBridgeExportTests: XCTestCase {
           - MATCH,DIRECT
         """
         try Data(yaml.utf8).write(to: home.appendingPathComponent("runtime.yaml"))
-        var err: NSError?
-        let json = LibmihomoNativeConfigJSON(home.path, &err)
-        XCTAssertNil(err)
-        let cfg = try NCConfig.decode(jsonData: Data(json.utf8))
+        // Go-zero: was LibmihomoNativeConfigJSON (Go re-encoding runtime.yaml); the app now writes
+        // nativecore-runtime.json from the NCYAML tree (NativeRuntimePrep), so decode that tree directly.
+        let text = try String(contentsOf: home.appendingPathComponent("runtime.yaml"), encoding: .utf8)
+        guard case .object(let root)? = NCYAML.parse(text) else { return XCTFail("runtime.yaml did not parse") }
+        let cfg = NCConfig.decode(root: root)
         XCTAssertEqual(cfg.proxyMap["A"]?.port, 8388)
         XCTAssertEqual(cfg.rules.count, 2)
         let rules = cfg.rules.compactMap(NCRule.parse)

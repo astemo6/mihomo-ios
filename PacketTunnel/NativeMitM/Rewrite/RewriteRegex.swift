@@ -56,11 +56,7 @@ final class RWRegex {
     /// Gap C5 (astemo6/Muse NativeCore): the Go-free tunnel has no Go to decide for non-ASCII input, so the ICU
     /// translation runs on it too (regexp2 also matches runes; differences are limited to classes Go spelled out
     /// as ASCII sets meeting non-ASCII text). The Go-backed app build keeps answering unknown.
-    #if TERN_NO_GO
     static let lenient = true
-    #else
-    static let lenient = false
-    #endif
     static func inputOK(_ s: String) -> Bool { lenient || isASCII(s) }
 
     /// Could the URL contain a match at all? false is exact (every match contains the literal).

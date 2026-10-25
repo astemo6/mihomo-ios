@@ -1,5 +1,4 @@
 import Foundation
-import Libmihomo
 
 struct SubscriptionUserInfo: Codable, Hashable {
     var upload: Int64 = 0
@@ -211,7 +210,7 @@ final class ProfileStore: ObservableObject {
     }
 
     /// 「导出最终配置（含覆写）」: the YAML the core runs for this profile (覆写脚本, 节点处理, 节点订阅, node-set
-    /// edits, core overrides; credentials as in the profile; controller / probe plumbing removed), built in Go
+    /// edits, core overrides; credentials as in the profile; controller / probe plumbing removed), built in Swift (NCFinalConfigReadable)
     /// off the main thread, as `<name> · 最终配置.yaml`. feat/export-readable: written for people (block YAML in
     /// mihomo's usual order, a header naming the profile / Tern version / export time, one comment per section);
     /// the tunnel's own runtime.yaml is unchanged.
@@ -221,10 +220,11 @@ final class ProfileStore: ObservableObject {
         let name = p.name
         let version = DiagnosticsExporter.version(of: .main)
         let r: Result<String, Error> = await Task.detached(priority: .userInitiated) {
-            var err: NSError?
-            let s = LibmihomoFinalConfigReadable(home, path, name, version, &err)
-            if let err { return .failure(err) }
-            return .success(s)
+            do {
+                return .success(try NCFinalConfigReadable.render(home: home, path: path, profileName: name, appVersion: version))
+            } catch {
+                return .failure(error)
+            }
         }.value
         switch r {
         case .failure(let e): return .failure(e)
@@ -243,13 +243,13 @@ final class ProfileStore: ObservableObject {
 
     // MARK: Validation / conversion
 
-    /// Validates YAML text with the real mihomo parser. Returns nil if OK, else the error.
+    /// Validates YAML text with the full config parse (NCConfigValidator, the Swift port of mihomo's). Returns nil if OK, else the error.
     nonisolated static func validate(text: String) async -> String? {
         await Task.detached(priority: .userInitiated) {
             let tmp = AppShared.homeURL.appendingPathComponent("validate-\(UUID().uuidString).yaml")
             defer { try? FileManager.default.removeItem(at: tmp) }
             do { try text.write(to: tmp, atomically: true, encoding: .utf8) } catch { return error.localizedDescription }
-            let r = LibmihomoValidateConfigIn(AppShared.homeURL.path, tmp.path)
+            let r = NCConfigValidator.validateConfigIn(home: AppShared.homeURL.path, path: tmp.path)
             return r.isEmpty ? nil : r
         }.value
     }

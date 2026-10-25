@@ -1,23 +1,22 @@
 # test/selftest: self-tests without a device. Runs on pushes to test/** branches (a workflow_dispatch workflow
 # must exist on the default branch before it can be dispatched) and by workflow_dispatch with run_tests=true
-# once merged. Never releases. A commit message containing [only:<testName>] runs just that UI test ([unit:<Class>] adds a unit test class), [skip-go]
-# skips the Go job, [skip-ui] skips the UI shards (Go-only changes).
+# once merged. Never releases. A commit message containing [only:<testName>] runs just that UI test ([unit:<Class>] adds a unit test class),
+# [skip-ui] skips the UI shards.
 # - plan: picks the UI path (smoke or full matrix, see "UI path" below). Ubuntu, ~20 s.
-# - go: go vet + the whole bridge test suite with the race detector (Linux). Not affected by the UI path.
+# - (Go-zero: the former go job — go vet / go test / -race on bridge/ — is gone with bridge/.)
 # - ui: XCUITest target (project-uitests.yml) on an iOS simulator with the synthetic -UITestSeed profile,
 #   zh-Hans and en, light and dark. Screenshots and per-test reports are uploaded as artifacts only.
 # The release workflow (ios.yml) and project.yml are not touched by this file.
 # Org mirror sharding (doubles concurrent macOS runners; free plan = 5 macOS jobs per account/org):
-#   astemo6/mihomo-ios   → go + ui zh-Hans light/dark
-#   astemo666/mihomo-ios → ui en light/dark (no go)
+#   astemo6/mihomo-ios   → ui zh-Hans light/dark
+#   astemo666/mihomo-ios → ui en light/dark
 #   any other repo       → everything
 # Full matrix in one repo: workflow_dispatch shard=all, or [shard:all] in the pushed commit message.
 # scripts/selftest-split.sh pushes a test/** branch to both remotes and waits for both runs.
 # Lane F (2026-10-24, docs in CI.md):
 # - a newer push to the same test/** branch cancels the older run (concurrency below);
 # - a push whose commit already has a Self-test run on another branch of this repository (queued, running or
-#   successful) skips go + ui (dedupe job) — a re-run of the skipped run, or a workflow_dispatch, always runs;
-# - core-update.yml calls this file (workflow_call, ref = the bumped commit) before packaging a core candidate.
+#   successful) skips ui (dedupe job) — a re-run of the skipped run, or a workflow_dispatch, always runs;
 #
 # UI path (2026-10-24, maintainer rule: a release that touches no UI and no copy runs the smoke shard + unit
 # tests + the IPA build only):
@@ -35,7 +34,7 @@
 #     *.xcstrings *.strings *.stringsdict *.lproj/** *.xcassets/** *.storyboard *.xib  anywhere
 #     project.yml       only when a changed line mentions the app/widget UI: a path App/Shared/Widget,
 #                       xcstrings, ASSETCATALOG, INFOPLIST, PRODUCT_NAME, AppIcon, AccentColor, DisplayName
-#   Everything else (bridge/**, PacketTunnel/**, Geo/**, Config/**, UnitTests/**, scripts/**, .github/**,
+#   Everything else (PacketTunnel/**, Geo/**, Config/**, UnitTests/**, scripts/**, .github/**,
 #   docs) is not UI-affecting → smoke.
 #   smoke = one combo, zh-Hans light (astemo6 / other repos; the astemo666 en mirror runs no UI job):
 #     SMOKE_TESTS (launch + tab/page navigation + node manager) + every MihomoUnitTests class. The app,
@@ -48,7 +47,7 @@
 #   (none)        / shard=auto   the diff rule above
 #   [only:<test>] / [unit:<Class>] / inputs.only  explicit selection, unchanged: light shard 1 + dark:0 as
 #                 before (smoke: runs the selection in the one smoke combo when [shard:smoke] is also given)
-#   [skip-go], [skip-ui]  unchanged.
+#   [skip-ui]  unchanged.
 name: Self-test
 
 on:
@@ -66,11 +65,6 @@ on:
         type: string
         required: false
         default: ""
-      skip_go:
-        description: Skip the Go job
-        type: boolean
-        required: false
-        default: false
       shard:
         description: "auto = smoke if no UI-affecting file changed (see header), else split by repository; full = split by repository; smoke = one zh-Hans light smoke combo; all = full matrix here"
         type: choice
@@ -92,10 +86,6 @@ on:
         type: string
         required: false
         default: ""
-      skip_go:
-        type: boolean
-        required: false
-        default: false
       shard:
         description: "auto | full | smoke | all (see header)"
         type: string
@@ -230,77 +220,8 @@ jobs:
             fi
           } >> "$GITHUB_STEP_SUMMARY"
 
-  go:
-    needs: dedupe
-    if: ${{ needs.dedupe.outputs.skip != 'true' && ((github.event_name == 'push' && !contains(github.event.head_commit.message, '[skip-go]')) || (inputs.run_tests && !inputs.skip_go)) && (github.repository != 'astemo666/mihomo-ios' || inputs.shard == 'all' || contains(github.event.head_commit.message, '[shard:all]')) }}
-    runs-on: ubuntu-latest
-    timeout-minutes: 45
-    steps:
-      - uses: actions/checkout@v5
-        with:
-          ref: ${{ inputs.ref }}
-      - uses: actions/setup-go@v6
-        with:
-          go-version-file: bridge/go.mod
-          cache-dependency-path: bridge/go.sum
-      - name: go vet
-        working-directory: bridge
-        run: go vet ./... 2>&1 | tee ../go-vet.log
-      # 1) The suite without the race detector; tests that fail are retried once on their own (several
-      #    download geo data / reach public endpoints and flake on the runner's network).
-      - name: go test
-        if: always()
-        working-directory: bridge
-        run: |
-          set +e
-          go test -count=1 -timeout 30m ./... 2>&1 | tee ../go-test.log
-          RC=${PIPESTATUS[0]}
-          [ "$RC" = 0 ] && exit 0
-          FAILED=$(grep -E "^--- FAIL: " ../go-test.log | awk '{print $3}' | sort -u | paste -sd'|' -)
-          echo "failed first run: $FAILED"
-          [ -n "$FAILED" ] || exit "$RC"
-          go test -count=1 -timeout 15m -run "^(${FAILED})\$" ./... 2>&1 | tee ../go-test-retry.log
-          RC2=${PIPESTATUS[0]}
-          echo "### go test" >> "$GITHUB_STEP_SUMMARY"
-          echo "- first run failed: ${FAILED//|/, }; retry exit $RC2" >> "$GITHUB_STEP_SUMMARY"
-          exit "$RC2"
-      # 1b) v0.18: tests that need the real Tailscale outbound (tsnet + gVisor), built with the app's tag.
-      - name: go test (with_gvisor)
-        if: always()
-        working-directory: bridge
-        run: go test -tags with_gvisor -count=1 -timeout 10m -run 'TestV018' . 2>&1 | tee ../go-test-gvisor.log
-      # 2) The race detector; reports are classified (scripts/race_check.py): races in this repository's
-      #    code fail, races inside mihomo's config re-apply are listed as upstream.
-      - name: go test -race
-        if: always()
-        working-directory: bridge
-        run: |
-          set +e
-          go test -race -count=1 -timeout 30m ./... > ../go-test-race.log 2>&1
-          RC=$?
-          echo "go test -race exit $RC (failures from upstream races are expected)"
-          grep -E "^(--- FAIL|ok |FAIL)" ../go-test-race.log | head -n 80
-          # r7 R7A-12: the exit code counts too — only failures explained by upstream race reports pass.
-          python3 ../scripts/race_check.py ../go-test-race.log --summary "$GITHUB_STEP_SUMMARY" --exit-code "$RC"
-      - name: Failed tests (on failure)
-        if: failure()
-        run: |
-          grep -E "^(--- FAIL|FAIL|panic:)" -A12 go-test.log go-test-retry.log 2>/dev/null | head -n 300 || true
-      - uses: actions/upload-artifact@v6
-        if: always()
-        with:
-          name: go-test-logs
-          path: |
-            go-vet.log
-            go-test.log
-            go-test-retry.log
-            go-test-race.log
-            go-test-gvisor.log
-          if-no-files-found: warn
-          retention-days: 14
-
   ui:
-    # [skip-ui] in the pushed commit message: Go-only change, the macOS UI shards are not run.
+    # [skip-ui] in the pushed commit message: the macOS UI shards are not run.
     # The plan job's combos are [] when nothing runs here (smoke on the astemo666 en mirror).
     needs: [dedupe, plan]
     if: ${{ needs.dedupe.outputs.skip != 'true' && ((github.event_name == 'push' && !contains(github.event.head_commit.message, '[skip-ui]')) || inputs.run_tests) && needs.plan.outputs.combos != '[]' }}
@@ -337,40 +258,12 @@ jobs:
             echo "only-testing selection runs in light shard 1; this shard skips build and tests"
           fi
           echo "SKIP_SHARD=$SKIP" >> "$GITHUB_ENV"
-      - name: Core version
-        if: env.SKIP_SHARD != '1'
-        run: echo "MIHOMO_VERSION=$(awk '$1=="github.com/metacubex/mihomo"{print $2; exit}' bridge/go.mod)" >> "$GITHUB_ENV"
       - name: Select latest Xcode
         if: env.SKIP_SHARD != '1'
         run: |
           XC=$(ls -d /Applications/Xcode_*.app | sed -E 's/.*Xcode_([0-9.]+)\.app/\1 &/' | grep -v -i beta | sort -V | tail -n1 | cut -d' ' -f2)
           sudo xcode-select -s "$XC/Contents/Developer"
           xcodebuild -version
-      - uses: actions/setup-go@v6
-        if: env.SKIP_SHARD != '1'
-        with:
-          go-version-file: bridge/go.mod
-          cache-dependency-path: bridge/go.sum
-      - name: Cache simulator Libmihomo
-        id: simfw
-        if: env.SKIP_SHARD != '1'
-        uses: actions/cache@v5
-        with:
-          path: Frameworks/Libmihomo.xcframework
-          key: libmihomo-sim-${{ env.MIHOMO_VERSION }}-${{ hashFiles('bridge/**') }}
-      - name: Build Libmihomo.xcframework (simulator)
-        if: env.SKIP_SHARD != '1' && steps.simfw.outputs.cache-hit != 'true'
-        working-directory: bridge
-        run: |
-          set -euo pipefail
-          MOBILE_VER=$(go list -m -f '{{.Version}}' golang.org/x/mobile)
-          go install golang.org/x/mobile/cmd/gomobile@"$MOBILE_VER" golang.org/x/mobile/cmd/gobind@"$MOBILE_VER"
-          export PATH="$(go env GOPATH)/bin:$PATH"
-          gomobile init
-          mkdir -p ../Frameworks
-          gomobile bind -target=iossimulator/arm64 -iosversion=15.0 -tags with_gvisor -trimpath \
-            -ldflags "-s -w -X github.com/metacubex/mihomo/constant.Version=${MIHOMO_VERSION} -X github.com/astemo6/mihomo-ios/bridge.CoreVersion=${MIHOMO_VERSION}" \
-            -o ../Frameworks/Libmihomo.xcframework .
       - name: Generate project (with UI tests)
         if: env.SKIP_SHARD != '1'
         run: |

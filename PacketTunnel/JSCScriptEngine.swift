@@ -1,8 +1,5 @@
 import Foundation
 import JavaScriptCore
-#if !TERN_NO_GO
-import Libmihomo
-#endif
 
 /// feat/jsc-engine: MitM / rewrite / task scripts run in JavaScriptCore instead of goja (Go).
 ///
@@ -57,29 +54,9 @@ protocol JSCRun: AnyObject {
     func shouldStop() -> Bool
 }
 
-#if !TERN_NO_GO
-/// Go's run (bridge ScriptRun) behind `JSCRun`.
-final class GoJSCRun: JSCRun {
-    private let r: LibmihomoScriptRun
-    let runID: Int64
-    init(_ r: LibmihomoScriptRun) {
-        self.r = r
-        runID = r.id_()
-    }
-    func host(_ op: String, _ arg: String) -> String { r.host(op, arg: arg) }
-    func put(_ data: Data) -> Int64 { r.put(data) }
-    func take(_ id: Int64) -> Data? { r.take(id) }
-    func shouldStop() -> Bool { r.shouldStop() }
-}
 
-#endif
-
-#if TERN_NO_GO
 /// The Go-free tunnel (TERN_NO_GO): nobody calls the engine through gomobile.
 protocol JSCEngineGoBinding {}
-#else
-typealias JSCEngineGoBinding = LibmihomoScriptEngineProtocol
-#endif
 
 /// The one thread JSCScriptEngine runs JavaScriptCore on (CI 40079040185 light:1: the unit-test host died in
 /// `MachineThreads::gatherConservativeRoots` → `pas_panic_on_out_of_memory_error` during a collection).
@@ -195,11 +172,7 @@ final class JSCScriptEngine: NSObject, JSCEngineGoBinding {
     /// already freed (withDecoded false → the Go host, which answers nothing for a dead run).
     static var nativeBlobs: JSCNativeBlobProvider?
     /// First native blob id (LibmihomoNativeBlobBase, 2^52).
-    #if TERN_NO_GO
     private static let nativeBase: Int64 = NativeBodyStore.defaultBlobBase
-    #else
-    private static let nativeBase: Int64 = LibmihomoNativeBlobBase()
-    #endif
 
     private final class Entry {
         let key: String
@@ -271,56 +244,11 @@ final class JSCScriptEngine: NSObject, JSCEngineGoBinding {
         super.init()
     }
 
-    #if TERN_NO_GO
     /// The Go-free tunnel: the native script dispatcher calls the engine directly; nothing to register.
     @discardableResult
     static func register() -> String { "" }
     static func status() -> String { #"{"engine":"native","go":false}"# }
     static func selfTestIfRequested() {}
-    #else
-    /// Registers the engine with the core once per process (tunnel start, 脚本调试 in the app).
-    @discardableResult
-    static func register() -> String {
-        registerLock.lock()
-        defer { registerLock.unlock() }
-        if let done = registered { return done }
-        let msg = LibmihomoSetScriptEngine(shared)
-        registered = msg
-        return msg
-    }
-    private static let registerLock = NSLock()
-    private static var registered: String?
-
-    /// The engine the core uses now ({"engine":"native|goja",…}).
-    static func status() -> String { LibmihomoScriptEngineStatus() }
-
-    /// One engine-conformance case (UnitTests/ScriptEngineConformance.json) on goja and JavaScriptCore.
-    static func conformance(home: String, caseJSON: String) -> String { LibmihomoScriptConformance(home, caseJSON) }
-
-    /// Unit tests (lane conformance cases): registers a native body store with the core and this engine, nil
-    /// unregisters (the tunnel uses NativeBodyStore.register() and never unregisters).
-    static func setLaneForTests(_ lane: (NSObject & LibmihomoNativeBodyStoreProtocol & JSCNativeBlobProvider)?) {
-        nativeBlobs = lane
-        LibmihomoSetNativeBodyStore(lane)
-    }
-
-    /// Lane handles the Go side holds right now (0 when no body is in flight).
-    static func laneLive() -> Int64 { LibmihomoNativeLaneLive() }
-
-    /// Every goroutine's stack (the conformance test logs it when a case hangs).
-    static func goroutineDump() -> String { LibmihomoGoroutineDump() }
-
-    /// `-TernJSCSelfTest` launch argument: one conformance case, logged (device check without the test bundle).
-    static func selfTestIfRequested() {
-        guard ProcessInfo.processInfo.arguments.contains("-TernJSCSelfTest") else { return }
-        DispatchQueue.global(qos: .utility).async {
-            register()
-            let c = #"{"name":"selftest","input":{"code":"var o = JSON.parse($response.body); o.ok = true; $done({body: JSON.stringify(o)});","type":"http-response","response":{"status":200,"body":"{}"}},"expect":["ok"]}"#
-            let r = conformance(home: NSTemporaryDirectory(), caseJSON: c)
-            NSLog("[jsc-selftest] %@ %@", r, status())
-        }
-    }
-    #endif
 
     // MARK: LibmihomoScriptEngineProtocol
 
@@ -416,12 +344,6 @@ final class JSCScriptEngine: NSObject, JSCEngineGoBinding {
         scheduleGC(full: true)
     }
 
-    #if !TERN_NO_GO
-    func begin(_ run: LibmihomoScriptRun?, key: String?, setup: String?) -> String {
-        guard let run, let key else { return Self.err("internal", "missing run") }
-        return begin(run: GoJSCRun(run), key: key, setup: setup ?? "{}")
-    }
-    #endif
 
     /// Starts a run on key's context: "" ok, "missing" (key not loaded), else error JSON {kind, message} — Go's Begin,
     /// also called by the native script dispatcher (lane s3-script) with its own run. `call` / `end` take its runID.
@@ -429,18 +351,12 @@ final class JSCScriptEngine: NSObject, JSCEngineGoBinding {
         // feat/s3-mem: the native memory governor (when on) admits the run by its setup size (small work allowed
         // down to ~4.5 MB, reclaim — JSC garbage included, asynchronously — before refusing). Go reports the refusal
         // as a script error and passes the message through unchanged. Checked before the JSC thread hop (never on it).
-        #if TERN_NO_GO
         // NativeCore (astemo6/Muse NativeCore, 2026-10-25): the run is admitted against the same live budget as
         // large script bodies (NativeScriptBodyBudget: setup + slack above the 1.5 MB reserve), not the governor's
         // 4.5 MB small-work floor — that floor refused YouTube / xmly runs at 3–4 MB although their body fit.
         if NativeMemoryGovernor.active != nil, !NativeScriptBodyBudget.shared.roomForRun(bytes: Int64(setup.utf8.count)) {
             return Self.err("memory", "内存紧张，已跳过脚本（原生内存调度）")
         }
-        #else
-        if let g = NativeMemoryGovernor.active, !g.admit(.script, bytes: setup.utf8.count) {
-            return Self.err("memory", "内存紧张，已跳过脚本（原生内存调度）")
-        }
-        #endif
         return js.sync { [self] in beginOnJS(run: run, key: key, setup: setup) }
     }
 

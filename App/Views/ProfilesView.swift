@@ -1,6 +1,5 @@
 import SwiftUI
 import UniformTypeIdentifiers
-import Libmihomo
 
 struct ProfilesView: View {
     @EnvironmentObject var store: ProfileStore
@@ -585,7 +584,7 @@ struct YAMLEditorView: View {
             if delay > 0 { try? await Task.sleep(nanoseconds: delay) }
             guard !Task.isCancelled else { return }
             checking = true
-            let json = await Task.detached(priority: .userInitiated) { LibmihomoProfileCheck(home, path, t) }.value
+            let json = await Task.detached(priority: .userInitiated) { NCProfileCheck.checkJSON(home: home, profilePath: path, text: t) }.value
             guard !Task.isCancelled else { return }
             checking = false
             if let d = json.data(using: .utf8), let r = try? JSONDecoder().decode(ProfileCheckResult.self, from: d) {

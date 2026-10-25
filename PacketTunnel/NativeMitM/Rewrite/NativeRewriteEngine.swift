@@ -167,11 +167,7 @@ final class NativeRewriteEngine {
     // skipped on its own (counted in skipStats, noted in the request log) and every other rule still applies;
     // regexes run on non-ASCII input (RWRegex.lenient), header ops apply best effort, and when scripts and body
     // rules meet on one flow the scripts run and the body rules are skipped. The Go-backed app build keeps deferring.
-    #if TERN_NO_GO
     static let goFree = true
-    #else
-    static let goFree = false
-    #endif
     private static let skipLock = NSLock()
     private static var skips: [String: Int] = [:]
     static func noteSkip(_ why: String) {

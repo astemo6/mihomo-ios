@@ -49,8 +49,8 @@ enum NCProfileRefRename {
 
     /// bridge commit: validate the edited bytes the way a connect builds them (an error the unedited file already
     /// has does not block the edit), keep <path>.bak, write atomically.
-    /// The check is NCRuntimeBuilder.build (YAML / structure); mihomo's full config parse (Go's
-    /// parseRuntimeCached) has no Swift counterpart yet (B1 ValidateConfigIn).
+    /// The check is the full one: NCRuntimeBuilder.build + NCConfigValidator (Go's buildRuntime +
+    /// parseRuntimeCached), cached by runtime bytes like Go's.
     static func commit(home: String, path: String, orig: Data, new: Data) -> String {
         if let e = buildError(home: home, path: path, bytes: new) {
             let pre = buildError(home: home, path: path, bytes: orig)
@@ -67,15 +67,7 @@ enum NCProfileRefRename {
 
     /// The runtime build error for these profile bytes, nil when it builds.
     static func buildError(home: String, path: String, bytes: Data) -> String? {
-        let req = NCRuntimeBuilder.Request.load(home: home, profilePath: path)
-        do {
-            _ = try NCRuntimeBuilder.build(profile: bytes, req: req, fd: 0)
-            return nil
-        } catch let e as NCRuntimeBuilder.BuildError {
-            return e.message
-        } catch {
-            return error.localizedDescription
-        }
+        NCConfigValidator.validate(home: home, path: path, profile: bytes)
     }
 
     // MARK: - Tree rename (bridge yamlDoc.renameRefs, new non-empty)

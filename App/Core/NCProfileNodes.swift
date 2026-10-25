@@ -4,7 +4,7 @@ import Foundation
 // 1. Validation Backend:
 //    - Go (bridge/profilenodes.go): Calls `validateProfileBytes` which drives Go mihomo core's
 //      `buildRuntime` and `executor.ParseWithBytes`.
-//    - Swift (NCProfileNodes): Uses `NCYAML.parse` and `NCRuntimeBuilder.build` in pure Swift to validate
+//    - Swift (NCProfileNodes): Uses `NCYAML.parse`, `NCRuntimeBuilder.build` and `NCConfigValidator` (port of the mihomo parse) to validate
 //      YAML syntax, config structure, proxy schemas, and runtime generation.
 //    - Impact: Pure Swift validation with zero Cgo/Go dependency; preserves the same tolerance for
 //      pre-existing errors (errors already present in the unedited file do not block the edit).
@@ -399,12 +399,8 @@ enum NCProfileNodes {
             return "YAML 解析失败"
         }
         if !home.isEmpty && !path.isEmpty {
-            let req = NCRuntimeBuilder.Request.load(home: home, profilePath: path)
-            do {
-                _ = try NCRuntimeBuilder.build(profile: data, req: req, fd: 0)
-            } catch {
-                return error.localizedDescription
-            }
+            // Full check (Go: buildRuntime + parseRuntimeCached) — NCConfigValidator.
+            return NCConfigValidator.validate(home: home, path: path, profile: data)
         }
         return nil
     }

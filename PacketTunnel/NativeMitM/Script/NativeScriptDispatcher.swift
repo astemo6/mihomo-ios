@@ -22,9 +22,6 @@
 //   - the store refuses to open the body (memory floor).
 
 import Foundation
-#if !TERN_NO_GO
-import Libmihomo
-#endif
 
 /// What the response phase needs from NativeBodyStore (a protocol for the unit tests).
 protocol ScriptBodyStore: JSCNativeBlobProvider {

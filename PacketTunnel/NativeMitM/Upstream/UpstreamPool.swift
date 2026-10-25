@@ -8,9 +8,6 @@
 // is not running); `closeIdle()` should be called on engine reload / network change / tunnel stop.
 
 import Foundation
-#if !TERN_NO_GO
-import Libmihomo
-#endif
 
 final class UpstreamPool {
     struct Config {
@@ -69,11 +66,7 @@ final class UpstreamPool {
         let timer: DispatchWorkItem
     }
 
-    #if TERN_NO_GO
     static let shared = UpstreamPool(relayPort: { 0 })
-    #else
-    static let shared = UpstreamPool(relayPort: { Int(LibmihomoMitmRelayPort()) })
-    #endif
 
     let queue: DispatchQueue
     let config: Config

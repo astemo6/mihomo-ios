@@ -28,10 +28,9 @@ settings:
     DEAD_CODE_STRIPPING: YES
     CODE_SIGN_STYLE: Manual
     OTHER_LDFLAGS: ["$(inherited)", "-lresolv"]
-    FRAMEWORK_SEARCH_PATHS: ["$(inherited)", "$(PROJECT_DIR)/Frameworks"]
   configs:
     Release:
-      # Smaller binaries: strip all symbols from the installed products (the Go archive is already built with -s -w).
+      # Smaller binaries: strip all symbols from the installed products .
       STRIP_INSTALLED_PRODUCT: YES
       STRIP_STYLE: all
       COPY_PHASE_STRIP: YES
@@ -76,7 +75,10 @@ targets:
       # native MitM stage 3 lane s3-script: the native script dispatcher (switch nativeMitmScript, default OFF), in the app
       # only for UnitTests/NativeMitmScriptTests.swift.
       - path: PacketTunnel/NativeMitM/Script
-        excludes: ["TernPrelude.js"]
+        # Go-zero: NativeTaskRunner / NativeHTTPAPI drive NativeCoreEngine — tunnel target only.
+        excludes: ["TernPrelude.js", "NativeTaskRunner.swift"]
+      # Go-zero: NativeMitmSession's inner driver (pass-through) — the session is compiled here for the unit tests.
+      - path: PacketTunnel/NativeMitM/NativeMitmFlowDriver.swift
       # nc-dego-rest: 脚本调试 runs in the app on the tunnel's prelude (NCScriptDebug) — an explicit resource, as
       # in the PacketTunnel target, instead of relying on XcodeGen's default phase for .js.
       - path: PacketTunnel/NativeMitM/Script/TernPrelude.js
@@ -92,8 +94,6 @@ targets:
         embed: true
       - target: MihomoWidget
         embed: true
-      - framework: Frameworks/Libmihomo.xcframework
-        embed: false
       - sdk: NetworkExtension.framework
     settings:
       base:
@@ -112,11 +112,10 @@ targets:
       - path: PacketTunnel
         # native MitM stage 2: NativeMitM/ is built (runtime switch default OFF, NativeMitmRuntime); the three
         # stage-1 skeletons stay out until the tls/http/upstream lanes replace them.
-        # feat/native-core-eval: PacketFlowBridge (the socketpair to the Go core) is gone with Go; NativeCore reads the
-        # packet flow itself (NCDataPlane).
-        excludes: ["**/*.entitlements", "NativeMitM/NativeHTTP1Session.swift", "NativeMitM/NativeTLSFront.swift", "NativeMitM/NativeUpstream.swift", "PacketFlowBridge.swift", "NativeMitM/Script/TernPrelude.js"]
-      # feat/native-core-eval: the script prelude (bridge/mitm PreludeSource, kept current by
-      # TestNativePreludeBundleCurrent) for the native script host — no Go engine hands it over any more.
+        # Go-zero: PacketFlowBridge and the Go-lane front (NativeTLSFront / NativeUpstream / NativeHTTP1Session) are
+        # deleted; NativeCore reads the packet flow itself (NCDataPlane).
+        excludes: ["**/*.entitlements", "NativeMitM/Script/TernPrelude.js"]
+      # The script prelude for the native script host (the one copy since bridge/mitm/prelude.js is gone).
       - path: PacketTunnel/NativeMitM/Script/TernPrelude.js
         buildPhase: resources
       # The Live Activity attributes are app + widget only (keeps ActivityKit out of the tunnel's memory).
@@ -130,9 +129,8 @@ targets:
     configFiles:
       Debug: Config/Tunnel.signing.xcconfig
       Release: Config/Tunnel.signing.xcconfig
-    # feat/native-core-eval: the tunnel kernel is NativeCore (Swift + vendored lwIP). The extension no longer links
-    # Libmihomo (no Go runtime in the NE process); the app still links it for its utility functions and writes the
-    # runtime config the tunnel reads (bridge/nativeprep.go).
+    # Go-zero: the tunnel kernel is NativeCore (Swift + vendored lwIP); neither the app nor the extension links any
+    # Go. The app writes the runtime config the tunnel reads (NativeRuntimePrep, Swift).
     dependencies:
       - sdk: NetworkExtension.framework
     settings:
@@ -150,8 +148,8 @@ targets:
           - $(PROJECT_DIR)/PacketTunnel/NativeCore/lwip/include
           - $(PROJECT_DIR)/PacketTunnel/NativeCore/lwip/port
         GCC_PREPROCESSOR_DEFINITIONS: $(inherited)
-        # Files shared with the app pick their Go-free variant with this (see nogo_check in the eval notes).
-        SWIFT_ACTIVE_COMPILATION_CONDITIONS: $(inherited) TERN_NO_GO
+        # Files the app also compiles (NativeMitM/*, for the unit tests) call the tunnel engine only under this.
+        SWIFT_ACTIVE_COMPILATION_CONDITIONS: $(inherited) TERN_TUNNEL
 
   MihomoWidget:
     type: app-extension

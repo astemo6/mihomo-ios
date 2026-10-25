@@ -1,4 +1,4 @@
-# 构建 Libmihomo.xcframework（gomobile）→ XcodeGen 生成工程 → xcodebuild archive → IPA → GitHub Release
+# XcodeGen 生成工程（纯 Swift：App + NativeCore 隧道，无 Go） → xcodebuild archive → IPA → GitHub Release
 # 有签名 secrets 时导出已签名 IPA；否则输出带 entitlements 的未签名（伪签）IPA，供自签工具重签。
 name: iOS IPA
 
@@ -12,7 +12,6 @@ on:
         type: boolean
         required: false
         default: false
-  # Called by core-update.yml to test-build a core bump on a branch before it reaches main.
   workflow_call:
     inputs:
       ref:
@@ -25,9 +24,8 @@ on:
         type: boolean
         required: false
         default: false
-      # Lane F: a called run's github.run_number is the CALLER's (core-update #N), far below the app's real build
-      # numbers. core-update passes "<last iOS IPA run>.<core-update run>" (e.g. 297.12), a valid CFBundleVersion
-      # that sorts after the last release. Empty = github.run_number (push / dispatch unchanged).
+      # A called run's github.run_number is the caller's; the caller passes a CFBundleVersion that sorts after the
+      # last release. Empty = github.run_number (push / dispatch unchanged).
       build_number:
         description: CFBundleVersion / file-name build number (empty = this run's number)
         type: string
@@ -64,55 +62,12 @@ jobs:
         with:
           ref: ${{ inputs.ref || github.ref }}
 
-      - name: Core version (from bridge/go.mod)
-        run: |
-          V=$(awk '$1=="github.com/metacubex/mihomo"{print $2; exit}' bridge/go.mod)
-          test -n "$V"
-          echo "MIHOMO_VERSION=$V" >> "$GITHUB_ENV"
-          echo "mihomo core: $V"
-
       - name: Select latest Xcode
         run: |
           XC=$(ls -d /Applications/Xcode_*.app | sed -E 's/.*Xcode_([0-9.]+)\.app/\1 &/' | grep -v -i beta | sort -V | tail -n1 | cut -d' ' -f2)
           echo "Using $XC"
           sudo xcode-select -s "$XC/Contents/Developer"
           xcodebuild -version
-
-      - uses: actions/setup-go@v6
-        with:
-          go-version-file: bridge/go.mod
-          cache-dependency-path: bridge/go.sum
-
-      - name: Cache Libmihomo.xcframework
-        id: fwcache
-        uses: actions/cache/restore@v5
-        with:
-          path: Frameworks/Libmihomo.xcframework
-          key: libmihomo-${{ env.MIHOMO_VERSION }}-${{ hashFiles('bridge/**', '.github/workflows/ios.yml') }}
-
-      - name: Build Libmihomo.xcframework (gomobile)
-        if: steps.fwcache.outputs.cache-hit != 'true'
-        working-directory: bridge
-        run: |
-          set -euo pipefail
-          MOBILE_VER=$(go list -m -f '{{.Version}}' golang.org/x/mobile)
-          go install golang.org/x/mobile/cmd/gomobile@"$MOBILE_VER" golang.org/x/mobile/cmd/gobind@"$MOBILE_VER"
-          export PATH="$(go env GOPATH)/bin:$PATH"
-          gomobile init
-          mkdir -p ../Frameworks
-          gomobile bind -target=ios/arm64 -iosversion=15.0 -tags with_gvisor -trimpath \
-            -ldflags "-s -w -buildid= -X github.com/metacubex/mihomo/constant.Version=${MIHOMO_VERSION} -X github.com/astemo6/mihomo-ios/bridge.CoreVersion=${MIHOMO_VERSION}" \
-            -o ../Frameworks/Libmihomo.xcframework . 2>&1 | tee ../gomobile.log
-          ls -la ../Frameworks/Libmihomo.xcframework
-          du -sh ../Frameworks/Libmihomo.xcframework
-
-      # Saved right away (not in the post step) so a later Swift compile error does not discard it.
-      - name: Save Libmihomo.xcframework cache
-        if: steps.fwcache.outputs.cache-hit != 'true'
-        uses: actions/cache/save@v5
-        with:
-          path: Frameworks/Libmihomo.xcframework
-          key: ${{ steps.fwcache.outputs.cache-primary-key }}
 
       - name: Install XcodeGen
         run: brew install xcodegen
@@ -233,8 +188,8 @@ jobs:
           echo "IPA=$IPA" >> "$GITHUB_ENV"
 
       # v0.19: only the "-widget" static IPA is built (app + tunnel + widget / Control Center extension); the plain
-      # IPA without the widget is no longer shipped (user decision 2026-10-18). The shared-core variant follows below.
-      # $IPA is the widget IPA from here on, so the size / inspect / shared-core checks run on it.
+      # IPA without the widget is no longer shipped (user decision 2026-10-18).
+      # $IPA is the widget IPA from here on, so the size / inspect checks run on it.
       - name: Package unsigned IPA (entitlements embedded via ad-hoc signature)
         if: env.SIGNED != '1'
         run: |
@@ -251,7 +206,7 @@ jobs:
           echo "--- appex entitlements ---"; codesign -d --entitlements - "$APP/PlugIns/PacketTunnel.appex" 2>&1 | tail -n 20
           echo "--- widget entitlements ---"; codesign -d --entitlements - "$APP/PlugIns/MihomoWidget.appex" 2>&1 | tail -n 20
           echo "--- app entitlements ---"; codesign -d --entitlements - "$APP" 2>&1 | tail -n 20
-          # Review 6 R6A-8: the IPA users install gets the same strict check as the shared-core variant.
+          # Review 6 R6A-8: the IPA users install gets a strict codesign check.
           codesign --verify --deep --strict --verbose=2 "$APP"
           rm -rf Payload && mkdir Payload && cp -R "$APP" Payload/
           IPA="Mihomo-${VER}-build${BUILD_NO}-widget-unsigned.ipa"
@@ -265,6 +220,8 @@ jobs:
             echo "===== $f ($(stat -f%z "$f") B) ====="
             python3 scripts/ipa_size.py "$f"
           done
+          # Alternate icons (夜航 / 晴空): Info.plist CFBundleAlternateIcons + Assets.car renditions.
+          python3 scripts/icon_check.py "$IPA"
 
       - name: Inspect IPA
         run: |
@@ -275,11 +232,14 @@ jobs:
             unzip -p "$IPA" Payload/Mihomo.app/PlugIns/MihomoWidget.appex/Info.plist > /tmp/wid.plist && plutil -p /tmp/wid.plist | grep -E "NSExtensionPointIdentifier|CFBundleIdentifier|MinimumOSVersion"
           fi
           unzip -p "$IPA" Payload/Mihomo.app/PlugIns/PacketTunnel.appex/Info.plist > /tmp/ext.plist && plutil -p /tmp/ext.plist | grep -E "NSExtension|Mihomo|CFBundleIdentifier"
-          # feat/native-core-eval: the tunnel kernel is NativeCore — no Go runtime may be linked into the extension.
-          if unzip -p "$IPA" Payload/Mihomo.app/PlugIns/PacketTunnel.appex/PacketTunnel | grep -aq "Go buildinf:"; then
-            echo "::error::PacketTunnel still contains a Go runtime"; exit 1
-          fi
-          echo "PacketTunnel: no Go runtime (NativeCore)"
+          # Go-zero: neither the app nor the extension may contain a Go runtime (NativeCore + Swift App).
+          for b in Payload/Mihomo.app/Mihomo Payload/Mihomo.app/PlugIns/PacketTunnel.appex/PacketTunnel; do
+            if unzip -p "$IPA" "$b" | grep -aq "Go buildinf:"; then
+              echo "::error::$b contains a Go runtime"; exit 1
+            fi
+          done
+          if unzip -l "$IPA" | grep -q "Libmihomo"; then echo "::error::IPA still ships Libmihomo"; exit 1; fi
+          echo "App + PacketTunnel: no Go runtime"
           # The native script host reads the bundled prelude (no Go engine hands it over).
           unzip -l "$IPA" > /tmp/ipa-list.txt
           if ! grep -q "PacketTunnel.appex/TernPrelude.js" /tmp/ipa-list.txt; then
@@ -288,7 +248,7 @@ jobs:
           echo "PacketTunnel: TernPrelude.js bundled"
           {
             echo "### $IPA"
-            echo "- mihomo ${MIHOMO_VERSION}, signed=${SIGNED}"
+            echo "- kernel: NativeCore (Swift), signed=${SIGNED}"
             echo "- size: $(du -h "$IPA" | cut -f1)"
             echo "- app binary: $(unzip -l "$IPA" | awk '$4=="Payload/Mihomo.app/Mihomo"{printf "%.1f MB", $1/1048576}')"
             echo "- PacketTunnel binary: $(unzip -l "$IPA" | awk '$4=="Payload/Mihomo.app/PlugIns/PacketTunnel.appex/PacketTunnel"{printf "%.1f MB", $1/1048576}')"
@@ -296,106 +256,11 @@ jobs:
             echo "- MihomoWidget.appex: $(unzip -l "$IPA" | awk '$4 ~ /MihomoWidget.appex\//{s+=$1} END{printf "%.1f MB", s/1048576}')"
           } >> "$GITHUB_STEP_SUMMARY"
 
-      # v0.15 test variant: ONE dynamic Libmihomo.framework embedded in Mihomo.app/Frameworks and loaded by the
-      # tunnel via @rpath (@executable_path/../../Frameworks). The normal IPAs above keep static linking.
-      # Unsigned flow only. No widget in this variant (the widget never links the core).
-      # feat/native-core-eval: the tunnel no longer links Go (NativeCore), so there is nothing to share — the variant
-      # is off; the step stays for history until the branch lands.
-      - name: Shared-core variant (dynamic Libmihomo.framework)
-        if: false
-        run: |
-          set -euo pipefail
-          bash scripts/shared_core.sh Frameworks/Libmihomo.xcframework FrameworksShared "$APP_ID" "$VER" 2>&1 | tee shared-core.log
-          python3 scripts/shared_project.py project.yml project-shared.yml
-          xcodegen generate --spec project-shared.yml
-          xcodebuild -project Mihomo.xcodeproj -scheme Mihomo -configuration Release \
-            -sdk iphoneos -destination 'generic/platform=iOS' \
-            -archivePath build/MihomoShared.xcarchive \
-            CURRENT_PROJECT_VERSION="${BUILD_NO}" \
-            CODE_SIGNING_ALLOWED=NO CODE_SIGNING_REQUIRED=NO CODE_SIGN_IDENTITY="" CODE_SIGN_ENTITLEMENTS="" \
-            archive 2>&1 | tee build-shared.log | grep -E "error:|\*\* (ARCHIVE|BUILD)" || true
-          test -d build/MihomoShared.xcarchive/Products/Applications/Mihomo.app || { tail -n 150 build-shared.log; exit 1; }
-          APP=build/MihomoShared.xcarchive/Products/Applications/Mihomo.app
-          FW="$APP/Frameworks/Libmihomo.framework"
-          test -f "$FW/Libmihomo"
-          rm -rf "$FW/Headers" "$FW/Modules" "$FW/_CodeSignature" "$APP/PlugIns/MihomoWidget.appex"
-          test ! -e "$APP/PlugIns/PacketTunnel.appex/Frameworks"
-          echo "--- linkage ---"
-          otool -L "$APP/Mihomo" | grep -F "@rpath/Libmihomo.framework/Libmihomo"
-          otool -L "$APP/PlugIns/PacketTunnel.appex/PacketTunnel" | grep -F "@rpath/Libmihomo.framework/Libmihomo"
-          otool -l "$APP/PlugIns/PacketTunnel.appex/PacketTunnel" | grep -A2 LC_RPATH | grep -F "@executable_path/../../Frameworks"
-          otool -l "$APP/Mihomo" | grep -A2 LC_RPATH | grep -F "@executable_path/Frameworks"
-          ls -la "$APP/Mihomo" "$APP/PlugIns/PacketTunnel.appex/PacketTunnel" "$FW/Libmihomo"
-          # Same order a re-signer uses: framework (no entitlements, no profile) → extension → app.
-          codesign -f -s - "$FW"
-          codesign -f -s - --entitlements tunnel.entitlements "$APP/PlugIns/PacketTunnel.appex"
-          codesign -f -s - --entitlements app.entitlements "$APP"
-          codesign --verify --deep --strict --verbose=2 "$APP"
-          rm -rf Payload && mkdir Payload && cp -R "$APP" Payload/
-          IPA_SHARED="Mihomo-${VER}-build${BUILD_NO}-sharedcore-unsigned.ipa"
-          zip -qry -9 "$IPA_SHARED" Payload
-          echo "IPA_SHARED=$IPA_SHARED" >> "$GITHUB_ENV"
-          echo "===== $IPA_SHARED ($(stat -f%z "$IPA_SHARED") B) ====="
-          python3 scripts/ipa_size.py "$IPA_SHARED" --shared-core
-          # Launch-crash guards (install name, rpaths, system-only deps, minos, one Go runtime per process, framework
-          # Info.plist, signatures; static IPAs still static) + the size report of BOTH variants for the step summary.
-          python3 scripts/shared_check.py "$IPA_SHARED" "$IPA" --summary "$GITHUB_STEP_SUMMARY"
-          # Alternate icons (夜航 / 晴空) present in BOTH IPAs: Info.plist CFBundleAlternateIcons + Assets.car renditions.
-          python3 scripts/icon_check.py "$IPA" "$IPA_SHARED"
-
-      # Re-sign check: a real (self-signed, trusted for code signing) identity signs the shared-core app the way
-      # one-profile re-signers do — framework without entitlements, then extension and app with theirs.
-      - name: Shared-core re-sign check
-        if: env.SIGNED != '1' && env.IPA_SHARED != ''
-        run: |
-          set -euo pipefail
-          T="$RUNNER_TEMP/resign"; mkdir -p "$T"; cd "$T"
-          cat > cs.cnf <<'CNF'
-          [req]
-          distinguished_name = dn
-          x509_extensions = ext
-          prompt = no
-          [dn]
-          CN = Mihomo Resign Test
-          [ext]
-          basicConstraints = critical,CA:false
-          keyUsage = critical,digitalSignature
-          extendedKeyUsage = critical,codeSigning
-          CNF
-          /usr/bin/openssl req -x509 -newkey rsa:2048 -nodes -days 2 -config cs.cnf -keyout key.pem -out cert.pem
-          /usr/bin/openssl pkcs12 -export -inkey key.pem -in cert.pem -out id.p12 -passout pass:resign
-          KC="$T/resign.keychain-db"
-          security create-keychain -p resign "$KC"
-          security unlock-keychain -p resign "$KC"
-          security import id.p12 -P resign -A -t cert -f pkcs12 -k "$KC"
-          security set-key-partition-list -S apple-tool:,apple:,codesign: -s -k resign "$KC" >/dev/null
-          sudo security add-trusted-cert -d -r trustRoot -p codeSign -k /Library/Keychains/System.keychain cert.pem
-          security list-keychain -d user -s "$KC" $(security list-keychains -d user | tr -d '"')
-          security find-identity -v -p codesigning "$KC"
-          rm -rf Payload && unzip -q "$GITHUB_WORKSPACE/$IPA_SHARED"
-          APP=Payload/Mihomo.app
-          codesign -f -s "Mihomo Resign Test" --keychain "$KC" "$APP/Frameworks/Libmihomo.framework"
-          codesign -f -s "Mihomo Resign Test" --keychain "$KC" --entitlements "$GITHUB_WORKSPACE/tunnel.entitlements" "$APP/PlugIns/PacketTunnel.appex"
-          codesign -f -s "Mihomo Resign Test" --keychain "$KC" --entitlements "$GITHUB_WORKSPACE/app.entitlements" "$APP"
-          codesign --verify --deep --strict --verbose=2 "$APP"
-          codesign -dv "$APP/Frameworks/Libmihomo.framework" 2>&1 | grep -E "Identifier|Authority|TeamIdentifier|Format"
-          # dyld / AMFI only let the tunnel load an app framework signed by the same team: all three must match.
-          for b in "$APP/Frameworks/Libmihomo.framework" "$APP/PlugIns/PacketTunnel.appex" "$APP"; do
-            codesign -dv "$b" 2>&1 | grep -E "^(Authority|TeamIdentifier)=" | sort | tr '\n' ' '; echo
-          done | sort -u > signers.txt
-          cat signers.txt
-          test "$(wc -l < signers.txt)" -eq 1
-          test -z "$(codesign -d --entitlements - "$APP/Frameworks/Libmihomo.framework" 2>/dev/null | grep -F '<key>')"
-          zip -qry resigned.ipa Payload
-          python3 "$GITHUB_WORKSPACE/scripts/shared_check.py" resigned.ipa "$GITHUB_WORKSPACE/$IPA" | tail -n 1
-          echo "- re-sign check: framework + tunnel + app signed with one identity, codesign --verify --deep --strict OK" >> "$GITHUB_STEP_SUMMARY"
-
       - uses: actions/upload-artifact@v6
         with:
           name: Mihomo-ipa
           path: |
             ${{ env.IPA }}
-            ${{ env.IPA_SHARED }}
             app.entitlements
             tunnel.entitlements
             widget.entitlements
@@ -411,19 +276,15 @@ jobs:
           {
             echo "Mihomo iOS ${VER}（构建 #${BUILD_NO}，提交 $(git rev-parse --short HEAD)）"
             echo
-            echo "- 内核：mihomo ${MIHOMO_VERSION}"
+            echo "- 内核：NativeCore（纯 Swift，兼容 mihomo 配置）"
             if [ "$SIGNED" = "1" ]; then
               echo "- 已签名（${EXPORT_METHOD:-development}），可直接安装到描述文件内的设备。"
             else
               echo "- 未签名（已嵌入 entitlements 的伪签名），请用自己的证书和描述文件重签后安装。网络扩展需要开启了 Network Extension + App Groups 能力的描述文件。"
               echo "- \`-widget-unsigned.ipa\`：主程序 + 隧道扩展 + 小组件 / 控制中心开关扩展（Bundle ID 为 主 ID + .widget，需要描述文件也覆盖它，例如显式 App ID 的描述文件配合能处理扩展的重签工具）。不含小组件的普通版自 v0.19 起不再发布。"
-              if [ -n "${IPA_SHARED:-}" ]; then
-                echo "- 测试版 \`-sharedcore-unsigned.ipa\`：内核只打包一次（Mihomo.app/Frameworks/Libmihomo.framework，隧道扩展通过 @rpath 加载），体积更小；不含小组件。重签时框架只需签名、不需要描述文件。尚待真机验证，出问题请改用 -widget 版。"
-              fi
             fi
           } > "$NOTES"
           FILES=("$IPA")
-          [ -n "${IPA_SHARED:-}" ] && [ -f "$IPA_SHARED" ] && FILES+=("$IPA_SHARED")
           [ -f app.entitlements ] && FILES+=(app.entitlements tunnel.entitlements)
           [ -f widget.entitlements ] && FILES+=(widget.entitlements)
           gh release create "$TAG" "${FILES[@]}" --title "Mihomo ${VER} build ${BUILD_NO}" --notes-file "$NOTES" --target "$(git rev-parse HEAD)" --prerelease
@@ -431,7 +292,7 @@ jobs:
       - name: Show build errors (on failure)
         if: failure()
         run: |
-          for f in gomobile.log build.log export.log shared-core.log build-shared.log; do
+          for f in build.log export.log; do
             [ -f "$f" ] || continue
             echo "===== $f ====="
             grep -E "error:|Error|FAILED|fatal" "$f" | sort -u | head -n 150 || true

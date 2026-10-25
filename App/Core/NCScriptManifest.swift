@@ -7,7 +7,7 @@
 //   - bridge/mitm/tasks.go (Task :36, Panel :52, stableID, withLineOpts, disabledByParam)
 //   - bridge/mitm/egernadapter.go (adaptEgern, isEgernNative, egernPrelude)
 //   - App/Core/NCRewriteSnapshot.swift (NCResources.get)
-//   - PacketTunnel/NativeMitM/Script/ (NativeScriptGo.ManifestEntry, NativeTaskRunner.TaskDef, NativeTaskRunner.PanelDef)
+//   - PacketTunnel/NativeMitM/Script/ (NativeScriptHost.ManifestEntry, NativeTaskRunner.TaskDef, NativeTaskRunner.PanelDef)
 //
 // DIVERGENCES:
 //   1. Setup JSON Derivation (Stateless Baseline vs Runtime Execution Context):
@@ -18,7 +18,7 @@
 //        Because export-time invocations always pass `req = nil, resp = nil`, `NCJSSetup` emits the exact baseline schema
 //        (`phase: "task"`, `arg`, `env`, `egernEnv`, `egernCron`, `hasParams: false`, without req/resp/globals/params).
 //      - Impact: Zero divergence in the exported `nativecore-scripts.json`. The native script host in PacketTunnel
-//        (`NativeScriptGo.swift` / `NativeScriptRun.swift`) consumes this static baseline (`e.setupJSON = ss`) and
+//        (`NativeScriptHost.swift` / `NativeScriptRun.swift`) consumes this static baseline (`e.setupJSON = ss`) and
 //        augments HTTP headers/bodies natively during runtime request/response phases.
 //
 //   2. Resource Management & Script Loading:

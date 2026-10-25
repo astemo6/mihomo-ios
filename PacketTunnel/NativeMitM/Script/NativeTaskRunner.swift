@@ -12,7 +12,6 @@
 //   refresh while connected, ≥ 5 min apart when the app is not showing them; pinned generic scripts as panels).
 //   One task script runs at a time (memory first); a run is the native script host's NativeScriptRun with phase
 //   "task" and export on, so the script sees the same prelude, $persistentStore, $httpClient and $notification.
-#if TERN_NO_GO
 import Foundation
 
 // MARK: - $httpAPI
@@ -859,4 +858,3 @@ final class NativeTaskRunner {
         return out
     }
 }
-#endif

@@ -100,9 +100,7 @@ final class PacketTunnelProvider: NEPacketTunnelProvider {
     override func startTunnel(options: [String: NSObject]?, completionHandler: @escaping (Error?) -> Void) {
         TunnelErrorLog.clear()
         StartupLog.begin("startTunnel")
-        #if TERN_NO_GO
         NativeLogRing.install() // gap C4: /logs stream + /hark/logs history from NativeCore's own lines
-        #endif
         StartupLog.write("startTunnel called, \(ProcessMemory.summary())")
         // fix/vpn-stays-on: the previous tunnel's alive marker is still there = it never reached stopTunnel (jetsam /
         // crash / power off). Recorded as 上次断开原因 so 诊断 shows why the VPN was found off.

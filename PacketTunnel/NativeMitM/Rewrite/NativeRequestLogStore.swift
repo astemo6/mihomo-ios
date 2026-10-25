@@ -10,7 +10,6 @@
 //
 // NativeLogRing keeps the last general log lines (StartupLog.tap) and script console lines in memory for
 // /hark/logs, /mitm/logs and the live /logs websocket (NCController polls `since(seq)` once a second).
-#if TERN_NO_GO
 import Foundation
 
 final class NativeRequestLogStore: NativeRequestLogSink {
@@ -295,4 +294,3 @@ final class NativeLogRing {
     func clearGeneral() { lock.lock(); general.removeAll(); lock.unlock() }
     func clearScripts() { lock.lock(); scripts.removeAll(); lock.unlock() }
 }
-#endif

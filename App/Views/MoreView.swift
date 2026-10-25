@@ -683,7 +683,6 @@ struct DiagnosticsView: View {
                 LabeledContent("隧道扩展版本", value: DiagnosticsExporter.version(of: DiagnosticsExporter.tunnelBundle))
                 LabeledContent("主程序 ID", value: AppShared.mainAppBundleID)
                 LabeledContent("隧道扩展 ID", value: AppShared.tunnelBundleID)
-                LabeledContent("内核打包方式", value: FileManager.default.fileExists(atPath: Bundle.main.bundleURL.appendingPathComponent("Frameworks/Libmihomo.framework/Libmihomo").path) ? String(localized: "共享框架（测试版）") : String(localized: "静态链接"))
                 LabeledContent("App Group", value: group)
                 LabeledContent("来源", value: GoText.localize(AppShared.appGroupSource))
                 LabeledContent("共享容器") {

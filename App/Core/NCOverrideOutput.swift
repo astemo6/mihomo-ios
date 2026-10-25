@@ -10,8 +10,8 @@ import Foundation
 ///   - dns.nameserver-policy: Go handed it to scripts in the profile's own key order and wrote the script's
 ///     order back. NCYAML / NCJSONValue have no ordered maps, so input keys are sorted and output is written
 ///     sorted — the tunnel's nativecore-runtime.json sorts that map anyway (see NCRuntimeDNS header).
-///   - Validation of the output: NCRuntimeBuilder.build (YAML / structure) with the app's overrides; mihomo's
-///     full config parse has no Swift counterpart yet (B1 ValidateConfigIn).
+///   - Validation of the output: NCRuntimeBuilder.build with the app's overrides + NCConfigValidator (the Swift
+///     port of mihomo's config parse, B1 ValidateConfigIn).
 enum NCOverrideOutput {
 
     /// bridge errScriptSourceChanged (OverrideScripts compares the message).

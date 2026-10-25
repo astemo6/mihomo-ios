@@ -1,7 +1,7 @@
 name: Checks
 
 # Lane F (2026-10-24): pushes to feat/** / fix/** / draft/** and other work branches no longer run Checks — only
-# main, test/** (the self-test branches) and core/** (mihomo bumps; core-update.yml also calls this file for them).
+# main, test/** (the self-test branches) and core/** branches.
 # Pull requests still run, except a PR whose head is a test/** or core/** branch of this repository: the push run
 # already covers that commit (identical-SHA dedupe). Docs: CI.md.
 on:
@@ -9,7 +9,6 @@ on:
     branches: [main, 'test/**', 'core/**']
   pull_request:
   workflow_dispatch:
-  # core-update.yml runs Checks on the bumped commit before it packages a release candidate.
   workflow_call:
     inputs:
       ref:
@@ -22,7 +21,7 @@ permissions:
   contents: read
 
 # A newer push to the same test/** / core/** branch (or a newer commit on the same PR) cancels the older run;
-# main runs are never cancelled. Called from core-update.yml the group is keyed by the commit it checks.
+# main runs are never cancelled. A workflow_call run's group is keyed by the commit it checks.
 concurrency:
   group: checks-${{ inputs.ref || (github.event_name == 'pull_request' && format('pr-{0}', github.event.pull_request.number)) || github.ref }}
   cancel-in-progress: ${{ github.event_name == 'pull_request' || startsWith(github.ref, 'refs/heads/test/') || startsWith(github.ref, 'refs/heads/core/') }}
@@ -36,15 +35,3 @@ jobs:
         with:
           ref: ${{ inputs.ref }}
       - run: python3 scripts/term_audit.py
-
-  goja-diff:
-    if: ${{ github.event_name != 'pull_request' || github.event.pull_request.head.repo.full_name != github.repository || !(startsWith(github.event.pull_request.head.ref, 'test/') || startsWith(github.event.pull_request.head.ref, 'core/')) }}
-    runs-on: ubuntu-latest
-    steps:
-      - uses: actions/checkout@v5
-        with:
-          ref: ${{ inputs.ref }}
-      - uses: actions/setup-go@v6
-        with:
-          go-version: "stable"
-      - run: bash scripts/goja_diff_check.sh

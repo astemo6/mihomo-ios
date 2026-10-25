@@ -10,9 +10,6 @@
 // responseBody / onHead and never which protocol carried it.
 
 import Foundation
-#if !TERN_NO_GO
-import Libmihomo
-#endif
 
 /// An opened origin connection.
 final class H2UpstreamTransport {
@@ -57,12 +54,12 @@ final class H2RelayUpstreamOpener: H2UpstreamOpening {
             }
             return
         }
-        #if TERN_NO_GO
         // Gap C6 (astemo6/Muse NativeCore): the dedicated h2 dial below has no relay in the Go-free tunnel and went
         // straight to the origin whatever the rules said. Only a DIRECT route keeps it; a proxied (or rejected)
         // origin goes through NCUpstreamConnector — rules, groups, the proxy, origin TLS over the relay — offering
         // "h2, http/1.1"; NCTLSClientStream reports the origin's ALPN, so an h2 origin gets the multiplexed h2
         // connection here too (feat/nc-proto2) and an h1 origin the per-stream HTTP/1.1 path.
+        #if TERN_TUNNEL // NativeCoreEngine / NCUpstreamConnector are tunnel-target only (the app builds this for tests)
         if let engine = NativeCoreEngine.active {
             let ctx = engine.matchContext(domain: NCIP(host) == nil ? host : nil, ip: NCIP(host), dstPort: port, network: "tcp")
             if case .direct = engine.resolve(ctx) {} else {
@@ -540,10 +537,6 @@ final class H2UpstreamManager: H2ConnectionOwner {
 /// (native h2 is not offered there — NativeH2Runtime.enabled stays false — so this is never dialled).
 enum H2UpstreamRelay {
     static func port(_ pool: UpstreamPool) -> Int {
-        #if TERN_NO_GO
         return pool.relayPort() > 0 ? pool.relayPort() : 0
-        #else
-        return Int(LibmihomoMitmRelayPort())
-        #endif
     }
 }
