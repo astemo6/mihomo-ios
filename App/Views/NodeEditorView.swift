@@ -355,8 +355,8 @@ enum NodeProtocols {
     }
 
     // v0.8 高级: only where mihomo v1.19.33 reads the key for that protocol.
-    static let echTypes: Set<String> = ["vmess", "vless", "trojan", "hysteria", "hysteria2", "tuic", "juicity", "anytls", "trusttunnel"]
-    static let pinTypes: Set<String> = ["vmess", "vless", "trojan", "hysteria", "hysteria2", "tuic", "juicity", "anytls", "http", "socks5", "trusttunnel", "gost-relay"]
+    static let echTypes: Set<String> = ["vmess", "vless", "trojan", "hysteria", "hysteria2", "tuic", "anytls", "trusttunnel"]
+    static let pinTypes: Set<String> = ["vmess", "vless", "trojan", "hysteria", "hysteria2", "tuic", "anytls", "http", "socks5", "trusttunnel", "gost-relay"]
     static let smuxTypes: Set<String> = ["ss", "vmess", "vless", "trojan"]
     /// QUIC / UDP-based protocols: TCP Fast Open and MPTCP don't apply.
     static let udpOnlyTypes: Set<String> = ["hysteria", "hysteria2", "tuic", "juicity", "wireguard", "masque", "shadowquic"]
