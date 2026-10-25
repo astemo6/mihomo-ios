@@ -771,6 +771,174 @@ enum NCConnector {
         }
     }
 
+    // MARK: Native TLS Parity (NCTLSClient) Helpers
+
+    /// Extract ALPN list from proxy fields (array or comma-separated string).
+    static func parseALPN(_ proxy: NCProxy) -> [String]? {
+        if let arr = proxy.fields["alpn"]?.array?.compactMap({ $0.string }), !arr.isEmpty {
+            return arr
+        }
+        if let str = proxy.fields["alpn"]?.string, !str.trimmingCharacters(in: .whitespaces).isEmpty {
+            let list = str.split(separator: ",").map { $0.trimmingCharacters(in: .whitespaces) }.filter { !$0.isEmpty }
+            return list.isEmpty ? nil : list
+        }
+        return nil
+    }
+
+    /// Extract SHA-256 certificate pinning hash (32 bytes) from proxy fields if present.
+    static func parsePinnedCertSHA256(_ proxy: NCProxy) -> Data? {
+        let candidateKeys = [
+            "pinned-peer-cert-sha256",
+            "pinned-peer-certificate-sha256",
+            "certificate-sha256",
+            "pin-sha256",
+            "pinSHA256",
+            "hpkp",
+            "fingerprint"
+        ]
+        for key in candidateKeys {
+            guard let raw = proxy.fields[key]?.string else { continue }
+            let hex = raw.replacingOccurrences(of: ":", with: "").trimmingCharacters(in: .whitespaces)
+            if hex.count == 64, let bytes = hexBytes(hex) {
+                return bytes
+            }
+        }
+        return nil
+    }
+
+    /// Extract client fingerprint profile name from proxy fields if present.
+    static func parseClientFingerprint(_ proxy: NCProxy) -> String? {
+        if let fp = proxy.fields["client-fingerprint"]?.string {
+            let trimmed = fp.trimmingCharacters(in: .whitespaces)
+            if !trimmed.isEmpty { return trimmed }
+        }
+        if let fp = proxy.fields["fingerprint"]?.string {
+            let trimmed = fp.trimmingCharacters(in: .whitespaces)
+            let hex = trimmed.replacingOccurrences(of: ":", with: "")
+            if hex.count == 64 && hexBytes(hex) != nil {
+                return nil
+            }
+            if !trimmed.isEmpty { return trimmed }
+        }
+        return nil
+    }
+
+    /// Look up ech-opts dictionary.
+    static func echOpts(_ proxy: NCProxy) -> [String: NCJSONValue]? {
+        proxy.fields["ech-opts"]?.object ?? proxy.fields["plugin-opts"]?.object?["ech-opts"]?.object
+    }
+
+    /// Returns true if ECH is enabled for this proxy.
+    static func isECHEnabled(_ proxy: NCProxy) -> Bool {
+        echOpts(proxy)?["enable"]?.bool == true
+    }
+
+    /// Parse static ECHConfigList bytes from ech-opts.config (Base64), validated via NCECHConfigParser.
+    static func parseStaticECHConfigList(_ proxy: NCProxy) throws -> Data? {
+        guard isECHEnabled(proxy), let opts = echOpts(proxy) else { return nil }
+        guard let cfgVal = opts["config"] else { return nil }
+        let b64Strings: [String]
+        if let s = cfgVal.string, !s.trimmingCharacters(in: .whitespaces).isEmpty {
+            b64Strings = [s.trimmingCharacters(in: .whitespaces)]
+        } else if let arr = cfgVal.array {
+            b64Strings = arr.compactMap { $0.string?.trimmingCharacters(in: .whitespaces) }.filter { !$0.isEmpty }
+        } else {
+            return nil
+        }
+        guard !b64Strings.isEmpty else { return nil }
+        var combinedData = Data()
+        for b64 in b64Strings {
+            var standard = b64.replacingOccurrences(of: "-", with: "+").replacingOccurrences(of: "_", with: "/")
+            while standard.count % 4 != 0 { standard.append("=") }
+            guard let data = Data(base64Encoded: standard) else {
+                throw Failure.handshake("invalid base64 in ech config")
+            }
+            combinedData.append(data)
+        }
+        guard !combinedData.isEmpty else { return nil }
+        do {
+            _ = try NCECHConfigParser.parseList(combinedData)
+        } catch {
+            throw Failure.handshake("invalid ECHConfigList: \(error.localizedDescription)")
+        }
+        return combinedData
+    }
+
+    /// Whether this proxy requires the native TLS stack (NCTLSClient).
+    static func needsNativeTLS(_ proxy: NCProxy) -> Bool {
+        if isECHEnabled(proxy) { return true }
+        if parseClientFingerprint(proxy) != nil { return true }
+        if parsePinnedCertSHA256(proxy) != nil { return true }
+        return false
+    }
+
+    /// Dial TCP and run the hand-rolled TLS 1.3 / 1.2 handshake over it with parity parameters.
+    static func dialNativeTLS(proxy: NCProxy, server: String, port: Int, defaultALPN: [String] = ["h2", "http/1.1"],
+                              queue: DispatchQueue, completion: @escaping (NCRelayStream?, Error?) -> Void) {
+        let serverName = proxy.fields["servername"]?.string ?? proxy.fields["sni"]?.string ?? server
+        let allowInsecure = proxy.fields["skip-cert-verify"]?.bool ?? false
+        let alpn = parseALPN(proxy) ?? defaultALPN
+        let profile = NCClientHelloProfile.named(parseClientFingerprint(proxy))
+        let pin = parsePinnedCertSHA256(proxy)
+
+        let staticECH: Data?
+        do {
+            staticECH = try parseStaticECHConfigList(proxy)
+        } catch {
+            queue.async { completion(nil, error) }
+            return
+        }
+
+        var cfg = NCTLSClientStream.Config(serverName: serverName)
+        cfg.alpn = alpn
+        cfg.allowInsecure = allowInsecure
+        cfg.pinnedCertSHA256 = pin
+        cfg.profile = profile
+        cfg.echConfigList = staticECH
+        if let outer = echOpts(proxy)?["outer-sni"]?.string ?? echOpts(proxy)?["public-name"]?.string {
+            cfg.outerServerName = outer
+        }
+        if let ncv = proxy.fields["name-cert-verify"]?.string, !ncv.isEmpty {
+            cfg.certVerifyName = ncv
+        }
+        cfg.rawDialer = { retryCompletion in
+            let retryRaw = NCStream(to: server, port: port, queue: queue)
+            retryRaw.start { err in
+                if let err {
+                    retryCompletion(nil, err)
+                } else {
+                    retryCompletion(retryRaw, nil)
+                }
+            }
+        }
+
+        let raw = NCStream(to: server, port: port, queue: queue)
+        raw.start { err in
+            guard err == nil else { completion(nil, err); return }
+            let tls = NCTLSClientStream(raw: raw, config: cfg, queue: queue)
+            tls.startHandshake { herr in
+                if let herr {
+                    tls.cancel()
+                    completion(nil, herr)
+                } else {
+                    completion(tls, nil)
+                }
+            }
+        }
+    }
+
+    private static func hexBytes(_ hex: String) -> Data? {
+        var out = Data(capacity: hex.count / 2)
+        var i = hex.startIndex
+        while i < hex.endIndex {
+            let j = hex.index(i, offsetBy: 2, limitedBy: hex.endIndex) ?? hex.endIndex
+            guard j <= hex.endIndex, let b = UInt8(hex[i..<j], radix: 16) else { return nil }
+            out.append(b)
+            i = j
+        }
+        return out
+    }
+
     // MARK: WebSocket transport (VMess/VLESS "ws" network)
 
     static func wsOptions(_ proxy: NCProxy) -> (path: String, headers: [String: String]) {
