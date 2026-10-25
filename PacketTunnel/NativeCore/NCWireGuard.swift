@@ -392,8 +392,7 @@ final class NCWGDevice {
     private static let fakeV6 = NCCIDR("fdfe:dcba:9876::/48")!
 
     func resolve(_ host0: String, _ done: @escaping ([NCIP]) -> Void) {
-        var host = host0
-        if host.hasPrefix("["), host.hasSuffix("]") { host = String(host.dropFirst().dropLast()) }
+        let host = host0.hasPrefix("[") && host0.hasSuffix("]") ? String(host0.dropFirst().dropLast()) : host0
         if let ip = NCIP(host) { done([ip]); return }
         let key = host.lowercased()
         if let hit = dnsCache[key], hit.1 > Date() { done(hit.0); return }
