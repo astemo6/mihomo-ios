@@ -38,6 +38,8 @@ final class NCTLSClientStream: NCRelayStream {
 
     // Record layer state
     private var readBuffer = Data()
+    /// Bytes of `readBuffer` already parsed into records (compacted once per batch, not per record).
+    private var readOffset = 0
     private var writeBuffer = Data() // plaintext queued before handshake completes
     private var handshakeDone = false
     private var failed: Error?
@@ -60,6 +62,21 @@ final class NCTLSClientStream: NCRelayStream {
     private var handshakeHandler: ((Error?) -> Void)?
     private var plaintextOut: [Data] = []
     private var pendingReceive: ((Data?, Error?) -> Void)?
+
+    // TLS 1.3 handshake state machine (rv2-proto): ServerHello → EncryptedExtensions → Certificate →
+    // CertificateVerify (signature + chain/REALITY check) → Finished. No PSK/resumption is offered, so a server
+    // Finished without a verified CertificateVerify is always an authentication bypass and fails the handshake.
+    private var gotEncryptedExtensions = false
+    private var gotCertificate = false
+    private var serverAuthenticated = false
+    private var handshakeTimer: DispatchWorkItem?
+
+    /// Limits (rv2-proto): TLS ciphertext records are at most 2^14 + 2048 bytes (RFC 5246 §6.2.3; 1.3 is tighter),
+    /// a single handshake message we accept is capped (certificate chains are a few KB), and the whole handshake
+    /// must finish within `handshakeTimeout`.
+    static let maxRecordLength = 16384 + 2048
+    static let maxHandshakeMessage = 64 * 1024
+    static var handshakeTimeout: TimeInterval = 15
 
     // Vision direct-splice state: after spliceOut(), the record layer is
     // detached and raw socket bytes are forwarded verbatim.
@@ -93,10 +110,28 @@ final class NCTLSClientStream: NCRelayStream {
         do {
             try sendClientHello()
         } catch {
+            handshakeHandler = nil
             completion(error)
             return
         }
+        // Slowloris guard: a server that never finishes the handshake is cut off.
+        let timer = DispatchWorkItem { [weak self] in
+            guard let self, !self.handshakeDone, self.handshakeHandler != nil else { return }
+            self.fail(TLSError.handshake("handshake timeout"))
+        }
+        handshakeTimer = timer
+        queue.asyncAfter(deadline: .now() + Self.handshakeTimeout, execute: timer)
         pumpRaw()
+    }
+
+    /// Handshake finished successfully: stop the timer and hand the completion out once.
+    private func completeHandshake() {
+        handshakeTimer?.cancel()
+        handshakeTimer = nil
+        handshakeDone = true
+        let handler = handshakeHandler
+        handshakeHandler = nil
+        handler?(nil)
     }
 
     private func sendClientHello() throws {
@@ -150,6 +185,8 @@ final class NCTLSClientStream: NCRelayStream {
     private var tls12NeedClientCert = false
     private var tls12ReadOn = false
     private var tls12ServerKey = Data(), tls12ServerIV = Data()
+    /// Client flight (CKE/CCS/Finished) sent: master secret and server keys exist (rv2-proto state checks).
+    private var tls12FlightSent = false
 
     // MARK: Record pump
 
@@ -179,17 +216,37 @@ final class NCTLSClientStream: NCRelayStream {
         }
     }
 
+    /// Index-based record parsing (rv2-proto): `readBuffer` may be a slice (non-zero startIndex), so every read is
+    /// startIndex-relative, and consumed bytes are dropped once per batch instead of copying the tail per record.
+    /// `readOffset` stays exact after every record because a Vision splice (spliceOut) can happen inside
+    /// handleRecord and must see only the unparsed tail.
     private func processRecords() {
-        while readBuffer.count >= 5 {
-            let type = readBuffer[0]
-            let len = Int(readBuffer[3]) << 8 | Int(readBuffer[4])
-            guard readBuffer.count >= 5 + len else { return }
-            let header = Data(readBuffer.prefix(5))
-            let payload = Data(readBuffer[5..<(5 + len)])
-            readBuffer = Data(readBuffer.dropFirst(5 + len))
+        defer { compactReadBuffer() }
+        while !spliced, failed == nil {
+            let base = readBuffer.startIndex + readOffset
+            guard readBuffer.endIndex - base >= 5 else { return }
+            let type = readBuffer[base]
+            let len = Int(readBuffer[base + 3]) << 8 | Int(readBuffer[base + 4])
+            guard len <= Self.maxRecordLength else {
+                fail(TLSError.handshake("record too long (\(len))"))
+                return
+            }
+            guard readBuffer.endIndex - base >= 5 + len else { return }
+            let header = Data(readBuffer[base..<(base + 5)])
+            let payload = Data(readBuffer[(base + 5)..<(base + 5 + len)])
+            readOffset += 5 + len
             handleRecord(type: type, header: header, payload: payload)
-            if failed != nil { return }
         }
+    }
+
+    private func compactReadBuffer() {
+        guard readOffset > 0 else { return }
+        if readOffset >= readBuffer.count {
+            readBuffer = Data()
+        } else {
+            readBuffer = Data(readBuffer[(readBuffer.startIndex + readOffset)...])
+        }
+        readOffset = 0
     }
 
     private func handleRecord(type: UInt8, header: Data, payload: Data) {
@@ -255,14 +312,24 @@ final class NCTLSClientStream: NCRelayStream {
 
     private func handleHandshakeBytes(_ data: Data) {
         handshakeBuffer.append(data)
-        while handshakeBuffer.count >= 4 {
-            let msgType = handshakeBuffer[0]
-            let len = Int(handshakeBuffer[1]) << 16 | Int(handshakeBuffer[2]) << 8 | Int(handshakeBuffer[3])
-            guard handshakeBuffer.count >= 4 + len else { return }
-            let message = Data(handshakeBuffer.prefix(4 + len))
-            handshakeBuffer = Data(handshakeBuffer.dropFirst(4 + len))
+        var off = 0
+        defer {
+            if off >= handshakeBuffer.count { handshakeBuffer = Data() }
+            else if off > 0 { handshakeBuffer = Data(handshakeBuffer[(handshakeBuffer.startIndex + off)...]) }
+        }
+        while failed == nil {
+            let base = handshakeBuffer.startIndex + off
+            guard handshakeBuffer.endIndex - base >= 4 else { return }
+            let msgType = handshakeBuffer[base]
+            let len = Int(handshakeBuffer[base + 1]) << 16 | Int(handshakeBuffer[base + 2]) << 8 | Int(handshakeBuffer[base + 3])
+            guard len <= Self.maxHandshakeMessage else {
+                fail(TLSError.handshake("handshake message too long (\(len))"))
+                return
+            }
+            guard handshakeBuffer.endIndex - base >= 4 + len else { return }
+            let message = Data(handshakeBuffer[base..<(base + 4 + len)])
+            off += 4 + len
             processHandshakeMessage(type: msgType, message: message)
-            if failed != nil { return }
         }
     }
 
@@ -272,24 +339,59 @@ final class NCTLSClientStream: NCRelayStream {
             return
         }
         switch type {
-        case 2: // ServerHello
+        case 2: // ServerHello (exactly once, in plaintext; HelloRetryRequest is not supported)
+            guard readKey == nil, handshakeSecretStored == nil, !handshakeDone else {
+                fail(TLSError.handshake("unexpected ServerHello"))
+                return
+            }
             handleServerHello(message)
-        case 8: // EncryptedExtensions
+        case 8: // EncryptedExtensions: first encrypted handshake message
+            guard readKey != nil, !gotEncryptedExtensions, !handshakeDone else {
+                fail(TLSError.handshake("unexpected EncryptedExtensions"))
+                return
+            }
+            gotEncryptedExtensions = true
             transcript.append(message)
             parseEncryptedExtensions(message)
         case 11: // Certificate
+            guard gotEncryptedExtensions, !gotCertificate, !handshakeDone else {
+                fail(TLSError.handshake("unexpected Certificate"))
+                return
+            }
+            gotCertificate = true
             transcript.append(message)
             parseCertificates(message)
+            if failed == nil, certsDER.isEmpty { fail(TLSError.handshake("empty server Certificate")) }
         case 15: // CertificateVerify: its signed hash covers CH..Certificate,
             // so verify first and append to the transcript afterwards.
+            guard gotCertificate, !serverAuthenticated, !handshakeDone else {
+                fail(TLSError.handshake("unexpected CertificateVerify"))
+                return
+            }
             parseCertificateVerify(message)
-            if failed == nil { transcript.append(message) }
-        case 20: // Finished
+            if failed == nil {
+                serverAuthenticated = true
+                transcript.append(message)
+            }
+        case 20: // Finished: only after a verified Certificate + CertificateVerify (no PSK mode is offered).
+            guard !handshakeDone else { fail(TLSError.handshake("unexpected Finished")); return }
+            guard serverAuthenticated else {
+                fail(TLSError.handshake("server Finished without a verified CertificateVerify"))
+                return
+            }
             handleServerFinished(message)
         case 4: // NewSessionTicket (post-handshake): ignore, not in transcript
+            guard handshakeDone else { fail(TLSError.handshake("NewSessionTicket before Finished")); return }
             return
         case 24: // KeyUpdate
+            guard handshakeDone else { fail(TLSError.handshake("KeyUpdate before Finished")); return }
             handleKeyUpdate(message)
+        case 13: // CertificateRequest: client certificates are not supported (we would answer nothing → server aborts)
+            guard gotEncryptedExtensions, !gotCertificate, !handshakeDone else {
+                fail(TLSError.handshake("unexpected CertificateRequest"))
+                return
+            }
+            transcript.append(message)
         default:
             if handshakeDone { return }
             transcript.append(message)
@@ -461,13 +563,13 @@ final class NCTLSClientStream: NCRelayStream {
         transcript.append(message)
         let hashThroughServerFinished = kind.hash(transcript)
         // Application secrets
-        guard let handshakeSecret = handshakeSecretStored else { return }
+        guard let handshakeSecret = handshakeSecretStored else { fail(TLSError.handshake("Finished before keys")); return }
         let derived = NCTLS13.deriveSecret(kind, secret: handshakeSecret, label: "derived", transcriptHash: kind.hash(Data()))
         let master = NCTLS13.hkdfExtract(kind, salt: derived, ikm: Data(repeating: 0, count: kind.length))
         let cAP = NCTLS13.deriveSecret(kind, secret: master, label: "c ap traffic", transcriptHash: hashThroughServerFinished)
         let sAP = NCTLS13.deriveSecret(kind, secret: master, label: "s ap traffic", transcriptHash: hashThroughServerFinished)
         // Send client Finished under the handshake write keys first.
-        guard let hsWriteSecret = writeSecret else { return }
+        guard let hsWriteSecret = writeSecret else { fail(TLSError.handshake("Finished before keys")); return }
         let verifyData = NCTLS13.finishedVerifyData(kind, trafficSecret: hsWriteSecret, transcriptHash: hashThroughServerFinished)
         var finished = Data()
         finished.append(0x14)
@@ -481,10 +583,8 @@ final class NCTLSClientStream: NCRelayStream {
         let sk = NCTLS13.trafficKeyIV(kind, suite: suite, secret: sAP)
         writeKey = ck.key; writeIV = ck.iv; writeSeq = 0; writeSecret = cAP
         readKey = sk.key; readIV = sk.iv; readSeq = 0; readSecret = sAP
-        handshakeDone = true
-        let handler = handshakeHandler
-        handshakeHandler = nil
-        handler?(nil)
+        transcript = Data() // not needed any more (memory)
+        completeHandshake()
         // Flush queued plaintext.
         let queued = writeBuffer
         writeBuffer = Data()
@@ -544,8 +644,16 @@ final class NCTLSClientStream: NCRelayStream {
 
     // MARK: NCRelayStream
 
+    /// Plaintext queued before the handshake completes is capped (memory first); past it the stream fails.
+    static let maxQueuedBeforeHandshake = 256 * 1024
+
     func send(_ data: Data) {
-        guard handshakeDone, failed == nil else {
+        if failed != nil { return }
+        guard handshakeDone else {
+            guard writeBuffer.count + data.count <= Self.maxQueuedBeforeHandshake else {
+                fail(TLSError.handshake("too much data queued before the handshake completed"))
+                return
+            }
             writeBuffer.append(data)
             return
         }
@@ -562,11 +670,11 @@ final class NCTLSClientStream: NCRelayStream {
             }
             return
         }
-        // Split into <=16K records.
-        var rest = data
+        // Split into <=16K records (slice walk, no tail copy per record).
+        var rest = data[...]
         while !rest.isEmpty {
             let chunk = Data(rest.prefix(16384))
-            rest = Data(rest.dropFirst(chunk.count))
+            rest = rest.dropFirst(chunk.count)
             guard let writeKey, let writeIV else { return }
             var plain = chunk
             plain.append(0x17) // inner content type: application data
@@ -622,6 +730,9 @@ final class NCTLSClientStream: NCRelayStream {
     private func fail(_ error: Error) {
         guard failed == nil else { return }
         failed = error
+        handshakeTimer?.cancel()
+        handshakeTimer = nil
+        writeBuffer = Data()
         if let handler = handshakeHandler {
             handshakeHandler = nil
             handler(error)
@@ -635,6 +746,9 @@ final class NCTLSClientStream: NCRelayStream {
 
     func cancel() {
         closed = true
+        handshakeTimer?.cancel()
+        handshakeTimer = nil
+        writeBuffer = Data()
         raw.cancel()
     }
 
@@ -652,8 +766,9 @@ final class NCTLSClientStream: NCRelayStream {
         spliced = true
         let plain = plaintextOut
         plaintextOut = []
-        let tail = readBuffer
+        let tail = readOffset >= readBuffer.count ? Data() : Data(readBuffer[(readBuffer.startIndex + readOffset)...])
         readBuffer = Data()
+        readOffset = 0
         return (plain, tail)
     }
 
@@ -709,11 +824,25 @@ extension NCTLSClientStream {
 
     fileprivate func processHandshake12(type: UInt8, message: Data) {
         let body = Data(message.dropFirst(4))
+        // State machine (rv2-proto): ServerHello → Certificate → ServerKeyExchange (signature over the randoms +
+        // params verified against the leaf, always — skip-cert-verify only waives the chain/SecTrust check) →
+        // [CertificateRequest] → ServerHelloDone → (our flight) → CCS → Finished. Only ECDHE suites are offered, so
+        // a ServerKeyExchange is mandatory and the handshake cannot finish without that signature.
+        if handshakeDone, type != 0, type != 4 { return } // post-handshake: renegotiation unsupported
         switch type {
         case 11: // Certificate
+            guard certsDER.isEmpty, tls12SKE == nil, !tls12FlightSent else {
+                fail(TLSError.handshake("unexpected Certificate"))
+                return
+            }
             certsDER = NCTLS12.parseCertificates(body)
+            guard !certsDER.isEmpty else { fail(TLSError.handshake("empty server Certificate")); return }
             transcript.append(message)
         case 12: // ServerKeyExchange
+            guard tls12SKE == nil, !tls12FlightSent else {
+                fail(TLSError.handshake("unexpected ServerKeyExchange"))
+                return
+            }
             guard let ske = NCTLS12.parseServerKeyExchange(body),
                   let leaf = certsDER.first, let cert = NCX509Certificate(der: leaf) else {
                 fail(TLSError.handshake("bad ServerKeyExchange"))
@@ -734,20 +863,24 @@ extension NCTLSClientStream {
             tls12NeedClientCert = true
             transcript.append(message)
         case 14: // ServerHelloDone
+            guard tls12SKE != nil, !tls12FlightSent else {
+                fail(TLSError.handshake("ServerHelloDone without a verified ServerKeyExchange"))
+                return
+            }
             transcript.append(message)
             sendClientFlight12()
         case 4: // NewSessionTicket (before the server's CCS): part of the Finished transcript
             if !handshakeDone { transcript.append(message) }
         case 20: // server Finished
-            guard tls12ReadOn else { fail(TLSError.handshake("Finished before ChangeCipherSpec")); return }
+            guard tls12ReadOn, tls12FlightSent, tls12SKE != nil else {
+                fail(TLSError.handshake("Finished before ChangeCipherSpec"))
+                return
+            }
             let expected = NCTLS12.prf(kind, secret: tls12Master, label: "server finished",
                                        seed: kind.hash(transcript), length: 12)
             guard body == expected else { fail(TLSError.handshake("server Finished verify failed")); return }
             transcript = Data() // not needed any more
-            handshakeDone = true
-            let handler = handshakeHandler
-            handshakeHandler = nil
-            handler?(nil)
+            completeHandshake()
             let queued = writeBuffer
             writeBuffer = Data()
             if !queued.isEmpty { send(queued) }
@@ -806,6 +939,7 @@ extension NCTLSClientStream {
         fin.append(verify)
         transcript.append(fin)
         sendRecord12(suite: suite, type: 22, plaintext: fin)
+        tls12FlightSent = true
     }
 
     fileprivate func sendRecord12(suite: NCTLS12.Suite, type: UInt8, plaintext: Data) {
@@ -823,6 +957,8 @@ extension NCTLSClientStream {
 
     fileprivate func handleRecord12(suite: NCTLS12.Suite, type: UInt8, header: Data, payload: Data) {
         if type == 20 { // ChangeCipherSpec: server switches to the negotiated keys
+            if handshakeDone, config.restls != nil { return } // restls post-handshake path ignores CCS
+            guard tls12FlightSent, !tls12ReadOn else { fail(TLSError.handshake("unexpected ChangeCipherSpec")); return }
             tls12ReadOn = true
             readSeq = 0
             if let restls = config.restls, !restls.authed { restls.authPending = true }

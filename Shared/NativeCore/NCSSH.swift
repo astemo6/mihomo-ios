@@ -5,7 +5,8 @@ import Security
 /// SSH outbound (mihomo v1.19.33 adapter/outbound/ssh.go: one shared client per proxy, a direct-tcpip channel per
 /// flow) as a pure-Swift SSH-2 client (feat/nc-proto A3, based on astemo6/Muse NativeCore).
 /// Transport: curve25519-sha256 / ecdh-sha2-nistp256, host keys ssh-ed25519 / ecdsa-sha2-nistp256 /
-/// rsa-sha2-256/512 (signature always verified; `host-key` pins the blob like mihomo), ciphers
+/// rsa-sha2-256/512 (signature always verified; `host-key` pins the blob like mihomo; without a pin the first-seen
+/// key is remembered per server:port and a changed key is refused — TOFU, NCSSHKnownHosts, rv2-proto), ciphers
 /// aes128/256-gcm@openssh.com and aes128/256-ctr + hmac-sha2-256, server-initiated re-keying.
 /// Auth: password; private keys inline (OpenSSH unencrypted ed25519 / ecdsa-p256, PEM EC P-256, PEM/PKCS#8 RSA,
 /// PKCS#8 Ed25519). Channel windows are 512 KB per flow (memory-bounded; Go uses 2 MB).
@@ -333,6 +334,8 @@ final class NCSSHClient {
     private let key: NCSSHKey?
     private let hostKeys: [Data]
     private let hostKeyAlgs: [String]
+    /// "server:port" for trust-on-first-use when no `host-key` pin is configured (nil = no TOFU, e.g. tests).
+    private let knownHostID: String?
     private(set) var state: State = .connecting
     private var readyHandlers: [(Error?) -> Void] = []
 
@@ -358,8 +361,9 @@ final class NCSSHClient {
     private var channels: [UInt32: NCSSHChannel] = [:]
 
     init(raw: NCRelayStream, user: String, password: String?, key: NCSSHKey?, hostKeys: [Data],
-         hostKeyAlgs: [String], queue: DispatchQueue) {
+         hostKeyAlgs: [String], queue: DispatchQueue, knownHostID: String? = nil) {
         self.raw = raw
+        self.knownHostID = knownHostID
         self.user = user
         self.password = password
         self.key = key
@@ -569,8 +573,20 @@ final class NCSSHClient {
         guard Self.verifyHostSignature(alg: hostAlg, keyBlob: ks, sig: sig, data: h) else {
             throw Self.err("host key signature invalid")
         }
-        if !hostKeys.isEmpty && !hostKeys.contains(ks) {
-            throw Self.err("host key mismatch, server send: \(ks.base64EncodedString())")
+        if !hostKeys.isEmpty {
+            if !hostKeys.contains(ks) {
+                throw Self.err("host key mismatch, server send: \(ks.base64EncodedString())")
+            }
+        } else if let id = knownHostID {
+            // No pin: trust on first use. The first verified key for this server:port is stored; a different key
+            // later (MITM or a re-keyed server) is refused until the user pins the new key with `host-key`.
+            switch NCSSHKnownHosts.shared.check(id: id, keyBlob: ks) {
+            case .trusted, .learned:
+                break
+            case .mismatch(let expected, let got):
+                throw Self.err("host key for \(id) changed (known \(expected), server sent \(got)); "
+                               + "if the server key really changed, set host-key: [\"\(Self.keyTypeName(ks)) \(ks.base64EncodedString())\"]")
+            }
         }
         if sessionID == nil { sessionID = h }
         let sid = sessionID!
@@ -601,6 +617,11 @@ final class NCSSHClient {
         x25519 = nil; p256 = nil
         sendPacket(Data([21]), kex: true)
         enc.mode = outMode
+    }
+
+    static func keyTypeName(_ blob: Data) -> String {
+        var r = NCSSHWire.Reader(blob)
+        return r.str() ?? "ssh-unknown"
     }
 
     static func verifyHostSignature(alg: String, keyBlob: Data, sig: Data, data: Data) -> Bool {
@@ -875,7 +896,7 @@ extension NCConnector {
         obtainSSHRaw(transport: transport, server: server, port: port, queue: queue) { raw, err in
             guard let raw else { completion(nil, err); return }
             let c = NCSSHClient(raw: raw, user: user, password: (pw?.isEmpty ?? true) ? nil : pw, key: signer,
-                                hostKeys: pins, hostKeyAlgs: algs, queue: queue)
+                                hostKeys: pins, hostKeyAlgs: algs, queue: queue, knownHostID: "\(server):\(port)")
             if transport == nil {
                 sshLock.lock(); sshRegistry[key] = c; sshLock.unlock()
             }
@@ -913,5 +934,88 @@ extension NCConnector {
         if let transport { completion(transport, nil); return }
         let s = NCStream(to: server, port: port, queue: queue)
         s.start { err in completion(err == nil ? s : nil, err) }
+    }
+}
+
+/// Trust-on-first-use store for SSH host keys (rv2-proto): `<home>/engine/ssh_known_hosts.json`, a JSON object
+/// "server:port" → "SHA256:<base64>" (OpenSSH fingerprint format) in the app group, shared by app and tunnel.
+/// Only consulted when the proxy has no `host-key` pin; an explicit pin always wins.
+final class NCSSHKnownHosts {
+    static let shared = NCSSHKnownHosts()
+    /// Test hook / alternate location.
+    static var fileURLOverride: URL?
+    /// Bounded: the oldest-inserted entries are dropped past this many servers (memory/file size).
+    static let maxEntries = 512
+
+    enum Verdict: Equatable {
+        case trusted
+        case learned
+        case mismatch(expected: String, got: String)
+    }
+
+    private let lock = NSLock()
+    private var cache: [String: String]?
+    private var cacheMTime: Date?
+
+    private var fileURL: URL {
+        Self.fileURLOverride ?? AppShared.homeURL.appendingPathComponent("engine/ssh_known_hosts.json")
+    }
+
+    static func fingerprint(_ blob: Data) -> String {
+        var b64 = Data(SHA256.hash(data: blob)).base64EncodedString()
+        while b64.hasSuffix("=") { b64.removeLast() }
+        return "SHA256:" + b64
+    }
+
+    func check(id: String, keyBlob: Data) -> Verdict {
+        let fp = Self.fingerprint(keyBlob)
+        lock.lock()
+        defer { lock.unlock() }
+        var map = loadLocked()
+        if let known = map[id] {
+            return known == fp ? .trusted : .mismatch(expected: known, got: fp)
+        }
+        if map.count >= Self.maxEntries, let drop = map.keys.sorted().first { map.removeValue(forKey: drop) }
+        map[id] = fp
+        cache = map
+        saveLocked(map)
+        return .learned
+    }
+
+    /// Forget a server's stored key (e.g. from a settings action after the user confirmed a key change).
+    func forget(id: String) {
+        lock.lock()
+        defer { lock.unlock() }
+        var map = loadLocked()
+        guard map.removeValue(forKey: id) != nil else { return }
+        cache = map
+        saveLocked(map)
+    }
+
+    private func modDate() -> Date? {
+        (try? FileManager.default.attributesOfItem(atPath: fileURL.path)[.modificationDate]) as? Date
+    }
+
+    private func loadLocked() -> [String: String] {
+        // The other process (app ↔ tunnel) may have changed or removed the file: re-read when its mtime moved.
+        let mt = modDate()
+        if let cache, mt == cacheMTime { return cache }
+        cacheMTime = mt
+        guard mt != nil, let raw = try? Data(contentsOf: fileURL),
+              let obj = try? JSONSerialization.jsonObject(with: raw) as? [String: String] else {
+            cache = [:]
+            return [:]
+        }
+        cache = obj
+        return obj
+    }
+
+    private func saveLocked(_ map: [String: String]) {
+        let url = fileURL
+        try? FileManager.default.createDirectory(at: url.deletingLastPathComponent(), withIntermediateDirectories: true)
+        if let data = try? JSONSerialization.data(withJSONObject: map, options: [.sortedKeys]) {
+            try? data.write(to: url, options: .atomic)
+        }
+        cacheMTime = modDate()
     }
 }

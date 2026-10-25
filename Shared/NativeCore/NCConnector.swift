@@ -301,6 +301,12 @@ enum NCConnector {
                                         allowMux: Bool = true,
                                         transport: NCRelayStream? = nil,
                                         completion: @escaping (NCRelayStream?, Error?) -> Void) {
+        // rv2-proto: a target no wire format can carry (domain > 255 bytes, port out of range) fails cleanly here
+        // instead of trapping in a u8/u16 length conversion inside a protocol encoder.
+        guard target.isWireEncodable else {
+            queue.async { completion(nil, Failure.handshake("target \(target.host.prefix(64)):\(target.port) cannot be encoded")) }
+            return
+        }
         if proxy.type == "mieru" {
             // feat/nc-proto3: pure-Swift mieru TCP underlay (NCMieru); port may come from port-range.
             mieruStream(proxy: proxy, target: target, udp: false, queue: queue, transport: transport) { s, err in
@@ -345,7 +351,7 @@ enum NCConnector {
         case "socks5":
             obtainStream(transport: transport, make: { NCStream(to: server, port: port, queue: queue) }) { raw, err in
                 guard let raw else { completion(nil, err); return }
-                socksHandshake(raw: raw, target: target, proxy: proxy, completion: completion)
+                socksHandshake(raw: raw, target: target, proxy: proxy, queue: queue, completion: completion)
             }
         case "http", "https":
             if transport != nil && proxy.type == "https" {
@@ -354,7 +360,7 @@ enum NCConnector {
             }
             obtainStream(transport: transport, make: { NCStream(to: server, port: port, tls: proxy.type == "https", queue: queue) }) { raw, err in
                 guard let raw else { completion(nil, err); return }
-                httpHandshake(raw: raw, target: target, proxy: proxy, completion: completion)
+                httpHandshake(raw: raw, target: target, proxy: proxy, queue: queue, completion: completion)
             }
         case "ss":
             guard let cipher = proxy.cipher, let password = proxy.password else {
@@ -1061,13 +1067,25 @@ enum NCConnector {
 
     // MARK: SOCKS5 handshake
 
-    private static func socksHandshake(raw: NCRelayStream, target: NCTarget, proxy: NCProxy,
-                                       completion: @escaping (NCRelayStream?, Error?) -> Void) {
+    /// SOCKS5 / HTTP CONNECT handshake limits (rv2-proto): a stalled proxy is cut off after `proxyHandshakeTimeout`
+    /// and the reply buffer is bounded (a SOCKS5 reply is at most 262 bytes).
+    static var proxyHandshakeTimeout: TimeInterval = 12
+    static let maxSOCKSReply = 512
+
+    private static func socksHandshake(raw: NCRelayStream, target: NCTarget, proxy: NCProxy, queue: DispatchQueue,
+                                       completion outer: @escaping (NCRelayStream?, Error?) -> Void) {
+        let deadline = NCHandshakeDeadline(queue: queue, seconds: proxyHandshakeTimeout, raw: raw, what: "socks5",
+                                           completion: outer)
+        let completion: (NCRelayStream?, Error?) -> Void = { s, e in
+            if s == nil, !deadline.isDone { raw.cancel() }
+            deadline.finish(s, e)
+        }
         let username = proxy.fields["username"]?.string
         let password = proxy.fields["password"]?.string
         let buf = NCByteBuffer()
         raw.send(NCSOCKS5.greeting(username: username, password: password))
         receiveInto(raw: raw, buf: buf, atLeast: 2) { error in
+            guard !deadline.isDone else { return }
             guard error == nil, buf.count >= 2 else { completion(nil, error ?? Failure.handshake("socks greeting")); return }
             let head = buf.take(2)
             guard head[0] == 0x05 else { completion(nil, Failure.handshake("socks bad version")); return }
@@ -1078,6 +1096,7 @@ enum NCConnector {
                 guard let u = username else { completion(nil, Failure.handshake("socks auth required")); return }
                 raw.send(NCSOCKS5.authRequest(username: u, password: password ?? ""))
                 receiveInto(raw: raw, buf: buf, atLeast: 2) { error in
+                    guard !deadline.isDone else { return }
                     guard error == nil, buf.count >= 2 else { completion(nil, error ?? Failure.handshake("socks auth")); return }
                     let authResp = buf.take(2)
                     guard authResp[1] == 0x00 else { completion(nil, Failure.handshake("socks auth failed")); return }
@@ -1093,6 +1112,7 @@ enum NCConnector {
                                      completion: @escaping (NCRelayStream?, Error?) -> Void) {
         raw.send(NCSOCKS5.connectRequest(target: target))
         func step() {
+            if NCSOCKS5.isMalformedResponse(buf.data) { completion(nil, Failure.handshake("socks bad reply")); return }
             if let (need, rep) = NCSOCKS5.parseResponse(buf.data) {
                 _ = buf.take(need)
                 guard rep == 0 else { completion(nil, Failure.handshake("socks reply \(rep)")); return }
@@ -1103,6 +1123,9 @@ enum NCConnector {
             raw.receive { data, error in
                 guard let data else { completion(nil, error ?? Failure.handshake("socks eof")); return }
                 buf.append(data)
+                if buf.count > maxSOCKSReply, NCSOCKS5.parseResponse(buf.data) == nil {
+                    completion(nil, Failure.handshake("socks reply too large")); return
+                }
                 step()
             }
         }
@@ -1111,8 +1134,14 @@ enum NCConnector {
 
     // MARK: HTTP CONNECT handshake
 
-    private static func httpHandshake(raw: NCRelayStream, target: NCTarget, proxy: NCProxy,
-                                      completion: @escaping (NCRelayStream?, Error?) -> Void) {
+    private static func httpHandshake(raw: NCRelayStream, target: NCTarget, proxy: NCProxy, queue: DispatchQueue,
+                                      completion outer: @escaping (NCRelayStream?, Error?) -> Void) {
+        let deadline = NCHandshakeDeadline(queue: queue, seconds: proxyHandshakeTimeout, raw: raw, what: "http connect",
+                                           completion: outer)
+        let completion: (NCRelayStream?, Error?) -> Void = { s, e in
+            if s == nil, !deadline.isDone { raw.cancel() }
+            deadline.finish(s, e)
+        }
         let username = proxy.fields["username"]?.string
         let password = proxy.fields["password"]?.string
         raw.send(NCHTTPProxy.connectRequest(target: target, username: username, password: password))
@@ -1126,6 +1155,7 @@ enum NCConnector {
                 return
             }
             raw.receive { data, error in
+                guard !deadline.isDone else { return }
                 guard let data else { completion(nil, error ?? Failure.handshake("http eof")); return }
                 buf.append(data)
                 if buf.count > 16384 { completion(nil, Failure.handshake("http header too large")); return }

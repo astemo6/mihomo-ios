@@ -95,14 +95,48 @@ final class NCStream {
 }
 
 /// Growable byte buffer for handshake parsing.
+/// `data` is always a rebased Data (startIndex 0): callers index it absolutely (`data[3]`), and a `dropFirst`
+/// slice would keep the old indices and trap / misread (rv2-proto). Handshake buffers are tiny, so the copy is free.
 final class NCByteBuffer {
     private(set) var data = Data()
     func append(_ d: Data) { data.append(d) }
     func take(_ n: Int) -> Data {
+        let n = max(0, min(n, data.count))
         let out = Data(data.prefix(n))
-        data = data.dropFirst(n)
+        data = n >= data.count ? Data() : Data(data.dropFirst(n))
         return out
     }
     var count: Int { data.count }
     var isEmpty: Bool { data.isEmpty }
+}
+
+/// Fires a completion at most once and arms a deadline that cancels `raw` when the handshake stalls
+/// (slowloris guard for SOCKS5 / HTTP CONNECT handshakes, rv2-proto). Use on the stream's queue.
+final class NCHandshakeDeadline {
+    private var completion: ((NCRelayStream?, Error?) -> Void)?
+    private var timer: DispatchWorkItem?
+
+    init(queue: DispatchQueue, seconds: TimeInterval, raw: NCRelayStream, what: String,
+         completion: @escaping (NCRelayStream?, Error?) -> Void) {
+        self.completion = completion
+        // Strong self: the work item keeps the deadline alive until it fires or finish() cancels it.
+        let t = DispatchWorkItem { [weak raw] in
+            guard self.completion != nil else { return }
+            raw?.cancel()
+            self.finish(nil, NSError(domain: "NativeCore", code: 4,
+                                     userInfo: [NSLocalizedDescriptionKey: "\(what) handshake timeout"]))
+        }
+        timer = t
+        queue.asyncAfter(deadline: .now() + seconds, execute: t)
+    }
+
+    var isDone: Bool { completion == nil }
+
+    func finish(_ stream: NCRelayStream?, _ error: Error?) {
+        guard let c = completion else { return }
+        completion = nil
+        timer?.cancel()
+        timer = nil
+        c(stream, error)
+    }
 }

@@ -41,7 +41,7 @@ final class NCMuxSession {
     // MARK: stream-facing
 
     func flushStream(_ stream: NCMuxStream) {
-        guard let base, !tornDown else { return }
+        guard let base, !tornDown, streams[stream.streamID] === stream else { return }
         let pending = stream.takePendingForSend()
         guard !pending.isEmpty else { return }
         let (frames, consumed) = core.makeData(streamID: stream.streamID, data: pending)
@@ -52,9 +52,17 @@ final class NCMuxSession {
     }
 
     func closeStream(_ stream: NCMuxStream, reset: Bool) {
+        guard streams[stream.streamID] === stream else { return } // already closed / failed
         streams[stream.streamID] = nil
+        core.forgetStream(stream.streamID)
         guard let base, !tornDown else { return }
         base.send(reset ? core.rstStream(stream.streamID) : core.endStream(stream.streamID))
+    }
+
+    /// The stream's reader consumed `n` received bytes: give that much stream receive window back.
+    func credit(_ stream: NCMuxStream, _ n: Int) {
+        guard n > 0, let base, !tornDown, streams[stream.streamID] === stream else { return }
+        base.send(core.windowUpdate(streamID: stream.streamID, n))
     }
 
     var isAlive: Bool { state == .ready && !tornDown }
@@ -101,7 +109,10 @@ final class NCMuxSession {
     private func failAllStreams() {
         let all = streams.values
         streams.removeAll()
-        for stream in all { stream.failFromSession() }
+        for stream in all {
+            core.forgetStream(stream.streamID)
+            stream.failFromSession()
+        }
     }
 }
 
@@ -119,9 +130,17 @@ final class NCMuxStream: NCRelayStream {
     private var responseBuffer = Data()
     private var responseChecked = false
     private var payloadQueue: [Data] = []
+    private var queuedBytes = 0
     private var pendingHandler: ((Data?, Error?) -> Void)?
     private var failure: Error?
     private var ended = false
+    private var cancelled = false
+
+    /// Memory bounds (rv2-proto). Inbound: the peer may only send a stream window (64 KB default) ahead of our
+    /// reader since windows are returned on consumption; the cap only catches a peer that ignores flow control.
+    /// Outbound: bytes waiting for send window; past the cap the stream is reset rather than buffering forever.
+    static let maxQueuedInbound = 256 * 1024
+    static let maxPendingSend = 1024 * 1024
 
     init(session: NCMuxSession, streamID: Int, target: NCTarget) {
         self.session = session
@@ -130,9 +149,15 @@ final class NCMuxStream: NCRelayStream {
     }
 
     func send(_ data: Data) {
+        // A failed / closed stream drops writes (they used to pile up in pendingSend after a session teardown).
+        if failure != nil || cancelled { pendingSend = Data(); return }
         if !rawMode && !requestWritten {
             requestWritten = true
             pendingSend.append(NCMux.streamRequestTCP(target: target))
+        }
+        guard pendingSend.count + data.count <= Self.maxPendingSend else {
+            failLocal("mux stream send buffer overflow")
+            return
         }
         pendingSend.append(data)
         session.flushStream(self)
@@ -152,7 +177,7 @@ final class NCMuxStream: NCRelayStream {
 
     func receive(_ handler: @escaping (Data?, Error?) -> Void) {
         if !payloadQueue.isEmpty {
-            handler(payloadQueue.removeFirst(), nil)
+            handler(dequeue(), nil)
             return
         }
         if let failure {
@@ -167,17 +192,44 @@ final class NCMuxStream: NCRelayStream {
     }
 
     func cancel() {
+        cancelled = true
+        pendingSend = Data()
         session.closeStream(self, reset: !ended)
+    }
+
+    /// Local failure (buffer overflow): reset the stream on the wire and surface the error to the reader.
+    private func failLocal(_ message: String) {
+        if failure == nil {
+            failure = NSError(domain: "NativeCore", code: 6, userInfo: [NSLocalizedDescriptionKey: message])
+        }
+        pendingSend = Data()
+        payloadQueue.removeAll()
+        queuedBytes = 0
+        session.closeStream(self, reset: true)
+        settle()
+    }
+
+    private func dequeue() -> Data {
+        let d = payloadQueue.removeFirst()
+        queuedBytes -= d.count
+        session.credit(self, d.count)
+        return d
     }
 
     // MARK: session-facing
 
     func deliverFromSession(_ payload: Data) {
+        if failure != nil || cancelled { return }
         if !responseChecked {
+            guard responseBuffer.count + payload.count <= Self.maxQueuedInbound else {
+                failLocal("mux stream response too large")
+                return
+            }
             responseBuffer.append(payload)
             guard let parsed = NCMux.parseStreamResponse(responseBuffer) else { return }
             responseChecked = true
             let rest = Data(responseBuffer.dropFirst(parsed.consumed))
+            session.credit(self, min(parsed.consumed, responseBuffer.count)) // status bytes are consumed here
             responseBuffer = Data()
             guard parsed.ok else {
                 failure = NSError(domain: "NativeCore", code: 6,
@@ -209,14 +261,21 @@ final class NCMuxStream: NCRelayStream {
             failure = NSError(domain: "NativeCore", code: 6,
                               userInfo: [NSLocalizedDescriptionKey: "mux session closed"])
         }
+        pendingSend = Data()
         settle()
     }
 
     private func emit(_ data: Data) {
         if let handler = pendingHandler {
             pendingHandler = nil
+            session.credit(self, data.count)
             handler(data, nil)
         } else {
+            guard queuedBytes + data.count <= Self.maxQueuedInbound else {
+                failLocal("mux stream receive buffer overflow (peer ignored flow control)")
+                return
+            }
+            queuedBytes += data.count
             payloadQueue.append(data)
         }
     }
@@ -225,7 +284,7 @@ final class NCMuxStream: NCRelayStream {
         guard let handler = pendingHandler else { return }
         if !payloadQueue.isEmpty {
             pendingHandler = nil
-            handler(payloadQueue.removeFirst(), nil)
+            handler(dequeue(), nil)
         } else {
             pendingHandler = nil
             handler(nil, failure) // nil error = clean EOF

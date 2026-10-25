@@ -55,32 +55,75 @@ final class NCH2ClientCore {
         var events: [Event] = []
     }
 
+    /// We never send SETTINGS_MAX_FRAME_SIZE, so the peer must stay within the 2^14 default (RFC 7540 §4.2);
+    /// a header block (HEADERS + CONTINUATION) is capped too. Violations end the stream (rv2-proto, memory first).
+    static let maxFrameSize = 16384
+    static let maxHeaderBlock = 64 * 1024
+
     func feed(_ data: Data) -> FeedResult {
         var result = FeedResult()
         buffer.append(data)
-        while buffer.count >= 9 {
-            let len = Int(buffer[0]) << 16 | Int(buffer[1]) << 8 | Int(buffer[2])
-            guard buffer.count >= 9 + len else { break }
-            let type = buffer[3]
-            let flags = buffer[4]
-            let streamID = Int(buffer[5] & 0x7f) << 24 | Int(buffer[6]) << 16 | Int(buffer[7]) << 8 | Int(buffer[8])
-            let payload = Data(buffer[9..<(9 + len)])
-            buffer = Data(buffer.dropFirst(9 + len))
+        var off = 0
+        defer {
+            if off >= buffer.count { buffer = Data() }
+            else if off > 0 { buffer = Data(buffer[(buffer.startIndex + off)...]) }
+        }
+        while buffer.count - off >= 9 {
+            let b = buffer.startIndex + off
+            let len = Int(buffer[b]) << 16 | Int(buffer[b + 1]) << 8 | Int(buffer[b + 2])
+            guard len <= Self.maxFrameSize else {
+                protocolError(into: &result)
+                off = buffer.count
+                return result
+            }
+            guard buffer.count - off >= 9 + len else { break }
+            let type = buffer[b + 3]
+            let flags = buffer[b + 4]
+            let streamID = Int(buffer[b + 5] & 0x7f) << 24 | Int(buffer[b + 6]) << 16 | Int(buffer[b + 7]) << 8 | Int(buffer[b + 8])
+            let payload = Data(buffer[(b + 9)..<(b + 9 + len)])
+            off += 9 + len
             handle(type: type, flags: flags, streamID: streamID, payload: payload, into: &result)
         }
         return result
+    }
+
+    private func protocolError(into result: inout FeedResult) {
+        if !streamClosed {
+            streamClosed = true
+            result.outbound.append(rstStream())
+            result.events.append(.reset)
+        }
+        headerBlock = nil
+    }
+
+    /// Strip HTTP/2 padding (RFC 7540 §6.1 / §6.2): with PADDED the first byte is the pad length and the padding
+    /// sits at the END of the frame; HEADERS with PRIORITY carries 5 more bytes after the pad length.
+    /// nil = malformed (padding longer than the frame).
+    static func unpad(_ payload: Data, padded: Bool, priority: Bool) -> Data? {
+        var start = payload.startIndex, end = payload.endIndex
+        if padded {
+            guard start < end else { return nil }
+            let pad = Int(payload[start])
+            start += 1
+            guard end - start >= pad else { return nil }
+            end -= pad
+        }
+        if priority {
+            guard end - start >= 5 else { return nil }
+            start += 5
+        }
+        return Data(payload[start..<end])
     }
 
     private func handle(type: UInt8, flags: UInt8, streamID: Int, payload: Data, into result: inout FeedResult) {
         switch type {
         case 0x0: // DATA
             guard streamID == 1 else { return }
-            var body = payload
-            if flags & 0x8 != 0 { // PADDED
-                guard let pad = body.first else { return }
-                body = Data(body.dropFirst(1 + Int(pad)))
+            guard let body = Self.unpad(payload, padded: flags & 0x8 != 0, priority: false) else {
+                protocolError(into: &result)
+                return
             }
-            if !payload.isEmpty {
+            if !payload.isEmpty { // flow control counts the whole payload, padding included
                 result.outbound.append(Self.frame(type: 0x8, flags: 0, streamID: 0,
                                                   payload: be32(payload.count)))
                 result.outbound.append(Self.frame(type: 0x8, flags: 0, streamID: 1,
@@ -92,10 +135,15 @@ final class NCH2ClientCore {
             if headerBlock == nil { headerBlock = Data() }
             var block = payload
             if type == 0x1 {
-                if flags & 0x8 != 0, let pad = block.first { // PADDED
-                    block = Data(block.dropFirst(1 + Int(pad)))
+                guard let frag = Self.unpad(payload, padded: flags & 0x8 != 0, priority: flags & 0x20 != 0) else {
+                    protocolError(into: &result)
+                    return
                 }
-                if flags & 0x20 != 0 { block = Data(block.dropFirst(5)) } // PRIORITY
+                block = frag
+            }
+            guard (headerBlock?.count ?? 0) + block.count <= Self.maxHeaderBlock else {
+                protocolError(into: &result)
+                return
             }
             headerBlock?.append(block)
             if flags & 0x4 != 0 { // END_HEADERS
