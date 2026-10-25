@@ -8,8 +8,8 @@ import Combine
 // (NameRefs.rename) move the entry; deletes drop it.
 //
 // The URL is used by every manual test of that node: single-node 测速 (live /proxies/{name}/delay and the
-// offline LibmihomoNodeTestDelay / TestDelay paths), group 测速 (membersDelay per member, offline
-// TestDelayByName per member) and for reading the node's last delay back from the core's per-URL history.
+// offline NCDelayTester paths), group 测速 (membersDelay per member, offline
+// NCDelayTester.testDelayByName per member) and for reading the node's last delay back from the core's per-URL history.
 // The core's own url-test / fallback health checks keep the group's URL (they are not ours to change).
 
 struct NodeSetting: Codable, Hashable {

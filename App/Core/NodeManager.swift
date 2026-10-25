@@ -409,12 +409,16 @@ final class NodeManagerModel: ObservableObject {
             let home = AppShared.homeURL.path
             let name = n.name, provider = n.source.runtimeProvider
             let ms = await BlockingWork.run {
-                tcp ? LibmihomoNodeTCPDelayIn(home, path, provider, name, url, timeout) : LibmihomoNodeTestDelayIn(home, path, provider, name, url, timeout)
+                tcp ? NCDelayTester.nodeTCPDelayIn(homeDir: home, profilePath: path, provider: provider, name: name, url: url, timeoutMs: timeout)
+                    : NCDelayTester.nodeTestDelayIn(homeDir: home, profilePath: path, provider: provider, name: name, url: url, timeoutMs: timeout)
             }
             return max(ms, 0)
         }
         if let m = manualNode(n), let d = try? JSONSerialization.data(withJSONObject: m), let s = String(data: d, encoding: .utf8) {
-            let ms = await BlockingWork.run { tcp ? LibmihomoTestTCPDelay(s, url, timeout) : LibmihomoTestDelay(s, url, timeout) }
+            let ms = await BlockingWork.run {
+                tcp ? NCDelayTester.testTCPDelay(proxyJSON: s, url: url, timeoutMs: timeout)
+                    : NCDelayTester.testDelay(proxyJSON: s, url: url, timeoutMs: timeout)
+            }
             return max(ms, 0)
         }
         return 0
@@ -430,7 +434,9 @@ final class NodeManagerModel: ObservableObject {
         if let t = ifaceCheckedAt, Date().timeIntervalSince(t) < 30 { return }
         if let running = ifaceLookup { await running.value; return }
         let task = Task {
-            LibmihomoSetOfflineTestInterface(await PhysicalInterface.current() ?? "")
+            let iface = await PhysicalInterface.current() ?? ""
+            NCDelayTester.setOfflineInterface(iface)
+            LibmihomoSetOfflineTestInterface(iface)
         }
         ifaceLookup = task
         await task.value
