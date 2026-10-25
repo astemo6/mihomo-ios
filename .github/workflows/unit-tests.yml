@@ -1,0 +1,110 @@
+# Unit tests (review rv2 #12): the MihomoUnitTests bundle (UnitTests/ + AppTests/ sources, hosted in the app) on an
+# iOS simulator — no UI tests. Before this, the only workflow that ran unit tests was Self-test (ui-tests.yml), which
+# triggers on test/** pushes only, so a PR could be merged to main without any test having run on it.
+#
+# When it runs (maintainer rule: test runs stay under the maintainer's control — work-branch pushes run nothing):
+#   - pull_request targeting main   → every PR to main runs it; make "Unit tests / unit" a required status check
+#                                     in the main branch protection so merging needs a green run.
+#   - workflow_dispatch             → on demand for any ref (gh workflow run unit-tests.yml --ref <branch>).
+#   - workflow_call                 → for other workflows (input `ref`).
+# Pushes to feat/** / fix/** / test/** do NOT run it (Self-test on test/** already runs every unit test class in its
+# smoke combo and in light shard 2).
+# A [skip-unit] marker is deliberately not supported: a PR to main always runs the tests.
+name: Unit tests
+
+on:
+  pull_request:
+    branches: [main]
+  workflow_dispatch:
+  workflow_call:
+    inputs:
+      ref:
+        description: Commit / ref to test (empty = the triggering commit)
+        type: string
+        required: false
+        default: ""
+
+permissions:
+  contents: read
+
+# A newer commit on the same PR cancels the older run.
+concurrency:
+  group: unit-${{ inputs.ref || (github.event_name == 'pull_request' && format('pr-{0}', github.event.pull_request.number)) || github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  unit:
+    # Org mirror (astemo666/mihomo-ios) runs only its Self-test shard.
+    if: github.repository == 'astemo6/mihomo-ios'
+    runs-on: macos-15
+    timeout-minutes: 75
+    steps:
+      - uses: actions/checkout@v5
+        with:
+          ref: ${{ inputs.ref }}
+      - name: Select latest Xcode
+        run: |
+          XC=$(ls -d /Applications/Xcode_*.app | sed -E 's/.*Xcode_([0-9.]+)\.app/\1 &/' | grep -v -i beta | sort -V | tail -n1 | cut -d' ' -f2)
+          sudo xcode-select -s "$XC/Contents/Developer"
+          xcodebuild -version
+      - name: Generate project (with test targets)
+        run: |
+          brew install xcodegen
+          xcodegen generate --spec project-uitests.yml
+      - name: Pick simulator
+        run: |
+          DEV=$(xcrun simctl list devices available -j | python3 -c "
+          import json,sys
+          d=json.load(sys.stdin)['devices']
+          devs=[(r,x) for r,l in d.items() if 'iOS' in r for x in l]
+          devs.sort(key=lambda rx: (0 if 'iOS-18' in rx[0] else 1, rx[0]))
+          for want in ['iPhone 16 Pro','iPhone 17 Pro','iPhone 15 Pro','iPhone 16']:
+              m=[(r,x) for r,x in devs if x['name']==want]
+              if m: print(m[0][1]['udid']); sys.stderr.write('using %s on %s\\n' % (want, m[0][0])); break
+          ")
+          test -n "$DEV"
+          echo "DEV=$DEV" >> "$GITHUB_ENV"
+          xcrun simctl boot "$DEV" || true
+      - name: Build for testing
+        run: |
+          set -o pipefail
+          xcodebuild -project Mihomo.xcodeproj -scheme MihomoUITests -configuration Debug -sdk iphonesimulator \
+            -destination "id=$DEV" -derivedDataPath build/ut \
+            ARCHS=arm64 ONLY_ACTIVE_ARCH=YES CODE_SIGNING_ALLOWED=NO CODE_SIGNING_REQUIRED=NO CODE_SIGN_IDENTITY="" CODE_SIGN_ENTITLEMENTS="" \
+            build-for-testing 2>&1 | tee build-ut.log | grep -E "error:|\*\* (TEST BUILD|BUILD)" || true
+          grep -q "TEST BUILD SUCCEEDED" build-ut.log || { tail -n 150 build-ut.log; exit 1; }
+      - name: Run unit tests
+        run: |
+          set +e
+          xcrun simctl bootstatus "$DEV" -b
+          mkdir -p results
+          # Same JSC setting as Self-test / a device: no JIT in the test host.
+          TEST_RUNNER_JSC_useJIT=false \
+          xcodebuild -project Mihomo.xcodeproj -scheme MihomoUITests -configuration Debug -sdk iphonesimulator \
+            -destination "id=$DEV" -derivedDataPath build/ut -resultBundlePath results/unit.xcresult \
+            -only-testing:MihomoUnitTests test-without-building 2>&1 | tee results/unit.log \
+            | grep -E "Test Case .*(failed|passed)|error:|XCTAssert|Executed"
+          RC=${PIPESTATUS[0]}
+          [ "$RC" = 0 ] || tail -n 150 results/unit.log
+          {
+            echo "### Unit tests"
+            grep -E "Executed [0-9]+ tests?" results/unit.log | tail -n 1 | sed 's/^/- /'
+            echo "- exit $RC"
+          } >> "$GITHUB_STEP_SUMMARY"
+          exit "$RC"
+      - uses: actions/upload-artifact@v6
+        if: always()
+        with:
+          name: unit-results
+          path: |
+            results/unit.log
+            build-ut.log
+          if-no-files-found: warn
+          retention-days: 14
+      - uses: actions/upload-artifact@v6
+        if: failure()
+        with:
+          name: unit-xcresult
+          path: results/unit.xcresult
+          if-no-files-found: ignore
+          retention-days: 7

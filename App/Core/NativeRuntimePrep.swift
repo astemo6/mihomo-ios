@@ -19,12 +19,28 @@ import Foundation
 ///   `raw` returned by `NCRuntimeBuilder.build`, serializing via `NCRuntimeBuilder.jsonData`
 ///   directly (declared seam difference from #112, semantically equivalent).
 /// - File I/O errors reflect Swift `Error.localizedDescription` instead of Go `os.PathError`.
+/// - Transactional output (review rv2): Go wrote each file in turn, so a failure part-way left e.g. a new
+///   runtime.yaml next to the old nativecore-runtime.json (which the tunnel prefers) and several writes were
+///   `try?` while the prepare still reported success. Here every output is first written into a staging directory
+///   on the same volume (`<home>/.nativecore-stage-<uuid>/`); nothing in `<home>` changes until all of them are
+///   written. The commit then rename(2)s each staged file over its live path (atomic per file, so the tunnel never
+///   sees a missing or half-written file), the live file hard-linked aside first so a failed rename rolls the whole
+///   set back to the previous generation. The tunnel's read side is unchanged (same paths, same formats).
 enum NativeRuntimePrep {
 
     /// nil = prepared; else the error text (the start / reload stops with it).
+    ///
+    /// rv2: no App Group container / no active profile is an error, not success — the start path checks both
+    /// before calling, but `VPNManager.reloadNow` did not, so a reload with the active profile gone (deleted file,
+    /// cleared selection) returned nil and the UI reported the new config as applied while the tunnel kept the
+    /// previous runtime files.
     static func prepare() async -> String? {
-        guard AppShared.containerOK else { return nil } // the start reports the App Group problem itself
-        guard let profile = AppShared.activeProfileURL else { return nil }
+        guard AppShared.containerOK else {
+            return String(localized: "App Group 不可用：重签名的描述文件需要包含 App Groups，且主程序和扩展使用同一个组。详见 更多 → 诊断。")
+        }
+        guard let profile = AppShared.activeProfileURL else {
+            return String(localized: "请先在「更多 → 配置」中添加并选择一个配置")
+        }
         let home = AppShared.homeURL.path
 
         return await Task.detached(priority: .userInitiated) { () -> String? in
@@ -35,6 +51,7 @@ enum NativeRuntimePrep {
     private final class PrepState {
         var rep: NCRuntimeBuilder.PrepReport
         var groupOrder: [String] = []
+        var writeErrors: [String] = []
         init(rep: NCRuntimeBuilder.PrepReport) { self.rep = rep }
     }
 
@@ -52,6 +69,11 @@ enum NativeRuntimePrep {
     }
 
     private static func prepareSyncLocked(home: String, profile: URL) -> String? {
+        PrepTransaction.removeStale(home: home)
+        // Non-throwing init: no deferred-initialized `let` in this body (build #359 SIL verifier crash shape).
+        let tx = PrepTransaction(home: home)
+        // Whatever happens below, the staging directory goes (after a commit it only holds the backups).
+        defer { tx.discard() }
         let req = NCRuntimeBuilder.Request.load(home: home, profilePath: profile.path)
         let safeMode = req.settings.core.safeMode
 
@@ -96,7 +118,7 @@ enum NativeRuntimePrep {
                         raw["rules"] = .array([.string("AND,((NETWORK,UDP),(DST-PORT,443)),REJECT")] + raw.list("rules"))
                     }
                 }
-                NCRuntimeBuilder.lowerForNative(home: home, &raw, &box.rep)
+                NCRuntimeBuilder.lowerForNative(home: home, &raw, &box.rep, stageDir: tx.stage) { box.writeErrors.append($0) }
                 box.groupOrder = NCRuntimeSteps.runtimeGroupNames(raw)
             }
         } catch let err as NCRuntimeBuilder.BuildError {
@@ -105,73 +127,206 @@ enum NativeRuntimePrep {
             return fail(error.localizedDescription)
         }
         guard let buildResult = built else { return fail("native runtime: 构建失败") }
+        if let e = box.writeErrors.first { return fail(e) }
         rep = box.rep
         let groupOrder = box.groupOrder
 
-        let runtimePath = URL(fileURLWithPath: home).appendingPathComponent("runtime.yaml").path
         do {
-            try NCRuntimeFiles.writeAtomic(buildResult.data, to: runtimePath)
-        } catch {
-            return fail(error.localizedDescription)
-        }
+            // Geosite lists were written into the stage by lowerForNative; commit them first.
+            tx.adoptStagedDirectory("nativecore-geosite")
 
-        writeRuntimeGroupOrder(home: home, names: groupOrder)
-
-        guard let runtimeJSON = NCRuntimeBuilder.jsonData(buildResult.raw) else {
-            return fail("native runtime JSON: 序列化失败")
-        }
-        let runtimeJSONPath = URL(fileURLWithPath: home).appendingPathComponent("nativecore-runtime.json").path
-        do {
-            try NCRuntimeFiles.writeAtomic(runtimeJSON, to: runtimeJSONPath)
-        } catch {
-            return fail(error.localizedDescription)
-        }
-
-        let snapPath = URL(fileURLWithPath: home).appendingPathComponent("nativecore-rewrite.json").path
-        if let cfg = cfg, let rs = rs, (cfg.anyOn || (cfg.mitm && !rs.hostnames.isEmpty)) {
-            let (snap, hosts) = NCRewriteSnapshotBuilder.export(home: home, cfg: cfg, rs: rs)
-            rep.rewrite = true
-            rep.mitmHosts = hosts
+            // Scripts manifest: content-addressed code files are additive; the manifest itself is staged and the
+            // obsolete code files are only removed after the commit (see NCScriptManifest.buildManifest).
+            let scriptRS: NCEngineRuleset? = (cfg != nil && cfg!.anyOn) ? rs : nil
+            var scriptKeep: Set<String>? = nil
             do {
-                try NCRuntimeFiles.writeAtomic(Data(snap.utf8), to: snapPath)
+                let man = try NCScriptManifest.buildManifest(home: home, cfg: cfg, rs: scriptRS)
+                rep.scripts = man.scripts
+                if man.bad > 0 {
+                    rep.warnings = (rep.warnings ?? []) + ["\(man.bad) 个脚本加载失败（见 nativecore-scripts.json）"]
+                }
+                try tx.put(man.data, NCScriptManifest.scriptManifestFile)
+                scriptKeep = man.keep
             } catch {
-                return fail(error.localizedDescription)
+                // An old manifest next to the new rule set would index the wrong rules: stage an empty one.
+                let errStr = (error as? LocalizedError)?.errorDescription ?? error.localizedDescription
+                rep.scripts = 0
+                rep.warnings = (rep.warnings ?? []) + ["脚本清单生成失败，本次未启用脚本：" + errStr]
+                try tx.put(try JSONEncoder().encode(NCScriptManifestRoot()), NCScriptManifest.scriptManifestFile)
             }
-        } else {
-            try? FileManager.default.removeItem(atPath: snapPath)
-        }
 
-        let scriptRS: NCEngineRuleset? = (cfg != nil && cfg!.anyOn) ? rs : nil
-        do {
-            let (scripts, bad) = try NCScriptManifest.export(home: home, cfg: cfg, rs: scriptRS)
-            rep.scripts = scripts
-            if bad > 0 {
-                rep.warnings = (rep.warnings ?? []) + ["\(bad) 个脚本加载失败（见 nativecore-scripts.json）"]
+            // Rewrite / MitM snapshot. An encode failure used to be written as "" with rewrite=true.
+            rep.rewrite = false
+            rep.mitmHosts = 0
+            if let cfg = cfg, let rs = rs, (cfg.anyOn || (cfg.mitm && !rs.hostnames.isEmpty)) {
+                do {
+                    let (snap, hosts) = try NCRewriteSnapshotBuilder.exportData(home: home, cfg: cfg, rs: rs)
+                    try tx.put(snap, "nativecore-rewrite.json")
+                    rep.rewrite = true
+                    rep.mitmHosts = hosts
+                } catch let e as PrepTransaction.TxError {
+                    throw e
+                } catch {
+                    rep.warnings = (rep.warnings ?? []) + ["重写 / MitM 快照生成失败，本次未启用：" + error.localizedDescription]
+                    tx.remove("nativecore-rewrite.json")
+                }
+            } else {
+                tx.remove("nativecore-rewrite.json")
+            }
+
+            try tx.put(try JSONEncoder().encode(groupOrder), "runtime-groups.json")
+            try tx.put(buildResult.data, "runtime.yaml")
+            guard let runtimeJSON = NCRuntimeBuilder.jsonData(buildResult.raw) else {
+                return fail("native runtime JSON: 序列化失败")
+            }
+            try tx.put(runtimeJSON, "nativecore-runtime.json")
+            try tx.put(try JSONEncoder().encode(rep), "nativecore-prep.json")
+
+            try tx.commit()
+            if let keep = scriptKeep {
+                NCScriptManifest.removeObsoleteCode(home: home, keep: keep)
             }
         } catch {
-            let errStr = (error as? LocalizedError)?.errorDescription ?? error.localizedDescription
-            rep.warnings = (rep.warnings ?? []) + ["脚本清单写入失败：" + errStr]
+            return fail(error.localizedDescription)
         }
 
-        if let prepData = try? JSONEncoder().encode(rep) {
-            let prepPath = URL(fileURLWithPath: home).appendingPathComponent("nativecore-prep.json").path
-            try? NCRuntimeFiles.writeAtomic(prepData, to: prepPath)
-        }
-
-        let summary = "runtime.yaml \(buildResult.data.count) B, \(rep.rules) rules, geosite \(rep.geosite?.count ?? 0), rewrite \(rep.rewrite ? "true" : "false"), mitm hosts \(rep.mitmHosts), warnings \(rep.warnings?.count ?? 0)"
+        let summary = "runtime.yaml \(buildResult.data.count) B, \(rep.rules) rules, geosite \(rep.geosite?.count ?? 0), rewrite \(rep.rewrite ? "true" : "false"), mitm hosts \(rep.mitmHosts), scripts \(rep.scripts), warnings \(rep.warnings?.count ?? 0)"
         NSLog("[Mihomo] native runtime prepared: %@", summary)
         return nil
-    }
-
-    private static func writeRuntimeGroupOrder(home: String, names: [String]?) {
-        guard !home.isEmpty, let names else { return }
-        guard let data = try? JSONEncoder().encode(names) else { return }
-        let path = URL(fileURLWithPath: home).appendingPathComponent("runtime-groups.json").path
-        try? NCRuntimeFiles.writeAtomic(data, to: path)
     }
 
     private static func fail(_ message: String) -> String {
         NSLog("[Mihomo] native runtime prepare failed: %@", message)
         return String(localized: "生成运行配置失败：") + message
+    }
+}
+
+/// rv2: all-or-nothing write of the native runtime files (see the DIVERGENCES note on NativeRuntimePrep).
+/// Runs under NativeRuntimePrep's per-home NCPathLock; not thread-safe on its own.
+final class PrepTransaction {
+    struct TxError: LocalizedError {
+        let message: String
+        var errorDescription: String? { message }
+    }
+
+    static let stagePrefix = ".nativecore-stage-"
+
+    let home: String
+    /// Staging directory, a sibling of the live files (same volume, so rename(2) is atomic).
+    let stage: String
+    private var entries: [(rel: String, remove: Bool)] = []
+
+    /// The directory itself is created lazily by `put` / lowerForNative (createDirectory with intermediates).
+    init(home: String) {
+        self.home = home
+        stage = (home as NSString).appendingPathComponent(Self.stagePrefix + UUID().uuidString)
+    }
+
+    /// Removes staging directories a crashed / killed prepare left behind.
+    static func removeStale(home: String) {
+        let fm = FileManager.default
+        guard let items = try? fm.contentsOfDirectory(atPath: home) else { return }
+        for n in items where n.hasPrefix(stagePrefix) {
+            try? fm.removeItem(atPath: (home as NSString).appendingPathComponent(n))
+        }
+    }
+
+    private static func posix(_ what: String, _ path: String, _ code: Int32) -> TxError {
+        TxError(message: what + " " + (path as NSString).lastPathComponent + ": " + String(cString: strerror(code)))
+    }
+
+    /// Stages `data` for `<home>/<rel>`. Throws (TxError) when the staged copy cannot be written.
+    func put(_ data: Data, _ rel: String) throws {
+        let p = (stage as NSString).appendingPathComponent(rel)
+        do {
+            try FileManager.default.createDirectory(atPath: (p as NSString).deletingLastPathComponent, withIntermediateDirectories: true)
+            try NCRuntimeFiles.writeAtomic(data, to: p)
+        } catch {
+            throw TxError(message: rel + ": " + error.localizedDescription)
+        }
+        entries.removeAll { $0.rel == rel }
+        entries.append((rel, false))
+    }
+
+    /// Stages removal of `<home>/<rel>` (no error when it does not exist).
+    func remove(_ rel: String) {
+        entries.removeAll { $0.rel == rel }
+        entries.append((rel, true))
+    }
+
+    /// Adopts every regular file already written into `<stage>/<dir>/` (lowerForNative's geosite lists).
+    /// Live files in `<home>/<dir>/` that are not staged are left alone (as before: lists are keyed by code).
+    func adoptStagedDirectory(_ dir: String) {
+        let d = (stage as NSString).appendingPathComponent(dir)
+        guard let items = try? FileManager.default.contentsOfDirectory(atPath: d) else { return }
+        for n in items.sorted() where !n.hasPrefix(".") {
+            let rel = (dir as NSString).appendingPathComponent(n)
+            entries.removeAll { $0.rel == rel }
+            entries.append((rel, false))
+        }
+    }
+
+    /// Moves every staged file over its live path. On any failure the files already swapped are put back
+    /// (from hard links taken just before each swap) and the error is thrown: the live set is then exactly the
+    /// previous generation.
+    func commit() throws {
+        let fm = FileManager.default
+        let backup = (stage as NSString).appendingPathComponent(".old")
+        do {
+            try fm.createDirectory(atPath: backup, withIntermediateDirectories: true)
+        } catch {
+            throw TxError(message: error.localizedDescription)
+        }
+        var done: [(live: String, bak: String?)] = []
+        func rollback() {
+            for d in done.reversed() {
+                if let bak = d.bak {
+                    _ = rename(bak, d.live)
+                } else {
+                    _ = unlink(d.live)
+                }
+            }
+        }
+        for (idx, e) in entries.enumerated() {
+            let live = (home as NSString).appendingPathComponent(e.rel)
+            let bak = (backup as NSString).appendingPathComponent("\(idx)")
+            var hadOld = false
+            if link(live, bak) == 0 {
+                hadOld = true
+            } else if errno != ENOENT {
+                // No hard links on this volume / sandbox: fall back to a copy.
+                let err = errno
+                if (try? fm.copyItem(atPath: live, toPath: bak)) != nil {
+                    hadOld = true
+                } else {
+                    rollback()
+                    throw Self.posix("备份", live, err)
+                }
+            }
+            if e.remove {
+                if hadOld && unlink(live) != 0 && errno != ENOENT {
+                    let err = errno
+                    _ = unlink(bak)
+                    rollback()
+                    throw Self.posix("删除", live, err)
+                }
+            } else {
+                let staged = (stage as NSString).appendingPathComponent(e.rel)
+                try? fm.createDirectory(atPath: (live as NSString).deletingLastPathComponent, withIntermediateDirectories: true)
+                if rename(staged, live) != 0 {
+                    let err = errno
+                    if hadOld { _ = unlink(bak) }
+                    rollback()
+                    throw Self.posix("替换", live, err)
+                }
+            }
+            done.append((live, hadOld ? bak : nil))
+        }
+        entries = []
+    }
+
+    /// Deletes the staging directory (staged files of an aborted prepare, or the backups after a commit).
+    func discard() {
+        try? FileManager.default.removeItem(atPath: stage)
     }
 }

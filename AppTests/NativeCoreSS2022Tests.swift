@@ -157,6 +157,7 @@ final class NativeCoreSS2022Tests: XCTestCase {
     func testUDPAESServerPacketDecode() throws {
         let crypto = try XCTUnwrap(NCSS2022UDPCrypto(method: "2022-blake3-aes-256-gcm",
                                                      password: password32, sessionID: 7))
+        crypto.now = { 1735689600 }
         // Craft a server packet with remote session id 99.
         var header = Data(count: 16)
         header[7] = 99
@@ -165,6 +166,7 @@ final class NativeCoreSS2022Tests: XCTestCase {
         var body = Data()
         body.append(0x01)
         body.appendBE64(1735689600)
+        body.appendBE64(7) // client session ID (SIP022 server-to-client header)
         body.appendBE16(0)
         body.append(NCTarget(host: "1.1.1.1", port: 53).atypEncoded)
         body.append(Data("reply".utf8))
@@ -176,6 +178,30 @@ final class NativeCoreSS2022Tests: XCTestCase {
         let decoded = try XCTUnwrap(crypto.decodePacket(wire))
         XCTAssertEqual(decoded.0, NCTarget(host: "1.1.1.1", port: 53))
         XCTAssertEqual(decoded.1, Data("reply".utf8))
+        // rv2-proto: the same packet again is a replay; a stale clock rejects it too.
+        XCTAssertNil(crypto.decodePacket(wire))
+        let fresh = try XCTUnwrap(NCSS2022UDPCrypto(method: "2022-blake3-aes-256-gcm",
+                                                    password: password32, sessionID: 7))
+        fresh.now = { 1735689600 + 31 }
+        XCTAssertNil(fresh.decodePacket(wire))
+        fresh.now = { 1735689600 + 29 }
+        XCTAssertNotNil(fresh.decodePacket(wire))
+        let other = try XCTUnwrap(NCSS2022UDPCrypto(method: "2022-blake3-aes-256-gcm",
+                                                    password: password32, sessionID: 8))
+        other.now = { 1735689600 }
+        XCTAssertNil(other.decodePacket(wire)) // client session ID mismatch
+    }
+
+    func testReplayWindow() {
+        var w = NCReplayWindow()
+        XCTAssertTrue(w.isValid(5)); w.accept(5)
+        XCTAssertFalse(w.isValid(5))
+        XCTAssertTrue(w.isValid(3)); w.accept(3)
+        XCTAssertFalse(w.isValid(3))
+        XCTAssertTrue(w.isValid(2000)); w.accept(2000)
+        XCTAssertFalse(w.isValid(5)) // far behind the window now
+        XCTAssertTrue(w.isValid(1999)); w.accept(1999)
+        XCTAssertFalse(w.isValid(1999))
     }
 
     func testUDPChaChaRoundTripLayout() throws {

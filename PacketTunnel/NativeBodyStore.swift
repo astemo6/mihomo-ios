@@ -17,6 +17,14 @@ final class NativeBodyStore: NSObject, JSCNativeBlobProvider {
     private static let scratchSize = 64 << 10
     /// Refuse new bodies below this much available memory (Go's dynamic budget normally refuses first).
     private static let availFloor = 6 << 20
+    /// rv2-life: all live bodies together (raw + decoded bytes) stay under this; a new body / store / adopt that
+    /// would cross it is refused (the caller falls back to its non-lane path). 12 MB ≈ a quarter of the ~50 MB
+    /// extension limit — one big body plus a few small ones; the governor / floor still refuse earlier under pressure.
+    static let totalCap = 12 << 20
+    /// rv2-life: a finished body nobody freed for this long is dropped (a script that died between `put` and `free`
+    /// leaked its bodies until the tunnel stopped). Script runs are capped far below this.
+    static let ttl: TimeInterval = 180
+    private static let sweepEvery: TimeInterval = 15
 
     fileprivate enum Codec { case identity, gzip, deflate, brotli }
 
@@ -60,6 +68,15 @@ final class NativeBodyStore: NSObject, JSCNativeBlobProvider {
         var compacted = false
         /// NativeCore: the script body budget's charge (every appended raw / decoded byte; released on free).
         var charge: NativeBodyCharge?
+        /// fix/selective-largebody: `dec` reserved up to `limit` before the first byte is decoded, so a large body
+        /// decodes into one buffer. Appending grew it by doubling — each step a new buffer plus a copy, the old one
+        /// alive until the copy ends (≈ 2–3× the decoded size at the moment the limit is reached, and up to 2× slack
+        /// afterwards). The reservation is address space only: pages count in the footprint once written.
+        var decReserved = false
+        /// rv2-life: for the TTL sweep, and the bytes this body counts in the store's `liveBytes`.
+        let createdAt = Date()
+        var finishedAt: Date?
+        var counted = 0
 
         init(codec: Codec, limit: Int, hint: Int) {
             self.codec = codec
@@ -68,7 +85,14 @@ final class NativeBodyStore: NSObject, JSCNativeBlobProvider {
                 reserved = min(hint, limit)
                 raw.reserveCapacity(reserved)
             }
+            if codec != .identity && limit >= Self.decReserveMin {
+                dec.reserveCapacity(limit)
+                decReserved = true
+            }
         }
+
+        /// Encoded bodies with a decode limit at least this large reserve `dec` up front (smaller ones are cheap).
+        static let decReserveMin = 256 << 10
 
         var decoded: Data { codec == .identity ? raw : dec }
 
@@ -88,6 +112,10 @@ final class NativeBodyStore: NSObject, JSCNativeBlobProvider {
     private var seq: Int64 = 0
     private var opened = 0
     private var refused = 0
+    /// rv2-life: raw + decoded bytes of all live bodies (under `lock`; bodies report growth through `account`).
+    private var liveBytes = 0
+    private var lastSweep = Date.distantPast
+    private var expired = 0
 
     private override init() { super.init() }
 
@@ -114,6 +142,8 @@ final class NativeBodyStore: NSObject, JSCNativeBlobProvider {
         case "br": codec = .brotli
         default: return refuse()
         }
+        sweepIfDue()
+        if !fitsTotal(hint > 0 ? min(Int(clamping: hint), Int(clamping: limit)) : 0) { return refuse() }
         if charge != nil {
             // admitted by NativeScriptBodyBudget (live reading, actual bytes charged below)
         } else if let g = NativeMemoryGovernor.active {
@@ -153,9 +183,16 @@ final class NativeBodyStore: NSObject, JSCNativeBlobProvider {
             fail(b, "too-big")
             return "too-big"
         }
+        // rv2-life: the store-wide cap (raw growth; decoded growth is accounted after the fact below)
+        if !fitsTotal(data.count) {
+            fail(b, "too-big")
+            return "too-big"
+        }
         b.raw.append(data)
-        if b.codec == .identity { return "" }
-        return decodeAvailable(b, finalize: false)
+        if b.codec == .identity { account(b); return "" }
+        let r = decodeAvailable(b, finalize: false)
+        account(b)
+        return r
     }
 
     func finish(_ h: Int64) -> Int64 {
@@ -164,6 +201,7 @@ final class NativeBodyStore: NSObject, JSCNativeBlobProvider {
         if b.failed { return b.err == "too-big" ? -2 : -1 }
         if b.codec != .identity {
             let r = decodeAvailable(b, finalize: true)
+            account(b)
             if !r.isEmpty { return r == "too-big" ? -2 : (r.hasPrefix("decode:") ? -1 : -3) }
             if !b.streamEnded {
                 fail(b, "unexpected end of compressed data")
@@ -172,6 +210,7 @@ final class NativeBodyStore: NSObject, JSCNativeBlobProvider {
             b.closeStream()
         }
         b.finished = true
+        b.finishedAt = Date()
         return Int64(b.decoded.count)
     }
 
@@ -211,7 +250,65 @@ final class NativeBodyStore: NSObject, JSCNativeBlobProvider {
             b.dec = Data()
             b.charge?.release()
             b.charge = nil
+            let counted = b.counted
+            b.counted = 0
             b.lock.unlock()
+            lock.lock()
+            liveBytes -= counted
+            lock.unlock()
+        }
+    }
+
+    // MARK: rv2-life: store-wide cap + TTL
+
+    /// Whether `extra` more bytes fit under totalCap (racy by design: a concurrent writer may cross it by one chunk).
+    private func fitsTotal(_ extra: Int) -> Bool {
+        lock.lock(); defer { lock.unlock() }
+        return liveBytes + max(0, extra) <= Self.totalCap
+    }
+
+    /// Brings `liveBytes` in line with b's current size. Caller holds b.lock (never the store lock: order b → store).
+    private func account(_ b: Body) {
+        let now = b.raw.count + b.dec.count
+        let delta = now - b.counted
+        guard delta != 0 else { return }
+        b.counted = now
+        lock.lock()
+        liveBytes += delta
+        lock.unlock()
+    }
+
+    /// Admission for store / adopt (bytes known): same floor / governor as open(), plus the total cap.
+    private func admitWhole(_ n: Int) -> Bool {
+        sweepIfDue()
+        guard fitsTotal(n) else { return false }
+        if let g = NativeMemoryGovernor.active { return g.admit(.body, bytes: n) }
+        let avail = os_proc_available_memory()
+        return !(avail > 0 && avail < Self.availFloor + n)
+    }
+
+    /// Frees bodies finished more than `ttl` ago (and never-finished ones older than 2 × ttl), at most every
+    /// `sweepEvery`. A body still being written within that window is never touched.
+    private func sweepIfDue() {
+        let now = Date()
+        lock.lock()
+        guard now.timeIntervalSince(lastSweep) >= Self.sweepEvery else { lock.unlock(); return }
+        lastSweep = now
+        let candidates = bodies.filter { now.timeIntervalSince($0.value.createdAt) > Self.ttl }
+        lock.unlock()
+        for (h, b) in candidates {
+            b.lock.lock()
+            let stale: Bool
+            if let f = b.finishedAt {
+                stale = now.timeIntervalSince(f) > Self.ttl
+            } else {
+                stale = (b.failed && !b.finished) ? now.timeIntervalSince(b.createdAt) > Self.ttl
+                                                 : now.timeIntervalSince(b.createdAt) > 2 * Self.ttl
+            }
+            b.lock.unlock()
+            guard stale else { continue }
+            free(h)
+            lock.lock(); expired += 1; lock.unlock()
         }
     }
 
@@ -226,7 +323,8 @@ final class NativeBodyStore: NSObject, JSCNativeBlobProvider {
             bytes += b.raw.count + b.dec.count
             b.lock.unlock()
         }
-        return "native bodies \(all.count) (\(String(format: "%.1f", Double(bytes) / 1_048_576)) MB), opened \(o), refused \(r)"
+        lock.lock(); let ex = expired; lock.unlock()
+        return "native bodies \(all.count) (\(String(format: "%.1f", Double(bytes) / 1_048_576)) MB), opened \(o), refused \(r), expired \(ex)"
     }
 
     /// feat/s3-mem (native memory governor): gives back slack no reader needs. Bodies are never dropped (Go still
@@ -247,7 +345,8 @@ final class NativeBodyStore: NSObject, JSCNativeBlobProvider {
                     freed += b.reserved - b.raw.count
                     b.raw = Self.exactCopy(b.raw)
                 }
-                if b.codec != .identity, b.dec.count >= 64 << 10, b.dec.count <= maxCopy {
+                // a reserved `dec` has no written slack to give back (its untouched pages were never resident)
+                if b.codec != .identity, !b.decReserved, b.dec.count >= 64 << 10, b.dec.count <= maxCopy {
                     b.dec = Self.exactCopy(b.dec)
                 }
                 b.closeStream()
@@ -286,13 +385,18 @@ final class NativeBodyStore: NSObject, JSCNativeBlobProvider {
     }
 
     func store(_ bytes: UnsafeRawBufferPointer) -> Int64 {
+        // rv2-life: through the same admission as open() (it bypassed the governor / floor and had no cap)
+        guard admitWhole(bytes.count) else { return refuse() }
         let b = Body(codec: .identity, limit: bytes.count, hint: 0)
         if let base = bytes.baseAddress, bytes.count > 0 { b.raw = Data(bytes: base, count: bytes.count) }
         b.finished = true
+        b.finishedAt = Date()
+        b.counted = b.raw.count
         lock.lock()
         seq += 1
         let h = seq
         bodies[h] = b
+        liveBytes += b.counted
         lock.unlock()
         return h
     }
@@ -300,13 +404,17 @@ final class NativeBodyStore: NSObject, JSCNativeBlobProvider {
     /// Keeps `data` as a new handle without copying it (Data is copy-on-write; nothing here mutates it). 0 for empty.
     func adopt(_ data: Data) -> Int64 {
         guard !data.isEmpty else { return 0 }
+        guard admitWhole(data.count) else { return refuse() } // rv2-life: admission + total cap, as store()
         let b = Body(codec: .identity, limit: data.count, hint: 0)
         b.raw = data
         b.finished = true
+        b.finishedAt = Date()
+        b.counted = data.count
         lock.lock()
         seq += 1
         let h = seq
         bodies[h] = b
+        liveBytes += b.counted
         lock.unlock()
         return h
     }
@@ -346,6 +454,7 @@ final class NativeBodyStore: NSObject, JSCNativeBlobProvider {
         b.err = why
         b.closeStream()
         b.dec = Data()
+        account(b) // rv2-life: the dropped decoded bytes leave the store-wide count
     }
 
     private static func startStream(_ b: Body, _ algorithm: compression_algorithm) -> Bool {

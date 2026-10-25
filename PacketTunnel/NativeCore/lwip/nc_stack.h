@@ -37,6 +37,13 @@ typedef struct {
   void (*udp_recv)(void *ctx, uint32_t session, const uint8_t src_ip[16], uint16_t src_port,
                    const uint8_t dst_ip[16], uint16_t dst_port, int is6,
                    const uint8_t *data, uint32_t len);
+  /* rv2-life: the peer ACKed `len` bytes of what nc_tcp_write queued (send window opened again): the engine drains
+     its outbox and resumes reading the relay. May be NULL. */
+  void (*tcp_sent)(void *ctx, void *conn, uint32_t len);
+  /* rv2-life: a UDP session ended on the C side — idle expiry (120 s) or evicted to make room for a new flow — so
+     the engine drops its relay for that id (replies to it would be dropped anyway). Not called for nc_udp_close
+     or nc_shutdown. May be NULL. */
+  void (*udp_closed)(void *ctx, uint32_t session);
 } nc_callbacks;
 
 /* ip4: dotted quad of the tunnel interface (e.g. "198.18.0.1"); ip6 may be NULL.
@@ -51,6 +58,10 @@ void nc_poll(void);
    nc_tcp_write returns the number of bytes queued (>= 0), or -1 if the
    connection is gone; callers keep the remainder and retry later. */
 int nc_tcp_write(void *conn, const uint8_t *data, uint32_t len);
+/* rv2-life: received bytes are no longer acknowledged to lwIP automatically: the engine calls this once it has
+   handed `len` bytes to the relay (or buffered them within its cap), which reopens the receive window toward the
+   app. This is the upstream back-pressure: an app cannot push more than TCP_WND ahead of the relay. */
+void nc_tcp_recved(void *conn, uint32_t len);
 void nc_tcp_output(void *conn);
 void nc_tcp_close(void *conn);
 void nc_tcp_abort(void *conn);

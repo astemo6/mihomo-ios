@@ -169,7 +169,9 @@ final class ProfileStore: ObservableObject {
         // one as active. Switch the tunnel to the new active profile, or disconnect when none is left.
         if wasActive, VPNManager.shared.isConnected {
             if activeID != nil {
-                Task { _ = await VPNManager.shared.reload() }
+                // rv2: a failed reload (e.g. the fallback profile's file is gone → NativeRuntimePrep error) is shown
+                // instead of being dropped — the tunnel would otherwise keep running the deleted profile silently.
+                Task { if let e = await VPNManager.shared.reload() { VPNManager.shared.lastError = e } }
             } else {
                 VPNManager.shared.stop()
             }
@@ -269,7 +271,7 @@ final class ProfileStore: ObservableObject {
         if let err = await Self.validate(text: yaml) { throw StoreError.invalid(err) }
         SnapshotStore.shared.capture(String(localized: "导入配置前"))
         let p = Profile(name: name.isEmpty ? "本地配置" : name, kind: .local)
-        try yaml.write(to: p.fileURL, atomically: true, encoding: .utf8)
+        try await Self.writeProfile(yaml, to: p.fileURL)
         profiles.append(p)
         persist()
         if activeID == nil { _ = await setActive(p) }
@@ -279,9 +281,10 @@ final class ProfileStore: ObservableObject {
     func saveLocalEdit(_ p: Profile, text: String) async throws {
         if let err = await Self.validate(text: text) { throw StoreError.invalid(err) }
         SnapshotStore.shared.capture(String(localized: "编辑配置「\(p.name)」前"))
-        try text.write(to: p.fileURL, atomically: true, encoding: .utf8)
+        try await Self.writeProfile(text, to: p.fileURL)
         if OverrideScriptStore.shared.enabledCount(p.id) > 0 { await OverrideScriptStore.shared.apply(p, force: false) } // v0.19
-        if p.id == activeID { _ = await VPNManager.shared.reload() }
+        // rv2: the save itself succeeded; a reload that could not apply it is reported, not dropped.
+        if p.id == activeID, let e = await VPNManager.shared.reload() { VPNManager.shared.lastError = e }
     }
 
     func addRemote(url: String, name: String, userAgent: String, intervalHours: Int) async throws -> Profile {
@@ -307,6 +310,20 @@ final class ProfileStore: ObservableObject {
         }
     }
 
+    /// rv2: profile writes go through the same per-file NCPathLock as the node editor (NCProfileNodes), manual
+    /// nodes, selection / override-output writers, and use NCRuntimeFiles.writeAtomic (unique temp + rename).
+    /// A direct `String.write(atomically:)` could interleave with a locked read-modify-write of the same profile
+    /// and have its content overwritten by the other writer's stale copy. Runs off the main actor: the lock can be
+    /// held for a whole node-edit validation.
+    nonisolated static func writeProfile(_ text: String, to url: URL) async throws {
+        let path = url.path
+        try await Task.detached(priority: .userInitiated) {
+            try NCPathLock.shared.withLock(for: path) {
+                try NCRuntimeFiles.writeAtomic(Data(text.utf8), to: path)
+            }
+        }.value
+    }
+
     /// Downloads a remote profile, parses subscription-userinfo, validates, and writes it.
     private func download(_ input: Profile) async throws -> Profile {
         var p = input
@@ -321,7 +338,7 @@ final class ProfileStore: ObservableObject {
         guard var text = ImportRouter.decodeText(data), !text.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else { throw StoreError.empty }
         text = Self.normalize(text)
         if let err = await Self.validate(text: text) { throw StoreError.invalid(err) }
-        try text.write(to: p.fileURL, atomically: true, encoding: .utf8)
+        try await Self.writeProfile(text, to: p.fileURL)
         p.userInfo = SubscriptionUserInfo.parse(http?.value(forHTTPHeaderField: "subscription-userinfo")) ?? p.userInfo
         if p.name.trimmingCharacters(in: .whitespaces).isEmpty {
             p.name = Self.nameFromHeaders(http) ?? url.host ?? "订阅"

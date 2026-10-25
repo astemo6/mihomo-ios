@@ -8,9 +8,14 @@ import Network
 /// protocol faketcp (raw sockets) and Brutal congestion control (the system QUIC congestion controller is used).
 enum NCHy1 {
     /// utils.StringToBps: "100" = 100 Mbps; "<n> [KMGT]?[Bb]ps".
+    /// rv2-proto: multiplications are overflow-checked (a huge config value used to trap); overflow → 0 (= invalid,
+    /// same as an unparsable value).
     static func bps(_ s: String?) -> UInt64 {
         guard let s = s?.trimmingCharacters(in: .whitespaces), !s.isEmpty else { return 0 }
-        if let v = UInt64(s) { return v * 1_000_000 / 8 }
+        if let v = UInt64(s) {
+            let (m, o) = v.multipliedReportingOverflow(by: 1_000_000)
+            return o ? 0 : m / 8
+        }
         var digits = ""
         var rest = Substring(s)
         while let c = rest.first, c.isASCII, c.isNumber { digits.append(c); rest = rest.dropFirst() }
@@ -27,7 +32,9 @@ enum NCHy1 {
             rest = rest.dropFirst()
         }
         guard rest == "bps" || rest == "Bps" else { return 0 }
-        n *= v
+        let (m, overflow) = n.multipliedReportingOverflow(by: v)
+        guard !overflow else { return 0 }
+        n = m
         if rest == "bps" { n /= 8 }
         return n
     }

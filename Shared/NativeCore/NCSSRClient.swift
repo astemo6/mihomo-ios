@@ -50,6 +50,11 @@ final class NCSSRRelayStream: NCRelayStream {
             var chunk = data
             if let obfs {
                 guard let stripped = obfs.decode(chunk) else {
+                    if obfs.overflowed {
+                        self.cancel()
+                        handler(nil, NCSSR.error("http_simple: response header too large"))
+                        return
+                    }
                     self.receive(handler) // header incomplete; pull more
                     return
                 }

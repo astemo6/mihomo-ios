@@ -54,7 +54,8 @@ struct NCDNSServerRef: Equatable {
                 let tail = rest[rest.index(after: close)...]
                 if tail.hasPrefix(":"), let p = Int(tail.dropFirst()) { port = p }
             }
-        } else if let colon = rest.lastIndex(of: ":"), let p = Int(rest[rest.index(after: colon)...]) {
+        } else if rest.filter({ $0 == ":" }).count == 1, // bare IPv6 (several colons) carries no port
+                  let colon = rest.lastIndex(of: ":"), let p = Int(rest[rest.index(after: colon)...]) {
             host = String(rest[..<colon])
             port = p
         }
@@ -78,8 +79,18 @@ struct NCHostEntry: Equatable {
     let value: String
     var kind: Kind {
         if value.lowercased().hasPrefix("server:") { return .dnsServer }
-        if NCIP(value) != nil { return .address }
+        if !addresses.isEmpty { return .address }
         return .alias
+    }
+    /// Static addresses of an address entry. `value` may list several,
+    /// comma-separated (mihomo `hosts: {name: [ip4, ip6]}`), so a dual-stack
+    /// entry answers both A and AAAA.
+    var addresses: [NCIP] {
+        if let one = NCIP(value) { return [one] }
+        guard value.contains(",") else { return [] }
+        let list = value.split(separator: ",").map { $0.trimmingCharacters(in: .whitespaces) }
+        let ips = list.compactMap { NCIP($0) }
+        return ips.count == list.count ? ips : []
     }
     var dnsServer: NCDNSServerRef? {
         guard kind == .dnsServer else { return nil }
@@ -369,7 +380,8 @@ extension NCCanonicalConfig {
         if let hosts = cfg.raw["hosts"]?.object {
             out.hosts = hosts.keys.sorted().map { key in
                 let v = hosts[key]
-                let value = v?.string ?? v?.array?.compactMap { $0.string }.first ?? ""
+                // Every address is kept (dual-stack entries list v4 and v6).
+                let value = v?.string ?? (v?.array?.compactMap { $0.string }.joined(separator: ",") ?? "")
                 return NCHostEntry(pattern: key, value: value)
             }
         }

@@ -103,12 +103,14 @@ final class NCLocalProxy {
         lock.unlock()
         switch outcome {
         case .some(.none):
-            self.listener = listener
             let t = DispatchSource.makeTimerSource(queue: queue)
             t.schedule(deadline: .now() + 1, repeating: 1)
             t.setEventHandler { [weak self] in self?.refreshStats() }
             t.resume()
-            queue.sync { timer = t }
+            queue.sync {
+                self.listener = listener
+                timer = t
+            }
             return nil
         case .some(.some(let why)):
             listener.cancel()
@@ -120,9 +122,11 @@ final class NCLocalProxy {
     }
 
     func stop() {
-        listener?.cancel()
-        listener = nil
         queue.sync {
+            // rv2-life: the listener is touched on `queue` only (was cancelled from the caller's thread)
+            listener?.newConnectionHandler = nil
+            listener?.cancel()
+            listener = nil
             timer?.cancel()
             timer = nil
             for c in Array(conns.values) { close(c) }
@@ -361,7 +365,15 @@ final class NCLocalProxy {
 
     private func open(_ c: Conn, done: @escaping (Bool, UInt8) -> Void) {
         let ctx = engine.matchContext(domain: c.ruleDomain, ip: c.target.ip, dstPort: c.target.port, network: "tcp")
-        let (_, rule, resolution) = engine.route(ctx)
+        // rv2-rules: IP rules on a domain target resolve it first (no-resolve skips), same as the TUN data plane.
+        engine.routeAsync(ctx, queue: queue) { [weak self, weak c] _, rule, resolution in
+            guard let self, let c, !c.closed else { return }
+            self.dial(c, rule: rule, resolution: resolution, done: done)
+        }
+    }
+
+    private func dial(_ c: Conn, rule: String?, resolution: NCGroupEngine.Resolution,
+                      done: @escaping (Bool, UInt8) -> Void) {
         c.rule = rule ?? ""
         c.chain = switch resolution {
         case .direct: "DIRECT"
@@ -452,11 +464,18 @@ final class NCLocalProxy {
     private func pumpUp(_ c: Conn) {
         c.client.receive(minimumIncompleteLength: 1, maximumLength: 65536) { [weak self, weak c] data, _, isComplete, error in
             guard let self, let c, !c.closed else { return }
-            if let data, !data.isEmpty {
+            let finished = isComplete || error != nil
+            if let data, !data.isEmpty, let relay = c.relay {
                 self.count(c, up: data.count)
-                c.relay?.send(data)
+                // rv2-life: back-pressure, symmetric with pumpDown — the next client read waits until the relay took
+                // this chunk (real for NCStream relays; protocol wrappers without NCRelayFlowControl yield one turn).
+                NCRelayFlow.send(relay, data, queue: self.queue) { [weak self, weak c] in
+                    guard let self, let c, !c.closed else { return }
+                    if finished { self.close(c) } else { self.pumpUp(c) }
+                }
+                return
             }
-            if isComplete || error != nil {
+            if finished {
                 self.close(c)
                 return
             }

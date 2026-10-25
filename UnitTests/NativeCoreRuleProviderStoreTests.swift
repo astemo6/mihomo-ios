@@ -48,8 +48,10 @@ final class NativeCoreRuleProviderStoreTests: XCTestCase {
         let ps = NCRuleProviderStore.providers(from: config())
         let stale = store.loadCached(providers: ps, home: dir.path)
         // Inline loads immediately; the http ones have no cache yet → stale.
-        XCTAssertTrue(store.contains(name: "Inline", ctx: NCMatchContext(domain: "a.example.org")))
-        XCTAssertFalse(store.contains(name: "Inline", ctx: NCMatchContext(domain: "subonly.org")))
+        // Domain-set semantics (Surge): plain = exact, leading dot = self + subdomains.
+        XCTAssertTrue(store.contains(name: "Inline", ctx: NCMatchContext(domain: "example.org")))
+        XCTAssertFalse(store.contains(name: "Inline", ctx: NCMatchContext(domain: "a.example.org")))
+        XCTAssertTrue(store.contains(name: "Inline", ctx: NCMatchContext(domain: "a.subonly.org")))
         XCTAssertEqual(Set(stale.map { $0.name }), ["Reject", "https://lists.example.com/ads.txt"])
         XCTAssertFalse(store.contains(name: "Reject", ctx: NCMatchContext(domain: "bad.com")))
 

@@ -53,6 +53,11 @@ final class VPNManager: ObservableObject {
     }
 
     private var userStopped = false
+    /// rv2-life: start() suspends at several awaits (scripts, preferences, runtime prep); a second toggle / restart /
+    /// intent in that window used to run a second start and call startVPNTunnel twice. One start at a time; a stop()
+    /// meanwhile bumps `stopSeq`, and the in-flight start then gives up before startVPNTunnel.
+    private var startInFlight = false
+    private var stopSeq = 0
 
     /// The extension's alive marker exists and was refreshed recently (it is rewritten every couple of minutes).
     nonisolated static func tunnelLikelyRunning(now: Date = Date()) -> Bool {
@@ -213,6 +218,13 @@ final class VPNManager: ObservableObject {
     /// Starts the tunnel. safeMode: this connection runs the profile without modules / scripts / MitM /
     /// custom rules (offered after a failed start); every normal start clears it again.
     func start(safeMode: Bool = false) async {
+        guard !startInFlight else {
+            NSLog("[Mihomo] start ignored: another start is still in progress")
+            return
+        }
+        startInFlight = true
+        defer { startInFlight = false }
+        let seq = stopSeq
         lastError = nil
         canOfferSafeMode = false
         guard AppShared.containerOK else {
@@ -266,6 +278,15 @@ final class VPNManager: ObservableObject {
             // feat/native-core-eval: the Go-free tunnel reads the runtime config the app builds.
             if let err = await NativeRuntimePrep.prepare() {
                 lastError = err
+                return
+            }
+            // rv2-life: the user stopped while we were preparing, or iOS is already bringing it up (on-demand)
+            guard seq == stopSeq else {
+                NSLog("[Mihomo] start abandoned: stop() arrived while preparing")
+                return
+            }
+            if [.connected, .connecting, .reasserting].contains(m.connection.status) {
+                NSLog("[Mihomo] start: tunnel already %d, not starting again", m.connection.status.rawValue)
                 return
             }
             try m.connection.startVPNTunnel(options: TunnelStartOption.options)
@@ -421,6 +442,7 @@ final class VPNManager: ObservableObject {
 
     func stop() {
         userStopped = true
+        stopSeq &+= 1
         guard let m = manager else { return }
         if m.isOnDemandEnabled {
             // Otherwise iOS would reconnect right away: pause on-demand until the next manual connect.

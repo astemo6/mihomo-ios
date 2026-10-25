@@ -240,6 +240,18 @@ enum NCScriptManifest {
     /// Returns (scripts count, unloadable scripts count); throws on manifest or script write failure.
     /// When cfg or rs is nil, writes an empty manifest and cleans up stale code files.
     public static func export(home: String, cfg: NCEngineConfig?, rs: NCEngineRuleset?) throws -> (scripts: Int, bad: Int) {
+        let built = try buildManifest(home: home, cfg: cfg, rs: rs)
+        try NCRuntimeFiles.writeAtomic(built.data, to: (home as NSString).appendingPathComponent(scriptManifestFile))
+        removeObsoleteCode(home: home, keep: built.keep)
+        return (scripts: built.scripts, bad: built.bad)
+    }
+
+    /// rv2 (transactional native prep): builds the manifest bytes WITHOUT writing nativecore-scripts.json and
+    /// without deleting code files. Content-addressed code files (`nativecore-scripts/nc-<sha>.js`) are still
+    /// written here — they are additive (a new hash never replaces a file the live manifest uses). The caller
+    /// commits the manifest and then calls `removeObsoleteCode(home:keep:)` once the new manifest is live; doing
+    /// the cleanup earlier deleted code files the still-live old manifest referenced when a later step failed.
+    static func buildManifest(home: String, cfg: NCEngineConfig?, rs: NCEngineRuleset?) throws -> (data: Data, keep: Set<String>, scripts: Int, bad: Int) {
         let dir = (home as NSString).appendingPathComponent(scriptManifestDir)
         var man = NCScriptManifestRoot()
         var keep = Set<String>()
@@ -296,10 +308,7 @@ enum NCScriptManifest {
                                 try fm.createDirectory(atPath: dir, withIntermediateDirectories: true, attributes: nil)
                                 let p = (home as NSString).appendingPathComponent(relFile)
                                 if !fm.fileExists(atPath: p) {
-                                    let tmp = p + ".tmp"
-                                    try Data(code.utf8).write(to: URL(fileURLWithPath: tmp))
-                                    try? fm.removeItem(atPath: p)
-                                    try fm.moveItem(atPath: tmp, toPath: p)
+                                    try NCRuntimeFiles.writeAtomic(Data(code.utf8), to: p)
                                 }
                                 keep.insert(key)
                             }
@@ -344,7 +353,14 @@ enum NCScriptManifest {
             }
         }
 
-        // Clean up obsolete .js files
+        let b = try JSONEncoder().encode(man)
+        return (data: b, keep: keep, scripts: man.scripts.count, bad: bad)
+    }
+
+    /// Removes code files in `nativecore-scripts/` that `keep` (the live manifest's keys) does not reference.
+    static func removeObsoleteCode(home: String, keep: Set<String>) {
+        let fm = FileManager.default
+        let dir = (home as NSString).appendingPathComponent(scriptManifestDir)
         if let items = try? fm.contentsOfDirectory(atPath: dir) {
             for n in items {
                 if n.hasSuffix(".js") {
@@ -356,17 +372,6 @@ enum NCScriptManifest {
                 }
             }
         }
-
-        // Serialize and atomically write nativecore-scripts.json
-        let encoder = JSONEncoder()
-        let b = try encoder.encode(man)
-        let p = (home as NSString).appendingPathComponent(scriptManifestFile)
-        let tmp = p + ".tmp"
-        try b.write(to: URL(fileURLWithPath: tmp))
-        try? fm.removeItem(atPath: p)
-        try fm.moveItem(atPath: tmp, toPath: p)
-
-        return (scripts: man.scripts.count, bad: bad)
     }
 
     // MARK: - Egern Prelude (bridge/mitm/egernadapter.go egernPrelude)

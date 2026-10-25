@@ -57,23 +57,25 @@ enum NCSS2022 {
 
     /// Parse a SOCKS-atyp target at the start of `data`; returns the target
     /// and the consumed byte count.
+    /// startIndex-relative (rv2-proto): callers may pass slices.
     static func parseTarget(_ data: Data) -> (NCTarget, Int)? {
         guard let atyp = data.first else { return nil }
+        let s = data.startIndex
         switch atyp {
         case 0x01:
             guard data.count >= 7 else { return nil }
-            let host = data[1..<5].map { String($0) }.joined(separator: ".")
-            return (NCTarget(host: host, port: Int(data[5]) << 8 | Int(data[6])), 7)
+            let host = data[(s + 1)..<(s + 5)].map { String($0) }.joined(separator: ".")
+            return (NCTarget(host: host, port: Int(data[s + 5]) << 8 | Int(data[s + 6])), 7)
         case 0x03:
             guard data.count >= 2 else { return nil }
-            let len = Int(data[1])
+            let len = Int(data[s + 1])
             guard data.count >= 2 + len + 2 else { return nil }
-            let host = String(decoding: data[2..<(2 + len)], as: UTF8.self)
-            let port = Int(data[2 + len]) << 8 | Int(data[3 + len])
+            let host = String(decoding: data[(s + 2)..<(s + 2 + len)], as: UTF8.self)
+            let port = Int(data[s + 2 + len]) << 8 | Int(data[s + 3 + len])
             return (NCTarget(host: host, port: port), 2 + len + 2)
         case 0x04:
-            guard data.count >= 19, let ip = NCIP(bytes: [UInt8](data[1..<17])) else { return nil }
-            return (NCTarget(host: ip.string, port: Int(data[17]) << 8 | Int(data[18])), 19)
+            guard data.count >= 19, let ip = NCIP(bytes: [UInt8](data[(s + 1)..<(s + 17)])) else { return nil }
+            return (NCTarget(host: ip.string, port: Int(data[s + 17]) << 8 | Int(data[s + 18])), 19)
         default:
             return nil
         }
@@ -307,7 +309,47 @@ private extension UInt32 {
 
 // MARK: - UDP
 
+/// Sliding-window packet-ID filter (SIP022 §3.2.4; RFC 6479-style ring of 64-bit words, like WireGuard's).
+/// Tolerates `(words - 1) * 64` packets of reordering. `isValid` never mutates; `accept` only after the packet
+/// fully validated (the spec forbids updating the window before header validation).
+struct NCReplayWindow {
+    static let words = 16 // 1024 bits; tolerance 960 packets
+    private var ring = [UInt64](repeating: 0, count: NCReplayWindow.words)
+    private var last: UInt64 = 0
+    private var started = false
+
+    func isValid(_ id: UInt64) -> Bool {
+        guard started else { return true }
+        if id > last { return true }
+        if last - id >= UInt64((Self.words - 1) * 64) { return false }
+        let bit = id % UInt64(Self.words * 64)
+        return ring[Int(bit / 64)] & (UInt64(1) << (bit % 64)) == 0
+    }
+
+    mutating func accept(_ id: UInt64) {
+        let total = UInt64(Self.words * 64)
+        if !started {
+            started = true
+            last = id
+        } else if id > last {
+            let cur = last / 64, new = id / 64
+            let n = min(new - cur, UInt64(Self.words))
+            var k: UInt64 = 1
+            while k <= n { ring[Int((cur + k) % UInt64(Self.words))] = 0; k += 1 }
+            last = id
+        }
+        let bit = id % total
+        ring[Int(bit / 64)] |= UInt64(1) << (bit % 64)
+    }
+}
+
 /// SS2022 UDP packet crypto for one session (see the enum docs above).
+///
+/// rv2-proto: server packets are validated per SIP022 §3.2.3–3.2.4 — type 1, timestamp within ±30 s, the client
+/// session ID echoed back equals ours (that field was missing from the parser, so real servers' replies were
+/// misparsed), and a per-server-session sliding packet-ID window rejects replays. At most two server sessions are
+/// tracked (current + previous, for server restarts); a new one is installed only after a packet from it fully
+/// validates, so forged/garbage headers can't evict the live session or force key derivations into state.
 final class NCSS2022UDPCrypto {
     let spec: NCSS2022.Spec
     private let psk: Data
@@ -315,9 +357,19 @@ final class NCSS2022UDPCrypto {
     private var packetID: UInt64 = 0
     // AES flavor state
     private var aesSessionKey: SymmetricKey?
-    private var remoteSessionID: UInt64?
-    private var remoteKey: SymmetricKey?
-    private var prevRemoteKey: SymmetricKey?
+    private let block: NCAES?
+
+    private struct RemoteSession {
+        let id: UInt64
+        let key: SymmetricKey? // AES flavor only
+        var window = NCReplayWindow()
+    }
+    private var current: RemoteSession?
+    private var previous: RemoteSession?
+
+    /// Max accepted |server time − local time| (SIP022: 30 s).
+    static let maxClockSkew: UInt64 = 30
+    var now: () -> UInt64 = { UInt64(Date().timeIntervalSince1970) }
 
     init?(method: String, password: String, sessionID: UInt64? = nil) {
         guard let spec = NCSS2022.spec(for: method),
@@ -325,7 +377,9 @@ final class NCSS2022UDPCrypto {
         self.spec = spec
         self.psk = psk
         self.sessionID = sessionID ?? UInt64.random(in: 0...UInt64.max)
+        block = spec.isAES ? NCAES(key: psk) : nil
         if spec.isAES {
+            guard block != nil else { return nil }
             var sid = Data(count: 8)
             for i in 0..<8 { sid[i] = UInt8((self.sessionID >> (56 - 8 * i)) & 0xff) }
             aesSessionKey = SymmetricKey(data: NCSS2022.sessionKey(psk: psk, salt: sid, keyLen: spec.keyLen))
@@ -357,8 +411,8 @@ final class NCSS2022UDPCrypto {
             guard let n = try? AES.GCM.Nonce(data: nonce),
                   let box = try? AES.GCM.seal(body, using: aesSessionKey, nonce: n),
                   let combined = box.combined,
-                  let block = NCAES(key: psk) else { return nil }
-            let sealedHeader = block.encryptBlock(header)
+                  let blk = block else { return nil }
+            let sealedHeader = blk.encryptBlock(header)
             var out = sealedHeader
             out.append(Data(combined.dropFirst(12)))
             return out
@@ -376,46 +430,88 @@ final class NCSS2022UDPCrypto {
         return out
     }
 
-    /// Decode one server packet; returns (source target, payload).
+    /// Decode one server packet; returns (source target, payload). nil = drop (bad auth, replay, stale, malformed).
     func decodePacket(_ packet: Data) -> (NCTarget, Data)? {
         if spec.isAES {
-            guard packet.count >= 16 + 16, let block = NCAES(key: psk) else { return nil }
+            guard packet.count >= 16 + 16, let block else { return nil }
             let header = block.decryptBlock(Data(packet.prefix(16)))
-            var sid: UInt64 = 0
-            for i in 0..<8 { sid = sid << 8 | UInt64(header[i]) }
-            let nonce = Data(header[4..<16])
-            var combined = nonce
-            combined.append(Data(packet.dropFirst(16)))
-            func openWith(_ key: SymmetricKey) -> Data? {
+            guard header.count == 16 else { return nil }
+            let h = header.startIndex
+            var sid: UInt64 = 0, pid: UInt64 = 0
+            for i in 0..<8 { sid = sid << 8 | UInt64(header[h + i]) }
+            for i in 8..<16 { pid = pid << 8 | UInt64(header[h + i]) }
+            var combined = Data(header[(h + 4)..<(h + 16)])
+            combined.append(packet.dropFirst(16))
+            func openBody(_ key: SymmetricKey) -> Data? {
                 guard let box = try? AES.GCM.SealedBox(combined: combined) else { return nil }
                 return try? AES.GCM.open(box, using: key)
             }
-            let plain = openWith(remoteKey(for: sid)) ?? prevRemoteKey.flatMap(openWith)
-            guard let plain else { return nil }
-            return parseBody(plain)
+            if var session = current, session.id == sid {
+                guard session.window.isValid(pid), let key = session.key, let plain = openBody(key),
+                      let result = parseBody(plain) else { return nil }
+                session.window.accept(pid)
+                current = session
+                return result
+            }
+            if var session = previous, session.id == sid {
+                guard session.window.isValid(pid), let key = session.key, let plain = openBody(key),
+                      let result = parseBody(plain) else { return nil }
+                session.window.accept(pid)
+                previous = session
+                return result
+            }
+            // New server session (first packet, or the server restarted): derive, validate, then install.
+            var sidData = Data(count: 8)
+            for i in 0..<8 { sidData[i] = UInt8((sid >> (56 - 8 * i)) & 0xff) }
+            let key = SymmetricKey(data: NCSS2022.sessionKey(psk: psk, salt: sidData, keyLen: spec.keyLen))
+            guard let plain = openBody(key), let result = parseBody(plain) else { return nil }
+            var session = RemoteSession(id: sid, key: key)
+            session.window.accept(pid)
+            previous = current
+            current = session
+            return result
         }
         guard packet.count >= 24 + 16 else { return nil }
         let nonce = Data(packet.prefix(24))
         guard let plain = NCChaCha.xchachaOpen(key: psk, nonce24: nonce, sealed: Data(packet.dropFirst(24))),
               plain.count >= 16 else { return nil }
-        return parseBody(Data(plain.dropFirst(16)))
+        let p = plain.startIndex
+        var sid: UInt64 = 0, pid: UInt64 = 0
+        for i in 0..<8 { sid = sid << 8 | UInt64(plain[p + i]) }
+        for i in 8..<16 { pid = pid << 8 | UInt64(plain[p + i]) }
+        let isCurrent = current?.id == sid
+        let isPrevious = !isCurrent && previous?.id == sid
+        if isCurrent, current?.window.isValid(pid) == false { return nil }
+        if isPrevious, previous?.window.isValid(pid) == false { return nil }
+        guard let result = parseBody(Data(plain.dropFirst(16))) else { return nil }
+        if isCurrent {
+            current?.window.accept(pid)
+        } else if isPrevious {
+            previous?.window.accept(pid)
+        } else {
+            var session = RemoteSession(id: sid, key: nil)
+            session.window.accept(pid)
+            previous = current
+            current = session
+        }
+        return result
     }
 
-    private func remoteKey(for sid: UInt64) -> SymmetricKey {
-        if sid == remoteSessionID, let remoteKey { return remoteKey }
-        var sidData = Data(count: 8)
-        for i in 0..<8 { sidData[i] = UInt8((sid >> (56 - 8 * i)) & 0xff) }
-        let key = SymmetricKey(data: NCSS2022.sessionKey(psk: psk, salt: sidData, keyLen: spec.keyLen))
-        prevRemoteKey = remoteKey
-        remoteSessionID = sid
-        remoteKey = key
-        return key
-    }
-
+    /// Server-to-client main header: type(1)=1, timestamp(8), client session ID(8), padding length(2), padding,
+    /// SOCKS address, payload (SIP022 §3.2.3).
     private func parseBody(_ plain: Data) -> (NCTarget, Data)? {
-        guard plain.count >= 1 + 8 + 2, plain[0] == 0x01 else { return nil }
-        let padLen = Int(plain[9]) << 8 | Int(plain[10])
-        let rest = Data(plain.dropFirst(11 + padLen))
+        guard plain.count >= 1 + 8 + 8 + 2 else { return nil }
+        let p = plain.startIndex
+        guard plain[p] == 0x01 else { return nil }
+        var ts: UInt64 = 0, client: UInt64 = 0
+        for i in 1..<9 { ts = ts << 8 | UInt64(plain[p + i]) }
+        for i in 9..<17 { client = client << 8 | UInt64(plain[p + i]) }
+        let t = now()
+        guard (ts > t ? ts - t : t - ts) <= Self.maxClockSkew else { return nil }
+        guard client == sessionID else { return nil }
+        let padLen = Int(plain[p + 17]) << 8 | Int(plain[p + 18])
+        guard plain.count >= 19 + padLen else { return nil }
+        let rest = Data(plain.dropFirst(19 + padLen))
         guard let (target, used) = NCSS2022.parseTarget(rest) else { return nil }
         return (target, Data(rest.dropFirst(used)))
     }

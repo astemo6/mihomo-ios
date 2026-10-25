@@ -69,4 +69,49 @@ final class NativeCoreDNSPolicyTests: XCTestCase {
                        .doh(url: "https://dns.google/dns-query"))
         XCTAssertNil(NCDNSUpstream(NCDNSServerRef.parse("system")))
     }
+
+    // rv2-rules: IPv6 upstreams, comma / geosite / rule-set / regexp policy keys, dual-stack hosts.
+    func testIPv6UpstreamParse() {
+        XCTAssertEqual(NCDNSUpstream.parse("tls://[2001:db8::1]:853"), .dot(host: "2001:db8::1", port: 853))
+        XCTAssertEqual(NCDNSUpstream.parse("tls://[2001:db8::1]"), .dot(host: "2001:db8::1", port: 853))
+        XCTAssertEqual(NCDNSUpstream.parse("[2001:db8::2]:5353"), .udp(host: "2001:db8::2", port: 5353))
+        XCTAssertEqual(NCDNSUpstream.parse("2001:db8::3"), .udp(host: "2001:db8::3", port: 53))
+        XCTAssertEqual(NCDNSServerRef.parse("2001:db8::3").host, "2001:db8::3")
+        XCTAssertEqual(NCDNSServerRef.parse("2001:db8::3").port, 53)
+        XCTAssertEqual(NCDNSUpstream.of([.udp(host: "a", port: 53), .udp(host: "a", port: 53)]),
+                       .udp(host: "a", port: 53))
+    }
+
+    func testPolicyMatcherKeys() {
+        var dns = NCDNSModel()
+        dns.domainServers = [
+            (key: "geosite:cn,private", servers: [NCDNSServerRef.parse("223.5.5.5")]),
+            (key: "rule-set:corp", servers: [NCDNSServerRef.parse("10.0.0.53")]),
+            (key: "regexp:^ads[0-9]+\\.", servers: [NCDNSServerRef.parse("9.9.9.9")]),
+            (key: "a.example,b.example", servers: [NCDNSServerRef.parse("8.8.8.8")]),
+            (key: "geoip:cn", servers: [NCDNSServerRef.parse("1.1.1.1")]),
+        ]
+        var p = NCDNSPolicy(model: dns, hosts: [])
+        p.geositeContains = { cat, name in
+            (cat == "cn" && name.hasSuffix(".cn")) || (cat == "private" && name.hasSuffix(".lan"))
+        }
+        p.ruleSetContainsDomain = { set, name in set == "corp" && name == "intra.corp" }
+        XCTAssertEqual(p.servers(for: "www.baidu.cn").first?.host, "223.5.5.5")
+        XCTAssertEqual(p.servers(for: "nas.lan").first?.host, "223.5.5.5")
+        XCTAssertEqual(p.servers(for: "intra.corp").first?.host, "10.0.0.53")
+        XCTAssertEqual(p.servers(for: "ads12.tracker.com").first?.host, "9.9.9.9")
+        XCTAssertEqual(p.servers(for: "x.b.example").first?.host, "8.8.8.8")
+        XCTAssertTrue(p.servers(for: "example.org").isEmpty)
+        XCTAssertEqual(p.diagnostics.count, 1) // geoip: key unsupported
+    }
+
+    func testDualStackHosts() {
+        let p = NCDNSPolicy(model: NCDNSModel(), hosts: [NCHostEntry(pattern: "dual.lan", value: "192.168.1.2,fd00::2")])
+        let a = NCDNSMessage.parse(p.hostsReply(queryData: query("dual.lan", 1))!)!
+        XCTAssertEqual(a.answers.count, 1)
+        XCTAssertEqual(a.answers.first?.rdata, Data([192, 168, 1, 2]))
+        let aaaa = NCDNSMessage.parse(p.hostsReply(queryData: query("dual.lan", 28))!)!
+        XCTAssertEqual(aaaa.answers.count, 1)
+        XCTAssertEqual(aaaa.answers.first?.rdata.count, 16)
+    }
 }

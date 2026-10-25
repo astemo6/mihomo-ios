@@ -115,6 +115,10 @@ struct NCMatchContext {
     var dstPort: Int? = nil
     var srcPort: Int? = nil
     var network: String? = nil // "tcp" | "udp"
+    /// Application protocol learned from the first bytes (sniffer): "http",
+    /// "tls" or "quic". Nil when not sniffed — PROTOCOL rules then fall back
+    /// to the well-known port (HTTP 80, HTTPS / QUIC 443), Surge-style.
+    var protocolHint: String? = nil
     var processName: String? = nil
     /// Full request URL / User-Agent when the flow carries HTTP metadata
     /// (MitM lane). Nil on plain TUN flows — URL-REGEX / USER-AGENT rules
@@ -134,6 +138,11 @@ struct NCMatchContext {
     var countryOf: (NCIP) -> String? = { _ in nil }
     var asnOf: (NCIP) -> Int? = { _ in nil }
     var ruleSetContains: (String, NCMatchContext) -> Bool = { _, _ in false }
+    /// Whether the named rule set holds IP entries (ipcidr behavior, or a
+    /// classical list with IP-CIDR / GEOIP / IP-ASN lines) — mihomo's
+    /// RuleSet.ShouldResolveIP: a RULE-SET without no-resolve reached by a
+    /// domain flow then triggers the one-shot resolve.
+    var ruleSetNeedsIP: (String) -> Bool = { _ in false }
     /// GEOSITE lookup: (rule payload incl. any @attrs, domain) -> match.
     var geositeMatches: (String, String) -> Bool = { _, _ in false }
 }
@@ -160,8 +169,7 @@ struct NCRuleMatcher {
         case "DOMAIN-WILDCARD":
             return ctx.domain.map { globMatch(pattern: rule.payload.lowercased(), $0.lowercased()) } ?? false
         case "DOMAIN-REGEX":
-            guard let d = ctx.domain,
-                  let re = try? NSRegularExpression(pattern: rule.payload) else { return false }
+            guard let d = ctx.domain, let re = NCRegexCache.shared.regex(rule.payload) else { return false }
             return re.firstMatch(in: d, range: NSRange(d.startIndex..., in: d)) != nil
         case "IP-CIDR", "IP-CIDR6":
             guard let ip = ctx.ip, let cidr = NCCIDR(rule.payload) else { return false }
@@ -197,19 +205,21 @@ struct NCRuleMatcher {
         case "PROCESS-NAME", "PROCESS-PATH":
             return ctx.processName.map { $0.lowercased() == rule.payload.lowercased() } ?? false
         case "PROCESS-NAME-REGEX", "PROCESS-PATH-REGEX":
-            guard let p = ctx.processName,
-                  let re = try? NSRegularExpression(pattern: rule.payload) else { return false }
+            guard let p = ctx.processName, let re = NCRegexCache.shared.regex(rule.payload) else { return false }
             return re.firstMatch(in: p, range: NSRange(p.startIndex..., in: p)) != nil
         case "URL-REGEX":
-            guard let u = ctx.url,
-                  let re = try? NSRegularExpression(pattern: rule.payload) else { return false }
+            guard let u = ctx.url, let re = NCRegexCache.shared.regex(rule.payload) else { return false }
             return re.firstMatch(in: u, range: NSRange(u.startIndex..., in: u)) != nil
+        case "PROTOCOL":
+            return protocolMatches(rule.payload, ctx)
         case "USER-AGENT":
             guard let ua = ctx.userAgent else { return false }
             return globMatch(pattern: rule.payload.lowercased(), ua.lowercased())
         case "SUB-RULE":
             return subRulePolicy(rule, ctx) != nil
-        case "RULE-SET":
+        case "RULE-SET", "DOMAIN-SET":
+            // DOMAIN-SET (Surge / Loon) is a rule set of behavior domain;
+            // the provider store registers it under the same key.
             return ctx.ruleSetContains(rule.payload, ctx)
         default:
             return false
@@ -252,16 +262,97 @@ struct NCRuleMatcher {
     /// policy, not the set name in the line's policy slot) and for rules
     /// whose policy is PASS-RULE (mihomo: keep scanning subsequent rules).
     static func firstMatchWithPolicy(_ rules: [NCRule], _ ctx: NCMatchContext) -> (rule: NCRule, policy: String)? {
-        for r in rules where matches(r, ctx) {
-            if r.kind == "SUB-RULE" {
-                if let p = subRulePolicy(r, ctx) { return (r, p) }
-                continue
-            }
-            if r.policy == "PASS-RULE" { continue }
-            return (r, r.policy)
-        }
+        if case .hit(_, let r, let p) = scan(rules, ctx, from: 0, mayResolve: false) { return (r, p) }
         return nil
     }
+
+    /// Outcome of one pass over the rule list (see `scan`).
+    enum Scan {
+        case hit(index: Int, rule: NCRule, policy: String)
+        /// Rule `index` needs the destination IP, the flow only has a domain
+        /// and the rule lacks no-resolve: resolve the domain once, set
+        /// `ctx.ip`, then call `scan(from: index, mayResolve: false)`.
+        case needsResolve(index: Int)
+        case miss
+    }
+
+    /// mihomo tunnel.match semantics: rules are walked in order; the first
+    /// rule that wants an IP (IP-CIDR / GEOIP / IP-ASN / an IP-bearing
+    /// RULE-SET / a logic rule containing one), reached while the flow has a
+    /// domain but no IP and without no-resolve, triggers ONE resolution of
+    /// the domain; matching then resumes at that same rule with the IP set
+    /// (earlier rules already failed without it). `mayResolve: false` means
+    /// the resolution was already attempted (or is not possible here): IP
+    /// rules then simply do not match an IP-less flow.
+    static func scan(_ rules: [NCRule], _ ctx: NCMatchContext, from start: Int, mayResolve: Bool) -> Scan {
+        let wantsResolve = mayResolve && ctx.ip == nil && !(ctx.domain ?? "").isEmpty
+        var i = max(0, start)
+        while i < rules.count {
+            let r = rules[i]
+            if wantsResolve, shouldResolveIP(r, ctx) { return .needsResolve(index: i) }
+            if matches(r, ctx) {
+                if r.kind == "SUB-RULE" {
+                    if let p = subRulePolicy(r, ctx) { return .hit(index: i, rule: r, policy: p) }
+                } else if r.policy != "PASS-RULE" {
+                    return .hit(index: i, rule: r, policy: r.policy)
+                }
+            }
+            i += 1
+        }
+        return .miss
+    }
+
+    /// Rule kinds whose match reads the destination IP.
+    static let ipKinds: Set<String> = ["IP-CIDR", "IP-CIDR6", "GEOIP", "IP-ASN"]
+
+    /// mihomo Rule.ShouldResolveIP: true for IP rules without no-resolve,
+    /// RULE-SETs over IP data, and logic / SUB-RULE rules containing one.
+    static func shouldResolveIP(_ rule: NCRule, _ ctx: NCMatchContext, depth: Int = 0) -> Bool {
+        guard !rule.noResolve, depth < 8 else { return false }
+        switch rule.kind {
+        case "IP-CIDR", "IP-CIDR6", "GEOIP", "IP-ASN":
+            return true
+        case "RULE-SET":
+            return ctx.ruleSetNeedsIP(rule.payload)
+        case "AND", "OR", "NOT":
+            return rule.subRules.contains { shouldResolveIP($0, ctx, depth: depth + 1) }
+        case "SUB-RULE":
+            if let cond = rule.subRules.first, shouldResolveIP(cond, ctx, depth: depth + 1) { return true }
+            return (ctx.subRules[rule.policy] ?? []).contains { shouldResolveIP($0, ctx, depth: depth + 1) }
+        default:
+            return false
+        }
+    }
+
+    /// Surge PROTOCOL rule (QX `protocol` maps here): TCP / UDP by transport;
+    /// HTTP / HTTPS / QUIC by the sniffed protocol when known, else by the
+    /// well-known port. DOH / DOH3 / DOQ / STUN are not identified natively
+    /// and never match (reported once at load by the engine).
+    static func protocolMatches(_ payload: String, _ ctx: NCMatchContext) -> Bool {
+        let net = ctx.network?.lowercased()
+        let hint = ctx.protocolHint?.lowercased()
+        switch payload.trimmingCharacters(in: .whitespaces).uppercased() {
+        case "TCP": return net == "tcp"
+        case "UDP": return net == "udp"
+        case "QUIC": return net == "udp" && (hint == "quic" || (hint == nil && ctx.dstPort == 443))
+        case "HTTPS", "TLS": return net == "tcp" && (hint == "tls" || (hint == nil && ctx.dstPort == 443))
+        case "HTTP": return net == "tcp" && (hint == "http" || (hint == nil && ctx.dstPort == 80))
+        default: return false
+        }
+    }
+
+    /// PROTOCOL payloads the matcher can identify (diagnostics).
+    static let supportedProtocols: Set<String> = ["TCP", "UDP", "QUIC", "HTTPS", "TLS", "HTTP"]
+
+    /// Rule kinds this matcher evaluates; anything else never matches
+    /// (diagnosed once at load).
+    static let knownKinds: Set<String> = [
+        "MATCH", "AND", "OR", "NOT", "DOMAIN", "DOMAIN-SUFFIX", "DOMAIN-KEYWORD", "DOMAIN-WILDCARD",
+        "DOMAIN-REGEX", "DOMAIN-SET", "IP-CIDR", "IP-CIDR6", "SRC-IP-CIDR", "GEOIP", "SRC-GEOIP", "GEOSITE",
+        "IP-ASN", "DST-PORT", "DEST-PORT", "SRC-PORT", "IN-PORT", "IN-TYPE", "NETWORK", "PROTOCOL",
+        "PROCESS-NAME", "PROCESS-PATH", "PROCESS-NAME-REGEX", "PROCESS-PATH-REGEX", "URL-REGEX",
+        "USER-AGENT", "SUB-RULE", "RULE-SET",
+    ]
 
     static func portMatches(_ payload: String, _ port: Int) -> Bool {
         for part in payload.split(whereSeparator: { $0 == "/" || $0 == "," }) {
@@ -290,4 +381,37 @@ struct NCRuleMatcher {
         while pi < p.count, p[pi] == "*" { pi += 1 }
         return pi == p.count
     }
+}
+
+/// Compiled-regex cache shared by every regex rule kind (DOMAIN-REGEX,
+/// PROCESS-*-REGEX, URL-REGEX, DNS `regexp:` keys): compiled once per pattern
+/// instead of per connection. Invalid patterns are cached as failures so they
+/// are not recompiled either. Bounded: past `cap` patterns the cache is
+/// cleared (patterns come from the config, so this only bites pathological
+/// configs).
+final class NCRegexCache {
+    static let shared = NCRegexCache()
+    private let lock = NSLock()
+    private var compiled: [String: NSRegularExpression] = [:]
+    private var invalid: Set<String> = []
+    private let cap = 1024
+
+    func regex(_ pattern: String) -> NSRegularExpression? {
+        lock.lock(); defer { lock.unlock() }
+        if let re = compiled[pattern] { return re }
+        if invalid.contains(pattern) { return nil }
+        if compiled.count + invalid.count >= cap {
+            compiled.removeAll(keepingCapacity: true)
+            invalid.removeAll(keepingCapacity: true)
+        }
+        guard let re = try? NSRegularExpression(pattern: pattern) else {
+            invalid.insert(pattern)
+            return nil
+        }
+        compiled[pattern] = re
+        return re
+    }
+
+    /// Load-time validation (diagnostics): true when the pattern compiles.
+    func isValid(_ pattern: String) -> Bool { regex(pattern) != nil }
 }

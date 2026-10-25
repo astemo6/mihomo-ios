@@ -666,7 +666,48 @@ extension NCDNSForwarder {
             Self.forwardDoH(query, urlString: url, queue: queue, completion: completion)
         case .doq(let host, let port):
             Self.forwardDoQ(query, host: host, port: port, queue: queue, completion: completion)
+        case .group(let list):
+            forwardGroup(query, list: list, completion: completion)
         }
+    }
+
+    private static let groupLock = NSLock()
+    private static var groupLastGood: [String: Int] = [:]
+
+    /// rv2-rules: every configured nameserver, tried sequentially with a
+    /// short per-server timeout (2.5 s); the server that answered last time
+    /// is tried first (mihomo / Surge use all nameservers; sequential
+    /// failover is the leaner of race vs failover). A late answer from a
+    /// server already given up on is ignored.
+    private func forwardGroup(_ query: Data, list: [NCDNSUpstream], completion: @escaping (Data?) -> Void) {
+        guard !list.isEmpty else { completion(nil); return }
+        let key = "\(list)"
+        Self.groupLock.lock()
+        let start = (Self.groupLastGood[key] ?? 0) % list.count
+        Self.groupLock.unlock()
+        func attempt(_ n: Int) {
+            guard n < list.count else { completion(nil); return }
+            let idx = (start + n) % list.count
+            var settled = false
+            forward(query, upstream: list[idx]) { resp in
+                guard !settled else { return }
+                settled = true
+                guard let resp else { attempt(n + 1); return }
+                if idx != start {
+                    Self.groupLock.lock()
+                    if Self.groupLastGood.count > 64 { Self.groupLastGood.removeAll() }
+                    Self.groupLastGood[key] = idx
+                    Self.groupLock.unlock()
+                }
+                completion(resp)
+            }
+            queue.asyncAfter(deadline: .now() + 2.5) {
+                guard !settled else { return }
+                settled = true
+                attempt(n + 1)
+            }
+        }
+        attempt(0)
     }
 
     /// DoQ (RFC 9250): one bidirectional QUIC stream per query inside a

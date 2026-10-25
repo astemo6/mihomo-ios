@@ -523,8 +523,10 @@ extension NCTLS13 {
         var alpnData = Data()
         var protocols = Data()
         for p in alpn {
-            protocols.append(UInt8(p.utf8.count))
-            protocols.append(contentsOf: p.utf8)
+            let name = Array(p.utf8.prefix(255)) // u8 length on the wire (config value; never trap)
+            guard !name.isEmpty else { continue }
+            protocols.append(UInt8(name.count))
+            protocols.append(contentsOf: name)
         }
         alpnData.appendBE16(UInt16(protocols.count))
         alpnData.append(protocols)

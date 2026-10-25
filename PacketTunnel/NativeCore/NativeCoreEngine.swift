@@ -62,21 +62,18 @@ final class NativeCoreEngine {
     /// bridge's JSON export as a transitional fallback for YAML shapes
     /// the subset parser cannot handle (anchors at scale, merge keys in
     /// odd spots, …). Which source won is kept in `configSource`.
-    private func loadConfig(home: String) -> (NCConfig?, String?) {
+    /// rv2-life: pure (no engine state touched) so load() can run it before taking the engine lock.
+    private static func loadConfig(home: String) -> (cfg: NCConfig?, error: String?, source: String, canonical: NCCanonicalConfig?) {
         let homeURL = URL(fileURLWithPath: home)
         // (1) the app's JSON re-encode of runtime.yaml (PrepareNativeRuntime) — Foundation's JSON decoder.
         if let data = try? Data(contentsOf: homeURL.appendingPathComponent("nativecore-runtime.json")),
            let cfg = try? NCConfig.decode(jsonData: data) {
-            configSource = "json"
-            loadedCanonical = nil
-            return (cfg, nil)
+            return (cfg, nil, "json", nil)
         }
         // (2) runtime.yaml through the YAML subset parser.
         if let text = try? String(contentsOf: homeURL.appendingPathComponent("runtime.yaml"), encoding: .utf8),
            let root = NCYAML.parse(text)?.object {
-            configSource = "yaml"
-            loadedCanonical = nil
-            return (NCConfig.decode(root: root), nil)
+            return (NCConfig.decode(root: root), nil, "yaml", nil)
         }
         // (3) runtime.conf (Surge / Loon / Quantumult X) via the canonical importers.
         if let text = try? String(contentsOf: homeURL.appendingPathComponent("runtime.conf"), encoding: .utf8) {
@@ -88,12 +85,24 @@ final class NativeCoreEngine {
             } else {
                 canonical = NCConfImport.surge(text)
             }
-            configSource = "conf:\(canonical.sourceFormat)"
-            loadedCanonical = canonical
-            return (canonical.legacyConfig(), nil)
+            return (canonical.legacyConfig(), nil, "conf:\(canonical.sourceFormat)", canonical)
         }
-        return (nil, "没有找到运行配置（nativecore-runtime.json / runtime.yaml）：请打开 App 重新连接一次")
+        return (nil, "没有找到运行配置（nativecore-runtime.json / runtime.yaml）：请打开 App 重新连接一次", "", nil)
     }
+
+    /// rv2-life: size + mtime of each geo database last loaded; an unchanged file is not read again on reload
+    /// (GeoSite.dat / geoip.metadb are several MB each — re-reading them held two copies at the reload peak).
+    private var geoFileSigs: [String: String] = [:]
+
+    private static func fileSig(_ url: URL) -> String? {
+        guard let a = try? FileManager.default.attributesOfItem(atPath: url.path),
+              let size = a[.size] as? NSNumber else { return nil }
+        let mtime = (a[.modificationDate] as? Date)?.timeIntervalSince1970 ?? 0
+        return "\(size.int64Value)@\(mtime)"
+    }
+
+    /// Returned by load(home:isCurrent:) when the caller's generation went stale (stop / newer start) before commit.
+    static let supersededMessage = "内核已停止或已重启，本次重载已取消"
 
     private(set) var configSource = ""
     private var loadedCanonical: NCCanonicalConfig?
@@ -127,24 +136,69 @@ final class NativeCoreEngine {
     }
 
     @discardableResult
-    func load(home: String) -> String? {
-        stateLock.lock(); defer { stateLock.unlock() }
-        self.home = home
-        let (loadedCfg, loadError) = loadConfig(home: home)
-        if let loadError { return loadError }
-        guard let cfg = loadedCfg else { return "native core: config decode failed" }
-        _config = cfg
+    func load(home: String, isCurrent: () -> Bool = { true }) -> String? {
+        // rv2-life (#8 / M reload): everything slow and state-free runs BEFORE the engine lock — config parse, rule
+        // parse, canonical view, rule-set cache, node-subscription cache, geo databases — so routing (which takes the
+        // lock) and the lwIP queue are only blocked for the short swap below. A stale caller (stop / newer start
+        // meanwhile) is refused inside the lock, before any state changes.
+        let loaded = Self.loadConfig(home: home)
+        if let loadError = loaded.error { return loadError }
+        guard let cfg = loaded.cfg else { return "native core: config decode failed" }
         var parsed: [NCRule] = []
         var unparsed: [String] = []
         for line in cfg.rules {
             if let rule = NCRule.parse(line) { parsed.append(rule) } else { unparsed.append(line) }
         }
+        let canonical = loaded.canonical ?? NCCanonicalConfig.from(mihomo: cfg)
+        let preStore = NCRuleProviderStore(dir: URL(fileURLWithPath: home)
+            .appendingPathComponent("nativecore-rulesets"))
+        let preProviders = NCRuleProviderStore.providers(from: cfg)
+        let preStale = preStore.loadCached(providers: preProviders, home: home)
+        let preSubStore = NCNodeSubscriptionStore(dir: URL(fileURLWithPath: home)
+            .appendingPathComponent("nativecore-nodesubs"))
+        let preStaleSubs = preSubStore.loadCached(canonical.subscriptions)
+        let homeURL = URL(fileURLWithPath: home)
+        let oldSigs = locked { geoFileSigs }
+        var newSigs: [String: String] = [:]
+        var geoIP: NCMMDB??, asn: NCMMDB??, geoSite: NCGeoSiteDB?? // nil = unchanged, keep the loaded one
+        let geoIPURL = homeURL.appendingPathComponent("geoip.metadb")
+        newSigs["geoip"] = Self.fileSig(geoIPURL)
+        if newSigs["geoip"] == nil || newSigs["geoip"] != oldSigs["geoip"] {
+            geoIP = .some((try? Data(contentsOf: geoIPURL, options: .mappedIfSafe)).flatMap { NCMMDB(data: $0) })
+        }
+        let asnURL = homeURL.appendingPathComponent("ASN.mmdb")
+        newSigs["asn"] = Self.fileSig(asnURL)
+        if newSigs["asn"] == nil || newSigs["asn"] != oldSigs["asn"] {
+            asn = .some((try? Data(contentsOf: asnURL, options: .mappedIfSafe)).flatMap { $0.count > 1024 ? NCMMDB(data: $0) : nil })
+        }
+        var siteURL = homeURL.appendingPathComponent("GeoSite.dat")
+        if !FileManager.default.fileExists(atPath: siteURL.path) { siteURL = homeURL.appendingPathComponent("geosite.dat") }
+        newSigs["geosite"] = Self.fileSig(siteURL).map { siteURL.lastPathComponent + ":" + $0 }
+        if newSigs["geosite"] == nil || newSigs["geosite"] != oldSigs["geosite"] {
+            // mapped (clean file-backed pages stay out of the footprint); the app installs these files by rename, so
+            // a mapping never sees them truncated in place
+            geoSite = .some((try? Data(contentsOf: siteURL, options: .mappedIfSafe)).flatMap { NCGeoSiteDB(data: $0) })
+        }
+
+        stateLock.lock(); defer { stateLock.unlock() }
+        guard isCurrent() else { return Self.supersededMessage }
+        self.home = home
+        configSource = loaded.source
+        loadedCanonical = loaded.canonical
+        _config = cfg
         rules = parsed
         unparsedRules = unparsed
-        let canonical = loadedCanonical ?? NCCanonicalConfig.from(mihomo: cfg)
+        // Geo databases first (prepared off the lock above): the fake-IP filter, DNS policy and rule diagnostics
+        // below consult them.
+        if let geoIP { geoIPDB = geoIP }
+        if geoIPDB != nil { NativeScriptHost.geoLookup = { [weak self] ip in self?.lookupCountry(ip) } }
+        if let asn { asnDB = asn }
+        if let geoSite { geoSiteDB = geoSite }
+        geoFileSigs = newSigs
         canonicalGroupMap = canonical.groupMap
         let pool = NCFakeIPPool(range: cfg.dns.fakeIPRange, range6: cfg.dns.fakeIPRange6,
-                                filter: cfg.dns.fakeIPFilter)
+                                filter: cfg.dns.fakeIPFilter,
+                                whitelist: cfg.dns.fakeIPFilterMode == "whitelist")
         redirHostMode = cfg.dns.enhancedMode.lowercased() == "redir-host"
         if redirHostMode { realIPMap = NCRealIPMap() }
         if let data = try? Data(contentsOf: fakeIPFile) {
@@ -152,40 +206,44 @@ final class NativeCoreEngine {
         }
         fakeIP = pool
         dnsResponder = nil
-        // Rule providers: cache-first load, then refresh whatever is stale.
-        let store = NCRuleProviderStore(dir: URL(fileURLWithPath: home)
-            .appendingPathComponent("nativecore-rulesets"))
-        let providers = NCRuleProviderStore.providers(from: cfg)
-        let stale = store.loadCached(providers: providers, home: home)
+        // Rule providers: cache-first load (done above, off the lock), then refresh whatever is stale.
+        let store = preStore
+        let stale = preStale
         ruleProviders = store
         if !stale.isEmpty { store.refreshAll(stale) }
+        // fake-ip-filter geosite: / rule-set: entries (mihomo parseDomain).
+        let geo = geoSiteDB
+        if !pool.externalEntries.isEmpty {
+            let entries = pool.externalEntries
+            pool.externalMatcher = { host in
+                entries.contains { e in
+                    e.hasPrefix("geosite:")
+                        ? (geo?.matches(payload: String(e.dropFirst(8)), domain: host) ?? false)
+                        : store.containsDomain(name: String(e.dropFirst(9)), domain: host)
+                }
+            }
+        }
         // DNS policy (hosts answers + per-domain upstreams) from the
-        // canonical view of the same config.
-        dnsPolicy = NCDNSPolicy(model: canonical.dns, hosts: canonical.hosts)
+        // canonical view of the same config; geosite: / rule-set: keys and
+        // fallback-filter geosite read the kernel's stores.
+        var policy = NCDNSPolicy(model: canonical.dns, hosts: canonical.hosts)
+        if let geo { policy.geositeContains = { cat, name in geo.matches(payload: cat, domain: name) } }
+        policy.ruleSetContainsDomain = { name, domain in store.containsDomain(name: name, domain: domain) }
+        dnsPolicy = policy
+        resolveLock.lock(); resolveCache = [:]; resolveLock.unlock()
+        ruleDiagnostics = Self.diagnose(cfg: cfg, rules: parsed, providers: preProviders, policy: policy,
+                                        pool: pool, geoSite: geo, geoIP: geoIPDB != nil, asn: asnDB != nil)
         // Node subscriptions: cached nodes merge into the effective config;
         // stale ones refresh in the background and rebuild the group engine.
         nodeSubs = canonical.subscriptions
-        let subStore = NCNodeSubscriptionStore(dir: URL(fileURLWithPath: home)
-            .appendingPathComponent("nativecore-nodesubs"))
+        let subStore = preSubStore
         nodeSubStore = subStore
-        let staleSubs = subStore.loadCached(canonical.subscriptions)
+        let staleSubs = preStaleSubs
         rebuildGroupEngine()
         for sub in staleSubs {
             subStore.refresh(sub) { [weak self] in self?.rebuildGroupEngine() }
         }
         configureSmart()
-        let homeURL = URL(fileURLWithPath: home)
-        if let data = try? Data(contentsOf: homeURL.appendingPathComponent("geoip.metadb")) {
-            geoIPDB = NCMMDB(data: data)
-            NativeScriptHost.geoLookup = { [weak self] ip in self?.lookupCountry(ip) }
-        }
-        if let data = try? Data(contentsOf: homeURL.appendingPathComponent("ASN.mmdb")), data.count > 1024 {
-            asnDB = NCMMDB(data: data)
-        }
-        if let data = (try? Data(contentsOf: homeURL.appendingPathComponent("GeoSite.dat")))
-            ?? (try? Data(contentsOf: homeURL.appendingPathComponent("geosite.dat"))) {
-            geoSiteDB = NCGeoSiteDB(data: data)
-        }
         isRunning = true
         healthCheck?.stop()
         let hc = NCHealthCheckScheduler(engine: self)
@@ -223,7 +281,7 @@ final class NativeCoreEngine {
             engine.alive[p.name] = false
         }
         engine.unsupported = unsupported
-        _supportReport = NCSupport.report(config: merged, unparsedRules: unparsedRules)
+        _supportReport = NCSupport.report(config: merged, unparsedRules: unparsedRules) + ruleDiagnostics
         engine.ssidProvider = {
             UserDefaults(suiteName: AppShared.appGroup)?.string(forKey: "nativeCoreSSID")
         }
@@ -288,6 +346,7 @@ final class NativeCoreEngine {
         }
         if let ruleProviders {
             ctx.ruleSetContains = { name, c in ruleProviders.contains(name: name, ctx: c) }
+            ctx.ruleSetNeedsIP = { name in ruleProviders.needsIP(name: name) }
         }
         return ctx
     }
@@ -453,13 +512,10 @@ final class NativeCoreEngine {
         return groups.resolve(policy(for: ctx))
     }
 
-    /// First configured nameserver, of any supported kind (plain UDP,
-    /// tls:// DoT, https:// DoH).
+    /// Every configured nameserver (plain UDP, tcp://, tls:// DoT,
+    /// https:// DoH, quic:// DoQ) as one sequential-failover group.
     var firstDNSUpstream: NCDNSUpstream? {
-        for raw in config?.dns.nameservers ?? [] {
-            if let up = NCDNSUpstream.parse(raw) { return up }
-        }
-        return nil
+        NCDNSUpstream.of((config?.dns.nameservers ?? []).compactMap { NCDNSUpstream.parse($0) })
     }
 
     /// Hosts-table answer for a query, if any (checked before fake-IP:
@@ -493,16 +549,12 @@ final class NativeCoreEngine {
             qname = name
             let refs = policy.servers(for: name)
             assigned = !refs.isEmpty
-            for ref in refs {
-                if let up = NCDNSUpstream(ref) { primary = up; break }
-            }
+            primary = NCDNSUpstream.of(refs.compactMap { NCDNSUpstream($0) })
         }
         if primary == nil { primary = firstDNSUpstream }
         var fallback: NCDNSUpstream? = nil
         if let policy = dnsPolicy {
-            for ref in policy.fallbackServers {
-                if let up = NCDNSUpstream(ref) { fallback = up; break }
-            }
+            fallback = NCDNSUpstream.of(policy.fallbackServers.compactMap { NCDNSUpstream($0) })
         }
         let first = fallback != nil && !assigned && qname != nil
             && (dnsPolicy?.useFallbackFirst(forDomain: qname!) ?? false)
@@ -548,6 +600,184 @@ final class NativeCoreEngine {
             return NCTarget(host: host, port: target.port)
         }
         return target
+    }
+
+    // MARK: rv2-rules: resolve-then-continue rule matching
+
+    /// Rule-match problems found at load (unknown rule types, missing geo
+    /// databases, undeclared rule sets, invalid regex, unsupported DNS policy
+    /// keys…). Listed once in the startup log with the support report.
+    private var ruleDiagnostics: [String] = []
+
+    func isFakeAddress(_ ip: NCIP) -> Bool { locked { fakeIP }?.isFakeAddress(ip) ?? false }
+
+    /// Policy, rule and outbound for a flow, mihomo tunnel.match style: when
+    /// an IP rule (without no-resolve) is reached by a domain-only flow, the
+    /// domain is resolved ONCE through the kernel DNS (hosts, nameserver-
+    /// policy, cached) without blocking the caller's queue, and matching
+    /// resumes at that rule with the IP. `completion` runs on `queue` (or
+    /// synchronously when no resolution was needed), never under the lock.
+    func routeAsync(_ ctx0: NCMatchContext, queue: DispatchQueue,
+                    completion: @escaping (_ policy: String, _ rule: String?,
+                                           _ resolution: NCGroupEngine.Resolution) -> Void) {
+        stateLock.lock()
+        guard _config != nil, effectiveMode == "rule" else {
+            let (p, r) = policyWithRule(for: ctx0)
+            let res = groups?.resolve(p) ?? .direct
+            stateLock.unlock()
+            completion(p, r, res)
+            return
+        }
+        let snapshot = rules
+        let step = NCRuleMatcher.scan(snapshot, ctx0, from: 0, mayResolve: true)
+        if case .needsResolve(let idx) = step, let host = ctx0.domain {
+            stateLock.unlock()
+            resolveHost(host) { [weak self] ip in
+                queue.async {
+                    guard let self else { return }
+                    var ctx = ctx0
+                    ctx.ip = ip
+                    self.stateLock.lock()
+                    let out = self.finishRoute(NCRuleMatcher.scan(snapshot, ctx, from: idx, mayResolve: false))
+                    self.stateLock.unlock()
+                    completion(out.0, out.1, out.2)
+                }
+            }
+            return
+        }
+        let out = finishRoute(step)
+        stateLock.unlock()
+        completion(out.0, out.1, out.2)
+    }
+
+    /// Caller holds stateLock.
+    private func finishRoute(_ step: NCRuleMatcher.Scan) -> (String, String?, NCGroupEngine.Resolution) {
+        var policy = "DIRECT"
+        var rule: String? = nil
+        if case .hit(_, let r, let p) = step { policy = p; rule = r.raw }
+        return (policy, rule, groups?.resolve(policy) ?? .direct)
+    }
+
+    private let resolveForwarder = NCDNSForwarder(queue: DispatchQueue(label: "nc.rule-resolve"))
+    private let resolveLock = NSLock()
+    private var resolveCache: [String: (ip: NCIP?, expires: Date)] = [:]
+    private var resolveWaiters: [String: [(NCIP?) -> Void]] = [:]
+
+    /// One A lookup for rule matching (AAAA when the answer has no A and
+    /// ipv6 is on is not attempted — mihomo prefers v4 too). Hosts first,
+    /// then the upstreams dnsRoute picks (nameserver-policy honoured);
+    /// identical in-flight lookups share one query; answers cached (TTL
+    /// clamped 60–600 s, failures 30 s), at most 512 names.
+    func resolveHost(_ host0: String, completion: @escaping (NCIP?) -> Void) {
+        let host = host0.lowercased()
+        if let ip = NCIP(host) { completion(ip); return }
+        if let entry = locked({ dnsPolicy })?.hostsEntry(for: host), entry.kind == .address {
+            let ips = entry.addresses
+            completion(ips.first(where: { $0.isV4 }) ?? ips.first)
+            return
+        }
+        let now = Date()
+        resolveLock.lock()
+        if let c = resolveCache[host], c.expires > now {
+            resolveLock.unlock()
+            completion(c.ip)
+            return
+        }
+        if resolveWaiters[host] != nil {
+            if resolveWaiters[host]!.count < 64 { resolveWaiters[host]!.append(completion) }
+            resolveLock.unlock()
+            return
+        }
+        resolveWaiters[host] = [completion]
+        resolveLock.unlock()
+        var q = NCDNSMessage()
+        q.id = UInt16.random(in: 1...0xffff)
+        q.recursionDesired = true
+        q.questions = [NCDNSQuestion(name: host, type: NCDNSMessage.typeA, klass: NCDNSMessage.classIN)]
+        let query = q.serialized()
+        guard let upstream = dnsRoute(for: query).primary else {
+            finishResolve(host, ip: nil, ttl: 30)
+            return
+        }
+        resolveForwarder.forward(query, upstream: upstream) { [weak self] resp in
+            let answers = resp.flatMap { NCDNSMessage.parse($0) }?.addressAnswers ?? []
+            let hit = answers.first(where: { $0.0.isV4 }) ?? answers.first
+            self?.finishResolve(host, ip: hit?.0, ttl: hit.map { min(max(Double($0.1), 60), 600) } ?? 30)
+        }
+    }
+
+    private func finishResolve(_ host: String, ip: NCIP?, ttl: Double) {
+        resolveLock.lock()
+        if resolveCache.count >= 512 {
+            let now = Date()
+            resolveCache = resolveCache.filter { $0.value.expires > now }
+            if resolveCache.count >= 512 { resolveCache.removeAll() }
+        }
+        resolveCache[host] = (ip, Date().addingTimeInterval(ttl))
+        let waiters = resolveWaiters.removeValue(forKey: host) ?? []
+        resolveLock.unlock()
+        for w in waiters { w(ip) }
+    }
+
+    /// Load-time diagnostics (one line each, capped).
+    private static func diagnose(cfg: NCConfig, rules: [NCRule], providers: [NCRuleProviderStore.Provider],
+                                 policy: NCDNSPolicy, pool: NCFakeIPPool, geoSite: NCGeoSiteDB?,
+                                 geoIP: Bool, asn: Bool) -> [String] {
+        var out: [String] = []
+        var seen = Set<String>()
+        func add(_ line: String) { if seen.insert(line).inserted, out.count < 40 { out.append(line) } }
+        let providerKeys = Set(providers.map { $0.name } + providers.flatMap { $0.aliases })
+        var noResolveIP = 0
+        func visit(_ r: NCRule, depth: Int) {
+            guard depth < 8 else { return }
+            let k = r.kind
+            if !NCRuleMatcher.knownKinds.contains(k) { add("规则类型 \(k) 暂不支持，永不匹配：\(r.raw)") }
+            switch k {
+            case "GEOSITE":
+                if let geoSite {
+                    if !geoSite.hasCategory(r.payload) { add("GEOSITE 分类 \(r.payload) 不在 GeoSite.dat 中，永不匹配") }
+                } else { add("缺少 GeoSite.dat：GEOSITE 规则永不匹配（\(r.raw)）") }
+            case "GEOIP", "SRC-GEOIP":
+                if !geoIP { add("缺少 geoip.metadb：GEOIP 规则永不匹配（\(r.raw)）") }
+            case "IP-ASN":
+                if !asn { add("缺少 ASN.mmdb：IP-ASN 规则永不匹配（\(r.raw)）") }
+            case "RULE-SET", "DOMAIN-SET":
+                if !providerKeys.contains(r.payload) { add("规则集 \(r.payload) 未声明，永不匹配") }
+            case "DOMAIN-REGEX", "PROCESS-NAME-REGEX", "PROCESS-PATH-REGEX", "URL-REGEX":
+                if !NCRegexCache.shared.isValid(r.payload) { add("正则无效，规则永不匹配：\(r.raw)") }
+            case "PROTOCOL":
+                if !NCRuleMatcher.supportedProtocols.contains(r.payload.uppercased()) {
+                    add("PROTOCOL \(r.payload) 无法原生识别，永不匹配")
+                }
+            default: break
+            }
+            if r.noResolve, NCRuleMatcher.ipKinds.contains(k) { noResolveIP += 1 }
+            for sub in r.subRules { visit(sub, depth: depth + 1) }
+        }
+        for r in rules { visit(r, depth: 0) }
+        for name in cfg.subRules.keys.sorted() { for r in cfg.subRules[name] ?? [] { visit(r, depth: 0) } }
+        if noResolveIP > 0 {
+            add("\(noResolveIP) 条 IP 规则带 no-resolve：只按已知 IP 匹配，域名连接（fake-ip）不会命中")
+        }
+        out.append(contentsOf: policy.diagnostics.prefix(10))
+        for (kind, arg) in policy.matcherKeyArgs {
+            if kind == .geosite, geoSite == nil { add("缺少 GeoSite.dat：DNS 分流 geosite:\(arg) 不生效") }
+            if kind == .ruleSet, !providerKeys.contains(arg) { add("DNS 分流 rule-set:\(arg) 未声明，不生效") }
+        }
+        if geoSite == nil, !policy.model.fallbackFilter.geosite.isEmpty {
+            add("缺少 GeoSite.dat：fallback-filter geosite 不生效")
+        }
+        for e in pool.externalEntries {
+            if e.hasPrefix("geosite:"), geoSite == nil { add("缺少 GeoSite.dat：fake-ip-filter \(e) 不生效") }
+            if e.hasPrefix("rule-set:"), !providerKeys.contains(String(e.dropFirst(9))) {
+                add("fake-ip-filter \(e) 未声明，不生效")
+            }
+        }
+        let mode = cfg.dns.fakeIPFilterMode
+        if mode != "blacklist", mode != "whitelist" {
+            add("fake-ip-filter-mode: \(mode) 暂不支持，按 blacklist 处理")
+        }
+        return out
     }
 
     var statsLine: String {
