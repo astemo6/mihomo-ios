@@ -391,8 +391,26 @@ struct ParsedEngineText: Decodable {
         var script: String?
         var format: String
     }
+    /// One Loon [Plugin] reference line: the plugin URL plus every
+    /// key=value parameter on the line (nc-compat; previously these lines
+    /// were only kept as raw `unsupported` text). `line` is the original
+    /// line, retained verbatim so the reference can be written back
+    /// exactly as imported.
+    struct PluginRef: Decodable, Hashable {
+        var url: String
+        var params: [String: String]
+        var line: String
+    }
     var tasks: [Task]?
     var panels: [Panel]?
+    var plugins: [PluginRef]?
+    /// All `#!key = value` header fields of the module / plugin file,
+    /// first occurrence wins (nc-compat). The dedicated name / desc /
+    /// author / category fields above carry the subset the UI has
+    /// always shown; homepage / icon / system / system_version /
+    /// loon_version / date / type and friends live only here and used
+    /// to be dropped at import.
+    var metadata: [String: String]?
 
     static func parse(_ json: String) -> ParsedEngineText? {
         guard let d = json.data(using: .utf8) else { return nil }

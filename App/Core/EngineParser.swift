@@ -13,11 +13,19 @@ import CommonCrypto
 /// substitution, format detection identical to ParseText's, and
 /// Egern / Stash YAML detection with metadata / hostname / rule
 /// extraction.
+/// nc-compat additions: Loon .lpx expression script lines and
+/// plugin-object arguments (parseLoonExpressionLine /
+/// loonObjectEnvelope), [Plugin] reference lines split into url +
+/// parameters, the full `#!` metadata set (not just the five classic
+/// keys), Surge type=dns / type=rule script registration (execution
+/// contract: NCScriptHooks.swift), and Egern `scriptings:` import.
 /// Not covered (recorded in `unsupported` or noted where they land):
-/// Loon's .lpx expression syntax and plugin-object arguments, Egern's
-/// script-provider machinery beyond name extraction, and regex error
-/// strings (NSRegularExpression messages differ from Go's regexp2; the
-/// error channel and drop behavior are the same).
+/// Loon *rewrite* expression actions (response.json.replace …),
+/// Egern's rewrite families (url_rewrites / header_rewrites /
+/// body_rewrites / map_locals object mapping), Stash
+/// script-providers, and regex error strings (NSRegularExpression
+/// messages differ from Go's regexp2; the error channel and drop
+/// behavior are the same).
 enum NCEngineParser {
 
     static func parseText(_ text: String, argsJSON: String) -> ParsedEngineText {
@@ -94,6 +102,13 @@ struct NCEngineTask {
     var script: NCEngineScript? = nil
 }
 
+/// One Loon [Plugin] reference line (url + parameters + original line).
+struct NCEnginePluginRef {
+    var url = ""
+    var params: [String: String] = [:]
+    var line = ""
+}
+
 struct NCEnginePanel: Codable {
     var id: String = ""
     var name: String = ""
@@ -149,6 +164,17 @@ final class NCEngineRuleset {
     var format = ""
     var tasks: [NCEngineTask] = []
     var panels: [NCEnginePanel] = []
+    /// Loon [Plugin] reference lines, in file order (nc-compat).
+    var plugins: [NCEnginePluginRef] = []
+    /// Every `#!key = value` header field, first occurrence wins
+    /// (nc-compat); name / desc / author / category keep their dedicated
+    /// fields above, the rest (homepage, icon, system, …) lives only here.
+    var metadata: [String: String] = [:]
+    /// Resolved Loon [Argument] values for expression-line evaluation:
+    /// user-supplied value when present, else the declared default, plus
+    /// the declared value type (string / number / boolean) used to type
+    /// plugin-object arguments. Filled by parseText.
+    var loonArgContext: [String: (value: String, valueType: String?)] = [:]
 
     /// bridge/engine.go toParsed, field for field.
     func projected() -> ParsedEngineText {
@@ -176,7 +202,11 @@ final class NCEngineRuleset {
             },
             panels: panels.map {
                 ParsedEngineText.Panel(name: $0.name, title: $0.title, script: $0.script, format: $0.format)
-            })
+            },
+            plugins: plugins.isEmpty ? nil : plugins.map {
+                ParsedEngineText.PluginRef(url: $0.url, params: $0.params, line: $0.line)
+            },
+            metadata: metadata.isEmpty ? nil : metadata)
     }
 
     enum AddError {
@@ -264,6 +294,8 @@ final class NCEngineRuleset {
         case "maplocal":
             return "本地映射（" + r.dataType + "）"
         case "script":
+            if r.phase == "dns" { return "DNS 脚本 · " + (r.script?.name ?? "") }
+            if r.phase == "rule" { return "规则脚本 · " + (r.script?.name ?? "") }
             var t = r.phase == "response" ? "响应脚本" : "请求脚本"
             if r.script?.requiresBody == true { t += " · 含 body" }
             return t + " · " + (r.script?.name ?? "")
@@ -356,7 +388,10 @@ extension NCEngineRuleset {
                                           "img-url", "event-name", "enabled", "binary-mode", "requires-header"]
 
     /// mitm splitParams: split on commas that start a known key.
-    static func splitParams(_ s: String, keys: Set<String>) -> [String: String] {
+    /// `underscore` (nc-compat, Loon `with` lists only) additionally
+    /// allows `_` / digits in the key charset so requires_body splits;
+    /// the classic default keeps the Go key charset exactly.
+    static func splitParams(_ s: String, keys: Set<String>, underscore: Bool = false) -> [String: String] {
         var parts: [String] = []
         var start = s.startIndex
         var inQ = false
@@ -366,7 +401,7 @@ extension NCEngineRuleset {
             if ch == "\"" { inQ.toggle() }
             if ch == "," && !inQ {
                 let rest = s[s.index(after: i)...]
-                if let m = keyStartMatch(rest), keys.contains(m.lowercased()) {
+                if let m = keyStartMatch(rest, underscore: underscore), keys.contains(m.lowercased()) {
                     parts.append(String(s[start..<i]))
                     start = s.index(after: i)
                 }
@@ -384,11 +419,11 @@ extension NCEngineRuleset {
     }
 
     /// ^\s*([a-zA-Z-]+)\s*= — returns the key when the text starts with one.
-    static func keyStartMatch(_ s: Substring) -> String? {
+    static func keyStartMatch(_ s: Substring, underscore: Bool = false) -> String? {
         var i = s.startIndex
         while i < s.endIndex && (s[i] == " " || s[i] == "\t") { i = s.index(after: i) }
         var key = ""
-        while i < s.endIndex && (s[i].isLetter || s[i] == "-") {
+        while i < s.endIndex && (s[i].isLetter || s[i] == "-" || (underscore && (s[i] == "_" || s[i].isNumber))) {
             key.append(s[i])
             i = s.index(after: i)
         }
@@ -702,6 +737,8 @@ extension NCEngineRuleset {
         switch typ {
         case "http-request": r.phase = "request"
         case "http-response": r.phase = "response"
+        case "dns": r.phase = "dns" // Surge type=dns (nc-compat; NCScriptHooks.swift)
+        case "rule": r.phase = "rule" // Surge type=rule (nc-compat; NCScriptHooks.swift)
         default: return (r, .unsupported)
         }
         return (r, nil)
@@ -1138,7 +1175,14 @@ extension NCEngineRuleset {
             case "cron", "event", "generic":
                 break
             case "dns", "rule":
-                unsupported.append(line)
+                // nc-compat: Surge DNS / rule scripts register as script
+                // rules (phase "dns" / "rule") so they flow into the
+                // script manifest like every other script instead of
+                // being dropped here. How the kernel must invoke them is
+                // defined in NCScriptHooks.swift — interface only: the
+                // DNS and rule engines do not call them yet.
+                let (r, e) = Self.newScriptRule(name: m[1], type: typ, pattern: p["pattern"] ?? "", p: p)
+                addRule(line: line, r, e)
                 return true
             default:
                 return false
@@ -1225,6 +1269,311 @@ extension NCEngineRuleset {
 // MARK: - ParseLine (mitm Ruleset.ParseLine)
 
 extension NCEngineRuleset {
+    // MARK: Loon plugin references + .lpx expression lines (nc-compat)
+
+    /// [Plugin] reference line: `<url>[, key=value, …]`. The url and
+    /// every parameter are kept on the model (projected as
+    /// ParsedEngineText.plugins, original line retained for exact
+    /// write-back). Lines that do not look like a plugin reference stay
+    /// in `unsupported`, as before.
+    func parsePluginRefLine(_ line: String) {
+        var url = line
+        var rest = ""
+        var inQ = false
+        var i = line.startIndex
+        while i < line.endIndex {
+            let ch = line[i]
+            if ch == "\"" { inQ.toggle() }
+            if ch == "," && !inQ {
+                url = String(line[..<i])
+                rest = String(line[line.index(after: i)...])
+                break
+            }
+            i = line.index(after: i)
+        }
+        let u = url.trimmingCharacters(in: .whitespaces)
+        guard u.contains("://") || u.hasSuffix(".lpx") || u.hasSuffix(".plugin") else {
+            unsupported.append(line)
+            return
+        }
+        var params: [String: String] = [:]
+        for piece in Self.splitArgList(rest) {
+            let t = piece.trimmingCharacters(in: .whitespaces)
+            if t.isEmpty { continue }
+            if let eq = t.firstIndex(of: "=") {
+                let k = String(t[..<eq]).trimmingCharacters(in: .whitespaces).lowercased()
+                params[k] = Self.unquote(String(t[t.index(after: eq)...]))
+            } else {
+                params[t] = "" // bare token: kept, not dropped
+            }
+        }
+        plugins.append(NCEnginePluginRef(url: u, params: params, line: line))
+    }
+
+    static let loonPlaceholderRe = regex(#"\$\{([A-Za-z0-9_.\-]+)\}"#)
+    static let loonExprIfRe = regex(#"^(http-request|http-response|request|response)[ \t]+if[ \t]+(.+?)[ \t]+then[ \t]+script\([ \t]*"([^"]*)"[ \t]*(?:,[ \t]*(\{.*\}))?[ \t]*\)(?:[ \t]+with[ \t]+(.+))?$"#, options: [.caseInsensitive])
+    static let loonExprCronRe = regex(#"^cron[ \t]+(.+?)[ \t]+then[ \t]+script\([ \t]*"([^"]*)"[ \t]*(?:,[ \t]*(\{.*\}))?[ \t]*\)(?:[ \t]+with[ \t]+(.+))?$"#, options: [.caseInsensitive])
+    static let loonExprBareRe = regex(#"^(generic|network-changed)[ \t]+then[ \t]+script\([ \t]*"([^"]*)"[ \t]*(?:,[ \t]*(\{.*\}))?[ \t]*\)(?:[ \t]+with[ \t]+(.+))?$"#, options: [.caseInsensitive])
+    static let loonURLTermRe = regex(#"^\$\{url\}[ \t]*(==|!=|~=)[ \t]*/(.*)/$"#)
+    static let loonArgTermRe = regex(#"^\$\{([A-Za-z0-9_.\-]+)\}[ \t]*(==|!=|~=)[ \t]*(.+)$"#)
+    static let loonBareTermRe = regex(#"^\$\{([A-Za-z0-9_.\-]+)\}$"#)
+
+    /// Replaces every ${name} with the declared argument's resolved
+    /// value. Returns nil when any placeholder names an undeclared
+    /// argument — callers then leave the source line in `unsupported`
+    /// rather than guess.
+    func resolveAllPlaceholders(_ s: String) -> String? {
+        guard let re = Self.loonPlaceholderRe else { return s }
+        let matches = re.matches(in: s, range: NSRange(s.startIndex..., in: s))
+        if matches.isEmpty { return s }
+        var out = ""
+        var idx = s.startIndex
+        for m in matches {
+            guard let full = Range(m.range, in: s), let g = Range(m.range(at: 1), in: s),
+                  let v = loonArgContext[String(s[g])]?.value else { return nil }
+            out += String(s[idx..<full.lowerBound])
+            out += v
+            idx = full.upperBound
+        }
+        out += String(s[idx...])
+        return out
+    }
+
+    /// Best-effort variant: declared placeholders are substituted,
+    /// undeclared ones (runtime variables) stay as written.
+    func substituteDeclaredPlaceholders(_ s: String) -> String {
+        guard let re = Self.loonPlaceholderRe else { return s }
+        let matches = re.matches(in: s, range: NSRange(s.startIndex..., in: s))
+        if matches.isEmpty { return s }
+        var out = ""
+        var idx = s.startIndex
+        for m in matches {
+            guard let full = Range(m.range, in: s), let g = Range(m.range(at: 1), in: s) else { continue }
+            out += String(s[idx..<full.lowerBound])
+            out += loonArgContext[String(s[g])]?.value ?? String(s[full])
+            idx = full.upperBound
+        }
+        out += String(s[idx...])
+        return out
+    }
+
+    static func loonScalarEqual(_ a: String, _ b: String) -> Bool {
+        let x = unquote(a).trimmingCharacters(in: .whitespaces)
+        let y = unquote(b).trimmingCharacters(in: .whitespaces)
+        if x == y { return true }
+        if let dx = Double(x), let dy = Double(y) { return dx == dy }
+        let bx = ["true", "false"].contains(x.lowercased())
+        let by = ["true", "false"].contains(y.lowercased())
+        return bx && by && x.lowercased() == y.lowercased()
+    }
+
+    static func jsonEscaped(_ s: String) -> String {
+        var out = "\""
+        for ch in s {
+            switch ch {
+            case "\"": out += "\\\""
+            case "\\": out += "\\\\"
+            case "\n": out += "\\n"
+            case "\r": out += "\\r"
+            case "\t": out += "\\t"
+            default:
+                if ch.unicodeScalars.count == 1, let sc = ch.unicodeScalars.first, sc.value < 0x20 {
+                    out += String(format: "\\u%04x", sc.value)
+                } else {
+                    out.append(ch)
+                }
+            }
+        }
+        return out + "\""
+    }
+
+    /// Builds the "__tern_loon_obj__:" envelope setScriptArgument
+    /// decodes into a typed object argument, from a script("…", {…})
+    /// second argument. Two accepted shapes: an already-JSON object
+    /// (used verbatim), or the {${a}, ${b}, …} selector list of plugin
+    /// argument names, expanded with each argument's resolved value
+    /// typed by its declared [Argument] type= (string / number /
+    /// boolean — the value Loon would hand the script as $argument).
+    /// Returns nil for anything else; the line then stays in
+    /// `unsupported`.
+    func loonObjectEnvelope(_ braces: String, line: String) -> String? {
+        let t = braces.trimmingCharacters(in: .whitespaces)
+        guard t.hasPrefix("{"), t.hasSuffix("}") else { return nil }
+        let json: String
+        var isJSONObject = false
+        if let d = t.data(using: .utf8), let obj = try? JSONSerialization.jsonObject(with: d) {
+            isJSONObject = obj is [String: Any]
+        }
+        if isJSONObject {
+            json = t
+        } else {
+            let inner = String(t.dropFirst().dropLast())
+            var pairs: [String] = []
+            for piece in inner.split(separator: ",", omittingEmptySubsequences: false) {
+                let name = piece.trimmingCharacters(in: .whitespaces)
+                if name.isEmpty { continue }
+                guard let m = Self.firstMatch(Self.loonBareTermRe, name) else { return nil }
+                let key = m[1]
+                guard let ctx = loonArgContext[key] else {
+                    errors.append("插件参数未声明：\(key)：\(Self.clip(line, 120))")
+                    pairs.append("\(Self.jsonEscaped(key)):\"\"")
+                    continue
+                }
+                let v = ctx.value
+                switch ctx.valueType {
+                case "number":
+                    pairs.append("\(Self.jsonEscaped(key)):\(Double(v) != nil ? v : Self.jsonEscaped(v))")
+                case "boolean":
+                    pairs.append("\(Self.jsonEscaped(key)):\(v.lowercased() == "true" ? "true" : "false")")
+                default:
+                    pairs.append("\(Self.jsonEscaped(key)):\(Self.jsonEscaped(v))")
+                }
+            }
+            json = "{" + pairs.joined(separator: ",") + "}"
+        }
+        var b64 = Data(json.utf8).base64EncodedString()
+        b64 = b64.replacingOccurrences(of: "+", with: "-").replacingOccurrences(of: "/", with: "_")
+        while b64.hasSuffix("=") { b64.removeLast() }
+        return "__tern_loon_obj__:" + b64
+    }
+
+    /// Shared tail of the Loon expression forms: the script() path, the
+    /// optional {…} object and the `with` parameter list become the
+    /// classic key=value map newScriptRule / scriptFromParams consume
+    /// (`with` keys use underscores in Loon — requires_body is mapped
+    /// to the classic requires-body). Returns nil when a piece cannot
+    /// be represented faithfully; the caller then leaves the line in
+    /// `unsupported`.
+    func loonScriptParams(path: String, braces: String, with: String, line: String) -> [String: String]? {
+        var p: [String: String] = ["script-path": path]
+        if !with.isEmpty {
+            var wp = Self.splitParams(with, keys: Self.scriptKeys.union(["requires_body"]), underscore: true)
+            if let v = wp.removeValue(forKey: "requires_body") { wp["requires-body"] = v }
+            for (k, v) in wp {
+                if k == "enable" || k == "enabled" {
+                    guard let r = resolveAllPlaceholders(v) else { return nil }
+                    p[k] = r
+                } else {
+                    p[k] = substituteDeclaredPlaceholders(v)
+                }
+            }
+        }
+        if !braces.isEmpty {
+            guard let env = loonObjectEnvelope(braces, line: line) else { return nil }
+            p["argument"] = env
+        }
+        return p
+    }
+
+    enum LoonIfOutcome {
+        case pattern(String)
+        case disabled
+        case unparseable
+    }
+
+    /// Evaluates an `if` condition of a Loon expression script line at
+    /// import time. The `${url} ~= /…/ ` term becomes the rule pattern;
+    /// argument terms (${arg} == / != / ~= literal) are decided with the
+    /// resolved argument values — a false term disables the script
+    /// (Loon semantics: the condition can never hold for this install).
+    /// Anything richer (||, ordering comparisons, a second url term, an
+    /// undeclared argument) is .unparseable and the line is kept
+    /// verbatim in `unsupported`.
+    func evalLoonIfExpression(_ expr0: String) -> LoonIfOutcome {
+        let expr = expr0.trimmingCharacters(in: .whitespaces)
+        if expr.contains("||") { return .unparseable }
+        var pattern: String? = nil
+        for rawTerm in expr.components(separatedBy: "&&") {
+            let term = rawTerm.trimmingCharacters(in: .whitespaces)
+            if term.isEmpty { return .unparseable }
+            if let m = Self.firstMatch(Self.loonURLTermRe, term) {
+                guard m[1] == "~=", pattern == nil else { return .unparseable }
+                pattern = m[2].replacingOccurrences(of: "\\/", with: "/")
+                continue
+            }
+            if let m = Self.firstMatch(Self.loonArgTermRe, term) {
+                guard let lhs = loonArgContext[m[1]]?.value else { return .unparseable }
+                var rhs = m[3].trimmingCharacters(in: .whitespaces)
+                if rhs.hasPrefix("${"), rhs.hasSuffix("}") {
+                    guard let v = loonArgContext[String(rhs.dropFirst(2).dropLast())]?.value else { return .unparseable }
+                    rhs = v
+                } else if rhs.hasPrefix("/"), rhs.hasSuffix("/"), rhs.count >= 2 {
+                    guard m[2] == "~=" else { return .unparseable }
+                    let pat = String(rhs.dropFirst().dropLast())
+                    guard let re = Self.regex(pat) else { return .unparseable }
+                    if re.firstMatch(in: lhs, range: NSRange(lhs.startIndex..., in: lhs)) == nil { return .disabled }
+                    continue
+                } else {
+                    rhs = Self.unquote(rhs)
+                }
+                switch m[2] {
+                case "==":
+                    if !Self.loonScalarEqual(lhs, rhs) { return .disabled }
+                case "!=":
+                    if Self.loonScalarEqual(lhs, rhs) { return .disabled }
+                case "~=":
+                    guard let re = Self.regex(rhs) else { return .unparseable }
+                    if re.firstMatch(in: lhs, range: NSRange(lhs.startIndex..., in: lhs)) == nil { return .disabled }
+                default:
+                    return .unparseable
+                }
+                continue
+            }
+            if let m = Self.firstMatch(Self.loonBareTermRe, term) {
+                guard let v = loonArgContext[m[1]]?.value else { return .unparseable }
+                if !Self.truthy(v) { return .disabled }
+                continue
+            }
+            return .unparseable
+        }
+        return .pattern(pattern ?? "")
+    }
+
+    /// Loon .lpx expression script lines (Loon 3.5.1+ syntax):
+    ///   request|response if <cond> then script("<path>"[, {<args>}]) [with <params>]
+    ///   cron <expr> then script("<path>"[, {<args>}]) [with <params>]
+    ///   generic|network-changed then script("<path>"[, {<args>}]) [with <params>]
+    /// Returns true when the line was consumed. Lines whose condition
+    /// or object cannot be mapped return false and land in
+    /// `unsupported` verbatim further down parseLine.
+    func parseLoonExpressionLine(_ line: String, source: String) -> Bool {
+        if let m = Self.firstMatch(Self.loonExprIfRe, line) {
+            switch evalLoonIfExpression(m[2]) {
+            case .unparseable:
+                return false
+            case .disabled:
+                return true // condition false for this install: Loon never runs it
+            case .pattern(let pattern):
+                guard let p = loonScriptParams(path: m[3], braces: m[4], with: m[5], line: line) else { return false }
+                if Self.disabledByParam(p) { return true }
+                let isResponse = m[1].lowercased() == "response" || m[1].lowercased() == "http-response"
+                let (r, e) = Self.newScriptRule(name: p["tag"] ?? "", type: isResponse ? "http-response" : "http-request",
+                                                pattern: pattern, p: p)
+                addRule(line: line, r, e)
+                return true
+            }
+        }
+        if let m = Self.firstMatch(Self.loonExprCronRe, line) {
+            let rawExpr = Self.unquote(m[1].trimmingCharacters(in: .whitespaces))
+            guard let cronExpr = resolveAllPlaceholders(rawExpr) else { return false }
+            guard let p = loonScriptParams(path: m[2], braces: m[3], with: m[4], line: line) else { return false }
+            if Self.disabledByParam(p) { return true }
+            let sc = Self.scriptFromParams(name: p["tag"] ?? "", p: p)
+            addTask(kind: "cron", cron: cronExpr, event: "", sc: sc, source: source, line: line, format: "loon", params: p)
+            return true
+        }
+        if let m = Self.firstMatch(Self.loonExprBareRe, line) {
+            guard let p = loonScriptParams(path: m[2], braces: m[3], with: m[4], line: line) else { return false }
+            if Self.disabledByParam(p) { return true }
+            let isEvent = m[1].lowercased() == "network-changed"
+            let sc = Self.scriptFromParams(name: p["tag"] ?? "", p: p)
+            addTask(kind: isEvent ? "event" : "generic", cron: "", event: isEvent ? "network-changed" : "",
+                    sc: sc, source: source, line: line, format: "loon", params: p)
+            return true
+        }
+        return false
+    }
+
     func parseLine(_ line0: String, section: String, source: String) {
         let line = line0.trimmingCharacters(in: .whitespaces)
         if line.isEmpty || line.hasPrefix("#") || line.hasPrefix(";") || line.hasPrefix("//") { return }
@@ -1257,8 +1606,14 @@ extension NCEngineRuleset {
             return
         }
         if section == "general" || section == "host" || section == "proxy" || section == "proxy group" { return }
-        // Loon .lpx expression lines are not ported; they fall through and
-        // normally land in unsupported below.
+        // Loon [Plugin] reference lines and .lpx expression lines
+        // (nc-compat). Anything these two do not consume keeps falling
+        // through and lands in unsupported below — never silently dropped.
+        if section == "plugin" {
+            parsePluginRefLine(line)
+            return
+        }
+        if parseLoonExpressionLine(line, source: source) { return }
         if parseTaskLine(line, section: section, source: source) { return }
         // Surge script line: name = type=..., pattern=...
         if let m = Self.firstMatch(Self.surgeScriptRe, line), !m[1].contains(" url ") {
@@ -1448,6 +1803,11 @@ extension NCEngineRuleset {
         var desc: String? = nil
         var type: String? = nil
         var options: [String]? = nil
+        /// The [Argument] `type=` value type (string / number / boolean),
+        /// lowercased. Not part of ParsedEngineText.Arg; the parser itself
+        /// needs it to type plugin-object arguments in Loon expression
+        /// lines (nc-compat).
+        var valueType: String? = nil
     }
 
     /// mitm ParseModuleArgs.
@@ -1524,7 +1884,7 @@ extension NCEngineRuleset {
                     case "desc":
                         a.desc = (a.desc?.isEmpty ?? true) ? unquote(vv) : (a.desc ?? "") + " · " + unquote(vv)
                     case "type":
-                        break // ValueType: not carried by ParsedEngineText.Arg
+                        a.valueType = unquote(vv).lowercased()
                     default:
                         vals.append(unquote(p))
                     }
@@ -1547,22 +1907,35 @@ extension NCEngineRuleset {
         return out
     }
 
-    /// mitm applyLoonArgs (classic lines only; the .lpx expression and
-    /// plugin-object machinery is not ported): substitute {key} (and
-    /// Surge-style {{{key}}} first), then drop enable=false lines and
-    /// strip resolved enable= options.
+    /// One Loon .lpx expression script line (nc-compat): `request /
+    /// response if … then script(…)`, `cron … then script(…)` or
+    /// `generic / network-changed then script(…)`. Such lines resolve
+    /// their own ${…} placeholders and `with enable=` at parse time
+    /// (parseLoonExpressionLine); the textual substitution in
+    /// applyLoonArgs must not touch them — replacing {key} inside the
+    /// script("…", {${a}, ${b}}) selector list would corrupt it.
+    static let loonExprLineRe = regex(#"^(?:(?:http-request|http-response|request|response)[ \t]+if[ \t]|cron[ \t]+\S.*[ \t]then[ \t]+script\(|(?:generic|network-changed)[ \t]+then[ \t]+script\()"#, options: [.caseInsensitive])
+
+    /// mitm applyLoonArgs: substitute {key} / ${key} (and Surge-style
+    /// {{{key}}} first), then drop enable=false lines and strip resolved
+    /// enable= options. Substitution is per line so .lpx expression
+    /// lines can be skipped (they are resolved by parseLoonExpressionLine).
     static func applyLoonArgs(_ text0: String, args: [ModArg], user: [String: String]) -> String {
         if args.isEmpty { return text0 }
-        var text = text0
-        for a in args {
-            let v = user[a.key] ?? a.def
-            text = text.replacingOccurrences(of: "{{{\(a.key)}}}", with: v)
-            text = text.replacingOccurrences(of: "{\(a.key)}", with: v)
-        }
         let enableRe = regex(#"(^|[,\s])enable\s*=\s*"?([^,\s"]*)"?"#, options: [.caseInsensitive])
         var out: [String] = []
-        for raw in text.split(separator: "\n", omittingEmptySubsequences: false) {
+        for raw in text0.split(separator: "\n", omittingEmptySubsequences: false) {
             var l = String(raw)
+            if firstMatch(loonExprLineRe, l.trimmingCharacters(in: .whitespaces)) != nil {
+                out.append(l)
+                continue
+            }
+            for a in args {
+                let v = user[a.key] ?? a.def
+                l = l.replacingOccurrences(of: "{{{\(a.key)}}}", with: v)
+                l = l.replacingOccurrences(of: "${\(a.key)}", with: v)
+                l = l.replacingOccurrences(of: "{\(a.key)}", with: v)
+            }
             if let re = enableRe,
                let m = re.firstMatch(in: l, range: NSRange(l.startIndex..., in: l)),
                let full = Range(m.range, in: l), let g1 = Range(m.range(at: 1), in: l),
@@ -1588,7 +1961,11 @@ extension NCEngineRuleset {
 
 extension NCEngineRuleset {
     static let sectionRe = regex(#"^\[([^\]]+)\]\s*$"#)
-    static let metaRe = regex(#"^#!(name|desc|author|category|tag)\s*=\s*(.*)$"#, options: [.anchorsMatchLines])
+    /// Every `#!key = value` header line (nc-compat: previously only
+    /// name / desc / author / category / tag were even looked at; the
+    /// rest of the plugin's metadata — homepage, icon, system,
+    /// system_version, loon_version, date, type, … — was dropped).
+    static let metaRe = regex(#"^#!([A-Za-z0-9_-]+)\s*=\s*(.*)$"#, options: [.anchorsMatchLines])
     static let loonScriptLineRe = regex(#"^[ \t]*(?:(?:http-request|http-response)[ \t]|cron[ \t]+["0-9*$]|(?:request|response)[ \t]+if[ \t]|(?:generic|network-changed)[ \t]+then[ \t])"#)
 
     static func isCommentDecoration(_ t: String) -> Bool {
@@ -1640,6 +2017,9 @@ extension NCEngineRuleset {
             text = Self.applyModuleArgs(text, user: args)
         }
         let loonArgs = Self.parseLoonArguments(text)
+        for a in loonArgs {
+            loonArgContext[a.key] = (value: args[a.key] ?? a.def, valueType: a.valueType)
+        }
         if !loonArgs.isEmpty {
             surgeArgs += loonArgs
             text = Self.applyLoonArgs(text, args: loonArgs, user: args)
@@ -1656,6 +2036,7 @@ extension NCEngineRuleset {
                   let full = Range(m.range, in: text) {
                 let key = String(text[kr])
                 let val = String(text[vr]).trimmingCharacters(in: .whitespaces)
+                if metadata[key] == nil { metadata[key] = val }
                 switch key {
                 case "name": if name.isEmpty { name = val }
                 case "desc": if desc.isEmpty { desc = val }
@@ -1769,10 +2150,11 @@ extension NCEngineRuleset {
         return re.stringByReplacingMatches(in: text, range: NSRange(text.startIndex..., in: text), withTemplate: "$1:")
     }
 
-    /// Egern YAML extraction: metadata, MITM hostnames, and the
-    /// domain/IP-family rules (as core rules). Scriptings and the
-    /// rewrite families need Egern's per-entry object mapping; their
-    /// entries are surfaced in `unsupported` rather than dropped.
+    /// Egern YAML extraction: metadata, MITM hostnames, the
+    /// domain/IP-family rules (as core rules), and `scriptings:`
+    /// entries (parseEgernScripting, nc-compat). The rewrite families
+    /// still need Egern's per-entry object mapping; their entries are
+    /// surfaced in `unsupported` rather than dropped.
     func parseEgern(_ text: String) {
         format = "egern"
         guard let root = NCYAML.parse(text)?.object else { return }
@@ -1805,9 +2187,196 @@ extension NCEngineRuleset {
                 parseCoreRule("\(mt),\(value),\(policy)")
             }
         }
-        for key in ["scriptings", "url_rewrites", "header_rewrites", "body_rewrites", "map_locals"] {
+        if let arr = root["scriptings"]?.array {
+            for item in arr { parseEgernScripting(item) }
+        }
+        for key in ["url_rewrites", "header_rewrites", "body_rewrites", "map_locals"] {
             if let arr = root[key]?.array {
                 for item in arr { unsupported.append("egern \(key): \(item)") }
+            }
+        }
+    }
+
+    static func egernPatterns(_ v: NCJSONValue) -> [String] {
+        if let s = v.string { return [s] }
+        if let arr = v.array { return arr.compactMap { $0.string } }
+        if let o = v.object {
+            if let arr = o["patterns"]?.array { return arr.compactMap { $0.string } }
+            if let s = o["pattern"]?.string { return [s] }
+            if let arr = o["match"]?.array { return arr.compactMap { $0.string } }
+        }
+        return []
+    }
+
+    static func egernCrons(_ v: NCJSONValue) -> [String] {
+        if let s = v.string { return [s] }
+        if let arr = v.array { return arr.compactMap { $0.string } }
+        if let o = v.object {
+            if let arr = o["crons"]?.array { return arr.compactMap { $0.string } }
+            if let s = o["cron"]?.string ?? o["crons"]?.string { return [s] }
+        }
+        return []
+    }
+
+    static func jsonAny(_ v: NCJSONValue) -> Any {
+        switch v {
+        case .null: return NSNull()
+        case .bool(let b): return b
+        case .number(let n): return n
+        case .string(let s): return s
+        case .array(let a): return a.map { jsonAny($0) }
+        case .object(let o): return o.mapValues { jsonAny($0) }
+        }
+    }
+
+    /// JSON text for an Egern `argument` object / array value.
+    static func jsonString(of v: NCJSONValue) -> String? {
+        let any = jsonAny(v)
+        guard JSONSerialization.isValidJSONObject(any),
+              let d = try? JSONSerialization.data(withJSONObject: any, options: [.sortedKeys]) else { return nil }
+        return String(data: d, encoding: .utf8)
+    }
+
+    /// One Egern `scriptings:` entry (nc-compat). Config-level fields
+    /// map onto the internal script model as follows:
+    ///   name            -> NCEngineScript.name (ctx.script.name)
+    ///   url (path/script accepted too)
+    ///                   -> NCEngineScript.path; the script source is
+    ///                      fetched / cached by NCResources at manifest
+    ///                      build, like every other script
+    ///   env (map)       -> NCEngineScript.env, exported as the setup's
+    ///                      egernEnv (ctx.env inside the script)
+    ///   argument        -> NCEngineScript.argument; an object / array
+    ///                      becomes a JSON object argument (argObject)
+    ///   timeout         -> NCEngineScript.timeout (seconds)
+    ///   http_request    -> script rule, phase "request", one rule per
+    ///                      pattern (requires_body -> requiresBody)
+    ///   http_response   -> script rule, phase "response", likewise
+    ///   schedule / cron -> cron task(s), one per cron expression
+    ///                      (ctx.cron inside the script)
+    ///   network_changed -> event task
+    ///   widget          -> generic task (the panel / widget channel)
+    ///   dns / rule      -> script rule phase "dns" / "rule": the
+    ///                      NCScriptHooks.swift contract applies
+    /// The ctx object itself is built at run time by the existing
+    /// Egern adapter (NCScriptManifest.egernPrelude) from the host
+    /// globals: ctx.request <- $request (method / url / headers /
+    /// body + text() / json() / arrayBuffer() / bytes()),
+    /// ctx.response <- $response, ctx.http <- $httpClient,
+    /// ctx.storage <- $persistentStore, ctx.notify <- $notification,
+    /// ctx.lookupIP <- $utils, ctx.device <- $network; the script's
+    /// return value / ctx.respond() / ctx.abort() is its result
+    /// channel, and export-default (ctx) scripts are adapted by
+    /// NCScriptManifest.scriptCode at export. ctx.ssh.connect is the
+    /// one ctx member the existing adapter explicitly does not
+    /// support (it rejects); there is no config-level equivalent.
+    /// Fields of an entry that have no equivalent above are NOT
+    /// dropped: each is surfaced in `unsupported` with its original
+    /// value, and an entry with no mappable trigger at all stays in
+    /// `unsupported` whole, as before.
+    func parseEgernScripting(_ item: NCJSONValue) {
+        guard let obj = item.object else {
+            unsupported.append("egern scripting: \(item)")
+            return
+        }
+        let name = obj["name"]?.string ?? ""
+        let path = obj["url"]?.string ?? obj["path"]?.string ?? obj["script"]?.string ?? ""
+        guard !path.isEmpty else {
+            unsupported.append("egern scripting: \(item)")
+            return
+        }
+        var sc = NCEngineScript()
+        sc.name = name
+        sc.path = path
+        if let t = obj["timeout"]?.int { sc.timeout = t }
+        if let envObj = obj["env"]?.object {
+            for (k, v) in envObj {
+                if let s = v.string { sc.env[k] = s }
+                else if let n = v.number { sc.env[k] = n == n.rounded() && abs(n) < 1e15 ? String(Int(n)) : String(n) }
+                else if let b = v.bool { sc.env[k] = b ? "true" : "false" }
+            }
+        }
+        if let a = obj["argument"] {
+            switch a {
+            case .string(let s):
+                Self.setScriptArgument(&sc, s)
+            case .object, .array:
+                if let json = Self.jsonString(of: a) {
+                    sc.argument = json
+                    sc.hasArgument = true
+                    sc.argObject = true
+                }
+            default:
+                break
+            }
+        }
+        var consumed: Set<String> = ["name", "url", "path", "script", "timeout", "env", "argument"]
+        var imported = false
+        let line = "egern scripting: \(name)"
+        for (key, phase, type) in [("http_request", "request", "http-request"),
+                                   ("http-request", "request", "http-request"),
+                                   ("http_response", "response", "http-response"),
+                                   ("http-response", "response", "http-response")] {
+            guard let trig = obj[key] else { continue }
+            consumed.insert(key)
+            var s2 = sc
+            s2.type = type
+            if let rb = trig.object?["requires_body"]?.bool ?? trig.object?["requires-body"]?.bool {
+                s2.requiresBody = rb
+            }
+            let patterns = Self.egernPatterns(trig)
+            if patterns.isEmpty {
+                unsupported.append("egern scripting \(name): \(key) without patterns: \(trig)")
+                continue
+            }
+            for pat in patterns {
+                addRule(line: line, NCEngineRule(kind: "script", phase: phase, pattern: pat, script: s2), nil)
+            }
+            imported = true
+        }
+        for key in ["schedule", "cron"] {
+            guard let trig = obj[key] else { continue }
+            consumed.insert(key)
+            let crons = Self.egernCrons(trig)
+            if crons.isEmpty {
+                unsupported.append("egern scripting \(name): \(key) without crons: \(trig)")
+                continue
+            }
+            for c in crons {
+                addTask(kind: "cron", cron: c, event: "", sc: sc, source: "", line: line, format: "egern", params: nil)
+            }
+            imported = true
+        }
+        for key in ["network_changed", "network-changed"] {
+            guard let trig = obj[key] else { continue }
+            consumed.insert(key)
+            if trig.bool == false { continue }
+            addTask(kind: "event", cron: "", event: "network-changed", sc: sc, source: "", line: line, format: "egern", params: nil)
+            imported = true
+        }
+        if let trig = obj["widget"] {
+            consumed.insert("widget")
+            if trig.bool != false {
+                addTask(kind: "generic", cron: "", event: "", sc: sc, source: "", line: line, format: "egern", params: nil)
+                imported = true
+            }
+        }
+        for (key, phase) in [("dns", "dns"), ("rule", "rule")] {
+            guard obj[key] != nil else { continue }
+            consumed.insert(key)
+            var s2 = sc
+            s2.type = phase
+            let pat = Self.egernPatterns(obj[key]!).first ?? ""
+            addRule(line: line, NCEngineRule(kind: "script", phase: phase, pattern: pat, script: s2), nil)
+            imported = true
+        }
+        if !imported {
+            unsupported.append("egern scripting: \(item)")
+            return
+        }
+        for k in obj.keys.sorted() where !consumed.contains(k) {
+            if let v = obj[k] {
+                unsupported.append("egern scripting \(name): unparsed \(k): \(v)")
             }
         }
     }
