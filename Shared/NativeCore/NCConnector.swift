@@ -34,14 +34,9 @@ final class NCCallOnce {
     }
 }
 
+// No default send(_:completion:) implementation on purpose (nc-sessions-flow): every NCRelayStream
+// conformer implements real send completion, so the compiler flags any stream that was missed.
 extension NCRelayStream {
-    /// Transitional default (no back-pressure: completes on the spot). Every conformer is being migrated
-    /// to an explicit implementation; the integrator removes this default once the last one lands, so
-    /// the compiler flags any stream that was missed.
-    func send(_ data: Data, completion: @escaping () -> Void) {
-        send(data)
-        completion()
-    }
 
     /// Sends wire segments in order, firing `completion` after the last segment's own completion
     /// (earlier segments get none). For encoders that turn one chunk into several records.

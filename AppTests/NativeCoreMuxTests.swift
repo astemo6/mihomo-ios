@@ -78,6 +78,12 @@ private final class NCSessionStressBase: NCRelayStream {
         lock.lock(); sentBytes += data.count; lock.unlock()
     }
 
+    // NCRelayStream has no default send completion (nc-sessions-flow): the fake completes at once.
+    func send(_ data: Data, completion: @escaping () -> Void) {
+        send(data)
+        completion()
+    }
+
     func receive(_ handler: @escaping (Data?, Error?) -> Void) {
         lock.lock(); self.handler = handler; lock.unlock()
     }

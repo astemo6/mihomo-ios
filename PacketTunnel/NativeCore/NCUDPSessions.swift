@@ -384,7 +384,7 @@ final class NCUDPMuxSession: NCUDPSession {
         guard let server = proxy.server, let port = proxy.port else { return }
         NCConnector.muxSession(proxy: proxy, server: server, port: port, queue: queue) { [weak self] session, _ in
             guard let self, !self.cancelled, let session else { return }
-            let stream = session.openStream(target: NCMux.destination, rawMode: true, callerQueue: queue)
+            let stream = session.openStream(target: NCMux.destination, callerQueue: queue, rawMode: true)
             self.stream = stream
             let queued = self.pending
             self.pending = []
