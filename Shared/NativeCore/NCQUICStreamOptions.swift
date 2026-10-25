@@ -26,6 +26,11 @@ import Network
 /// parameters' transport protocol) and flip only the per-stream knobs (direction,
 /// datagram). The parameters are deep-copied first so the flip never touches the group's
 /// live options — a later `extract(using: nil)` must still get a bidirectional stream.
+///
+/// In addition, because the group parameters already carry the securityProtocolOptions
+/// configured by the dialer (e.g. ALPN, TLS 1.3 min version, and the experimental system
+/// ECH switch `sec_protocol_options_set_enable_encrypted_client_hello`), both `derived`
+/// and the callers' `fallback` closures retain the exact same security/ECH options.
 enum NCQUICStreamOptions {
 
     /// The group's QUIC options, deep-copied, with `configure` applied (direction /
