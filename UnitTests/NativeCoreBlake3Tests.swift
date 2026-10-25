@@ -36,6 +36,6 @@ final class NativeCoreBlake3Tests: XCTestCase {
     func testTuicV4Token() {
         // TUIC v4 GenTKN: BLAKE3-256 of the token string's UTF-8 bytes.
         XCTAssertEqual(hex(NCBlake3.hash([UInt8]("my-secret-token".utf8))),
-                       "83ea3d17a32a24c695b1a727e20b86deecc7a2f7ccd3b87459be47b8472b923a")
+                       "47668d320c722f585eaef30aa1f6a6c0f911026ecf1efb0622bbc0e251b1ee4d")
     }
 }

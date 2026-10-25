@@ -92,7 +92,9 @@ final class NativeCoreConfImportTests: XCTestCase {
         XCTAssertEqual(c.hosts.first { $0.pattern == "router.lan" }?.kind, .address)
         XCTAssertEqual(c.hosts.first { $0.pattern == "nas.lan" }?.kind, .dnsServer)
         XCTAssertEqual(c.hosts.first { $0.pattern == "nas.lan" }?.dnsServer?.host, "8.8.8.8")
-        XCTAssertTrue(c.report.skippedSections.contains("MITM"))
+        // [MITM] is imported into the canonical model since 58ec3e2 (no longer a skipped section).
+        XCTAssertFalse(c.report.skippedSections.contains("MITM"))
+        XCTAssertEqual(c.mitm.hostnames, ["*.example.com"])
     }
 
     func testLoonImport() {
@@ -246,6 +248,8 @@ final class NativeCoreConfImportTests: XCTestCase {
         XCTAssertEqual(c.ruleSets.count, 1)
         XCTAssertEqual(c.ruleSets.first?.name, "QXAds")
         XCTAssertEqual(c.ruleSets.first?.forcedPolicy, "REJECT")
-        XCTAssertTrue(c.report.skippedSections.contains("rewrite_local"))
+        // [rewrite_local] is imported into the canonical model (cfg.rewrites), no longer skipped.
+        XCTAssertFalse(c.report.skippedSections.contains("rewrite_local"))
+        XCTAssertFalse(c.rewrites.isEmpty)
     }
 }

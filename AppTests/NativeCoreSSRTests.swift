@@ -126,9 +126,11 @@ final class NativeCoreSSRTests: XCTestCase {
     func testHTTPSimple() {
         let obfs = NCSSRHTTPSimple(server: "example.com", port: 8388, param: nil, ivSize: 16)
         obfs.randomBelow = { _ in 0 }
-        let data = Data((0..<100).map { UInt8($0) })
+        // > headLength + 64 bytes so the head is cut at ivSize+30 (+ randomBelow); a shorter first write goes
+        // entirely into the %xx head, as in mihomo's http_simple.
+        let data = Data((0..<200).map { UInt8($0) })
         let out = obfs.encode(data)
-        let text = String(decoding: out.prefix(200), as: UTF8.self)
+        let text = String(decoding: out.prefix(600), as: UTF8.self)
         XCTAssertTrue(text.hasPrefix("GET /"))
         XCTAssertTrue(text.contains(" HTTP/1.1\r\nHost: example.com:8388\r\n"))
         XCTAssertTrue(text.contains("User-Agent: Mozilla/5.0"))

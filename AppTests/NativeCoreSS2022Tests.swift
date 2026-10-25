@@ -46,7 +46,7 @@ final class NativeCoreSS2022Tests: XCTestCase {
         let key = data("000102030405060708090a0b0c0d0e0f101112131415161718191a1b1c1d1e1f")
         let nonce = data("000000090000004a0000000031415927")
         XCTAssertEqual(hex(NCChaCha.hchacha20(key: key, nonce: nonce)),
-                       "82413b4227b27bfed30e42508a877d73a0f9a4d58a74a853c12ec41326d3ecdc")
+                       "82413b4227b27bfed30e42508a877d73a0f9e4d58a74a853c12ec41326d3ecdc")
     }
 
     func testTCPRequestHeadLayout() throws {

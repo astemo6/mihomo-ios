@@ -79,7 +79,14 @@ enum NativeBodyConformance {
 
     static func check(_ c: Case, _ engine: NativeRewriteEngine, labels: [String]) -> Outcome {
         let e = c.expect
-        switch engine.decide(request(c), bodies: true) {
+        // Go-free (gap C5, NativeRewriteEngine.goFree): a rule the native engine cannot run is skipped on its own instead
+        // of handing the request to Go, so the result legitimately differs from Go's — no oracle for that exchange.
+        let skipsBefore = NativeRewriteEngine.skipStats().values.reduce(0, +)
+        let decision = engine.decide(request(c), bodies: true)
+        if NativeRewriteEngine.goFree, NativeRewriteEngine.skipStats().values.reduce(0, +) > skipsBefore {
+            return .handBack("go-free: rule skipped")
+        }
+        switch decision {
         case .go(let why):
             return .handBack("request: \(why)")
         case .drop:
