@@ -689,6 +689,20 @@ return { URL: URLImpl, URLSearchParams: USP };
     var gl = S.globals || {};
     for (var gk in gl) G[gk] = gl[gk];
 
+    // ---- Egern native ctx for the dns / rule hook phases (nc-script-runtime) ----
+    // HTTP phases keep using the manifest-appended adapter (NCScriptManifest.egernPrelude), which builds
+    // its ctx from $request / $response. The hook phases have no HTTP exchange, so the runner passes the
+    // phase payload as S.dns / S.rule and this section installs a global `ctx` with the same field mapping
+    // parseEgernScripting documents: ctx.env <- the setup's egernEnv, ctx.script.name, ctx.http <-
+    // $httpClient, ctx.storage <- $persistentStore, ctx.notify <- $notification, ctx.lookupIP <-
+    // $utils, ctx.device <- $network (nulls when unknown), ctx.request <- the phase payload (dns: the
+    // query + current answers; rule: the connection context — no headers / body in either phase).
+    // ctx.respond(r) / ctx.abort() return the adapter's marker objects; the runner reads them out of
+    // the $done value like the adapter's finish() does. NOT supported (same as the adapter):
+    // ctx.ssh.connect (rejects). A dns script's result is its $done value ({addresses, rcode} / an
+    // address array); a rule script's is a policy name string or {policy}.
+    if (S.phase === 'dns' || S.phase === 'rule') installCtx(S);
+
     if (S.req) {
       var q = S.req;
       var ro = { url: q.url, method: q.method, headers: ciHeaders(q.headers), id: q.id };
@@ -701,6 +715,102 @@ return { URL: URLImpl, URLSearchParams: USP };
         G.$response = so;
       }
     }
+  }
+
+  // Egern native ctx for the dns / rule hook phases (see installCtx's call site in install() for the
+  // field mapping and the unsupported list). Built per run from the setup's phase payload; the HTTP
+  // phases do not use this — their ctx comes from the manifest-appended adapter.
+  function installCtx(S) {
+    var payload = (S.phase === 'dns' ? S.dns : S.rule) || {};
+    function toBytes(b) {
+      if (b === undefined || b === null) return new Uint8Array(0);
+      if (typeof b === 'string') return new G.TextEncoder().encode(b);
+      if (b instanceof ArrayBuffer) return new Uint8Array(b);
+      return b;
+    }
+    function withBody(target, raw) {
+      target.body = raw === undefined ? null : raw;
+      target.text = function () {
+        if (raw === undefined || raw === null) return Promise.resolve('');
+        if (typeof raw === 'string') return Promise.resolve(raw);
+        return Promise.resolve(new G.TextDecoder().decode(toBytes(raw)));
+      };
+      target.json = function () { return target.text().then(function (t) { return JSON.parse(t); }); };
+      target.arrayBuffer = function () { var u = toBytes(raw); return Promise.resolve(u.buffer.slice(u.byteOffset, u.byteOffset + u.byteLength)); };
+      target.bytes = function () { return Promise.resolve(toBytes(raw)); };
+      return target;
+    }
+    function ctxHttp(method) {
+      return function (url, opts) {
+        opts = opts || {};
+        return new Promise(function (resolve, reject) {
+          var req = { url: url, headers: opts.headers || {}, 'binary-mode': true };
+          var b = opts.body;
+          if (b !== undefined && b !== null) {
+            if (typeof b === 'object' && !(b instanceof Uint8Array) && !(b instanceof ArrayBuffer)) b = JSON.stringify(b);
+            req.body = b;
+          }
+          if (opts.timeout) req.timeout = opts.timeout / 1000;
+          if (opts.policy) req.policy = opts.policy;
+          G.$httpClient[method](req, function (err, resp, data) {
+            if (err) { reject(new Error(String(err))); return; }
+            resolve(withBody({ status: resp ? (resp.status || resp.statusCode) : 0, headers: resp ? resp.headers : {} }, data));
+          });
+        });
+      };
+    }
+    var device = { cellular: { carrier: null, radio: null }, wifi: { ssid: null, bssid: null },
+      ipv4: { address: null, gateway: null, interface: null }, ipv6: { address: null, interface: null }, dnsServers: [] };
+    var ctx = {
+      script: { name: S.name || '' },
+      env: S.egernEnv || {},
+      app: { version: '0.6', language: 'zh-Hans' },
+      device: device,
+      cron: S.egernCron || undefined,
+      http: {
+        get: ctxHttp('get'), post: ctxHttp('post'), put: ctxHttp('put'), delete: ctxHttp('delete'),
+        head: ctxHttp('head'), options: ctxHttp('options'), patch: ctxHttp('patch')
+      },
+      storage: {
+        get: function (k) { var v = G.$persistentStore.read(k); return v === undefined ? null : v; },
+        set: function (k, v) { G.$persistentStore.write(String(v), k); },
+        getJSON: function (k) { var v = G.$persistentStore.read(k); if (v === undefined || v === null || v === '') return null; try { return JSON.parse(v); } catch (e) { return null; } },
+        setJSON: function (k, v) { G.$persistentStore.write(JSON.stringify(v), k); },
+        delete: function (k) { G.$persistentStore.write(null, k); }
+      },
+      notify: function (o) {
+        o = o || {};
+        var opts;
+        if (o.action && o.action.type === 'openUrl') opts = { url: o.action.url };
+        G.$notification.post(o.title || '', o.subtitle || '', o.body || '', opts);
+      },
+      lookupIP: function (ip) {
+        var c = G.$utils.geoip(ip), a = G.$utils.ipasn(ip), org = G.$utils.ipaso(ip);
+        if (!c && !a && !org) return null;
+        return { country: c || '', asn: a ? Number(a) : 0, organization: org || '' };
+      },
+      compress: {
+        gzip: function (d) { return Promise.resolve(G.__egernCompress('gzip', d)); },
+        gunzip: function (d) { return Promise.resolve(G.__egernCompress('gunzip', d)); },
+        deflate: function (d) { return Promise.resolve(G.__egernCompress('deflate', d)); },
+        inflate: function (d) { return Promise.resolve(G.__egernCompress('inflate', d)); },
+        brotli: function (d) { return Promise.resolve(G.__egernCompress('brotli', d)); },
+        unbrotli: function (d) { return Promise.resolve(G.__egernCompress('unbrotli', d)); }
+      },
+      ssh: { connect: function () { return Promise.reject(new Error('ctx.ssh 不支持')); } },
+      respond: function (r) { return { __egernRespond: r || {} }; },
+      abort: function () { return { __egernAbort: true }; }
+    };
+    if (S.phase === 'dns') {
+      ctx.request = { domain: payload.domain || '', type: payload.qtypeName || '', qtype: payload.qtype || 0,
+        answers: payload.answers || [], rcode: payload.rcode || 0 };
+    } else {
+      ctx.request = { domain: payload.domain || null, ip: payload.ip || null, srcIP: payload.srcIP || null,
+        dstPort: payload.dstPort || null, srcPort: payload.srcPort || null, network: payload.network || null,
+        protocol: payload.protocol || null, process: payload.process || null, url: payload.url || null,
+        userAgent: payload.userAgent || null };
+    }
+    G.ctx = ctx;
   }
 
   define(G, '__tern_begin', function (setup) {
